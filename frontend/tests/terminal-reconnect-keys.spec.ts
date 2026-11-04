@@ -1,5 +1,5 @@
 import { expect, holdStream, test, type Page } from "./site";
-import { RUNS, stepIn } from "./step-in";
+import { RUNS } from "./terminal-runs";
 
 // The Overlord, 2026-10-13 about 22:32Z, on Claude Code's permissions screen
 // in the CFO's terminal: "Have to navigate and turn navigate enter. It doesn't
@@ -8,7 +8,7 @@ import { RUNS, stepIn } from "./step-in";
 // after must either reach the program or be said not sent. The supervisor is
 // played here: one snapshot on a held stream, and each connection of the
 // terminal's view is a socket the test answers. Each test runs under
-// Terminal and stepped in (tests/step-in.ts).
+// Terminal on each harness (tests/terminal-runs.ts).
 const SESSION = "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34";
 const snapshot = (harness: string) => ({
   healthy: true, instance: "fixture", revision: 1, attention: [], cfo_runs: true, afk: { state: "off" },
@@ -35,7 +35,7 @@ interface Connection {
 // run does, and clicks into it, as he does, once its first connection is
 // whole. A connection after the first is whole only once the test says so.
 async function open(page: Page, run: typeof RUNS[number]): Promise<Connection[]> {
-  await page.addInitScript((steppedIn) => localStorage.setItem("cfo-chat-style", steppedIn ? "modern" : "classic"), run.isSteppedIn);
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
   const connections: Connection[] = [];
   await holdStream(page, snapshot(run.harness));
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
@@ -58,7 +58,6 @@ async function open(page: Page, run: typeof RUNS[number]): Promise<Connection[]>
   if (await board.isVisible()) await board.click();
   await page.locator(".task-board .task-card").filter({ hasText: "Export invoices as CSV" }).click();
   await expect(page.getByText("Connecting to the terminal", { exact: true })).toHaveCount(0);
-  if (run.isSteppedIn) await stepIn(page, connections[0].say);
   await page.locator(".host-terminal .terminal-view:not(.staged)").click();
   await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
   return connections;

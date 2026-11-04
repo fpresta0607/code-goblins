@@ -152,8 +152,8 @@ export const test = base.extend<{ room: Room; paced: void; hadTour: boolean; cha
   room: [MACHINE, { option: true }],
   hadTour: [true, { option: true }],
   chatStyle: ["modern", { option: true }],
-  // The stepped-in project's runs draw each fixture's terminal stepped into a
-  // Messages view's place (tests/fixtures/stepped-in.tsx).
+  // The stepped-in project's runs draw each fixture's terminal in a Messages
+  // view's place (tests/fixtures/stepped-in.tsx).
   isSteppedIn: [false, { option: true }],
   paced: [async ({ room }, use) => {
     await roomForATest(room);

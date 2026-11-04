@@ -162,7 +162,7 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   // while the view reconnects, before the relay answers its new connection.
   await page.routeWebSocket("**/api/terminal/native?*", () => {});
   relay.drop();
-  await expect(page.locator(".terminal-corner.warning")).toHaveCount(1);
+  await expect(page.locator(".terminal-corner.warning:visible"), "the pane says the one Reconnecting").toHaveText("Reconnecting");
   const before = typed(relay);
   expect(before, "nothing was typed while the program was busy").not.toContain("merge it");
   await send(page).click();
@@ -187,7 +187,6 @@ test("while the harness asks in its terminal the box shows what it asks as a lis
   const asking = box(page).getByRole("group", { name: NAME + " asks" });
   await expect(asking).toContainText("Do you want to proceed?");
   await expect(page.getByText("Waiting on you in the terminal")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Back to messages" })).toHaveCount(0);
   await expect(send(page)).toBeEnabled();
   await page.waitForTimeout(300);
   expect(typed(relay), "nothing was typed into the harness's own screen before he chose").toBe("");

@@ -15,13 +15,12 @@ const saved = (page: Page) => page.evaluate(() => localStorage.getItem("cfo-chat
 const IVY = OTHER.goblin_name + " - " + OTHER.goblin_title;
 
 // classicShown says the panel draws the terminal as it was before Modern
-// Chat: no box, no Back to messages bar, no terminal copy button beside it,
+// Chat: no box, no terminal copy button beside it,
 // and the choice of style on the session's picture in the panel's header
 // (#1987).
 async function classicShown(page: Page, name: string): Promise<void> {
   await expect(terminalInput(page)).toBeVisible();
   await expect(box(page, name)).toBeHidden();
-  await expect(page.getByRole("button", { name: "Back to messages", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Copy terminal text", exact: true })).toHaveCount(0);
   await expect(styleButton(page)).toBeVisible();
 }
@@ -216,7 +215,7 @@ for (const style of ["classic", "modern"] as const) {
 // Reading back out of Classic belongs to the session it was taken on while
 // the panel shows it: showing another session, or closing the panel, ends
 // it, so the goblin opens in Classic again and the saved Classic stays
-// (#1987). Only Back to messages saves Modern (#1584).
+// (#1987). Only Modern chat in the style menu saves Modern (#1584).
 for (const width of [1440, 390]) {
   test(`reading back out of Classic ends once the panel leaves the goblin at ${width}px, so it opens in Classic again`, async ({ page }) => {
     // Arrange: Zeke's full-screen Codex is held, and a wheel up over it
@@ -256,4 +255,52 @@ for (const width of [1440, 390]) {
     expect(await saved(page)).toBe("classic");
     expect(typed(relay)).toBe("");
   });
+}
+
+// #2050, 2026-11-04: a goblin's pane differed from the CFO's in look and
+// controls, and one goblin chat opened blank. In each style, on a phone and on
+// the desktop, a goblin's pane draws what the CFO's does, its conversation or
+// its terminal, never a blank stage, with the same controls in its header and
+// its box but for those only the CFO's has, each named here with why.
+const CFO_ONLY: Record<string, string> = {};
+const GOBLIN_ONLY: Record<string, string> = {};
+// paneControls names every control shown in the panel's header and its box,
+// by its accessible name, the session's own name taken out.
+const paneControls = (page: Page, name: string) => page.locator(".context-pane").evaluate((pane, name) => [...pane.querySelectorAll<HTMLElement>(".panel-header button, .composer button, .panel-header [role=tab]")]
+  .filter((control) => control.checkVisibility())
+  .map((control) => (control.getAttribute("aria-label") || control.textContent || "").trim().replaceAll(name, "<name>"))
+  .sort(), name);
+for (const style of ["Modern chat", "Terminal"] as const) {
+  for (const width of [390, 1440]) {
+    test.describe(`at ${width}px`, () => {
+      const isPhone = width === 390;
+      test.use({ viewport: { width, height: 900 }, hasTouch: isPhone, isMobile: isPhone });
+      test(`in ${style} a goblin's pane draws what the CFO's does, never blank, with the same controls`, async ({ page }, testInfo) => {
+        // Arrange
+        await page.addInitScript((saved) => localStorage.setItem("cfo-chat-style", saved), style === "Terminal" ? "classic" : "modern");
+        await open(page);
+        const shown = async (who: "CFO" | "goblin") => {
+          const name = who === "CFO" ? "CFO" : NAME;
+          if (style === "Modern chat") await expect(page.getByRole("log", { name: "Messages of " + name })).toContainText("On it.");
+          else await expect(page.locator(".terminal-view:not(.staged) > .xterm")).toBeVisible();
+          await page.evaluate(() => document.fonts.ready);
+          await page.screenshot({ path: testInfo.outputPath(`${who}-${style === "Terminal" ? "terminal" : "modern"}-${width}.png`) });
+          return paneControls(page, name);
+        };
+
+        // Act
+        await page.keyboard.press("Control+Alt+1");
+        await expect(page.locator("#panel-title")).toHaveText("CFO");
+        const cfo = await shown("CFO");
+        await (isPhone ? page.getByRole("button", { name: "Back to Board", exact: true }).tap() : Promise.resolve());
+        await (isPhone ? card(page, NAME).tap() : card(page, NAME).click());
+        await expect(page.locator("#panel-title")).toHaveText(NAME);
+        const goblin = await shown("goblin");
+
+        // Assert
+        expect(cfo.filter((control) => !goblin.includes(control)), "only the CFO's").toEqual(Object.keys(CFO_ONLY).sort());
+        expect(goblin.filter((control) => !cfo.includes(control)), "only the goblin's").toEqual(Object.keys(GOBLIN_ONLY).sort());
+      });
+    });
+  }
 }

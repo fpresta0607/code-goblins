@@ -190,10 +190,10 @@ export function textParts(text: string): TextPart[] {
   return parts;
 }
 
-// copyText is what a message's Copy copies: its words as written, a reply's
-// text blocks one after another, and a command with what it printed.
+// copyText is what the Copy of a message that is not a reply copies: its
+// words as written, and a command with what it printed. Each text of a reply
+// has a Copy of its own.
 export function copyText(message: SessionMessage): string {
-  if (message.kind === "reply") return message.blocks.filter((each) => each.kind === "text").map((each) => each.text).join("\n\n");
   return [message.text, message.output, message.errors].filter(Boolean).join("\n\n");
 }
 

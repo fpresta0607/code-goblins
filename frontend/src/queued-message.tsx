@@ -27,11 +27,12 @@ export const QUEUED_NOTICE = "cfo-queued-notice";
 // pictures the box kept for it above its bubble in place of their paths as his
 // sent message shows them; queue in the message box's own list. It shows each
 // state it is really in (the CFO, 2026-11-02): held by the board, dimmed with
-// Queued under it and its three controls; typed into the session, solid with
-// Sent under it and no controls, since it is then its harness's to take; and
-// taken, when the session's record shows it and his own row takes its place
-// (the Overlord, 2026-10-29: "the user can't really tell what's been sent and
-// what's getting sent", and 2026-10-30: "id ratehr it just say qeued"). What
+// Queued under it and its three controls, or Starting while its session
+// starts for it; typed into the session, solid with Sent under it and no
+// controls, since it is then its harness's to take; and taken, when the
+// session's record shows it and his own row takes its place (the Overlord,
+// 2026-10-29: "the user can't really tell what's been sent and what's getting
+// sent", and 2026-10-30: "id ratehr it just say qeued"). What
 // it waits on is its description for a screen reader, and nothing about it is
 // drawn as a warning. Every message the board still holds offers Send now
 // (the Overlord, 2026-10-28: "send now should be an option with all queued
@@ -69,7 +70,7 @@ export const QueuedMessage = memo(function QueuedMessage({ action, liveAction, i
   // trying to type, running with nothing awaited, it still holds.
   const isHeld = action.status === "queued" || action.status === "running" && !action.awaiting;
   const isTyped = action.status === "running" && !!action.awaiting;
-  const state = isHeld ? "Queued" : isTyped ? "Sent" : messageState(action);
+  const state = messageState(action);
   // While he reads up the row shows the message as it was, and its controls
   // act on the board's live copy of it, which the board may hold no longer.
   const current = liveAction === undefined ? action : liveAction;

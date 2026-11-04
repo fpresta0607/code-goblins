@@ -1,5 +1,5 @@
 import { expect, holdStream, test, type Page } from "./site";
-import { RUNS, stepIn } from "./step-in";
+import { RUNS } from "./terminal-runs";
 
 // The Overlord, 2026-10-20 about 12:20Z, on the board on his phone: "when I
 // hit the terminal button, it shouldn't just show up below the task panel. It
@@ -17,7 +17,7 @@ import { RUNS, stepIn } from "./step-in";
 test.use({ launchOptions: { args: ["--disable-webgl"] } });
 
 const SESSION = "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34";
-// Kip runs the harness of the run (tests/step-in.ts), the CFO Claude Code.
+// Kip runs the harness of the run (tests/terminal-runs.ts), the CFO Claude Code.
 const snapshot = (harness: string) => ({
   healthy: true, instance: "fixture", revision: 1, attention: [], cfo_runs: true, cfo_harness: "claude", cfo_terminal: "cfo-1", afk: { state: "off" },
   tasks: [{ id: "nw-invoice-export", title: "Export invoices as CSV", project: "northwind-api", goblin_name: "Kip", goblin_title: "Ledger Scout", phase: "working", verified: false, generation: "nw-invoice-export-1", harness, model: "claude-opus-5-5", effort: "xhigh", backend: "native", session: SESSION }],
@@ -54,7 +54,7 @@ interface Relay { resizes: { cols: number; rows: number }[]; say: (message: obje
 // hold keeps every connection connecting: the relay claims no size and sends
 // no screen, which is the state he types into while a terminal connects.
 async function open(page: Page, run: typeof RUNS[number], { hold = false } = {}): Promise<Relay> {
-  await page.addInitScript((steppedIn) => localStorage.setItem("cfo-chat-style", steppedIn ? "modern" : "classic"), run.isSteppedIn);
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
   await page.addInitScript(() => {
     const real = window.visualViewport!;
     let keyboard = 0, top = 0;
@@ -91,11 +91,9 @@ async function open(page: Page, run: typeof RUNS[number], { hold = false } = {})
 }
 
 const card = (page: Page) => page.locator(".task-board .task-card-shell").filter({ hasText: "Kip - Ledger Scout" }).locator(".task-card");
-// openGoblin opens Kip's terminal from his card, stepping it in where the run
-// does.
-async function openGoblin(page: Page, relay: Relay, run: typeof RUNS[number]) {
+// openGoblin opens Kip's terminal from his card.
+async function openGoblin(page: Page) {
   await card(page).click();
-  if (run.isSteppedIn) await stepIn(page, (message) => relay.say(message));
 }
 const terminal = (page: Page) => page.getByRole("region", { name: "Goblin terminal" });
 const keyboard = (page: Page, height: number, offset = 0) => page.evaluate(([height, offset]) => (window as unknown as { keyboard: (height: number, offset: number) => void }).keyboard(height, offset), [height, offset]);
@@ -126,7 +124,7 @@ for (const run of RUNS) for (const { name, viewport, keyboard: keyboardHeight } 
       const relay = await open(page, run);
 
       // Act
-      await openGoblin(page, relay, run);
+      await openGoblin(page);
       await expect(terminal(page).locator(".xterm-rows")).toContainText(FOOTER);
       await page.evaluate(() => document.fonts.ready.then(() => undefined));
       const full = await settled(relay);
@@ -185,8 +183,8 @@ for (const run of RUNS) for (const { name, viewport, keyboard: keyboardHeight } 
 
     test("Back returns from the terminal to the board, at the card it was opened from", async ({ page }) => {
       // Arrange
-      const relay = await open(page, run);
-      await openGoblin(page, relay, run);
+      await open(page, run);
+      await openGoblin(page);
       await expect(terminal(page)).toBeVisible();
 
       // Act
@@ -207,8 +205,8 @@ test("a connecting terminal's loader sits outside its box and covers no part of 
   // screen.
   await page.setViewportSize({ width: 390, height: 844 });
   const run = RUNS[0];
-  const relay = await open(page, run, { hold: true });
-  await openGoblin(page, relay, run);
+  await open(page, run, { hold: true });
+  await openGoblin(page);
   const loader = page.getByRole("status").filter({ hasText: "Connecting to the terminal" });
   await expect(loader).toBeVisible();
 

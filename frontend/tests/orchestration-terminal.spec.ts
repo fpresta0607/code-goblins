@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { box, field, open, openGoblin, pasted, snapshot, typed } from "./session-board";
+import { box, card, field, GOBLIN, open, openGoblin, OTHER, pasted, pickStyle, snapshot, typed } from "./session-board";
 
 for (const { harness, isBracketed } of ["claude", "codex", "pi"].flatMap((harness) => [true, false].map((isBracketed) => ({ harness, isBracketed })))) {
   test(`${harness} Chat sends and answers harness controls before mounting a terminal, bracketed paste ${isBracketed ? "on" : "off"}`, async ({ page }) => {
@@ -46,11 +46,9 @@ test("showing a terminal and returning to Chat keep one connection and stop its 
   await expect(page.locator(".xterm")).toHaveCount(0);
 
   // Act
-  relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Continue?"], choices: [{ text: "Yes", number: 1, focused: true }] } });
-  await page.getByRole("button", { name: "Show the terminal", exact: true }).click();
+  await pickStyle(page, "Terminal");
   await expect(page.locator(".xterm").first()).toBeVisible();
-  await page.getByRole("button", { name: "Back to messages", exact: true }).click();
-  relay.say({ type: "screen", asking: false, open: false, working: false });
+  await pickStyle(page, "Modern chat");
 
   // Assert
   await expect(page.locator(".xterm")).toHaveCount(0);
@@ -66,17 +64,17 @@ test("Chat sends through a replacement terminal hidden before its first size cla
   // Arrange
   const relay = await open(page);
   await openGoblin(page);
-  relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Continue?"], choices: [{ text: "Yes", number: 1, focused: true }] } });
-  await page.getByRole("button", { name: "Show the terminal", exact: true }).click();
+  await pickStyle(page, "Terminal");
   await expect(page.locator(".terminal-view:not(.staged) > .xterm")).toBeVisible();
-  // Back to messages is pressed in the same turn the replacement view opens
-  // its surface in the shown terminal, so its connection cannot open and
-  // claim a size first.
+  // Modern chat is chosen in the same turn the replacement view opens its
+  // surface in the shown terminal, so its connection cannot open and claim a
+  // size first.
+  await page.locator(".context-pane .panel-header").getByRole("button", { name: "Chat style", exact: true }).click();
   await page.evaluate(() => {
     const observer = new MutationObserver(() => {
       if (document.querySelectorAll(".xterm").length < 2) return;
       observer.disconnect();
-      [...document.querySelectorAll("button")].find((button) => button.textContent === "Back to messages")?.click();
+      [...document.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find((item) => item.textContent?.trim() === "Modern chat")?.click();
     });
     observer.observe(document.body, { childList: true, subtree: true });
   });
@@ -103,9 +101,6 @@ for (const isCfo of [true, false]) {
       else await openGoblin(page);
       await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
       await page.evaluate(() => document.fonts.ready);
-      relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Continue?"], choices: [{ text: "Yes", number: 1, focused: true }] } });
-      const show = page.getByRole("button", { name: "Show the terminal", exact: true });
-      await expect(show).toBeVisible();
       const connections = relay.views;
       const now = new Date("2026-10-27T12:00:05Z");
       await page.clock.install({ time: now });
@@ -113,16 +108,16 @@ for (const isCfo of [true, false]) {
       // never at a moment a loaded machine has already passed.
       await page.clock.pauseAt(new Date(now.getTime() + 1000));
 
-      await show.click({ force: true });
+      await pickStyle(page, "Terminal");
       await page.clock.runFor(200);
       await expect.poll(() => relay.resizes.length).toBeGreaterThan(0);
       await expect(page.locator(".terminal-view.staged")).toHaveCount(1);
-      await page.getByRole("button", { name: "Back to messages", exact: true }).click({ force: true });
+      await pickStyle(page, "Modern chat");
       await expect(page.locator(".xterm")).toHaveCount(0);
       if (completion === "repaint") relay.write("First repaint complete\r\n");
       await page.clock.runFor(800);
       const sizes = relay.resizes.length;
-      await show.click({ force: true });
+      await pickStyle(page, "Terminal");
       await page.clock.runFor(200);
 
       const input = page.getByRole("textbox", { name: "Terminal input", exact: true });
@@ -140,14 +135,11 @@ for (const isCfo of [true, false]) {
     if (isCfo) await page.keyboard.press("Control+Alt+1");
     else await openGoblin(page);
     await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
-    relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Continue?"], choices: [{ text: "Yes", number: 1, focused: true }] } });
-    const show = page.getByRole("button", { name: "Show the terminal", exact: true });
-    await expect(show).toBeVisible();
     const connections = relay.views;
 
     relay.end();
     await expect(page.locator(".terminal-foot.box")).toHaveText("No terminal is running for this task.");
-    await show.click();
+    await pickStyle(page, "Terminal");
 
     await expect(page.locator(".xterm")).toBeVisible();
     await expect(page.locator(".terminal-view.staged")).toHaveCount(0);
@@ -198,4 +190,56 @@ test("Chat follows a harness change on the same native connection", async ({ pag
     expect(relay.views).toBe(connections);
     await expect(page.locator(".xterm")).toHaveCount(0);
   }
+});
+
+// The Overlord, 2026-11-04: a session he left kept its terminal live behind
+// the one he reads, connected and offering its box a link. Only the session
+// the panel shows has a terminal, so leaving one closes its connection, and
+// coming back connects afresh and types into the new connection alone.
+test("a session he leaves keeps no terminal connection, and coming back connects afresh", async ({ page }) => {
+  // Arrange: the page records each terminal connection it opens until it is
+  // closed.
+  await page.addInitScript(() => {
+    const Native = window.WebSocket;
+    const live = new Set<WebSocket>();
+    Object.assign(window, { liveTerminals: () => [...live].map((socket) => new URL(socket.url).searchParams.toString()) });
+    window.WebSocket = class extends Native {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols);
+        live.add(this);
+        this.addEventListener("close", () => live.delete(this));
+      }
+      close(code?: number, reason?: string) { live.delete(this); super.close(code, reason); }
+    };
+  });
+  const liveTerminals = () => page.evaluate(() => (window as unknown as { liveTerminals: () => string[] }).liveTerminals());
+  const relay = await open(page);
+  await openGoblin(page);
+  const views = relay.views;
+
+  // Act
+  await card(page, OTHER.goblin_name + " - " + OTHER.goblin_title).click();
+  await expect(page.locator("#panel-title")).toHaveText(OTHER.goblin_name + " - " + OTHER.goblin_title);
+  await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
+
+  // Assert
+  await expect.poll(liveTerminals).toEqual([new URLSearchParams({ task: OTHER.id, generation: OTHER.generation, token: "fixture" }).toString()]);
+  await expect(page.locator(".host-terminal")).toHaveCount(1);
+
+  // Act
+  await page.keyboard.press("Control+Alt+1");
+  await expect(page.locator("#panel-title")).toHaveText("CFO");
+
+  // Assert
+  await expect.poll(liveTerminals).toEqual([new URLSearchParams({ cfo: "cfo-term", token: "fixture" }).toString()]);
+
+  // Act
+  await openGoblin(page);
+  await field(page).fill("Back to Zeke");
+  await field(page).press("Enter");
+
+  // Assert
+  expect(relay.views, "coming back connects afresh").toBeGreaterThan(views + 1);
+  await expect.poll(liveTerminals).toEqual([new URLSearchParams({ task: GOBLIN.id, generation: GOBLIN.generation, token: "fixture" }).toString()]);
+  await expect.poll(() => relay.inputs.map((input) => new URL(input.address).searchParams.get("task") + " " + input.text)).toEqual(["cg-touch " + pasted("Back to Zeke"), "cg-touch \r"]);
 });

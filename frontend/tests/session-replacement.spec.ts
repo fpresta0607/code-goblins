@@ -65,7 +65,7 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
       await expect.poll(() => conversation.evaluate((element) => element.scrollTop)).toBeLessThan(before);
       expect(typed(relay)).toBe("");
       // Reading back opens the conversation and leaves the saved Classic alone:
-      // only Back to messages saves Modern (#1584).
+      // only Modern chat in the style menu saves Modern (#1584).
       expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
       await page.screenshot({ path: testInfo.outputPath(`codex-${state}-${input}-history.png`) });
     });

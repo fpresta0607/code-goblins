@@ -1,8 +1,9 @@
 import { expect, test, type Locator, type Page } from "./site";
+import { pickStyle } from "./session-board";
 
 // The panel shows a Claude Code session's conversation as the supervisor
-// reads it (GET /api/messages), in the box the terminal fills, so stepping
-// the terminal in and out never resizes it. The
+// reads it (GET /api/messages), in the box the terminal fills, so a switch
+// to the terminal and back never resizes it. The
 // supervisor is played here: the board's snapshot and each session's message
 // stream on held streams, older pages and pictures from routes, and the
 // terminal's relay, which counts the sizes the board asks for. Every
@@ -660,10 +661,10 @@ test("Back from a goblin's panel returns to the CFO's messages", async ({ page }
 });
 
 // The first request for a terminal sizes it to the conversation's box;
-// subsequent switches in that box keep the size, for the CFO and a goblin,
+// subsequent switches of style in that box keep the size, for the CFO and a goblin,
 // with the relay answering at once and late, as on a loaded machine (#1614).
 for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as const) for (const resizeLatency of [0, 1000]) {
-  test(`stepping ${who}'s terminal in and out keeps its requested size, beside the board and maximized${resizeLatency ? ", with the relay answering late" : ""}`, async ({ page }) => {
+  test(`switching ${who}'s pane to Terminal and back keeps its requested size, beside the board and maximized${resizeLatency ? ", with the relay answering late" : ""}`, async ({ page }) => {
     const board = await open(page, resizeLatency);
     await choose(page);
     await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
@@ -675,28 +676,24 @@ for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as 
       if (isMaximized) await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
       const deck = await page.locator(".terminal-deck").boundingBox();
       const before = board.resizes.length;
-      board.say({ type: "screen", asking: true, open: true, working: false, submission: "", panel: { rows: ["Resume a conversation"], choices: [{ text: "Fix the board", number: 1, focused: true }] } });
-      await page.getByRole("button", { name: "Show the terminal" }).click();
-      await expect(page.getByRole("button", { name: "Back to messages" })).toBeVisible();
+      await pickStyle(page, "Terminal");
       await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
       await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeHidden();
       const asked = await settled(board, before);
       expect(await page.locator(".terminal-deck").boundingBox()).toEqual(deck);
-      board.say({ type: "screen", asking: false, open: false, working: false, submission: "" });
+      await pickStyle(page, "Modern chat");
       await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Back to messages" })).toHaveCount(0);
       await expect(page.locator(".xterm")).toHaveCount(0);
       await page.waitForTimeout(300);
       expect(await page.locator(".messages-view").boundingBox(), "the messages take the terminal's box").toEqual(deck);
 
       expect(board.resizes.slice(asked), `${isMaximized ? "maximized" : "beside the board"}, the switches sent no resize`).toEqual([]);
       expect(await page.locator(".terminal-deck").boundingBox()).toEqual(deck);
-      board.say({ type: "screen", asking: true, open: true, working: false, submission: "", panel: { rows: ["Resume a conversation"], choices: [{ text: "Fix the board", number: 1, focused: true }] } });
-      await page.getByRole("button", { name: "Show the terminal" }).click();
+      await pickStyle(page, "Terminal");
       await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
       await page.waitForTimeout(300);
       expect(board.resizes.slice(asked), "showing the requested terminal again sends no resize").toEqual([]);
-      board.say({ type: "screen", asking: false, open: false, working: false, submission: "" });
+      await pickStyle(page, "Modern chat");
       await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
     }
   });

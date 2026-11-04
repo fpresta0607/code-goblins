@@ -100,7 +100,7 @@ The composer offers files, the session's permission mode, model and effort, plus
 Type `/` for harness commands or `@` for files.
 On a phone, **Clear message**, the trash button beside **Speech history**, clears the whole unsent typed or dictated draft without sending it, interrupting the session or touching queued messages; text already in the native Terminal's input is edited there.
 
-When a harness question or picker appears in Modern Chat, **Show the terminal** opens that screen and **Back to messages** returns to the conversation.
+When a harness question or picker appears in Modern Chat, it shows above the box as a list to pick from; **Terminal** in the style menu of the session's picture shows the terminal itself, and **Modern chat** returns to the conversation.
 The native terminal keeps the harness's own keyboard controls and prompts.
 **Open in Windows Terminal** offers another view of the same session on the PC.
 

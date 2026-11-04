@@ -1,5 +1,4 @@
 import { useRef, useState, type ReactNode } from "react";
-import { usesBrowser } from "./dictationEngine";
 import { Icon } from "./Icon";
 import { RecentDictations } from "./recent-dictations";
 import { TOUCH_SCREEN } from "./small-screen";
@@ -16,9 +15,11 @@ function hintDismissed(): boolean {
 // voice, which is a flat dotted line while the keys are held in silence. The
 // first visit explains the shortcut once, as a quiet line beside the bubble
 // rather than a card over the terminal's last rows. model is the speech model
-// the supervisor runs on this PC, which a muted line beside the bubble names
-// as what listens while it listens; the list's foot says so too and offers the browser's own speech recognition
-// where the browser has one. On a touch screen, where nothing is held down
+// the supervisor runs on this PC, which the list's foot names as what listens
+// and where it offers the browser's own speech recognition where the browser
+// has one; while it listens a screen reader hears Listening, and nothing
+// beside the bubble names the engine (the Overlord's mobile corrections,
+// 2026-11-04). On a touch screen, where nothing is held down
 // with ease, the bubble is the dictation itself: onTap is told of each tap,
 // the first to start listening and the next to stop and send what was said
 // (the Overlord, 2026-10-21, "Can't hold on my phone screen"). There tools,
@@ -28,8 +29,6 @@ export function VoiceBubble({ listening, level, model, onPaste, onTap, tools }: 
   // Read on every render, as the hint is, so a choice made in one pane shows
   // in the others.
   const [, chosen] = useState(0);
-  const browser = usesBrowser();
-  const engine = browser ? "this browser's speech recognition" : (model || "the speech model") + " on this PC";
   // Read on every render, so a hint dismissed in one pane stays away in the
   // others, which stay mounted.
   const [dismissed, setDismissed] = useState(false);
@@ -55,7 +54,7 @@ export function VoiceBubble({ listening, level, model, onPaste, onTap, tools }: 
     </p>}
     {open && <RecentDictations where="this terminal" anchor={dock} model={model} onPaste={(text) => { onPaste(text); setOpen(false); }} onClose={close} onEngine={() => chosen((count) => count + 1)} />}
     {isTouch && tools}
-    {listening && <span className="voice-dock-listening" role="status">Listening with {engine}</span>}
+    {listening && <span className="sr-only" role="status">Listening</span>}
     {isTouch ? <button ref={bubble} className={"voice-bubble" + (listening ? " recording terminal-listening" : "")}
       aria-label={listening ? "Stop and send" : "Dictate"} aria-pressed={listening}
       onPointerDown={(event) => event.preventDefault()} onClick={(event) => { dismiss(); onTap(event.timeStamp); }}>

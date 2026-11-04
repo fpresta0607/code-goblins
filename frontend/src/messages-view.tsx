@@ -574,7 +574,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
           latest button mobile doesn't work"). */}
       {!isAtEnd && <button type="button" className="message-jump" onClick={jump} onPointerUp={(event) => { if (event.pointerType === "touch") jump(); }}><Icon name="arrow-down" />Jump to latest</button>}
       {isCopied && <Notice className="terminal-corner">Copied</Notice>}
-      {phase !== "closed" && (isReconnecting || !visible) && <Notice tone="warning" className="terminal-corner">Reconnecting</Notice>}
+      {/* The one Reconnecting of the pane, for its stream and for the
+          terminal its box types through, which is not drawn here
+          (2026-11-04). */}
+      {phase !== "closed" && (isReconnecting || !visible || !!link?.isReconnecting) && <Notice tone="warning" className="terminal-corner">Reconnecting</Notice>}
       {phase === "closed" && <Notice form="box" icon="comment" className="terminal-foot"
         actions={<button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button>}>{closedWhy}</Notice>}
     </div>

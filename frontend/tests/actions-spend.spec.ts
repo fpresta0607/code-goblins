@@ -3,7 +3,7 @@ import { expect, holdStream, servePages, test } from "./site";
 const NOW = "2026-10-15T12:00:00Z";
 // A month GitHub bills in part: its use at list price is $3.50 above its bill.
 const total = (billed: number) => ({ minutes: 700, used_usd: billed + 3.5, billed_usd: billed });
-const spent = (billed: number) => `$${billed.toFixed(2)} billed, $${(billed + 3.5).toFixed(2)} used this month`;
+const spent = (billed: number) => `$${billed.toFixed(2)} billed this month`;
 const reading = (changes: Record<string, unknown> = {}) => ({ status: "available", month: "2026-10", total: total(8.5),
   repositories: [{ name: "moss", minutes: 400, used_usd: 7, billed_usd: 5 }, { name: "fern", minutes: 300, used_usd: 5, billed_usd: 3.5 }],
   read_at: NOW, checked_at: NOW, detail: "", ...changes });
@@ -339,7 +339,7 @@ test.describe("Actions spend panel", () => {
 
   for (const month of [
     { name: "partly billed", changes: {}, label: spent(8.5), figures: ["Used$12.00", "Covered$3.50", "Billed$8.50"], rows: ["moss400$7.00$5.00", "fern300$5.00$3.50"] },
-    { name: "fully covered", label: "$0.00 billed, $9.60 used this month", figures: ["Used$9.60", "Covered$9.60", "Billed$0.00"], rows: ["moss1,200$6.40$0.00", "fern400$3.20$0.00"],
+    { name: "fully covered", label: "$0.00 billed this month", figures: ["Used$9.60", "Covered$9.60", "Billed$0.00"], rows: ["moss1,200$6.40$0.00", "fern400$3.20$0.00"],
       changes: { total: { minutes: 1600, used_usd: 9.6, billed_usd: 0 }, repositories: [{ name: "moss", minutes: 1200, used_usd: 6.4, billed_usd: 0 }, { name: "fern", minutes: 400, used_usd: 3.2, billed_usd: 0 }] } },
   ]) {
     for (const width of [1440, 390, 320]) {
@@ -355,6 +355,12 @@ test.describe("Actions spend panel", () => {
         const button = page.getByRole("button", { name: `GitHub Actions spend: ${month.label}`, exact: true });
         await expect(button).toBeVisible();
         await expect(button.locator("svg")).toBeVisible();
+        // The bar shows the GitHub mark and the billed amount alone, a gap
+        // apart, and what was used is the panel's (2026-11-04).
+        await expect(button).toHaveText(month.label.split(" ")[0]);
+        const [mark, amount] = await Promise.all([button.locator("svg").boundingBox(), button.locator(".actions-spend-billed").boundingBox()]);
+        if (!mark || !amount) throw new Error("the mark or the amount is not drawn");
+        expect(Math.round(amount.x - mark.x - mark.width), "the mark and the amount keep the bar's gap").toBe(6);
         expect(await button.evaluate((element) => element.getBoundingClientRect().right <= innerWidth && element.scrollWidth <= element.clientWidth)).toBe(true);
         expect(panelRequests).toHaveLength(0);
         await page.evaluate(() => document.fonts.ready);
@@ -390,7 +396,7 @@ test.describe("Actions spend panel", () => {
       ["Could not read usage. Check the token's user scope.", "Read Oct 15, 2026, 12:00 PM · Old · Last attempt Oct 15, 2026, 1:00 PM"]],
     ["aged reading", { status: "stale" }, spent(8.5) + " (old)", ["Read Oct 15, 2026, 12:00 PM · Old"]],
     ["new calendar month", { month: "2026-09" }, "unavailable", ["Waiting for this month's GitHub Actions usage."]],
-    ["month without Actions use", { total: { minutes: 0, used_usd: 0, billed_usd: 0 }, repositories: [] }, "$0.00 billed, $0.00 used this month", ["No Actions use this month.", "Read Oct 15, 2026, 12:00 PM"]],
+    ["month without Actions use", { total: { minutes: 0, used_usd: 0, billed_usd: 0 }, repositories: [] }, "$0.00 billed this month", ["No Actions use this month.", "Read Oct 15, 2026, 12:00 PM"]],
   ] as const) {
     test(`shows a ${name} in one line each without guessing`, async ({ page }, testInfo) => {
       await page.clock.install({ time: new Date(NOW) });

@@ -202,6 +202,17 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     });
     return () => offerLink(link, null);
   }, [link, phase, reconnecting, visible, isUnread, heldWhy, screen, dictation.listening, dictation.stop, dictation.note, feedback]);
+  // While the view is live one notice says what keeps his keys from the
+  // program, the most pressing first, never two at once (the Overlord,
+  // 2026-11-04): a key it could not send while it reconnects, the reconnect,
+  // a hold, then a busy program. A box beside the terminal says the hold and
+  // the busy program itself.
+  const liveState = phase !== "live" ? null
+    : isUnsent ? <Notice tone="warning" className="terminal-corner-left">Not sent. The terminal is reconnecting.</Notice>
+    : reconnecting || !visible ? <Notice tone="warning" className="terminal-corner">Reconnecting</Notice>
+    : heldWhy && !hasComposer ? <Notice className="terminal-foot">Typing is paused.</Notice>
+    : isUnread && !hasComposer ? <Notice tone="warning" className="terminal-corner-left">Program busy. Typed keys are waiting.</Notice>
+    : null;
   const closed = <Notice form="box" icon="terminal" className={hasScreen ? "terminal-foot" : undefined}
     actions={!isEnded && <button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setUnsent(false); setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button>}>{closedWhy}</Notice>;
   return <section className={"native-terminal host-terminal" + (hasComposer ? " has-composer" : "")} hidden={!shown} aria-label={label}>
@@ -211,12 +222,10 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
         outside it (the Overlord, 2026-10-27: "the connecting loader overlays
         and looks improper on box"). */}
     {phase === "connecting" && <p className="terminal-connecting" role="status"><span className="terminal-spinner" aria-hidden="true" />Connecting to the terminal</p>}
-    {phase === "live" && (reconnecting || !visible) && <Notice tone="warning" className="terminal-corner">Reconnecting</Notice>}
+    {liveState}
     {phase === "closed" && (hasScreen ? closed : <div className="terminal-cover">{closed}</div>)}
     {copied && <Notice className="terminal-corner">Copied</Notice>}
-    {phase !== "connecting" && isUnsent && <Notice tone="warning" className="terminal-corner-left">{phase === "live" ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is closed."}</Notice>}
-    {phase === "live" && heldWhy && !hasComposer && <Notice className="terminal-foot">Typing is paused.</Notice>}
-    {phase === "live" && isUnread && !hasComposer && !isUnsent && !heldWhy && <Notice tone="warning" className="terminal-corner-left">Program busy. Typed keys are waiting.</Notice>}
+    {phase === "closed" && isUnsent && <Notice tone="warning" className="terminal-corner-left">Not sent. The terminal is closed.</Notice>}
     {phase === "live" && historyEnd !== null && <button type="button" className="icon-button raised terminal-jump" aria-label="Jump to bottom" style={{ top: historyEnd - 8 }} onClick={() => current.current?.jumpToBottom()}><Icon name="arrow-down" /></button>}
     {textSheet !== null && <TerminalTextSheet text={textSheet} onClose={() => { setTextSheet(null); current.current?.focus(); }} />}
     {hasComposer && <button type="button" className="icon-button terminal-copy" aria-label="Copy terminal text" onClick={() => setTextSheet(current.current?.text() ?? "")}><Icon name="copy" /></button>}
