@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 )
 
@@ -175,7 +174,7 @@ type codexPluginManifest struct {
 func readCodexPluginManifest(dir string) (codexPluginManifest, bool) {
 	var manifest codexPluginManifest
 	for _, metadata := range codexPluginManifests {
-		data, err := fsx.ReadFile(filepath.Join(dir, metadata, "plugin.json"))
+		data, err := readConfigFile(filepath.Join(dir, metadata, "plugin.json"))
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}

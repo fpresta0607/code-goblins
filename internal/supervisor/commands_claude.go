@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-
-	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // claudePluginCommands reads the commands and skills of the plugins Claude
@@ -20,7 +18,7 @@ import (
 // shared and then its local settings leave enabled, from where each was
 // installed under pluginsRoot.
 func claudePluginCommands(folder, claudeRoot, pluginsRoot string) []command {
-	data, err := fsx.ReadFile(filepath.Join(pluginsRoot, "installed_plugins.json"))
+	data, err := readConfigFile(filepath.Join(pluginsRoot, "installed_plugins.json"))
 	if err != nil {
 		return nil
 	}
@@ -39,7 +37,7 @@ func claudePluginCommands(folder, claudeRoot, pluginsRoot string) []command {
 		var read struct {
 			EnabledPlugins map[string]bool `json:"enabledPlugins"`
 		}
-		data, err := fsx.ReadFile(settings)
+		data, err := readConfigFile(settings)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
@@ -96,7 +94,7 @@ type claudePluginManifest struct {
 // offers the folders Claude Code reads by default.
 func readClaudePluginManifest(root string) (claudePluginManifest, error) {
 	var manifest claudePluginManifest
-	data, err := fsx.ReadFile(filepath.Join(root, ".claude-plugin", "plugin.json"))
+	data, err := readConfigFile(filepath.Join(root, ".claude-plugin", "plugin.json"))
 	if errors.Is(err, os.ErrNotExist) {
 		return manifest, nil
 	}

@@ -8,8 +8,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-
-	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // codexConfig is what the user's Codex config.toml says about the skills
@@ -73,7 +71,7 @@ var tomlWord = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2} \d)?[^\s,\]}#]*`)
 // error, as Codex refuses to start with one.
 func readCodexConfig(home string) (codexConfig, error) {
 	config := codexConfig{isBundledEnabled: true, plugins: map[string]bool{}}
-	data, err := fsx.ReadFile(filepath.Join(home, "config.toml"))
+	data, err := readConfigFile(filepath.Join(home, "config.toml"))
 	if errors.Is(err, os.ErrNotExist) {
 		return config, nil
 	}

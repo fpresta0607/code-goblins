@@ -121,14 +121,16 @@ func TestClaudePluginsFollowTheSettingsThatNameThemLast(t *testing.T) {
 		user, project, local map[string]bool
 		manifest             string
 		isOffered            bool
+		hasUserByteOrderMark bool
 	}{
-		{"no settings name it", nil, nil, nil, `{"name":"kit-one"}`, true},
-		{"no settings name it and it starts off", nil, nil, nil, `{"name":"kit-one","defaultEnabled":false}`, false},
-		{"the user turns it off", map[string]bool{id: false}, nil, nil, `{"name":"kit-one"}`, false},
-		{"the project turns it back on", map[string]bool{id: false}, map[string]bool{id: true}, nil, `{"name":"kit-one"}`, true},
-		{"the project turns it off", map[string]bool{id: true}, map[string]bool{id: false}, nil, `{"name":"kit-one"}`, false},
-		{"the local settings turn it back on", map[string]bool{id: true}, map[string]bool{id: false}, map[string]bool{id: true}, `{"name":"kit-one"}`, true},
-		{"the local settings turn it off", nil, map[string]bool{id: true}, map[string]bool{id: false}, `{"name":"kit-one","defaultEnabled":true}`, false},
+		{"no settings name it", nil, nil, nil, `{"name":"kit-one"}`, true, false},
+		{"no settings name it and it starts off", nil, nil, nil, `{"name":"kit-one","defaultEnabled":false}`, false, false},
+		{"the user turns it off", map[string]bool{id: false}, nil, nil, `{"name":"kit-one"}`, false, false},
+		{"the project turns it back on", map[string]bool{id: false}, map[string]bool{id: true}, nil, `{"name":"kit-one"}`, true, false},
+		{"the project turns it off", map[string]bool{id: true}, map[string]bool{id: false}, nil, `{"name":"kit-one"}`, false, false},
+		{"the local settings turn it back on", map[string]bool{id: true}, map[string]bool{id: false}, map[string]bool{id: true}, `{"name":"kit-one"}`, true, false},
+		{"the local settings turn it off", nil, map[string]bool{id: true}, map[string]bool{id: false}, `{"name":"kit-one","defaultEnabled":true}`, false, false},
+		{"the user's settings start with a byte order mark", map[string]bool{id: true}, nil, nil, `{"name":"kit-one","defaultEnabled":false}`, true, true},
 	} {
 		t.Run(c.what, func(t *testing.T) {
 			// Arrange
@@ -138,14 +140,20 @@ func TestClaudePluginsFollowTheSettingsThatNameThemLast(t *testing.T) {
 				".claude-plugin/plugin.json": c.manifest,
 				"commands/tidy.md":           "x",
 			}})
+			userSettings := filepath.Join(claudeRoot, "settings.json")
 			for path, enabled := range map[string]map[string]bool{
-				filepath.Join(claudeRoot, "settings.json"):                c.user,
+				userSettings: c.user,
 				filepath.Join(worktree, ".claude", "settings.json"):       c.project,
 				filepath.Join(worktree, ".claude", "settings.local.json"): c.local,
 			} {
-				if enabled != nil {
-					writeCommandFixture(t, path, enabledPlugins(t, enabled))
+				if enabled == nil {
+					continue
 				}
+				settings := enabledPlugins(t, enabled)
+				if path == userSettings && c.hasUserByteOrderMark {
+					settings = "\ufeff" + settings
+				}
+				writeCommandFixture(t, path, settings)
 			}
 
 			// Act

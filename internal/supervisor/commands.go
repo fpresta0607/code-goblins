@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"bytes"
 	"cmp"
 	"crypto/subtle"
 	"encoding/json"
@@ -257,6 +258,14 @@ type commandFields struct {
 	Name          string `yaml:"name"`
 	Description   string `yaml:"description"`
 	UserInvocable *bool  `yaml:"user-invocable"`
+}
+
+// readConfigFile reads the configuration file at path without the UTF-8 byte
+// order mark an editor on Windows can write at its start, which Claude Code
+// and Codex pass over.
+func readConfigFile(path string) ([]byte, error) {
+	data, err := fsx.ReadFile(path)
+	return bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF}), err
 }
 
 func commandFrontmatter(path string) (commandFields, error) {

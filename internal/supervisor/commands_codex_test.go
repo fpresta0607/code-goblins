@@ -130,6 +130,7 @@ func TestCodexConfigurationIsReadInEachFormItTakes(t *testing.T) {
 		{"a multi-line string", "instructions = \"\"\"\n[plugins.\"kit@mkt\"]\nenabled = true\n\"\"\"\n", []string{bundled}},
 		{"a multi-line array", "notify = [\n  [\"plugins\"],\n  \"[skills.bundled]\",\n]\n[skills.bundled]\nenabled = true\n", []string{bundled}},
 		{"an inline table that wraps an array", "[mcp_servers]\nfoo = { command = \"npx\", args = [\n \"-y\", \"pkg\"\n] }\n[plugins.\"kit@mkt\"]\n", []string{bundled, plugin}},
+		{"a byte order mark", "\ufeff[plugins.\"kit@mkt\"]\nenabled = true\n[skills.bundled]\nenabled = false\n", []string{plugin}},
 		{"values of other kinds", "started = 1979-05-27 07:32:00Z\nretries = 3\nnote = '''\n[skills.bundled]\n'''\nlist = [ # first\n 1, { a = [2] }, # more\n]\n[plugins.\"kit@mkt\"]\nenabled = true\n", []string{bundled, plugin}},
 	} {
 		t.Run(c.what, func(t *testing.T) {
