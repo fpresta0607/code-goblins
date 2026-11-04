@@ -134,52 +134,61 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
         },
       ],
     },
-    // The crawler sends each request the browser makes to the site, from the
-    // crawled page, a frame in it or a window it opens, itself: one redirect
-    // step at a time, each step checked against robots.txt and holding one
-    // slot while it is fetched. The browser follows no redirect of its own,
-    // and a crawled page that redirects elsewhere is a redirect to the page
-    // it names, queued as a link. Each page has a context of its own, so the
+    // The crawler sends each request the browser makes, from the crawled
+    // page, a frame in it or a window it opens, itself: one redirect step at a
+    // time, each step to the site checked against robots.txt and holding one
+    // slot while it is fetched, so a request off the site that redirects onto
+    // it is held to both too. The browser follows no redirect of its own, and
+    // a crawled page that redirects elsewhere is a redirect to the page it
+    // names, queued as a link. Each page has a context of its own, so the
     // context's routes cover that page and nothing else, and no page opens a
     // WebSocket to the site, which no route sees.
     preNavigationHooks: [
       async ({ page, request: crawled }) => {
         const context = page.context();
-        const fetchStep = async (route, hop) => {
-          await slots.take();
+        // Why the crawled page's own request could not be sent, which the
+        // browser reports only as a failed load.
+        crawled.userData.fetchError = "";
+        // fetchStep sends one step of a request and reads all of its answer
+        // at once: closing a page closes its context, which drops what it
+        // fetched before the page reports itself closed.
+        const fetchStep = async (route, hop, isOnSite) => {
+          if (isOnSite) await slots.take();
           try {
-            return page.isClosed() ? null : await route.fetch({ ...hop, maxRedirects: 0 });
+            if (page.isClosed()) return null;
+            const response = await route.fetch({ ...hop, maxRedirects: 0 });
+            return { status: response.status(), headers: response.headers(), body: await response.body() };
           } finally {
-            slots.release();
+            if (isOnSite) slots.release();
           }
         };
         await context.routeWebSocket((url) => url.host === start.host, (socket) => socket.close());
         await context.route("**/*", async (route) => {
           const request = route.request();
           if (BLOCKED_RESOURCES.has(request.resourceType())) return route.abort();
-          if (new URL(request.url()).origin !== origin) return route.continue();
-          if (!isAllowed(request.url())) return route.abort("blockedbyclient");
           const isCrawledPage = request.isNavigationRequest() && normalize(request.url()) === crawled.uniqueKey && request.frame() === page.mainFrame();
           let hop = { url: request.url() };
           let method = request.method();
           for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
-            let response;
+            const isOnSite = new URL(hop.url).origin === origin;
+            if (isOnSite && !isAllowed(hop.url)) return route.abort("blockedbyclient");
+            let answer;
             try {
-              response = await fetchStep(route, hop);
-            } catch {
+              answer = await fetchStep(route, hop, isOnSite);
+            } catch (error) {
+              if (isCrawledPage) crawled.userData.fetchError = firstLine(error.message);
               return route.abort("failed");
             }
-            if (!response) return;
-            const target = redirectTarget(response.status(), response.headers().location, hop.url);
-            if (!target) return route.fulfill({ response });
+            if (!answer) return;
+            const target = redirectTarget(answer.status, answer.headers.location, hop.url);
+            if (!target) return route.fulfill(answer);
             // A page that redirects to itself, as one that sets a cookie
             // first does, is followed here, where the cookie is kept.
             if (isCrawledPage && target !== crawled.uniqueKey) {
-              await followRedirect(routes.get(crawled.uniqueKey), response.status(), target);
+              await followRedirect(routes.get(crawled.uniqueKey), answer.status, target);
               return route.fulfill({ contentType: "text/html", body: "" });
             }
-            if (!isAllowed(target)) return route.abort("blockedbyclient");
-            if (isTurnedIntoGet(response.status(), method)) {
+            if (isTurnedIntoGet(answer.status, method)) {
               method = "GET";
               hop = { method, postData: "", headers: withoutBodyHeaders(request.headers()) };
             }
@@ -221,6 +230,7 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
       }
       await page.waitForLoadState("networkidle", { timeout: SETTLE_TIMEOUT_MS }).catch(() => {});
       const facts = await page.evaluate(readPage);
+      const html = await page.content();
       // The page limit counts pages read: a page past it stays queued, to be
       // reported unread, and the crawl starts no request once it is reached.
       if (pageCount >= maxPages) return;
@@ -235,7 +245,7 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
         read = noteRoute(landed.href, request.uniqueKey);
       }
       const name = savedName(pageCount, read.url);
-      await writeFile(path.join(outDir, "pages", `${name}.html`), await page.content());
+      await writeFile(path.join(outDir, "pages", `${name}.html`), html);
       await writeFile(path.join(outDir, "pages", `${name}.json`), JSON.stringify({ url: request.uniqueKey, landed_on: landed.href, status: status, ...facts }, null, 2));
       read.status = "read";
       read.page = `pages/${name}.json`;
@@ -254,7 +264,7 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
         return;
       }
       route.status = "unread";
-      route.reason = firstLine(error?.message) || "the browser could not load it";
+      route.reason = request.userData.fetchError || firstLine(error?.message) || "the browser could not load it";
     },
   }, new Configuration({ persistStorage: false, purgeOnStart: true, eventManager: new EventManager(), memoryMbytes: CRAWLEE_MEMORY_MBYTES }));
 

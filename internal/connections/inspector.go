@@ -23,16 +23,16 @@ import (
 )
 
 type Inspector struct {
-	DataDir, StateDir string
-	Runner            execx.Runner
-	OpenStore         func() (auth.Store, error)
-	Runtime           func(context.Context, string, state.TaskMeta) ([]string, []string, error)
-	Codex             func(context.Context, string, []string, []string) ([]Entry, error)
-	Claude            func(context.Context, string, []string, []string) ([]Entry, error)
+	HomeRoot, DataDir, StateDir string
+	Runner                      execx.Runner
+	OpenStore                   func() (auth.Store, error)
+	Runtime                     func(context.Context, string, state.TaskMeta) ([]string, []string, error)
+	Codex                       func(context.Context, string, []string, []string) ([]Entry, error)
+	Claude                      func(context.Context, string, []string, []string) ([]Entry, error)
 }
 
-func NewInspector(dataDir, stateDir string) *Inspector {
-	return &Inspector{DataDir: dataDir, StateDir: stateDir, Runner: execx.OSRunner{}, OpenStore: auth.OpenStore, Runtime: nativeRuntime, Codex: checkCodex, Claude: checkClaude}
+func NewInspector(homeRoot, dataDir, stateDir string) *Inspector {
+	return &Inspector{HomeRoot: homeRoot, DataDir: dataDir, StateDir: stateDir, Runner: execx.OSRunner{}, OpenStore: auth.OpenStore, Runtime: nativeRuntime, Codex: checkCodex, Claude: checkClaude}
 }
 func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) Snapshot {
 	result := Snapshot{Entries: []Entry{}}
@@ -88,7 +88,7 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) Snapshot {
 		for _, name := range manifest.EnvNames() {
 			result.Entries = append(result.Entries, Entry{ID: "credential:" + name, Name: name, Kind: "credential", Status: "unverified", Detail: "Goblin runtime unavailable.", CheckedAt: time.Now().UTC()})
 		}
-		for _, entry := range append(withheldEntries(meta, nil), crawlerEntry(meta, "")) {
+		for _, entry := range append(withheldEntries(meta, nil), i.crawlerEntry(meta, "")) {
 			entry.Status = "unverified"
 			entry.Detail = "Goblin runtime unavailable."
 			entry.Actions = nil
@@ -121,7 +121,7 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) Snapshot {
 		}
 		result.Entries = append(result.Entries, Entry{ID: "credential:" + name, Name: name, Kind: "credential", Status: verdict, Source: "Goblin environment", Detail: detail, Actions: actions, CheckedAt: time.Now().UTC()})
 	}
-	result.Entries = append(result.Entries, crawlerEntry(meta, values["PATH"]))
+	result.Entries = append(result.Entries, i.crawlerEntry(meta, values["PATH"]))
 	var entries []Entry
 	var err error
 	switch meta.Harness {
@@ -207,14 +207,17 @@ func grantOffered(entry Entry, meta state.TaskMeta) string {
 // crawlerEntry is the crawler connector every goblin carries, as the goblin's
 // terminal finds it: provided when goblin-crawl is in a folder of path, its
 // PATH, disabled when its brief left it out, and missing otherwise, which is
-// a home where cfo crawler setup has not run.
-func crawlerEntry(meta state.TaskMeta, path string) Entry {
+// a terminal that started before the home set the crawler up, or a home
+// where cfo crawler setup has not run.
+func (i *Inspector) crawlerEntry(meta state.TaskMeta, path string) Entry {
 	entry := Entry{ID: "connector:" + crawler.Name, Name: crawler.Name, Kind: "connector", Source: "Code Goblins", CheckedAt: time.Now().UTC()}
 	switch {
 	case slices.ContainsFunc(filepath.SplitList(path), crawler.IsCommandIn):
 		entry.Status = "provided"
 	case meta.IsCrawlerLeftOut:
 		entry.Status, entry.Detail = "disabled", "Its brief leaves it out with connectors: none."
+	case crawler.IsCommandIn(crawler.BinDir(i.HomeRoot)):
+		entry.Status, entry.Detail = "missing", crawler.Command+" is not on this goblin's PATH: its terminal started before the crawler was set up. A resume, switch or respawn starts one that carries it."
 	default:
 		entry.Status, entry.Detail = "missing", crawler.Command+" is not on this goblin's PATH. The CFO installs it with cfo crawler setup."
 	}

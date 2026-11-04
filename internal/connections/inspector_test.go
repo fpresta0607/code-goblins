@@ -33,7 +33,7 @@ func inspectorFixture(t *testing.T) (*Inspector, state.TaskMeta) {
 			t.Fatal(err)
 		}
 	}
-	inspector := NewInspector(filepath.Join(root, "data"), filepath.Join(root, "state"))
+	inspector := NewInspector(root, filepath.Join(root, "data"), filepath.Join(root, "state"))
 	store, err := auth.OpenFileStore(filepath.Join(root, "credentials"))
 	if err != nil {
 		t.Fatal(err)
@@ -400,27 +400,31 @@ func entryGrant(entries []Entry, index int) string {
 
 // Every goblin's Connections lists the crawler connector, whichever harness
 // it runs: provided when its terminal's PATH finds goblin-crawl, disabled
-// when its brief left it out, and missing when the home never set it up.
+// when its brief left it out, and missing when the home never set it up, or
+// set it up after the goblin's terminal started, which a relaunch carries.
 func TestInspectorListsTheCrawlerAsTheGoblinsTerminalFindsIt(t *testing.T) {
-	homeRoot := t.TempDir()
-	bin := crawler.BinDir(homeRoot)
+	setUpHome, bareHome := t.TempDir(), t.TempDir()
+	bin := crawler.BinDir(setUpHome)
 	writeConnectionFixture(t, filepath.Join(bin, crawler.Command+".cmd"), "@node \"%~dp0..\\goblin-crawl.mjs\" %*\r\n")
-	userPath := filepath.Join(homeRoot, "user-tools")
+	userPath := filepath.Join(setUpHome, "user-tools")
 	for _, kind := range []string{"claude", "codex", "pi"} {
 		for _, test := range []struct {
 			name       string
+			homeRoot   string
 			path       string
 			isLeftOut  bool
 			wantStatus string
 			wantDetail string
 		}{
-			{name: "carried", path: bin + string(os.PathListSeparator) + userPath, wantStatus: "provided"},
-			{name: "left out by its brief", path: userPath, isLeftOut: true, wantStatus: "disabled", wantDetail: "connectors: none"},
-			{name: "never set up", path: filepath.Join(t.TempDir(), "empty") + string(os.PathListSeparator) + userPath, wantStatus: "missing", wantDetail: "cfo crawler setup"},
+			{name: "carried", homeRoot: setUpHome, path: bin + string(os.PathListSeparator) + userPath, wantStatus: "provided"},
+			{name: "left out by its brief", homeRoot: setUpHome, path: userPath, isLeftOut: true, wantStatus: "disabled", wantDetail: "connectors: none"},
+			{name: "started before the home set it up", homeRoot: setUpHome, path: userPath, wantStatus: "missing", wantDetail: "its terminal started before the crawler was set up. A resume, switch or respawn starts one that carries it."},
+			{name: "never set up", homeRoot: bareHome, path: filepath.Join(t.TempDir(), "empty") + string(os.PathListSeparator) + userPath, wantStatus: "missing", wantDetail: "The CFO installs it with cfo crawler setup."},
 		} {
 			t.Run(kind+" "+test.name, func(t *testing.T) {
 				// Arrange
 				inspector, meta := inspectorFixture(t)
+				inspector.HomeRoot = test.homeRoot
 				meta.Harness, meta.IsCrawlerLeftOut = kind, test.isLeftOut
 				inspector.Runtime = func(context.Context, string, state.TaskMeta) ([]string, []string, error) {
 					return []string{"Path=" + test.path}, nil, nil

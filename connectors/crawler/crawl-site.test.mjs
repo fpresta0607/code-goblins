@@ -6,6 +6,7 @@ import path from "node:path";
 import { after, before, describe, test } from "node:test";
 
 import { RobotsTxtFile } from "@crawlee/utils";
+import { chromium } from "playwright-core";
 
 import { crawlSite, MAX_IN_FLIGHT, NAVIGATION_TIMEOUT_SECS, USER_AGENT } from "./crawl-site.mjs";
 import { CARE_GUIDE, CARE_SHEET, PDF, startFixtureSite } from "./fixture-site.mjs";
@@ -115,6 +116,16 @@ describe("a crawl of the fixture site", () => {
     assert.equal(route("/staff").page, undefined);
   });
 
+  test("holds a request to another site that redirects onto this one to robots.txt", () => {
+    assert.ok(site.offSiteRequests.some((request) => request.path === "/widget.js"), "the catalog never asked the second site for its script, so nothing redirected onto the site");
+    assert.deepEqual(site.requests.map((request) => request.path).filter((pathname) => pathname.startsWith("/private/")), [], "a redirect from the second site sent the crawl into a path robots.txt disallows");
+  });
+
+  test("reports why a page went unread when the site drops its connection, not only that the browser could not load it", () => {
+    assert.equal(route("/kite-cam").status, "unread");
+    assert.match(route("/kite-cam").reason, /socket hang up|ECONNRESET/);
+  });
+
   test("opens no event stream or WebSocket to the site, which would hold a slot as long as its page is open", () => {
     assert.ok(site.requests.some((request) => request.path === "/api/stock"), "the catalog's script never ran, so it opened nothing");
     assert.deepEqual(site.requests.map((request) => request.path).filter((pathname) => pathname === "/events" || pathname === "/live/socket"), []);
@@ -169,7 +180,7 @@ test("a crawl keeps at most a few requests in flight at a time, the browser's ow
     // Assert
     assert.ok(asked("/live/data") > MAX_IN_FLIGHT, "the live page never asked for more data than the crawl has slots, so none of its requests waited when it closed");
     assert.equal(report.counts.pages_read, 8 + extraPages, "the crawl did not read every page");
-    assert.deepEqual(report.routes.filter((entry) => entry.status === "unread").map((entry) => new URL(entry.url)).map((url) => url.pathname + url.search).sort(), ["/docs/old-price-list.pdf", "/loop?check=1", "/private/notes", "/staff"]);
+    assert.deepEqual(report.routes.filter((entry) => entry.status === "unread").map((entry) => new URL(entry.url)).map((url) => url.pathname + url.search).sort(), ["/docs/old-price-list.pdf", "/kite-cam", "/loop?check=1", "/private/notes", "/staff"]);
     for (let number = 1; number <= extraPages; number += 1) {
       assert.equal(asked(`/more/${number}`), 1, `/more/${number} was not read at its first navigation`);
     }
@@ -203,6 +214,37 @@ test("the page limit counts pages read, not redirects, and reports every page pa
     assert.ok(past.length > 0, "no page was left past the limit, so the limit was never reached");
     assert.deepEqual(report.routes.filter((entry) => entry.kind === "page" && entry.status === "found").map((entry) => entry.url), [], "a page was left with no outcome");
   } finally {
+    await site.close();
+    await rm(outDir, { recursive: true, force: true });
+  }
+});
+
+test("a page counts against the page limit once it is read, so one read again after its reading failed counts once", async () => {
+  // Arrange
+  const site = await startFixtureSite();
+  const outDir = await mkdtemp(path.join(os.tmpdir(), "goblin-crawl-"));
+  const browser = await chromium.launch({ channel: "chrome", headless: true });
+  const pagePrototype = Object.getPrototypeOf(await browser.newPage());
+  await browser.close();
+  const { content } = pagePrototype;
+  // Each page's HTML cannot be read the first time, as a page's cannot when
+  // it navigates while it is read, such as one a meta refresh moves on.
+  const failed = new Set();
+  pagePrototype.content = async function () {
+    if (failed.has(this.url())) return content.call(this);
+    failed.add(this.url());
+    throw new Error("page.content: Execution context was destroyed, most likely because of a navigation");
+  };
+
+  try {
+    // Act
+    const report = await crawlSite({ startUrl: site.url, outDir, maxPages: 1 });
+
+    // Assert
+    assert.ok(failed.size > 0, "no page's HTML was asked for, so no reading failed");
+    assert.equal(report.counts.pages_read, 1, "a page whose reading failed counted against the limit, so fewer pages than the limit were read");
+  } finally {
+    pagePrototype.content = content;
     await site.close();
     await rm(outDir, { recursive: true, force: true });
   }

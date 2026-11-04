@@ -2,7 +2,7 @@
 // goblin-crawl command, built on Crawlee, which finds every route and file of
 // a site and reads each page as headless Chrome draws it, obeying robots.txt,
 // a few requests at a time, under a user agent that names it
-// (docs/crawler.md). The home keeps it in connectors\crawler, its packages
+// (docs/crawler.md). The home keeps it in caches\crawler, its packages
 // installed from the lockfile the build ships, and a goblin's terminal finds
 // it on PATH unless the goblin's brief leaves it out.
 package crawler
@@ -49,9 +49,11 @@ var shims = map[string]string{
 // packages the connector runs on.
 var installedPackage = filepath.Join("node_modules", "@crawlee", "playwright", "package.json")
 
-// Dir is where the home keeps the connector.
+// Dir is where the home keeps the connector: among its caches, which no
+// checkout tracks, so a home that is a checkout keeps its connectors folder as
+// git has it.
 func Dir(homeRoot string) string {
-	return filepath.Join(homeRoot, "connectors", Name)
+	return filepath.Join(homeRoot, "caches", Name)
 }
 
 // BinDir is the folder of Command, which a goblin's terminal puts on PATH.
