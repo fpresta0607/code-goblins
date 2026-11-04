@@ -128,6 +128,7 @@ The supervisor reuses the existing monitor, watch signal signatures, wake queue,
 One Windows filesystem watcher consumes the spool, with a two-second recovery interval for missed notifications.
 If the native-inbox state folder disappears, ingestion or the next board update recreates it and names the repair on the board; earlier hook events may be missing.
 If that folder cannot be read or recreated, the board reports the folder problem and delayed hook events while other task updates and reconciliation continue, and ingestion resumes when access returns without restarting serve.
+An event moved out of the folder while ingestion reads it, as setting the inbox's events aside in another folder does, has left the inbox: that pass takes the rest and reports no error.
 One slow reconciliation pass runs each minute; there is no browser-driven task polling engine.
 Unresolved tasks continue reconciling after SessionEnd, after becoming ready, and after their native session is retired.
 Verified terminal tasks leave that polling path until new session activity supplies a reason to reevaluate.

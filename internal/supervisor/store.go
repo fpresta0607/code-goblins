@@ -1208,6 +1208,12 @@ func (s *Store) Ingest() ([]nativehook.Event, error) {
 			r.err = errors.New("oversized event")
 		} else {
 			data, readErr := fsx.ReadFile(r.path)
+			if errors.Is(readErr, os.ErrNotExist) {
+				// It left the inbox after the listing, as the CFO moved the
+				// inbox's events to a quarantine folder while an intake read
+				// them (#1625): it is no longer the intake's to take.
+				continue
+			}
 			if readErr != nil {
 				return nil, readErr
 			}
