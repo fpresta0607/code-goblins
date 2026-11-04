@@ -214,6 +214,15 @@ async function quiet(page: Page) {
   await expect.poll(() => page.evaluate(() => (window as unknown as Watcher).quiet())).toBeGreaterThan(600);
 }
 
+// watchStill watches the list while he reads still for this long and at
+// least twenty frames, as a loaded machine's WebKit can draw none for a while.
+async function watchStill(page: Page, ms: number) {
+  await watcher(page);
+  await page.waitForTimeout(ms);
+  await expect.poll(() => page.evaluate(() => (window as unknown as Watcher).watched().frames.length)).toBeGreaterThanOrEqual(20);
+  return watched(page);
+}
+
 // stillness is the most the row under the list's top edge in the first frame
 // moved on screen in any frame after.
 function stillness(frames: Frame[]) {
@@ -264,9 +273,7 @@ export async function readUpWhileStreaming(page: Page, reading: Reading) {
   expect(scrolled.rowsDrawn.length).toBeGreaterThan(0);
   expect({ writes: whileScrolling(scrolled.writes), isStill: moved(scrolled) <= 1 }).toEqual({ writes: [], isStill: true });
   await quiet(page);
-  await watcher(page);
-  await page.waitForTimeout(1200);
-  const read = await watched(page);
+  const read = await watchStill(page, 1200);
   expect({ writes: read.writes, rowsDrawn: read.rowsDrawn, isStill: stillness(read.frames) <= 1 }).toEqual({ writes: [], rowsDrawn: [], isStill: true });
   await page.getByRole("button", { name: "Jump to latest" }).click();
   await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
@@ -288,9 +295,7 @@ export async function leaveEndWhileStreaming(page: Page, leave: (talk: Locator) 
   await leave(talk);
   await quiet(page);
   await page.evaluate(() => (window as unknown as Watcher).startStream());
-  await watcher(page);
-  await page.waitForTimeout(800);
-  const read = await watched(page);
+  const read = await watchStill(page, 800);
   expect({ writes: read.writes, isStill: stillness(read.frames) <= 1 }).toEqual({ writes: [], isStill: true });
   await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
   await stop();
