@@ -972,6 +972,59 @@ func TestAGapInThePassesStartsTheBlindSpellAgain(t *testing.T) {
 	}
 }
 
+// A reading that starts as the one before it ended, in the same tick of the
+// clock or a few milliseconds before it by a slewed wall clock, is no gap in
+// the passes, so the spell goes on and wakes once it lasted a stall. A clock
+// stepped back hours is a gap, and starts the spell again.
+func TestOnlyAGapOfMinutesEitherWayStartsTheBlindSpellAgain(t *testing.T) {
+	at := time.Date(2026, 11, 4, 1, 30, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name       string
+		passEnded  time.Time
+		spellSince time.Time
+		wakes      int
+	}{
+		{"the last reading ended as this one started", at, at.Add(-PROGRESS_THRESHOLD), 1},
+		{"the last reading ended 5ms after this one started", at.Add(5 * time.Millisecond), at.Add(-PROGRESS_THRESHOLD), 1},
+		{"the last reading ended hours after this one started", at.Add(3 * time.Hour), at, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, h := fleetService(t)
+			for _, id := range []string{"a-task", "b-task", "c-task"} {
+				liveGoblin(t, h, id, h.Root)
+			}
+			head := strings.Repeat("a", 40)
+			service.Options.Progress = &slowGit{progressGit: progressGit{head: head, pushed: head}, isEverySlow: true}
+			if err := writeFleetWakes(h.State, fleetWakes{ProgressUnreadSince: at.Add(-PROGRESS_THRESHOLD), ProgressPassAt: test.passEnded}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err := service.checkFleet(t.Context(), at)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			watched, err := readFleetWakes(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !watched.ProgressUnreadSince.Equal(test.spellSince) {
+				t.Errorf("blind spell since %s, want %s", watched.ProgressUnreadSince.Format(time.RFC3339Nano), test.spellSince.Format(time.RFC3339Nano))
+			}
+			wakes := progressUnreadWakes(t, h)
+			if len(wakes) != test.wakes {
+				t.Fatalf("progress_unread wakes = %d, want %d: %q", len(wakes), test.wakes, wakes)
+			}
+			if test.wakes > 0 && !strings.Contains(wakes[0], "for 20 minutes, since 01:10Z") {
+				t.Errorf("wake %q, want the spell that began at 01:10Z", wakes[0])
+			}
+		})
+	}
+}
+
 // A reading's checks after its progress pass are part of the reading: on a
 // loaded machine its Defender read can hold it for minutes, and the next
 // reading starts as it ends. The gap that starts a blind spell again runs from
