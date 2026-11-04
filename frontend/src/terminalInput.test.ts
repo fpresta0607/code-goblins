@@ -379,6 +379,8 @@ test("a refused input explains itself in plain words", () => {
     ["cannot verify pipeline custody", "cannot verify pipeline custody"],
     ["HEAD is detached at 0123456789ab, so typing is held: pipeline: HEAD has moved since the worktree was made", "This goblin's worktree is on a detached HEAD at 0123456789ab, so typing is held: pipeline: HEAD has moved since the worktree was made. Reconnect to watch the screen."],
     ["HEAD is detached at 0123456789ab, so typing is held: pipeline: state query failed: the gate's database refused it: file is not a database", "This goblin's worktree is on a detached HEAD at 0123456789ab, so typing is held: pipeline: state query failed: the gate's database refused it: file is not a database. Reconnect to watch the screen."],
+    // Windows ends an OS error in a full stop, and the reason keeps only one.
+    ["HEAD is detached at 0123456789ab, so typing is held: pipeline: HEAD history cannot be read: open C:\\wt\\.git\\logs\\HEAD: The system cannot find the file specified.", "This goblin's worktree is on a detached HEAD at 0123456789ab, so typing is held: pipeline: HEAD history cannot be read: open C:\\wt\\.git\\logs\\HEAD: The system cannot find the file specified. Reconnect to watch the screen."],
     ["Native terminal identity changed. Select the current session; input was discarded.", "Native terminal identity changed. Select the current session; input was discarded."],
   ];
   for (const [raw, plain] of cases) assert.equal(typingHeldReason(raw), plain, raw);
@@ -400,6 +402,7 @@ test("a detached HEAD's hold gives the gate's own reason, and no other refusal g
   const cases: [string, string][] = [
     ["HEAD is detached at 0123456789ab, so typing is held: pipeline: HEAD has moved since the worktree was made", "pipeline: HEAD has moved since the worktree was made"],
     ["HEAD is detached at 0123456789ab, so typing is held: cannot verify pipeline custody", "cannot verify pipeline custody"],
+    ["HEAD is detached at 0123456789ab, so typing is held: pipeline: HEAD history cannot be read: open C:\\wt\\.git\\logs\\HEAD: The system cannot find the file specified.", "pipeline: HEAD history cannot be read: open C:\\wt\\.git\\logs\\HEAD: The system cannot find the file specified"],
     ["HEAD is detached at 0123456789ab, so typing is held: ", ""],
     ["pipeline owns this task; use cfo pipeline respond or inspect its delivery evidence", ""],
     ["Git symbolic-ref failed: exit status 128", ""],

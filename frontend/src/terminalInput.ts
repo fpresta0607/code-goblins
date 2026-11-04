@@ -265,7 +265,9 @@ export function endStep(ended: { sized: boolean; onScreen: boolean; resized: boo
 
 // Why an input was refused, in the Overlord's words.
 export const GATE_CUSTODY = /pipeline owns this task|pipeline custody has not been returned/i;
-const DETACHED_HOLD = /^HEAD is detached at (\S+), so typing is held: (.+)$/s;
+// The reason drops its own closing full stop, which a Windows OS error has,
+// as every place that shows it ends the sentence itself.
+const DETACHED_HOLD = /^HEAD is detached at (\S+), so typing is held: (.+?)\.?$/s;
 export function typingHeldReason(raw: string): string {
   if (GATE_CUSTODY.test(raw)) return "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen.";
   const detached = raw.match(DETACHED_HOLD);
