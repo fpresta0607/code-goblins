@@ -10,8 +10,9 @@ Finds every route of the site at <url>, from its sitemaps and from the links
 of every page as headless Chrome draws it, reads each page, and downloads
 every file the pages link to. It writes report.md and report.json, each page's
 facts and HTML under pages/, and the files under files/, in --out, which is
-crawl-<host> in this folder unless named. It obeys robots.txt, fetches at most
-${MAX_IN_FLIGHT} pages or files at a time, and names itself in its user agent.
+crawl-<host> in this folder unless named. It obeys robots.txt, keeps at most
+${MAX_IN_FLIGHT} requests to the site in flight, the browser's own included, and
+names itself in its user agent.
 
 --max-pages  the most pages it reads, ${DEFAULT_MAX_PAGES} unless named; the report names each route past it`;
 

@@ -983,17 +983,10 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
     }
 
-    # Every goblin carries the crawler connector (docs/crawler.md): the build
-    # the home now holds puts it in the home and installs the packages its
-    # lockfile pins with npm ci, which needs Node.js as the skills do. A
-    # failure leaves goblins without a crawler and nothing else.
-    if ($hasNode) {
-        if ((Invoke-Logged $dest @("crawler", "setup")) -ne 0) {
-            Write-Detail ("WARN     {0,-20} the crawler connector was not set up; see the line above" -f "crawler")
-            $failedInstalls += "crawler"
-        }
-    }
-    else {
+    # Every goblin carries the crawler connector (docs/crawler.md), which cfo
+    # install set up above by installing the packages its lockfile pins with
+    # npm ci, so a machine without Node.js has none.
+    if (-not $hasNode) {
         Write-Detail ("PREREQ   {0,-20} connector needs Node.js: winget install OpenJS.NodeJS.LTS" -f "crawler")
         $failedInstalls += "crawler"
     }

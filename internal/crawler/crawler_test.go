@@ -12,12 +12,14 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-// source is a build's connector: each of its files holds version.
+// source is a build's connector: each of its files holds version, and its
+// goblin-crawl.mjs prints the arguments it was started with, as JSON.
 func source(version string) fstest.MapFS {
 	build := fstest.MapFS{}
 	for _, name := range files {
 		build[SourceDir+"/"+name] = &fstest.MapFile{Data: []byte(name + " " + version)}
 	}
+	build[SourceDir+"/goblin-crawl.mjs"] = &fstest.MapFile{Data: []byte("// " + version + "\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)));\n")}
 	return build
 }
 
@@ -71,14 +73,10 @@ func TestSetupInstallsTheBuildsConnectorFromItsLockfileAndOnlyThenItsCommand(t *
 	if runner.sawCommand {
 		t.Error("goblin-crawl was on its folder while npm ci still installed what it runs on")
 	}
+	build := source("v1")
 	for _, name := range files {
-		if data, err := os.ReadFile(filepath.Join(Dir(home), name)); err != nil || string(data) != name+" v1" {
+		if data, err := os.ReadFile(filepath.Join(Dir(home), name)); err != nil || string(data) != string(build[SourceDir+"/"+name].Data) {
 			t.Errorf("%s holds %q, %v, want the build's", name, data, err)
-		}
-	}
-	for name, want := range shims {
-		if data, err := os.ReadFile(filepath.Join(BinDir(home), name)); err != nil || string(data) != want {
-			t.Errorf("%s holds %q, %v, want %q", name, data, err, want)
 		}
 	}
 	if state, err := Check(home, source("v1")); state != Ready || err != nil {
@@ -157,10 +155,12 @@ func TestABriefLeavesTheCrawlerOutOnlyWithConnectorsNone(t *testing.T) {
 	}{
 		{name: "no connectors line", brief: "## Authentication\n\ncredentials: github\nmcp: none\n"},
 		{name: "connectors none", brief: "## Authentication\n\ncredentials: none\nmcp: none\nconnectors: none\n", isLeftOut: true},
-		{name: "connectors crawler", brief: "## Authentication\r\n\r\nconnectors: crawler\r\n"},
+		{name: "connectors none with CRLF", brief: "## Authentication\r\n\r\nconnectors: None\r\n", isLeftOut: true},
 		{name: "a connectors line outside Authentication", brief: "## Task\n\nconnectors: none\n\n## Authentication\n\nmcp: none\n"},
+		{name: "connectors crawler", brief: "## Authentication\n\nconnectors: crawler\n", shouldRefuse: true},
 		{name: "an unknown connector", brief: "## Authentication\n\nconnectors: firecrawl\n", shouldRefuse: true},
-		{name: "two connectors lines", brief: "## Authentication\n\nconnectors: none\nconnectors: crawler\n", shouldRefuse: true},
+		{name: "an empty connectors line", brief: "## Authentication\n\nconnectors:\n", shouldRefuse: true},
+		{name: "two connectors lines", brief: "## Authentication\n\nconnectors: none\nconnectors: none\n", shouldRefuse: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Act

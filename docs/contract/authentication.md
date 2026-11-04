@@ -109,7 +109,7 @@ Any command a goblin starts can read what its terminal carries and spend with it
 - Every relaunch, a resume, a switch or the comeback after a restart, plans the task's MCP configuration again from the project's `.mcp.json`, for the servers its record names and the variables its new terminal carries, and writes it once the old harness has stopped.
   So a server granted since reaches the goblin, and one whose entry was given a value since is withheld.
 - The [crawler connector](../crawler.md) is no credential, so every goblin carries it with no line in its brief.
-  A brief leaves it out with an optional `connectors: none` line beside `credentials:` and `mcp:`; no line, or `connectors: crawler`, carries it, and any other value, or a second line, refuses the brief at `cfo brief ready` and at the spawn.
+  A brief leaves it out with an optional `connectors: none` line beside `credentials:` and `mcp:`; no line carries it, and any other value, or a second line, refuses the brief at `cfo brief ready` and at the spawn.
   The task's record keeps the choice (`connectors=none` in `state/<id>.meta`), so a resume and a switch leave it out too, and a helper of a task that left it out goes without it.
 - No delivery mode needs a stored credential.
   A goblin pushes and opens its pull request through `git` and `gh`, which hold their own login on this machine, and no `cfo` command it runs reads one.

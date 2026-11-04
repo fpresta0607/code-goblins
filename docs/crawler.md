@@ -15,6 +15,9 @@ goblin-crawl <url> [--out <folder>] [--max-pages <n>]
 ```
 
 - It reads the site's `robots.txt` first and never requests a path it disallows.
+  The browser's own requests are held to it too: a request a page's script, style or link makes to a disallowed path is stopped before it is sent.
+  It follows a redirect one step at a time and never into a disallowed path.
+  The browser follows a page's redirect itself, before the crawler sees where it leads, so a page whose redirect lands on a disallowed path is reported unread and nothing of it is kept.
   A site that answers robots.txt with a server error, or not at all, is not crawled, and one that has none, or answers 4xx, allows everything, as the robots.txt standard says.
 - It reads every sitemap robots.txt names and `/sitemap.xml`, sitemap indexes included, on the site only.
 - It opens each page in headless Chrome, waits for the page to settle, and reads it as drawn, so a route only a script links to is found and a page a script fills is read with its content.
@@ -22,24 +25,27 @@ goblin-crawl <url> [--out <folder>] [--max-pages <n>]
 - It follows every link on the site and lists every link off it without following it.
 - It downloads every file the pages link to, such as PDFs, documents, archives and images.
 - It starts no process but its browser: it keeps its requests in flight whatever the machine's load, rather than measuring the load by listing the machine's processes, as Crawlee would.
-- It sends at most 3 requests at a time, pages and downloads alike, as `CodeGoblinsCrawler/<version> (+https://github.com/fpresta0607/code-goblins/blob/main/docs/crawler.md)`, the browser's own requests included.
+- It sends at most 3 requests to the site at a time, pages and downloads alike, as `CodeGoblinsCrawler/<version> (+https://github.com/fpresta0607/code-goblins/blob/main/docs/crawler.md)`, the browser's own requests included.
+  Each request the browser makes to the site, from whichever page it has open, waits its turn and holds it until it ends, its redirects included.
 - It reads at most 500 pages unless `--max-pages` says otherwise.
-- It reports every route it could not read, with why: robots.txt disallows it, the site answered an HTTP error, it redirects off the site, it is past the page limit, or it did not load in time.
+- It reports every route it could not read, with why: robots.txt disallows it, it redirects into a path robots.txt disallows, the site answered an HTTP error, it redirects off the site, it is past the page limit, or it did not load in time.
 
 It writes, in `--out`, which is `crawl-<host>` in the current folder unless named:
 
 - `report.md` and `report.json`: every route with its kind, its status, how it was found and the file it was saved as, then the unread routes, the sitemaps and the links off the site, with counts.
+  A route that redirects within the site is a `redirect` to the page it lands on, which is read, and counted, once.
 - `pages/`: each page's rendered HTML and a JSON file of its facts: title, description, language, headings, text, tables, images, links and layout landmarks.
-- `files/`: every file it downloaded.
+- `files/`: every file it downloaded, each under a name of its own, its number in the crawl before its address.
 
 It exits 0 when it crawled, 1 with one line saying why when nothing could be crawled, and 2 for a usage mistake.
 
 ## How a goblin gets it
 
 - The build carries the connector's code and the lockfile that pins every package it installs, under `connectors\crawler` in this repository.
-- The install runs [`cfo crawler setup`](commands/crawler/setup.md), which writes them into the home's `connectors\crawler`, installs the pinned packages with `npm ci`, and only then writes `goblin-crawl.cmd`, and a `goblin-crawl` script for Git Bash, in `connectors\crawler\bin`.
+- [`cfo install`](commands/install.md), which `install.ps1` and the board's **Update** both run, sets the connector up as [`cfo crawler setup`](commands/crawler/setup.md) does: it writes them into the home's `connectors\crawler`, installs the pinned packages with `npm ci`, and only then writes `goblin-crawl.cmd`, and a `goblin-crawl` script for Git Bash, in `connectors\crawler\bin`.
   An install of a newer build replaces a connector an earlier build installed, and leaves one already the build's alone.
   It needs Node.js, which the fleet's other tools need too, and the crawl needs Chrome.
+  A connector it cannot set up never fails the install: a `Note:` line says goblins go without `goblin-crawl` until `cfo crawler setup` succeeds, and on a machine without Node.js the install script's closing note names `crawler`.
 - `cfo spawn` puts `connectors\crawler\bin` on every goblin's PATH, after its codex guard folder and before the user's PATH, whichever harness it runs, with no word of it in the brief.
   It is a command rather than an MCP server because Claude Code goblins are the only goblins given MCP servers: a command reaches Codex and pi goblins too.
 - Each goblin's **Connections** on the board lists `crawler` under **Default connectors**: provided when its terminal finds `goblin-crawl`, disabled when its brief left it out, and missing when the home never set it up.
@@ -58,8 +64,8 @@ connectors: none
 ```
 
 - `connectors: none` gives the goblin a terminal whose PATH has no `goblin-crawl`, and its task record keeps the choice, so a resume or a switch leaves it out too.
-- No `connectors:` line, or `connectors: crawler`, carries it.
-- Any other value, or a second `connectors:` line, is refused by `cfo brief ready` and by the spawn.
+- No `connectors:` line carries it.
+- Any other value, `connectors: crawler` included, or a second `connectors:` line, is refused by `cfo brief ready` and by the spawn.
 - A helper never carries more than its parent: the helper of a goblin without the crawler goes without it, whatever its own brief says.
 
 ## Why Crawlee
@@ -97,6 +103,6 @@ To move to newer versions, change the pins there, run `npm install` in that fold
 
 ## Its tests
 
-`npm test` in `connectors\crawler` crawls a made-up site, `fixture-site.mjs`, served on loopback: a sitemap index, a page only the sitemap names, a page whose only link to a product page is drawn by its script, a table, an image, a linked PDF, a folder robots.txt disallows and a link off the site.
-The tests check that the crawl finds and reads every route, starts no process but its browser, downloads the PDF byte for byte, never requests what robots.txt disallows, names itself on every request, the browser's included, keeps at most three requests in flight, and lists every unread route in its report.
+`npm test` in `connectors\crawler` crawls a made-up site, `fixture-site.mjs`, served on loopback: a sitemap index, a page only the sitemap names, a page whose only link to a product page is drawn by its script, which also asks for data in a folder robots.txt disallows, a page that redirects within the site and one that redirects into the disallowed folder, a table, an image, linked PDFs, two of them at addresses that differ only in a slash and one that redirects into the disallowed folder, pages that each load a stylesheet and three scripts, and a link off the site.
+The tests check that the crawl finds and reads every route, counts a redirect within the site as the one page it lands on, starts no process but its browser, downloads each PDF byte for byte under a name of its own, never requests what robots.txt disallows, the script's request and the PDF's redirect included, reports the page whose redirect lands in the disallowed folder unread, names itself on every request, the browser's included, keeps at most three requests in flight, the browser's own for each page's scripts included, and lists every unread route in its report.
 CI runs them in the frontend job, and the Go tests prove each harness's goblin finds `goblin-crawl` on its PATH and that `connectors: none` leaves it out.

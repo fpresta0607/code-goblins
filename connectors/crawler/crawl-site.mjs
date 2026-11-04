@@ -13,7 +13,8 @@ import packageJson from "./package.json" with { type: "json" };
 // apart from a person and from a crawler that hides.
 export const USER_AGENT = `CodeGoblinsCrawler/${packageJson.version} (+https://github.com/fpresta0607/code-goblins/blob/main/docs/crawler.md)`;
 
-// At most this many pages or files of the site are fetched at a time.
+// At most this many requests to the site are in flight at a time, the
+// browser's own for a page's scripts, styles and data included.
 export const MAX_IN_FLIGHT = 3;
 
 export const DEFAULT_MAX_PAGES = 500;
@@ -40,6 +41,7 @@ const BLOCKED_RESOURCES = new Set(["image", "media", "font"]);
 const CRAWLEE_MEMORY_MBYTES = 4096;
 
 const MAX_SITEMAPS = 50;
+const MAX_REDIRECTS = 20;
 const FETCH_TIMEOUT_MS = 30_000;
 const SETTLE_TIMEOUT_MS = 5_000;
 
@@ -49,8 +51,8 @@ const SETTLE_TIMEOUT_MS = 5_000;
  * person sees it, and every file those pages link to, downloaded. It writes
  * each page's facts and HTML under outDir, the files under outDir/files, and
  * report.json and report.md, which name every route it could not read and
- * why. It obeys robots.txt and fetches at most MAX_IN_FLIGHT pages or files
- * at a time, as USER_AGENT.
+ * why. It obeys robots.txt, the browser's requests included, and keeps at
+ * most MAX_IN_FLIGHT requests to the site in flight, as USER_AGENT.
  */
 export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES }) {
   const start = new URL(startUrl);
@@ -64,6 +66,7 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
 
   const robots = await readRobots(origin);
   const isAllowed = (url) => robots.file.isAllowed(url, USER_AGENT);
+  const slots = slotsOf(MAX_IN_FLIGHT);
   const routes = new Map();
   const external = new Set();
   let pageCount = 0;
@@ -94,9 +97,41 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
     // persistent context, launches a second Chrome only to read its version.
     launchContext: { launcher: chromium, useChrome: true, useIncognitoPages: true, userAgent: USER_AGENT, launchOptions: { headless: true } },
     browserPoolOptions: { useFingerprints: false },
+    // Every request the browser makes to the site, from any page it has
+    // open, waits for a slot and holds it until it ends, and one robots.txt
+    // disallows is never sent. Playwright follows a redirect without routing
+    // it, so a redirect passes its slot to the request that follows it.
     preNavigationHooks: [
       async ({ page }) => {
-        await page.route("**/*", (route) => (BLOCKED_RESOURCES.has(route.request().resourceType()) ? route.abort() : route.continue()));
+        const held = new Set();
+        const release = (request) => {
+          if (held.delete(request)) slots.release();
+        };
+        page.on("request", (request) => {
+          const from = request.redirectedFrom();
+          if (from && held.delete(from)) held.add(request);
+        });
+        page.on("requestfinished", (request) => {
+          if (!isRedirect(request.existingResponse())) release(request);
+        });
+        page.on("requestfailed", release);
+        page.on("close", () => {
+          for (const request of held) release(request);
+        });
+        await page.route("**/*", async (route) => {
+          const request = route.request();
+          if (BLOCKED_RESOURCES.has(request.resourceType())) return route.abort();
+          if (new URL(request.url()).origin !== origin) return route.continue();
+          if (!isAllowed(request.url())) return route.abort("blockedbyclient");
+          await slots.take();
+          held.add(request);
+          try {
+            await route.continue();
+          } catch (error) {
+            release(request);
+            throw error;
+          }
+        });
       },
     ],
     requestHandler: async ({ request, page, response }) => {
@@ -121,20 +156,29 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
         route.reason = `it redirects off the site, to ${landed.href}`;
         return;
       }
+      if (!isAllowed(landed.href)) {
+        route.status = "unread";
+        route.reason = `it redirects to ${landed.href}, which robots.txt disallows`;
+        return;
+      }
       await page.waitForLoadState("networkidle", { timeout: SETTLE_TIMEOUT_MS }).catch(() => {});
       const facts = await page.evaluate(readPage);
+      // A route that redirects within the site is the page it lands on, read
+      // once.
+      let read = route;
+      if (landed.href !== request.uniqueKey) {
+        route.status = "redirect";
+        route.landed_on = landed.href;
+        read = noteRoute(landed.href, request.uniqueKey);
+      }
       pageCount += 1;
-      const name = pageFileName(pageCount, request.uniqueKey);
+      const name = savedName(pageCount, read.url);
       await writeFile(path.join(outDir, "pages", `${name}.html`), await page.content());
       await writeFile(path.join(outDir, "pages", `${name}.json`), JSON.stringify({ url: request.uniqueKey, landed_on: landed.href, status: status, ...facts }, null, 2));
-      route.status = "read";
-      route.page = `pages/${name}.json`;
-      route.title = facts.title;
-      if (landed.href !== request.uniqueKey) {
-        route.landed_on = landed.href;
-        noteRoute(landed.href, request.uniqueKey).status = "read";
-      }
-      await enqueue(facts.links, request.uniqueKey);
+      read.status = "read";
+      read.page = `pages/${name}.json`;
+      read.title = facts.title;
+      await enqueue(facts.links, read.url);
     },
     errorHandler: async ({ request }, error) => {
       if (isDownload(error)) request.noRetry = true;
@@ -189,7 +233,7 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
     delete route.queued;
   }
   const files = [...routes.values()].filter((route) => route.kind === "file" && route.status === "found");
-  await runPool(files, MAX_IN_FLIGHT, (route) => downloadFile(route, outDir, isAllowed));
+  await runPool(files, MAX_IN_FLIGHT, (route, index) => downloadFile(route, index + 1, outDir, isAllowed));
 
   const report = {
     start_url: start.href,
@@ -235,8 +279,21 @@ function readPage() {
   };
 }
 
-async function fetchAsCrawler(url) {
-  return fetch(url, { headers: { "user-agent": USER_AGENT }, redirect: "follow", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+// fetchAsCrawler asks for url as USER_AGENT and follows its redirects one at
+// a time, never into a path isAllowed refuses.
+async function fetchAsCrawler(url, isAllowed) {
+  let current = url;
+  for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
+    const response = await fetch(current, { headers: { "user-agent": USER_AGENT }, redirect: "manual", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    const location = response.headers.get("location");
+    if (response.status < 300 || response.status >= 400 || !location) return response;
+    await response.body?.cancel();
+    const next = new URL(location, current);
+    next.hash = "";
+    if (!isAllowed(next.href)) throw new Error(`it redirects to ${next.href}, which robots.txt disallows`);
+    current = next.href;
+  }
+  throw new Error(`it redirects more than ${MAX_REDIRECTS} times`);
 }
 
 // readRobots reads the site's robots.txt. A site with none, or one that
@@ -246,7 +303,7 @@ async function readRobots(origin) {
   const url = new URL("/robots.txt", origin).href;
   let response;
   try {
-    response = await fetchAsCrawler(url);
+    response = await fetchAsCrawler(url, () => true);
   } catch (error) {
     throw new Error(`${url} could not be read (${firstLine(error.message)}), so nothing was crawled`);
   }
@@ -275,7 +332,7 @@ async function readSitemaps(robots, origin, isAllowed) {
     }
     let response;
     try {
-      response = await fetchAsCrawler(url);
+      response = await fetchAsCrawler(url, isAllowed);
     } catch (error) {
       read.push({ url, status: "unread", reason: firstLine(error.message) });
       continue;
@@ -307,14 +364,14 @@ async function readSitemaps(robots, origin, isAllowed) {
   return { pages, read };
 }
 
-async function downloadFile(route, outDir, isAllowed) {
+async function downloadFile(route, number, outDir, isAllowed) {
   if (!isAllowed(route.url)) {
     route.status = "unread";
     route.reason = "robots.txt disallows it";
     return;
   }
   try {
-    const response = await fetchAsCrawler(route.url);
+    const response = await fetchAsCrawler(route.url, isAllowed);
     route.status_code = response.status;
     if (!response.ok) {
       route.status = "unread";
@@ -322,7 +379,7 @@ async function downloadFile(route, outDir, isAllowed) {
       return;
     }
     const body = Buffer.from(await response.arrayBuffer());
-    const name = fileName(route.url);
+    const name = savedName(number, route.url);
     await writeFile(path.join(outDir, "files", name), body);
     route.status = "downloaded";
     route.file = `files/${name}`;
@@ -338,12 +395,38 @@ async function runPool(items, size, work) {
   let next = 0;
   const worker = async () => {
     while (next < items.length) {
-      const item = items[next];
+      const index = next;
       next += 1;
-      await work(item);
+      await work(items[index], index);
     }
   };
   await Promise.all(Array.from({ length: Math.min(size, items.length) }, worker));
+}
+
+// slotsOf hands out at most size slots at a time, in the order they are
+// asked for.
+function slotsOf(size) {
+  let free = size;
+  const waiting = [];
+  return {
+    take: () => {
+      if (free > 0) {
+        free -= 1;
+        return Promise.resolve();
+      }
+      return new Promise((resolve) => waiting.push(resolve));
+    },
+    release: () => {
+      const next = waiting.shift();
+      if (next) next();
+      else free += 1;
+    },
+  };
+}
+
+function isRedirect(response) {
+  const status = response?.status() ?? 0;
+  return status >= 300 && status < 400 && Boolean(response.headers().location);
 }
 
 function reportMarkdown(report) {
@@ -359,7 +442,7 @@ function reportMarkdown(report) {
     "",
     "| Route | Kind | Status | Found by | Saved as |",
     "| --- | --- | --- | --- | --- |",
-    ...report.routes.map((route) => `| ${cell(route.url)} | ${route.kind} | ${route.status}${route.reason ? `: ${cell(route.reason)}` : ""} | ${cell(route.found_by.join(", "))} | ${cell(route.page ?? route.file ?? "")} |`),
+    ...report.routes.map((route) => `| ${cell(route.url)} | ${route.kind} | ${route.status}${route.status === "redirect" ? ` to ${cell(route.landed_on)}` : ""}${route.reason ? `: ${cell(route.reason)}` : ""} | ${cell(route.found_by.join(", "))} | ${cell(route.page ?? route.file ?? "")} |`),
     "",
     "## Unread routes",
     "",
@@ -396,12 +479,10 @@ function slugOf(url) {
   return (slug || "index").slice(0, 80);
 }
 
-function pageFileName(index, url) {
-  return `${String(index).padStart(4, "0")}-${slugOf(url)}`;
-}
-
-function fileName(url) {
-  return slugOf(url);
+// savedName is the name a page or a file is saved under: its number in the
+// crawl, which no other has, and its address, to read by.
+function savedName(number, url) {
+  return `${String(number).padStart(4, "0")}-${slugOf(url)}`;
 }
 
 function isDownload(error) {

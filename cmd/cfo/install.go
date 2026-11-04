@@ -14,6 +14,7 @@ import (
 	"time"
 
 	codegoblins "github.com/fpresta0607/code-goblins"
+	"github.com/fpresta0607/code-goblins/internal/crawler"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
@@ -38,7 +39,7 @@ import (
 //	cfo install
 //	cfo install --projects-root <dir>
 //	cfo install --uninstall
-func runInstall(args []string, stdout, stderr io.Writer) int {
+func runInstall(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	// --uninstall is goblins uninstall, which takes its own flags and none
 	// of an install's.
 	if slices.Contains(args, "--uninstall") {
@@ -119,6 +120,14 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	}
 	if serving {
 		board.restart(h, stdout)
+	}
+	// Every goblin carries the crawler connector, so each install, an
+	// update's included, brings the home's to this build's. One it cannot set
+	// up leaves goblins without a crawler and nothing else.
+	if _, err := setUpCrawler(root, runtime); err != nil {
+		fmt.Fprintf(stdout, "%s The crawler connector was not set up (%v), so goblins carry no %s until `cfo crawler setup` succeeds.\n", notePrefix, err, crawler.Command)
+	} else {
+		fmt.Fprintf(stdout, "cfo install: the crawler connector %s is ready in %s\n", crawler.Command, crawler.Dir(root))
 	}
 	fmt.Fprintln(stdout, "Open a new terminal for the environment change to take effect.")
 	return 0

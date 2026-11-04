@@ -18,9 +18,8 @@ const (
 )
 
 // IsLeftOutBy reports whether brief leaves the default connectors out with
-// `connectors: none`. A brief with no connectors line, or one that names the
-// crawler, carries it. A line that names anything else is refused rather
-// than guessed at.
+// `connectors: none`. A brief with no connectors line carries them. A line
+// that says anything else is refused rather than guessed at.
 func IsLeftOutBy(brief string) (bool, error) {
 	section, isStated, isLeftOut := "", false, false
 	for _, line := range strings.Split(strings.ReplaceAll(brief, "\r\n", "\n"), "\n") {
@@ -36,13 +35,10 @@ func IsLeftOutBy(brief string) (bool, error) {
 			return false, errors.New("the brief's " + briefSection + " section has more than one " + briefKey + " line")
 		}
 		isStated = true
-		switch value = strings.TrimSpace(value); {
-		case strings.EqualFold(value, LeftOut):
-			isLeftOut = true
-		case strings.EqualFold(value, Name):
-		default:
-			return false, fmt.Errorf("the brief's %s line names %q, which is no default connector: write %s: %s to carry it, or %s: %s to leave it out", briefKey, value, briefKey, Name, briefKey, LeftOut)
+		if value = strings.TrimSpace(value); !strings.EqualFold(value, LeftOut) {
+			return false, fmt.Errorf("the brief's %s line says %q: write %s: %s to leave the default connectors out, or no %s line to carry them", briefKey, value, briefKey, LeftOut, briefKey)
 		}
+		isLeftOut = true
 	}
 	return isLeftOut, nil
 }

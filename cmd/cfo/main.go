@@ -287,7 +287,8 @@ type commandRuntime struct {
 	// dictationClient downloads dictation's engine and model; nil is the
 	// one the voice package makes, which follows only https.
 	dictationClient *http.Client
-	// crawlerNpm runs npm ci for cfo crawler setup; nil runs the machine's.
+	// crawlerNpm runs npm ci for cfo crawler setup and cfo install; nil runs
+	// the machine's.
 	crawlerNpm execx.Runner
 	// switchAFK asks the supervisor to turn AFK mode on or off, and logAFK to
 	// log a decision made under it; nil is the supervisor's pipe.
@@ -647,7 +648,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		fmt.Fprintf(stdout, "cfo %s\n", version)
 		return 0
 	case "install":
-		return runInstall(args[1:], stdout, stderr)
+		return runInstall(args[1:], stdout, stderr, runtime)
 	case "uninstall":
 		return runUninstall(args[1:], os.Stdin, stdout, stderr)
 	case "doctor":

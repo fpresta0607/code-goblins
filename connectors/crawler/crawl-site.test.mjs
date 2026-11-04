@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import childProcess from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -8,7 +8,7 @@ import { after, before, describe, test } from "node:test";
 import { RobotsTxtFile } from "@crawlee/utils";
 
 import { crawlSite, MAX_IN_FLIGHT, USER_AGENT } from "./crawl-site.mjs";
-import { PDF, startFixtureSite } from "./fixture-site.mjs";
+import { CARE_GUIDE, CARE_SHEET, PDF, startFixtureSite } from "./fixture-site.mjs";
 
 // Every way Node starts a process, watched while the fixture site is crawled.
 const PROCESS_STARTS = ["spawn", "spawnSync", "exec", "execSync", "execFile", "execFileSync", "fork"];
@@ -50,7 +50,7 @@ describe("a crawl of the fixture site", () => {
 
   test("reads every route, those only the sitemap or a script names included", () => {
     const read = report.routes.filter((entry) => entry.kind === "page" && entry.status === "read").map((entry) => new URL(entry.url).pathname).sort();
-    assert.deepEqual(read, ["/", "/about", "/catalog", "/catalog/box-kite", "/workshops"]);
+    assert.deepEqual(read, ["/", "/about", "/catalog", "/catalog/box-kite", "/visit/", "/workshops"]);
     assert.deepEqual(route("/workshops").found_by, ["sitemap"]);
     assert.deepEqual(route("/catalog/box-kite").found_by, [new URL("/catalog", site.url).href]);
   });
@@ -75,11 +75,36 @@ describe("a crawl of the fixture site", () => {
     assert.deepEqual(await readFile(path.join(outDir, pdf.file)), PDF);
   });
 
+  test("saves each file under a name of its own, where two addresses read alike", async () => {
+    const guide = route("/docs/kites/care.pdf");
+    const sheet = route("/docs/kites-care.pdf");
+    assert.notEqual(guide.file, sheet.file);
+    assert.deepEqual(await readFile(path.join(outDir, guide.file)), CARE_GUIDE);
+    assert.deepEqual(await readFile(path.join(outDir, sheet.file)), CARE_SHEET);
+  });
+
+  test("counts a route that redirects within the site as the one page it lands on", async () => {
+    const saved = (await readdir(path.join(outDir, "pages"))).filter((name) => name.endsWith(".json"));
+    assert.equal(route("/visit").status, "redirect");
+    assert.equal(route("/visit").landed_on, new URL("/visit/", site.url).href);
+    assert.equal(route("/visit/").status, "read");
+    assert.equal(report.counts.pages_read, saved.length);
+  });
+
   test("obeys robots.txt: a disallowed route is never asked for and is reported unread", () => {
     assert.ok(site.requests.some((request) => request.path === "/robots.txt"), "the crawl never read robots.txt");
-    assert.ok(!site.requests.some((request) => request.path.startsWith("/private/")), "the crawl asked for a route robots.txt disallows");
+    assert.ok(site.requests.some((request) => request.path === "/catalog.js"), "the catalog's script never ran, so it asked for nothing robots.txt disallows");
+    // The browser follows a page's redirect before the crawl sees where it
+    // leads, and the crawl keeps nothing of where it landed.
+    const disallowed = site.requests.map((request) => request.path).filter((pathname) => pathname.startsWith("/private/"));
+    assert.deepEqual(disallowed, ["/private/staff-room"], "the crawl asked for a route robots.txt disallows");
     assert.equal(route("/private/notes").status, "unread");
     assert.equal(route("/private/notes").reason, "robots.txt disallows it");
+    assert.equal(route("/docs/old-price-list.pdf").status, "unread");
+    assert.equal(route("/docs/old-price-list.pdf").reason, `it redirects to ${new URL("/private/price-list.pdf", site.url).href}, which robots.txt disallows`);
+    assert.equal(route("/staff").status, "unread");
+    assert.equal(route("/staff").reason, `it redirects to ${new URL("/private/staff-room", site.url).href}, which robots.txt disallows`);
+    assert.equal(route("/staff").page, undefined);
   });
 
   test("names itself honestly on every request, the browser's own included", () => {
@@ -112,7 +137,7 @@ describe("a crawl of the fixture site", () => {
   });
 });
 
-test("a crawl keeps at most a few requests in flight at a time", async () => {
+test("a crawl keeps at most a few requests in flight at a time, the browser's own included", async () => {
   // Arrange
   const site = await startFixtureSite({ delayMs: 200, extraPages: 12 });
   const outDir = await mkdtemp(path.join(os.tmpdir(), "goblin-crawl-"));
@@ -122,7 +147,8 @@ test("a crawl keeps at most a few requests in flight at a time", async () => {
     const report = await crawlSite({ startUrl: site.url, outDir });
 
     // Assert
-    assert.equal(report.counts.pages_read, 17, "the crawl did not read every page, so it ran less than this test needs");
+    assert.equal(report.counts.pages_read, 18, "the crawl did not read every page, so it ran less than this test needs");
+    assert.ok(site.requests.filter((request) => request.path === "/assets/menu.js").length >= 12, "the browser did not load each extra page's scripts, so this test measured only the crawler's own requests");
     assert.ok(site.maxInFlight() > 1, `the crawl never had two requests in flight, so this test measured nothing (${site.maxInFlight()})`);
     assert.ok(site.maxInFlight() <= MAX_IN_FLIGHT, `the crawl had ${site.maxInFlight()} requests in flight, more than ${MAX_IN_FLIGHT}`);
   } finally {

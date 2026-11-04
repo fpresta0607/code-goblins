@@ -58,6 +58,8 @@ In order, it:
    The same write adds allow rules for the commands that only put an item in front of you in the Command Center (`cfo question`, `cfo run-request`, `cfo review`, `cfo present`, `cfo deliver` and `cfo auth request`), so Claude Code's auto mode approves them without its classifier unless `autoMode.classifyAllShell` is on ([Safety model](../README.md#safety-model) says why these and no others); `settings.json.cfo-install.rules` beside the file records which ones it added, for the uninstall.
    Windows then starts Code Goblins at login, in the tray, which brings back what a restart ended, unless Start at login was turned off: the setup's box, `-NoStartAtLogin` given to `install.ps1` run as a file, or `cfo install --start-at-login off`; `-StartAtLogin` and `--start-at-login on` turn it back on.
    The home keeps the choice in `state\start-at-login`, so an update keeps it, and the board's switch and the tray's item change the same setting.
+   The same `cfo install` then sets up the [crawler connector](crawler.md) every goblin carries, as [`cfo crawler setup`](commands/crawler/setup.md) does: it writes the build's connector into the home's `connectors\crawler` and installs the packages its lockfile pins with `npm ci`, which needs Node.js, leaving one the build already installed as it is.
+   A failure never fails the install and leaves goblins without `goblin-crawl` and nothing else: a note says so, `cfo doctor` says how to set it up, and on a machine without Node.js the closing note names `crawler`.
 4. Installs each missing tool the fleet drives: git and gh with winget, for you alone, so neither asks for administrator rights, Claude Code with its own installer, no-mistakes from the release the install script came with, and Codex, pi and the axi tools with npm, which needs Node.js.
    Each npm package is installed at the exact version `install.ps1` pins, so a new release upstream reaches an install only once it is pinned there.
    no-mistakes is the gate every goblin's work passes, so every machine runs the one build `install.ps1` pins: a commit of the fork whose `axi run` takes a gate's intent from a file and the launch selection every gate gives it ([What v6 needs](pipeline.md#what-v6-needs)).
@@ -72,15 +74,12 @@ In order, it:
    A skill whose install fails is tried once more; one that fails again is named in the closing note, and the rest of the install goes on.
 6. Installs pi's native lifecycle hooks, its extension, when pi is installed.
    The fleet's Claude Code and Codex sessions carry theirs in their own launches, so the install writes none into the settings every Claude Code or Codex session on the machine loads.
-7. Sets up the [crawler connector](crawler.md) every goblin carries, with `cfo crawler setup`: the home's own build writes the connector into the home's `connectors\crawler` and installs the packages its lockfile pins with `npm ci`, which needs Node.js.
-   One the build already installed is left as it is.
-   A failure leaves goblins without `goblin-crawl` and nothing else: the closing note names `crawler`, and `cfo doctor` says how to set it up.
-8. Sets up dictation, saying "Setting up dictation": the home's own build, with `cfo dictation setup`, downloads the speech engine and model it pins in `config\voice.json`, 483 MB, keeps each only when it matches its pinned SHA-256 and no program in it links a networking library, and puts them in the home's `caches\voice`, where the board's dictation looks, so the first dictation works at once.
+7. Sets up dictation, saying "Setting up dictation": the home's own build, with `cfo dictation setup`, downloads the speech engine and model it pins in `config\voice.json`, 483 MB, keeps each only when it matches its pinned SHA-256 and no program in it links a networking library, and puts them in the home's `caches\voice`, where the board's dictation looks, so the first dictation works at once.
    The model is Parakeet TDT 0.6B v2 by NVIDIA ([nvidia/parakeet-tdt-0.6b-v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2)), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), converted to ONNX and quantized to int8 by the [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) project, whose release the install downloads unchanged.
    One already there is not downloaded again, and one an earlier build pinned is removed once the new one is in place, so a machine never keeps two models.
    It needs none of the tools, so it runs out of sight from the start of step 4, beside them, and the install waits for it once they are in: on a GitHub runner it took 76 s of a fresh install's 298.
    A failure never fails the install: it notes that dictation finishes setting itself up the first time you dictate, and the log says why.
-9. Adds matching **Code Goblins** shortcuts to your Start menu and your desktop.
+8. Adds matching **Code Goblins** shortcuts to your Start menu and your desktop.
    The desktop shortcut follows Windows' desktop folder, including OneDrive redirection.
    Every install recreates either shortcut if it was removed.
    If either shortcut cannot be created, the install continues, records a `WARN` with the reason in its log, and names the failed shortcut in its closing note.
@@ -88,7 +87,7 @@ In order, it:
    [The desktop window](native-board.md#the-desktop-window) describes how it finds its board.
    Where the home only kept a window it already held, as an install from a release that ships none leaves it, both shortcuts run `goblins --window`, with the console minimized: a window from before this may not open the app when started alone.
    In a home with no window, both shortcuts run `goblins`, the quick start, in a window of its own.
-10. Runs `goblins doctor` into the log, names any tool it could not install in one line, and opens the app; a home with no app runs the [quick start](#the-quick-start) in a window of its own.
+9. Runs `goblins doctor` into the log, names any tool it could not install in one line, and opens the app; a home with no app runs the [quick start](#the-quick-start) in a window of its own.
    The desktop shell opens the window, as a double-click does, so Explorer remains its parent and the board can prove that AFK mode and **Update** are yours.
    If the window is not a Windows program or the desktop shell cannot open it, the install logs why and tries starting it directly; if it cannot open, the existing note points you to Code Goblins in the Start menu.
 

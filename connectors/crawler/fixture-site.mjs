@@ -2,23 +2,39 @@ import http from "node:http";
 import { pathToFileURL } from "node:url";
 
 // A made-up site for the crawler's tests and its live proof: a sitemap index,
-// a page a script draws whose only link to a product page is drawn too, a
-// page only the sitemap names, a linked PDF, and a folder robots.txt
-// disallows. It records every request it is sent, with its user agent, and
-// the most requests it had in flight at once.
+// a page a script draws whose only link to a product page is drawn too, and
+// whose script asks for data robots.txt disallows, a page only the sitemap
+// names, a page that redirects within the site and one that redirects into a
+// disallowed folder, linked PDFs, two of them at addresses that differ only
+// in a slash, one that redirects into a disallowed folder, and a folder
+// robots.txt disallows. It records every request it is sent, with its user
+// agent, and the most requests it had in flight at once.
 
 export const PDF = Buffer.from(
   "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n",
 );
+export const CARE_GUIDE = Buffer.concat([PDF, Buffer.from("% the kite care guide\n")]);
+export const CARE_SHEET = Buffer.concat([PDF, Buffer.from("% the kite care sheet\n")]);
 
 const page = (title, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title><meta name="description" content="${title} at Fernwood Kites"></head><body>${body}</body></html>`;
 
 const NAV = `<header><nav><a href="/">Home</a> <a href="/about">About</a> <a href="/catalog">Catalog</a></nav></header>`;
 
+// What each extra page loads beside itself, as a page of a real site does.
+const ASSETS = `<link rel="stylesheet" href="/assets/site.css"><script src="/assets/menu.js"></script><script src="/assets/cart.js"></script><script src="/assets/search.js"></script>`;
+
+// Each of these answers with a redirect to where it names.
+const REDIRECTS = {
+  "/visit": "/visit/",
+  "/staff": "/private/staff-room",
+  "/docs/old-price-list.pdf": "/private/price-list.pdf",
+};
+
 /**
  * Starts the fixture site on a free local port. Every response waits delayMs.
  * extraPages adds that many pages, /more/1 and on, each linked from the home
- * page, for a crawl with more work than it may do at once.
+ * page and loading a stylesheet and three scripts, for a crawl with more work
+ * than it may do at once.
  */
 export function startFixtureSite({ delayMs = 0, extraPages = 0 } = {}) {
   const requests = [];
@@ -30,16 +46,25 @@ export function startFixtureSite({ delayMs = 0, extraPages = 0 } = {}) {
     "/robots.txt": () => ["text/plain", `User-agent: *\nDisallow: /private/\n\nSitemap: ${origin}/sitemap.xml\n`],
     "/sitemap.xml": () => ["application/xml", `<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><sitemap><loc>${origin}/sitemap-pages.xml</loc></sitemap></sitemapindex>`],
     "/sitemap-pages.xml": () => ["application/xml", `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${["/", "/about", "/workshops"].map((route) => `<url><loc>${origin}${route}</loc></url>`).join("")}</urlset>`],
-    "/": () => ["text/html", page("Fernwood Kites", `${NAV}<main><h1>Fernwood Kites</h1><p>Hand-sewn kites since 1987.</p><p><a href="/docs/price-list.pdf">Price list (PDF)</a> <a href="/private/notes">Staff notes</a> <a href="https://example.org/partner">Our partner</a></p>${extra.map((route) => `<a href="${route}">${route}</a>`).join(" ")}</main><footer>Fernwood Kites, a made-up shop</footer>`)],
+    "/": () => ["text/html", page("Fernwood Kites", `${NAV}<main><h1>Fernwood Kites</h1><p>Hand-sewn kites since 1987.</p><p><a href="/docs/price-list.pdf">Price list (PDF)</a> <a href="/docs/old-price-list.pdf">Last year's price list (PDF)</a> <a href="/docs/kites/care.pdf">Care guide (PDF)</a> <a href="/docs/kites-care.pdf">Care sheet (PDF)</a> <a href="/visit">Visit us</a> <a href="/staff">Staff room</a> <a href="/private/notes">Staff notes</a> <a href="https://example.org/partner">Our partner</a></p>${extra.map((route) => `<a href="${route}">${route}</a>`).join(" ")}</main><footer>Fernwood Kites, a made-up shop</footer>`)],
     "/about": () => ["text/html", page("About", `${NAV}<main><h1>About us</h1><img src="/images/workshop.jpg" alt="The workshop"><table><tr><th>Day</th><th>Hours</th></tr><tr><td>Saturday</td><td>9 to 17</td></tr></table></main>`)],
     "/catalog": () => ["text/html", page("Catalog", `${NAV}<main id="catalog"><h1>Catalog</h1><p>Loading...</p></main><script src="/catalog.js"></script>`)],
-    "/catalog.js": () => ["text/javascript", `document.getElementById("catalog").innerHTML = '<h1>Catalog</h1><ul><li><a href="/catalog/box-kite">Box kite</a></li></ul>';`],
+    "/catalog.js": () => ["text/javascript", `document.getElementById("catalog").innerHTML = '<h1>Catalog</h1><ul><li><a href="/catalog/box-kite">Box kite</a></li></ul>'; fetch("/private/stock.json").catch(() => {});`],
     "/catalog/box-kite": () => ["text/html", page("Box kite", `${NAV}<main><h1>Box kite</h1><p>A kite drawn only by the catalog's script.</p></main>`)],
     "/workshops": () => ["text/html", page("Workshops", `${NAV}<main><h1>Workshops</h1><p>Only the sitemap links here.</p></main>`)],
+    "/visit/": () => ["text/html", page("Visit us", `${NAV}<main><h1>Visit us</h1><p>The shop is open on Saturdays.</p></main>`)],
     "/private/notes": () => ["text/html", page("Staff notes", "<p>robots.txt disallows this page.</p>")],
+    "/private/staff-room": () => ["text/html", page("Staff room", "<p>robots.txt disallows this page.</p>")],
+    "/private/price-list.pdf": () => ["application/pdf", PDF],
     "/docs/price-list.pdf": () => ["application/pdf", PDF],
+    "/docs/kites/care.pdf": () => ["application/pdf", CARE_GUIDE],
+    "/docs/kites-care.pdf": () => ["application/pdf", CARE_SHEET],
+    "/assets/site.css": () => ["text/css", "main { margin: 1rem; }"],
+    "/assets/menu.js": () => ["text/javascript", "window.menu = true;"],
+    "/assets/cart.js": () => ["text/javascript", "window.cart = true;"],
+    "/assets/search.js": () => ["text/javascript", "window.search = true;"],
   };
-  for (const route of extra) routes[route] = () => ["text/html", page(route, `${NAV}<main><h1>${route}</h1></main>`)];
+  for (const route of extra) routes[route] = () => ["text/html", page(route, `${NAV}<main><h1>${route}</h1></main>${ASSETS}`)];
 
   const server = http.createServer((request, response) => {
     const pathname = new URL(request.url, origin).pathname;
@@ -50,6 +75,10 @@ export function startFixtureSite({ delayMs = 0, extraPages = 0 } = {}) {
       inFlight -= 1;
     });
     setTimeout(() => {
+      if (REDIRECTS[pathname]) {
+        response.writeHead(302, { location: REDIRECTS[pathname] }).end();
+        return;
+      }
       const route = routes[pathname];
       if (!route) {
         response.writeHead(404, { "content-type": "text/plain" }).end("not found");

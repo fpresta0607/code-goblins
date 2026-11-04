@@ -10,10 +10,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-// runCrawler is `cfo crawler setup`, which the install runs so every goblin
-// carries the crawler connector: it puts the build's connector in the home
-// and installs the packages its lockfile pins. A connector already the
-// build's is left as it is.
+// runCrawler is `cfo crawler setup`, which sets up the crawler connector
+// every goblin carries as cfo install does: it puts the build's connector in
+// the home and installs the packages its lockfile pins. A connector already
+// the build's is left as it is.
 func runCrawler(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) != 1 || args[0] != "setup" {
 		fmt.Fprintln(stderr, "usage: cfo crawler setup")
@@ -24,11 +24,7 @@ func runCrawler(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	npm := runtime.crawlerNpm
-	if npm == nil {
-		npm = execx.OSRunner{}
-	}
-	found, err := crawler.Setup(context.Background(), h.Root, codegoblins.Crawler, npm)
+	found, err := setUpCrawler(h.Root, runtime)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -39,6 +35,16 @@ func runCrawler(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 	}
 	fmt.Fprintf(stdout, "crawler: ready: %s, in %s\n", crawler.Command, crawler.Dir(h.Root))
 	return 0
+}
+
+// setUpCrawler makes the crawler connector in the home at root this build's,
+// with the npm runtime names, or the machine's.
+func setUpCrawler(root string, runtime commandRuntime) (crawler.State, error) {
+	npm := runtime.crawlerNpm
+	if npm == nil {
+		npm = execx.OSRunner{}
+	}
+	return crawler.Setup(context.Background(), root, codegoblins.Crawler, npm)
 }
 
 // reportCrawler says whether the crawler connector every goblin carries is

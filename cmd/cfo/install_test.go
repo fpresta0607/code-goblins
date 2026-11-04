@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	codegoblins "github.com/fpresta0607/code-goblins"
+	"github.com/fpresta0607/code-goblins/internal/crawler"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
@@ -129,9 +131,23 @@ func installedTree(t *testing.T, dir string) (map[string]string, map[string]stri
 }
 
 // installOnAScratchMachine runs cfo install with args from dir on a machine of
-// its own: a profile, a per-user folder and a user environment in temporary
-// folders. It returns the home it made, the profile and the environment file.
+// its own, whose npm installs the crawler's packages. It returns the home it
+// made, the profile and the environment file.
 func installOnAScratchMachine(t *testing.T, dir string, args ...string) (root, profile, envFile string) {
+	t.Helper()
+	root, profile, envFile = scratchMachine(t, dir)
+	var stdout, stderr bytes.Buffer
+	if code := runInstall(args, &stdout, &stderr, commandRuntime{crawlerNpm: &crawlerPackages{}}); code != 0 {
+		t.Fatalf("cfo install from %s exited %d:\n%s%s", dir, code, stdout.String(), stderr.String())
+	}
+	return root, profile, envFile
+}
+
+// scratchMachine makes dir the working folder of a machine of its own: a
+// profile, a per-user folder and a user environment in temporary folders. It
+// returns the home an install there makes, the profile and the environment
+// file.
+func scratchMachine(t *testing.T, dir string) (root, profile, envFile string) {
 	t.Helper()
 	machine := t.TempDir()
 	profile = filepath.Join(machine, "profile")
@@ -151,12 +167,46 @@ func installOnAScratchMachine(t *testing.T, dir string, args ...string) (root, p
 		t.Setenv(name, "")
 	}
 	t.Chdir(dir)
-
-	var stdout, stderr bytes.Buffer
-	if code := runInstall(args, &stdout, &stderr); code != 0 {
-		t.Fatalf("cfo install from %s exited %d:\n%s%s", dir, code, stdout.String(), stderr.String())
-	}
 	return filepath.Join(local, "CodeGoblins"), profile, envFile
+}
+
+// Every install, an update's included, sets up the crawler connector every
+// goblin carries. One whose npm fails still installs the rest, and says in a
+// note the install script shows that goblins go without the crawler.
+func TestInstallSetsUpTheCrawlerAndGoesOnWithoutIt(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		exitCode int
+		want     crawler.State
+	}{
+		{name: "npm installs the packages", want: crawler.Ready},
+		{name: "npm fails", exitCode: 1, want: crawler.Missing},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			root, _, _ := scratchMachine(t, t.TempDir())
+			npm := &crawlerPackages{exitCode: test.exitCode}
+
+			// Act
+			var stdout, stderr bytes.Buffer
+			code := runInstall(nil, &stdout, &stderr, commandRuntime{crawlerNpm: npm})
+
+			// Assert
+			if code != 0 {
+				t.Fatalf("cfo install exited %d, want 0:\n%s%s", code, stdout.String(), stderr.String())
+			}
+			if _, err := os.Stat(filepath.Join(root, "bin", "cfo.exe")); err != nil {
+				t.Errorf("the install left no bin\\cfo.exe: %v", err)
+			}
+			if state, err := crawler.Check(root, codegoblins.Crawler); state != test.want || err != nil || npm.runs != 1 {
+				t.Errorf("the crawler after the install is %v, %v after %d npm runs, want %v after one", state, err, npm.runs, test.want)
+			}
+			isNoted := strings.Contains(stdout.String(), "Note: The crawler connector was not set up (") && strings.Contains(stdout.String(), "npm error network request failed")
+			if isNoted != (test.exitCode != 0) {
+				t.Errorf("the install noted a crawler it could not set up = %v, want %v:\n%s", isNoted, test.exitCode != 0, stdout.String())
+			}
+		})
+	}
 }
 
 // An install from a build that carries no board would put a page saying the
@@ -173,7 +223,7 @@ func TestInstallRefusesABuildWithoutItsBoard(t *testing.T) {
 
 	// Act
 	var stdout, stderr bytes.Buffer
-	code := runInstall(nil, &stdout, &stderr)
+	code := runInstall(nil, &stdout, &stderr, commandRuntime{})
 
 	// Assert
 	if code != 1 {
@@ -287,7 +337,7 @@ func TestInstallRefusesAStartAtLoginItCannotTake(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 
 			// Act
-			code := runInstall(args, &stdout, &stderr)
+			code := runInstall(args, &stdout, &stderr, commandRuntime{})
 
 			// Assert
 			if code != 2 || !strings.Contains(stderr.String(), "--start-at-login") || stdout.Len() != 0 {

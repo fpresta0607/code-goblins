@@ -113,7 +113,7 @@ func TestASpawnRefusesABriefNamingAConnectorThatIsNone(t *testing.T) {
 	_, err := f.service.Spawn(context.Background(), f.request)
 
 	// Assert
-	if err == nil || !strings.Contains(err.Error(), `names "firecrawl", which is no default connector`) {
+	if err == nil || !strings.Contains(err.Error(), `connectors line says "firecrawl"`) {
 		t.Fatalf("Spawn = %v, want the connectors line refused", err)
 	}
 	if _, readErr := state.ReadTaskMeta(f.stateDir, f.request.ID); !os.IsNotExist(readErr) {
@@ -122,7 +122,8 @@ func TestASpawnRefusesABriefNamingAConnectorThatIsNone(t *testing.T) {
 }
 
 // A helper never carries more than its parent: the helper of a goblin whose
-// brief left the crawler out goes without it, whatever its own brief says.
+// brief left the crawler out goes without it, though its own brief has no
+// connectors line.
 func TestAHelperOfAGoblinWithoutTheCrawlerGoesWithoutIt(t *testing.T) {
 	for _, test := range []struct {
 		name            string
@@ -133,7 +134,6 @@ func TestAHelperOfAGoblinWithoutTheCrawlerGoesWithoutIt(t *testing.T) {
 		{name: "a parent that carries it", helperBrief: "## Authentication\ncredentials: none\nmcp: none\n"},
 		{name: "a parent that carries it and a helper brief that leaves it out", helperBrief: "## Authentication\nconnectors: none\n", shouldBeLeftOut: true},
 		{name: "a parent without it", isParentLeftOut: true, helperBrief: "## Authentication\ncredentials: none\nmcp: none\n", shouldBeLeftOut: true},
-		{name: "a parent without it and a helper brief that names it", isParentLeftOut: true, helperBrief: "## Authentication\nconnectors: crawler\n", shouldBeLeftOut: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
