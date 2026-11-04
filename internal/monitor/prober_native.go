@@ -52,12 +52,14 @@ func (p NativeProber) Inspect(ctx context.Context, meta state.TaskMeta) (Endpoin
 	resume := fmt.Sprintf("goblins resume brings it back in place, resuming its session, as cfo switch %s --harness %s does for it alone", meta.ID, meta.Harness)
 	// One the supervisor's comeback after a restart holds comes back by
 	// itself, so nothing is to be done for it.
-	if comeback, err := state.ReadComeback(p.StateDir); err == nil && comeback.Waiting(meta.ID, meta.SpawnGen) {
+	comeback, err := state.ReadComeback(p.StateDir)
+	isComingBack := err == nil && comeback.Waiting(meta.ID, meta.SpawnGen)
+	if isComingBack {
 		resume = "the machine restarted, and the supervisor brings it back by itself, one goblin at a time as memory allows; nothing is to be done unless its card says it did not come back"
 	}
 	record, err := host.ReadRecord(p.StateDir, meta.ID)
 	if errors.Is(err, fs.ErrNotExist) {
-		return EndpointSample{Verdict: ProbeMissing, Detail: fmt.Sprintf("native terminal %s has no running host; %s", meta.ID, resume)}, nil
+		return EndpointSample{Verdict: ProbeMissing, Detail: fmt.Sprintf("native terminal %s has no running host; %s", meta.ID, resume), IsComingBack: isComingBack}, nil
 	}
 	if err != nil {
 		return unknown(fmt.Sprintf("native terminal %s's host record is unreadable: %v", meta.ID, err)), nil
@@ -86,7 +88,7 @@ func (p NativeProber) Inspect(ctx context.Context, meta state.TaskMeta) (Endpoin
 			dial = dialHost
 		}
 		if dialErr := dial(record); dialErr != nil {
-			return EndpointSample{Verdict: ProbeMissing, Detail: fmt.Sprintf("native terminal %s's host does not answer (%v); %s", meta.ID, dialErr, resume)}, nil
+			return EndpointSample{Verdict: ProbeMissing, Detail: fmt.Sprintf("native terminal %s's host does not answer (%v); %s", meta.ID, dialErr, resume), IsComingBack: isComingBack}, nil
 		}
 		sample := unknown(fmt.Sprintf("native terminal %s's screen is unreadable: %v", meta.ID, err))
 		sample.ReadFailed = true
