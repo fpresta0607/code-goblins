@@ -122,6 +122,10 @@
       "why": "the frontend's own checks cover it, and Go embeds only its build under internal/boardweb/dist"
     },
     {
+      "paths": ["connectors/**"],
+      "why": "the crawler connector's own node tests and the site they crawl, which CI's frontend job runs; the files the build embeds belong to the root package"
+    },
+    {
       "paths": ["tools/build-no-mistakes.ps1"],
       "why": "the release and install workflows run it on GitHub's runners, where it fetches and builds a program, and the install workflow proves the build it makes"
     },

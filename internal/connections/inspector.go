@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/crawler"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -87,7 +88,7 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) Snapshot {
 		for _, name := range manifest.EnvNames() {
 			result.Entries = append(result.Entries, Entry{ID: "credential:" + name, Name: name, Kind: "credential", Status: "unverified", Detail: "Goblin runtime unavailable.", CheckedAt: time.Now().UTC()})
 		}
-		for _, entry := range withheldEntries(meta, nil) {
+		for _, entry := range append(withheldEntries(meta, nil), crawlerEntry(meta, "")) {
 			entry.Status = "unverified"
 			entry.Detail = "Goblin runtime unavailable."
 			entry.Actions = nil
@@ -120,6 +121,7 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) Snapshot {
 		}
 		result.Entries = append(result.Entries, Entry{ID: "credential:" + name, Name: name, Kind: "credential", Status: verdict, Source: "Goblin environment", Detail: detail, Actions: actions, CheckedAt: time.Now().UTC()})
 	}
+	result.Entries = append(result.Entries, crawlerEntry(meta, values["PATH"]))
 	var entries []Entry
 	var err error
 	switch meta.Harness {
@@ -200,6 +202,23 @@ func grantOffered(entry Entry, meta state.TaskMeta) string {
 		return "grant"
 	}
 	return ""
+}
+
+// crawlerEntry is the crawler connector every goblin carries, as the goblin's
+// terminal finds it: provided when goblin-crawl is in a folder of path, its
+// PATH, disabled when its brief left it out, and missing otherwise, which is
+// a home where cfo crawler setup has not run.
+func crawlerEntry(meta state.TaskMeta, path string) Entry {
+	entry := Entry{ID: "connector:" + crawler.Name, Name: crawler.Name, Kind: "connector", Source: "Code Goblins", CheckedAt: time.Now().UTC()}
+	switch {
+	case slices.ContainsFunc(filepath.SplitList(path), crawler.IsCommandIn):
+		entry.Status = "provided"
+	case meta.IsCrawlerLeftOut:
+		entry.Status, entry.Detail = "disabled", "Its brief leaves it out with connectors: none."
+	default:
+		entry.Status, entry.Detail = "missing", crawler.Command+" is not on this goblin's PATH. The CFO installs it with cfo crawler setup."
+	}
+	return entry
 }
 
 var credentialName = regexp.MustCompile(`(?i)(TOKEN|API_KEY|PASSWORD|SECRET|CONNECTION_STRING|DATABASE_URL)$`)

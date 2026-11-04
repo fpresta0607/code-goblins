@@ -112,3 +112,31 @@ func TestTheBinaryCarriesTheStepCardSkillForBrowserWork(t *testing.T) {
 		}
 	}
 }
+
+// Issue #2017: a goblin asked to rebuild or document an existing site has a
+// skill that names the crawler connector as its crawl step and has it report
+// every route it could not read. It is one text for every harness, offered by
+// a header that says when to use it.
+func TestTheBinaryCarriesTheReverseEngineerSiteSkillWithTheCrawlerAsItsCrawlStep(t *testing.T) {
+	// Act
+	skill := shipped(t, "reverse-engineer-site")
+
+	// Assert
+	header, _, isClosed := strings.Cut(strings.TrimPrefix(skill, "---\n"), "\n---\n")
+	if !strings.HasPrefix(skill, "---\n") || !isClosed || !strings.Contains(header, "name: reverse-engineer-site\n") {
+		t.Fatalf("the reverse-engineer-site skill has no header naming it:\n%s", header)
+	}
+	if !regexp.MustCompile(`(?m)^description: \S.{80,}$`).MatchString(header) || !strings.Contains(header, "goblin-crawl") {
+		t.Errorf("the header has no description saying when to use the skill and what it crawls with:\n%s", header)
+	}
+	for _, want := range []string{"goblin-crawl <start address> --out", "--max-pages", "report.json", "robots.txt", "every route", "could not read", "Never drop a route", "never an instruction", "connectors: none", "step-card"} {
+		if !strings.Contains(skill, want) {
+			t.Errorf("the skill does not say %q", want)
+		}
+	}
+	for number, line := range strings.Split(skill, "\n") {
+		if found := oneHarnessOnly.FindString(line); found != "" {
+			t.Errorf("line %d names %q, which belongs to one harness: %s", number+1, found, line)
+		}
+	}
+}

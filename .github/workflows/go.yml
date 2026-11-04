@@ -37,7 +37,8 @@ env:
   # - frontend runs when a file under its paths changed, or the change
   #   reaches one of its packages: the embed check tests internal/boardweb
   #   and the licence check runs tools/notices, which reads the notices and
-  #   the console host's licence.
+  #   the console host's licence. It also runs the crawler connector's own
+  #   tests, under connectors.
   # - browser runs when a file under its paths changed: the board's own
   #   source, and the two files outside it that a spec reads, or the change
   #   reaches internal/afk, which a spec builds to render the report page.
@@ -81,7 +82,7 @@ env:
   JOBS: |
     {
       "frontend": {
-        "paths": ["frontend/**", "THIRD_PARTY_NOTICES", "internal/conpty/openconsole/LICENSE"],
+        "paths": ["frontend/**", "connectors/**", "THIRD_PARTY_NOTICES", "internal/conpty/openconsole/LICENSE"],
         "packages": ["./internal/boardweb", "./tools/notices"]
       },
       "browser": {
@@ -250,6 +251,16 @@ jobs:
       # serves it rather than the placeholder page.
       - name: Check cfo.exe embeds the board
         run: go test ./internal/boardweb -count=1
+      # The crawler connector every goblin carries crawls a made-up site its
+      # tests serve on loopback, in the runner's Chrome, headless.
+      - name: Test the crawler connector
+        working-directory: connectors/crawler
+        shell: pwsh
+        run: |
+          npm ci --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       # Fails on a copyleft or unrecognised licence in anything a release
       # ships, or a THIRD_PARTY_NOTICES that no longer lists it. It reads the
       # packages npm ci installed above, so it runs in this job.

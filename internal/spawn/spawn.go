@@ -284,6 +284,10 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err != nil {
 		return Result{}, err
 	}
+	isCrawlerLeftOut, err := s.crawlerLeftOut(req, admittedBrief)
+	if err != nil {
+		return Result{}, err
+	}
 	preflight, err := s.preflightCredentials(ctx, project, need)
 	if err != nil {
 		return Result{}, err
@@ -399,6 +403,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	result.Meta.GoblinName, result.Meta.GoblinTitle = goblin.Name, goblin.Title
 	result.Meta.Credentials, result.Meta.HasCredentials = recordedServices(preflight.Grant), true
 	result.Meta.MCPServers = need.MCPServers
+	result.Meta.IsCrawlerLeftOut = isCrawlerLeftOut
 	result.Meta.DeliveryHash = deliveryHash
 
 	// Publish metadata as soon as the worktree exists, before the harness can

@@ -1,0 +1,102 @@
+# The crawler connector
+
+Every goblin carries a crawler: `goblin-crawl`, a command on its terminal's PATH that finds every route and file of a site and reads each page as a browser draws it.
+It is the crawl step of the `reverse-engineer-site` skill (`~/.agents/skills/reverse-engineer-site/`), which turns a site a brief names into an inventory a rebuild can start from.
+It needs no paid service, account or key, runs no process while it is idle, and starts headless Chrome only while it crawls.
+
+If you run a site and saw `CodeGoblinsCrawler` in your logs: it is this command, run by a person's agent on their own machine.
+It obeys your robots.txt, sends at most three requests at a time, and says who it is on every request.
+A `Disallow` line for `CodeGoblinsCrawler`, or for every agent, keeps it out.
+
+## What it does
+
+```
+goblin-crawl <url> [--out <folder>] [--max-pages <n>]
+```
+
+- It reads the site's `robots.txt` first and never requests a path it disallows.
+  A site that answers robots.txt with a server error, or not at all, is not crawled, and one that has none, or answers 4xx, allows everything, as the robots.txt standard says.
+- It reads every sitemap robots.txt names and `/sitemap.xml`, sitemap indexes included, on the site only.
+- It opens each page in headless Chrome, waits for the page to settle, and reads it as drawn, so a route only a script links to is found and a page a script fills is read with its content.
+  It loads no image, font or video while it does: it records each image's address and alt text instead, and asks the site for less.
+- It follows every link on the site and lists every link off it without following it.
+- It downloads every file the pages link to, such as PDFs, documents, archives and images.
+- It starts no process but its browser: it keeps its requests in flight whatever the machine's load, rather than measuring the load by listing the machine's processes, as Crawlee would.
+- It sends at most 3 requests at a time, pages and downloads alike, as `CodeGoblinsCrawler/<version> (+https://github.com/fpresta0607/code-goblins/blob/main/docs/crawler.md)`, the browser's own requests included.
+- It reads at most 500 pages unless `--max-pages` says otherwise.
+- It reports every route it could not read, with why: robots.txt disallows it, the site answered an HTTP error, it redirects off the site, it is past the page limit, or it did not load in time.
+
+It writes, in `--out`, which is `crawl-<host>` in the current folder unless named:
+
+- `report.md` and `report.json`: every route with its kind, its status, how it was found and the file it was saved as, then the unread routes, the sitemaps and the links off the site, with counts.
+- `pages/`: each page's rendered HTML and a JSON file of its facts: title, description, language, headings, text, tables, images, links and layout landmarks.
+- `files/`: every file it downloaded.
+
+It exits 0 when it crawled, 1 with one line saying why when nothing could be crawled, and 2 for a usage mistake.
+
+## How a goblin gets it
+
+- The build carries the connector's code and the lockfile that pins every package it installs, under `connectors\crawler` in this repository.
+- The install runs [`cfo crawler setup`](commands/crawler/setup.md), which writes them into the home's `connectors\crawler`, installs the pinned packages with `npm ci`, and only then writes `goblin-crawl.cmd`, and a `goblin-crawl` script for Git Bash, in `connectors\crawler\bin`.
+  An install of a newer build replaces a connector an earlier build installed, and leaves one already the build's alone.
+  It needs Node.js, which the fleet's other tools need too, and the crawl needs Chrome.
+- `cfo spawn` puts `connectors\crawler\bin` on every goblin's PATH, after its codex guard folder and before the user's PATH, whichever harness it runs, with no word of it in the brief.
+  It is a command rather than an MCP server because Claude Code goblins are the only goblins given MCP servers: a command reaches Codex and pi goblins too.
+- Each goblin's **Connections** on the board lists `crawler` under **Default connectors**: provided when its terminal finds `goblin-crawl`, disabled when its brief left it out, and missing when the home never set it up.
+- `cfo doctor` says whether the home's connector is ready, older than the build, or not set up, with the fix.
+
+## Leaving it out
+
+A brief leaves the crawler out with one line in its Authentication section, beside its `credentials:` and `mcp:` lines:
+
+```
+## Authentication
+
+credentials: none
+mcp: none
+connectors: none
+```
+
+- `connectors: none` gives the goblin a terminal whose PATH has no `goblin-crawl`, and its task record keeps the choice, so a resume or a switch leaves it out too.
+- No `connectors:` line, or `connectors: crawler`, carries it.
+- Any other value, or a second `connectors:` line, is refused by `cfo brief ready` and by the spawn.
+- A helper never carries more than its parent: the helper of a goblin without the crawler goes without it, whatever its own brief says.
+
+## Why Crawlee
+
+The connector is a thin command over [Crawlee](https://github.com/apify/crawlee), Apify's crawling library for Node.js, driving the machine's own Chrome through [Playwright](https://github.com/microsoft/playwright).
+Surveyed on 2026-11-03, with stars, licence and latest release read from GitHub:
+
+| Tool | Stars | Licence | Latest release | Windows | Draws JavaScript | Sitemap and link discovery | File downloads | Agent-readable output | Paid service, account or key |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| [Crawlee](https://github.com/apify/crawlee) | 26.3k | Apache-2.0 | v3.18.2, 2026-09-29 | Yes, on Node.js | Yes, through Playwright or Puppeteer | Yes: sitemap and robots.txt helpers, link queueing | Yes | JSON datasets, and the rendered page to read | No |
+| [Crawlee for Python](https://github.com/apify/crawlee-python) | 9.6k | Apache-2.0 | v1.11.0, 2026-10-15 | Yes, on Python | Yes, through Playwright | Yes | Yes | JSON datasets | No |
+| [Crawl4AI](https://github.com/unclecode/crawl4ai) | 86.9k | Apache-2.0 with an added attribution requirement | v0.9.5, 2026-10-14 | Yes, on Python with Playwright's own browsers | Yes | Yes: deep crawls and sitemap seeding | Yes | Markdown and JSON made for language models | No; only its optional model-based extraction takes a model key |
+| [Firecrawl](https://github.com/firecrawl/firecrawl), self-hosted | 198.3k | AGPL-3.0 | v2.11.0, 2026-06-19 | Only in Docker, with Redis and a browser service | Yes | Yes: its map endpoint | PDFs and documents, turned into Markdown | Markdown and JSON | No when self-hosted; its cloud takes an account and a key |
+| [Scrapy](https://github.com/scrapy/scrapy) | 65.2k | BSD-3-Clause | 2.19.0, 2026-09-10 | Yes, on Python | No, without the scrapy-playwright plugin | Yes: sitemap and link-following spiders | Yes: its files pipeline | The items you define, as JSON or CSV | No |
+| [Katana](https://github.com/projectdiscovery/katana) | 17.8k | MIT | v1.8.0, 2026-10-05 | Yes, one prebuilt program | Yes, in its headless Chrome mode | Yes, robots.txt and sitemaps read as sources of routes, which it does not obey | No: it lists file addresses | JSON lines of endpoints, not page content | No |
+| [spider](https://github.com/spider-rs/spider) | 2.8k | MIT | v2.53.9, 2026-10-30 | Yes, built from source with Rust | Yes, when built with its Chrome feature | Yes, with its sitemap feature | Yes, from its command line | HTML, and Markdown through its transformations crate | No |
+| [Playwright MCP](https://github.com/microsoft/playwright-mcp) | 39.1k | Apache-2.0 | v0.0.84, 2026-10-31 | Yes, on Node.js | Yes: it is a browser | No: the agent drives one page at a time | Through the browser | Accessibility snapshots | No |
+| [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp) | 54.7k | Apache-2.0 | v1.12.0, 2026-10-22 | Yes, on Node.js | Yes: it is a browser | No: the agent drives one page at a time | Through the browser | Snapshots and page text | No |
+| [Firecrawl MCP server](https://github.com/firecrawl/firecrawl-mcp-server) | 7.8k | MIT | v3.36.1, 2026-11-03 | Yes, on Node.js | Through Firecrawl | Through Firecrawl | Through Firecrawl | Markdown and JSON | Yes: a Firecrawl key, or a self-hosted Firecrawl |
+| [Fetch MCP server](https://github.com/modelcontextprotocol/servers/tree/main/src/fetch) | 91.8k, for the whole repository | MIT, moving to Apache-2.0 | v2.2.0 of the repository, 2026-10-28 | Yes, on Python | No | No: one address at a time | No | Markdown | No |
+
+Crawlee is the pick because it is the one that does everything the fleet needs where the fleet already runs:
+
+- Its licence lets Code Goblins install it for anyone, with no term beyond Apache-2.0's, and every package its lockfile pins is under MIT, Apache-2.0, ISC, BSD or a licence as permissive.
+  Firecrawl's AGPL and Crawl4AI's added attribution requirement put terms on every user that the fleet would pass on.
+- It runs on Node.js, which every fleet machine has for its other tools, and drives the Chrome the machine already has, so the install downloads no browser and no other runtime.
+  The Python tools would add Python packages and Playwright's own browsers to every machine, and Firecrawl would add Docker.
+- It draws pages a script fills, which Scrapy cannot without a plugin, and its sitemap and robots.txt helpers do the discovery, so the command stays small.
+- It is a library, so the command decides how it behaves: it obeys robots.txt, keeps three requests in flight and names itself, all by default, and starts Chrome only while it crawls.
+  Katana is a strong route finder, but it is built for security reconnaissance and reads robots.txt as a list of places to look.
+- The MCP servers drive a browser one page at a time, or hand the crawl to a hosted service, and an MCP server reaches only Claude Code goblins, where a command on PATH reaches every harness.
+
+The connector pins `@crawlee/playwright`, `@crawlee/utils` and `playwright-core` at exact versions in `connectors\crawler\package.json`, and its lockfile pins everything they bring, as `install.ps1` pins the fleet's other tools.
+To move to newer versions, change the pins there, run `npm install` in that folder so the lockfile follows, and run its tests with `npm test`; the next install brings the new connector to every home.
+
+## Its tests
+
+`npm test` in `connectors\crawler` crawls a made-up site, `fixture-site.mjs`, served on loopback: a sitemap index, a page only the sitemap names, a page whose only link to a product page is drawn by its script, a table, an image, a linked PDF, a folder robots.txt disallows and a link off the site.
+The tests check that the crawl finds and reads every route, starts no process but its browser, downloads the PDF byte for byte, never requests what robots.txt disallows, names itself on every request, the browser's included, keeps at most three requests in flight, and lists every unread route in its report.
+CI runs them in the frontend job, and the Go tests prove each harness's goblin finds `goblin-crawl` on its PATH and that `connectors: none` leaves it out.

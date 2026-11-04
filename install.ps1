@@ -983,6 +983,21 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
     }
 
+    # Every goblin carries the crawler connector (docs/crawler.md): the build
+    # the home now holds puts it in the home and installs the packages its
+    # lockfile pins with npm ci, which needs Node.js as the skills do. A
+    # failure leaves goblins without a crawler and nothing else.
+    if ($hasNode) {
+        if ((Invoke-Logged $dest @("crawler", "setup")) -ne 0) {
+            Write-Detail ("WARN     {0,-20} the crawler connector was not set up; see the line above" -f "crawler")
+            $failedInstalls += "crawler"
+        }
+    }
+    else {
+        Write-Detail ("PREREQ   {0,-20} connector needs Node.js: winget install OpenJS.NodeJS.LTS" -f "crawler")
+        $failedInstalls += "crawler"
+    }
+
     # Dictation works at the first press: the build the home now holds
     # downloads the speech engine and model it pins, keeps each only when it
     # matches its pinned SHA-256, and puts them where dictation looks; one

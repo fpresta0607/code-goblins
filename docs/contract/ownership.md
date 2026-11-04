@@ -70,6 +70,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `cfo home move [--to <dir>] [--apply --plan <digest>]` | [cfo help home move](../commands/home/move.md) |
 | `cfo doctor [--fix]` | [cfo help doctor](../commands/doctor.md) |
 | `cfo dictation setup` | [cfo help dictation setup](../commands/dictation/setup.md) |
+| `cfo crawler setup` | [cfo help crawler setup](../commands/crawler/setup.md) |
 | `cfo auth <project> [--check\|--fix] [--env]` | [cfo help auth](../commands/auth.md) |
 | `cfo auth store [--project <p>] <NAME> [value]` | [cfo help auth store](../commands/auth/store.md) |
 | `cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] [--step "<text>"]... [--message-file <file>] [--env-file <file>] [--plain NAME]... [--label NAME="<words>"]... [--window] [--wait] [NAME...]`, `cfo auth request --wait-on\|--done <card> [--task <id>]`, `cfo auth request --withdraw <card> [--task <id>] --reason "<why>"` | [cfo help auth request](../commands/auth/request.md) |

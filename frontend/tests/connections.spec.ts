@@ -11,6 +11,7 @@ const entries = [
   { id: "mcp:sentry", name: "Sentry", kind: "mcp", status: "withheld", detail: "OAuth-only. Use a token or your own session.", checked_at: checkedAt },
   { id: "service:github", name: "GitHub CLI", kind: "service", status: "connected", checked_at: checkedAt },
   { id: "credential:TEST_TOKEN", name: "TEST_TOKEN", kind: "credential", status: "provided", checked_at: checkedAt },
+  { id: "connector:crawler", name: "crawler", kind: "connector", status: "provided", source: "Code Goblins", checked_at: checkedAt },
 ];
 
 for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844 }]) {
@@ -42,7 +43,8 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     await page.goto("/tests/fixtures/connections.html");
     await page.getByText("Connections", { exact: true }).click();
     const panel = page.getByRole("region", { name: "Connections" });
-    await expect(panel.locator(".connector-card")).toHaveCount(5);
+    await expect(panel.locator(".connector-card")).toHaveCount(6);
+    await expect(panel.getByRole("list", { name: "Default connectors" }).getByRole("listitem").filter({ hasText: "crawler" })).toContainText("Finds and reads every page and file of a site");
     await expect(panel.locator(".connector-trouble")).toHaveCount(1);
     await expect(panel).not.toContainText(/Connected|Withheld/);
     await expect(panel.getByText("TEST_TOKEN", { exact: true })).toBeVisible();

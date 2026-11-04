@@ -27,6 +27,7 @@ func TestHelpReadsOnlyTheRequestedContractWithoutOpeningAHome(t *testing.T) {
 		{"subcommand", []string{"help", "auth", "request"}, "docs/commands/auth/request.md"},
 		{"subcommand without arguments", []string{"help", "gate", "tests-kept"}, "docs/commands/gate/tests-kept.md"},
 		{"setup without arguments", []string{"help", "dictation", "setup"}, "docs/commands/dictation/setup.md"},
+		{"crawler setup", []string{"help", "crawler", "setup"}, "docs/commands/crawler/setup.md"},
 		{"dispatch", []string{"help", "contract", "dispatch"}, "docs/contract/dispatch.md"},
 		{"authentication", []string{"help", "contract", "authentication"}, "docs/contract/authentication.md"},
 		{"worktrees", []string{"help", "contract", "worktrees"}, "docs/contract/worktrees.md"},

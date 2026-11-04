@@ -92,7 +92,7 @@ test("a connector card shows the service's own bundled logo, or its initial on a
 });
 
 test("a connector card says in one line what a known service does, and nothing for an unknown one", () => {
-  for (const [name, about] of [["github", "Repositories, pull requests and Actions"], ["context7", "Current library documentation"], ["openrouter", "Models from many providers"], ["google-report", "Google APIs"], ["acme-internal", ""]]) {
+  for (const [name, about] of [["github", "Repositories, pull requests and Actions"], ["context7", "Current library documentation"], ["openrouter", "Models from many providers"], ["google-report", "Google APIs"], ["crawler", "Finds and reads every page and file of a site"], ["webcrawler-mcp", ""], ["acme-internal", ""]]) {
     assert.equal(connectorAbout(name), about, name);
   }
 });

@@ -114,7 +114,7 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
     <div className="connections-toolbar"><p>{data?.checking || !data ? "Checking connections..." : data.error ? "Check failed" : "Connection health"}</p><button type="button" className="icon-button" aria-label="Recheck connections" disabled={isBusy || !data || data.checking} onClick={() => void refresh()}><Icon name="refresh" /></button></div>
     <ClickFeedback text={feedback} />
     {notice && <div className="connection-notice"><p role="status">{notice}</p>{runId && onRepair && <button type="button" onClick={() => onRepair("run:" + runId)}>Open repair card</button>}{loginURL && <a href={loginURL} target="_blank" rel="noreferrer" onClick={() => { isSignInPending.current = true; }}>Open sign-in</a>}</div>}
-    {[["mcp", "MCP servers"], ["service", "Repository services"], ["credential", "Goblin credentials"]].map(([kind, label]) => {
+    {[["mcp", "MCP servers"], ["connector", "Default connectors"], ["service", "Repository services"], ["credential", "Goblin credentials"]].map(([kind, label]) => {
       // A variable the task does not carry is its service's, whose card offers it.
       const entries = data?.entries.filter((entry) => entry.kind === kind && !(kind === "credential" && entry.status === "withheld")) || [];
       return entries.length > 0 && <div className="connections-group" key={kind}><h4>{label}</h4><ul aria-label={label}>{entries.map((entry) => <ConnectorCard key={entry.id} entry={entry} isCarried={asked.get(entry.id) ?? entry.grant === "revoke"} isBusy={isBusy || !!data?.checking} isChanging={asked.has(entry.id) && !!data?.checking} onFix={(entry, action) => void fix(entry, action)} onToggle={(entry) => void toggle(entry)} />)}</ul></div>;

@@ -18,6 +18,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/codexguard"
+	"github.com/fpresta0607/code-goblins/internal/crawler"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -926,7 +927,8 @@ var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT",
 // way they do. A task's PATH begins with its codex guard folder, then the
 // guard folders the spawning process runs under, the one thing of its own
 // environment a terminal starts with: a rig in a goblin's terminal that
-// spawns a scratch home's goblin keeps the goblin's guard (codexguard).
+// spawns a scratch home's goblin keeps the goblin's guard (codexguard). The
+// crawler folder the launch names follows them, ahead of the user's PATH.
 // Names compare without case, as Windows compares them.
 func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, credentials auth.Result) []string {
 	names := map[string]string{}
@@ -964,13 +966,19 @@ func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, 
 	if id := launch.Env["CFO_TASK_ID"]; id != "" {
 		own = codexguard.Dir(s.StateDir, id)
 	}
+	var path []string
 	if guards := codexguard.Chain(own, os.Getenv(codexguard.Variable)); guards != "" {
 		set(codexguard.Variable, guards)
-		path := guards
+		path = append(path, guards)
+	}
+	if crawlerBin := launch.Env[crawler.PathVariable]; crawlerBin != "" {
+		path = append(path, crawlerBin)
+	}
+	if len(path) > 0 {
 		if userPath := values["PATH"]; userPath != "" {
-			path += string(os.PathListSeparator) + userPath
+			path = append(path, userPath)
 		}
-		set(cmp.Or(names["PATH"], "PATH"), path)
+		set(cmp.Or(names["PATH"], "PATH"), strings.Join(path, string(os.PathListSeparator)))
 	}
 	env := make([]string, 0, len(values))
 	for upper, value := range values {
