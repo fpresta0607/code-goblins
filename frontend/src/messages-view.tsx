@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { message as errorText, reportToCfo, request } from "./api";
 import { copyText } from "./clipboard";
 import { Icon } from "./Icon";
@@ -24,8 +25,12 @@ const MAX_RETRIES = 5;
 // The supervisor says alive while a stream has nothing to send, at least
 // every five seconds, so a stream silent this long stalled.
 const SILENT_MS = 15_000;
-// He reads the newest messages while the list's end is this close.
+// He reads the newest messages again once he scrolls back this close to the
+// list's end.
 const AT_END_PX = 24;
+// His scroll rests once this long passes with no scroll and nothing held
+// down on the list.
+const REST_MS = 250;
 // The page of messages before the first one held is read once he reads up
 // this close to the list's top, so it is there before he reaches it.
 const OLDER_WITHIN_PX = 600;
@@ -94,16 +99,40 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const [isAtEnd, setAtEnd] = useState(true);
   // Whether he reads the end of the list, which then follows new messages;
   // while he reads further up, anchor is the message at the list's top and
-  // how far its top lies below the list's, which stays put. pinnedTo is the
-  // scroll top the list last put itself at to show its end.
+  // how far its top lies below the list's, which stays put, from the scroll
+  // top observedTop the view last saw or put the list at.
   const following = useRef(true);
   // WebKit can clamp the old scroll top while Jump replaces windowed rows,
   // before layout settles at the newly measured end.
   const isJumping = useRef(false);
+  // WebKit lays out a commit that takes rows from the list and restyles
+  // anything under a size container in steps, and pulls the scroll top up on
+  // the way by itself: a reply's first streamed line, which brought its usage
+  // to the box, took a phone off the live end. So take draws each stream
+  // update at once, where it just found his scroll, and no scroll position
+  // the list finds while it draws is his.
+  const isTaking = useRef(false);
   const anchor = useRef<{ id: string; offset: number } | null>(null);
-  const pinnedTo = useRef(-1);
   const observedTop = useRef<number | null>(null);
   const reconcile = useRef<() => void>(() => {});
+  // The room above the rows drawn stands for the rows it holds at the
+  // window's heights. A row drawn into it, and while he scrolls anything else
+  // that moves above him, takes its room from it, so the rows below stay
+  // where he reads them and the view writes no scroll position: a browser
+  // carrying his scroll on drops one written meanwhile, as Chromium does on
+  // its way to where a key's or a wheel's smooth scroll or a dragged
+  // scrollbar set out for, and the rows jump by what their estimates missed.
+  // roomHeights is the window's heights the room stands for when it was last
+  // laid out, roomShift how far the room stands from them, and roomTop the
+  // message drawn first then. The room's style draws its window's heights
+  // with the rows and takes its shift from --room-shift, and is never read
+  // back, as Chromium gives it to six significant digits.
+  const roomHeights = useRef(0);
+  const roomShift = useRef(0);
+  const roomTop = useRef("");
+  const isScrolling = useRef(false);
+  const isPressed = useRef(false);
+  const restTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // The page holds only the rows within reach of where he reads
   // (message-window.ts): rowHeights is each drawn row's measured height with
   // the gap after it, by its message's id, and view where he reads, kept only
@@ -154,6 +183,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // the rest unread until the stream's next page, the first a reconnect sends.
   const readingOlder = useRef(false);
   const olderFailures = useRef({ count: 0, at: 0 });
+  // An older page that arrives while he scrolls waits for his scroll to rest:
+  // read in above him then, it would move the list by a scroll position his
+  // scroll drops.
+  const olderWaiting = useRef<(() => void) | null>(null);
   const onChildValue = useRef(onChild);
   const address = useCallback((extra: Record<string, string>) => {
     const params = new URLSearchParams(query);
@@ -194,10 +227,17 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       const next = { ...latest.current, ...change(latest.current) };
       latest.current = next;
       reconcile.current();
-      if (following.current) setHeld(next);
-      setComposing((prior) => composerOf(prior, next));
-      setReconnecting(false);
-      setPhase("live");
+      isTaking.current = true;
+      try {
+        flushSync(() => {
+          if (following.current) setHeld(next);
+          setComposing((prior) => composerOf(prior, next));
+          setReconnecting(false);
+          setPhase("live");
+        });
+      } finally {
+        isTaking.current = false;
+      }
     };
     const invalid = () => {
       close(UNREAD);
@@ -233,26 +273,79 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
 
   // settle keeps the list where he reads it after anything moved its
   // contents: at its end while he follows it, or else with the message at its
-  // top where it was.
+  // top where it was, by the room above the rows drawn while he scrolls and
+  // by the scroll position once he rests.
   const settle = useCallback(() => {
-    const box = list.current;
-    if (!box || !shownValue.current) return;
+    const box = list.current, rows = items.current;
+    if (!box || !rows || !shownValue.current) return;
+    const estimated = roomHeights.current, room = estimated + roomShift.current;
+    const kept = anchor.current;
+    const row = !following.current && kept && [...rows.querySelectorAll<HTMLElement>(":scope > [data-message]")].find((each) => each.dataset.message === kept.id);
+    if (kept && row && observedTop.current !== null) {
+      // How far the message he reads moved in the list's content since the
+      // view noted it, whatever his scroll did meanwhile.
+      const change = row.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - kept.offset - observedTop.current;
+      if (isScrolling.current && estimated > 0 && room - change >= 0) {
+        if (Math.abs(change) > .5) {
+          roomShift.current -= change;
+          rows.style.setProperty("--room-shift", roomShift.current + "px");
+        }
+      } else {
+        // At rest the room gives back what it lent the rows drawn into it, so
+        // it can lend the next scroll's, and once no row is left above it,
+        // what it holds beyond them. The scroll position takes that and
+        // whatever else moved, and the room keeps what the scroll position
+        // cannot take, on its whole pixels or at its ends.
+        const owed = isScrolling.current ? 0 : estimated > 0 ? Math.min(roomShift.current, 0) : roomShift.current;
+        const moving = change - owed;
+        let moved = 0;
+        if (Math.abs(moving) > .5) {
+          const top = box.scrollTop;
+          box.scrollTop = top + moving;
+          moved = box.scrollTop - top;
+          observedTop.current += moved;
+        }
+        roomShift.current = Math.max(0, room - change + moved) - estimated;
+        rows.style.setProperty("--room-shift", roomShift.current + "px");
+      }
+    }
     reconcile.current();
     if (following.current) {
+      roomShift.current = 0;
+      rows.style.setProperty("--room-shift", "0px");
       box.scrollTo({ top: box.scrollHeight, behavior: "instant" });
-      pinnedTo.current = box.scrollTop;
       observedTop.current = box.scrollTop;
       isJumping.current = false;
-      return;
     }
-    const kept = anchor.current;
-    const row = kept && [...box.querySelectorAll<HTMLElement>("[data-message]")].find((each) => each.dataset.message === kept.id);
-    if (kept && row) {
-      const change = row.getBoundingClientRect().top - box.getBoundingClientRect().top - kept.offset;
-      if (Math.abs(change) > .5) box.scrollTop += change;
-    }
-    observedTop.current = box.scrollTop;
   }, []);
+  // restLater counts his scroll at rest once REST_MS pass with no scroll and
+  // nothing held down on the list, a dragged scrollbar included, and settles
+  // the list then.
+  const restLater = useCallback(() => {
+    clearTimeout(restTimer.current);
+    restTimer.current = setTimeout(() => {
+      if (isPressed.current) return;
+      isScrolling.current = false;
+      const older = olderWaiting.current;
+      olderWaiting.current = null;
+      older?.();
+      settle();
+    }, REST_MS);
+  }, [settle]);
+  useEffect(() => {
+    const release = () => {
+      if (!isPressed.current) return;
+      isPressed.current = false;
+      restLater();
+    };
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", release);
+    return () => {
+      clearTimeout(restTimer.current);
+      window.removeEventListener("pointerup", release);
+      window.removeEventListener("pointercancel", release);
+    };
+  }, [restLater]);
 
   const readOlder = useCallback(() => {
     const first = heldValue.current.messages[0];
@@ -262,15 +355,19 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     readingOlder.current = true;
     request(address({ before: String(first.seq), conversation })).then((value) => {
       const page = parsePage(value);
-      readingOlder.current = false;
       olderFailures.current = { count: 0, at: 0 };
-      // A page of a conversation the view no longer shows is dropped.
-      if (page.conversation !== conversation || heldValue.current.conversation !== conversation || latest.current.conversation !== conversation || heldValue.current.messages[0]?.id !== first.id || heldValue.current.messages[0]?.seq !== first.seq || latest.current.messages[0]?.id !== first.id || latest.current.messages[0]?.seq !== first.seq) return;
-      reconcile.current();
-      const longer = { ...latest.current, ...olderMessages(latest.current, page) };
-      latest.current = longer;
-      setComposing((prior) => composerOf(prior, longer));
-      setHeld((prior) => prior.conversation === conversation && latest.current.conversation === conversation && prior.messages[0]?.id === first.id && prior.messages[0]?.seq === first.seq ? { ...prior, ...olderMessages(prior, page) } : prior);
+      const readIn = () => {
+        readingOlder.current = false;
+        // A page of a conversation the view no longer shows is dropped.
+        if (page.conversation !== conversation || heldValue.current.conversation !== conversation || latest.current.conversation !== conversation || heldValue.current.messages[0]?.id !== first.id || heldValue.current.messages[0]?.seq !== first.seq || latest.current.messages[0]?.id !== first.id || latest.current.messages[0]?.seq !== first.seq) return;
+        reconcile.current();
+        const longer = { ...latest.current, ...olderMessages(latest.current, page) };
+        latest.current = longer;
+        setComposing((prior) => composerOf(prior, longer));
+        setHeld((prior) => prior.conversation === conversation && latest.current.conversation === conversation && prior.messages[0]?.id === first.id && prior.messages[0]?.seq === first.seq ? { ...prior, ...olderMessages(prior, page) } : prior);
+      };
+      if (isScrolling.current) olderWaiting.current = readIn;
+      else readIn();
     }).catch((error: unknown) => {
       readingOlder.current = false;
       olderFailures.current = { count: olderFailures.current.count + 1, at: Date.now() };
@@ -296,16 +393,47 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const spans = drawnSpans(drawn, rowAt(selected?.from ?? ""), rowAt(selected?.to ?? ""), selected?.isCollapsed ?? true);
   const heightOf = (start: number, end: number) => offsets[end] - offsets[start];
 
+  // The room above the rows drawn holds the window's heights of the rows it
+  // stands for, never less than nothing. A row drawn into it from above lays
+  // out at its own height where the room held the window's, an estimate until
+  // the row is measured, so the room keeps the difference and nothing below
+  // moves for it. The window's heights are drawn with the rows they stand for,
+  // in the same commit, so nothing that lays the list out before this runs
+  // finds rows gone from it without their room.
+  const estimatedRoom = heightOf(0, spans[0].start);
+  useLayoutEffect(() => {
+    const rows = items.current;
+    if (!rows) return;
+    const drawnRows = [...rows.querySelectorAll<HTMLElement>(":scope > [data-message]")];
+    const wasFirst = drawnRows.findIndex((row) => row.dataset.message === roomTop.current);
+    if (!following.current && wasFirst > 0) {
+      const gap = parseFloat(getComputedStyle(rows).rowGap) || 0;
+      for (const row of drawnRows.slice(0, wasFirst)) {
+        const at = rowIndices.get(row.dataset.message ?? ""), size = row.getBoundingClientRect().height;
+        if (at !== undefined && size) roomShift.current += offsets[at + 1] - offsets[at] - size - gap;
+      }
+    }
+    roomTop.current = drawnRows[0]?.dataset.message ?? "";
+    roomHeights.current = estimatedRoom;
+    roomShift.current = Math.max(roomShift.current, -estimatedRoom);
+    rows.style.setProperty("--room-shift", roomShift.current + "px");
+  }, [estimatedRoom, offsets, rowIndices]);
+
   // remember notes where he reads after he scrolls, draws the rows that come
   // within reach, and reads the older page once he nears the top.
   const rememberPosition = () => {
     const box = list.current;
     if (!box || !shownValue.current) return;
+    const prior = observedTop.current ?? box.scrollTop;
     observedTop.current = box.scrollTop;
-    // A scroll that finds the list where it put itself is its own and keeps
-    // it following: Jump to latest's lands before the rows it draws at the end
-    // are measured, and those taller than their estimate push the end on.
-    const isEnd = box.scrollHeight - box.scrollTop - box.clientHeight <= AT_END_PX || (following.current && box.scrollTop === pinnedTo.current);
+    // Any scroll of his up from the end leaves it at once, as a trackpad's
+    // slow drag or a flick's first frames do, so the next streamed line never
+    // pulls him back down; one that finds the list where it put itself is its
+    // own and keeps it following, as Jump to latest's lands before the rows it
+    // draws at the end are measured and those taller than their estimate push
+    // the end on.
+    const distance = box.scrollHeight - box.scrollTop - box.clientHeight;
+    const isEnd = distance <= 1 || (following.current ? box.scrollTop >= prior : distance <= AT_END_PX && box.scrollTop > prior);
     following.current = isEnd;
     setAtEnd(isEnd);
     if (isEnd) setHeld(latest.current);
@@ -317,7 +445,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       // A jump past the rows drawn finds none of them in view, so the message
       // at the top is read from the rows' heights, where the window places
       // each row.
-      const at = (items.current?.getBoundingClientRect().top ?? top) - top;
+      const at = (items.current?.getBoundingClientRect().top ?? top) - top + roomShift.current;
       const index = Math.min(held.messages.length - 1, messageRowAt(offsets, -at));
       const message = held.messages[index];
       anchor.current = message ? { id: message.id, offset: at + offsets[index] } : null;
@@ -327,16 +455,18 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     if (next.start !== drawn.start || next.end !== drawn.end || isEnd !== isAtEnd) setView(place);
   };
   const remember = () => {
+    isScrolling.current = true;
+    restLater();
     rememberPosition();
     const box = list.current;
     if (!box || !shownValue.current) return;
-    if (box.scrollTop < OLDER_WITHIN_PX) readOlder();
+    if (box.scrollTop - roomShift.current < OLDER_WITHIN_PX) readOlder();
   };
 
   useLayoutEffect(() => {
     reconcile.current = () => {
       const box = list.current;
-      if (!isJumping.current && shown && shownValue.current && box && box.clientHeight && observedTop.current !== null && box.scrollTop !== observedTop.current) rememberPosition();
+      if (!isJumping.current && !isTaking.current && shown && shownValue.current && box && box.clientHeight && observedTop.current !== null && box.scrollTop !== observedTop.current) rememberPosition();
     };
   });
   useLayoutEffect(() => {
@@ -386,7 +516,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     heldValue.current = held;
     settle();
     const box = list.current;
-    if (box && shownValue.current && box.scrollTop < OLDER_WITHIN_PX) readOlder();
+    if (box && shownValue.current && box.scrollTop - roomShift.current < OLDER_WITHIN_PX) readOlder();
   }, [held, rowHeights, drawn.start, drawn.end, isAtEnd, settle, readOlder]);
   useLayoutEffect(() => {
     shownValue.current = shown;
@@ -455,7 +585,6 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     setAtEnd(true);
     setHeld(latest.current);
     box.scrollTo({ top: box.scrollHeight, behavior: "instant" });
-    pinnedTo.current = box.scrollTop;
     observedTop.current = box.scrollTop;
     box.focus({ preventScroll: true });
   };
@@ -540,9 +669,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     {phase === "connecting" && <p className="terminal-connecting" role="status"><span className="terminal-spinner" aria-hidden="true" />Connecting to the messages</p>}
     <div className="conversation-frame">
       <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember}
+        onPointerDown={() => { isPressed.current = true; }}
         onFocus={(event) => { focusedRow.current = event.target.closest<HTMLElement>("[data-message]")?.dataset.message ?? ""; }}
         onBlur={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) focusedRow.current = ""; }}>
-        <div ref={items} className="conversation-items" style={{ paddingTop: heightOf(0, spans[0].start) }}>
+        <div ref={items} className="conversation-items" style={{ paddingTop: `calc(${estimatedRoom}px + var(--room-shift, 0px))` }}>
           {/* One flat list keyed by message, so a row keeps its place in the
               page, its DOM and any selection in it as the window moves. */}
           {spans.flatMap((span, at) => [

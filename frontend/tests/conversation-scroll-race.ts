@@ -68,3 +68,245 @@ export async function delayedScroll(page: Page, owner: "CFO" | "goblin", movemen
   await settled(talk);
   await expect.poll(() => talk.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(1);
 }
+
+// A long history whose rows lie far from the window's estimate, each sized
+// only once it is drawn, and the reply that goes on streaming at its end.
+const question = (seq: number) => ({ id: "m" + seq, seq, at, kind: "prompt", source: "overlord", text: "Question " + seq });
+const answer = (seq: number) => ({ id: "m" + seq, seq, at, kind: "reply", blocks: [{ kind: "text", text: Array.from({ length: 1 + seq % 5 }, (_, line) =>
+  `Paragraph ${line} of answer ${seq}: the gate ran, the tests passed and the board kept its place while he read.`).join("\n\n") }] });
+const HISTORY = Array.from({ length: 300 }, (_, seq) => seq % 2 ? answer(seq) : question(seq));
+const WORKING = { type: "screen", asking: false, open: false, working: true, submission: "", doing: "Cogitating" };
+
+interface Frame { t: number; top: number; rows: { id: string; offset: number }[] }
+interface Written { t: number; kind: string; delta: number; sinceScroll: number }
+interface Watched { frames: Frame[]; writes: Written[]; rowsDrawn: number[] }
+interface Watcher { watch: () => void; watched: () => Watched; quiet: () => number; flick: (distance: number) => Promise<void>; startStream: () => void; stopStream: () => void }
+const watcher = (page: Page) => page.evaluate(() => (window as unknown as Watcher).watch());
+const watched = (page: Page) => page.evaluate(() => (window as unknown as Watcher).watched());
+
+// streamingTalk opens the goblin's messages at their end while its reply
+// streams through the board's message path: the reply that grows and the
+// usage it spends every tenth of a second, the terminal's working line and
+// a board snapshot every third. Each frame notes the scroll top and where
+// the rows in view lie, and each scroll position the page writes to the
+// list is noted, apart from the reader's own: how far it moved the list and
+// how long after the list last scrolled.
+async function streamingTalk(page: Page) {
+  await page.addInitScript(() => {
+    const frames: Frame[] = [], writes: Written[] = [], rowsDrawn: number[] = [];
+    let isWatching = false, scrolled = -Infinity;
+    const isList = (element: Element) => element.classList.contains("conversation");
+    addEventListener("scroll", (event) => { if (event.target instanceof Element && isList(event.target)) scrolled = performance.now(); }, { capture: true, passive: true });
+    const scrollTop = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
+    const written = (box: Element, kind: string, write: () => void) => {
+      if (!isWatching || !isList(box)) {
+        write();
+        return;
+      }
+      const before = scrollTop.get!.call(box), at = performance.now();
+      write();
+      writes.push({ t: at, kind, delta: scrollTop.get!.call(box) - before, sinceScroll: at - scrolled });
+    };
+    Object.defineProperty(Element.prototype, "scrollTop", { configurable: true, get(this: Element) { return scrollTop.get!.call(this); },
+      set(this: Element, value: number) { written(this, "scrollTop", () => scrollTop.set!.call(this, value)); } });
+    for (const name of ["scrollTo", "scrollBy"] as const) {
+      const native = Element.prototype[name] as (this: Element, ...values: unknown[]) => void;
+      Element.prototype[name] = function (this: Element, ...values: unknown[]) {
+        written(this, name, () => native.apply(this, values));
+      } as typeof Element.prototype.scrollTo;
+    }
+    const talk = () => document.querySelector<HTMLElement>(".messages-view:not([hidden]) .conversation");
+    const rows = new MutationObserver((records) => { rowsDrawn.push(...records.map(() => performance.now())); });
+    const note = () => {
+      const box = talk();
+      if (isWatching && box) {
+        const edge = box.getBoundingClientRect();
+        frames.push({ t: performance.now(), top: scrollTop.get!.call(box), rows: [...box.querySelectorAll<HTMLElement>(":scope > .conversation-items > [data-message]")].flatMap((row) => {
+          const place = row.getBoundingClientRect();
+          return place.bottom > edge.top && place.top < edge.bottom ? [{ id: row.dataset.message!, offset: place.top - edge.top }] : [];
+        }) });
+      }
+      requestAnimationFrame(note);
+    };
+    requestAnimationFrame(note);
+    const watcher: Omit<Watcher, "startStream" | "stopStream"> = {
+      watch: () => {
+        frames.length = 0; writes.length = 0; rowsDrawn.length = 0; isWatching = true;
+        rows.disconnect();
+        rows.observe(talk()!.querySelector(".conversation-items")!, { childList: true });
+      },
+      watched: () => ({ frames, writes, rowsDrawn }),
+      quiet: () => performance.now() - scrolled,
+      // His own scroll, as a finger's flick glides the list on a frame at a
+      // time, which the page does not count among its writes.
+      flick: async (distance) => {
+        const box = talk()!;
+        for (let step = distance / 5; Math.abs(step) > 1; step *= .8) {
+          scrollTop.set!.call(box, scrollTop.get!.call(box) + step);
+          await new Promise(requestAnimationFrame);
+        }
+      },
+    };
+    Object.assign(window, watcher);
+  });
+  const relay = await open(page, snapshot(), "", { conversation: "fixture-conversation", messages: HISTORY, more: false });
+  await openGoblin(page);
+  const talk = page.getByRole("log", { name: "Messages of " + NAME });
+  await expect(talk.locator('[data-message="m299"]')).toBeVisible();
+  await settled(talk);
+  relay.say(WORKING);
+  await page.evaluate((board) => {
+    let tick = 0, timer: ReturnType<typeof setInterval> | undefined;
+    const reply = { id: "m300", seq: 300, at: "2026-10-22T09:00:00Z", kind: "reply", blocks: [] as object[] };
+    const send = (type: string, data: object) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type, data: { conversation: "fixture-conversation", ...data } } }));
+    const stream: Pick<Watcher, "startStream" | "stopStream"> = {
+      startStream: () => {
+        timer = setInterval(() => {
+          tick++;
+          const tokens = 1000 + tick * 731;
+          reply.blocks = [...reply.blocks, { kind: "text", text: "Streamed line " + tick + " of the reply that goes on while he reads." }];
+          send("messages", { messages: [{ ...reply }] });
+          send("usage", { usage: { input_tokens: tokens, output_tokens: tokens / 10, cache_read_tokens: tokens * 3, cost_usd: tokens / 100000, context_tokens: tokens, context_window: 200000, model: "claude-opus-5-5", effort: "xhigh" } });
+          if (tick % 3 === 0) window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: { ...board, revision: 2 + tick } }));
+        }, 100);
+      },
+      stopStream: () => clearInterval(timer),
+    };
+    Object.assign(window, stream);
+    stream.startStream();
+  }, snapshot());
+  const says = setInterval(() => relay.say({ ...WORKING, doing: ["Cogitating", "Brewing", "Pondering"][Math.floor(Date.now() / 300) % 3] }), 300);
+  await page.waitForTimeout(400);
+  return { talk, stop: () => { clearInterval(says); return page.evaluate(() => (window as unknown as Watcher).stopStream()); } };
+}
+
+// moved is the most any row in view jumped from one frame to the next: how
+// far it moved within the list's content, less how far the page's own scroll
+// writes moved the list meanwhile. His own scroll moves the scroll top alone,
+// never a row's place in the content, and a row the page moves by as much as
+// it scrolls the list stays where he sees it.
+function moved({ frames, writes }: Watched) {
+  let most = 0;
+  for (let at = 1; at < frames.length; at++) {
+    const written = writes.filter((write) => write.t > frames[at - 1].t && write.t <= frames[at].t).reduce((sum, write) => sum + write.delta, 0);
+    for (const row of frames[at].rows) {
+      const prior = frames[at - 1].rows.find((each) => each.id === row.id);
+      if (prior) most = Math.max(most, Math.abs(row.offset + frames[at].top - prior.offset - frames[at - 1].top - written));
+    }
+  }
+  return most;
+}
+
+// whileScrolling keeps the scroll positions the page wrote while his scroll
+// still moved the list: a browser that animates his scroll drops such a
+// write and shows the shift it paid for, where one written once his scroll
+// rests lands with it in the same frame.
+const whileScrolling = (writes: Written[]) => writes.filter((write) => write.sinceScroll < 200);
+
+// quiet waits until his scroll, and whatever the list writes once it rests,
+// has been still for a while.
+async function quiet(page: Page) {
+  await page.waitForTimeout(400);
+  await expect.poll(() => page.evaluate(() => (window as unknown as Watcher).quiet())).toBeGreaterThan(600);
+}
+
+// stillness is the most the row under the list's top edge in the first frame
+// moved on screen in any frame after.
+function stillness(frames: Frame[]) {
+  const first = frames[0].rows[0];
+  return Math.max(...frames.map((frame) => Math.abs((frame.rows.find((row) => row.id === first.id)?.offset ?? Infinity) - first.offset)));
+}
+
+export type Reading = "wheel" | "keyboard" | "scrollbar" | "flick";
+
+// readUpWhileStreaming scrolls up through rows the window has not drawn yet
+// as the reply streams, then reads still: the rows in view move only as his
+// scroll moves them, and once he rests the stream moves nothing, writes no
+// scroll position and draws no row (the Overlord, 2026-11-03: "As I'm
+// scrolling up, it jitters... Fix that. No jitter.").
+export async function readUpWhileStreaming(page: Page, reading: Reading) {
+  const { talk, stop } = await streamingTalk(page);
+  const box = (await talk.boundingBox())!;
+  // At the end the scrollbar's thumb sits right above its down arrow.
+  const gutter = await talk.evaluate((element: HTMLElement) => element.offsetWidth - element.clientWidth);
+  const thumb = { x: box.x + box.width - gutter / 2, y: box.y + box.height - gutter - 8 };
+  if (reading === "wheel") await talk.hover();
+  if (reading === "keyboard") await talk.focus();
+  if (reading === "scrollbar") {
+    await page.mouse.move(thumb.x, thumb.y);
+    await page.mouse.down();
+  }
+  const steps = { wheel: 24, keyboard: 8, scrollbar: 24, flick: 4 }[reading];
+  for (let step = 0; step < steps; step++) {
+    // Once his first step has left the end, which the list followed until
+    // then, the list moves only as he does.
+    if (step === 1) await watcher(page);
+    if (reading === "wheel") await page.mouse.wheel(0, -160);
+    if (reading === "keyboard") await page.keyboard.press("PageUp");
+    if (reading === "scrollbar") await page.mouse.move(thumb.x, thumb.y - (step + 1) * 4);
+    if (reading === "flick") await page.evaluate(() => (window as unknown as Watcher).flick(-1200));
+    await page.waitForTimeout(reading === "flick" ? 0 : 50);
+  }
+  if (reading === "scrollbar") {
+    await page.waitForTimeout(400);
+    await page.mouse.up();
+  }
+  const scrolled = await watched(page);
+  // His own scroll is how far the scroll top moved, less what the page wrote
+  // to it once his scroll rested between steps.
+  const [first, last] = [scrolled.frames[0], scrolled.frames.at(-1)!];
+  const written = scrolled.writes.filter((write) => write.t > first.t && write.t <= last.t).reduce((sum, write) => sum + write.delta, 0);
+  expect(last.top - first.top - written).toBeLessThan(-2000);
+  expect(scrolled.rowsDrawn.length).toBeGreaterThan(0);
+  expect({ writes: whileScrolling(scrolled.writes), isStill: moved(scrolled) <= 1 }).toEqual({ writes: [], isStill: true });
+  await quiet(page);
+  await watcher(page);
+  await page.waitForTimeout(1200);
+  const read = await watched(page);
+  expect({ writes: read.writes, rowsDrawn: read.rowsDrawn, isStill: stillness(read.frames) <= 1 }).toEqual({ writes: [], rowsDrawn: [], isStill: true });
+  await page.getByRole("button", { name: "Jump to latest" }).click();
+  await expect(talk.locator('[data-message="m300"]')).toBeVisible();
+  await expect.poll(() => talk.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(1);
+  await page.waitForTimeout(300);
+  await expect.poll(() => talk.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(1);
+  await stop();
+}
+
+// leaveEndWhileStreaming moves a few pixels up from the end between two lines
+// of a streaming reply, as a trackpad's slow drag or a flick's first frames
+// do: the list stops following at once, so the next streamed line never
+// pulls him back.
+export async function leaveEndWhileStreaming(page: Page, leave: (talk: Locator) => Promise<void>) {
+  const { talk, stop } = await streamingTalk(page);
+  await page.evaluate(() => (window as unknown as Watcher).stopStream());
+  await settled(talk);
+  await expect.poll(() => talk.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(1);
+  await leave(talk);
+  await quiet(page);
+  await page.evaluate(() => (window as unknown as Watcher).startStream());
+  await watcher(page);
+  await page.waitForTimeout(800);
+  const read = await watched(page);
+  expect({ writes: read.writes, isStill: stillness(read.frames) <= 1 }).toEqual({ writes: [], isStill: true });
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+  await stop();
+}
+
+// startReplyAtEnd sends a reply's first line and the usage it brings to the
+// box at once, as the session's stream does when a reply starts, while the
+// list follows its end: the list stays at its end, with no Jump to latest.
+export async function startReplyAtEnd(page: Page) {
+  await open(page, snapshot(), "", { conversation, messages: HISTORY, more: false });
+  await openGoblin(page);
+  const talk = page.getByRole("log", { name: "Messages of " + NAME });
+  await expect(talk.locator('[data-message="m299"]')).toBeVisible();
+  await settled(talk);
+  await page.evaluate(() => {
+    const send = (type: string, data: object) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type, data: { conversation: "fixture-conversation", ...data } } }));
+    send("messages", { messages: [{ id: "m300", seq: 300, at: "2026-10-22T09:00:00Z", kind: "reply", blocks: [{ kind: "text", text: "The first streamed line of the reply." }] }] });
+    send("usage", { usage: { input_tokens: 1731, output_tokens: 173, cache_read_tokens: 5193, cost_usd: .01731, context_tokens: 1731, context_window: 200000, model: "claude-opus-5-5", effort: "xhigh" } });
+  });
+  await settled(talk);
+  expect(await talk.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(1);
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
+}

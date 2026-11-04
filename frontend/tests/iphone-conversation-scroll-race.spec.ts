@@ -1,5 +1,5 @@
 import { devices, expect, servePages, test } from "./site";
-import { delayedScroll } from "./conversation-scroll-race";
+import { delayedScroll, leaveEndWhileStreaming, readUpWhileStreaming, startReplyAtEnd } from "./conversation-scroll-race";
 import { at, NAME } from "./session-board";
 
 const PRIVATE = "https://pc.example.ts.net:4311";
@@ -44,3 +44,20 @@ for (const update of ["stream", "board"] as const) {
     await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
   });
 }
+
+test("WebKit moves nothing in view while he flicks up through a streaming reply", async ({ page }) => {
+  test.slow();
+  await servePages(page.context(), PRIVATE);
+  await readUpWhileStreaming(page, "flick");
+});
+
+test("WebKit leaves the end a few pixels up before the next streamed line", async ({ page }) => {
+  test.slow();
+  await servePages(page.context(), PRIVATE);
+  await leaveEndWhileStreaming(page, (talk) => talk.evaluate((element) => { element.scrollTop -= 8; }));
+});
+
+test("WebKit keeps following the end when a reply's first line brings its usage", async ({ page }) => {
+  await servePages(page.context(), PRIVATE);
+  await startReplyAtEnd(page);
+});

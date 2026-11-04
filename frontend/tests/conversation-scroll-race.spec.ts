@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "./site";
 import { at, GOBLIN, NAME, open, openGoblin, snapshot } from "./session-board";
-import { delayedScroll } from "./conversation-scroll-race";
+import { delayedScroll, leaveEndWhileStreaming, readUpWhileStreaming } from "./conversation-scroll-race";
 
 for (const owner of ["CFO", "goblin"] as const) {
   for (const movement of ["keyboard", "wheel"] as const) {
@@ -11,6 +11,24 @@ for (const owner of ["CFO", "goblin"] as const) {
     }
   }
 }
+
+// Reading up through rows not drawn yet while a reply streams, at a wide and
+// a narrow desktop's width, by each way a desktop scrolls.
+for (const [reading, width] of [["wheel", 1440], ["keyboard", 820], ["scrollbar", 1440], ["wheel", 820]] as const) {
+  test(`reading up by ${reading} at ${width} px moves nothing in view while a reply streams`, async ({ page }) => {
+    test.slow();
+    await page.setViewportSize({ width, height: 900 });
+    await readUpWhileStreaming(page, reading);
+  });
+}
+
+test("a few pixels up from the end leave it before the next streamed line", async ({ page }) => {
+  test.slow();
+  await leaveEndWhileStreaming(page, async (talk) => {
+    await talk.hover();
+    await page.mouse.wheel(0, -6);
+  });
+});
 
 test("older history keeps the reading anchor when its response precedes scroll delivery", async ({ page }) => {
   const reply = (seq: number) => ({ id: "m" + seq, seq, at, kind: "reply", blocks: [{ kind: "text", text: "Answer " + seq + "\n\nMore to read." }] });
