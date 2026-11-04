@@ -27,14 +27,10 @@ func (r Reader) CanTypeFreshDetached(ctx context.Context, worktree string) error
 	if err != nil {
 		return err
 	}
-	history, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"rev-parse", "--path-format=absolute", "--git-path", "logs/HEAD"}})
+	historyPath, err := headHistory(ctx, worktree)
 	if err != nil {
 		return err
 	}
-	if history.ExitCode != 0 {
-		return errors.New("pipeline: HEAD history cannot be located")
-	}
-	historyPath := strings.TrimSpace(string(history.Stdout))
 	before, err := r.freshHead(ctx, worktree, historyPath)
 	if err != nil {
 		return err
@@ -50,6 +46,36 @@ func (r Reader) CanTypeFreshDetached(ctx context.Context, worktree string) error
 		return errors.New("pipeline: HEAD changed while its gate custody was read")
 	}
 	return nil
+}
+
+// headHistory is the file git keeps worktree's HEAD history in, read from its
+// .git entry with no git started, as readcache's openRepository reads it: a
+// .git folder keeps it, and a .git file names the folder that does. Any other
+// entry is refused.
+func headHistory(ctx context.Context, worktree string) (string, error) {
+	dotGit := filepath.Join(worktree, ".git")
+	info, err := os.Lstat(dotGit)
+	if err != nil {
+		return "", fmt.Errorf("pipeline: HEAD history cannot be located: %w", err)
+	}
+	if info.IsDir() {
+		return filepath.Join(dotGit, "logs", "HEAD"), nil
+	}
+	if !info.Mode().IsRegular() {
+		return "", errors.New("pipeline: HEAD history cannot be located")
+	}
+	raw, err := fsx.ReadFileContext(ctx, dotGit)
+	if err != nil {
+		return "", fmt.Errorf("pipeline: HEAD history cannot be located: %w", err)
+	}
+	gitDir, isLink := strings.CutPrefix(strings.TrimSpace(string(raw)), "gitdir: ")
+	if !isLink || gitDir == "" {
+		return "", errors.New("pipeline: HEAD history cannot be located")
+	}
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(worktree, gitDir)
+	}
+	return filepath.Join(gitDir, "logs", "HEAD"), nil
 }
 
 // freshHead is the one record of worktree's HEAD history, which proves HEAD

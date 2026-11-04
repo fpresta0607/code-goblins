@@ -508,8 +508,8 @@ test("a file the board cannot keep says so over the box under a detached worktre
   const relay = await open(page);
   await page.route("**/api/composer/file**", (route) => route.fulfill({ status: 500, json: { error: "The file could not be kept: no room" } }));
   await openGoblin(page);
-  relay.say({ type: "held", reason: "HEAD is detached at eb020be993b5, and no gate custody can be read for a detached HEAD, so typing is held" });
-  await expect(box(page).locator(".composer-banner")).toHaveText("Detached worktree. Send to queue until a branch is ready.");
+  relay.say({ type: "held", reason: "HEAD is detached at eb020be993b5, so typing is held: pipeline: HEAD has moved since the worktree was made" });
+  await expect(box(page).locator(".composer-banner")).toHaveText("Detached worktree. Send to queue while typing is held: pipeline: HEAD has moved since the worktree was made.");
 
   // Act
   await box(page).locator('input[type="file"]').setInputFiles({ name: "design.txt", mimeType: "text/plain", buffer: Buffer.from("Keep this") });
@@ -517,7 +517,7 @@ test("a file the board cannot keep says so over the box under a detached worktre
   // Assert: the refusal shows over the box, and the note stays on the box's
   // status line.
   await expect(box(page).getByRole("alert")).toHaveText("That file was not added: The file could not be kept: no room");
-  await expect(box(page).getByRole("status")).toHaveText("Detached worktree. Send to queue until a branch is ready.");
+  await expect(box(page).getByRole("status")).toHaveText("Detached worktree. Send to queue while typing is held: pipeline: HEAD has moved since the worktree was made.");
   await expect(box(page).getByRole("list", { name: "Attached files" })).toHaveCount(0);
 });
 

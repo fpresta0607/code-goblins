@@ -182,13 +182,17 @@ async function rowOffers(page: Page, label: string, name: string): Promise<strin
 }
 
 // styleOffers answers the drawings of Modern chat and Terminal in the menu
-// the session's picture opens, and the name of the one it checks, and closes
-// it again.
-async function styleOffers(page: Page): Promise<{ modern: string; terminal: string; checked: string }> {
+// the session's picture opens, the name of the one it checks and the colour
+// of that one's words and of the other's, and closes it again.
+async function styleOffers(page: Page): Promise<{ modern: string; terminal: string; checked: string; colours: { checked: string; other: string } }> {
   const header = page.locator(".context-pane .panel-header");
   await header.getByRole("button", { name: "Chat style", exact: true }).click();
   const drawing = async (name: string) => await header.getByRole("menuitemradio", { name, exact: true }).locator("path").first().getAttribute("d") ?? "";
-  const offers = { modern: await drawing("Modern chat"), terminal: await drawing("Terminal"), checked: await header.getByRole("menuitemradio", { checked: true }).innerText() };
+  const colour = async (checked: boolean) => await header.getByRole("menuitemradio", { checked }).evaluate((item) => getComputedStyle(item).color);
+  const offers = {
+    modern: await drawing("Modern chat"), terminal: await drawing("Terminal"), checked: await header.getByRole("menuitemradio", { checked: true }).innerText(),
+    colours: { checked: await colour(true), other: await colour(false) },
+  };
   await page.keyboard.press("Escape");
   await expect(header.getByRole("menuitemradio")).toHaveCount(0);
   return offers;
@@ -233,6 +237,7 @@ for (const style of ["modern", "classic"] as const) {
           expect(report.tips, name).toEqual([]);
           expect(report.pageScroll, name).toBe(0);
           expect(styles.checked, name + "'s picture checks the style shown").toBe(style === "modern" ? "Modern chat" : "Terminal");
+          expect(styles.colours.checked, name + "'s checked style is drawn apart from the other").not.toBe(styles.colours.other);
           expect(styles.modern, name + "'s styles are drawn apart").not.toBe(styles.terminal);
           expect([styles.modern, styles.terminal], name + "'s Chat is neither style's icon").not.toContain(chatIcon);
           // A phone offers Windows Terminal only while the box shows, as the

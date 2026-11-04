@@ -376,11 +376,11 @@ for (const style of ["modern"]) {
       const relay = await open(page, snapshot(), "rebase onto main", undefined, "A long terminal line should fit the visible terminal width after resizing.\r\n");
       await card(page, NAME).click();
       await expect.poll(() => relay.views).toBeGreaterThan(0);
-      relay.say({ type: "held", reason: "HEAD is detached at eb020be993b5, and no gate custody can be read for a detached HEAD, so typing is held" });
+      relay.say({ type: "held", reason: "HEAD is detached at eb020be993b5, so typing is held: pipeline: HEAD has moved since the worktree was made" });
       await expect(field(page)).toBeVisible();
       // Why messages queue shows once over the box, and goes by itself.
       const note = box(page).locator(".composer-banner");
-      await expect(note).toHaveText("Detached worktree. Send to queue until a branch is ready.");
+      await expect(note).toHaveText("Detached worktree. Send to queue while typing is held: pipeline: HEAD has moved since the worktree was made.");
       const draft = "A draft to retain while the branch is recovered. ".repeat(18);
       await field(page).fill(draft);
       await field(page).focus();
@@ -458,8 +458,8 @@ test("a detached hold said while the Task view shows says so over the box when h
   const views = page.locator(".panel-view-switch");
   await views.getByRole("button", { name: "Task", exact: true }).click();
   await expect(box(page)).toBeHidden();
-  relay.say({ type: "held", reason: "HEAD is detached at eb020be993b5, and no gate custody can be read for a detached HEAD, so typing is held" });
-  await expect(page.locator(`section[aria-label="Messages to ${NAME}"] [role="status"]`)).toHaveText("Detached worktree. Send to queue until a branch is ready.");
+  relay.say({ type: "held", reason: "HEAD is detached at eb020be993b5, so typing is held: pipeline: HEAD has moved since the worktree was made" });
+  await expect(page.locator(`section[aria-label="Messages to ${NAME}"] [role="status"]`)).toHaveText("Detached worktree. Send to queue while typing is held: pipeline: HEAD has moved since the worktree was made.");
   // He stays on the Task view longer than a banner lasts, 4 s and its fade.
   await page.waitForTimeout(5000);
 
@@ -468,5 +468,5 @@ test("a detached hold said while the Task view shows says so over the box when h
 
   // Assert
   await expect(box(page)).toHaveAttribute("data-queues", "");
-  await expect(box(page).locator(".composer-banner")).toHaveText("Detached worktree. Send to queue until a branch is ready.");
+  await expect(box(page).locator(".composer-banner")).toHaveText("Detached worktree. Send to queue while typing is held: pipeline: HEAD has moved since the worktree was made.");
 });

@@ -26,7 +26,7 @@ import { TOUCH_SCREEN } from "./small-screen";
 import { useTerminalLink, watchLink } from "./terminal-link";
 import { readClipboard } from "./terminal-keys";
 import { keepFile } from "./terminal-image";
-import { isDetachedHold } from "./terminalInput";
+import { detachedHoldReason } from "./terminalInput";
 import { appendDictation, useDictation } from "./useDictation";
 import "./composer.css";
 
@@ -722,8 +722,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // A message sent while the session works, or while a review holds it, is
   // queued, and he assumes it, so no note says so (the Overlord, 2026-10-28:
   // "this text not needed on working goblins resumes are assumed"); a goblin
-  // with no branch to work on says why its messages wait.
-  const queueNote = live?.held && isDetachedHold(live.held) ? "Detached worktree. Send to queue until a branch is ready." : "";
+  // whose detached worktree holds typing says why its messages wait, in the
+  // gate's words.
+  const detachedWhy = live?.held ? detachedHoldReason(live.held) : "";
+  const queueNote = detachedWhy ? `Detached worktree. Send to queue while typing is held: ${detachedWhy}.` : "";
   const notes: Record<NoteSource, string> = { adding: adding ? "Adding " + (adding > 1 ? adding + " files" : "the file") + "…" : "",
     feedback: live?.feedback ?? "", dictation: dictation.note, queue: queueNote };
   const note = NOTE_SOURCES.map((source) => notes[source]).find(Boolean) ?? "";

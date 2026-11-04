@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,7 +17,10 @@ import (
 // Typing into a new task's goblin before it makes a branch is proved, never
 // assumed: only a worktree whose HEAD has not moved since git made it, and
 // that no gate run works in, takes it. Every other answer refuses, and only a
-// gate run working there reads as the gate's hold (#1987).
+// gate run working there reads as the gate's hold (#1987). HEAD's history is
+// found from the worktree's .git entry, so no check asks git where it is: the
+// board's custody ticks run it every few seconds, and a refresh over work
+// nobody changed starts no git.
 func TestCanTypeFreshDetachedAllowsOnlyAnUntouchedWorktreeNoRunWorksIn(t *testing.T) {
 	if _, err := exec.LookPath("sqlite3"); err != nil {
 		t.Skip("sqlite3 is not installed")
@@ -31,6 +35,9 @@ func TestCanTypeFreshDetachedAllowsOnlyAnUntouchedWorktreeNoRunWorksIn(t *testin
 		want int
 	}{
 		{"fresh", allowed},
+		{"a clone at a tag, with its own .git folder", allowed},
+		{"a .git file that names its git folder relatively", allowed},
+		{"a .git file that names no git folder", refused},
 		{"a run records it", held},
 		{"a run records it in another spelling", held},
 		{"a run records a link to it", held},
@@ -65,7 +72,12 @@ func TestCanTypeFreshDetachedAllowsOnlyAnUntouchedWorktreeNoRunWorksIn(t *testin
 			}
 			git(project, "init", "-q", "-b", "main")
 			git(project, "commit", "-q", "--allow-empty", "-m", "root")
-			git(project, "worktree", "add", "-q", "--detach", worktree, "HEAD")
+			if test.name == "a clone at a tag, with its own .git folder" {
+				git(project, "tag", "v1")
+				git(project, "-c", "advice.detachedHead=false", "clone", "-q", "--branch", "v1", project, worktree)
+			} else {
+				git(project, "worktree", "add", "-q", "--detach", worktree, "HEAD")
+			}
 			switch test.name {
 			case "on a branch":
 				git(worktree, "switch", "-q", "--create", "feat/work")
@@ -102,6 +114,26 @@ func TestCanTypeFreshDetachedAllowsOnlyAnUntouchedWorktreeNoRunWorksIn(t *testin
 			case "a record from another commit":
 				fields := strings.Fields(string(record))
 				rewrite(strings.Replace(string(record), fields[1], strings.Repeat("1", len(fields[1])), 1))
+			case "a .git file that names its git folder relatively":
+				from, err := filepath.EvalSymlinks(worktree)
+				if err != nil {
+					t.Fatal(err)
+				}
+				gitDir, err := filepath.EvalSymlinks(filepath.Dir(filepath.Dir(history)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				relative, err := filepath.Rel(from, gitDir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+filepath.ToSlash(relative)+"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case "a .git file that names no git folder":
+				if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("not a link\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
 			}
 			recorded := ""
 			switch test.name {
@@ -142,7 +174,11 @@ func TestCanTypeFreshDetachedAllowsOnlyAnUntouchedWorktreeNoRunWorksIn(t *testin
 					t.Fatalf("disposable gate records: %v\n%s", err, out)
 				}
 			}
+			isHistoryAsked := false
 			runner := runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
+				if request.Name == "git" && slices.Contains(request.Args, "--git-path") {
+					isHistoryAsked = true
+				}
 				result, err := (execx.OSRunner{}).Run(ctx, request)
 				if request.Name == "sqlite3" {
 					switch test.name {
@@ -159,6 +195,9 @@ func TestCanTypeFreshDetachedAllowsOnlyAnUntouchedWorktreeNoRunWorksIn(t *testin
 			err = (Reader{Root: root, Commands: runner}).CanTypeFreshDetached(t.Context(), worktree)
 
 			// Assert
+			if isHistoryAsked {
+				t.Error("CanTypeFreshDetached asked git where HEAD's history is")
+			}
 			switch {
 			case test.want == allowed && err != nil:
 				t.Fatalf("CanTypeFreshDetached = %v, want typing allowed", err)
