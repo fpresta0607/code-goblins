@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -67,7 +69,11 @@ func repositoryFreeEnvironment() []string {
 // ReadSource reads the source of the worktree dir. It stages what is on disk
 // into an index and an object store of its own, which it removes after, so
 // it leaves the worktree's index as it was and writes nothing into the
-// repository. A store it cannot remove fails the read, which says where.
+// repository. A store it cannot remove fails the read, which says where. Its
+// index starts from a copy of the worktree's own, so it opens only the files
+// whose size or times changed since that index last saw them: on a loaded
+// machine, opening each of a worktree's thousands of files ran past the
+// read's limit (#1615).
 func ReadSource(ctx context.Context, commands execx.Runner, dir string) (source Source, err error) {
 	ctx, cancel := context.WithTimeout(ctx, sourceReadLimit)
 	defer cancel()
@@ -96,22 +102,41 @@ func ReadSource(ctx context.Context, commands execx.Runner, dir string) (source 
 		}
 		return string(result.Stdout), nil
 	}
-	found, err := git("rev-parse", "--path-format=absolute", "--show-toplevel", "--git-path", "objects", "HEAD^{commit}", "HEAD^{tree}")
+	found, err := git("rev-parse", "--path-format=absolute", "--show-toplevel", "--git-path", "objects", "--git-path", "index", "HEAD^{commit}", "HEAD^{tree}")
 	if err != nil {
 		return Source{}, err
 	}
 	lines := strings.Split(strings.TrimSpace(strings.ReplaceAll(found, "\r\n", "\n")), "\n")
-	if len(lines) != 4 {
+	if len(lines) != 5 {
 		return Source{}, fmt.Errorf("verify: read the source: git rev-parse said %q", found)
 	}
-	top, objects, commit, commitTree := lines[0], lines[1], lines[2], lines[3]
+	top, objects, ownIndex, commit, commitTree := lines[0], lines[1], lines[2], lines[3], lines[4]
 	objectStore := filepath.Join(folder, "objects")
 	if err := os.Mkdir(objectStore, 0o700); err != nil {
 		return Source{}, fmt.Errorf("verify: read the source: %w", err)
 	}
-	environment = append(environment, "GIT_INDEX_FILE="+filepath.Join(folder, "index"), "GIT_OBJECT_DIRECTORY="+objectStore, "GIT_ALTERNATE_OBJECT_DIRECTORIES="+objects)
-	if _, err := git("read-tree", commit); err != nil {
+	index := filepath.Join(folder, "index")
+	if err := copyIndex(ctx, ownIndex, index); err != nil {
+		return Source{}, fmt.Errorf("verify: read the source: copy the worktree's index: %w", err)
+	}
+	environment = append(environment, "GIT_INDEX_FILE="+index, "GIT_OBJECT_DIRECTORY="+objectStore, "GIT_ALTERNATE_OBJECT_DIRECTORIES="+objects)
+	// The index becomes the commit's tree, keeping what the worktree's index
+	// knew of each file on disk wherever that index held the commit's own
+	// content for it.
+	if _, err := git("read-tree", "--reset", commit); err != nil {
 		return Source{}, err
+	}
+	// A file that index was told to overlook, as assume-unchanged and
+	// skip-worktree mark one, keeps its mark, which would hide a change on
+	// disk, so an index with one is read from the commit alone.
+	entries, err := git("ls-files", "-v", "-z")
+	if err != nil {
+		return Source{}, err
+	}
+	if slices.ContainsFunc(strings.Split(entries, "\x00"), func(entry string) bool { return entry != "" && !strings.HasPrefix(entry, "H ") }) {
+		if _, err := git("read-tree", commit); err != nil {
+			return Source{}, err
+		}
 	}
 	if _, err := git("add", "--all"); err != nil {
 		return Source{}, err
@@ -149,6 +174,35 @@ func ReadSource(ctx context.Context, commands execx.Runner, dir string) (source 
 		}
 	}
 	return Source{Commit: commit, CommitTree: commitTree, Tree: strings.TrimSpace(tree), IsComplete: isComplete}, nil
+}
+
+// copyIndex copies the index at from to to with its time, since git reads a
+// file again whose time is no earlier than its index's, which may have
+// changed within the tick that index was written in. A worktree with no index
+// of its own leaves none.
+func copyIndex(ctx context.Context, from, to string) error {
+	file, err := fsx.OpenContext(ctx, from)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	// The time of the file whose content is read: a git that replaces the
+	// index meanwhile gives the name another file.
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	content, err := io.ReadAll(file)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(to, content, 0o600); err != nil {
+		return err
+	}
+	return os.Chtimes(to, info.ModTime(), info.ModTime())
 }
 
 // SourceReads are the two reads of a run's source (ReadSource): once its turn
