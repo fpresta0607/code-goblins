@@ -376,6 +376,7 @@ for (const style of ["modern"]) {
       const relay = await open(page, snapshot(), "rebase onto main", undefined, "A long terminal line should fit the visible terminal width after resizing.\r\n");
       await card(page, NAME).click();
       await expect.poll(() => relay.views).toBeGreaterThan(0);
+      await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
       relay.say({ type: "held", reason: "HEAD is detached at eb020be993b5, so typing is held: pipeline: HEAD has moved since the worktree was made" });
       await expect(field(page)).toBeVisible();
       // Why messages queue shows once over the box, and goes by itself.
