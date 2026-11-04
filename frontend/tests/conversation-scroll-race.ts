@@ -157,13 +157,17 @@ async function streamingTalk(page: Page) {
   relay.say(WORKING);
   await page.evaluate((board) => {
     let tick = 0, timer: ReturnType<typeof setInterval> | undefined;
-    const reply = { id: "m300", seq: 300, at: "2026-10-22T09:00:00Z", kind: "reply", blocks: [] as object[] };
+    let reply = { id: "m300", seq: 300, at: "2026-10-22T09:00:00Z", kind: "reply", blocks: [] as object[] };
     const send = (type: string, data: object) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type, data: { conversation: "fixture-conversation", ...data } } }));
     const stream: Pick<Watcher, "startStream" | "stopStream"> = {
       startStream: () => {
         timer = setInterval(() => {
           tick++;
           const tokens = 1000 + tick * 731;
+          // A reply ends after forty lines and the next one starts, as a
+          // session's do, so a slow machine's long run never grows one
+          // message the page redraws on every line without end.
+          if (reply.blocks.length === 40) reply = { ...reply, id: "m" + (reply.seq + 1), seq: reply.seq + 1, blocks: [] };
           reply.blocks = [...reply.blocks, { kind: "text", text: "Streamed line " + tick + " of the reply that goes on while he reads." }];
           send("messages", { messages: [{ ...reply }] });
           send("usage", { usage: { input_tokens: tokens, output_tokens: tokens / 10, cache_read_tokens: tokens * 3, cost_usd: tokens / 100000, context_tokens: tokens, context_window: 200000, model: "claude-opus-5-5", effort: "xhigh" } });
@@ -265,7 +269,7 @@ export async function readUpWhileStreaming(page: Page, reading: Reading) {
   const read = await watched(page);
   expect({ writes: read.writes, rowsDrawn: read.rowsDrawn, isStill: stillness(read.frames) <= 1 }).toEqual({ writes: [], rowsDrawn: [], isStill: true });
   await page.getByRole("button", { name: "Jump to latest" }).click();
-  await expect(talk.locator('[data-message="m300"]')).toBeVisible();
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
   await expect.poll(() => talk.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(1);
   await page.waitForTimeout(300);
   await expect.poll(() => talk.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(1);
