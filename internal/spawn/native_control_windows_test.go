@@ -58,6 +58,41 @@ func TestANativeGoblinTakesTextAndKeysThroughItsTerminal(t *testing.T) {
 	}
 }
 
+// Codex 0.160 lists its skills while its line ends in a $ word and takes an
+// Enter then as a pick from that list, so a steer that ends in a mention is
+// typed with a space after it, and the Enter submits it.
+func TestASteerEndingInAMentionIsSubmittedToANativeCodexGoblin(t *testing.T) {
+	// Arrange
+	f := newNativeFixture(t, harness.Codex, "turns")
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitComposer(t, f)
+
+	// Act
+	sendErr := f.service.SendNative(context.Background(), meta, "CFO: use $alpha-notes")
+
+	// Assert
+	if sendErr != nil {
+		t.Errorf("SendNative: %v", sendErr)
+	}
+	want := []string{spawnPointer(t, f.fixture), "CFO: use $alpha-notes "}
+	var submitted []string
+	for _, event := range named(f.events(t), "submitted") {
+		submitted = append(submitted, event.Text)
+	}
+	if !slices.Equal(submitted, want) {
+		t.Errorf("submitted = %q, want the instruction, then the steer with its trailing space", submitted)
+	}
+	if picked := named(f.events(t), "mention picked"); len(picked) != 0 {
+		t.Errorf("mention picks = %+v, want the Enter to submit the steer", picked)
+	}
+}
+
 // A slash command reaches a native goblin's harness once, submitted only after
 // the wait a completion popup needs, and is reported unconfirmed without
 // waiting for a working screen: /exit ends the harness, so nothing afterwards

@@ -663,7 +663,7 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 	}
 	defer client.Close()
 	if shouldType {
-		if err := client.Input([]byte(instruction)); err != nil {
+		if err := client.Input([]byte(screens.Submittable(instruction))); err != nil {
 			return nil, fmt.Errorf("spawn: type the instruction into native terminal %s: %w", record.ID, err)
 		}
 	}
