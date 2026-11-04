@@ -12,8 +12,10 @@ import { expect, holdStream, openTaskList, type Page, test } from "./site";
 // 2026-10-28: "chat and task doesn't need to be full width, it can fit inline
 // with cfo and afk and just be the icons"): the rest are in its Task view.
 // Since 2026-10-29 the header is one short row ("Minimize height and maximize
-// the space"), its picture, name and task id beside the switch, and its
-// status line is the first thing in its Task view: the working line in the
+// the space"), and since #1987 it holds the goblin's picture and name alone
+// beside the switch, with no harness mark and no task id: its whole name and
+// task id, its harness with the model and effort it runs, and its status line
+// are the first things in its Task view, and the working line in the
 // conversation says what it does. The supervisor is played by one held
 // snapshot.
 const REPO = "https://github.com/fpresta0607/household-assistant";
@@ -47,23 +49,27 @@ async function openTerminal(page: Page, goblin: Record<string, unknown>) {
 test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
 
 for (const [state, fields, status, phase] of STATES) {
-  test(`a goblin ${state} heads its panel with its picture, name and task id on one row, and says its status atop its Task view`, async ({ page }, testInfo) => {
+  test(`a goblin ${state} heads its panel with its picture and name on one row, and says who it is and its status atop its Task view`, async ({ page }, testInfo) => {
     // Arrange
     const header = await openTerminal(page, { ...FRANK, ...fields });
 
     // Act
     await header.screenshot({ path: testInfo.outputPath(`terminal-header-${state.replaceAll(" ", "-")}.png`) });
-    const parts = await header.evaluate((element) => [".goblin-avatar", "#panel-title", ".panel-goblin-task"].map((selector) => {
+    const parts = await header.evaluate((element) => [".goblin-avatar", "#panel-title"].map((selector) => {
       const box = element.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
       return { top: box.top, bottom: box.bottom, middle: box.top + box.height / 2 };
     }));
     const details = await openTaskList(page);
 
-    // Assert: the row holds no status, no description and no buttons but
-    // the switch and the panel's own controls.
+    // Assert: the row holds no task id, no harness mark, no status, no
+    // description and no buttons but the switch and the panel's own controls,
+    // and the switch's are 44 px targets.
     await expect(header.locator(".goblin-avatar")).toBeVisible();
     await expect(header.locator("#panel-title")).toHaveText("Frank - Chat Captain");
-    await expect(header.locator(".panel-goblin-task")).toHaveText(FRANK.id);
+    await expect(header).not.toContainText(FRANK.id);
+    await expect(header.locator(".panel-goblin-task, .mark, .harness-name, [data-tip]")).toHaveCount(0);
+    await expect(details.locator(".panel-whole-name")).toHaveText("Frank - Chat Captain · " + FRANK.id);
+    await expect(details.getByText("Claude Code · Opus 5.5", { exact: true })).toBeVisible();
     await expect(header.locator(".panel-status")).toHaveCount(0);
     await expect(details.locator(".panel-status")).toHaveText(status);
     await expect(details.locator(".panel-status")).toHaveClass(new RegExp("phase-" + phase));
@@ -71,6 +77,11 @@ for (const [state, fields, status, phase] of STATES) {
     await expect(header.locator(".panel-actions, .panel-activity, .project-line, a")).toHaveCount(0);
     await expect(header.locator(".panel-identity").getByRole("button")).toHaveCount(0);
     await expect(header.getByRole("group", { name: "Panel view" }).getByRole("button")).toHaveCount(2);
+    for (const view of await header.getByRole("group", { name: "Panel view" }).getByRole("button").all()) {
+      const bounds = (await view.boundingBox())!;
+      expect(bounds.width).toBeGreaterThanOrEqual(44);
+      expect(bounds.height).toBeGreaterThanOrEqual(44);
+    }
     for (const part of parts.slice(1)) {
       expect(part.middle, "on the picture's row").toBeGreaterThan(parts[0].top);
       expect(part.middle, "on the picture's row").toBeLessThan(parts[0].bottom);
@@ -78,15 +89,16 @@ for (const [state, fields, status, phase] of STATES) {
   });
 }
 
-test("the task list keeps the compact task id and holds VS Code, the folder, the ticket and the pull request", async ({ page }) => {
+test("the task list names the goblin and its task id, its harness, model and effort, and holds VS Code, the folder, the ticket and the pull request", async ({ page }) => {
   // Arrange
-  await openTerminal(page, FRANK);
+  await openTerminal(page, { ...FRANK, effort: "high" });
 
   // Act
   const header = await openTaskList(page);
 
   // Assert
-  await expect(page.locator(".panel-header .panel-goblin-task")).toHaveText(FRANK.id);
+  await expect(header.locator(".panel-whole-name")).toHaveText("Frank - Chat Captain · " + FRANK.id);
+  await expect(header.getByText("Claude Code · Opus 5.5 · high", { exact: true })).toBeVisible();
   await expect(header.locator(".panel-actions").getByRole("button", { name: "Open in VS Code" })).toBeVisible();
   await expect(header.locator(".panel-actions").getByRole("button", { name: "Open folder" })).toBeVisible();
   await expect(header.locator(".panel-actions a.ticket-link, .panel-actions a[href$='/issues/88']")).toHaveCount(1);
@@ -103,6 +115,6 @@ for (const width of [390, 1000]) {
     await header.getByRole("button", { name: "Open Wanda - Map Maker, which this goblin is waiting on" }).click();
 
     await expect(page.locator("#panel-title")).toHaveText("Wanda - Map Maker");
-    await expect(page.locator(".panel-goblin-task")).toHaveText(WANDA.id);
+    await expect(page.locator(".panel-whole-name")).toHaveText("Wanda - Map Maker · " + WANDA.id);
   });
 }

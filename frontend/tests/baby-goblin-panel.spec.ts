@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Page } from "./site";
+import { expect, holdStream, openTaskList, test, type Page } from "./site";
 import { treeFleet } from "./fixtures/tree-branches-fleet";
 import { parseSnapshot } from "../src/types"
 
@@ -102,8 +102,8 @@ test("clicking a helper goblin opens that helper's own panel", async ({ page }) 
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   await baby(page, "Pip - Rail Fitter").click();
   await expect(title(page)).toHaveText("Pip - Rail Fitter");
-  // Its Terminal view names its task by its id.
-  await expect(page.locator(".panel-goblin-task")).toHaveText("helper-one");
+  // Its Task view names its task by its id beside its whole name.
+  await expect((await openTaskList(page)).locator(".panel-whole-name")).toHaveText("Pip - Rail Fitter · helper-one");
 });
 
 for (const width of [1600, 390]) {

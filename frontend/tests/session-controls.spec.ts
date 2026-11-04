@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./site";
-import { box, boxMenu, field, GOBLIN, NAME, open, openGoblin, PAGE, pasted, snapshot, typed } from "./session-board";
+import { box, field, GOBLIN, NAME, open, openGoblin, PAGE, pasted, pressRow, snapshot, typed } from "./session-board";
 
 const USAGE = { input_tokens: 12000, output_tokens: 800, context_tokens: 24000, context_window: 100000, model: "recorded-model" };
 const context = (page: Page) => page.getByRole("meter", { name: "Context", exact: true });
@@ -48,13 +48,13 @@ for (const width of [1440, 390]) {
       // Choosing a dictation puts it where the caret is, so it is put at the
       // end of the draft first, as a tap on its last word does.
       await page.keyboard.press("End");
-      await (await boxMenu(page, name)).getByRole("button", { name: "Speech history", exact: true }).click();
+      await box(page, name).getByRole("button", { name: "Speech history", exact: true }).click();
       await page.getByRole("dialog", { name: "Speech history", exact: true }).getByRole("button", { name: "Paste into the message: from speech", exact: true }).click();
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
 
-      await (await boxMenu(page, name)).getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
+      await pressRow(page, "Open in Windows Terminal", "Open in terminal");
       await expect.poll(() => posted).toEqual([who === "CFO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
-      await expect(page.locator(".panel-top").getByRole("button", { name: "Open in Windows Terminal", exact: true })).toHaveCount(0);
+      await expect(composer.getByRole("button", { name: "Open in Windows Terminal", exact: true })).toHaveCount(0);
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
       expect(typed(relay)).toBe("");
       await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage } } })), { ...USAGE, context_tokens: 72000, model: "changed-model" });
@@ -64,12 +64,13 @@ for (const width of [1440, 390]) {
       await expect(context(page)).toHaveAttribute("aria-valuenow", "24");
       await expect.poll(() => relay.addresses.some((address) => address.includes(who === "CFO" ? "cfo=new-cfo" : "generation=replacement"))).toBe(true);
       relay.say({ type: "screen", asking: false, open: false, working: false });
-      await (await boxMenu(page, name)).getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
+      await pressRow(page, "Open in Windows Terminal", "Open in terminal");
       await expect.poll(() => posted[1]).toEqual(who === "CFO" ? { native: "cfo=new-cfo" } : { native: `task=${GOBLIN.id}&generation=replacement` });
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
       await expect(composer.locator(".engine-control-model")).toHaveText("Recorded Model");
       await expect(composer.getByRole("button", { name: "Change model", exact: true })).toBeEnabled();
-      const controls = await composer.locator(".composer-row button").evaluateAll((buttons) => buttons.map((button) => {
+      // Clear message is a phone's alone (#1987), so the row's drawn controls.
+      const controls = await composer.locator(".composer-row button").evaluateAll((buttons) => buttons.filter((button) => button.getClientRects().length).map((button) => {
         const bounds = button.getBoundingClientRect();
         return { middle: bounds.top + bounds.height / 2, right: bounds.right };
       }));
@@ -277,8 +278,8 @@ test("a refused terminal window leaves the draft and reports the actual refusal"
   await page.route("**/api/terminal/open", (route) => route.fulfill({ status: 403, json: { error: "Refresh the board before submitting an action" } }));
   await openGoblin(page);
   await field(page).fill("keep this");
-  await (await boxMenu(page)).getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
-  await expect(box(page)).toContainText("Refresh the board before submitting an action");
+  await pressRow(page, "Open in Windows Terminal", "Open in terminal");
+  await expect(page.locator(".context-pane .window-feedback")).toContainText("Refresh the board before submitting an action");
   await expect(field(page)).toHaveValue("keep this");
   expect(typed(relay)).toBe("");
 });
@@ -332,14 +333,15 @@ test("Escape with the box's pane or style menu open closes it and never stops th
   await expect(pane).toHaveCount(0);
   await expect(field(page)).toBeFocused();
 
-  // Act: the style menu, open while he is back in the box.
-  const style = box(page).getByRole("button", { name: "Style: modern", exact: true });
-  await style.click();
+  // Act: Speech history, open while he is back in the box.
+  await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [] } }));
+  await box(page).getByRole("button", { name: "Speech history", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Speech history", exact: true })).toBeVisible();
   await field(page).focus();
   await field(page).press("Escape");
 
   // Assert
-  await expect(style).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("dialog", { name: "Speech history", exact: true })).toHaveCount(0);
   expect(typed(relay), "no Escape reached the harness").toBe("");
   await field(page).press("Escape");
   await expect.poll(() => typed(relay), "with nothing open, Escape stops it").toBe("\x1b");
@@ -451,7 +453,7 @@ test("a narrow desktop panel keeps all session controls inside the composer", as
   await openGoblin(page);
   const bounds = await box(page).locator(".composer-input").evaluate((element) => {
     const edge = element.getBoundingClientRect();
-    return { left: edge.left, right: edge.right, controls: [...element.querySelectorAll(".composer-row button")].map((button) => {
+    return { left: edge.left, right: edge.right, controls: [...element.querySelectorAll(".composer-row button")].filter((button) => button.getClientRects().length).map((button) => {
       const control = button.getBoundingClientRect();
       return { left: control.left, right: control.right };
     }) };

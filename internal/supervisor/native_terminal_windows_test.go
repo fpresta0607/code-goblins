@@ -30,6 +30,7 @@ import (
 	"github.com/coder/websocket"
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -1853,6 +1854,77 @@ func TestANativeViewUnderAGateStaysOpenAndTypesNothing(t *testing.T) {
 	}
 }
 
+// A new no-mistakes task's worktree starts on a detached HEAD. What he types
+// into its terminal reaches it once the gate proves no run of its own works
+// there and HEAD has not moved since the worktree was made; a worktree a gate
+// run works in, one whose gate records cannot be read and one whose HEAD has
+// moved stay held, the view open and told why (#1987).
+func TestTypingIntoANewTasksDetachedWorktreeReachesItsTerminalOnlyOnceProvedFresh(t *testing.T) {
+	if _, err := exec.LookPath("sqlite3"); err != nil {
+		t.Skip("sqlite3 is not installed")
+	}
+	for _, test := range []struct{ name, held string }{
+		{name: "a new task"},
+		{name: "a gate run works in it", held: `{"type":"held","reason":"` + pipeline.ErrCustodyHeld.Error() + `"}`},
+		{name: "its gate records cannot be read", held: `{"type":"held","reason":"HEAD is detached at `},
+		{name: "its HEAD moved", held: `{"type":"held","reason":"HEAD is detached at `},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h, server := nativeBoard(t, "no-mistakes")
+			worktree := taskWorktree(t, h)
+			git := func(dir string, args ...string) {
+				t.Helper()
+				if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+					t.Fatalf("git %v: %v\n%s", args, err, out)
+				}
+			}
+			git(gitFixture(t), "worktree", "add", "-q", "--detach", worktree, "HEAD")
+			if test.name == "its HEAD moved" {
+				git(worktree, "switch", "-q", "--create", "feat/previous")
+				git(worktree, "switch", "-q", "--detach")
+			}
+			root := t.TempDir()
+			database := filepath.Join(root, "state.sqlite")
+			runs := "CREATE TABLE runs(id TEXT, repo_id TEXT, worktree_dir TEXT);"
+			if test.name == "a gate run works in it" {
+				runs += "INSERT INTO runs VALUES('run-one','repo-one','" + strings.ReplaceAll(worktree, "'", "''") + "');"
+			}
+			if test.name == "its gate records cannot be read" {
+				if err := os.WriteFile(database, []byte("not a database"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			} else if out, err := exec.Command("sqlite3", database, runs).CombinedOutput(); err != nil {
+				t.Fatalf("disposable gate records: %v\n%s", err, out)
+			}
+			h.Service.Options.Gate = pipeline.Reader{Root: root, Commands: execx.OSRunner{}}
+			terminal := hostTask(t, h)
+			v := openNativeView(t, server, viewQuery)
+			v.waitFor(t, "program ready")
+
+			// Act
+			v.send(t, websocket.MessageBinary, "typed into a new task\r")
+
+			// Assert
+			if test.held == "" {
+				if typed := terminal.waitForLines(t, 1); len(typed) != 1 || typed[0] != "typed into a new task" {
+					t.Fatalf("the terminal received %q, want the line he typed", typed)
+				}
+				return
+			}
+			v.waitFor(t, test.held)
+			ping, cancel := context.WithTimeout(t.Context(), time.Minute)
+			defer cancel()
+			if err := v.conn.Ping(ping); err != nil {
+				t.Fatalf("the view closed while typing was held: %v", err)
+			}
+			if typed := terminal.exit(t); len(typed) != 0 {
+				t.Errorf("the terminal received %q while typing was held, want nothing", typed)
+			}
+		})
+	}
+}
+
 // Custody is checked again on every tick: a gate that takes a task over after
 // its view opened holds its typing, and one that lets it go frees it, and the
 // view is told each time while it stays open.
@@ -1938,6 +2010,8 @@ func (g *takingGate) Progress(context.Context, string, string) (pipeline.Progres
 	return pipeline.Progress{}, pipeline.ErrNoProgress
 }
 
+func (*takingGate) CanTypeFreshDetached(context.Context, string) error { return errNotProvedFresh }
+
 func (g *takingGate) CanSteer(context.Context, string, string, string) error {
 	if g.taken.Load() {
 		g.refused.Add(1)
@@ -1983,6 +2057,8 @@ func (g *blockingGate) free() { g.releaseOnce.Do(func() { close(g.release) }) }
 func (g *blockingGate) Progress(context.Context, string, string) (pipeline.Progress, error) {
 	return pipeline.Progress{}, pipeline.ErrNoProgress
 }
+
+func (*blockingGate) CanTypeFreshDetached(context.Context, string) error { return errNotProvedFresh }
 
 func (g *blockingGate) CanSteer(ctx context.Context, _, _, _ string) error {
 	g.enteredOnce.Do(func() { close(g.entered) })
@@ -2067,6 +2143,8 @@ type stoppingGate struct {
 func (g *stoppingGate) Progress(context.Context, string, string) (pipeline.Progress, error) {
 	return pipeline.Progress{}, pipeline.ErrNoProgress
 }
+
+func (*stoppingGate) CanTypeFreshDetached(context.Context, string) error { return errNotProvedFresh }
 
 func (g *stoppingGate) CanSteer(context.Context, string, string, string) error {
 	if g.asks.Add(1) == 1 {

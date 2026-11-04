@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
+import { box, card, field, GOBLIN, NAME, open, openGoblin, pasted, pickStyle, send, snapshot, typed } from "./session-board";
 
 test.use({ permissions: ["microphone"], launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"], args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"] } });
 
@@ -265,8 +265,7 @@ for (const style of ["modern"]) {
         relay.say({ type: "held", reason: "" });
         await expect(recording).toBeVisible();
         if (width === 390) {
-          await box(page).getByRole("button", { name: "Style: modern", exact: true }).tap();
-          await page.getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).tap();
+          await pickStyle(page, "Terminal");
           await expect(recording).toBeVisible();
           await expect(field(page)).toBeFocused();
         }
@@ -275,11 +274,11 @@ for (const style of ["modern"]) {
         else await page.mouse.up();
 
         // Assert: recording finished into the same draft without sending. On
-        // the phone, Classic, chosen while it recorded, puts the box away once
-        // the recording ends, and Modern shows the words in its draft.
+        // the phone, Terminal, chosen while it recorded, puts the box away
+        // once the recording ends, and Modern shows the words in its draft.
         if (width === 390) {
           await expect(box(page)).toBeHidden();
-          await page.locator(".context-pane").getByRole("button", { name: "Switch to Modern chat", exact: true }).tap();
+          await pickStyle(page, "Modern chat");
         }
         await expect(field(page)).toHaveValue("please rebase onto main");
         expect(typed(relay)).toBe("");
@@ -377,11 +376,11 @@ for (const style of ["modern"]) {
       const relay = await open(page, snapshot(), "rebase onto main", undefined, "A long terminal line should fit the visible terminal width after resizing.\r\n");
       await card(page, NAME).click();
       await expect.poll(() => relay.views).toBeGreaterThan(0);
-      relay.say({ type: "held", reason: "HEAD is detached at eb020be993b5, and no gate custody can be read for a detached HEAD, so typing is held" });
+      relay.say({ type: "held", reason: "HEAD is detached at eb020be993b5, so typing is held: pipeline: HEAD has moved since the worktree was made" });
       await expect(field(page)).toBeVisible();
       // Why messages queue shows once over the box, and goes by itself.
       const note = box(page).locator(".composer-banner");
-      await expect(note).toHaveText("Detached worktree. Send to queue until a branch is ready.");
+      await expect(note).toHaveText("Detached worktree. Send to queue while typing is held: pipeline: HEAD has moved since the worktree was made.");
       const draft = "A draft to retain while the branch is recovered. ".repeat(18);
       await field(page).fill(draft);
       await field(page).focus();
@@ -459,8 +458,8 @@ test("a detached hold said while the Task view shows says so over the box when h
   const views = page.locator(".panel-view-switch");
   await views.getByRole("button", { name: "Task", exact: true }).click();
   await expect(box(page)).toBeHidden();
-  relay.say({ type: "held", reason: "HEAD is detached at eb020be993b5, and no gate custody can be read for a detached HEAD, so typing is held" });
-  await expect(page.locator(`section[aria-label="Messages to ${NAME}"] [role="status"]`)).toHaveText("Detached worktree. Send to queue until a branch is ready.");
+  relay.say({ type: "held", reason: "HEAD is detached at eb020be993b5, so typing is held: pipeline: HEAD has moved since the worktree was made" });
+  await expect(page.locator(`section[aria-label="Messages to ${NAME}"] [role="status"]`)).toHaveText("Detached worktree. Send to queue while typing is held: pipeline: HEAD has moved since the worktree was made.");
   // He stays on the Task view longer than a banner lasts, 4 s and its fade.
   await page.waitForTimeout(5000);
 
@@ -469,5 +468,5 @@ test("a detached hold said while the Task view shows says so over the box when h
 
   // Assert
   await expect(box(page)).toHaveAttribute("data-queues", "");
-  await expect(box(page).locator(".composer-banner")).toHaveText("Detached worktree. Send to queue until a branch is ready.");
+  await expect(box(page).locator(".composer-banner")).toHaveText("Detached worktree. Send to queue while typing is held: pipeline: HEAD has moved since the worktree was made.");
 });

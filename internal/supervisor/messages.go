@@ -191,22 +191,13 @@ const (
 	gateUnknown
 )
 
-// gateCustody reads whether a goblin's gate owns its branch. Only the two
+// gateCustody reads whether a goblin's gate owns its work, as its terminal
+// reads it for typing, a new task's detached worktree included. Only the two
 // refusals a gate makes for its own custody are a hold: a branch that cannot be
 // read, a gate this home cannot ask, or any other failure is custody nobody
 // could read, which is not a hold and is never reported as one.
 func gateCustody(ctx context.Context, s *Service, meta state.TaskMeta) (gateState, error) {
-	if meta.Mode != "no-mistakes" {
-		return gateClear, nil
-	}
-	if s.Options.Gate == nil {
-		return gateUnknown, errors.New("this home has no gate to ask")
-	}
-	branch, err := s.Git.Branch(ctx, meta.Worktree)
-	if err != nil {
-		return gateUnknown, err
-	}
-	switch err := s.Options.Gate.CanSteer(ctx, meta.Project, meta.Worktree, branch); {
+	switch err := s.validateTerminalControl(ctx, meta); {
 	case err == nil:
 		return gateClear, nil
 	case errors.Is(err, pipeline.ErrCustodyHeld), errors.Is(err, pipeline.ErrCustodyNotReturned):

@@ -101,6 +101,8 @@ func (gate *engineGate) Progress(context.Context, string, string) (pipeline.Prog
 
 func (*engineGate) CanSteer(context.Context, string, string, string) error { return nil }
 
+func (*engineGate) CanTypeFreshDetached(context.Context, string) error { return errNotProvedFresh }
+
 func TestEngineSelectionSavesQueuedSettingsForStartAndRejectsStaleEdits(t *testing.T) {
 	handler, h := startBoard(t, 5*gigabyte, &spawnRecorder{})
 	handler.Service.Options.FirstRun = newFirstRunMachine(t).run

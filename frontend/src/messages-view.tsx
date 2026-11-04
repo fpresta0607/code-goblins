@@ -6,7 +6,6 @@ import { keptFileAddress } from "./kept-files";
 import { MessageRow } from "./message-row";
 import { MessageDocumentScope } from "./message-document-scope";
 import { drawnSpans, ESTIMATED_ROW_PX, messageRowAt, messageWindow } from "./message-window";
-import { takesMessages } from "./messages";
 import { Notice } from "./notice";
 import { ReplyWorking } from "./reply-working";
 import { changeMessages, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
@@ -39,7 +38,7 @@ const OLDER_TRIES = 3;
 // A row with no folds open, shared so its props stay the same.
 const NO_FOLDS: ReadonlySet<string> = new Set();
 const UNREAD = "The session's messages cannot be read";
-type PublishedMessages = MessagePage & { isWorking: boolean; said: string; canStop: boolean; isLive: boolean; task?: Task; sent: Action[]; pending: Action[]; sending: PendingSend[] };
+type PublishedMessages = MessagePage & { isWorking: boolean; said: string; isLive: boolean; task?: Task; sent: Action[]; pending: Action[]; sending: PendingSend[] };
 // What the box under the conversation shows of the session: what it spent and
 // the words he sent it.
 type Composing = Pick<MessagePage, "usage"> & { history: string[] };
@@ -57,7 +56,7 @@ type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 // query names the session as /api/messages takes it (messagesQuery), name is
 // whose replies they are, task is the goblin whose baby goblins its calls
 // open, absent for the CFO, terminal is the key of the session's terminal,
-// whose link stops a turn, sent is every message of his to the session the
+// whose link reads what it is doing, sent is every message of his to the session the
 // board knows, pending those of them that still wait, and box is the message
 // box under the conversation.
 export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, isWorking, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
@@ -71,10 +70,9 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const sending = usePendingSends();
   const link = useTerminalLink(terminal);
   const said = link?.screen?.isWorking && link.screen.doing || "";
-  const canStop = !!link && !(task && takesMessages(task)) && !link.held;
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
-  const [held, setHeld] = useState<PublishedMessages>({ conversation: "", messages: [], more: false, isWorking, said, canStop, isLive: false, task, sent, pending, sending });
+  const [held, setHeld] = useState<PublishedMessages>({ conversation: "", messages: [], more: false, isWorking, said, isLive: false, task, sent, pending, sending });
   const heldValue = useRef(held);
   // The stream keeps one latest version while the displayed history stays
   // where he reads. Returning to the end publishes it once, without replay.
@@ -346,9 +344,9 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     // same messages, so the view publishes only what changed, or it would
     // draw itself a second time for every snapshot.
     const known = latest.current, isLive = phase === "live";
-    if (known.isWorking === isWorking && known.said === said && known.canStop === canStop && known.isLive === isLive && known.task === task && known.sending === sending
+    if (known.isWorking === isWorking && known.said === said && known.isLive === isLive && known.task === task && known.sending === sending
       && isSameList(known.sent, sent) && isSameList(known.pending, pending)) return;
-    latest.current = { ...known, isWorking, said, canStop, isLive, task, sent, pending, sending };
+    latest.current = { ...known, isWorking, said, isLive, task, sent, pending, sending };
     reconcile.current();
     if (following.current) setHeld(latest.current);
     else setHeld((prior) => {
@@ -356,7 +354,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       const handedOff = sent.filter((action) => localIDs.has(action.id) && (action.status === "queued" || action.status === "running" || action.status === "succeeded") && !prior.pending.some((heldAction) => heldAction.id === action.id));
       return prior.sending === sending && !handedOff.length ? prior : { ...prior, sending, pending: [...prior.pending, ...handedOff] };
     });
-  }, [isWorking, said, canStop, phase, task, sent, pending, sending]);
+  }, [isWorking, said, phase, task, sent, pending, sending]);
 
   // Each drawn row is measured as it lays out and again whenever it changes,
   // as a picture loads or a call unfolds; a row the hidden view lays out at
@@ -558,8 +556,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
-          {shown && held.isLive && held.isWorking && reachesEnd && <ReplyWorking terminal={terminal} task={task?.id ?? ""} said={held.said} canStop={held.canStop}
-            stopWhy={!isWorking ? "It is no longer working." : canStop ? "" : link?.held || "It cannot be stopped from here now."} ink={harnessInk(harness)} />}
+          {shown && held.isLive && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} />}
           {/* His messages not yet in the session's record, at the
               conversation's end in its one scroll (the Overlord, 2026-10-29:
               "the double scrolls and having its own little scroll for queued
