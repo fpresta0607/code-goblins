@@ -312,6 +312,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			}
 		}
 		nativeArgs, err = pipeline.ResponseArgs(selection, gate, response)
+		if errors.Is(err, pipeline.ErrUnresolved) && response.Accept == "" && pipeline.ReviewCyclesSpent(selection, gate) {
+			return fmt.Errorf("%w, or task %s's own goblin's accept: run %s's review repair cycles are spent, so it may take its open ask-user and auto-fix findings as they stand with --action approve --accept <ids>, naming every one, and put a real defect among them in one follow-up commit after its first CI; any other open finding still needs the CFO", err, id, gate.RunID)
+		}
 		if err != nil {
 			return err
 		}

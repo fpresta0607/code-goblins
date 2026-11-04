@@ -253,7 +253,7 @@ The native engine keeps a reason only for an approve of the Test step, so the dr
 An empty `--reason`, as `--reason "$WHY"` gives with `WHY` unset, is a reason given and refused like any blank one, never read as no reason (issue 1585).
 A reason never approves anything, so open findings still need the exact `--accept` and a clean gate still needs its own approve.
 Unsupported or malformed evidence fails closed.
-The command returns exit 3 for unresolved work requiring a CFO decision, without advancing the gate.
+The command returns exit 3 for unresolved work requiring a CFO decision, or on a spent review its own goblin's accept, which the refusal names, without advancing the gate.
 Other refusals return exit 1.
 This is a cooperative driver guard, not an operating-system sandbox around direct native commands.
 Agents must use the driver for managed tasks and must not invoke native mutation commands to bypass its budgets.

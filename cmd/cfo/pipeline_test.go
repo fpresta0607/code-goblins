@@ -1781,6 +1781,51 @@ func TestPipelineGoblinAcceptsItsOwnSpentReviewFindings(t *testing.T) {
 	})
 }
 
+// A spent review still refuses a fix and a bare approve with exit 3, and that
+// refusal names the accept its own goblin may make, so a goblin that reads it
+// does not go back to wait on the CFO (#2049). A review with cycles left has no
+// such accept to name, and an accept that reached this refusal was already
+// made, so neither of those refusals names one.
+func TestPipelineSpentReviewRefusalNamesItsGoblinsAccept(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	spent := pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 3, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"bug","action":"auto-fix"}]}`}
+	early := spent
+	early.Round = 2
+	blank := spent
+	blank.Findings = `{"findings":[{"id":"bug","action":"auto-fix"},{"id":"plain"}]}`
+	cases := []struct {
+		name         string
+		gate         pipeline.Gate
+		args         []string
+		isHintWanted bool
+	}{
+		{"a fix of a spent review", spent, []string{"--action", "fix", "--findings", "bug"}, true},
+		{"a bare approve of a spent review", spent, []string{"--action", "approve"}, true},
+		{"a bare approve with cycles left", early, []string{"--action", "approve"}, false},
+		{"an accept a finding with no action refuses", blank, []string{"--action", "approve", "--accept", "bug"}, false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			h, nm, runner := registeredCFOStage(t, "goblin", testCase.gate)
+			inGoblinTerminal(t, h.State, "task")
+
+			// Act
+			err := pipelineCommand(context.Background(), h, nm, runner, append([]string{"respond", "task"}, testCase.args...), &bytes.Buffer{})
+
+			// Assert
+			if !errors.Is(err, pipeline.ErrUnresolved) || len(runner.native) != 0 {
+				t.Fatalf("%v, %d native calls; want the exit 3 refusal with nothing sent", err, len(runner.native))
+			}
+			if isHintGiven := strings.Contains(err.Error(), "--accept <ids>"); isHintGiven != testCase.isHintWanted {
+				t.Fatalf("%v: naming the goblin's accept is %t, want %t", err, isHintGiven, testCase.isHintWanted)
+			}
+		})
+	}
+}
+
 // A goblin's accept is refused, with why, before anything is recorded or
 // sent: before its run's review repair cycles are spent, on any step but
 // review, with the reason a Test exception keeps, on another task's run, from
