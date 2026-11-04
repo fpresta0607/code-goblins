@@ -190,19 +190,20 @@ var (
 )
 
 // droppedSections are headings whose text is not the ask: what not to do,
-// and the boilerplate every generated brief carries.
-var droppedSections = []string{"constraints", "authentication", "commits", "delivery", "non-goals", "out of scope"}
+// and the boilerplate every generated brief carries, how its work is
+// verified included.
+var droppedSections = []string{"constraints", "verification", "authentication", "commits", "delivery", "non-goals", "out of scope"}
 
 // Classify reads what a brief asks for and freezes it into a class and risk.
 //
 // The Delivery kind decides scout outright: the CFO already classified a
 // scout when briefing it, and a ship never becomes a scout because its task
 // says "investigate". Otherwise only the ask is read: the sections that say
-// what not to do (Constraints) and the generated boilerplate (Authentication,
-// Commits, Delivery) are dropped, as are code spans and paths, so a brief
-// that says "do not touch billing" or reads docs/architecture.md is not
-// billing or architecture work. High-risk classes are matched first, then
-// the cheaper ones, and the default is ordinary implementation.
+// what not to do (Constraints) and the generated boilerplate (Verification,
+// Authentication, Commits, Delivery) are dropped, as are code spans and paths,
+// so a brief that says "do not touch billing" or reads docs/architecture.md
+// is not billing or architecture work. High-risk classes are matched first,
+// then the cheaper ones, and the default is ordinary implementation.
 //
 // ponytail: keyword rules over the ask, not a model call. The ceiling is a
 // brief whose ask names another class's subject in passing ("keep the

@@ -120,6 +120,8 @@ It is not a tool for ordinary parallelism; the main fleet handles that.
 
 Load `cfo-delivery` at task intake and scout completion, when starting or supervising validation, deciding a gate finding, preparing a push or pull request, assessing CI, landing work or considering cleanup.
 Read the [complete delivery contract](docs/contract/delivery.md), or `cfo help contract delivery`, before the dependent action.
+Once its run's review repair cycles are spent, a goblin may accept that run's open review findings itself with `cfo pipeline respond <its task> --action approve --accept <ids>`, naming every open one, and the CFO is told of each such accept; the Test step, `--reason` and every other step stay the CFO's.
+It accepts as they stand only findings that are not correctness, security or regression defects: a real defect among them goes in one follow-up commit on the same pull request after its first CI, named in the done report.
 
 ## Supervision
 

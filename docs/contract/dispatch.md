@@ -332,7 +332,7 @@ Without `--harness`, spawn classifies the brief's task, complexity and risk.
 Narrow or mechanical work uses `mechanical`, search and reading use `scout`, and ordinary implementation uses `default_lane`.
 A lane named for another class takes that class.
 High risk, architecture, migration, security, deep complexity and repeated attempts use `escalate_to`, even for a scout.
-Constraints, credentials and delivery boilerplate are excluded from the classifier.
+Constraints, verification, credentials and delivery boilerplate are excluded from the classifier.
 The shipped default and escalation use Codex `gpt-6-astra` at `xhigh`, with `gpt-6-luna` at `medium` for small work.
 Pass `--harness`, `--model` or `--effort` only for the Supreme Overlord's stated preference.
 Explicit choices are recorded as such.
