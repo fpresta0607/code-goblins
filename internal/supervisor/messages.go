@@ -139,7 +139,14 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	default:
 		if NativeTerminalRuns(stateDir, a.TaskID) {
 			sent := time.Now().UTC()
-			result, err := s.Options.CFO.sendGoblin(ctx, a.TaskID, goblinIdentity(meta), text, !a.IsSentNow, a.IsSentNow)
+			// His words go into a goblin's turn at once, as they go into the
+			// CFO's, for its harness to take at its next tool call. One held for
+			// the turn's end reached a goblin that worked on only once it
+			// stopped, and never while each turn ran into the next (the
+			// Overlord, 2026-11-04: "Modern shat goblins that are not the CFO.
+			// Never pick up their cube message when I send them."). A command
+			// still waits for the turn to end, when its harness would run it.
+			result, err := s.Options.CFO.sendGoblin(ctx, a.TaskID, goblinIdentity(meta), text, isHarnessCommand(a.Text), a.IsSentNow)
 			// A message whose harness's send-now key went is taken at once;
 			// one whose key never went, or whose harness has none, at its next
 			// tool call.
@@ -152,9 +159,10 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 				result.Reason = sentNowInTurn
 				return result, nil
 			}
-			// A goblin in a turn is not typed into: its message waits, where he
-			// can edit, send now or cancel it, until the turn ends, unless he
-			// asked for it now.
+			// A command held for the goblin's turn waits where he can edit or
+			// cancel it, and holdCommand takes Send now off it. What it says
+			// here is for the words queued behind it, which wait after it unless
+			// Send now types them into the turn.
 			if errors.Is(err, spawn.ErrInTurn) {
 				sendNow := "Send now types it for the goblin to take at its next tool call."
 				if screens.SendNow != "" {
