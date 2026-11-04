@@ -15,15 +15,16 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
-// timedOutGit is a goblin's worktree whose reads run out of time while
-// isTimingOut says so.
+// timedOutGit is goblins' worktrees, the one in dir of which runs out of
+// time while isTimingOut says so.
 type timedOutGit struct {
 	progressGit
+	dir         string
 	isTimingOut *bool
 }
 
 func (git *timedOutGit) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
-	if *git.isTimingOut {
+	if *git.isTimingOut && request.Dir == git.dir {
 		return execx.Result{}, context.DeadlineExceeded
 	}
 	return git.progressGit.Run(ctx, request)
@@ -111,7 +112,7 @@ func TestAReadThatFailedWakesTheCFOOnlyOnceItKeepsFailing(t *testing.T) {
 		{"a goblin's progress", func(t *testing.T, h home.Home, service *Service, isTimingOut *bool) string {
 			liveGoblin(t, h, "busy-task", h.Root)
 			head := strings.Repeat("a", 40)
-			service.Options.Progress = &timedOutGit{progressGit: progressGit{head: head, pushed: head}, isTimingOut: isTimingOut}
+			service.Options.Progress = &timedOutGit{progressGit: progressGit{head: head, pushed: head}, dir: filepath.Join(h.Root, ".worktrees", "gb-busy-task"), isTimingOut: isTimingOut}
 			return "progress for busy-task: context deadline exceeded"
 		}},
 		{"the pull request a paused goblin waits on", func(t *testing.T, h home.Home, service *Service, isTimingOut *bool) string {

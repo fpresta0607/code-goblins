@@ -75,6 +75,27 @@ func TestARepeatingSupervisorErrorIsFiledOnceOnTheHomesRepository(t *testing.T) 
 	}
 }
 
+// On 2026-11-02 one progress-read timeout opened 13 ops-root issues, one for
+// each goblin it met, since each line named its own goblin (#1950). A line
+// met on one goblin and an hour later on another is one class met again.
+func TestOneErrorMetOnTwoGoblinsIsOneRoot(t *testing.T) {
+	// Arrange
+	service, filings := filingBoard(t, nil)
+	h := service.Store.Home
+	liveGoblin(t, h, "cg-remote-toggle", h.Root)
+	liveGoblin(t, h, "cg-goblin-typing-and-header", h.Root)
+	first := time.Date(2026, 11, 3, 15, 59, 0, 0, time.UTC)
+
+	// Act
+	service.fileRepeatedErrors(errors.New("progress for cg-remote-toggle: context deadline exceeded"), first)
+	service.fileRepeatedErrors(errors.New("progress for cg-goblin-typing-and-header: context deadline exceeded"), first.Add(time.Hour))
+
+	// Assert
+	if filing := nextFiling(t, filings); filing.root.RootKey() != "error:progress for task: context deadline exceeded" {
+		t.Fatalf("filing = %+v, want one root that names no goblin", filing)
+	}
+}
+
 func TestALostConnectionMetAgainLaterIsNoRoot(t *testing.T) {
 	// Arrange: what gh says when this machine is offline, as issues #1549
 	// and #1550 carried it.
