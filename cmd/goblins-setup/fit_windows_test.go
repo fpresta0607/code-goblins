@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/priority"
 )
 
 // Every screen of the setup's page fits the window at 100, 125, 150 and 200
@@ -127,7 +129,9 @@ func openSetupPage(t *testing.T) setupPage {
 		t.Fatal(err)
 	}
 	address := (&url.URL{Scheme: "file", Path: "/" + filepath.ToSlash(file)}).String()
-	profile, err := os.MkdirTemp("", "setup-page-chrome-")
+	// The profile is named as t.TempDir names a test's folder, so one left
+	// behind (removeProfile) is among the folders the janitor removes.
+	profile, err := os.MkdirTemp("", "TestSetupPageChrome")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,28 +145,34 @@ func openSetupPage(t *testing.T) setupPage {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Chrome is ended with everything it started, and gone, before its
-	// profile is read and removed, which a virus scanner reading a file
-	// Chrome just wrote can still hold for a moment. The profile never held
-	// an account.
+	// Chrome is ended with everything it started before its profile is read
+	// and removed. Its job stops counting a process the moment its end
+	// begins, and Windows then tears the process down on its last thread,
+	// which in Chrome's browser process runs in the background, so the
+	// processes are raised for their end, as browserlogin.End raises a
+	// Chrome it ended. An ended job no longer lists them, so they are read
+	// before it ends.
 	t.Cleanup(func() {
+		members, err := tree.Members()
+		if err != nil {
+			t.Error(err)
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if _, err := tree.TerminateAndWait(ctx); err != nil {
 			t.Error(err)
 		}
-		var preferences struct {
-			AccountInfo []json.RawMessage `json:"account_info"`
+		pids := make([]uint32, len(members))
+		for index, member := range members {
+			pids[index] = uint32(member.PID)
 		}
-		if source, err := os.ReadFile(filepath.Join(profile, "Default", "Preferences")); err != nil {
+		priority.Raise(pids)
+		held, err := removeProfile(profile, 30*time.Second)
+		if err != nil {
 			t.Error(err)
-		} else if err := json.Unmarshal(source, &preferences); err != nil {
-			t.Errorf("the headless Chrome's profile preferences could not be read: %v", err)
-		} else if len(preferences.AccountInfo) > 0 {
-			t.Error("the headless Chrome's profile was signed in to an account")
 		}
-		if err := fsx.RemoveAllWithin(profile, time.Minute); err != nil {
-			t.Error(err)
+		if held != nil {
+			t.Logf("the headless Chrome's profile is left for the janitor: %v", held)
 		}
 	})
 
@@ -210,6 +220,89 @@ func openSetupPage(t *testing.T) setupPage {
 	}
 	t.Cleanup(conn.Close)
 	return setupPage{conn: conn, address: address}
+}
+
+// removeProfile reads whether the headless Chrome's profile was signed in to
+// an account, and removes it, waiting out for budget whatever still holds
+// one of its files. An ended Chrome holds its files until Windows has torn
+// it down, which goes on after its tree has ended: a browser process torn
+// down at background I/O priority held them for minutes beside other work
+// on the disk (issue #2011). A profile still held after budget is left
+// where it is, and held names the file still held. That is no failure,
+// since by then every process the test started has been ended, and what
+// holds the file is Windows finishing that end or a scanner reading it. err
+// is a profile that was signed in, preferences that could not be read, or a
+// removal that failed for another reason.
+func removeProfile(profile string, budget time.Duration) (held, err error) {
+	var preferences struct {
+		AccountInfo []json.RawMessage `json:"account_info"`
+	}
+	if source, readErr := os.ReadFile(filepath.Join(profile, "Default", "Preferences")); readErr != nil {
+		err = readErr
+	} else if decodeErr := json.Unmarshal(source, &preferences); decodeErr != nil {
+		err = fmt.Errorf("the headless Chrome's profile preferences could not be read: %w", decodeErr)
+	} else if len(preferences.AccountInfo) > 0 {
+		err = errors.New("the headless Chrome's profile was signed in to an account")
+	}
+	removeErr := fsx.RemoveAllWithin(profile, budget)
+	// A file held open without sharing its deletion refuses it, and one a
+	// process still maps, or that is already marked for deletion, denies it.
+	if errors.Is(removeErr, windows.ERROR_SHARING_VIOLATION) || errors.Is(removeErr, windows.ERROR_ACCESS_DENIED) {
+		return removeErr, err
+	}
+	return nil, errors.Join(err, removeErr)
+}
+
+// A headless Chrome's profile goes once its Chrome has ended, and a file of
+// it that something still holds after that leaves the profile behind rather
+// than failing the test, while a profile that was signed in to an account,
+// or whose preferences cannot be read, fails it whether or not it is held.
+func TestAChromeProfileStillHeldIsLeftAndASignedInOneStillFails(t *testing.T) {
+	const signedOut, signedIn = `{"signin":{"allowed":false,"allowed_on_next_startup":false}}`, `{"account_info":[{"email":"someone@example.com"}]}`
+	for _, test := range []struct {
+		name        string
+		preferences string
+		isHeld      bool
+		wantErr     string
+	}{
+		{name: "a profile that held no account", preferences: signedOut},
+		{name: "a profile a file of which is still held", preferences: signedOut, isHeld: true},
+		{name: "a profile signed in to an account", preferences: signedIn, wantErr: "signed in to an account"},
+		{name: "a signed-in profile a file of which is still held", preferences: signedIn, isHeld: true, wantErr: "signed in to an account"},
+		{name: "a profile whose preferences cannot be read", preferences: `{"account_info":`, wantErr: "could not be read"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			profile := filepath.Join(t.TempDir(), "profile")
+			if err := os.MkdirAll(filepath.Join(profile, "Default"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(profile, "Default", "Preferences"), []byte(test.preferences), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if test.isHeld {
+				// Go opens a file without sharing its deletion, as Chrome
+				// opens this one.
+				holder, err := os.Create(filepath.Join(profile, "CrashpadMetrics-active.pma"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { holder.Close() })
+			}
+
+			// Act
+			held, err := removeProfile(profile, 100*time.Millisecond)
+
+			// Assert
+			if test.wantErr == "" && err != nil || test.wantErr != "" && (err == nil || !strings.Contains(err.Error(), test.wantErr)) {
+				t.Errorf("err = %v, want %q", err, test.wantErr)
+			}
+			_, statErr := os.Stat(profile)
+			if isLeft := statErr == nil; isLeft != test.isHeld || (held != nil) != test.isHeld {
+				t.Errorf("left = %v, held = %v; want the profile left, and its holder said, only while a file of it is held", isLeft, held)
+			}
+		})
+	}
 }
 
 // fits lists what does not fit the window: a part of the page that needs
