@@ -264,6 +264,13 @@ func TestClassifyNamesWhatAJobIsDoing(t *testing.T) {
 		"a command line alone":   {[]string{"python.exe"}, []string{"python -I survey.py"}, nil, GroupOther, "python -I survey.py"},
 		"a command cmd.exe runs": {[]string{"cmd.exe", "python.exe"}, []string{`C:\WINDOWS\System32\cmd.exe /d /s /c "python -I survey.py"`, ""}, nil, GroupOther, "python -I survey.py"},
 		"a program by its path":  {[]string{"python.exe"}, []string{`"C:\Program Files\Python312\python.exe" -I survey.py`}, nil, GroupOther, "python -I survey.py"},
+		// #1617: a runner's own script, which node runs, reads as the runner.
+		"playwright's script beside a server":  {[]string{"node.exe", "node.exe", "node.exe", "chrome.exe"}, []string{"node run-palette.mjs", `node.exe frontend\node_modules\vite\bin\vite.js`, `node.exe frontend\node_modules\@playwright\test\cli.js test --project=mocked-chrome`, "chrome.exe --headless"}, []int{5173}, GroupTest, "Test run"},
+		"playwright's script alone":            {[]string{"node.exe", "chrome.exe"}, []string{"node /d/app/node_modules/playwright/cli.js test", ""}, nil, GroupTest, "Test run"},
+		"npm's script":                         {[]string{"node.exe"}, []string{`"C:\Program Files\nodejs\node.exe" "C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js" run test:browser`}, nil, GroupTest, "Test run"},
+		"pnpm's script":                        {[]string{"node.exe"}, []string{`node C:\npm\node_modules\pnpm\bin\pnpm.cjs test`}, nil, GroupTest, "Test run"},
+		"playwright's script showing a report": {[]string{"node.exe"}, []string{`node node_modules\@playwright\test\cli.js show-report`}, []int{9323}, GroupDevServer, "Dev server :9323"},
+		"another script in npm's folder":       {[]string{"node.exe"}, []string{`node C:\npm\node_modules\eslint\bin\eslint.js test`}, nil, GroupOther, `node C:\npm\node_modules\eslint\bin\eslint.js test`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
