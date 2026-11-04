@@ -295,7 +295,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
         // it can lend the next scroll's, and once no row is left above it,
         // what it holds beyond them. The scroll position takes that and
         // whatever else moved, and the room keeps what the scroll position
-        // cannot take, on its whole pixels or at its ends.
+        // cannot take, on its whole pixels or at its ends, until no row is
+        // left above it: then it holds nothing at rest, and what the scroll
+        // position could not take at the top moves the first message into
+        // place, where he sees only the blank above it.
         const owed = isScrolling.current ? 0 : estimated > 0 ? Math.min(roomShift.current, 0) : roomShift.current;
         const moving = change - owed;
         let moved = 0;
@@ -305,7 +308,11 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
           moved = box.scrollTop - top;
           observedTop.current += moved;
         }
-        roomShift.current = Math.max(0, room - change + moved) - estimated;
+        const shift = Math.max(0, room - change + moved) - estimated;
+        if (!isScrolling.current && estimated === 0 && shift > 0) {
+          anchor.current = { ...kept, offset: kept.offset - shift };
+          roomShift.current = 0;
+        } else roomShift.current = shift;
         rows.style.setProperty("--room-shift", roomShift.current + "px");
       }
     }

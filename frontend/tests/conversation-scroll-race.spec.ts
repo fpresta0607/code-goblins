@@ -30,6 +30,34 @@ test("a few pixels up from the end leave it before the next streamed line", asyn
   });
 });
 
+// Short prompts, each drawn well under the window's estimate, leave the room
+// above the drawn rows more than they take; once he reaches the top and rests,
+// the first message sits at the top, with no blank above it.
+test("reading up through short rows with rests and on to the top leaves no blank above the first message", async ({ page }) => {
+  test.slow();
+  const prompts = Array.from({ length: 240 }, (_, seq) => ({ id: "m" + seq, seq, at, kind: "prompt", source: "overlord", text: "Question " + seq }));
+  await open(page, snapshot(), "", { conversation: "fixture-conversation", messages: prompts, more: false });
+  await openGoblin(page);
+  const talk = page.getByRole("log", { name: "Messages of " + NAME });
+  await expect(talk.locator('[data-message="m239"]')).toBeVisible();
+  await talk.hover();
+  for (let round = 0; round < 12; round++) {
+    for (let tick = 0; tick < 4; tick++) {
+      await page.mouse.wheel(0, -160);
+      await page.waitForTimeout(40);
+    }
+    await page.waitForTimeout(500);
+  }
+  for (let tick = 0; tick < 200 && await talk.evaluate((element) => element.scrollTop > 0); tick++) {
+    await page.mouse.wheel(0, -400);
+    await page.waitForTimeout(16);
+  }
+  await expect.poll(() => talk.evaluate((element) => {
+    const first = element.querySelector('[data-message="m0"]');
+    return { top: element.scrollTop, isFirstAtTop: !!first && first.getBoundingClientRect().top - element.getBoundingClientRect().top <= 40 };
+  })).toEqual({ top: 0, isFirstAtTop: true });
+});
+
 test("older history keeps the reading anchor when its response precedes scroll delivery", async ({ page }) => {
   const reply = (seq: number) => ({ id: "m" + seq, seq, at, kind: "reply", blocks: [{ kind: "text", text: "Answer " + seq + "\n\nMore to read." }] });
   const conversation = "fixture-conversation";
