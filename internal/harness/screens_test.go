@@ -1224,3 +1224,35 @@ func TestWorkingWordsCutALongHeading(t *testing.T) {
 		t.Errorf("WorkingWords cut %q to %q, want its first %d characters and an ellipsis", heading, words, workingWordsMax)
 	}
 }
+
+// Codex 0.160.0 lists its skills while the text before its cursor ends in a $
+// word and takes an Enter then as a pick from that list, so text typed into it
+// that ends in one ends with a space; Claude Code and pi submit on that Enter.
+func TestSubmittableEndsATrailingMentionWithASpaceOnlyForCodex(t *testing.T) {
+	for _, test := range []struct {
+		kind       Kind
+		text, want string
+	}{
+		{Codex, "$alpha-notes", "$alpha-notes "},
+		{Codex, "use $alpha-notes", "use $alpha-notes "},
+		{Codex, "$alpha-notes ", "$alpha-notes "},
+		{Codex, "costs a$b", "costs a$b"},
+		{Codex, "plain words", "plain words"},
+		{Codex, "", ""},
+		{Claude, "use $alpha-notes", "use $alpha-notes"},
+		{Pi, "use $alpha-notes", "use $alpha-notes"},
+	} {
+		t.Run(string(test.kind)+" "+test.text, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+
+			// Act
+			typed := screens.Submittable(test.text)
+
+			// Assert
+			if typed != test.want {
+				t.Errorf("Submittable(%q) = %q, want %q", test.text, typed, test.want)
+			}
+		})
+	}
+}

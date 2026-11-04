@@ -155,12 +155,22 @@ export const box = (page: Page, name = NAME) => page.getByRole("region", { name:
 export const field = (page: Page, name = NAME) => box(page, name).getByRole("textbox", { name: "Message " + name });
 export const send = (page: Page, name = NAME) => box(page, name).getByRole("button", { name: "Send", exact: true });
 export const typed = (relay: Relay) => relay.typed.join("");
-// boxMenu opens the box's style menu, which holds Speech history and Open in
-// Windows Terminal beside the chat style, and answers the box.
-export async function boxMenu(page: Page, name = NAME) {
-  const menu = box(page, name).getByRole("button", { name: /^Style: / });
-  if (await menu.getAttribute("aria-expanded") !== "true") await menu.click();
-  return box(page, name);
+// pressRow presses a control of the panel's header row: its icon button,
+// named label, while the row has room for it, or its item, named name, in the
+// row's More once it has not.
+export async function pressRow(page: Page, label: string, name: string) {
+  const row = page.locator(".context-pane .panel-top");
+  const button = row.getByRole("button", { name: label, exact: true });
+  if (await button.count()) return button.click();
+  await row.getByRole("button", { name: "More", exact: true }).click();
+  await row.getByRole("menuitem", { name, exact: true }).click();
+}
+// pickStyle chooses a chat style, Modern chat or Terminal, in the menu the
+// session's picture in the panel's header opens.
+export async function pickStyle(page: Page, name: "Modern chat" | "Terminal") {
+  const header = page.locator(".context-pane .panel-header");
+  await header.getByRole("button", { name: "Chat style", exact: true }).click();
+  await header.getByRole("menuitemradio", { name, exact: true }).click();
 }
 
 // openGoblin opens Zeke's panel from his card on his messages, with his

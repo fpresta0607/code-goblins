@@ -1001,6 +1001,8 @@ func (g *gateFake) Progress(context.Context, string, string) (pipeline.Progress,
 	return pipeline.Progress{}, nil
 }
 
+func (*gateFake) CanTypeFreshDetached(context.Context, string) error { return errNotProvedFresh }
+
 func (g *gateFake) CanSteer(context.Context, string, string, string) error {
 	g.asks++
 	return g.err

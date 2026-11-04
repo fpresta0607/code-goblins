@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
@@ -55,19 +56,32 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(output))
 }
 
-// A worktree that matches its commit is that commit's tree, exactly.
+// A worktree that matches its commit is that commit's tree, exactly, with or
+// without an index of its own, as git worktree add --no-checkout leaves none.
 func TestReadSourceOfACleanWorktreeIsItsCommitsTree(t *testing.T) {
-	// Arrange
-	dir := sourceWorktree(t)
+	for name, hasIndex := range map[string]bool{
+		"a worktree with its own index":       true,
+		"a worktree with no index of its own": false,
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dir := sourceWorktree(t)
+			if !hasIndex {
+				if err := os.Remove(filepath.Join(dir, ".git", "index")); err != nil {
+					t.Fatal(err)
+				}
+			}
 
-	// Act
-	source, err := ReadSource(context.Background(), execx.OSRunner{}, dir)
+			// Act
+			source, err := ReadSource(context.Background(), execx.OSRunner{}, dir)
 
-	// Assert
-	tree := gitIn(t, dir, "rev-parse", "HEAD^{tree}")
-	want := Source{Commit: gitIn(t, dir, "rev-parse", "HEAD"), CommitTree: tree, Tree: tree, IsComplete: true}
-	if err != nil || source != want {
-		t.Errorf("ReadSource = %+v, %v; want %+v", source, err, want)
+			// Assert
+			tree := gitIn(t, dir, "rev-parse", "HEAD^{tree}")
+			want := Source{Commit: gitIn(t, dir, "rev-parse", "HEAD"), CommitTree: tree, Tree: tree, IsComplete: true}
+			if err != nil || source != want {
+				t.Errorf("ReadSource = %+v, %v; want %+v", source, err, want)
+			}
+		})
 	}
 }
 
@@ -117,6 +131,90 @@ func TestReadSourceIsTheTreeOfACommitOfExactlyWhatWasOnDisk(t *testing.T) {
 				t.Errorf("a commit of what was on disk has tree %s; the run recorded %s", committed, source.Tree)
 			}
 		})
+	}
+}
+
+// A file the worktree's own index is told to overlook, as assume-unchanged
+// and skip-worktree mark one, is read all the same: its change is in the
+// tree, also when the index stages another change to it, as git add does
+// under core.ignoreStat, which marks what it stages assume-unchanged.
+func TestReadSourceSeesAChangeTheWorktreesIndexIsToldToOverlook(t *testing.T) {
+	for name, row := range map[string]struct {
+		mark             string
+		isStaged         bool
+		isStatIgnored    bool
+		isReadFromFolder bool
+	}{
+		"assume-unchanged":                                            {mark: "assume-unchanged"},
+		"skip-worktree":                                               {mark: "skip-worktree"},
+		"assume-unchanged on a staged change":                         {mark: "assume-unchanged", isStaged: true},
+		"skip-worktree on a staged change":                            {mark: "skip-worktree", isStaged: true},
+		"a change staged under ignoreStat":                            {mark: "assume-unchanged", isStaged: true, isStatIgnored: true},
+		"assume-unchanged outside the folder read":                    {mark: "assume-unchanged", isReadFromFolder: true},
+		"assume-unchanged on a staged change outside the folder read": {mark: "assume-unchanged", isStaged: true, isReadFromFolder: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dir := sourceWorktree(t)
+			if row.isStatIgnored {
+				gitIn(t, dir, "config", "core.ignoreStat", "true")
+			}
+			if row.isStaged {
+				writeSource(t, dir, "a.txt", "staged\n")
+				gitIn(t, dir, "add", "a.txt")
+			}
+			if !row.isStatIgnored {
+				gitIn(t, dir, "update-index", "--"+row.mark, "a.txt")
+			}
+			writeSource(t, dir, "a.txt", "changed\n")
+			read := dir
+			if row.isReadFromFolder {
+				read = filepath.Join(dir, "folder")
+			}
+
+			// Act
+			source, err := ReadSource(context.Background(), execx.OSRunner{}, read)
+
+			// Assert
+			if err != nil || !source.IsComplete || source.Tree == source.CommitTree {
+				t.Fatalf("ReadSource = %+v, %v; want a complete tree with the change to a.txt", source, err)
+			}
+			gitIn(t, dir, "update-index", "--no-"+row.mark, "a.txt")
+			gitIn(t, dir, "add", "--all")
+			gitIn(t, dir, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "what was tested")
+			if committed := gitIn(t, dir, "rev-parse", "HEAD^{tree}"); committed != source.Tree {
+				t.Errorf("a commit of what was on disk has tree %s; the run recorded %s", committed, source.Tree)
+			}
+		})
+	}
+}
+
+// A file changed to the same size within the tick its worktree's index was
+// written in still has the size and time that index holds for it. Git reads
+// such a racily clean file again only because the index's own time is that
+// tick too, so the read sees the change only while it keeps that time.
+func TestReadSourceSeesAChangeWithinTheTickTheWorktreesIndexWasWritten(t *testing.T) {
+	// Arrange
+	dir := sourceWorktree(t)
+	file, index := filepath.Join(dir, "a.txt"), filepath.Join(dir, ".git", "index")
+	tick := time.Now().Add(-time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(file, tick, tick); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, dir, "update-index", "--refresh")
+	writeSource(t, dir, "a.txt", "b\n")
+	for _, path := range []string{file, index} {
+		if err := os.Chtimes(path, tick, tick); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	source, err := ReadSource(context.Background(), execx.OSRunner{}, dir)
+
+	// Assert
+	if err != nil || !source.IsComplete || source.Tree == source.CommitTree {
+		t.Errorf("ReadSource = %+v, %v; want a complete tree with the change to a.txt", source, err)
 	}
 }
 
@@ -343,18 +441,29 @@ func TestReadSourceOfASubmoduleAtACommitIsComplete(t *testing.T) {
 }
 
 // A sparse checkout leaves out of the disk files its commit holds, so its
-// tree does not say what was on disk.
+// tree does not say what was on disk, also when it is read from a folder the
+// checkout keeps.
 func TestReadSourceIsIncompleteInASparseCheckout(t *testing.T) {
-	// Arrange
-	dir := sourceWorktree(t)
-	gitIn(t, dir, "sparse-checkout", "set", "--no-cone", "/a.txt")
+	for name, row := range map[string]struct {
+		pattern string
+		folder  string
+	}{
+		"read from the top":                     {pattern: "/a.txt"},
+		"read from a folder the checkout keeps": {pattern: "/folder/", folder: "folder"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dir := sourceWorktree(t)
+			gitIn(t, dir, "sparse-checkout", "set", "--no-cone", row.pattern)
 
-	// Act
-	source, err := ReadSource(context.Background(), execx.OSRunner{}, dir)
+			// Act
+			source, err := ReadSource(context.Background(), execx.OSRunner{}, filepath.Join(dir, row.folder))
 
-	// Assert
-	if err != nil || source.IsComplete {
-		t.Errorf("ReadSource = %+v, %v; want an incomplete source", source, err)
+			// Assert
+			if err != nil || source.IsComplete {
+				t.Errorf("ReadSource = %+v, %v; want an incomplete source", source, err)
+			}
+		})
 	}
 }
 

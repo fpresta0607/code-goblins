@@ -1404,6 +1404,8 @@ func (g gateTakesOver) Progress(context.Context, string, string) (pipeline.Progr
 	return pipeline.Progress{}, pipeline.ErrNoProgress
 }
 
+func (gateTakesOver) CanTypeFreshDetached(context.Context, string) error { return errNotProvedFresh }
+
 func (g gateTakesOver) CanSteer(ctx context.Context, _, _, _ string) error {
 	if g.observe != nil {
 		g.observe(ctx)

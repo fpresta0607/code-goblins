@@ -1,6 +1,6 @@
 import { mock, test } from "node:test";
 import assert from "node:assert/strict";
-import { bracketedPaste, CLICK_JUMP_WAIT_MS, clickJumper, clickJumps, endStep, fittedFontSize, previewScale, gridToAsk, HISTORY_LINES, historyText, inputBytes, isDetachedHold, JUMP_TO_BOTTOM, judgeLines, liveWheel, MAX_WAITING_SCROLLS, MAX_WHEEL_LINES, maxInputBytes, panelGrid, queueInput, queueScroll, scrollAction, scrolledUp, scrollHeldReason, scrollsItself, SELF_SCROLL_FRESH_MS, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
+import { bracketedPaste, CLICK_JUMP_WAIT_MS, clickJumper, clickJumps, detachedHoldReason, endStep, fittedFontSize, previewScale, gridToAsk, HISTORY_LINES, historyText, inputBytes, isDetachedHold, JUMP_TO_BOTTOM, judgeLines, liveWheel, MAX_WAITING_SCROLLS, MAX_WHEEL_LINES, maxInputBytes, panelGrid, queueInput, queueScroll, scrollAction, scrolledUp, scrollHeldReason, scrollsItself, SELF_SCROLL_FRESH_MS, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
 
 test("while the panel is dragged the screen keeps its grid, scaled whole into the panel", () => {
   assert.equal(previewScale({ width: 600, height: 900 }, { width: 1200, height: 900 }), 0.5, "a narrower panel shrinks it by width");
@@ -377,7 +377,10 @@ test("a refused input explains itself in plain words", () => {
     ["pipeline owns this task; use cfo pipeline respond or inspect its delivery evidence", "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen."],
     ["pipeline custody has not been returned; use cfo pipeline recover", "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen."],
     ["cannot verify pipeline custody", "cannot verify pipeline custody"],
-    ["HEAD is detached at 0123456789ab, and no gate custody can be read for a detached HEAD, so typing is held", "This goblin's worktree is on a detached HEAD at 0123456789ab, so typing is held until it is on a branch. Reconnect to watch the screen."],
+    ["HEAD is detached at 0123456789ab, so typing is held: pipeline: HEAD has moved since the worktree was made", "This goblin's worktree is on a detached HEAD at 0123456789ab, so typing is held: pipeline: HEAD has moved since the worktree was made. Reconnect to watch the screen."],
+    ["HEAD is detached at 0123456789ab, so typing is held: pipeline: state query failed: the gate's database refused it: file is not a database", "This goblin's worktree is on a detached HEAD at 0123456789ab, so typing is held: pipeline: state query failed: the gate's database refused it: file is not a database. Reconnect to watch the screen."],
+    // Windows ends an OS error in a full stop, and the reason keeps only one.
+    ["HEAD is detached at 0123456789ab, so typing is held: pipeline: HEAD history cannot be read: open C:\\wt\\.git\\logs\\HEAD: The system cannot find the file specified.", "This goblin's worktree is on a detached HEAD at 0123456789ab, so typing is held: pipeline: HEAD history cannot be read: open C:\\wt\\.git\\logs\\HEAD: The system cannot find the file specified. Reconnect to watch the screen."],
     ["Native terminal identity changed. Select the current session; input was discarded.", "Native terminal identity changed. Select the current session; input was discarded."],
   ];
   for (const [raw, plain] of cases) assert.equal(typingHeldReason(raw), plain, raw);
@@ -385,7 +388,7 @@ test("a refused input explains itself in plain words", () => {
 
 test("only a detached HEAD's hold is told on the terminal without waking the CFO", () => {
   const cases: [string, boolean][] = [
-    ["HEAD is detached at 0123456789ab, and no gate custody can be read for a detached HEAD, so typing is held", true],
+    ["HEAD is detached at 0123456789ab, so typing is held: pipeline: HEAD has moved since the worktree was made", true],
     ["Git symbolic-ref failed: exit status 128", false],
     ["pipeline owns this task; use cfo pipeline respond or inspect its delivery evidence", false],
     ["Git symbolic-ref did not finish: context canceled", false],
@@ -393,4 +396,17 @@ test("only a detached HEAD's hold is told on the terminal without waking the CFO
     ["", false],
   ];
   for (const [raw, held] of cases) assert.equal(isDetachedHold(raw), held, raw);
+});
+
+test("a detached HEAD's hold gives the gate's own reason, and no other refusal gives one", () => {
+  const cases: [string, string][] = [
+    ["HEAD is detached at 0123456789ab, so typing is held: pipeline: HEAD has moved since the worktree was made", "pipeline: HEAD has moved since the worktree was made"],
+    ["HEAD is detached at 0123456789ab, so typing is held: cannot verify pipeline custody", "cannot verify pipeline custody"],
+    ["HEAD is detached at 0123456789ab, so typing is held: pipeline: HEAD history cannot be read: open C:\\wt\\.git\\logs\\HEAD: The system cannot find the file specified.", "pipeline: HEAD history cannot be read: open C:\\wt\\.git\\logs\\HEAD: The system cannot find the file specified"],
+    ["HEAD is detached at 0123456789ab, so typing is held: ", ""],
+    ["pipeline owns this task; use cfo pipeline respond or inspect its delivery evidence", ""],
+    ["Git symbolic-ref failed: exit status 128", ""],
+    ["", ""],
+  ];
+  for (const [raw, reason] of cases) assert.equal(detachedHoldReason(raw), reason, raw);
 });

@@ -14,28 +14,29 @@ export interface PanelControl { id: string; name: string; label: string; icon: I
 // The importance of every control of the row, written once. The corner
 // button, Close or Back, always shows. A control that joins the row takes
 // its place here.
-export const PANEL_IMPORTANCE = { style: 30, maximize: 20, window: 10 } as const;
+export const PANEL_IMPORTANCE = { maximize: 20, window: 10 } as const;
 
 // A control's width, an icon button's in styles.css, and the row's gap there.
 const CONTROL = 44;
 const GAP = 8;
-// The least a header's one row keeps for the session's mark and name, about
-// the name's first three letters, beyond the floor the part that gives way
-// never narrows past, its picture, before a control that can go into More
-// takes the room.
-const NAME_ROOM = 80;
+// The least a header's one row keeps for the session's name, about the
+// name's first three letters, or the whole name where it is shorter, beyond
+// the floor the part that gives way never narrows past, its picture, before a
+// control that can go into More takes the room.
+const NAME_ROOM = 48;
 
 // sharedRoom is what a header's one row leaves its controls: its width less
 // its padding, the gaps between its parts, each part that keeps its width,
 // such as the Chat and Task switch, and for the part that gives way, the
-// session's picture, name and mark, its floor (its min-width) and NAME_ROOM.
+// session's picture and name, its floor (its min-width) and NAME_ROOM.
 function sharedRoom(controls: HTMLElement): number {
   const header = controls.parentElement!;
   const style = getComputedStyle(header);
   const parts = [...header.children].filter((part): part is HTMLElement => part !== controls && part instanceof HTMLElement);
   const kept = parts.reduce((sum, part) => {
     const partStyle = getComputedStyle(part);
-    return sum + parseFloat(style.columnGap) + (partStyle.flexShrink === "0" ? part.offsetWidth : parseFloat(partStyle.minWidth) + NAME_ROOM);
+    const nameRoom = Math.min(NAME_ROOM, part.querySelector("h2")?.scrollWidth ?? NAME_ROOM);
+    return sum + parseFloat(style.columnGap) + (partStyle.flexShrink === "0" ? part.offsetWidth : parseFloat(partStyle.minWidth) + nameRoom);
   }, 0);
   return header.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - kept;
 }

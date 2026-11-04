@@ -312,3 +312,51 @@ func TestANativeProberSaysTheComebackBringsBackAGoblinARestartEnded(t *testing.T
 		t.Errorf("sample = %+v, want missing, saying the supervisor brings it back", sample)
 	}
 }
+
+// The wake for the gone terminal of a goblin that reported its pull request
+// done says what the comeback says when the comeback holds it, as it holds
+// one steered back to work since, so the CFO is not sent to switch it back by
+// hand beside the comeback (#1623). One the comeback does not hold is told a
+// restart leaves it down to wait on its merge.
+func TestTheWakeForADeliveredGoblinTheComebackHoldsSaysTheComebackBringsItBack(t *testing.T) {
+	for _, test := range []struct {
+		name               string
+		isHeld             bool
+		wanted, unexpected string
+	}{
+		{"held by the comeback", true, "the supervisor brings it back by itself", "a restart leaves it down"},
+		{"not held by the comeback", false, "a restart leaves it down", "the supervisor brings it back by itself"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			stateDir := t.TempDir()
+			now := time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC)
+			meta := nativeMeta("g1", "claude")
+			meta.SpawnGen = "s1"
+			writeTask(t, stateDir, meta)
+			if err := WriteObservation(stateDir, Observation{Schema: Schema, TaskID: "g1", Endpoint: endpointString(meta), EndpointVerdict: ProbePresent, Digest: "seen", LastSeen: now.Add(-time.Minute), LastProgress: now.Add(-time.Minute), LastObserved: now.Add(-time.Minute), Health: HealthBusy, Reason: None}); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.AppendStatus(stateDir, "g1", "done: PR https://github.com/acme/api/pull/7"); err != nil {
+				t.Fatal(err)
+			}
+			if test.isHeld {
+				if err := state.WriteComeback(stateDir, state.Comeback{Goblins: []state.ComebackEntry{{ID: meta.ID, Generation: meta.SpawnGen, State: state.ComebackWaiting}}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			probe := BackendProber{Herdr: &fakeProber{}, Native: NativeProber{StateDir: stateDir, ReadScreen: screenOf()}}
+
+			// Act
+			result, err := testService(stateDir, probe, &now).Scan(context.Background())
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Event == nil || !strings.HasPrefix(result.Event.Detail, string(EndpointMissing)) || !strings.Contains(result.Event.Detail, test.wanted) || strings.Contains(result.Event.Detail, test.unexpected) {
+				t.Errorf("event %+v, want an endpoint_missing wake that says %q", result.Event, test.wanted)
+			}
+		})
+	}
+}

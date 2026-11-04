@@ -48,7 +48,7 @@ func commandBoard(t *testing.T, harness string) (*HTTP, string, string) {
 	}
 	// A harness may keep its configuration elsewhere; these tests read the
 	// defaults under the user's home.
-	for _, variable := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR"} {
+	for _, variable := range []string{"CLAUDE_CONFIG_DIR", "CLAUDE_CODE_PLUGIN_CACHE_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR"} {
 		t.Setenv(variable, "")
 	}
 	board := NewHTTP(&Service{Store: store, Instance: "test-instance", Options: Options{Tree: &fleettree.Reader{Home: profile}}}, credentialBoardHost, nil)
@@ -110,8 +110,10 @@ func TestCommandsComeFromTheSessionsOwnHarness(t *testing.T) {
 		// pi reads prompt templates and skills from its project, its agent
 		// folder and the shared skills folder, and offers a skill as a command.
 		{"pi", []string{"plan", "skill:deploy", "skill:pdf", "skill:review"}},
-		// Codex defines no command files, so it offers only its built-ins.
-		{"codex", []string{}},
+		// Codex reads its skills from .agents/skills, and none of Claude
+		// Code's or pi's folders, and a skill without a description it
+		// does not load.
+		{"codex", []string{"pdf"}},
 	} {
 		t.Run(c.harness, func(t *testing.T) {
 			// Arrange
@@ -324,9 +326,9 @@ func TestAHarnessWithNoRecordOffersOnlyItsBuiltins(t *testing.T) {
 		harness string
 		builtin command
 	}{
-		{"claude", command{"compact", "Free up context by summarizing the conversation so far.", "builtin"}},
-		{"codex", command{"model", "choose what model and reasoning effort to use", "builtin"}},
-		{"pi", command{"quit", "Quit pi", "builtin"}},
+		{"claude", command{"compact", "Free up context by summarizing the conversation so far.", "builtin", "/"}},
+		{"codex", command{"model", "choose what model and reasoning effort to use", "builtin", "/"}},
+		{"pi", command{"quit", "Quit pi", "builtin", "/"}},
 		{"other", command{}},
 	} {
 		t.Run(c.harness, func(t *testing.T) {
@@ -362,9 +364,9 @@ func TestEachHarnessAnswersItsBuiltinsAfterItsOwnCommands(t *testing.T) {
 		hidden     []string
 		ownFixture string
 	}{
-		{"claude", command{"model", "Switch the AI model and save it as your default for new sessions.", "builtin"}, []string{"heapdump", "setup-bedrock", "setup-vertex", "vim", "pr-comments", "ultraplan", "batch", "deep-research", "plugin-authoring"}, filepath.Join(".claude", "commands", "ship.md")},
-		{"codex", command{"setup-default-sandbox", "set up elevated agent sandbox", "builtin"}, []string{"rollout", "test-approval", "debug-m-drop", "debug-m-update", "elevate-sandbox"}, ""},
-		{"pi", command{"quit", "Quit pi", "builtin"}, nil, filepath.Join(".pi", "prompts", "ship.md")},
+		{"claude", command{"model", "Switch the AI model and save it as your default for new sessions.", "builtin", "/"}, []string{"heapdump", "setup-bedrock", "setup-vertex", "vim", "pr-comments", "ultraplan", "batch", "deep-research", "plugin-authoring"}, filepath.Join(".claude", "commands", "ship.md")},
+		{"codex", command{"setup-default-sandbox", "set up elevated agent sandbox", "builtin", "/"}, []string{"rollout", "test-approval", "debug-m-drop", "debug-m-update", "elevate-sandbox"}, ""},
+		{"pi", command{"quit", "Quit pi", "builtin", "/"}, nil, filepath.Join(".pi", "prompts", "ship.md")},
 	} {
 		t.Run(c.harness, func(t *testing.T) {
 			// Arrange
@@ -413,7 +415,7 @@ func TestAnOwnCommandHidesTheBuiltinOfTheSameName(t *testing.T) {
 
 	// Assert
 	named := slices.DeleteFunc(entries, func(entry command) bool { return entry.Name != "model" })
-	if want := []command{{"model", "Pick our model", "command"}}; !reflect.DeepEqual(named, want) {
+	if want := []command{{"model", "Pick our model", "command", "/"}}; !reflect.DeepEqual(named, want) {
 		t.Fatalf("model entries = %+v, want %+v", named, want)
 	}
 }
@@ -430,12 +432,12 @@ func TestOwnCommandsCarryTheirFrontmatterDescriptions(t *testing.T) {
 			filepath.Join(".claude", "commands", "ship.md"):          "---\ndescription: Ship the branch\n---\nx",
 			filepath.Join(".claude", "commands", "plain.md"):         "x",
 			filepath.Join(".claude", "skills", "deploy", "SKILL.md"): "---\ndescription: Deploy the app\n---\nx",
-		}, []command{{"deploy", "Deploy the app", "skill"}, {"plain", "", "command"}, {"ship", "Ship the branch", "command"}}},
+		}, []command{{"deploy", "Deploy the app", "skill", "/"}, {"plain", "", "command", "/"}, {"ship", "Ship the branch", "command", "/"}}},
 		{"pi", map[string]string{
 			filepath.Join(".pi", "prompts", "ship.md"):           "---\ndescription: Ship the branch\n---\nx",
 			filepath.Join(".pi", "prompts", "plain.md"):          "x",
 			filepath.Join(".pi", "skills", "deploy", "SKILL.md"): "---\ndescription: Deploy the app\n---\nx",
-		}, []command{{"plain", "", "command"}, {"ship", "Ship the branch", "command"}, {"skill:deploy", "Deploy the app", "skill"}}},
+		}, []command{{"plain", "", "command", "/"}, {"ship", "Ship the branch", "command", "/"}, {"skill:deploy", "Deploy the app", "skill", "/"}}},
 	} {
 		t.Run(c.harness, func(t *testing.T) {
 			// Arrange

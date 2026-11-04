@@ -442,7 +442,9 @@ test("Shift with Page Up and Page Down scrolls the messages, Shift+Escape goes t
   await talk.focus();
   await page.keyboard.press("Shift+Escape");
   await expect(afk).not.toBeFocused();
-  await expect(page.locator(".context-pane").getByRole("button", { name: "Maximize the panel", exact: true })).toBeFocused();
+  // The row's first control, Open in Windows Terminal, which the row holds
+  // beside the box since #1987.
+  await expect(page.locator(".context-pane").getByRole("button", { name: "Open in Windows Terminal", exact: true })).toBeFocused();
   await expect(page.locator("#panel-title")).toHaveText("CFO");
   await talk.focus();
   await page.keyboard.press("Escape");

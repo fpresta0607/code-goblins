@@ -41,6 +41,10 @@ type Screens struct {
 	// take the Enter that ends it as part of the paste, leaving the text in
 	// its composer: Codex 0.154.0 did, live, on 2026-09-28.
 	PasteTakesEnter bool
+	// MentionTakesEnter says the harness lists its skills while the text
+	// before its cursor ends in a $ word, and takes an Enter then as a pick
+	// from that list rather than a submit: Codex 0.160.0 does.
+	MentionTakesEnter bool
 	// Resubmits is how many more times Enter is pressed while typed text
 	// still waits in a ruled composer over the empty row an Enter taken as a
 	// new line added, and no turn has started: one for Claude Code, which
@@ -174,13 +178,14 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// Working. A reply, the composer or a shell may quote that text, so
 			// only a row of that shape counts: no prompt or quote before the
 			// elapsed time and the interrupt hint.
-			Ready:           regexp.MustCompile(`^› (Ask Codex to do anything|Ask a follow-up question)|context left`),
-			Working:         regexp.MustCompile(`^\s*([•◦]\s+)?[^\s"'›>][^"'›>]*\([^()]*esc to interrupt\)|^\s*[•◦] Working \(`),
-			Pasted:          []string{"[Pasted Content"},
-			PasteTakesEnter: true,
-			Undrawn:         true,
-			Empty:           regexp.MustCompile(`^› (Ask Codex to do anything|Ask a follow-up question)\s*$`),
-			Footer:          regexp.MustCompile(`^\s*(\? for shortcuts\b|\d+% context left\b|\S+ \S+ · \S|(?i:gpt-\S+)(?: \S+)* (minimal|low|medium|high|xhigh)(\s*$| · \S))`),
+			Ready:             regexp.MustCompile(`^› (Ask Codex to do anything|Ask a follow-up question)|context left`),
+			Working:           regexp.MustCompile(`^\s*([•◦]\s+)?[^\s"'›>][^"'›>]*\([^()]*esc to interrupt\)|^\s*[•◦] Working \(`),
+			Pasted:            []string{"[Pasted Content"},
+			PasteTakesEnter:   true,
+			MentionTakesEnter: true,
+			Undrawn:           true,
+			Empty:             regexp.MustCompile(`^› (Ask Codex to do anything|Ask a follow-up question)\s*$`),
+			Footer:            regexp.MustCompile(`^\s*(\? for shortcuts\b|\d+% context left\b|\S+ \S+ · \S|(?i:gpt-\S+)(?: \S+)* (minimal|low|medium|high|xhigh)(\s*$| · \S))`),
 		}, true
 	case Pi:
 		return Screens{
@@ -217,6 +222,19 @@ func NativeScreens(kind Kind) (Screens, bool) {
 		}, true
 	}
 	return Screens{}, false
+}
+
+// trailingMention matches text that ends in a $ word.
+var trailingMention = regexp.MustCompile(`(^|\s)\$\S*$`)
+
+// Submittable is text as it is typed into the harness so that the Enter after
+// it submits it: with one space after a $ word it ends in, for a harness whose
+// mention list would take that Enter.
+func (s Screens) Submittable(text string) string {
+	if s.MentionTakesEnter && trailingMention.MatchString(text) {
+		return text + " "
+	}
+	return text
 }
 
 // cutShort returns a pattern for text as a terminal draws it, whole or cut

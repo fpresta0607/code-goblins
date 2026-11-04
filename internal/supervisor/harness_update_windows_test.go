@@ -39,6 +39,8 @@ func (gate *unrelatedGate) Progress(context.Context, string, string) (pipeline.P
 
 func (*unrelatedGate) CanSteer(context.Context, string, string, string) error { return nil }
 
+func (*unrelatedGate) CanTypeFreshDetached(context.Context, string) error { return errNotProvedFresh }
+
 func (s *standInScreen) show(rows []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

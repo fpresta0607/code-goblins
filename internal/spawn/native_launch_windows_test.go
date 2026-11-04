@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -71,6 +72,10 @@ const (
 	fakeCodexTranscript = "SPAWN_TEST_CODEX_TRANSCRIPT"
 	fakeCodexDraft      = "SPAWN_TEST_CODEX_DRAFT"
 )
+
+// codexMention matches a line that ends in a $ word, over which Codex 0.160
+// lists its skills.
+var codexMention = regexp.MustCompile(`(^|\s)\$\S*$`)
 
 func TestMain(m *testing.M) {
 	switch {
@@ -301,6 +306,11 @@ func fakeHarness() {
 				// composer.
 				hasPasteEnded = true
 				record(codexEvent{Event: "swallowed enter"})
+			case key == "\r" && codexMention.MatchString(line.String()):
+				// As Codex 0.160 does, an Enter while the line ends in a $
+				// word picks from its list of skills, and the line stays
+				// unsent.
+				record(codexEvent{Event: "mention picked", Text: line.String()})
 			case key == "\r":
 				if slow {
 					// A loaded runner can leave an idle Codex taking its

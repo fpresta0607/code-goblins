@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -27,7 +26,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
-	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -54,6 +52,7 @@ import (
 type ProgressReader interface {
 	Progress(context.Context, string, string) (pipeline.Progress, error)
 	CanSteer(context.Context, string, string, string) error
+	CanTypeFreshDetached(context.Context, string) error
 }
 
 type Options struct {
@@ -956,29 +955,25 @@ func (s *Service) hasDelivered(meta state.TaskMeta) bool {
 	return isDelivered(lines, meta.SpawnGen, s.Store.taskSession(meta.ID))
 }
 
-// HasDelivered is isDelivered for meta's goblin read from directory, for
-// goblins resume, which runs without the supervisor. The board's record is
-// read only for a goblin whose latest report delivered a pull request, and
-// one that cannot be read is an error, never taken as no prompt.
+// HasDelivered answers isDelivered for meta's goblin from directory, for
+// goblins resume, which runs without the supervisor and can run before it
+// takes in the hook events waiting in the native inbox, so a prompt is looked
+// for there as well as in the board's record. The report's time is kept to
+// the second, so a prompt counts from the second after it, as in isDelivered.
+// The prompt is looked for only for a goblin whose latest report delivered a
+// pull request, and a record that cannot be read is an error, never taken as
+// no prompt.
 func HasDelivered(directory string, meta state.TaskMeta) (bool, error) {
 	lines, _ := state.TailStatus(directory, meta.ID, 200)
 	if deliveredPR(lines, meta.SpawnGen) == "" {
 		return false, nil
 	}
-	var database struct {
-		Sessions     map[string]Session `json:"sessions"`
-		TaskSessions map[string]string  `json:"task_sessions"`
+	reportedAt, _ := latestReport(lines, spawnTime(meta.SpawnGen))
+	isPromptedSince, err := NativePromptSince(directory, meta.ID, meta.SpawnGen, reportedAt.Add(time.Second))
+	if err != nil {
+		return false, fmt.Errorf("read whether %s took a prompt since it reported its pull request done: %w", meta.ID, err)
 	}
-	data, err := fsx.ReadFile(filepath.Join(directory, ".supervisor.json"))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return false, fmt.Errorf("read the board's record of %s's session: %w", meta.ID, err)
-	}
-	if err == nil {
-		if err := json.Unmarshal(data, &database); err != nil {
-			return false, fmt.Errorf("read the board's record of %s's session: %w", meta.ID, err)
-		}
-	}
-	return isDelivered(lines, meta.SpawnGen, database.Sessions[database.TaskSessions[meta.ID]]), nil
+	return !isPromptedSince, nil
 }
 
 // isDelivered reports whether the goblin of generation delivered a pull
@@ -1376,12 +1371,19 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 
 func (s *Service) validateTerminalControl(ctx context.Context, meta state.TaskMeta) error {
 	if meta.Mode == "no-mistakes" {
-		branch, err := s.Git.Branch(ctx, meta.Worktree)
-		if err != nil {
-			return err
-		}
 		if s.Options.Gate == nil {
 			return errors.New("cannot verify pipeline custody")
+		}
+		branch, err := s.Git.Branch(ctx, meta.Worktree)
+		// A new task's worktree starts on a detached HEAD, before its goblin
+		// makes a branch, and no custody can be read on a branch it does not
+		// have. One the gate proves no run of its own works in, and whose
+		// HEAD has not moved since it was made, takes typing (#1987).
+		if errors.Is(err, errDetachedHead) {
+			return s.Options.Gate.CanTypeFreshDetached(ctx, meta.Worktree)
+		}
+		if err != nil {
+			return err
 		}
 		if err := s.Options.Gate.CanSteer(ctx, meta.Project, meta.Worktree, branch); err != nil {
 			return err
@@ -1391,12 +1393,12 @@ func (s *Service) validateTerminalControl(ctx context.Context, meta state.TaskMe
 }
 
 // boardTerminalControl is validateTerminalControl as the board's terminal
-// views say it. Its decision stands, and a refusal on a detached HEAD, which
-// no gate custody can be read for, names the commit in place of Git's failure
-// (#1015).
+// views say it. Its decision stands. A gate's hold reads as one whatever HEAD
+// is, and any other refusal on a detached HEAD names the commit and why it is
+// held (#1015, #1987).
 func (s *Service) boardTerminalControl(ctx context.Context, meta state.TaskMeta) error {
 	err := s.validateTerminalControl(ctx, meta)
-	if err == nil || ctx.Err() != nil {
+	if err == nil || ctx.Err() != nil || errors.Is(err, pipeline.ErrCustodyHeld) || errors.Is(err, pipeline.ErrCustodyNotReturned) {
 		return err
 	}
 	if detached, detachedErr := s.Git.Detached(ctx, meta.Worktree); detachedErr != nil || !detached {
@@ -1406,7 +1408,7 @@ func (s *Service) boardTerminalControl(ctx context.Context, meta state.TaskMeta)
 	if headErr != nil {
 		return err
 	}
-	return fmt.Errorf("HEAD is detached at %s, and no gate custody can be read for a detached HEAD, so typing is held", head[:min(len(head), 12)])
+	return fmt.Errorf("HEAD is detached at %s, so typing is held: %w", head[:min(len(head), 12)], err)
 }
 
 func (s *Service) previewGit(meta state.TaskMeta) Git {

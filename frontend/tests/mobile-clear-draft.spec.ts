@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { box, boxMenu, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
+import { box, card, field, GOBLIN, NAME, open, openGoblin, pasted, pickStyle, send, snapshot, typed } from "./session-board";
 
 test.use({
   viewport: { width: 360, height: 800 }, hasTouch: true, isMobile: true,
@@ -23,7 +23,7 @@ for (const who of ["CFO", "goblin"] as const) {
     const clear = composer.getByRole("button", { name: "Clear message", exact: true });
     await expect(clear).toBeDisabled();
     await input.fill("Typed first line\nTyped second line\n");
-    await (await boxMenu(page, name)).getByRole("button", { name: "Speech history", exact: true }).tap();
+    await box(page, name).getByRole("button", { name: "Speech history", exact: true }).tap();
     await page.getByRole("dialog", { name: "Speech history" }).getByRole("button", { name: /^Paste into the message:/ }).tap();
     await expect(input).toHaveValue("Typed first line\nTyped second line\nDictated first line Dictated second line");
     const draftKey = await page.evaluate(() => Object.keys(sessionStorage).find((key) => key.startsWith("cfo-draft:")));
@@ -49,7 +49,7 @@ for (const who of ["CFO", "goblin"] as const) {
     await expect(page.locator('.queued-message[data-queued="q1"]')).toContainText("Already queued");
     await expect(page.getByRole("log", { name: "Messages of " + name, exact: true })).toContainText("Read the brief");
     await composer.screenshot({ path: testInfo.outputPath(`clear-${who}-phone.png`) });
-    await (await boxMenu(page, name)).getByRole("button", { name: "Speech history", exact: true }).tap();
+    await box(page, name).getByRole("button", { name: "Speech history", exact: true }).tap();
     await expect(page.getByRole("dialog", { name: "Speech history" })).toContainText("Dictated first line");
     await page.reload();
     await expect(page.locator(".board-column").first()).toBeVisible();
@@ -69,15 +69,16 @@ for (const who of ["CFO", "goblin"] as const) {
       await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
       const relay = await open(page, snapshot({ actions: [{ id: "q1", kind: "message", task_id: task, text: "Already queued", status: "queued" }] }));
       await page.route("**/api/actions", async (route) => { actions.push(route.request().postDataJSON()); await route.fulfill({ json: {} }); });
+      await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [] } }));
       if (who === "goblin") await card(page, NAME).tap();
       else await page.keyboard.press("Control+Alt+1");
       await expect.poll(() => relay.addresses.some((address) => who === "goblin" ? new URL(address).searchParams.get("task") === GOBLIN.id : new URL(address).searchParams.has("cfo"))).toBe(true);
       const composer = box(page, name);
       const input = field(page, name);
-      const modern = page.locator(".context-pane").getByRole("button", { name: "Switch to Modern chat", exact: true });
-      await expect(modern).toBeVisible();
+      const picture = page.locator(".context-pane .panel-header").getByRole("button", { name: "Chat style", exact: true });
+      await expect(picture).toBeVisible();
       await expect(composer).toBeHidden();
-      await modern.tap();
+      await pickStyle(page, "Modern chat");
       await input.fill("Unsent first line\nUnsent second line");
       if (activity === "recording") {
         await composer.getByRole("button", { name: "Dictate", exact: true }).tap();
@@ -88,7 +89,7 @@ for (const who of ["CFO", "goblin"] as const) {
         await send(page, name).tap();
         await expect(composer.getByRole("alert")).toHaveText("Not sent. The terminal is closed.");
       }
-      await (await boxMenu(page, name)).getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).tap();
+      await pickStyle(page, "Terminal");
       await expect(input).toBeVisible();
       await expect(input).toBeFocused();
 
@@ -103,7 +104,10 @@ for (const who of ["CFO", "goblin"] as const) {
       expect(await page.evaluate(() => Object.keys(sessionStorage).filter((key) => key.startsWith("cfo-draft:")))).toEqual([]);
       await page.keyboard.insertText("Replacement text");
       await expect(input).toHaveValue("Replacement text");
-      await (await boxMenu(page, name)).getByRole("button", { name: "Style: classic", exact: true }).press("Escape");
+      await composer.getByRole("button", { name: "Speech history", exact: true }).tap();
+      await expect(page.getByRole("dialog", { name: "Speech history", exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("dialog", { name: "Speech history", exact: true })).toHaveCount(0);
       await expect(input).toBeVisible();
       await expect(composer.locator('.queued-message[data-queued="q1"]')).toContainText("Already queued");
       expect(typed(relay)).toBe("");
@@ -117,12 +121,16 @@ for (const who of ["CFO", "goblin"] as const) {
         await expect.poll(() => typed(relay)).toBe(pasted("Replacement text") + "\r");
         expect(relay.submissions).toHaveLength(1);
       } else {
-        await modern.focus();
+        // The keyboard moved to the header ends the replacement field, and a
+        // draft cleared in Modern stays cleared through Terminal and back.
+        await picture.focus();
         await expect(composer).toBeHidden();
-        await modern.tap();
+        await pickStyle(page, "Modern chat");
         await expect(input).toHaveValue("Replacement text");
         await composer.getByRole("button", { name: "Clear message", exact: true }).tap();
-        await (await boxMenu(page, name)).getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).tap();
+        await pickStyle(page, "Terminal");
+        await expect(composer).toBeHidden();
+        await pickStyle(page, "Modern chat");
         await expect(input).toHaveValue("");
         await expect(input).toBeFocused();
       }
@@ -152,7 +160,7 @@ for (const who of ["CFO", "goblin"] as const) {
         expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
       }
       await expect(input).not.toBeFocused();
-      await (await boxMenu(page, name)).getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).tap();
+      await pickStyle(page, "Terminal");
 
       // Assert
       await expect(composer).toBeHidden();
@@ -181,8 +189,13 @@ for (const who of ["CFO", "goblin"] as const) {
       const composer = box(page, name);
       const input = field(page, name);
       await input.fill("Unsent words");
+      // A recording keeps the box under the terminal Terminal shows, and
+      // Clear message, which ends the recording, keeps it for a replacement.
+      await composer.getByRole("button", { name: "Dictate", exact: true }).tap();
+      await pickStyle(page, "Terminal");
+      await expect(input).toBeFocused();
       await composer.getByRole("button", { name: "Clear message", exact: true }).tap();
-      await (await boxMenu(page, name)).getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).tap();
+      await expect(input).toHaveValue("");
       await expect(input).toBeFocused();
       const button = composer.locator('.queued-message[data-queued="q1"]').getByRole("button", { name: control, exact: true });
 
