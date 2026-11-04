@@ -1714,7 +1714,8 @@ func inGoblinTerminal(t *testing.T, stateDir, task string) {
 // task accepts that run's open review findings itself, from its own
 // terminal, by the exact-ids rule the CFO's accept keeps: the accept is
 // audited with the task as who accepted, and reaches the CFO as a notify
-// nothing waits on, before approve reaches the gate (#2049).
+// nothing waits on, before approve reaches the gate, and an accept the CFO
+// cannot be told of is never sent (#2049).
 func TestPipelineGoblinAcceptsItsOwnSpentReviewFindings(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("the primary CFO registration is verified on Windows only")
@@ -1760,6 +1761,22 @@ func TestPipelineGoblinAcceptsItsOwnSpentReviewFindings(t *testing.T) {
 		pending, _ := wake.Pending(h.State)
 		if err == nil || !strings.Contains(err.Error(), "--accept must name exactly the open ask-user and auto-fix findings: ask,bug") || len(runner.native) != 0 || len(lines) != 0 || len(pending) != 0 {
 			t.Fatalf("the goblin naming some of the open findings: %v, %d native calls, status %q, wakes %+v; want the CFO's exact-ids refusal with nothing recorded or sent", err, len(runner.native), lines, pending)
+		}
+	})
+	t.Run("the CFO cannot be told", func(t *testing.T) {
+		// Arrange
+		h, nm, runner := registeredCFOStage(t, "goblin", spent)
+		inGoblinTerminal(t, h.State, "task")
+		if err := os.WriteFile(filepath.Join(h.State, ".wake-queue"), []byte("not a wake\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Act
+		err := pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve", "--accept", "bug,ask"}, &bytes.Buffer{})
+
+		// Assert
+		if err == nil || !strings.Contains(err.Error(), "the CFO cannot be told of this accept, so approve was not sent") || len(runner.native) != 0 {
+			t.Fatalf("the goblin accepting with no notify queueable: %v, %d native calls; want it refused with no approve sent", err, len(runner.native))
 		}
 	})
 }

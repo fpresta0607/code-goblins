@@ -59,7 +59,7 @@ Difficulty or an unforeseen file is not a new product decision.
 Escalate unresolved product choices, a new guarantee or subsystem, a broader threat model or maintenance obligation, destructive or security-sensitive actions, and requests to waive unresolved defects.
 State the accepted requirement, proposed expansion, smallest compliant alternative, consequences and recommendation.
 When repeated findings preserve a questionable abstraction, reconsider it before another round.
-Never use `--yes`, skip required proof, approve an exhausted budget or open a fresh run to escape it.
+Never use `--yes`, skip required proof, bypass an exhausted budget with native AXI or open a fresh run to escape it.
 
 **Proof and final candidate.**
 
@@ -82,7 +82,7 @@ Keep a review artifact available while feedback is outstanding.
 When implementation is separately authorized, inventory scratch changes and dispatch the ship through `cfo brief` and `cfo spawn` from the proper clean base, carrying only intended implementation and regression changes and retaining the scout's report as context.
 There is no dedicated scout-promotion command in this build; a report or a mode edit never supplies missing ship authority.
 
-- `no-mistakes` - the goblin uses `cfo pipeline run`/`respond` under its frozen policy, so an exhausted review budget or fail-closed start refusal comes back as unresolved work rather than an automatic approval: the goblin may itself accept a spent review's findings that are not defects, which you are told of, and every other such decision is yours; follow [docs/pipeline.md](../pipeline.md), and after a completed gate relay the PR URL and wait for merge authority, then `cfo pr merge`.
+- `no-mistakes` - the goblin uses `cfo pipeline run`/`respond` under its frozen policy, so an exhausted review budget or fail-closed start refusal comes back as unresolved work rather than an automatic approval: the goblin may itself accept a spent review's open findings, which you are told of, and fixes a real defect among them in one follow-up commit on the same pull request after its first CI rather than asking you, and every other such decision is yours; follow [docs/pipeline.md](../pipeline.md), and after a completed gate relay the PR URL and wait for merge authority, then `cfo pr merge`.
 - `direct-PR` - open the PR as a draft (`gh pr create --draft`), record it with `cfo pr check`, mark it ready (`gh pr ready <url>`) once, on the head it means to merge, report it done once that run is green, and wait for merge authority before `cfo pr merge`.
 
 A pull request is a draft until its head is the one its goblin means to merge, so the fix rounds before that start no hosted CI: a repository's workflows skip a draft and run on `ready_for_review`, and each push to a ready pull request runs them again.
