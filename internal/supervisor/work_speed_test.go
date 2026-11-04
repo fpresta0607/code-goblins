@@ -971,6 +971,49 @@ func TestAGapInThePassesStartsTheBlindSpellAgain(t *testing.T) {
 	}
 }
 
+// On a loaded machine a reading's CI poll can hold it past two minutes, and
+// the next reading starts as it ends. Its progress pass follows the one before
+// with no gap, so the blind spell those passes make is kept and wakes the CFO
+// once it has lasted as long as a stall takes to tell.
+func TestPassesInReadingsSlowerThanTheGapKeepTheBlindSpell(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	for _, id := range []string{"a-task", "b-task", "c-task"} {
+		liveGoblin(t, h, id, h.Root)
+	}
+	head := strings.Repeat("a", 40)
+	service.Options.Progress = &slowGit{progressGit: progressGit{head: head, pushed: head}, isEverySlow: true}
+	start := time.Date(2026, 11, 4, 1, 10, 0, 0, time.UTC)
+	var watched fleetWakes
+
+	// A reading starts every 3 minutes and takes them all, its progress pass
+	// ending in the reading's last second.
+	for minute := 0; minute <= 21; minute += 3 {
+		at := start.Add(time.Duration(minute) * time.Minute)
+		ended := at.Add(3*time.Minute - time.Second)
+
+		// Act
+		if err := service.checkProgress(t.Context(), &watched, at, func() time.Time { return ended }); err != nil {
+			t.Fatalf("at minute %d: %v", minute, err)
+		}
+
+		// Assert
+		if !watched.ProgressUnreadSince.Equal(start) {
+			t.Fatalf("at minute %d blind spell since %s, want the spell from %s kept", minute, watched.ProgressUnreadSince.Format("15:04Z"), start.Format("15:04Z"))
+		}
+		wantWakes := 0
+		if minute >= 20 {
+			wantWakes = 1
+		}
+		if wakes := progressUnreadWakes(t, h); len(wakes) != wantWakes {
+			t.Fatalf("at minute %d progress_unread wakes = %d, want %d: %q", minute, len(wakes), wantWakes, wakes)
+		}
+	}
+	if wakes := progressUnreadWakes(t, h); !strings.Contains(wakes[0], "for 21 minutes, since 01:10Z") {
+		t.Fatalf("wake %q, want the spell that began with the first pass at 01:10Z", wakes[0])
+	}
+}
+
 // A pass the supervisor's own stop cut short, its reads ended with the
 // supervisor, read neither the machine nor any goblin: it starts no blind
 // spell and adds to no goblin's run of failed passes.
@@ -1000,8 +1043,8 @@ func TestAPassTheSupervisorsStopCutShortTellsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !watched.ProgressPassAt.Equal(at) {
-		t.Errorf("progress pass at %s, want the pass at %s to have run", watched.ProgressPassAt, at)
+	if watched.ProgressPassAt.Before(at) {
+		t.Errorf("progress pass ended at %s, want the pass from %s to have run", watched.ProgressPassAt, at)
 	}
 	if !watched.ProgressUnreadSince.IsZero() {
 		t.Errorf("blind spell since %s, want none from a pass the stop cut short", watched.ProgressUnreadSince)

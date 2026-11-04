@@ -107,7 +107,7 @@ type fleetWakes struct {
 	// progress read ran out of time together, zero once a pass reads one or
 	// has none to read, or after a gap in the passes, and ProgressUnreadWoke
 	// says the CFO was told of those passes. ProgressPassAt is when the latest
-	// pass began, which tells that gap.
+	// pass ended, which tells that gap.
 	ProgressUnreadSince time.Time `json:"progress_unread_since,omitzero"`
 	ProgressUnreadWoke  bool      `json:"progress_unread_woke,omitempty"`
 	ProgressPassAt      time.Time `json:"progress_pass_at,omitzero"`
@@ -308,7 +308,7 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	stateDir := s.Store.Home.State
 	w, readErr := readFleetWakes(stateDir)
 	err := errors.Join(readErr, s.pauseAtAllowanceFloor(ctx, &w, now), s.pollCI(ctx, &w, now, currentTime))
-	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCFOWaits(&w, now))
+	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now, currentTime), s.checkDefender(ctx, &w, now), s.checkCFOWaits(&w, now))
 	w.RootReadings = s.currentRootReadings()
 	err = errors.Join(err, writeFleetWakes(stateDir, w))
 	var unreadable error
