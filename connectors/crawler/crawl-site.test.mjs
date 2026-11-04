@@ -9,7 +9,7 @@ import { RobotsTxtFile } from "@crawlee/utils";
 import { chromium } from "playwright-core";
 
 import { crawlSite, MAX_IN_FLIGHT, NAVIGATION_TIMEOUT_SECS, USER_AGENT } from "./crawl-site.mjs";
-import { CARE_GUIDE, CARE_SHEET, PDF, startFixtureSite } from "./fixture-site.mjs";
+import { CARE_GUIDE, CARE_SHEET, PDF, SITEMAP_ARCHIVES, startFixtureSite } from "./fixture-site.mjs";
 
 // Every way Node starts a process, watched while the fixture site is crawled.
 const PROCESS_STARTS = ["spawn", "spawnSync", "exec", "execSync", "execFile", "execFileSync", "fork"];
@@ -114,6 +114,16 @@ describe("a crawl of the fixture site", () => {
     assert.equal(route("/staff").status, "unread");
     assert.equal(route("/staff").reason, `it redirects to ${new URL("/private/staff-room", site.url).href}, which robots.txt disallows`);
     assert.equal(route("/staff").page, undefined);
+  });
+
+  test("lists every sitemap it did not read with why: past its limit of 50, or on another site", () => {
+    const onSite = ["/sitemap.xml", "/sitemap-pages.xml", ...Array.from({ length: SITEMAP_ARCHIVES }, (_, index) => `/sitemap-archive-${index + 1}.xml`)].map((sitemap) => new URL(sitemap, site.url).href);
+    const elsewhere = new URL("/sitemap.xml", site.offSiteUrl).href;
+    assert.deepEqual(report.sitemaps.map((sitemap) => sitemap.url).sort(), [...onSite, elsewhere].sort(), "a sitemap the site names is missing from the report");
+    assert.equal(site.requests.filter((request) => request.path.startsWith("/sitemap")).length, 50, "the crawl did not ask the site for exactly its limit of 50 sitemaps");
+    assert.equal(report.sitemaps.filter((sitemap) => sitemap.status === "unread" && sitemap.reason === "past the sitemap limit of 50").length, onSite.length - 50);
+    assert.deepEqual(report.sitemaps.filter((sitemap) => sitemap.reason === "it is on another site").map((sitemap) => sitemap.url), [elsewhere]);
+    assert.ok(!site.offSiteRequests.some((request) => request.path === "/sitemap.xml"), "the crawl asked another site for its sitemap");
   });
 
   test("holds a request to another site that redirects onto this one to robots.txt", () => {

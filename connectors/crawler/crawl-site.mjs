@@ -422,21 +422,32 @@ async function readRobots(origin) {
 }
 
 // readSitemaps reads the sitemaps robots.txt names and /sitemap.xml, and every
-// sitemap a sitemap index names, on the site only, and returns the pages they
-// list and what each sitemap gave.
+// sitemap a sitemap index names, on the site only and at most MAX_SITEMAPS of
+// them, and returns the pages they list and what each sitemap gave, each one
+// it did not read with why.
 async function readSitemaps(robots, origin, isAllowed) {
   const queue = [...robots.file.getSitemaps(), new URL("/sitemap.xml", origin).href];
   const seen = new Set();
   const pages = [];
   const read = [];
-  while (queue.length > 0 && seen.size < MAX_SITEMAPS) {
+  let asked = 0;
+  while (queue.length > 0) {
     const url = normalize(queue.shift());
-    if (!url || seen.has(url) || new URL(url).origin !== origin) continue;
+    if (!url || seen.has(url)) continue;
     seen.add(url);
+    if (new URL(url).origin !== origin) {
+      read.push({ url, status: "unread", reason: "it is on another site" });
+      continue;
+    }
     if (!isAllowed(url)) {
       read.push({ url, status: "unread", reason: "robots.txt disallows it" });
       continue;
     }
+    if (asked >= MAX_SITEMAPS) {
+      read.push({ url, status: "unread", reason: `past the sitemap limit of ${MAX_SITEMAPS}` });
+      continue;
+    }
+    asked += 1;
     let response;
     try {
       response = await fetchAsCrawler(url, isAllowed);

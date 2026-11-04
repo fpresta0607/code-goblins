@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/crawler"
@@ -37,14 +38,26 @@ func runCrawler(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 	return 0
 }
 
+// crawlerSetupWait bounds the crawler's setup, whose npm ci can wait on the
+// network for as long as npm retries: cfo install runs it last, and the
+// board's Update ends an install that runs past releaseRefreshWait.
+var crawlerSetupWait = 2 * time.Minute
+
 // setUpCrawler makes the crawler connector in the home at root this build's,
-// with the npm runtime names, or the machine's.
+// with the npm runtime names, or the machine's. A setup that runs past
+// crawlerSetupWait is stopped, npm and every process it started with it.
 func setUpCrawler(root string, runtime commandRuntime) (crawler.State, error) {
 	npm := runtime.crawlerNpm
 	if npm == nil {
 		npm = execx.OSRunner{}
 	}
-	return crawler.Setup(context.Background(), root, codegoblins.Crawler, npm)
+	ctx, cancel := context.WithTimeout(context.Background(), crawlerSetupWait)
+	defer cancel()
+	found, err := crawler.Setup(ctx, root, codegoblins.Crawler, npm)
+	if err != nil && ctx.Err() != nil {
+		return found, fmt.Errorf("crawler: the setup took longer than %s, so it was stopped: %w", crawlerSetupWait, err)
+	}
+	return found, err
 }
 
 // reportCrawler says whether the crawler connector every goblin carries is

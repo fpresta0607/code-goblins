@@ -1,8 +1,9 @@
 import http from "node:http";
 import { pathToFileURL } from "node:url";
 
-// A made-up site for the crawler's tests and its live proof: a sitemap index,
-// a page a script draws whose only link to a product page is drawn too, and
+// A made-up site for the crawler's tests and its live proof: a sitemap index
+// that names more sitemaps than the crawl reads and one on a second site, a
+// page a script draws whose only link to a product page is drawn too, and
 // whose script asks for data robots.txt disallows, directly and through a
 // redirect, and starts a service worker that would ask for more, a page only
 // the sitemap names, a page that redirects to one the sitemap names and one
@@ -24,6 +25,10 @@ export const PDF = Buffer.from(
 );
 export const CARE_GUIDE = Buffer.concat([PDF, Buffer.from("% the kite care guide\n")]);
 export const CARE_SHEET = Buffer.concat([PDF, Buffer.from("% the kite care sheet\n")]);
+
+// The sitemap index names this many archive sitemaps, /sitemap-archive-1.xml
+// and on, each listing nothing, after the sitemap of the site's pages.
+export const SITEMAP_ARCHIVES = 55;
 
 const page = (title, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title><meta name="description" content="${title} at Fernwood Kites"></head><body>${body}</body></html>`;
 
@@ -61,9 +66,10 @@ export function startFixtureSite({ delayMs = 0, extraPages = 0 } = {}) {
   let origin = "";
   let offSiteOrigin = "";
   const extra = Array.from({ length: extraPages }, (_, index) => `/more/${index + 1}`);
+  const archives = Array.from({ length: SITEMAP_ARCHIVES }, (_, index) => `/sitemap-archive-${index + 1}.xml`);
   const routes = {
     "/robots.txt": () => ["text/plain", `User-agent: *\nDisallow: /private/\n\nSitemap: ${origin}/sitemap.xml\n`],
-    "/sitemap.xml": () => ["application/xml", `<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><sitemap><loc>${origin}/sitemap-pages.xml</loc></sitemap></sitemapindex>`],
+    "/sitemap.xml": () => ["application/xml", `<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${[...["/sitemap-pages.xml", ...archives].map((route) => origin + route), `${offSiteOrigin}/sitemap.xml`].map((sitemap) => `<sitemap><loc>${sitemap}</loc></sitemap>`).join("")}</sitemapindex>`],
     "/sitemap-pages.xml": () => ["application/xml", `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${["/", "/about", "/workshops", "/visit/"].map((route) => `<url><loc>${origin}${route}</loc></url>`).join("")}</urlset>`],
     "/": () => ["text/html", page("Fernwood Kites", `${NAV}<main><h1>Fernwood Kites</h1><p>Hand-sewn kites since 1987.</p><p><a href="/docs/price-list.pdf">Price list (PDF)</a> <a href="/docs/old-price-list.pdf">Last year's price list (PDF)</a> <a href="/docs/kites/care.pdf">Care guide (PDF)</a> <a href="/docs/kites-care.pdf">Care sheet (PDF)</a> <a href="/visit">Visit us</a> <a href="/staff">Staff room</a> <a href="/private/notes">Staff notes</a> <a href="/live">Live wind</a> <a href="/welcome">Welcome</a> <a href="/loop">Kite loop</a> <a href="/kite-cam">Kite cam</a><a href="https://example.org/partner">Our partner</a></p>${extra.map((route) => `<a href="${route}">${route}</a>`).join(" ")}</main><footer>Fernwood Kites, a made-up shop</footer>`)],
     "/about": () => ["text/html", page("About", `${NAV}<main><h1>About us</h1><img src="/images/workshop.jpg" alt="The workshop"><table><tr><th>Day</th><th>Hours</th></tr><tr><td>Saturday</td><td>9 to 17</td></tr></table></main>`)],
@@ -90,6 +96,7 @@ export function startFixtureSite({ delayMs = 0, extraPages = 0 } = {}) {
     "/assets/search.js": () => ["text/javascript", "window.search = true;"],
   };
   for (const route of extra) routes[route] = () => ["text/html", page(route, `${NAV}<main><h1>${route}</h1></main>${ASSETS}`)];
+  for (const route of archives) routes[route] = () => ["application/xml", `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>`];
 
   const record = (request) => {
     const url = new URL(request.url, origin);
@@ -151,6 +158,7 @@ export function startFixtureSite({ delayMs = 0, extraPages = 0 } = {}) {
     offSiteOrigin = otherOrigin;
     return {
       url: `${origin}/`,
+      offSiteUrl: `${offSiteOrigin}/`,
       requests,
       offSiteRequests,
       maxInFlight: () => maxInFlight,

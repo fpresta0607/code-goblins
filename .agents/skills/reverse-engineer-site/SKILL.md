@@ -28,6 +28,7 @@ goblin-crawl <start address> --out <a folder in your task's scratch> [--max-page
 
 It reads robots.txt and every sitemap the site names, opens each page in headless Chrome so a page a script draws is read as a person sees it, follows every link on the site, and downloads every file the pages link to.
 It reads at most 500 pages unless `--max-pages` says otherwise, counting only the pages it reads, and every route past the limit is reported, never dropped.
+It reads at most 50 sitemaps, on the site only, and lists each other sitemap unread with why, such as past the sitemap limit of 50 or on another site; a route only such a sitemap names is not found, so name those sitemaps in your report.
 It ends with one line that counts the pages read, the files downloaded and the routes unread, and exits 1 with one line saying why when nothing could be crawled, such as a robots.txt the site cannot serve.
 
 The folder then holds:
@@ -38,7 +39,7 @@ The folder then holds:
 - `files/`, every file the pages link to, as the site served it.
 
 A route's `found_by` says where it came from: `start`, `sitemap`, or the page that links to it.
-A route only a sitemap names, or only a script draws, is still found.
+A route only a sitemap the crawl read names, or only a script draws, is still found.
 
 ## 2. List every route
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io/fs"
@@ -12,9 +13,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/crawler"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
@@ -206,6 +209,48 @@ func TestInstallSetsUpTheCrawlerAndGoesOnWithoutIt(t *testing.T) {
 				t.Errorf("the install noted a crawler it could not set up = %v, want %v:\n%s", isNoted, test.exitCode != 0, stdout.String())
 			}
 		})
+	}
+}
+
+// stalledNpm stands in for an npm ci that waits on a registry it cannot
+// reach: it returns once the setup's context ends, or, in a setup with no
+// deadline, after longest.
+type stalledNpm struct {
+	longest time.Duration
+}
+
+func (n stalledNpm) Run(ctx context.Context, _ execx.Request) (execx.Result, error) {
+	select {
+	case <-ctx.Done():
+		return execx.Result{}, ctx.Err()
+	case <-time.After(n.longest):
+		return execx.Result{ExitCode: 1, Stderr: []byte("npm error network request timed out")}, nil
+	}
+}
+
+// An npm ci that stalls is stopped at the crawler setup's deadline, so the
+// install, which the board's Update ends past its own bound, finishes with
+// the note that goblins go without the crawler.
+func TestInstallStopsACrawlerSetupThatStallsAndGoesOnWithoutIt(t *testing.T) {
+	// Arrange
+	root, _, _ := scratchMachine(t, t.TempDir())
+	wait := crawlerSetupWait
+	crawlerSetupWait = 100 * time.Millisecond
+	t.Cleanup(func() { crawlerSetupWait = wait })
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	code := runInstall(nil, &stdout, &stderr, commandRuntime{crawlerNpm: stalledNpm{longest: 10 * time.Second}})
+
+	// Assert
+	if code != 0 {
+		t.Fatalf("cfo install exited %d, want 0:\n%s%s", code, stdout.String(), stderr.String())
+	}
+	if want := "Note: The crawler connector was not set up (crawler: the setup took longer than 100ms, so it was stopped"; !strings.Contains(stdout.String(), want) {
+		t.Errorf("the install did not say %q:\n%s", want, stdout.String())
+	}
+	if state, err := crawler.Check(root, codegoblins.Crawler); state != crawler.Missing || err != nil {
+		t.Errorf("the crawler after a stopped setup is %v (%v), want Missing, with no goblin-crawl for a goblin to start", state, err)
 	}
 }
 
