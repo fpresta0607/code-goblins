@@ -48,7 +48,7 @@ import { useVisualViewport } from "./use-visual-viewport";
 import { MessagesView } from "./messages-view";
 import { Composer } from "./composer";
 import { useTerminalLink } from "./terminal-link";
-import { liveCfoSession } from "./workflow";
+import { cfoEffort, liveCfoSession } from "./workflow";
 import { messagesQuery } from "./session-messages";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { CHAT_STYLE_CHANGED, useChatStyle, type ChatStyle } from "./chat-style";
@@ -376,10 +376,8 @@ export function App() {
   const panelHarness = cfoShown || !task ? (snapshot && snapshot.cfo_harness) || "" : task.harness;
   const panelModel = cfoShown || !task ? ((snapshot && liveCfoSession(snapshot)?.model) || "") : task.model || "";
   // The effort a session was started at, which its own record overrides once
-  // it says otherwise: the goblin's, or the CFO's engine once it applied to
-  // the CFO's own harness, with no change pending and no problem.
-  const cfoEngine = snapshot?.cfo_engine;
-  const panelEffort = cfoShown || !task ? (cfoEngine && !cfoEngine.pending && !cfoEngine.problem && cfoEngine.harness === snapshot?.cfo_harness ? cfoEngine.effort : "") : task.effort || "";
+  // it says otherwise: the goblin's, or the CFO's (cfoEffort).
+  const panelEffort = cfoShown || !task ? (snapshot ? cfoEffort(snapshot) : "") : task.effort || "";
   const panelSent = snapshot && (cfoShown || task) ? messagesTo(snapshot, cfoShown ? "" : task?.id || "") : [];
   const panelPending = panelSent.filter(isPendingMessage);
   // A session the board reads as messages shows them and types through its
