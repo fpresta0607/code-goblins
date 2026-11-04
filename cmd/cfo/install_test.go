@@ -214,16 +214,14 @@ func TestInstallSetsUpTheCrawlerAndGoesOnWithoutIt(t *testing.T) {
 
 // stalledNpm stands in for an npm ci that waits on a registry it cannot
 // reach: it returns once the setup's context ends, or, in a setup with no
-// deadline, after longest.
-type stalledNpm struct {
-	longest time.Duration
-}
+// deadline, after a minute.
+type stalledNpm struct{}
 
-func (n stalledNpm) Run(ctx context.Context, _ execx.Request) (execx.Result, error) {
+func (stalledNpm) Run(ctx context.Context, _ execx.Request) (execx.Result, error) {
 	select {
 	case <-ctx.Done():
 		return execx.Result{}, ctx.Err()
-	case <-time.After(n.longest):
+	case <-time.After(time.Minute):
 		return execx.Result{ExitCode: 1, Stderr: []byte("npm error network request timed out")}, nil
 	}
 }
@@ -240,7 +238,7 @@ func TestInstallStopsACrawlerSetupThatStallsAndGoesOnWithoutIt(t *testing.T) {
 
 	// Act
 	var stdout, stderr bytes.Buffer
-	code := runInstall(nil, &stdout, &stderr, commandRuntime{crawlerNpm: stalledNpm{longest: 10 * time.Second}})
+	code := runInstall(nil, &stdout, &stderr, commandRuntime{crawlerNpm: stalledNpm{}})
 
 	// Assert
 	if code != 0 {
