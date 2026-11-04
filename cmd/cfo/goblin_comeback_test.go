@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -170,6 +172,48 @@ func TestGoblinsResumeBringsBackTheGoblinsARebootEnded(t *testing.T) {
 		if request.Generation != "s1" || !request.ForceDirty || request.Harness != "" || request.Model != "" || request.Effort != "" || request.IsResume {
 			t.Errorf("switch %+v; want one in place, of the task's own generation, keeping its uncommitted work", request)
 		}
+	}
+}
+
+// goblins resume can run after a reboot before the supervisor takes in the
+// native inbox, so a goblin the CFO steered back to work after its done
+// report comes back while the hook event of the prompt that steered it still
+// waits there (#1623). One that took no prompt since stays down to wait on
+// its merge.
+func TestGoblinsResumeBringsBackAGoblinWhosePromptStillWaitsInTheInbox(t *testing.T) {
+	// Arrange
+	h := comebackHome(t, map[string][2]string{
+		"delivered":        {"claude", "native"},
+		"steered-in-inbox": {"claude", "native"},
+	}, nil)
+	for id, report := range map[string]string{"delivered": "done: PR https://github.com/acme/api/pull/7", "steered-in-inbox": "done: PR https://github.com/acme/api/pull/9"} {
+		if err := state.AppendStatus(h.State, id, report); err != nil {
+			t.Fatal(err)
+		}
+	}
+	payload, err := json.Marshal(map[string]string{"hook_event_name": "UserPromptSubmit", "session_id": "inbox-conversation", "cwd": h.Root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := nativehook.Normalize(bytes.NewReader(payload), nativehook.Context{Harness: "claude", Role: "goblin", TaskID: "steered-in-inbox", Generation: "s1", Now: time.Now().UTC().Add(time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := nativehook.Spool(h.State, prompt); err != nil {
+		t.Fatal(err)
+	}
+	var requests []spawn.SwitchRequest
+	runtime := comebackRuntime(nil, nil, func(spawn.SwitchRequest) (spawn.SwitchResult, error) { return spawn.SwitchResult{}, nil }, &requests)
+
+	// Act
+	comebacks, err := bringGoblinsBack(t.Context(), h, runtime)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comebacks) != 1 || comebacks[0].id != "steered-in-inbox" || !comebacks[0].isBack || len(requests) != 1 {
+		t.Errorf("goblins resume did %+v with switches %+v; want steered-in-inbox back and delivered left down to wait on its merge", comebacks, requests)
 	}
 }
 

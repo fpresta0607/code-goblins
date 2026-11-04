@@ -60,6 +60,10 @@ type EndpointSample struct {
 	// screen could not be read, which the monitor reads again on its next
 	// scan before it wakes anybody.
 	ReadFailed bool
+	// IsComingBack marks a missing native terminal whose goblin the
+	// supervisor's comeback after a restart brings back by itself, as Detail
+	// then says, so no other advice replaces it.
+	IsComingBack bool
 }
 
 type Health string

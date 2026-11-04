@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -27,7 +26,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
-	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -957,29 +955,25 @@ func (s *Service) hasDelivered(meta state.TaskMeta) bool {
 	return isDelivered(lines, meta.SpawnGen, s.Store.taskSession(meta.ID))
 }
 
-// HasDelivered is isDelivered for meta's goblin read from directory, for
-// goblins resume, which runs without the supervisor. The board's record is
-// read only for a goblin whose latest report delivered a pull request, and
-// one that cannot be read is an error, never taken as no prompt.
+// HasDelivered answers isDelivered for meta's goblin from directory, for
+// goblins resume, which runs without the supervisor and can run before it
+// takes in the hook events waiting in the native inbox, so a prompt is looked
+// for there as well as in the board's record. The report's time is kept to
+// the second, so a prompt counts from the second after it, as in isDelivered.
+// The prompt is looked for only for a goblin whose latest report delivered a
+// pull request, and a record that cannot be read is an error, never taken as
+// no prompt.
 func HasDelivered(directory string, meta state.TaskMeta) (bool, error) {
 	lines, _ := state.TailStatus(directory, meta.ID, 200)
 	if deliveredPR(lines, meta.SpawnGen) == "" {
 		return false, nil
 	}
-	var database struct {
-		Sessions     map[string]Session `json:"sessions"`
-		TaskSessions map[string]string  `json:"task_sessions"`
+	reportedAt, _ := latestReport(lines, spawnTime(meta.SpawnGen))
+	isPromptedSince, err := NativePromptSince(directory, meta.ID, meta.SpawnGen, reportedAt.Add(time.Second))
+	if err != nil {
+		return false, fmt.Errorf("read whether %s took a prompt since it reported its pull request done: %w", meta.ID, err)
 	}
-	data, err := fsx.ReadFile(filepath.Join(directory, ".supervisor.json"))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return false, fmt.Errorf("read the board's record of %s's session: %w", meta.ID, err)
-	}
-	if err == nil {
-		if err := json.Unmarshal(data, &database); err != nil {
-			return false, fmt.Errorf("read the board's record of %s's session: %w", meta.ID, err)
-		}
-	}
-	return isDelivered(lines, meta.SpawnGen, database.Sessions[database.TaskSessions[meta.ID]]), nil
+	return !isPromptedSince, nil
 }
 
 // isDelivered reports whether the goblin of generation delivered a pull
