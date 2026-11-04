@@ -22,7 +22,7 @@ const RESTING = [
   ...numbered(6, (number) => task("finished:done-" + number, "done", { archived: true, merged: true, verified: true, generation: "", branch: "fix/done-" + number, at: since })),
 ];
 const fleet = (tasks: Record<string, unknown>[]) => ({ healthy: true, instance: "fixture", cfo_runs: true, revision: 1, at: since, attention: [], memory, tasks,
-  actions_spend: { status: "available", month: "2026-10", total_usd: 8.5, repositories: [{ name: "example-user/fern", spent_usd: 8.5 }], read_at: since, checked_at: since, detail: "" } });
+  actions_spend: { status: "available", month: "2026-10", total: { minutes: 700, used_usd: 12, billed_usd: 8.5 }, repositories: [{ name: "fern", minutes: 700, used_usd: 12, billed_usd: 8.5 }], read_at: since, checked_at: since, detail: "" } });
 
 interface Counts { commits: number; rendered: Record<string, number>; frames: number }
 

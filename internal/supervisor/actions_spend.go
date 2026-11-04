@@ -84,7 +84,7 @@ func (s *Service) readActionsSpendMonth(ctx, lifetime context.Context, now time.
 	reading := s.Options.ActionsSpend(probe, now, month)
 	s.mu.Lock()
 	before := entry.reading
-	if reading.Status != "available" && before.TotalUSD != nil {
+	if reading.Status != "available" && before.Total != nil {
 		before.Status, before.Detail, before.CheckedAt = "stale", reading.Detail, reading.CheckedAt
 		reading = before
 	}
@@ -107,8 +107,10 @@ func (s *Service) actionsSpendUsage(now time.Time, month string) actionsbilling.
 	if reading.Month != month {
 		return actionsbilling.Reading{Status: "unavailable", Month: month, Detail: "Waiting for this month's GitHub Actions usage."}
 	}
+	// Old says itself where the reading is shown, so an aged reading
+	// carries no problem line.
 	if reading.Status == "available" && now.Sub(reading.ReadAt) >= 2*time.Hour {
-		reading.Status, reading.Detail = "stale", "The last GitHub Actions usage reading is old."
+		reading.Status = "stale"
 	}
 	return reading
 }

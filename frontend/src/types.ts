@@ -384,11 +384,19 @@ export interface KeySpend {
   // detail says in a few words why the status is what it is.
   detail: string;
 }
+// ActionsUsage is GitHub Actions use: minutes run, their value at list price
+// and what GitHub bills, in whole cents. What GitHub covered is used less
+// billed.
+export interface ActionsUsage {
+  minutes: number;
+  used_usd: number;
+  billed_usd: number;
+}
 export interface ActionsSpend {
   status: "available" | "stale" | "unavailable";
   month: string;
-  total_usd: number | null;
-  repositories: { name: string; spent_usd: number }[];
+  total: ActionsUsage | null;
+  repositories: ({ name: string } & ActionsUsage)[];
   read_at: string;
   checked_at: string;
   detail: string;
@@ -955,13 +963,20 @@ export function parseReadings(v: Record<string, unknown>): Readings {
     },
   };
 }
+// A total with any figure missing or not finite is no total at all, so the
+// board never shows a guess.
+function parseActionsTotal(value: unknown): ActionsUsage | null {
+  if (!isRecord(value)) return null;
+  const { minutes, used_usd, billed_usd } = value;
+  const isFigure = (figure: unknown): figure is number => typeof figure === "number" && Number.isFinite(figure);
+  return isFigure(minutes) && isFigure(used_usd) && isFigure(billed_usd) ? { minutes, used_usd, billed_usd } : null;
+}
 export function parseActionsSpend(value: unknown): ActionsSpend {
   const usage = object(value);
-  const total = usage.total_usd;
   return {
     status: usage.status === "available" || usage.status === "stale" ? usage.status : "unavailable",
-    month: string(usage.month), total_usd: typeof total === "number" && Number.isFinite(total) ? total : null,
-    repositories: array(usage.repositories).map((value) => { const repository = object(value); return { name: string(repository.name), spent_usd: number(repository.spent_usd) }; }),
+    month: string(usage.month), total: parseActionsTotal(usage.total),
+    repositories: array(usage.repositories).map((value) => { const repository = object(value); return { name: string(repository.name), minutes: number(repository.minutes), used_usd: number(repository.used_usd), billed_usd: number(repository.billed_usd) }; }),
     read_at: string(usage.read_at), checked_at: string(usage.checked_at), detail: string(usage.detail),
   };
 }
