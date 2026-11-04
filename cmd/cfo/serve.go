@@ -228,7 +228,10 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			},
 			CFOEnded: func(ctx context.Context, why string) error { return comebackCFO(ctx, h, runtime, why) },
 			Goblin: func(ctx context.Context, id string) supervisor.GoblinComeback {
-				return comebackGoblin(ctx, h, runtime, id)
+				return comebackGoblin(ctx, h, runtime, id, restartNote, false)
+			},
+			GoblinForMessage: func(ctx context.Context, id string) supervisor.GoblinComeback {
+				return comebackGoblin(ctx, h, runtime, id, messageNote, true)
 			},
 		}
 	}

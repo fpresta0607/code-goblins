@@ -194,7 +194,7 @@ func TestTheComebackBringsEachGoblinBackToldTheMachineRestarted(t *testing.T) {
 		if id == "no-room" {
 			runtime.admitLaunch = func(home.Home) error { return refused }
 		}
-		outcomes[id] = comebackGoblin(t.Context(), h, runtime, id)
+		outcomes[id] = comebackGoblin(t.Context(), h, runtime, id, restartNote, false)
 	}
 
 	// Assert
@@ -260,7 +260,7 @@ func TestTheComebackFinishesTheResumeTheRestartCutShort(t *testing.T) {
 
 	// Act
 	for _, id := range []string{"resume-cut-short", "resume-failed", "pause-failed", "stop-failed", "no-room"} {
-		outcomes[id] = comebackGoblin(t.Context(), h, runtime, id)
+		outcomes[id] = comebackGoblin(t.Context(), h, runtime, id, restartNote, false)
 	}
 
 	// Assert
@@ -291,6 +291,37 @@ func TestTheComebackFinishesTheResumeTheRestartCutShort(t *testing.T) {
 	}
 }
 
+// A goblin whose latest report delivered its pull request stays down after a
+// restart, but comes back for a message he sends it, since his message is a
+// prompt for it: on its own conversation, told in one line that his message
+// follows.
+func TestHisMessageBringsBackAGoblinThatDeliveredToldItsMessageFollows(t *testing.T) {
+	// Arrange
+	h := comebackHome(t, map[string][2]string{"claude-owned": {"claude", "native"}}, nil)
+	if err := state.AppendStatus(h.State, "claude-owned", "done: PR https://github.com/acme/api/pull/7"); err != nil {
+		t.Fatal(err)
+	}
+	var requests []spawn.SwitchRequest
+	runtime := comebackRuntime(nil, nil, func(request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+		return spawn.SwitchResult{Resumed: request.ResumeSession != ""}, nil
+	}, &requests)
+
+	// Act
+	restart := comebackGoblin(t.Context(), h, runtime, "claude-owned", restartNote, false)
+	message := comebackGoblin(t.Context(), h, runtime, "claude-owned", messageNote, true)
+
+	// Assert
+	if restart.Outcome != supervisor.LeftAsItWas {
+		t.Errorf("after a restart it came back %+v, want it left to wait on its merge", restart)
+	}
+	if want := (supervisor.GoblinComeback{Outcome: supervisor.CameBack, Said: "back on its conversation"}); message != want {
+		t.Errorf("for his message it came back %+v, want %+v", message, want)
+	}
+	if len(requests) != 1 || requests[0].ResumeSession != "owned-conversation" || requests[0].ResumeNote != messageNote || strings.Count(messageNote, "\n") != 0 {
+		t.Errorf("switches %+v, want one onto its own conversation told in one line that his message follows", requests)
+	}
+}
+
 func TestTheComebackReportsWhetherTheTerminalRunsAfterASwitchError(t *testing.T) {
 	for _, isRunning := range []bool{false, true} {
 		name := "stopped"
@@ -308,7 +339,7 @@ func TestTheComebackReportsWhetherTheTerminalRunsAfterASwitchError(t *testing.T)
 			}, &requests)
 			runtime.nativeTerminalRuns = func(string, string) bool { return isTerminalRunning }
 
-			result := comebackGoblin(t.Context(), h, runtime, "alpha")
+			result := comebackGoblin(t.Context(), h, runtime, "alpha", restartNote, false)
 
 			want := supervisor.DidNotComeBack
 			if isRunning {

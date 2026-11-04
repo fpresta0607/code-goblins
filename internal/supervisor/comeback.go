@@ -32,13 +32,18 @@ type Comeback struct {
 	// its own conversation where that is small enough and on a new one where
 	// not, and says why it did not come back.
 	CFO func(ctx context.Context) error
-	// CFOEnded brings the CFO back the same way after its terminal ended in
-	// this sign-in while nobody asked it to stop, telling it why, and says
-	// why it did not come back.
+	// CFOEnded brings the CFO back the same way, telling it why, after its
+	// terminal ended in this sign-in while nobody asked it to stop or for a
+	// message he sent it while none ran, and says why it did not come back.
 	CFOEnded func(ctx context.Context, why string) error
 	// Goblin brings one goblin back in place, in its own session, and tells
 	// it the machine restarted.
 	Goblin func(ctx context.Context, id string) GoblinComeback
+	// GoblinForMessage brings one goblin back in place, in its own session,
+	// for a message he sent it while its terminal did not run, and tells it
+	// his message follows. A goblin whose latest report delivered comes back
+	// too, since his message is a prompt for it.
+	GoblinForMessage func(ctx context.Context, id string) GoblinComeback
 }
 
 // GoblinComeback is what bringing one goblin back did, and Said the reason
