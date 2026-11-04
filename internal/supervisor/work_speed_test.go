@@ -783,27 +783,46 @@ func TestPassesThatReadNoGoblinWakeTheCFOOnceTheyLastAStall(t *testing.T) {
 	git := &slowGit{progressGit: progressGit{head: head, pushed: head}}
 	service.Options.Progress = git
 	start := time.Date(2026, 11, 4, 1, 10, 0, 0, time.UTC)
+	var others []state.TaskMeta
+	for _, meta := range liveTasks(h.State) {
+		if meta.ID != "a-task" {
+			others = append(others, meta)
+		}
+	}
 
 	for _, step := range []struct {
 		at          time.Duration
 		isEverySlow bool
+		isOneRead   bool
 		wakes       int
 	}{
-		{0, true, 0}, {19 * time.Minute, true, 0}, {20 * time.Minute, true, 1}, {21 * time.Minute, true, 1}, {40 * time.Minute, true, 1},
-		{41 * time.Minute, false, 1},
-		{42 * time.Minute, true, 1}, {61 * time.Minute, true, 1}, {62 * time.Minute, true, 2},
+		{0, true, false, 0}, {19 * time.Minute, true, false, 0}, {20 * time.Minute, true, false, 1}, {21 * time.Minute, true, false, 1},
+		{22 * time.Minute, true, true, 1},
+		{23 * time.Minute, true, false, 1}, {40 * time.Minute, true, false, 1}, {43 * time.Minute, true, false, 1},
+		{44 * time.Minute, false, false, 1},
+		{45 * time.Minute, true, false, 1}, {64 * time.Minute, true, false, 1}, {65 * time.Minute, true, false, 2},
 	} {
 		git.isEverySlow = step.isEverySlow
+		at := start.Add(step.at)
+		for _, meta := range others {
+			record := state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-" + meta.ID, Action: "resume", Phase: "running"}
+			if step.isOneRead {
+				record = state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-" + meta.ID, Action: "pause", Phase: "paused", Pause: &state.PauseCondition{Reason: "overlord", At: at}}
+			}
+			if err := state.WriteLifecycle(h.State, record); err != nil {
+				t.Fatal(err)
+			}
+		}
 
 		// Act
-		if err := service.checkFleet(t.Context(), start.Add(step.at)); err != nil {
+		if err := service.checkFleet(t.Context(), at); err != nil {
 			t.Fatalf("at %s: %v", step.at, err)
 		}
 
 		// Assert
 		wakes := progressUnreadWakes(t, h)
 		if len(wakes) != step.wakes {
-			t.Fatalf("at %s (every read running out: %t) progress_unread wakes = %d, want %d: %q", step.at, step.isEverySlow, len(wakes), step.wakes, wakes)
+			t.Fatalf("at %s (every read running out: %t, a-task alone read: %t) progress_unread wakes = %d, want %d: %q", step.at, step.isEverySlow, step.isOneRead, len(wakes), step.wakes, wakes)
 		}
 		for _, detail := range wakes {
 			if strings.Contains(detail, "-task") || strings.Contains(detail, "task-1") {

@@ -252,7 +252,9 @@ measuring:
 		}
 		return problems
 	}
-	watched.ProgressUnreadSince, watched.ProgressUnreadWoke = time.Time{}, false
+	if len(measured) > 0 {
+		watched.ProgressUnreadSince, watched.ProgressUnreadWoke = time.Time{}, false
+	}
 	// A memory low slows every read at once: on 2026-10-08 the supervisor
 	// woke the CFO with every goblin's read run out of time while 1.9 GB was
 	// free. Those goblins wait for a reading that can see them.
