@@ -60,8 +60,10 @@ interface Board {
 }
 
 // resizeLatency is how long the relay takes to answer a size the terminal
-// asks for, as a loaded machine's does.
-async function open(page: Page, resizeLatency = 0): Promise<Board> {
+// asks for, as a loaded machine's does. unsentHistory is how many bytes of
+// history the relay says a terminal replays and never sends, so its first view
+// stays connecting, as a long replay on a loaded machine keeps it.
+async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<Board> {
   const board: Board = { resizes: [], older: [], say: () => {}, sayTo: async () => {} };
   await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
   // No WebGL, so a baby goblin's terminal draws its text with xterm's DOM
@@ -139,7 +141,7 @@ async function open(page: Page, resizeLatency = 0): Promise<Board> {
       if (terminals.get(owner) === speaker) terminals.delete(owner);
     });
     board.say = (message) => socket.send(JSON.stringify(message));
-    socket.send(JSON.stringify({ type: "history", bytes: 0 }));
+    socket.send(JSON.stringify({ type: "history", bytes: unsentHistory }));
     socket.onMessage((data) => {
       if (typeof data !== "string") return;
       const sent: unknown = JSON.parse(data);
@@ -852,6 +854,36 @@ test("a held goblin keeps its queued message past a picker, and what he types at
   expect(posted.map((each) => each.kind), "a picker's typing is no message").toEqual(["message"]);
 });
 
+// The hold reaches the box as soon as the relay tells the terminal's first
+// connection, while it still replays its history (#1972): the relay drops
+// typing then, so Send saves the message through the board rather than saying
+// the terminal is connecting.
+test("a held goblin's Send is queued while its terminal still replays its history", async ({ page }) => {
+  // Arrange: the terminal's first view never finishes its replay.
+  const posted: { kind: string; task_id: string; text: string }[] = [];
+  const board = await open(page, 0, 4096);
+  await page.route("**/api/actions", async (route) => {
+    posted.push(route.request().postDataJSON() as { kind: string; task_id: string; text: string });
+    await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+  });
+  const who = "Pia - Pi Pilot";
+  await openGoblin(page, who);
+  const connecting = page.locator(".deck-slot:not([hidden]) .terminal-connecting");
+  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+  await expect(messageBox(page, who)).toHaveAttribute("data-queues", "");
+  await expect(connecting).toHaveCount(1);
+
+  // Act
+  await boxField(page, who).fill("queued while the terminal connects");
+  await boxSend(page, who).click();
+
+  // Assert: the board kept it as a message for this goblin while the view
+  // was still connecting.
+  await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message"]);
+  expect(posted[0]).toMatchObject({ task_id: "cg-pi", text: "queued while the terminal connects" });
+  await expect(connecting).toHaveCount(1);
+});
+
 // A held session's chat opens at its latest message and stays where he reads:
 // new output never snaps it back, his input stays reachable through a resize,
 // a maximize and a phone, and the queue persists across a reload and a
@@ -873,6 +905,7 @@ test("Modern: a held chat opens at the bottom, stays where he reads, and keeps i
   // A conversation long enough to read up in, then the hold.
   await sendMessages(page, range(100, 140));
   await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+  await expect(messageBox(page, who)).toHaveAttribute("data-queues", "");
   const talk = list(page, who);
   await expect(talk).toContainText("Answer 139");
 

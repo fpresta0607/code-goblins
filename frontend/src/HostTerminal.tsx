@@ -170,7 +170,9 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       problem: (why) => showFeedback(why),
       reading: (end) => { if (current.current === view) setHistoryEnd(end); },
       unread: (unread) => { if (current.current === view) setUnread(unread); },
-      held: (reason) => { if (current.current === view) setHeldWhy(reason); },
+      // A hold told to the first connection counts before its view is whole:
+      // the relay drops typing meanwhile, so the box saves through the board.
+      held: (reason) => { if (current.current === view || !current.current) setHeldWhy(reason); },
       unsent: () => { if (current.current === view) setUnsent(true); },
       screen: (state) => { if (current.current === view) setScreen(state); },
       history: () => { if (current.current === view) onHistoryValue.current?.(); },
