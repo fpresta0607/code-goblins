@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -212,6 +213,12 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 				record("empty-enter")
 				continue
 			}
+			// Codex 0.160 lists its skills while the line ends in a $ word and
+			// takes an Enter then as a pick from that list, the line unsent.
+			if harness == "codex" && codexMention.MatchString(composer()) {
+				record("mention-picked")
+				continue
+			}
 			if isBusy {
 				queued := typedBefore + paste + line
 				record("queued " + queued)
@@ -263,6 +270,10 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 // claudeRead is how much of a burst of keys the live CFO's Claude Code read
 // at once on 2026-10-29, and took as a paste (#1740).
 const claudeRead = 1024
+
+// codexMention matches a line that ends in a $ word, over which Codex 0.160
+// lists its skills.
+var codexMention = regexp.MustCompile(`(^|\s)\$\S*$`)
 
 func nativeCFOComposer(t *testing.T, stateDir, mode string) hostedTerminal {
 	t.Helper()

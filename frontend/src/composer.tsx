@@ -17,7 +17,7 @@ import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
 import { cycleMode, MODE_NOT_SENT } from "./mode-cycle";
 import { shortModel } from "./model-name";
-import { parseCommands, slashOptions } from "./commands";
+import { parseCommands, sendable, slashOptions } from "./commands";
 import { addPendingSend, removePendingSend, usePendingSends } from "./pending-sends";
 import { panelKey } from "./panel-keys";
 import { PopupList } from "./popup-list";
@@ -413,7 +413,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     setUnsent("");
   };
   const send = async () => {
-    const text = outgoing;
+    const text = sendable(harness, outgoing);
     if (!text || isSending || adding) return;
     // A setting the box has a control for opens the board's own pane, or is
     // set at once with the value typed after it, never the terminal's menu;
@@ -579,7 +579,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   }, [mentionStart, mentionQuery, filesAddress, name]);
   const mentionFiles = mention ? mentionedFiles(found.files, found.query, mention.query) : [];
   const listOptions = commandOptions.length
-    ? commandOptions.map((command) => ({ key: command.name, label: "/" + command.name, detail: command.description }))
+    ? commandOptions.map((command) => ({ key: command.sigil + command.name, label: command.sigil + command.name, detail: command.description }))
     : mentionFiles.map((file) => ({ key: file, label: file.slice(file.lastIndexOf("/") + 1), detail: file }));
   const picked = Math.min(pick, listOptions.length - 1);
   const choose = (at: number) => {
@@ -587,7 +587,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     if (commandOptions.length) {
       const gap = draft.search(/\s/);
       const args = gap >= 0 ? draft.slice(gap).replace(/\s+$/, "") : "";
-      write(() => "/" + commandOptions[at].name + (args || " "));
+      write(() => commandOptions[at].sigil + commandOptions[at].name + (args || " "));
       requestAnimationFrame(() => box?.focus());
       return;
     }
