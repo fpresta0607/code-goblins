@@ -23,12 +23,13 @@ import (
 // it is doing (the Overlord, 2026-10-08: "message queued to chief no matter
 // whats running"). It is accepted at once as a message action and delivered
 // once: typed into a goblin's terminal where its harness takes it, busy or
-// not, kept with a paused goblin's resume for its resume prompt to carry, or
-// typed into the CFO's terminal once a CFO runs and its input is ready. A
-// goblin pausing, resuming or stopping, or whose terminal is not up yet, has
-// it wait; one that waits longer than messageWait, or is kept for a resume
-// whose session a later start replaced, goes to the CFO with its words, so
-// none is lost.
+// not, kept with a paused goblin's resume, which it asks, for its resume
+// prompt to carry, or typed into the CFO's terminal once a CFO runs and its
+// input is ready. A session whose terminal is not running is started for it,
+// and has it wait until it runs (message_starts.go). A goblin pausing,
+// resuming or stopping has it wait; one that waits longer than messageWait,
+// or is kept for a resume whose session a later start replaced, goes to the
+// CFO with its words, so none is lost.
 
 // messageWait is how long a message waits for its goblin's terminal before
 // the CFO is given it instead.
@@ -61,7 +62,7 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	if a.TaskID == "" {
 		identity, isLive := s.Store.liveCFO()
 		if !isLive {
-			return Evaluation{Reason: "Waits for the CFO.", SendNowWhy: "No CFO is running."}, ErrDeferred
+			return s.startCFOForMessage(a)
 		}
 		// His message goes to the CFO exactly as he typed it, at once, a turn
 		// under way or not: the CFO's harness takes a line typed during a turn
@@ -92,7 +93,9 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		// A start under way reads the branch too, so a message held by a gate
 		// takes the same path across a restart as it does while it runs.
 		result, err := s.waitForGoblin(a, isGateUnclearNow(ctx, s, meta))
-		result.SendNowWhy = "It is starting."
+		if errors.Is(err, ErrDeferred) {
+			result = startingFor(a.TaskID)
+		}
 		return result, err
 	}
 	record, err := state.ReadLifecycle(stateDir, a.TaskID)
@@ -109,6 +112,7 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 			return Evaluation{}, err
 		}
 		if isKept {
+			s.resumeForMessage(a, meta)
 			return Evaluation{Reason: "Kept for its resume."}, nil
 		}
 	}
@@ -132,9 +136,13 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	switch {
 	case isRecorded && (record.Phase == "pausing" || record.Phase == "resuming" || record.Phase == "stopping"):
 		// A transition under way has no terminal that takes typing now, and its
-		// custody read clear above, so the ordinary wait applies.
+		// custody read clear above, so the ordinary wait applies. A resume is a
+		// start, and its message says so.
 		result, err := s.waitForGoblin(a, false)
 		result.SendNowWhy = "It is pausing, resuming or stopping."
+		if errors.Is(err, ErrDeferred) && record.Phase == "resuming" {
+			result = startingFor(a.TaskID)
+		}
 		return result, err
 	default:
 		if NativeTerminalRuns(stateDir, a.TaskID) {
@@ -183,10 +191,8 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		}
 	}
 	// A hold returned above, so nothing here is waiting behind one: a goblin
-	// whose terminal cannot take the message keeps the ordinary handoff.
-	result, err := s.waitForGoblin(a, false)
-	result.SendNowWhy = "Its terminal is not running."
-	return result, err
+	// whose terminal is not running is started for the message.
+	return s.startGoblinForMessage(a)
 }
 
 // gateState is what a check of a goblin's gate said: the branch is its

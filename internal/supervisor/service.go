@@ -330,6 +330,10 @@ type Service struct {
 	// isCFOComingBack says the comeback is bringing the CFO back now; starts
 	// guards it too.
 	isCFOComingBack bool
+	// messageStarts is the start the latest message to each session that was
+	// not running made of it, keyed by task, the CFO's by none; starts guards
+	// it (message_starts.go).
+	messageStarts map[string]messageStart
 	// pcRestart is the restart of the PC the Overlord's Restart PC began,
 	// while it stops the fleet and after it stopped short; starts guards it
 	// (pc_restart.go).
