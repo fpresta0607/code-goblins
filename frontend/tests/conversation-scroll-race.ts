@@ -319,3 +319,61 @@ export async function startReplyAtEnd(page: Page) {
   expect(await talk.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(1);
   await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
 }
+
+// readUpUnderHeldFinger reads up from the end by a finger as WebKit and
+// Chromium deliver it, its pointer cancelled once the browser takes the pan
+// while its touch goes on, and then holds the finger down and still as the
+// reply streams: the list writes no scroll position under it, and once it
+// lifts and 250 ms pass the room gives back what it lent the rows drawn into
+// it, the scroll position taking that as the rows in view hold still.
+export async function readUpUnderHeldFinger(page: Page) {
+  const { talk, stop } = await streamingTalk(page);
+  await talk.evaluate((element) => {
+    const edge = element.getBoundingClientRect();
+    const [clientX, clientY] = [edge.left + edge.width / 2, edge.top + edge.height / 2];
+    const target = document.elementFromPoint(clientX, clientY)!;
+    const finger = new Touch({ identifier: 1, target, clientX, clientY });
+    const pointer = { bubbles: true, composed: true, pointerId: 2, pointerType: "touch", isPrimary: true, clientX, clientY };
+    target.dispatchEvent(new PointerEvent("pointerdown", { ...pointer, cancelable: true, buttons: 1 }));
+    target.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, composed: true, touches: [finger], targetTouches: [finger], changedTouches: [finger] }));
+    target.dispatchEvent(new PointerEvent("pointercancel", pointer));
+    Object.assign(window, { finger });
+  });
+  const flick = (distance: number) => page.evaluate((distance) => (window as unknown as Watcher).flick(distance), distance);
+  await flick(-1200);
+  await watcher(page);
+  await flick(-2400);
+  await page.waitForTimeout(600);
+  const held = await watched(page);
+  expect({ writes: held.writes, isStill: moved(held) <= 1 }).toEqual({ writes: [], isStill: true });
+  const lifted = await page.evaluate(() => {
+    const at = performance.now();
+    window.dispatchEvent(new TouchEvent("touchend", { changedTouches: [(window as unknown as { finger: Touch }).finger] }));
+    return at;
+  });
+  await expect.poll(async () => (await watched(page)).writes.length).toBeGreaterThan(0);
+  const rested = await watched(page);
+  const [given] = rested.writes;
+  expect({ isAfterRest: given.t - lifted >= 240, isGivenBack: Math.abs(given.delta) > 1, isStill: moved(rested) <= 1 }).toEqual({ isAfterRest: true, isGivenBack: true, isStill: true });
+  await stop();
+}
+
+// readOlderPastContextMenuPress presses the list with the mouse's right
+// button, whose release a context menu that opens on press takes, and then
+// scrolls to its top: that press drags nothing, so the older page his scroll
+// asked for is read in above him once his scroll rests.
+export async function readOlderPastContextMenuPress(page: Page) {
+  await open(page, snapshot(), "", { conversation, messages: HISTORY.slice(150), more: true });
+  await page.route((url) => url.pathname === "/api/messages" && url.searchParams.has("before"), (route) => route.fulfill({ json: { conversation, messages: HISTORY.slice(0, 150), more: false } }));
+  await openGoblin(page);
+  const talk = page.getByRole("log", { name: "Messages of " + NAME });
+  await expect(talk.locator('[data-message="m299"]')).toBeVisible();
+  await settled(talk);
+  const older = page.waitForResponse((response) => new URL(response.url()).searchParams.get("before") === "150");
+  await talk.evaluate((element) => {
+    element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, composed: true, pointerType: "mouse", isPrimary: true, button: 2, buttons: 2 }));
+    element.scrollTop = 0;
+  });
+  await (await older).finished();
+  await expect(talk.locator('[data-message="m149"]')).toBeAttached();
+}

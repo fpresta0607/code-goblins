@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "./site";
 import { at, GOBLIN, NAME, open, openGoblin, snapshot } from "./session-board";
-import { delayedScroll, leaveEndWhileStreaming, readUpWhileStreaming } from "./conversation-scroll-race";
+import { delayedScroll, leaveEndWhileStreaming, readOlderPastContextMenuPress, readUpUnderHeldFinger, readUpWhileStreaming } from "./conversation-scroll-race";
 
 for (const owner of ["CFO", "goblin"] as const) {
   for (const movement of ["keyboard", "wheel"] as const) {
@@ -28,6 +28,19 @@ test("a few pixels up from the end leave it before the next streamed line", asyn
     await talk.hover();
     await page.mouse.wheel(0, -6);
   });
+});
+
+// A finger held still on the list keeps his scroll from rest until it lifts,
+// though the browser cancels its pointer once it takes the pan, and a
+// right-button press, whose release a context menu that opens on press
+// takes, holds nothing.
+test("a finger held still after reading up writes no scroll position until it lifts", async ({ page }) => {
+  test.slow();
+  await readUpUnderHeldFinger(page);
+});
+
+test("a right-button press a context menu keeps lets the older page his scroll reached read in", async ({ page }) => {
+  await readOlderPastContextMenuPress(page);
 });
 
 // Short prompts, each drawn well under the window's estimate, leave the room

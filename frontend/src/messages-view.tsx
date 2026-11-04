@@ -132,6 +132,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const roomTop = useRef("");
   const isScrolling = useRef(false);
   const isPressed = useRef(false);
+  const isTouching = useRef(false);
   const restTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // The page holds only the rows within reach of where he reads
   // (message-window.ts): rowHeights is each drawn row's measured height with
@@ -327,11 +328,14 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   }, []);
   // restLater counts his scroll at rest once REST_MS pass with no scroll and
   // nothing held down on the list, a dragged scrollbar included, and settles
-  // the list then.
+  // the list then. A finger is held until the last one lifts, though the
+  // browser cancels its pointer once it takes the pan, and a mouse or pen
+  // only by its main button, as a context menu that opens on a press takes
+  // the release of any other.
   const restLater = useCallback(() => {
     clearTimeout(restTimer.current);
     restTimer.current = setTimeout(() => {
-      if (isPressed.current) return;
+      if (isPressed.current || isTouching.current) return;
       isScrolling.current = false;
       const older = olderWaiting.current;
       olderWaiting.current = null;
@@ -340,17 +344,26 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     }, REST_MS);
   }, [settle]);
   useEffect(() => {
-    const release = () => {
+    const releasePress = () => {
       if (!isPressed.current) return;
       isPressed.current = false;
       restLater();
     };
-    window.addEventListener("pointerup", release);
-    window.addEventListener("pointercancel", release);
+    const releaseTouch = (event: TouchEvent) => {
+      if (!isTouching.current || event.touches.length) return;
+      isTouching.current = false;
+      restLater();
+    };
+    window.addEventListener("pointerup", releasePress);
+    window.addEventListener("pointercancel", releasePress);
+    window.addEventListener("touchend", releaseTouch);
+    window.addEventListener("touchcancel", releaseTouch);
     return () => {
       clearTimeout(restTimer.current);
-      window.removeEventListener("pointerup", release);
-      window.removeEventListener("pointercancel", release);
+      window.removeEventListener("pointerup", releasePress);
+      window.removeEventListener("pointercancel", releasePress);
+      window.removeEventListener("touchend", releaseTouch);
+      window.removeEventListener("touchcancel", releaseTouch);
     };
   }, [restLater]);
 
@@ -676,7 +689,8 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     {phase === "connecting" && <p className="terminal-connecting" role="status"><span className="terminal-spinner" aria-hidden="true" />Connecting to the messages</p>}
     <div className="conversation-frame">
       <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember}
-        onPointerDown={() => { isPressed.current = true; }}
+        onPointerDown={(event) => { if (event.pointerType !== "touch" && event.button === 0) isPressed.current = true; }}
+        onTouchStart={() => { isTouching.current = true; }}
         onFocus={(event) => { focusedRow.current = event.target.closest<HTMLElement>("[data-message]")?.dataset.message ?? ""; }}
         onBlur={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) focusedRow.current = ""; }}>
         <div ref={items} className="conversation-items" style={{ paddingTop: `calc(${estimatedRoom}px + var(--room-shift, 0px))` }}>
