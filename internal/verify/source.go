@@ -127,7 +127,7 @@ func ReadSource(ctx context.Context, commands execx.Runner, dir string) (source 
 	// keep its mark, which hides a change on disk, and git refuses to reset
 	// one whose staged content is not the commit's once it changed on disk,
 	// so an index with one is read from the commit alone.
-	entries, err := git("ls-files", "-v", "-z")
+	entries, err := git("ls-files", "-v", "-z", ":/")
 	if err != nil {
 		return Source{}, err
 	}
