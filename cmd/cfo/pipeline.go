@@ -306,9 +306,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if acceptedBy == id {
 			switch {
 			case gate.Step != "review":
-				return fmt.Errorf("pipeline: a goblin accepts findings only on its run's review step, and this gate is its %s step, whose findings stay the CFO's: ask the CFO with cfo notify %s --blocked", gate.Step, id)
+				return fmt.Errorf("pipeline: a goblin accepts findings only on its run's review step, and this gate is its %s step, whose findings stay the CFO's: ask the CFO with cfo notify %s --blocked \"<question>\"", gate.Step, id)
 			case !pipeline.ReviewCyclesSpent(selection, gate):
-				return fmt.Errorf("pipeline: a goblin accepts its run's open review findings only once its %d review repair cycles are spent, and run %s's review is in round %d with %d left: fix them with --action fix --findings <ids>", selection.ReviewCycles, gate.RunID, gate.Round, selection.ReviewCycles-gate.Round+1)
+				return fmt.Errorf("pipeline: a goblin accepts its run's open review findings only once its %d review repair cycles are spent, and run %s's review is in round %d with %d left: fix its auto-fix findings with --action fix --findings <ids>, and ask the CFO about its ask-user ones with cfo notify %s --blocked \"<question>\"", selection.ReviewCycles, gate.RunID, gate.Round, selection.ReviewCycles-gate.Round+1, id)
 			}
 		}
 		nativeArgs, err = pipeline.ResponseArgs(selection, gate, response)
