@@ -7,10 +7,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/crawler"
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -41,6 +43,12 @@ func crawlerOnPath(launch codexEvent) string {
 // no word of it in its brief: its terminal finds goblin-crawl on PATH, in the
 // home's crawler folder, and its record says nothing of the crawler.
 func TestAGoblinOfEveryHarnessFindsTheCrawlerOnItsTerminalsPath(t *testing.T) {
+	// The test is about the terminal's PATH, not how fast a host starts: its
+	// three spawns each start a host from the test binary, and on a loaded
+	// machine one took past the 15 s a host has to record itself.
+	usual := host.LaunchTimeout
+	host.LaunchTimeout = 2 * time.Minute
+	t.Cleanup(func() { host.LaunchTimeout = usual })
 	// Each fake harness draws its own composer: the fake Claude Code its
 	// composer only in one of its claude modes.
 	for _, test := range []struct {

@@ -35,12 +35,12 @@ func Arguments(stateDir string, spec Spec) []string {
 	return append(append(args, "--"), spec.Args...)
 }
 
-// launchTimeout bounds how long a new host takes to record itself, and a
+// LaunchTimeout bounds how long a new host takes to record itself, and a
 // launch looks for that record through readLaunchRecord. Only time the
-// machine ran spends launchTimeout (awake), since a pause of the whole
+// machine ran spends LaunchTimeout (awake), since a pause of the whole
 // machine stops the host too.
 var (
-	launchTimeout    = 15 * time.Second
+	LaunchTimeout    = 15 * time.Second
 	readLaunchRecord = ReadRecord
 )
 
@@ -113,7 +113,7 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 		exitLog.Close()
 		exited <- err
 	}()
-	launching, cancelLaunching := awake.WithTimeout(context.Background(), launchTimeout)
+	launching, cancelLaunching := awake.WithTimeout(context.Background(), LaunchTimeout)
 	defer cancelLaunching()
 	for ; launching.Err() == nil; time.Sleep(25 * time.Millisecond) {
 		if record, err := readLaunchRecord(stateDir, spec.ID); err == nil && record.HostPID == cmd.Process.Pid {
@@ -142,7 +142,7 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 	// could not break away, and the phase the host had reached was lost with
 	// it.
 	alive := cmd.ProcessState == nil
-	fmt.Fprintf(log, "%s host: pid %d had not recorded itself after %s of the %s this launch allows (still running: %t); this launch ends it\n", time.Now().UTC().Format(time.RFC3339Nano), cmd.Process.Pid, time.Since(launched).Round(time.Millisecond), launchTimeout, alive)
+	fmt.Fprintf(log, "%s host: pid %d had not recorded itself after %s of the %s this launch allows (still running: %t); this launch ends it\n", time.Now().UTC().Format(time.RFC3339Nano), cmd.Process.Pid, time.Since(launched).Round(time.Millisecond), LaunchTimeout, alive)
 	_ = cmd.Process.Kill()
 	// Kill only asks Windows to end the host, which holds its log and its
 	// terminal's job until it has ended, and on 2026-10-24 still held the log
@@ -155,9 +155,9 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 	case <-exited:
 		fmt.Fprintf(log, "%s host: pid %d ended %s after this launch ended it\n", time.Now().UTC().Format(time.RFC3339Nano), cmd.Process.Pid, time.Since(killed).Round(time.Millisecond))
 	case <-ending.Done():
-		return Record{}, fmt.Errorf("host: host pid %d did not record itself within %s, and had not ended %s after this launch ended it; see %s", cmd.Process.Pid, launchTimeout, closeEndWait, logPath)
+		return Record{}, fmt.Errorf("host: host pid %d did not record itself within %s, and had not ended %s after this launch ended it; see %s", cmd.Process.Pid, LaunchTimeout, closeEndWait, logPath)
 	}
-	return Record{}, fmt.Errorf("host: host pid %d did not record itself within %s; see %s", cmd.Process.Pid, launchTimeout, logPath)
+	return Record{}, fmt.Errorf("host: host pid %d did not record itself within %s; see %s", cmd.Process.Pid, LaunchTimeout, logPath)
 }
 
 // logTailSize bounds how much of a host's log a failed launch shows: every
