@@ -73,6 +73,13 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 	if s.Options.Progress == nil {
 		return nil
 	}
+	// A blind spell counts only time the supervisor watched: a gap in its
+	// passes, the supervisor stopped or the machine asleep, starts it again,
+	// as it does memory's readings.
+	if now.Sub(watched.ProgressPassAt) > 2*fleetWatchEvery || !now.After(watched.ProgressPassAt) {
+		watched.ProgressUnreadSince, watched.ProgressUnreadWoke = time.Time{}, false
+	}
+	watched.ProgressPassAt = now
 	probe, cancel := context.WithTimeout(ctx, PROGRESS_PASS_TIMEOUT)
 	defer cancel()
 	if watched.Progress == nil {
@@ -129,9 +136,9 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 	// three goblins' reads ran out of time once and woke the CFO twice in
 	// minutes. It is an error once it failed failingPasses passes in a row.
 	failed := map[string]bool{}
-	// ranOut holds why each read that ran out of time at this pass failed,
-	// which is told only once the pass shows whether the machine or the
-	// goblin was slow.
+	// ranOut holds why each read that ran out of time, or that the
+	// supervisor's own stop cut short, at this pass failed, which is told
+	// only once the pass shows whether the machine or the goblin was slow.
 	ranOut := map[string]error{}
 	reads := len(pending)
 	gateSteps := map[string]fleettree.GateStep{}
@@ -156,7 +163,7 @@ measuring:
 			}
 			break measuring
 		}
-		if errors.Is(observed.err, context.DeadlineExceeded) {
+		if errors.Is(observed.err, context.DeadlineExceeded) || errors.Is(observed.err, context.Canceled) {
 			ranOut[observed.meta.ID] = observed.err
 			continue
 		}
@@ -230,20 +237,27 @@ measuring:
 			awaitedHelper[meta.ID] = helper.ID
 		}
 	}
+	// A pass the supervisor's own stop cut short read neither the machine
+	// nor any goblin: it starts no blind spell and counts against no goblin.
+	if ctx.Err() != nil {
+		return problems
+	}
 	// Every read of a pass starts at once against its one deadline, so when
 	// every read ran out together the machine was slow, not any goblin: on
 	// 2026-11-04 at 01:10Z ten goblins' reads ran out in one pass while two
 	// test runs held the machine (#1630). Such a pass tells nothing of any
 	// goblin, so it neither counts nor ends a goblin's run of failed passes,
 	// and the CFO hears of it once, when it has lasted as long as a stall
-	// takes to tell: until then no stall it hid is overdue. One read alone
-	// cannot tell the machine from its goblin and stays the goblin's.
+	// takes to tell: no goblin that went quiet during it can be stalled
+	// before then, and one that went quiet before it keeps its clock, so its
+	// stall is raised by the first pass that reads it. One read alone cannot
+	// tell the machine from its goblin and stays the goblin's.
 	if len(ranOut) > 1 && len(ranOut) == reads {
 		if watched.ProgressUnreadSince.IsZero() {
 			watched.ProgressUnreadSince = now
 		}
 		if lasted := now.Sub(watched.ProgressUnreadSince); lasted >= PROGRESS_THRESHOLD && !watched.ProgressUnreadWoke {
-			detail := fmt.Sprintf("progress_unread: every live goblin's progress read has run out of time together on every pass for %d minutes, since %s, so the machine is too slow to read any of them, not any one goblin, and no stall has been judged since; next: see what holds the machine with cfo runtime", int(lasted/time.Minute), watched.ProgressUnreadSince.UTC().Format("15:04Z"))
+			detail := fmt.Sprintf("progress_unread: every live goblin's progress read has run out of time together on every pass for %d minutes, since %s, so the machine is too slow to read any of them, not any one goblin, and no stall has been judged since; next: see what holds the machine with cfo gate turns and cfo runtime", int(lasted/time.Minute), watched.ProgressUnreadSince.UTC().Format("15:04Z"))
 			if err := raiseFleetWake(s.Store.Home.State, "check", "progress", detail); err != nil {
 				problems = errors.Join(problems, err)
 			} else {

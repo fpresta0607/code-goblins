@@ -790,43 +790,49 @@ func TestPassesThatReadNoGoblinWakeTheCFOOnceTheyLastAStall(t *testing.T) {
 		}
 	}
 
-	for _, step := range []struct {
-		at          time.Duration
+	// A pass runs every minute, from minute from to minute to.
+	for _, stretch := range []struct {
+		from, to    int
 		isEverySlow bool
 		isOneRead   bool
 		wakes       int
 	}{
-		{0, true, false, 0}, {19 * time.Minute, true, false, 0}, {20 * time.Minute, true, false, 1}, {21 * time.Minute, true, false, 1},
-		{22 * time.Minute, true, true, 1},
-		{23 * time.Minute, true, false, 1}, {40 * time.Minute, true, false, 1}, {43 * time.Minute, true, false, 1},
-		{44 * time.Minute, false, false, 1},
-		{45 * time.Minute, true, false, 1}, {64 * time.Minute, true, false, 1}, {65 * time.Minute, true, false, 2},
+		{0, 19, true, false, 0}, {20, 21, true, false, 1},
+		{22, 22, true, true, 1},
+		{23, 43, true, false, 1},
+		{44, 44, false, false, 1},
+		{45, 64, true, false, 1}, {65, 65, true, false, 2},
 	} {
-		git.isEverySlow = step.isEverySlow
-		at := start.Add(step.at)
-		for _, meta := range others {
-			record := state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-" + meta.ID, Action: "resume", Phase: "running"}
-			if step.isOneRead {
-				record = state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-" + meta.ID, Action: "pause", Phase: "paused", Pause: &state.PauseCondition{Reason: "overlord", At: at}}
+		for minute := stretch.from; minute <= stretch.to; minute++ {
+			git.isEverySlow = stretch.isEverySlow
+			at := start.Add(time.Duration(minute) * time.Minute)
+			for _, meta := range others {
+				record := state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-" + meta.ID, Action: "resume", Phase: "running"}
+				if stretch.isOneRead {
+					record = state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-" + meta.ID, Action: "pause", Phase: "paused", Pause: &state.PauseCondition{Reason: "overlord", At: at}}
+				}
+				if err := state.WriteLifecycle(h.State, record); err != nil {
+					t.Fatal(err)
+				}
 			}
-			if err := state.WriteLifecycle(h.State, record); err != nil {
-				t.Fatal(err)
+
+			// Act
+			if err := service.checkFleet(t.Context(), at); err != nil {
+				t.Fatalf("at minute %d: %v", minute, err)
 			}
-		}
 
-		// Act
-		if err := service.checkFleet(t.Context(), at); err != nil {
-			t.Fatalf("at %s: %v", step.at, err)
-		}
-
-		// Assert
-		wakes := progressUnreadWakes(t, h)
-		if len(wakes) != step.wakes {
-			t.Fatalf("at %s (every read running out: %t, a-task alone read: %t) progress_unread wakes = %d, want %d: %q", step.at, step.isEverySlow, step.isOneRead, len(wakes), step.wakes, wakes)
-		}
-		for _, detail := range wakes {
-			if strings.Contains(detail, "-task") || strings.Contains(detail, "task-1") {
-				t.Fatalf("wake %q names a goblin, want the machine", detail)
+			// Assert
+			wakes := progressUnreadWakes(t, h)
+			if len(wakes) != stretch.wakes {
+				t.Fatalf("at minute %d (every read running out: %t, a-task alone read: %t) progress_unread wakes = %d, want %d: %q", minute, stretch.isEverySlow, stretch.isOneRead, len(wakes), stretch.wakes, wakes)
+			}
+			for _, detail := range wakes {
+				if strings.Contains(detail, "-task") || strings.Contains(detail, "task-1") {
+					t.Fatalf("wake %q names a goblin, want the machine", detail)
+				}
+				if !strings.Contains(detail, "cfo gate turns") {
+					t.Fatalf("wake %q, want it to name cfo gate turns, which shows the runs holding the machine", detail)
+				}
 			}
 		}
 	}
@@ -871,10 +877,11 @@ func TestAPassWithNoGoblinToReadEndsTheBlindSpell(t *testing.T) {
 			wakes  int
 		}{
 			{"a spell that had not woken", 10 * time.Minute, 0},
-			{"a spell that had woken", 20 * time.Minute, 1},
+			{"a spell that had woken", 26 * time.Minute, 1},
 		} {
 			t.Run(quiet.name+" after "+spell.name, func(t *testing.T) {
-				// Arrange
+				// Arrange: a pass every minute, so no gap in the passes ends
+				// the spell.
 				service, h := fleetService(t)
 				for _, id := range []string{"a-task", "b-task", "c-task"} {
 					liveGoblin(t, h, id, h.Root)
@@ -882,7 +889,7 @@ func TestAPassWithNoGoblinToReadEndsTheBlindSpell(t *testing.T) {
 				head := strings.Repeat("a", 40)
 				service.Options.Progress = &slowGit{progressGit: progressGit{head: head, pushed: head}, isEverySlow: true}
 				start := time.Date(2026, 11, 4, 1, 10, 0, 0, time.UTC)
-				back := time.Date(2026, 11, 4, 9, 1, 0, 0, time.UTC)
+				quietAt, back := start.Add(spell.lasted), start.Add(40*time.Minute)
 				pass := func(at time.Time, wakes int) {
 					t.Helper()
 					if err := service.checkFleet(t.Context(), at); err != nil {
@@ -892,22 +899,116 @@ func TestAPassWithNoGoblinToReadEndsTheBlindSpell(t *testing.T) {
 						t.Fatalf("at %s progress_unread wakes = %d, want %d: %q", at.Format("15:04Z"), len(got), wakes, got)
 					}
 				}
-				pass(start, 0)
-				pass(start.Add(spell.lasted), spell.wakes)
-				quiet.goQuiet(t, h, start.Add(26*time.Minute))
-				pass(start.Add(26*time.Minute), spell.wakes)
-				pass(back.Add(-2*time.Minute), spell.wakes)
+				for at := start; at.Before(quietAt); at = at.Add(time.Minute) {
+					pass(at, min(spell.wakes, int(at.Sub(start)/PROGRESS_THRESHOLD)))
+				}
+				quiet.goQuiet(t, h, quietAt)
+				for at := quietAt; at.Before(back); at = at.Add(time.Minute) {
+					pass(at, spell.wakes)
+				}
 				quiet.comeBack(t, h, back)
 
 				// Act and assert: the fleet's first pass runs out, and so does
 				// every pass for the 20 minutes after it.
-				pass(back, spell.wakes)
-				pass(back.Add(19*time.Minute), spell.wakes)
-				pass(back.Add(20*time.Minute), spell.wakes+1)
-				if wakes := progressUnreadWakes(t, h); !strings.Contains(wakes[len(wakes)-1], "since 09:01Z") {
-					t.Fatalf("wake %q, want the spell that began with the fleet's first pass at 09:01Z", wakes[len(wakes)-1])
+				for at := back; at.Before(back.Add(PROGRESS_THRESHOLD)); at = at.Add(time.Minute) {
+					pass(at, spell.wakes)
+				}
+				pass(back.Add(PROGRESS_THRESHOLD), spell.wakes+1)
+				if wakes := progressUnreadWakes(t, h); !strings.Contains(wakes[len(wakes)-1], "since 01:50Z") {
+					t.Fatalf("wake %q, want the spell that began with the fleet's first pass at 01:50Z", wakes[len(wakes)-1])
 				}
 			})
+		}
+	}
+}
+
+// A blind spell counts only time the supervisor watched. A supervisor that
+// stopped mid-spell, crashed or with the machine asleep, starts a new spell
+// at its first pass back: it does not wake the CFO at once for the hours it
+// was down, and the spell before, woken or not, keeps no hold on this one.
+func TestAGapInThePassesStartsTheBlindSpellAgain(t *testing.T) {
+	for _, spell := range []struct {
+		name   string
+		lasted time.Duration
+		wakes  int
+	}{
+		{"a spell that had not woken", 5 * time.Minute, 0},
+		{"a spell that had woken", 20 * time.Minute, 1},
+	} {
+		t.Run(spell.name, func(t *testing.T) {
+			// Arrange
+			service, h := fleetService(t)
+			for _, id := range []string{"a-task", "b-task", "c-task"} {
+				liveGoblin(t, h, id, h.Root)
+			}
+			head := strings.Repeat("a", 40)
+			service.Options.Progress = &slowGit{progressGit: progressGit{head: head, pushed: head}, isEverySlow: true}
+			start := time.Date(2026, 11, 3, 18, 0, 0, 0, time.UTC)
+			back := time.Date(2026, 11, 4, 8, 0, 0, 0, time.UTC)
+			pass := func(at time.Time, wakes int) {
+				t.Helper()
+				if err := service.checkFleet(t.Context(), at); err != nil {
+					t.Fatalf("at %s: %v", at.Format("15:04Z"), err)
+				}
+				if got := progressUnreadWakes(t, h); len(got) != wakes {
+					t.Fatalf("at %s progress_unread wakes = %d, want %d: %q", at.Format("15:04Z"), len(got), wakes, got)
+				}
+			}
+			for at := start; !at.After(start.Add(spell.lasted)); at = at.Add(time.Minute) {
+				pass(at, int(at.Sub(start)/PROGRESS_THRESHOLD))
+			}
+
+			// Act and assert: the supervisor is back at 08:00Z with every read
+			// still running out.
+			for at := back; at.Before(back.Add(PROGRESS_THRESHOLD)); at = at.Add(time.Minute) {
+				pass(at, spell.wakes)
+			}
+			pass(back.Add(PROGRESS_THRESHOLD), spell.wakes+1)
+			if wakes := progressUnreadWakes(t, h); !strings.Contains(wakes[len(wakes)-1], "for 20 minutes, since 08:00Z") {
+				t.Fatalf("wake %q, want the spell that began with the first pass back at 08:00Z", wakes[len(wakes)-1])
+			}
+		})
+	}
+}
+
+// A pass the supervisor's own stop cut short, its reads ended with the
+// supervisor, read neither the machine nor any goblin: it starts no blind
+// spell and adds to no goblin's run of failed passes.
+func TestAPassTheSupervisorsStopCutShortTellsNothing(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	reads := []string{"progress:a-task", "progress:b-task", "progress:c-task"}
+	for _, read := range reads {
+		liveGoblin(t, h, strings.TrimPrefix(read, "progress:"), h.Root)
+	}
+	var worktrees []string
+	for _, meta := range liveTasks(h.State) {
+		worktrees = append(worktrees, meta.Worktree)
+	}
+	failedBefore(t, h, reads...)
+	head := strings.Repeat("a", 40)
+	service.Options.Progress = &stalledGit{progressGit: progressGit{head: head, pushed: head}, stalledDirectories: worktrees}
+	stopping, stop := context.WithCancel(t.Context())
+	stop()
+	at := time.Date(2026, 11, 4, 1, 10, 0, 0, time.UTC)
+
+	// Act
+	_ = service.checkFleet(stopping, at)
+
+	// Assert
+	watched, err := readFleetWakes(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !watched.ProgressPassAt.Equal(at) {
+		t.Errorf("progress pass at %s, want the pass at %s to have run", watched.ProgressPassAt, at)
+	}
+	if !watched.ProgressUnreadSince.IsZero() {
+		t.Errorf("blind spell since %s, want none from a pass the stop cut short", watched.ProgressUnreadSince)
+	}
+	for _, read := range reads {
+		if watched.Failing[read] != failingPasses-1 {
+			t.Errorf("%s failed passes = %d, want the %d before it kept", read, watched.Failing[read], failingPasses-1)
 		}
 	}
 }

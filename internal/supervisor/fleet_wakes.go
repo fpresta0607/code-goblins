@@ -105,10 +105,12 @@ type fleetWakes struct {
 	MemoryLow bool `json:"memory_low,omitempty"`
 	// ProgressUnreadSince is when the passes began on which every goblin's
 	// progress read ran out of time together, zero once a pass reads one or
-	// has none to read, and ProgressUnreadWoke says the CFO was told of those
-	// passes.
+	// has none to read, or after a gap in the passes, and ProgressUnreadWoke
+	// says the CFO was told of those passes. ProgressPassAt is when the latest
+	// pass began, which tells that gap.
 	ProgressUnreadSince time.Time `json:"progress_unread_since,omitzero"`
 	ProgressUnreadWoke  bool      `json:"progress_unread_woke,omitempty"`
+	ProgressPassAt      time.Time `json:"progress_pass_at,omitzero"`
 	// IdleSince is when the scheduler first found work it could not start
 	// while memory was free, for the idle wake.
 	IdleSince    time.Time          `json:"idle_since,omitzero"`
