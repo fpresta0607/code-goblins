@@ -190,8 +190,9 @@ var (
 )
 
 // droppedSections are headings whose text is not the ask: what not to do,
-// and the boilerplate every generated brief carries.
-var droppedSections = []string{"constraints", "authentication", "commits", "delivery", "non-goals", "out of scope"}
+// and the boilerplate every generated brief carries, how its work is
+// verified included.
+var droppedSections = []string{"constraints", "verification", "authentication", "commits", "delivery", "non-goals", "out of scope"}
 
 // Classify reads what a brief asks for and freezes it into a class and risk.
 //

@@ -239,11 +239,16 @@ Review remains fail-closed for empty or unknown actions.
 Fix responses name concrete actionable finding IDs; selecting an `ask-user` finding is an explicit decision, never automatic consent.
 Approval is accepted only when every finding is explicitly `no-op`, or the findings list is empty.
 The one exception is the CFO's own decision: `respond <id> --action approve --accept <ids>` takes the open findings as they stand, except a recorded required test environment refusal, which only a successful Test retry clears, as [the binding](#any-command-in-the-line) says.
-It is honoured only from the registered primary CFO process, proven as `cfo question` proves it, and a goblin running it on its own gate is refused before anything is recorded.
+It is honoured from the registered primary CFO process, proven as `cfo question` proves it.
+It is honoured too from the task's own goblin, on its run's review step once that run has spent its review repair cycles (issue 2049).
+The goblin is proven by its terminal: the process names the task's own terminal and carries a proof that terminal was given, and an agent a gate started is refused, since it carries the environment of whichever goblin started the shared gate daemon.
+A goblin's accept on any other step, the Test step included, before the cycles are spent, on another task's run or with `--reason` is refused with why before anything is recorded.
 The IDs must be exactly the gate's open `ask-user` and `auto-fix` findings, no more and no fewer; a finding with an empty action still needs its fix.
-The task's status log records `pipeline-findings-accepted` with the step, run, round and IDs before approve reaches the gate.
+The task's status log records `pipeline-findings-accepted` with the step, run, round, IDs and who accepted (`by=cfo`, or `by=<task>` for its goblin) before approve reaches the gate.
+A goblin's accept also reaches the CFO's wake queue as a notify with the same words, which asks nothing, so nothing waits on it; one that cannot be queued sends no approve.
+The goblin accepts as they stand only findings that are not correctness, security or regression defects, and a real defect among them goes in one follow-up commit on the same pull request after its first CI, named in its done report.
 An approved Test exception likewise keeps the operator's reason: `respond <id> --action approve --reason "<why>"` hands it to the native `--reason`, which no-mistakes records as the Test step's approval reason, and the task's status log records `pipeline-approval-reason` with the step, run, round and reason before approve reaches the gate.
-It is the registered primary CFO's reason as `--accept` is its decision, so a goblin is refused before anything is recorded.
+It is the registered primary CFO's reason alone, so a goblin is refused before anything is recorded.
 The native engine keeps a reason only for an approve of the Test step, so the driver refuses one for any other gate and for `fix`, and it refuses a blank reason or one that is not a single line of plain text: the engine would store a blank as none and the run would read as a Test exception nobody explained (issue 1422).
 An empty `--reason`, as `--reason "$WHY"` gives with `WHY` unset, is a reason given and refused like any blank one, never read as no reason (issue 1585).
 A reason never approves anything, so open findings still need the exact `--accept` and a clean gate still needs its own approve.

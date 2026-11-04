@@ -10,16 +10,20 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/gatedb"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -106,7 +110,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		flags.StringVar(&response.Action, "action", "", "fix or approve")
 		flags.StringVar(&response.Findings, "findings", "", "comma-separated finding IDs")
 		flags.StringVar(&response.Instructions, "instructions", "", "guidance for selected findings")
-		flags.StringVar(&response.Accept, "accept", "", "with approve: every open ask-user and auto-fix finding the CFO accepts as it stands")
+		flags.StringVar(&response.Accept, "accept", "", "with approve: every open ask-user and auto-fix finding the CFO, or the task's own goblin on its run's spent review, accepts as it stands")
 		flags.StringVar(&response.Reason, "reason", "", "with approve of the test step: the operator's reason the native exception record keeps")
 	} else if args[0] == "handback" {
 		flags.BoolVar(&shouldResume, "resume", false, "submit the authored correction to the same native run")
@@ -150,23 +154,33 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		// approve a Test exception with none and no audit of it (issue 1585).
 		return errors.New("pipeline: --reason is empty; it must say why the exception is approved")
 	}
+	// acceptedBy is who takes the open findings as they stand: the CFO, or
+	// the task itself when its own goblin does.
+	acceptedBy := ""
 	if response.Accept != "" || response.Reason != "" {
 		// Taking open findings as they stand, and the reason an approved Test
-		// exception keeps, are the CFO's decisions, never a goblin's about its
-		// own gate.
-		given := []string{}
-		if response.Accept != "" {
-			given = append(given, "--accept")
-		}
-		if response.Reason != "" {
-			given = append(given, "--reason")
-		}
+		// exception keeps, are the CFO's decisions. The one a goblin makes
+		// about its own gate is to take its run's open review findings once
+		// the run's review repair cycles are spent (issue 2049), which the
+		// gate is checked for below.
 		cfo := supervisor.CFOConnection{State: h.State}
 		_, release, err := cfo.CallerIdentity()
-		if err != nil {
-			return fmt.Errorf("pipeline: %s is honoured only from the registered primary CFO: %w", strings.Join(given, " and "), err)
+		switch {
+		case err == nil:
+			release()
+			acceptedBy = "cfo"
+		case response.Reason != "":
+			given := "--reason"
+			if response.Accept != "" {
+				given = "--accept and --reason"
+			}
+			return fmt.Errorf("pipeline: %s is honoured only from the registered primary CFO, since the reason an approved Test exception keeps is never a goblin's: %w", given, err)
+		default:
+			if goblinErr := ownGoblin(h.State, id); goblinErr != nil {
+				return fmt.Errorf("pipeline: --accept is honoured only from the registered primary CFO (%v), or from task %s's own goblin once its run's review repair cycles are spent (%v)", err, id, goblinErr)
+			}
+			acceptedBy = id
 		}
-		release()
 	}
 	// This is a pipeline-specific operation lock, not the event/decision
 	// ownership ledger. It prevents two CFO commands accepting the same round
@@ -289,13 +303,32 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if wantRun != "" && gate.RunID != wantRun {
 			return fmt.Errorf("pipeline: run %s is no longer the latest run of %s; its gate is run %s's", wantRun, branch, gate.RunID)
 		}
+		if acceptedBy == id {
+			switch {
+			case gate.Step != "review":
+				return fmt.Errorf("pipeline: a goblin accepts findings only on its run's review step, and this gate is its %s step, whose findings stay the CFO's: ask the CFO with cfo notify %s --blocked", gate.Step, id)
+			case !pipeline.ReviewCyclesSpent(selection, gate):
+				return fmt.Errorf("pipeline: a goblin accepts its run's open review findings only once its %d review repair cycles are spent, and run %s's review is in round %d with %d left: fix them with --action fix --findings <ids>", selection.ReviewCycles, gate.RunID, gate.Round, selection.ReviewCycles-gate.Round+1)
+			}
+		}
 		nativeArgs, err = pipeline.ResponseArgs(selection, gate, response)
 		if err != nil {
 			return err
 		}
 		if response.Accept != "" {
-			if err := state.AppendStatus(h.State, id, fmt.Sprintf("pipeline-findings-accepted: step=%s run=%s round=%d findings=%s by=cfo", gate.Step, gate.RunID, gate.Round, response.Accept)); err != nil {
+			audit := fmt.Sprintf("pipeline-findings-accepted: step=%s run=%s round=%d findings=%s by=%s", gate.Step, gate.RunID, gate.Round, response.Accept, acceptedBy)
+			if err := state.AppendStatus(h.State, id, audit); err != nil {
 				return err
+			}
+			// The CFO reads every accept a goblin makes, and nothing waits on
+			// it: an approve the CFO is never told of is not sent.
+			if acceptedBy == id {
+				if _, err := wake.Append(h.State, "notify", id, fmt.Sprintf("%s; its own goblin accepted them once its %d review repair cycles were spent, and nothing waits on this", audit, selection.ReviewCycles)); err != nil {
+					return fmt.Errorf("pipeline: the CFO cannot be told of this accept, so approve was not sent: %w", err)
+				}
+				if _, err := wake.PublishEpisode(h.State); err != nil {
+					fmt.Fprintf(out, "pipeline: the CFO's notice of this accept is queued, but its wake could not be published: %v\n", err)
+				}
 			}
 		}
 		if response.Reason != "" {
@@ -377,6 +410,31 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			return fmt.Errorf("pipeline: the gate's bounded hold ended with no decision, which is not a gate failure and leaves %s working on %s. Repeat this command to reattach to that run on the same branch, head and intent, starting no new run and resetting no review budget, or read it with %s and answer its next gate with cfo pipeline respond %s", where, branch, statusCommand, meta.ID)
 		}
 		return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
+	}
+	return nil
+}
+
+// ownGoblin says why this process is not task id's own goblin, or nil when it
+// is: it runs in that task's terminal, proven by a proof the terminal was
+// given, as a run's end is told only to its own goblin. An agent a gate
+// started is none, though it carries the environment of whichever goblin
+// started the shared gate daemon.
+func ownGoblin(stateDir, id string) error {
+	terminal, proof := os.Getenv(host.IDVariable), os.Getenv(host.ProofVariable)
+	switch {
+	case os.Getenv(gateAgentVariable) != "":
+		return errors.New("an agent a gate started speaks for no goblin")
+	case os.Getenv(harness.RoleVariable) != harness.RoleGoblin || terminal == "" || proof == "":
+		return errors.New("this process runs in no goblin's terminal")
+	case terminal != id:
+		return fmt.Errorf("this process runs in task %s's terminal, and a goblin accepts only its own task's run", terminal)
+	}
+	proofs, err := host.Proofs(stateDir, id)
+	if err != nil {
+		return fmt.Errorf("task %s's terminal proofs cannot be read: %w", id, err)
+	}
+	if !slices.Contains(proofs, host.ProofSum(proof)) {
+		return fmt.Errorf("this process carries no proof task %s's terminal was given", id)
 	}
 	return nil
 }

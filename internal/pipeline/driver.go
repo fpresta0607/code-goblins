@@ -539,7 +539,7 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 		if response.Reason != "" {
 			return nil, errors.New("pipeline: --reason goes with approve of the test step, never with fix")
 		}
-		if gate.Step == "review" && gate.Round-1 >= s.ReviewCycles {
+		if ReviewCyclesSpent(s, gate) {
 			return nil, ErrUnresolved
 		}
 		if response.Findings == "" {
@@ -561,6 +561,13 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 		return nil, errors.New("pipeline: only explicit fix or clean approve is supported; no skip or blanket approval")
 	}
 	return args, nil
+}
+
+// ReviewCyclesSpent reports whether gate is a review whose run has spent the
+// repair cycles its selection permits: no fix of it is left, and its owning
+// goblin may accept its open findings itself.
+func ReviewCyclesSpent(s Selection, gate Gate) bool {
+	return gate.Step == "review" && gate.Round-1 >= s.ReviewCycles
 }
 
 // approvalReasonProblem says what keeps a response's reason out of the native
