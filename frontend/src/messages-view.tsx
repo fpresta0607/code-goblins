@@ -331,7 +331,8 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // the list then. A finger is held until the last one lifts, though the
   // browser cancels its pointer once it takes the pan, and a mouse or pen
   // only by its main button, as a context menu that opens on a press takes
-  // the release of any other.
+  // the release of any other, and only until a context menu opens or the
+  // window loses its focus, since either takes the release of that one too.
   const restLater = useCallback(() => {
     clearTimeout(restTimer.current);
     restTimer.current = setTimeout(() => {
@@ -356,12 +357,16 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     };
     window.addEventListener("pointerup", releasePress);
     window.addEventListener("pointercancel", releasePress);
+    window.addEventListener("contextmenu", releasePress, true);
+    window.addEventListener("blur", releasePress);
     window.addEventListener("touchend", releaseTouch);
     window.addEventListener("touchcancel", releaseTouch);
     return () => {
       clearTimeout(restTimer.current);
       window.removeEventListener("pointerup", releasePress);
       window.removeEventListener("pointercancel", releasePress);
+      window.removeEventListener("contextmenu", releasePress, true);
+      window.removeEventListener("blur", releasePress);
       window.removeEventListener("touchend", releaseTouch);
       window.removeEventListener("touchcancel", releaseTouch);
     };

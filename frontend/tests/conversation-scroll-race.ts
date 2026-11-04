@@ -358,11 +358,13 @@ export async function readUpUnderHeldFinger(page: Page) {
   await stop();
 }
 
-// readOlderPastContextMenuPress presses the list with the mouse's right
-// button, whose release a context menu that opens on press takes, and then
-// scrolls to its top: that press drags nothing, so the older page his scroll
-// asked for is read in above him once his scroll rests.
-export async function readOlderPastContextMenuPress(page: Page) {
+// readOlderPastLostRelease presses the list in a way whose release never
+// reaches it, and then scrolls to its top: by the mouse's right button, whose
+// release a context menu that opens on press takes, by a Mac's Ctrl+click,
+// whose menu opens on the press of the main button, or by a press the window
+// loses its focus under. None of them holds anything, so the older page his
+// scroll asked for is read in above him once his scroll rests.
+export async function readOlderPastLostRelease(page: Page, loss: "right button" | "menu" | "blur") {
   await open(page, snapshot(), "", { conversation, messages: HISTORY.slice(150), more: true });
   await page.route((url) => url.pathname === "/api/messages" && url.searchParams.has("before"), (route) => route.fulfill({ json: { conversation, messages: HISTORY.slice(0, 150), more: false } }));
   await openGoblin(page);
@@ -370,10 +372,14 @@ export async function readOlderPastContextMenuPress(page: Page) {
   await expect(talk.locator('[data-message="m299"]')).toBeVisible();
   await settled(talk);
   const older = page.waitForResponse((response) => new URL(response.url()).searchParams.get("before") === "150");
-  await talk.evaluate((element) => {
-    element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, composed: true, pointerType: "mouse", isPrimary: true, button: 2, buttons: 2 }));
+  await talk.evaluate((element, loss) => {
+    const press = { bubbles: true, cancelable: true, composed: true, pointerType: "mouse", isPrimary: true };
+    if (loss === "right button") element.dispatchEvent(new PointerEvent("pointerdown", { ...press, button: 2, buttons: 2 }));
+    else element.dispatchEvent(new PointerEvent("pointerdown", { ...press, button: 0, buttons: 1, ctrlKey: loss === "menu" }));
+    if (loss === "menu") element.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, composed: true, button: 0, buttons: 1, ctrlKey: true }));
+    if (loss === "blur") window.dispatchEvent(new FocusEvent("blur"));
     element.scrollTop = 0;
-  });
+  }, loss);
   await (await older).finished();
   await expect(talk.locator('[data-message="m149"]')).toBeAttached();
 }
