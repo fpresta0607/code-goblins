@@ -59,7 +59,9 @@ interface Board {
   sayTo: (task: string, message: object) => Promise<void>;
 }
 
-async function open(page: Page): Promise<Board> {
+// resizeLatency is how long the relay takes to answer a size the terminal
+// asks for, as a loaded machine's does.
+async function open(page: Page, resizeLatency = 0): Promise<Board> {
   const board: Board = { resizes: [], older: [], say: () => {}, sayTo: async () => {} };
   await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
   // No WebGL, so a baby goblin's terminal draws its text with xterm's DOM
@@ -143,9 +145,11 @@ async function open(page: Page): Promise<Board> {
       const sent: unknown = JSON.parse(data);
       if (typeof sent !== "object" || sent === null || !("type" in sent) || sent.type !== "resize" || !("cols" in sent) || !("rows" in sent)) return;
       const size = { cols: Number(sent.cols), rows: Number(sent.rows) };
-      board.resizes.push(size);
-      socket.send(JSON.stringify({ type: "size", ...size }));
-      socket.send(Buffer.from("ready\r\n"));
+      setTimeout(() => {
+        board.resizes.push(size);
+        socket.send(JSON.stringify({ type: "size", ...size }));
+        socket.send(Buffer.from("ready\r\n"));
+      }, resizeLatency);
     });
   });
   await page.goto("/");
@@ -182,12 +186,15 @@ const messageBox = (page: Page, who: string) => page.getByRole("region", { name:
 const boxField = (page: Page, who: string) => messageBox(page, who).getByRole("textbox", { name: "Message " + who });
 const boxSend = (page: Page, who: string) => messageBox(page, who).getByRole("button", { name: "Send", exact: true });
 
-// settled waits until the terminal stops asking for sizes, as it asks again
-// once its font loads, and returns how many it asked for.
-async function settled(board: Board): Promise<number> {
+// settled waits until the terminal has asked for more sizes than before, the
+// count when the step began, and then stops asking, as it asks again once
+// its font loads, and returns how many it asked for. A quiet poll before the
+// step's own size arrives is not settled: on a loaded machine that size
+// reaches the relay later than one poll (#1614).
+async function settled(board: Board, before: number): Promise<number> {
   let seen = -1;
   await expect.poll(() => {
-    const isQuiet = board.resizes.length > 0 && board.resizes.length === seen;
+    const isQuiet = board.resizes.length > before && board.resizes.length === seen;
     seen = board.resizes.length;
     return isQuiet;
   }, { intervals: [500] }).toBe(true);
@@ -651,10 +658,11 @@ test("Back from a goblin's panel returns to the CFO's messages", async ({ page }
 });
 
 // The first request for a terminal sizes it to the conversation's box;
-// subsequent switches in that box keep the size, for the CFO and a goblin.
-for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as const) {
-  test(`stepping ${who}'s terminal in and out keeps its requested size, beside the board and maximized`, async ({ page }) => {
-    const board = await open(page);
+// subsequent switches in that box keep the size, for the CFO and a goblin,
+// with the relay answering at once and late, as on a loaded machine (#1614).
+for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as const) for (const resizeLatency of [0, 1000]) {
+  test(`stepping ${who}'s terminal in and out keeps its requested size, beside the board and maximized${resizeLatency ? ", with the relay answering late" : ""}`, async ({ page }) => {
+    const board = await open(page, resizeLatency);
     await choose(page);
     await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
@@ -664,12 +672,13 @@ for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as 
     for (const isMaximized of [false, true]) {
       if (isMaximized) await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
       const deck = await page.locator(".terminal-deck").boundingBox();
+      const before = board.resizes.length;
       board.say({ type: "screen", asking: true, open: true, working: false, submission: "", panel: { rows: ["Resume a conversation"], choices: [{ text: "Fix the board", number: 1, focused: true }] } });
       await page.getByRole("button", { name: "Show the terminal" }).click();
       await expect(page.getByRole("button", { name: "Back to messages" })).toBeVisible();
       await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
       await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeHidden();
-      const asked = await settled(board);
+      const asked = await settled(board, before);
       expect(await page.locator(".terminal-deck").boundingBox()).toEqual(deck);
       board.say({ type: "screen", asking: false, open: false, working: false, submission: "" });
       await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
