@@ -196,7 +196,7 @@ The card is `cfo auth request --project <p> --task <its id> --why "<what it is f
   A secret key is a key of a kind the key alarm names, such as `sk_live_`, `sb_secret_` or a private key, or a JSON Web Token whose role is not `anon`.
   The check reads the whole value, so a line from an env file, a JSON value, and a secret run straight onto a public key are refused too.
   A Google API key is not refused that way, because a key for browsers and a key for servers look alike: its refusal says a server key belongs in a secret field, and the card offers "It is not a secret: send it anyway".
-  A plain field also refuses anything else shaped like a key, with two exceptions.
+  A plain field also refuses anything else shaped like a key, on a `NAME=value` line too, with two exceptions.
   A value of at most 20 letters and digits in a field named as an ID (`NAME_ID`), such as an OAuth client ID, is sent.
   A key made for browsers is sent on the first try when the field is named as public, such as `NEXT_PUBLIC_*`, `VITE_*`, `*_PUBLISHABLE_KEY` or `*_ANON_KEY`, and the whole value says so too: `sb_publishable_`, `pk_`, `pk.`, or a token whose role is `anon`.
   For the rest the card offers "It is not a secret: send it anyway".

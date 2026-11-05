@@ -266,6 +266,34 @@ func TestStepCardTakesAPublicKeyInAFieldNamedPublicOnTheFirstSend(t *testing.T) 
 	}
 }
 
+// An equals sign alone is no key: the check reads each side of it, so words
+// that hold nothing shaped like one are sent on the first try.
+func TestStepCardSendsAnAssignmentThatHoldsNoKey(t *testing.T) {
+	for name, value := range map[string]string{
+		"a setting":                 "region=eu-west-1",
+		"two settings":              "region=eu-west-1 tier=free",
+		"a quoted setting":          `region="eu-west-1"`,
+		"a web address with values": "https://example.com/page?view=full&page=2",
+		"base64 padding":            "aGVsbG8gd29ybGQ=",
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			b := stepCard(t, func(r *CredentialRequest) { r.Plain = []string{"MADE_UP_SETTING"} })
+
+			// Act
+			response := b.post(b.handler, b.body(map[string]string{"MADE_UP_SETTING": value}), nil)
+
+			// Assert
+			if response.Code != http.StatusOK {
+				t.Fatalf("save = %d %s, want it sent", response.Code, response.Body)
+			}
+			if request := b.stored(); request.Values["MADE_UP_SETTING"] != value {
+				t.Fatalf("request = %+v, want the value received whole", request)
+			}
+		})
+	}
+}
+
 // A secret never reaches the goblin through a plain field, whatever the field
 // is named and even when he says it is no secret. Its refusal offers no way
 // past it and says what was wrong, and it never repeats the value.
@@ -363,6 +391,12 @@ func TestStepCardWarnsOfAKeyItCannotProvePublic(t *testing.T) {
 		"a key of no listed kind":                         {"MADE_UP_ACCOUNT_REF", "shp" + "at_" + random},
 		"a key of no listed kind on an env file line":     {"MADE_UP_ACCOUNT_REF", "MADE_UP_TOKEN=" + "shp" + "at_" + random},
 		"a public key on an env file line":                {"NEXT_PUBLIC_MADE_UP_KEY", "NEXT_PUBLIC_MADE_UP_KEY=" + "pk" + "_test_" + random},
+		"random text on an env file line":                 {"MADE_UP_ACCOUNT_REF", "MADE_UP_TOKEN=" + random},
+		"quoted random text on an env file line":          {"MADE_UP_ACCOUNT_REF", "MADE_UP_TOKEN=\"" + random + "\""},
+		"random text on an exported env file line":        {"MADE_UP_ACCOUNT_REF", "export MADE_UP_TOKEN=" + random},
+		"random text on an env file line named public":    {"NEXT_PUBLIC_MADE_UP_KEY", "NEXT_PUBLIC_MADE_UP_KEY=" + random},
+		"a UUID on an env file line":                      {"MADE_UP_ACCOUNT_REF", "MADE_UP_TOKEN=" + "0f8fad5b-d9cb-469f" + "-a165-70867728950e"},
+		"a secret run onto plain text on an env line":     {"MADE_UP_ACCOUNT_REF", "MADE_UP_TOKEN=abc" + "sk" + "_live_" + random},
 		"a Google key run onto a Stripe public key":       {"NEXT_PUBLIC_GOOGLE_KEY", "pk" + "_test_" + random + googleKey},
 		"a Google key run onto a Supabase public key":     {"NEXT_PUBLIC_GOOGLE_KEY", "sb" + "_publishable_" + random + googleKey},
 		"a Google key run onto an anon token":             {"NEXT_PUBLIC_GOOGLE_KEY", madeUpToken(t, "anon") + googleKey},
