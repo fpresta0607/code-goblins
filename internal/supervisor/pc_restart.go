@@ -240,8 +240,8 @@ func (s *Service) awaitQuiet(ctx context.Context) string {
 
 // workingGoblins are the goblins the restart pauses: each native goblin
 // whose terminal host runs and that is not paused, pausing or stopped, its
-// helpers among them, except one whose latest report delivered a pull
-// request and that took no prompt since, which waits on its merge. A goblin
+// helpers among them, except one whose latest report delivered and that
+// took no prompt since, which waits on its merge or on nothing. A goblin
 // whose records cannot be read may be working, so it is named rather than
 // passed over.
 func (s *Service) workingGoblins() ([]state.TaskMeta, error) {

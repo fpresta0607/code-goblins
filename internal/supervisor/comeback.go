@@ -189,9 +189,9 @@ func (s *Service) planComeback(now time.Time) (state.Comeback, bool, error) {
 	// back in the Overlord's In progress order, the highest first, and an
 	// order that cannot be read is said on the board and leaves them in name
 	// order. A failed resume its goblin took is finished first, so that
-	// goblin comes back too. A goblin whose latest report delivered a pull
-	// request, and that took no prompt since, stays down, since what it waits
-	// on is the merge.
+	// goblin comes back too. A goblin whose latest report delivered, and that
+	// took no prompt since, stays down, since it waits on the merge or, once
+	// it closed its issue, on nothing.
 	if err := finishTakenResumes(directory); err != nil {
 		s.publish(err)
 	}

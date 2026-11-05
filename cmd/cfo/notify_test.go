@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -1680,7 +1681,7 @@ func TestAHelpersReportWakesTheCFOWhenItsParentCannotTakeIt(t *testing.T) {
 	}
 }
 
-func TestOnlyAHelperReportsDoneWithoutAPullRequest(t *testing.T) {
+func TestAParentsDoneWithoutAPullRequestIsRefused(t *testing.T) {
 	// Arrange
 	h, runtime, typed := helperHome(t, nil)
 	var stdout, stderr bytes.Buffer
@@ -1753,5 +1754,193 @@ func TestNotifyDoneNamesWhatTheGoblinLeftRunning(t *testing.T) {
 	}
 	if output := stdout.String(); !strings.Contains(output, "You left running pid 400 node.exe") || !strings.Contains(output, "Stop-Process -Id <pid>") {
 		t.Errorf("stdout = %q, want the goblin told what it left and how to end it by its pid", output)
+	}
+}
+
+const closedIssue = "https://github.com/o/r/issues/1450"
+
+// closingGoblin is goblin g1 of generation s2, whose question at wake sequence
+// 7 the CFO answered, as change leaves it.
+func closingGoblin(t *testing.T, change func(*supervisor.Question)) (home.Home, commandRuntime) {
+	t.Helper()
+	h, runtime, _ := helperHome(t, nil)
+	meta, err := state.ReadTaskMeta(h.State, "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.SpawnGen = "s2"
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	q := supervisor.Question{ID: "notify-g1-7", Task: "g1", Generation: "s2", Seq: 7, Text: "Close it?", Status: "succeeded", Answer: "Close it, no PR", AnsweredBy: "cfo"}
+	if change != nil {
+		change(&q)
+	}
+	plantJSON(t, filepath.Join(h.State, ".supervisor.json"), map[string]any{"questions": []supervisor.Question{q}})
+	return h, runtime
+}
+
+// Task root-code-goblins-1450 found its issue named no code in the repository
+// and the CFO ruled: close it with a comment, no pull request, then report
+// done. --done refused that with no --pr, which left it --working or --failed,
+// and neither was true (#1646).
+func TestAGoblinTheCFORuledFinishedReportsDoneWithTheIssueItClosed(t *testing.T) {
+	for _, decision := range []string{"7", "notify-g1-7"} {
+		t.Run(decision, func(t *testing.T) {
+			// Arrange
+			h, runtime := closingGoblin(t, nil)
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runNotify([]string{"g1", "--done", "--closed", closedIssue, "--decision", decision}, &stdout, &stderr, runtime)
+
+			// Assert
+			if exit != 0 {
+				t.Fatalf("exit = %d, stderr = %s", exit, stderr.String())
+			}
+			want := "done: closed " + closedIssue + " (decision 7: Close it, no PR)"
+			lines, err := state.TailStatus(h.State, "g1", 1)
+			if err != nil || len(lines) != 1 {
+				t.Fatalf("status = %v, %v; want one done line", lines, err)
+			}
+			if _, event := state.SplitStatus(lines[0]); event != want {
+				t.Errorf("status = %q, want %q", event, want)
+			}
+			records, err := wake.Pending(h.State)
+			if err != nil || len(records) != 1 || records[0].Detail != want {
+				t.Errorf("wake records = %+v, %v; want the CFO woken with %q", records, err, want)
+			}
+		})
+	}
+}
+
+// An answer the Overlord gives on the board names no sequence, as cfo answer's
+// does, so the goblin cites what its --blocked notify printed.
+func TestAGoblinCitesTheDecisionItsBlockedNotifyPrintedThoughTheBoardAnsweredIt(t *testing.T) {
+	// Arrange
+	stateDir := questionHome(t)
+	nativeGoblin(t, stateDir, "g1")
+	var asked, stderr bytes.Buffer
+	// The terminal nativeGoblin hosts runs under this test process, which it
+	// records as the goblin's program, so a done report would read that
+	// terminal's own console host and shell as left running once the test
+	// binary has run past fleettree.HarnessLaunch.
+	runtime := defaultCommandRuntime()
+	runtime.leftRunning = nil
+	if exit := runNotify([]string{"g1", "--blocked", "Close it? options: Close it, no PR (Recommended) | Keep it open"}, &asked, &stderr, runtime); exit != 0 {
+		t.Fatalf("exit = %d, stderr = %s", exit, stderr.String())
+	}
+	printed := regexp.MustCompile(`--decision (\d+)`).FindStringSubmatch(asked.String())
+	if printed == nil {
+		t.Fatalf("stdout = %q, want the sequence to cite", asked.String())
+	}
+	questions, err := supervisor.OpenDecisions(stateDir, "g1")
+	if err != nil || len(questions) != 1 {
+		t.Fatalf("open decisions = %+v, %v; want the question the notify asked", questions, err)
+	}
+	answered := questions[0]
+	answered.Status, answered.Answer, answered.AnsweredBy = "succeeded", "Close it, no PR", "overlord"
+	plantJSON(t, filepath.Join(stateDir, ".supervisor.json"), map[string]any{"questions": []supervisor.Question{answered}})
+	var stdout bytes.Buffer
+
+	// Act
+	exit := runNotify([]string{"g1", "--done", "--closed", closedIssue, "--decision", printed[1]}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, stderr = %s", exit, stderr.String())
+	}
+	want := "done: closed " + closedIssue + " (decision " + printed[1] + ": Close it, no PR)"
+	lines, err := state.TailStatus(stateDir, "g1", 1)
+	if err != nil || len(lines) != 1 {
+		t.Fatalf("status = %v, %v; want one done line", lines, err)
+	}
+	if _, event := state.SplitStatus(lines[0]); event != want {
+		t.Errorf("status = %q, want %q", event, want)
+	}
+}
+
+// A helper's done rests on no decision, so a question that reached the CFO in
+// its parent's place sends it to no --decision that would refuse it.
+func TestAHelpersQuestionNamesNoDecisionToCite(t *testing.T) {
+	// Arrange
+	_, runtime, _ := helperHome(t, errors.New("the terminal is gone"))
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runNotify([]string{"g1-h1", "--blocked", "Which table? options: users | accounts"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 0 || strings.Contains(stdout.String(), "--decision") {
+		t.Errorf("exit = %d, stdout = %q; want the question taken and no decision named", exit, stdout.String())
+	}
+}
+
+func TestADoneWithNoPullRequestIsRefusedWithoutAnAnsweredDecisionAndAnIssue(t *testing.T) {
+	pullRequest := "https://github.com/o/r/pull/9"
+	cases := map[string]struct {
+		args   []string
+		change func(*supervisor.Question)
+		want   string
+	}{
+		"neither":                 {args: []string{"g1", "--done"}, want: "--closed"},
+		"no decision":             {args: []string{"g1", "--done", "--closed", closedIssue}, want: "--decision"},
+		"no issue":                {args: []string{"g1", "--done", "--decision", "7"}, want: "--closed"},
+		"beside a pull request":   {args: []string{"g1", "--done", "--pr", pullRequest, "--closed", closedIssue, "--decision", "7"}, want: "--closed"},
+		"on another report":       {args: []string{"g1", "--working", "closing it", "--closed", closedIssue, "--decision", "7"}, want: "--closed"},
+		"a pull request's link":   {args: []string{"g1", "--done", "--closed", pullRequest, "--decision", "7"}, want: "issue"},
+		"a comment's link":        {args: []string{"g1", "--done", "--closed", closedIssue + "#issuecomment-1", "--decision", "7"}, want: "issue"},
+		"another site's link":     {args: []string{"g1", "--done", "--closed", "https://example.com/o/r/issues/1450", "--decision", "7"}, want: "issue"},
+		"no sequence":             {args: []string{"g1", "--done", "--closed", closedIssue, "--decision", "soon"}, want: "soon"},
+		"a decision never asked":  {args: []string{"g1", "--done", "--closed", closedIssue, "--decision", "8"}, want: "decision 8"},
+		"another goblin's":        {args: []string{"g1", "--done", "--closed", closedIssue, "--decision", "7"}, change: func(q *supervisor.Question) { q.ID, q.Task = "notify-g2-7", "g2" }, want: "decision 7"},
+		"an earlier generation's": {args: []string{"g1", "--done", "--closed", closedIssue, "--decision", "7"}, change: func(q *supervisor.Question) { q.Generation = "s1" }, want: "decision 7"},
+		"still unanswered":        {args: []string{"g1", "--done", "--closed", closedIssue, "--decision", "7"}, change: func(q *supervisor.Question) { q.Status, q.Answer = "pending", "" }, want: "decision 7"},
+		"dismissed":               {args: []string{"g1", "--done", "--closed", closedIssue, "--decision", "7"}, change: func(q *supervisor.Question) { q.Status, q.Answer = "cleared", "" }, want: "decision 7"},
+		"an answer that failed":   {args: []string{"g1", "--done", "--closed", closedIssue, "--decision", "7"}, change: func(q *supervisor.Question) { q.Status = "failed" }, want: "decision 7"},
+		"from a helper":           {args: []string{"g1-h1", "--done", "--closed", closedIssue, "--decision", "7"}, want: "helper"},
+	}
+	for name, test := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			h, runtime := closingGoblin(t, test.change)
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runNotify(test.args, &stdout, &stderr, runtime)
+
+			// Assert
+			if exit != 2 || !strings.Contains(stderr.String(), test.want) {
+				t.Errorf("exit = %d, stderr = %q; want 2 and a refusal that names %q", exit, stderr.String(), test.want)
+			}
+			if lines, _ := state.TailStatus(h.State, test.args[0], 1); len(lines) != 0 {
+				t.Errorf("status = %v, want nothing recorded for a refused notify", lines)
+			}
+			if records, err := wake.Pending(h.State); err != nil || len(records) != 0 {
+				t.Errorf("wake records = %+v, %v; want the CFO left unwoken by a refused notify", records, err)
+			}
+		})
+	}
+}
+
+func TestAClosedIssueReportedDoneTwiceWakesTheCFOOnce(t *testing.T) {
+	// Arrange
+	h, runtime := closingGoblin(t, nil)
+	report := []string{"g1", "--done", "--closed", closedIssue, "--decision", "7"}
+	var first, stderr bytes.Buffer
+	if exit := runNotify(report, &first, &stderr, runtime); exit != 0 {
+		t.Fatalf("exit = %d, stderr = %s", exit, stderr.String())
+	}
+	var again bytes.Buffer
+
+	// Act
+	exit := runNotify(report, &again, &stderr, runtime)
+
+	// Assert
+	if exit != 0 || !strings.Contains(again.String(), "not woken again") {
+		t.Errorf("exit = %d, stdout = %q; want the goblin told the CFO was not woken again", exit, again.String())
+	}
+	if records, err := wake.Pending(h.State); err != nil || len(records) != 1 {
+		t.Errorf("wake records = %+v, %v; want one wake for one closed issue", records, err)
 	}
 }

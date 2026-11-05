@@ -69,6 +69,12 @@ func (service Service) outcome(ctx context.Context, meta state.TaskMeta, reason 
 			outcome.PR, outcome.Phase, outcome.Evidence = strings.TrimSpace(pr), "done", "reported pull request"
 			return outcome
 		}
+		// A task a decision ruled finished delivers the issue it closed in
+		// place of a pull request.
+		if issue := state.DoneClosed(line); issue != "" {
+			outcome.Phase, outcome.Evidence = "done", "closed "+issue
+			return outcome
+		}
 		if report != "" && strings.HasPrefix(line, "done: ") && strings.Contains(strings.ToLower(filepath.FromSlash(line)), named) {
 			outcome.Phase, outcome.Evidence = "done", "reported its report "+report
 			return outcome
