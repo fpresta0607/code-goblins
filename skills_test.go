@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // shipped reads a skill the binary carries, which is what an install puts in
@@ -110,5 +112,29 @@ func TestTheBinaryCarriesTheStepCardSkillForBrowserWork(t *testing.T) {
 		if found := oneHarnessOnly.FindString(line); found != "" {
 			t.Errorf("line %d names %q, which belongs to one harness: %s", number+1, found, line)
 		}
+	}
+}
+
+// Issue #2017: a goblin asked to rebuild or document an existing site is
+// offered the reverse-engineer-site skill, which a harness lists by the name
+// and description it reads from the skill's YAML header.
+func TestTheBinaryCarriesTheReverseEngineerSiteSkillWithItsHeader(t *testing.T) {
+	// Act
+	skill := shipped(t, "reverse-engineer-site")
+
+	// Assert
+	header, _, isClosed := strings.Cut(strings.TrimPrefix(skill, "---\n"), "\n---\n")
+	if !strings.HasPrefix(skill, "---\n") || !isClosed {
+		t.Fatalf("the reverse-engineer-site skill has no header between --- lines:\n%s", skill)
+	}
+	var fields struct {
+		Name        string `yaml:"name"`
+		Description string `yaml:"description"`
+	}
+	if err := yaml.Unmarshal([]byte(header), &fields); err != nil {
+		t.Fatalf("the header is not YAML a harness can read: %v\n%s", err, header)
+	}
+	if fields.Name != "reverse-engineer-site" || strings.TrimSpace(fields.Description) == "" {
+		t.Errorf("the header reads as name %q and description %q, want the name reverse-engineer-site and a description", fields.Name, fields.Description)
 	}
 }

@@ -28,7 +28,7 @@ func runConnectionRepair(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	if err := connections.NewInspector(h.Data, h.State).RepairConnection(ctx, meta, args[2], args[3]); err != nil {
+	if err := connections.NewInspector(h.Root, h.Data, h.State).RepairConnection(ctx, meta, args[2], args[3]); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}

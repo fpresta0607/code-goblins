@@ -1055,6 +1055,14 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
     }
 
+    # Every goblin carries the crawler connector (docs/crawler.md), which cfo
+    # install set up above by installing the packages its lockfile pins with
+    # npm ci, so a machine without Node.js has none.
+    if (-not $hasNode) {
+        Write-Detail ("PREREQ   {0,-20} connector needs Node.js: winget install OpenJS.NodeJS.LTS" -f "crawler")
+        $failedInstalls += "crawler"
+    }
+
     # Dictation works at the first press: the build the home now holds
     # downloads the speech engine and model it pins, keeps each only when it
     # matches its pinned SHA-256, and puts them where dictation looks; one

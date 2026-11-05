@@ -8,7 +8,7 @@ import "embed"
 // to. Installed homes refresh these from the binary; tracked checkout homes
 // keep their own copies.
 //
-//go:embed AGENTS.md CLAUDE.md LICENSE docs/pipeline.md docs/native-board.md docs/remote-access.md docs/load-map.md docs/contract docs/commands
+//go:embed AGENTS.md CLAUDE.md LICENSE docs/pipeline.md docs/native-board.md docs/remote-access.md docs/load-map.md docs/crawler.md docs/contract docs/commands
 var Contract embed.FS
 
 // Skills are the skills Code Goblins ships, one folder each under
@@ -31,6 +31,13 @@ var Policy embed.FS
 //
 //go:embed config/voice.json
 var Voice []byte
+
+// Crawler is the crawler connector every goblin carries: its code and the
+// lockfile that pins every package it installs. It stays the binary's, so an
+// install of a newer build brings the newer connector.
+//
+//go:embed connectors/crawler/package.json connectors/crawler/package-lock.json connectors/crawler/goblin-crawl.mjs connectors/crawler/crawl-site.mjs
+var Crawler embed.FS
 
 // KeyPages are the key page recipes, which stay the binary's: a recipe runs
 // only as it was reviewed and merged, so no home keeps a copy of its own.

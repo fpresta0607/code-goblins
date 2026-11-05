@@ -24,9 +24,12 @@ on:
       - cmd/cfo/main.go
       - cmd/cfo/doctor.go
       - cmd/cfo/dictation.go
+      - cmd/cfo/crawler.go
       - cmd/goblins-setup/**
       - config/voice.json
       - internal/voice/**
+      - internal/crawler/**
+      - connectors/crawler/**
       - internal/home/**
       - internal/install/**
       - internal/installbase/**
@@ -57,9 +60,12 @@ on:
       - cmd/cfo/main.go
       - cmd/cfo/doctor.go
       - cmd/cfo/dictation.go
+      - cmd/cfo/crawler.go
       - cmd/goblins-setup/**
       - config/voice.json
       - internal/voice/**
+      - internal/crawler/**
+      - connectors/crawler/**
       - internal/home/**
       - internal/install/**
       - internal/installbase/**
@@ -343,6 +349,9 @@ jobs:
           if (-not ($doctor -match "^dictation: ready: ")) { throw "goblins doctor does not report dictation ready: $($doctor -match '^dictation:')" }
           $parts = @(Get-ChildItem -LiteralPath (Join-Path $cfoHome "caches\voice") -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "verified.json") })
           if ($parts.Count -ne 2) { throw "caches\voice holds $($parts.Count) verified parts, want the engine and the model: $($parts.Name -join ', ')" }
+          # The install set up the crawler connector every goblin carries; a
+          # published release from before it has none.
+          if ($env:REAL_RELEASE -ne "true" -and -not ($doctor -match "^crawler: ready: ")) { throw "goblins doctor does not report the crawler ready: $($doctor -match '^crawler:')" }
           # no-mistakes is the build this checkout's install.ps1 pins, where
           # no-mistakes' own installer puts it, and its axi run takes what the
           # fleet's gate gives it; a published release's script may pin an
