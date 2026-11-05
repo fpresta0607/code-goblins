@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 )
@@ -61,6 +62,8 @@ func TestSecretShapeRefusesValues(t *testing.T) {
 		"hf" + "_" + random,
 		"re" + "_" + random,
 		"sbp" + "_" + random,
+		"sb" + "_secret_" + random,
+		"sb" + "_publishable_" + random,
 		"-----BEGIN" + " PRIVATE KEY-----",
 		"STRIPE_SECRET_KEY=" + "anything",
 		"NAME=value",
@@ -74,6 +77,157 @@ func TestSecretShapeRefusesValues(t *testing.T) {
 			t.Errorf("SecretShape took sample %d (%d characters) as plain text", index, len(value))
 		} else if strings.Contains(reason, value) {
 			t.Errorf("SecretShape repeats sample %d in its reason", index)
+		}
+	}
+}
+
+// token is a JSON Web Token whose payload is claims, assembled at run time.
+func token(claims string) string {
+	return "eyJ" + "hbGciOiJIUzI1NiJ9." + base64.RawURLEncoding.EncodeToString([]byte(claims)) + ".q7Lm2Xv9Rt4Kp8Zw3Nb6"
+}
+
+// A key is public only when its field's name and its own text both say so,
+// and the whole value is that one key.
+func TestPlainPublicKeyNeedsThePublicNameAndThePublicValue(t *testing.T) {
+	random := "q7Lm2Xv9Rt4Kp8Zw3Nb6Hd1Yc5Fg0Js"
+	for name, c := range map[string]struct {
+		field, value string
+		want         bool
+	}{
+		"a Supabase key under NEXT_PUBLIC":   {"NEXT_PUBLIC_SUPABASE_KEY", "sb" + "_publishable_" + random, true},
+		"a Stripe key named publishable":     {"STRIPE_PUBLISHABLE_KEY", "pk" + "_live_" + random, true},
+		"a lower case name":                  {"stripe_publishable_key", "pk" + "_test_" + random, true},
+		"a bundled name":                     {"REACT_APP_STRIPE_KEY", "pk" + "_test_" + random, true},
+		"a Mapbox token":                     {"NEXT_PUBLIC_MAPBOX_TOKEN", "pk" + ".eyJ1IjoibWFkZS11cCJ9." + random, true},
+		"an anon token":                      {"SUPABASE_ANON_KEY", token(`{"role":"anon"}`), true},
+		"a field not named public":           {"MADE_UP_ACCOUNT_REF", "sb" + "_publishable_" + random, false},
+		"a name that only holds the letters": {"CANON_KEY", "pk" + "_test_" + random, false},
+		"random text":                        {"NEXT_PUBLIC_MADE_UP_KEY", random, false},
+		"an empty value":                     {"NEXT_PUBLIC_MADE_UP_KEY", "", false},
+		"a service role token":               {"SUPABASE_ANON_KEY", token(`{"role":"service_role"}`), false},
+		"a token with no role":               {"SUPABASE_ANON_KEY", token(`{"iss":"made-up"}`), false},
+		"an anon role after another key":     {"SUPABASE_ANON_KEY", "xox" + "b-1234." + base64.RawURLEncoding.EncodeToString([]byte(`{"role":"anon"}`)) + ".x", false},
+		"a secret key":                       {"NEXT_PUBLIC_MADE_UP_KEY", "sk" + "_live_" + random, false},
+		"two words":                          {"NEXT_PUBLIC_MADE_UP_KEY", "pk" + "_test_" + random + " " + random, false},
+		"an assignment":                      {"NEXT_PUBLIC_MADE_UP_KEY", "pk" + "_test_" + random + "=" + random, false},
+		"a secret run into it":               {"NEXT_PUBLIC_MADE_UP_KEY", "sb" + "_publishable_" + random + "sb" + "_secret_" + random, false},
+		"a Stripe secret run into it":        {"NEXT_PUBLIC_MADE_UP_KEY", "pk" + "_test_" + random + "sk" + "_live_" + random, false},
+		"a Google key run into it":           {"NEXT_PUBLIC_GOOGLE_KEY", "pk" + "_test_" + random + exposed("AI"+"za", 35), false},
+		"a Google key run into an anon key":  {"NEXT_PUBLIC_GOOGLE_KEY", token(`{"role":"anon"}`) + exposed("AI"+"za", 35), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := PlainPublicKey(c.field, c.value); got != c.want {
+				t.Errorf("PlainPublicKey(%q, a value of %d characters) = %v, want %v", c.field, len(c.value), got, c.want)
+			}
+		})
+	}
+}
+
+// A secret key is one whatever is around it, while a public key, a word and a
+// value that only starts like a key are not. The whole value is read, so a
+// secret counts wherever in it the key sits.
+func TestSecretKeyKnowsSecretsFromPublicKeysAndWords(t *testing.T) {
+	random := "q7Lm2Xv9Rt4Kp8Zw3Nb6Hd1Yc5Fg0Js"
+	googleKey := exposed("AI"+"za", 35)
+	for name, c := range map[string]struct {
+		value string
+		want  bool
+	}{
+		"a Supabase secret key":              {"sb" + "_secret_" + random, true},
+		"a secret key of letters alone":      {"sb" + "_secret_" + "ZkQxLmVbNcRtWyHsJdFgA", true},
+		"a Stripe secret key":                {"sk" + "_live_" + random, true},
+		"a quoted secret key":                {`"` + "sk" + "_live_" + random + `",`, true},
+		"a service role token":               {token(`{"role":"service_role"}`), true},
+		"a token with no role":               {token(`{"iss":"made-up"}`), true},
+		"a service role token in a sentence": {"the key is " + token(`{"role":"service_role"}`), true},
+		"a Slack token":                      {"xox" + "b-1234-" + random, true},
+		"an AWS access key ID":               {"AKIA" + "Q7LM2XV9RT4KP8ZW", true},
+		"a Mapbox secret token":              {"sk" + ".eyJ1IjoibWFkZS11cCJ9." + random, true},
+		"a line of an env file":              {"SUPABASE_SECRET_KEY=" + "sb" + "_secret_" + random, true},
+		"a quoted line of an env file":       {`STRIPE_KEY="` + "sk" + "_live_" + random + `"`, true},
+		"a secret after a public key":        {"pk" + "_test_" + random + " sk" + "_live_" + random, true},
+		"a comma between keys":               {"pk" + "_test_" + random + ",sk" + "_live_" + random, true},
+		"a JSON value":                       {`{"key":"` + "sk" + "_live_" + random + `"}`, true},
+		"a name and a colon":                 {"KEY:" + "sk" + "_live_" + random, true},
+		"a token before an address":          {"ghp" + "_" + random + "@github.com", true},
+		"a private key's header":             {"-----BEGIN" + " PRIVATE KEY-----", true},
+		"an RSA private key's header":        {"-----BEGIN" + " RSA PRIVATE KEY-----" + random, true},
+		"a PGP private key's header":         {"-----BEGIN" + " PGP PRIVATE KEY BLOCK-----" + random, true},
+		"a Google key beside a secret":       {googleKey + " sk" + "_live_" + random, true},
+		"a secret run onto a Google key":     {googleKey + "sk" + "_live_" + random, true},
+		"a public key's env file line":       {"NEXT_PUBLIC_KEY=" + "pk" + "_test_" + random, false},
+		"an anon token's env file line":      {"SUPABASE_ANON_KEY=" + token(`{"role":"anon"}`), false},
+		"an address that starts a key":       {"sk" + "-support.team1@example.com", false},
+		"a Supabase publishable key":         {"sb" + "_publishable_" + random, false},
+		"a Stripe publishable key":           {"pk" + "_live_" + random, false},
+		"a quoted publishable key":           {`"` + "pk" + "_live_" + random + `"`, false},
+		"a Mapbox public token":              {"pk" + ".eyJ1IjoibWFkZS11cCJ9." + random, false},
+		"an anon token":                      {token(`{"role":"anon"}`), false},
+		"a short part number":                {"sk" + "-1234", false},
+		"a word":                             {"xoxo", false},
+		"random text of no known kind":       {random, false},
+		"a domain that starts like a token":  {"sk.example.com", false},
+		"a name that starts like a key":      {"sk" + "_test_handler_for_the_checkout_session_page", false},
+		"the word that starts a PEM block":   {"-----BEGIN", false},
+		"a public key's PEM block":           {"-----BEGIN" + " PUBLIC KEY-----" + random + "-----END PUBLIC KEY-----", false},
+		"a certificate's PEM block":          {"-----BEGIN" + " CERTIFICATE-----" + random + "-----END CERTIFICATE-----", false},
+		"a PGP public key's block":           {"-----BEGIN" + " PGP PUBLIC KEY BLOCK-----" + random, false},
+		"a Google key":                       {googleKey, false},
+		"a Google key on a public key":       {"pk" + "_test_" + random + googleKey, false},
+		"a secret's start inside task-":      {"task-" + random + random, false},
+		"a secret's start inside work_":      {"work_test_" + random, false},
+		"a secret's start with no key after": {"pk" + "_test_" + random + "sk" + "_x", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := HoldsSecretKey(c.value); got != c.want {
+				t.Errorf("HoldsSecretKey(a value of %d characters) = %v, want %v", len(c.value), got, c.want)
+			}
+		})
+	}
+}
+
+// A key run straight onto another has no word boundary before it, which is what
+// happens when he pastes over a field without clearing it. Every kind of secret
+// is found there, on every kind of key that can come first.
+func TestSecretKeyRunStraightOntoAnotherKeyIsFound(t *testing.T) {
+	random := "q7Lm2Xv9Rt4Kp8Zw3Nb6Hd1Yc5Fg0Js"
+	leadingKeys := map[string]string{
+		"a Stripe key":            "pk" + "_test_" + random,
+		"a Supabase key":          "sb" + "_publishable_" + random,
+		"a Mapbox token":          "pk" + ".eyJ1IjoibWFkZS11cCJ9." + random,
+		"an anon token":           token(`{"role":"anon"}`),
+		"a Google key":            exposed("AI"+"za", 35),
+		"a key of no listed kind": "shp" + "at_" + random,
+	}
+	secrets := map[string]string{
+		"a Stripe secret key":       "sk" + "_live_" + random,
+		"a Stripe restricted key":   "rk" + "_test_" + random,
+		"a webhook signing secret":  exposed("whsec"+"_", 32),
+		"a GitHub token":            exposed("ghp"+"_", 36),
+		"an Anthropic key":          exposed("sk"+"-ant-api03-", 90),
+		"an OpenAI key":             exposed("sk"+"-proj-", 48),
+		"a Resend key":              exposed("re"+"_", 32),
+		"a Slack token":             exposed("xox"+"b-", 40),
+		"an AWS access key ID":      "AKIA" + "Q7LM2XV9RT4KP8ZW",
+		"a Supabase secret key":     exposed("sb"+"_secret_", 32),
+		"a Supabase key of letters": "sb" + "_secret_" + "ZkQxLmVbNcRtWyHsJdFgA",
+		"a GitLab token":            exposed("gl"+"pat-", 20),
+		"an npm token":              exposed("npm"+"_", 36),
+		"a Hugging Face token":      exposed("hf"+"_", 34),
+		"a Mapbox secret token":     "sk" + ".eyJ1IjoibWFkZS11cCJ9." + random,
+		"a service role token":      token(`{"role":"service_role"}`),
+		"a private key's header":    "-----BEGIN" + " PRIVATE KEY-----",
+		"a token with no role":      token(`{"iss":"made-up"}`),
+	}
+	for leadingName, leadingKey := range leadingKeys {
+		for secretName, secret := range secrets {
+			t.Run(secretName+" on "+leadingName, func(t *testing.T) {
+				for _, value := range []string{leadingKey + secret, "MADE_UP_KEY=" + leadingKey + secret, `"` + leadingKey + secret + `"`} {
+					if !HoldsSecretKey(value) {
+						t.Errorf("HoldsSecretKey(a value of %d characters) = false, want the secret found", len(value))
+					}
+				}
+			})
 		}
 	}
 }

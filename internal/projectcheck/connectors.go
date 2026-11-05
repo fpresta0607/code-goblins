@@ -266,7 +266,7 @@ func (c *checker) credentialNeeds(ctx context.Context) (needs, error) {
 	add := func(name, where string) {
 		switch _, seen := found.names[name]; {
 		case seen, auth.IsHarnessBillingKey(name):
-		case publishableName(name):
+		case auth.PublishableName(name):
 			publishable[name] = true
 		default:
 			found.names[name] = where
@@ -285,7 +285,7 @@ func (c *checker) credentialNeeds(ctx context.Context) (needs, error) {
 		}
 		name := trailingName.FindString(parts[3])
 		if suppliedByGitHub(parts[1]) {
-			if credentialName(name) && !auth.IsHarnessBillingKey(name) && !publishableName(name) {
+			if credentialName(name) && !auth.IsHarnessBillingKey(name) && !auth.PublishableName(name) {
 				workflow[name] = true
 			}
 			continue
