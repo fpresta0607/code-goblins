@@ -47,9 +47,10 @@ type Executor struct {
 	// IsConsoleShared starts the command in this process's console group
 	// rather than in a group of its own, so a Ctrl+C at the console reaches
 	// it as it reaches this process and it answers for itself: the context
-	// then ends only the wait for the turn, and a command that started runs
-	// until it ends. Pressure ends its job with no gentler step first, since
-	// a Ctrl+Break reaches only a whole group, this process's own included.
+	// then ends the run only before its command starts, and a command that
+	// started runs until it ends. Pressure ends its job with no gentler step
+	// first, since a Ctrl+Break reaches only a whole group, this process's own
+	// included.
 	IsConsoleShared bool
 	// Took, when set, is told how long the run waited for its turn, once it
 	// has taken it and before its command starts.
