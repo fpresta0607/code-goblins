@@ -39,7 +39,7 @@ var exposedKinds = []exposedKind{
 	{"an npm token", regexp.MustCompile(`\bnpm_([A-Za-z0-9]{36})`)},
 	{"a Hugging Face token", regexp.MustCompile(`\bhf_([A-Za-z0-9]{30,})`)},
 	{"a Mapbox secret token", regexp.MustCompile(`\bsk\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`)},
-	{"a private key", regexp.MustCompile(`-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----`)},
+	{"a private key", regexp.MustCompile(`-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----`)},
 }
 
 // runOnKinds are exposedKinds with no word boundary before the key, which

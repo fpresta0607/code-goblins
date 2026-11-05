@@ -39,6 +39,7 @@ func TestExposedKeysNamesEachSecretKindAndNeverItsValue(t *testing.T) {
 		{"a Hugging Face token", exposed("hf"+"_", 34)},
 		{"a Mapbox secret token", "sk" + ".eyJ1IjoibWFkZS11cCJ9." + exposed("", 22)},
 		{"a private key", "-----BEGIN " + "RSA PRIVATE KEY-----\nMIIE..."},
+		{"a private key", "-----BEGIN " + "PGP PRIVATE KEY BLOCK-----\nlQOY..."},
 	} {
 		t.Run(test.kind, func(t *testing.T) {
 			// Act

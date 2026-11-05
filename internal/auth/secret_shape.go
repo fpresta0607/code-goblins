@@ -90,15 +90,15 @@ var keyRun = regexp.MustCompile(`[A-Za-z0-9_.-]+`)
 // HoldsSecretKey says a value typed into a plain field holds a secret key
 // anywhere in it, which no name and no word of his makes safe to send: a key
 // ExposedKeys finds, a Supabase secret key, a JSON Web Token whose role is not
-// anon, or a key of those kinds run straight onto a public key, with nothing
-// between them to mark a word's end. A Google API key is left out, since a key
-// for browsers looks the same, and a value that only starts the way a secret
-// key does is no key of these kinds.
+// anon, or a key of those kinds run straight onto another key of any known
+// start, with nothing between them to mark a word's end. A Google API key is
+// left out, since a key for browsers looks the same, and a value that only
+// starts the way a secret key does is no key of these kinds.
 func HoldsSecretKey(value string) bool {
 	return holdsSecretKind(value, exposedKinds) || supabaseSecret.MatchString(value) ||
 		slices.ContainsFunc(webToken.FindAllString(value, -1), func(token string) bool { return TokenRole(token) != "anon" }) ||
 		slices.ContainsFunc(keyRun.FindAllString(value, -1), func(run string) bool {
-			return (StartsPublishable(run) || strings.HasPrefix(run, "eyJ")) && holdsSecretKind(run, runOnKinds)
+			return (StartsPublishable(run) || hasValuePrefix(run)) && holdsSecretKind(run, runOnKinds)
 		})
 }
 
@@ -110,13 +110,13 @@ var bareKey = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 // value says so too, by a publishable key's start or an anon token's role.
 // Neither alone is enough: a public name holds whatever is pasted into it, and
 // a service's personal token can start the way a publishable key does. A value
-// that holds a secret key's start anywhere in it, as two keys pasted together
-// do, is not one key.
+// that holds a secret key's start or a key of a listed kind anywhere in it, as
+// two keys pasted together do, is not one key.
 func PlainPublicKey(name, value string) bool {
-	holdsSecret := slices.ContainsFunc(secretPrefixes, func(prefix string) bool { return strings.Contains(value, prefix) })
+	holdsAnotherKey := len(keysIn(value, runOnKinds)) > 0 || slices.ContainsFunc(secretPrefixes, func(prefix string) bool { return strings.Contains(value, prefix) })
 	role := TokenRole(value)
 	saysPublic := role == "anon" && strings.HasPrefix(value, "eyJ") || role == "" && StartsPublishable(value)
-	return PublishableName(name) && bareKey.MatchString(value) && !holdsSecret && saysPublic
+	return PublishableName(name) && bareKey.MatchString(value) && !holdsAnotherKey && saysPublic
 }
 
 // StartsSecret says a value starts the way a secret key does, which makes it

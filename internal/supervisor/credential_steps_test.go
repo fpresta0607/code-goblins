@@ -271,6 +271,7 @@ func TestStepCardTakesAPublicKeyInAFieldNamedPublicOnTheFirstSend(t *testing.T) 
 // past it and says what was wrong, and it never repeats the value.
 func TestStepCardRefusesASecretInAPlainFieldEveryTime(t *testing.T) {
 	random := "Zk3Qx9Lm2Vb7" + "Nc4Rt8Wy1Hs5" + "Jd6Fg0A"
+	googleKey := "AI" + "za" + random + "q7Lm"
 	secrets := map[string]string{
 		"a Supabase secret key":            "sb" + "_secret_" + random,
 		"a Supabase secret key of letters": "sb" + "_secret_" + "ZkQxLmVbNcRtWyHsJdFgA",
@@ -285,6 +286,7 @@ func TestStepCardRefusesASecretInAPlainFieldEveryTime(t *testing.T) {
 		"a line of an env file":            "SUPABASE_SECRET_KEY=" + "sb" + "_secret_" + random,
 		"a private key on one line":        "-----BEGIN" + " PRIVATE KEY-----" + random + "-----END PRIVATE KEY-----",
 		"a private key's header":           "-----BEGIN" + " PRIVATE KEY-----",
+		"a PGP private key's header":       "-----BEGIN" + " PGP PRIVATE KEY BLOCK-----",
 		"a secret run into a public key":   "sb" + "_publishable_" + random + "sb" + "_secret_" + random,
 		"a secret run into an anon token":  madeUpToken(t, "anon") + madeUpToken(t, "service_role"),
 		"a comma between keys":             "pk" + "_test_" + random + ",sk" + "_live_" + random,
@@ -292,7 +294,10 @@ func TestStepCardRefusesASecretInAPlainFieldEveryTime(t *testing.T) {
 		"a name and a colon":               "KEY:" + "sk" + "_live_" + random,
 		"a token before an address":        "ghp" + "_" + random + "@github.com",
 		"a Mapbox secret token":            "sk" + ".eyJ1IjoibWFkZS11cCJ9." + random,
-		"a Google key beside a secret":     "AI" + "za" + random + "q7Lm" + " sk" + "_live_" + random,
+		"a Google key beside a secret":     googleKey + " sk" + "_live_" + random,
+		"a Stripe key on a Google key":     googleKey + "sk" + "_live_" + random,
+		"a GitHub token on a Google key":   googleKey + "ghp" + "_" + random,
+		"an OpenAI key on a Google key":    googleKey + "sk" + "-proj-" + random,
 	}
 	for _, field := range []string{"NEXT_PUBLIC_SUPABASE_KEY", "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_ANON_KEY", "VITE_KEY", "MADE_UP_ACCOUNT_REF", "MADE_UP_CLIENT_ID"} {
 		for name, value := range secrets {
@@ -340,9 +345,11 @@ func (b *credentialBoard) saidNoSecret(field, value string) string {
 // A value neither its name nor its shape proves public stays refused on its
 // first send, with the offer to say it is no secret, and his word sends it: a
 // public key in a field not named as public, a key of no known kind in one that
-// is, and text that is shaped like a key but is no secret.
+// is, a public key with a Google key run onto it, and text that is shaped like
+// a key but is no secret.
 func TestStepCardWarnsOfAKeyItCannotProvePublic(t *testing.T) {
 	random := "Zk3Qx9Lm2Vb7" + "Nc4Rt8Wy1Hs5" + "Jd6Fg0A"
+	googleKey := "AI" + "za" + random + "q7Lm"
 	for name, c := range map[string]struct{ field, value string }{
 		"a publishable key in a field not named public":   {"MADE_UP_ACCOUNT_REF", "sb" + "_publishable_" + random},
 		"a Stripe public key in a field not named public": {"MADE_UP_ACCOUNT_REF", "pk" + "_test_" + random},
@@ -356,6 +363,9 @@ func TestStepCardWarnsOfAKeyItCannotProvePublic(t *testing.T) {
 		"a key of no listed kind":                         {"MADE_UP_ACCOUNT_REF", "shp" + "at_" + random},
 		"a key of no listed kind on an env file line":     {"MADE_UP_ACCOUNT_REF", "MADE_UP_TOKEN=" + "shp" + "at_" + random},
 		"a public key on an env file line":                {"NEXT_PUBLIC_MADE_UP_KEY", "NEXT_PUBLIC_MADE_UP_KEY=" + "pk" + "_test_" + random},
+		"a Google key run onto a Stripe public key":       {"NEXT_PUBLIC_GOOGLE_KEY", "pk" + "_test_" + random + googleKey},
+		"a Google key run onto a Supabase public key":     {"NEXT_PUBLIC_GOOGLE_KEY", "sb" + "_publishable_" + random + googleKey},
+		"a Google key run onto an anon token":             {"NEXT_PUBLIC_GOOGLE_KEY", madeUpToken(t, "anon") + googleKey},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange

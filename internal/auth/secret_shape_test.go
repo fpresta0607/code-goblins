@@ -112,6 +112,8 @@ func TestPlainPublicKeyNeedsThePublicNameAndThePublicValue(t *testing.T) {
 		"an assignment":                      {"NEXT_PUBLIC_MADE_UP_KEY", "pk" + "_test_" + random + "=" + random, false},
 		"a secret run into it":               {"NEXT_PUBLIC_MADE_UP_KEY", "sb" + "_publishable_" + random + "sb" + "_secret_" + random, false},
 		"a Stripe secret run into it":        {"NEXT_PUBLIC_MADE_UP_KEY", "pk" + "_test_" + random + "sk" + "_live_" + random, false},
+		"a Google key run into it":           {"NEXT_PUBLIC_GOOGLE_KEY", "pk" + "_test_" + random + exposed("AI"+"za", 35), false},
+		"a Google key run into an anon key":  {"NEXT_PUBLIC_GOOGLE_KEY", token(`{"role":"anon"}`) + exposed("AI"+"za", 35), false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := PlainPublicKey(c.field, c.value); got != c.want {
@@ -150,7 +152,9 @@ func TestSecretKeyKnowsSecretsFromPublicKeysAndWords(t *testing.T) {
 		"a token before an address":          {"ghp" + "_" + random + "@github.com", true},
 		"a private key's header":             {"-----BEGIN" + " PRIVATE KEY-----", true},
 		"an RSA private key's header":        {"-----BEGIN" + " RSA PRIVATE KEY-----" + random, true},
+		"a PGP private key's header":         {"-----BEGIN" + " PGP PRIVATE KEY BLOCK-----" + random, true},
 		"a Google key beside a secret":       {googleKey + " sk" + "_live_" + random, true},
+		"a secret run onto a Google key":     {googleKey + "sk" + "_live_" + random, true},
 		"a public key's env file line":       {"NEXT_PUBLIC_KEY=" + "pk" + "_test_" + random, false},
 		"an anon token's env file line":      {"SUPABASE_ANON_KEY=" + token(`{"role":"anon"}`), false},
 		"an address that starts a key":       {"sk" + "-support.team1@example.com", false},
@@ -167,6 +171,7 @@ func TestSecretKeyKnowsSecretsFromPublicKeysAndWords(t *testing.T) {
 		"the word that starts a PEM block":   {"-----BEGIN", false},
 		"a public key's PEM block":           {"-----BEGIN" + " PUBLIC KEY-----" + random + "-----END PUBLIC KEY-----", false},
 		"a certificate's PEM block":          {"-----BEGIN" + " CERTIFICATE-----" + random + "-----END CERTIFICATE-----", false},
+		"a PGP public key's block":           {"-----BEGIN" + " PGP PUBLIC KEY BLOCK-----" + random, false},
 		"a Google key":                       {googleKey, false},
 		"a Google key on a public key":       {"pk" + "_test_" + random + googleKey, false},
 		"a secret's start inside task-":      {"task-" + random + random, false},
@@ -181,16 +186,18 @@ func TestSecretKeyKnowsSecretsFromPublicKeysAndWords(t *testing.T) {
 	}
 }
 
-// A key run straight onto a public key has no word boundary before it, which
-// is what happens when he pastes over a field without clearing it. Every kind
-// of secret is found there, on every kind of public key.
-func TestSecretKeyRunStraightOntoAPublicKeyIsFound(t *testing.T) {
+// A key run straight onto another has no word boundary before it, which is what
+// happens when he pastes over a field without clearing it. Every kind of secret
+// is found there, on every kind of key that can come first.
+func TestSecretKeyRunStraightOntoAnotherKeyIsFound(t *testing.T) {
 	random := "q7Lm2Xv9Rt4Kp8Zw3Nb6Hd1Yc5Fg0Js"
-	publicKeys := map[string]string{
-		"a Stripe key":   "pk" + "_test_" + random,
-		"a Supabase key": "sb" + "_publishable_" + random,
-		"a Mapbox token": "pk" + ".eyJ1IjoibWFkZS11cCJ9." + random,
-		"an anon token":  token(`{"role":"anon"}`),
+	leadingKeys := map[string]string{
+		"a Stripe key":            "pk" + "_test_" + random,
+		"a Supabase key":          "sb" + "_publishable_" + random,
+		"a Mapbox token":          "pk" + ".eyJ1IjoibWFkZS11cCJ9." + random,
+		"an anon token":           token(`{"role":"anon"}`),
+		"a Google key":            exposed("AI"+"za", 35),
+		"a key of no listed kind": "shp" + "at_" + random,
 	}
 	secrets := map[string]string{
 		"a Stripe secret key":       "sk" + "_live_" + random,
@@ -212,10 +219,10 @@ func TestSecretKeyRunStraightOntoAPublicKeyIsFound(t *testing.T) {
 		"a private key's header":    "-----BEGIN" + " PRIVATE KEY-----",
 		"a token with no role":      token(`{"iss":"made-up"}`),
 	}
-	for publicName, publicKey := range publicKeys {
+	for leadingName, leadingKey := range leadingKeys {
 		for secretName, secret := range secrets {
-			t.Run(secretName+" on "+publicName, func(t *testing.T) {
-				for _, value := range []string{publicKey + secret, "MADE_UP_KEY=" + publicKey + secret, `"` + publicKey + secret + `"`} {
+			t.Run(secretName+" on "+leadingName, func(t *testing.T) {
+				for _, value := range []string{leadingKey + secret, "MADE_UP_KEY=" + leadingKey + secret, `"` + leadingKey + secret + `"`} {
 					if !HoldsSecretKey(value) {
 						t.Errorf("HoldsSecretKey(a value of %d characters) = false, want the secret found", len(value))
 					}
