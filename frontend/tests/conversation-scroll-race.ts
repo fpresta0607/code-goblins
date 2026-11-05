@@ -61,7 +61,9 @@ export async function delayedScroll(page: Page, owner: "CFO" | "goblin", movemen
     return { top: element.scrollTop, height: element.scrollHeight, same: row === (window as unknown as { raceRow: Element }).raceRow,
       text: row?.textContent, offset: row && row.getBoundingClientRect().top - element.getBoundingClientRect().top };
   }, before.id);
-  expect(after).toEqual({ top: before.top, height: before.height, same: true, text: before.text, offset: before.offset });
+  // A row drawn above him taller than its estimate moves the list's top and its
+  // height together at rest, and what he reads stays put.
+  expect({ fromEnd: after.height - after.top, same: after.same, text: after.text, offset: after.offset }).toEqual({ fromEnd: before.height - before.top, same: true, text: before.text, offset: before.offset });
   await expect(talk.locator('[data-queued="q1"]')).toHaveCount(1);
   const jump = page.getByRole("button", { name: "Jump to latest" });
   await expect(jump).toBeVisible();

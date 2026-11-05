@@ -330,6 +330,10 @@ type Service struct {
 	// isCFOComingBack says the comeback is bringing the CFO back now; starts
 	// guards it too.
 	isCFOComingBack bool
+	// messageStarts is the start the latest message to each session that was
+	// not running made of it, keyed by task, the CFO's by none; starts guards
+	// it (message_starts.go).
+	messageStarts map[string]messageStart
 	// pcRestart is the restart of the PC the Overlord's Restart PC began,
 	// while it stops the fleet and after it stopped short; starts guards it
 	// (pc_restart.go).
@@ -1754,6 +1758,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 					node.Phase = record.Phase
 				}
 			}
+		}
+		// A harness that died while it compacted never reported the end, so a
+		// goblin's compaction reads only while its terminal is up. The board
+		// reads the CFO's from its live session alone.
+		if node.IsCompacting && node.Role != "cfo" {
+			node.IsCompacting = NativeTerminalRuns(s.Store.Home.State, node.TaskID)
 		}
 		out.Sessions = append(out.Sessions, node)
 	}

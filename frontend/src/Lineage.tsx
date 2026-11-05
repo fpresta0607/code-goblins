@@ -12,8 +12,9 @@ import { hasRunningChildren } from "./fleet-tree";
 import { TreeUnder } from "./TreeUnder";
 import { CardFacts } from "./card-facts";
 import { CfoCardFacts } from "./cfo-card-facts";
+import type { AfkToggleState } from "./useAfkToggle";
 
-export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, effects, presentations, now, freshNow }: {
+export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkToggle, effects, presentations, now, freshNow }: {
   presentations:BoardActivity[];
   snapshot: Snapshot;
   now: number;
@@ -24,6 +25,7 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, effe
   onSelect: (selection: Selection, source: HTMLElement) => void;
   // onOpenCfo opens the CFO's terminal, from its card's button.
   onOpenCfo: (source: HTMLElement) => void;
+  afkToggle: AfkToggleState;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // The list draws the canvas's family, so a goblin hangs under the CFO here
@@ -88,7 +90,7 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, effe
             <span className="node-status">{owner && task ? taskStatus(task, snapshot).text : nodeStatus(node.id === CFO_ROOT && family.cfo ? family.cfo : { id: node.id, title, task, session: node, relation }, false, snapshot.tasks, snapshot.merge_trains)}</span>
           </button>
           {owner && task && <div className="node-facts"><CardFacts task={task} now={now} /></div>}
-          {node.role === "cfo" && snapshot.cfo_runs && !snapshot.cfo_closed && <div className="node-facts"><CfoCardFacts snapshot={snapshot} now={freshNow} onOpenCfo={onOpenCfo} /></div>}
+          {node.role === "cfo" && snapshot.cfo_runs && !snapshot.cfo_closed && <div className="node-facts"><CfoCardFacts snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpenCfo={onOpenCfo} /></div>}
           {descendants.length > 0 && <button className="node-disclosure" aria-expanded={!isCollapsed}
             aria-label={(isCollapsed ? "Expand" : "Collapse") + " children of " + title} onClick={() => toggle(node.id)}>
             <Chevron collapsed={isCollapsed} />

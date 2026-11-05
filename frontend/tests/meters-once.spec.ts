@@ -1,4 +1,4 @@
-import { expect, holdStream, openTaskList, type Page, test } from "./site";
+import { CFO_DOOR, expect, holdStream, openTaskList, type Page, test } from "./site";
 
 const GB = 2 ** 30;
 const since = "2026-10-05T12:00:00Z";
@@ -40,7 +40,7 @@ const cases = [
   { name: "beside the board at 1440 px, in the Tasks column", viewport: { width: 1440, height: 900 }, metersIn: "Tasks column",
     open: async (page: Page) => { await page.keyboard.press("Control+Alt+1"); } },
   { name: "on a phone at 390 px, where the panel fills the screen, in the panel", viewport: { width: 390, height: 844 }, metersIn: "panel",
-    open: async (page: Page) => { await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click(); } },
+    open: async (page: Page) => { await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click(); } },
   { name: "in Orchestration at 1440 px, which has no Tasks column, in the panel", viewport: { width: 1440, height: 900 }, metersIn: "panel",
     open: async (page: Page) => { await page.getByRole("button", { name: "Orchestration", exact: true }).click(); } },
   { name: "maximized at 1440 px, which hides the board, in the panel", viewport: { width: 1440, height: 900 }, metersIn: "panel",

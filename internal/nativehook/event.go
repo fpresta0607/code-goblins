@@ -113,13 +113,9 @@ func Normalize(r io.Reader, c Context) (Event, error) {
 		case "Interrupt":
 			kind = "interrupted"
 		case "PreCompact":
-			if c.Harness == "codex" {
-				kind = "compacting"
-			}
+			kind = "compacting"
 		case "PostCompact":
-			if c.Harness == "codex" {
-				kind = "compacted"
-			}
+			kind = "compacted"
 		case "SubagentStart":
 			kind = "started"
 		case "SubagentStop":

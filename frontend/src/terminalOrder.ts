@@ -2,15 +2,10 @@ import type { PanelView } from "./GoblinPanel";
 import type { Session, Snapshot, Task } from "./types.ts";
 import { sessionEnd } from "./session-end.ts";
 
-// The terminal deck: every goblin terminal the Overlord opened stays live
-// while the board is open, so switching only shows another terminal. The
-// switch keys go through the CFO first, then each goblin that has a terminal.
+// The terminal deck's order: the switch keys go through the CFO first, then
+// each goblin that has a terminal.
 
 export const CFO_KEY = "cfo";
-// Herdr's supervisor serves eight screen streams at once; the deck keeps three
-// Herdr views live, and each may briefly hold a second while it switches to or
-// from sizing its pane, so another window with its own views still gets some.
-const HERDR_LIVE = 3;
 // The panel and the board each keep a usable width beside the divider.
 const MIN_PANE = 360;
 const MIN_BOARD = 280;
@@ -71,13 +66,6 @@ export function goblinView(task: Task): DeckView {
 export function idleView(task?: Task, node?: Session, status = ""): Extract<DeckView, { kind: "empty" }> {
   if (task && !task.generation) return { kind: "empty", text: status };
   return { kind: "empty", text: node ? "This child has no separate terminal." : "Select a goblin to see its terminal." };
-}
-
-// keepLive puts key first among the live terminals, most recent first, and
-// lets the oldest Herdr views go past Herdr's limit.
-export function keepLive(open: string[], key: string, herdr: (key: string) => boolean): string[] {
-  let kept = 0;
-  return [key, ...open.filter((other) => other !== key)].filter((entry) => !herdr(entry) || ++kept <= HERDR_LIVE);
 }
 
 // The panel opens beside the board and is maximized per view: the Board's

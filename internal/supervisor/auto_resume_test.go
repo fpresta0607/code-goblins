@@ -135,6 +135,78 @@ func awaitDispatch(t *testing.T, service *Service, spawner *spawnRecorder, count
 	return nil
 }
 
+// Whatever change the supervisor made first since it started, one that fails
+// later keeps its failure: a failure with nowhere to go takes the whole
+// supervisor down, and a message's start or a queued task's edit is as likely
+// to come first as anything else.
+func TestAFailedChangeIsKeptHoweverTheFirstChangeBegan(t *testing.T) {
+	const id = "paused-task"
+	for _, first := range []struct {
+		name  string
+		begin func(t *testing.T, handler *HTTP, h home.Home)
+	}{
+		{"a message's start", func(t *testing.T, handler *HTTP, _ home.Home) {
+			s := handler.Service
+			s.Options.Comeback = &Comeback{GoblinForMessage: func(context.Context, string) GoblinComeback { return GoblinComeback{Outcome: CameBack} }}
+			if _, err := s.startGoblinForMessage(Action{ID: "message-1", TaskID: "sleeping-task", CreatedAt: time.Now()}); !errors.Is(err, ErrDeferred) {
+				t.Fatalf("start = %v, want the message waiting for it", err)
+			}
+			awaitComeback(t, s)
+		}},
+		{"a queued task's edit", func(t *testing.T, handler *HTTP, h home.Home) {
+			writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- **queued-task** - Original title (repo: project)\n  Detail.\n")
+			queued, err := fleet.ReadQueuedTask(h, "queued-task")
+			if err != nil {
+				t.Fatal(err)
+			}
+			input := map[string]string{"task": "queued-task", "revision": queued.Revision, "operation": "edit-1", "text": "New title\nNew detail.", "action": "save"}
+			if response := taskControlRequest(handler, "/api/tasks/adjust", input); response.Code != 200 {
+				t.Fatalf("adjust = %d %s", response.Code, response.Body)
+			}
+		}},
+	} {
+		for _, failing := range []struct {
+			name   string
+			change func(t *testing.T, s *Service, meta state.TaskMeta, record state.Lifecycle)
+		}{
+			{"an automatic resume", func(t *testing.T, s *Service, _ state.TaskMeta, record state.Lifecycle) {
+				if err := s.resumeAutomatically(record); err != nil {
+					t.Fatal(err)
+				}
+			}},
+			{"a pause at a floor", func(t *testing.T, s *Service, meta state.TaskMeta, record state.Lifecycle) {
+				if isPausing, err := s.pauseAtFloor(meta, record, "memory", "", "2 GB free"); err != nil || !isPausing {
+					t.Fatalf("pause = %v, %v, want it under way", isPausing, err)
+				}
+			}},
+		} {
+			t.Run(first.name+"/"+failing.name, func(t *testing.T) {
+				// Arrange
+				spawner := &spawnRecorder{output: "Error: the harness did not start\n", err: errors.New("cfo exited 1")}
+				handler, h := startBoard(t, 8*gigabyte, spawner)
+				meta := pausedGoblin(t, h, id, "memory", "", time.Now().UTC().Add(-time.Hour))
+				record, err := state.ReadLifecycle(h.State, id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				first.begin(t, handler, h)
+
+				// Act
+				failing.change(t, handler.Service, meta, record)
+				awaitDispatch(t, handler.Service, spawner, 1)
+
+				// Assert
+				handler.Service.starts.Lock()
+				failure := handler.Service.changeErrors[id]
+				handler.Service.starts.Unlock()
+				if !strings.Contains(failure.Message, "the harness did not start") {
+					t.Errorf("failure = %+v, want the change's failure kept", failure)
+				}
+			})
+		}
+	}
+}
+
 func TestMemoryPauseResumesOnlyAfterTwoReadingsOfMemoryAndCommit(t *testing.T) {
 	spawner := &spawnRecorder{}
 	handler, h := startBoard(t, 8*gigabyte, spawner)

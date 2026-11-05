@@ -1,10 +1,9 @@
-/* The bar's Actions spend: what GitHub bills in the bar's bright ink, and the
-   month's use at list price beside it, quieter, so a month GitHub covers
-   still shows its spend. */
-.actions-spend-header { display: inline-flex; align-items: baseline; gap: 6px; flex: none; padding: 4px 8px; border-color: transparent; background: transparent; color: var(--muted); font-size: .8125rem; font-variant-numeric: tabular-nums; white-space: nowrap; transition: none; }
-.actions-spend-header .icon { width: 16px; height: 16px; align-self: center; }
+/* The bar's Actions spend: the GitHub mark and what GitHub bills, in the
+   bar's bright ink; the month's use at list price is in the panel it opens
+   (2026-11-04). */
+.actions-spend-header { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 4px 0; border-width: 0; background: transparent; color: var(--muted); font-size: .8125rem; font-variant-numeric: tabular-nums; white-space: nowrap; transition: none; }
+.actions-spend-header .icon { width: 16px; height: 16px; }
 .actions-spend-billed { color: var(--bone); }
-.actions-spend-used { font-size: .75rem; }
 .actions-spend-old { color: var(--amber); }
 /* The panel wears the board's other dialogs' size, surface and title. */
 .actions-spend-panel { width: min(520px, calc(100vw - 28px)); max-height: calc(100dvh - 28px); margin: auto; padding: 28px; overflow: auto; color: #edf4f3; background: var(--glass-bg), var(--hero-surface); border: 1px solid var(--glass-border-hover); border-radius: var(--radius); box-shadow: var(--glass-shadow-hover); }

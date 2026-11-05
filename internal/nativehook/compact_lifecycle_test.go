@@ -79,10 +79,31 @@ func TestInstallIncludesNativeCompactLifecycle(t *testing.T) {
 	}
 }
 
+// The board says a session compacts from these hooks alone, so a harness that
+// lost one would show no Compacting at all. Codex's list keeps its order.
+func TestTheHooksOfEachHarnessReportItsCompaction(t *testing.T) {
+	for harness, want := range map[string][]string{
+		"claude": {"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact"},
+		"codex":  {"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop", "Interrupt", "PreCompact", "PostCompact"},
+	} {
+		t.Run(harness, func(t *testing.T) {
+			// Act
+			events := Events(harness)
+
+			// Assert
+			if strings.Join(events, " ") != strings.Join(want, " ") {
+				t.Errorf("events = %v, want %v", events, want)
+			}
+		})
+	}
+}
+
 func TestNativeCompactEventsNeverTakeAPrompt(t *testing.T) {
 	for _, test := range []struct {
 		harness, event, kind string
 	}{
+		{"claude", "PreCompact", "compacting"},
+		{"claude", "PostCompact", "compacted"},
 		{"codex", "PreCompact", "compacting"},
 		{"codex", "PostCompact", "compacted"},
 		{"pi", "session_before_compact", "compacting"},

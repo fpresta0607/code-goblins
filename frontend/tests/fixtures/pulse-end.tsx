@@ -6,6 +6,7 @@ import { parseSnapshot } from "../../src/types";
 import { useActivity } from "../../src/useActivity";
 import { watchEffects } from "./effect-watch";
 import "../../src/styles.css";
+import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 
 // A CFO with one goblin under it. Report makes the goblin report something
 // new: a status line (report), a message the CFO sent it (message) or its
@@ -43,8 +44,8 @@ function PulseEnd() {
     <button onClick={watch}>Watch</button>
     <div id="effects" style={{ height: 900, display: "flex", flexDirection: "column" }}>
       {mode.startsWith("compact-")
-        ? <Lineage onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={effects} presentations={[]} now={FIXED_NOW} freshNow={FIXED_NOW} onSelect={() => {}} />
-        : <Orchestration onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={effects} presentations={[]} now={FIXED_NOW} freshNow={FIXED_NOW} onSelect={() => {}} onChild={() => {}} />}
+        ? <Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={effects} presentations={[]} now={FIXED_NOW} freshNow={FIXED_NOW} onSelect={() => {}} />
+        : <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={effects} presentations={[]} now={FIXED_NOW} freshNow={FIXED_NOW} onSelect={() => {}} onChild={() => {}} />}
     </div>
   </main>;
 }

@@ -34,7 +34,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByText("Before the folder problem", { exact: true })).toBeVisible();
     await send(page, snapshot(2, problem, "New evidence while the folder is unreadable"));
     await expect(page.getByText("New evidence while the folder is unreadable", { exact: true })).toBeVisible();
-    await expect(page.getByText("Live", { exact: true })).toBeVisible();
+    await expect(page.locator(".topbar-controls > .notice"), "the board stays live").toHaveCount(0);
     await expect(page.getByText(/State folder native-inbox/)).toHaveCount(0);
     await expect(page.getByText(/Supervisor connection lost/)).toHaveCount(0);
     await send(page, snapshot(3, "", "Access restored in the same session"));

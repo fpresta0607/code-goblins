@@ -83,13 +83,14 @@ function storeAttached(key: string, paths: string[]): void {
 // input. With a live terminal Send, or Enter, types what he wrote as one
 // paste and presses Enter, through the terminal's own view (terminal-link.ts),
 // and Shift+Enter starts a new line. What keeps a message from the terminal
-// says so once beside the box: a busy program, a view that is reconnecting and
-// typing a gate holds save it through the durable queue; a view that is closed
-// or connecting keeps the draft. A screen of the harness's own open in its
-// terminal that lists choices, a question, a permission prompt or a picker,
-// or one the relay could not read, is drawn above the box as a list he picks
-// from (harness-panel.tsx), and while it is open the box answers it with the
-// terminal's own keys: an empty box hands it the arrows, Enter, Escape, Tab,
+// says so once beside the box: a busy program, typing a gate holds and a view
+// that is not live, connecting, reconnecting or closed, save it through the
+// durable queue, so a draft is never stranded in the box (2026-11-04). A
+// screen of the harness's own open in its terminal that lists choices, a
+// question, a permission prompt or a picker, or one the relay could not read,
+// is drawn above the box as a list he picks from (harness-panel.tsx), and
+// while it is open the box answers it with the terminal's own keys: an empty
+// box hands it the arrows, Enter, Escape, Tab,
 // Space and a choice's number, and Send pastes what he wrote into a list of
 // choices on one line without pressing Enter, which the list's Enter does;
 // while typing is held the message queues instead. At any other open screen,
@@ -120,18 +121,16 @@ function storeAttached(key: string, paths: string[]): void {
 // harness's interrupt, and a paste the board cannot keep says so here. On a
 // touch screen the + opens Paste a picture, since an iPhone's own Paste in a
 // text box takes text alone, and Photos or files, the phone's own picker.
-export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onSend, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], usage, onActive }: {
+export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, isCompacting = false, history = [], usage, onActive }: {
   snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
   model?: string;
   // model and effort are what the session's own record last says it runs.
   effort?: string;
-  // terminal is the terminal deck's key of the session's terminal, and
-  // onShowTerminal steps that terminal in, for a screen of the harness's own
-  // its list does not cover.
-  terminal: string; focus?: number; onShowTerminal?: () => void;
+  // terminal is the terminal deck's key of the session's terminal.
+  terminal: string; focus?: number;
   // onSend is told of a message he sends, as it leaves the box.
   onSend?: () => void;
-  isTerminalShown?: boolean; isShown?: boolean; onActive?: (terminal: string, isActive: boolean) => void;
+  isTerminalShown?: boolean; isShown?: boolean; isCompacting?: boolean; onActive?: (terminal: string, isActive: boolean) => void;
   // isWorking says the session's harness is running a turn, which Stop in
   // the send button's place interrupts while the box is empty, and history
   // is what he sent the session before, oldest first, which Up recalls.
@@ -212,6 +211,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const speechHistory = useRef<HTMLButtonElement>(null);
   const composerBox = useRef<HTMLDivElement>(null);
   const files = useRef<HTMLInputElement>(null);
+  const addControl = useRef<HTMLButtonElement>(null);
+  const addPopover = useRef<HTMLDivElement>(null);
   const closeRecent = () => { setRecentOpen(false); speechHistory.current?.focus(); };
   // The box is one mounted composer moved to the surface on screen, so a
   // switch asks for its keyboard a frame or two before the move lands and the
@@ -229,11 +230,17 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     return () => cancelAnimationFrame(next);
   }, [focus]);
   // While he writes at the end of a draft taller than the box's cap, the
-  // box keeps its last lines and the caret in view, as dictated words or a
-  // paste land there too.
+  // box keeps its last lines and the caret in view, as a paste lands there
+  // too. Dictated words land at the end whether or not the box has the
+  // keyboard, as on a phone whose keyboard is down while he speaks, so each
+  // dictation, the second and every later one included, keeps the newest
+  // passage and the caret after it in view (the Overlord's mobile
+  // corrections, 2026-11-04).
+  const isDictated = useRef(false);
   useLayoutEffect(() => {
     const box = field.current;
-    if (box && document.activeElement === box && box.selectionEnd === box.value.length) box.scrollTop = box.scrollHeight;
+    if (box && (isDictated.current || document.activeElement === box && box.selectionEnd === box.value.length)) box.scrollTop = box.scrollHeight;
+    isDictated.current = false;
   }, [draft]);
   const write = (next: (prior: string) => string) => {
     setDraft(next);
@@ -248,7 +255,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     setUnsent("");
     sendID.current = "";
   };
-  const dictation = useDictation((text) => write((prior) => appendDictation(prior, text)), snapshot.instance);
+  const dictation = useDictation((text) => { isDictated.current = !!text.trim(); write((prior) => appendDictation(prior, text)); }, snapshot.instance);
   const clear = () => {
     setReplacing(true);
     dictation.discard();
@@ -257,6 +264,15 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     setCaret(0);
     field.current?.focus();
   };
+  // A press outside the add menu and its control closes it with nothing
+  // added, as a press outside the box's panes closes them (the Overlord,
+  // 2026-11-04: every Cancel of a Modern chat popover closes it).
+  useEffect(() => {
+    if (!isAddOpen) return;
+    const away = (event: Event) => { if (event.target instanceof Node && !addPopover.current?.contains(event.target) && !addControl.current?.contains(event.target)) setAddOpen(false); };
+    document.addEventListener("pointerdown", away, true);
+    return () => document.removeEventListener("pointerdown", away, true);
+  }, [isAddOpen]);
   useEffect(() => {
     if (!isReplacing) return;
     const leave = (event: Event) => { if (event.target instanceof Node && !composerSection.current?.contains(event.target)) setReplacing(false); };
@@ -378,7 +394,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // What this box saves as a board action types nothing into the terminal, so
   // a harness picker or a busy program does not stop it: those guard direct
   // typing, which is the path they were written for.
-  const savesThroughBoard = queues || isHeld || isUnread || !!live?.isReconnecting;
+  const savesThroughBoard = queues || isHeld || isUnread || live?.phase !== "live" || live.isReconnecting;
   // While the harness is in a turn, or a screen of its own is open that
   // is no question to answer, such as its words for a usage limit, Modern
   // Chat's box types nothing into its terminal: the board holds the message
@@ -397,8 +413,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // stopped, holds it too, since typed now it would join them. A box with no
   // conversation, Classic's or the deck's, holds at such a screen or line too,
   // through the board's queue it lists, and in a turn types into the
-  // harness's own queue.
-  const holdsForTurn = !isAsking && (isScreenOpen || !!live?.screen?.hasDraft || hasConversation && !!live?.screen?.isWorking);
+  // harness's own queue. A compaction its hooks report holds it as a turn does.
+  const holdsForTurn = !isAsking && (isScreenOpen || !!live?.screen?.hasDraft || hasConversation && (isCompacting || !!live?.screen?.isWorking));
   // A send the board has shown as its own action is no longer drawn from here.
   const sending = usePendingSends();
   useEffect(() => {
@@ -756,7 +772,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const canSend = !isSending && !adding && !!outgoing;
   // While the harness works and the box is empty, the send button is Stop,
   // which presses Escape in its terminal as the terminal's own Esc does.
-  const canStop = isWorking && !outgoing && !isSending && !!live && !isHeld;
+  const canStop = isWorking && !outgoing && !isSending && live?.phase === "live" && !isHeld;
   const isTouch = matchMedia(TOUCH_SCREEN).matches;
   // data-queues says a Send now goes to the board's queue rather than into the
   // terminal, which no note tells him (queueNote).
@@ -765,7 +781,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         words change, and a refusal from its banner at once. */}
     <p className="sr-only" role="status">{note}</p>
     <ComposerBanner key={notice.count} text={notice.text} isRefusal={notice.from === "box" || notice.from === "queued"} />
-    {panel && !isHeld && !isTerminalShown && !isDriving && <HarnessPanel panel={panel} name={name} onShowTerminal={onShowTerminal}
+    {panel && !isHeld && !isTerminalShown && !isDriving && <HarnessPanel panel={panel} name={name}
       onKeys={(keys) => { if (!live?.control(keys)) setUnsent(unsentWhy); field.current?.focus(); }} />}
     {queueRows.length + kept.length > 0 && <ol className="composer-sent">
       {queueRows.map((action) => <li key={action.id}><QueuedMessage action={action} instance={snapshot.instance} name={name} variant="queue" /></li>)}
@@ -773,7 +789,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         const key = index + ":" + text;
         return <li key={key}>
           <span className="composer-sent-text">{text}</span>
-          <span className="composer-sent-state">Kept for resume</span>
+          <span className="composer-sent-state">{task?.asked || task?.phase === "resuming" ? "Starting" : "Kept for resume"}</span>
           <button type="button" className="icon-button" aria-label={"Delete: " + text}
             disabled={deleting === key} onClick={() => void withdraw(text, key)}><Icon name="trash" /></button>
         </li>;
@@ -802,9 +818,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         <input ref={files} className="composer-file-input" type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={added} />
         <div className="composer-row">
           <div className="composer-row-start">
-            <button type="button" className="composer-control" aria-label="Add files" aria-haspopup={isTouch ? "true" : undefined} aria-expanded={isTouch ? isAddOpen : undefined} disabled={adding > 0}
+            <button ref={addControl} type="button" className="composer-control" aria-label="Add files" aria-haspopup={isTouch ? "true" : undefined} aria-expanded={isTouch ? isAddOpen : undefined} disabled={adding > 0}
               onClick={() => { if (!isTouch) { files.current?.click(); return; } setAddOpen((prior) => !prior); }}><Icon name="plus" /></button>
-            {isAddOpen && <div className="composer-add-popover">
+            {isAddOpen && <div ref={addPopover} className="composer-add-popover">
               <button type="button" onClick={() => { setAddOpen(false); void pastePicture(); }}><Icon name="paste" />Paste a picture</button>
               <button type="button" onClick={() => { setAddOpen(false); files.current?.click(); }}><Icon name="images" />Photos or files</button>
             </div>}
@@ -823,7 +839,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
             {pane && <EnginePane setting={pane} harness={harness} model={shownModel} effort={shownEffort} mode={mode} control={modelControl}
               onPick={(pick) => applyEngine({ model: pick.model?.id, effort: pick.effort }, true, pick.model)} onMode={chooseMode} onClose={closePane} />}
             {live?.isDictating ? <button type="button" className="voice-bubble recording" aria-label="Stop terminal dictation" onClick={live.stopDictation}><Icon name="mic" /></button> : <DictationButton dictation={dictation} onClick={() => setRecentOpen((prior) => !prior)} />}
-            {usage}
+            {/* A phone's row gives the usage pies' room to the recording while
+                he dictates, and gets them back when he stops (the Overlord's
+                mobile corrections, 2026-11-04). */}
+            {!(isTouch && (dictation.listening || live?.isDictating)) && usage}
           </div>
         </div>
       </div>

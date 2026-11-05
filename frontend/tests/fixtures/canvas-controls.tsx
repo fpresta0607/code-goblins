@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import { Orchestration } from "../../src/Orchestration";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
+import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 
 // A fleet of ?goblins= goblins under the CFO, five by default, for the
 // canvas's mouse controls: the wheel, a drag of the canvas, Fit and Arrange.
@@ -11,5 +12,5 @@ const snapshot = parseSnapshot({ healthy: true, instance: "fixture", tasks: Arra
 })) });
 
 createRoot(document.getElementById("root")!).render(<main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-  <Orchestration onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={Date.parse("2026-10-07T12:00:00Z")} freshNow={Date.parse("2026-10-07T12:00:00Z")} onSelect={() => {}} onChild={() => {}} />
+  <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={Date.parse("2026-10-07T12:00:00Z")} freshNow={Date.parse("2026-10-07T12:00:00Z")} onSelect={() => {}} onChild={() => {}} />
 </main>);

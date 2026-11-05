@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { CFO_DOOR, expect, test, type Page } from "./site";
 import { box, open, openGoblin, snapshot } from "./session-board";
 import { openTaskList } from "./site";
 
@@ -62,7 +62,7 @@ for (const cfo of CFO_ENGINES) {
     await open(page, snapshot({ sessions: [{ id: "cfo-1", harness: claude.harness, role: "cfo", model: claude.model }], ...(cfo.engine && { cfo_engine: { harness: claude.harness, model: claude.model, effort: "high", waiting: "", ...cfo.engine } }) }));
 
     // Act
-    await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+    await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
     await expect(page.locator("#panel-title")).toHaveText("CFO");
 
     // Assert

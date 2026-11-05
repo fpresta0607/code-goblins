@@ -5,6 +5,7 @@ import { QueuedTasks } from "../../src/QueuedTasks";
 import { watchTips } from "../../src/tips";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
+import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 
 // The Overlord's crowded column: a goblin with a long title that waits on
 // another goblin and has a pull request, beside queued work with a long title,
@@ -17,7 +18,7 @@ const long = "The board's terminal: Ctrl+C copies a selection or interrupts, Ctr
 const now = Date.parse("2026-09-30T12:00:00Z");
 const task = (fields: Record<string, unknown>) => ({ project: "code-goblins", harness: "codex", model: "gpt-6-astra", effort: "xhigh", verified: false, generation: "g1", since: "2026-09-29T08:00:00Z", ...fields });
 const snapshot = parseSnapshot({
-  healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude",
+  healthy: true, instance: "fixture", cfo_runs: true, afk: { state: "off" }, cfo_harness: "claude",
   memory: { available: 5.6e9, total: 32e9, floor: 4e9, next: 5e9 },
   tasks: [
     task({ id: "cg-board-kill-with-a-long-goblin-name", title: "cg-board-kill-with-a-long-goblin-name", phase: "working", activity: "working: gate review" }),
@@ -56,7 +57,7 @@ function Fixture() {
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
   }, []);
-  const board = <Board snapshot={snapshot} layout="stacked" selected={selected} now={now} freshNow={now} presentations={presentations} onSelect={select} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
+  const board = <Board afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} layout="stacked" selected={selected} now={now} freshNow={now} presentations={presentations} onSelect={select} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
   if (search.has("queue")) return <aside className="context-pane" style={{ width: "calc(100vw - 16px)" }}><div className="panel-content"><section className="cfo-queue" aria-label="Queued tasks">
     <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} hasMeters onSelect={select} />
   </section></div></aside>;

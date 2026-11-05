@@ -12,7 +12,6 @@ import { reviewLine, waitingItems, type Item } from "./commandQueue";
 import { credentialAsk } from "./credentials";
 import { signInHeading } from "./browser-signins";
 import { plainMessage } from "./messageText";
-import { AfkToggle } from "./afk-toggle";
 import { OPEN_AFK_REPORT } from "./afk";
 import { PanelRow, type PanelControl } from "./panel-row";
 import { CfoUpdate } from "./cfo-update";
@@ -34,12 +33,10 @@ import { TaskAdjustment } from "./task-adjustment";
 // Overlord, 2026-10-29: "Minimize height and maximize the space"): the
 // session's small picture and its name, cut short only when the row is narrow,
 // then switcher, the panel's Chat and Task icons, centred between them and the
-// row's end, then row, the panel's controls with Close or Back, led on the
-// CFO's panel by its AFK switch. The CFO's rare states take a line of their own
-// under the row, at its end, only while one shows: Restart PC while the
-// kernel's pools are past their line, Update while an update of the CFO's
-// harness waits, and the words for a switch that cannot be read, so the row
-// keeps its room.
+// row's end, then row, the panel's controls with Close or Back. The CFO's rare
+// states take a line of their own under the row, at its end, only while one
+// shows: Restart PC while the kernel's pools are past their line and Update
+// while an update of the CFO's harness waits, so the row keeps its room.
 // While the Chat view shows a conversation both styles can draw, the picture,
 // the CFO's and every goblin's, opens the choice of chat style, styleChoice,
 // with the style shown chosen (PanelStyleMenu); Close or Back goes back to
@@ -130,18 +127,17 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
   </div>;
   const picture = <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />;
   return <>
-    <header className="panel-header one-row">
+    <header className={"panel-header one-row" + (cfo ? " is-cfo" : "")}>
       <div className="panel-identity">
         {styleChoice ? <PanelStyleMenu picture={picture} {...styleChoice} /> : picture}
         <h2 id="panel-title">{title}</h2>
       </div>
       {switcher}
-      {row && <PanelRow {...row} isShared leading={cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} />} />}
+      {row && <PanelRow {...row} isShared />}
     </header>
     {cfo && <div className="cfo-header-line">
       <RestartPcButton snapshot={snapshot} />
       <CfoUpdate snapshot={snapshot} />
-      {snapshot.afk.state === "unreadable" && <span className="muted">Unreadable: a press resets it</span>}
     </div>}
   </>;
 }

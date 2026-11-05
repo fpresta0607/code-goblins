@@ -8,10 +8,10 @@ import { NAME, open as openBoard, OTHER } from "./session-board";
 // pressed into a column about 110 px wide, words broke in the middle and the
 // header was about 400 px tall. Here is his goblin as it was: its name, its
 // title and every button his header showed. Since 2026-10-29 the header is
-// one short row ("Minimize height and maximize the space"), so a name or
-// title too long for it ends in an ellipsis there and shows whole in the
-// panel's Task view, and since #1987 the row holds no task id: the Task view
-// has it beside the whole name. The supervisor is played by one held
+// one short row ("Minimize height and maximize the space"), since #1987 the
+// row holds no task id, which the Task view has beside the whole name, and
+// since 2026-11-04 a name or title too long for the row wraps onto more lines
+// in a taller header, never cut. The supervisor is played by one held
 // snapshot.
 const REPO = "https://github.com/fpresta0607/PrecisionDocs-AI";
 const at = "2026-10-09T02:11:00Z";
@@ -57,8 +57,9 @@ function headerReport() {
     for (const rect of range.getClientRects()) if (rect.width > 0 && rect.top < box.bottom - 1) tops.add(Math.round(rect.top));
     return tops.size;
   };
-  // The words of an element drawn over more than one line. A task id's parts,
-  // joined by hyphens, wrap at a hyphen as words wrap at a space.
+  // The words of an element drawn over more than one line that one line of it
+  // could hold whole: a word wider than its line has nowhere else to go. A task
+  // id's parts, joined by hyphens, wrap at a hyphen as words wrap at a space.
   const broken = (element: HTMLElement) => {
     const split: string[] = [];
     const words = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
@@ -67,8 +68,10 @@ function headerReport() {
         const range = document.createRange();
         range.setStart(text, word.index);
         range.setEnd(text, word.index + word[0].length);
-        const tops = new Set([...range.getClientRects()].filter((rect) => rect.width > 0).map((rect) => Math.round(rect.top)));
-        if (tops.size > 1) split.push(word[0]);
+        const drawn = [...range.getClientRects()].filter((rect) => rect.width > 0);
+        const isWhole = new Set(drawn.map((rect) => Math.round(rect.top))).size === 1;
+        const width = drawn.reduce((sum, rect) => sum + rect.width, 0);
+        if (!isWhole && width <= element.getBoundingClientRect().width) split.push(word[0]);
       }
     }
     return split;
@@ -79,7 +82,7 @@ function headerReport() {
   // The picture's button, the selector's buttons and the row's controls, each
   // a target of its own, but the CFO's AFK switch, a labelled pill whose size
   // #1987 leaves as it was.
-  const targets = [...header.querySelectorAll<HTMLElement>(".panel-style-button, .panel-view-switch button, .panel-top button:not(.afk-toggle)")].filter((target) => target.checkVisibility());
+  const targets = [...header.querySelectorAll<HTMLElement>(".panel-style-button, .panel-view-switch button, .panel-top button")].filter((target) => target.checkVisibility());
   const label = (target: HTMLElement) => target.getAttribute("aria-label") || target.textContent!.trim();
   const middle = nameBox.top + nameBox.height / 2;
   return {
@@ -127,7 +130,8 @@ for (const [where, viewport, deviceScaleFactor] of VIEWS) {
         const listed = await detailsHeader.evaluate((details) => [...details.querySelectorAll<HTMLElement>(".panel-actions > a, .panel-actions > button")].filter((action) => action.checkVisibility()).map((action) => action.getAttribute("aria-label") || action.textContent!.trim()));
         expect(listed).toEqual(where === "a phone" ? PHONE_BUTTONS : BUTTONS);
         expect(report.broken).toEqual([]);
-        expect(report.nameLines).toBe(1);
+        if (pane === 360 || where === "a phone") expect(report.nameLines, "the row has too little room for it").toBeGreaterThan(1);
+        else expect(report.nameLines, "the row has room for it").toBe(1);
         expect(report.isOneRow).toBe(true);
         expect(report.cut).toEqual([]);
         expect(report.small).toEqual([]);
@@ -140,10 +144,10 @@ for (const [where, viewport, deviceScaleFactor] of VIEWS) {
   });
 }
 
-// A name too long for the header's row ends in an ellipsis there, and shows
+// A name too long for the header's row wraps there, never cut, and shows
 // whole with its task id in the Task view, with no tip to read it in
 // (decision 1013298: "No panel tips, those texts move onto the page").
-test("a long name is cut short in the header and shows whole with its task id in the Task view, with no tip", async ({ page }) => {
+test("a long name wraps whole in the header and shows with its task id in the Task view, with no tip", async ({ page }) => {
   // Arrange
   const name = "Merge Maestro of the Connector Release Notes";
   const id = "pd-whats-new-connectors-release-notes-for-every-connector-shipped-this-week";
@@ -154,15 +158,61 @@ test("a long name is cut short in the header and shows whole with its task id in
   const report = await page.evaluate(headerReport);
   await header.locator("#panel-title").hover();
 
-  // Assert: the name keeps to the row, an ellipsis ends it, the row has no
+  // Assert: the name wraps, never cut or ended by an ellipsis, the row has no
   // task id, and the Task view has both whole.
   await expect(header).not.toContainText(id);
-  expect(report.nameLines).toBe(1);
+  expect(report.nameLines).toBeGreaterThan(1);
   expect(report.cut).toEqual([]);
-  expect(report.shortened).toEqual(["panel-title"]);
+  expect(report.shortened).toEqual([]);
+  expect(report.broken).toEqual([]);
   await expect(page.getByRole("tooltip")).toHaveCount(0);
   await expect((await openTaskList(page)).locator(".panel-whole-name")).toHaveText("Bernie - " + name + " · " + id);
 });
+
+// The Overlord, 2026-11-04: a long goblin name was cut in its header. The
+// longest a goblin is called, by the catalog's longest first name and title
+// (internal/goblinname/catalog.go) or by its whole task title where it has no
+// name, wraps in a taller header at a phone's width and at the desktop's,
+// never cut and never under the selector or the controls, which keep their
+// 44 px targets beside it.
+const LONGEST = [
+  ["the longest name and title", { goblin_name: "Wendell", goblin_title: "Variable Wrangler" }, "Wendell - Variable Wrangler"],
+  ["the longest task title", { goblin_name: "", goblin_title: "", title: "Announce the PrecisionDocs connector changes inside the app with a What's new that looks great" },
+    "Announce the PrecisionDocs connector changes inside the app with a What's new that looks great"],
+] as const;
+for (const width of [390, 1440]) {
+  for (const [what, fields, shown] of LONGEST) {
+    test(`at ${width} px ${what} wraps whole in a taller header beside its controls`, async ({ page }) => {
+      // Arrange
+      await page.setViewportSize({ width, height: 900 });
+      await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], tasks: [{ ...BERNIE, ...fields }] });
+      await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
+      await page.goto("/");
+
+      // Act
+      await page.locator(".task-card").filter({ hasText: shown.split(" - ")[0].slice(0, 20) }).first().click();
+      await expect(page.locator("#panel-title")).toHaveText(shown);
+      await page.evaluate(() => document.fonts.ready);
+      const report = await page.evaluate(headerReport);
+      const overlaps = await page.evaluate(() => {
+        const name = document.querySelector("#panel-title")!.getBoundingClientRect();
+        return [...document.querySelectorAll<HTMLElement>(".panel-header .panel-view-switch button, .panel-header .panel-top button")].filter((target) => target.checkVisibility())
+          .filter((target) => { const box = target.getBoundingClientRect(); return box.left < name.right && name.left < box.right && box.top < name.bottom && name.top < box.bottom; })
+          .map((target) => target.getAttribute("aria-label") || target.textContent!.trim());
+      });
+
+      // Assert
+      expect(report.cut, shown).toEqual([]);
+      expect(report.shortened, shown).toEqual([]);
+      expect(report.broken, shown).toEqual([]);
+      expect(overlaps, "nothing is drawn over the name").toEqual([]);
+      expect(report.small, shown).toEqual([]);
+      expect(report.pageScroll, shown).toBe(0);
+      if (report.nameLines > 1) expect(report.headerHeight, "the header grows with the name").toBeGreaterThan(52);
+      if (width === 390) expect(report.nameLines, "a phone wraps it").toBeGreaterThan(1);
+    });
+  }
+}
 
 // rowOffers answers the drawing of a control of the header's row, its icon
 // button or its item in the row's More, which is closed again, or "" where
@@ -202,7 +252,7 @@ async function styleOffers(page: Page): Promise<{ modern: string; terminal: stri
 // wide one (#1987): the name keeps the header's one row, every control there
 // is a named 44 px target with no tip, the picture offers both styles with
 // the one shown checked, Open in Windows Terminal is in the row or its More,
-// and the Chat icon is neither style's.
+// and the Chat icon is Modern chat's message bubble (2026-11-04).
 const IVY = OTHER.goblin_name + " - " + OTHER.goblin_title;
 const LAYOUTS = [["a phone", { width: 390, height: 844 }, 0], ["a narrow panel", { width: 1440, height: 900 }, 360], ["a wide panel", { width: 1707, height: 1067 }, 1000]] as const;
 for (const style of ["modern", "classic"] as const) {
@@ -229,7 +279,8 @@ for (const style of ["modern", "classic"] as const) {
           const chatIcon = await page.locator(".panel-header").getByRole("button", { name: "Chat", exact: true }).locator("path").first().getAttribute("d");
 
           // Assert
-          expect(report.nameLines, name).toBe(1);
+          if (name === "CFO") expect(report.nameLines, name).toBe(1);
+          expect(report.broken, name).toEqual([]);
           expect(report.isOneRow, name).toBe(true);
           expect(report.cut, name).toEqual([]);
           expect(report.small, name).toEqual([]);
@@ -239,7 +290,7 @@ for (const style of ["modern", "classic"] as const) {
           expect(styles.checked, name + "'s picture checks the style shown").toBe(style === "modern" ? "Modern chat" : "Terminal");
           expect(styles.colours.checked, name + "'s checked style is drawn apart from the other").not.toBe(styles.colours.other);
           expect(styles.modern, name + "'s styles are drawn apart").not.toBe(styles.terminal);
-          expect([styles.modern, styles.terminal], name + "'s Chat is neither style's icon").not.toContain(chatIcon);
+          expect(chatIcon, name + "'s Chat is Modern chat's message bubble").toBe(styles.modern);
           // A phone offers Windows Terminal only while the box shows, as the
           // box's own menu did before.
           expect(windowIcon !== "", name + " offers Open in Windows Terminal").toBe(style === "modern" || where !== "a phone");

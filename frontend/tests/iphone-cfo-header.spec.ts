@@ -1,4 +1,4 @@
-import { devices, expect, servePages, test, type Page } from "./site";
+import { CFO_DOOR, devices, expect, servePages, test, type Page } from "./site";
 import { open } from "./session-board";
 
 // The Overlord, 2026-10-29 about 11:24Z, from his phone, of the CFO's chat in
@@ -22,7 +22,7 @@ async function openCfo(page: Page, style: "classic" | "modern") {
   await page.addInitScript((chosen) => localStorage.setItem("cfo-chat-style", chosen), style);
   await servePages(page.context(), PRIVATE);
   await open(page);
-  await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().tap();
+  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().tap();
   await expect(header(page).locator("#panel-title")).toHaveText("CFO");
   if (style === "classic") await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
   else await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();

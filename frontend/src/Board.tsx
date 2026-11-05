@@ -11,6 +11,7 @@ import { RenderBoundary } from "./render-boundary";
 import { nextInOrder, resumeOrder } from "./start";
 import { cardFacts, TaskCard } from "./TaskCard";
 import { completedCards, inProgressCards, taskColumn } from "./workflow";
+import type { AfkToggleState } from "./useAfkToggle";
 
 const COLUMNS = [
   { name: "Tasks", list: "queued" },
@@ -28,11 +29,12 @@ export type BoardLayout = "kanban" | "stacked";
 // order to the supervisor, which resumes paused goblins by it, so a drop in
 // either saves both. A merge train's card opens its panel, and selectedTrain
 // is the train whose panel shows.
-export function Board({ snapshot, layout, selected, selectedTrain, now, freshNow, onSelect, onSelectTrain, onOpenCfo, onOpenCommand, onStartCfo, presentations }: {
+export function Board({ snapshot, layout, selected, selectedTrain, now, freshNow, afkToggle, onSelect, onSelectTrain, onOpenCfo, onOpenCommand, onStartCfo, presentations }: {
   presentations:BoardActivity[]; layout: BoardLayout;
   snapshot: Snapshot; selected?: string; selectedTrain?: string; now: number; freshNow: number;
   onSelect: (task: Task, source: HTMLElement) => void;
   onSelectTrain: (train: MergeTrain, source: HTMLElement) => void;
+  afkToggle: AfkToggleState;
   onOpenCfo: (source: HTMLElement) => void;
   onOpenCommand: () => void;
   onStartCfo: () => void;
@@ -47,7 +49,7 @@ export function Board({ snapshot, layout, selected, selectedTrain, now, freshNow
   const trainsIn = (name: string) => (snapshot.merge_trains ?? []).filter((train) => trainSection(train) === name);
   const history = trainsIn("Train history");
   return <section className={"task-board" + (layout === "stacked" ? " stacked" : "")} aria-label="Task board">
-    <CfoPin snapshot={snapshot} now={freshNow} onOpen={onOpenCfo} onCommand={onOpenCommand} onStart={onStartCfo} />
+    <CfoPin snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpen={onOpenCfo} onCommand={onOpenCommand} onStart={onStartCfo} />
     {COLUMNS.map((column) => {
       const listed = snapshot.tasks.filter((task) => taskColumn(task) === column.name);
       const tasks = column.name === "In progress" ? working : column.name === "Completed" ? completedCards(listed) : listed;

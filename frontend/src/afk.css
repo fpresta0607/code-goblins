@@ -1,14 +1,31 @@
-/* AFK mode on the board: the toggle in the CFO panel's header, the questions
+/* AFK mode on the board: the toggle on the CFO's bar and card, the questions
    before it turns on and when he is back, and the modal report of the
    last stretch. Only what the board's own classes do
    not already give; it reads the board's tokens, so a restyle carries over.
    The board's stylesheet loads after this one, so a rule here that changes
    one of its own names the element twice. */
 
-/* The toggle: a small switch with its label, leading the panel's controls
-   in the CFO panel's one header row, so it is there at every width. On
-   wears the board's green. */
-.afk-header { display: flex; align-items: center; gap: 8px; flex: none; }
+/* The toggle: a small switch with its label, right beside the button that
+   opens the CFO, the two kept together at the gap of the row they sit in,
+   however it wraps. On wears the board's green. */
+.cfo-pin-end { display: flex; align-items: center; gap: inherit; flex: none; }
+.afk-header { position: relative; display: flex; align-items: center; gap: 8px; flex: none; }
+/* The words of a switch that cannot be read wrap where its row is narrow, so
+   the row keeps the switch and its button inside the bar or card. The canvas
+   card's foot has no room beside the switch and does not wrap, so there they
+   take a line of their own above it, clear of a refusal, which hangs below. */
+.cfo-pin-end:has(.afk-header > .muted), .afk-header:has(> .muted) { flex-shrink: 1; min-width: 0; }
+.afk-toggle { flex: none; }
+.flow-node-foot .cfo-pin-end, .flow-node-foot .afk-header { flex-shrink: 0; }
+.flow-node-foot .afk-header { position: static; }
+.flow-node-foot .afk-header > .muted { position: absolute; right: 0; bottom: calc(100% + 4px); left: 0; text-align: right; }
+/* A refusal on the CFO's card rises with its card over the cards around it,
+   which a card lifting under the pointer would otherwise bring over it, and in
+   the list the canvas becomes it spans its card, since the switch can sit
+   anywhere along that row. */
+.flow-node:has(.afk-header > .notice), .workflow-node:has(.afk-header > .notice) { z-index: 3; }
+.node-facts .afk-header { position: static; }
+.node-facts .afk-header > .notice { right: 18px; left: 18px; width: auto; }
 .afk-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 8px 4px 12px; border-radius: 999px; background: var(--field-bg); color: var(--muted); font-family: var(--font-display); font-size: 1rem; white-space: nowrap; }
 .afk-toggle:hover:not(:disabled) { color: #edf4f3; border-color: var(--glass-border-hover); }
 .afk-toggle-track { position: relative; flex: none; width: 34px; height: 20px; border: 1px solid var(--glass-border-hover); border-radius: 999px; background: var(--ghost-bg); transition: background .15s ease, border-color .15s ease; }

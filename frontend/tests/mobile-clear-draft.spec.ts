@@ -84,10 +84,11 @@ for (const who of ["CFO", "goblin"] as const) {
         await composer.getByRole("button", { name: "Dictate", exact: true }).tap();
         await expect(composer.getByRole("button", { name: "Stop dictating", exact: true })).toHaveAttribute("aria-pressed", "true");
       } else {
+        await page.route("**/api/actions", (route) => route.fulfill({ status: 503, json: { error: "The message could not be queued. Try again." } }));
         relay.end();
         await expect(page.locator(".terminal-foot.box")).toHaveCount(1);
         await send(page, name).tap();
-        await expect(composer.getByRole("alert")).toHaveText("Not sent. The terminal is closed.");
+        await expect(composer.getByRole("alert")).toContainText("The message could not be queued. Try again.");
       }
       await pickStyle(page, "Terminal");
       await expect(input).toBeVisible();

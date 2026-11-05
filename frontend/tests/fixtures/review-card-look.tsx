@@ -5,6 +5,7 @@ import { CommandCenterMenu } from "../../src/command-center-menu";
 import type { CommandFocus } from "../../src/CommandCenter";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
+import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 
 // The Command Center at 01:50Z on 2026-10-11 as the Overlord's screenshot
 // showed it: Tad's review page for the AFK report, under its task's long
@@ -32,7 +33,7 @@ function ReviewCardLook() {
   const [focus, setFocus] = useState<CommandFocus | null>(null);
   useEffect(() => { if (!isBox) setFocus({ key: "review:" + shown.id, at: 1 }); }, []);
   return <main style={{ display: "grid", alignContent: "start", gap: 28, padding: 24 }}>
-    {isBox && <section className="task-board" aria-label="Task board"><CfoPin snapshot={snapshot} now={NOW} onOpen={() => {}} onCommand={() => {}} onStart={() => {}} /></section>}
+    {isBox && <section className="task-board" aria-label="Task board"><CfoPin afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} now={NOW} onOpen={() => {}} onCommand={() => {}} onStart={() => {}} /></section>}
     <CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={focus} onUnsent={() => {}} />
   </main>;
 }

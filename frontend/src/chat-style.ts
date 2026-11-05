@@ -20,6 +20,15 @@ export function chatStyle(saved?: string | null): ChatStyle {
   return saved === "modern" ? "modern" : "classic";
 }
 
+// cfoDoor is the board's button to the CFO, named and drawn for what it opens:
+// the chat, under the message icon of the panel's Chat view, in Modern where
+// the CFO has messages to show, and its terminal otherwise (the Overlord,
+// 2026-11-05: "Make the terminal button the chat icon as well with the modern
+// chat being used").
+export function cfoDoor(style: ChatStyle, hasMessages: boolean): { label: string; icon: "comment" | "terminal" } {
+  return style === "modern" && hasMessages ? { label: "Open the CFO's chat", icon: "comment" } : { label: "Open the CFO's terminal", icon: "terminal" };
+}
+
 // storedChatStyle is the choice this browser holds.
 export function storedChatStyle(): ChatStyle {
   try {
