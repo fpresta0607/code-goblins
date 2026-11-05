@@ -29,8 +29,8 @@ import { PathLink, pathLinks, type PathCard } from "./path-link";
 // showed. An administrator's
 // command shows its terminal once he confirmed Windows' own prompt. The
 // browser never sends the command; Run names the stored item.
-export function RunCard({ run, goblin, connected, instance, sending, error, onRun, onSkip, onAnswer, pager }: {
-  run: Run; goblin?: Task; connected: boolean; instance: string; sending: boolean; error: string; onRun: () => void; onSkip: () => void; onAnswer: (text: string) => void; pager?: ReactNode;
+export function RunCard({ run, goblin, connected, now, instance, sending, error, onRun, onSkip, onAnswer, pager }: {
+  run: Run; goblin?: Task; connected: boolean; now: number; instance: string; sending: boolean; error: string; onRun: () => void; onSkip: () => void; onAnswer: (text: string) => void; pager?: ReactNode;
 }) {
   const [feedback, showFeedback] = useClickFeedback();
   useEffect(() => { if (error) showFeedback(error); }, [error, showFeedback]);
@@ -42,7 +42,7 @@ export function RunCard({ run, goblin, connected, instance, sending, error, onRu
   const copy = () => copyText(run.command).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => {});
   const card: PathCard = { kind: "run", id: run.id, instance };
   return <article className={"run-card" + (running && run.terminal ? " live" : "")} aria-labelledby={"run-" + run.id}>
-    {run.task && <p className="asker"><Avatar persona={personaFor(goblin)} small /><span><strong>{asker}</strong> asks you to run this · {run.state === "ready" ? "waiting " + age(run.created_at).replace(/ ago$/, "") : "asked " + age(run.created_at)}</span></p>}
+    {run.task && <p className="asker"><Avatar persona={personaFor(goblin)} small /><span><strong>{asker}</strong> asks you to run this · {run.state === "ready" ? "waiting " + age(run.created_at, now).replace(/ ago$/, "") : "asked " + age(run.created_at, now)}</span></p>}
     <header className="run-head">
       <ConnectorMark mark={shellMark(run.shell)} label={shellLabel(run.shell)} />
       <span className="chip">{shellLabel(run.shell)}</span>

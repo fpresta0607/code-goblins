@@ -67,7 +67,7 @@ const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
 // (CommandCenterMenu), which counts what waits on him, needing, in the tab's
 // title and the app's badge: isInboxOpen is whether he opened its inbox with
 // that button, and hasFocus whether the button had the focus.
-export function CommandCenter({ snapshot, connected, presentations, focus, needing, isInboxOpen, hasFocus, onUnsent, onSent }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; focus: CommandFocus | null; needing: number; isInboxOpen: boolean; hasFocus: boolean; onUnsent: (unsent: boolean) => void; onSent?: (key: string, sent: Sent | null) => void }) {
+export function CommandCenter({ snapshot, connected, presentations, now, focus, needing, isInboxOpen, hasFocus, onUnsent, onSent }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; now: number; focus: CommandFocus | null; needing: number; isInboxOpen: boolean; hasFocus: boolean; onUnsent: (unsent: boolean) => void; onSent?: (key: string, sent: Sent | null) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const menu = useRef<HTMLDetailsElement>(null);
@@ -441,12 +441,12 @@ export function CommandCenter({ snapshot, connected, presentations, focus, needi
           {needing ? <ul className="inbox-list waiting">{waiting.map((candidate) => <li key={candidate.key} className={"opens-item" + (release(candidate) ? " release-row" : "")} onClick={() => { setInbox(false); setOpen(true); show(candidate.key); }}>
             <Avatar persona={release(candidate) ? "releases" : taskOf(candidate) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(candidate))) : "cfo"} small />
             <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span></span>
-            <time>{age(created(candidate))}</time>
+            <time>{age(created(candidate), now)}</time>
             <button type="button" className="icon-button raised" aria-label={"Answer " + askerOf(candidate) + ": " + textOf(candidate)}><Icon name={iconOf(candidate)} /></button>
           </li>)}{watching.map((event) => <li key={"watch:" + event.id}>
             <Avatar persona={event.cfo_identity ? "cfo" : personaFor(snapshot.tasks.find((task) => task.id === event.task_id))} small />
             <span className="inbox-text"><strong>{presenter(event)}</strong><span className="inbox-summary">{event.watch}</span></span>
-            <time>{age(event.at)}</time>
+            <time>{age(event.at, now)}</time>
             <a className="icon-button raised" href={event.url} target="_blank" rel="noreferrer" aria-label={"Watch: " + event.watch}><Icon name="watch" /></a>
           </li>)}</ul> : <p className="muted">Nothing is waiting on you.</p>}
         </section>
@@ -488,7 +488,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, needi
                   {candidate.kind === "credential" && candidate.request.state === "saved" && <HistoryStoredCard request={candidate.request} asker={candidate.request.task ? askerOf(candidate) : "the CFO"} to={goblin ? goblin.id : ""} connected={connected} instance={snapshot.instance} />}</span>
                 <ClickFeedback text={reopenError} />
               </span>
-              <time>{age(closedAt(candidate))}</time>
+              <time>{age(closedAt(candidate), now)}</time>
               <span className="history-actions">
                 <button className="icon-button history-open" aria-expanded={isUnfolded} aria-controls={detail} aria-label={"Open: " + askerOf(candidate) + ": " + textOf(candidate)} onClick={unfold}><Chevron collapsed={!isUnfolded} /></button>
                 <button className="icon-button raised history-change" aria-disabled={!!changeBlock || candidate.kind === "credential" && (!connected || !!reopenAttempt?.isPending)}
@@ -522,7 +522,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, needi
         <div ref={content} className="command-center-content" role="region" aria-label="Command Center content" tabIndex={-1}>
         {changeQuestion
           ? <div className="card-stage">
-            <ChangeCard key={"change:" + changeQuestion.id} question={changeQuestion} snapshot={snapshot} connected={connected} draft={changeDraft(changeQuestion)}
+            <ChangeCard key={"change:" + changeQuestion.id} question={changeQuestion} snapshot={snapshot} connected={connected} now={now} draft={changeDraft(changeQuestion)}
               onDraft={(changes) => update(changeKey(changeQuestion), changes)} onChange={() => change(changeQuestion)} onClose={() => setChanging("")} />
           </div>
         : !item ? null
@@ -541,7 +541,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, needi
             {allDone
               ? <div className="done-card" role="status"><Avatar persona="cfo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p></div>
               : revisited
-              ? <ChangeCard key={"change:" + revisited.id} question={revisited} snapshot={snapshot} connected={connected} draft={changeDraft(revisited)}
+              ? <ChangeCard key={"change:" + revisited.id} question={revisited} snapshot={snapshot} connected={connected} now={now} draft={changeDraft(revisited)}
                 onDraft={(changes) => update(changeKey(revisited), changes)} onChange={() => change(revisited)} onClose={close} pager={pager} />
               : elsewhere
               ? <DoneCard key={shownKey} heading={closedBy || "Answered"} label={settledLabel(item, snapshot.actions)} pager={pager} />
@@ -555,21 +555,21 @@ export function CommandCenter({ snapshot, connected, presentations, focus, needi
               ? <DoneCard key={shownKey} heading={sending.heading}
                 label={sending.cleared ? sending.heading !== "Cleared" ? "It moves to your history." : "" : mark?.label !== sending.heading ? mark?.label || "" : ""} pager={pager} />
               : item.kind === "question"
-              ? <QuestionCard key={shownKey} question={item.question} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} review={pageFor(item.question)}
+              ? <QuestionCard key={shownKey} question={item.question} snapshot={snapshot} connected={connected} now={now} draft={drafts[item.key] || EMPTY_DRAFT} review={pageFor(item.question)}
                 onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onDismiss={() => dismiss(item.question)} onImage={setGallery} pager={pager} />
               : item.kind === "credential"
-              ? <CredentialCard key={shownKey} request={item.request} snapshot={snapshot} connected={connected} pager={pager} />
+              ? <CredentialCard key={shownKey} request={item.request} snapshot={snapshot} connected={connected} now={now} pager={pager} />
               : item.kind === "browser-signin"
-              ? <BrowserSignInCard key={shownKey} signin={item.signin} snapshot={snapshot} connected={connected} isOpening={!!signInAttempts[item.signin.id]?.isPending} error={signInAttempts[item.signin.id]?.error || ""} onOpen={() => void openSignIn(item.signin)} pager={pager} />
+              ? <BrowserSignInCard key={shownKey} signin={item.signin} snapshot={snapshot} connected={connected} now={now} isOpening={!!signInAttempts[item.signin.id]?.isPending} error={signInAttempts[item.signin.id]?.error || ""} onOpen={() => void openSignIn(item.signin)} pager={pager} />
               : item.kind === "run" && item.run.cfo_unwoken
-              ? <CfoUnwokenCard key={shownKey} run={item.run} snapshot={snapshot} pager={pager} />
+              ? <CfoUnwokenCard key={shownKey} run={item.run} snapshot={snapshot} now={now} pager={pager} />
               : item.kind === "run" && item.run.cfo_stopped
-              ? <CfoStoppedCard key={shownKey} run={item.run} snapshot={snapshot} pager={pager} />
+              ? <CfoStoppedCard key={shownKey} run={item.run} snapshot={snapshot} now={now} pager={pager} />
               : item.kind === "run" && item.run.update
-              ? <UpdateCard key={shownKey} run={item.run} offer={item.run.update} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onRetry={retryItem(item.run) ? () => { const again = retryItem(item.run); if (again) { show("run:" + again.id); run(again); } } : undefined} pager={pager} />
+              ? <UpdateCard key={shownKey} run={item.run} offer={item.run.update} connected={connected} now={now} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onRetry={retryItem(item.run) ? () => { const again = retryItem(item.run); if (again) { show("run:" + again.id); run(again); } } : undefined} pager={pager} />
               : item.kind === "run"
-              ? <RunCard key={shownKey} run={item.run} goblin={item.run.task ? snapshot.tasks.find((task) => task.id === item.run.task) : undefined} connected={connected} instance={snapshot.instance} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onSkip={() => skipRun(item.run)} onAnswer={(text) => answerRun(item.run, text)} pager={pager} />
-              : <ReviewCard key={shownKey} review={item.review} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT}
+              ? <RunCard key={shownKey} run={item.run} goblin={item.run.task ? snapshot.tasks.find((task) => task.id === item.run.task) : undefined} connected={connected} now={now} instance={snapshot.instance} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onSkip={() => skipRun(item.run)} onAnswer={(text) => answerRun(item.run, text)} pager={pager} />
+              : <ReviewCard key={shownKey} review={item.review} snapshot={snapshot} connected={connected} now={now} draft={drafts[item.key] || EMPTY_DRAFT}
                 onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item.review)}
                 onAnswer={(text) => void post(item.key, { kind: "review_answer", review_id: item.review.id, generation: item.review.identity, text })} onOpen={show} onImage={setGallery} pager={pager} />}
           </div>}
