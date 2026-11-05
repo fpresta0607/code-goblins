@@ -26,7 +26,7 @@ const acked = { ...base, revision: 2, questions: [{ ...question, status: "succee
 function QuestionAcked() {
   const [snapshot, setSnapshot] = useState(() => parseSnapshot(base));
   window.ackByCFO = () => setSnapshot(parseSnapshot(acked));
-  return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={null} onUnsent={() => {}} /></main>;
+  return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={null} onUnsent={() => {}} /></main>;
 }
 
 createRoot(document.getElementById("root")!).render(<QuestionAcked />);

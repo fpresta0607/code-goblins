@@ -36,7 +36,7 @@ function PageQuestion() {
   window.closeWindow = () => setSnapshot(parseSnapshot({ ...base, revision: 2, reviews: [{ ...wait, window_closed_at: "2026-09-30T23:47:18Z" }] }));
   return <main>
     <button onClick={() => setFocus({ key: "review:" + wait.id, at: Date.now() })}>Open</button>
-    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} />
+    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={focus} onUnsent={() => {}} />
   </main>;
 }
 

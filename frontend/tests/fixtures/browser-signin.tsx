@@ -27,7 +27,7 @@ function SignInFixture() {
   };
   return <main>
     <button onClick={() => setFocus({ key: "browser-signin:signin-stripe", at: Date.now() })}>Open</button>
-    {snapshot && <CommandCenterMenu snapshot={snapshot} connected={isConnected} presentations={[]} focus={focus} onUnsent={() => {}} />}
+    {snapshot && <CommandCenterMenu snapshot={snapshot} connected={isConnected} presentations={[]} now={Date.now()} focus={focus} onUnsent={() => {}} />}
   </main>;
 }
 

@@ -46,7 +46,7 @@ function Page() {
     <CfoPin snapshot={quiet} now={Date.now()} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CFO")} />
     <output aria-label="Opened">{said}</output>
     <Alerts snapshot={snapshot} onOpen={(key) => setSaid("opened the Command Center at " + key)} />
-    <CommandCenterMenu snapshot={reviewing} connected presentations={[]} focus={focus} onUnsent={ignore} />
+    <CommandCenterMenu snapshot={reviewing} connected presentations={[]} now={Date.now()} focus={focus} onUnsent={ignore} />
   </main>;
 }
 

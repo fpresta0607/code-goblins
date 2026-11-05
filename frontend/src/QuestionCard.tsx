@@ -27,8 +27,8 @@ export const EMPTY_DRAFT: Draft = { selection: "", written: "", submission: null
 // Copy, the choices with the recommendation first, Other for a written
 // answer, its own Send, and Skip beside it for one he answered elsewhere or no
 // longer needs, which tells a goblin that asked to go on without it.
-export function QuestionCard({ question, snapshot, connected, draft, review, onDraft, onSend, onDismiss, onImage, pager }: {
-  question: Question; snapshot: Snapshot; connected: boolean; draft: Draft; review?: BoardActivity;
+export function QuestionCard({ question, snapshot, connected, now, draft, review, onDraft, onSend, onDismiss, onImage, pager }: {
+  question: Question; snapshot: Snapshot; connected: boolean; now: number; draft: Draft; review?: BoardActivity;
   onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onDismiss: () => void; onImage: (index: number) => void; pager?: ReactNode;
 }) {
   const [feedback, showFeedback] = useClickFeedback();
@@ -50,7 +50,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
   // An image can vanish with its goblin's worktree; show that, not a broken image.
   const [missing, setMissing] = useState<Set<string>>(new Set());
   return <form className="question-card" aria-labelledby={"question-" + question.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
-    <p className="asker"><Avatar persona={question.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asks · {question.status !== "pending" ? "asked " + age(question.created_at) : "waiting " + age(question.created_at).replace(/ ago$/, "")}</span></p>
+    <p className="asker"><Avatar persona={question.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asks · {question.status !== "pending" ? "asked " + age(question.created_at, now) : "waiting " + age(question.created_at, now).replace(/ ago$/, "")}</span></p>
     {/* The question reads as body text: only what its asker marked is bold. */}
     <QuestionText id={"question-" + question.id} text={question.text} path={pathLinks({ kind: "question", id: question.id, instance: snapshot.instance })} />
     {question.mail && <CardMail mail={question.mail} />}
@@ -72,8 +72,8 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
     </fieldset>
     {mark ? <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>
       // An answer the board never saw marks no choice, so its line carries the check.
-      : closed && !question.answer ? <p className="question-outcome delivery succeeded" role="status"><Icon name="check-double" />{answeredLabel(question)}{question.answered_at && " · " + age(question.answered_at)}</p>
-      : closed ? <p className="question-outcome answered-by" role="status">{answeredBy(question)}{question.answered_at && " · " + age(question.answered_at)}</p>
+      : closed && !question.answer ? <p className="question-outcome delivery succeeded" role="status"><Icon name="check-double" />{answeredLabel(question)}{question.answered_at && " · " + age(question.answered_at, now)}</p>
+      : closed ? <p className="question-outcome answered-by" role="status">{answeredBy(question)}{question.answered_at && " · " + age(question.answered_at, now)}</p>
         : settled !== "pending" && <p className={"question-outcome delivery " + settled} role="status"><Icon name={outcomeIcon(settled)} />{answeredLabel(question)}</p>}
     <div className="card-actions">
       <ClickFeedback text={feedback} />

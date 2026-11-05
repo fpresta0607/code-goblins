@@ -138,7 +138,7 @@ function History({
 
 const parseActions = (value: unknown) => array(value).map(parseAction);
 
-function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
+function Activity({ task, snapshot, now }: { task?: Task; snapshot: Snapshot; now: number }) {
   const activity = useResource(task?.generation ? "/api/tasks/" + encodeURIComponent(task.id) + "/activity" : null, strings);
   // The task's newest 20 actions are read when Activity opens, and again when
   // the newest of them changes: the snapshot carries none of its progress
@@ -157,7 +157,7 @@ function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
       <ol className="action-list">{actions.map((action) => {
         const delivery = deliveryMark(action);
         return <li key={action.id}>
-          <div><strong>{actionLabel(action.kind)}</strong><span className={"delivery " + action.status} role="img" aria-label={delivery.label}><Icon name={delivery.icon} /></span><time>{age(action.updated_at)}</time></div>
+          <div><strong>{actionLabel(action.kind)}</strong><span className={"delivery " + action.status} role="img" aria-label={delivery.label}><Icon name={delivery.icon} /></span><time>{age(action.updated_at, now)}</time></div>
           {action.text && <p className="action-text">{action.text}</p>}
           {delivery.trouble && <p className="muted">{delivery.label}</p>}
         </li>;
@@ -177,7 +177,7 @@ export function TaskView({ task, snapshot, connected, reviews, log, now, onRepai
       {task.tree && hasChildren(task.tree) && <Disclosure title="What's working" kind="working-section" defaultOpen={running(task.tree).length > 0}><WhatsWorking tree={task.tree} now={now} /></Disclosure>}
       <WorkspaceDetails task={task} runs={snapshot.runs} snapshot={snapshot} connected={connected} onRepair={onRepair} />
       {task.generation && <Disclosure title="Changes" kind="changes-section"><Changes task={task} reviews={reviews} connected={connected} /></Disclosure>}
-      <Disclosure id="task-activity" title="Activity" open={log.open} onOpenChange={log.onOpenChange}><Activity task={task} snapshot={snapshot} /></Disclosure>
+      <Disclosure id="task-activity" title="Activity" open={log.open} onOpenChange={log.onOpenChange}><Activity task={task} snapshot={snapshot} now={now} /></Disclosure>
       {task.generation && <Disclosure title="History"><History task={task} reviews={reviews} connected={connected} /></Disclosure>}
     </div>;
 }

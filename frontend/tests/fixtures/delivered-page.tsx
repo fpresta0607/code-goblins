@@ -21,7 +21,7 @@ const snapshot = parseSnapshot({ healthy: true, instance: "fixture", revision: 1
 function DeliveredPage() {
   const [focus, setFocus] = useState<CommandFocus | null>(null);
   useEffect(() => setFocus({ key: "review:" + delivered.id, at: 1 }), []);
-  return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} /></main>;
+  return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={focus} onUnsent={() => {}} /></main>;
 }
 
 createRoot(document.getElementById("root")!).render(<DeliveredPage />);

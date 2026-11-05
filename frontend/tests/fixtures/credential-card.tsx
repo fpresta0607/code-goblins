@@ -42,7 +42,7 @@ function CredentialCards() {
   };
   return <main>
     <button onClick={() => setFocus({ key: "credential:cred-0123456789abcdef", at: Date.now() })}>Open</button>
-    <CommandCenterMenu snapshot={parseSnapshot(state)} connected presentations={[]} focus={focus} onUnsent={() => {}} />
+    <CommandCenterMenu snapshot={parseSnapshot(state)} connected presentations={[]} now={Date.now()} focus={focus} onUnsent={() => {}} />
   </main>;
 }
 

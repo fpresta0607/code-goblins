@@ -561,7 +561,7 @@ export function App() {
             only while the board is not live (the Overlord, 2026-10-28: "dont
             need live status pill in top right corner of desktop"). */}
         {!(connected && inDesktopApp()) && <Notice tone={connected ? "info" : "warning"}>{connection}</Notice>}
-        {snapshot && <CommandCenterMenu snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={setHasUnsentAnswers} onSent={sent} />}
+        {snapshot && <CommandCenterMenu snapshot={snapshot} connected={connected} presentations={presentations} now={freshNow} focus={commandFocus} onUnsent={setHasUnsentAnswers} onSent={sent} />}
         {!paneOpen && !compact && <button onClick={() => setPaneOpen(true)}>Open {selected ? "details" : "CFO"}</button>}
       </div>
     </header>

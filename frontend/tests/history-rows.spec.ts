@@ -8,8 +8,8 @@ test.use({ locale: "en-US", timezoneId: "America/Chicago", deviceScaleFactor: 1.
 
 const NOW = new Date("2026-10-15T05:00:00Z");
 
-async function history(page: Page) {
-  await page.clock.install({ time: NOW });
+async function history(page: Page, at = NOW) {
+  await page.clock.install({ time: at });
   await page.goto("/tests/fixtures/history-rows.html");
   await page.locator(".command-center-menu > summary").click();
   const panel = page.locator(".command-center-updates");
@@ -64,3 +64,17 @@ for (const [width, height] of [[1707, 1067], [390, 844]]) {
     await expect(detail).toBeHidden();
   });
 }
+
+test("a row closed under a minute ago keeps its text in view at 390px", async ({ page }) => {
+  // Arrange: the clock stands twenty seconds after Hank's row closed.
+  await page.setViewportSize({ width: 390, height: 844 });
+  const { rows } = await history(page, new Date("2026-10-15T04:56:20Z"));
+  const hank = rows.filter({ hasText: "Add the DNS records" });
+
+  // Act
+  const summary = await hank.locator(".inbox-summary").boundingBox();
+
+  // Assert: the words for a first minute took all but a pixel of this.
+  await expect(hank.locator("time")).toHaveText("just now");
+  expect(summary!.width).toBeGreaterThan(40);
+});

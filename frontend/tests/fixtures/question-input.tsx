@@ -11,7 +11,7 @@ const SNAPSHOT = parseSnapshot({ healthy: true, instance: "fixture", revision: 1
 ] });
 
 function QuestionInput() {
-  return <main><CommandCenterMenu snapshot={SNAPSHOT} connected presentations={[]} focus={null} onUnsent={() => {}} /></main>;
+  return <main><CommandCenterMenu snapshot={SNAPSHOT} connected presentations={[]} now={Date.now()} focus={null} onUnsent={() => {}} /></main>;
 }
 
 createRoot(document.getElementById("root")!).render(<QuestionInput />);

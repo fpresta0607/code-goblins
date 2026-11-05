@@ -32,7 +32,7 @@ function Page() {
   const [shown, setShown] = useState<keyof typeof snapshots>("ready");
   useEffect(() => { window.updateStep = setShown; }, []);
   return <main data-step={shown} style={{ minHeight: "100vh", padding: 24, display: "grid", alignContent: "start", gap: 12 }}>
-    <CommandCenterMenu snapshot={snapshots[shown]} connected presentations={[]} focus={null} onUnsent={ignore} />
+    <CommandCenterMenu snapshot={snapshots[shown]} connected presentations={[]} now={Date.now()} focus={null} onUnsent={ignore} />
   </main>;
 }
 
