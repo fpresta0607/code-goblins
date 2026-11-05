@@ -37,7 +37,9 @@ func TestExposedKeysNamesEachSecretKindAndNeverItsValue(t *testing.T) {
 		{"a GitLab token", exposed("gl"+"pat-", 20)},
 		{"an npm token", exposed("npm"+"_", 36)},
 		{"a Hugging Face token", exposed("hf"+"_", 34)},
+		{"a Mapbox secret token", "sk" + ".eyJ1IjoibWFkZS11cCJ9." + exposed("", 22)},
 		{"a private key", "-----BEGIN " + "RSA PRIVATE KEY-----\nMIIE..."},
+		{"a private key", "-----BEGIN " + "PGP PRIVATE KEY BLOCK-----\nlQOY..."},
 	} {
 		t.Run(test.kind, func(t *testing.T) {
 			// Act
@@ -61,6 +63,8 @@ func TestExposedKeysPassesWhatIsNoSecretKey(t *testing.T) {
 		"commit 9f67ba752f1e637b1d58a0e13e1c07a692648c2c",
 		"id 0b3c9a3e-6a52-4b43-a1d4-6d2f7c0a9e11",
 		"publishable " + exposed("pk"+"_test_", 24),
+		"public " + "pk" + ".eyJ1IjoibWFkZS11cCJ9." + exposed("", 22),
+		"https://sk.example.com/docs",
 		"masked sk" + "_test_••••••••4abc and sk" + "_live_...9xyz",
 		"func sk_test_handler_for_the_checkout_session_page()",
 		"re_render_the_whole_board_when_anything_changed",

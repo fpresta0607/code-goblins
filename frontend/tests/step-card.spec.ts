@@ -150,7 +150,8 @@ test("the window button asks for the goblin's own browser, then the card says it
 // is not a secret this is the client id, won't let me add it in command
 // center input, fix for future sessions". The warning stays, with one tap to
 // say the value is no secret and send it anyway.
-const KEY_REFUSAL = { status: 400, json: { error: "MADE_UP_ACCOUNT_REF looks like a key, and this field goes to the goblin. Nothing was sent. A secret goes only in a hidden field.", looks_like_key: true } };
+const KEY_REFUSAL = { status: 400, json: { error: "MADE_UP_ACCOUNT_REF looks like a key, and this field sends its value to the goblin as plain text. Nothing was sent. If it is meant to be public, say so below. A secret goes only in a hidden field.", looks_like_key: true } };
+const SECRET_REFUSAL = { status: 400, json: { error: "MADE_UP_ACCOUNT_REF holds a secret key, and this field sends its value to the goblin as plain text. Nothing was sent. A secret goes only in a hidden field." } };
 const REFERENCE = "Zk3Qx9Lm2Vb7" + "Nc4Rt8Wy1Hs5" + "Jd6Fg0A";
 
 test("a plain value refused as a key keeps its warning and offers to send it anyway, saying it is no secret", async ({ page }) => {
@@ -168,7 +169,7 @@ test("a plain value refused as a key keeps its warning and offers to send it any
   // Act
   await field.fill(REFERENCE);
   await field.press("Enter");
-  await expect(row.getByRole("alert")).toContainText("looks like a key, and this field goes to the goblin");
+  await expect(row.getByRole("alert")).toContainText("looks like a key, and this field sends its value to the goblin as plain text");
   await row.getByRole("button", { name: "It is not a secret: send it anyway" }).click();
   await expect.poll(() => sent.length).toBe(2);
 
@@ -202,6 +203,67 @@ test("a refusal that is not about a key offers no way past it, and typing again 
 });
 
 for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }], ["on a phone", { width: 390, height: 844 }]] as const) {
+  // The Overlord, 2026-11-04: "the button saying send anyways is not a secret
+  // was way off on the formatting. Like it had a bunch of extra space."
+  test(`the refusal and its offer sit under the field ${where}, with no stray space`, async ({ page }, testInfo) => {
+    // Arrange
+    await page.route("**/api/credentials/**", (route: Route) => route.fulfill(KEY_REFUSAL));
+    await page.setViewportSize(viewport);
+    const card = await openCard(page, REFERENCE_CARD);
+    const field = card.getByLabel("The account reference", { exact: true });
+    const row = card.locator('[data-credential-name="MADE_UP_ACCOUNT_REF"]');
+    const offer = row.getByRole("button", { name: "It is not a secret: send it anyway" });
+
+    // Act
+    await field.fill(REFERENCE);
+    await field.press("Enter");
+    await expect(offer).toBeVisible();
+    await offer.scrollIntoViewIfNeeded();
+    await card.screenshot({ path: testInfo.outputPath(`refusal-${viewport.width}.png`) });
+
+    // Assert
+    const [input, refusal, button] = await Promise.all([field.boundingBox(), row.getByRole("alert").boundingBox(), offer.boundingBox()]);
+    const cell = await row.locator("td").evaluate((element) => { const box = element.getBoundingClientRect(); const style = getComputedStyle(element); return { right: box.right - parseFloat(style.paddingRight), bottom: box.bottom - parseFloat(style.paddingBottom) }; });
+    expect(Math.abs(refusal!.x - input!.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(button!.x - input!.x)).toBeLessThanOrEqual(1);
+    expect(refusal!.y - (input!.y + input!.height)).toBeLessThanOrEqual(8);
+    expect(button!.y - (refusal!.y + refusal!.height)).toBeGreaterThanOrEqual(4);
+    expect(button!.y - (refusal!.y + refusal!.height)).toBeLessThanOrEqual(8);
+    expect(button!.height).toBeLessThanOrEqual(46);
+    expect(button!.x + button!.width).toBeLessThanOrEqual(cell.right + 1);
+    expect(cell.bottom - (button!.y + button!.height)).toBeLessThanOrEqual(1);
+    const offCentre = await offer.evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const words = range.getBoundingClientRect();
+      const box = element.getBoundingClientRect();
+      return { down: Math.abs(words.top + words.bottom - box.top - box.bottom) / 2, across: Math.abs(words.left + words.right - box.left - box.right) / 2 };
+    });
+    expect(offCentre.down).toBeLessThanOrEqual(1.5);
+    expect(offCentre.across).toBeLessThanOrEqual(1.5);
+  });
+
+  test(`a secret key's refusal says so under the field ${where}, and offers no way past it`, async ({ page }, testInfo) => {
+    // Arrange
+    await page.route("**/api/credentials/**", (route: Route) => route.fulfill(SECRET_REFUSAL));
+    await page.setViewportSize(viewport);
+    const card = await openCard(page, REFERENCE_CARD);
+    const field = card.getByLabel("The account reference", { exact: true });
+    const row = card.locator('[data-credential-name="MADE_UP_ACCOUNT_REF"]');
+
+    // Act
+    await field.fill(REFERENCE);
+    await field.press("Enter");
+    await expect(row.getByRole("alert")).toContainText("holds a secret key");
+    await card.screenshot({ path: testInfo.outputPath(`secret-refusal-${viewport.width}.png`) });
+
+    // Assert
+    const [input, refusal] = await Promise.all([field.boundingBox(), row.getByRole("alert").boundingBox()]);
+    expect(Math.abs(refusal!.x - input!.x)).toBeLessThanOrEqual(1);
+    expect(refusal!.y - (input!.y + input!.height)).toBeLessThanOrEqual(8);
+    await expect(row.getByRole("button", { name: "It is not a secret: send it anyway" })).toHaveCount(0);
+  });
+
   test(`each step card fits ${where} with nothing cut off`, async ({ page }, testInfo) => {
     // Arrange
     await answer(page);

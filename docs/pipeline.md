@@ -239,16 +239,21 @@ Review remains fail-closed for empty or unknown actions.
 Fix responses name concrete actionable finding IDs; selecting an `ask-user` finding is an explicit decision, never automatic consent.
 Approval is accepted only when every finding is explicitly `no-op`, or the findings list is empty.
 The one exception is the CFO's own decision: `respond <id> --action approve --accept <ids>` takes the open findings as they stand, except a recorded required test environment refusal, which only a successful Test retry clears, as [the binding](#any-command-in-the-line) says.
-It is honoured only from the registered primary CFO process, proven as `cfo question` proves it, and a goblin running it on its own gate is refused before anything is recorded.
+It is honoured from the registered primary CFO process, proven as `cfo question` proves it.
+It is honoured too from the task's own goblin, on its run's review step once that run has spent its review repair cycles (issue 2049).
+The goblin is proven by its terminal: the process names the task's own terminal and carries a proof that terminal was given, and an agent a gate started is refused, since it carries the environment of whichever goblin started the shared gate daemon.
+A goblin's accept on any other step, the Test step included, before the cycles are spent, on another task's run or with `--reason` is refused with why before anything is recorded.
 The IDs must be exactly the gate's open `ask-user` and `auto-fix` findings, no more and no fewer; a finding with an empty action still needs its fix.
-The task's status log records `pipeline-findings-accepted` with the step, run, round and IDs before approve reaches the gate.
+The task's status log records `pipeline-findings-accepted` with the step, run, round, IDs and who accepted (`by=cfo`, or `by=<task>` for its goblin) before approve reaches the gate.
+A goblin's accept also reaches the CFO's wake queue as a notify with the same words, which asks nothing, so nothing waits on it; one that cannot be queued sends no approve.
+The goblin accepts as they stand only findings that are not correctness, security or regression defects, and a real defect among them goes in one follow-up commit on the same pull request after its first CI, named in its done report.
 An approved Test exception likewise keeps the operator's reason: `respond <id> --action approve --reason "<why>"` hands it to the native `--reason`, which no-mistakes records as the Test step's approval reason, and the task's status log records `pipeline-approval-reason` with the step, run, round and reason before approve reaches the gate.
-It is the registered primary CFO's reason as `--accept` is its decision, so a goblin is refused before anything is recorded.
+It is the registered primary CFO's reason alone, so a goblin is refused before anything is recorded.
 The native engine keeps a reason only for an approve of the Test step, so the driver refuses one for any other gate and for `fix`, and it refuses a blank reason or one that is not a single line of plain text: the engine would store a blank as none and the run would read as a Test exception nobody explained (issue 1422).
 An empty `--reason`, as `--reason "$WHY"` gives with `WHY` unset, is a reason given and refused like any blank one, never read as no reason (issue 1585).
 A reason never approves anything, so open findings still need the exact `--accept` and a clean gate still needs its own approve.
 Unsupported or malformed evidence fails closed.
-The command returns exit 3 for unresolved work requiring a CFO decision, without advancing the gate.
+The command returns exit 3 for unresolved work requiring a CFO decision, or on a spent review its own goblin's accept, which the refusal names, without advancing the gate.
 Other refusals return exit 1.
 This is a cooperative driver guard, not an operating-system sandbox around direct native commands.
 Agents must use the driver for managed tasks and must not invoke native mutation commands to bypass its budgets.
@@ -473,7 +478,7 @@ Everything before `--` is `cfo`'s, and everything after it is the command's, its
 It works with or without `--detach`, independently of `--wait`; both accept only positive durations, and an invalid, zero, negative or missing value starts nothing.
 Without an execution limit, the existing unlimited execution and ten-second descendant linger remain unchanged.
 A timeout exits 124 even if the command itself exited zero, names the execution record on standard error, and records `verify.ErrLimit` as a failure.
-A timeout during preparation records `not_started`, or an interrupted failed run once startup was recorded, with no invented command exit code when nothing launched.
+A timeout before the command launches records `not_started`, with no invented command exit code.
 Cleanup still uses the existing measured job owner and spares machine services, with five seconds for the job cleanup proof, five seconds for the command wait, bounded custody release, and a final retry bounded to ten seconds.
 Those cleanup and receipt operations can extend elapsed time past the execution deadline, and native Windows calls must return before their cancellation can be observed; the limit is not a guarantee that the wrapper exits at that exact instant.
 A cleanup that cannot be confirmed keeps its custody and reports uncertainty; later confirmed cleanup never makes the timed-out run pass.
@@ -551,7 +556,7 @@ A gate shows a step's output only once the step has ended, so while a run waits 
 
 | Exit code | Last line on standard error | What happened |
 | --- | --- | --- |
-| 125 | `cfo gate turn: this run takes no turn: <reason>`, `cfo gate turn: run it without cfo gate turn: <command>`, or `cfo gate turn: the run ended its command, since free memory or commit stayed under the desktop reserve: <detail>` | The run gave no result of its command's. Either the line ended the command for the machine's memory, or the command was never started. The line's store or the machine's memory could not be read, the run's record could not be begun, the wait was interrupted, standard output or error was no file, as a process's always is, the command waits on a gate, which the line before the last says, or the arguments named no command, which also prints the usage. |
+| 125 | `cfo gate turn: this run takes no turn: <reason>`, `cfo gate turn: run it without cfo gate turn: <command>`, or `cfo gate turn: the run ended its command, since free memory or commit stayed under the desktop reserve: <detail>` | The run gave no result of its command's. Either the line ended the command for the machine's memory, or the command was never started. The line's store or the machine's memory could not be read, the run's record could not be begun, the run was interrupted before its command started, standard output or error was no file, as a process's always is, the command waits on a gate, which the line before the last says, or the arguments named no command, which also prints the usage. |
 | 126 | `cfo gate turn: the command did not start: <error>` | A required environment binding was refused before admission or once the turn was taken, or a turn was taken and given back and `<program>` could not be started, or the run's custody of it could not be recorded first. |
 
 Neither is a test result, so a caller reads 125 as "the machine gave this run no turn" and never asks an agent to repair tests that did not run.

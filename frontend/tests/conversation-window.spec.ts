@@ -111,6 +111,8 @@ for (const reset of ["before request", "during old response", "during new respon
     const response = page.waitForResponse((response) => new URL(response.url()).searchParams.has("before"));
     await talk.evaluate((element) => { element.scrollTop = 0; });
     await response;
+    // The older page his scroll reached is read in above him once it rests.
+    await expect(talk.locator('[data-message="new-m49"]')).toBeAttached();
     await reading(talk);
     await expect(talk.locator('[data-message="new-m50"]')).toBeInViewport();
     await talk.evaluate((element) => { element.scrollTop = 0; });

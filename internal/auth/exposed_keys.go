@@ -2,8 +2,14 @@ package auth
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 )
+
+// GoogleAPIKey is the kind ExposedKeys names for a Google API key. A key for
+// browsers and a key for servers look alike, so it alone is not secret by its
+// shape.
+const GoogleAPIKey = "a Google API key"
 
 // exposedKind is a secret key whose whole shape is certain enough to find in
 // text: a pattern whose first group, when it has one, is the key's
@@ -27,21 +33,43 @@ var exposedKinds = []exposedKind{
 	{"a Resend key", regexp.MustCompile(`\bre_([A-Za-z0-9_]{20,})`)},
 	{"a Slack token", regexp.MustCompile(`\bxox[abprs]-([A-Za-z0-9-]{20,})`)},
 	{"an AWS access key ID", regexp.MustCompile(`\b(?:AKIA|ASIA)[A-Z0-9]{16}\b`)},
-	{"a Google API key", regexp.MustCompile(`\bAIza([0-9A-Za-z_-]{35})`)},
+	{GoogleAPIKey, regexp.MustCompile(`\bAIza([0-9A-Za-z_-]{35})`)},
 	{"a Supabase key", regexp.MustCompile(`\b(?:sbp_([a-f0-9]{40})|sb_secret_([A-Za-z0-9_-]{20,}))`)},
 	{"a GitLab token", regexp.MustCompile(`\bglpat-([A-Za-z0-9_-]{20,})`)},
 	{"an npm token", regexp.MustCompile(`\bnpm_([A-Za-z0-9]{36})`)},
 	{"a Hugging Face token", regexp.MustCompile(`\bhf_([A-Za-z0-9]{30,})`)},
-	{"a private key", regexp.MustCompile(`-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----`)},
+	{"a Mapbox secret token", regexp.MustCompile(`\bsk\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`)},
+	{"a private key", regexp.MustCompile(`-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----`)},
 }
+
+// runOnKinds are exposedKinds with no word boundary before the key, which
+// finds a key run straight onto the end of another. They match inside words
+// such as task- and work_, so they read only text known to start with a key.
+var runOnKinds = func() []exposedKind {
+	kinds := make([]exposedKind, len(exposedKinds))
+	for index, kind := range exposedKinds {
+		kinds[index] = exposedKind{kind.kind, regexp.MustCompile(strings.TrimPrefix(kind.pattern.String(), `\b`))}
+	}
+	return kinds
+}()
 
 // ExposedKeys names the kinds of secret key text holds, each once, in a
 // fixed order, such as "a Stripe secret key". It never returns any of the
 // text, so what it says can go where the text must not.
 func ExposedKeys(text string) []string {
+	return keysIn(text, exposedKinds)
+}
+
+// holdsSecretKind says text holds a key of one of searched that is secret
+// whatever field holds it, which is every kind but a Google API key.
+func holdsSecretKind(text string, searched []exposedKind) bool {
+	return slices.ContainsFunc(keysIn(text, searched), func(kind string) bool { return kind != GoogleAPIKey })
+}
+
+func keysIn(text string, searched []exposedKind) []string {
 	var kinds []string
 	found := map[[2]int]bool{}
-	for _, kind := range exposedKinds {
+	for _, kind := range searched {
 		isFound := false
 		for _, match := range kind.pattern.FindAllStringSubmatchIndex(text, -1) {
 			at := [2]int{match[0], match[1]}

@@ -1,5 +1,5 @@
 import { devices, expect, servePages, test } from "./site";
-import { delayedScroll } from "./conversation-scroll-race";
+import { flingsOverHeldReplies, delayedScroll, leaveEndWhileStreaming, phoneJumps, phoneReadsDown, phoneReadsUp, readUpWhileStreaming, startReplyAtEnd } from "./conversation-scroll-race";
 import { at, NAME } from "./session-board";
 
 const PRIVATE = "https://pc.example.ts.net:4311";
@@ -42,5 +42,53 @@ for (const update of ["stream", "board"] as const) {
     await expect(talk.locator('[data-message="m1001"]')).toHaveText(/Following after Jump/);
     await expect(talk.locator('[data-message="m1002"]')).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+  });
+}
+
+test("WebKit keeps its place when a row draws in above him before scroll delivery", async ({ page }) => {
+  await servePages(page.context(), PRIVATE);
+  await delayedScroll(page, "goblin", "wheel", "stream", true);
+});
+
+test("WebKit moves nothing in view while he flicks up through a streaming reply", async ({ page }) => {
+  test.slow();
+  await servePages(page.context(), PRIVATE);
+  await readUpWhileStreaming(page, "flick");
+});
+
+test("WebKit leaves the end a few pixels up before the next streamed line", async ({ page }) => {
+  test.slow();
+  await servePages(page.context(), PRIVATE);
+  await leaveEndWhileStreaming(page, (talk) => talk.evaluate((element) => { element.scrollTop -= 8; }));
+});
+
+test("WebKit keeps following the end when a reply's first line brings its usage", async ({ page }) => {
+  await servePages(page.context(), PRIVATE);
+  await startReplyAtEnd(page);
+});
+
+test("WebKit leaves him to read on down to long replies held back after a fling over them", async ({ page }) => {
+  test.slow();
+  await servePages(page.context(), PRIVATE);
+  await flingsOverHeldReplies(page);
+});
+
+for (const [isStreaming, when] of [[false, "idle"], [true, "while a reply streams"]] as const) {
+  test(`WebKit moves the list only by his finger as he reads up, ${when}`, async ({ page }) => {
+    test.slow();
+    await servePages(page.context(), PRIVATE);
+    await phoneReadsUp(page, isStreaming);
+  });
+
+  test(`WebKit moves the list only by his finger as he reads back down to the end, ${when}`, async ({ page }) => {
+    test.slow();
+    await servePages(page.context(), PRIVATE);
+    await phoneReadsDown(page, isStreaming);
+  });
+
+  test(`WebKit's Jump to latest lands on the newest line in one move and stays there, ${when}`, async ({ page }) => {
+    test.slow();
+    await servePages(page.context(), PRIVATE);
+    await phoneJumps(page, isStreaming);
   });
 }

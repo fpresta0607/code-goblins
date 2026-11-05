@@ -43,11 +43,17 @@ func (s *Service) fileFoundRoot(project string, root tickets.Root) {
 // fileRepeatedErrors files a root issue on the home's own repository for
 // each class of the lines of err that the supervisor first met at least
 // errorRepeatsAfter ago, once a class in each run of the supervisor: the
-// issue's own dedup turns a later run's filing into a dated comment. A line
-// that says the network could not be reached is passed over.
+// issue's own dedup turns a later run's filing into a dated comment. A
+// class leaves out the goblin a line names, so a line met on one goblin and
+// then on another is one class met again. A line that says the network
+// could not be reached is passed over.
 func (s *Service) fileRepeatedErrors(err error, now time.Time) {
 	if err == nil || s.Options.FileRoot == nil {
 		return
+	}
+	var goblins []string
+	for _, meta := range liveTasks(s.Store.Home.State) {
+		goblins = append(goblins, meta.ID)
 	}
 	var due []tickets.Root
 	s.mu.Lock()
@@ -55,7 +61,7 @@ func (s *Service) fileRepeatedErrors(err error, now time.Time) {
 		s.errorClassesMet, s.errorClassesFiled = map[string]time.Time{}, map[string]bool{}
 	}
 	for _, line := range strings.Split(err.Error(), "\n") {
-		class := tickets.ErrorClass(line)
+		class := tickets.ErrorClass(line, goblins)
 		if class == "" || tickets.IsLostConnection(line) {
 			continue
 		}

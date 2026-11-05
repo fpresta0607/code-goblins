@@ -139,23 +139,30 @@ func standinJob(t *testing.T, names ...string) (windows.Handle, map[string]int, 
 	for _, name := range names {
 		program := filepath.Join(programs, name+".exe")
 		standin.Put(t, program)
-		started := exec.Command(program)
-		started.Env = append(os.Environ(), standin.Env("", standin.Rule{Any: true, Hold: true})...)
-		if err := started.Start(); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = started.Wait() })
-		pids[name] = started.Process.Pid
-		held[name] = standin.Hold(t, started.Process.Pid)
-		process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(started.Process.Pid))
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = windows.AssignProcessToJobObject(job, process)
-		windows.CloseHandle(process)
-		if err != nil {
-			t.Fatal(err)
-		}
+		pids[name], held[name] = startInJob(t, job, program)
 	}
 	return job, pids, held
+}
+
+// startInJob starts program, a stand-in that holds until it is ended, puts it
+// in job, and returns its pid and a handle the test keeps on it.
+func startInJob(t *testing.T, job windows.Handle, program string) (int, windows.Handle) {
+	t.Helper()
+	started := exec.Command(program)
+	started.Env = append(os.Environ(), standin.Env("", standin.Rule{Any: true, Hold: true})...)
+	if err := started.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = started.Wait() })
+	held := standin.Hold(t, started.Process.Pid)
+	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(started.Process.Pid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = windows.AssignProcessToJobObject(job, process)
+	windows.CloseHandle(process)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return started.Process.Pid, held
 }

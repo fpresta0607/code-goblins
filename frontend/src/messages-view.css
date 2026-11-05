@@ -14,7 +14,7 @@
 .conversation-frame { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: min(5.5rem, max(0px, 100cqh - 12rem)); }
 /* The page scrolls itself and holds its place by its own anchor
    (MessagesView), so the browser's anchoring stays out of it. */
-.conversation { flex: 1; min-width: 0; min-height: 0; overflow: hidden auto; overflow-anchor: none; scrollbar-gutter: stable; padding: 18px 22px 40px; color: #e3ecef; line-height: 1.55; }
+.conversation { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden auto; overflow-anchor: none; scrollbar-gutter: stable; padding: 18px 22px 40px; color: #e3ecef; line-height: 1.55; }
 .conversation:focus-visible { outline-offset: -3px; }
 /* A short conversation sits at the bottom, by the latest, as a chat does,
    in one centred column of a readable width however wide the panel is. */
@@ -22,6 +22,7 @@
 /* The room of the messages after those drawn; each message's room holds the
    gap after it, so the gap before the room is taken back. */
 .conversation-room { margin-top: -1.125em; }
+.conversation-floor { position: absolute; top: 0; left: 0; width: 1px; pointer-events: none; }
 .message { position: relative; display: grid; gap: .5em; min-width: 0; }
 /* His message in a quiet bubble on the right, with its Copy in the corner
    the speaker line used to hold. */

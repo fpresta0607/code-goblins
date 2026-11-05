@@ -27,8 +27,10 @@ func machine(performance, threadsEach, efficiency int) []Core {
 // median time a test Chrome took to show a window: 0.53 s with nothing added,
 // 4.11 s under 16 busy threads on every core, 2.33 s with the work kept off
 // two performance cores and 0.98 s with it kept off three). It keeps off half
-// of the performance cores, rounded up to whole cores.
-func TestFleetWorkKeepsOffHalfOfThePerformanceCores(t *testing.T) {
+// of the performance cores, rounded up to whole cores. It queued on the
+// efficiency cores while the performance cores sat idle (2026-11-05,
+// fleetThreads has the measurement), so it keeps off those as well.
+func TestFleetWorkKeepsToThePerformanceCoresNotLeftToTheApps(t *testing.T) {
 	every := ^uintptr(0)
 	for _, test := range []struct {
 		name   string
@@ -37,7 +39,7 @@ func TestFleetWorkKeepsOffHalfOfThePerformanceCores(t *testing.T) {
 		own    uintptr
 		want   uintptr
 	}{
-		{"the PC it was measured on, six performance cores of two threads and four efficiency cores", machine(6, 2, 4), 1, every, 0xF03F},
+		{"the PC it was measured on, six performance cores of two threads and four efficiency cores", machine(6, 2, 4), 1, every, 0x003F},
 		{"eight cores of one kind, two threads each", machine(8, 2, 0), 1, every, 0x00FF},
 		{"five cores of one kind", machine(5, 1, 0), 1, every, 0b00011},
 		{"four cores of one kind", machine(4, 1, 0), 1, every, 0b0011},
@@ -46,10 +48,17 @@ func TestFleetWorkKeepsOffHalfOfThePerformanceCores(t *testing.T) {
 		{
 			"efficiency cores numbered before the performance cores",
 			[]Core{{0, []int{0}}, {0, []int{1}}, {1, []int{2, 3}}, {1, []int{4, 5}}, {1, []int{6, 7}}, {1, []int{8, 9}}},
-			1, every, 0x03F,
+			1, every, 0x03C,
+		},
+		{
+			"three kinds of core, where only the fastest kind is performance cores",
+			[]Core{{2, []int{0, 1}}, {2, []int{2, 3}}, {1, []int{4}}, {0, []int{5}}},
+			1, every, 0b000011,
 		},
 		{"a process already kept to four of the PC's threads, which is given no thread it lacked", machine(6, 2, 4), 1, 0x0F0F, 0x000F},
+		{"a process kept to performance and efficiency threads, which keeps the performance ones", machine(6, 2, 4), 1, 0xF00F, 0x000F},
 		{"a process kept to the threads the apps are left, which has no other to keep to", machine(6, 2, 4), 1, 0x0F00, 0},
+		{"a process kept to the efficiency cores, which has no thread the fleet's work may use", machine(6, 2, 4), 1, 0xF000, 0},
 		{"one performance core, which cannot be spared", machine(1, 2, 4), 1, every, 0},
 		{"a machine of more than one processor group, where a mask names one group's threads only", machine(6, 2, 4), 2, every, 0},
 		{"a machine that names no cores", nil, 1, every, 0},

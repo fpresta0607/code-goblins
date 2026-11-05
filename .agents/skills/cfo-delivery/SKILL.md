@@ -11,7 +11,7 @@ The installed file is also at `docs/contract/delivery.md` under `CFO_HOME`.
 A legacy tracked-checkout home keeps its own contract; do not infer activation from a newer binary or shared skill alone.
 Follow only the steps applicable to the current role and authorized task.
 At intake, use the Delivery intake section to resolve and freeze the project's posture, concrete change risk and proof before validation.
-For an active run, follow One validation owner and Finding authority; the implementation worker never decides its own ask-user finding.
+For an active run, follow One validation owner and Finding authority; until its run's review repair cycles are spent, the implementation worker never decides its own ask-user finding.
 For publication and completion, follow Proof and final candidate and Completion and scouts, then the existing mode's guarded delivery commands.
 Do not load an additional review or verification baseline outside that selected path.
 For exact command syntax, use `cfo help <command>` or a listed subcommand topic.

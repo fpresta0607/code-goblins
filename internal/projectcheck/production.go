@@ -1,8 +1,6 @@
 package projectcheck
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"net/url"
 	"slices"
 	"strings"
@@ -105,7 +103,7 @@ func judge(name, value string, tracked bool) judgement {
 		}
 		return judgement{}
 	case strings.Contains(value, "://"):
-		switch public, store, login := publishableName(name), namesStore(upper), carriesALogin(value); {
+		switch public, store, login := auth.PublishableName(name), namesStore(upper), carriesALogin(value); {
 		case localHost(value):
 			return judgement{}
 		case public && login:
@@ -123,7 +121,7 @@ func judge(name, value string, tracked bool) judgement {
 	}
 	named, shaped := credentialName(name), auth.SecretShape(strings.ReplaceAll(value, "=", "")) != ""
 	switch {
-	case startsSecret(value), named && shaped:
+	case auth.StartsSecret(value), named && shaped:
 		return judgement{production: realCredential}
 	case named && isPlaceholder(value):
 		return judgement{passedOver: placeholderValue}
@@ -177,17 +175,6 @@ func carriesALogin(value string) bool {
 	return false
 }
 
-// startsSecret reports whether a value starts the way a secret key does,
-// which makes it one whatever variable holds it.
-func startsSecret(value string) bool {
-	for _, prefix := range secretPrefixes {
-		if strings.HasPrefix(value, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 // placeholderWords mark a value written to be replaced, and
 // placeholderValues are the whole values that stand for none: a word a
 // template or a local default ships with.
@@ -215,74 +202,21 @@ func isPlaceholder(value string) bool {
 	return false
 }
 
-// publishablePrefixes start a key a service issues for browsers: Stripe's
-// and Supabase's publishable keys and Mapbox's public token.
-var publishablePrefixes = []string{"pk_", "pk.", "sb_publishable_"}
-
-// secretPrefixes start a key that is secret whatever variable holds it.
-var secretPrefixes = []string{"sk_", "rk_", "sk-", "whsec_", "sb_secret_", "sbp_", "ghp_", "github_pat_", "glpat-", "-----BEGIN"}
-
-// bundledPrefixes start the name of a variable a bundler ships to the
-// browser by its own rule, whatever the rest of the name says.
-var bundledPrefixes = []string{"VITE_", "REACT_APP_", "GATSBY_"}
-
 // publishable reports whether a variable holds a key every browser is handed
 // by design, which is no credential. The value is asked first, since it can
 // say what a name cannot: a key that starts the way a secret one does, or
 // whose own payload names a role other than anon, is a secret filed under a
 // publishable name. Where the value says nothing, the name decides.
 func publishable(name, value string) bool {
-	switch role := tokenRole(value); {
+	switch role := auth.TokenRole(value); {
 	case role == "anon":
 		return true
-	case role != "":
+	case role != "", auth.StartsSecret(value):
 		return false
+	case auth.StartsPublishable(value):
+		return true
 	}
-	for _, prefix := range secretPrefixes {
-		if strings.HasPrefix(value, prefix) {
-			return false
-		}
-	}
-	for _, prefix := range publishablePrefixes {
-		if strings.HasPrefix(value, prefix) {
-			return true
-		}
-	}
-	return publishableName(name)
-}
-
-// publishableName reports whether a variable is named as a key handed to
-// browsers: public or publishable by a word of its name, an anon key, or
-// under a prefix a bundler ships to the browser.
-func publishableName(name string) bool {
-	upper := strings.ToUpper(name)
-	for _, prefix := range bundledPrefixes {
-		if strings.HasPrefix(upper, prefix) {
-			return true
-		}
-	}
-	return strings.Contains(upper, "PUBLISHABLE") || strings.Contains(upper, "PUBLIC") || slices.Contains(strings.Split(upper, "_"), "ANON")
-}
-
-// tokenRole returns the role a JSON Web Token's payload names, as a Supabase
-// key's does, or "" for a value that is no such token. Nothing else of the
-// value is read.
-func tokenRole(value string) string {
-	parts := strings.Split(value, ".")
-	if len(parts) != 3 {
-		return ""
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
-	if err != nil {
-		return ""
-	}
-	var claims struct {
-		Role string `json:"role"`
-	}
-	if json.Unmarshal(payload, &claims) != nil {
-		return ""
-	}
-	return claims.Role
+	return auth.PublishableName(name)
 }
 
 // localHost reports whether a URL names this machine or a service beside

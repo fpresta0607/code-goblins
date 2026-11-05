@@ -364,6 +364,8 @@ test("a disjoint reconnect replaces the latest page and makes the missing histor
   await (await response).finished();
   await expect.poll(() => requests.length).toBe(1);
   expect(new URL(requests[0]).searchParams.get("before")).toBe("100");
+  // The older page his scroll reached is read in above him once it rests.
+  await expect(talk.locator('[data-message="m99"]')).toBeAttached();
   await reading(talk);
   await talk.evaluate((element) => { element.scrollTop = 0; });
   await expect(talk.locator('[data-message="m50"]')).toBeVisible();
@@ -403,6 +405,7 @@ test("an older response spanning a disjoint reconnect cannot hide missing histor
     await expect.poll(() => requests.length).toBe(index + 2);
     expect(requests[index + 1]).toBe(before);
     await (await older).finished();
+    await expect(talk.locator(`[data-message="m${before - 1}"]`)).toBeAttached();
     await reading(talk);
   }
   await talk.evaluate((element) => { element.scrollTop = 0; });

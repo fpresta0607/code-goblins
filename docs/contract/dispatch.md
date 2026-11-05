@@ -211,8 +211,10 @@ They share the disk floor too: none starts while the home's drive has less free 
 What the supervisor starts by itself also waits for room on the processors: the next queued task, a goblin whose pause cleared, a goblin coming back after a restart and a helper start only once a quarter of the machine's performance cores sat idle since the last reading, so the Overlord's own apps keep room.
 Each of them also waits for the memory the machine's heavy line keeps for its next test run, as [the supervisor starts the work](#the-fleet-never-idles) says, so a new session never takes the room a waiting test run needs.
 Each install reads its own cores for this: on a processor with performance and efficiency cores only the performance cores count, a core counts as busy while either of its threads is, and on a processor with cores of one kind all of them count.
-A goblin's own work also keeps off half of the machine's performance cores, rounded up to whole cores: its terminal and everything started in it run on the other processor threads, so the Overlord's apps have cores no goblin's build or test takes.
-That costs the fleet speed only while its work fills every core it keeps: 59% of what it got through on every core, on the six performance cores it was measured on.
+A goblin's own work also keeps off half of the machine's performance cores, rounded up to whole cores: its terminal and everything started in it run on the threads of the other performance cores and no others, so the Overlord's apps have cores no goblin's build or test takes.
+On a processor with cores of one kind all of them count as performance cores, and on one with efficiency cores the goblins' work keeps off those as well, which stay with the system's background work.
+Windows keeps a hidden process that asks for nothing on the efficiency cores and does not move that work when they fill: on 2026-11-05, of eight hidden processes of 6 seconds' work each, started together on six performance and four efficiency cores, 1 or 2 finished within the wait with the efficiency cores in the mask and all 8 without them.
+Keeping off half of the performance cores costs the fleet speed only while its work fills every core it keeps: on 2026-10-10, with the efficiency cores in the mask, 59% of what it got through on every core, on the six performance cores it was measured on.
 Your own terminal keeps every core, and so does a machine with one performance core or with more than 64 processor threads.
 The work that waits is named with the reason where the scheduler says what waits, and the `idle` wake tells you of it.
 A Start or Resume the Overlord clicks, a reported production defect and a `cfo spawn` you type do not wait on the processors.
@@ -222,9 +224,9 @@ Each gives the class back when its work ends, and a process that is not at norma
 A goblin's harness and everything started in its terminal run at normal, a `cfo` command a goblin runs there included, and so does what a gate agent starts: Windows starts the child of a raised process at normal, and no start in the fleet names a priority class but a terminal's host's and its input waker's.
 Those two are started one class above normal, since a host's launch waits on the host's record and the host on its waker: both came to exist at the priority of the work, the two steps of a host's start that grew with the load beside it, and on a busy machine a host missed the launch's 15-second bound (issue #891).
 Where goblin work has every core, as on a machine with a single performance core, a control at normal priority waited its turn behind it: beside sixteen busy threads on 2026-10-10, one reading of the machine's processes took 7.7 seconds at normal priority and 0.04 raised, a terminal's handshake 58 milliseconds against 0.2, and one of the five program copies an update's prepare step makes 3.5 seconds against 0.07.
-Where goblin work keeps to its own cores, a control that asks Windows not to throttle it, as the supervisor and every host do, answers in milliseconds either way, and the raise is for the control that asks for nothing, such as a pause the supervisor starts, which Windows keeps to the efficiency cores: beside ten busy threads on the goblins' cores, such a reading took 0.9 seconds at normal priority and 0.013 raised.
+Where goblin work keeps to its own cores, a control that asks Windows not to throttle it, as the supervisor and every host do, answers in milliseconds either way, and the raise is for the control that asks for nothing, such as a pause the supervisor starts, which Windows keeps to the efficiency cores: beside ten busy threads on the goblins' cores, the efficiency cores then among them, such a reading took 0.9 seconds at normal priority and 0.013 raised.
 What the raise cannot reach still waits its turn where goblin work has every core: a `cfo` command or a hook takes about 0.7 seconds to come to exist there, because its process is started at its caller's priority, `cfo peek` takes 2 to 3 seconds, because the terminal's console answers each row of the screen at normal priority, and each of the supervisor's progress readings starts git twice, about 0.8 seconds a goblin.
-With goblin work kept to its cores those took 0.02, 0.07 and 0.17 seconds.
+With goblin work kept to its cores, the efficiency cores then among them, those took 0.02, 0.07 and 0.17 seconds.
 The board shows disk free under memory and the kernel's pools, in the memory meter's box, and under `disk_wake_gb`, default 10, the supervisor wakes the CFO once with a `disk` wake, and again only after a reading back at or above the floor.
 The allowance floor is the percent of a measured weekly window the home keeps back, each provider's own as `config/fleet.json`'s `weekly_floor_percent` sets it and 5 percent where it sets none, which `cfo allowance-floor` reads and sets.
 At the floor the scheduler asks for a handoff and records an allowance pause with its weekly reset, the seam AFK mode shares.
@@ -251,6 +253,10 @@ A goblin quiet for 20 minutes whose run is itself stuck, its step running past t
 While memory or commit reads under the 4 GB floor, every read slows, so a goblin whose progress, screen or tree those reads could not reach is not raised and its timed-out read is no `supervisor_error`: its clock waits for a reading that can see it.
 Its screen output is the monitor's last look at the screen without the rows the harness redraws by itself (its spinner, its clock and its interrupt hint), and its transcript and processes are the board's last reading of its family tree, each counted only from a reading of the last two minutes, and the wake names what could not be read.
 A goblin whose latest report is a wait on its own [helper](dispatch.md#helper-goblins) takes the helper's progress as its own and draws no such wake while the helper is watched, since the helper's own check reports its stall; once the helper is paused, the goblin is checked as any other.
+Each pass reads every goblin's progress at once under one 10-second deadline, so a pass whose every read, two or more, ran out of time together says the machine was slow, not any goblin: no goblin's read is a `supervisor_error`, and the pass neither counts nor ends any goblin's run of failed passes.
+Once such passes have lasted 20 minutes, one `progress_unread` check wake says the stall check has judged no goblin since, and it wakes again only after a pass that read a goblin, or had none to read, ended them.
+Those 20 minutes count only passes the supervisor ran: a gap of more than two minutes from the end of one reading to the start of the next, such as the supervisor stopped or the machine asleep, starts them again, and a pass the supervisor's own stop cut short counts for nothing.
+A goblin whose read keeps running out of time while the others are read is still a `supervisor_error` naming it, once it ran out on three passes in a row.
 CI/deploy durations come from start and finish timestamps captured with `ci_finished`; unknown timestamps stay unmeasured, and check names containing `deploy` are classified as deploys.
 ## Switching a running goblin
 
@@ -328,7 +334,7 @@ Without `--harness`, spawn classifies the brief's task, complexity and risk.
 Narrow or mechanical work uses `mechanical`, search and reading use `scout`, and ordinary implementation uses `default_lane`.
 A lane named for another class takes that class.
 High risk, architecture, migration, security, deep complexity and repeated attempts use `escalate_to`, even for a scout.
-Constraints, credentials and delivery boilerplate are excluded from the classifier.
+Constraints, verification, credentials and delivery boilerplate are excluded from the classifier.
 The shipped default and escalation use Codex `gpt-6-astra` at `xhigh`, with `gpt-6-luna` at `medium` for small work.
 Pass `--harness`, `--model` or `--effort` only for the Supreme Overlord's stated preference.
 Explicit choices are recorded as such.
