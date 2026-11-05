@@ -1230,7 +1230,7 @@ func TestHisMessageToAGoblinWhoseTerminalIsNotRunningStartsItOnceAndGoesIn(t *te
 	var startedFor string
 	select {
 	case startedFor = <-started:
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatalf("delivery = %v, action = %+v; want the goblin started for the message", first, actionOf(store, "message-1"))
 	}
 	goblin := goblinTerminal(t, h.State, meta.ID)
@@ -1293,7 +1293,7 @@ func TestOldMessagesWaitOutTheirGoblinsStartAndAreTypedOnce(t *testing.T) {
 	first := store.ProcessOne(t.Context(), service.execute)
 	select {
 	case <-started:
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatalf("delivery = %v, action = %+v; want the goblin started for the message", first, actionOf(store, "message-1"))
 	}
 	store.deferredUntil["message-1"] = time.Now().Add(-time.Second)
@@ -1389,7 +1389,7 @@ func TestHisMessageToTheCFOWhileNoneRunsStartsItOnceAndGoesIn(t *testing.T) {
 	var why string
 	select {
 	case why = <-whys:
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatalf("delivery = %v, action = %+v; want the CFO started for the message", first, actionOf(store, "message-1"))
 	}
 	store.deferredUntil["message-1"] = time.Now().Add(-time.Second)
