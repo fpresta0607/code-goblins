@@ -513,7 +513,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     try {
       flushSync(() => {
         setHeld(latest.current);
-        setView((prior) => ({ ...prior, top: box.scrollTop, anchor: "" }));
+        setView((prior) => ({ ...prior, top: box.scrollTop - roomShift.current, anchor: "" }));
       });
     } finally {
       isTaking.current = false;

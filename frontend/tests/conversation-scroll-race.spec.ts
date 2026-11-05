@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "./site";
 import { at, GOBLIN, NAME, open, openGoblin, snapshot } from "./session-board";
-import { delayedScroll, flingsOverHeldReplies, leaveEndWhileStreaming, readOlderPastLostRelease, readUpUnderHeldFinger, readUpWhileStreaming, rowGrowsAboveHim } from "./conversation-scroll-race";
+import { delayedScroll, flingsOverHeldReplies, landsOverHeldRepliesAfterShortRows, leaveEndWhileStreaming, readOlderPastLostRelease, readUpUnderHeldFinger, readUpWhileStreaming, rowGrowsAboveHim } from "./conversation-scroll-race";
 
 for (const owner of ["CFO", "goblin"] as const) {
   for (const movement of ["keyboard", "wheel"] as const) {
@@ -42,6 +42,11 @@ for (const reach of [6, 300]) {
 test("a fling over long replies held back leaves him to read on down to them", async ({ page }) => {
   test.slow();
   await flingsOverHeldReplies(page);
+});
+
+test("a landing over replies held back after reading up through short rows shows him rows in every frame", async ({ page }) => {
+  test.slow();
+  await landsOverHeldRepliesAfterShortRows(page);
 });
 
 // A finger held still on the list keeps his scroll from rest until it lifts,

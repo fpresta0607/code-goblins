@@ -421,6 +421,36 @@ export async function flingsOverHeldReplies(page: Page) {
   await stop();
 }
 
+// landsOverHeldRepliesAfterShortRows reads up with rests through rows shorter
+// than their estimate, which leaves the room above him holding far more than
+// the window's heights say, and lands within a screen of the end over replies
+// held back. The rows he lands among are drawn where he is, not where his raw
+// scroll top falls in the window's heights, so no frame shows him a blank.
+export async function landsOverHeldRepliesAfterShortRows(page: Page) {
+  const { talk, stop } = await streamingTalk(page, { isStreaming: false });
+  await page.addStyleTag({ content: ".conversation-items > [data-message] { height: 60px; overflow: hidden; }" });
+  await settled(talk);
+  const shift = () => talk.evaluate((element) => parseFloat(element.querySelector<HTMLElement>(".conversation-items")!.style.getPropertyValue("--room-shift")) || 0);
+  for (let round = 0; round < 30 && await shift() < 2500; round++) {
+    await glide(page, -640);
+    await quiet(page);
+  }
+  expect(await shift()).toBeGreaterThanOrEqual(2500);
+  await page.evaluate(() => {
+    const messages = Array.from({ length: 20 }, (_, at) => ({ id: "m" + (300 + at), seq: 300 + at, at: "2026-10-22T09:00:00Z", kind: "reply", blocks: [{ kind: "text", text: "A reply held back while he read." }] }));
+    window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages } } }));
+  });
+  const screen = await talk.evaluate((element) => element.clientHeight);
+  const end = await distanceToEnd(talk);
+  await watcher(page);
+  await page.evaluate((distance) => (window as unknown as Watcher).land(distance), end - screen + 100);
+  await quiet(page);
+  const { frames } = await watched(page);
+  expect(frames.length).toBeGreaterThan(0);
+  expect(frames.filter((frame) => !frame.rows.length)).toEqual([]);
+  await stop();
+}
+
 // startReplyAtEnd sends a reply's first line and the usage it brings to the
 // box at once, as the session's stream does when a reply starts, while the
 // list follows its end: the list stays at its end, with no Jump to latest.
