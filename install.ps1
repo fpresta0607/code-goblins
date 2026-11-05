@@ -698,15 +698,15 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     }
 
     # Get-ForkBuildOrder orders a version of a Code Goblins fork's build, such
-    # as 0.1.40-codegoblins.3, by its release and then its build, and gives
-    # $null for a version that names no such build, as an upstream release's
-    # does.
+    # as 0.1.40-codegoblins.3, by its release and then its build, one with no
+    # build number first within its release, and gives $null for a version
+    # that names no such build, as an upstream release's does.
     function Get-ForkBuildOrder([string]$Version) {
-        $parts = [regex]::Match($Version, '^v?(\d+)\.(\d+)\.(\d+)-codegoblins\.(\d+)$')
+        $parts = [regex]::Match($Version, '^v?(\d+)\.(\d+)\.(\d+)-codegoblins(?:\.(\d+))?$')
         if (-not $parts.Success) {
             return $null
         }
-        return [version]("{0}.{1}.{2}.{3}" -f $parts.Groups[1].Value, $parts.Groups[2].Value, $parts.Groups[3].Value, $parts.Groups[4].Value)
+        return [version]("{0}.{1}.{2}.{3}" -f $parts.Groups[1].Value, $parts.Groups[2].Value, $parts.Groups[3].Value, [int]$parts.Groups[4].Value)
     }
 
     # Test-ForkBuild says why the build of $Tool, an npm-file tool, that its
@@ -714,18 +714,24 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     # kept: cfo doctor's check fails a build older than the file and one that
     # is not the fork's, such as the upstream package of the same name or one
     # that does not run, and passes the file's build and a later one of the
-    # fork's. The build is the last word of the first line the command
-    # prints for --version, and the file's is in its name, as npm pack names
-    # the file. The command runs as cfo doctor finds it, by an extension
-    # PATHEXT names, such as npm's .cmd shim: the execution policy may refuse
-    # npm's .ps1 shim, and Windows would ask how to open its extensionless
-    # shell script.
+    # fork's. The build is the last word of the first line of what the
+    # command prints for --version, read only when it succeeds, and the
+    # file's is in its name, as npm pack names the file. The command runs as
+    # cfo doctor finds it, by an extension PATHEXT names, such as npm's .cmd
+    # shim: the execution policy may refuse npm's .ps1 shim, and Windows would
+    # ask how to open its extensionless shell script.
     function Test-ForkBuild($Tool) {
         $file = Split-Path -Leaf $Tool.Cmd
         $pinned = $file.Substring($Tool.Name.Length + 1, $file.Length - $Tool.Name.Length - 1 - ".tgz".Length)
         $extensions = @($env:PATHEXT -split ';' | Where-Object { $_ })
         $program = Get-Command $Tool.Name -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $extensions -contains [IO.Path]::GetExtension($_.Source) } | Select-Object -First 1
-        $line = if ($program) { "$(& $program.Source --version 2>$null | Select-Object -First 1)" } else { "" }
+        $line = ""
+        if ($program) {
+            $said = & $program.Source --version 2>$null | Out-String
+            if ($LASTEXITCODE -eq 0) {
+                $line = ($said.Trim() -split '\r?\n')[0]
+            }
+        }
         $version = @($line.Trim() -split '\s+')[-1]
         $build = Get-ForkBuildOrder $version
         if (-not $build) {
@@ -751,7 +757,8 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     #                is downloaded here and handed to npm only when it matches
     #                the SHA256 pinned beside it. A build already there is
     #                replaced with it when it is older or not the fork's, as
-    #                Test-ForkBuild says
+    #                Test-ForkBuild says, and counts as a failed install when
+    #                it still runs afterwards
     #   powershell - an official install.ps1, saved to a file and run from it
     #                in a child shell, so its own `exit` cannot kill this
     #                install. It is never run as a download-and-run one-liner
@@ -882,6 +889,14 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
                     Write-Detail "Verified $file against the SHA256 this install pins ($actual)."
                     $code = Invoke-Logged "npm.cmd" @("install", "-g", $saved)
                     if ($code -ne 0) { throw "exited with code $code" }
+                    # npm replaces only the copy in its own folder, so one in
+                    # a folder ahead of that on PATH goes on answering.
+                    if ($isReplacing) {
+                        $problem = Test-ForkBuild $tool
+                        if ($problem) {
+                            throw "npm installed the release, but $($problem): the copy in $(Split-Path -Parent (Get-Command $tool.Name).Source) comes first on PATH, so remove it"
+                        }
+                    }
                 }
                 finally {
                     Remove-Temporary $download

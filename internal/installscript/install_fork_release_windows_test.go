@@ -53,9 +53,12 @@ type forkInstall struct {
 // internet with a line of text, and npm records how it was called. The pin of
 // each tool in matching is changed to content's SHA256 in the text the
 // install runs, so no changed copy of the script is written. A stand-in in
-// standIns replaces the one of its name. The home's state folder is in place,
-// as cfo install makes it, so the install keeps its record.
-func runInstallWithForkDownload(t *testing.T, content []byte, matching []string, standIns map[string]string) forkInstall {
+// standIns replaces the one of its name. Handed the release file of the tool
+// npmReplaces, npm also puts that release's build in place of the tool's
+// command, as a real install does when the command is npm's own. The home's
+// state folder is in place, as cfo install makes it, so the install keeps its
+// record.
+func runInstallWithForkDownload(t *testing.T, content []byte, matching []string, standIns map[string]string, npmReplaces string) forkInstall {
 	t.Helper()
 	source, err := os.ReadFile(installScript(t))
 	if err != nil {
@@ -77,10 +80,16 @@ func runInstallWithForkDownload(t *testing.T, content []byte, matching []string,
 	if err := os.WriteFile(served, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	npm := "@echo npm %*>>\"" + record + "\"\r\n"
+	if npmReplaces != "" {
+		file := path.Base(forkReleases[npmReplaces])
+		build := strings.TrimSuffix(strings.TrimPrefix(file, npmReplaces+"-"), ".tgz")
+		npm += "@if \"%~nx3\"==\"" + file + "\" >\"%~dp0" + npmReplaces + ".cmd\" echo @echo " + build + "\r\n"
+	}
 	stubs := map[string]string{
 		"git": "@exit /b 0\r\n",
 		"gh":  "@exit /b 0\r\n",
-		"npm": "@echo npm %*>>\"" + record + "\"\r\n@exit /b 0\r\n",
+		"npm": npm + "@exit /b 0\r\n",
 	}
 	maps.Copy(stubs, standIns)
 	internet := "function Invoke-WebRequest {\n" +
@@ -133,7 +142,7 @@ func assertNpmGotTheCheckedFile(t *testing.T, run forkInstall, tool string) {
 // whichever PowerShell runs it, so Windows PowerShell alone checks it.
 func TestOneLineInstallRefusesAForkReleaseThatDoesNotMatchItsPin(t *testing.T) {
 	// Act
-	run := runInstallWithForkDownload(t, []byte("not the release the script pins"), nil, nil)
+	run := runInstallWithForkDownload(t, []byte("not the release the script pins"), nil, nil, "")
 
 	// Assert
 	var downloaded []string
@@ -189,7 +198,7 @@ func TestOneLineInstallHandsNpmTheForkReleaseThatMatchesItsPin(t *testing.T) {
 			}
 
 			// Act
-			run := runInstallWithForkDownload(t, []byte("a stand-in for the pinned release file"), []string{tool}, nil)
+			run := runInstallWithForkDownload(t, []byte("a stand-in for the pinned release file"), []string{tool}, nil, "")
 
 			// Assert
 			file := path.Base(forkReleases[tool])
@@ -204,11 +213,51 @@ func TestOneLineInstallHandsNpmTheForkReleaseThatMatchesItsPin(t *testing.T) {
 	}
 }
 
+// doctorPasses says whether cfo doctor's check passes tool when its command is
+// a script with the text present. The PATH it sets holds for the rest of the
+// test, so a test calls it after its install.
+func doctorPasses(t *testing.T, tool, present string) bool {
+	t.Helper()
+	folder := t.TempDir()
+	if err := os.WriteFile(filepath.Join(folder, tool+".cmd"), []byte(present), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", folder)
+	t.Setenv("CFO_HOME", t.TempDir())
+	for _, check := range doctor.Run() {
+		if check.Name == tool {
+			return check.Err == ""
+		}
+	}
+	t.Fatalf("cfo doctor does not check %s", tool)
+	return false
+}
+
+// assertNotRecorded fails unless the install's record leaves out tool, which
+// was there before the install.
+func assertNotRecorded(t *testing.T, run forkInstall, tool string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(run.local, "CodeGoblins", "state", "fetched.json"))
+	if err != nil {
+		t.Fatalf("the install kept no record: %v\n%s", err, run.output)
+	}
+	var record fetchedRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	for _, fetched := range record.Tools {
+		if fetched.Name == tool {
+			t.Errorf("the record names %s, which was there before the install: %s", tool, data)
+		}
+	}
+}
+
 // An install that finds a fork's tool already there keeps it only when it is
-// the release's build or a later one of the fork's, which cfo doctor passes.
-// The upstream package, a build of the fork's older than the release, such as
-// one installed by hand, and one that reports no version are replaced with
-// the release file, so a fix made in the fork reaches every machine the next
+// the release's build or a later one of the fork's, the builds cfo doctor
+// passes, so each case here also asks the doctor. The upstream package, a
+// build of the fork's older than the release, such as one installed by hand,
+// and one that reports no version or does not run are replaced with the
+// release file, so a fix made in the fork reaches every machine the next
 // install runs on (#1626). A replacement stays out of the install's record,
 // so the uninstall leaves the command in place, as it leaves every tool the
 // install found.
@@ -217,28 +266,35 @@ func TestOneLineInstallReplacesAForkToolThatIsNotItsReleaseOrLater(t *testing.T)
 		name       string
 		tool       string
 		version    string
+		exitCode   int
 		isReplaced bool
 	}{
 		{name: "the upstream release install.ps1 pinned", tool: "chrome-devtools-axi", version: "0.1.39", isReplaced: true},
 		{name: "an upstream release above the fork's", tool: "chrome-devtools-axi", version: "0.1.45", isReplaced: true},
 		{name: "the fork's build installed by hand", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins.2", isReplaced: true},
 		{name: "a build that reports no version", tool: "chrome-devtools-axi", version: "", isReplaced: true},
+		{name: "a command that prints the release's build and fails", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins.3", exitCode: 1, isReplaced: true},
+		{name: "the release's version with no build number", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins", isReplaced: true},
 		{name: "the release's build", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins.3"},
 		{name: "a later build of the fork's", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins.4"},
+		{name: "a later release of the fork's with no build number", tool: "chrome-devtools-axi", version: "0.1.41-codegoblins"},
 		{name: "a Scrawl build before the release", tool: "lavish-axi", version: "0.1.79-codegoblins.17", isReplaced: true},
 		{name: "the Scrawl release's build", tool: "lavish-axi", version: "0.1.79-codegoblins.19"},
 	} {
 		t.Run(tc.tool+" "+tc.name, func(t *testing.T) {
 			// Arrange
-			present := "@exit /b 0\r\n"
+			present := fmt.Sprintf("@exit /b %d\r\n", tc.exitCode)
 			if tc.version != "" {
 				present = "@echo " + tc.version + "\r\n" + present
 			}
 
 			// Act
-			run := runInstallWithForkDownload(t, []byte("a stand-in for the pinned release file"), []string{tc.tool}, map[string]string{tc.tool: present})
+			run := runInstallWithForkDownload(t, []byte("a stand-in for the pinned release file"), []string{tc.tool}, map[string]string{tc.tool: present}, tc.tool)
 
 			// Assert
+			if isPassed := doctorPasses(t, tc.tool, present); isPassed == tc.isReplaced {
+				t.Errorf("cfo doctor passing %s %q is %v, and the case replacing it is %v, want one of them", tc.tool, tc.version, isPassed, tc.isReplaced)
+			}
 			downloaded := strings.Contains(run.recorded, "download "+forkReleases[tc.tool])
 			if !tc.isReplaced {
 				if downloaded || len(npmCallsFor(run.recorded, tc.tool)) != 0 || !regexp.MustCompile(`ok\s+`+regexp.QuoteMeta(tc.tool)+`\s+present`).MatchString(run.output) {
@@ -250,19 +306,36 @@ func TestOneLineInstallReplacesAForkToolThatIsNotItsReleaseOrLater(t *testing.T)
 				t.Fatalf("the install kept %s %q rather than replace it with its release:\n%s\n%s", tc.tool, tc.version, run.recorded, run.output)
 			}
 			assertNpmGotTheCheckedFile(t, run, tc.tool)
-			data, err := os.ReadFile(filepath.Join(run.local, "CodeGoblins", "state", "fetched.json"))
-			if err != nil {
-				t.Fatalf("the install kept no record: %v\n%s", err, run.output)
+			if !regexp.MustCompile(`ok\s+` + regexp.QuoteMeta(tc.tool) + `\s+installed`).MatchString(run.output) {
+				t.Errorf("the install does not say it installed %s:\n%s", tc.tool, run.output)
 			}
-			var record fetchedRecord
-			if err := json.Unmarshal(data, &record); err != nil {
-				t.Fatal(err)
-			}
-			for _, fetched := range record.Tools {
-				if fetched.Name == tc.tool {
-					t.Errorf("the record names %s, which was there before the install: %s", tc.tool, data)
-				}
-			}
+			assertNotRecorded(t, run, tc.tool)
 		})
 	}
+}
+
+// npm replaces only the copy in its own folder, so a stale command in a folder
+// ahead of that one goes on answering. The install then says so and names the
+// copy that comes first, rather than report a release nothing runs: the fix
+// cfo doctor names, npm install -g, reaches the same folder and cannot clear it.
+func TestOneLineInstallReplacesAForkToolThatIsNotItsReleaseOrLaterUnlessACopyComesFirstOnPath(t *testing.T) {
+	// Arrange
+	const tool = "chrome-devtools-axi"
+	stale := map[string]string{tool: "@echo 0.1.39\r\n@exit /b 0\r\n"}
+
+	// Act
+	run := runInstallWithForkDownload(t, []byte("a stand-in for the pinned release file"), []string{tool}, stale, "")
+
+	// Assert
+	assertNpmGotTheCheckedFile(t, run, tool)
+	if regexp.MustCompile(`ok\s+` + tool + `\s+installed`).MatchString(run.output) {
+		t.Errorf("the install says it installed the release, which the command does not run:\n%s", run.output)
+	}
+	if !regexp.MustCompile(`WARN\s+` + tool + `\s+.*is 0\.1\.39,.*the copy in \S+ comes first on PATH`).MatchString(run.output) {
+		t.Errorf("the install does not name the stale copy that comes first on PATH:\n%s", run.output)
+	}
+	if !regexp.MustCompile(`Note: These could not be installed[^\r\n]*` + tool + `[,.]`).MatchString(run.output) {
+		t.Errorf("the closing note does not name %s:\n%s", tool, run.output)
+	}
+	assertNotRecorded(t, run, tool)
 }
