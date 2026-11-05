@@ -150,10 +150,12 @@ func (execution *Execution) Finish(exitCode int, failure error) error {
 }
 
 // Refuse records an execution that never started a process, including an
-// admission failure. No command exit code is invented for it.
+// admission failure. No command exit code is invented for it. Start is recorded
+// before the process starts, so a run recorded as running can still be refused
+// until then.
 func (execution *Execution) Refuse(failure error, waited time.Duration) error {
 	state := execution.record.Measurement.State
-	if failure == nil || waited < 0 || (state != Queued && state != Admitted) {
+	if failure == nil || waited < 0 || (state != Queued && state != Admitted && state != Running) {
 		return errors.New("verify: refusal requires a failure before execution")
 	}
 	next := execution.record

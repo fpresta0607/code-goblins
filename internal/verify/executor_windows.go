@@ -17,6 +17,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
+// limitTimer starts the one timer of a run's execution limit. A test replaces
+// it to run that timer late, as a loaded machine can.
+var limitTimer = context.WithDeadlineCause
+
 // Executor owns commands and any cleanup still pending after Run returns.
 // Its owner must retain it and call RetryCleanup until that succeeds.
 // The model or orchestrator holds no lease between individual commands.
@@ -43,9 +47,10 @@ type Executor struct {
 	// IsConsoleShared starts the command in this process's console group
 	// rather than in a group of its own, so a Ctrl+C at the console reaches
 	// it as it reaches this process and it answers for itself: the context
-	// then ends only the wait for the turn, and a command that started runs
-	// until it ends. Pressure ends its job with no gentler step first, since
-	// a Ctrl+Break reaches only a whole group, this process's own included.
+	// then ends the run only before its command starts, and a command that
+	// started runs until it ends. Pressure ends its job with no gentler step
+	// first, since a Ctrl+Break reaches only a whole group, this process's own
+	// included.
 	IsConsoleShared bool
 	// Took, when set, is told how long the run waited for its turn, once it
 	// has taken it and before its command starts.
@@ -233,13 +238,18 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 		if executor.IsConsoleShared {
 			parent = context.WithoutCancel(ctx)
 		}
-		executionContext, pending.stopExecution = context.WithDeadlineCause(parent, deadline, ErrLimit)
+		executionContext, pending.stopExecution = limitTimer(parent, deadline, ErrLimit)
 		pending.executionContext = executionContext
 		startupContext = executionContext
 		if executor.IsConsoleShared {
-			var stopStartup context.CancelFunc
-			startupContext, stopStartup = context.WithDeadlineCause(ctx, deadline, ErrLimit)
-			defer stopStartup()
+			// Startup answers the caller's interrupt, which the execution
+			// context does not. It has no timer of its own, so a limit that
+			// ends it has already ended the context that names the limit.
+			var stopStartup context.CancelCauseFunc
+			startupContext, stopStartup = context.WithCancelCause(executionContext)
+			defer stopStartup(nil)
+			stopInterrupt := context.AfterFunc(ctx, func() { stopStartup(context.Cause(ctx)) })
+			defer stopInterrupt()
 		}
 	}
 	if executor.Took != nil {
@@ -275,14 +285,6 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 			return refuseStart(err)
 		}
 	}
-	// A command that answers an interrupt itself is never sent one that came
-	// before it started, so such an interrupt ends the run here.
-	if err := ctx.Err(); executor.IsConsoleShared && err != nil {
-		return refuse(fmt.Errorf("%w: %w", ErrNoTurn, err))
-	}
-	if err := executionContext.Err(); executor.ExecutionLimit > 0 && err != nil {
-		return refuseStart(context.Cause(executionContext))
-	}
 	if err := execution.Start(); err != nil {
 		return refuseStart(err)
 	}
@@ -302,9 +304,13 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 		environment = os.Environ()
 	}
 	command.Env = append(append([]string(nil), environment...), TurnVariable+"="+turn.Token())
-	if err := startupContext.Err(); executor.ExecutionLimit > 0 && err != nil {
-		failure := fmt.Errorf("%w: %w", ErrNotStarted, context.Cause(startupContext))
-		return -1, errors.Join(failure, execution.Observe(Measurement{State: Interrupted, CleanupConfirmed: true}))
+	// A command that answers an interrupt itself is never sent one that came
+	// before it started, so such an interrupt ends the run here.
+	if err := ctx.Err(); executor.IsConsoleShared && err != nil {
+		return refuse(fmt.Errorf("%w: %w", ErrNoTurn, err))
+	}
+	if err := executionContext.Err(); executor.ExecutionLimit > 0 && err != nil {
+		return refuseStart(context.Cause(executionContext))
 	}
 	tree, err := execx.StartNamedTree(command, guard.Job)
 	if err != nil {
