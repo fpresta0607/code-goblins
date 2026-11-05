@@ -363,6 +363,8 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 			// itself, so the CFO is not sent to launch it beside it.
 			case verb == "done" && meta.Backend == "native" && strings.HasPrefix(reported, "PR https://") && !sample.IsComingBack:
 				detail = fmt.Sprintf("native terminal %s is gone after it reported its pull request done; a restart leaves it down to wait on the merge unless a prompt reached it since, and cfo switch %s --harness %s brings it back if it has more work", meta.ID, meta.ID, meta.Harness)
+			case verb == "done" && meta.Backend == "native" && state.DoneClosed("done: "+reported) != "" && !sample.IsComingBack:
+				detail = fmt.Sprintf("native terminal %s is gone after it reported its issue closed; a restart leaves it down unless a prompt reached it since, and cfo switch %s --harness %s brings it back if it has more work", meta.ID, meta.ID, meta.Harness)
 			}
 		}
 		return unknownObservation(observation, EndpointMissing, detail, now), sample

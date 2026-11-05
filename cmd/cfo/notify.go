@@ -28,6 +28,7 @@ import (
 // watcher guessing from pane text. Identical for claude, codex, and pi.
 //
 //	cfo notify <task-id> --done --pr <url>
+//	cfo notify <task-id> --done --closed <issue-url> --decision <sequence>
 //	cfo notify <task-id> --blocked "<question>"
 //	cfo notify <task-id> --blocked "<question> options: <answer> (Recommended) | <answer>" --image a.png --image b.png
 //	cfo notify <task-id> --failed "<reason>"
@@ -81,6 +82,14 @@ import (
 // A helper reports to its parent instead: its done, which needs no pull
 // request, its question and its failure are typed into its parent's
 // terminal, and wake the CFO only when that terminal cannot take them.
+//
+// A task a decision ruled finished with no pull request, such as one whose
+// issue closes as no defect, a duplicate or already fixed, reports done with
+// the issue it closed in its place and the decision that ruled it so. The
+// decision is read from its record, and the report quotes the recorded answer
+// rather than the goblin's account of it, so whoever reads the report sees
+// what was decided: the record proves an answer was given, and only its words
+// say that it approved this.
 func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "cfo notify: task ID is required")
@@ -95,7 +104,9 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	fs := flag.NewFlagSet("notify", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	done := fs.Bool("done", false, "report completion")
-	pr := fs.String("pr", "", "PR URL, required with --done")
+	pr := fs.String("pr", "", "PR URL, required with --done unless --closed says what you closed in its place")
+	closed := fs.String("closed", "", "with --done and --decision, the https link of the GitHub issue you closed in place of a pull request")
+	decision := fs.String("decision", "", "with --closed, the wake sequence of your answered question that ruled the task finished with no pull request, which its --blocked notify printed")
 	blocked := fs.String("blocked", "", "report a question the goblin is blocked on: one short sentence that is the question, details on lines starting with \"- \" that give the recommendation and what each choice does, **bold** only on the verdict or the blocking item, and run IDs, findings and other evidence after a line that reads only Details:, which the board folds away")
 	failed := fs.String("failed", "", "report a failure reason")
 	working := fs.String("working", "", "report what you are working on now")
@@ -139,8 +150,8 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, "cfo notify: exactly one of --done, --blocked, --failed, --working or --waiting-on is required")
 		return 2
 	case *done:
-		// Only a helper is done without a pull request; whether this task
-		// is one is read with its record below.
+		// A done names its pull request, unless this task is a helper or a
+		// decision ruled it finished without one, which its record says below.
 		verb = "done"
 		if *pr != "" {
 			detail = "PR " + *pr
@@ -158,6 +169,22 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			return 2
 		}
 		verb, detail = "waiting on "+target, positional[0]
+	}
+	decisionSeq := 0
+	if *closed != "" || *decision != "" {
+		if !*done || *pr != "" || *closed == "" || *decision == "" {
+			fmt.Fprintf(stderr, "cfo notify: --closed and --decision go together on a done with no --pr: cfo notify %s --done --closed <issue-url> --decision <sequence>\n", id)
+			return 2
+		}
+		if !state.IsIssueLink(*closed) {
+			fmt.Fprintf(stderr, "cfo notify: --closed takes the link of a GitHub issue, such as https://github.com/<owner>/<repository>/issues/<number>, not %s\n", *closed)
+			return 2
+		}
+		var err error
+		if decisionSeq, err = supervisor.QuestionSeq(*decision); err != nil {
+			fmt.Fprintf(stderr, "cfo notify: --decision %v\n", err)
+			return 2
+		}
 	}
 	// Only a question, a failure and a wait on the Overlord wake the CFO, so
 	// a question with choices in any other report reaches nobody, and the
@@ -338,14 +365,28 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		verb, detail = "blocked", detail+supervisor.PageOptions(page)
 	}
 	parent := ""
-	if meta, err := state.ReadTaskMeta(h.State, id); err == nil {
+	meta, metaErr := state.ReadTaskMeta(h.State, id)
+	if metaErr == nil {
 		parent = meta.Parent
 	}
-	if verb == "done" && *pr == "" {
-		if parent == "" {
-			fmt.Fprintln(stderr, "cfo notify: --done requires --pr <url>")
+	switch {
+	case *closed != "" && metaErr != nil:
+		fmt.Fprintf(stderr, "cfo notify: --decision cannot be checked, since %s's task record cannot be read: %v\n", id, metaErr)
+		return 1
+	case *closed != "" && parent != "":
+		fmt.Fprintf(stderr, "cfo notify: a helper's done goes to its parent %s and needs no --closed: report the issue to %s, whose task it closes\n", parent, parent)
+		return 2
+	case *closed != "":
+		answer, err := supervisor.DecisionAnswer(h.State, meta, decisionSeq)
+		if err != nil {
+			fmt.Fprintf(stderr, "cfo notify: %v. A done with no pull request rests on your own answered question: ask it with cfo notify %s --blocked \"<one short question> options: <answer> (Recommended) | <answer>\", and give --decision the sequence that notify prints\n", err, id)
 			return 2
 		}
+		detail = fmt.Sprintf("closed %s (decision %d: %s)", *closed, decisionSeq, answer)
+	case verb == "done" && *pr == "" && parent == "":
+		fmt.Fprintln(stderr, "cfo notify: --done requires --pr <url>, or, once your answered question ruled the task finished with no pull request, --closed <issue-url> --decision <sequence>")
+		return 2
+	case verb == "done" && *pr == "":
 		detail = "ready for " + parent + " to merge"
 	}
 	line := verb + ": " + state.NormalizeStatusDetail(detail)
@@ -454,6 +495,8 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	switch {
 	case head != "":
 		record, isNew, err = wake.AppendFirst(h.State, "done/"+id+"/"+prLink+"@"+head, "notify", id, line)
+	case *closed != "":
+		record, isNew, err = wake.AppendFirst(h.State, "done/"+id+"/"+*closed, "notify", id, line)
 	case verb == "blocked" || verb == "failed":
 		record, isNew, err = wake.AppendDecision(h.State, id, line)
 	default:
@@ -462,6 +505,10 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	if err != nil {
 		fmt.Fprintln(stderr, "cfo notify: wake the CFO: "+err.Error())
 		return 1
+	}
+	if !isNew && *closed != "" {
+		fmt.Fprintf(stdout, "%s already reported %s closed, so the CFO was not woken again\n", id, *closed)
+		return 0
 	}
 	if !isNew && verb == "done" {
 		fmt.Fprintf(stdout, "%s already reported %s done at %s, so the CFO was not woken again\n", id, *pr, head)
@@ -513,6 +560,9 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	// The board shows the report now, not at its next refresh.
 	supervisor.Reported(h.State)
 	fmt.Fprintf(stdout, "notified %s %s\n", id, line)
+	if verb == "blocked" && parent == "" {
+		fmt.Fprintf(stdout, "Asked as notify %d: if this question has choices and its answer rules the task finished with no pull request, give --decision %d on your done.\n", record.Seq, record.Seq)
+	}
 	if stepCard != "" {
 		fmt.Fprintf(stdout, "Your step card %s is open, so it stands for this wait in the Command Center and no second card was opened. Wait on it in the background with cfo auth request --wait-on %s --task %s, which ends when the card closes. If you wait on him for something that card does not ask, ask it once the card closes.\n", stepCard, stepCard, id)
 	}

@@ -395,19 +395,22 @@ func TestAPausedTaskWhoseTerminalIsGoneWakesOncePerResurface(t *testing.T) {
 }
 
 // A goblin that delivered its pull request and rests on it waits on its
-// merge, so a restart that ends its terminal leaves it down: the wake for its
-// gone terminal says so, and that cfo switch brings it back if it has more
-// work, rather than that goblins resume brings it back. One seen working past
-// its done report, or whose done report names no pull request, comes back,
-// and its wake says what the probe found.
+// merge, and one that closed its issue in place of one waits on nothing, so a
+// restart that ends its terminal leaves it down: the wake for its gone
+// terminal says so, and that cfo switch brings it back if it has more work,
+// rather than that goblins resume brings it back. One seen working past its
+// done report, or whose done report names no delivery, comes back, and its
+// wake says what the probe found.
 func TestTheWakeForADeliveredGoblinsGoneTerminalSaysARestartLeavesItDown(t *testing.T) {
 	const probeDetail = "native terminal g1 has no running host; goblins resume brings it back in place, resuming its session, as cfo switch g1 --harness codex does for it alone"
 	for _, testCase := range []struct {
-		name, report                     string
-		isSeenWorking, shouldSayItIsDown bool
+		name, report, saysDown string
+		isSeenWorking          bool
 	}{
-		{name: "resting on its pull request", report: "done: PR https://github.com/acme/api/pull/7", shouldSayItIsDown: true},
+		{name: "resting on its pull request", report: "done: PR https://github.com/acme/api/pull/7", saysDown: "native terminal g1 is gone after it reported its pull request done; a restart leaves it down to wait on the merge unless a prompt reached it since, and cfo switch g1 --harness codex brings it back if it has more work"},
+		{name: "resting on the issue it closed", report: "done: closed https://github.com/acme/api/issues/7 (decision 7: Close it, no PR)", saysDown: "native terminal g1 is gone after it reported its issue closed; a restart leaves it down unless a prompt reached it since, and cfo switch g1 --harness codex brings it back if it has more work"},
 		{name: "seen working past its done report", report: "done: PR https://github.com/acme/api/pull/7", isSeenWorking: true},
+		{name: "seen working past the issue it closed", report: "done: closed https://github.com/acme/api/issues/7 (decision 7: Close it, no PR)", isSeenWorking: true},
 		{name: "done naming no pull request", report: "done: handed the fix to parent-1"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -459,8 +462,8 @@ func TestTheWakeForADeliveredGoblinsGoneTerminalSaysARestartLeavesItDown(t *test
 
 			// Assert
 			want := string(EndpointMissing) + ": " + probeDetail
-			if testCase.shouldSayItIsDown {
-				want = string(EndpointMissing) + ": native terminal g1 is gone after it reported its pull request done; a restart leaves it down to wait on the merge unless a prompt reached it since, and cfo switch g1 --harness codex brings it back if it has more work"
+			if testCase.saysDown != "" {
+				want = string(EndpointMissing) + ": " + testCase.saysDown
 			}
 			if len(wakes) != 1 || wakes[0].Detail != want {
 				t.Errorf("the gone terminal woke %+v, want one wake %q", wakes, want)

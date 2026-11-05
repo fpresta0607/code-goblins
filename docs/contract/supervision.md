@@ -10,7 +10,7 @@
   Every monitor scan and orphan sweep, in `cfo serve` and in `cfo watch`, is cut off after three minutes, and the gate status call it makes after thirty seconds, so a subprocess that never answers cannot stop the heartbeat while the watcher keeps its lock, which would leave supervision off with nothing able to take it over (`internal/watch/reconcile_budget_test.go`).
 - A missing or stale endpoint means inspect with `cfo peek`, then steer or relaunch - never kill work.
 - **`cfo drain` is how you learn a goblin finished.
-  Not `cfo peek`.** Goblins already push terminal outcomes into the wake queue with `cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>"`.
+  Not `cfo peek`.** Goblins already push terminal outcomes into the wake queue with [`cfo notify`](../commands/notify.md).
   On 2026-08-19 the CFO polled panes roughly eighty times to infer state that was sitting unread in the queue the whole time - two goblins had already filed correct `--done` notifies with their PR URLs.
   Those eighty sweeps produced two real interventions and consumed most of a context window.
   Drain first, always; `peek` is for reading a goblin's reasoning once the queue has told you it needs you.

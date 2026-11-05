@@ -464,6 +464,10 @@ func TestARestartLeavesAGoblinThatDeliveredItsPullRequestDown(t *testing.T) {
 	if err := state.AppendStatus(h.State, delivered.ID, "done: PR https://github.com/acme/api/pull/7"); err != nil {
 		t.Fatal(err)
 	}
+	closed := workingGoblin(t, h, "closed", lastSignIn.Add(time.Hour))
+	if err := state.AppendStatus(h.State, closed.ID, "done: closed https://github.com/acme/api/issues/7 (decision 7: Close it, no PR)"); err != nil {
+		t.Fatal(err)
+	}
 	steered := workingGoblin(t, h, "steered", lastSignIn.Add(time.Hour))
 	if err := state.AppendStatus(h.State, steered.ID, "done: PR https://github.com/acme/api/pull/8"); err != nil {
 		t.Fatal(err)
@@ -491,8 +495,8 @@ func TestARestartLeavesAGoblinThatDeliveredItsPullRequestDown(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range record.Goblins {
-		if entry.ID == delivered.ID {
-			t.Errorf("the comeback planned %s, which delivered its pull request: %+v", entry.ID, entry)
+		if entry.ID == delivered.ID || entry.ID == closed.ID {
+			t.Errorf("the comeback planned %s, which delivered: %+v", entry.ID, entry)
 		}
 	}
 }
