@@ -68,7 +68,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isWorking: boolean; isCompacting: boolean;
   sent: Action[]; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
-  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode) => ReactNode;
+  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode, onSend: () => void) => ReactNode;
   onComposerDock?: (node: HTMLDivElement | null) => void;
 }) {
   // What he sent that the board has not shown yet, drawn at once on its way.
@@ -650,17 +650,30 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     };
   }, [copySelection]);
   useEffect(() => () => clearTimeout(copiedTimer.current), []);
-  const jump = () => {
-    const box = list.current;
-    if (!box) return;
+  const toEnd = useCallback((box: HTMLElement) => {
     isJumping.current = true;
     following.current = true;
     setAtEnd(true);
     setHeld(latest.current);
     box.scrollTo({ top: box.scrollHeight, behavior: "instant" });
     observedTop.current = box.scrollTop;
+  }, []);
+  const jump = () => {
+    const box = list.current;
+    if (!box) return;
+    toEnd(box);
     box.focus({ preventScroll: true });
   };
+  // A message he sends from the box shows from wherever he read, a few pixels
+  // up included, where the list holds back all that arrives: the box would
+  // empty with nothing drawn (the Overlord, 2026-11-05: "modern chat messages
+  // disappear when he sends them"). A message sent from another screen moves
+  // nothing, and the box keeps the keyboard.
+  const [boxSends, setBoxSends] = useState(0);
+  const sentFromBox = useCallback(() => setBoxSends((count) => count + 1), []);
+  useLayoutEffect(() => {
+    if (boxSends && list.current && !following.current) toEnd(list.current);
+  }, [boxSends, toEnd]);
   const keys = (event: KeyboardEvent<HTMLElement>) => {
     // Shift+Escape leaves the messages for the panel's first control, as it
     // leaves a terminal.
@@ -792,7 +805,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
           box"), only once the view is live and holds a real reading, never
           while it connects ("connecting screens don't need to display the
           dither or usage unavailable"). */}
-      {box?.(composing.usage?.model || model, composing.history, composing.usage?.effort || effort, phase === "live" && <UsageBar readings={readings} />)}
+      {box?.(composing.usage?.model || model, composing.history, composing.usage?.effort || effort, phase === "live" && <UsageBar readings={readings} />, sentFromBox)}
     </div>}
   </section></MessageDocumentScope>;
 }

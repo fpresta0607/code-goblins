@@ -93,6 +93,44 @@ for (const harness of ["claude", "codex", "pi"]) {
   });
 }
 
+// The Overlord, 2026-11-05: "modern chat messages disappear when he sends
+// them, only the terminal works". Any scroll up from the end holds back what
+// arrives, so a message sent from a few pixels up reached the session and the
+// box emptied with nothing drawn. A Send returns the list to its end.
+const READ = { conversation: "fixture-conversation", more: false, messages: Array.from({ length: 200 }, (_, seq) => ({ id: "m" + seq, seq, at, kind: "reply", blocks: [{ kind: "text", text: "Answer " + seq + " runs on for a while, so the list has height to read up in." }] })) };
+
+for (const isWorking of [false, true]) for (const above of [3, 400]) {
+  test(`a message sent ${above} px above the end ${isWorking ? "while the session works" : "to an idle session"} shows, with the list back at its end`, async ({ page }) => {
+    // Arrange
+    const relay = await open(page, snapshot(), "", READ);
+    await page.route("**/api/actions", (route) => route.fulfill({ status: 202, json: { status: "queued" } }));
+    await openGoblin(page);
+    const talk = page.getByRole("log", { name: "Messages of " + NAME });
+    await expect(talk.locator('[data-message="m199"]')).toBeVisible();
+    if (isWorking) {
+      relay.say({ type: "screen", asking: false, open: false, working: true });
+      await expect(page.locator(".reply-working")).toBeVisible();
+    }
+    await talk.evaluate((element, above) => { element.scrollTop = element.scrollHeight - element.clientHeight - above; }, above);
+    const jump = page.getByRole("button", { name: "Jump to latest" });
+    await expect(jump).toBeVisible();
+    await field(page).fill("carry on from here");
+
+    // Act
+    await field(page).press("Enter");
+    if (!isWorking) {
+      await expect.poll(() => typed(relay)).toContain("carry on from here");
+      await page.evaluate((row) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages: [row] } } })), { id: "m200", seq: 200, at, kind: "prompt", source: "overlord", text: "carry on from here" });
+    }
+
+    // Assert
+    await expect(isWorking ? bubble(page, "carry on from here") : talk.locator('[data-message="m200"]')).toBeInViewport();
+    await expect(jump).toHaveCount(0);
+    await expect.poll(() => talk.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(1);
+    if (!isWorking) await expect(field(page)).toBeFocused();
+  });
+}
+
 test("Cancel takes a queued message back, so it never reaches the harness", async ({ page }) => {
   // Arrange
   const { relay, posts } = await sendWhileWorking(page, "claude");
