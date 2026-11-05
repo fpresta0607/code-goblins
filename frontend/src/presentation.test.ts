@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { age } from "./presentation.ts";
+import { age, rowAge } from "./presentation.ts";
 
 const NOW = Date.parse("2026-11-05T12:00:00Z");
 const before = (milliseconds: number) => new Date(NOW - milliseconds).toISOString();
@@ -42,4 +42,16 @@ test("age says so of a time it cannot back", () => {
     ["not a time", "not a time", "Unknown freshness"],
   ];
   for (const [name, timestamp, want] of cases) assert.equal(age(timestamp, NOW), want, name);
+});
+
+test("rowAge says the first minute in the room of a narrow column, and everything else as age does", () => {
+  const cases: [string, string, string][] = [
+    ["this moment", before(0), "just now"],
+    ["the last second of the first minute", before(MINUTE - 1), "just now"],
+    ["a whole minute", before(MINUTE), "1m ago"],
+    ["a whole day", before(DAY), "1d ago"],
+    ["no time", "", "No evidence"],
+    ["not a time", "not a time", "Unknown freshness"],
+  ];
+  for (const [name, timestamp, want] of cases) assert.equal(rowAge(timestamp, NOW), want, name);
 });

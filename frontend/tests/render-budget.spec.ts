@@ -231,7 +231,7 @@ async function openAsked(page: Page) {
   await open(page, snapshot);
   await page.locator(".command-center-menu > summary").click();
   const shown = page.locator(".inbox-list.waiting time");
-  await expect(shown).toHaveText("under a minute ago");
+  await expect(shown).toHaveText("just now");
   return { snapshot, shown };
 }
 
@@ -246,7 +246,7 @@ test("an open Command Center draws nothing between its minutes", async ({ page }
   // Assert
   const counts = await counted(page);
   expect(counts.commits, JSON.stringify(counts.rendered)).toBe(0);
-  await expect(shown).toHaveText("under a minute ago");
+  await expect(shown).toHaveText("just now");
 });
 
 test("an age in the Command Center moves with the next snapshot", async ({ page }) => {

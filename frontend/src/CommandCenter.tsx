@@ -6,7 +6,7 @@ import { deliveryMark, runMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Chevron } from "./Chevron";
 import { Icon } from "./Icon";
-import { age } from "./presentation";
+import { rowAge } from "./presentation";
 import { answerMark, answerReason, answeredElsewhere, answeredHere, asItems, canChange, closedAt, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, questionPage, sendState, settledIcon, reviewLine, settledItems, settledLabel, waitingItems, withClosed, type Item } from "./commandQueue";
 import { publicationKey, publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
@@ -441,12 +441,12 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
           {needing ? <ul className="inbox-list waiting">{waiting.map((candidate) => <li key={candidate.key} className={"opens-item" + (release(candidate) ? " release-row" : "")} onClick={() => { setInbox(false); setOpen(true); show(candidate.key); }}>
             <Avatar persona={release(candidate) ? "releases" : taskOf(candidate) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(candidate))) : "cfo"} small />
             <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span></span>
-            <time>{age(created(candidate), now)}</time>
+            <time>{rowAge(created(candidate), now)}</time>
             <button type="button" className="icon-button raised" aria-label={"Answer " + askerOf(candidate) + ": " + textOf(candidate)}><Icon name={iconOf(candidate)} /></button>
           </li>)}{watching.map((event) => <li key={"watch:" + event.id}>
             <Avatar persona={event.cfo_identity ? "cfo" : personaFor(snapshot.tasks.find((task) => task.id === event.task_id))} small />
             <span className="inbox-text"><strong>{presenter(event)}</strong><span className="inbox-summary">{event.watch}</span></span>
-            <time>{age(event.at, now)}</time>
+            <time>{rowAge(event.at, now)}</time>
             <a className="icon-button raised" href={event.url} target="_blank" rel="noreferrer" aria-label={"Watch: " + event.watch}><Icon name="watch" /></a>
           </li>)}</ul> : <p className="muted">Nothing is waiting on you.</p>}
         </section>
@@ -488,7 +488,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
                   {candidate.kind === "credential" && candidate.request.state === "saved" && <HistoryStoredCard request={candidate.request} asker={candidate.request.task ? askerOf(candidate) : "the CFO"} to={goblin ? goblin.id : ""} connected={connected} instance={snapshot.instance} />}</span>
                 <ClickFeedback text={reopenError} />
               </span>
-              <time>{age(closedAt(candidate), now)}</time>
+              <time>{rowAge(closedAt(candidate), now)}</time>
               <span className="history-actions">
                 <button className="icon-button history-open" aria-expanded={isUnfolded} aria-controls={detail} aria-label={"Open: " + askerOf(candidate) + ": " + textOf(candidate)} onClick={unfold}><Chevron collapsed={!isUnfolded} /></button>
                 <button className="icon-button raised history-change" aria-disabled={!!changeBlock || candidate.kind === "credential" && (!connected || !!reopenAttempt?.isPending)}
