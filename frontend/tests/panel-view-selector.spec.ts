@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { CFO_DOOR, expect, test, type Page } from "./site";
 import { open, openGoblin } from "./session-board";
 
 // The Overlord, 2026-10-26: "i dont like how you remove the selector at the
@@ -15,7 +15,7 @@ const taskPanel = (page: Page) => page.locator(".goblin-panel > .panel-task");
 const messages = (page: Page) => page.getByRole("region", { name: "Messages", exact: true });
 
 async function openCfo(page: Page) {
-  await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
   await expect(page.locator("#panel-title")).toHaveText("CFO");
 }
 

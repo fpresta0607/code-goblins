@@ -3,6 +3,7 @@ import { Icon } from "./Icon";
 import { AfkToggle } from "./afk-toggle";
 import { CfoHarnessMark } from "./cfo-harness-mark";
 import { cfoDoor, useChatStyle } from "./chat-style";
+import { messagesQuery } from "./session-messages";
 import { SubscriptionDials } from "./subscription-dials";
 
 // What the board's CFO bar has beside its words, on the CFO's card on the
@@ -11,7 +12,7 @@ import { SubscriptionDials } from "./subscription-dials";
 // harness mark.
 export function CfoCardFacts({ snapshot, now, onOpenCfo }: { snapshot: Snapshot; now: number; onOpenCfo: (source: HTMLElement) => void }) {
   const [style] = useChatStyle();
-  const door = cfoDoor(style);
+  const door = cfoDoor(style, !!messagesQuery(snapshot));
   return <>
     <SubscriptionDials snapshot={snapshot} now={now} />
     <div className="cfo-pin-end">

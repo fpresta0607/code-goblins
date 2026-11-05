@@ -1,4 +1,4 @@
-import { expect, openTaskList, taskList, type Page, test } from "./site";
+import { CFO_DOOR, expect, openTaskList, taskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-13: every harness control belongs in a category of
 // its own named Harness, for queued tasks, active goblins and the CFO.
@@ -50,7 +50,7 @@ async function openTask(page: Page) {
 }
 
 async function openCfo(page: Page) {
-  await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
   await expect(page.locator("#panel-title")).toHaveText("CFO");
   await openTaskList(page);
 }

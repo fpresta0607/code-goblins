@@ -18,9 +18,11 @@ test("a saved chat style reads as Modern only when it says Modern", () => {
   assert.equal(chatStyle("anything else"), "classic");
 });
 
-test("the button to the CFO says and shows what it opens in each chat style", () => {
-  assert.deepEqual(cfoDoor("modern"), { label: "Open the CFO's chat", icon: "comment" });
-  assert.deepEqual(cfoDoor("classic"), { label: "Open the CFO's terminal", icon: "terminal" });
+test("the button to the CFO says and shows what it opens", () => {
+  assert.deepEqual(cfoDoor("modern", true), { label: "Open the CFO's chat", icon: "comment" });
+  for (const [style, hasMessages] of [["modern", false], ["classic", true], ["classic", false]] as const) {
+    assert.deepEqual(cfoDoor(style, hasMessages), { label: "Open the CFO's terminal", icon: "terminal" });
+  }
 });
 
 test("the board keeps the chosen chat style for this browser", () => {

@@ -508,7 +508,7 @@ With nothing waiting on the Overlord the line opens with All quiet, and the bar 
 While something in the Command Center waits on him the bar says none of what it is: Open Command Center appears on it beside the terminal icon, glows in the amber of waiting and carries how many items wait, and it opens the Command Center on the first of them.
 The glow breathes, and holds still for a reader who asked for reduced motion.
 While no CFO runs the bar says so and offers Start the CFO instead.
-That button and its portrait open the CFO in the saved chat style and hand it the keyboard: its terminal under the terminal icon in Classic, its chat under the message icon in Modern.
+That button and its portrait open the CFO in the saved chat style and hand it the keyboard: its chat under the message icon in Modern where the CFO has messages to show, and its terminal under the terminal icon otherwise.
 The bar draws no mark of the harness the CFO runs beside its portrait (the Overlord, 2026-10-28: "remove the redundant claude or codex or pi icons in cfo banner in top left of board, only need usage").
 Each allowance dial on it carries its provider's icon inside its ring and no name beside it, as on the CFO's card on the canvas: the Overlord asked on 2026-11-02 for the icon in the circle in place of the Claude and Codex labels.
 A screen reader still hears each dial by its provider's name.
@@ -525,7 +525,7 @@ When AFK mode turns off nothing opens over the board: the stretch becomes his pa
 See [AFK mode in the README](https://github.com/fpresta0607/code-goblins/blob/main/README.md#afk-mode) for what the page shows.
 Selecting a card or node opens the same goblin panel from either view: a one-row header with the goblin and icon actions, then one view with no tabs, the Overlord's ask of 2026-10-23: the goblin's messages or its live terminal, with its task list beside them on a panel 900 px wide or more, and folded under the header as Task on a narrower one or a small screen ([The Messages view](#the-messages-view)).
 The CFO's bar carries the toggle of AFK mode right beside the button that opens the CFO, in either form of the bar, and the CFO's card carries it there too: a small switch labelled AFK, in the board's green while it is on.
-A bar that says the CFO is closed or not running keeps Reopen as its one action, with the switch beside it only while AFK mode is not off, since no panel is left to turn it off from.
+A bar that says the CFO is closed or not running keeps Reopen or Start the CFO as its one action, with the switch beside it only while AFK mode is not off, since no panel is left to turn it off from.
 The turn-on question focuses Cancel, and a switch that cannot be read shows off, with Unreadable: a press resets it in muted words beside it.
 The [README](https://github.com/fpresta0607/code-goblins/blob/main/README.md#afk-mode) describes the switch's loading and refusal displays; a refusal is drawn under the switch, over the board, so it neither widens the bar nor moves the board down.
 On a panel at its narrowest the row cuts the CFO's name short and puts the panel's other controls in More rather than cover or hide the toggle, so it is there at every width.

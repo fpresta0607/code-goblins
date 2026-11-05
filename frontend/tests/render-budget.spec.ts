@@ -1,5 +1,5 @@
 import { writeFile } from "node:fs/promises";
-import { expect, openChat, openTaskList, test, type Page } from "./site";
+import { CFO_DOOR, expect, openChat, openTaskList, test, type Page } from "./site";
 import { GOBLIN, open as openSession, openGoblin, snapshot } from "./session-board";
 
 // The board's render budget (#1599, #1580). The Overlord, 2026-10-27: "every
@@ -245,7 +245,7 @@ test("a snapshot that changes nothing draws no queued card in the CFO's panel", 
   await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
   const snapshot = fleet([...WORKING, ...RESTING]);
   await open(page, snapshot);
-  await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).first().click();
+  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).first().click();
   await openTaskList(page);
   await expect(page.locator(".cfo-queue .task-card-shell").first()).toBeVisible();
   await page.waitForTimeout(1000);

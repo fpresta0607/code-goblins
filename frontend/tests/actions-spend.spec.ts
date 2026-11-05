@@ -361,18 +361,23 @@ test.describe("Actions spend panel", () => {
         const [mark, amount] = await Promise.all([button.locator("svg").boundingBox(), button.locator(".actions-spend-billed").boundingBox()]);
         if (!mark || !amount) throw new Error("the mark or the amount is not drawn");
         expect(Math.round(amount.x - mark.x - mark.width), "the mark and the amount keep the bar's gap").toBe(6);
-        // What shows of it sits the row's own gap from the items either side.
+        expect(Math.abs(amount.y + amount.height / 2 - (mark.y + mark.height / 2)), "the mark and the amount share one line").toBeLessThanOrEqual(1);
+        // What shows of it sits the row's own gap from the items either side, on
+        // a phone only before it, since the AFK switch and the button that opens
+        // the CFO take the next line there.
         if (width >= 390) {
           const around = await button.evaluate((element) => {
             const drawn = (selector: string) => element.querySelector(selector)!.getBoundingClientRect();
             return {
               gap: parseFloat(getComputedStyle(element.parentElement!).columnGap),
               before: drawn("svg").left - element.previousElementSibling!.getBoundingClientRect().right,
+              isNextBeside: element.nextElementSibling!.getBoundingClientRect().top < element.getBoundingClientRect().bottom,
               after: element.nextElementSibling!.getBoundingClientRect().left - drawn(".actions-spend-billed").right,
             };
           });
           expect(Math.round(around.before), "the row's gap before the mark").toBe(around.gap);
-          expect(Math.round(around.after), "the row's gap after the amount").toBe(around.gap);
+          expect(around.isNextBeside, "the next item shares its line").toBe(width > 390);
+          if (around.isNextBeside) expect(Math.round(around.after), "the row's gap after the amount").toBe(around.gap);
         }
         expect(await button.evaluate((element) => element.getBoundingClientRect().right <= innerWidth && element.scrollWidth <= element.clientWidth)).toBe(true);
         expect(panelRequests).toHaveLength(0);

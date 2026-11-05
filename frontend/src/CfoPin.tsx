@@ -9,6 +9,7 @@ import { ReopenCfoButton } from "./reopen-cfo-button";
 import { ActionsSpendHeader } from "./actions-spend-header";
 import { AfkToggle } from "./afk-toggle";
 import { cfoDoor, useChatStyle } from "./chat-style";
+import { messagesQuery } from "./session-messages";
 
 // The CFO pinned above the board's columns: at rest a plain bar, a card like
 // the columns under it, that says how many goblins are at work, with its
@@ -40,7 +41,7 @@ import { cfoDoor, useChatStyle } from "./chat-style";
 // Open Command Center with how many wait is its one way to whatever is there.
 export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot: Snapshot; now: number; onOpen: (source: HTMLElement) => void; onCommand: () => void; onStart: () => void }) {
   const [style] = useChatStyle();
-  const door = cfoDoor(style);
+  const door = cfoDoor(style, !!messagesQuery(snapshot));
   const { waiting, line } = cfoSummary(snapshot);
   const afkSwitch = <AfkToggle afk={snapshot.afk} instance={snapshot.instance} />;
   const date = new Date(now);
@@ -85,6 +86,7 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
       {dials}
       <ActionsSpendHeader usage={snapshot.actions_spend} month={month} instance={snapshot.instance} now={now} />
       {absent && <button className="labelled-button primary" onClick={onStart}><Icon name="play" />Start the CFO</button>}
+      {absent && snapshot.afk.state !== "off" && afkSwitch}
       {!absent && waiting > 0 && <button className="pixel-button outline cfo-command" aria-label={waits} onClick={onCommand}>{command}<span className="cfo-command-count" aria-hidden="true">{waiting}</span></button>}
       {!absent && <div className="cfo-pin-end">
         {afkSwitch}

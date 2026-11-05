@@ -250,6 +250,9 @@ for (const width of [360, 393, 430]) {
     await page.setViewportSize({ width, height: 852 });
     const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
     await openGoblin(page);
+    // The press on his card leaves the pointer over the panel that opened on
+    // it, where it could hover his message and show that message's own actions.
+    await page.mouse.move(0, 0);
     const dock = page.locator(".composer-dock");
 
     // Assert: finished.

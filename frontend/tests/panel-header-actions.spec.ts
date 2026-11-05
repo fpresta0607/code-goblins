@@ -1,4 +1,4 @@
-import { expect, holdStream, type Locator, openChat, openTaskList, type Page, test } from "./site";
+import { CFO_DOOR, expect, holdStream, type Locator, openChat, openTaskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-08 about 21:55Z, of Restart the CFO in the body of
 // the CFO's panel: "what does restart the cfo do.. i want it in header of
@@ -22,7 +22,7 @@ async function open(page: Page, first: object) {
     return route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   await page.goto("/");
-  await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
   await expect(page.locator("#panel-title")).toHaveText("CFO");
   await openTaskList(page);
   await page.evaluate(() => document.fonts.ready);

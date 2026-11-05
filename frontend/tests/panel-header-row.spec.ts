@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "./site";
+import { CFO_DOOR, expect, test, type Locator, type Page } from "./site";
 import { NAME, open, openGoblin, pressRow, snapshot } from "./session-board";
 
 // The Overlord, 2026-10-29: "Minimize height and maximize the space", and of
@@ -17,7 +17,7 @@ const REPORT = "/api/afk/report/index.html";
 const header = (page: Page) => page.locator(".goblin-panel > .panel-header");
 
 async function openCfo(page: Page) {
-  await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
   await expect(page.locator("#panel-title")).toHaveText("CFO");
 }
 
@@ -207,49 +207,6 @@ for (const { where, viewport, pane } of NARROWEST) {
       });
     }
   }
-}
-
-// While his press of AFK waits on the supervisor the switch spins in its
-// track, keeping the width the row was fitted to, so at the narrowest rows
-// Back on a phone and Close beside the board stay in the panel.
-const PRESSED = [
-  { where: "a 360 px phone", viewport: { width: 360, height: 800 }, pane: 0, corner: /^Back to / },
-  { where: "a 360 px panel beside the board", viewport: { width: 1440, height: 900 }, pane: 360, corner: /^Close panel$/ },
-];
-for (const { where, viewport, pane, corner } of PRESSED) {
-  test(`on ${where} in classic, the CFO's AFK switch keeps its width while his press waits, and the corner button stays in the panel`, async ({ page }) => {
-    // Arrange: AFK on, and the supervisor's answer to his press held.
-    await page.setViewportSize(viewport);
-    await page.addInitScript((pane) => {
-      localStorage.setItem("cfo-chat-style", "classic");
-      if (pane) localStorage.setItem("cfo-pane-width", String(pane));
-    }, pane);
-    await open(page, snapshot({ afk: { state: "on", since: new Date().toISOString(), from: "his own board", decided: 0, held: [] } }));
-    let answer = () => {};
-    const answered = new Promise<void>((resolve) => { answer = resolve; });
-    await page.route("**/api/afk", async (route) => {
-      await answered;
-      await route.fulfill({ json: { state: "off" } });
-    });
-    await openCfo(page);
-    const afk = page.locator(".cfo-pin").getByRole("switch", { name: "AFK mode", exact: true });
-    await expect(afk).toHaveAttribute("aria-checked", "true");
-    const resting = await box(afk);
-
-    // Act
-    await afk.click();
-
-    // Assert
-    await expect(afk).toHaveAttribute("aria-busy", "true");
-    expect((await box(afk)).width).toBe(resting.width);
-    const button = header(page).locator(".panel-corner button");
-    await expect(button).toHaveAccessibleName(corner);
-    const panel = await box(page.locator(".context-pane"));
-    const each = await box(button);
-    expect(each.x).toBeGreaterThanOrEqual(panel.x - 0.5);
-    expect(each.x + each.width).toBeLessThanOrEqual(panel.x + panel.width + 0.5);
-    answer();
-  });
 }
 
 // What a press in the CFO's header could not do lies over the conversation

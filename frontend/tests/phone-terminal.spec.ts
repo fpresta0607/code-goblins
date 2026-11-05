@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Page } from "./site";
+import { CFO_DOOR, expect, holdStream, test, type Page } from "./site";
 import { RUNS } from "./terminal-runs";
 
 // The Overlord, 2026-10-20 about 12:20Z, on the board on his phone: "when I
@@ -231,7 +231,7 @@ for (const [size, viewport, isShown] of [["a phone", { width: 390, height: 844 }
     await open(page, RUNS[0]);
 
     // Act
-    await page.getByRole("button", { name: "Open the CFO's terminal" }).first().click();
+    await page.getByRole("button", { name: CFO_DOOR }).first().click();
 
     // Assert: its Terminal view, which shows a Claude Code CFO's messages.
     await expect(page.locator("#panel-title")).toHaveText("CFO");

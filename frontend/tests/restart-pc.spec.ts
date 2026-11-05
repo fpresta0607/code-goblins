@@ -1,4 +1,4 @@
-import { expect, servePages, test, type Page } from "./site";
+import { CFO_DOOR, expect, servePages, test, type Page } from "./site";
 
 // The Overlord, 2026-10-18, after the kernel's pools held 11 GB four days into
 // a boot: "the header shows the restart button in terminal cfo for safe pc
@@ -42,7 +42,7 @@ async function open(page: Page, memory: object, { origin = "", refusal = "" } = 
     await servePages(page.context(), origin);
     await page.goto(origin + "/");
   } else await page.goto("/");
-  await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
   await expect(page.locator(".panel-header #panel-title")).toHaveText("CFO");
   const push = (snapshot: object) => page.evaluate((data) => (window as unknown as { pushSnapshot: (data: string) => void }).pushSnapshot(data), JSON.stringify({ ...BOARD, revision: 2, ...snapshot }));
   return { sent, push, header: page.locator(".panel-header"), line: page.locator(".cfo-header-line") };

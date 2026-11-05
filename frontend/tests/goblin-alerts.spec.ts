@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "./site";
+import { CFO_DOOR, expect, test, type Locator, type Page } from "./site";
 
 // The lantern in SIQstack's look (the Overlord, 2026-10-11): its mint for the
 // lantern's words and counts, its green gradient for a lantern button's fill
@@ -38,7 +38,7 @@ test("the CFO's bar is a plain card at rest and the CFO's lantern box while some
   await expect(command(page).locator(".cfo-command-count")).toHaveText("1");
   expect(await filled(command(page))).toBe(LANTERN_FILL);
   await expect(command(page)).toHaveCSS("animation-name", "none");
-  await needs.locator(".dialogue-actions").getByRole("button", { name: "Open the CFO's terminal" }).click();
+  await needs.locator(".dialogue-actions").getByRole("button", { name: CFO_DOOR }).click();
   await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its icon");
   await needs.locator("button.dialogue-portrait").click();
   await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its portrait");

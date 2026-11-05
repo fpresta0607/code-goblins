@@ -1,4 +1,4 @@
-import { expect, holdStream, type Locator, openTaskList, type Page, test } from "./site";
+import { CFO_DOOR, expect, holdStream, type Locator, openTaskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-07, looking at Claude Code's "Update installed ·
 // Restart to update" in the CFO's terminal: "there should be an easy update
@@ -43,7 +43,7 @@ async function openGoblinPanel(page: Page) {
 }
 
 async function openCfoPanel(page: Page) {
-  await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
   await expect(header(page).locator("#panel-title")).toHaveText("CFO");
 }
 

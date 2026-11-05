@@ -141,11 +141,11 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
 
     }
 
-    // At the panel's narrowest the CFO's row keeps its AFK switch and Close
-    // and puts both of its controls in More.
+    // At the panel's narrowest a goblin's row keeps Back and puts both of its
+    // controls in More.
     test("More holds what the row cannot, by keyboard", async ({ page }) => {
       await open(page, 360);
-      await page.keyboard.press("Control+Alt+1");
+      await page.locator(".task-board .task-card").filter({ hasText: "working-one" }).click();
       const row = pane(page).locator(".panel-top");
       const more = row.getByRole("button", { name: "More", exact: true });
       await more.focus();
@@ -159,7 +159,7 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
       await page.keyboard.press("Escape");
       await expect(items).toHaveCount(0);
       await expect(more).toBeFocused();
-      await expect(page.locator("#panel-title")).toHaveText("CFO");
+      await expect(page.locator("#panel-title")).toHaveText("working-one");
       await expect(pane(page)).toBeVisible();
     });
 
@@ -169,7 +169,7 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
     test("a choice in More by keyboard leaves Escape closing the panel", async ({ page }) => {
       const posted: Posted[] = [];
       await open(page, 360, posted);
-      await page.keyboard.press("Control+Alt+1");
+      await page.locator(".task-board .task-card").filter({ hasText: "working-one" }).click();
       const row = pane(page).locator(".panel-top");
       const more = row.getByRole("button", { name: "More", exact: true });
       await more.focus();
@@ -188,7 +188,7 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
       await expect(more).toHaveCount(0);
       await expect(pane(page)).toBeFocused();
       await page.keyboard.press("Escape");
-      await expect(pane(page)).toBeHidden();
+      await expect(page.locator("#panel-title")).toHaveText("CFO");
     });
 
     test("with room to spare there is no More", async ({ page }) => {

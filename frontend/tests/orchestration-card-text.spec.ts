@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "./site";
+import { CFO_DOOR, expect, test, type Locator, type Page } from "./site";
 
 // A part of a card's text and the lines it takes: all its lines, those a clip
 // leaves at least some of, and those it leaves whole.
@@ -20,7 +20,7 @@ const PARTS: [string, string][] = [
   [".card-status-text, .card-copy > .plain-status", "status"], [".tree-child-runs", "runs"], [".state-chip", "state"], [".tree-memory", "memory"],
   [".card-clock", "clock"], [".card-pr", "pull request"], [".subscription-dial", "dial"], ["strong", "title"], [".browser-indicator", "browser"],
   [".project-label", "project"], ["small", "relation"], [".node-role", "role"], [".node-task", "task"], [".node-status", "status"],
-  [".tree-tally", "tally"], [".tree-count-words", "count"], [".tree-count-memory", "memory"],
+  [".tree-tally", "tally"], [".tree-count-words", "count"], [".tree-count-memory", "memory"], [".afk-toggle-label", "AFK"],
 ];
 
 // What a card paints, measured from the rendered page: each line of its text
@@ -182,7 +182,7 @@ for (const [title, parts] of [
   ["Wilhelmina", ["title", "browser", "project", "status", "clock"]],
   ["Cornelius", ["title", "browser", "project", "status", "clock"]],
   ["Bartholomew", ["title", "project", "status", "clock", "pull request"]],
-  ["CFO", ["title", "status", "dial"]],
+  ["CFO", ["title", "status", "dial", "AFK"]],
 ] as const) {
   test(`${title}'s card paints none of its text beyond its border`, async ({ page }) => {
     // Arrange
@@ -309,7 +309,7 @@ for (const view of ["canvas", "lineage"]) {
     // Assert
     const end = page.locator(".cfo-pin-end");
     const afk = (await end.getByRole("switch", { name: "AFK mode" }).boundingBox())!;
-    const opens = (await end.getByRole("button", { name: "Open the CFO's terminal" }).boundingBox())!;
+    const opens = (await end.getByRole("button", { name: CFO_DOOR }).boundingBox())!;
     expect(Math.abs(afk.y + afk.height / 2 - (opens.y + opens.height / 2))).toBeLessThanOrEqual(1);
     expect(afk.x + afk.width).toBeLessThanOrEqual(opens.x);
     expect(opens.x - (afk.x + afk.width)).toBeLessThanOrEqual(16);
@@ -322,7 +322,7 @@ test("the CFO's canvas card opens its terminal and shows the usage dial", async 
   const cfo = card(page, "CFO");
 
   // Act
-  await cfo.getByRole("button", { name: "Open the CFO's terminal" }).click();
+  await cfo.getByRole("button", { name: CFO_DOOR }).click();
 
   // Assert
   await expect(cfo.getByRole("progressbar", { name: /Claude 62% weekly remaining/ })).toBeVisible();

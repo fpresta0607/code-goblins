@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, openTaskList, ORIGIN, test, type Locator, type Page, type Route } from "./site";
+import { CFO_DOOR, expect, openTaskList, ORIGIN, test, type Locator, type Page, type Route } from "./site";
 
 // AFK mode on the board: the toggle on the CFO's bar, what that bar says while
 // it is on, the offer when he is back and the link to his page
@@ -114,7 +114,7 @@ const look = (row: Locator) => row.evaluate((element) => {
 });
 // The CFO's panel, which the CFO's bar opens.
 async function openCfoPanel(page: Page) {
-  await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  await bar(page).getByRole("button", { name: CFO_DOOR }).last().click();
   await expect(header(page).locator("#panel-title")).toHaveText("CFO");
 }
 
@@ -453,7 +453,6 @@ test.describe("AFK report layout", () => {
     await page.route("**" + PAGE, (route) => route.fulfill({ contentType: "text/html", body: html }));
     await page.route("**/api/afk/report/afk-fixture/*.{png,webp}", (route) => route.fulfill({ path: join("public/assets", new URL(route.request().url()).pathname.split("/").at(-1)!) }));
     await page.route("**/pictures/*.png", (route) => route.fulfill({ path: "public/assets/goblin-workshop.webp" }));
-    await openCfoPanel(page);
     await toggle(page).click();
     await push(page, snapshot({ afk: KEPT, questions: QUESTIONS }));
     const report = page.getByRole("dialog", { name: "Your AFK report" });
@@ -700,13 +699,21 @@ const within = (page: Page, selector: string) => page.locator(selector).evaluate
   const box = element.getBoundingClientRect();
   return [...element.children].every((child) => { const part = child.getBoundingClientRect(); return part.width === 0 || part.left >= box.left - 0.5 && part.right <= box.right + 0.5 && part.top >= box.top - 0.5 && part.bottom <= box.bottom + 0.5; });
 });
-const smallest = (page: Page) => bar(page).evaluate((pin) => Math.min(...[...pin.querySelectorAll("p, span, strong, small, time, button, summary")].filter((element) => (element.textContent || "").trim() !== "").map((element) => parseFloat(getComputedStyle(element).fontSize))));
+const smallest = (page: Page) => bar(page).evaluate((pin) => Math.min(...[...pin.querySelectorAll("p, span, strong, small, time, button, summary")].filter((element) => (element.textContent || "").trim() !== "" && !element.closest(".subscription-dial, .actions-spend-header")).map((element) => parseFloat(getComputedStyle(element).fontSize))));
 const fits = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+
+// What the bar draws beside the toggle on a real board: the weekly dials and
+// the Actions bill.
+const readAt = new Date().toISOString();
+const METERS = {
+  subscriptions: ["claude", "codex"].map((provider) => ({ provider, status: "available", source: "oauth", percent_remaining: 75, read_at: readAt, resets_at: new Date(Date.now() + 86_400_000).toISOString(), floor_percent: 20 })),
+  actions_spend: { status: "available", month: readAt.slice(0, 7), total: { minutes: 700, used_usd: 12, billed_usd: 8.5 }, repositories: [], read_at: readAt, checked_at: readAt, detail: "" },
+};
 
 // The Overlord, 2026-11-05: "Put afk toggle in main header next to terminal
 // button". It stands right beside that button at the row's own gap, on the
 // bar's resting row and its lantern box, and nothing leaves the bar or the
-// page, on and off, with items waiting and none.
+// page, on and off, with items waiting and none, beside all the bar can hold.
 for (const width of [1440, 390]) {
   for (const isOn of [false, true]) {
     for (const waiting of [0, 2]) {
@@ -715,11 +722,12 @@ for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 844 });
 
         // Act
-        await open(page, snapshot({ questions: QUESTIONS.slice(0, waiting), afk: isOn ? on({ decided: 4, held: HELD.slice(0, waiting) }) : { state: "off" } }));
+        await open(page, snapshot({ ...METERS, cfo_terminal: "cfo", questions: QUESTIONS.slice(0, waiting), afk: isOn ? on({ decided: 4, held: HELD.slice(0, waiting) }) : { state: "off" } }));
 
         // Assert
+        await expect(bar(page).getByRole("button", { name: /billed this month/ })).toBeVisible();
         await expect(toggle(page)).toHaveAttribute("aria-checked", String(isOn));
-        const opens = bar(page).locator(".cfo-pin-end").getByRole("button", { name: "Open the CFO's terminal" });
+        const opens = bar(page).locator(".cfo-pin-end").getByRole("button", { name: CFO_DOOR });
         const left = (await toggle(page).boundingBox())!, right = (await opens.boundingBox())!;
         const gap = await bar(page).locator(".cfo-pin-end").evaluate((element) => parseFloat(getComputedStyle(element).columnGap));
         expect(Math.round(right.x - (left.x + left.width)), "at the row's own gap").toBe(gap);
@@ -740,14 +748,14 @@ for (const width of [1440, 390]) {
 }
 
 // The button says and shows what it opens: the message icon of the panel's
-// Chat view with Modern chat saved, and the terminal otherwise (the Overlord,
-// 2026-11-05: "Make the terminal button the chat icon as well with the modern
-// chat being used").
+// Chat view with Modern chat saved and messages to show, and the terminal
+// otherwise (the Overlord, 2026-11-05: "Make the terminal button the chat icon
+// as well with the modern chat being used").
 for (const waiting of [0, 2]) {
   test(`with Modern chat saved and ${waiting} waiting the bar's button says chat and draws the Chat view's icon`, async ({ page }) => {
     // Arrange
     await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
-    await open(page, snapshot({ questions: QUESTIONS.slice(0, waiting) }));
+    await open(page, snapshot({ cfo_terminal: "cfo", questions: QUESTIONS.slice(0, waiting) }));
     const opens = bar(page).locator(".cfo-pin-end").getByRole("button", { name: "Open the CFO's chat" });
     await expect(opens).toHaveAttribute("data-tip", "Open the CFO's chat");
     await expect(bar(page).getByRole("button", { name: "Open the CFO's terminal" })).toHaveCount(0);
@@ -762,8 +770,51 @@ for (const waiting of [0, 2]) {
   });
 }
 
-// A closed CFO's bar keeps its one Reopen, and no panel is left to turn AFK
-// off from, so the switch stays there only while AFK is not off.
+for (const [saved, fields] of [["classic", { cfo_terminal: "cfo" }], ["modern", {}]] as const) {
+  test(`with ${saved} saved and ${"cfo_terminal" in fields ? "messages" : "no messages"} to show the bar's button says terminal and opens it`, async ({ page }) => {
+    // Arrange
+    await page.addInitScript((style) => localStorage.setItem("cfo-chat-style", style), saved);
+    await open(page, snapshot(fields));
+    const opens = bar(page).locator(".cfo-pin-end").getByRole("button", { name: "Open the CFO's terminal" });
+    await expect(opens).toHaveAttribute("data-tip", "Open the CFO's terminal");
+
+    // Act
+    await opens.click();
+
+    // Assert
+    await expect(page.locator(".context-pane").locator(".terminal-surface, .xterm").first()).toBeAttached();
+    await expect(page.getByRole("region", { name: "Messages", exact: true })).toHaveCount(0);
+  });
+}
+
+// While his press waits on the supervisor the switch spins in its track and
+// keeps the width the bar was fitted to.
+for (const width of [1440, 390]) {
+  test(`at ${width} px the bar's AFK switch keeps its width while his press waits`, async ({ page }) => {
+    // Arrange: AFK on, and the supervisor's answer to his press held.
+    await page.setViewportSize({ width, height: 900 });
+    await open(page, snapshot({ afk: on() }));
+    let answer = () => {};
+    const answered = new Promise<void>((resolve) => { answer = resolve; });
+    await page.route("**/api/afk", async (route) => {
+      await answered;
+      await route.fulfill({ json: { state: "off" } });
+    });
+    const resting = (await toggle(page).boundingBox())!;
+
+    // Act
+    await toggle(page).click();
+
+    // Assert
+    await expect(toggle(page)).toHaveAttribute("aria-busy", "true");
+    expect((await toggle(page).boundingBox())!.width).toBe(resting.width);
+    answer();
+  });
+}
+
+// A bar with no CFO running keeps its one way to start one, and no panel is
+// left to turn AFK off from, so the switch stays there only while AFK is not
+// off.
 for (const [state, count] of [["off", 0], ["on", 1], ["unreadable", 1]] as const) {
   test(`a closed CFO's bar with AFK ${state} shows the switch ${count} times`, async ({ page }) => {
     // Act
@@ -771,6 +822,19 @@ for (const [state, count] of [["off", 0], ["on", 1], ["unreadable", 1]] as const
 
     // Assert
     await expect(bar(page).getByRole("button", { name: "Reopen the CFO" })).toBeVisible();
+    await expect(toggle(page)).toHaveCount(count);
+  });
+
+  test(`with no CFO running and AFK ${state} the bar shows the switch ${count} times`, async ({ page }) => {
+    // Arrange
+    await open(page, snapshot());
+    await push(page, snapshot({ cfo_runs: false, afk: state === "on" ? on() : { state } }));
+
+    // Act
+    await page.getByRole("button", { name: "Board", exact: true }).click();
+
+    // Assert
+    await expect(bar(page)).toContainText("No CFO is running.");
     await expect(toggle(page)).toHaveCount(count);
   });
 }
@@ -817,7 +881,7 @@ test.describe("a board left open across an update", () => {
     return loads;
   }
   const loadedBuild = (page: Page) => page.locator('meta[name="cfo-build"]').getAttribute("content");
-  const openTerminal = (page: Page) => bar(page).getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  const openTerminal = (page: Page) => bar(page).getByRole("button", { name: CFO_DOOR }).last().click();
 
   test("opening a terminal reloads it once onto the new build, where the terminals open", async ({ page }) => {
     // Arrange

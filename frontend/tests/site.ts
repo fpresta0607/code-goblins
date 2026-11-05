@@ -148,6 +148,10 @@ export async function roomForATest({ free, limit, pause, ci }: Room = MACHINE): 
 // opens another context serves that one itself. Modern Chat's specs predate
 // Classic as the board's default, so a test's browser chose Modern unless it
 // says otherwise.
+// The board's button to the CFO, named for what it opens in the saved chat
+// style.
+export const CFO_DOOR = /^Open the CFO's (chat|terminal)$/;
+
 export const test = base.extend<{ room: Room; paced: void; hadTour: boolean; chatStyle: string | null; isSteppedIn: boolean }>({
   room: [MACHINE, { option: true }],
   hadTour: [true, { option: true }],
