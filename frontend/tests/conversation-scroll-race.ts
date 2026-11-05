@@ -86,7 +86,7 @@ const HISTORY = Array.from({ length: 300 }, (_, seq) => seq % 2 ? answer(seq) : 
 const WORKING = { type: "screen", asking: false, open: false, working: true, submission: "", doing: "Cogitating" };
 
 interface Frame { t: number; top: number; end: number; rows: { id: string; offset: number }[] }
-interface Written { t: number; kind: string; delta: number; sinceScroll: number }
+interface Written { t: number; frame: number; kind: string; delta: number; sinceScroll: number }
 interface Watched { frames: Frame[]; writes: Written[]; rowsDrawn: number[] }
 interface Watcher { watch: () => void; watched: () => Watched; quiet: () => number; flick: (distance: number) => Promise<void>; land: (distance: number) => void; startStream: (every?: number) => void; stopStream: () => void; newest: () => string }
 const watcher = (page: Page) => page.evaluate(() => (window as unknown as Watcher).watch());
@@ -114,7 +114,7 @@ async function streamingTalk(page: Page, { isStreaming = true, owner = "goblin" 
       }
       const before = scrollTop.get!.call(box), at = performance.now();
       write();
-      writes.push({ t: at, kind, delta: scrollTop.get!.call(box) - before, sinceScroll: at - scrolled });
+      writes.push({ t: at, frame: frames.length, kind, delta: scrollTop.get!.call(box) - before, sinceScroll: at - scrolled });
     };
     Object.defineProperty(Element.prototype, "scrollTop", { configurable: true, get(this: Element) { return scrollTop.get!.call(this); },
       set(this: Element, value: number) { written(this, "scrollTop", () => scrollTop.set!.call(this, value)); } });
@@ -208,17 +208,20 @@ async function streamingTalk(page: Page, { isStreaming = true, owner = "goblin" 
   return { talk, start, stop: () => { clearInterval(says); return page.evaluate(() => (window as unknown as Watcher).stopStream()); } };
 }
 
-const writtenBetween = (writes: Written[], from: Frame, to: Frame) => writes.filter((write) => write.t > from.t && write.t <= to.t).reduce((sum, write) => sum + write.delta, 0);
+// writtenBefore is how far the page's writes moved the list since the frame
+// before this one. Each write names the frame it came before, as the clock is
+// too coarse to order them: WebKit's ticks in whole milliseconds.
+const writtenBefore = (writes: Written[], at: number) => writes.filter((write) => write.frame === at).reduce((sum, write) => sum + write.delta, 0);
 
 // moved is the most any row in view jumped from one frame to the next: how
 // far it moved within the list's content, less how far the page's own scroll
 // writes moved the list meanwhile. His own scroll moves the scroll top alone,
 // never a row's place in the content, and a row the page moves by as much as
 // it scrolls the list stays where he sees it.
-function moved({ frames, writes }: Watched) {
+export function moved({ frames, writes }: Watched) {
   let most = 0;
   for (let at = 1; at < frames.length; at++) {
-    const written = writtenBetween(writes, frames[at - 1], frames[at]);
+    const written = writtenBefore(writes, at);
     for (const row of frames[at].rows) {
       const prior = frames[at - 1].rows.find((each) => each.id === row.id);
       if (prior) most = Math.max(most, Math.abs(row.offset + frames[at].top - prior.offset - frames[at - 1].top - written));
@@ -232,7 +235,7 @@ function moved({ frames, writes }: Watched) {
 // writes nothing, so no count of the page's writes shows it.
 function fellBack({ frames, writes }: Watched) {
   let most = 0;
-  for (let at = 1; at < frames.length; at++) most = Math.max(most, frames[at - 1].top + writtenBetween(writes, frames[at - 1], frames[at]) - frames[at].top);
+  for (let at = 1; at < frames.length; at++) most = Math.max(most, frames[at - 1].top + writtenBefore(writes, at) - frames[at].top);
   return most;
 }
 

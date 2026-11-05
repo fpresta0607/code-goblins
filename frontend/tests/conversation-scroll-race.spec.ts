@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "./site";
 import { at, GOBLIN, NAME, open, openGoblin, snapshot } from "./session-board";
-import { delayedScroll, flingsOverHeldReplies, landsOverHeldRepliesAfterShortRows, leaveEndWhileStreaming, readOlderPastLostRelease, readUpUnderHeldFinger, readUpWhileStreaming, rowGrowsAboveHim } from "./conversation-scroll-race";
+import { delayedScroll, flingsOverHeldReplies, landsOverHeldRepliesAfterShortRows, leaveEndWhileStreaming, moved, readOlderPastLostRelease, readUpUnderHeldFinger, readUpWhileStreaming, rowGrowsAboveHim } from "./conversation-scroll-race";
 
 for (const owner of ["CFO", "goblin"] as const) {
   for (const movement of ["keyboard", "wheel"] as const) {
@@ -184,6 +184,16 @@ test("an older page after a read-in below him leaves the message he reads where 
   }, before.id);
   expect(after).not.toBeNull();
   expect(Math.abs(after! - before.offset)).toBeLessThanOrEqual(1);
+});
+
+// moved reads a write against the frames around it, and the clock cannot order
+// them: WebKit's ticks in whole milliseconds, so a write just after a frame can
+// carry that frame's time and read as a jump of all it wrote.
+test("moved reads a write on the tick of the frame before it as moving nothing, and a row's own jump as a jump", () => {
+  const rows = [{ id: "m1", offset: 5 }];
+  const frames = [{ t: 10, top: 100, end: 0, rows }, { t: 20, top: 100, end: 0, rows }, { t: 30, top: 300, end: 0, rows }];
+  expect(moved({ frames, writes: [{ t: 20, frame: 2, kind: "scrollTop", delta: 200, sinceScroll: 300 }], rowsDrawn: [] })).toBe(0);
+  expect(moved({ frames: [frames[0], { ...frames[1], rows: [{ id: "m1", offset: 47 }] }], writes: [], rowsDrawn: [] })).toBe(42);
 });
 
 async function raceTalk(page: Page, actions: object[] = [], setup?: () => Promise<void>) {
