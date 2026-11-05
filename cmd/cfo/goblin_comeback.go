@@ -35,8 +35,8 @@ const restartNote = "The machine restarted, which ended your terminal; this is y
 // bringGoblinsBack brings back, in place, every goblin a reboot or sign-out
 // ended: each task with a record whose native terminal no longer runs,
 // except one paused or stopped on purpose or one whose latest report
-// delivered a pull request and that took no prompt since, which waits on its
-// merge. One whose resume the reboot cut short comes back through a resume
+// delivered and that took no prompt since, which waits on its merge or on
+// nothing. One whose resume the reboot cut short comes back through a resume
 // that finishes it, and each other through the switch cfo switch makes to
 // what the task already runs, keeping its worktree, its uncommitted work, its
 // harness, model and effort, on its own conversation where the board's record
