@@ -7,7 +7,8 @@ import { pathToFileURL } from "node:url";
 // page a script draws whose only link to a product page is drawn too, and
 // whose script asks for data robots.txt disallows, directly and through a
 // redirect, and starts a service worker that would ask for more, a page only
-// the sitemap names, a page that redirects to one the sitemap names and one
+// the sitemap names, two pages only an inline SVG links to, one by href and one
+// by xlink:href, a page that redirects to one the sitemap names and one
 // that redirects into a disallowed folder, a page whose script never stops
 // asking for data, linked PDFs, two of them at addresses that differ only in
 // a slash, one that redirects into a disallowed folder, and a folder
@@ -76,7 +77,7 @@ export function startFixtureSite({ delayMs = 0, extraPages = 0 } = {}) {
     "/sitemap.xml": () => ["application/xml", `<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${[...["/sitemap-pages.xml", ...archives].map((route) => origin + route), `${offSiteOrigin}/sitemap.xml`].map((sitemap) => `<sitemap><loc>${sitemap}</loc></sitemap>`).join("")}</sitemapindex>`],
     "/sitemap-pages.xml": () => ["application/xml", `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${["/", "/about", "/workshops", "/visit/"].map((route) => `<url><loc>${origin}${route}</loc></url>`).join("")}</urlset>`],
     "/": () => ["text/html", page("Fernwood Kites", `${NAV}<main><h1>Fernwood Kites</h1><p>Hand-sewn kites since 1987.</p><p><a href="/docs/price-list.pdf">Price list (PDF)</a> <a href="/docs/old-price-list.pdf">Last year's price list (PDF)</a> <a href="/docs/kites/care.pdf">Care guide (PDF)</a> <a href="/docs/kites-care.pdf">Care sheet (PDF)</a> <a href="/visit">Visit us</a> <a href="/staff">Staff room</a> <a href="/private/notes">Staff notes</a> <a href="/live">Live wind</a> <a href="/welcome">Welcome</a> <a href="/loop">Kite loop</a> <a href="/kite-cam">Kite cam</a><a href="https://example.org/partner">Our partner</a></p>${extra.map((route) => `<a href="${route}">${route}</a>`).join(" ")}</main><footer>Fernwood Kites, a made-up shop</footer>`)],
-    "/about": () => ["text/html", page("About", `${NAV}<main><h1>About us</h1><img src="/images/workshop.jpg" alt="The workshop"><table><tr><th>Day</th><th>Hours</th></tr><tr><td>Saturday</td><td>9 to 17</td></tr></table></main>`)],
+    "/about": () => ["text/html", page("About", `${NAV}<main><h1>About us</h1><img src="/images/workshop.jpg" alt="The workshop"><table><tr><th>Day</th><th>Hours</th></tr><tr><td>Saturday</td><td>9 to 17</td></tr></table><svg width="200" height="20"><a href="/shows"><text y="15">Shows</text></a><a xlink:href="/gallery"><text x="80" y="15">Gallery</text></a></svg></main>`)],
     "/catalog": () => ["text/html", page("Catalog", `${NAV}<main id="catalog"><h1>Catalog</h1><p>Loading...</p></main><script src="/catalog.js"></script><script src="${offSiteOrigin}/widget.js"></script>`)],
     "/catalog.js": () => ["text/javascript", `document.getElementById("catalog").innerHTML = '<h1>Catalog</h1><ul><li><a href="/catalog/box-kite">Box kite</a></li></ul>'; fetch("/private/stock.json").catch(() => {}); fetch("/api/stock").catch(() => {}); Promise.resolve(navigator.serviceWorker?.register("/sw.js")).catch(() => {}); fetch("/search", { method: "POST", body: "q=box kite" }).catch(() => {}); new EventSource("/events"); new WebSocket(\`ws://\${location.host}/live/socket\`); window.open("/private/popup");`],
     "/sw.js": () => ["text/javascript", `self.addEventListener("install", (event) => event.waitUntil(fetch("/private/worker.json").catch(() => {})));`],
@@ -87,6 +88,8 @@ export function startFixtureSite({ delayMs = 0, extraPages = 0 } = {}) {
     "/welcome": () => ["text/html", page("Welcome", `${NAV}<main><h1>Welcome</h1><p>Read once the shop's cookie is set.</p></main>`)],
     "/catalog/box-kite": () => ["text/html", page("Box kite", `${NAV}<main><h1>Box kite</h1><p>A kite drawn only by the catalog's script.</p></main>`)],
     "/workshops": () => ["text/html", page("Workshops", `${NAV}<main><h1>Workshops</h1><p>Only the sitemap links here.</p></main>`)],
+    "/shows": () => ["text/html", page("Shows", `${NAV}<main><h1>Shows</h1><p>Only a drawing on the about page links here.</p></main>`)],
+    "/gallery": () => ["text/html", page("Gallery", `${NAV}<main><h1>Gallery</h1><p>Only a drawing on the about page links here.</p></main>`)],
     "/visit/": () => ["text/html", page("Visit us", `${NAV}<main><h1>Visit us</h1><p>The shop is open on Saturdays.</p></main>`)],
     "/private/notes": () => ["text/html", page("Staff notes", "<p>robots.txt disallows this page.</p>")],
     "/private/staff-room": () => ["text/html", page("Staff room", "<p>robots.txt disallows this page.</p>")],

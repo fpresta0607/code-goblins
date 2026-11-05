@@ -51,9 +51,15 @@ describe("a crawl of the fixture site", () => {
 
   test("reads every route, those only the sitemap or a script names included", () => {
     const read = report.routes.filter((entry) => entry.kind === "page" && entry.status === "read").map((entry) => new URL(entry.url).pathname).sort();
-    assert.deepEqual(read, ["/", "/about", "/catalog", "/catalog/box-kite", "/live", "/visit/", "/welcome", "/workshops"]);
+    assert.deepEqual(read, ["/", "/about", "/catalog", "/catalog/box-kite", "/gallery", "/live", "/shows", "/visit/", "/welcome", "/workshops"]);
     assert.deepEqual(route("/workshops").found_by, ["sitemap"]);
     assert.deepEqual(route("/catalog/box-kite").found_by, [new URL("/catalog", site.url).href]);
+  });
+
+  test("follows a link in a page's inline SVG, by href or by xlink:href", () => {
+    const about = new URL("/about", site.url).href;
+    assert.deepEqual(route("/shows")?.found_by, [about]);
+    assert.deepEqual(route("/gallery")?.found_by, [about]);
   });
 
   test("reads the page a script draws as the browser shows it", async () => {
@@ -189,7 +195,7 @@ test("a crawl keeps at most a few requests in flight at a time, the browser's ow
 
     // Assert
     assert.ok(asked("/live/data") > MAX_IN_FLIGHT, "the live page never asked for more data than the crawl has slots, so none of its requests waited when it closed");
-    assert.equal(report.counts.pages_read, 8 + extraPages, "the crawl did not read every page");
+    assert.equal(report.counts.pages_read, 10 + extraPages, "the crawl did not read every page");
     assert.deepEqual(report.routes.filter((entry) => entry.status === "unread").map((entry) => new URL(entry.url)).map((url) => url.pathname + url.search).sort(), ["/docs/old-price-list.pdf", "/kite-cam", "/loop?check=1", "/private/notes", "/staff"]);
     for (let number = 1; number <= extraPages; number += 1) {
       assert.equal(asked(`/more/${number}`), 1, `/more/${number} was not read at its first navigation`);

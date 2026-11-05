@@ -350,6 +350,14 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
 // leads, as the rendered page holds it.
 function readPage() {
   const textOf = (element) => (element.innerText || element.textContent || "").trim().replace(/\s+/g, " ");
+  // An SVG link's href property is an object, not its address, and its
+  // attribute may be xlink:href, so one HTML link resolves every link's
+  // attribute against the page's base address.
+  const resolver = document.createElement("a");
+  const addressOf = (link) => {
+    resolver.href = link.getAttribute("href") ?? link.getAttributeNS("http://www.w3.org/1999/xlink", "href");
+    return resolver.href;
+  };
   return {
     title: document.title,
     description: document.querySelector('meta[name="description"]')?.getAttribute("content") ?? "",
@@ -364,7 +372,7 @@ function readPage() {
     text: document.body ? document.body.innerText : "",
     tables: [...document.querySelectorAll("table")].map((table) => [...table.rows].map((row) => [...row.cells].map((cell) => textOf(cell)))),
     images: [...document.querySelectorAll("img")].map((image) => ({ src: image.src, alt: image.alt })),
-    links: [...document.querySelectorAll("a[href], area[href]")].map((link) => link.href),
+    links: [...document.querySelectorAll("a[*|href], area[href]")].map(addressOf),
   };
 }
 
