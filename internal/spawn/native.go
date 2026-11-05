@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/crawler"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -133,12 +134,16 @@ func IsCallerSessionVariable(name string) bool {
 // nativeEnvironment stamps explicit task identity, and the goblin's parent
 // as parentSession names it. The task's browser session is its own, named by
 // its id, which is always a name the tool takes: at most 64 letters, digits,
-// dots, dashes and underscores.
+// dots, dashes and underscores. A task its brief did not leave the crawler
+// out of is given the home's crawler folder, which its terminal puts on PATH.
 func (s Service) nativeEnvironment(env map[string]string, meta state.TaskMeta) {
 	env["CFO_TASK_ID"], env["CFO_SPAWN_GEN"] = meta.ID, meta.SpawnGen
 	env[BrowserSessionVariable] = meta.ID
 	env["CFO_PARENT_SESSION_ID"], env["CFO_PARENT_HARNESS"] = s.parentSession(meta)
 	env["CFO_ROOT_SESSION_ID"] = os.Getenv("CFO_ROOT_SESSION_ID")
+	if !meta.IsCrawlerLeftOut {
+		env[crawler.PathVariable] = crawler.BinDir(s.HomeRoot)
+	}
 }
 
 // parentSession is the session a goblin records as its parent: the session

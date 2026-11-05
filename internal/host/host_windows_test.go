@@ -1353,9 +1353,9 @@ func TestALaunchedHostIsStartedOneClassAboveTheWork(t *testing.T) {
 // ends it, where a host that answers in time is served.
 func TestALaunchSaysPlainlyWhenItsHostDoesNotAnswerInTime(t *testing.T) {
 	// Arrange
-	usual := launchTimeout
-	launchTimeout = 500 * time.Millisecond
-	t.Cleanup(func() { launchTimeout = usual })
+	usual := LaunchTimeout
+	LaunchTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { LaunchTimeout = usual })
 	stateDir := t.TempDir()
 
 	// Act
@@ -1393,9 +1393,9 @@ func TestALaunchSaysPlainlyWhenItsHostDoesNotAnswerInTime(t *testing.T) {
 // (issue #1472), since Kill only asks Windows to end a process.
 func TestALaunchThatEndsAHostWhichDidNotAnswerReturnsOnceItHasEnded(t *testing.T) {
 	// Arrange
-	usual := launchTimeout
-	launchTimeout = 300 * time.Millisecond
-	t.Cleanup(func() { launchTimeout = usual })
+	usual := LaunchTimeout
+	LaunchTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { LaunchTimeout = usual })
 	stateDir := t.TempDir()
 	logPath := filepath.Join(stateDir, "hosts", "g1.log")
 

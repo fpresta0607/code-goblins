@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/crawler"
 )
 
 var ErrBriefNotReady = errors.New("brief is not ready")
@@ -68,6 +69,9 @@ func ValidateBriefReadiness(content []byte) error {
 	}
 	if need.IsUnstated || need.IsMCPUnstated {
 		return fmt.Errorf("%w: explicitly name credentials and mcp in Authentication, or write none", ErrBriefNotReady)
+	}
+	if _, err := crawler.IsLeftOutBy(text); err != nil {
+		return fmt.Errorf("%w: %v", ErrBriefNotReady, err)
 	}
 	if !isReadySeen {
 		return fmt.Errorf("%w: finish the requirements and launch choices, then run cfo brief ready <id>", ErrBriefNotReady)

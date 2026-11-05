@@ -23,6 +23,7 @@ var staysAtNormal = map[string]string{
 	"help":              "prints embedded command and procedure references without opening a home",
 	"doctor":            "runs every tool's own version check",
 	"dictation":         "downloads and checks the speech engine",
+	"crawler":           "installs the crawler's packages with npm",
 	"dev-drive":         "reads and sets up drives",
 	"defender":          "reads Microsoft Defender's own records, which takes seconds",
 	"allowance-floor":   "sets one number nothing waits on",
