@@ -876,11 +876,11 @@ The fleet's own controls run one priority class above normal, and never higher.
 They are the supervisor, each terminal's host, and the commands that are a short conversation with one of them or with the home's own records: `status`, `stop`, `attach`, `send`, `answer`, `peek`, `fleet-view`, `drain`, `watch`, `notify`, `question`, `register`, `pause`, `resume`, `kill`, `update`, `process-plan`, `session-start`, `hook` and `native-hook`.
 Each raises itself as its first act (`priority.AboveTheWork`) and gives the class back when its work ends.
 A terminal's host and its input waker are started at that class too (`priority.StartAboveTheWork`), since a host's launch waits 15 seconds for the host's record and the host waits on its waker, and a process that raises itself does so only once its code runs.
-Coming to exist was most of each start: on 2026-10-15, beside ten busy threads on the goblins' cores, a host took 0.5 to 0.8 seconds to reach its own code and its waker as long again to say it was ready, at normal priority, and the waker started raised was ready in 0.15 to 0.35 seconds.
+Coming to exist was most of each start: on 2026-10-15, beside ten busy threads on the goblins' cores, the efficiency cores then among them, a host took 0.5 to 0.8 seconds to reach its own code and its waker as long again to say it was ready, at normal priority, and the waker started raised was ready in 0.15 to 0.35 seconds.
 The rest of a host's start, its console and its program's start among it, took milliseconds either way, so those two starts at normal priority are what grew until a host missed the bound on a busier machine (issue #891).
 A process that is not at normal priority is left as it is: one that runs lower was put there on purpose and hands its class to what it starts.
 At the priority of the builds and tests it supervises, a control waited its turn behind them after each of its system calls.
-Measured on 2026-10-10, each control at normal priority and then raised, beside sixteen busy threads on every core, and beside ten kept to the cores goblin work keeps since it leaves half of the performance cores to the Overlord's apps:
+Measured on 2026-10-10, each control at normal priority and then raised, beside sixteen busy threads on every core, and beside ten kept to the cores goblin work kept on that date, which left half of the performance cores to the Overlord's apps and held the efficiency cores in its mask:
 
 | Control | Every core, normal | Every core, raised | Goblin cores, normal | Goblin cores, raised |
 | --- | --- | --- | --- | --- |
@@ -894,7 +894,8 @@ Measured on 2026-10-10, each control at normal priority and then raised, beside 
 | `cfo peek`, its own work | 2.4 s | 2.0 s | 0.07 s, worst 0.9 | 0.013 s |
 | The supervisor's progress reading of one goblin, two git commands | 0.89 s | 0.77 s | 0.17 s | 0.14 s |
 
-Windows keeps a hidden process that asks for nothing on the efficiency cores, which goblin work may fill, so a control that makes no such request gains most from the raise once goblin work keeps to its own cores.
+Windows keeps a hidden process that asks for nothing on the efficiency cores, which goblin work could fill on that date, so a control that made no such request gained most from the raise.
+Goblin work has kept off the efficiency cores since issue #2075, so those figures are not a reading of the mask it has now.
 A goblin's harness and everything started in its terminal run at normal, a `cfo` command a goblin runs there included, and so does what a gate agent starts.
 Windows gives the child of a raised process the normal class as long as its start names none, and no start in the fleet names one but a host's and its waker's.
 `TestAHostRunsOneClassAboveItsTerminalWhichRunsAtNormal`, `TestWhatARaisedProcessStartsThroughExecxRunsAtNormal`, `TestWhatARaisedHostStartsForItsConsoleRunsAtNormalButItsWaker` and `TestARunItemARaisedSupervisorStartsRunsAtNormal` hold that for each way the fleet starts a process, `TestALaunchedHostIsStartedOneClassAboveTheWork` that a host is raised from its start, and `TestEveryProcessStartGoesThroughCommand` reports a priority class named anywhere but `internal/priority`, and a start above the work anywhere but a host's launch and its waker's start.
@@ -904,13 +905,15 @@ A command or a hook is started at its caller's priority and raises itself only o
 For a peek, and for the monitor's reading of a screen, the terminal's input waker asks the console for each row, and the console answers at normal priority.
 Each progress reading starts git twice in a goblin's worktree, and a process the fleet starts runs at normal.
 One slow key in a run is a hosted runner's scheduling noise (504 ms seen with the test's job to itself); two slow keys fail, and a failure names the slow keys by number.
-Apart from that policy, a goblin's terminal keeps off the performance cores the fleet's work leaves to the Overlord's own apps: half of the machine's performance cores, rounded up to whole cores, the last of them as Windows numbers them.
-`cfo spawn` starts a goblin's host with `--leave-cores-for-apps`, and the host keeps the terminal's process to the other processor threads before it runs.
+Apart from that policy, a goblin's terminal keeps to performance cores, all of a machine's cores where they are of one kind, and off those the fleet's work leaves to the Overlord's own apps: half of the machine's performance cores, rounded up to whole cores, the last of them as Windows numbers them.
+`cfo spawn` starts a goblin's host with `--leave-cores-for-apps`, and the host keeps the terminal's process to the threads of the other performance cores before it runs.
 Windows starts every process on the threads of the one that started it, so everything the goblin starts keeps to them, whether it stays in the terminal's job or leaves it, as what Git Bash runs does.
 A processor limit on the job would not hold a process that leaves the job, so the host sets none.
-On a PC of six performance and four efficiency cores, a test Chrome showed its window after 0.53 s with nothing added, 4.11 s under goblin work on every core, 2.33 s with that work kept off two performance cores and 0.98 s with it kept off three, each a median, of two starts for three cores.
+On 2026-10-10, on a PC of six performance and four efficiency cores, with the efficiency cores in the mask, a test Chrome showed its window after 0.53 s with nothing added, 4.11 s under goblin work on every core, 2.33 s with that work kept off two performance cores and 0.98 s with it kept off three, each a median, of two starts for three cores.
 Kept off three, the work got through 59% as much while it filled every core it kept, and nothing less when it did not.
 The test Chrome was never the window in front, so a start the Overlord clicks himself may be quicker than these at any share.
+The efficiency cores stay with the system's background work, because Windows keeps a hidden process that asks for nothing on them and does not move that work to a performance core when they fill, and what a terminal starts asks for nothing.
+On 2026-11-05, on the same kind of PC, eight hidden CPU-bound processes of 6 seconds' work each were started together: with the efficiency cores in the mask 1 or 2 finished within the wait, the efficiency cores 100 percent busy and the performance threads 13 to 70, and without them all 8 did, the performance threads 50 to 100 percent busy.
 There is no such limit on a machine with one performance core, on a machine with more than one processor group, or where the cores cannot be read, which the host's log says, and a terminal is never given a thread its host may not itself run on.
 The CFO's terminal, a run card's terminal and a staged harness's proof start keep every core.
 Installing a build or restarting `serve` leaves existing hosts running their original code; the persistent policy takes effect in newly launched hosts, so resume each existing session only when its active work permits a host restart.
