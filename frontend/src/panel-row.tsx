@@ -25,13 +25,14 @@ const GAP = 8;
 // control that can go into More takes the room.
 const NAME_ROOM = 48;
 
-// wholeWidth is a name's width on one line, since a name wrapped onto more
-// reads only as wide as its box.
+// wholeWidth is a name's width on one line, its lines laid end to end, since a
+// name wrapped onto more reads only as wide as its box. It only reads: a name
+// set on one line to measure it shortens the header for that layout, and
+// WebKit pulls a list at its end up by what that lends the list.
 function wholeWidth(name: HTMLElement): number {
-  name.style.whiteSpace = "nowrap";
-  const width = name.scrollWidth;
-  name.style.whiteSpace = "";
-  return width;
+  const text = document.createRange();
+  text.selectNodeContents(name);
+  return [...text.getClientRects()].reduce((sum, line) => sum + line.width, 0);
 }
 
 // sharedRoom is what a header's one row leaves its controls: its width less
