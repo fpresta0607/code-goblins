@@ -4,6 +4,7 @@ import { Lineage } from "../../src/Lineage";
 import { Board } from "../../src/Board";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
+import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 
 // The canvas cards with the most text a card holds, each a goblin in
 // progress, since only those have a canvas card. Woody is the Overlord's
@@ -31,7 +32,7 @@ const PULL_REQUEST = "https://github.com/fpresta0607/precisiondocs/pull/1556";
 const params = new URLSearchParams(location.search);
 const view = params.get("view") || "canvas";
 const isCrowded = params.has("crowded");
-const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, cfo_runs: true, afk: { state: "off" }, cfo_harness: "claude",
+const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, cfo_runs: true, afk: { state: params.has("unreadable") ? "unreadable" : "off" }, cfo_harness: "claude",
   subscriptions: [{ provider: "claude", status: "available", percent_remaining: 62, read_at: at, resets_at: "2026-10-16T22:27:42Z", source: "oauth", floor_percent: 5 },
     ...(isCrowded ? [{ provider: "codex", status: "available", percent_remaining: 8, read_at: at, source: "oauth", floor_percent: 5 }] : [])],
   key_spend: isCrowded ? [{ provider: "openrouter", status: "available", spent_usd: 12.5, limit_usd: 50, remaining_usd: 37.5, period: "daily", read_at: at, checked_at: at }] : [],
@@ -65,10 +66,10 @@ const now = Date.parse(at);
 const opened = window as Window & { cfoOpened?: number };
 
 function Fixture() {
-  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={presentations} now={now} freshNow={now} onSelect={() => {}} /></main>;
-  if (view === "board") return <Board snapshot={snapshot} layout="stacked" now={now} freshNow={now} presentations={presentations} onSelect={() => {}} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
+  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={presentations} now={now} freshNow={now} onSelect={() => {}} /></main>;
+  if (view === "board") return <Board afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} layout="stacked" now={now} freshNow={now} presentations={presentations} onSelect={() => {}} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
   return <main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-    <Orchestration snapshot={snapshot} selected="" connected effects={[]} presentations={presentations} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} onOpenCfo={() => { opened.cfoOpened = (opened.cfoOpened || 0) + 1; }} />
+    <Orchestration afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} selected="" connected effects={[]} presentations={presentations} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} onOpenCfo={() => { opened.cfoOpened = (opened.cfoOpened || 0) + 1; }} />
   </main>;
 }
 createRoot(document.getElementById("root")!).render(<Fixture />);

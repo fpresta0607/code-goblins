@@ -6,6 +6,7 @@ import { WhatsWorking } from "../../src/WhatsWorking";
 import { watchTips } from "../../src/tips";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
+import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 
 // The busy fleet of the approved mockups: one goblin with two sub-agents and
 // a dev server, one in its gate, one idle whose only sub-agent finished. ?view picks what shows: the canvas
@@ -50,11 +51,11 @@ const snapshot = parseSnapshot({
 });
 
 function Fixture() {
-  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} /></main>;
+  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} /></main>;
   if (view === "panel") return <aside className="context-pane"><div className="panel-content"><WhatsWorking tree={snapshot.tasks[0].tree!} now={now} /></div></aside>;
-  if (view === "cards") return <Board snapshot={snapshot} layout="stacked" now={now} freshNow={now} presentations={[]} onSelect={() => {}} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
+  if (view === "cards") return <Board afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} layout="stacked" now={now} freshNow={now} presentations={[]} onSelect={() => {}} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
   return <main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-    <Orchestration onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
+    <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
   </main>;
 }
 watchTips();

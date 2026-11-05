@@ -5,6 +5,7 @@ import { Board } from "../../src/Board";
 import { watchTips } from "../../src/tips";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
+import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 
 // A goblin with a helper at work under it, and another goblin's helper whose
 // parent has no tree yet, so none holds the helper. ?view picks the canvas
@@ -29,10 +30,10 @@ const snapshot = parseSnapshot({
 });
 
 function Fixture() {
-  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} /></main>;
-  if (view === "cards") return <Board snapshot={snapshot} layout="stacked" now={now} freshNow={now} presentations={[]} onSelect={() => {}} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
+  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} /></main>;
+  if (view === "cards") return <Board afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} layout="stacked" now={now} freshNow={now} presentations={[]} onSelect={() => {}} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
   return <main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-    <Orchestration onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
+    <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
   </main>;
 }
 watchTips();

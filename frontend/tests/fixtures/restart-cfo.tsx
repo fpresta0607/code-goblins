@@ -5,6 +5,7 @@ import { PanelHeader } from "../../src/PanelHeader";
 import { RestartCfoButton } from "../../src/restart-cfo-button";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
+import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 
 // The CFO's bar over a home whose CFO runs in its native terminal, as the
 // board shows it, and the CFO's panel: its header and the Restart its Harness
@@ -35,7 +36,7 @@ function Page() {
   }, []);
   return <main style={{ display: "grid", alignContent: "start", gap: 28, minHeight: "100vh", boxSizing: "border-box", padding: 24 }}>
     <section className="task-board" aria-label="Task board">
-      <CfoPin snapshot={snapshot} now={Date.now()} onOpen={() => setSaid("opened the CFO's terminal")} onCommand={() => setSaid("opened the Command Center")} onStart={() => setSaid("opened the first-run page")} />
+      <CfoPin afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} now={Date.now()} onOpen={() => setSaid("opened the CFO's terminal")} onCommand={() => setSaid("opened the Command Center")} onStart={() => setSaid("opened the first-run page")} />
       <section className="board-column" aria-label="Working"><h2>Working</h2></section>
     </section>
     <section className="goblin-panel" aria-label="CFO panel"><PanelHeader snapshot={snapshot} onAnswer={() => {}} onOpenTask={() => {}} onOpenLog={() => {}} /><RestartCfoButton snapshot={snapshot} /></section>

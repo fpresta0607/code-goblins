@@ -298,6 +298,94 @@ test("a press on the switch keeps its spinner and its refusal when the bar chang
   await expect(toggle(page)).toHaveAttribute("aria-busy", "false");
 });
 
+// The bar and the card come and go with the view and with the CFO, and neither
+// answers the switch: his press and its question belong to the board, so they
+// carry over to whichever switch is drawn, or stay open with none drawn.
+const card = (page: Page) => page.locator(".flow-node");
+const showView = (page: Page, view: string) => page.getByRole("button", { name: view, exact: true }).click();
+for (const [from, to] of [["Board", "Orchestration"], ["Orchestration", "Board"]] as const) {
+  test(`a press made on ${from} keeps its spinner and its refusal on ${to}`, async ({ page }) => {
+    // Arrange
+    await open(page, snapshot({ afk: on() }));
+    const refuse = await refuseLater(page);
+    await showView(page, from);
+    await toggle(page).click();
+    await expect(toggle(page)).toHaveAttribute("aria-busy", "true");
+
+    // Act
+    await showView(page, to);
+
+    // Assert
+    const shown = to === "Board" ? bar(page) : card(page);
+    await expect(shown.getByRole("switch", { name: "AFK mode" })).toHaveAttribute("aria-busy", "true");
+    await expect(shown.locator(".afk-toggle .card-start-spinner")).toBeVisible();
+
+    // Act
+    refuse();
+
+    // Assert
+    await expect(shown.getByRole("alert")).toHaveText("AFK did not turn off" + REFUSAL);
+  });
+}
+
+test("Go AFK? opened from the CFO's card stays open, and keeps its press, when the CFO stops", async ({ page }) => {
+  // Arrange
+  await open(page, snapshot());
+  const refuse = await refuseLater(page);
+  await showView(page, "Orchestration");
+  await card(page).getByRole("switch", { name: "AFK mode" }).click();
+  const asks = page.locator("dialog.afk-dialog");
+  await expect(asks.getByRole("button", { name: "Cancel" })).toBeFocused();
+
+  // Act
+  await push(page, snapshot(CLOSED.fields));
+
+  // Assert
+  await expect(toggle(page)).toHaveCount(0);
+  await expect(asks.getByRole("heading", { name: "Go AFK?" })).toBeVisible();
+  await expect(asks.getByRole("button", { name: "Cancel" })).toBeFocused();
+
+  // Act
+  await asks.getByRole("button", { name: "Turn AFK on" }).click();
+  await expect(asks.getByRole("button", { name: "Turning AFK on…" })).toBeDisabled();
+  refuse();
+
+  // Assert
+  await expect(asks.getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL);
+});
+
+// A refusal on the CFO's card hangs over the cards around it, whole on the
+// screen, and its close button answers the pointer, though a card lifts under
+// the pointer as it arrives.
+for (const [width, view] of [[1440, "canvas"], [390, "list"]] as const) {
+  test(`a refusal on the CFO's card on the ${view} reads whole and closes`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width, height: 844 });
+    await open(page, snapshot({ afk: on() }));
+    await showView(page, "Orchestration");
+    const place = view === "canvas" ? card(page) : page.locator(".workflow-node.role-cfo");
+    const refuse = await refuseLater(page);
+    await place.getByRole("switch", { name: "AFK mode" }).click();
+    await page.mouse.move(2, 2);
+
+    // Act
+    refuse();
+
+    // Assert
+    const refusal = place.getByRole("alert");
+    await expect(refusal).toHaveText("AFK did not turn off" + REFUSAL);
+    const box = (await refusal.boundingBox())!;
+    expect(box.x, "on the screen").toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width, "on the screen").toBeLessThanOrEqual(width);
+
+    // Act
+    await refusal.getByRole("button", { name: "Close the message" }).click();
+
+    // Assert
+    await expect(refusal).toHaveCount(0);
+  });
+}
+
 // A closed bar draws the switch only while AFK is not off, and a press he
 // walked away from still has its answer to show there.
 test("a closed bar keeps the switch until the refusal of a press he cancelled is read", async ({ page }) => {
@@ -834,18 +922,18 @@ const METERS = {
 // bar's resting row and its lantern box, and nothing leaves the bar or the
 // page, on and off, with items waiting and none, beside all the bar can hold.
 for (const width of [1440, 390]) {
-  for (const isOn of [false, true]) {
+  for (const state of ["off", "on", "unreadable"] as const) {
     for (const waiting of [0, 2]) {
-      test(`at ${width} px, AFK ${isOn ? "on" : "off"} with ${waiting} waiting, the toggle stands beside the button that opens the CFO`, async ({ page }, testInfo) => {
+      test(`at ${width} px, AFK ${state} with ${waiting} waiting, the toggle stands beside the button that opens the CFO`, async ({ page }, testInfo) => {
         // Arrange
         await page.setViewportSize({ width, height: 844 });
 
         // Act
-        await open(page, snapshot({ ...METERS, cfo_terminal: "cfo", questions: QUESTIONS.slice(0, waiting), afk: isOn ? on({ decided: 4, held: HELD.slice(0, waiting) }) : { state: "off" } }));
+        await open(page, snapshot({ ...METERS, cfo_terminal: "cfo", questions: QUESTIONS.slice(0, waiting), afk: state === "on" ? on({ decided: 4, held: HELD.slice(0, waiting) }) : { state } }));
 
         // Assert
         await expect(bar(page).getByRole("button", { name: /billed this month/ })).toBeVisible();
-        await expect(toggle(page)).toHaveAttribute("aria-checked", String(isOn));
+        await expect(toggle(page)).toHaveAttribute("aria-checked", String(state === "on"));
         const opens = bar(page).locator(".cfo-pin-end").getByRole("button", { name: CFO_DOOR });
         const left = (await toggle(page).boundingBox())!, right = (await opens.boundingBox())!;
         const gap = await bar(page).locator(".cfo-pin-end").evaluate((element) => parseFloat(getComputedStyle(element).columnGap));
@@ -858,9 +946,15 @@ for (const width of [1440, 390]) {
           expect(each.x + each.width, "inside the bar").toBeLessThanOrEqual(held.x + held.width);
           expect(each.y + each.height, "inside the bar").toBeLessThanOrEqual(held.y + held.height);
         }
+        if (state === "unreadable") {
+          const words = (await bar(page).getByText("Unreadable: a press resets it", { exact: true }).boundingBox())!;
+          expect(words.x, "inside the bar").toBeGreaterThanOrEqual(held.x);
+          expect(words.x + words.width, "inside the bar").toBeLessThanOrEqual(held.x + held.width);
+          expect(words.y + words.height, "inside the bar").toBeLessThanOrEqual(held.y + held.height);
+        }
         expect(await smallest(page)).toBeGreaterThanOrEqual(15);
         expect(await fits(page)).toBe(true);
-        await bar(page).screenshot({ path: testInfo.outputPath(`cfo-bar-${width}-${isOn ? "on" : "off"}-${waiting}.png`) });
+        await bar(page).screenshot({ path: testInfo.outputPath(`cfo-bar-${width}-${state}-${waiting}.png`) });
       });
     }
   }

@@ -5,6 +5,7 @@ import { QueuedTasks } from "../../src/QueuedTasks";
 import { watchTips } from "../../src/tips";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
+import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 
 // The Overlord's crowded column: a goblin with a long title that waits on
 // another goblin and has a pull request, beside queued work with a long title,
@@ -56,7 +57,7 @@ function Fixture() {
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
   }, []);
-  const board = <Board snapshot={snapshot} layout="stacked" selected={selected} now={now} freshNow={now} presentations={presentations} onSelect={select} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
+  const board = <Board afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} layout="stacked" selected={selected} now={now} freshNow={now} presentations={presentations} onSelect={select} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
   if (search.has("queue")) return <aside className="context-pane" style={{ width: "calc(100vw - 16px)" }}><div className="panel-content"><section className="cfo-queue" aria-label="Queued tasks">
     <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} hasMeters onSelect={select} />
   </section></div></aside>;

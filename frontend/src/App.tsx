@@ -51,6 +51,8 @@ import { messagesQuery } from "./session-messages";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { CHAT_STYLE_CHANGED, useChatStyle, type ChatStyle } from "./chat-style";
 import { goblinName } from "./task-words";
+import { AfkOnDialog } from "./afk-on-dialog";
+import { useAfkToggle } from "./useAfkToggle";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = boardPage(() => import("./TerminalDeck").then((module) => module.TerminalDeck), "terminals");
@@ -108,6 +110,7 @@ export function App() {
   const { snapshot: held, sent } = useItemState(received);
   const clicks = useTaskClicks();
   const snapshot = useMemo(() => held && withClicks(held, clicks), [held, clicks]);
+  const afkToggle = useAfkToggle(snapshot?.instance ?? "");
   const [view, setView] = useState<"Board" | "Orchestration">("Board");
   const [boardLayout, setBoardLayout] = useState<BoardLayout>(() => stored(BOARD_LAYOUT_KEY) === "stacked" ? "stacked" : "kanban");
   const nextLayout: BoardLayout = boardLayout === "kanban" ? "stacked" : "kanban";
@@ -555,9 +558,9 @@ export function App() {
     </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (view === "Board" && boardLayout === "kanban" ? " kanban" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
       <main ref={canvas} className="canvas-region" aria-label={view} hidden={panelWide || fillsPhone}>
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
-          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} selectedTrain={train?.id} now={now} freshNow={freshNow} onSelect={selectTask} onSelectTrain={(train, source) => select({ train: train.id }, source)} onOpenCfo={openCfo} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} />
-            : <Suspense fallback={<p className="loading" role="status">Loading Orchestration…</p>}>{compact ? <Lineage onOpenCfo={openCfo} presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} project="" selected={!child && selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
-              : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} connected={connected}
+          : view === "Board" ? <Board afkToggle={afkToggle} presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} selectedTrain={train?.id} now={now} freshNow={freshNow} onSelect={selectTask} onSelectTrain={(train, source) => select({ train: train.id }, source)} onOpenCfo={openCfo} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} />
+            : <Suspense fallback={<p className="loading" role="status">Loading Orchestration…</p>}>{compact ? <Lineage onOpenCfo={openCfo} afkToggle={afkToggle} presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} project="" selected={!child && selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
+              : <Orchestration afkToggle={afkToggle} presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} connected={connected}
                 selected={child ? "child:" + child.id : selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)}
                 onChild={(task, baby, source) => select(childSelection(task, baby), source)} onOpenCfo={openCfo} />}</Suspense>}
@@ -598,5 +601,6 @@ export function App() {
       </aside>
     </div>}
     {touring && <QuickTourDialog onEnd={endTour} />}
+    {afkToggle.isAsking && <AfkOnDialog pending={afkToggle.pending} problem={afkToggle.problem} onTurnOn={afkToggle.turnOn} onClose={afkToggle.closeQuestion} />}
   </div></AfkBoard>;
 }

@@ -20,7 +20,7 @@ const PARTS: [string, string][] = [
   [".card-status-text, .card-copy > .plain-status", "status"], [".tree-child-runs", "runs"], [".state-chip", "state"], [".tree-memory", "memory"],
   [".card-clock", "clock"], [".card-pr", "pull request"], [".subscription-dial", "dial"], ["strong", "title"], [".browser-indicator", "browser"],
   [".project-label", "project"], ["small", "relation"], [".node-role", "role"], [".node-task", "task"], [".node-status", "status"],
-  [".tree-tally", "tally"], [".tree-count-words", "count"], [".tree-count-memory", "memory"], [".afk-toggle-label", "AFK"],
+  [".tree-tally", "tally"], [".tree-count-words", "count"], [".tree-count-memory", "memory"], [".afk-toggle-label", "AFK"], [".afk-header > .muted", "AFK words"],
 ];
 
 // What a card paints, measured from the rendered page: each line of its text
@@ -314,6 +314,43 @@ for (const view of ["canvas", "lineage"]) {
     expect(afk.x + afk.width).toBeLessThanOrEqual(opens.x);
     expect(opens.x - (afk.x + afk.width)).toBeLessThanOrEqual(16);
   });
+}
+
+// A switch that cannot be read says so in words, whatever room the CFO's card
+// has for them: its foot keeps them inside the border, wholly shown and clear
+// of everything else the card draws, with one dial and with all it can hold.
+for (const { view, width, height } of [
+  { view: "canvas", width: 1440, height: 1200 },
+  { view: "lineage", width: 390, height: 844 },
+  { view: "lineage", width: 320, height: 700 },
+]) {
+  for (const isCrowded of [false, true]) {
+    test(`the CFO's card on the ${view} at ${width}px${isCrowded ? ", crowded," : ""} holds an unreadable switch's words inside its border`, async ({ page }) => {
+      // Arrange
+      await page.setViewportSize({ width, height });
+
+      // Act
+      await page.goto(`/tests/fixtures/orchestration-card-text.html?unreadable&view=${view}${isCrowded ? "&crowded" : ""}`);
+      await page.evaluate(() => document.fonts.ready);
+      await page.mouse.move(2, 2);
+
+      // Assert
+      const cfo = page.locator(view === "canvas" ? ".flow-node" : ".workflow-node.role-cfo").filter({ has: page.locator("strong", { hasText: /^CFO$/ }) });
+      const seen = await cfo.evaluate(fit, PARTS);
+      expect(seen.spills).toEqual([]);
+      expect(seen.cut).toEqual([]);
+      const words = seen.parts.find((part) => part.part === "AFK words");
+      expect(words?.text).toBe("Unreadable: a press resets it");
+      expect(words?.whole).toBe(words?.lines);
+      const overlaps = await cfo.evaluate((node) => {
+        const said = node.querySelector(".afk-header > .muted")!.getBoundingClientRect();
+        return [...node.querySelectorAll("strong, .plain-status, .card-status-text, .subscription-dial, .afk-toggle, .icon-button, .card-harness")]
+          .filter((part) => { const box = part.getBoundingClientRect(); return box.width > 0 && said.left < box.right - .5 && box.left < said.right - .5 && said.top < box.bottom - .5 && box.top < said.bottom - .5; })
+          .map((part) => part.className || part.tagName);
+      });
+      expect(overlaps).toEqual([]);
+    });
+  }
 }
 
 test("the CFO's canvas card opens its terminal and shows the usage dial", async ({ page }) => {

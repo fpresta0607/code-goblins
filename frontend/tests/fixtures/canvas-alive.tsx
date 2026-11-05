@@ -4,6 +4,7 @@ import { Orchestration } from "../../src/Orchestration";
 import { parseSnapshot } from "../../src/types";
 import { watchTips } from "../../src/tips";
 import "../../src/styles.css";
+import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 
 // The canvas coming alive on stand-in goblins: Pip and Mabel work, with baby
 // goblins under them, and Woody waits. Each step is one real change a snapshot
@@ -63,7 +64,7 @@ function Fixture() {
   const [shown, setShown] = useState(snapshot);
   (window as Window & { canvasStep?: (name: Step, goblin: string) => void }).canvasStep = (name, goblin) => { step(name, goblin); setShown(snapshot()); };
   return <main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-    <Orchestration snapshot={shown} selected="" connected effects={[]} presentations={[]} now={Date.now()} freshNow={Date.now()} onSelect={() => {}} onChild={() => {}} onOpenCfo={() => {}} />
+    <Orchestration afkToggle={RESTING_AFK_TOGGLE} snapshot={shown} selected="" connected effects={[]} presentations={[]} now={Date.now()} freshNow={Date.now()} onSelect={() => {}} onChild={() => {}} onOpenCfo={() => {}} />
   </main>;
 }
 watchTips();

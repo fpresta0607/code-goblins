@@ -7,6 +7,7 @@ import type { CommandFocus } from "../../src/CommandCenter";
 import { watchTips } from "../../src/tips";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
+import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 
 // The CFO's banner while something waits and while all is quiet, and the
 // board's alerts after a goblin asks the CFO, one finishes, one fails and the
@@ -39,11 +40,11 @@ function Page() {
   return <main style={{ display: "grid", alignContent: "start", gap: 28, minHeight: "100vh", boxSizing: "border-box", padding: 24, background: "linear-gradient(#07101565, #07101565), url('/assets/goblin-workshop.webp') right bottom / cover" }}>
     <div className="canvas-region">
       <section className="task-board" aria-label="Task board">
-        <CfoPin snapshot={asking} now={Date.now()} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CFO")} />
+        <CfoPin afkToggle={RESTING_AFK_TOGGLE} snapshot={asking} now={Date.now()} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CFO")} />
         <section className="board-column" aria-label="Working"><h2>Working</h2></section>
       </section>
     </div>
-    <CfoPin snapshot={quiet} now={Date.now()} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CFO")} />
+    <CfoPin afkToggle={RESTING_AFK_TOGGLE} snapshot={quiet} now={Date.now()} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CFO")} />
     <output aria-label="Opened">{said}</output>
     <Alerts snapshot={snapshot} onOpen={(key) => setSaid("opened the Command Center at " + key)} />
     <CommandCenterMenu snapshot={reviewing} connected presentations={[]} focus={focus} onUnsent={ignore} />

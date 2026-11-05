@@ -7,11 +7,10 @@ import { SubscriptionDials } from "./subscription-dials";
 import "./cfo-pin.css";
 import { ReopenCfoButton } from "./reopen-cfo-button";
 import { ActionsSpendHeader } from "./actions-spend-header";
-import { AfkOnDialog } from "./afk-on-dialog";
 import { AfkToggle } from "./afk-toggle";
 import { cfoDoor, useChatStyle } from "./chat-style";
 import { messagesQuery } from "./session-messages";
-import { useAfkToggle } from "./useAfkToggle";
+import type { AfkToggleState } from "./useAfkToggle";
 
 // The CFO pinned above the board's columns: at rest a plain bar, a card like
 // the columns under it, that says how many goblins are at work, with its
@@ -41,15 +40,12 @@ import { useAfkToggle } from "./useAfkToggle";
 // While AFK mode is on nothing prompts him and nothing is held for him: the
 // bar stays at rest, says since when and how much was decided, and an outline
 // Open Command Center with how many wait is its one way to whatever is there.
-// The question before AFK turns on is drawn outside the bar's forms, so a form
-// that changes under it leaves it open.
-export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot: Snapshot; now: number; onOpen: (source: HTMLElement) => void; onCommand: () => void; onStart: () => void }) {
+export function CfoPin({ snapshot, now, afkToggle, onOpen, onCommand, onStart }: { snapshot: Snapshot; now: number; afkToggle: AfkToggleState; onOpen: (source: HTMLElement) => void; onCommand: () => void; onStart: () => void }) {
   const [style] = useChatStyle();
   const door = cfoDoor(style, !!messagesQuery(snapshot));
   const { waiting, line } = cfoSummary(snapshot);
-  const toggle = useAfkToggle(snapshot.afk, snapshot.instance);
-  const afkSwitch = <AfkToggle afk={snapshot.afk} toggle={toggle} />;
-  const shouldKeepSwitch = snapshot.afk.state !== "off" || toggle.pending || !!toggle.problem;
+  const afkSwitch = <AfkToggle afk={snapshot.afk} toggle={afkToggle} />;
+  const shouldKeepSwitch = snapshot.afk.state !== "off" || afkToggle.pending || !!afkToggle.problem;
   const date = new Date(now);
   const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
   const isClosed = snapshot.cfo_closed || snapshot.cfo_configured && !snapshot.cfo_runs;
@@ -94,6 +90,5 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
         <button className="icon-button raised" aria-label={door.label} data-tip={door.label} onClick={(event) => onOpen(event.currentTarget)}><Icon name={door.icon} /></button>
       </div>}
     </div>}
-    {toggle.isAsking && <AfkOnDialog pending={toggle.pending} problem={toggle.problem} onTurnOn={toggle.turnOn} onClose={toggle.closeQuestion} />}
   </div>;
 }
