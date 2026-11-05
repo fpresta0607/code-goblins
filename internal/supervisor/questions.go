@@ -816,6 +816,27 @@ func readQuestion(stateDir, id string) (Question, error) {
 	return q, nil
 }
 
+// DecisionAnswer is the answer on record for the question meta's goblin asked
+// in its current generation with its notify at seq: a report that rests on a
+// decision quotes what was decided, not the goblin's account of it. A question
+// it never asked, one from an earlier generation and one with no answer that
+// reached it are errors. An answer on its way to the goblin counts, since the
+// goblin names the decision only once it has it.
+func DecisionAnswer(stateDir string, meta state.TaskMeta, seq int) (string, error) {
+	q, err := readQuestion(stateDir, fmt.Sprintf("notify-%s-%d", meta.ID, seq))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "", fmt.Errorf("decision %d is no question of %s", seq, meta.ID)
+	case err != nil:
+		return "", fmt.Errorf("decision %d cannot be read: %w", seq, err)
+	case q.Generation != meta.SpawnGen:
+		return "", fmt.Errorf("decision %d was asked by an earlier run of %s", seq, meta.ID)
+	case q.Answer == "" || q.Status == "failed":
+		return "", fmt.Errorf("decision %d has no answer on record", seq)
+	}
+	return q.Answer, nil
+}
+
 // OpenDecisions lists the decisions open for goblin task: its own pending
 // question with choices and the CFO's pending questions for it (cfo question
 // --for), on the board's record or waiting in the inbox for the board to take

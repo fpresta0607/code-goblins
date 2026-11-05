@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -15,6 +16,27 @@ import (
 // a caller-supplied value from a shell or a pane never injects extra lines.
 func NormalizeStatusDetail(value string) string {
 	return strings.NewReplacer("\r", " ", "\n", " ").Replace(value)
+}
+
+// issueLink is the link of an issue on GitHub, and nothing more: a comment's
+// link or a pull request is no issue.
+var issueLink = regexp.MustCompile(`^https://github\.com/[\w.-]+/[\w.-]+/issues/\d+$`)
+
+// IsIssueLink reports whether link is the link of an issue on GitHub.
+func IsIssueLink(link string) bool { return issueLink.MatchString(link) }
+
+// DoneClosed is the issue a done report says the task closed in place of a
+// pull request, which cfo notify --closed writes once a decision ruled it
+// finished; empty for any other report.
+func DoneClosed(event string) string {
+	rest, isClosed := strings.CutPrefix(strings.TrimSpace(event), "done: closed ")
+	if !isClosed {
+		return ""
+	}
+	if link, _, _ := strings.Cut(rest, " "); IsIssueLink(link) {
+		return link
+	}
+	return ""
 }
 
 // AppendStatus appends one event to state/<id>.status, creating the log on

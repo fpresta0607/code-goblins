@@ -1091,11 +1091,12 @@ func heldNow(d Database, item string, ended time.Time) (waiting bool, now string
 const afkNoteLength = 600
 
 // doneBetween are the pull requests goblins reported done from since to
-// ended, each with the goblin's last working note before it, read from the status logs the state directory and its archive still
-// hold, oldest first. A log last written before the stretch began, or
-// archived before it, holds nothing of it and is not opened: the home holds
-// hundreds of logs, opening a file costs this machine up to 80 ms, and
-// opening them all held turning AFK mode off for up to a minute.
+// ended, and the issues they closed in place of one, each with the goblin's
+// last working note before it, read from the status logs the state directory
+// and its archive still hold, oldest first. A log last written before the
+// stretch began, or archived before it, holds nothing of it and is not opened:
+// the home holds hundreds of logs, opening a file costs this machine up to
+// 80 ms, and opening them all held turning AFK mode off for up to a minute.
 func doneBetween(stateDir string, since, ended time.Time) ([]afk.Finish, error) {
 	began := since.Truncate(time.Second)
 	logs := map[string]string{}
@@ -1154,8 +1155,15 @@ func doneBetween(stateDir string, since, ended time.Time) ([]afk.Finish, error) 
 				note = bounded(said, afkNoteLength)
 				continue
 			}
+			if at.Before(since.Truncate(time.Second)) || at.After(ended) {
+				continue
+			}
+			if issue := state.DoneClosed(event); issue != "" {
+				finished = append(finished, afk.Finish{Task: id, Closed: issue, At: at, Note: note})
+				continue
+			}
 			rest, done := strings.CutPrefix(event, "done: PR ")
-			if !done || at.Before(since.Truncate(time.Second)) || at.After(ended) {
+			if !done {
 				continue
 			}
 			if fields := strings.Fields(rest); len(fields) > 0 && strings.HasPrefix(fields[0], "https://") {

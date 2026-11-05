@@ -182,7 +182,7 @@ const statusTail = 50
 // whatever cannot be read: a goblin that reported working, blocked or
 // waiting-on, one in a turn however long, one whose harness is refused or
 // still starting, and one that asks the CFO something in prose. A done
-// report is one pull request's, and the home records none of the waits of a
+// report is one delivery's, and the home records none of the waits of a
 // goblin that went on to the next, which its tree shows (IsWaiting).
 func AtRestSince(stateDir, id string) time.Time {
 	lines, err := state.TailStatus(stateDir, id, statusTail)

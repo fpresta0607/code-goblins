@@ -180,3 +180,42 @@ func TestAHelperMergedIntoItsParentsBranchIsDelivered(t *testing.T) {
 		})
 	}
 }
+
+// A task a decision ruled finished delivered the issue it closed, so cleanup
+// records it done and its backlog row closes as done rather than retired. Such
+// a line an earlier run of the task wrote delivers nothing for this one.
+func TestCleanupCountsTheIssueADecisionHadATaskCloseAsItsDelivery(t *testing.T) {
+	const issue = "https://github.com/owner/project/issues/1450"
+	for name, test := range map[string]struct {
+		reportedAgo time.Duration
+		wantPhase   string
+		wantProof   string
+	}{
+		"this run":    {reportedAgo: 0, wantPhase: "done", wantProof: "closed " + issue},
+		"earlier run": {reportedAgo: time.Hour, wantPhase: "stopped"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			fixture := newCleanupFixture(t)
+			fixture.meta.SpawnGen = fmt.Sprintf("s%d", time.Now().Add(-time.Minute).UnixNano())
+			line := time.Now().Add(-test.reportedAgo).UTC().Format(time.RFC3339) + " done: closed " + issue + " (decision 7: Close it, no PR)\n"
+			if err := os.WriteFile(filepath.Join(fixture.stateDir, fixture.meta.ID+".status"), []byte(line), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteTaskMeta(fixture.stateDir, fixture.meta); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			if _, err := fixture.service.Cleanup(context.Background(), fixture.meta.ID); err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			outcome, err := state.ReadOutcome(fixture.stateDir, fixture.meta.ID)
+			if err != nil || outcome.Phase != test.wantPhase || outcome.Evidence != test.wantProof || outcome.PR != "" {
+				t.Fatalf("outcome = %+v, %v; want phase %q with evidence %q and no pull request", outcome, err, test.wantPhase, test.wantProof)
+			}
+		})
+	}
+}

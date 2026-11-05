@@ -69,12 +69,15 @@ type Report struct {
 	Notes []string `json:"notes,omitempty"`
 }
 
-// Finish is a pull request a goblin reported done during the stretch, with
-// its task's title, the CFO's one line for the work, the goblin's name and
-// the goblin's own last note on the work before it reported it done.
+// Finish is a pull request a goblin reported done during the stretch, or the
+// issue it closed in place of one, with its task's title, the CFO's one line
+// for the work, the goblin's name and the goblin's own last note on the work
+// before it reported it done.
 type Finish struct {
-	Task   string    `json:"task"`
-	PR     string    `json:"pr"`
+	Task string `json:"task"`
+	PR   string `json:"pr"`
+	// Closed is the issue a decision had the goblin close, with PR empty.
+	Closed string    `json:"closed,omitempty"`
 	At     time.Time `json:"at"`
 	Title  string    `json:"title,omitempty"`
 	Goblin string    `json:"goblin,omitempty"`
@@ -717,7 +720,11 @@ func Render(w io.Writer, r Report) error {
 	say("")
 	say("Goblins finished (%d)", len(r.Finished))
 	for _, finish := range r.Finished {
-		say("- %s: %s (%s)", finish.Task, finish.PR, finish.At.UTC().Format("15:04 UTC"))
+		delivered := finish.PR
+		if finish.Closed != "" {
+			delivered = "closed " + finish.Closed
+		}
+		say("- %s: %s (%s)", finish.Task, delivered, finish.At.UTC().Format("15:04 UTC"))
 	}
 	if spent, use := Spent(r.Before, r.After), DiskUsed(r.DiskBefore, r.DiskAfter); len(spent) > 0 || use != nil {
 		say("")

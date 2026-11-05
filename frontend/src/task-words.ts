@@ -49,6 +49,7 @@ const HASH = new RegExp(`(?:\\s+(?:at|to|from|as|of))?\\s+${HEX}(?![\\w-]|\\.\\w
 // A pull request's link reads as PR and its number, said once where the
 // words before the link already say PR.
 const PULL_REQUEST = /(?:\bPR\s+)?https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/pull\/(\d+)[^\s)]*/g;
+const ISSUE = /(?:\b[Ii]ssue\s+)?https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/issues\/(\d+)[^\s)]*/g;
 const RUN = /https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/actions\/runs\/[^\s)]*/g;
 const LINK = /https?:\/\/([^\s/)]+)[^\s)]*/g;
 // A Windows path, or a path of at least two slashes or one ending in a file
@@ -67,7 +68,7 @@ function lastName(path: string): string {
 
 function tidy(text: string): string {
   return text.replace(/\s+options:\s[\s\S]*$/, "")
-    .replace(PULL_REQUEST, "PR #$1").replace(RUN, "a CI run").replace(LINK, "$1")
+    .replace(PULL_REQUEST, "PR #$1").replace(ISSUE, "issue #$1").replace(RUN, "a CI run").replace(LINK, "$1")
     .replace(WINDOWS_PATH, lastName).replace(SLASH_PATH, lastName)
     .replace(HASH, "")
     .replace(/\s+/g, " ").replace(/\(\s*\)/g, "").replace(/\(\s+/g, "(").replace(/\s+\)/g, ")").replace(/\s+([,.;:!?])/g, "$1").trim();
