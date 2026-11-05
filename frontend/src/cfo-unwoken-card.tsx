@@ -9,11 +9,11 @@ import type { Run, Snapshot } from "./types";
 // thing: the board's own Restart the CFO, the control of the CFO's Harness
 // section, which the supervisor carries out itself. It runs no command.
 // Once the CFO takes its wakes, the supervisor takes the item back.
-export function CfoUnwokenCard({ run, snapshot, pager }: { run: Run; snapshot: Snapshot; pager?: ReactNode }) {
+export function CfoUnwokenCard({ run, snapshot, now, pager }: { run: Run; snapshot: Snapshot; now: number; pager?: ReactNode }) {
   return <article className="update-card" aria-labelledby={"cfo-unwoken-" + run.id}>
     <header className="update-head">
       <Avatar persona="cfo" small />
-      <span className="who"><strong>Code Goblins</strong><small>{age(run.created_at)}</small></span>
+      <span className="who"><strong>Code Goblins</strong><small>{age(run.created_at, now)}</small></span>
     </header>
     <h3 id={"cfo-unwoken-" + run.id}>{run.title}</h3>
     <div className="card-actions">

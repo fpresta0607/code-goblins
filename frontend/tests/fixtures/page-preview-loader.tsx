@@ -23,7 +23,7 @@ function PagePreviewLoader() {
   const [focus, setFocus] = useState<CommandFocus | null>(null);
   return <main>
     <button onClick={() => setFocus({ key: "review:" + wait.id, at: Date.now() })}>Open</button>
-    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} />
+    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={focus} onUnsent={() => {}} />
   </main>;
 }
 

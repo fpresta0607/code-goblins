@@ -21,7 +21,7 @@ const OUTPUT_READ_MS = 1000;
 // An update that did not install ends on one sentence and one Try again,
 // which starts the next update at once: that update puts right whatever this
 // one left, so the card never asks him to paste or run anything.
-export function UpdateCard({ run, offer, connected, sending, error, onRun, onRetry, pager }: { run: Run; offer: ReleaseOffer; connected: boolean; sending: boolean; error: string; onRun: () => void; onRetry?: () => void; pager?: ReactNode }) {
+export function UpdateCard({ run, offer, connected, now, sending, error, onRun, onRetry, pager }: { run: Run; offer: ReleaseOffer; connected: boolean; now: number; sending: boolean; error: string; onRun: () => void; onRetry?: () => void; pager?: ReactNode }) {
   const [feedback, showFeedback] = useClickFeedback();
   useEffect(() => { if (error) showFeedback(error); }, [error, showFeedback]);
 
@@ -55,7 +55,7 @@ export function UpdateCard({ run, offer, connected, sending, error, onRun, onRet
   const progress = updateProgress(run, output);
   const outcome = updateOutcome(run);
   const tone = outcome.trouble ? " failed" : run.state === "ready" || updated ? " succeeded" : " updating";
-  const when = run.state === "ready" ? "published " + age(offer.published) : running ? "updating since " + age(run.ran_at || run.created_at).replace(/ ago$/, "") : updated ? "updated " + age(run.finished_at) : "tried " + age(run.ran_at || run.created_at);
+  const when = run.state === "ready" ? "published " + age(offer.published, now) : running ? "updating for " + age(run.ran_at || run.created_at, now).replace(/ ago$/, "") : updated ? "updated " + age(run.finished_at, now) : "tried " + age(run.ran_at || run.created_at, now);
   return <article className="update-card" aria-labelledby={"update-" + run.id}>
     <header className="update-head">
       <Avatar persona="releases" small />

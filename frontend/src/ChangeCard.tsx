@@ -22,8 +22,8 @@ import { DictatedAnswer } from "./dictated-answer";
 // what cannot be undone by itself, one line says so. In the Command Center's
 // stack, where he went back to a question he answered, it carries the stack's
 // Back and Skip in place of its own Close.
-export function ChangeCard({ question, snapshot, connected, draft, onDraft, onChange, onClose, pager }: {
-  question: Question; snapshot: Snapshot; connected: boolean; draft: Draft;
+export function ChangeCard({ question, snapshot, connected, now, draft, onDraft, onChange, onClose, pager }: {
+  question: Question; snapshot: Snapshot; connected: boolean; now: number; draft: Draft;
   onDraft: (changes: Partial<Draft>) => void; onChange: () => void; onClose: () => void; pager?: ReactNode;
 }) {
   const [feedback, showFeedback] = useClickFeedback();
@@ -39,7 +39,7 @@ export function ChangeCard({ question, snapshot, connected, draft, onDraft, onCh
   const canChange = connected && !!payload && !isStanding && !draft.sending;
   const pick = (selection: string) => onDraft({ selection, error: "" });
   return <form className="question-card change-card" aria-labelledby={"change-" + question.id} onSubmit={(event) => { event.preventDefault(); if (payload && !isStanding) onChange(); }}>
-    <p className="asker"><Avatar persona={question.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asked · {age(question.created_at)}</span></p>
+    <p className="asker"><Avatar persona={question.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asked · {age(question.created_at, now)}</span></p>
     <QuestionText id={"change-" + question.id} text={question.text} />
     <fieldset><legend className="sr-only">Choose your answer</legend>
       {questionChoices(question).map((option) => <label className="question-choice" key={option.value}>
@@ -49,7 +49,7 @@ export function ChangeCard({ question, snapshot, connected, draft, onDraft, onCh
       <label className="question-choice"><input type="radio" name={"change-" + question.id} checked={shown.selection === "other"} onChange={() => onDraft({ selection: "other", written: shown.selection === "other" ? shown.written : standing.written, error: "" })} /><span className="question-option"><span>Other</span><small>Write your own answer.</small></span></label>
       {shown.selection === "other" && <DictatedAnswer label="Your written answer" placeholder={"Tell " + (question.task ? asker : "the CFO") + " what you prefer..."} value={shown.written} instance={snapshot.instance} onText={(written) => onDraft({ selection: "other", written, error: "" })} onSubmit={() => { if (canChange) onChange(); }} />}
     </fieldset>
-    <p className="question-outcome answered-by" role="status"><AnswerMark who={who.mark} />{who.label}{who.at && " · " + age(who.at)}</p>
+    <p className="question-outcome answered-by" role="status"><AnswerMark who={who.mark} />{who.label}{who.at && " · " + age(who.at, now)}</p>
     {warning && <p className="change-warning">{warning}</p>}
     <div className="card-actions">
       <ClickFeedback text={feedback} />

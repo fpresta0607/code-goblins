@@ -26,7 +26,7 @@ function Page() {
   const [shown, setShown] = useState<keyof typeof snapshots>("ready");
   useEffect(() => { window.runStep = setShown; }, []);
   return <main data-step={shown} style={{ minHeight: "100vh", padding: 24 }}>
-    <CommandCenterMenu snapshot={snapshots[shown]} connected presentations={[]} focus={null} onUnsent={ignore} />
+    <CommandCenterMenu snapshot={snapshots[shown]} connected presentations={[]} now={Date.now()} focus={null} onUnsent={ignore} />
   </main>;
 }
 

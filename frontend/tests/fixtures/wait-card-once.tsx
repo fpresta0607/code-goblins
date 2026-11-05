@@ -26,7 +26,7 @@ function WaitCardOnce() {
   return <main>
     <button onClick={() => setFocus({ key: "review:waiting-pd-agent-context-7", at: Date.now() })}>Open the wait</button>
     <button onClick={() => setFocus({ key: "review:proof-review-1", at: Date.now() })}>Open the review</button>
-    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} />
+    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={focus} onUnsent={() => {}} />
   </main>;
 }
 

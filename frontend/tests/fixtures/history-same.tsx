@@ -60,7 +60,7 @@ function HistorySame() {
     ...prior, revision: prior.revision + 1,
     credentials: prior.credentials.map((candidate) => candidate.id === id ? { ...candidate, state: "open", closed_at: "", reason: "", generation: "9".repeat(32) } : candidate),
   }));
-  return <main><CommandCenterMenu snapshot={holdClosed(parseSnapshot(state), closed, new Map())} connected presentations={[]} focus={null} onUnsent={() => {}} /></main>;
+  return <main><CommandCenterMenu snapshot={holdClosed(parseSnapshot(state), closed, new Map())} connected presentations={[]} now={Date.now()} focus={null} onUnsent={() => {}} /></main>;
 }
 
 createRoot(document.getElementById("root")!).render(<HistorySame />);
