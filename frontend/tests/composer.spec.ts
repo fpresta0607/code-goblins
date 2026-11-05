@@ -628,7 +628,7 @@ for (const harness of ["claude", "codex", "pi"] as const) {
     // after it, and the list closed.
     await expect(field(page)).toHaveValue("read @frontend/src/terminal-link.ts and fix it");
     await expect(list).toHaveCount(0);
-    expect(await field(page).evaluate((box: HTMLTextAreaElement) => box.selectionStart)).toBe("read @frontend/src/terminal-link.ts ".length);
+    await expect.poll(() => field(page).evaluate((box: HTMLTextAreaElement) => box.selectionStart)).toBe("read @frontend/src/terminal-link.ts ".length);
     await expect(field(page)).toBeFocused();
   });
 }
