@@ -23,6 +23,16 @@ declare global {
   }
 }
 
+// isListening says the voice dock tells a screen reader it listens in one
+// plain word and draws no words for which engine listens beside the bubble
+// (the Overlord's mobile corrections, 2026-11-04: remove the visible
+// "Listening with ... on this PC"); the list's foot still names it.
+async function isListening(page: Page): Promise<void> {
+  await expect(page.locator(".voice-dock").getByRole("status")).toHaveText("Listening");
+  await expect(page.locator(".voice-dock").getByRole("status")).toHaveClass(/(^| )sr-only( |$)/);
+  expect(await page.locator(".voice-dock").innerText()).not.toMatch(/Listening with|on this PC|speech recognition/);
+}
+
 // The microphone glyph the idle bubble shows, as the page draws it.
 const MICROPHONE = "M12 3.5a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0v-5a3 3 0 0 0-3-3ZM5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7";
 
@@ -354,7 +364,7 @@ test.describe("in the desktop app", () => {
     const { bubble, pane, posts } = await openPane(page, { app: true });
     await holdShortcut(page, 0);
     await expect(bubble).toHaveClass(/recording/);
-    await expect(page.locator(".voice-dock-listening")).toHaveText("Listening with test-model on this PC");
+    await isListening(page);
     await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.length)).toBe(1);
     await page.waitForTimeout(1200);
     await testInfo.attach("app-dictation-listening", { body: await pane.screenshot(), contentType: "image/png" });
@@ -404,7 +414,7 @@ test("what the supervisor refuses with reaches the CFO as it wrote it, and nothi
   await expect(page.locator("output")).toHaveText("");
 });
 
-test("the browser's speech recognition is used only once he turns it on, and the bubble says which is listening", async ({ page }) => {
+test("the browser's speech recognition is used only once he turns it on, and the list's foot says which is listening", async ({ page }) => {
   const { bubble, posts } = await openPane(page);
   await bubble.click();
   const recent = page.getByRole("dialog", { name: "Recent messages" });
@@ -416,7 +426,7 @@ test("the browser's speech recognition is used only once he turns it on, and the
   await page.keyboard.press("Escape");
 
   await holdShortcut(page, 0);
-  await expect(page.locator(".voice-dock-listening")).toHaveText("Listening with this browser's speech recognition");
+  await isListening(page);
   await expect.poll(() => page.evaluate(() => window.voiceProbe!.started.length)).toBe(1);
   await releaseShortcut(page);
   await expect(page.locator("output")).toHaveText("heard by the browser");
@@ -531,7 +541,7 @@ test("holding the shortcut records one capture and its bars follow the voice", a
   });
   await holdShortcut(page, 0);
   await expect(bubble).toHaveClass(/recording/);
-  await expect(page.locator(".voice-dock-listening")).toHaveText("Listening with test-model on this PC");
+  await isListening(page);
   await expect.poll(() => page.evaluate(() => window.voiceSignal?.context.state)).toBe("running");
   const bars = bubble.locator(".voice-bars span");
   await expect(bars).toHaveCount(9);
@@ -938,7 +948,7 @@ test.describe("at his window's size", () => {
 
       // Assert
       await expect.poll(() => page.evaluate(() => window.voiceProbe!.firstFrame)).toMatch(/\brecording\b/);
-      await expect(page.locator(".voice-dock-listening")).toHaveText("Listening with test-model on this PC");
+      await isListening(page);
       await releaseShortcut(page);
       await expect(bubble).not.toHaveClass(/recording/);
       await page.evaluate(() => window.dispatchEvent(new Event("allow-microphone")));

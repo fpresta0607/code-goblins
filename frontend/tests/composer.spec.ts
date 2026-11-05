@@ -64,13 +64,12 @@ for (const width of [1440, 390]) {
 
     await expect(input).toBeVisible();
     const reply = page.locator(".message-reply");
-    // The session works, so the reply's end is the dither, not its time or
-    // its copy.
+    // The session works, so the reply's end is the dither, not its time.
     await expect(page.locator(".reply-working")).toBeVisible();
     const replyText = await reply.locator(".message-words").boundingBox();
     const dither = await page.locator(".reply-working").boundingBox();
     expect(replyText && dither && dither.y >= replyText.y + replyText.height).toBeTruthy();
-    await expect(reply.locator(".message-reply-actions")).toHaveCount(0);
+    await expect(reply.locator("time")).toHaveCount(0);
     const bounds = await Promise.all([input, add, field(page), microphone, speech].map((part) => part.boundingBox()));
     const [bar, plus, prompt, mic, history] = bounds;
     expect(bar && plus && prompt && mic && history).toBeTruthy();
@@ -162,7 +161,7 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   // while the view reconnects, before the relay answers its new connection.
   await page.routeWebSocket("**/api/terminal/native?*", () => {});
   relay.drop();
-  await expect(page.locator(".terminal-corner.warning")).toHaveCount(1);
+  await expect(page.locator(".terminal-corner.warning:visible"), "the pane says the one Reconnecting").toHaveText("Reconnecting");
   const before = typed(relay);
   expect(before, "nothing was typed while the program was busy").not.toContain("merge it");
   await send(page).click();
@@ -187,7 +186,6 @@ test("while the harness asks in its terminal the box shows what it asks as a lis
   const asking = box(page).getByRole("group", { name: NAME + " asks" });
   await expect(asking).toContainText("Do you want to proceed?");
   await expect(page.getByText("Waiting on you in the terminal")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Back to messages" })).toHaveCount(0);
   await expect(send(page)).toBeEnabled();
   await page.waitForTimeout(300);
   expect(typed(relay), "nothing was typed into the harness's own screen before he chose").toBe("");
@@ -277,8 +275,9 @@ test("his draft stays through a switch of sessions, a reconnect and a reload of 
   await expect(page.locator("#panel-title")).toHaveText("Ivy - Window Painter");
   await card(page, NAME).click();
   await expect(field(page)).toHaveValue("half a thought");
+  const views = relay.views;
   relay.drop();
-  await expect.poll(() => relay.views).toBe(2);
+  await expect.poll(() => relay.views).toBe(views + 1);
   await expect(field(page)).toHaveValue("half a thought");
   await page.reload();
   await card(page, NAME).click();
@@ -629,7 +628,7 @@ for (const harness of ["claude", "codex", "pi"] as const) {
     // after it, and the list closed.
     await expect(field(page)).toHaveValue("read @frontend/src/terminal-link.ts and fix it");
     await expect(list).toHaveCount(0);
-    expect(await field(page).evaluate((box: HTMLTextAreaElement) => box.selectionStart)).toBe("read @frontend/src/terminal-link.ts ".length);
+    await expect.poll(() => field(page).evaluate((box: HTMLTextAreaElement) => box.selectionStart)).toBe("read @frontend/src/terminal-link.ts ".length);
     await expect(field(page)).toBeFocused();
   });
 }

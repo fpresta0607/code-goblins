@@ -1,4 +1,4 @@
-import { expect, holdStream, type Locator, openTaskList, type Page, test } from "./site";
+import { CFO_DOOR, expect, holdStream, type Locator, openTaskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-07, looking at Claude Code's "Update installed ·
 // Restart to update" in the CFO's terminal: "there should be an easy update
@@ -43,7 +43,7 @@ async function openGoblinPanel(page: Page) {
 }
 
 async function openCfoPanel(page: Page) {
-  await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
   await expect(header(page).locator("#panel-title")).toHaveText("CFO");
 }
 
@@ -58,14 +58,13 @@ for (const [width, height] of [[1280, 800], [390, 844]]) {
       const update = line(page).getByRole("button", { name: "Update Claude Code" });
 
       // Assert: on a line of its own right under the header's row, at the
-      // row's end, at every width, so the row keeps the AFK switch and Close.
+      // row's end, at every width, so the row keeps its controls and Close.
       await expect(update).toBeVisible();
       await panel(page).screenshot({ path: testInfo.outputPath(`cfo-header-update-${width}.png`) });
       const button = (await update.boundingBox())!, row = (await header(page).boundingBox())!, corner = (await header(page).locator(".panel-corner").boundingBox())!;
       expect(button.y).toBeGreaterThanOrEqual(row.y + row.height - 0.5);
       expect(button.y - (row.y + row.height)).toBeLessThan(12);
       expect(Math.abs(button.x + button.width - (corner.x + corner.width))).toBeLessThanOrEqual(1);
-      await expect(header(page).getByRole("switch", { name: "AFK mode" })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
 
       // Act

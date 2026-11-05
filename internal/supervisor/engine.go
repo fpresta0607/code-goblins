@@ -217,17 +217,11 @@ func (s *Service) reportEngineChoice(choice state.EngineChoice, outcome string) 
 
 // The caller holds starts until the changing marker is published.
 func (s *Service) startEngineSwitch(meta state.TaskMeta, choice state.EngineChoice) {
-	if s.changing == nil {
-		s.changing = map[string]string{}
-	}
-	if s.changeErrors == nil {
-		s.changeErrors = map[string]taskChangeError{}
-	}
 	if s.engineFrom == nil {
 		s.engineFrom = map[string]state.TaskMeta{}
 	}
 	s.engineFrom[meta.ID] = meta
-	s.changing[meta.ID] = "switch"
+	s.markChanging(meta.ID, "switch")
 	delete(s.changeErrors, meta.ID)
 	go func() {
 		args := []string{"switch", meta.ID, "--generation", meta.SpawnGen, "--harness", choice.Harness, "--model", choice.Model, "--effort", choice.Effort, "--force-dirty"}

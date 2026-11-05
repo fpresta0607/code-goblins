@@ -17,7 +17,13 @@ test("WebKit keeps streamed history still and a touch Jump cancels the glide to 
   await talk.evaluate((element) => { element.scrollTop -= 500; });
   let prior = "";
   await expect.poll(async () => {
-    const next = await talk.evaluate((element) => element.scrollTop + ":" + element.scrollHeight);
+    // Each reading waits two frames, so two alike mean the rows that scroll drew
+    // are measured, and not only that a busy page has drawn nothing between them.
+    const next = await talk.evaluate(async (element) => {
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+      return element.scrollTop + ":" + element.scrollHeight;
+    });
     const isQuiet = next === prior;
     prior = next;
     return isQuiet;

@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import { Orchestration } from "../../src/Orchestration";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
+import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 
 // The canvas the Overlord showed on 2026-10-01: eight goblins under the CFO in
 // their order there, cg-board-theme waiting on cg-cfo-wakes. The test puts his
@@ -13,5 +14,5 @@ const snapshot = parseSnapshot({ healthy: true, instance: "fixture", tasks: flee
 })) });
 
 createRoot(document.getElementById("root")!).render(<main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-  <Orchestration onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={Date.parse("2026-10-01T12:00:00Z")} freshNow={Date.parse("2026-10-01T12:00:00Z")} onSelect={() => {}} onChild={() => {}} />
+  <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={Date.parse("2026-10-01T12:00:00Z")} freshNow={Date.parse("2026-10-01T12:00:00Z")} onSelect={() => {}} onChild={() => {}} />
 </main>);

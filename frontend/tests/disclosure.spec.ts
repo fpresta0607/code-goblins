@@ -1,4 +1,4 @@
-import { expect, openChat, openItem, openTaskList, test, type Locator, type Page } from "./site";
+import { CFO_DOOR, expect, openChat, openItem, openTaskList, test, type Locator, type Page } from "./site";
 import { caret, nativeMarkers } from "./caret";
 import { at, field, GOBLIN, open, openGoblin, snapshot, typed } from "./session-board";
 
@@ -52,7 +52,7 @@ async function preparePanel(page: Page, who = "goblin", fields: Record<string, u
     return route.fulfill({ json: {} });
   });
   if (who === "goblin") await openGoblin(page);
-  else await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  else await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
   await openTaskList(page);
   return { relay, posts };
 }

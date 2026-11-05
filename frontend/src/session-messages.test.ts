@@ -137,13 +137,11 @@ test("a reply draws each run of calls as one stack between its words, and leaves
   assert.deepEqual(replyParts([]), []);
 });
 
-test("Copy copies a reply's text blocks, and a command with what it printed", () => {
-  const [reply, command, compaction] = parseMessages([
-    served(0, { kind: "reply", blocks: [{ kind: "text", text: "One" }, { kind: "call", tool: "Bash", state: "done" }, { kind: "thinking", text: "hidden" }, { kind: "text", text: "Two" }] }),
+test("Copy copies a command with what it printed, and a compaction its summary", () => {
+  const [command, compaction] = parseMessages([
     served(1, { source: "shell", text: "git status", output: "clean", errors: "warning" }),
     served(2, { kind: "compaction", source: undefined, text: "The summary", trigger: "auto" }),
   ]);
-  assert.equal(copyText(reply), "One\n\nTwo");
   assert.equal(copyText(command), "git status\n\nclean\n\nwarning");
   assert.equal(copyText(compaction), "The summary");
 });

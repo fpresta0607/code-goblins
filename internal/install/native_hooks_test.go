@@ -14,7 +14,7 @@ import (
 
 // claudeEvents are the Claude Code events a fleet session reports its
 // session through.
-var claudeEvents = []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop"}
+var claudeEvents = []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact"}
 
 // isNativeHook reports whether hook runs cfo native-hook, which reports its
 // session to the supervisor, rather than a cfo hook.

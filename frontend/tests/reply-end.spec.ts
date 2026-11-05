@@ -1,5 +1,5 @@
-import { expect, test, type Page } from "./site";
-import { box, field, holdMessages, open, openGoblin, releaseMessages, snapshot, typed } from "./session-board";
+import { expect, test, type Locator, type Page } from "./site";
+import { box, field, GOBLIN, holdMessages, open, openGoblin, pickStyle, releaseMessages, snapshot, typed } from "./session-board";
 
 // The Overlord, 2026-10-27: "We don't need to print the date after every
 // response. We only need to print it at the end of a message, and the dither
@@ -11,9 +11,10 @@ import { box, field, holdMessages, open, openGoblin, releaseMessages, snapshot, 
 // the box's Stop and Escape stop the turn. Since
 // 2026-10-28 nothing shows under his message until he points at it ("It
 // shouldn't be static ... Only when you hover in that position where it says
-// 'Sent just now', that's where the timestamp and copy icon come"), and Copy
-// shows only under a finished turn's last reply ("why the stray copy button in
-// our chat?"). The supervisor is played by tests/session-board.ts.
+// 'Sent just now', that's where the timestamp and copy icon come"), and since
+// 2026-11-04 each text of a reply has a Copy of its own, the last of a
+// finished turn's between its time and the harness's mark (#2048). The
+// supervisor is played by tests/session-board.ts.
 
 const minute = (count: number) => new Date(Date.parse("2026-10-22T09:00:00Z") + count * 60_000).toISOString();
 const reply = (seq: number, blocks: object[]) => ({ id: "r" + seq, seq, at: minute(seq), kind: "reply", blocks });
@@ -84,7 +85,7 @@ test("pointing at his message shows when he sent it and Copy in the spot under i
   expect(await sent.boundingBox(), "the spot is kept, so nothing moves").toEqual(before);
 });
 
-test("a turn in progress shows no Copy, not even beside a short text between its tool calls, and once it ends exactly one under its last reply", async ({ page }) => {
+test("each text of a turn in progress has its own Copy shown with no pointer over it, and once the turn ends its last text's Copy sits between the time and the mark", async ({ page }) => {
   // Arrange: the second turn goes on with a short text between two calls.
   const going = { messages: [...TALK.messages,
     reply(6, [{ kind: "call", tool: "Bash", subject: "npx playwright test phone", state: "done" }, { kind: "text", text: "One more." }, { kind: "call", tool: "Read", subject: "tests/phone.spec.ts", state: "done" }]),
@@ -97,21 +98,83 @@ test("a turn in progress shows no Copy, not even beside a short text between its
   // Act
   relay.say(screen(true));
 
-  // Assert: only the first, finished turn has its Copy.
+  // Assert: every text has one Copy, and none of the calls or the dither has one.
   await expect(working(page)).toHaveCount(1);
-  await expect(copies).toHaveCount(1);
-  await expect(row(page, "r3").locator(".message-copy")).toHaveCount(1);
-  for (const id of ["r5", "r6", "r7"]) await expect(row(page, id).locator(".message-copy")).toHaveCount(0);
+  await expect(copies).toHaveCount(5);
+  for (const id of ["r1", "r3", "r5", "r6", "r7"]) await expect(row(page, id).locator(".message-copy")).toHaveCount(1);
+  await expect(row(page, "r2").locator(".message-copy")).toHaveCount(0);
+  await expect(working(page).locator(".message-copy")).toHaveCount(0);
+  for (const opacity of await copies.evaluateAll((elements) => elements.map((element) => getComputedStyle(element).opacity))) expect(opacity, "shown without hover").toBe("1");
+  await expect(row(page, "r7").locator("time")).toHaveCount(0);
 
   // Act: the turn ends.
   relay.say(screen(false));
 
-  // Assert: one Copy per finished turn, under its last reply.
+  // Assert: still one Copy per text, the last now in its turn's end row.
   await expect(working(page)).toHaveCount(0);
-  await expect(copies).toHaveCount(2);
-  await expect(row(page, "r7").locator(".message-copy")).toHaveCount(1);
-  for (const id of ["r1", "r2", "r5", "r6"]) await expect(row(page, id).locator(".message-copy")).toHaveCount(0);
+  await expect(copies).toHaveCount(5);
+  const parts = await row(page, "r7").locator(".message-reply-actions > *").evaluateAll((elements) => elements.map((element) => element.tagName === "TIME" ? "time" : element.classList.contains("message-copy") ? "copy" : element.classList.contains("mark") ? "mark" : element.className));
+  expect(parts).toEqual(["time", "copy", "mark"]);
 });
+
+// #2048 and the Overlord, 2026-11-04: a text section of a reply had no Copy
+// on a phone, and a centered note had one that copied only part of it. Into
+// a turn that still runs stream a text, the note of a Stop hook's feedback,
+// another text and a code block: each text's Copy and the code block's copy
+// their whole Markdown source the moment they show, tapped on a phone with no
+// hover, and the hook's note, only a label whose feedback the transcript keeps
+// from the board, has no Copy; a background command's note copies all of it.
+const FIRST = "Reading **the handlers** first:\n\n- `src/touch.ts`\n- `src/swipe.ts`";
+const SECOND = "The hook asked for the phone spec, so it runs next.";
+const CODE = "expect(swipe).toBe(true);\nexpect(scroll).toBe(false);";
+const THIRD = "Then the check:\n\n```ts\n" + CODE + "\n```";
+const BACKGROUND = 'Background command "Reattach to the gate run during the final re-review" completed (exit code 0)';
+for (const width of [390, 1440]) {
+  test.describe(`at ${width} px`, () => {
+    const isPhone = width === 390;
+    test.use({ viewport: { width, height: 900 }, hasTouch: isPhone, isMobile: isPhone });
+
+    test("each text and code block streamed into a running turn copies its whole source, and the Stop hook's note has no Copy", async ({ page, context }) => {
+      // Arrange
+      await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+      const relay = await open(page, snapshot({}, { phase: "settled" }), "", { messages: [TALK.messages[0]], conversation: "fixture-conversation", more: false });
+      await openGoblin(page);
+      relay.say(screen(true));
+      await expect(working(page)).toHaveCount(1);
+      const stream = (message: object) => page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages: [data] } } })), message);
+      const press = (target: Locator) => isPhone ? target.tap() : target.click();
+      const copied = async () => (await page.evaluate(() => navigator.clipboard.readText())).replaceAll("\r\n", "\n");
+
+      // Act
+      await stream(reply(1, [{ kind: "text", text: FIRST }]));
+      await stream({ id: "n2", seq: 2, at: minute(2), kind: "prompt", source: "notice", text: "Stop hook feedback" });
+      await stream(reply(3, [{ kind: "text", text: SECOND }, { kind: "call", tool: "Bash", subject: "npx playwright test phone", state: "running" }]));
+      await stream(reply(4, [{ kind: "text", text: THIRD }]));
+      await stream({ id: "n5", seq: 5, at: minute(5), kind: "prompt", source: "notice", text: BACKGROUND });
+
+      // Assert: the turn still runs, and each text's Copy copies it as written.
+      await expect(working(page)).toHaveCount(1);
+      for (const [id, text] of [["r1", FIRST], ["r3", SECOND], ["r4", THIRD]]) {
+        const copy = row(page, id).locator(".message-reply-actions .message-copy");
+        await expect(copy).toHaveCount(1);
+        expect(await copy.evaluate((element) => getComputedStyle(element).opacity), id + "'s Copy shows without hover").toBe("1");
+        await press(copy);
+        await expect.poll(copied, { message: id + "'s Copy copies its whole source" }).toBe(text);
+      }
+      await press(row(page, "r4").locator(".code-copy"));
+      await expect.poll(copied, { message: "the code block's Copy copies its code" }).toBe(CODE);
+
+      // The hook's note shows no Copy, and the background command's copies all its words.
+      await expect(row(page, "n2")).toHaveText("Stop hook feedback");
+      await expect(row(page, "n2").locator(".message-copy")).toHaveCount(0);
+      const noted = row(page, "n5").locator(".message-copy");
+      if (isPhone) expect(await noted.evaluate((element) => getComputedStyle(element).opacity), "the note's Copy shows on a phone").toBe("1");
+      await press(noted);
+      await expect.poll(copied).toBe(BACKGROUND);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "no sideways scroll").toBe(true);
+    });
+  });
+}
 
 test("while the session works the dither takes the time's place at the reply in progress with no Stop, and the box's Stop and Escape stop the turn with no terminal shown", async ({ page }) => {
   // Arrange
@@ -141,7 +204,6 @@ test("while the session works the dither takes the time's place at the reply in 
   // Assert: Escape went to the harness, and no terminal was shown.
   await expect.poll(() => typed(relay)).toBe("\x1b");
   await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Back to messages" })).toHaveCount(0);
 
   // Act: Escape in the box stops it too.
   await field(page).press("Escape");
@@ -188,6 +250,9 @@ for (const width of [360, 393, 430]) {
     await page.setViewportSize({ width, height: 852 });
     const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
     await openGoblin(page);
+    // The press on his card leaves the pointer over the panel that opened on
+    // it, where it could hover his message and show that message's own actions.
+    await page.mouse.move(0, 0);
     const dock = page.locator(".composer-dock");
 
     // Assert: finished.
@@ -237,20 +302,20 @@ test("a working session's dither carries the harness's own words for what it doe
 
   // Assert
   await expect(working(page)).toHaveCount(1);
-  await expect(firstWord(page)).toHaveText("Cogitating");
+  await expect(firstWord(page)).toHaveText("Cogitating…");
   await expect(working(page).getByRole("status", { name: "Cogitating" })).toBeVisible();
 
   // Act: the harness names another.
   relay.say(screen(true, "Sautéing"));
 
   // Assert
-  await expect(firstWord(page)).toHaveText("Sautéing");
+  await expect(firstWord(page)).toHaveText("Sautéing…");
 
   // Act: a turn row with no words of its own.
   relay.say(screen(true));
 
   // Assert
-  await expect(firstWord(page)).toHaveText("Working");
+  await expect(firstWord(page)).toHaveText("Working…");
 
   // Act: the turn ends.
   relay.say(screen(false));
@@ -260,6 +325,17 @@ test("a working session's dither carries the harness's own words for what it doe
   await expect(page.getByRole("log")).not.toContainText(/Cogitating|Sautéing/);
 });
 
+// The words' animations start only once their room is measured, a frame or
+// more after the words are in the page (working-word.tsx), so a check that
+// holds them first waits for the shimmer's own animation to be there and
+// ready, rather than racing it (#1886). Under reduced motion there is none.
+const animated = (page: Page) => expect.poll(() => page.evaluate(async () => {
+  const shine = document.querySelector(".working-shine");
+  const animations = document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect && !!shine && animation.effect.target === shine);
+  await Promise.all(animations.map((animation) => animation.ready));
+  return animations.length;
+}), "the shimmer's animation has started").toBeGreaterThan(0);
+
 // The Overlord, 2026-10-30: "make twitsting and teh verbs rotate in a type
 // writere hroiztonal shimmer". Each word shows in its turn by its own
 // animations, which come round again while the turn runs. shownAt holds them
@@ -267,35 +343,38 @@ test("a working session's dither carries the harness's own words for what it doe
 // letters as drawn, the room the words take, the steps of its turn its window
 // slides through, from unseen to whole a letter at a time, and the properties
 // its typing and its shimmer move, which the compositor draws.
-const shownAt = (page: Page, ms: number) => page.evaluate((ms) => {
-  const doing = document.querySelector(".reply-doing");
-  if (!doing) throw new Error("no words beside the dither");
-  const effects = document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".reply-doing"));
-  for (const animation of effects) {
-    animation.pause();
-    animation.currentTime = ms;
-  }
-  const room = doing.getBoundingClientRect();
-  const frame = [...doing.querySelectorAll(":scope > .working-word")].find((each) => {
-    const { left, right } = each.getBoundingClientRect();
-    return Math.min(right, room.right) - Math.max(left, room.left) > 0.5;
-  });
-  const letters = frame?.querySelector(":scope > span");
-  const effectOn = (target?: Element | null) => effects.map((animation) => animation.effect).find((effect): effect is KeyframeEffect => effect instanceof KeyframeEffect && !!target && effect.target === target);
-  const typing = effectOn(letters), shimmer = effectOn(frame?.nextElementSibling);
-  const moved = (effect?: KeyframeEffect) => [...new Set((effect?.getKeyframes() ?? []).flatMap((frame) => Object.keys(frame)))].filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key));
-  const range = document.createRange();
-  if (letters) range.selectNodeContents(letters);
-  return {
-    word: letters?.textContent ?? "",
-    drawn: letters ? range.getBoundingClientRect().width : 0,
-    room: room.width,
-    // Its last two keyframes take it away at its turn's end.
-    shifts: (typing?.getKeyframes() ?? []).slice(0, -2).map((frame) => Number(/translateX\((-?[\d.]+)px\)/.exec(String(frame.transform))?.[1])),
-    typingMoves: moved(typing),
-    shimmerMoves: moved(shimmer),
-  };
-}, ms);
+const shownAt = async (page: Page, ms: number, isAnimated = true) => {
+  if (isAnimated) await animated(page);
+  return page.evaluate((ms) => {
+    const doing = document.querySelector(".reply-doing");
+    if (!doing) throw new Error("no words beside the dither");
+    const effects = document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".reply-doing"));
+    for (const animation of effects) {
+      animation.pause();
+      animation.currentTime = ms;
+    }
+    const room = doing.getBoundingClientRect();
+    const frame = [...doing.querySelectorAll(":scope > .working-word")].find((each) => {
+      const { left, right } = each.getBoundingClientRect();
+      return Math.min(right, room.right) - Math.max(left, room.left) > 0.5;
+    });
+    const letters = frame?.querySelector(":scope > span");
+    const effectOn = (target?: Element | null) => effects.map((animation) => animation.effect).find((effect): effect is KeyframeEffect => effect instanceof KeyframeEffect && !!target && effect.target === target);
+    const typing = effectOn(letters), shimmer = effectOn(frame?.nextElementSibling);
+    const moved = (effect?: KeyframeEffect) => [...new Set((effect?.getKeyframes() ?? []).flatMap((frame) => Object.keys(frame)))].filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key));
+    const range = document.createRange();
+    if (letters) range.selectNodeContents(letters);
+    return {
+      word: letters?.textContent ?? "",
+      drawn: letters ? range.getBoundingClientRect().width : 0,
+      room: room.width,
+      // Its last two keyframes take it away at its turn's end.
+      shifts: (typing?.getKeyframes() ?? []).slice(0, -2).map((frame) => Number(/translateX\((-?[\d.]+)px\)/.exec(String(frame.transform))?.[1])),
+      typingMoves: moved(typing),
+      shimmerMoves: moved(shimmer),
+    };
+  }, ms);
+};
 
 test("the harness's words type out a letter at a time, a shimmer crosses them, and whimsical verbs follow in turn", async ({ page }) => {
   // Arrange
@@ -304,13 +383,13 @@ test("the harness's words type out a letter at a time, a shimmer crosses them, a
 
   // Act
   relay.say(screen(true, "Twisting"));
-  await expect(firstWord(page)).toHaveText("Twisting");
+  await expect(firstWord(page)).toHaveText("Twisting…");
   const typing = await shownAt(page, 1_500);
 
-  // Assert: Twisting, typed in eight steps that each show one more letter,
+  // Assert: Twisting and its ellipsis, typed in nine steps that each show one more letter,
   // and crossed by a shimmer, both by transform alone.
-  expect(typing.word).toBe("Twisting");
-  expect(typing.shifts).toHaveLength("Twisting".length + 1);
+  expect(typing.word).toBe("Twisting…");
+  expect(typing.shifts).toHaveLength("Twisting…".length + 1);
   expect(typing.shifts.every((shift, at) => at === 0 || shift < typing.shifts[at - 1]), JSON.stringify(typing.shifts)).toBe(true);
   expect(typing.shifts.at(-1)).toBe(0);
   expect(typing.typingMoves).toEqual(["transform"]);
@@ -320,11 +399,11 @@ test("the harness's words type out a letter at a time, a shimmer crosses them, a
   const next = await shownAt(page, 4_500);
 
   // Assert: the next verb, typed the same way.
-  expect(next.word).toBe("Conjuring");
-  expect(next.shifts).toHaveLength("Conjuring".length + 1);
+  expect(next.word).toBe("Conjuring…");
+  expect(next.shifts).toHaveLength("Conjuring…".length + 1);
 
   // Act and Assert
-  expect((await shownAt(page, 7_500)).word).toBe("Tinkering");
+  expect((await shownAt(page, 7_500)).word).toBe("Tinkering…");
   await expect(working(page).getByRole("status", { name: "Twisting" })).toBeVisible();
 });
 
@@ -337,7 +416,7 @@ test("the next verb shows in its turn with nothing in the page changed", async (
   const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
   await openGoblin(page);
   relay.say(screen(true, "Twisting"));
-  await expect(firstWord(page)).toHaveText("Twisting");
+  await expect(firstWord(page)).toHaveText("Twisting…");
   await working(page).evaluate((spot) => {
     const changes: string[] = [];
     new MutationObserver((records) => changes.push(...records.map((record) => record.type + ":" + (record.attributeName ?? "")))).observe(spot, { subtree: true, childList: true, characterData: true, attributes: true });
@@ -352,7 +431,7 @@ test("the next verb shows in its turn with nothing in the page changed", async (
   });
 
   // Act
-  await expect.poll(shown, { timeout: 10_000 }).toBe("Conjuring");
+  await expect.poll(shown, { timeout: 10_000 }).toBe("Conjuring…");
 
   // Assert
   expect(await page.evaluate(() => (window as unknown as { changes: string[] }).changes)).toEqual([]);
@@ -365,20 +444,23 @@ test("the next verb shows in its turn with nothing in the page changed", async (
 // much the shimmer lightens the letters there, and the ground, against the
 // same words with no shimmer and the ground with neither. The ground is what
 // lies a pixel or more from the letters' ink, past their smoothed edges.
-const shimmerAt = (page: Page, share: number) => page.evaluate((share) => {
-  const words = document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".reply-doing"));
-  const shimmer = words.map((animation) => animation.effect).find((effect): effect is KeyframeEffect => effect instanceof KeyframeEffect && effect.target === document.querySelector(".working-shine"));
-  if (!shimmer) throw new Error("no shimmer crosses the words");
-  // It crosses in the one stretch of its rotation that eases.
-  const frames = shimmer.getKeyframes();
-  const crossing = frames.findIndex((frame) => frame.easing === "ease-in-out");
-  const [from, to] = [frames[crossing], frames[crossing + 1]].map((frame) => Number(frame.computedOffset));
-  const rotation = Number(shimmer.getComputedTiming().duration);
-  for (const animation of words) {
-    animation.pause();
-    animation.currentTime = rotation * (from + (to - from) * share);
-  }
-}, share);
+const shimmerAt = async (page: Page, share: number) => {
+  await animated(page);
+  await page.evaluate((share) => {
+    const words = document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".reply-doing"));
+    const shimmer = words.map((animation) => animation.effect).find((effect): effect is KeyframeEffect => effect instanceof KeyframeEffect && effect.target === document.querySelector(".working-shine"));
+    if (!shimmer) throw new Error("no shimmer crosses the words");
+    // It crosses in the one stretch of its rotation that eases.
+    const frames = shimmer.getKeyframes();
+    const crossing = frames.findIndex((frame) => frame.easing === "ease-in-out");
+    const [from, to] = [frames[crossing], frames[crossing + 1]].map((frame) => Number(frame.computedOffset));
+    const rotation = Number(shimmer.getComputedTiming().duration);
+    for (const animation of words) {
+      animation.pause();
+      animation.currentTime = rotation * (from + (to - from) * share);
+    }
+  }, share);
+};
 const lightOf = async (page: Page) => {
   const doing = working(page).locator(".reply-doing");
   const hide = (selectors: string[]) => doing.evaluate((element, selectors) => {
@@ -417,7 +499,7 @@ test("the shimmer lightens the letters and leaves the ground about them as it wa
   const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
   await openGoblin(page);
   relay.say(screen(true, "Twisting"));
-  await expect(firstWord(page)).toHaveText("Twisting");
+  await expect(firstWord(page)).toHaveText("Twisting…");
 
   // Act: halfway across.
   await shimmerAt(page, .5);
@@ -442,13 +524,13 @@ test("with no words of its harness's own, Working types out first and gives way 
 
   // Act
   relay.say(screen(true));
-  await expect(firstWord(page)).toHaveText("Working");
+  await expect(firstWord(page)).toHaveText("Working…");
   const first = await shownAt(page, 1_500);
 
   // Assert
-  expect(first.word).toBe("Working");
-  expect(first.shifts).toHaveLength("Working".length + 1);
-  expect((await shownAt(page, 4_500)).word).toBe("Conjuring");
+  expect(first.word).toBe("Working…");
+  expect(first.shifts).toHaveLength("Working…".length + 1);
+  expect((await shownAt(page, 4_500)).word).toBe("Conjuring…");
 });
 
 // The words keep the room of the widest as drawn, which is not always the
@@ -460,7 +542,7 @@ test("the words keep the room of the widest as drawn while they rotate, so nothi
   const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
   await openGoblin(page);
   relay.say(screen(true));
-  await expect(firstWord(page)).toHaveText("Working");
+  await expect(firstWord(page)).toHaveText("Working…");
 
   // Act: Working, then each of the eleven verbs in turn.
   const seen: { word: string; drawn: number; room: number }[] = [];
@@ -486,11 +568,11 @@ test.describe("under reduced motion", () => {
 
     // Act
     relay.say(screen(true, "Twisting"));
-    await expect(firstWord(page)).toHaveText("Twisting");
+    await expect(firstWord(page)).toHaveText("Twisting…");
     await page.clock.runFor(10_000);
 
     // Assert: Twisting shows whole, and no other word.
-    expect((await shownAt(page, 4_500)).word).toBe("Twisting");
+    expect((await shownAt(page, 4_500, false)).word).toBe("Twisting…");
     expect(await page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running" && animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".context-pane")).length)).toBe(0);
   });
 });
@@ -511,7 +593,7 @@ test.describe("on a phone", () => {
     relay.say(screen(true, "Cogitating"));
 
     // Assert
-    await expect(firstWord(page).locator(":scope > span")).toHaveText("Cogitating");
+    await expect(firstWord(page).locator(":scope > span")).toHaveText("Cogitating…");
     await expect(working(page).getByRole("button")).toHaveCount(0);
     const [dither, words] = await Promise.all([".working-indicator", ".reply-doing"].map((selector) => working(page).locator(selector).boundingBox()));
     expect(dither && words, "both drawn").toBeTruthy();
@@ -581,3 +663,74 @@ test("a working goblin's dither shows only once its view has connected", async (
   await expect(row(page, "r5")).toBeVisible();
   await expect(working(page)).toHaveCount(1);
 });
+
+// The Overlord, 2026-11-04: a compaction showed whimsical verbs as if the
+// session were at work on his ask. While the session's own hooks say it
+// compacts, in a turn or between turns, the dither's words say Compacting…
+// alone; his draft and the file added to it stay in the box, the message he
+// sent meanwhile stays Queued, never Sent, until the board hands it over, it
+// ends on the same session, the compaction replays nothing he already read,
+// and Terminal shows the harness's own screen with no queue pane and no
+// second scroller.
+for (const [harness, isTurnRunning] of [["claude", true], ["codex", false]] as const) {
+  test(`while ${harness} compacts ${isTurnRunning ? "in a turn" : "between turns"} the dither says Compacting… alone and his draft, file and queued message stay`, async ({ page }) => {
+    // Arrange
+    const session = harness + "/goblin-session";
+    const compacting = (isCompacting: boolean, revision: number, actions: object[] = []) => snapshot({ revision, actions, sessions: [{ id: session, native_id: "goblin-session", harness, role: "goblin", task_id: GOBLIN.id, generation: GOBLIN.generation, phase: "settled", updated_at: "2026-10-22T09:05:00Z", is_compacting: isCompacting }] }, { phase: "settled", harness, session });
+    const publish = (detail: object) => page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), detail);
+    const relay = await open(page, compacting(false, 1), "", TALK);
+    const posted: { id: string; kind: string; task_id: string; text: string }[] = [];
+    await page.route("**/api/actions", (route) => { posted.push(route.request().postDataJSON()); return route.fulfill({ status: 202, json: {} }); });
+    await page.route("**/api/composer/file**", (route) => route.fulfill({ status: 201, json: { path: "C:\\goblin\\tasktmp\\cg-touch\\composer-files\\pasted-1.md" } }));
+    await openGoblin(page);
+
+    // Act
+    relay.say(screen(isTurnRunning, isTurnRunning ? "Tinkering" : ""));
+    await publish(compacting(true, 2));
+    await expect(working(page)).toHaveCount(1);
+    await field(page).fill("Queue this while it compacts");
+    await field(page).press("Enter");
+    await expect.poll(() => posted.length).toBe(1);
+    const queued = { ...posted[0], status: "queued" };
+    await publish(compacting(true, 3, [queued]));
+    await field(page).fill("keep this draft");
+    await box(page).locator('input[type="file"]').setInputFiles({ name: "notes.md", mimeType: "text/markdown", buffer: Buffer.from("# notes") });
+    await expect(box(page).getByRole("list", { name: "Attached files" })).toContainText("pasted-1.md");
+
+    // Assert
+    const shown = working(page).locator(".working-word");
+    await expect(shown).toHaveText(["Compacting…"]);
+    await expect(working(page).getByRole("status", { name: "Compacting" })).toBeVisible();
+    const bubble = page.getByRole("log").locator(`[data-queued="${queued.id}"]`);
+    await expect(bubble).toContainText("Queued");
+    await expect(bubble).not.toContainText("Sent");
+    expect(typed(relay), "nothing is typed into a compacting harness").toBe("");
+
+    // Act: the compaction ends with its summary row.
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages: [
+      { id: "c6", seq: 6, at: "2026-10-22T09:06:00Z", kind: "compaction", trigger: "auto", text: "The swipe is fixed and the phone spec runs." },
+    ] } } })));
+    relay.say(screen(false));
+    await publish(compacting(false, 4, [queued]));
+
+    // Assert
+    await expect(row(page, "c6")).toBeVisible();
+    await expect(working(page), "the state ends with the compaction").toHaveCount(0);
+    for (const id of ["p0", "r1", "r3", "p4", "r5"]) await expect(row(page, id), id + " shows once").toHaveCount(1);
+    await expect(page.getByRole("log").getByText("Fixed the swipe.", { exact: true })).toHaveCount(1);
+    await expect(bubble).toContainText("Queued");
+    await expect(bubble).not.toContainText("Sent");
+    await expect(field(page)).toHaveValue("keep this draft");
+    await expect(box(page).getByRole("list", { name: "Attached files" })).toContainText("pasted-1.md");
+    expect(posted, "the compaction sent nothing again").toHaveLength(1);
+
+    // Act
+    await publish(compacting(true, 5, [queued]));
+    await pickStyle(page, "Terminal");
+
+    // Assert
+    await expect(page.locator(".xterm").first()).toBeVisible();
+    await expect(page.locator(".classic-queue:visible"), "no queue pane").toHaveCount(0);
+    await expect(page.locator(".conversation:visible"), "no second scroller").toHaveCount(0);
+  });
+}

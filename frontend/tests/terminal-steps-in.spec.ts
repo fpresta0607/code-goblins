@@ -6,14 +6,13 @@ import { at, box, card, field, NAME, open, openGoblin, pasted, pickStyle, type R
 // answered there with the terminal's own keys: the conversation stays, and
 // nothing steps the terminal in by itself (the Overlord, 2026-10-27: "why am
 // I getting an answer in terminal? ... all functionality should be available
-// in the modern chat"). Show the terminal steps it in for a screen the list
-// does not cover, and it steps out by itself once the harness's input line is
-// back. The relay is played (tests/session-board.ts) and tells the view what
-// it read of the screen, its panel too, as the supervisor's relay does
-// (internal/harness/panel.go).
+// in the modern chat"). Nothing in the list or the pane shows the terminal:
+// the style menu of the session's picture is the one switch to it and back
+// (the Overlord, 2026-11-04). The relay is played (tests/session-board.ts) and
+// tells the view what it read of the screen, its panel too, as the
+// supervisor's relay does (internal/harness/panel.go).
 
 const terminal = (page: Page) => page.getByRole("textbox", { name: "Terminal input", exact: true });
-const back = (page: Page) => page.getByRole("button", { name: "Back to messages" });
 const messages = (page: Page) => page.getByRole("region", { name: "Messages", exact: true });
 const list = (page: Page) => box(page).getByRole("group", { name: NAME + " asks" });
 const choice = (page: Page, text: string) => list(page).getByRole("button", { name: text, exact: true });
@@ -63,7 +62,9 @@ for (const harness of ["claude", "pi", "codex"] as const) {
     for (const each of panel.choices) await expect(choice(page, each.text)).toBeVisible();
     await expect(choice(page, panel.choices[0].text)).toHaveAttribute("aria-current", "true");
     await expect(messages(page)).toBeVisible();
-    await expect(back(page)).toHaveCount(0);
+    // No button in the list or the pane shows the terminal.
+    await expect(page.getByRole("button", { name: "Show the terminal", exact: true })).toHaveCount(0);
+    await expect(page.locator(".panel-stage").getByRole("button", { name: /terminal/i })).toHaveCount(0);
     // No row of key chips: the keys are the box's own, and a harness that
     // names a way out gets one plain Cancel.
     await expect(list(page).getByRole("button", { name: /^Press / })).toHaveCount(0);
@@ -146,7 +147,6 @@ test("a picker the box opens despite background work stays in the chat, and goes
   // Assert
   await expect(choice(page, "Earlier session")).toBeVisible();
   await expect(messages(page)).toBeVisible();
-  await expect(back(page)).toHaveCount(0);
   await expect(field(page)).toBeFocused();
   await field(page).press("ArrowDown");
   await field(page).press("Enter");
@@ -206,18 +206,19 @@ test.describe("on a phone", () => {
   });
 });
 
-test("Back to messages returns to the messages with the keyboard in the box, and his draft there is the same", async ({ page }) => {
+test("Terminal in the style menu shows the terminal of an open screen, and Modern chat returns to the messages with the keyboard in the box and his draft the same", async ({ page }) => {
   // Arrange
   const relay = await open(page);
   await openGoblin(page);
   await field(page).fill("half a thought");
   relay.say(asking(PANELS.claude));
-  await list(page).getByRole("button", { name: "Show the terminal" }).click();
+  await expect(list(page)).toBeVisible();
+  await pickStyle(page, "Terminal");
   await expect(terminal(page)).toBeFocused();
   await page.keyboard.press("1");
 
   // Act
-  await back(page).click();
+  await pickStyle(page, "Modern chat");
 
   // Assert
   await expect(messages(page)).toBeVisible();
@@ -226,14 +227,14 @@ test("Back to messages returns to the messages with the keyboard in the box, and
   expect(typed(relay)).toBe("1");
 });
 
-test("Classic chosen in the maximized panel's Workspace after Back to messages keeps the keyboard there and types nothing", async ({ page }) => {
+test("Classic chosen in the maximized panel's Workspace after a switch back to Modern chat keeps the keyboard there and types nothing", async ({ page }) => {
   // Arrange: the terminal was shown once and put back behind the messages.
   const relay = await open(page);
   await openGoblin(page);
   relay.say(asking(PANELS.claude));
-  await list(page).getByRole("button", { name: "Show the terminal" }).click();
+  await pickStyle(page, "Terminal");
   await expect(terminal(page)).toBeFocused();
-  await back(page).click();
+  await pickStyle(page, "Modern chat");
   await expect(messages(page)).toBeVisible();
   await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
   await page.locator(".panel-side .workspace-details > summary").click();
@@ -251,13 +252,12 @@ test("Classic chosen in the maximized panel's Workspace after Back to messages k
 
 test("Modern chat in Classic's header saves Modern, so the conversation stays after the switch", async ({ page }) => {
   // Arrange: this browser draws its conversations as Classic, so the panel
-  // opens on the harness's terminal alone, with no Back to messages bar.
+  // opens on the harness's terminal alone.
   await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
   const relay = await open(page);
   await card(page, NAME).click();
   await expect(page.locator("#panel-title")).toHaveText(NAME);
   await expect(terminal(page)).toBeVisible();
-  await expect(back(page)).toHaveCount(0);
 
   // Act
   await pickStyle(page, "Modern chat");
@@ -269,7 +269,6 @@ test("Modern chat in Classic's header saves Modern, so the conversation stays af
   await expect(page.getByText("On it.", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style")), "Modern chat chose Modern").toBe("modern");
   expect(relay.views, "the session is the one the terminal already kept").toBe(1);
-  await expect(back(page)).toHaveCount(0);
 });
 
 test("a phone's tall task panel scrolls, and the conversation returns with its draft", async ({ page }) => {
@@ -304,19 +303,16 @@ test("the first terminal request sizes it and later switches keep that size, cou
   await expect(page.locator(".xterm")).toHaveCount(0);
 
   // Act
-  relay.say(asking(PANELS.claude));
-  await list(page).getByRole("button", { name: "Show the terminal" }).click();
+  await pickStyle(page, "Terminal");
   await expect(terminal(page)).toBeFocused();
   let seen = -1;
   await expect.poll(() => { const isQuiet = relay.resizes.length > 0 && relay.resizes.length === seen; seen = relay.resizes.length; return isQuiet; }, { intervals: [500] }).toBe(true);
-  relay.say(closed);
+  await pickStyle(page, "Modern chat");
   await expect(messages(page)).toBeVisible();
-  await expect(page.locator(".xterm")).toHaveCount(0);
-  relay.say(asking(PANELS.claude));
-  await list(page).getByRole("button", { name: "Show the terminal" }).click();
-  await expect(back(page)).toBeVisible();
+  await pickStyle(page, "Terminal");
+  await expect(terminal(page)).toBeFocused();
   await page.waitForTimeout(300);
-  relay.say(closed);
+  await pickStyle(page, "Modern chat");
   await expect(messages(page)).toBeVisible();
   await page.waitForTimeout(300);
 

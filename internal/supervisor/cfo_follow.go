@@ -217,9 +217,11 @@ func (s *Store) heldDueIn() time.Duration {
 }
 
 // nextQueued is the index of the queued action that can run first now, or
-// -1. With no CFO running, deliveries to the CFO wait, an answer to one of its
-// questions waits while the Overlord's next one may follow it, and a message
-// to it waits out its undo window. Every delivery goes ahead of the board's
+// -1. With no CFO running, deliveries to the CFO wait, but for his message,
+// whose delivery starts the CFO at once (message_starts.go), so it reads
+// Starting from the first; an answer to one of its questions waits while the
+// Overlord's next one may follow it, and a message to a CFO that runs waits
+// out its undo window. Every delivery goes ahead of the board's
 // own evaluations, which batches of reconciles queue fifteen at a time: on
 // 2026-11-02 his message waited 93 s behind one such batch. The caller holds
 // s.mu.
@@ -228,7 +230,7 @@ func (s *Store) nextQueued(cfoLive bool) int {
 	isHeld := s.answersWait(now) > 0
 	first := -1
 	for i, a := range s.db.Actions {
-		if a.Status == "queued" && !s.deferredUntil[a.ID].After(now) && (cfoLive || !s.waitsForCFO(a)) && !(isHeld && a.Kind == "cfo_answer") && undoWait(a, now) == 0 && !s.followsHeldMessage(i, now) && !s.followsEarlierAnswer(i) && !s.followsEarlierMessage(i) {
+		if a.Status == "queued" && !s.deferredUntil[a.ID].After(now) && (cfoLive || !s.waitsForCFO(a) || a.Kind == "message") && !(isHeld && a.Kind == "cfo_answer") && (!cfoLive || undoWait(a, now) == 0) && !s.followsHeldMessage(i, now) && !s.followsEarlierAnswer(i) && !s.followsEarlierMessage(i) {
 			if a.Kind != "evaluate" {
 				return i
 			}

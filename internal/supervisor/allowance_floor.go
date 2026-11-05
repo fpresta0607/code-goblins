@@ -288,11 +288,7 @@ func (s *Service) pauseAtFloor(meta state.TaskMeta, prior state.Lifecycle, reaso
 		s.starts.Unlock()
 		return false, nil
 	}
-	if s.changing == nil {
-		s.changing = map[string]string{}
-		s.changeErrors = map[string]taskChangeError{}
-	}
-	s.changing[meta.ID] = "pause"
+	s.markChanging(meta.ID, "pause")
 	s.starts.Unlock()
 	what := "at the " + reason + " floor"
 	logged := s.logFloorPause(afk.Entry{Task: meta.ID, What: what, Evidence: evidence})

@@ -2,10 +2,9 @@ import { defineConfig } from "@playwright/test";
 import { ORIGIN } from "./tests/site.ts";
 
 // The terminal specs whose terminals a fixture page draws, each of which runs
-// a second time with its terminal stepped into a Messages view's place, in
-// the stage the board draws it in (tests/fixtures/stepped-in.tsx), so the
-// terminal stepping in keeps every checklist item it carries. The terminal
-// specs that load the whole board step it in themselves.
+// a second time with its terminal in a Messages view's place, in the stage
+// the board draws it in (tests/fixtures/stepped-in.tsx), so a terminal drawn
+// over its conversation keeps every checklist item it carries.
 const STEPPED_IN = ["terminal-keys", "terminal-input", "terminal-held", "terminal-harness-screens", "terminal-scroll", "terminal-zoom", "terminal-geometry", "voice-bubble",
   "dictated-input", "touch-dictation", "phone-paste", "terminal-swipe", "phone-terminal-tools"].map((name) => `**/${name}.spec.ts`);
 

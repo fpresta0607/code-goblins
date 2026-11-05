@@ -1,4 +1,4 @@
-import { expect, openTaskList, type Page, test } from "./site";
+import { CFO_DOOR, expect, openTaskList, type Page, test } from "./site";
 
 const LEFT = "The CFO's conversation a1b2c3d4-session could not be resumed when it came back at 2026-10-03 01:47 UTC, so it started on a new one. That conversation is kept: claude --resume a1b2c3d4-session in the CFO's home opens it by hand.";
 const UNREGISTERED = "The CFO is not registered; run cfo register in the CFO session";
@@ -31,7 +31,7 @@ test("the board names the conversation the CFO could not resume in the CFO's pan
   await expect(page.getByText(/could not be resumed|not registered/).filter({ visible: true })).toHaveCount(0);
   await expect(bar.locator("p")).toHaveText("The board cannot reach the CFO.");
   await expect(bar.locator("p")).toHaveAttribute("data-tip", UNREGISTERED);
-  await bar.getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  await bar.getByRole("button", { name: CFO_DOOR }).last().click();
   await openTaskList(page);
   await expect(page.locator(".cfo-conversation-left")).toHaveText(LEFT);
 });

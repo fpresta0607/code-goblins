@@ -1,5 +1,5 @@
 import { expect, holdStream, test, type Page } from "./site";
-import { RUNS } from "./step-in";
+import { RUNS } from "./terminal-runs";
 
 // From 2026-10-12 23:20Z to 2026-10-13 04:10Z the CFO was told four times
 // that "a goblin's terminal" ended or "The terminal of this task did not

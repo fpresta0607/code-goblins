@@ -116,7 +116,9 @@ func nativeHookEvent(harnessName, root, dir string, getenv func(string) string, 
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-	} else {
+	} else if e.Harness != "claude" || e.Kind != "compacting" {
+		// Claude Code adds what a PreCompact hook prints to the instructions of
+		// its summary, so that hook prints nothing.
 		fmt.Fprintln(stdout, "{}")
 	}
 	// Claude registers from its own SessionStart hook, after the digest has

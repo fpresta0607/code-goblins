@@ -187,7 +187,8 @@ func TestTheCFOsTerminalHoldsPreCompactForManualAndAutomaticCompactionOnce(t *te
 
 	count := 0
 	for _, hook := range terminalHooks(t, f.root) {
-		if hook.Event != "PreCompact" || hook.Command != filepath.Join(f.bin, "cfo.exe") {
+		// The native hook beside it only reports the compaction to the board.
+		if hook.Event != "PreCompact" || hook.Command != filepath.Join(f.bin, "cfo.exe") || hook.Args[0] == "native-hook" {
 			continue
 		}
 		count++

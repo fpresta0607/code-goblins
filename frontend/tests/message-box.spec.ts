@@ -349,25 +349,51 @@ test("a message sent to a goblin waiting to start is not its draft again after a
   expect(posted).toEqual([{ token: "message-box-proof", body: { id: expect.any(String), kind: "message", task_id: "rex", generation: "", text: "rebase first" } }]);
 });
 
-// The Overlord, 2026-10-09, after a restart of the CFO showed a box to send
-// it a message: "when cfo is off no message box should exist". The CFO's
-// slot says why it has no terminal and offers nothing to write in.
+// The Overlord, 2026-11-04: "The modern chat should. be its own trigger to
+// start any code session. Especially on a message sent." The CFO's slot says
+// why it has no terminal, and its box takes a message that starts it, which
+// reads Starting until it goes in.
 for (const { state, first, says } of [
   { state: "it is closed, as it is for a moment while it restarts", first: CLOSED_CFO, says: "The CFO is closed." },
   { state: "none runs", first: NO_CFO, says: "No CFO is running." },
 ]) {
-  test(`the CFO's slot has no message box while ${state}`, async ({ page }) => {
-    // Arrange
-    await open(page, first);
+  test(`his message to the CFO reads Starting until it goes in while ${state}`, async ({ page }) => {
+    // Arrange: Orchestration opens on the CFO's terminal.
+    const { posted, publish } = await open(page, first);
     if (!first.cfo_closed) await page.getByRole("button", { name: "Open the board without a CFO" }).click();
-
-    // Act: Orchestration opens on the CFO's terminal.
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+    const deck = page.locator(".terminal-deck");
+    const box = deck.getByRole("region", { name: "Messages to CFO" });
+    const draft = box.getByRole("textbox", { name: "Message CFO" });
+    await expect(deck).toContainText(says);
+
+    // Act
+    await draft.fill("check the train");
+    await box.getByRole("button", { name: "Send", exact: true }).click();
+    await expect.poll(() => posted.length).toBe(1);
+    await publish({ ...first, revision: 5, actions: [{ id: posted[0].body.id, kind: "message", task_id: "", generation: "", status: "queued", message: "Starting the CFO. The message goes in once it runs.", text: "check the train", updated_at: "2026-11-04T16:00:00Z" }] });
 
     // Assert
-    const deck = page.locator(".terminal-deck");
-    await expect(deck).toContainText(says);
-    await expect(page.getByRole("region", { name: /^Messages to/ })).toHaveCount(0);
-    await expect(deck.getByRole("textbox")).toHaveCount(0);
+    expect(posted).toEqual([{ token: "message-box-proof", body: { id: expect.any(String), kind: "message", task_id: "", generation: "", text: "check the train" } }]);
+    await expect(box.getByRole("listitem").filter({ hasText: "check the train" })).toContainText("Starting");
+    await expect(page.getByRole("region", { name: /^Messages to/ })).toHaveCount(1);
+    await expect(draft).toHaveValue("");
   });
 }
+
+test("a message a paused goblin's resume carries reads Starting while that resume waits its turn and while it runs", async ({ page }) => {
+  // Arrange
+  const first = bernie(["i can message?"]);
+  const { box, publish } = await openBernie(page, first);
+  const kept = box.getByRole("listitem").filter({ hasText: "i can message?" });
+  await expect(kept).toContainText("Kept for resume");
+
+  // Act
+  await publish({ ...first, revision: 6, tasks: [{ ...first.tasks[0], asked: true }] });
+  await expect(kept).toContainText("Starting");
+  await publish({ ...first, revision: 7, tasks: [{ ...first.tasks[0], phase: "resuming" }] });
+
+  // Assert
+  await expect(kept).toContainText("Starting");
+  await expect(kept).not.toContainText("Kept for resume");
+});

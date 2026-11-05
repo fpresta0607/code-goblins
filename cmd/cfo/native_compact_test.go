@@ -229,24 +229,3 @@ func TestNativeCompactWithoutACheckpointSaysSo(t *testing.T) {
 		t.Fatalf("post-compact wake without a checkpoint = %q", pending[0].Detail)
 	}
 }
-
-// Claude Code compacts through its own pre-compact hook and SessionStart
-// digest, so its PreCompact never reaches the native entry.
-func TestClaudeCompactEventsStayOnTheClaudeHook(t *testing.T) {
-	// Arrange
-	root := t.TempDir()
-	clearNativeCFOEnvironment(t)
-	payload, err := json.Marshal(map[string]string{"hook_event_name": "PreCompact", "session_id": "claude-session", "cwd": root})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var output, diagnostics bytes.Buffer
-
-	// Act
-	exit := runNativeHook([]string{"claude", "--home", root, "--state", filepath.Join(root, "state")}, bytes.NewReader(payload), &output, &diagnostics, commandRuntime{})
-
-	// Assert
-	if exit == 0 || strings.TrimSpace(diagnostics.String()) != "native hook event is invalid" {
-		t.Fatalf("Claude PreCompact through the native entry: exit=%d %q, want an unsupported-event error", exit, diagnostics.String())
-	}
-}

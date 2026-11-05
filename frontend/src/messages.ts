@@ -16,11 +16,16 @@ export function isPendingMessage(action: Action): boolean {
   return action.kind === "message" && (action.status === "queued" || action.status === "running");
 }
 
-// Where a message he typed is: Queued while it waits for its goblin, Sent
-// once it is typed into the terminal, and With the CFO when its goblin could
-// not take it and the supervisor gave it to the CFO.
+// STARTING opens the supervisor's reason for a message that waits on a start
+// of its session (startingFor in internal/supervisor).
+const STARTING = /^Starting /;
+
+// Where a message he typed is: Queued while it waits for its goblin, Starting
+// while its session starts for it, Sent once it is typed into the terminal,
+// and With the CFO when its goblin could not take it and the supervisor gave
+// it to the CFO.
 export function messageState(action: Action): string {
-  if (action.status === "queued" || action.status === "running" && !action.awaiting) return "Queued";
+  if (action.status === "queued" || action.status === "running" && !action.awaiting) return STARTING.test(action.message) ? "Starting" : "Queued";
   if (action.status === "failed") return action.message.includes("the CFO has it") ? "With the CFO" : "Not sent";
   return "Sent";
 }

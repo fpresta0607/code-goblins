@@ -3,6 +3,7 @@ import { Orchestration } from "../../src/Orchestration";
 import { watchTips } from "../../src/tips";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
+import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 
 // A goblin with seven running baby goblins and a goblin card under them,
 // beside two goblins with three and four baby goblins of their own, on the
@@ -16,7 +17,7 @@ const task = (id: string, title: string, fields: Record<string, unknown> = {}) =
 const session = (id: string, role: string, parent: string, taskID = "") => ({ id, native_id: id, harness: "claude", role, task_id: taskID, generation: taskID ? "g1" : "", parent, relation: parent ? "Dispatched by the CFO" : "", phase: "working", updated_at: ago(0) });
 const isNarrow = new URLSearchParams(location.search).get("view") === "narrow";
 const snapshot = parseSnapshot({
-  healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
+  healthy: true, instance: "fixture", cfo_runs: true, afk: { state: "off" }, cfo_harness: "claude", revision: 1, attention: [],
   sessions: [
     session("s-cfo", "cfo", ""), session("s-fleet", "goblin", "s-cfo", "fleet"), session("s-billing", "goblin", "s-cfo", "billing"),
     session("s-canvas", "goblin", "s-cfo", "canvas"), ...isNarrow ? [] : [session("s-notes", "goblin", "s-fleet", "notes")],
@@ -39,5 +40,5 @@ const snapshot = parseSnapshot({
 });
 watchTips();
 createRoot(document.getElementById("root")!).render(<main style={{ height: "100vh", width: isNarrow ? 836 : "100%", display: "flex", flexDirection: "column" }}>
-  <Orchestration onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
+  <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
 </main>);
