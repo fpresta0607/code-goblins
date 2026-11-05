@@ -165,8 +165,32 @@ func TestJobProcessStartRejectsAPIDThatNoLongerBelongsToTheJob(t *testing.T) {
 	}
 	defer syscall.CloseHandle(syscall.Handle(job))
 	// A PID from an earlier job snapshot can now name an unrelated process.
-	if started, belongs := jobProcessStart(syscall.Handle(job), uint32(os.Getpid())); belongs || !started.IsZero() {
-		t.Fatalf("unrelated replacement authorized by old membership: %v %v", started, belongs)
+	if started, belongs, err := jobProcessStart(syscall.Handle(job), uint32(os.Getpid())); belongs || !started.IsZero() || err != nil {
+		t.Fatalf("unrelated replacement authorized by old membership: %v %v %v", started, belongs, err)
+	}
+}
+
+// A pid a job's list named can name no process by the time the read opens it.
+// That process has gone, which is no failure to inspect one that is there, so
+// a live terminal's custody read is not refused for it (issue 1644).
+func TestJobProcessStartTakesAPIDThatNamesNoProcessAsGone(t *testing.T) {
+	// Arrange
+	job, _, err := procCreateJobObjectW.Call(0, 0)
+	if job == 0 {
+		t.Fatal(err)
+	}
+	defer syscall.CloseHandle(syscall.Handle(job))
+	ended := exec.Command(os.Args[0], "-test.run=^$")
+	if err := ended.Run(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	started, belongs, err := jobProcessStart(syscall.Handle(job), uint32(ended.ProcessState.Pid()))
+
+	// Assert
+	if belongs || !started.IsZero() || err != nil {
+		t.Fatalf("a pid that names no process = %v, %v, %v; want no member and no error", started, belongs, err)
 	}
 }
 

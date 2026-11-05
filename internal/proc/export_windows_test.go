@@ -67,6 +67,20 @@ func LeaveOutForTest(t testing.TB, pid int) {
 	}
 }
 
+// OpenJobProcessForTest runs before, until the test ends, as each process a
+// job's list names is opened to read it, which is after the read took its
+// list and the machine's processes. An error from before is the open's answer.
+func OpenJobProcessForTest(t testing.TB, before func(id uint32) error) {
+	original := openJobProcess
+	t.Cleanup(func() { openJobProcess = original })
+	openJobProcess = func(id uint32) (syscall.Handle, error) {
+		if err := before(id); err != nil {
+			return 0, err
+		}
+		return original(id)
+	}
+}
+
 // StaleListForTest makes every read of a job's list, until the test ends,
 // return the list the first read returned, even once the processes it names
 // have exited, as a job's list can while a handle still holds one.

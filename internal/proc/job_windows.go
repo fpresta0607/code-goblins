@@ -88,48 +88,35 @@ func JobProcesses(holderPID int) ([]Entry, error) {
 }
 
 // CustodyJobProcesses refuses a partial listing, since a terminal close can
-// terminate a job member even when this process cannot inspect it.
+// terminate a job member even when this process cannot inspect it. It judges
+// the one list its members came from. A list taken later also names what
+// started since, which is no process it failed to inspect: a terminal's shim
+// starts the harness just after the terminal records itself, and that live
+// process was refused as one it could not inspect (issue 1644). A process
+// that joins after the list is one no read of the job can speak for, as one
+// that joins after this returns is.
 func CustodyJobProcesses(holderPID int) ([]Entry, error) {
 	held, err := holdJobs(holderPID, jobObjectQuery)
 	if err != nil {
 		return nil, err
 	}
 	defer held.Close()
-	members, err := held.Processes()
+	members, unread, unlisted, err := readJobEntries(held.jobs)
 	if err != nil {
 		return nil, err
 	}
-	for _, job := range held.jobs {
-		ids, unlisted, err := JobProcessIDs(job)
-		if err != nil {
-			return nil, err
-		}
-		if err := checkCustodyJobListing(ids, unlisted, members); err != nil {
-			return nil, err
-		}
-		for _, id := range ids {
-			for _, member := range members {
-				if member.PID == int(id) {
-					started, isRunning := StartTime(member.PID)
-					if !isRunning || !started.Equal(member.Start) {
-						return nil, fmt.Errorf("cannot verify terminal job process %d; wait for it to exit or restore process access", id)
-					}
-					break
-				}
-			}
-		}
+	if err := checkCustodyJobListing(unread, unlisted); err != nil {
+		return nil, err
 	}
 	return members, nil
 }
 
-func checkCustodyJobListing(ids []uint32, unlisted uint32, members []Entry) error {
+func checkCustodyJobListing(unread []uint32, unlisted uint32) error {
 	if unlisted != 0 {
 		return fmt.Errorf("the terminal job has %d unlisted processes; wait for them to exit", unlisted)
 	}
-	for _, id := range ids {
-		if !slices.ContainsFunc(members, func(member Entry) bool { return member.PID == int(id) }) {
-			return fmt.Errorf("cannot inspect terminal job process %d; wait for it to exit or restore process access", id)
-		}
+	if len(unread) != 0 {
+		return fmt.Errorf("cannot inspect terminal job process %d; wait for it to exit or restore process access", unread[0])
 	}
 	return nil
 }
@@ -186,28 +173,43 @@ func (h *HeldJobs) Processes() ([]Entry, error) {
 // before the machine's processes, so a process that joined one just before
 // has its name.
 func jobEntries(jobs []syscall.Handle) ([]Entry, error) {
+	entries, _, _, err := readJobEntries(jobs)
+	return entries, err
+}
+
+// readJobEntries is jobEntries, and also says what that one read could not
+// show: the listed processes still there that it could not inspect, and how
+// many more the jobs count than they list.
+func readJobEntries(jobs []syscall.Handle) (jobbed []Entry, unread []uint32, unlisted uint32, err error) {
 	held := make([][]uint32, len(jobs))
 	listed := map[uint32]bool{}
 	for index, job := range jobs {
-		ids, _, err := JobProcessIDs(job)
+		ids, beyond, err := JobProcessIDs(job)
 		if err != nil {
-			return nil, err
+			return nil, nil, 0, err
 		}
 		held[index] = ids
+		unlisted += beyond
 		for _, id := range ids {
 			listed[id] = true
 		}
 	}
 	processes, err := snapshotProcesses()
 	if err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
 	seen := map[uint32]bool{}
-	var jobbed []Entry
 	for index, job := range jobs {
 		for _, id := range held[index] {
-			start, alive := jobProcessStart(job, id)
-			if seen[id] || !alive {
+			if seen[id] {
+				continue
+			}
+			start, isMember, err := jobProcessStart(job, id)
+			if err != nil {
+				unread = append(unread, id)
+				continue
+			}
+			if !isMember {
 				continue
 			}
 			seen[id] = true
@@ -223,7 +225,7 @@ func jobEntries(jobs []syscall.Handle) ([]Entry, error) {
 		}
 	}
 	sort.Slice(jobbed, func(i, j int) bool { return jobbed[i].PID < jobbed[j].PID })
-	return jobbed, nil
+	return jobbed, unread, unlisted, nil
 }
 
 // unlistedProcessStart reports when process id started if it is in one of
@@ -523,31 +525,50 @@ func closeAll(handles []syscall.Handle) {
 	}
 }
 
-func jobProcessStart(job syscall.Handle, id uint32) (time.Time, bool) {
-	process, err := syscall.OpenProcess(processQueryLimitedInformation|syscall.SYNCHRONIZE, false, id)
+// openJobProcess opens a process a job's list names. A test stands in for it.
+var openJobProcess = func(id uint32) (syscall.Handle, error) {
+	return syscall.OpenProcess(processQueryLimitedInformation|syscall.SYNCHRONIZE, false, id)
+}
+
+// jobProcessStart reports when process id started if it is in job and has not
+// ended. A process that has gone from the pid, by its exit or by a reuse of
+// the pid, is no member and no error. An error says a process may still be
+// there unread: Windows answers ERROR_INVALID_PARAMETER for a pid that names
+// no process, and anything else it answers leaves the process unknown.
+func jobProcessStart(job syscall.Handle, id uint32) (time.Time, bool, error) {
+	process, err := openJobProcess(id)
+	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+		return time.Time{}, false, nil
+	}
 	if err != nil {
-		return time.Time{}, false
+		return time.Time{}, false, err
 	}
 	defer syscall.CloseHandle(process)
 	// A job's list can still name a process that has exited while a handle
 	// holds it, and Windows still counts it in the job, so a read made once an
 	// end's exits are done named what it ended as a member still to end
 	// (issue 1430).
-	if event, err := syscall.WaitForSingleObject(process, 0); err != nil || event != syscall.WAIT_TIMEOUT {
-		return time.Time{}, false
+	event, err := syscall.WaitForSingleObject(process, 0)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if event != syscall.WAIT_TIMEOUT {
+		return time.Time{}, false, nil
 	}
 	// Keep one process handle for membership and birth, so PID reuse between
 	// the job snapshot and this read cannot authorize an unrelated process.
 	var isMember int32
-	ok, _, _ := procIsProcessInJob.Call(uintptr(process), uintptr(job), uintptr(unsafe.Pointer(&isMember)))
-	if ok == 0 || isMember == 0 {
-		return time.Time{}, false
+	if ok, _, err := procIsProcessInJob.Call(uintptr(process), uintptr(job), uintptr(unsafe.Pointer(&isMember))); ok == 0 {
+		return time.Time{}, false, err
+	}
+	if isMember == 0 {
+		return time.Time{}, false, nil
 	}
 	var creation, exit, kernel, user syscall.Filetime
 	if err := syscall.GetProcessTimes(process, &creation, &exit, &kernel, &user); err != nil {
-		return time.Time{}, false
+		return time.Time{}, false, err
 	}
-	return time.Unix(0, creation.Nanoseconds()).UTC(), true
+	return time.Unix(0, creation.Nanoseconds()).UTC(), true, nil
 }
 
 // handleEntry is one open handle on the system.
