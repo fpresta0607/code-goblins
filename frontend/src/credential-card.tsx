@@ -54,8 +54,9 @@ interface Confirm { names: string[]; action: "save" | "run"; confirmed: string[]
 // are in the tips. Below the table the cfo auth store lines have Copy and Run
 // to type them in a terminal on this PC instead. Values are typed only on the
 // board on this PC; a board opened from another machine shows the commands. A
-// plain value the board refuses as a key shows its refusal with a button to send
-// it anyway once he says it is no secret. A
+// plain value the board refuses as shaped like a key shows its refusal with a
+// button to send it anyway once he says it is no secret; a secret key's refusal
+// has no such button. A
 // secret is kept by the card, never in its field or the page's markup, until
 // its row's save sends it once; the board answers with names, and the row's
 // field empties after every answer. A stored value is replaced only once he
@@ -252,7 +253,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
             {open && local && <button type="button" className="icon-button raised credential-store" aria-label={"Send " + inputLabel(request, name)} disabled={!connected || !(plainValues[name] || "").trim() || storing.includes(name)} onClick={() => void sendPlain(name)}><Icon name="send" /></button>}
           </div>}
           {refusals[name] && <Notice tone="error" icon="warning" role="alert" className="credential-refusal">{refusals[name]}</Notice>}
-          {refusals[name] && keyShaped.includes(name) && <button type="button" className="raised pill-link credential-not-secret" disabled={!connected || storing.includes(name)} onClick={() => void sendPlain(name, true)}>It is not a secret: send it anyway</button>}
+          {refusals[name] && keyShaped.includes(name) && <button type="button" className="credential-not-secret" disabled={!connected || storing.includes(name)} onClick={() => void sendPlain(name, true)}>It is not a secret: send it anyway</button>}
         </td>
       </tr>)}{request.names.map((name) => {
         const value = values[name] || "";
