@@ -14,7 +14,7 @@ import (
 )
 
 func TestExecutorExecutionLimitCoversStartupAndFinalization(t *testing.T) {
-	for _, stage := range []string{"startup", "finalization"} {
+	for _, stage := range []string{"startup", "launch", "finalization"} {
 		t.Run(stage, func(t *testing.T) {
 			// Arrange
 			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
@@ -50,7 +50,7 @@ func TestExecutorExecutionLimitCoversStartupAndFinalization(t *testing.T) {
 				if readDeadline, _ := ctx.Deadline(); !readDeadline.Equal(deadline) {
 					return Source{}, errors.New("finalization reset or lost the shared execution deadline")
 				}
-				if reads == 2 {
+				if reads == 2 || stage == "launch" {
 					return Source{}, waitForLimit(ctx)
 				}
 				return Source{Commit: "c1", Tree: "t1", IsComplete: true}, nil
@@ -69,7 +69,7 @@ func TestExecutorExecutionLimitCoversStartupAndFinalization(t *testing.T) {
 			if !strings.Contains(record.Failure, ErrLimit.Error()) || !record.Measurement.CleanupConfirmed || record.Status == "passed" {
 				t.Fatalf("receipt = %+v; want a timeout with cleanup confirmed", record)
 			}
-			if stage == "startup" {
+			if stage != "finalization" {
 				if _, err := os.Stat(ran); !os.IsNotExist(err) || record.Status != "not_started" || record.ExitCode != nil {
 					t.Fatalf("startup ran a command or invented an exit: %+v, %v", record, err)
 				}
@@ -80,6 +80,43 @@ func TestExecutorExecutionLimitCoversStartupAndFinalization(t *testing.T) {
 				t.Fatalf("custody leaked: %v, %v, %v", holders, waiters, err)
 			}
 		})
+	}
+}
+
+// The limit has one timer, and a loaded machine can run it late. Startup ends
+// on that timer and no other, or it ends before the context that names the
+// limit does and reports a bare deadline.
+func TestExecutorStartupNamesTheLimitWhenItsTimerRunsLate(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	isFirstTimer := true
+	limitTimer = func(parent context.Context, deadline time.Time, cause error) (context.Context, context.CancelFunc) {
+		if isFirstTimer {
+			isFirstTimer = false
+			deadline = deadline.Add(2 * time.Second)
+		}
+		return context.WithDeadlineCause(parent, deadline, cause)
+	}
+	t.Cleanup(func() { limitTimer = context.WithDeadlineCause })
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Headroom: plentyOfMemory}, ExecutionLimit: 100 * time.Millisecond, IsConsoleShared: true}
+	executor.Ready = func(ctx context.Context) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(30 * time.Second):
+			return errors.New("the execution deadline never arrived")
+		}
+	}
+
+	// Act
+	result, path, err := executor.RunWithin(context.Background(), execx.Request{Dir: t.TempDir(), Name: "must-not-start"}, 0)
+
+	// Assert
+	if !errors.Is(err, ErrLimit) || !errors.Is(err, ErrNotStarted) || result.ExitCode != -1 {
+		t.Fatalf("result = %+v, %v; want the limit named on a command that never started", result, err)
+	}
+	if record := readExecution(t, path); record.Status != "not_started" || record.ExitCode != nil || !strings.Contains(record.Failure, ErrLimit.Error()) {
+		t.Fatalf("receipt = %+v; want a refusal that names the limit", record)
 	}
 }
 
