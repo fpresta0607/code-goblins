@@ -1426,7 +1426,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
    and never what always shows: More and Close or Back. The
    identity never narrows past its picture, and wraps the name at its own
    edge, so it is never drawn under the selector. */
-.panel-header.one-row { position: relative; display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 4px 8px; border-bottom: 1px solid var(--glass-border); }
+.panel-header.one-row { position: relative; display: flex; align-items: center; gap: 6px; min-height: 52px; padding: 4px 8px; border-bottom: 1px solid var(--glass-border); }
 .panel-header.one-row .panel-identity > .goblin-avatar, .panel-header.one-row .panel-style-button > .goblin-avatar { flex: none; width: 32px; height: 32px; }
 /* The picture that opens the choice of chat style (see PanelStyleMenu) is a
    44 px target around the same small picture, with its focus ring drawn
@@ -1444,10 +1444,12 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .one-row.is-cfo h2 { white-space: nowrap; }
 .one-row > .panel-top { flex: 1 1 0; padding: 0; }
 /* In a narrow panel a goblin's name takes the row's spare room before the
-   controls do, so it wraps at its spaces rather than inside a word. The CFO's
-   short name needs none of it, so its switch stays in the middle. */
+   controls do, so it wraps at its spaces rather than inside a word, and the
+   switch stands a control's gap from them. The CFO's short name needs none of
+   it, so its switch stays in the middle. */
 @container goblin-panel (max-width: 36rem) {
   .one-row:not(.is-cfo) > .panel-identity { flex: 1 1 auto; }
+  .panel-header.one-row:not(.is-cfo) { gap: 8px; }
 }
 .fills-phone .panel-header.one-row { padding: 4px 6px; }
 /* The CFO's rare states, Restart PC and Update, take a line of their own under
