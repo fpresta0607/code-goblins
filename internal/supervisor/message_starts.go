@@ -48,14 +48,20 @@ func startingFor(session string) Evaluation {
 	return Evaluation{Reason: "Starting " + session + ". The message goes in once it runs.", SendNowWhy: "It is starting."}
 }
 
+// isMessageStarting says a message's own start of task's session has not
+// ended. starts guards what it reads.
+func (s *Service) isMessageStarting(task string) bool {
+	started, isTried := s.messageStarts[task]
+	return isTried && !started.isDone
+}
+
 // isStartUnderWay says a start of task's session is under way, by anything: a
 // Start or Resume running or waiting its turn, a switch, the comeback, or a
 // message's own. A terminal comes up before its start has told its harness
 // anything, so a session reads as starting until that start returns, however
 // its terminal reads. starts guards what it reads.
 func (s *Service) isStartUnderWay(task string) bool {
-	started, isTried := s.messageStarts[task]
-	return isTried && !started.isDone || s.starting == task || s.changing[task] == "resume" || s.changing[task] == "switch" || s.isAsked(task)
+	return s.isMessageStarting(task) || s.starting == task || s.changing[task] == "resume" || s.changing[task] == "switch" || s.isAsked(task)
 }
 
 // resumeForMessage asks the Resume that carries message a, which its paused

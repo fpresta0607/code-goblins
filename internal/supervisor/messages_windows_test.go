@@ -1255,6 +1255,70 @@ func TestHisMessageToAGoblinWhoseTerminalIsNotRunningStartsItOnceAndGoesIn(t *te
 	}
 }
 
+// A message can be older than messageWait when it starts its goblin, held by a
+// gate or left by a supervisor that was down. It waits out the start it made,
+// and so does one behind it, since that start told the goblin a message
+// follows, and each is typed once the start returned.
+func TestOldMessagesWaitOutTheirGoblinsStartAndAreTypedOnce(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta := makeNative(t, h.State, "task-1")
+	gitWorktree(t, meta.Worktree)
+	started, release := make(chan string, 4), make(chan struct{})
+	service := &Service{Store: store, Options: Options{
+		CFO:  &CFOConnection{State: h.State},
+		Gate: fakeProgress{err: pipeline.ErrNoProgress},
+		Dispatch: &Dispatch{
+			Memory: func() (Memory, error) {
+				return Memory{Available: 8 * gigabyte, Total: 32 * gigabyte, CommitAvailable: 40 * gigabyte, CommitLimit: 48 * gigabyte}, nil
+			},
+			Disk: func() (Disk, error) { return diskWithFree(200 * gigabyte), nil },
+		},
+		Comeback: &Comeback{GoblinForMessage: func(_ context.Context, id string) GoblinComeback {
+			started <- id
+			<-release
+			return GoblinComeback{Outcome: CameBack, Said: "back on its conversation"}
+		}},
+	}}
+	messageTo(t, store, meta, "message-1", "rebase on main first")
+	messageTo(t, store, meta, "message-2", "then run the tests")
+	store.mu.Lock()
+	for i := range store.db.Actions {
+		store.db.Actions[i].CreatedAt = time.Now().Add(-2 * messageWait)
+	}
+	store.mu.Unlock()
+
+	// Act: the board looks at the first while the goblin starts, and the second
+	// is delivered alongside it, as Send now does.
+	first := store.ProcessOne(t.Context(), service.execute)
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("delivery = %v, action = %+v; want the goblin started for the message", first, actionOf(store, "message-1"))
+	}
+	store.deferredUntil["message-1"] = time.Now().Add(-time.Second)
+	second := store.ProcessOne(t.Context(), service.execute)
+	waiting := actionOf(store, "message-1")
+	behind, behindErr := service.deliverMessage(t.Context(), actionOf(store, "message-2"))
+	goblin := goblinTerminal(t, h.State, meta.ID)
+	close(release)
+	awaitComeback(t, service)
+	store.deferredUntil["message-1"] = time.Now().Add(-time.Second)
+	delivered := store.ProcessOne(t.Context(), service.execute)
+	followed := store.ProcessOne(t.Context(), service.execute)
+
+	// Assert
+	if !errors.Is(second, ErrDeferred) || waiting.Status != "queued" || waiting.Message != "Starting task-1. The message goes in once it runs." {
+		t.Errorf("while it starts: delivery = %v, action = %+v; want it queued, saying it is starting", second, waiting)
+	}
+	if !errors.Is(behindErr, ErrDeferred) || behind.Reason != "Starting task-1. The message goes in once it runs." {
+		t.Errorf("the one behind it while it starts: %+v, %v; want it waiting too", behind, behindErr)
+	}
+	if typed := goblin.waitForLines(t, 2); delivered != nil || followed != nil || len(typed) != 2 || !strings.Contains(typed[0], "rebase on main first") || !strings.Contains(typed[1], "then run the tests") {
+		t.Errorf("once it runs: deliveries %v and %v, typed %q; want each message typed once, in order", delivered, followed, typed)
+	}
+}
+
 // A terminal comes up before its start has told its harness anything, so his
 // message waits for whatever start of its session is under way to return,
 // however its terminal reads: typed sooner, it races that start's own

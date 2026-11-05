@@ -291,6 +291,60 @@ func TestTheComebackFinishesTheResumeTheRestartCutShort(t *testing.T) {
 	}
 }
 
+// A failed pause took hold once its goblin's terminal ended, so that goblin is
+// paused. His message wakes it, as it wakes one paused on purpose, by the
+// Resume that leaves its record running rather than a switch that would leave
+// it reading failed. A restart does not wake it, a terminal still up needs no
+// waking, and a failed pause of an earlier session says nothing of this one.
+func TestHisMessageResumesAGoblinWhoseFailedPauseTookHold(t *testing.T) {
+	tests := []struct {
+		name         string
+		generation   string
+		running      []string
+		isPrompted   bool
+		want         supervisor.ComebackOutcome
+		wantResumes  int
+		wantSwitches int
+	}{
+		{name: "his message", generation: "s1", isPrompted: true, want: supervisor.CameBack, wantResumes: 1},
+		{name: "a restart", generation: "s1", want: supervisor.LeftAsItWas},
+		{name: "a terminal still up", generation: "s1", running: []string{"pause-failed"}, isPrompted: true, want: supervisor.AlreadyRuns},
+		{name: "an earlier session's record", generation: "s0", isPrompted: true, want: supervisor.CameBack, wantSwitches: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := comebackHome(t, map[string][2]string{"pause-failed": {"codex", "native"}}, nil)
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: "pause-failed", Generation: test.generation, Operation: "operation-pause", Action: "pause", Phase: "failed", Started: time.Now().UTC()}); err != nil {
+				t.Fatal(err)
+			}
+			var switches []spawn.SwitchRequest
+			runtime := comebackRuntime(test.running, nil, func(spawn.SwitchRequest) (spawn.SwitchResult, error) { return spawn.SwitchResult{}, nil }, &switches)
+			var resumes []lifecycle.Request
+			runtime.taskLifecycle = func(_ context.Context, _ home.Home, request lifecycle.Request, _ string) (state.Lifecycle, error) {
+				resumes = append(resumes, request)
+				return state.Lifecycle{ID: request.ID, Phase: "running"}, nil
+			}
+
+			// Act
+			comeback := comebackGoblin(t.Context(), h, runtime, "pause-failed", messageNote, test.isPrompted)
+
+			// Assert
+			if comeback.Outcome != test.want {
+				t.Errorf("came back %+v, want outcome %v", comeback, test.want)
+			}
+			if len(resumes) != test.wantResumes || len(switches) != test.wantSwitches {
+				t.Fatalf("resumes %+v and switches %+v, want %d and %d", resumes, switches, test.wantResumes, test.wantSwitches)
+			}
+			for _, request := range resumes {
+				if request.Action != "resume" || request.Generation != "s1" || request.Operation == "" || !request.IsWatched || request.ResumeNote != messageNote || strings.Contains(request.Reason, "restarted") {
+					t.Errorf("resume %+v, want one of the task's generation, read by the comeback, told his message follows, and not blaming a restart", request)
+				}
+			}
+		})
+	}
+}
+
 // A goblin whose latest report delivered its pull request stays down after a
 // restart, but comes back for a message he sends it, since his message is a
 // prompt for it: on its own conversation, told in one line that his message

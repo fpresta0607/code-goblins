@@ -87,6 +87,7 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	stateDir := s.Store.Home.State
 	s.starts.Lock()
 	isStarting := s.isStartUnderWay(a.TaskID)
+	isMessageStarting := s.isMessageStarting(a.TaskID)
 	s.starts.Unlock()
 	meta, err := state.ReadTaskMeta(stateDir, a.TaskID)
 	if errors.Is(err, os.ErrNotExist) && !isStarting {
@@ -114,8 +115,10 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	}
 	if isStarting {
 		// A start under way reads the branch too, so a message held by a gate
-		// takes the same path across a restart as it does while it runs.
-		result, err := s.waitForGoblin(a, isGateUnclearNow(ctx, s, meta))
+		// takes the same path across a restart as it does while it runs. No
+		// message ages during a message's own start, since that start told its
+		// goblin one follows, and how it ends decides where the message goes.
+		result, err := s.waitForGoblin(a, isMessageStarting || isGateUnclearNow(ctx, s, meta))
 		if errors.Is(err, ErrDeferred) {
 			result = startingFor(a.TaskID)
 		}
@@ -240,9 +243,9 @@ func isGateUnclearNow(ctx context.Context, s *Service, meta state.TaskMeta) bool
 }
 
 // waitForGoblin has a message wait for its goblin, until messageWait has
-// passed, when the CFO is given it instead.
-func (s *Service) waitForGoblin(a Action, isGated bool) (Evaluation, error) {
-	if !isGated && time.Since(a.CreatedAt) > messageWait {
+// passed, when the CFO is given it instead. One isHeld does not age.
+func (s *Service) waitForGoblin(a Action, isHeld bool) (Evaluation, error) {
+	if !isHeld && time.Since(a.CreatedAt) > messageWait {
 		return Evaluation{}, s.messageToCFO(a, a.TaskID+" could not take it for "+messageWait.String())
 	}
 	return Evaluation{Reason: "Waits for " + a.TaskID + "."}, ErrDeferred
