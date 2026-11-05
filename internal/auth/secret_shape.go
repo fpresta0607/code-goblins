@@ -1,8 +1,11 @@
 package auth
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"math"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -21,6 +24,17 @@ var valuePrefixes = []string{
 	"-----BEGIN",
 }
 
+// publishablePrefixes start a key a service issues for browsers: Stripe's
+// and Supabase's publishable keys and Mapbox's public token.
+var publishablePrefixes = []string{"pk_", "pk.", "sb_publishable_"}
+
+// secretPrefixes start a key that is secret whatever variable holds it.
+var secretPrefixes = []string{"sk_", "rk_", "sk-", "whsec_", "sb_secret_", "sbp_", "ghp_", "github_pat_", "glpat-", "-----BEGIN"}
+
+// bundledPrefixes start the name of a variable a bundler ships to the
+// browser by its own rule, whatever the rest of the name says.
+var bundledPrefixes = []string{"VITE_", "REACT_APP_", "GATSBY_"}
+
 // keyShaped matches values whose whole shape is a key: an AWS access key ID,
 // and a UUID, which several services issue as their API key.
 var keyShaped = []*regexp.Regexp{
@@ -28,13 +42,16 @@ var keyShaped = []*regexp.Regexp{
 	regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`),
 }
 
+// wordEdges is the punctuation prose puts around a word.
+const wordEdges = "\"'`()[]{}<>,;:!?."
+
 // SecretShape says why text looks like a credential value rather than a name
 // or a word of prose, or returns "" when it does not. A request for a
 // credential takes names only, so anything shaped like the credential itself
 // is refused before it can reach the board's records. The reason never
 // repeats the text.
 func SecretShape(text string) string {
-	token := strings.Trim(text, "\"'`()[]{}<>,;:!?.")
+	token := strings.Trim(text, wordEdges)
 	switch {
 	case strings.Contains(token, "="):
 		return "it assigns a value with an equals sign"
@@ -54,8 +71,92 @@ func SecretShape(text string) string {
 // passes the commit hashes, run ids and assignments that text about code
 // carries, so it can screen a whole issue word by word.
 func IsKeyValue(token string) bool {
-	token = strings.Trim(token, "\"'`()[]{}<>,;:!?.")
+	token = strings.Trim(token, wordEdges)
 	return hasValuePrefix(token) && len(token) >= 20 && strings.ContainsAny(token, "0123456789") || keyShaped[0].MatchString(token)
+}
+
+// supabaseSecret matches a Supabase secret key by its start and a key's length
+// after it. Unlike exposedKinds it needs no digit, since a key of letters alone
+// is no less secret and that start says what it is.
+var supabaseSecret = regexp.MustCompile(`sb_secret_[A-Za-z0-9_-]{20,}`)
+
+// webToken matches the header and payload of a JSON Web Token anywhere in text.
+// It stops before the signature, so a token run straight onto another is found.
+var webToken = regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.`)
+
+// keyRun matches a stretch of text written in the characters of a key.
+var keyRun = regexp.MustCompile(`[A-Za-z0-9_.-]+`)
+
+// HoldsSecretKey says a value typed into a plain field holds a secret key
+// anywhere in it, which no name and no word of his makes safe to send: a key
+// ExposedKeys finds, a Supabase secret key, a JSON Web Token whose role is not
+// anon, or a key of those kinds run straight onto another key of any known
+// start, with nothing between them to mark a word's end. A Google API key is
+// left out, since a key for browsers looks the same, and a value that only
+// starts the way a secret key does is no key of these kinds.
+func HoldsSecretKey(value string) bool {
+	return holdsSecretKind(value, exposedKinds) || supabaseSecret.MatchString(value) ||
+		slices.ContainsFunc(webToken.FindAllString(value, -1), func(token string) bool { return TokenRole(token) != "anon" }) ||
+		slices.ContainsFunc(keyRun.FindAllString(value, -1), func(run string) bool {
+			return (StartsPublishable(run) || hasValuePrefix(run)) && holdsSecretKind(run, runOnKinds)
+		})
+}
+
+// bareKey matches a value that is one key and nothing else.
+var bareKey = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
+// PlainPublicKey says a value typed into a plain field is a key made for
+// browsers, so it is no secret: the field is named as public and the whole
+// value says so too, by a publishable key's start or an anon token's role.
+// Neither alone is enough: a public name holds whatever is pasted into it, and
+// a service's personal token can start the way a publishable key does. A value
+// that holds a secret key's start or a key of a listed kind anywhere in it, as
+// two keys pasted together do, is not one key.
+func PlainPublicKey(name, value string) bool {
+	holdsAnotherKey := len(keysIn(value, runOnKinds)) > 0 || slices.ContainsFunc(secretPrefixes, func(prefix string) bool { return strings.Contains(value, prefix) })
+	role := TokenRole(value)
+	saysPublic := role == "anon" && strings.HasPrefix(value, "eyJ") || role == "" && StartsPublishable(value)
+	return PublishableName(name) && bareKey.MatchString(value) && !holdsAnotherKey && saysPublic
+}
+
+// StartsSecret says a value starts the way a secret key does, which makes it
+// one whatever variable holds it.
+func StartsSecret(value string) bool {
+	return startsWithAny(value, secretPrefixes)
+}
+
+// StartsPublishable says a value starts the way a key made for browsers does.
+func StartsPublishable(value string) bool {
+	return startsWithAny(value, publishablePrefixes)
+}
+
+// PublishableName says a variable is named as a key handed to browsers:
+// public or publishable by a word of its name, an anon key, or under a prefix
+// a bundler ships to the browser.
+func PublishableName(name string) bool {
+	upper := strings.ToUpper(name)
+	return startsWithAny(upper, bundledPrefixes) || strings.Contains(upper, "PUBLISHABLE") || strings.Contains(upper, "PUBLIC") || slices.Contains(strings.Split(upper, "_"), "ANON")
+}
+
+// TokenRole returns the role a JSON Web Token's payload names, as a Supabase
+// key's does, or "" for a value that is no such token. Nothing else of the
+// value is read.
+func TokenRole(value string) string {
+	parts := strings.Split(value, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		Role string `json:"role"`
+	}
+	if json.Unmarshal(payload, &claims) != nil {
+		return ""
+	}
+	return claims.Role
 }
 
 // plainIdentifier matches the identifiers a service shows openly: at most 20
@@ -74,12 +175,11 @@ func PlainIdentifier(name, value string) bool {
 }
 
 func hasValuePrefix(token string) bool {
-	for _, prefix := range valuePrefixes {
-		if strings.HasPrefix(token, prefix) {
-			return true
-		}
-	}
-	return false
+	return startsWithAny(token, valuePrefixes)
+}
+
+func startsWithAny(text string, prefixes []string) bool {
+	return slices.ContainsFunc(prefixes, func(prefix string) bool { return strings.HasPrefix(text, prefix) })
 }
 
 // hasRandomRun finds a run of base64 characters long and varied enough to be

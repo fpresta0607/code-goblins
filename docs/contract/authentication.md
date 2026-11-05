@@ -192,7 +192,14 @@ The card is `cfo auth request --project <p> --task <its id> --why "<what it is f
 - Its link opens the exact screen he must act on, in his own browser.
 - It asks only for what he must enter, each input labeled in a few words.
   A secret goes straight into the vault and never to the goblin, and a `--plain` value, such as an account's email, comes back to the goblin as `NAME=value`.
-  A plain field refuses anything shaped like a key, except a value of at most 20 letters and digits in a field named as an ID (`NAME_ID`), such as an OAuth client ID; for the rest the card offers "It is not a secret: send it anyway".
+  A plain field refuses a secret key every time, whatever the field is named, and the refusal offers no way past it.
+  A secret key is a key of a kind the key alarm names, such as `sk_live_`, `sb_secret_` or a private key, or a JSON Web Token whose role is not `anon`.
+  The check reads the whole value, so a line from an env file, a JSON value, and a secret run straight onto a public key are refused too.
+  A Google API key is not refused that way, because a key for browsers and a key for servers look alike: its refusal says a server key belongs in a secret field, and the card offers "It is not a secret: send it anyway".
+  A plain field also refuses anything else shaped like a key, on a `NAME=value` line too, with two exceptions.
+  A value of at most 20 letters and digits in a field named as an ID (`NAME_ID`), such as an OAuth client ID, is sent.
+  A key made for browsers is sent on the first try when the field is named as public, such as `NEXT_PUBLIC_*`, `VITE_*`, `*_PUBLISHABLE_KEY` or `*_ANON_KEY`, and the whole value says so too: `sb_publishable_`, `pk_`, `pk.`, or a token whose role is `anon`.
+  For the rest the card offers "It is not a secret: send it anyway".
 - A step that is a click is a `--step`, as few as the step needs.
   A card that asks for nothing has a Done button.
 - A message he sends himself, such as an email, goes in a file named with `--message-file`, never as a step that points at the file.

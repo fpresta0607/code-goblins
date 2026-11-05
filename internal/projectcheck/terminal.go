@@ -33,7 +33,7 @@ func (c *checker) terminalReach(ctx context.Context, test string, setup testSetu
 	for _, service := range manifest.Services {
 		for _, name := range service.Env {
 			switch {
-			case publishableName(name):
+			case auth.PublishableName(name):
 				publishable = append(publishable, name)
 			case namedForTests(name):
 				forTests = append(forTests, name)
@@ -56,7 +56,7 @@ func (c *checker) terminalReach(ctx context.Context, test string, setup testSetu
 	for _, service := range manifest.Services {
 		var own, within, idle []string
 		for _, name := range service.Env {
-			if publishableName(name) || namedForTests(name) {
+			if auth.PublishableName(name) || namedForTests(name) {
 				continue
 			}
 			variables++
