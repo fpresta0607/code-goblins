@@ -1000,12 +1000,13 @@ func spawnInstruction(briefPath string, meta state.TaskMeta, install []string, r
 
 // deliveryInstruction names the frozen delivery mode of a task and the one
 // validation owner that mode gives it, over whatever its brief says, and
-// keeps its ask-user findings the CFO's.
+// keeps its ask-user findings the CFO's until its run's review repair cycles
+// are spent.
 func deliveryInstruction(meta state.TaskMeta) string {
 	if meta.DeliveryHash == "" {
 		return ""
 	}
-	return " Your delivery mode is " + meta.Mode + ", frozen at " + filepath.Join(meta.TaskTmp, "delivery.json") + " before validation: it supersedes the brief's mode line and Verification section. " + fleet.BriefVerification(meta.ID, meta.Mode) + " Follow only this path and its required checks, and add no manual review gate. The implementation worker never decides its own ask-user finding: report it to the CFO and apply the returned decision through cfo pipeline respond."
+	return " Your delivery mode is " + meta.Mode + ", frozen at " + filepath.Join(meta.TaskTmp, "delivery.json") + " before validation: it supersedes the brief's mode line and Verification section. " + fleet.BriefVerification(meta.ID, meta.Mode) + " Follow only this path and its required checks, and add no manual review gate. Until its run's review repair cycles are spent, the implementation worker never decides its own ask-user finding: report it to the CFO and apply the returned decision through cfo pipeline respond."
 }
 
 // heavyRunInstruction tells a goblin that one heavy run goes at a time on the

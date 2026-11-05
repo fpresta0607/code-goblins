@@ -51,10 +51,15 @@ func standInRelease(t *testing.T) string {
 	return release.URL
 }
 
+// forkRelease finds each release file of a fork install.ps1 installs a tool
+// from, with the tool's name and the build's version.
+var forkRelease = regexp.MustCompile(`/releases/download/v[^/"]+/([a-z-]+)-(\d[^/"]*)\.tgz"`)
+
 // strippedInstall is name with args in a session of its own against the
 // release at base, as internal/installtest gives one, with a stand-in for
 // every tool the install looks for, so nothing installs onto this machine:
-// a script for each it runs as a command, the stand-in program as
+// a script for each it runs as a command, which for a tool from a fork's
+// release file answers the build the script pins, the stand-in program as
 // claude.exe, which a native terminal needs, and as the managed no-mistakes,
 // which answers the version the script pins and takes what the fleet's gate
 // gives it, as the pinned build does. The release's cfo.exe is the
@@ -65,6 +70,13 @@ func strippedInstall(t *testing.T, base, name string, args ...string) (*exec.Cmd
 	stubs := map[string]string{}
 	for _, tool := range []string{"git", "gh", "codex", "pi", "tasks-axi", "quota-axi", "gh-axi", "chrome-devtools-axi", "lavish-axi", "npm", "winget"} {
 		stubs[tool] = "@exit /b 0\r\n"
+	}
+	releases := forkRelease.FindAllSubmatch(installScript(t), -1)
+	if len(releases) == 0 {
+		t.Fatal("install.ps1 installs no tool from a fork's release file, which these stand-ins read")
+	}
+	for _, release := range releases {
+		stubs[string(release[1])] = "@echo " + string(release[2]) + "\r\n@exit /b 0\r\n"
 	}
 	cmd, local, temp := installtest.StrippedCommand(t, base, stubs, name, args...)
 	tools := t.TempDir()

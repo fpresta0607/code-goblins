@@ -137,7 +137,13 @@ func fakeDoctorTool(t *testing.T, dir, name string) {
 		})
 		return
 	}
-	script := "@echo off\r\necho " + name + " 1.0.0\r\n"
+	version := name + " 1.0.0"
+	// A provisioned machine has the Code Goblins build of chrome-devtools-axi,
+	// which the doctor requires.
+	if name == "chrome-devtools-axi" {
+		version = "0.1.40-codegoblins.3"
+	}
+	script := "@echo off\r\necho " + version + "\r\n"
 	if err := os.WriteFile(filepath.Join(dir, name+".bat"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -394,6 +400,44 @@ func TestRunDoctorReportsPresentationUnavailableAndStaysHealthy(t *testing.T) {
 	}
 	if exit != 0 {
 		t.Errorf("exit = %d, want 0: a missing presentation tool must not make doctor unhealthy\n%s", exit, stdout.String())
+	}
+}
+
+// cfo doctor names a chrome-devtools-axi that is not the fork's release, or
+// is an older build than it, as missing, with the command that installs the
+// release as its fix, and reports the machine unhealthy (#1626).
+func TestRunDoctorNamesAChromeDevtoolsAxiThatIsNotTheForkRelease(t *testing.T) {
+	for version, problem := range map[string]string{
+		"0.1.39":               "version 0.1.39 is below the floor",
+		"0.1.45":               "version 0.1.45 is not the codegoblins build",
+		"0.1.40-codegoblins.2": "version 0.1.40-codegoblins.2 is below the floor",
+	} {
+		t.Run(version, func(t *testing.T) {
+			// Arrange
+			bin := t.TempDir()
+			for _, name := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "lavish-axi", "winget", "claude", "codex", "pi"} {
+				fakeDoctorTool(t, bin, name)
+			}
+			if err := os.WriteFile(filepath.Join(bin, "chrome-devtools-axi.bat"), []byte("@echo off\r\necho "+version+"\r\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", bin)
+			t.Setenv("CFO_HOME", t.TempDir())
+			t.Setenv(doctor.ReleasesVariable, "http://127.0.0.1:1")
+
+			// Act
+			var stdout, stderr bytes.Buffer
+			exit := run([]string{"doctor"}, &stdout, &stderr)
+
+			// Assert
+			want := fmt.Sprintf("MISSING  chrome-devtools-axi %s (install: npm install -g %s)\n", problem, doctor.ChromeDevtoolsRelease)
+			if !strings.Contains(stdout.String(), want) {
+				t.Errorf("stdout lacks %q\n%s", want, stdout.String())
+			}
+			if exit != 1 {
+				t.Errorf("exit = %d, want 1: the browser sessions need the fork's release\n%s", exit, stdout.String())
+			}
+		})
 	}
 }
 

@@ -16,7 +16,7 @@ const rootRepository = "acme/widgets"
 
 // rootGitHub answers the requests root filing makes to GitHub's API the way
 // GitHub would: open holds the open ops-root issues, each as GitHub lists
-// it, and every request is recorded.
+// it, an issue it opens among them, and every request is recorded.
 type rootGitHub struct {
 	open        []map[string]any
 	isLabelMade bool
@@ -47,6 +47,7 @@ func (f *rootGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.isLabelMade = true
 		answer(w, http.StatusCreated, `{}`)
 	case call.Method == "POST" && call.Path == "repos/"+rootRepository+"/issues":
+		f.open = append(f.open, map[string]any{"number": 42, "title": call.Fields["title"][0], "body": call.Fields["body"][0], "html_url": "https://github.com/" + rootRepository + "/issues/42"})
 		answer(w, http.StatusCreated, `{"number":42,"html_url":"https://github.com/`+rootRepository+`/issues/42"}`)
 	case call.Method == "POST" && strings.HasSuffix(call.Path, "/comments"):
 		answer(w, http.StatusCreated, `{"id":1}`)
@@ -138,6 +139,38 @@ func TestFileRootCommentsOnTheOpenIssueOfTheSameRoot(t *testing.T) {
 				t.Fatalf("comment = %q", got)
 			}
 		})
+	}
+}
+
+// One cause met by two goblins is one root: the first sighting opens its
+// issue and the other goblin's is a comment on it (#1950).
+func TestTwoGoblinsMeetingOneErrorFileOneIssueAndOneSighting(t *testing.T) {
+	// Arrange
+	fake := &rootGitHub{}
+	github := GitHub{API: githubtest.Client(fake)}
+	tasks := []string{"cg-remote-toggle", "cg-goblin-typing-and-header"}
+
+	// Act
+	var filings []FiledRoot
+	for _, line := range []string{"progress for cg-remote-toggle: context deadline exceeded", "progress for cg-goblin-typing-and-header: context deadline exceeded"} {
+		root := RepeatedErrorRoot(ErrorClass(line, tasks), "First met 2026-10-14 17:40Z, met again 2026-10-14 18:45Z.")
+		filed, err := github.FileRoot(context.Background(), rootRepository, rootRepository, root, rootNow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		filings = append(filings, filed)
+	}
+
+	// Assert
+	if filings[0].IsRecurrence || !filings[1].IsRecurrence || filings[1].Number != filings[0].Number {
+		t.Fatalf("filings = %+v, want one issue and a sighting on it", filings)
+	}
+	writes := fake.writes()
+	if len(writes) != 3 || writes[1].Path != "repos/"+rootRepository+"/issues" || writes[2].Path != "repos/"+rootRepository+"/issues/42/comments" {
+		t.Fatalf("writes = %v, want the label, one issue and one comment on it", writes)
+	}
+	if title := writes[1].Fields["title"][0]; strings.Contains(title, "cg-") {
+		t.Fatalf("title = %q, want it to name no goblin", title)
 	}
 }
 

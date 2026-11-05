@@ -25,6 +25,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 	"gopkg.in/yaml.v3"
 )
@@ -1644,10 +1645,12 @@ func registeredCFOStage(t *testing.T, caller string, gate pipeline.Gate) (home.H
 	return h, nm, &pipelineRunner{worktree: wt, gate: gate}
 }
 
-// Taking a gate's open findings as they stand is the CFO's decision alone. A
-// goblin that tries it on its own gate is refused before anything is recorded
-// or sent, even while the registered CFO is live in its pane; the CFO's
-// acceptance reaches the task's status log before approve reaches the gate.
+// Taking a gate's open findings as they stand is the CFO's decision, and a
+// goblin's only on its own run's spent review. A process that is neither the
+// registered CFO nor the task's own goblin, as this one is outside a goblin's
+// terminal, is refused before anything is recorded or sent, even while the
+// registered CFO is live; the CFO's acceptance reaches the task's status log
+// before approve reaches the gate, and wakes nobody.
 func TestPipelineAcceptIsHonouredOnlyFromTheRegisteredCFO(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("the primary CFO registration is verified on Windows only")
@@ -1656,12 +1659,14 @@ func TestPipelineAcceptIsHonouredOnlyFromTheRegisteredCFO(t *testing.T) {
 	for _, caller := range []string{"goblin", "cfo"} {
 		t.Run(caller, func(t *testing.T) {
 			h, nm, runner := registeredCFOStage(t, caller, gate)
+			outsideGoblinTerminal(t)
 			var out bytes.Buffer
 			err := pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve", "--accept", "bug,ask"}, &out)
 			lines, _ := state.TailStatus(h.State, "task", 10)
+			pending, _ := wake.Pending(h.State)
 			if caller == "goblin" {
-				if err == nil || !strings.Contains(err.Error(), "does not run under the registered CFO") || len(runner.native) != 0 || len(lines) != 0 {
-					t.Fatalf("a goblin accepting its own findings: %v, %d native calls, status %q; want it refused with nothing recorded or sent", err, len(runner.native), lines)
+				if err == nil || !strings.Contains(err.Error(), "does not run under the registered CFO") || len(runner.native) != 0 || len(lines) != 0 || len(pending) != 0 {
+					t.Fatalf("a process outside any goblin's terminal accepting: %v, %d native calls, status %q, wakes %+v; want it refused with nothing recorded or sent", err, len(runner.native), lines, pending)
 				}
 				return
 			}
@@ -1670,6 +1675,204 @@ func TestPipelineAcceptIsHonouredOnlyFromTheRegisteredCFO(t *testing.T) {
 			}
 			if len(lines) != 1 || !strings.HasSuffix(lines[0], "pipeline-findings-accepted: step=review run=run round=3 findings=bug,ask by=cfo") {
 				t.Fatalf("status log %q, want the acceptance audited", lines)
+			}
+			if len(pending) != 0 {
+				t.Fatalf("wakes %+v; want the CFO's own accept to wake nobody", pending)
+			}
+		})
+	}
+}
+
+// outsideGoblinTerminal runs the rest of the test as a process in no
+// goblin's terminal, wherever the test itself runs.
+func outsideGoblinTerminal(t *testing.T) {
+	t.Helper()
+	for _, variable := range []string{harness.RoleVariable, host.IDVariable, host.ProofVariable, gateAgentVariable} {
+		t.Setenv(variable, "")
+	}
+}
+
+// inGoblinTerminal runs the rest of the test as a process in goblin task's
+// own terminal: its role, its terminal and a proof that terminal was given.
+func inGoblinTerminal(t *testing.T, stateDir, task string) {
+	t.Helper()
+	proof := "proof-of-" + task
+	line := host.ProofSum(proof) + " " + time.Now().UTC().Format(time.RFC3339Nano) + "\n"
+	if err := os.MkdirAll(filepath.Join(stateDir, "hosts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "hosts", task+".proofs"), []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outsideGoblinTerminal(t)
+	t.Setenv(harness.RoleVariable, harness.RoleGoblin)
+	t.Setenv(host.IDVariable, task)
+	t.Setenv(host.ProofVariable, proof)
+}
+
+// Once its run has spent its review repair cycles, the goblin that owns the
+// task accepts that run's open review findings itself, from its own
+// terminal, by the exact-ids rule the CFO's accept keeps: the accept is
+// audited with the task as who accepted, and reaches the CFO as a notify
+// nothing waits on, before approve reaches the gate, and an accept the CFO
+// cannot be told of is never sent (#2049).
+func TestPipelineGoblinAcceptsItsOwnSpentReviewFindings(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	spent := pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 3, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"bug","action":"auto-fix"},{"id":"note","action":"no-op"}]}`}
+	t.Run("every open finding named", func(t *testing.T) {
+		// Arrange
+		h, nm, runner := registeredCFOStage(t, "goblin", spent)
+		inGoblinTerminal(t, h.State, "task")
+
+		// Act
+		err := pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve", "--accept", "bug,ask"}, &bytes.Buffer{})
+
+		// Assert
+		if err != nil || len(runner.native) != 1 || strings.Join(runner.native[0].Args, " ") != "axi respond --step review --action approve" {
+			t.Fatalf("the goblin accepting its spent review: %v %+v, want one approve", err, runner.native)
+		}
+		const audit = "pipeline-findings-accepted: step=review run=run round=3 findings=bug,ask by=task"
+		if lines, _ := state.TailStatus(h.State, "task", 10); len(lines) != 1 || !strings.HasSuffix(lines[0], audit) {
+			t.Fatalf("status log %q, want the accept audited with the task as who accepted", lines)
+		}
+		pending, err := wake.Pending(h.State)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(pending) != 1 || pending[0].Kind != "notify" || pending[0].Key != "task" || !strings.HasPrefix(pending[0].Detail, audit) {
+			t.Fatalf("wakes %+v, want one notify to the CFO naming the run, round and findings", pending)
+		}
+		if verb, isBlocking := wake.BlockingNotify(pending[0]); isBlocking {
+			t.Fatalf("the notify is %s, a decision the CFO owes; want one nothing waits on", verb)
+		}
+	})
+	t.Run("not every open finding named", func(t *testing.T) {
+		// Arrange
+		h, nm, runner := registeredCFOStage(t, "goblin", spent)
+		inGoblinTerminal(t, h.State, "task")
+
+		// Act
+		err := pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve", "--accept", "bug"}, &bytes.Buffer{})
+
+		// Assert
+		lines, _ := state.TailStatus(h.State, "task", 10)
+		pending, _ := wake.Pending(h.State)
+		if err == nil || !strings.Contains(err.Error(), "--accept must name exactly the open ask-user and auto-fix findings: ask,bug") || len(runner.native) != 0 || len(lines) != 0 || len(pending) != 0 {
+			t.Fatalf("the goblin naming some of the open findings: %v, %d native calls, status %q, wakes %+v; want the CFO's exact-ids refusal with nothing recorded or sent", err, len(runner.native), lines, pending)
+		}
+	})
+	t.Run("the CFO cannot be told", func(t *testing.T) {
+		// Arrange
+		h, nm, runner := registeredCFOStage(t, "goblin", spent)
+		inGoblinTerminal(t, h.State, "task")
+		if err := os.WriteFile(filepath.Join(h.State, ".wake-queue"), []byte("not a wake\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Act
+		err := pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve", "--accept", "bug,ask"}, &bytes.Buffer{})
+
+		// Assert
+		if err == nil || !strings.Contains(err.Error(), "the CFO cannot be told of this accept, so approve was not sent") || len(runner.native) != 0 {
+			t.Fatalf("the goblin accepting with no notify queueable: %v, %d native calls; want it refused with no approve sent", err, len(runner.native))
+		}
+	})
+}
+
+// A spent review still refuses a fix and a bare approve with exit 3, and that
+// refusal names the accept its own goblin may make, so a goblin that reads it
+// does not go back to wait on the CFO (#2049). A review with cycles left has no
+// such accept to name, and an accept that reached this refusal was already
+// made, so neither of those refusals names one.
+func TestPipelineSpentReviewRefusalNamesItsGoblinsAccept(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	spent := pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 3, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"bug","action":"auto-fix"}]}`}
+	early := spent
+	early.Round = 2
+	blank := spent
+	blank.Findings = `{"findings":[{"id":"bug","action":"auto-fix"},{"id":"plain"}]}`
+	cases := []struct {
+		name         string
+		gate         pipeline.Gate
+		args         []string
+		isHintWanted bool
+	}{
+		{"a fix of a spent review", spent, []string{"--action", "fix", "--findings", "bug"}, true},
+		{"a bare approve of a spent review", spent, []string{"--action", "approve"}, true},
+		{"a bare approve with cycles left", early, []string{"--action", "approve"}, false},
+		{"an accept a finding with no action refuses", blank, []string{"--action", "approve", "--accept", "bug"}, false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			h, nm, runner := registeredCFOStage(t, "goblin", testCase.gate)
+			inGoblinTerminal(t, h.State, "task")
+
+			// Act
+			err := pipelineCommand(context.Background(), h, nm, runner, append([]string{"respond", "task"}, testCase.args...), &bytes.Buffer{})
+
+			// Assert
+			if !errors.Is(err, pipeline.ErrUnresolved) || len(runner.native) != 0 {
+				t.Fatalf("%v, %d native calls; want the exit 3 refusal with nothing sent", err, len(runner.native))
+			}
+			if isHintGiven := strings.Contains(err.Error(), "--accept <ids>"); isHintGiven != testCase.isHintWanted {
+				t.Fatalf("%v: naming the goblin's accept is %t, want %t", err, isHintGiven, testCase.isHintWanted)
+			}
+		})
+	}
+}
+
+// A goblin's accept is refused, with why, before anything is recorded or
+// sent: before its run's review repair cycles are spent, on any step but
+// review, with the reason a Test exception keeps, on another task's run, from
+// a process that carries no proof its terminal was given, and from an agent
+// a gate started, which carries whichever goblin's environment started the
+// shared gate daemon (#2049).
+func TestPipelineGoblinAcceptIsRefusedOutsideItsOwnSpentReview(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	spent := pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 3, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"bug","action":"auto-fix"}]}`}
+	early := spent
+	early.Round = 2
+	testStep := pipeline.Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 3, Findings: `{"findings":[{"id":"test-2","action":"ask-user"}]}`}
+	cases := []struct {
+		name     string
+		gate     pipeline.Gate
+		accept   string
+		flags    []string
+		terminal string
+		change   func(t *testing.T)
+		want     string
+	}{
+		{name: "before the cap is spent", gate: early, accept: "ask,bug", terminal: "task", want: "only once its 2 review repair cycles are spent, and run run's review is in round 2 with 1 left"},
+		{name: "on the test step", gate: testStep, accept: "test-2", terminal: "task", want: "only on its run's review step, and this gate is its test step"},
+		{name: "with a reason", gate: spent, accept: "ask,bug", flags: []string{"--reason", "only style is left"}, terminal: "task", want: "--accept and --reason is honoured only from the registered primary CFO, since the reason an approved Test exception keeps is never a goblin's"},
+		{name: "on another task's run", gate: spent, accept: "ask,bug", terminal: "other", want: "this process runs in task other's terminal, and a goblin accepts only its own task's run"},
+		{name: "without its terminal's proof", gate: spent, accept: "ask,bug", terminal: "task", change: func(t *testing.T) { t.Setenv(host.ProofVariable, "guessed") }, want: "this process carries no proof task task's terminal was given"},
+		{name: "from an agent a gate started", gate: spent, accept: "ask,bug", terminal: "task", change: func(t *testing.T) { t.Setenv(gateAgentVariable, "1") }, want: "an agent a gate started speaks for no goblin"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			h, nm, runner := registeredCFOStage(t, "goblin", c.gate)
+			inGoblinTerminal(t, h.State, c.terminal)
+			if c.change != nil {
+				c.change(t)
+			}
+
+			// Act
+			err := pipelineCommand(context.Background(), h, nm, runner, append([]string{"respond", "task", "--action", "approve", "--accept", c.accept}, c.flags...), &bytes.Buffer{})
+
+			// Assert
+			lines, _ := state.TailStatus(h.State, "task", 10)
+			pending, _ := wake.Pending(h.State)
+			if err == nil || !strings.Contains(err.Error(), c.want) || len(runner.native) != 0 || len(lines) != 0 || len(pending) != 0 {
+				t.Fatalf("err = %v, %d native calls, status %q, wakes %+v; want it refused saying %q with nothing recorded or sent", err, len(runner.native), lines, pending, c.want)
 			}
 		})
 	}

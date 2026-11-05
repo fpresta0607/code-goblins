@@ -251,6 +251,10 @@ A goblin quiet for 20 minutes whose run is itself stuck, its step running past t
 While memory or commit reads under the 4 GB floor, every read slows, so a goblin whose progress, screen or tree those reads could not reach is not raised and its timed-out read is no `supervisor_error`: its clock waits for a reading that can see it.
 Its screen output is the monitor's last look at the screen without the rows the harness redraws by itself (its spinner, its clock and its interrupt hint), and its transcript and processes are the board's last reading of its family tree, each counted only from a reading of the last two minutes, and the wake names what could not be read.
 A goblin whose latest report is a wait on its own [helper](dispatch.md#helper-goblins) takes the helper's progress as its own and draws no such wake while the helper is watched, since the helper's own check reports its stall; once the helper is paused, the goblin is checked as any other.
+Each pass reads every goblin's progress at once under one 10-second deadline, so a pass whose every read, two or more, ran out of time together says the machine was slow, not any goblin: no goblin's read is a `supervisor_error`, and the pass neither counts nor ends any goblin's run of failed passes.
+Once such passes have lasted 20 minutes, one `progress_unread` check wake says the stall check has judged no goblin since, and it wakes again only after a pass that read a goblin, or had none to read, ended them.
+Those 20 minutes count only passes the supervisor ran: a gap of more than two minutes from the end of one reading to the start of the next, such as the supervisor stopped or the machine asleep, starts them again, and a pass the supervisor's own stop cut short counts for nothing.
+A goblin whose read keeps running out of time while the others are read is still a `supervisor_error` naming it, once it ran out on three passes in a row.
 CI/deploy durations come from start and finish timestamps captured with `ci_finished`; unknown timestamps stay unmeasured, and check names containing `deploy` are classified as deploys.
 ## Switching a running goblin
 
@@ -328,7 +332,7 @@ Without `--harness`, spawn classifies the brief's task, complexity and risk.
 Narrow or mechanical work uses `mechanical`, search and reading use `scout`, and ordinary implementation uses `default_lane`.
 A lane named for another class takes that class.
 High risk, architecture, migration, security, deep complexity and repeated attempts use `escalate_to`, even for a scout.
-Constraints, credentials and delivery boilerplate are excluded from the classifier.
+Constraints, verification, credentials and delivery boilerplate are excluded from the classifier.
 The shipped default and escalation use Codex `gpt-6-astra` at `xhigh`, with `gpt-6-luna` at `medium` for small work.
 Pass `--harness`, `--model` or `--effort` only for the Supreme Overlord's stated preference.
 Explicit choices are recorded as such.

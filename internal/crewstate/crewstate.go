@@ -142,7 +142,9 @@ func LatestVerb(lines []string) (string, bool) {
 // reason cfo spawn started the task beside a teammate's work, and the
 // services whose credentials the CFO granted it or a relaunch narrowed it to.
 // They are the CFO's word, never the task's own report, so every scan for a
-// task's latest report skips them.
+// task's latest report skips them. A goblin's own accept of its spent
+// review's findings is audited as the CFO's is, by=<task>, and is no report
+// either.
 var cfoAuditVerbs = []string{"pipeline-findings-accepted", "pipeline-approval-reason", "pipeline-policy-migrated", "lifecycle-paused", "lifecycle-running", "lifecycle-stopped", "lifecycle-failed", "lifecycle-refused", "overlap-accepted", "notify-handled", "credentials"}
 
 // IsCFOAudit reports whether a status line is a CFO audit record rather than

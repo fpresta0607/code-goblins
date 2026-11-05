@@ -48,12 +48,33 @@ func TestErrorClassTakesOutWhatChangesBetweenSightings(t *testing.T) {
 		`read /c/dev/repo/file failed`:                                                "read <path> failed",
 	}
 	for line, want := range cases {
-		if got := ErrorClass(line); got != want {
+		if got := ErrorClass(line, nil); got != want {
 			t.Errorf("ErrorClass(%q) = %q, want %q", line, got, want)
 		}
 	}
-	if ErrorClass("pid 4012 exited") != ErrorClass("pid 977 exited") {
+	if ErrorClass("pid 4012 exited", nil) != ErrorClass("pid 977 exited", nil) {
 		t.Error("two lines that differ by a number are two classes")
+	}
+}
+
+// On 2026-11-02 one progress-read timeout opened an ops-root issue for each
+// goblin it met, since each line named its own goblin (#1950).
+func TestErrorClassTakesOutAnyTaskIDItNames(t *testing.T) {
+	tasks := []string{"cg-remote-toggle", "cg-goblin-typing-and-header", "root-code-goblins-847", "toggle"}
+	cases := map[string]string{
+		"progress for cg-remote-toggle: context deadline exceeded":            "progress for <task>: context deadline exceeded",
+		"progress for cg-goblin-typing-and-header: context deadline exceeded": "progress for <task>: context deadline exceeded",
+		"progress for root-code-goblins-847: context deadline exceeded":       "progress for <task>: context deadline exceeded",
+		"push progress for CG-Remote-Toggle: git for-each-ref exited 128":     "push progress for <task>: git for-each-ref exited N",
+		"evaluation of cg-remote-toggle after its gate run moved: denied":     "evaluation of <task> after its gate run moved: denied",
+		"the gate stopped for cg-remote-toggle.":                              "the gate stopped for <task>.",
+		"progress for cg-ended-task: context deadline exceeded":               "progress for cg-ended-task: context deadline exceeded",
+		"read cg-remote-toggles failed":                                       "read cg-remote-toggles failed",
+	}
+	for line, want := range cases {
+		if got := ErrorClass(line, tasks); got != want {
+			t.Errorf("ErrorClass(%q) = %q, want %q", line, got, want)
+		}
 	}
 }
 

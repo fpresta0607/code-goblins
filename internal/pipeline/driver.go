@@ -430,8 +430,9 @@ func (r Reader) RunBranch(ctx context.Context, project, run string) (string, err
 }
 
 // Response is one answer to a parked gate. Accept names the open ask-user and
-// auto-fix findings the CFO takes as they stand, with approve only, and Reason
-// is the operator's rationale, which only an approved Test exception keeps.
+// auto-fix findings the CFO, or on a spent review the task's own goblin, takes
+// as they stand, with approve only, and Reason is the operator's rationale,
+// which only an approved Test exception keeps.
 type Response struct{ Action, Findings, Instructions, Accept, Reason string }
 type finding struct {
 	ID          string `json:"id"`
@@ -539,7 +540,7 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 		if response.Reason != "" {
 			return nil, errors.New("pipeline: --reason goes with approve of the test step, never with fix")
 		}
-		if gate.Step == "review" && gate.Round-1 >= s.ReviewCycles {
+		if ReviewCyclesSpent(s, gate) {
 			return nil, ErrUnresolved
 		}
 		if response.Findings == "" {
@@ -561,6 +562,13 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 		return nil, errors.New("pipeline: only explicit fix or clean approve is supported; no skip or blanket approval")
 	}
 	return args, nil
+}
+
+// ReviewCyclesSpent reports whether gate is a review whose run has spent the
+// repair cycles its selection permits: no fix of it is left, and its owning
+// goblin may accept its open findings itself.
+func ReviewCyclesSpent(s Selection, gate Gate) bool {
+	return gate.Step == "review" && gate.Round-1 >= s.ReviewCycles
 }
 
 // approvalReasonProblem says what keeps a response's reason out of the native
