@@ -198,7 +198,7 @@ The card is `cfo auth request --project <p> --task <its id> --why "<what it is f
   A Google API key is not refused that way, because a key for browsers and a key for servers look alike: its refusal says a server key belongs in a secret field, and the card offers "It is not a secret: send it anyway".
   A plain field also refuses anything else shaped like a key, with two exceptions.
   A value of at most 20 letters and digits in a field named as an ID (`NAME_ID`), such as an OAuth client ID, is sent.
-  A key made for browsers is sent on the first try when the field is named as public (`NEXT_PUBLIC_*`, `*_PUBLISHABLE_KEY`, `*_ANON_KEY`) and the whole value says so too: `sb_publishable_`, `pk_`, `pk.`, or a token whose role is `anon`.
+  A key made for browsers is sent on the first try when the field is named as public, such as `NEXT_PUBLIC_*`, `VITE_*`, `*_PUBLISHABLE_KEY` or `*_ANON_KEY`, and the whole value says so too: `sb_publishable_`, `pk_`, `pk.`, or a token whose role is `anon`.
   For the rest the card offers "It is not a secret: send it anyway".
 - A step that is a click is a `--step`, as few as the step needs.
   A card that asks for nothing has a Done button.
