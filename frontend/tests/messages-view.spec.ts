@@ -547,6 +547,67 @@ test("a message Claude Code took while it worked carries no Queued, and has the 
   await expect(sent.getByRole("button", { name: "Copy" })).toBeVisible();
 });
 
+test("a prompt its harness holds reads Queued from the moment it waits, until its own row takes its place", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await openGoblin(page);
+  const talk = list(page, "Zeke - Touch Wrangler");
+  const words = "also check the iPad";
+
+  // Act
+  await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [{ id: "q1", at, source: "overlord", text: words }] });
+
+  // Assert
+  const waiting = talk.locator(".queued-message.pane").filter({ hasText: words });
+  await expect(waiting).toContainText("Queued");
+
+  // Act: the harness takes it.
+  await send(page, "messages", { conversation: "fixture-conversation", messages: [message(11, { source: "overlord", queued: true, text: words })], waiting: [] });
+
+  // Assert
+  await expect(talk.locator(".message-prompt").filter({ hasText: words })).toBeVisible();
+  await expect(waiting).toHaveCount(0);
+});
+
+test("a stream's first page shows what the harness already holds, the CFO's words as the CFO's, in a conversation with no message yet", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await openGoblin(page);
+  const talk = list(page, "Zeke - Touch Wrangler");
+
+  // Act
+  await send(page, "page", { conversation: "fixture-conversation", messages: [], more: false, waiting: [{ id: "q1", at, source: "cfo", text: "run the specs too" }] });
+
+  // Assert
+  await expect(talk.locator(".queued-message.pane.cfo")).toContainText("run the specs too");
+  await expect(page.locator(".messages-empty")).toHaveCount(0);
+});
+
+test("a message both the board and its harness hold is one row, and a second of the same words its own", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await openGoblin(page);
+  const talk = list(page, "Zeke - Touch Wrangler");
+  const words = "also check the iPad";
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: "a1", kind: "message", task_id: "cg-touch", text: words, status: "queued", message: "", awaiting: "" }] });
+  const rows = talk.locator(".queued-message.pane");
+  await expect(rows.filter({ hasText: words })).toHaveCount(1);
+  const prompt = (id: string, text: string) => ({ id, at, source: "overlord", text });
+
+  // Act
+  await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [prompt("q1", words), prompt("q2", "and the phone")] });
+
+  // Assert
+  await expect(rows.filter({ hasText: "and the phone" })).toHaveCount(1);
+  await expect(rows.filter({ hasText: words })).toHaveCount(1);
+
+  // Act
+  await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [prompt("q1", words), prompt("q3", words)] });
+
+  // Assert
+  await expect(rows.filter({ hasText: words })).toHaveCount(2);
+});
+
 test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, size the message text, kept in this browser", async ({ page }) => {
   await open(page);
   await openCfo(page);

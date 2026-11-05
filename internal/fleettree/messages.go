@@ -230,12 +230,24 @@ const (
 
 // MessagePage is a page of a session's messages, oldest first, and whether
 // older messages come before its first, with what the session's usage says
-// as far as the conversation records it.
+// as far as the conversation records it, and the prompts its harness holds.
 type MessagePage struct {
-	Conversation string    `json:"conversation"`
-	Messages     []Message `json:"messages"`
-	More         bool      `json:"more"`
-	Usage        *Usage    `json:"usage,omitempty"`
+	Conversation string          `json:"conversation"`
+	Messages     []Message       `json:"messages"`
+	More         bool            `json:"more"`
+	Usage        *Usage          `json:"usage,omitempty"`
+	Waiting      []WaitingPrompt `json:"waiting,omitempty"`
+}
+
+// WaitingPrompt is a prompt Claude Code holds in its queue while it works, in
+// the order it will deliver them. It is not a Message, since a message keeps
+// its place in the session, and this one's place comes only once it is
+// delivered, when the message of the same words takes over from it.
+type WaitingPrompt struct {
+	ID     string    `json:"id"`
+	At     time.Time `json:"at"`
+	Source string    `json:"source,omitempty"`
+	Text   string    `json:"text"`
 }
 
 // Usage is what a session has spent, read from its own conversation: its
@@ -386,6 +398,10 @@ type messageState struct {
 	// context window of the model it last named (claudeContextWindow).
 	usage  Usage
 	window int64
+	// waiting is what Claude Code holds in its queue, and handed the words the
+	// last queue entry to end gave over to the message that delivers them.
+	waiting []WaitingPrompt
+	handed  string
 }
 
 type blockAt struct {
@@ -424,7 +440,9 @@ type messageEntry struct {
 	CompactMetadata struct {
 		Trigger string `json:"trigger"`
 	} `json:"compactMetadata"`
-	Attachment struct {
+	Operation          string          `json:"operation"`
+	Content            json.RawMessage `json:"content"`
+	Attachment         struct {
 		Type   string          `json:"type"`
 		Prompt json.RawMessage `json:"prompt"`
 	} `json:"attachment"`
@@ -743,9 +761,49 @@ func (l *messageLog) entry(line []byte, offset int64) {
 		// A queued prompt is its text, or its blocks when a picture was
 		// pasted into it, whose text alone is read.
 		l.prompt(Message{ID: id, Seq: int(offset), At: entry.Timestamp, IsQueued: true}, resultText(entry.Attachment.Prompt))
+	case entry.Type == "queue-operation":
+		l.queueOperation(entry, id)
 	case entry.Type == "system" && entry.Subtype == "compact_boundary":
 		l.add(Message{ID: id, Seq: int(offset), Kind: MessageCompaction, At: entry.Timestamp, Trigger: entry.CompactMetadata.Trigger})
 	}
+}
+
+// queueOperation follows a prompt through Claude Code's queue, which its record
+// has from the moment the prompt is typed, whichever view typed it: a dequeue
+// takes the oldest for the next turn and names nothing, and a remove names what
+// it took into the turn running. Claude Code takes prompts ahead of notices, so
+// a dequeue with a prompt waiting is always that prompt's.
+func (l *messageLog) queueOperation(entry messageEntry, id string) {
+	var content string
+	// A dequeue has no content, and an enqueue of a picture none that is text.
+	_ = json.Unmarshal(entry.Content, &content)
+	source, text := promptOf(content)
+	switch entry.Operation {
+	case "enqueue":
+		if text != "" && source != FromNotice {
+			l.waiting = append(l.waiting, WaitingPrompt{ID: id, At: entry.Timestamp, Source: source, Text: text})
+		}
+	case "dequeue":
+		if len(l.waiting) > 0 {
+			l.handed = l.waiting[0].Text
+			l.waiting = l.waiting[1:]
+		}
+	case "remove":
+		if l.stopWaiting(text) {
+			l.handed = text
+		}
+	}
+}
+
+// stopWaiting takes the oldest waiting prompt of text off the list, and says
+// whether it found one.
+func (l *messageLog) stopWaiting(text string) bool {
+	at := slices.IndexFunc(l.waiting, func(prompt WaitingPrompt) bool { return prompt.Text == text })
+	if at < 0 {
+		return false
+	}
+	l.waiting = slices.Delete(l.waiting, at, at+1)
+	return true
 }
 
 // add appends message to the log and returns where it is.
@@ -908,14 +966,25 @@ var (
 // (internal/spawn/native_launch.go).
 const cfoBrief = ": it is your instruction from the CFO."
 
-// prompt adds a prompt of text to the log, with where it came from.
+// prompt adds a prompt of text to the log, with where it came from. Words the
+// last queue entry to end did not hand over were not what it took: a harness
+// that died left an entry ahead of them, so they end their own wait here.
 func (l *messageLog) prompt(message Message, text string) {
 	message.Kind = MessagePrompt
-	message.Source, message.Text = promptSource(strings.TrimSpace(pastedContent.ReplaceAllString(systemReminder.ReplaceAllString(text, ""), "")))
-	message.Text = bounded(message.Text, messageTextLimit)
+	message.Source, message.Text = promptOf(text)
 	if message.Text != "" || len(message.Pictures) > 0 {
 		l.add(message)
+		if message.Text != l.handed {
+			l.stopWaiting(message.Text)
+		}
+		l.handed = ""
 	}
+}
+
+// promptOf is where a prompt of text came from and the words it shows.
+func promptOf(text string) (string, string) {
+	source, words := promptSource(strings.TrimSpace(pastedContent.ReplaceAllString(systemReminder.ReplaceAllString(text, ""), "")))
+	return source, bounded(words, messageTextLimit)
 }
 
 // WakePrefix begins the wake line the supervisor types into a Codex or pi
@@ -1203,7 +1272,7 @@ func (l *messageLog) picture(source pictureSource, at pictureAt) (Picture, bool)
 func (l *messageLog) page(before int) MessagePage {
 	end := l.end(before)
 	start := max(0, end-MessagesPerPage)
-	page := MessagePage{Messages: make([]Message, 0, end-start), More: start > 0 || l.from > 0}
+	page := MessagePage{Messages: make([]Message, 0, end-start), More: start > 0 || l.from > 0, Waiting: slices.Clone(l.waiting)}
 	for _, message := range l.messages[start:end] {
 		page.Messages = append(page.Messages, shared(message))
 	}
@@ -1404,6 +1473,23 @@ func (r *Reader) messagePage(ctx context.Context, path string, before int, reach
 	page := log.page(before)
 	page.Conversation = cursor.Conversation()
 	return page, cursor, nil
+}
+
+// WaitingAt is what the conversation's harness holds in its queue, from what
+// the last read found. Only a Claude Code conversation records its queue.
+func (r *Reader) WaitingAt(path string, cursor MessageCursor) []WaitingPrompt {
+	r.messagesMu.Lock()
+	log := r.messageLogs[path]
+	r.messagesMu.Unlock()
+	if log == nil {
+		return nil
+	}
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	if log.epoch != cursor.epoch || log.incarnation != cursor.incarnation {
+		return nil
+	}
+	return slices.Clone(log.waiting)
 }
 
 func (r *Reader) UsageAt(path string, cursor MessageCursor) *Usage {

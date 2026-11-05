@@ -9,7 +9,7 @@ import { MessageDocumentScope } from "./message-document-scope";
 import { drawnSpans, ESTIMATED_ROW_PX, messageRowAt, messageWindow, OVERSCAN_PX } from "./message-window";
 import { Notice } from "./notice";
 import { ReplyWorking } from "./reply-working";
-import { changeMessages, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
+import { changeMessages, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseUsage, parseWaiting, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { object, parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
 import { useTerminalLink } from "./terminal-link";
@@ -77,7 +77,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const said = link?.screen?.isWorking && link.screen.doing || "";
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
-  const [held, setHeld] = useState<PublishedMessages>({ conversation: "", messages: [], more: false, isWorking, said, isLive: false, task, sent, pending, sending });
+  const [held, setHeld] = useState<PublishedMessages>({ conversation: "", messages: [], more: false, waiting: [], isWorking, said, isLive: false, task, sent, pending, sending });
   const heldValue = useRef(held);
   // The stream keeps one latest version while the displayed history stays
   // where he reads. Returning to the end publishes it once, without replay.
@@ -254,7 +254,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       try { const page = parsePage(JSON.parse(event.data)); olderFailures.current = { count: 0, at: 0 }; take((prior) => pageMessages(prior, page)); } catch { invalid(); }
     });
     stream.addEventListener("messages", (event: MessageEvent<string>) => {
-      try { const data = object(JSON.parse(event.data)); const conversation = parseConversation(data.conversation); const changed = parseMessages(data.messages); take((prior) => { if (prior.conversation !== conversation) throw new Error("Invalid conversation"); return { ...prior, messages: changeMessages(prior.messages, changed) }; }); } catch { invalid(); }
+      try { const data = object(JSON.parse(event.data)); const conversation = parseConversation(data.conversation); const changed = parseMessages(data.messages); const waiting = parseWaiting(data.waiting); take((prior) => { if (prior.conversation !== conversation) throw new Error("Invalid conversation"); return { ...prior, messages: changeMessages(prior.messages, changed), waiting }; }); } catch { invalid(); }
     });
     stream.addEventListener("usage", (event: MessageEvent<string>) => {
       try { const data = object(JSON.parse(event.data)); const conversation = parseConversation(data.conversation); const usage = parseUsage(data.usage); take((prior) => { if (prior.conversation !== conversation) throw new Error("Invalid conversation"); return { ...prior, usage }; }); } catch { invalid(); }
@@ -741,7 +741,16 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     read.add(action.id);
   }
   const queued = waiting.filter((action) => !read.has(action.id));
-  const queuedIDs = queued.map((action) => action.id).join("\0");
+  // What its harness holds, less the prompts a row of the board already shows:
+  // a row answers for one prompt of its words, so a second keeps its own.
+  const unclaimed = [...queued];
+  const harnessHeld = held.waiting.filter((prompt) => {
+    const row = unclaimed.findIndex((action) => sameWords(action.text, prompt.text));
+    if (row < 0) return true;
+    unclaimed.splice(row, 1);
+    return false;
+  });
+  const queuedIDs = [...harnessHeld, ...queued].map((each) => each.id).join("\0");
   useLayoutEffect(() => {
     const observer = new ResizeObserver(settle);
     for (const row of items.current?.querySelectorAll<HTMLElement>(":scope > .reply-working, :scope > [data-queued]") ?? []) observer.observe(row);
@@ -779,11 +788,16 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
               "the double scrolls and having its own little scroll for queued
               messages doesn't really work"), so whatever the session prints
               comes before them and the list, following its end, keeps them
-              right above the box. */}
+              right above the box. What the harness already holds was typed
+              first, so it comes before what the board still holds. */}
+          {harnessHeld.map((prompt) => <div key={"waiting-" + prompt.id} className={"queued-message pane " + prompt.source} data-queued={prompt.id}>
+            <div className="message-bubble queued-bubble waiting">{prompt.text}</div>
+            <p className="queued-state">Queued</p>
+          </div>)}
           {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />)}
         </div>
       </div>
-      {phase === "live" && !held.messages.length && !queued.length && <p className="messages-empty" role="status">No messages yet</p>}
+      {phase === "live" && !held.messages.length && !queued.length && !harnessHeld.length && <p className="messages-empty" role="status">No messages yet</p>}
       {/* A touch that stops the conversation gliding after a flick is one
           the browser gives no click, and the button shows the moment he
           leaves the end, while it glides, so a touch's lift takes him there

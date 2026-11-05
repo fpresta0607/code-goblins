@@ -87,7 +87,18 @@ export interface SessionUsage {
   effort: string;
 }
 
-export interface MessagePage { conversation: string; messages: SessionMessage[]; more: boolean; usage?: SessionUsage }
+// A prompt its harness recorded and holds for a later turn. It has no place
+// among the messages until the harness takes it, so it is listed apart.
+export interface WaitingPrompt { id: string; at: string; source: PromptSource; text: string }
+
+export interface MessagePage { conversation: string; messages: SessionMessage[]; more: boolean; usage?: SessionUsage; waiting: WaitingPrompt[] }
+
+export function parseWaiting(value: unknown): WaitingPrompt[] {
+  return array(value).map((item) => {
+    const each = object(item);
+    return { id: string(each.id), at: string(each.at), source: each.source == null ? "" : choice(each.source, SOURCES, "prompt source"), text: string(each.text) };
+  });
+}
 
 export function parseConversation(value: unknown): string {
   const conversation = string(value);
@@ -104,7 +115,7 @@ export function parseUsage(value: unknown): SessionUsage | undefined {
 
 export function parsePage(value: unknown): MessagePage {
   const page = object(value);
-  return { conversation: parseConversation(page.conversation), messages: parseMessages(page.messages), more: boolean(page.more), usage: parseUsage(page.usage) };
+  return { conversation: parseConversation(page.conversation), messages: parseMessages(page.messages), more: boolean(page.more), usage: parseUsage(page.usage), waiting: parseWaiting(page.waiting) };
 }
 
 // changeMessages puts each changed message in place of the one with its id,
@@ -125,7 +136,7 @@ export function pageMessages(held: MessagePage, page: MessagePage): MessagePage 
   const first = page.messages[0];
   if (!first || !held.messages.some((message) => message.id === first.id && message.seq === first.seq)) return page;
   const older = held.messages.filter((message) => message.seq < first.seq);
-  return { conversation: page.conversation, messages: [...older, ...page.messages], more: older.length ? held.more : page.more, usage: page.usage };
+  return { conversation: page.conversation, messages: [...older, ...page.messages], more: older.length ? held.more : page.more, usage: page.usage, waiting: page.waiting };
 }
 
 // olderMessages puts a page read before the first message a view holds in
@@ -133,7 +144,7 @@ export function pageMessages(held: MessagePage, page: MessagePage): MessagePage 
 export function olderMessages(held: MessagePage, page: MessagePage): MessagePage {
   if (!held.conversation || held.conversation !== page.conversation) return held;
   const first = held.messages[0]?.seq ?? Infinity;
-  return { conversation: held.conversation, messages: [...page.messages.filter((message) => message.seq < first), ...held.messages], more: page.more, usage: held.usage };
+  return { conversation: held.conversation, messages: [...page.messages.filter((message) => message.seq < first), ...held.messages], more: page.more, usage: held.usage, waiting: held.waiting };
 }
 
 // messagesHarness says whether the board reads a harness's session as messages,

@@ -216,6 +216,21 @@ func TestMessagesServeASessionsConversation(t *testing.T) {
 		read("page", `"id":"c2"`)
 		read("alive", "{}")
 	})
+	t.Run("a stream says a prompt waits, and that it stopped in the event with its row", func(t *testing.T) {
+		read := stream(t, task)
+
+		// Act and Assert: queued, which changes no message.
+		read("page", `"text":"Its gate failed."`)
+		appendEntries(t, conversation, `{"type":"queue-operation","operation":"enqueue","timestamp":"`+stamp+`","content":"check the phone too"}`)
+		read("messages", `"text":"check the phone too"`)
+
+		// Act and Assert: the same event ends its wait and brings its row, so
+		// the board never draws it twice.
+		appendEntries(t, conversation,
+			`{"type":"queue-operation","operation":"dequeue","timestamp":"`+stamp+`"}`,
+			`{"type":"user","uuid":"u9","timestamp":"`+stamp+`","message":{"role":"user","content":"check the phone too"}}`)
+		read("messages", `}],"waiting":[]`)
+	})
 	t.Run("a stream follows the conversation and ends once the task restarted", func(t *testing.T) {
 		read := stream(t, task)
 
