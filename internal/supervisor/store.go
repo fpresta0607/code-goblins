@@ -55,6 +55,10 @@ type Session struct {
 	PromptAt     time.Time       `json:"prompt_at,omitzero"` // when this generation last took a prompt for a turn
 	HostID       string          `json:"host_id,omitempty"`  // the native terminal the session runs in
 	Runtime      RuntimeEvidence `json:"runtime"`
+	// IsCompacting says the session's own hooks report it compacts its
+	// conversation now. Whatever it reports next ends that, so a compaction
+	// whose end was never heard does not outlast the session's next word.
+	IsCompacting bool `json:"is_compacting,omitempty"`
 }
 
 type Evaluation struct {
@@ -512,8 +516,11 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 		node.PromptAt = e.OccurredAt
 	}
 	// A compaction starts and ends no turn, so the session's record stays as
-	// its last turn left it.
-	if e.Kind != "compacting" && e.Kind != "compacted" {
+	// its last turn left it, but for saying it compacts.
+	if e.Kind == "compacting" || e.Kind == "compacted" {
+		prior.IsCompacting = e.Kind == "compacting"
+		s.db.Sessions[key] = prior
+	} else {
 		s.db.Sessions[key] = node
 	}
 	if e.Role == "goblin" {

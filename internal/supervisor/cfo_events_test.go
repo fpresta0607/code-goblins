@@ -136,16 +136,19 @@ func TestTheSupervisorRaisesTheIdleWakeFromANativeCFOsTurnEnd(t *testing.T) {
 // supervisor writes the checkpoint and queues its wake as it ingests the
 // events, once each, and only for the registered CFO's own session while it
 // holds the primary home: a compaction of any other session, or of a CFO
-// that no longer holds the home, does nothing (issue #1213).
+// that no longer holds the home, does nothing (issue #1213). A Claude CFO
+// reports its compaction too, for the board, and its own pre-compact hook and
+// SessionStart digest stay what write its checkpoint and read it back.
 func TestTheSupervisorCompactsOnlyTheNativeCFOThatHoldsTheHome(t *testing.T) {
 	cases := []struct {
-		name, session                       string
+		name, harness, session              string
 		isPrimary, isHeldElsewhere, isMoved bool
 	}{
-		{name: "the registered CFO holding the home", session: "native-cfo", isPrimary: true, isMoved: true},
-		{name: "another session", session: "another-session", isPrimary: true},
-		{name: "a CFO another process took the home from", session: "native-cfo", isPrimary: true, isHeldElsewhere: true},
-		{name: "a home that is not primary", session: "native-cfo"},
+		{name: "the registered CFO holding the home", harness: "codex", session: "native-cfo", isPrimary: true, isMoved: true},
+		{name: "another session", harness: "codex", session: "another-session", isPrimary: true},
+		{name: "a CFO another process took the home from", harness: "codex", session: "native-cfo", isPrimary: true, isHeldElsewhere: true},
+		{name: "a home that is not primary", harness: "codex", session: "native-cfo"},
+		{name: "a Claude CFO, whose own hook writes its checkpoint", harness: "claude", session: "native-cfo", isPrimary: true},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -154,13 +157,13 @@ func TestTheSupervisorCompactsOnlyTheNativeCFOThatHoldsTheHome(t *testing.T) {
 			if testCase.isPrimary {
 				primaryHome(t, h)
 			}
-			registerNativeCFO(t, h.State, "codex", "native-cfo")
+			registerNativeCFO(t, h.State, testCase.harness, "native-cfo")
 			if testCase.isHeldElsewhere {
 				holdHomeElsewhere(t, h.State)
 			}
 			var compacted []nativehook.Event
 			s := cfoEventService(t, h, &compacted)
-			events := spoolCFOEvents(t, h, "codex", testCase.session, "SessionStart", "PreCompact", "PostCompact")
+			events := spoolCFOEvents(t, h, testCase.harness, testCase.session, "SessionStart", "PreCompact", "PostCompact")
 
 			// Act
 			s.cycle(context.Background(), false)
@@ -232,6 +235,43 @@ func TestACompactionLeavesTheSessionsTurnAsItWas(t *testing.T) {
 	}
 	if session := s.Snapshot().Sessions["codex/goblin-session"]; session.Phase != "settled" || session.LastEventID != stop.ID {
 		t.Fatalf("session after its compaction = %+v, want it settled at its Stop", session)
+	}
+}
+
+// A session says it compacts from its compaction's start until its end, or
+// until whatever it reports next where that end was never heard, and nothing
+// else of its record moves.
+func TestACompactionSaysSoOnItsSessionUntilItEnds(t *testing.T) {
+	for _, ending := range []string{"PostCompact", "UserPromptSubmit", "Stop"} {
+		t.Run(ending, func(t *testing.T) {
+			// Arrange
+			s, h := testStore(t)
+			now := time.Now().UTC()
+			prompt := event(t, h, "UserPromptSubmit", "goblin-session", "turn", now.Add(time.Millisecond))
+			for _, e := range []nativehook.Event{event(t, h, "SessionStart", "goblin-session", "", now), prompt} {
+				if err := s.Accept(e); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			if err := s.Accept(event(t, h, "PreCompact", "goblin-session", "turn", now.Add(2*time.Millisecond))); err != nil {
+				t.Fatal(err)
+			}
+			during := s.Snapshot().Sessions["codex/goblin-session"]
+			if err := s.Accept(event(t, h, ending, "goblin-session", "turn", now.Add(3*time.Millisecond))); err != nil {
+				t.Fatal(err)
+			}
+			after := s.Snapshot().Sessions["codex/goblin-session"]
+
+			// Assert
+			if !during.IsCompacting || during.LastEventID != prompt.ID {
+				t.Errorf("while it compacts = %+v, want it to say so with its turn as its prompt left it", during)
+			}
+			if after.IsCompacting {
+				t.Errorf("after %s = %+v, want the compaction over", ending, after)
+			}
+		})
 	}
 }
 
