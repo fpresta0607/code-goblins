@@ -162,11 +162,12 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 /* The CFO pinned above the columns is a plain bar, a card like the columns
    under it, with its terminal on its icon and portrait; what it shows while
    something waits on the Overlord is in cfo-pin.css. Hovered or focused, it
-   rises over the columns so its tooltips show in full. */
+   rises over the columns so its tooltips show in full, and so does a bar
+   holding a refusal, whose close button would otherwise lie under them. */
 .task-board:has(> .cfo-pin) { grid-template-rows: auto 1fr; }
 .task-board.stacked:has(> .cfo-pin) { grid-template-rows: auto; }
 .cfo-pin { position: relative; grid-column: 1 / -1; min-width: 0; }
-.cfo-pin:hover, .cfo-pin:focus-within { z-index: 3; }
+.cfo-pin:hover, .cfo-pin:focus-within, .cfo-pin:has(.afk-header > .notice) { z-index: 3; }
 .cfo-rest { display: flex; align-items: center; gap: 14px; min-width: 0; padding: 12px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); backdrop-filter: blur(16px); }
 .cfo-rest p { flex: 1; min-width: 0; margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
 .cfo-rest-portrait { display: grid; place-items: center; width: 56px; height: 56px; min-height: 56px; padding: 0; flex: none; border: 1px solid var(--glass-border); border-radius: 12px; background: var(--glass-bg), var(--hero-surface); }
@@ -1422,7 +1423,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
    room either side of the selector equally, so it sits in the middle while
    both fit. Past that the controls keep what they show (see PanelRow), and
    give a control to More only once the name is down to its first letters,
-   and never what always shows: the AFK switch, More and Close or Back. The
+   and never what always shows: More and Close or Back. The
    identity never narrows past its picture, and wraps the name at its own
    edge, so it is never drawn under the selector. */
 .panel-header.one-row { position: relative; display: flex; align-items: center; gap: 6px; min-height: 52px; padding: 4px 8px; border-bottom: 1px solid var(--glass-border); }

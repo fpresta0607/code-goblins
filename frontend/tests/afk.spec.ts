@@ -211,6 +211,125 @@ test("a refusal that arrives after he cancelled Go AFK says AFK did not turn on"
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
 });
 
+// refuseLater holds the supervisor's refusal of his press on the switch until
+// the function it returns is called.
+async function refuseLater(page: Page) {
+  let answer = () => {};
+  const answered = new Promise<void>((resolve) => { answer = resolve; });
+  await page.route("**/api/afk", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    await answered;
+    await route.fulfill({ status: 403, json: { error: REFUSAL } });
+  });
+  return answer;
+}
+// The forms the bar changes to under him: its lantern box as something starts
+// waiting on him, and the closed bar as the CFO closes.
+const LANTERN = { fields: { questions: [QUESTIONS[0]] }, shown: (page: Page) => expect(bar(page).locator(".cfo-command")).toBeVisible() };
+const CLOSED = { fields: { cfo_runs: false, cfo_closed: true }, shown: (page: Page) => expect(bar(page)).toContainText("The CFO is closed.") };
+
+// The bar changing form answers nothing he asked: the question he opened, the
+// press he made and its refusal all carry over to the form that replaces it.
+for (const [name, form] of [["lantern box", LANTERN], ["closed bar", CLOSED]] as const) {
+  test(`Go AFK? stays open with Cancel focused when the bar becomes its ${name}`, async ({ page }) => {
+    // Arrange
+    const supervisor = await open(page, snapshot());
+    await toggle(page).click();
+    const asks = page.locator("dialog.afk-dialog");
+    await expect(asks.getByRole("button", { name: "Cancel" })).toBeFocused();
+
+    // Act
+    await push(page, snapshot(form.fields));
+
+    // Assert
+    await form.shown(page);
+    await expect(asks.getByRole("heading", { name: "Go AFK?" })).toBeVisible();
+    await expect(asks.getByRole("button", { name: "Cancel" })).toBeFocused();
+    expect(supervisor.asked).toEqual([]);
+  });
+
+  test(`Turn AFK on keeps its spinner and its refusal when the bar becomes its ${name}`, async ({ page }) => {
+    // Arrange
+    await open(page, snapshot());
+    const refuse = await refuseLater(page);
+    await toggle(page).click();
+    const asks = page.locator("dialog.afk-dialog");
+    await asks.getByRole("button", { name: "Turn AFK on" }).click();
+    const working = asks.getByRole("button", { name: "Turning AFK on…" });
+    await expect(working).toBeDisabled();
+
+    // Act
+    await push(page, snapshot(form.fields));
+
+    // Assert
+    await form.shown(page);
+    await expect(working).toBeDisabled();
+    await expect(working.locator(".card-start-spinner")).toBeVisible();
+
+    // Act
+    refuse();
+
+    // Assert
+    await expect(asks.getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL);
+  });
+}
+
+test("a press on the switch keeps its spinner and its refusal when the bar changes form", async ({ page }) => {
+  // Arrange: a switch that cannot be read turns off at a press, unasked.
+  const afk = { state: "unreadable" };
+  await open(page, snapshot({ afk }));
+  const refuse = await refuseLater(page);
+  await toggle(page).click();
+  await expect(toggle(page)).toHaveAttribute("aria-busy", "true");
+
+  // Act
+  await push(page, snapshot({ afk, ...LANTERN.fields }));
+
+  // Assert
+  await LANTERN.shown(page);
+  await expect(toggle(page)).toHaveAttribute("aria-busy", "true");
+  await expect(toggle(page).locator(".card-start-spinner")).toBeVisible();
+
+  // Act
+  refuse();
+
+  // Assert
+  await expect(bar(page).getByRole("alert")).toHaveText("AFK did not turn off" + REFUSAL);
+  await expect(toggle(page)).toHaveAttribute("aria-busy", "false");
+});
+
+// A closed bar draws the switch only while AFK is not off, and a press he
+// walked away from still has its answer to show there.
+test("a closed bar keeps the switch until the refusal of a press he cancelled is read", async ({ page }) => {
+  // Arrange
+  await open(page, snapshot());
+  const refuse = await refuseLater(page);
+  await toggle(page).click();
+  const asks = page.locator("dialog.afk-dialog");
+  await asks.getByRole("button", { name: "Turn AFK on" }).click();
+  await asks.getByRole("button", { name: "Cancel" }).click();
+
+  // Act
+  await push(page, snapshot(CLOSED.fields));
+
+  // Assert
+  await CLOSED.shown(page);
+  await expect(toggle(page)).toHaveAttribute("aria-busy", "true");
+
+  // Act
+  refuse();
+
+  // Assert
+  const refusal = bar(page).getByRole("alert");
+  await expect(refusal).toHaveText("AFK did not turn on" + REFUSAL);
+
+  // Act
+  await refusal.getByRole("button", { name: "Close the message" }).click();
+
+  // Assert
+  await expect(toggle(page)).toHaveCount(0);
+});
+
 // The Overlord, 2026-10-08: "hate that loading message doesnt happen on button
 // when i click turn off". The button he pressed says it is working until the
 // supervisor answers.

@@ -60,6 +60,12 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		return Evaluation{}, fmt.Errorf("%w: message transport is unavailable", ErrRejected)
 	}
 	if a.TaskID == "" {
+		s.starts.Lock()
+		isComingBack := s.isCFOComingBack
+		s.starts.Unlock()
+		if isComingBack {
+			return startingFor("the CFO"), ErrDeferred
+		}
 		identity, isLive := s.Store.liveCFO()
 		if !isLive {
 			return s.startCFOForMessage(a)
@@ -80,7 +86,7 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	text := fromOverlord(a.Text)
 	stateDir := s.Store.Home.State
 	s.starts.Lock()
-	isStarting := s.starting == a.TaskID || s.isAsked(a.TaskID)
+	isStarting := s.isStartUnderWay(a.TaskID)
 	s.starts.Unlock()
 	meta, err := state.ReadTaskMeta(stateDir, a.TaskID)
 	if errors.Is(err, os.ErrNotExist) && !isStarting {
@@ -88,6 +94,23 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	}
 	if err != nil && !isStarting {
 		return Evaluation{}, err
+	}
+	record, err := state.ReadLifecycle(stateDir, a.TaskID)
+	if err != nil && !errors.Is(err, os.ErrNotExist) && !isStarting {
+		return Evaluation{}, err
+	}
+	isRecorded := err == nil && isCurrentRecord(record, meta)
+	// A note no resume has taken up yet still reaches the session, so a resume
+	// under way takes the message here before it waits as a start does.
+	if isRecorded && waitsForResume(record) {
+		isKept, err := keepForResume(stateDir, a.TaskID, text)
+		if err != nil {
+			return Evaluation{}, err
+		}
+		if isKept {
+			s.resumeForMessage(a, meta)
+			return Evaluation{Reason: "Kept for its resume."}, nil
+		}
 	}
 	if isStarting {
 		// A start under way reads the branch too, so a message held by a gate
@@ -98,23 +121,8 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		}
 		return result, err
 	}
-	record, err := state.ReadLifecycle(stateDir, a.TaskID)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return Evaluation{}, err
-	}
-	isRecorded := err == nil && isCurrentRecord(record, meta)
-	switch {
-	case isRecorded && record.Phase == "stopped":
+	if isRecorded && record.Phase == "stopped" {
 		return Evaluation{}, s.messageToCFO(a, a.TaskID+" was stopped before it could take it")
-	case isRecorded && waitsForResume(record):
-		isKept, err := keepForResume(stateDir, a.TaskID, text)
-		if err != nil {
-			return Evaluation{}, err
-		}
-		if isKept {
-			s.resumeForMessage(a, meta)
-			return Evaluation{Reason: "Kept for its resume."}, nil
-		}
 	}
 	// A goblin whose gate owns its branch takes no typing, so a message for it
 	// is kept as a durable queued action and delivered once custody is released.

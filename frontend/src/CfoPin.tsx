@@ -7,9 +7,11 @@ import { SubscriptionDials } from "./subscription-dials";
 import "./cfo-pin.css";
 import { ReopenCfoButton } from "./reopen-cfo-button";
 import { ActionsSpendHeader } from "./actions-spend-header";
+import { AfkOnDialog } from "./afk-on-dialog";
 import { AfkToggle } from "./afk-toggle";
 import { cfoDoor, useChatStyle } from "./chat-style";
 import { messagesQuery } from "./session-messages";
+import { useAfkToggle } from "./useAfkToggle";
 
 // The CFO pinned above the board's columns: at rest a plain bar, a card like
 // the columns under it, that says how many goblins are at work, with its
@@ -25,8 +27,8 @@ import { messagesQuery } from "./session-messages";
 // first-run page to start one. A saved CFO that is not running offers Reopen.
 // A CFO that was closed, however it ended, is said to be closed, with Reopen
 // to bring it back as goblins does, and the AFK switch beside it only while it
-// is not off, since no panel is left to turn it off from. Restart is in the
-// CFO's panel, off the bar.
+// is not off, since no panel is left to turn it off from, or while his press
+// still has an answer to show. Restart is in the CFO's panel, off the bar.
 // A CFO still starting has not registered yet: Claude Code registers through
 // its SessionStart hook after onboarding and sign-in, and a Codex or pi CFO
 // when its first prompt runs cfo register. While the board cannot reach the
@@ -39,22 +41,18 @@ import { messagesQuery } from "./session-messages";
 // While AFK mode is on nothing prompts him and nothing is held for him: the
 // bar stays at rest, says since when and how much was decided, and an outline
 // Open Command Center with how many wait is its one way to whatever is there.
+// The question before AFK turns on is drawn outside the bar's forms, so a form
+// that changes under it leaves it open.
 export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot: Snapshot; now: number; onOpen: (source: HTMLElement) => void; onCommand: () => void; onStart: () => void }) {
   const [style] = useChatStyle();
   const door = cfoDoor(style, !!messagesQuery(snapshot));
   const { waiting, line } = cfoSummary(snapshot);
-  const afkSwitch = <AfkToggle afk={snapshot.afk} instance={snapshot.instance} />;
+  const toggle = useAfkToggle(snapshot.afk, snapshot.instance);
+  const afkSwitch = <AfkToggle afk={snapshot.afk} toggle={toggle} />;
+  const shouldKeepSwitch = snapshot.afk.state !== "off" || toggle.pending || !!toggle.problem;
   const date = new Date(now);
   const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-  if (snapshot.cfo_closed || snapshot.cfo_configured && !snapshot.cfo_runs) return <div className="cfo-pin">
-    <div className="cfo-rest" role="group" aria-label="CFO">
-      <span className="cfo-rest-portrait"><Avatar persona="cfo" /></span>
-      <p>{snapshot.cfo_closed ? "The CFO is closed." : "The CFO is not running."}</p>
-      <ReopenCfoButton snapshot={snapshot} />
-      <ActionsSpendHeader usage={snapshot.actions_spend} month={month} instance={snapshot.instance} now={now} />
-      {snapshot.afk.state !== "off" && afkSwitch}
-    </div>
-  </div>;
+  const isClosed = snapshot.cfo_closed || snapshot.cfo_configured && !snapshot.cfo_runs;
   const absent = !snapshot.cfo_runs;
   const unreachable = !absent && !snapshot.cfo_starting && !!snapshot.registration;
   const shown = absent ? "No CFO is running." : snapshot.cfo_starting ? "Starting: answer anything it asks in its terminal." : unreachable ? "The board cannot reach the CFO." : line;
@@ -63,8 +61,14 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
   const status = <p {...unreachable ? { "data-tip": snapshot.registration } : {}}>{shown}</p>;
   const dials = !absent && <SubscriptionDials snapshot={snapshot} now={now} />;
   const waits = command + ": " + waiting + " waiting on you";
-  if (!absent && waiting > 0 && !away) return <div className="cfo-pin">
-    <DialogueBox persona="cfo" speaker="CFO" label="CFO" portrait={{ label: door.label, onClick: onOpen }}
+  return <div className="cfo-pin">
+    {isClosed ? <div className="cfo-rest" role="group" aria-label="CFO">
+      <span className="cfo-rest-portrait"><Avatar persona="cfo" /></span>
+      <p>{snapshot.cfo_closed ? "The CFO is closed." : "The CFO is not running."}</p>
+      <ReopenCfoButton snapshot={snapshot} />
+      <ActionsSpendHeader usage={snapshot.actions_spend} month={month} instance={snapshot.instance} now={now} />
+      {shouldKeepSwitch && afkSwitch}
+    </div> : !absent && waiting > 0 && !away ? <DialogueBox persona="cfo" speaker="CFO" label="CFO" portrait={{ label: door.label, onClick: onOpen }}
       actions={<>
         {dials}
         <ActionsSpendHeader usage={snapshot.actions_spend} month={month} instance={snapshot.instance} now={now} />
@@ -75,10 +79,7 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
         </div>
       </>}>
       {status}
-    </DialogueBox>
-  </div>;
-  return <div className="cfo-pin">
-    <div className="cfo-rest" role="group" aria-label="CFO">
+    </DialogueBox> : <div className="cfo-rest" role="group" aria-label="CFO">
       {absent
         ? <span className="cfo-rest-portrait"><Avatar persona="cfo" /></span>
         : <button className="cfo-rest-portrait" aria-label={door.label} data-tip={door.label} onClick={(event) => onOpen(event.currentTarget)}><Avatar persona="cfo" /></button>}
@@ -86,12 +87,13 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
       {dials}
       <ActionsSpendHeader usage={snapshot.actions_spend} month={month} instance={snapshot.instance} now={now} />
       {absent && <button className="labelled-button primary" onClick={onStart}><Icon name="play" />Start the CFO</button>}
-      {absent && snapshot.afk.state !== "off" && afkSwitch}
+      {absent && shouldKeepSwitch && afkSwitch}
       {!absent && waiting > 0 && <button className="pixel-button outline cfo-command" aria-label={waits} onClick={onCommand}>{command}<span className="cfo-command-count" aria-hidden="true">{waiting}</span></button>}
       {!absent && <div className="cfo-pin-end">
         {afkSwitch}
         <button className="icon-button raised" aria-label={door.label} data-tip={door.label} onClick={(event) => onOpen(event.currentTarget)}><Icon name={door.icon} /></button>
       </div>}
-    </div>
+    </div>}
+    {toggle.isAsking && <AfkOnDialog pending={toggle.pending} problem={toggle.problem} onTurnOn={toggle.turnOn} onClose={toggle.closeQuestion} />}
   </div>;
 }

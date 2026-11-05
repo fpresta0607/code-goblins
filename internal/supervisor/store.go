@@ -57,7 +57,8 @@ type Session struct {
 	Runtime      RuntimeEvidence `json:"runtime"`
 	// IsCompacting says the session's own hooks report it compacts its
 	// conversation now. Whatever it reports next ends that, so a compaction
-	// whose end was never heard does not outlast the session's next word.
+	// whose end was never heard does not outlast the session's next word, and
+	// Snapshot says it of a goblin only while its terminal is up.
 	IsCompacting bool `json:"is_compacting,omitempty"`
 }
 

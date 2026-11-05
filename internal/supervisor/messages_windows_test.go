@@ -1224,7 +1224,8 @@ func TestHisMessageToAGoblinWhoseTerminalIsNotRunningStartsItOnceAndGoesIn(t *te
 	}}
 	messageTo(t, store, meta, "message-1", "rebase on main first")
 
-	// Act: the board looks at the message twice while the goblin starts.
+	// Act: the board looks at the message twice while the goblin starts, the
+	// second time with its terminal up and its start not yet returned.
 	first := store.ProcessOne(t.Context(), service.execute)
 	var startedFor string
 	select {
@@ -1232,10 +1233,11 @@ func TestHisMessageToAGoblinWhoseTerminalIsNotRunningStartsItOnceAndGoesIn(t *te
 	case <-time.After(5 * time.Second):
 		t.Fatalf("delivery = %v, action = %+v; want the goblin started for the message", first, actionOf(store, "message-1"))
 	}
+	goblin := goblinTerminal(t, h.State, meta.ID)
 	store.deferredUntil["message-1"] = time.Now().Add(-time.Second)
 	second := store.ProcessOne(t.Context(), service.execute)
 	waiting := actionOf(store, "message-1")
-	goblin := goblinTerminal(t, h.State, meta.ID)
+	typedDuring := goblin.lines(t)
 	close(release)
 	awaitComeback(t, service)
 	store.deferredUntil["message-1"] = time.Now().Add(-time.Second)
@@ -1245,11 +1247,58 @@ func TestHisMessageToAGoblinWhoseTerminalIsNotRunningStartsItOnceAndGoesIn(t *te
 	if startedFor != meta.ID || len(started) != 0 {
 		t.Errorf("started %q and then %d more, want task-1 started once", startedFor, len(started))
 	}
-	if !errors.Is(first, ErrDeferred) || !errors.Is(second, ErrDeferred) || waiting.Status != "queued" || waiting.Message != "Starting task-1. The message goes in once it runs." || waiting.SendNowWhy != "It is starting." {
-		t.Errorf("while it starts: deliveries %v and %v, action = %+v; want it queued, saying it is starting", first, second, waiting)
+	if !errors.Is(first, ErrDeferred) || !errors.Is(second, ErrDeferred) || waiting.Status != "queued" || waiting.Message != "Starting task-1. The message goes in once it runs." || waiting.SendNowWhy != "It is starting." || len(typedDuring) != 0 {
+		t.Errorf("while it starts: deliveries %v and %v, action = %+v, typed %q; want it queued, saying it is starting, with nothing typed", first, second, waiting, typedDuring)
 	}
 	if typed := goblin.waitForLines(t, 1); delivered != nil || len(typed) != 1 || !strings.Contains(typed[0], "rebase on main first") || actionOf(store, "message-1").Status != "succeeded" {
 		t.Errorf("once it runs: delivery = %v, typed %q, action = %+v; want the message typed once", delivered, typed, actionOf(store, "message-1"))
+	}
+}
+
+// A terminal comes up before its start has told its harness anything, so his
+// message waits for whatever start of its session is under way to return,
+// however its terminal reads: typed sooner, it races that start's own
+// instruction into a harness still booting.
+func TestAMessageWaitsForAStartUnderWayWhileItsTerminalIsUp(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		begin func(s *Service, task string)
+	}{
+		{"a resume the comeback runs", func(s *Service, task string) { s.changing = map[string]string{task: "resume"} }},
+		{"a switch", func(s *Service, task string) { s.changing = map[string]string{task: "switch"} }},
+		{"an earlier message's start", func(s *Service, task string) {
+			s.messageStarts = map[string]messageStart{task: {message: "an earlier message"}}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta := makeNative(t, h.State, "task-1")
+			gitWorktree(t, meta.Worktree)
+			goblin := goblinTerminal(t, h.State, meta.ID)
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+			test.begin(service, meta.ID)
+			messageTo(t, store, meta, "message-1", "rebase on main first")
+
+			// Act: the board looks at it during the start and once it returned.
+			waited := store.ProcessOne(t.Context(), service.execute)
+			during := actionOf(store, "message-1")
+			typedDuring := goblin.lines(t)
+			service.starts.Lock()
+			service.changing, service.messageStarts = nil, nil
+			service.starts.Unlock()
+			store.deferredUntil["message-1"] = time.Now().Add(-time.Second)
+			delivered := store.ProcessOne(t.Context(), service.execute)
+			typed := goblin.waitForLines(t, 1)
+
+			// Assert
+			if !errors.Is(waited, ErrDeferred) || during.Status != "queued" || during.Message != "Starting task-1. The message goes in once it runs." || during.SendNowWhy != "It is starting." || len(typedDuring) != 0 {
+				t.Errorf("during the start: delivery = %v, action = %+v, typed %q; want it queued, saying it is starting, with nothing typed", waited, during, typedDuring)
+			}
+			if delivered != nil || len(typed) != 1 || !strings.Contains(typed[0], "rebase on main first") {
+				t.Errorf("once it returned: delivery = %v, typed %q; want the message typed once", delivered, typed)
+			}
+		})
 	}
 }
 
@@ -1269,8 +1318,9 @@ func TestHisMessageToTheCFOWhileNoneRunsStartsItOnceAndGoesIn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Act: the board looks at the message at once, inside its undo window, and
-	// again while the CFO starts.
+	// Act: the board looks at the message at once, inside its undo window,
+	// again while the CFO starts, and once more after it registered with its
+	// start not yet returned.
 	first := store.ProcessOne(t.Context(), service.execute)
 	var why string
 	select {
@@ -1288,11 +1338,14 @@ func TestHisMessageToTheCFOWhileNoneRunsStartsItOnceAndGoesIn(t *testing.T) {
 	}
 	cfo.typeLine(t, "harness")
 	cfo.showsComposer(t, "claude")
-	close(release)
-	awaitComeback(t, service)
 	store.mu.Lock()
 	store.db.Actions[len(store.db.Actions)-1].CreatedAt = time.Now().Add(-cfoMessageUndo)
 	store.mu.Unlock()
+	store.deferredUntil["message-1"] = time.Now().Add(-time.Second)
+	third := store.ProcessOne(t.Context(), service.execute)
+	registered := actionOf(store, "message-1")
+	close(release)
+	awaitComeback(t, service)
 	store.deferredUntil["message-1"] = time.Now().Add(-time.Second)
 	delivered := store.ProcessOne(t.Context(), service.execute)
 
@@ -1302,6 +1355,9 @@ func TestHisMessageToTheCFOWhileNoneRunsStartsItOnceAndGoesIn(t *testing.T) {
 	}
 	if !errors.Is(first, ErrDeferred) || !errors.Is(second, ErrDeferred) || waiting.Status != "queued" || waiting.Message != "Starting the CFO. The message goes in once it runs." || waiting.SendNowWhy != "It is starting." {
 		t.Errorf("while it starts: deliveries %v and %v, action = %+v; want it queued, saying it is starting", first, second, waiting)
+	}
+	if !errors.Is(third, ErrDeferred) || registered.Status != "queued" || registered.Message != "Starting the CFO. The message goes in once it runs." {
+		t.Errorf("once it registered: delivery = %v, action = %+v; want it still starting until its start returns", third, registered)
 	}
 	if typed := cfo.exit(t); delivered != nil || len(typed) != 2 || typed[1] != "check the train" || actionOf(store, "message-1").Status != "succeeded" {
 		t.Errorf("once it runs: delivery = %v, typed %q, action = %+v; want his words typed once", delivered, typed, actionOf(store, "message-1"))

@@ -290,12 +290,8 @@ func (s *Service) pauseForRestart(goblins []state.TaskMeta, signedIn time.Time) 
 	operation := fmt.Sprintf("restart-pause-%d", time.Now().UnixNano())
 	until := signedIn.UTC().Format(time.RFC3339Nano)
 	s.starts.Lock()
-	if s.changing == nil {
-		s.changing = map[string]string{}
-		s.changeErrors = map[string]taskChangeError{}
-	}
 	for _, meta := range parents {
-		s.changing[meta.ID] = "pause"
+		s.markChanging(meta.ID, "pause")
 		delete(s.changeErrors, meta.ID)
 	}
 	s.starts.Unlock()

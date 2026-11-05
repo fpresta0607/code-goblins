@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -22,6 +23,56 @@ func writeNativeTask(t *testing.T, stateDir, id string) state.TaskMeta {
 		t.Fatal(err)
 	}
 	return meta
+}
+
+// A harness that dies while it compacts never reports the end, so the board's
+// snapshot says a goblin compacts only while its terminal is up, whatever its
+// session's record last heard. The CFO's is read from its live session alone,
+// so the snapshot leaves it as it was heard.
+func TestACompactionReadsOnlyWhileItsGoblinsTerminalIsUp(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta := makeNative(t, h.State, "task-1")
+	goblin := goblinTerminal(t, h.State, meta.ID)
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+	now := time.Now().UTC()
+	for _, heard := range []nativehook.Event{event(t, h, "SessionStart", "goblin-session", "", now), event(t, h, "PreCompact", "goblin-session", "turn", now.Add(time.Millisecond))} {
+		if err := store.Accept(heard); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store.mu.Lock()
+	store.db.Sessions["claude/cfo-session"] = Session{ID: "claude/cfo-session", Harness: "claude", Role: "cfo", IsCompacting: true}
+	err := store.save()
+	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	compacting := func() map[string]bool {
+		t.Helper()
+		snapshot, err := service.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		byRole := map[string]bool{}
+		for _, session := range snapshot.Sessions {
+			byRole[session.Role] = session.IsCompacting
+		}
+		return byRole
+	}
+
+	// Act
+	during := compacting()
+	goblin.exit(t)
+	after := compacting()
+
+	// Assert
+	if !during["goblin"] || !during["cfo"] {
+		t.Errorf("with its terminal up = %v, want both compacting", during)
+	}
+	if after["goblin"] || !after["cfo"] {
+		t.Errorf("after its terminal ended = %v, want the goblin's compaction gone and the CFO's as it was", after)
+	}
 }
 
 // makeNative rewrites task id's record as a native task's, the way spawn

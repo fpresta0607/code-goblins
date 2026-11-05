@@ -48,6 +48,16 @@ func startingFor(session string) Evaluation {
 	return Evaluation{Reason: "Starting " + session + ". The message goes in once it runs.", SendNowWhy: "It is starting."}
 }
 
+// isStartUnderWay says a start of task's session is under way, by anything: a
+// Start or Resume running or waiting its turn, a switch, the comeback, or a
+// message's own. A terminal comes up before its start has told its harness
+// anything, so a session reads as starting until that start returns, however
+// its terminal reads. starts guards what it reads.
+func (s *Service) isStartUnderWay(task string) bool {
+	started, isTried := s.messageStarts[task]
+	return isTried && !started.isDone || s.starting == task || s.changing[task] == "resume" || s.changing[task] == "switch" || s.isAsked(task)
+}
+
 // resumeForMessage asks the Resume that carries message a, which its paused
 // goblin's note now keeps, as his click asks one: in its turn, with memory and
 // disk to spare, and not again while one runs or waits. A board that runs no
@@ -79,10 +89,9 @@ func (s *Service) startGoblinForMessage(a Action) (Evaluation, error) {
 	s.starts.Lock()
 	tried, isTried := s.messageStarts[task]
 	isOwn := isTried && tried.message == a.ID
-	isUnderWay := isOwn && !tried.isDone || s.starting == task || s.changing[task] == "resume" || s.changing[task] == "switch" || s.isAsked(task)
 	isRoomWait := isOwn && tried.isDone && tried.outcome == WaitsForRoom
 	switch {
-	case isUnderWay:
+	case s.isStartUnderWay(task):
 		s.starts.Unlock()
 		return startingFor(task), ErrDeferred
 	case isOwn && tried.outcome == DidNotComeBack:
@@ -100,13 +109,10 @@ func (s *Service) startGoblinForMessage(a Action) (Evaluation, error) {
 		s.starts.Unlock()
 		return startingFor(task), ErrDeferred
 	}
-	if s.changing == nil {
-		s.changing = map[string]string{}
-	}
 	if s.messageStarts == nil {
 		s.messageStarts = map[string]messageStart{}
 	}
-	s.changing[task] = "resume"
+	s.markChanging(task, "resume")
 	delete(s.changeErrors, task)
 	s.messageStarts[task] = messageStart{message: a.ID, at: time.Now()}
 	s.starts.Unlock()

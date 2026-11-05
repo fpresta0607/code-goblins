@@ -1,5 +1,27 @@
-import { expect, test } from "./site";
+import { expect, openTaskList, test, type Page } from "./site";
 import { box, card, field, GOBLIN, open, openGoblin, OTHER, pasted, pickStyle, snapshot, typed } from "./session-board";
+
+// watchTerminals records each terminal connection the page opens from now on
+// until it is closed, over the fixture's own WebSocket, which open() installs,
+// and returns what reads them.
+async function watchTerminals(page: Page) {
+  await page.evaluate(() => {
+    const Native = window.WebSocket;
+    const live = new Set<WebSocket>();
+    Object.assign(window, { liveTerminals: () => [...live].map((socket) => new URL(socket.url).searchParams.toString()) });
+    window.WebSocket = class extends Native {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols);
+        live.add(this);
+        this.addEventListener("close", () => live.delete(this));
+      }
+      close(code?: number, reason?: string) { live.delete(this); super.close(code, reason); }
+    };
+  });
+  return () => page.evaluate(() => (window as unknown as { liveTerminals: () => string[] }).liveTerminals());
+}
+const GOBLIN_TERMINAL = new URLSearchParams({ task: GOBLIN.id, generation: GOBLIN.generation, token: "fixture" }).toString();
+const CFO_TERMINAL = new URLSearchParams({ cfo: "cfo-term", token: "fixture" }).toString();
 
 for (const { harness, isBracketed } of ["claude", "codex", "pi"].flatMap((harness) => [true, false].map((isBracketed) => ({ harness, isBracketed })))) {
   test(`${harness} Chat sends and answers harness controls before mounting a terminal, bracketed paste ${isBracketed ? "on" : "off"}`, async ({ page }) => {
@@ -197,23 +219,9 @@ test("Chat follows a harness change on the same native connection", async ({ pag
 // the panel shows has a terminal, so leaving one closes its connection, and
 // coming back connects afresh and types into the new connection alone.
 test("a session he leaves keeps no terminal connection, and coming back connects afresh", async ({ page }) => {
-  // Arrange: the page records each terminal connection it opens until it is
-  // closed, over the fixture's own WebSocket, which open() installs.
+  // Arrange
   const relay = await open(page);
-  await page.evaluate(() => {
-    const Native = window.WebSocket;
-    const live = new Set<WebSocket>();
-    Object.assign(window, { liveTerminals: () => [...live].map((socket) => new URL(socket.url).searchParams.toString()) });
-    window.WebSocket = class extends Native {
-      constructor(url: string | URL, protocols?: string | string[]) {
-        super(url, protocols);
-        live.add(this);
-        this.addEventListener("close", () => live.delete(this));
-      }
-      close(code?: number, reason?: string) { live.delete(this); super.close(code, reason); }
-    };
-  });
-  const liveTerminals = () => page.evaluate(() => (window as unknown as { liveTerminals: () => string[] }).liveTerminals());
+  const liveTerminals = await watchTerminals(page);
   await openGoblin(page);
   const views = relay.views;
 
@@ -231,7 +239,7 @@ test("a session he leaves keeps no terminal connection, and coming back connects
   await expect(page.locator("#panel-title")).toHaveText("CFO");
 
   // Assert
-  await expect.poll(liveTerminals).toEqual([new URLSearchParams({ cfo: "cfo-term", token: "fixture" }).toString()]);
+  await expect.poll(liveTerminals).toEqual([CFO_TERMINAL]);
 
   // Act
   await openGoblin(page);
@@ -240,6 +248,80 @@ test("a session he leaves keeps no terminal connection, and coming back connects
 
   // Assert
   expect(relay.views, "coming back connects afresh").toBeGreaterThan(views + 1);
-  await expect.poll(liveTerminals).toEqual([new URLSearchParams({ task: GOBLIN.id, generation: GOBLIN.generation, token: "fixture" }).toString()]);
+  await expect.poll(liveTerminals).toEqual([GOBLIN_TERMINAL]);
   await expect.poll(() => relay.inputs.map((input) => new URL(input.address).searchParams.get("task") + " " + input.text)).toEqual(["cg-touch " + pasted("Back to Zeke"), "cg-touch \r"]);
+});
+
+// The CFO, decision 1016436: a panel that closes ends its terminal. No stream
+// stays open behind a closed panel, on the Board or for the CFO in
+// Orchestration, and opening the panel connects afresh.
+for (const view of ["Board", "Orchestration"] as const) {
+  test(`closing the CFO's panel on ${view} ends its terminal connection, and opening it connects afresh`, async ({ page }) => {
+    // Arrange
+    const relay = await open(page);
+    const liveTerminals = await watchTerminals(page);
+    if (view === "Orchestration") await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+    else await page.keyboard.press("Control+Alt+1");
+    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await expect.poll(liveTerminals).toEqual([CFO_TERMINAL]);
+    const views = relay.views;
+
+    // Act
+    await page.getByRole("button", { name: "Close panel", exact: true }).click();
+
+    // Assert
+    await expect.poll(liveTerminals).toEqual([]);
+    await expect(page.locator(".host-terminal")).toHaveCount(0);
+
+    // Act
+    await page.getByRole("button", { name: "Open CFO", exact: true }).click();
+
+    // Assert
+    await expect.poll(liveTerminals).toEqual([CFO_TERMINAL]);
+    expect(relay.views, "opening it connects afresh").toBe(views + 1);
+  });
+}
+
+test("Back on a phone ends the goblin's terminal connection, and his draft waits in the box when it opens again", async ({ page }) => {
+  // Arrange
+  await page.setViewportSize({ width: 390, height: 844 });
+  const relay = await open(page);
+  const liveTerminals = await watchTerminals(page);
+  await openGoblin(page);
+  await expect.poll(liveTerminals).toEqual([GOBLIN_TERMINAL]);
+  await field(page).fill("Keep this until I am back");
+  const views = relay.views;
+
+  // Act
+  await page.getByRole("button", { name: "Back to Board", exact: true }).click();
+
+  // Assert
+  await expect.poll(liveTerminals).toEqual([]);
+  await expect(page.locator(".host-terminal")).toHaveCount(0);
+
+  // Act
+  await openGoblin(page);
+
+  // Assert
+  await expect.poll(liveTerminals).toEqual([GOBLIN_TERMINAL]);
+  expect(relay.views, "opening it connects afresh").toBe(views + 1);
+  await expect(field(page)).toHaveValue("Keep this until I am back");
+});
+
+test("the Task view of the session he reads keeps its one terminal connection", async ({ page }) => {
+  // Arrange
+  const relay = await open(page);
+  const liveTerminals = await watchTerminals(page);
+  await openGoblin(page);
+  await expect.poll(liveTerminals).toEqual([GOBLIN_TERMINAL]);
+  const views = relay.views;
+
+  // Act
+  await openTaskList(page);
+  await page.locator(".panel-view-switch").getByRole("button", { name: "Chat", exact: true }).click();
+  await expect(field(page)).toBeVisible();
+
+  // Assert
+  expect(await liveTerminals()).toEqual([GOBLIN_TERMINAL]);
+  expect(relay.views).toBe(views);
 });

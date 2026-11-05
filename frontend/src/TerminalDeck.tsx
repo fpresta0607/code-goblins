@@ -18,7 +18,9 @@ import { goblinName, terminalOf } from "./task-words";
 // other: a session he left keeps no connection, offers no link and holds no
 // key or microphone of its own, so nothing typed or said reaches it from
 // another session's pane, and a switch back connects afresh and replays its
-// screen (the Overlord, 2026-11-04). The shown terminal fills the panel; the
+// screen (the Overlord, 2026-11-04). A panel that shows nothing has no deck,
+// so a closed one keeps no terminal either, and its session's Task view, which
+// a panel still shows, keeps its own. The shown terminal fills the panel; the
 // Overlord picks the goblin on the board. A goblin's baby goblin (child) shows
 // its own output as its terminal, never its goblin's (the Overlord,
 // 2026-10-13). A goblin's slot whose terminal cannot take typing now, a goblin

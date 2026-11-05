@@ -115,11 +115,7 @@ func (s *Service) comeBack(memory Memory, w *fleetWakes, hold string) (bool, err
 		return true, nil
 	}
 	id := record.Goblins[next].ID
-	if s.changing == nil {
-		s.changing = map[string]string{}
-		s.changeErrors = map[string]taskChangeError{}
-	}
-	s.changing[id] = "resume"
+	s.markChanging(id, "resume")
 	delete(s.changeErrors, id)
 	s.starts.Unlock()
 	go s.bringGoblinBack(comeback, id, memory)

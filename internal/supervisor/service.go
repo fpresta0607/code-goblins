@@ -1750,6 +1750,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 				}
 			}
 		}
+		// A harness that died while it compacted never reported the end, so a
+		// goblin's compaction reads only while its terminal is up. The board
+		// reads the CFO's from its live session alone.
+		if node.IsCompacting && node.Role != "cfo" {
+			node.IsCompacting = NativeTerminalRuns(s.Store.Home.State, node.TaskID)
+		}
 		out.Sessions = append(out.Sessions, node)
 	}
 	// The sessions are listed by id, so one that reports keeps its place: they
