@@ -579,7 +579,8 @@ type credentialSave struct {
 	Values     map[string]string `json:"values"`
 	Replace    []string          `json:"replace"`
 	// NotSecret names the plain fields whose values he says are no secret,
-	// so a value shaped like a key goes to the goblin anyway.
+	// so a value shaped like a key goes to the goblin anyway. A secret key is
+	// refused all the same.
 	NotSecret []string `json:"not_secret"`
 	isFetched bool
 }
@@ -731,7 +732,11 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 		return refuse(http.StatusServiceUnavailable, "This board cannot store credentials. Use the terminal command on the card.")
 	}
 	// A plain value goes into the goblin's conversation, so one that holds
-	// a key is refused without repeating it.
+	// a key is refused without repeating it. A secret key is refused whatever
+	// he says, and one the value and the name together prove public is sent. A
+	// Google API key may be made for browsers, so that one is his to say. Each
+	// side of an equals sign is read, since a line of an env file holds its
+	// value there.
 	for _, name := range plain {
 		value := input.Values[name]
 		switch {
@@ -741,10 +746,14 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 			return refuse(http.StatusBadRequest, fmt.Sprintf("%s is longer than %d KiB.", name, maxCredentialValue>>10))
 		case strings.ContainsFunc(value, unicode.IsControl):
 			return refuse(http.StatusBadRequest, name+" holds a line break or a tab. Type it as one line. Nothing was sent.")
-		case slices.ContainsFunc(strings.Fields(value), func(word string) bool {
-			return auth.IsKeyValue(word) || auth.SecretShape(word) != "" && !strings.Contains(word, "=")
-		}) && !slices.Contains(input.NotSecret, name) && !auth.PlainIdentifier(name, strings.TrimSpace(value)):
-			return credentialOutcome{}, credentialRefusal{status: http.StatusBadRequest, LooksLikeKey: true, Message: name + " looks like a key, and this field goes to the goblin. Nothing was sent. A secret goes only in a hidden field."}
+		case auth.HoldsSecretKey(value):
+			return refuse(http.StatusBadRequest, name+" holds a secret key, and this field sends its value to the goblin as plain text. Nothing was sent. A secret goes only in a hidden field.")
+		case slices.Contains(auth.ExposedKeys(value), auth.GoogleAPIKey) && !slices.Contains(input.NotSecret, name):
+			return credentialOutcome{}, credentialRefusal{status: http.StatusBadRequest, LooksLikeKey: true, Message: name + " holds a Google API key, and this field sends its value to the goblin as plain text. Nothing was sent. If it is a browser key, say so below. A server key belongs in a secret field."}
+		case slices.ContainsFunc(strings.FieldsFunc(value, func(r rune) bool { return unicode.IsSpace(r) || r == '=' }), func(part string) bool {
+			return auth.SecretShape(part) != ""
+		}) && !slices.Contains(input.NotSecret, name) && !auth.PlainIdentifier(name, strings.TrimSpace(value)) && !auth.PlainPublicKey(name, strings.TrimSpace(value)):
+			return credentialOutcome{}, credentialRefusal{status: http.StatusBadRequest, LooksLikeKey: true, Message: name + " looks like a key, and this field sends its value to the goblin as plain text. Nothing was sent. If it is meant to be public, say so below. A secret goes only in a hidden field."}
 		}
 	}
 	for _, name := range names {

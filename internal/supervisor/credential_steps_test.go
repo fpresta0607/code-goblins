@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -151,7 +152,7 @@ func TestStepCardSendsAnIdentifierInAnIDFieldAndWarnsOfAKeyElsewhere(t *testing.
 		"a mixed case client ID in an ID field":    {"MADE_UP_CLIENT_ID", "k7Qx9L" + "m2Vb4Rt8Nc", false},
 		"twenty letters and digits in an ID field": {"MADE_UP_CLIENT_ID", "A1b2C3d4E5" + "f6G7h8I9j0", false},
 		"twenty one characters in an ID field":     {"MADE_UP_CLIENT_ID", "A1b2C3d4E5" + "f6G7h8I9j0K", true},
-		"a key's prefix in an ID field":            {"MADE_UP_CLIENT_ID", "ghp" + "_Qx9Lm2Vb4" + "Rt8Nc6Y", true},
+		"a short key prefix in an ID field":        {"MADE_UP_CLIENT_ID", "ghp" + "_Qx9Lm2Vb4", true},
 		"a short identifier in a field not an ID":  {"MADE_UP_ACCOUNT_REF", "k7Qx9L" + "m2Vb4Rt8Nc", true},
 		"a long token in an ID field":              {"MADE_UP_CLIENT_ID", "Zk3Qx9Lm2Vb7" + "Nc4Rt8Wy1Hs5" + "Jd6Fg0A", true},
 	} {
@@ -218,6 +219,293 @@ func TestStepCardSendsAKeyShapedPlainValueHeSaysIsNoSecret(t *testing.T) {
 	}
 	if request := b.stored(); request.Values["MADE_UP_ACCOUNT_REF"] != value || !slices.Contains(request.Received, "MADE_UP_ACCOUNT_REF") {
 		t.Fatalf("request = %+v, want the value received", request)
+	}
+}
+
+// madeUpToken is a JSON Web Token whose payload names role, signed by nothing,
+// assembled at run time so no file holds a token's shape.
+func madeUpToken(t *testing.T, role string) string {
+	t.Helper()
+	payload, err := json.Marshal(map[string]string{"iss": "made-up", "role": role})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "eyJ" + "hbGciOiJIUzI1NiJ9." + base64.RawURLEncoding.EncodeToString(payload) + ".Zk3Qx9Lm2Vb7Nc4Rt8Wy1Hs5"
+}
+
+// The Overlord, 2026-11-04, of a step card that asked for a publishable key:
+// "I tried to paste a publishable key. And it said this is not a publishable
+// key." A field named as public takes a key made for browsers on the first
+// send, and the goblin gets it whole.
+func TestStepCardTakesAPublicKeyInAFieldNamedPublicOnTheFirstSend(t *testing.T) {
+	random := "Zk3Qx9Lm2Vb7" + "Nc4Rt8Wy1Hs5" + "Jd6Fg0A"
+	for name, c := range map[string]struct{ field, value string }{
+		"a Supabase key under NEXT_PUBLIC":    {"NEXT_PUBLIC_SUPABASE_KEY", "sb" + "_publishable_" + random},
+		"a Supabase key named publishable":    {"SUPABASE_PUBLISHABLE_KEY", "sb" + "_publishable_" + random + "_Xy-1"},
+		"a Stripe test key named publishable": {"STRIPE_PUBLISHABLE_KEY", "pk" + "_test_" + random},
+		"a Stripe live key under VITE":        {"VITE_STRIPE_KEY", "pk" + "_live_" + random},
+		"a Mapbox token under NEXT_PUBLIC":    {"NEXT_PUBLIC_MAPBOX_TOKEN", "pk" + ".eyJ1IjoibWFkZS11cCJ9." + random},
+		"an anon token named anon":            {"SUPABASE_ANON_KEY", madeUpToken(t, "anon")},
+		"an anon token under NEXT_PUBLIC":     {"NEXT_PUBLIC_SUPABASE_ANON_KEY", madeUpToken(t, "anon")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			b := stepCard(t, func(r *CredentialRequest) { r.Plain = []string{c.field} })
+
+			// Act
+			response := b.post(b.handler, b.body(map[string]string{c.field: c.value}), nil)
+
+			// Assert
+			if response.Code != http.StatusOK {
+				t.Fatalf("save = %d %s, want the public key sent", response.Code, response.Body)
+			}
+			if request := b.stored(); request.Values[c.field] != c.value || !slices.Contains(request.Received, c.field) {
+				t.Fatalf("request = %+v, want %s received whole", request, c.field)
+			}
+		})
+	}
+}
+
+// An equals sign alone is no key: the check reads each side of it, so words
+// that hold nothing shaped like one are sent on the first try.
+func TestStepCardSendsAnAssignmentThatHoldsNoKey(t *testing.T) {
+	for name, value := range map[string]string{
+		"a setting":                 "region=eu-west-1",
+		"two settings":              "region=eu-west-1 tier=free",
+		"a quoted setting":          `region="eu-west-1"`,
+		"a web address with values": "https://example.com/page?view=full&page=2",
+		"base64 padding":            "aGVsbG8gd29ybGQ=",
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			b := stepCard(t, func(r *CredentialRequest) { r.Plain = []string{"MADE_UP_SETTING"} })
+
+			// Act
+			response := b.post(b.handler, b.body(map[string]string{"MADE_UP_SETTING": value}), nil)
+
+			// Assert
+			if response.Code != http.StatusOK {
+				t.Fatalf("save = %d %s, want it sent", response.Code, response.Body)
+			}
+			if request := b.stored(); request.Values["MADE_UP_SETTING"] != value {
+				t.Fatalf("request = %+v, want the value received whole", request)
+			}
+		})
+	}
+}
+
+// A secret never reaches the goblin through a plain field, whatever the field
+// is named and even when he says it is no secret. Its refusal offers no way
+// past it and says what was wrong, and it never repeats the value.
+func TestStepCardRefusesASecretInAPlainFieldEveryTime(t *testing.T) {
+	random := "Zk3Qx9Lm2Vb7" + "Nc4Rt8Wy1Hs5" + "Jd6Fg0A"
+	googleKey := "AI" + "za" + random + "q7Lm"
+	secrets := map[string]string{
+		"a Supabase secret key":            "sb" + "_secret_" + random,
+		"a Supabase secret key of letters": "sb" + "_secret_" + "ZkQxLmVbNcRtWyHsJdFgA",
+		"a Stripe secret key":              "sk" + "_live_" + random,
+		"a Stripe restricted key":          "rk" + "_test_" + random,
+		"a service role token":             madeUpToken(t, "service_role"),
+		"a token with no anon role":        madeUpToken(t, "authenticated"),
+		"a GitHub token":                   "ghp" + "_" + random,
+		"a Slack token":                    "xox" + "b-1234-" + random,
+		"a secret after a public key":      "pk" + "_test_" + random + " sb" + "_secret_" + random,
+		"a secret in a sentence":           "the key is sk" + "_live_" + random,
+		"a line of an env file":            "SUPABASE_SECRET_KEY=" + "sb" + "_secret_" + random,
+		"a private key on one line":        "-----BEGIN" + " PRIVATE KEY-----" + random + "-----END PRIVATE KEY-----",
+		"a private key's header":           "-----BEGIN" + " PRIVATE KEY-----",
+		"a PGP private key's header":       "-----BEGIN" + " PGP PRIVATE KEY BLOCK-----",
+		"a secret run into a public key":   "sb" + "_publishable_" + random + "sb" + "_secret_" + random,
+		"a secret run into an anon token":  madeUpToken(t, "anon") + madeUpToken(t, "service_role"),
+		"a comma between keys":             "pk" + "_test_" + random + ",sk" + "_live_" + random,
+		"a JSON value":                     `{"key":"` + "sk" + "_live_" + random + `"}`,
+		"a name and a colon":               "KEY:" + "sk" + "_live_" + random,
+		"a token before an address":        "ghp" + "_" + random + "@github.com",
+		"a Mapbox secret token":            "sk" + ".eyJ1IjoibWFkZS11cCJ9." + random,
+		"a Google key beside a secret":     googleKey + " sk" + "_live_" + random,
+		"a Stripe key on a Google key":     googleKey + "sk" + "_live_" + random,
+		"a GitHub token on a Google key":   googleKey + "ghp" + "_" + random,
+		"an OpenAI key on a Google key":    googleKey + "sk" + "-proj-" + random,
+	}
+	for _, field := range []string{"NEXT_PUBLIC_SUPABASE_KEY", "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_ANON_KEY", "VITE_KEY", "MADE_UP_ACCOUNT_REF", "MADE_UP_CLIENT_ID"} {
+		for name, value := range secrets {
+			t.Run(field+" "+name, func(t *testing.T) {
+				// Arrange
+				b := stepCard(t, func(r *CredentialRequest) { r.Plain = []string{field} })
+
+				// Act
+				first := b.post(b.handler, b.body(map[string]string{field: value}), nil)
+				anyway := b.post(b.handler, b.saidNoSecret(field, value), nil)
+
+				// Assert
+				for _, response := range []*httptest.ResponseRecorder{first, anyway} {
+					if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "holds a secret key") {
+						t.Fatalf("save = %d %s, want it refused as a secret key", response.Code, response.Body)
+					}
+					if strings.Contains(response.Body.String(), "looks_like_key") {
+						t.Fatalf("save = %s, want no way past the refusal", response.Body)
+					}
+					if strings.Contains(response.Body.String(), value) {
+						t.Fatal("the refusal repeats the value")
+					}
+				}
+				if request := b.stored(); request.State != "open" || len(request.Values) != 0 || len(request.Received) != 0 {
+					t.Fatalf("request = %+v, want it open with nothing received", request)
+				}
+				if found := filesHolding(t, b.home.Root, value); len(found) != 0 {
+					t.Fatalf("the secret is in %v", found)
+				}
+			})
+		}
+	}
+}
+
+// saidNoSecret is a save of value in field with his word that it is no secret.
+func (b *credentialBoard) saidNoSecret(field, value string) string {
+	b.t.Helper()
+	data, err := json.Marshal(map[string]any{"id": b.request.ID, "generation": b.request.Generation, "values": map[string]string{field: value}, "not_secret": []string{field}})
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	return string(data)
+}
+
+// A value neither its name nor its shape proves public stays refused on its
+// first send, with the offer to say it is no secret, and his word sends it: a
+// public key in a field not named as public, a key of no known kind in one that
+// is, a public key with a Google key run onto it, and text that is shaped like
+// a key but is no secret.
+func TestStepCardWarnsOfAKeyItCannotProvePublic(t *testing.T) {
+	random := "Zk3Qx9Lm2Vb7" + "Nc4Rt8Wy1Hs5" + "Jd6Fg0A"
+	googleKey := "AI" + "za" + random + "q7Lm"
+	for name, c := range map[string]struct{ field, value string }{
+		"a publishable key in a field not named public":   {"MADE_UP_ACCOUNT_REF", "sb" + "_publishable_" + random},
+		"a Stripe public key in a field not named public": {"MADE_UP_ACCOUNT_REF", "pk" + "_test_" + random},
+		"an anon token in a field not named public":       {"MADE_UP_ACCOUNT_REF", madeUpToken(t, "anon")},
+		"random text in a field named public":             {"NEXT_PUBLIC_MADE_UP_KEY", random},
+		"a public key and more in a field named public":   {"NEXT_PUBLIC_MADE_UP_KEY", "pk" + "_test_" + random + " " + random},
+		"a public key's PEM block":                        {"JWT_PUBLIC_KEY", "-----BEGIN" + " PUBLIC KEY-----" + random + "-----END PUBLIC KEY-----"},
+		"a certificate's PEM block":                       {"MADE_UP_CERTIFICATE", "-----BEGIN" + " CERTIFICATE-----" + random + "-----END CERTIFICATE-----"},
+		"a name that starts like a secret key":            {"MADE_UP_ACCOUNT_REF", "sk" + "_test_handler_for_the_checkout_session_page"},
+		"a secret's start with no key after it":           {"NEXT_PUBLIC_MADE_UP_KEY", "pk" + "_test_" + random + "sk" + "_x"},
+		"a key of no listed kind":                         {"MADE_UP_ACCOUNT_REF", "shp" + "at_" + random},
+		"a key of no listed kind on an env file line":     {"MADE_UP_ACCOUNT_REF", "MADE_UP_TOKEN=" + "shp" + "at_" + random},
+		"a public key on an env file line":                {"NEXT_PUBLIC_MADE_UP_KEY", "NEXT_PUBLIC_MADE_UP_KEY=" + "pk" + "_test_" + random},
+		"random text on an env file line":                 {"MADE_UP_ACCOUNT_REF", "MADE_UP_TOKEN=" + random},
+		"quoted random text on an env file line":          {"MADE_UP_ACCOUNT_REF", "MADE_UP_TOKEN=\"" + random + "\""},
+		"random text on an exported env file line":        {"MADE_UP_ACCOUNT_REF", "export MADE_UP_TOKEN=" + random},
+		"random text on an env file line named public":    {"NEXT_PUBLIC_MADE_UP_KEY", "NEXT_PUBLIC_MADE_UP_KEY=" + random},
+		"a UUID on an env file line":                      {"MADE_UP_ACCOUNT_REF", "MADE_UP_TOKEN=" + "0f8fad5b-d9cb-469f" + "-a165-70867728950e"},
+		"a secret run onto plain text on an env line":     {"MADE_UP_ACCOUNT_REF", "MADE_UP_TOKEN=abc" + "sk" + "_live_" + random},
+		"a Google key run onto a Stripe public key":       {"NEXT_PUBLIC_GOOGLE_KEY", "pk" + "_test_" + random + googleKey},
+		"a Google key run onto a Supabase public key":     {"NEXT_PUBLIC_GOOGLE_KEY", "sb" + "_publishable_" + random + googleKey},
+		"a Google key run onto an anon token":             {"NEXT_PUBLIC_GOOGLE_KEY", madeUpToken(t, "anon") + googleKey},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			b := stepCard(t, func(r *CredentialRequest) { r.Plain = []string{c.field} })
+
+			// Act
+			response := b.post(b.handler, b.body(map[string]string{c.field: c.value}), nil)
+			afterRefusal := b.stored()
+			sent := b.post(b.handler, b.saidNoSecret(c.field, c.value), nil)
+
+			// Assert
+			if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `"looks_like_key":true`) {
+				t.Fatalf("save = %d %s, want it refused with the offer", response.Code, response.Body)
+			}
+			if strings.Contains(response.Body.String(), c.value) {
+				t.Fatal("the refusal repeats the value")
+			}
+			if len(afterRefusal.Values) != 0 {
+				t.Fatalf("request = %+v, want nothing received", afterRefusal)
+			}
+			if sent.Code != http.StatusOK {
+				t.Fatalf("with his word: %d %s, want it sent", sent.Code, sent.Body)
+			}
+			if request := b.stored(); request.Values[c.field] != c.value {
+				t.Fatalf("request = %+v, want %s received whole", request, c.field)
+			}
+		})
+	}
+}
+
+// A Google API key made for browsers and one made for servers cannot be told
+// apart, so the card asks him rather than refusing outright, wherever in the
+// value the key sits and whatever the field is named. Its refusal says plainly
+// where a server key belongs, and his word sends the value.
+func TestStepCardWarnsThatAGoogleServerKeyBelongsInASecretField(t *testing.T) {
+	googleKey := "AI" + "za" + "Zk3Qx9Lm2Vb7" + "Nc4Rt8Wy1Hs5" + "Jd6Fg0Aq7Lm"
+	for name, c := range map[string]struct{ field, value string }{
+		"under a bundled name":       {"VITE_GOOGLE_PLACES_API_KEY", googleKey},
+		"in a field named public":    {"NEXT_PUBLIC_GOOGLE_KEY", googleKey},
+		"in a field not named so":    {"MADE_UP_ACCOUNT_REF", googleKey},
+		"on a line of an env file":   {"VITE_GOOGLE_PLACES_API_KEY", "VITE_GOOGLE_PLACES_API_KEY=" + googleKey},
+		"in a JSON value":            {"MADE_UP_ACCOUNT_REF", `{"key":"` + googleKey + `"}`},
+		"beside a public key":        {"NEXT_PUBLIC_GOOGLE_KEY", "pk" + "_test_" + "Zk3Qx9Lm2Vb7" + " " + googleKey},
+		"in a sentence with a colon": {"MADE_UP_ACCOUNT_REF", "the key: " + googleKey},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			b := stepCard(t, func(r *CredentialRequest) { r.Plain = []string{c.field} })
+
+			// Act
+			response := b.post(b.handler, b.body(map[string]string{c.field: c.value}), nil)
+			afterRefusal := b.stored()
+			sent := b.post(b.handler, b.saidNoSecret(c.field, c.value), nil)
+
+			// Assert
+			if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `"looks_like_key":true`) {
+				t.Fatalf("save = %d %s, want it refused with the offer", response.Code, response.Body)
+			}
+			if !strings.Contains(response.Body.String(), "A server key belongs in a secret field") {
+				t.Fatalf("save = %s, want it to say where a server key belongs", response.Body)
+			}
+			if strings.Contains(response.Body.String(), googleKey) {
+				t.Fatal("the refusal repeats the key")
+			}
+			if len(afterRefusal.Values) != 0 {
+				t.Fatalf("request = %+v, want nothing received", afterRefusal)
+			}
+			if sent.Code != http.StatusOK {
+				t.Fatalf("with his word: %d %s, want it sent", sent.Code, sent.Body)
+			}
+			if request := b.stored(); request.Values[c.field] != c.value {
+				t.Fatalf("request = %+v, want %s received whole", request, c.field)
+			}
+		})
+	}
+}
+
+// A secret field takes a secret as it always has, into the vault, whatever its
+// name says: its value never reaches the goblin, so nothing about a plain
+// field's check applies to it.
+func TestStepCardStoresASecretInASecretFieldWhateverItsName(t *testing.T) {
+	random := "Zk3Qx9Lm2Vb7" + "Nc4Rt8Wy1Hs5" + "Jd6Fg0A"
+	for name, c := range map[string]struct{ field, value string }{
+		"a Supabase secret key":       {"SUPABASE_SECRET_KEY", "sb" + "_secret_" + random},
+		"a service role token":        {"SUPABASE_SERVICE_ROLE_KEY", madeUpToken(t, "service_role")},
+		"a secret in a public's name": {"NEXT_PUBLIC_MADE_UP_KEY", "sk" + "_live_" + random},
+		"a publishable key":           {"SUPABASE_PUBLISHABLE_KEY", "sb" + "_publishable_" + random},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			b := newCredentialBoard(t, c.field)
+
+			// Act
+			response := b.post(b.handler, b.body(map[string]string{c.field: c.value}), nil)
+
+			// Assert
+			if response.Code != http.StatusOK {
+				t.Fatalf("save = %d %s, want it stored", response.Code, response.Body)
+			}
+			if stored, isStored := b.vaultValue(c.field); !isStored || stored != c.value {
+				t.Fatalf("the vault holds %d characters, want the value", len(stored))
+			}
+			if request := b.stored(); len(request.Values) != 0 {
+				t.Fatal("a secret field's value is in the record")
+			}
+		})
 	}
 }
 

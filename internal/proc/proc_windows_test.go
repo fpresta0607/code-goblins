@@ -148,17 +148,16 @@ func TestJobProcessesListsWhatStartProcessWaitIsWaitingOn(t *testing.T) {
 func TestCustodyJobListingRejectsUnidentifiedMembers(t *testing.T) {
 	for _, test := range []struct {
 		name      string
-		ids       []uint32
+		unread    []uint32
 		unlisted  uint32
-		members   []Entry
 		wantError bool
 	}{
-		{name: "identified", ids: []uint32{1}, members: []Entry{{PID: 1}}},
-		{name: "unreadable", ids: []uint32{1, 2}, members: []Entry{{PID: 1}}, wantError: true},
-		{name: "unlisted", ids: []uint32{1}, unlisted: 1, members: []Entry{{PID: 1}}, wantError: true},
+		{name: "identified"},
+		{name: "unreadable", unread: []uint32{2}, wantError: true},
+		{name: "unlisted", unlisted: 1, wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if err := checkCustodyJobListing(test.ids, test.unlisted, test.members); (err != nil) != test.wantError {
+			if err := checkCustodyJobListing(test.unread, test.unlisted); (err != nil) != test.wantError {
 				t.Fatalf("error = %v, want error %v", err, test.wantError)
 			}
 		})
