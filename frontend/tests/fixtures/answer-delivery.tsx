@@ -33,7 +33,7 @@ const snapshots = {
 function AnswerDelivery() {
   const [snapshot, setSnapshot] = useState(() => parseSnapshot(base));
   window.settle = (how, answer) => setSnapshot(parseSnapshot(snapshots[how](answer)));
-  return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={null} onUnsent={() => {}} /></main>;
+  return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={null} onUnsent={() => {}} /></main>;
 }
 
 createRoot(document.getElementById("root")!).render(<AnswerDelivery />);

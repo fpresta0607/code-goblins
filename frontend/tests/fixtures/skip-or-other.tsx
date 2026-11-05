@@ -26,7 +26,7 @@ function SkipOrOther() {
     <button onClick={() => open("review:waiting-shop-signup-8")}>Open the wait</button>
     <button onClick={() => open("question:q-shop-plan")}>Open the question</button>
     <button onClick={() => open("credential:cred-4444444444444444")}>Open the credential</button>
-    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} />
+    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={focus} onUnsent={() => {}} />
   </main>;
 }
 
