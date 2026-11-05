@@ -198,8 +198,9 @@ test("Chat follows a harness change on the same native connection", async ({ pag
 // coming back connects afresh and types into the new connection alone.
 test("a session he leaves keeps no terminal connection, and coming back connects afresh", async ({ page }) => {
   // Arrange: the page records each terminal connection it opens until it is
-  // closed.
-  await page.addInitScript(() => {
+  // closed, over the fixture's own WebSocket, which open() installs.
+  const relay = await open(page);
+  await page.evaluate(() => {
     const Native = window.WebSocket;
     const live = new Set<WebSocket>();
     Object.assign(window, { liveTerminals: () => [...live].map((socket) => new URL(socket.url).searchParams.toString()) });
@@ -213,7 +214,6 @@ test("a session he leaves keeps no terminal connection, and coming back connects
     };
   });
   const liveTerminals = () => page.evaluate(() => (window as unknown as { liveTerminals: () => string[] }).liveTerminals());
-  const relay = await open(page);
   await openGoblin(page);
   const views = relay.views;
 

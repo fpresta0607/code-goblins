@@ -20,9 +20,8 @@ async function openCfo(page: Page) {
 }
 
 // The selector is two icons with no words and no tip, inside the panel's
-// header on the same row as its picture, and the CFO's AFK switch shares that
-// row, all inside the screen.
-async function expectIconsInTheHeaderRow(page: Page, who: string) {
+// header on the same row as its picture, all inside the screen.
+async function expectIconsInTheHeaderRow(page: Page) {
   const header = page.locator(".goblin-panel > .panel-header");
   const views = header.locator(":scope > .panel-view-switch");
   await expect(views).toBeVisible();
@@ -41,7 +40,6 @@ async function expectIconsInTheHeaderRow(page: Page, who: string) {
     expect(box.x + box.width, part + " inside the screen").toBeLessThanOrEqual(page.viewportSize()!.width);
   };
   await onTheRow(":scope > .panel-view-switch");
-  if (who === "CFO") await onTheRow(".afk-header");
 }
 
 for (const who of ["goblin", "CFO"]) {
@@ -58,7 +56,7 @@ for (const who of ["goblin", "CFO"]) {
     const task = views.getByRole("button", { name: "Task", exact: true });
     await expect(chat).toHaveAttribute("aria-pressed", "true");
     await expect(task).toHaveAttribute("aria-pressed", "false");
-    await expectIconsInTheHeaderRow(page, who);
+    await expectIconsInTheHeaderRow(page);
     await expect(page.locator(".goblin-panel details > summary", { hasText: /^Task$/ })).toHaveCount(0);
     await expect(taskPanel(page)).toBeHidden();
 
@@ -96,7 +94,7 @@ for (const width of [360, 393, 430]) {
 
       // Assert
       await expect(chat).toHaveAttribute("aria-pressed", "true");
-      await expectIconsInTheHeaderRow(page, who);
+      await expectIconsInTheHeaderRow(page);
       await expect(messages(page)).toBeVisible();
 
       // Act
@@ -107,7 +105,7 @@ for (const width of [360, 393, 430]) {
       await expect(task).toHaveAttribute("aria-pressed", "true");
       await expect(taskPanel(page)).toBeVisible();
       await expect(messages(page)).toBeHidden();
-      await expectIconsInTheHeaderRow(page, who);
+      await expectIconsInTheHeaderRow(page);
       await chat.click();
       await expect(messages(page)).toBeVisible();
       await testInfo.attach(`panel-phone-${who}-${width}.png`, { body: await page.screenshot(), contentType: "image/png" });

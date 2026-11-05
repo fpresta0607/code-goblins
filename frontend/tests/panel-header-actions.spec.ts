@@ -99,7 +99,6 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       await expect(remote).toBeFocused();
       await page.keyboard.press("Enter");
       await expect(panel.locator(".remote-access")).toHaveAttribute("open", "");
-      await expect(panel.getByRole("switch", { name: "AFK mode" })).toBeEnabled();
       await expect(panel.getByRole("heading", { name: "CFO", exact: true })).toBeVisible();
     });
 

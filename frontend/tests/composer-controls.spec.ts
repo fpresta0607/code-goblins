@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "./site";
-import { box, field, GOBLIN, NAME, open, openGoblin, PAGE, pasted, pickStyle, pressRow, snapshot, typed } from "./session-board";
+import { box, field, GOBLIN, NAME, open, openGoblin, PAGE, pasted, pickStyle, pressRow, snapshot, typed, type Relay } from "./session-board";
 
 // A fake microphone, so the box can dictate.
 test.use({ permissions: ["microphone"], launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"], args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"] } });
@@ -226,8 +226,8 @@ test.describe("while he dictates", () => {
   }
 });
 
-// The Overlord, 2026-11-04: a Cancel in a Modern chat popover did not just
-// close it. Every way out of each of them, its close, its Cancel, a press
+// The Overlord, 2026-11-04: "Cancel button doesn't work in the modals". Every
+// way out of a Modern chat popover, its close, its Cancel, a press
 // outside it, its own control pressed again and Escape where there is a
 // keyboard, closes it with nothing changed: the draft and the chat style stay
 // as they were, nothing is typed into the terminal, nothing is sent and no
@@ -240,6 +240,14 @@ const POPOVERS = [
   { what: "the chat style menu", control: "Chat style", shown: (page: Page) => page.locator(".context-pane .panel-header").getByRole("menu", { name: "Chat style" }), ways: ["a press outside", "its control again", "Escape"] as Way[], isTouchOnly: false },
 ] as const;
 const DRAFT = "keep this draft";
+// A session's pane once its terminal has connected, so what the relay says
+// reaches it.
+async function openConnected(page: Page, relay: Relay, who: "CFO" | "goblin") {
+  const views = relay.views;
+  if (who === "CFO") await page.keyboard.press("Control+Alt+1");
+  else await openGoblin(page);
+  await expect.poll(() => relay.views).toBeGreaterThan(views);
+}
 for (const who of ["CFO", "goblin"] as const) {
   for (const width of [1440, 390]) {
     test.describe(`the ${who}'s Modern chat at ${width}px`, () => {
@@ -252,12 +260,13 @@ for (const who of ["CFO", "goblin"] as const) {
             const relay = await open(page);
             const name = who === "CFO" ? "CFO" : NAME;
             await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [] } }));
+            await page.route("**/api/engines", (route) => route.fulfill({ json: { harnesses: [] } }));
             const sent: string[] = [];
             page.on("request", (request) => { if (request.method() !== "GET") sent.push(request.method() + " " + new URL(request.url()).pathname); });
             let isChooserOpened = false;
             page.on("filechooser", () => { isChooserOpened = true; });
-            if (who === "CFO") await page.keyboard.press("Control+Alt+1");
-            else await openGoblin(page);
+            await openConnected(page, relay, who);
+            relay.say({ type: "screen", asking: false, open: false, working: false, submission: "" });
             await field(page, name).fill(DRAFT);
             const before = { typed: typed(relay), style: await page.evaluate(() => localStorage.getItem("cfo-chat-style")), sent: sent.length };
             const press = (target: Locator) => isTouch ? target.tap() : target.click();
@@ -288,8 +297,7 @@ for (const who of ["CFO", "goblin"] as const) {
         // Arrange
         const relay = await open(page);
         const name = who === "CFO" ? "CFO" : NAME;
-        if (who === "CFO") await page.keyboard.press("Control+Alt+1");
-        else await openGoblin(page);
+        await openConnected(page, relay, who);
         await field(page, name).fill(DRAFT);
         relay.say({ type: "screen", asking: true, open: true, working: false, submission: "", panel: { rows: ["Select model"], choices: [{ text: "Default", number: 1, focused: true }, { text: "Opus", number: 2 }], hints: ["Enter to confirm · Esc to exit"] } });
         const list = box(page, name).getByRole("group", { name: name + " asks" });

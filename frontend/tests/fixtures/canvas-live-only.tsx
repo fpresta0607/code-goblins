@@ -15,7 +15,7 @@ import "../../src/styles.css";
 const session = (id: string, task: string, phase: string, generation = "g1") => ({ id: "claude/" + id, native_id: id, harness: "claude", role: "goblin", task_id: task, generation, phase });
 const goblin = (id: string, name: string, title: string, phase: string, more: object = {}) => ({ id, title: id, goblin_name: name, goblin_title: title, project: "code-goblins", phase, generation: "g1", verified: false, ...more });
 const snapshot = parseSnapshot({
-  healthy: true, instance: "fixture", cfo_runs: true, cfo_session: "claude/cfo",
+  healthy: true, instance: "fixture", cfo_runs: true, afk: { state: "off" }, cfo_session: "claude/cfo",
   sessions: [
     session("model-routing", "cg-model-routing", "settled"),
     session("lavish-server-cwd", "lavish-server-cwd", "settled"),

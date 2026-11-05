@@ -17,7 +17,7 @@ const long = "The board's terminal: Ctrl+C copies a selection or interrupts, Ctr
 const now = Date.parse("2026-09-30T12:00:00Z");
 const task = (fields: Record<string, unknown>) => ({ project: "code-goblins", harness: "codex", model: "gpt-6-astra", effort: "xhigh", verified: false, generation: "g1", since: "2026-09-29T08:00:00Z", ...fields });
 const snapshot = parseSnapshot({
-  healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude",
+  healthy: true, instance: "fixture", cfo_runs: true, afk: { state: "off" }, cfo_harness: "claude",
   memory: { available: 5.6e9, total: 32e9, floor: 4e9, next: 5e9 },
   tasks: [
     task({ id: "cg-board-kill-with-a-long-goblin-name", title: "cg-board-kill-with-a-long-goblin-name", phase: "working", activity: "working: gate review" }),

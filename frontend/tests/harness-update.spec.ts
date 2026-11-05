@@ -58,14 +58,13 @@ for (const [width, height] of [[1280, 800], [390, 844]]) {
       const update = line(page).getByRole("button", { name: "Update Claude Code" });
 
       // Assert: on a line of its own right under the header's row, at the
-      // row's end, at every width, so the row keeps the AFK switch and Close.
+      // row's end, at every width, so the row keeps its controls and Close.
       await expect(update).toBeVisible();
       await panel(page).screenshot({ path: testInfo.outputPath(`cfo-header-update-${width}.png`) });
       const button = (await update.boundingBox())!, row = (await header(page).boundingBox())!, corner = (await header(page).locator(".panel-corner").boundingBox())!;
       expect(button.y).toBeGreaterThanOrEqual(row.y + row.height - 0.5);
       expect(button.y - (row.y + row.height)).toBeLessThan(12);
       expect(Math.abs(button.x + button.width - (corner.x + corner.width))).toBeLessThanOrEqual(1);
-      await expect(header(page).getByRole("switch", { name: "AFK mode" })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
 
       // Act

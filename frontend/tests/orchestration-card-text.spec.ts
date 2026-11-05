@@ -299,6 +299,23 @@ for (const title of ["Olive - Billing Baron", "Woody - Tour Guide", "Bartholomew
 
 // The CFO's card on the canvas opens its terminal and shows the weekly
 // allowance of his account, as the board's CFO bar does.
+// The switch is reachable in Orchestration too, where the bar is not, right
+// beside the button that opens the CFO (the Overlord, 2026-11-05).
+for (const view of ["canvas", "lineage"]) {
+  test(`the CFO's card on the ${view} keeps its AFK switch right beside the button that opens it`, async ({ page }) => {
+    // Act
+    await open(page, view);
+
+    // Assert
+    const end = page.locator(".cfo-pin-end");
+    const afk = (await end.getByRole("switch", { name: "AFK mode" }).boundingBox())!;
+    const opens = (await end.getByRole("button", { name: "Open the CFO's terminal" }).boundingBox())!;
+    expect(Math.abs(afk.y + afk.height / 2 - (opens.y + opens.height / 2))).toBeLessThanOrEqual(1);
+    expect(afk.x + afk.width).toBeLessThanOrEqual(opens.x);
+    expect(opens.x - (afk.x + afk.width)).toBeLessThanOrEqual(16);
+  });
+}
+
 test("the CFO's canvas card opens its terminal and shows the usage dial", async ({ page }) => {
   // Arrange
   await open(page);

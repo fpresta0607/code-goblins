@@ -64,13 +64,12 @@ for (const width of [1440, 390]) {
 
     await expect(input).toBeVisible();
     const reply = page.locator(".message-reply");
-    // The session works, so the reply's end is the dither, not its time or
-    // its copy.
+    // The session works, so the reply's end is the dither, not its time.
     await expect(page.locator(".reply-working")).toBeVisible();
     const replyText = await reply.locator(".message-words").boundingBox();
     const dither = await page.locator(".reply-working").boundingBox();
     expect(replyText && dither && dither.y >= replyText.y + replyText.height).toBeTruthy();
-    await expect(reply.locator(".message-reply-actions")).toHaveCount(0);
+    await expect(reply.locator("time")).toHaveCount(0);
     const bounds = await Promise.all([input, add, field(page), microphone, speech].map((part) => part.boundingBox()));
     const [bar, plus, prompt, mic, history] = bounds;
     expect(bar && plus && prompt && mic && history).toBeTruthy();
@@ -276,8 +275,9 @@ test("his draft stays through a switch of sessions, a reconnect and a reload of 
   await expect(page.locator("#panel-title")).toHaveText("Ivy - Window Painter");
   await card(page, NAME).click();
   await expect(field(page)).toHaveValue("half a thought");
+  const views = relay.views;
   relay.drop();
-  await expect.poll(() => relay.views).toBe(2);
+  await expect.poll(() => relay.views).toBe(views + 1);
   await expect(field(page)).toHaveValue("half a thought");
   await page.reload();
   await card(page, NAME).click();

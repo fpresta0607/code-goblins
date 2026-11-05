@@ -121,14 +121,14 @@ function storeAttached(key: string, paths: string[]): void {
 // harness's interrupt, and a paste the board cannot keep says so here. On a
 // touch screen the + opens Paste a picture, since an iPhone's own Paste in a
 // text box takes text alone, and Photos or files, the phone's own picker.
-export function Composer({ snapshot, task, name, terminal, focus = 0, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], usage, onActive }: {
+export function Composer({ snapshot, task, name, terminal, focus = 0, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, isCompacting = false, history = [], usage, onActive }: {
   snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
   model?: string;
   // model and effort are what the session's own record last says it runs.
   effort?: string;
   // terminal is the terminal deck's key of the session's terminal.
   terminal: string; focus?: number;
-  isTerminalShown?: boolean; isShown?: boolean; onActive?: (terminal: string, isActive: boolean) => void;
+  isTerminalShown?: boolean; isShown?: boolean; isCompacting?: boolean; onActive?: (terminal: string, isActive: boolean) => void;
   // isWorking says the session's harness is running a turn, which Stop in
   // the send button's place interrupts while the box is empty, and history
   // is what he sent the session before, oldest first, which Up recalls.
@@ -411,8 +411,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, model, eff
   // stopped, holds it too, since typed now it would join them. A box with no
   // conversation, Classic's or the deck's, holds at such a screen or line too,
   // through the board's queue it lists, and in a turn types into the
-  // harness's own queue.
-  const holdsForTurn = !isAsking && (isScreenOpen || !!live?.screen?.hasDraft || hasConversation && !!live?.screen?.isWorking);
+  // harness's own queue. A compaction its hooks report holds it as a turn does.
+  const holdsForTurn = !isAsking && (isScreenOpen || !!live?.screen?.hasDraft || hasConversation && (isCompacting || !!live?.screen?.isWorking));
   // A send the board has shown as its own action is no longer drawn from here.
   const sending = usePendingSends();
   useEffect(() => {
@@ -766,7 +766,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, model, eff
   const canSend = !isSending && !adding && !!outgoing;
   // While the harness works and the box is empty, the send button is Stop,
   // which presses Escape in its terminal as the terminal's own Esc does.
-  const canStop = isWorking && !outgoing && !isSending && !!live && !isHeld;
+  const canStop = isWorking && !outgoing && !isSending && live?.phase === "live" && !isHeld;
   const isTouch = matchMedia(TOUCH_SCREEN).matches;
   // data-queues says a Send now goes to the board's queue rather than into the
   // terminal, which no note tells him (queueNote).

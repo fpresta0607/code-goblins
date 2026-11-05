@@ -362,7 +362,9 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .flow-node-foot .card-pr { display: block; min-width: 0; font-size: .9375rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flow-node-foot .card-pr .icon { display: inline-block; width: 16px; height: 16px; margin-right: 5px; vertical-align: -3px; }
 .flow-node-foot .card-harness, .flow-node-foot .icon-button { margin-left: auto; }
-.flow-node-foot .icon-button + .card-harness { margin-left: 0; }
+.flow-node-foot .cfo-pin-end { margin-left: auto; }
+.flow-node-foot .cfo-pin-end + .card-harness { margin-left: 0; }
+.flow-node-foot .afk-toggle { min-height: 28px; padding-block: 0; }
 .flow-node-foot .mark, .flow-node-foot .icon-button { width: 28px; height: 28px; min-height: 28px; }
 .flow-node-foot .mark svg, .flow-node-foot .mark .icon, .flow-node-foot .icon-button svg { width: 16px; height: 16px; }
 .flow-node-foot:has(.subscription-dials) { height: auto; }
@@ -492,7 +494,7 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
    below, so it never widens the row or pushes the conversation down. In a
    panel it is no wider than the panel's room, so the panel's edge never
    cuts it. */
-.window-feedback, .panel-leading > .notice, .cfo-header-line > .notice { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw, calc(100cqi - 16px)); }
+.window-feedback, .afk-header > .notice, .cfo-header-line > .notice { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw, calc(100cqi - 16px)); }
 .dev-drive-setting { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .dev-drive-setting > button { flex: none; white-space: nowrap; }
 .dev-drive-setting > p, .dev-drive-setting > .notice { flex: 1 0 100%; margin: 0; }
@@ -1437,19 +1439,19 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .one-row > .panel-identity { display: flex; flex: 1 1 0; align-items: center; gap: 6px; min-width: 32px; overflow: hidden; }
 .one-row > .panel-identity:has(> .panel-style) { min-width: 44px; }
 .one-row h2 { flex: 0 1 auto; min-width: 0; padding-block: 4px; font-size: 1.25rem; line-height: 1.2; overflow-wrap: break-word; }
+/* The CFO's name is one short word, with nothing to wrap at. */
+.one-row.is-cfo h2 { white-space: nowrap; }
 .one-row > .panel-top { flex: 1 1 0; padding: 0; }
-.one-row .panel-leading { display: flex; flex: none; }
-/* In a narrow panel the CFO's AFK switch is one 44 px target, its word over
-   its track, so the row keeps room for the name beside Open in Windows
-   Terminal, which a phone's row holds while the box shows (#1987). */
+/* In a narrow panel a goblin's name takes the row's spare room before the
+   controls do, so it wraps at its spaces rather than inside a word. The CFO's
+   short name needs none of it, so its switch stays in the middle. */
 @container goblin-panel (max-width: 36rem) {
-  .one-row .afk-toggle { flex-direction: column; justify-content: center; gap: 2px; width: 44px; min-height: 44px; padding: 0; }
-  .one-row .afk-toggle-label { font-size: .625rem; line-height: 1; }
+  .one-row:not(.is-cfo) > .panel-identity { flex: 1 1 auto; }
 }
 .fills-phone .panel-header.one-row { padding: 4px 6px; }
-/* The CFO's rare states, Restart PC, Update and the words for a switch that
-   cannot be read, take a line of their own under its header's row, at the
-   row's end, and the line takes no room while none of them shows. */
+/* The CFO's rare states, Restart PC and Update, take a line of their own under
+   its header's row, at the row's end, and the line takes no room while
+   neither shows. */
 .cfo-header-line { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0 8px; }
 .cfo-header-line:has(> :is(button, .muted)) { padding-block: 6px; }
 .fills-phone .cfo-header-line { margin-inline: 6px; }

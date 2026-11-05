@@ -439,12 +439,8 @@ test("Shift with Page Up and Page Down scrolls the messages, Shift+Escape goes t
   await expect.poll(async () => (await scroll(talk)).top).toBeLessThan(top - 200);
   await page.keyboard.press("Shift+PageDown");
   await expect.poll(async () => (await scroll(talk)).top).toBeGreaterThan(top - 50);
-  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, afk: { state: "on", since: new Date().toISOString(), from: "his own board", decided: 0, held: [] } });
-  const afk = page.locator(".context-pane").getByRole("switch", { name: "AFK mode" });
-  await expect(afk).toHaveAttribute("aria-checked", "true");
   await talk.focus();
   await page.keyboard.press("Shift+Escape");
-  await expect(afk).not.toBeFocused();
   // The row's first control, Open in Windows Terminal, which the row holds
   // beside the box since #1987.
   await expect(page.locator(".context-pane").getByRole("button", { name: "Open in Windows Terminal", exact: true })).toBeFocused();
@@ -512,12 +508,13 @@ test.describe("on a phone's touch screen", () => {
       message(13, { kind: "interrupt", text: "[Request interrupted by user]" }),
     ]);
 
-    // Only the turn's last reply carries Copy (the Overlord, 2026-10-28: "why
-    // the stray copy button in our chat?").
+    // Every text carries its own Copy, while its turn runs too (#2048, which
+    // supersedes the Overlord's 2026-10-28 "why the stray copy button in our
+    // chat?").
     const words = talk.locator('[data-message="m11"]');
     const called = talk.locator('[data-message="m12"]');
     await expect(called).toBeVisible();
-    for (const row of [talk.locator('[data-message="m10"]'), words]) await expect(row.getByRole("button", { name: "Copy" })).toHaveCount(0);
+    for (const row of [talk.locator('[data-message="m10"]'), words]) await expect(row.getByRole("button", { name: "Copy" })).toHaveCount(1);
     const copyButton = called.getByRole("button", { name: "Copy" });
     await expect(copyButton).toHaveCSS("opacity", "1");
     await expect(words.locator(".message-from")).toHaveCount(0);

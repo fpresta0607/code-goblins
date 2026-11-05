@@ -107,9 +107,9 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
         const report = await page.evaluate(rowReport);
         expect(report.problems).toEqual([]);
         // The row shares the header's one row with the CFO's name and the Chat
-        // and Task switch, so a narrow one keeps the AFK switch and Close and
-        // puts the rest in More.
-        for (const essential of ["AFK mode", "Close panel"]) expect(report.shown).toContain(essential);
+        // and Task switch, so a narrow one keeps Close and puts the rest in
+        // More.
+        expect(report.shown).toContain("Close panel");
 
         await press(page, "Open in Windows Terminal", "Open in terminal");
         // The terminal view posts for its own stream too.

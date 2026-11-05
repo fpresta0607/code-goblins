@@ -261,9 +261,16 @@ for (const width of [1440, 390]) {
 // controls, and one goblin chat opened blank. In each style, on a phone and on
 // the desktop, a goblin's pane draws what the CFO's does, its conversation or
 // its terminal, never a blank stage, with the same controls in its header and
-// its box but for those only the CFO's has, each named here with why.
-const CFO_ONLY: Record<string, string> = {};
-const GOBLIN_ONLY: Record<string, string> = {};
+// its box but for those only one has, each named here with why. Both are idle,
+// since a turn's Stop is what any session offers while it works.
+const CFO_ONLY: Record<string, string> = {
+  "Close panel": "The CFO's pane is the panel's home, so its corner closes the panel.",
+};
+const GOBLIN_ONLY: Record<string, string> = {
+  "Back to the CFO": "A goblin's corner returns the panel to its home, in the place Close panel holds there.",
+};
+// A phone's pane fills the screen, so both corners go back to the board alike.
+const DESKTOP_CORNERS = ["Close panel", "Back to the CFO"];
 // paneControls names every control shown in the panel's header and its box,
 // by its accessible name, the session's own name taken out.
 const paneControls = (page: Page, name: string) => page.locator(".context-pane").evaluate((pane, name) => [...pane.querySelectorAll<HTMLElement>(".panel-header button, .composer button, .panel-header [role=tab]")]
@@ -278,12 +285,13 @@ for (const style of ["Modern chat", "Terminal"] as const) {
       test(`in ${style} a goblin's pane draws what the CFO's does, never blank, with the same controls`, async ({ page }, testInfo) => {
         // Arrange
         await page.addInitScript((saved) => localStorage.setItem("cfo-chat-style", saved), style === "Terminal" ? "classic" : "modern");
-        await open(page);
+        await open(page, snapshot({}, { phase: "idle" }));
         const shown = async (who: "CFO" | "goblin") => {
           const name = who === "CFO" ? "CFO" : NAME;
           if (style === "Modern chat") await expect(page.getByRole("log", { name: "Messages of " + name })).toContainText("On it.");
           else await expect(page.locator(".terminal-view:not(.staged) > .xterm")).toBeVisible();
           await page.evaluate(() => document.fonts.ready);
+          await expect.poll(() => page.evaluate(() => [...document.images].every((image) => image.complete))).toBe(true);
           await page.screenshot({ path: testInfo.outputPath(`${who}-${style === "Terminal" ? "terminal" : "modern"}-${width}.png`) });
           return paneControls(page, name);
         };
@@ -298,8 +306,9 @@ for (const style of ["Modern chat", "Terminal"] as const) {
         const goblin = await shown("goblin");
 
         // Assert
-        expect(cfo.filter((control) => !goblin.includes(control)), "only the CFO's").toEqual(Object.keys(CFO_ONLY).sort());
-        expect(goblin.filter((control) => !cfo.includes(control)), "only the goblin's").toEqual(Object.keys(GOBLIN_ONLY).sort());
+        const named = (only: Record<string, string>) => Object.keys(only).filter((control) => !isPhone || !DESKTOP_CORNERS.includes(control)).sort();
+        expect(cfo.filter((control) => !goblin.includes(control)), "only the CFO's").toEqual(named(CFO_ONLY));
+        expect(goblin.filter((control) => !cfo.includes(control)), "only the goblin's").toEqual(named(GOBLIN_ONLY));
       });
     });
   }

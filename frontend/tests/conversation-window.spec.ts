@@ -142,13 +142,13 @@ for (const owner of ["CFO", "goblin"]) {
       expect(await changes(page)).toEqual([]);
       await expect(talk.locator(".reply-working")).toHaveCount(isWorking ? 1 : 0);
       await expect(talk.locator(".reply-working").getByRole("button")).toHaveCount(0);
-      await expect(talk.locator('[data-message="m999"] .message-reply-actions')).toHaveCount(isWorking ? 0 : 1);
+      await expect(talk.locator('[data-message="m999"] time')).toHaveCount(isWorking ? 0 : 1);
       await expect(talk.locator('[data-queued="working-tail"] .queued-state')).toHaveText("Sent");
       await expect(talk.locator('[data-queued="working-tail"]').getByRole("button", { name: "Send now" })).toHaveCount(0);
 
       await page.getByRole("button", { name: "Jump to latest" }).click();
       await expect(talk.locator(".reply-working")).toHaveCount(isWorking ? 0 : 1);
-      await expect(talk.locator('[data-message="m999"] .message-reply-actions')).toHaveCount(isWorking ? 1 : 0);
+      await expect(talk.locator('[data-message="m999"] time')).toHaveCount(isWorking ? 1 : 0);
       await expect(talk.locator('[data-queued="working-tail"] .queued-state')).toHaveText("Sent");
       await expect(talk.locator('[data-queued="working-tail"]').getByRole("button", { name: "Send now" })).toHaveCount(0);
       await expect.poll(() => talk.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(1);

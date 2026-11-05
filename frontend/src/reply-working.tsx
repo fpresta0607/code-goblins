@@ -12,17 +12,14 @@ import "./reply-working.css";
 // button next to the When I'm the verb icon bothers me. Remove it."; #1987):
 // the box stops a turn, with its own Stop in Send's place and with Escape.
 // It reads no clock: a hint that counted how long it had worked drew it
-// again every second, 83 times in 20 s on an idle panel. A turn row that says
-// the harness compacts the conversation, Claude Code's "Compacting
-// conversation" or Codex's "Compacting context", reads Compacting alone, with
+// again every second, 83 times in 20 s on an idle panel. While the session's
+// own hooks say it compacts the conversation, it reads Compacting alone, with
 // no whimsical verb after it, since the session is not at work on his ask
 // (the Overlord, 2026-11-04).
-const COMPACTING = /^compacting\b/i;
-
-export function ReplyWorking({ ink, said }: { ink: string; said: string }) {
-  const isCompacting = COMPACTING.test(said);
+export function ReplyWorking({ ink, said, isCompacting }: { ink: string; said: string; isCompacting: boolean }) {
+  const words = isCompacting ? "Compacting" : said;
   return <div className="reply-working">
-    <WorkingIndicator ink={ink} label={isCompacting ? "Compacting" : said || "Working"} />
-    <WorkingWord said={isCompacting ? "Compacting" : said} isAlone={isCompacting} />
+    <WorkingIndicator ink={ink} label={words || "Working"} />
+    <WorkingWord said={words} isAlone={isCompacting} />
   </div>;
 }

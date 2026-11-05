@@ -57,8 +57,9 @@ function headerReport() {
     for (const rect of range.getClientRects()) if (rect.width > 0 && rect.top < box.bottom - 1) tops.add(Math.round(rect.top));
     return tops.size;
   };
-  // The words of an element drawn over more than one line. A task id's parts,
-  // joined by hyphens, wrap at a hyphen as words wrap at a space.
+  // The words of an element drawn over more than one line that one line of it
+  // could hold whole: a word wider than its line has nowhere else to go. A task
+  // id's parts, joined by hyphens, wrap at a hyphen as words wrap at a space.
   const broken = (element: HTMLElement) => {
     const split: string[] = [];
     const words = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
@@ -67,8 +68,10 @@ function headerReport() {
         const range = document.createRange();
         range.setStart(text, word.index);
         range.setEnd(text, word.index + word[0].length);
-        const tops = new Set([...range.getClientRects()].filter((rect) => rect.width > 0).map((rect) => Math.round(rect.top)));
-        if (tops.size > 1) split.push(word[0]);
+        const drawn = [...range.getClientRects()].filter((rect) => rect.width > 0);
+        const isWhole = new Set(drawn.map((rect) => Math.round(rect.top))).size === 1;
+        const width = drawn.reduce((sum, rect) => sum + rect.width, 0);
+        if (!isWhole && width <= element.getBoundingClientRect().width) split.push(word[0]);
       }
     }
     return split;
@@ -79,7 +82,7 @@ function headerReport() {
   // The picture's button, the selector's buttons and the row's controls, each
   // a target of its own, but the CFO's AFK switch, a labelled pill whose size
   // #1987 leaves as it was.
-  const targets = [...header.querySelectorAll<HTMLElement>(".panel-style-button, .panel-view-switch button, .panel-top button:not(.afk-toggle)")].filter((target) => target.checkVisibility());
+  const targets = [...header.querySelectorAll<HTMLElement>(".panel-style-button, .panel-view-switch button, .panel-top button")].filter((target) => target.checkVisibility());
   const label = (target: HTMLElement) => target.getAttribute("aria-label") || target.textContent!.trim();
   const middle = nameBox.top + nameBox.height / 2;
   return {
@@ -127,7 +130,8 @@ for (const [where, viewport, deviceScaleFactor] of VIEWS) {
         const listed = await detailsHeader.evaluate((details) => [...details.querySelectorAll<HTMLElement>(".panel-actions > a, .panel-actions > button")].filter((action) => action.checkVisibility()).map((action) => action.getAttribute("aria-label") || action.textContent!.trim()));
         expect(listed).toEqual(where === "a phone" ? PHONE_BUTTONS : BUTTONS);
         expect(report.broken).toEqual([]);
-        expect(report.nameLines).toBe(1);
+        if (pane === 360 || where === "a phone") expect(report.nameLines, "the row has too little room for it").toBeGreaterThan(1);
+        else expect(report.nameLines, "the row has room for it").toBe(1);
         expect(report.isOneRow).toBe(true);
         expect(report.cut).toEqual([]);
         expect(report.small).toEqual([]);
@@ -140,7 +144,7 @@ for (const [where, viewport, deviceScaleFactor] of VIEWS) {
   });
 }
 
-// A name too long for the header's row ends in an ellipsis there, and shows
+// A name too long for the header's row wraps there, never cut, and shows
 // whole with its task id in the Task view, with no tip to read it in
 // (decision 1013298: "No panel tips, those texts move onto the page").
 test("a long name wraps whole in the header and shows with its task id in the Task view, with no tip", async ({ page }) => {
@@ -275,7 +279,8 @@ for (const style of ["modern", "classic"] as const) {
           const chatIcon = await page.locator(".panel-header").getByRole("button", { name: "Chat", exact: true }).locator("path").first().getAttribute("d");
 
           // Assert
-          expect(report.nameLines, name).toBe(1);
+          if (name === "CFO") expect(report.nameLines, name).toBe(1);
+          expect(report.broken, name).toEqual([]);
           expect(report.isOneRow, name).toBe(true);
           expect(report.cut, name).toEqual([]);
           expect(report.small, name).toEqual([]);

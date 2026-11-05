@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "./site";
-import { box, field, holdMessages, open, openGoblin, pickStyle, releaseMessages, snapshot, typed } from "./session-board";
+import { box, field, GOBLIN, holdMessages, open, openGoblin, pickStyle, releaseMessages, snapshot, typed } from "./session-board";
 
 // The Overlord, 2026-10-27: "We don't need to print the date after every
 // response. We only need to print it at the end of a message, and the dither
@@ -662,30 +662,34 @@ test("a working goblin's dither shows only once its view has connected", async (
 });
 
 // The Overlord, 2026-11-04: a compaction showed whimsical verbs as if the
-// session were at work on his ask. While the harness's turn row says it
-// compacts the conversation, Claude Code's "Compacting conversation" or
-// Codex's "Compacting context", the dither's words say Compacting… alone;
-// his draft and the file added to it stay in the box, the message he sent
-// meanwhile stays Queued, never Sent, until the board hands it over, the
-// compaction replays nothing he already read, and Terminal shows the harness's
-// own screen with no queue pane and no second scroller.
-for (const [harness, words] of [["claude", "Compacting conversation"], ["codex", "Compacting context"]] as const) {
-  test(`while ${harness} compacts the conversation the dither says Compacting… alone and his draft, file and queued message stay`, async ({ page }) => {
+// session were at work on his ask. While the session's own hooks say it
+// compacts, in a turn or between turns, the dither's words say Compacting…
+// alone; his draft and the file added to it stay in the box, the message he
+// sent meanwhile stays Queued, never Sent, until the board hands it over, it
+// ends on the same session, the compaction replays nothing he already read,
+// and Terminal shows the harness's own screen with no queue pane and no
+// second scroller.
+for (const [harness, isTurnRunning] of [["claude", true], ["codex", false]] as const) {
+  test(`while ${harness} compacts ${isTurnRunning ? "in a turn" : "between turns"} the dither says Compacting… alone and his draft, file and queued message stay`, async ({ page }) => {
     // Arrange
-    const relay = await open(page, snapshot({}, { phase: "settled", harness }), "", TALK);
+    const session = harness + "/goblin-session";
+    const compacting = (isCompacting: boolean, revision: number, actions: object[] = []) => snapshot({ revision, actions, sessions: [{ id: session, native_id: "goblin-session", harness, role: "goblin", task_id: GOBLIN.id, generation: GOBLIN.generation, phase: "settled", updated_at: "2026-10-22T09:05:00Z", is_compacting: isCompacting }] }, { phase: "settled", harness, session });
+    const publish = (detail: object) => page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), detail);
+    const relay = await open(page, compacting(false, 1), "", TALK);
     const posted: { id: string; kind: string; task_id: string; text: string }[] = [];
     await page.route("**/api/actions", (route) => { posted.push(route.request().postDataJSON()); return route.fulfill({ status: 202, json: {} }); });
-    await page.route("**/api/composer/file**", (route) => route.fulfill({ status: 201, json: { path: "C:\goblin\tasktmp\cg-touch\composer-files\pasted-1.md" } }));
+    await page.route("**/api/composer/file**", (route) => route.fulfill({ status: 201, json: { path: "C:\\goblin\\tasktmp\\cg-touch\\composer-files\\pasted-1.md" } }));
     await openGoblin(page);
 
     // Act
-    relay.say(screen(true, words));
+    relay.say(screen(isTurnRunning, isTurnRunning ? "Tinkering" : ""));
+    await publish(compacting(true, 2));
     await expect(working(page)).toHaveCount(1);
     await field(page).fill("Queue this while it compacts");
     await field(page).press("Enter");
     await expect.poll(() => posted.length).toBe(1);
     const queued = { ...posted[0], status: "queued" };
-    await page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail })), snapshot({ revision: 2, actions: [queued] }, { phase: "settled", harness }));
+    await publish(compacting(true, 3, [queued]));
     await field(page).fill("keep this draft");
     await box(page).locator('input[type="file"]').setInputFiles({ name: "notes.md", mimeType: "text/markdown", buffer: Buffer.from("# notes") });
     await expect(box(page).getByRole("list", { name: "Attached files" })).toContainText("pasted-1.md");
@@ -704,9 +708,11 @@ for (const [harness, words] of [["claude", "Compacting conversation"], ["codex",
       { id: "c6", seq: 6, at: "2026-10-22T09:06:00Z", kind: "compaction", trigger: "auto", text: "The swipe is fixed and the phone spec runs." },
     ] } } })));
     relay.say(screen(false));
+    await publish(compacting(false, 4, [queued]));
 
     // Assert
     await expect(row(page, "c6")).toBeVisible();
+    await expect(working(page), "the state ends with the compaction").toHaveCount(0);
     for (const id of ["p0", "r1", "r3", "p4", "r5"]) await expect(row(page, id), id + " shows once").toHaveCount(1);
     await expect(page.getByRole("log").getByText("Fixed the swipe.", { exact: true })).toHaveCount(1);
     await expect(bubble).toContainText("Queued");
@@ -716,7 +722,7 @@ for (const [harness, words] of [["claude", "Compacting conversation"], ["codex",
     expect(posted, "the compaction sent nothing again").toHaveLength(1);
 
     // Act
-    relay.say(screen(true, words));
+    await publish(compacting(true, 5, [queued]));
     await pickStyle(page, "Terminal");
 
     // Assert

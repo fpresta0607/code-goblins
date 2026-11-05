@@ -39,7 +39,7 @@ if (view === "regression") builder.push(
 );
 const task = (fields: Record<string, unknown>) => ({ harness: "claude", model: "claude-opus-5-5", effort: "xhigh", verified: false, generation: "g1", since: ago(90), ...fields });
 const snapshot = parseSnapshot({
-  healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude",
+  healthy: true, instance: "fixture", cfo_runs: true, afk: { state: "off" }, cfo_harness: "claude",
   tasks: [
     task({ id: "cg-fleet-tree", title: "Build the fleet tree", project: "code-goblins", phase: "working", tree: tree("cg-fleet-tree", view === "canvas" || view === "lineage" || view === "regression" ? builder : busier, megabytes(2662), megabytes(1024)) }),
     task({ id: "acme-billing", title: "Stream the billing CSV export", project: "acme-api", phase: "review", gate_step: "test",

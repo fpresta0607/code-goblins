@@ -290,6 +290,8 @@ export interface GpuAdapter { name: string; busy: number; busiest: string }
 export interface Gpu { adapters: GpuAdapter[] }
 export interface Session {
   runtime?: RuntimeEvidence;
+  // is_compacting says the session's own hooks report it compacts now.
+  is_compacting?: boolean;
   id: string;
   native_id: string;
   harness: string;
@@ -1118,6 +1120,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         host_id: string(s.host_id),
         last_event_id: string(s.last_event_id),
         updated_at: string(s.updated_at),
+        is_compacting: s.is_compacting === true,
       };
     }).sort((one, other) => (Date.parse(one.updated_at) || 0) - (Date.parse(other.updated_at) || 0)),
     decisions: array(v.decisions).map((value) => {

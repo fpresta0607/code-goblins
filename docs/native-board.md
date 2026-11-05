@@ -68,8 +68,8 @@ Restarting with the same CFO home recovers durable events, evaluations, actions,
 ## Native hook setup
 
 Every session the fleet starts carries its native session hooks in its own launch, so a Claude Code, Codex or Pi goblin reports its session, its parent, its prompts, its turns and its end the same way, and nothing global is written.
-A Claude Code goblin's settings file, `state/goblin-claude-settings.json`, and the Claude CFO's, `state/cfo-claude-settings.json`, run `cfo native-hook claude` for SessionStart, UserPromptSubmit, PostToolUse, Stop, SessionEnd, SubagentStart and SubagentStop, beside their other hooks, though a goblin's PostToolUse posts to the board in its place ([The seal and the key alarm](#the-seal-and-the-key-alarm)); neither `~/.claude/settings.json` nor any other file every Claude Code session on the machine loads gets them, since the Overlord's own sessions outside the fleet would run them too, as one once took the CFO's lock.
-A Codex goblin's launch, and the Codex CFO's, pass `--enable hooks` and one `-c hooks.<event>=...` override for each of those events and Interrupt, PreCompact and PostCompact, running `cfo native-hook codex` directly, rather than writing `~/.codex/hooks.json`; a goblin's also passes its goblin seal, a `hooks.PreToolUse` override for Bash ([The seal and the key alarm](#the-seal-and-the-key-alarm)).
+A Claude Code goblin's settings file, `state/goblin-claude-settings.json`, and the Claude CFO's, `state/cfo-claude-settings.json`, run `cfo native-hook claude` for SessionStart, UserPromptSubmit, PostToolUse, Stop, SessionEnd, SubagentStart, SubagentStop, PreCompact and PostCompact, beside their other hooks, though a goblin's PostToolUse posts to the board in its place ([The seal and the key alarm](#the-seal-and-the-key-alarm)); neither `~/.claude/settings.json` nor any other file every Claude Code session on the machine loads gets them, since the Overlord's own sessions outside the fleet would run them too, as one once took the CFO's lock.
+A Codex goblin's launch, and the Codex CFO's, pass `--enable hooks` and one `-c hooks.<event>=...` override for each of those events and Interrupt, running `cfo native-hook codex` directly, rather than writing `~/.codex/hooks.json`; a goblin's also passes its goblin seal, a `hooks.PreToolUse` override for Bash ([The seal and the key alarm](#the-seal-and-the-key-alarm)).
 Codex keys a hook's trust by where it is defined, the same `<session-flags>/config.toml` for every launch, and by what it runs, so the Overlord trusts them once, in a Codex goblin's `/hooks`, for every Codex session of the home; until he does, each Codex start reports that it started without trusting its hooks, and its hooks do not run.
 A home whose paths would need quoting, such as one under a profile whose name has a space, cannot write the direct command into a `-c` override, so its Codex goblins start without per-launch hooks, which the start's output says, and the board reads them from their terminals; its Codex CFO starts without them too, and `cfo hooks install codex` writes them for it with its helper.
 Pi takes its hooks from its extension, `~/.pi/agent/extensions/cfo-native.ts`, which `cfo hooks install pi` writes; a pi goblin starts with its goblin seal's extension as well.
@@ -109,8 +109,8 @@ The installer records the absolute executable/home/state paths, so reinstall the
 | Stop | Settled; requests task evaluation |
 | SessionEnd | Harness session ended |
 | Codex Interrupt | Interrupted; requests evaluation |
-| Codex PreCompact / Pi session_before_compact | The supervisor writes the CFO's checkpoint; no turn starts or ends |
-| Codex PostCompact / Pi session_compact | The supervisor queues one wake naming the CFO's checkpoint; no turn starts or ends |
+| Claude/Codex PreCompact / Pi session_before_compact | The session says it compacts until its next event, and for a Codex or Pi CFO the supervisor writes its checkpoint; no turn starts or ends |
+| Claude/Codex PostCompact / Pi session_compact | The session's compaction ended, and for a Codex or Pi CFO the supervisor queues one wake naming its checkpoint; no turn starts or ends |
 | SubagentStart / SubagentStop | Reported child started / settled |
 | Pi session_start / agent_start / tool_execution_end | Started / active |
 | Pi agent_settled with no pending messages | Settled after continuations and retries |
@@ -502,12 +502,12 @@ A goblin that asked a question, or whose session sits idle with nothing in the g
 A goblin whose last reply asked the CFO something in prose, which the monitor reads and wakes the CFO with as `goblin_asks`, shows Waiting on the CFO with that question, as a goblin that asked with `cfo notify --blocked` does, until it reports again or the CFO acks the wake.
 A reported wait on the Overlord ends once the Command Center item it raised closes: his answer reached the goblin, the item was cleared, or the answer on its page went to the CFO to relay; the card then shows what the goblin is doing, and an answer still on its way keeps the wait.
 It keeps its phase's colour, without the amber emphasis that belongs to the CFO's bar, so a wait on the Overlord, a goblin, CI or a deploy is shown in the same calmer sand colour.
-The CFO is pinned above the Board's columns in a plain bar, a card like the columns under it: the CFO's portrait, a line that says how many goblins the CFO supervises, and one icon button for its terminal.
+The CFO is pinned above the Board's columns in a plain bar, a card like the columns under it: the CFO's portrait, a line that says how many goblins the CFO supervises, and one icon button that opens it.
 With nothing waiting on the Overlord the line opens with All quiet, and the bar has no Open Command Center.
 While something in the Command Center waits on him the bar says none of what it is: Open Command Center appears on it beside the terminal icon, glows in the amber of waiting and carries how many items wait, and it opens the Command Center on the first of them.
 The glow breathes, and holds still for a reader who asked for reduced motion.
 While no CFO runs the bar says so and offers Start the CFO instead.
-Its terminal icon and its portrait open the CFO's terminal and hand it the keyboard.
+That button and its portrait open the CFO in the saved chat style and hand it the keyboard: its terminal under the terminal icon in Classic, its chat under the message icon in Modern.
 The bar draws no mark of the harness the CFO runs beside its portrait (the Overlord, 2026-10-28: "remove the redundant claude or codex or pi icons in cfo banner in top left of board, only need usage").
 Each allowance dial on it carries its provider's icon inside its ring and no name beside it, as on the CFO's card on the canvas: the Overlord asked on 2026-11-02 for the icon in the circle in place of the Claude and Codex labels.
 A screen reader still hears each dial by its provider's name.
@@ -523,9 +523,10 @@ A switch the supervisor refuses there shows one short sentence that says what to
 When AFK mode turns off nothing opens over the board: the stretch becomes his page of it, one card in his Command Center ([AFK mode](#afk-mode)).
 See [AFK mode in the README](https://github.com/fpresta0607/code-goblins/blob/main/README.md#afk-mode) for what the page shows.
 Selecting a card or node opens the same goblin panel from either view: a one-row header with the goblin and icon actions, then one view with no tabs, the Overlord's ask of 2026-10-23: the goblin's messages or its live terminal, with its task list beside them on a panel 900 px wide or more, and folded under the header as Task on a narrower one or a small screen ([The Messages view](#the-messages-view)).
-The CFO's header carries the toggle of AFK mode in its one row, before the panel's controls: a small switch labelled AFK, in the board's green while it is on.
-The turn-on question focuses Cancel, and a switch that cannot be read shows off, with Unreadable: a press resets it in muted words on a line of their own under the row, the line Restart PC and Update share while either shows, so the row keeps its room.
-The [README](https://github.com/fpresta0607/code-goblins/blob/main/README.md#afk-mode) describes the switch's loading and refusal displays; a refusal is drawn under the row's end, over the conversation, so it neither widens the row nor moves the conversation down.
+The CFO's bar carries the toggle of AFK mode right beside the button that opens the CFO, in either form of the bar, and the CFO's card carries it there too: a small switch labelled AFK, in the board's green while it is on.
+A bar that says the CFO is closed or not running keeps Reopen as its one action, with the switch beside it only while AFK mode is not off, since no panel is left to turn it off from.
+The turn-on question focuses Cancel, and a switch that cannot be read shows off, with Unreadable: a press resets it in muted words beside it.
+The [README](https://github.com/fpresta0607/code-goblins/blob/main/README.md#afk-mode) describes the switch's loading and refusal displays; a refusal is drawn under the switch, over the board, so it neither widens the bar nor moves the board down.
 On a panel at its narrowest the row cuts the CFO's name short and puts the panel's other controls in More rather than cover or hide the toggle, so it is there at every width.
 In a panel 36rem wide or narrower the toggle is one 44 px target, its word over its track, so the row keeps room for the name beside Open in Windows Terminal (#1987).
 The name is cut at the edge of its own part of the row, which never narrows past the session's picture, so it is never drawn under the Chat and Task switch.
@@ -597,7 +598,7 @@ Words or a paste of his before or after them, even words that end as a lone `?` 
 A Claude Code CFO starts with Claude Code's prompt suggestions off, as a goblin does: a suggestion is drawn on the empty input line as each turn ends, which the board reads as words left unsent, so until 2026-10-28 none of his messages went in while the CFO sat idle.
 One that waits ten minutes, or whose goblin ends or stops first, goes to the CFO with its words.
 Each message shows under the box with where it is: Queued, Kept for resume, Sent or With the CFO.
-A message a paused goblin's resume will carry shows Kept for resume, read from its resume note, which the task's lifecycle names in `kept_messages` and which outlasts the message's own action, and it leaves the list once a resume carried it.
+A message a paused goblin's resume will carry shows Kept for resume, or Starting while that resume waits its turn or runs, read from its resume note, which the task's lifecycle names in `kept_messages` and which outlasts the message's own action, and it leaves the list once a resume carried it.
 A failed resume that the supervisor finishes as running once its goblin reports carried only the messages kept before it began, so each message kept for it goes to the CFO with its words and the resume's start.
 So does each message kept for a failed resume whose relaunched terminal a Resume finds already up: that Resume relaunches nothing, so it hands them to the CFO before it writes its own record over the failed one.
 A message kept for a resume whose session a later start, such as a `cfo switch`, then replaced, whether kept before that start or while it ran, goes to the CFO with its words within a minute, since no resume of that record runs again, and a failed resume's also names that resume's start.
@@ -633,7 +634,7 @@ Replayed, stale, reparenting, or cyclic input cannot silently change the tree.
 Task dependencies are rendered separately from spawned/delegated links.
 Unreported child models remain unreported even when their owning task declares a model and effort.
 A goblin's card on the canvas says what its card on the board says, with its project too and without the baby goblins the canvas draws under it: its name and title, its project and status, and in a row at its foot how long it has run, since a paused or finished goblin has no canvas card, its pull request with its number and its harness mark, drawn by the same parts as the board card's (`frontend/src/card-clock.tsx`, `frontend/src/card-pull-request.tsx`).
-The CFO's card has its weekly allowance dials and the OpenRouter key's spend and the button that opens its terminal, as the board's CFO bar has, with the brand inside each dial, and keeps its harness mark, which the bar does not wear.
+The CFO's card has its weekly allowance dials and the OpenRouter key's spend and the button that opens it, as the board's CFO bar has, with the brand inside each dial, and keeps its harness mark, which the bar does not wear.
 On the canvas its dials wrap with gaps, and below 70% zoom a card with multiple dials hides the subscription percentages and key-spend budget labels, keeping the rings and dollar amount (`frontend/tests/orchestration-card-text.spec.ts`).
 Every card on the canvas, a baby goblin's included, holds all it says inside its border at any length, since each part keeps to its own lines and ends in an ellipsis past them (`frontend/tests/orchestration-card-text.spec.ts`).
 Dragging a card or using Alt plus an arrow key changes only its saved browser position; connectors retain their reported parent identity.
@@ -707,6 +708,7 @@ A goblin's card on the board shows nothing of what runs under it: the canvas and
 Baby goblins live on the canvas and in the lineage list, never as cards of their own on the board's columns.
 
 Pressing a baby goblin, on the canvas or on its rail, opens the same panel a goblin opens, with the baby goblin's name and its task on one line above its terminal.
+One whose output holds nothing yet says No output yet, never a blank terminal.
 A sub-agent's terminal is its own record as its goblin's harness keeps it, Claude Code's transcript of the sub-agent or a Codex child agent's rollout, which the board reads again every half second while it shows and draws as Claude Code draws a conversation, in the same terminal surface, font, size and colours as a goblin's terminal (the Overlord, 2026-10-15: "Baby goblins should look and feel just like the same Claude shells").
 Its task is a block after > on Claude Code's grey, what the agent said follows ●, and each tool it called follows a ● in the colour of its outcome, green when it succeeded, red when it failed and grey while it runs, with the tool's name in bold and what it was called on.
 Under a call, what came back follows ⎿ in grey, its first lines with the rest folded into +N lines, and an error in red.
@@ -796,7 +798,7 @@ Scrolling such a pane counts as working in the board, like typing: a view that d
 Herdr's frames carry no mouse modes, so a click never reaches the program and Claude Code's "Jump to bottom (ctrl+End)" note cannot be pressed; instead, a plain click (under 4 px of movement, not a drag or a selection) on a pane the board has scrolled up and could scroll now sends Ctrl+End, which jumps it back to its bottom, and Ctrl+End typed in the view does the same.
 The jump waits out the double-click interval, 300 ms after the release, and a further press in that time cancels it, so a double-click or triple-click selects the word or line it aimed at; a click on a pane the view does not hold, such as one a review gate owns, does nothing.
 A NUL key such as Ctrl+Space is typed like any other key.
-Shift+Escape moves keyboard focus out of the terminal to the panel's first control, never to the CFO's AFK switch that leads them; ordinary Escape stays with the pane.
+Shift+Escape moves keyboard focus out of the terminal to the panel's first control; ordinary Escape stays with the pane.
 Releasing a drag selection copies it to the clipboard, the way Herdr does, and Ctrl+Shift+C, or Ctrl+C while text is selected, copies the current selection.
 Closing, switching, disconnecting or restarting invalidates the lease; reconnection starts with a full screen frame, never replayed input.
 At most eight views are open, frame gaps disconnect, and oversized UTF-8 paste is rejected before sending.
@@ -1033,7 +1035,7 @@ The panel is held to the visual viewport, which the on-screen keyboard shrinks w
 `frontend/tests/phone-terminal.spec.ts` checks this at 390 by 844 and 360 by 800, with the keyboard played by a visual viewport the test shrinks.
 An iPhone's keyboard leaves the panel about 320 px, so the panel's header is its one row there too, with Back and the view switch, and the terminal there has no floor of its own: the line he is writing stays above the keyboard as a long message grows, in the terminal view and in Modern's box (the Overlord, 2026-10-29: "also temrinal inlit doent scorlll to bottom the longer and longe rth wmessge goes", then "on mobile").
 `frontend/tests/iphone-caret.spec.ts` checks this in WebKit at an iPhone 15's size.
-The panel's controls are one line at every width the panel can take, 360 px at its narrowest, at the end of its header's one row, or in a row of their own over a baby goblin's header: the CFO's AFK switch where it leads them, its controls (Open in terminal and Maximize or Restore today; on a small screen only Open in terminal, while the box shows), then the corner button, Close or Back.
+The panel's controls are one line at every width the panel can take, 360 px at its narrowest, at the end of its header's one row, or in a row of their own over a baby goblin's header: its controls (Open in terminal and Maximize or Restore today; on a small screen only Open in terminal, while the box shows), then the corner button, Close or Back.
 No control overlaps another or is cut, and none is drawn smaller to fit: an icon button stays 44 px square.
 The corner button always shows.
 A control the row cannot hold at full size goes into More, a menu at the corner that lists each with its icon and its name, opens on its first item, moves with Up and Down and closes on a choice or on Escape, which hand the keyboard back to More, or on a press anywhere else.
@@ -1447,7 +1449,7 @@ The animations reached the main thread because Chrome wakes it at every turn of 
 render-budget.spec.ts holds a working panel at rest under 40 style recalculations in 3 seconds; the CSS helix took 138.
 The colour is the ink of the harness's own mark: Claude Code's orange, Codex's light ink and pi's moss (2026-10-30: "make color of the helix match teh harnes icon coloring").
 Beside it, the words the harness says it is doing, or Working when it says none, type out a letter at a time, a shimmer crosses them, and whimsical verbs follow in turn, one every 3 seconds, typed the same way (2026-10-30: "make twitsting and teh verbs rotate in a type writere hroiztonal shimmer"), each ending in one ellipsis (2026-11-04).
-While the harness's turn row says it compacts the conversation, Claude Code's "Compacting conversation" or Codex's "Compacting context", the words say Compacting… alone, with no whimsical verb after them; a message he sends meanwhile is held as his Queued entry, never Sent before the board hands it over, and his draft and its files stay in the box (2026-11-04).
+While the session's own hooks say it compacts, from Claude Code's or Codex's PreCompact until its PostCompact, pi's `session_before_compact` until its `session_compact`, or until whatever the session reports next, the words say Compacting… alone, with no whimsical verb after them; a message he sends meanwhile is held as his Queued entry, never Sent before the board hands it over, and his draft and its files stay in the box (2026-11-04).
 The typing slides a window over the word to each letter's edge, and the shimmer is a light band crossing it, both by transform alone.
 Every word is in the page from the start, laid unseen in the one place, and shows in its turn by its own animations, which come round again while the turn runs, so nothing in the page changes as the words rotate (the CFO, 2026-10-30: "nothing moves when nothing runs"): a working panel at rest recalculates the page's style 2 or 3 times in 3 seconds, and React draws nothing again.
 It carries an accessible name, the harness's own words or Working, and reduced motion keeps the helix still and shows those words whole.
@@ -1543,7 +1545,7 @@ The page of 50 before the first message held is read once he reads within 600 px
 A read that fails is asked again on his next approach to the top, no sooner than five seconds after it, until three in a row have failed, and then not until the stream reconnects.
 Ctrl+Plus, Ctrl+Minus and Ctrl+0, the right button held with the wheel, or the wheel with Ctrl and Shift held, size the message text a pixel at a time between 12 and 28 px from 16 px.
 The size is kept in this browser as `cfo-message-font-size`, apart from the terminals' size, since a size the terminals take resizes their programs.
-Shift+Escape leaves the messages for the panel's first control, never the CFO's AFK switch that leads them, as it leaves a terminal, and Escape does what the corner button does.
+Shift+Escape leaves the messages for the panel's first control, as it leaves a terminal, and Escape does what the corner button does.
 The messages lie where the terminal deck lies, under the panel's one-row header, beside its task list, in the same flex and under the same rule (`.panel-stage` in `frontend/src/styles.css`), so their box is the terminal's.
 Terminal loading and sizing follow [the message box's presentation lifecycle](#the-message-box).
 The conversation stays mounted with its stream open from its first showing while its panel shows the session, so a switch back reads nothing again and finds the place he read.

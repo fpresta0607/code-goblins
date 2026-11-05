@@ -1,7 +1,7 @@
 /* The bar's Actions spend: the GitHub mark and what GitHub bills, in the
    bar's bright ink; the month's use at list price is in the panel it opens
    (2026-11-04). */
-.actions-spend-header { display: inline-flex; align-items: baseline; gap: 6px; flex: none; padding: 4px 8px; border-color: transparent; background: transparent; color: var(--muted); font-size: .8125rem; font-variant-numeric: tabular-nums; white-space: nowrap; transition: none; }
+.actions-spend-header { display: inline-flex; align-items: baseline; gap: 6px; flex: none; padding: 4px 0; border-width: 0; background: transparent; color: var(--muted); font-size: .8125rem; font-variant-numeric: tabular-nums; white-space: nowrap; transition: none; }
 .actions-spend-header .icon { width: 16px; height: 16px; align-self: center; }
 .actions-spend-billed { color: var(--bone); }
 .actions-spend-old { color: var(--amber); }

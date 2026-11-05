@@ -172,6 +172,7 @@ for (const style of ["modern"]) {
         await expect(field(page)).toHaveValue("");
         await expect(box(page).getByRole("alert")).toHaveCount(0);
         await expect(send(page)).toBeInViewport();
+        await expect(box(page).getByRole("button", { name: "Stop", exact: true }), "a terminal that ended has no turn to stop").toHaveCount(0);
         expect(requests).toHaveLength(3);
         expect(requests.at(-1)).toMatchObject({ kind: "message", text: "Keep this when the terminal ends" });
         expect(typed(relay)).toBe(before);

@@ -123,7 +123,7 @@ export function AgentTerminal({ task, child, visible }: { task: Task; child: Tre
           previous = text
         }
         failures = 0
-        setStatus((entries ? body.length : previous.length) ? "" : "No output yet")
+        setStatus((output.entries !== undefined ? body.length : previous.length) ? "" : "No output yet")
         setClosed(false)
       } catch {
         stream.close()

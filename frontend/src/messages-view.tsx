@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { message as errorText, reportToCfo, request } from "./api";
 import { copyText } from "./clipboard";
 import { Icon } from "./Icon";
@@ -59,8 +60,8 @@ type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 // whose link reads what it is doing, sent is every message of his to the session the
 // board knows, pending those of them that still wait, and box is the message
 // box under the conversation.
-export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, isWorking, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
-  query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isWorking: boolean;
+export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, isWorking, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
+  query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isWorking: boolean; isCompacting: boolean;
   sent: Action[]; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
   shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode) => ReactNode;
@@ -100,6 +101,13 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // WebKit can clamp the old scroll top while Jump replaces windowed rows,
   // before layout settles at the newly measured end.
   const isJumping = useRef(false);
+  // WebKit lays out a commit that takes rows from the list and restyles
+  // anything under a size container in steps, and pulls the scroll top up on
+  // the way by itself: a reply's first streamed line, which brought its usage
+  // to the box, took a phone off the live end. So take draws each stream
+  // update at once, where it just found his scroll, and no scroll position
+  // the list finds while it draws is his.
+  const isTaking = useRef(false);
   const anchor = useRef<{ id: string; offset: number } | null>(null);
   const pinnedTo = useRef(-1);
   const observedTop = useRef<number | null>(null);
@@ -194,10 +202,17 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       const next = { ...latest.current, ...change(latest.current) };
       latest.current = next;
       reconcile.current();
-      if (following.current) setHeld(next);
-      setComposing((prior) => composerOf(prior, next));
-      setReconnecting(false);
-      setPhase("live");
+      isTaking.current = true;
+      try {
+        flushSync(() => {
+          if (following.current) setHeld(next);
+          setComposing((prior) => composerOf(prior, next));
+          setReconnecting(false);
+          setPhase("live");
+        });
+      } finally {
+        isTaking.current = false;
+      }
     };
     const invalid = () => {
       close(UNREAD);
@@ -336,7 +351,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   useLayoutEffect(() => {
     reconcile.current = () => {
       const box = list.current;
-      if (!isJumping.current && shown && shownValue.current && box && box.clientHeight && observedTop.current !== null && box.scrollTop !== observedTop.current) rememberPosition();
+      if (!isJumping.current && !isTaking.current && shown && shownValue.current && box && box.clientHeight && observedTop.current !== null && box.scrollTop !== observedTop.current) rememberPosition();
     };
   });
   useLayoutEffect(() => {
@@ -461,11 +476,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   };
   const keys = (event: KeyboardEvent<HTMLElement>) => {
     // Shift+Escape leaves the messages for the panel's first control, as it
-    // leaves a terminal, never for what leads the controls, the CFO's AFK
-    // switch.
+    // leaves a terminal.
     if (event.shiftKey && event.key === "Escape") {
       event.preventDefault();
-      event.currentTarget.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-top button:not(:disabled, .panel-leading *)")?.focus();
+      event.currentTarget.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-top button:not(:disabled)")?.focus();
       return;
     }
     const box = list.current;
@@ -556,7 +570,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
-          {shown && held.isLive && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} />}
+          {shown && held.isLive && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} />}
           {/* His messages not yet in the session's record, at the
               conversation's end in its one scroll (the Overlord, 2026-10-29:
               "the double scrolls and having its own little scroll for queued

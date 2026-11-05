@@ -35,7 +35,7 @@ const families: Record<string, Child[]> = {
 const activity: Record<string, number> = { "cg-tests": 0, "pd-email": 0 };
 let born = 0, reports = 0;
 const task = (id: string, fields: Record<string, unknown>) => ({ id, project: "code-goblins", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", verified: false, since: minutes(48), at: minutes(48), generation: "g-" + id, ...fields });
-const snapshot = () => parseSnapshot({ healthy: true, instance: "canvas-alive", cfo_runs: true, cfo_harness: "claude", tasks: [
+const snapshot = () => parseSnapshot({ healthy: true, instance: "canvas-alive", cfo_runs: true, afk: { state: "off" }, cfo_harness: "claude", tasks: [
   task("cg-tests", { title: "Make the flaky tests steady", goblin_name: "Pip", goblin_title: "Test Tamer", phase: "working", activity: "working: report " + activity["cg-tests"],
     tree: { task_id: "cg-tests", generation: "g-cg-tests", harness: "claude", memory: 0, own_memory: 0, children: families["cg-tests"], source_updated_at: minutes(0), fetched_at: minutes(0) } }),
   task("pd-email", { title: "Send the tenant emails", goblin_name: "Mabel", goblin_title: "Email Elf", project: "PrecisionDocs-AI", phase: "working", activity: "working: report " + activity["pd-email"],
