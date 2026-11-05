@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,8 +22,8 @@ import (
 
 // Admission is how verification runs take turns on one machine. A run holds
 // one of a fixed number of slots while its heavy checks run, runs take the
-// slots in the order they asked, low-priority runs after every other, and a
-// run starts only once the machine has
+// slots in the order of their places in line (overdueLimit, priorityPlaces),
+// and a run starts only once the machine has
 // memory to spare. Each run looking at the machine by itself is what let
 // four test steps start together on memory each had seen free: a slot is
 // taken or it is not.
@@ -55,12 +56,21 @@ type Admission struct {
 	// its place in line changes, and once a minute: how long so far, and what
 	// for.
 	Waiting func(waited time.Duration, why string)
-	// IsLowPriority has the run wait at the lowest priority: it takes its turn
-	// only while no ordinary run waits, and an ordinary run that joins the line
-	// after it still goes first. Low-priority runs keep the order they asked in
-	// among themselves. A turn it has taken, or is in the moment of taking, is
-	// its own until it gives it back.
+	// IsLowPriority has the run wait at the lowest priority: until it is
+	// overdue it takes its turn only while no ordinary run waits, and an
+	// ordinary run that joins the line after it still goes first. Low-priority
+	// runs keep the order they asked in among themselves. A turn it has taken,
+	// or is in the moment of taking, is its own until it gives it back.
 	IsLowPriority bool
+	// IsTestStep says the run is a gate's Test step, which a whole delivery
+	// waits on: it goes ahead of every waiting run that is not one, whichever
+	// joined first.
+	IsTestStep bool
+	// Priority is the priority on the backlog row of the task whose run this
+	// is, which priorityPlaces orders, and empty for a run with no task.
+	Priority string
+	// overdueAfter is overdueLimit, which a test shortens.
+	overdueAfter time.Duration
 }
 
 // NoLimit is the Limit of a run that waits for memory for as long as the
@@ -169,6 +179,10 @@ type card struct {
 	// UsedBytes what its job commits now, as it last measured.
 	EstimateBytes uint64 `json:"estimate_bytes,omitempty"`
 	UsedBytes     uint64 `json:"used_bytes,omitempty"`
+	// Priority is the priority of a waiting run's task, and Joined when a run
+	// that moved up the line first joined it, which its new lock does not say.
+	Priority string    `json:"priority,omitempty"`
+	Joined   time.Time `json:"joined,omitzero"`
 }
 
 // defaultEstimate is a run's estimate when it names none: the most any run
@@ -250,13 +264,55 @@ func holdersRemaining(dir string) (uint64, error) {
 // apart.
 var arrivals atomic.Int64
 
-// lowPriorityPlace begins the place of a run that waits at the lowest
-// priority. Every other place begins with a digit, which sorts before it, so
-// every other run counts a low-priority run as behind it whenever either
-// joined, and low-priority runs keep the order they asked in among
-// themselves. Any build compares places by name, so an older one orders a
-// low-priority run the same way.
-const lowPriorityPlace = "z-"
+// A run's place in line is a file named for its tier and then the moment it
+// joined, so runs of one tier keep the order they asked in. Every build orders
+// the line by comparing those names and nothing else, so an older build
+// agrees with a newer one on who goes first, and no two runs can each wait for
+// the other. From the front of the line:
+//
+//   - overduePlace: a run that has waited overdueLimit, whatever its tier
+//   - testStepPlace: a gate's Test step, then its task's priority as below
+//   - production-defect
+//   - no tier: priority 0, a row that names no priority or one the line does
+//     not know, and a run with no task, which is every run's place before
+//     tiers: only a Test step or a production defect passes it
+//   - priorities 1, 2, 3 and ops-root, the last of the backlog's rows
+//   - lowPriorityPlace
+const (
+	overduePlace     = "!"
+	testStepPlace    = "+"
+	lowPriorityPlace = "z-"
+)
+
+// priorityPlaces begins the place of a run by its task's priority. The dash
+// sorts before a digit, and a letter after one.
+var priorityPlaces = map[string]string{
+	"production-defect": "-",
+	"1":                 "a-",
+	"2":                 "b-",
+	"3":                 "c-",
+	"ops-root":          "d-",
+}
+
+// overdueLimit is how long a run waits before no new run may pass it: it moves
+// to overduePlace, where only runs that have waited longer stand ahead of it,
+// so a run of any tier reaches its turn. Two hours is a gate's 90 minute turn
+// budget and half an hour more. A busy morning's waits reached an hour, and a
+// limit that short would turn the busy line back into the order runs asked in,
+// just when the tiers matter. A limit much longer leaves a goblin idle for
+// more of its session than a whole turn of the line is worth.
+const overdueLimit = 2 * time.Hour
+
+// tier begins the run's place in line.
+func (a Admission) tier() string {
+	switch {
+	case a.IsLowPriority:
+		return lowPriorityPlace
+	case a.IsTestStep:
+		return testStepPlace + priorityPlaces[a.Priority]
+	}
+	return priorityPlaces[a.Priority]
+}
 
 // Wait joins the line and returns once the run has its turn: no run that
 // stands ahead of it in the line still waits, the machine has the memory, and a slot is free,
@@ -309,16 +365,15 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	if err := os.MkdirAll(line, 0o755); err != nil {
 		return Turn{}, err
 	}
-	place := fmt.Sprintf("%020d-%d-%d", time.Now().UTC().UnixNano(), os.Getpid(), arrivals.Add(1))
-	if a.IsLowPriority {
-		place = lowPriorityPlace + place
-	}
+	arrival := fmt.Sprintf("%020d-%d-%d", time.Now().UTC().UnixNano(), os.Getpid(), arrivals.Add(1))
+	place := a.tier() + arrival
 	owner, err := lock.AcquireExclusiveNamedStrict(line, place)
 	if err != nil {
 		return Turn{}, err
 	}
-	defer a.remove(line, place, owner)
-	if err := a.leave(line, place, card{Who: a.Who, EstimateBytes: a.estimate()}); err != nil {
+	defer func() { a.remove(line, place, owner) }()
+	says := card{Who: a.Who, EstimateBytes: a.estimate(), Priority: a.Priority}
+	if err := a.leave(line, place, says); err != nil {
 		return Turn{}, err
 	}
 
@@ -341,6 +396,13 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 			return Turn{Waited: time.Since(start)}, err
 		}
 		waited := time.Since(start)
+		if waited >= cmp.Or(a.overdueAfter, overdueLimit) && !strings.HasPrefix(place, overduePlace) {
+			moved, err := a.moveToFront(line, overduePlace+arrival, place, owner, says)
+			if err != nil {
+				return Turn{Waited: time.Since(start)}, err
+			}
+			place, owner = overduePlace+arrival, moved
+		}
 		ahead, err := inFront(line, place)
 		if err != nil {
 			return Turn{Waited: time.Since(start)}, err
@@ -413,6 +475,25 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	}
 }
 
+// moveToFront gives a run that has waited the line's limit the place front and
+// takes it out of place, so the name of its place stays all that orders it.
+// For that moment it stands in both, the old one behind the new. A failure
+// ends its wait, as any failure of the line's folder does.
+func (a Admission) moveToFront(line, front, place string, owner *lock.Info, says card) (*lock.Info, error) {
+	moved, err := lock.AcquireExclusiveNamedStrict(line, front)
+	if err != nil {
+		return nil, err
+	}
+	says.Joined = owner.Acquired
+	if err = a.leave(line, front, says); err == nil {
+		err = a.remove(line, place, owner)
+	}
+	if err != nil {
+		return nil, errors.Join(err, a.remove(line, front, moved))
+	}
+	return moved, nil
+}
+
 // join puts two remarks in one line, either of which may be empty.
 func join(first, second string) string {
 	if first == "" || second == "" {
@@ -432,7 +513,7 @@ func standing(ahead int) string {
 	return fmt.Sprintf("%d runs are ahead of this one in line", ahead)
 }
 
-// inFront counts the runs that joined the line before place and still wait.
+// inFront counts the runs whose places come before place and still wait.
 // A run whose process is gone is taken out of the line.
 func inFront(line, place string) (int, error) {
 	entries, err := os.ReadDir(line)
@@ -816,6 +897,38 @@ type Standing struct {
 	// commits now, as a run that holds a turn last measured it.
 	Estimate uint64
 	Used     uint64
+	// Behind says why a waiting run stands behind the one before it in the
+	// line, and is empty for the first.
+	Behind string
+	// place and priority are what Behind is read from.
+	place    string
+	priority string
+}
+
+// behind says why the waiting run back stands behind front, the run before it
+// in the line.
+func behind(front, back Standing) string {
+	isFrontOverdue := strings.HasPrefix(front.place, overduePlace)
+	isBackOverdue := strings.HasPrefix(back.place, overduePlace)
+	switch {
+	case isFrontOverdue && !isBackOverdue:
+		return fmt.Sprintf("it has waited past the line's limit of %s", overdueLimit)
+	case front.IsLowPriority != back.IsLowPriority:
+		return "any other run goes ahead of one at the lowest priority"
+	case strings.HasPrefix(front.place, testStepPlace) != strings.HasPrefix(back.place, testStepPlace):
+		return "a gate's Test step goes ahead of a goblin's own turn"
+	case !isFrontOverdue && !front.IsLowPriority && priorityPlaces[front.priority] != priorityPlaces[back.priority]:
+		return priorityName(front.priority) + " goes ahead of " + priorityName(back.priority)
+	}
+	return "it asked first"
+}
+
+// priorityName names a priority in a sentence.
+func priorityName(priority string) string {
+	if priority == "" {
+		return "no task priority"
+	}
+	return "task priority " + priority
 }
 
 // Line reads who holds the turns kept in dir, slot by slot, and who waits, in
@@ -846,7 +959,11 @@ func Line(dir string) (holding, waiting []Standing, err error) {
 			}
 			if record.Alive() {
 				says := readCard(filepath.Join(dir, name))
-				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: record.Acquired, Budget: time.Duration(says.BudgetSeconds * float64(time.Second)), Now: says.Now, IsLowPriority: strings.HasPrefix(name, lowPriorityPlace), Estimate: says.EstimateBytes, Used: says.UsedBytes})
+				since := record.Acquired
+				if !says.Joined.IsZero() {
+					since = says.Joined
+				}
+				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: since, Budget: time.Duration(says.BudgetSeconds * float64(time.Second)), Now: says.Now, IsLowPriority: strings.HasPrefix(name, lowPriorityPlace), Estimate: says.EstimateBytes, Used: says.UsedBytes, place: name, priority: says.Priority})
 			}
 		}
 		return runs, nil
@@ -856,6 +973,9 @@ func Line(dir string) (holding, waiting []Standing, err error) {
 	}
 	if waiting, err = read(filepath.Join(dir, "line"), func(string) bool { return true }); err != nil {
 		return nil, nil, err
+	}
+	for place := 1; place < len(waiting); place++ {
+		waiting[place].Behind = behind(waiting[place-1], waiting[place])
 	}
 	return holding, waiting, nil
 }

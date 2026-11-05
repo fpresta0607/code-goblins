@@ -94,10 +94,11 @@ func runGatePrepush(args []string, dir string, stdout, stderr io.Writer, runtime
 		return 1
 	}
 	who := fmt.Sprintf("%s at %.8s, before a push, in %s", project, pick.Commit, pick.Root)
-	if task := taskID(os.Getenv); task != "" {
+	task := taskID(os.Getenv)
+	if task != "" {
 		who += ", task " + task
 	}
-	turn, err := takePushTurn(stdout, runtime, who, *limit)
+	turn, err := takePushTurn(stdout, runtime, who, taskPriority("cfo gate prepush", task, stdout, runtime), *limit)
 	if err != nil {
 		fmt.Fprintf(stdout, "cfo gate prepush: nothing ran, since the machine gave this run no turn: %v. CI is the only check of this push.\n", err)
 		return 1
@@ -324,7 +325,7 @@ func sayEnded(stdout io.Writer, cause, what string, err error) {
 // takePushTurn waits in the machine's common line, the one cfo gate test
 // runs wait in, so a push's checks and a gate's tests never run together.
 // The turn's budget is the run's time limit, which the run keeps itself.
-func takePushTurn(stdout io.Writer, runtime commandRuntime, who string, budget time.Duration) (verify.Turn, error) {
+func takePushTurn(stdout io.Writer, runtime commandRuntime, who, priority string, budget time.Duration) (verify.Turn, error) {
 	store, err := verify.AdmissionDir()
 	if err != nil {
 		return verify.Turn{}, err
@@ -341,6 +342,7 @@ func takePushTurn(stdout io.Writer, runtime commandRuntime, who string, budget t
 		Floor:     supervisor.MemoryFloor,
 		Available: available,
 		Who:       who,
+		Priority:  priority,
 		Budget:    budget,
 		Limit:     runtime.gateWaitLimit,
 		Poll:      time.Second,
