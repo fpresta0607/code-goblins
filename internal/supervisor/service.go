@@ -960,32 +960,38 @@ func (s *Service) hasDelivered(meta state.TaskMeta) bool {
 // takes in the hook events waiting in the native inbox, so a prompt is looked
 // for there as well as in the board's record. The report's time is kept to
 // the second, so a prompt counts from the second after it, as in isDelivered.
-// The prompt is looked for only for a goblin whose latest report delivered a
-// pull request, and a record that cannot be read is an error, never taken as
-// no prompt.
+// The prompt is looked for only for a goblin whose latest report delivered,
+// and a record that cannot be read is an error, never taken as no prompt.
 func HasDelivered(directory string, meta state.TaskMeta) (bool, error) {
 	lines, _ := state.TailStatus(directory, meta.ID, 200)
-	if deliveredPR(lines, meta.SpawnGen) == "" {
+	if !reportsDelivery(lines, meta.SpawnGen) {
 		return false, nil
 	}
 	reportedAt, _ := latestReport(lines, spawnTime(meta.SpawnGen))
 	isPromptedSince, err := NativePromptSince(directory, meta.ID, meta.SpawnGen, reportedAt.Add(time.Second))
 	if err != nil {
-		return false, fmt.Errorf("read whether %s took a prompt since it reported its pull request done: %w", meta.ID, err)
+		return false, fmt.Errorf("read whether %s took a prompt since it reported its delivery done: %w", meta.ID, err)
 	}
 	return !isPromptedSince, nil
 }
 
-// isDelivered reports whether the goblin of generation delivered a pull
-// request in its latest report and its session took no prompt after it, as
-// one the CFO steers back to work with cfo send takes. Such a goblin waits on
-// the merge, not on a session: on 2026-10-27 three that a restart brought
-// back each spent a fresh session only to report the same pull request done
-// again.
+// isDelivered reports whether the goblin of generation delivered in its latest
+// report and its session took no prompt after it, as one the CFO steers back
+// to work with cfo send takes. Such a goblin waits on the merge, or on nothing
+// once it closed its issue, not on a session: on 2026-10-27 three that a
+// restart brought back each spent a fresh session only to report the same pull
+// request done again.
 func isDelivered(lines []string, generation string, session Session) bool {
 	reportedAt, _ := latestReport(lines, spawnTime(generation))
 	isPromptedSince := session.Generation == generation && session.PromptAt.Truncate(time.Second).After(reportedAt)
-	return deliveredPR(lines, generation) != "" && !isPromptedSince
+	return reportsDelivery(lines, generation) && !isPromptedSince
+}
+
+// reportsDelivery reports whether the latest report of generation delivered: a
+// pull request, or the issue a decision had it close in place of one.
+func reportsDelivery(lines []string, generation string) bool {
+	_, report := latestReport(lines, spawnTime(generation))
+	return deliveredPR(lines, generation) != "" || state.DoneClosed(report) != ""
 }
 
 func deliveredPR(lines []string, generation string) string {
@@ -1859,11 +1865,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		activity, pr := statusActivity(lines, spawned)
 		lastReport, lastReportedAt, _ := taskSessionSummary(lines, spawned)
-		// A helper hands completed work to its parent without a PR or gate.
+		// A helper hands completed work to its parent without a PR or gate, and
+		// a task a decision ruled finished closes its issue without either.
 		// Its idle terminal does not turn that handoff into a request for input,
 		// and a line that is no report, such as a reap or a supersede, leaves
 		// the handoff its latest report made standing.
-		if meta.Parent != "" && reportKind(lastReport) == "done" && !isGateHeld && !(linked && node.PromptAt.Truncate(time.Second).After(lastReportedAt)) && !runtime.working() {
+		if (meta.Parent != "" || state.DoneClosed(lastReport) != "") && reportKind(lastReport) == "done" && !isGateHeld && !(linked && node.PromptAt.Truncate(time.Second).After(lastReportedAt)) && !runtime.working() {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = "done", strings.TrimPrefix(lastReport, "done: "), ""
 		}
 		if verb, detail, ok := waitingQuestion(decisions, id); ok {

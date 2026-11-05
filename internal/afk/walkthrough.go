@@ -149,6 +149,11 @@ func (r Return) Walkthrough() []Project {
 		return slices.IndexFunc(projects, func(p Project) bool { return p.Name == repository })
 	}
 	for _, finish := range r.Report.Finished {
+		// The walkthrough shows what changed, and a closed issue changed no
+		// code: the report lists it among the goblins that finished.
+		if finish.PR == "" {
+			continue
+		}
 		noted := func(change *Change) {
 			if finish.Note != "" && !slices.Contains(change.Notes, finish.Note) {
 				change.Notes = append(change.Notes, finish.Note)

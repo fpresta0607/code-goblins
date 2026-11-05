@@ -314,3 +314,28 @@ func TestTheReturnPageWrapsAndLinksToItsCommandCenterCards(t *testing.T) {
 		t.Error("the report does not link to its Command Center card")
 	}
 }
+
+// A closed issue changed no code, so the return page's changes leave it out
+// while the report still lists it among the goblins that finished.
+func TestAClosedIssueIsAGoblinFinishedAndNoChangeOnTheReturnPage(t *testing.T) {
+	// Arrange
+	const issue = "https://github.com/example/garden-app/issues/44"
+	r := recordedReturn(t)
+	r.Report.Finished = append(r.Report.Finished, Finish{Task: "garden-issue", Closed: issue, Title: "The garden issue", At: r.Report.Ended})
+	var report bytes.Buffer
+
+	// Act
+	page, _ := returnPage(t, r)
+	err := Render(&report, r.Report)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(page, "The garden issue") {
+		t.Errorf("the return page shows the closed issue as a change")
+	}
+	if !strings.Contains(report.String(), "- garden-issue: closed "+issue) {
+		t.Errorf("the report does not list the closed issue:\n%s", report.String())
+	}
+}

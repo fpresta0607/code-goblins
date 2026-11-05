@@ -100,3 +100,26 @@ func events(lines []string) []string {
 	}
 	return stripped
 }
+
+func TestDoneClosedReadsOnlyTheReportOfAClosedIssue(t *testing.T) {
+	const issue = "https://github.com/o/r/issues/1450"
+	cases := map[string]string{
+		"done: closed " + issue: issue,
+		"done: closed " + issue + " (decision 7: Close it, no PR)": issue,
+		"  done: closed " + issue + " (left running: pid 4)":       issue,
+		"done: closed https://github.com/o/r/pull/9":               "",
+		"done: closed " + issue + "#issuecomment-1":                "",
+		"done: closed https://example.com/o/r/issues/1450":         "",
+		"done: closed #1450":                                       "",
+		"done: PR " + issue:                                        "",
+		"working: done: closed " + issue:                           "",
+		"":                                                         "",
+	}
+	for event, want := range cases {
+		t.Run(event, func(t *testing.T) {
+			if got := DoneClosed(event); got != want {
+				t.Errorf("DoneClosed(%q) = %q, want %q", event, got, want)
+			}
+		})
+	}
+}

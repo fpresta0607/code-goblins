@@ -1014,6 +1014,7 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 	instruction := notifyInstruction(state.TaskMeta{ID: "task-7"})
 
 	for _, want := range []string{
+		exe + " notify task-7 --done --closed <issue-url> --decision <sequence>",
 		exe + " notify task-7 --working \"<what>\"",
 		exe + " notify task-7 --waiting-on <task-id|run-id|overlord|ci|deploy|memory> \"<why>\"",
 		exe + " notify task-7 --waiting-on overlord \"<why>\" --lavish <html-file>",

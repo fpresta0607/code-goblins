@@ -117,7 +117,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `cfo reap [--dry-run] [--apply] [--force <pid\|task-id>]` | [cfo help reap](../commands/reap.md) |
 | `cfo register` | [cfo help register](../commands/register.md) |
 | `cfo process-plan` | [cfo help process-plan](../commands/process-plan.md) |
-| `cfo notify <id> --done --pr <url> \| --blocked "<question>" \| --failed "<reason>" \| --working "<what>" \| --waiting-on <task-id\|overlord\|ci\|deploy\|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>] [--follows <question-id> \| --separate] [--message-file <file>]` | [cfo help notify](../commands/notify.md) |
+| `cfo notify <id> --done --pr <url> \| --done --closed <issue-url> --decision <sequence> \| --blocked "<question>" \| --failed "<reason>" \| --working "<what>" \| --waiting-on <task-id\|overlord\|ci\|deploy\|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>] [--follows <question-id> \| --separate] [--message-file <file>]` | [cfo help notify](../commands/notify.md) |
 | `cfo helper start <parent-id> --brief <file> [--title "<short title>"]` \| `merge <parent-id>` | [cfo help helper](../commands/helper.md) |
 | `cfo drain` | [cfo help drain](../commands/drain.md) |
 | `cfo session-start` | [cfo help session-start](../commands/session-start.md) |

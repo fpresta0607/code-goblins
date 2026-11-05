@@ -152,6 +152,7 @@ The product does this by itself in every home, with no setting, and wakes you fo
 - **The queue cleans itself.** When `cfo cleanup` (with or without `--force-archive`, and through `cfo reap --apply`) retires a task, its row moves from `## Queued` to `## Done` with its detail lines, in one write that keeps every other line as it was, whatever the task last reported, so nothing starts it again from its row.
   The row closes as `done` when the task delivered and as `retired` when it did not, and the supervisor moves any row a delivered task left behind.
   A local-only task opens no pull request, so it is delivered when a done line of its current run names its report, `data/<task>/report.md`, by its full path or its path in the home, and that report is there.
+  A task ruled finished with no pull request is delivered when a done line of its current run names the issue it closed, which [cfo notify --closed](../commands/notify.md) records from its answered decision.
 - **Work that cannot start wakes you again.** A start that failed is not retried by itself, and its card says why.
   A brief changed during admission instead produces `start deferred: ...` and is reconsidered on the next scan with its final choices.
   Draft briefs remain held under the [brief readiness contract](../commands/brief.md), do not block ready work behind them and raise no idle-fleet wake.

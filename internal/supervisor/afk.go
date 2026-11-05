@@ -1154,8 +1154,15 @@ func doneBetween(stateDir string, since, ended time.Time) ([]afk.Finish, error) 
 				note = bounded(said, afkNoteLength)
 				continue
 			}
+			if at.Before(since.Truncate(time.Second)) || at.After(ended) {
+				continue
+			}
+			if issue := state.DoneClosed(event); issue != "" {
+				finished = append(finished, afk.Finish{Task: id, Closed: issue, At: at, Note: note})
+				continue
+			}
 			rest, done := strings.CutPrefix(event, "done: PR ")
-			if !done || at.Before(since.Truncate(time.Second)) || at.After(ended) {
+			if !done {
 				continue
 			}
 			if fields := strings.Fields(rest); len(fields) > 0 && strings.HasPrefix(fields[0], "https://") {
