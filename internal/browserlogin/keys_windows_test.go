@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -304,12 +306,7 @@ func TestAClosedTabIsNoLongerListedOnceCloseTabReturns(t *testing.T) {
 // fetch than before it. Holding every process of the browser for as long
 // stands in for such a pause.
 func TestTheKeyTabClosesThroughAStallOfTheWholeBrowser(t *testing.T) {
-	const (
-		stall = 11 * time.Second
-		// statusProcessIsTerminating is NtResumeProcess's answer for a
-		// process that ended while it was held.
-		statusProcessIsTerminating = 0xC000010A
-	)
+	const stall = 11 * time.Second
 	for _, test := range []struct {
 		name  string
 		close func(ctx context.Context, address, tab string, connection *cdp.Conn)
@@ -333,16 +330,9 @@ func TestTheKeyTabClosesThroughAStallOfTheWholeBrowser(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			var held []windows.Handle
-			for _, id := range ids {
-				handle, err := windows.OpenProcess(windows.PROCESS_SUSPEND_RESUME, false, id)
-				if err != nil {
-					t.Fatal(err)
-				}
-				held = append(held, handle)
-				if status, _, _ := ntSuspendProcess.Call(uintptr(handle)); status != 0 {
-					t.Fatalf("hold chrome's process %d: status %#x", id, status)
-				}
+			held, err := holdProcesses(ids)
+			if err != nil {
+				t.Fatal(err)
 			}
 			stalled := time.Now()
 			resumed := make(chan uintptr, 1)
@@ -377,6 +367,103 @@ func TestTheKeyTabClosesThroughAStallOfTheWholeBrowser(t *testing.T) {
 			}
 			if waited < stall {
 				t.Fatalf("the tab closed %s into its browser's %s stall, so the stall never held it", waited, stall)
+			}
+		})
+	}
+}
+
+// statusProcessIsTerminating is the answer of NtSuspendProcess and
+// NtResumeProcess for a process that is ending or has ended.
+const statusProcessIsTerminating = 0xC000010A
+
+// holdProcesses suspends each process in ids and returns the handles to let
+// them go by. A process that ended after it was listed has nothing to hold, so
+// it is skipped, and a hold that skipped the browser itself shows as a stall
+// that held nothing.
+func holdProcesses(ids []uint32) ([]windows.Handle, error) {
+	var held []windows.Handle
+	for _, id := range ids {
+		handle, err := windows.OpenProcess(windows.PROCESS_SUSPEND_RESUME, false, id)
+		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		status, _, _ := ntSuspendProcess.Call(uintptr(handle))
+		if status == statusProcessIsTerminating {
+			windows.CloseHandle(handle)
+			continue
+		}
+		held = append(held, handle)
+		if status != 0 {
+			return nil, fmt.Errorf("hold chrome's process %d: status %#x", id, status)
+		}
+	}
+	return held, nil
+}
+
+// TestHeldProcessFixture is a process to hold, which waits to be ended.
+func TestHeldProcessFixture(t *testing.T) {
+	if os.Getenv("CFO_HELD_PROCESS_FIXTURE") != "1" {
+		return
+	}
+	time.Sleep(time.Minute)
+}
+
+// A browser's job can list a process that ends before the hold reaches it:
+// Windows then answers STATUS_PROCESS_IS_TERMINATING to the suspend while the
+// process is ending or a handle keeps it, and refuses to open a pid that names
+// no process once it has gone. Either failed the stall test on a browser that
+// was otherwise held, twice in a row on 2026-11-05 (issue 1795). The ended
+// process is listed first here, so a hold that stops at it never reaches the
+// live one.
+func TestHoldProcessesSkipsAProcessThatEndedAfterItWasListed(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		isHandleKept bool
+	}{
+		{name: "ended with a handle still on it", isHandleKept: true},
+		{name: "gone from its pid"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			ended := exec.Command(os.Args[0], "-test.run=^$")
+			if err := ended.Start(); err != nil {
+				t.Fatal(err)
+			}
+			exit, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(ended.Process.Pid))
+			if err != nil {
+				t.Fatal(err)
+			}
+			event, err := windows.WaitForSingleObject(exit, 60000)
+			windows.CloseHandle(exit)
+			if err != nil || event != windows.WAIT_OBJECT_0 {
+				t.Fatalf("the wait for the ended process = %d, %v", event, err)
+			}
+			if test.isHandleKept {
+				t.Cleanup(func() { _ = ended.Wait() })
+			} else if err := ended.Wait(); err != nil {
+				t.Fatal(err)
+			}
+			live := exec.Command(os.Args[0], "-test.run=^TestHeldProcessFixture$")
+			live.Env = append(os.Environ(), "CFO_HELD_PROCESS_FIXTURE=1")
+			if err := live.Start(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = live.Process.Kill(); _ = live.Wait() })
+
+			// Act
+			held, err := holdProcesses([]uint32{uint32(ended.Process.Pid), uint32(live.Process.Pid)})
+
+			// Assert
+			if err != nil || len(held) != 1 {
+				t.Fatalf("holdProcesses = %d held, %v; want the live process alone and no error", len(held), err)
+			}
+			status, _, _ := ntResumeProcess.Call(uintptr(held[0]))
+			windows.CloseHandle(held[0])
+			if status != 0 {
+				t.Fatalf("resume the live process: status %#x", status)
 			}
 		})
 	}
