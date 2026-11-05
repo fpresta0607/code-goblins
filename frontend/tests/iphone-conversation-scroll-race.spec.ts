@@ -1,5 +1,5 @@
 import { devices, expect, servePages, test } from "./site";
-import { delayedScroll, leaveEndWhileStreaming, phoneJumps, phoneReadsDown, phoneReadsUp, readUpWhileStreaming, startReplyAtEnd } from "./conversation-scroll-race";
+import { flingsOverHeldReplies, delayedScroll, leaveEndWhileStreaming, phoneJumps, phoneReadsDown, phoneReadsUp, readUpWhileStreaming, startReplyAtEnd } from "./conversation-scroll-race";
 import { at, NAME } from "./session-board";
 
 const PRIVATE = "https://pc.example.ts.net:4311";
@@ -65,6 +65,12 @@ test("WebKit leaves the end a few pixels up before the next streamed line", asyn
 test("WebKit keeps following the end when a reply's first line brings its usage", async ({ page }) => {
   await servePages(page.context(), PRIVATE);
   await startReplyAtEnd(page);
+});
+
+test("WebKit leaves him to read on down to long replies held back after a fling over them", async ({ page }) => {
+  test.slow();
+  await servePages(page.context(), PRIVATE);
+  await flingsOverHeldReplies(page);
 });
 
 for (const [isStreaming, when] of [[false, "idle"], [true, "while a reply streams"]] as const) {

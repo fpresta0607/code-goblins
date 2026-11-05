@@ -6,7 +6,7 @@ import { Icon } from "./Icon";
 import { keptFileAddress } from "./kept-files";
 import { MessageRow } from "./message-row";
 import { MessageDocumentScope } from "./message-document-scope";
-import { drawnSpans, ESTIMATED_ROW_PX, messageRowAt, messageWindow } from "./message-window";
+import { drawnSpans, ESTIMATED_ROW_PX, messageRowAt, messageWindow, OVERSCAN_PX } from "./message-window";
 import { Notice } from "./notice";
 import { ReplyWorking } from "./reply-working";
 import { changeMessages, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
@@ -115,9 +115,12 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const anchor = useRef<{ id: string; offset: number } | null>(null);
   const observedTop = useRef<number | null>(null);
   // Where his last scroll left the list, apart from observedTop, as a streamed
-  // line or a board snapshot can note his scroll before its event says so.
+  // line or a board snapshot can note his scroll before its event says so. It
+  // takes what the list's own write at rest moves it by, which is no scroll of
+  // his down.
   const scrolledTo = useRef(0);
   const reconcile = useRef<() => void>(() => {});
+  const floor = useRef<HTMLDivElement>(null);
   // The room above the rows drawn stands for the rows it holds at the
   // window's heights. A row drawn into it, and while he scrolls anything else
   // that moves above him, takes its room from it, so the rows below stay
@@ -311,6 +314,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
           box.scrollTop = top + moving;
           moved = box.scrollTop - top;
           observedTop.current += moved;
+          scrolledTo.current += moved;
         }
         const shift = Math.max(0, room - change + moved) - estimated;
         if (!isScrolling.current && estimated === 0 && shift > 0) {
@@ -324,6 +328,15 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     if (following.current) {
       roomShift.current = 0;
       rows.style.setProperty("--room-shift", "0px");
+    }
+    // Rows leaving the window go from the page before those taking their
+    // place arrive, and WebKit can lay the list out between the two: near the
+    // end, a list short of them pulls his scroll up to what is left, and keeps
+    // it there once they arrive. The floor holds the list's height through
+    // that, and takes its own here, before the follow reads the height.
+    const { paddingTop, paddingBottom } = getComputedStyle(box);
+    if (floor.current) floor.current.style.height = rows.getBoundingClientRect().height + parseFloat(paddingTop) + parseFloat(paddingBottom) + "px";
+    if (following.current) {
       box.scrollTo({ top: box.scrollHeight, behavior: "instant" });
       observedTop.current = box.scrollTop;
       isJumping.current = false;
@@ -487,9 +500,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   };
   // readInBelow draws what streamed while he read further up once his scroll
   // down brings the end he left within a screen, so the list goes on below
-  // him. He follows from that end only if the rest lies within a screen too:
-  // from further off the list would leap by all that streamed meanwhile, and
-  // he reads on down to it.
+  // him. The rows drawn move to where he is first, as a scroll can land past
+  // them, so what lies below is measured and not its estimate. He follows from
+  // that end only if the rest lies within a screen too: from further off the
+  // list would leap by all that streamed meanwhile, and he reads on down to it.
   const readInBelow = (box: HTMLElement) => {
     const distance = box.scrollHeight - box.scrollTop - box.clientHeight;
     const isDown = box.scrollTop > scrolledTo.current;
@@ -497,11 +511,14 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     if (following.current || !isDown || distance > box.clientHeight || heldValue.current.messages === latest.current.messages) return;
     isTaking.current = true;
     try {
-      flushSync(() => setHeld(latest.current));
+      flushSync(() => {
+        setHeld(latest.current);
+        setView((prior) => ({ ...prior, top: box.scrollTop, anchor: "" }));
+      });
     } finally {
       isTaking.current = false;
     }
-    following.current = distance <= AT_END_PX && box.scrollHeight - box.scrollTop - box.clientHeight <= box.clientHeight;
+    following.current = distance <= AT_END_PX && box.scrollHeight - box.scrollTop - box.clientHeight <= Math.min(box.clientHeight, OVERSCAN_PX);
   };
   const remember = () => {
     isScrolling.current = true;
@@ -723,6 +740,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
         onTouchStart={() => { isTouching.current = true; }}
         onFocus={(event) => { focusedRow.current = event.target.closest<HTMLElement>("[data-message]")?.dataset.message ?? ""; }}
         onBlur={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) focusedRow.current = ""; }}>
+        <div ref={floor} className="conversation-floor" />
         <div ref={items} className="conversation-items" style={{ paddingTop: `calc(${estimatedRoom}px + var(--room-shift, 0px))` }}>
           {/* One flat list keyed by message, so a row keeps its place in the
               page, its DOM and any selection in it as the window moves. */}

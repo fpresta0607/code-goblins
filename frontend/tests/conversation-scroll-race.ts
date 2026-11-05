@@ -88,7 +88,7 @@ const WORKING = { type: "screen", asking: false, open: false, working: true, sub
 interface Frame { t: number; top: number; end: number; rows: { id: string; offset: number }[] }
 interface Written { t: number; kind: string; delta: number; sinceScroll: number }
 interface Watched { frames: Frame[]; writes: Written[]; rowsDrawn: number[] }
-interface Watcher { watch: () => void; watched: () => Watched; quiet: () => number; flick: (distance: number) => Promise<void>; startStream: (every?: number) => void; stopStream: () => void; newest: () => string }
+interface Watcher { watch: () => void; watched: () => Watched; quiet: () => number; flick: (distance: number) => Promise<void>; land: (distance: number) => void; startStream: (every?: number) => void; stopStream: () => void; newest: () => string }
 const watcher = (page: Page) => page.evaluate(() => (window as unknown as Watcher).watch());
 const watched = (page: Page) => page.evaluate(() => (window as unknown as Watcher).watched());
 
@@ -155,6 +155,11 @@ async function streamingTalk(page: Page, { isStreaming = true, owner = "goblin" 
           await new Promise(requestAnimationFrame);
         }
       },
+      // His own scroll this far in one frame, with no frame after it.
+      land: (distance) => {
+        const box = talk()!;
+        scrollTop.set!.call(box, scrollTop.get!.call(box) + distance);
+      },
     };
     Object.assign(window, watcher);
   });
@@ -203,6 +208,8 @@ async function streamingTalk(page: Page, { isStreaming = true, owner = "goblin" 
   return { talk, start, stop: () => { clearInterval(says); return page.evaluate(() => (window as unknown as Watcher).stopStream()); } };
 }
 
+const writtenBetween = (writes: Written[], from: Frame, to: Frame) => writes.filter((write) => write.t > from.t && write.t <= to.t).reduce((sum, write) => sum + write.delta, 0);
+
 // moved is the most any row in view jumped from one frame to the next: how
 // far it moved within the list's content, less how far the page's own scroll
 // writes moved the list meanwhile. His own scroll moves the scroll top alone,
@@ -211,12 +218,21 @@ async function streamingTalk(page: Page, { isStreaming = true, owner = "goblin" 
 function moved({ frames, writes }: Watched) {
   let most = 0;
   for (let at = 1; at < frames.length; at++) {
-    const written = writes.filter((write) => write.t > frames[at - 1].t && write.t <= frames[at].t).reduce((sum, write) => sum + write.delta, 0);
+    const written = writtenBetween(writes, frames[at - 1], frames[at]);
     for (const row of frames[at].rows) {
       const prior = frames[at - 1].rows.find((each) => each.id === row.id);
       if (prior) most = Math.max(most, Math.abs(row.offset + frames[at].top - prior.offset - frames[at - 1].top - written));
     }
   }
+  return most;
+}
+
+// fellBack is the most the list fell back in one frame as he read down, past
+// what the page wrote: a browser that pulls the scroll position up by itself
+// writes nothing, so no count of the page's writes shows it.
+function fellBack({ frames, writes }: Watched) {
+  let most = 0;
+  for (let at = 1; at < frames.length; at++) most = Math.max(most, frames[at - 1].top + writtenBetween(writes, frames[at - 1], frames[at]) - frames[at].top);
   return most;
 }
 
@@ -341,6 +357,66 @@ export async function leaveEndWhileStreaming(page: Page, leave: (talk: Locator) 
   await page.evaluate(() => (window as unknown as Watcher).startStream());
   const read = await watchStill(page, 800);
   expect({ writes: read.writes, isStill: stillness(read.frames) <= 1 }).toEqual({ writes: [], isStill: true });
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+  await stop();
+}
+
+// rowGrowsAboveHim rests a way up from the end while a reply streams, and a
+// row above him grows as a picture in it loads. What the list writes to keep
+// his place is no scroll of his down: what streamed stays held back, and from
+// a few pixels off the end he does not follow it again.
+export async function rowGrowsAboveHim(page: Page, reach: number) {
+  const { talk, stop } = await streamingTalk(page);
+  const reply = talk.locator('[data-message="m300"]');
+  await talk.hover();
+  await page.mouse.wheel(0, -reach);
+  const jump = page.getByRole("button", { name: "Jump to latest" });
+  await expect(jump).toBeVisible();
+  await quiet(page);
+  const held = await reply.textContent();
+  await watcher(page);
+  await talk.evaluate((element) => {
+    const top = element.getBoundingClientRect().top;
+    const above = [...element.querySelectorAll<HTMLElement>("[data-message]")].filter((row) => row.getBoundingClientRect().bottom < top).at(-1)!;
+    above.style.height = above.offsetHeight + 200 + "px";
+  });
+  await quiet(page);
+  const { writes } = await watched(page);
+  expect(writes.reduce((sum, write) => sum + write.delta, 0)).toBeGreaterThan(190);
+  expect(await reply.textContent()).toBe(held);
+  await expect(jump).toBeVisible();
+  await stop();
+}
+
+// flingsOverHeldReplies reads far up, where long replies arrive held back, and
+// lands on the end he left in one frame, past every row drawn, as a fling does
+// when the page falls behind it. There those replies still count at their
+// estimates, within a screen, though they reach further: he stays where he
+// landed with them drawn below him, and neither the list, by moving itself to
+// their end, nor WebKit, by laying the list out without the rows it swaps,
+// moves him from there.
+export async function flingsOverHeldReplies(page: Page) {
+  const { talk, stop } = await streamingTalk(page, { isStreaming: false });
+  const screen = await talk.evaluate((element) => element.clientHeight);
+  await glide(page, -6000);
+  await quiet(page);
+  await page.evaluate(() => {
+    const blocks = Array.from({ length: 40 }, (_, line) => ({ kind: "text", text: "Held line " + line + " of a reply that arrived while he read." }));
+    const messages = [300, 301, 302].map((seq) => ({ id: "m" + seq, seq, at: "2026-10-22T09:00:00Z", kind: "reply", blocks }));
+    window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages } } }));
+  });
+  const height = () => talk.evaluate((element) => element.scrollHeight);
+  const top = () => talk.evaluate((element) => element.scrollTop);
+  const heldHeight = await height();
+  const end = await distanceToEnd(talk);
+  const landed = await top() + end;
+  await watcher(page);
+  await page.evaluate((end) => (window as unknown as Watcher).land(end), end);
+  await quiet(page);
+  const { writes } = await watched(page);
+  expect(await height() - heldHeight).toBeGreaterThan(screen);
+  expect(writes.filter((write) => Math.abs(write.delta) >= screen)).toEqual([]);
+  expect(Math.abs(await top() - landed - writes.reduce((sum, write) => sum + write.delta, 0))).toBeLessThanOrEqual(1);
   await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
   await stop();
 }
@@ -494,8 +570,8 @@ export async function phoneReadsDown(page: Page, isStreaming: boolean) {
   const arrived = scrolled.frames.findIndex((frame) => frame.end <= 1);
   expect(arrived).toBeGreaterThan(0);
   const reaching = { ...scrolled, frames: scrolled.frames.slice(0, arrived), writes: scrolled.writes.filter((write) => write.t <= scrolled.frames[arrived - 1].t) };
-  expect({ writes: whileScrolling(reaching.writes), isStill: moved(reaching) <= 1, leaps: scrolled.writes.filter((write) => Math.abs(write.delta) >= screen) })
-    .toEqual({ writes: [], isStill: true, leaps: [] });
+  expect({ writes: whileScrolling(reaching.writes), isStill: moved(reaching) <= 1, isHeld: fellBack(reaching) <= 1, leaps: scrolled.writes.filter((write) => Math.abs(write.delta) >= screen) })
+    .toEqual({ writes: [], isStill: true, isHeld: true, leaps: [] });
   await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
   await expect(talk.locator(`[data-message="${await newest(page)}"]`)).toBeInViewport();
   await stop();

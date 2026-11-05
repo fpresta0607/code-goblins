@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "./site";
 import { at, GOBLIN, NAME, open, openGoblin, snapshot } from "./session-board";
-import { delayedScroll, leaveEndWhileStreaming, readOlderPastLostRelease, readUpUnderHeldFinger, readUpWhileStreaming } from "./conversation-scroll-race";
+import { delayedScroll, flingsOverHeldReplies, leaveEndWhileStreaming, readOlderPastLostRelease, readUpUnderHeldFinger, readUpWhileStreaming, rowGrowsAboveHim } from "./conversation-scroll-race";
 
 for (const owner of ["CFO", "goblin"] as const) {
   for (const movement of ["keyboard", "wheel"] as const) {
@@ -28,6 +28,20 @@ test("a few pixels up from the end leave it before the next streamed line", asyn
     await talk.hover();
     await page.mouse.wheel(0, -6);
   });
+});
+
+// The list's own write as a row grows above him is no scroll of his down, from
+// a screen up as from a few pixels off the end.
+for (const reach of [6, 300]) {
+  test(`a row growing above him ${reach} px up from the end leaves what streams held back`, async ({ page }) => {
+    test.slow();
+    await rowGrowsAboveHim(page, reach);
+  });
+}
+
+test("a fling over long replies held back leaves him to read on down to them", async ({ page }) => {
+  test.slow();
+  await flingsOverHeldReplies(page);
 });
 
 // A finger held still on the list keeps his scroll from rest until it lifts,
