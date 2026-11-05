@@ -222,6 +222,56 @@ test("an idle board draws nothing between its minutes", async ({ page }) => {
   expect(counts.commits, JSON.stringify(counts.rendered)).toBe(0);
 });
 
+// openAsked opens the Command Center on a question fifty seconds old, with the
+// clock five seconds into a minute (#1641).
+async function openAsked(page: Page) {
+  await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
+  const asked = { id: "asked", identity: "c".repeat(64), task: "", status: "pending", created_at: "2026-10-27T11:59:15Z", text: "Merge the train?", options: ["Merge it", "Hold it"], recommended: "Merge it" };
+  const snapshot = { ...fleet([...WORKING, ...RESTING]), questions: [asked] };
+  await open(page, snapshot);
+  await page.locator(".command-center-menu > summary").click();
+  const shown = page.locator(".inbox-list.waiting time");
+  await expect(shown).toHaveText("under a minute ago");
+  return { snapshot, shown };
+}
+
+test("an open Command Center draws nothing between its minutes", async ({ page }) => {
+  // Arrange
+  const { shown } = await openAsked(page);
+  await reset(page);
+
+  // Act
+  await page.clock.runFor(20_000);
+
+  // Assert
+  const counts = await counted(page);
+  expect(counts.commits, JSON.stringify(counts.rendered)).toBe(0);
+  await expect(shown).toHaveText("under a minute ago");
+});
+
+test("an age in the Command Center moves with the next snapshot", async ({ page }) => {
+  // Arrange: the question passes its first minute between two snapshots.
+  const { snapshot, shown } = await openAsked(page);
+  await page.clock.runFor(20_000);
+
+  // Act
+  await push(page, { ...snapshot, revision: 2 });
+
+  // Assert
+  await expect(shown).toHaveText("1m ago");
+});
+
+test("an age in the Command Center moves with the minute", async ({ page }) => {
+  // Arrange
+  const { shown } = await openAsked(page);
+
+  // Act: the clock reaches 12:02 with no snapshot on the way.
+  await page.clock.runFor(115_000);
+
+  // Assert
+  await expect(shown).toHaveText("2m ago");
+});
+
 test("a snapshot that changes nothing draws no card and almost nothing else", async ({ page }) => {
   // Arrange: the clock stands five seconds into a minute.
   await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
