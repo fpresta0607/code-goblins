@@ -824,8 +824,8 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
             }
         }
         # A tool from a fork's release file keeps no build of its command
-        # that cfo doctor would fail, and the one that replaces it stays out
-        # of the record, so the uninstall leaves the command in place.
+        # that cfo doctor would fail, and replacing one adds nothing to the
+        # record, so the uninstall removes only a command an install fetched.
         $isReplacing = $false
         if ($found -and $tool.Kind -eq "npm-file") {
             $problem = Test-ForkBuild $tool
