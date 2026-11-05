@@ -682,3 +682,36 @@ func TestWriteTaskMCPServersChangesOnlyItsOwnLine(t *testing.T) {
 		t.Errorf("the record's other lines = %v, %v, want them as they were", after, err)
 	}
 }
+
+// A task whose brief left the crawler out says so in its record, and a task
+// that carries it, as every task an older build spawned, has no line for it.
+func TestTheCrawlerLeftOutRoundTripsAndACarryingTaskHasNoLine(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	if err := WriteTaskMeta(dir, TaskMeta{ID: "g1", Kind: "ship", Mode: "direct-PR"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteTaskMeta(dir, TaskMeta{ID: "g2", Kind: "ship", Mode: "direct-PR", IsCrawlerLeftOut: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	carrying, carryingErr := ReadTaskMeta(dir, "g1")
+	leftOut, leftOutErr := ReadTaskMeta(dir, "g2")
+	carryingLines, carryingLinesErr := ReadMeta(TaskMetaPath(dir, "g1"))
+	leftOutLines, leftOutLinesErr := ReadMeta(TaskMetaPath(dir, "g2"))
+
+	// Assert
+	if carryingErr != nil || carrying.IsCrawlerLeftOut {
+		t.Errorf("a task that carries the crawler reads left out = %v, %v", carrying.IsCrawlerLeftOut, carryingErr)
+	}
+	if leftOutErr != nil || !leftOut.IsCrawlerLeftOut {
+		t.Errorf("a task written with the crawler left out reads left out = %v, %v", leftOut.IsCrawlerLeftOut, leftOutErr)
+	}
+	if _, isNamed := carryingLines["connectors"]; carryingLinesErr != nil || isNamed {
+		t.Errorf("a carrying task's record = %v, %v, want no connectors line", carryingLines, carryingLinesErr)
+	}
+	if leftOutLinesErr != nil || leftOutLines["connectors"] != "none" {
+		t.Errorf("a left-out task's record = %v, %v, want connectors=none", leftOutLines, leftOutLinesErr)
+	}
+}

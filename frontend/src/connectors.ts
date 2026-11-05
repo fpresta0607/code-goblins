@@ -34,6 +34,7 @@ const SERVICES: [RegExp, Mark, string][] = [
   [/ionos/, { brand: "ionos" }, "IONOS hosting and domains"],
   [/postgres|^pg/, { brand: "postgres" }, "PostgreSQL database"],
   [/database|^db/, { glyph: "database" }, "Database access"],
+  [/^crawler$/, { glyph: "browser-check" }, "Finds and reads every page and file of a site"],
 ];
 
 const serviceOf = (name: string) => {

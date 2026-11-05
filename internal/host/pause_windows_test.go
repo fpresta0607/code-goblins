@@ -389,7 +389,7 @@ func TestALaunchWaitsForItsHostToRecordItselfAcrossAPauseOfTheWholeMachine(t *te
 	// Arrange: the launch finds the host's record only after the pause, as
 	// when the pause stopped the host before it recorded itself, and the
 	// pause falls once the launch has begun to look.
-	shorten(t, &launchTimeout, time.Second)
+	shorten(t, &LaunchTimeout, time.Second)
 	usual := readLaunchRecord
 	var isRecorded atomic.Bool
 	var looking sync.Once

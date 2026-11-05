@@ -37,7 +37,7 @@ func (s *Service) connections() (*connections.Cache, *connections.Inspector) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.connectionInspector == nil {
-		s.connectionInspector = connections.NewInspector(s.Store.Home.Data, s.Store.Home.State)
+		s.connectionInspector = connections.NewInspector(s.Store.Home.Root, s.Store.Home.Data, s.Store.Home.State)
 	}
 	if s.connectionChecks == nil {
 		inspector := s.connectionInspector

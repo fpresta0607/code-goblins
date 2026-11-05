@@ -69,3 +69,5 @@ config/
 
 # Where an older build put goblin worktrees; they now live in the CFO home.
 .worktrees/
+# The crawler connector's packages, which npm ci installs from its lockfile.
+/connectors/crawler/node_modules/

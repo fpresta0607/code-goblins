@@ -80,11 +80,13 @@ func TestBriefReadinessRequiresAuthoredRequirementsAndFinalLaunchChoices(t *test
 		{name: "comment in credential key", content: strings.ReplaceAll(authoredBrief, "credentials: none", "creden<!-- unfinished -->tials: none")},
 		{name: "missing mcp", content: strings.ReplaceAll(authoredBrief, "mcp: none\n", "")},
 		{name: "malformed credentials", content: strings.ReplaceAll(authoredBrief, "credentials: none", "credentials: none, github")},
+		{name: "a connector that is no default", content: strings.ReplaceAll(authoredBrief, "mcp: none\n", "mcp: none\nconnectors: firecrawl\n")},
 		{name: "missing mode", content: strings.ReplaceAll(authoredBrief, "mode: no-mistakes\n", "")},
 		{name: "invalid mode", content: strings.ReplaceAll(authoredBrief, "mode: no-mistakes", "mode: perhaps")},
 		{name: "missing finalization", content: strings.ReplaceAll(authoredBrief, "ready: true", "")},
 		{name: "finalized choices", content: authoredBrief, isReady: true},
 		{name: "CRLF", content: strings.ReplaceAll(authoredBrief, "\n", "\r\n"), isReady: true},
+		{name: "the crawler left out", content: strings.ReplaceAll(authoredBrief, "mcp: none\n", "mcp: none\nconnectors: none\n"), isReady: true},
 		{name: "task text is not metadata", content: strings.ReplaceAll(authoredBrief, "Build the requested change.", "Explain ready: false."), isReady: true},
 		{name: "quoted issue example is not a placeholder", content: strings.ReplaceAll(authoredBrief, "Build the requested change.", "Fix the issue reporting this example:\n> {TASK - describe work}"), isReady: true},
 	}

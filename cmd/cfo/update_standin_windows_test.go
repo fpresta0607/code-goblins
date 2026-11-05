@@ -336,7 +336,7 @@ func standInInstall() int {
 	if os.Getenv("CFO_TEST_INSTALL_HANGS") != "" {
 		time.Sleep(3 * time.Minute)
 	}
-	return runInstall(os.Args[2:], os.Stdout, os.Stderr)
+	return runInstall(os.Args[2:], os.Stdout, os.Stderr, commandRuntime{crawlerNpm: &crawlerPackages{}})
 }
 
 func standInUpdate() int {
