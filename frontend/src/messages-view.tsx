@@ -460,6 +460,22 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     rows.style.setProperty("--room-shift", roomShift.current + "px");
   }, [estimatedRoom, offsets, rowIndices]);
 
+  // anchorOf finds the message at the list's top and how far above or below
+  // that top it lies, which the window reads the rows from.
+  const anchorOf = (box: HTMLElement) => {
+    const top = box.getBoundingClientRect().top;
+    const first = [...box.querySelectorAll<HTMLElement>("[data-message]")].find((row) => row.getBoundingClientRect().bottom > top);
+    const firstTop = first?.getBoundingClientRect().top ?? Infinity;
+    if (first && firstTop < top + box.clientHeight) return { id: first.dataset.message || "", offset: firstTop - top };
+    // A jump past the rows drawn finds none of them in view, so the message
+    // at the top is read from the rows' heights, where the window places
+    // each row.
+    const at = (items.current?.getBoundingClientRect().top ?? top) - top + roomShift.current;
+    const index = Math.min(held.messages.length - 1, messageRowAt(offsets, -at));
+    const message = held.messages[index];
+    return message ? { id: message.id, offset: at + offsets[index] } : null;
+  };
+  const placeOf = (box: HTMLElement, kept: { id: string; offset: number } | null) => ({ top: box.scrollTop, height: box.clientHeight, anchor: kept?.id ?? "", offset: kept?.offset ?? 0 });
   // remember notes where he reads after he scrolls, draws the rows that come
   // within reach, and reads the older page once he nears the top.
   const rememberPosition = () => {
@@ -481,29 +497,19 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     following.current = isEnd;
     setAtEnd(isEnd);
     if (isEnd) setHeld(latest.current);
-    const top = box.getBoundingClientRect().top;
-    const first = [...box.querySelectorAll<HTMLElement>("[data-message]")].find((row) => row.getBoundingClientRect().bottom > top);
-    const firstTop = first?.getBoundingClientRect().top ?? Infinity;
-    if (first && firstTop < top + box.clientHeight) anchor.current = { id: first.dataset.message || "", offset: firstTop - top };
-    else {
-      // A jump past the rows drawn finds none of them in view, so the message
-      // at the top is read from the rows' heights, where the window places
-      // each row.
-      const at = (items.current?.getBoundingClientRect().top ?? top) - top + roomShift.current;
-      const index = Math.min(held.messages.length - 1, messageRowAt(offsets, -at));
-      const message = held.messages[index];
-      anchor.current = message ? { id: message.id, offset: at + offsets[index] } : null;
-    }
-    const place = { top: box.scrollTop, height: box.clientHeight, anchor: anchor.current?.id ?? "", offset: anchor.current?.offset ?? 0 };
+    anchor.current = anchorOf(box);
+    const place = placeOf(box, anchor.current);
     const next = windowAt(place, isEnd);
     if (next.start !== drawn.start || next.end !== drawn.end || isEnd !== isAtEnd) setView(place);
   };
   // readInBelow draws what streamed while he read further up once his scroll
   // down brings the end he left within a screen, so the list goes on below
-  // him. The rows drawn move to where he is first, as a scroll can land past
-  // them, so what lies below is measured and not its estimate. He follows from
-  // that end only if the rest lies within a screen too: from further off the
-  // list would leap by all that streamed meanwhile, and he reads on down to it.
+  // him. The rows drawn move to the message he reads first, as a scroll can
+  // land past them, so what lies below is measured and not its estimate; that
+  // message goes to the view alone, as settle pairs the anchor with the scroll
+  // top noted beside it. He follows from that end only if the rest lies within
+  // a screen too: from further off the list would leap by all that streamed
+  // meanwhile, and he reads on down to it.
   const readInBelow = (box: HTMLElement) => {
     const distance = box.scrollHeight - box.scrollTop - box.clientHeight;
     const isDown = box.scrollTop > scrolledTo.current;
@@ -513,7 +519,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     try {
       flushSync(() => {
         setHeld(latest.current);
-        setView((prior) => ({ ...prior, top: box.scrollTop - roomShift.current, anchor: "" }));
+        setView(placeOf(box, anchorOf(box)));
       });
     } finally {
       isTaking.current = false;

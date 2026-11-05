@@ -136,6 +136,56 @@ test("older history keeps the reading anchor when its response precedes scroll d
   expect(after).toEqual({ same: true, text: before.text, offset: before.offset });
 });
 
+// Read-in leaves the view on the message he reads, not on a scroll top an older
+// page shifts: a step that crosses no row draws no view of its own after it.
+test("an older page after a read-in below him leaves the message he reads where it was", async ({ page }) => {
+  test.slow();
+  const reply = (seq: number) => ({ id: "m" + seq, seq, at, kind: "reply", blocks: [{ kind: "text", text: "Answer " + seq + "\n\nMore to read." }] });
+  const conversation = "fixture-conversation";
+  await open(page, snapshot(), "", { conversation, messages: Array.from({ length: 50 }, (_, index) => reply(index + 50)), more: true });
+  let release = () => {};
+  const waiting = new Promise<void>((resolve) => { release = resolve; });
+  const requests: string[] = [];
+  await page.route((url) => url.pathname === "/api/messages" && url.searchParams.has("before"), async (route) => {
+    requests.push(route.request().url());
+    await waiting;
+    await route.fulfill({ json: { conversation, messages: Array.from({ length: 50 }, (_, index) => reply(index)), more: false } });
+  });
+  await openGoblin(page);
+  const talk = page.getByRole("log", { name: "Messages of " + NAME });
+  await expect(talk.locator('[data-message="m99"]')).toBeVisible();
+  await talk.evaluate((element) => { element.scrollTop = 0; });
+  await expect.poll(() => requests.length).toBe(1);
+  await page.evaluate((messages) => {
+    window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages } } }));
+  }, Array.from({ length: 6 }, (_, index) => reply(index + 100)));
+  // Landing measures the rows, so the second lands true: a pixel outside the
+  // screen from the end where read-in begins, a step that crosses no row away.
+  for (let landing = 0; landing < 2; landing++) {
+    await talk.evaluate((element) => { element.scrollTop = element.scrollHeight - element.clientHeight * 2 - 1; });
+    await page.waitForTimeout(600);
+  }
+  await talk.evaluate((element) => { element.scrollTop += 2; });
+  await expect(talk.locator('[data-message="m100"]')).toBeAttached();
+  await page.waitForTimeout(600);
+  const before = await talk.evaluate((element) => {
+    const top = element.getBoundingClientRect().top;
+    const row = [...element.querySelectorAll<HTMLElement>("[data-message]")].find((item) => item.getBoundingClientRect().bottom > top)!;
+    return { id: row.dataset.message!, offset: row.getBoundingClientRect().top - top, height: element.scrollHeight };
+  });
+  const response = page.waitForResponse((value) => new URL(value.url()).searchParams.has("before"));
+  release();
+  await (await response).finished();
+  await expect.poll(() => talk.evaluate((element) => element.scrollHeight)).toBeGreaterThan(before.height + 1000);
+  await page.waitForTimeout(600);
+  const after = await talk.evaluate((element, id) => {
+    const row = element.querySelector<HTMLElement>(`[data-message="${id}"]`);
+    return row && row.getBoundingClientRect().top - element.getBoundingClientRect().top;
+  }, before.id);
+  expect(after).not.toBeNull();
+  expect(Math.abs(after! - before.offset)).toBeLessThanOrEqual(1);
+});
+
 async function raceTalk(page: Page, actions: object[] = [], setup?: () => Promise<void>) {
   const messages = Array.from({ length: 1000 }, (_, seq) => ({ id: "m" + seq, seq, at, kind: "reply", blocks: [{ kind: "text", text: "Answer " + seq + "\n\nMore to read." }] }));
   await open(page, snapshot({ actions }), "", { conversation: "fixture-conversation", messages, more: false });
