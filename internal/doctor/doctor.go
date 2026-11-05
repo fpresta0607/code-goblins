@@ -47,6 +47,17 @@ type Check struct {
 // install.ps1 installs the same file, once it matches the SHA256 pinned there.
 const LavishRelease = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.19/lavish-axi-0.1.79-codegoblins.19.tgz"
 
+// ChromeDevtoolsRelease is the Code Goblins build of chrome-devtools-axi, from
+// the fork at github.com/fpresta0607/chrome-devtools-axi: upstream's browser
+// command with a bridge only its own Windows user can drive, which cfo auth
+// browser needs, a chrome-devtools-mcp started with its update checks and
+// usage statistics off (#1446), and a run that imports its script by file URL
+// on Windows (#1537). An earlier build, the upstream package and a build of
+// the fork's installed by hand under 0.1.40-codegoblins.1 or .2 lack some of
+// it. install.ps1 installs the same file, once it matches the SHA256 pinned
+// there.
+const ChromeDevtoolsRelease = "https://github.com/fpresta0607/chrome-devtools-axi/releases/download/v0.1.40-codegoblins.3/chrome-devtools-axi-0.1.40-codegoblins.3.tgz"
+
 var tools = []struct {
 	name  string
 	hint  string
@@ -66,7 +77,7 @@ var tools = []struct {
 	// release without its launch selection.
 	{name: "no-mistakes", hint: "rerun the Code Goblins install: irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install.ps1 | iex"},
 	{name: "gh-axi", hint: "npm install -g gh-axi"},
-	{name: "chrome-devtools-axi", hint: "npm install -g chrome-devtools-axi"},
+	{name: "chrome-devtools-axi", hint: "npm install -g " + ChromeDevtoolsRelease, floor: "0.1.40-codegoblins.3", build: "codegoblins"},
 	{name: "lavish-axi", hint: "npm install -g " + LavishRelease, floor: "0.1.79-codegoblins.19", build: "codegoblins", presentation: true},
 	{name: "winget", hint: "App Installer from the Microsoft Store, https://apps.microsoft.com/detail/9NBLGGH4NNS1", installer: true},
 }
