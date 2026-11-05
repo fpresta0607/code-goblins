@@ -1821,7 +1821,13 @@ func TestAGoblinCitesTheDecisionItsBlockedNotifyPrintedThoughTheBoardAnsweredIt(
 	stateDir := questionHome(t)
 	nativeGoblin(t, stateDir, "g1")
 	var asked, stderr bytes.Buffer
-	if exit := runNotify([]string{"g1", "--blocked", "Close it? options: Close it, no PR (Recommended) | Keep it open"}, &asked, &stderr, defaultCommandRuntime()); exit != 0 {
+	// The terminal nativeGoblin hosts runs under this test process, which it
+	// records as the goblin's program, so a done report would read that
+	// terminal's own console host and shell as left running once the test
+	// binary has run past fleettree.HarnessLaunch.
+	runtime := defaultCommandRuntime()
+	runtime.leftRunning = nil
+	if exit := runNotify([]string{"g1", "--blocked", "Close it? options: Close it, no PR (Recommended) | Keep it open"}, &asked, &stderr, runtime); exit != 0 {
 		t.Fatalf("exit = %d, stderr = %s", exit, stderr.String())
 	}
 	printed := regexp.MustCompile(`--decision (\d+)`).FindStringSubmatch(asked.String())
@@ -1838,7 +1844,7 @@ func TestAGoblinCitesTheDecisionItsBlockedNotifyPrintedThoughTheBoardAnsweredIt(
 	var stdout bytes.Buffer
 
 	// Act
-	exit := runNotify([]string{"g1", "--done", "--closed", closedIssue, "--decision", printed[1]}, &stdout, &stderr, defaultCommandRuntime())
+	exit := runNotify([]string{"g1", "--done", "--closed", closedIssue, "--decision", printed[1]}, &stdout, &stderr, runtime)
 
 	// Assert
 	if exit != 0 {
