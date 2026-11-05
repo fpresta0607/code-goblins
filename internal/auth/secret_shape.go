@@ -75,27 +75,31 @@ func IsKeyValue(token string) bool {
 	return hasValuePrefix(token) && len(token) >= 20 && strings.ContainsAny(token, "0123456789") || keyShaped[0].MatchString(token)
 }
 
-// SecretKey says a word typed into a plain field is or assigns a secret key,
-// which no name and no word of his makes safe to send, as a line copied from an
-// env file does.
-func SecretKey(word string) bool {
-	return slices.ContainsFunc(strings.Split(word, "="), secretToken)
-}
+// supabaseSecret matches a Supabase secret key by its start and a key's length
+// after it. Unlike exposedKinds it needs no digit, since a key of letters alone
+// is no less secret and that start says what it is.
+var supabaseSecret = regexp.MustCompile(`sb_secret_[A-Za-z0-9_-]{20,}`)
 
-// secretToken says text is a secret key: the start of a private key, which a
-// field of one line takes with its line breaks gone, a key of a known kind that
-// does not say it is public, or a long one that starts the way a secret key
-// does. A short word with a secret's start, such as a part number, and an
-// email address are no key.
-func secretToken(text string) bool {
-	token := strings.Trim(text, wordEdges)
-	switch {
-	case saysPublic(token), strings.Contains(token, "@"):
-		return false
-	case strings.HasPrefix(token, "-----BEGIN"):
-		return true
-	}
-	return IsKeyValue(token) || StartsSecret(token) && len(token) >= 20
+// webToken matches the header and payload of a JSON Web Token anywhere in text.
+// It stops before the signature, so a token run straight onto another is found.
+var webToken = regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.`)
+
+// keyRun matches a stretch of text written in the characters of a key.
+var keyRun = regexp.MustCompile(`[A-Za-z0-9_.-]+`)
+
+// HoldsSecretKey says a value typed into a plain field holds a secret key
+// anywhere in it, which no name and no word of his makes safe to send: a key
+// ExposedKeys finds, a Supabase secret key, a JSON Web Token whose role is not
+// anon, or a key of those kinds run straight onto a public key, with nothing
+// between them to mark a word's end. A Google API key is left out, since a key
+// for browsers looks the same, and a value that only starts the way a secret
+// key does is no key of these kinds.
+func HoldsSecretKey(value string) bool {
+	return holdsSecretKind(value, exposedKinds) || supabaseSecret.MatchString(value) ||
+		slices.ContainsFunc(webToken.FindAllString(value, -1), func(token string) bool { return TokenRole(token) != "anon" }) ||
+		slices.ContainsFunc(keyRun.FindAllString(value, -1), func(run string) bool {
+			return (StartsPublishable(run) || strings.HasPrefix(run, "eyJ")) && holdsSecretKind(run, runOnKinds)
+		})
 }
 
 // bareKey matches a value that is one key and nothing else.
@@ -110,14 +114,9 @@ var bareKey = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 // do, is not one key.
 func PlainPublicKey(name, value string) bool {
 	holdsSecret := slices.ContainsFunc(secretPrefixes, func(prefix string) bool { return strings.Contains(value, prefix) })
-	return PublishableName(name) && bareKey.MatchString(value) && !holdsSecret && saysPublic(value)
-}
-
-// saysPublic says a key's own text calls it public: it is an anon token, or it
-// names no role and starts the way a publishable key does.
-func saysPublic(value string) bool {
 	role := TokenRole(value)
-	return role == "anon" && strings.HasPrefix(value, "eyJ") || role == "" && StartsPublishable(value)
+	saysPublic := role == "anon" && strings.HasPrefix(value, "eyJ") || role == "" && StartsPublishable(value)
+	return PublishableName(name) && bareKey.MatchString(value) && !holdsSecret && saysPublic
 }
 
 // StartsSecret says a value starts the way a secret key does, which makes it

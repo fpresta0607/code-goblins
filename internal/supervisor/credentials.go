@@ -733,7 +733,8 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 	}
 	// A plain value goes into the goblin's conversation, so one that holds
 	// a key is refused without repeating it. A secret key is refused whatever
-	// he says, and one the value and the name together prove public is sent.
+	// he says, and one the value and the name together prove public is sent. A
+	// Google API key may be made for browsers, so that one is his to say.
 	for _, name := range plain {
 		value := input.Values[name]
 		switch {
@@ -743,10 +744,12 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 			return refuse(http.StatusBadRequest, fmt.Sprintf("%s is longer than %d KiB.", name, maxCredentialValue>>10))
 		case strings.ContainsFunc(value, unicode.IsControl):
 			return refuse(http.StatusBadRequest, name+" holds a line break or a tab. Type it as one line. Nothing was sent.")
-		case slices.ContainsFunc(strings.Fields(value), auth.SecretKey):
+		case auth.HoldsSecretKey(value):
 			return refuse(http.StatusBadRequest, name+" holds a secret key, and this field sends its value to the goblin as plain text. Nothing was sent. A secret goes only in a hidden field.")
+		case slices.Contains(auth.ExposedKeys(value), auth.GoogleAPIKey) && !slices.Contains(input.NotSecret, name):
+			return credentialOutcome{}, credentialRefusal{status: http.StatusBadRequest, LooksLikeKey: true, Message: name + " holds a Google API key, and this field sends its value to the goblin as plain text. Nothing was sent. If it is a browser key, say so below. A server key belongs in a secret field."}
 		case slices.ContainsFunc(strings.Fields(value), func(word string) bool {
-			return auth.IsKeyValue(word) || auth.SecretShape(word) != "" && !strings.Contains(word, "=")
+			return slices.ContainsFunc(strings.Split(word, "="), auth.IsKeyValue) || auth.SecretShape(word) != "" && !strings.Contains(word, "=")
 		}) && !slices.Contains(input.NotSecret, name) && !auth.PlainIdentifier(name, strings.TrimSpace(value)) && !auth.PlainPublicKey(name, strings.TrimSpace(value)):
 			return credentialOutcome{}, credentialRefusal{status: http.StatusBadRequest, LooksLikeKey: true, Message: name + " looks like a key, and this field sends its value to the goblin as plain text. Nothing was sent. If it is meant to be public, say so below. A secret goes only in a hidden field."}
 		}
