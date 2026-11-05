@@ -114,6 +114,9 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const isTaking = useRef(false);
   const anchor = useRef<{ id: string; offset: number } | null>(null);
   const observedTop = useRef<number | null>(null);
+  // Where his last scroll left the list, apart from observedTop, as a streamed
+  // line or a board snapshot can note his scroll before its event says so.
+  const scrolledTo = useRef(0);
   const reconcile = useRef<() => void>(() => {});
   // The room above the rows drawn stands for the rows it holds at the
   // window's heights. A row drawn into it, and while he scrolls anything else
@@ -457,8 +460,11 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     // own and keeps it following, as Jump to latest's lands before the rows it
     // draws at the end are measured and those taller than their estimate push
     // the end on.
+    // He comes back to the end only once what waits below it is drawn, as
+    // readInBelow does.
     const distance = box.scrollHeight - box.scrollTop - box.clientHeight;
-    const isEnd = distance <= 1 || (following.current ? box.scrollTop >= prior : distance <= AT_END_PX && box.scrollTop > prior);
+    const isEnd = (following.current || heldValue.current.messages === latest.current.messages)
+      && (distance <= 1 || (following.current ? box.scrollTop >= prior : distance <= AT_END_PX && box.scrollTop > prior));
     following.current = isEnd;
     setAtEnd(isEnd);
     if (isEnd) setHeld(latest.current);
@@ -479,12 +485,31 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     const next = windowAt(place, isEnd);
     if (next.start !== drawn.start || next.end !== drawn.end || isEnd !== isAtEnd) setView(place);
   };
+  // readInBelow draws what streamed while he read further up once his scroll
+  // down brings the end he left within a screen, so the list goes on below
+  // him. He follows from that end only if the rest lies within a screen too:
+  // from further off the list would leap by all that streamed meanwhile, and
+  // he reads on down to it.
+  const readInBelow = (box: HTMLElement) => {
+    const distance = box.scrollHeight - box.scrollTop - box.clientHeight;
+    const isDown = box.scrollTop > scrolledTo.current;
+    scrolledTo.current = box.scrollTop;
+    if (following.current || !isDown || distance > box.clientHeight || heldValue.current.messages === latest.current.messages) return;
+    isTaking.current = true;
+    try {
+      flushSync(() => setHeld(latest.current));
+    } finally {
+      isTaking.current = false;
+    }
+    following.current = distance <= AT_END_PX && box.scrollHeight - box.scrollTop - box.clientHeight <= box.clientHeight;
+  };
   const remember = () => {
     isScrolling.current = true;
     restLater();
-    rememberPosition();
     const box = list.current;
     if (!box || !shownValue.current) return;
+    readInBelow(box);
+    rememberPosition();
     if (box.scrollTop - roomShift.current < OLDER_WITHIN_PX) readOlder();
   };
 

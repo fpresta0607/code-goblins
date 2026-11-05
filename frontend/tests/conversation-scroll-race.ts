@@ -10,7 +10,11 @@ async function settled(talk: Locator) {
   await talk.evaluate(async () => { for (let frame = 0; frame < 4; frame++) await new Promise(requestAnimationFrame); });
 }
 
-export async function delayedScroll(page: Page, owner: "CFO" | "goblin", movement: "keyboard" | "wheel", update: "stream" | "board") {
+// delayedScroll scrolls with the scroll's own event held back while an update
+// arrives. With drawsRowAbove the scroll goes past two rows at their estimate,
+// so the window draws a row above him wherever the list rested, as 80 px does
+// only from some places.
+export async function delayedScroll(page: Page, owner: "CFO" | "goblin", movement: "keyboard" | "wheel", update: "stream" | "board", drawsRowAbove = false) {
   const queued = { ...action, task_id: owner === "CFO" ? "" : GOBLIN.id };
   await open(page, snapshot({ actions: [queued] }), "", { messages, conversation, more: false });
   if (owner === "CFO") await page.keyboard.press("Control+Alt+1"); else await openGoblin(page);
@@ -18,6 +22,7 @@ export async function delayedScroll(page: Page, owner: "CFO" | "goblin", movemen
   await expect(talk.locator('[data-message="m999"]')).toBeVisible();
   await expect(talk.locator('[data-queued="q1"]')).toBeVisible();
   await settled(talk);
+  await expect.poll(() => distanceToEnd(talk)).toBeLessThanOrEqual(1);
   if (movement === "keyboard") {
     await page.addStyleTag({ content: ".conversation-items > [data-message] { height: 160px; min-height: 160px; box-sizing: border-box; } .conversation-items { row-gap: 18px; } .conversation-room { margin-top: -18px; }" });
     await settled(talk);
@@ -28,13 +33,15 @@ export async function delayedScroll(page: Page, owner: "CFO" | "goblin", movemen
     await page.getByRole("button", { name: "Jump to latest" }).click();
     await settled(talk);
   }
-  const before = await talk.evaluate((element, { movement, update, queued, board }) => {
+  const firstDrawn = () => talk.locator("[data-message]").first().getAttribute("data-message");
+  const drawnBefore = await firstDrawn();
+  const before = await talk.evaluate((element, { movement, update, queued, board, reach }) => {
     const guard = (event: Event) => { if (event.target === element) event.stopImmediatePropagation(); };
     window.addEventListener("scroll", guard, true);
     Object.assign(window, { releaseScroll: () => window.removeEventListener("scroll", guard, true) });
     const end = element.scrollTop;
     if (movement === "keyboard") element.dispatchEvent(new KeyboardEvent("keydown", { key: "PageUp", shiftKey: true, bubbles: true }));
-    else element.scrollTop -= 80;
+    else element.scrollTop -= reach;
     const top = element.getBoundingClientRect().top;
     const row = [...element.querySelectorAll<HTMLElement>("[data-message]")].find((item) => item.getBoundingClientRect().bottom > top)!;
     Object.assign(window, { raceRow: row });
@@ -45,9 +52,10 @@ export async function delayedScroll(page: Page, owner: "CFO" | "goblin", movemen
     ] } } }));
     else window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: { ...board, revision: 2, actions: [{ ...queued, status: "succeeded" }] } }));
     return place;
-  }, { movement, update, queued, board: snapshot() });
+  }, { movement, update, queued, board: snapshot(), reach: drawsRowAbove ? 240 : 80 });
   expect(before.top).toBeLessThan(before.end - 24);
   await settled(talk);
+  if (drawsRowAbove) expect(await firstDrawn()).not.toBe(drawnBefore);
   const after = await talk.evaluate((element, id) => {
     const row = element.querySelector<HTMLElement>(`[data-message="${id}"]`);
     return { top: element.scrollTop, height: element.scrollHeight, same: row === (window as unknown as { raceRow: Element }).raceRow,
@@ -77,10 +85,10 @@ const answer = (seq: number) => ({ id: "m" + seq, seq, at, kind: "reply", blocks
 const HISTORY = Array.from({ length: 300 }, (_, seq) => seq % 2 ? answer(seq) : question(seq));
 const WORKING = { type: "screen", asking: false, open: false, working: true, submission: "", doing: "Cogitating" };
 
-interface Frame { t: number; top: number; rows: { id: string; offset: number }[] }
+interface Frame { t: number; top: number; end: number; rows: { id: string; offset: number }[] }
 interface Written { t: number; kind: string; delta: number; sinceScroll: number }
 interface Watched { frames: Frame[]; writes: Written[]; rowsDrawn: number[] }
-interface Watcher { watch: () => void; watched: () => Watched; quiet: () => number; flick: (distance: number) => Promise<void>; startStream: () => void; stopStream: () => void }
+interface Watcher { watch: () => void; watched: () => Watched; quiet: () => number; flick: (distance: number) => Promise<void>; startStream: (every?: number) => void; stopStream: () => void; newest: () => string }
 const watcher = (page: Page) => page.evaluate(() => (window as unknown as Watcher).watch());
 const watched = (page: Page) => page.evaluate(() => (window as unknown as Watcher).watched());
 
@@ -90,8 +98,9 @@ const watched = (page: Page) => page.evaluate(() => (window as unknown as Watche
 // a board snapshot every third. Each frame notes the scroll top and where
 // the rows in view lie, and each scroll position the page writes to the
 // list is noted, apart from the reader's own: how far it moved the list and
-// how long after the list last scrolled.
-async function streamingTalk(page: Page) {
+// how long after the list last scrolled. With isStreaming false no reply is
+// in progress until start begins it, and owner CFO opens the CFO's messages.
+async function streamingTalk(page: Page, { isStreaming = true, owner = "goblin" }: { isStreaming?: boolean; owner?: "CFO" | "goblin" } = {}) {
   await page.addInitScript(() => {
     const frames: Frame[] = [], writes: Written[] = [], rowsDrawn: number[] = [];
     let isWatching = false, scrolled = -Infinity;
@@ -120,8 +129,8 @@ async function streamingTalk(page: Page) {
     const note = () => {
       const box = talk();
       if (isWatching && box) {
-        const edge = box.getBoundingClientRect();
-        frames.push({ t: performance.now(), top: scrollTop.get!.call(box), rows: [...box.querySelectorAll<HTMLElement>(":scope > .conversation-items > [data-message]")].flatMap((row) => {
+        const edge = box.getBoundingClientRect(), top = scrollTop.get!.call(box);
+        frames.push({ t: performance.now(), top, end: box.scrollHeight - top - box.clientHeight, rows: [...box.querySelectorAll<HTMLElement>(":scope > .conversation-items > [data-message]")].flatMap((row) => {
           const place = row.getBoundingClientRect();
           return place.bottom > edge.top && place.top < edge.bottom ? [{ id: row.dataset.message!, offset: place.top - edge.top }] : [];
         }) });
@@ -129,7 +138,7 @@ async function streamingTalk(page: Page) {
       requestAnimationFrame(note);
     };
     requestAnimationFrame(note);
-    const watcher: Omit<Watcher, "startStream" | "stopStream"> = {
+    const watcher: Omit<Watcher, "startStream" | "stopStream" | "newest"> = {
       watch: () => {
         frames.length = 0; writes.length = 0; rowsDrawn.length = 0; isWatching = true;
         rows.disconnect();
@@ -150,17 +159,17 @@ async function streamingTalk(page: Page) {
     Object.assign(window, watcher);
   });
   const relay = await open(page, snapshot(), "", { conversation: "fixture-conversation", messages: HISTORY, more: false });
-  await openGoblin(page);
-  const talk = page.getByRole("log", { name: "Messages of " + NAME });
+  if (owner === "CFO") await page.keyboard.press("Control+Alt+1"); else await openGoblin(page);
+  const talk = page.getByRole("log", { name: "Messages of " + (owner === "CFO" ? "CFO" : NAME) });
   await expect(talk.locator('[data-message="m299"]')).toBeVisible();
   await settled(talk);
-  relay.say(WORKING);
-  await page.evaluate((board) => {
+  if (isStreaming) relay.say(WORKING);
+  await page.evaluate(({ board, isStreaming, last }) => {
     let tick = 0, timer: ReturnType<typeof setInterval> | undefined;
     let reply = { id: "m300", seq: 300, at: "2026-10-22T09:00:00Z", kind: "reply", blocks: [] as object[] };
     const send = (type: string, data: object) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type, data: { conversation: "fixture-conversation", ...data } } }));
-    const stream: Pick<Watcher, "startStream" | "stopStream"> = {
-      startStream: () => {
+    const stream: Pick<Watcher, "startStream" | "stopStream" | "newest"> = {
+      startStream: (every = 100) => {
         timer = setInterval(() => {
           tick++;
           const tokens = 1000 + tick * 731;
@@ -172,16 +181,26 @@ async function streamingTalk(page: Page) {
           send("messages", { messages: [{ ...reply }] });
           send("usage", { usage: { input_tokens: tokens, output_tokens: tokens / 10, cache_read_tokens: tokens * 3, cost_usd: tokens / 100000, context_tokens: tokens, context_window: 200000, model: "claude-opus-5-5", effort: "xhigh" } });
           if (tick % 3 === 0) window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: { ...board, revision: 2 + tick } }));
-        }, 100);
+        }, every);
       },
       stopStream: () => clearInterval(timer),
+      // The message the stream sent last, or the history's last before it
+      // sends any.
+      newest: () => tick ? reply.id : last,
     };
     Object.assign(window, stream);
-    stream.startStream();
-  }, snapshot());
-  const says = setInterval(() => relay.say({ ...WORKING, doing: ["Cogitating", "Brewing", "Pondering"][Math.floor(Date.now() / 300) % 3] }), 300);
+    if (isStreaming) stream.startStream();
+  }, { board: snapshot(), isStreaming, last: HISTORY[HISTORY.length - 1].id });
+  const saying = () => setInterval(() => relay.say({ ...WORKING, doing: ["Cogitating", "Brewing", "Pondering"][Math.floor(Date.now() / 300) % 3] }), 300);
+  let says = isStreaming ? saying() : undefined;
   await page.waitForTimeout(400);
-  return { talk, stop: () => { clearInterval(says); return page.evaluate(() => (window as unknown as Watcher).stopStream()); } };
+  const start = async (every?: number) => {
+    relay.say(WORKING);
+    await page.evaluate((every) => (window as unknown as Watcher).startStream(every), every);
+    says = saying();
+    await page.waitForTimeout(400);
+  };
+  return { talk, start, stop: () => { clearInterval(says); return page.evaluate(() => (window as unknown as Watcher).stopStream()); } };
 }
 
 // moved is the most any row in view jumped from one frame to the next: how
@@ -219,7 +238,7 @@ async function quiet(page: Page) {
 async function watchStill(page: Page, ms: number) {
   await watcher(page);
   await page.waitForTimeout(ms);
-  await expect.poll(() => page.evaluate(() => (window as unknown as Watcher).watched().frames.length)).toBeGreaterThanOrEqual(20);
+  await expect.poll(() => page.evaluate(() => (window as unknown as Watcher).watched().frames.length), { timeout: 30_000 }).toBeGreaterThanOrEqual(20);
   return watched(page);
 }
 
@@ -229,6 +248,31 @@ function stillness(frames: Frame[]) {
   const first = frames[0].rows[0];
   return Math.max(...frames.map((frame) => Math.abs((frame.rows.find((row) => row.id === first.id)?.offset ?? Infinity) - first.offset)));
 }
+
+// fingerDown sets a finger on the list's middle as WebKit and Chromium
+// deliver it: its pointer cancelled once the browser takes the pan, its touch
+// held until fingerUp lifts it, which says when it did. WebKit makes a touch
+// only by its older document.createTouch, and Chromium only by new Touch.
+const fingerDown = (talk: Locator) => talk.evaluate((element) => {
+  const edge = element.getBoundingClientRect();
+  const [clientX, clientY] = [edge.left + edge.width / 2, edge.top + edge.height / 2];
+  const target = document.elementFromPoint(clientX, clientY)!;
+  const older = document as unknown as { createTouch?: (view: Window, target: EventTarget, identifier: number, pageX: number, pageY: number, screenX: number, screenY: number) => Touch; createTouchList?: (...touches: Touch[]) => Touch[] };
+  const finger = older.createTouch && older.createTouchList ? older.createTouchList(older.createTouch(window, target, 1, clientX, clientY, clientX, clientY)) : [new Touch({ identifier: 1, target, clientX, clientY })];
+  const pointer = { bubbles: true, composed: true, pointerId: 2, pointerType: "touch", isPrimary: true, clientX, clientY };
+  target.dispatchEvent(new PointerEvent("pointerdown", { ...pointer, cancelable: true, buttons: 1 }));
+  target.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, composed: true, touches: finger, targetTouches: finger, changedTouches: finger }));
+  target.dispatchEvent(new PointerEvent("pointercancel", pointer));
+  Object.assign(window, { finger });
+});
+const fingerUp = (page: Page) => page.evaluate(() => {
+  const at = performance.now();
+  window.dispatchEvent(new TouchEvent("touchend", { changedTouches: (window as unknown as { finger: Touch[] }).finger }));
+  return at;
+});
+const glide = (page: Page, distance: number) => page.evaluate((distance) => (window as unknown as Watcher).flick(distance), distance);
+const distanceToEnd = (talk: Locator) => talk.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight);
+const newest = (page: Page) => page.evaluate(() => (window as unknown as Watcher).newest());
 
 export type Reading = "wheel" | "keyboard" | "scrollbar" | "flick";
 
@@ -328,29 +372,14 @@ export async function startReplyAtEnd(page: Page) {
 // it, the scroll position taking that as the rows in view hold still.
 export async function readUpUnderHeldFinger(page: Page) {
   const { talk, stop } = await streamingTalk(page);
-  await talk.evaluate((element) => {
-    const edge = element.getBoundingClientRect();
-    const [clientX, clientY] = [edge.left + edge.width / 2, edge.top + edge.height / 2];
-    const target = document.elementFromPoint(clientX, clientY)!;
-    const finger = new Touch({ identifier: 1, target, clientX, clientY });
-    const pointer = { bubbles: true, composed: true, pointerId: 2, pointerType: "touch", isPrimary: true, clientX, clientY };
-    target.dispatchEvent(new PointerEvent("pointerdown", { ...pointer, cancelable: true, buttons: 1 }));
-    target.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, composed: true, touches: [finger], targetTouches: [finger], changedTouches: [finger] }));
-    target.dispatchEvent(new PointerEvent("pointercancel", pointer));
-    Object.assign(window, { finger });
-  });
-  const flick = (distance: number) => page.evaluate((distance) => (window as unknown as Watcher).flick(distance), distance);
-  await flick(-1200);
+  await fingerDown(talk);
+  await glide(page, -1200);
   await watcher(page);
-  await flick(-2400);
+  await glide(page, -2400);
   await page.waitForTimeout(600);
   const held = await watched(page);
   expect({ writes: held.writes, isStill: moved(held) <= 1 }).toEqual({ writes: [], isStill: true });
-  const lifted = await page.evaluate(() => {
-    const at = performance.now();
-    window.dispatchEvent(new TouchEvent("touchend", { changedTouches: [(window as unknown as { finger: Touch }).finger] }));
-    return at;
-  });
+  const lifted = await fingerUp(page);
   await expect.poll(async () => (await watched(page)).writes.length).toBeGreaterThan(0);
   const rested = await watched(page);
   const [given] = rested.writes;
@@ -382,4 +411,121 @@ export async function readOlderPastLostRelease(page: Page, loss: "right button" 
   }, loss);
   await (await older).finished();
   await expect(talk.locator('[data-message="m149"]')).toBeAttached();
+}
+
+// phoneTalk opens the CFO's long history at its end, as the Overlord reads it
+// on his phone, with no reply in progress or with one streaming through the
+// board's message path. That reply streams on from a box that already shows
+// what the session spent, as a reply's first line that brings its usage
+// takes WebKit off the end by itself, which startReplyAtEnd checks on its own.
+async function phoneTalk(page: Page, isStreaming: boolean) {
+  const opened = await streamingTalk(page, { isStreaming: false, owner: "CFO" });
+  await expect.poll(() => distanceToEnd(opened.talk)).toBeLessThanOrEqual(1);
+  if (isStreaming) {
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation",
+      usage: { input_tokens: 1000, output_tokens: 100, cache_read_tokens: 3000, cost_usd: .01, context_tokens: 1000, context_window: 200000, model: "claude-opus-5-5", effort: "xhigh" } } } })));
+    await settled(opened.talk);
+    await opened.start(400);
+    await expect.poll(() => distanceToEnd(opened.talk)).toBeLessThanOrEqual(1);
+  }
+  return opened;
+}
+
+// readUpByFinger reads up from the end by a finger through rows the window
+// has not drawn yet: it drags the list up, lifts, and the list glides on. It
+// says what the list did from the drag's first frame off the end.
+async function readUpByFinger(page: Page, talk: Locator) {
+  await fingerDown(talk);
+  await glide(page, -600);
+  await watcher(page);
+  for (let drag = 0; drag < 2; drag++) await glide(page, -1200);
+  await fingerUp(page);
+  await glide(page, -2400);
+  return watched(page);
+}
+
+// restsStill watches the list from the end of his glide until well after it
+// rests: what the list writes once it rests moves no row in view, and after
+// that nothing is written, no row is drawn and nothing moves.
+async function restsStill(page: Page) {
+  await watcher(page);
+  await quiet(page);
+  const rested = await watched(page);
+  const read = await watchStill(page, 1200);
+  expect({ isRestStill: moved(rested) <= 1, writes: read.writes, rowsDrawn: read.rowsDrawn, isStill: stillness(read.frames) <= 1 })
+    .toEqual({ isRestStill: true, writes: [], rowsDrawn: [], isStill: true });
+}
+
+// phoneReadsUp reads up by a finger, idle or while the reply streams: the
+// rows in view move only by his finger and its glide, and nothing shakes once
+// the list rests (the Overlord, 2026-11-04, on his phone: "Scroll up on
+// mobile in cfo chat jitters worse!").
+export async function phoneReadsUp(page: Page, isStreaming: boolean) {
+  const { talk, stop } = await phoneTalk(page, isStreaming);
+  const scrolled = await readUpByFinger(page, talk);
+  const [first, last] = [scrolled.frames[0], scrolled.frames.at(-1)!];
+  const written = scrolled.writes.reduce((sum, write) => sum + write.delta, 0);
+  expect(last.top - first.top - written).toBeLessThan(-2000);
+  expect(scrolled.rowsDrawn.length).toBeGreaterThan(0);
+  expect({ writes: whileScrolling(scrolled.writes), isStill: moved(scrolled) <= 1 }).toEqual({ writes: [], isStill: true });
+  await restsStill(page);
+  await stop();
+}
+
+// phoneReadsDown reads up by a finger, rests, and reads back down by a finger
+// and its glide to the end: the rows in view move only as he does all the
+// way down, the list never moves itself by a screen, as it did leaping to an
+// end that a reply carried on without him, he follows the end once he reaches
+// the newest line, and nothing shakes once it rests (2026-11-04: "Scroll down
+// and up and jump to latest all wonky"). Each glide reaches far, as all that
+// streamed while he read waits below the end he left.
+export async function phoneReadsDown(page: Page, isStreaming: boolean) {
+  const { talk, stop } = await phoneTalk(page, isStreaming);
+  await readUpByFinger(page, talk);
+  await quiet(page);
+  const screen = await talk.evaluate((element) => element.clientHeight);
+  await fingerDown(talk);
+  await watcher(page);
+  for (let drag = 0; drag < 2; drag++) await glide(page, 1200);
+  await fingerUp(page);
+  for (let glides = 0; glides < 30 && await distanceToEnd(talk) > 1; glides++) await glide(page, 9600);
+  await page.waitForTimeout(300);
+  const scrolled = await watched(page);
+  const arrived = scrolled.frames.findIndex((frame) => frame.end <= 1);
+  expect(arrived).toBeGreaterThan(0);
+  const reaching = { ...scrolled, frames: scrolled.frames.slice(0, arrived), writes: scrolled.writes.filter((write) => write.t <= scrolled.frames[arrived - 1].t) };
+  expect({ writes: whileScrolling(reaching.writes), isStill: moved(reaching) <= 1, leaps: scrolled.writes.filter((write) => Math.abs(write.delta) >= screen) })
+    .toEqual({ writes: [], isStill: true, leaps: [] });
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
+  await expect(talk.locator(`[data-message="${await newest(page)}"]`)).toBeInViewport();
+  await stop();
+  await restsStill(page);
+}
+
+// phoneJumps reads up by a finger, rests, and taps Jump to latest: the first
+// frame the list moves in shows the newest line at the end, and every frame
+// after stays at the end, as the reply streams or not, and once it is done
+// nothing shakes.
+export async function phoneJumps(page: Page, isStreaming: boolean) {
+  const { talk, stop } = await phoneTalk(page, isStreaming);
+  await readUpByFinger(page, talk);
+  await quiet(page);
+  const jump = page.getByRole("button", { name: "Jump to latest" });
+  const place = (await jump.boundingBox())!;
+  const from = await talk.evaluate((element) => element.scrollTop);
+  await watcher(page);
+  const tapped = await newest(page);
+  await page.touchscreen.tap(place.x + place.width / 2, place.y + place.height / 2);
+  await expect(jump).toHaveCount(0);
+  await page.waitForTimeout(1000);
+  await expect.poll(async () => (await watched(page)).frames.length, { timeout: 30_000 }).toBeGreaterThan(0);
+  const landed = await watched(page);
+  const moving = landed.frames.findIndex((frame) => frame.top !== from);
+  expect(moving).toBeGreaterThanOrEqual(0);
+  const seq = (id = "") => Number(id.slice(1));
+  expect({ isNewestShown: seq(landed.frames[moving].rows.at(-1)?.id) >= seq(tapped), offEnd: landed.frames.slice(moving).filter((frame) => frame.end > 1).map((frame) => frame.end) })
+    .toEqual({ isNewestShown: true, offEnd: [] });
+  await expect(talk.locator("[data-message]").last()).toBeInViewport();
+  await stop();
+  await restsStill(page);
 }

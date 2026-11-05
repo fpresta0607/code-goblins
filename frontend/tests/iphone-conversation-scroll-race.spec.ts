@@ -1,5 +1,5 @@
 import { devices, expect, servePages, test } from "./site";
-import { delayedScroll, leaveEndWhileStreaming, readUpWhileStreaming, startReplyAtEnd } from "./conversation-scroll-race";
+import { delayedScroll, leaveEndWhileStreaming, phoneJumps, phoneReadsDown, phoneReadsUp, readUpWhileStreaming, startReplyAtEnd } from "./conversation-scroll-race";
 import { at, NAME } from "./session-board";
 
 const PRIVATE = "https://pc.example.ts.net:4311";
@@ -45,6 +45,11 @@ for (const update of ["stream", "board"] as const) {
   });
 }
 
+test("WebKit keeps its place when a row draws in above him before scroll delivery", async ({ page }) => {
+  await servePages(page.context(), PRIVATE);
+  await delayedScroll(page, "goblin", "wheel", "stream", true);
+});
+
 test("WebKit moves nothing in view while he flicks up through a streaming reply", async ({ page }) => {
   test.slow();
   await servePages(page.context(), PRIVATE);
@@ -61,3 +66,23 @@ test("WebKit keeps following the end when a reply's first line brings its usage"
   await servePages(page.context(), PRIVATE);
   await startReplyAtEnd(page);
 });
+
+for (const [isStreaming, when] of [[false, "idle"], [true, "while a reply streams"]] as const) {
+  test(`WebKit moves the list only by his finger as he reads up, ${when}`, async ({ page }) => {
+    test.slow();
+    await servePages(page.context(), PRIVATE);
+    await phoneReadsUp(page, isStreaming);
+  });
+
+  test(`WebKit moves the list only by his finger as he reads back down to the end, ${when}`, async ({ page }) => {
+    test.slow();
+    await servePages(page.context(), PRIVATE);
+    await phoneReadsDown(page, isStreaming);
+  });
+
+  test(`WebKit's Jump to latest lands on the newest line in one move and stays there, ${when}`, async ({ page }) => {
+    test.slow();
+    await servePages(page.context(), PRIVATE);
+    await phoneJumps(page, isStreaming);
+  });
+}
