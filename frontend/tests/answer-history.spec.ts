@@ -96,7 +96,7 @@ test("he changes an answer and the card shows it on the frame he makes it, with 
 
   // Assert
   await expect(dialog.getByRole("radio", { name: "Keep it open" })).toBeChecked();
-  await expect(dialog.locator(".answered-by")).toHaveText("You chose this · 0s ago");
+  await expect(dialog.locator(".answered-by")).toHaveText("You chose this · under a minute ago");
   await expect(dialog.getByRole("button", { name: "Change answer" })).toBeDisabled();
   await expect.poll(() => posted.length).toBe(1);
   expect(posted.map((body) => [body.kind, body.question_id, body.generation, body.text, body.answer_kind])).toEqual([["answer_change", "pp-merge-125-20261010", "f".repeat(64), "Keep it open", "option"]]);
@@ -122,7 +122,7 @@ test("he writes his own answer in place of the one chosen", async ({ page }) => 
   // Assert
   await expect.poll(() => posted.length).toBe(1);
   expect(posted[0]).toMatchObject({ kind: "answer_change", question_id: "notify-cg-verify-fast-12", text: "Start it once the test step ends", answer_kind: "other" });
-  await expect(dialog.locator(".answered-by")).toHaveText("You wrote this · 0s ago");
+  await expect(dialog.locator(".answered-by")).toHaveText("You wrote this · under a minute ago");
 });
 
 test("choosing the answer already chosen sends nothing", async ({ page }) => {

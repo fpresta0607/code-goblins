@@ -44,7 +44,7 @@ function Page() {
       setSaid("opened the Command Center at " + key);
       setFocus({ key, at: Date.now() });
     }} />
-    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={ignore} />
+    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={focus} onUnsent={ignore} />
   </main>;
 }
 

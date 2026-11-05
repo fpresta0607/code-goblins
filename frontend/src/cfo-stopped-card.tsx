@@ -9,11 +9,11 @@ import type { Run, Snapshot } from "./types";
 // started, or when it could not bring it back. This item tells the Overlord
 // so in plain words and offers one thing: the board's own Reopen the CFO. It
 // runs no command. Once a CFO runs again, the supervisor takes the item back.
-export function CfoStoppedCard({ run, snapshot, pager }: { run: Run; snapshot: Snapshot; pager?: ReactNode }) {
+export function CfoStoppedCard({ run, snapshot, now, pager }: { run: Run; snapshot: Snapshot; now: number; pager?: ReactNode }) {
   return <article className="update-card" aria-labelledby={"cfo-stopped-" + run.id}>
     <header className="update-head">
       <Avatar persona="cfo" small />
-      <span className="who"><strong>Code Goblins</strong><small>{age(run.created_at)}</small></span>
+      <span className="who"><strong>Code Goblins</strong><small>{age(run.created_at, now)}</small></span>
     </header>
     <h3 id={"cfo-stopped-" + run.id}>{run.title}</h3>
     <div className="card-actions">

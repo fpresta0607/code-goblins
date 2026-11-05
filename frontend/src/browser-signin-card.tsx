@@ -12,8 +12,8 @@ import { personaFor } from "./workflow";
 import "./credential-card.css";
 import "./browser-signin-card.css";
 
-export function BrowserSignInCard({ signin, snapshot, connected, isOpening, error, onOpen, pager }: {
-  signin: BrowserSignIn; snapshot: Snapshot; connected: boolean; isOpening: boolean; error: string; onOpen: () => void; pager?: ReactNode;
+export function BrowserSignInCard({ signin, snapshot, connected, now, isOpening, error, onOpen, pager }: {
+  signin: BrowserSignIn; snapshot: Snapshot; connected: boolean; now: number; isOpening: boolean; error: string; onOpen: () => void; pager?: ReactNode;
 }) {
   const isLocal = onThisMachine(window.location.hostname);
   const task = snapshot.tasks.find((candidate) => candidate.id === signin.task);
@@ -24,7 +24,7 @@ export function BrowserSignInCard({ signin, snapshot, connected, isOpening, erro
   </div>;
   const isWaiting = isOpening || signin.state === "opening" || signin.state === "open";
   return <article className="question-card credential-card" data-browser-signin={signin.id} aria-labelledby={"signin-" + signin.id}>
-    <p className="asker"><Avatar persona={signin.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asks · waiting {age(signin.created_at).replace(/ ago$/, "")}</span></p>
+    <p className="asker"><Avatar persona={signin.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asks · waiting {age(signin.created_at, now).replace(/ ago$/, "")}</span></p>
     <header className="credential-heading">
       <h3 id={"signin-" + signin.id} tabIndex={-1}>{signInHeading(signin)}</h3>
       <p className="credential-why">Fetching keys needs the {signin.account} signed in. The fleet keeps the session afterwards, never your password.</p>

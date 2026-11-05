@@ -23,7 +23,7 @@ const review = {
 const snapshot = parseSnapshot({ healthy: true, instance: "fixture", revision: 1, cfo_runs: true, actions: [], tasks: [bernie], questions: [asked, settled], reviews: [review] });
 
 function AnswerDictation() {
-  return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={null} onUnsent={() => {}} /></main>;
+  return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={null} onUnsent={() => {}} /></main>;
 }
 
 createRoot(document.getElementById("root")!).render(<AnswerDictation />);

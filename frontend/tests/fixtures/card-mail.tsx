@@ -34,7 +34,7 @@ function CardMailBoard() {
     <button onClick={() => open("question:q-proxy-notes")}>Open the question</button>
     <button onClick={() => open("run:run-pd-proxy-primary-9")}>Open the command</button>
     <button onClick={() => open("review:waiting-pd-proxy-primary-7")}>Open the wait</button>
-    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} />
+    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={focus} onUnsent={() => {}} />
   </main>;
 }
 

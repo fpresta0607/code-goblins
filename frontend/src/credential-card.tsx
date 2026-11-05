@@ -62,7 +62,7 @@ interface Confirm { names: string[]; action: "save" | "run"; confirmed: string[]
 // field empties after every answer. A stored value is replaced only once he
 // confirms it, from the card or for its terminal alike. Once every value is in
 // the Command Center says so and moves on by itself.
-export function CredentialCard({ request, snapshot, connected, pager }: { request: CredentialRequest; snapshot: Snapshot; connected: boolean; pager?: ReactNode }) {
+export function CredentialCard({ request, snapshot, connected, now, pager }: { request: CredentialRequest; snapshot: Snapshot; connected: boolean; now: number; pager?: ReactNode }) {
   const [feedback, showFeedback] = useClickFeedback();
   const [values, setValues] = useState<Record<string, string>>({});
   // A row's round mounts its field again empty, so no value outlives its save.
@@ -205,7 +205,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
   const several = commands.length > 1;
   return <article className="question-card credential-card" data-credential-request={request.id} aria-labelledby={"credential-" + request.id}>
     <p className="asker"><Avatar persona={request.task ? personaFor(task) : "cfo"} small />
-      <span><strong>{asker}</strong> {open ? "asks · waiting " + age(request.created_at).replace(/ ago$/, "") : "asked · closed " + age(request.closed_at || request.created_at)}</span></p>
+      <span><strong>{asker}</strong> {open ? "asks · waiting " + age(request.created_at, now).replace(/ ago$/, "") : "asked · closed " + age(request.closed_at || request.created_at, now)}</span></p>
     <header className="credential-heading">
       <h3 id={"credential-" + request.id} tabIndex={-1}>{inlineElements(credentialHeading(request), copyValues, paths)}</h3>
       {request.why && (inputs.length > 0 || request.grant_service) && <p className="credential-why">{inlineElements(request.why, copyValues, paths)}</p>}

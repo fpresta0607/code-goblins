@@ -31,7 +31,7 @@ function CommandScroll() {
   return <main style={{ paddingTop: 600, minHeight: 2400 }}>
     <button onClick={() => setFocus({ key: card, at: Date.now() })}>Open</button>
     <button onClick={() => setMounted(false)}>Remove Command Center</button>
-    {isMounted && <CommandCenterMenu snapshot={shown} connected presentations={[]} focus={focus} onUnsent={() => {}} />}
+    {isMounted && <CommandCenterMenu snapshot={shown} connected presentations={[]} now={Date.now()} focus={focus} onUnsent={() => {}} />}
   </main>;
 }
 

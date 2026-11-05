@@ -51,7 +51,7 @@ function StepCards() {
   };
   return <main>
     {cards.map((card) => <button key={String(card.id)} onClick={() => setFocus({ key: "credential:" + String(card.id), at: Date.now() })}>{"Open " + String(card.id)}</button>)}
-    <CommandCenterMenu snapshot={parseSnapshot(state)} connected presentations={[]} focus={focus} onUnsent={() => {}} />
+    <CommandCenterMenu snapshot={parseSnapshot(state)} connected presentations={[]} now={Date.now()} focus={focus} onUnsent={() => {}} />
   </main>;
 }
 
