@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,12 +26,14 @@ func source(version string) fstest.MapFS {
 
 // npm stands in for npm ci: it records each run, says whether the commands
 // that start the connector were already there when it ran, and installs the
-// packages unless it is told to fail.
+// packages unless it is told to fail. A run given runError still installs and
+// then ends with that error, as an npm ci stopped part way leaves packages.
 type npm struct {
 	runs          []execx.Request
 	sawCommand    bool
 	exitCode      int
 	shouldInstall bool
+	runError      error
 }
 
 func (n *npm) Run(_ context.Context, request execx.Request) (execx.Result, error) {
@@ -48,7 +51,7 @@ func (n *npm) Run(_ context.Context, request execx.Request) (execx.Result, error
 			return execx.Result{}, err
 		}
 	}
-	return execx.Result{}, nil
+	return execx.Result{}, n.runError
 }
 
 func TestSetupInstallsTheBuildsConnectorFromItsLockfileAndOnlyThenItsCommand(t *testing.T) {
@@ -143,6 +146,51 @@ func TestSetupThatNpmFailsLeavesNoCommandAndSaysWhy(t *testing.T) {
 	}
 	if state, _ := Check(home, source("v1")); state != Missing {
 		t.Errorf("Check = %v, want Missing", state)
+	}
+}
+
+// An npm ci stopped part way has already unpacked the package Check looks for,
+// as a real one stopped after 15 seconds had. Only the command, written last,
+// says the install never ended, on a first install and over an earlier build's
+// connector alike, and the next setup finishes it.
+func TestSetupStoppedPartWayLeavesNoCommandAndTheNextSetupFinishes(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		isUpdating bool
+	}{
+		{name: "a first install"},
+		{name: "over an earlier build's connector", isUpdating: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			if test.isUpdating {
+				if _, err := Setup(context.Background(), home, source("v1"), &npm{shouldInstall: true}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			stopped := &npm{shouldInstall: true, runError: context.DeadlineExceeded}
+
+			// Act
+			_, stopErr := Setup(context.Background(), home, source("v2"), stopped)
+			stoppedState, stoppedCheckErr := Check(home, source("v2"))
+			hasCommand := IsCommandIn(BinDir(home))
+			_, retryErr := Setup(context.Background(), home, source("v2"), &npm{shouldInstall: true})
+
+			// Assert
+			if !errors.Is(stopErr, context.DeadlineExceeded) {
+				t.Errorf("the stopped Setup said %v, want the deadline", stopErr)
+			}
+			if stoppedState != Missing || stoppedCheckErr != nil {
+				t.Errorf("Check after the stop = %v, %v, want Missing", stoppedState, stoppedCheckErr)
+			}
+			if hasCommand {
+				t.Error("goblin-crawl is on its folder though npm ci was stopped part way")
+			}
+			if state, err := Check(home, source("v2")); retryErr != nil || state != Ready || err != nil {
+				t.Errorf("the next Setup said %v, then Check = %v, %v, want Ready", retryErr, state, err)
+			}
+		})
 	}
 }
 

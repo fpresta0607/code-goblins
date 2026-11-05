@@ -39,9 +39,11 @@ func runCrawler(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 }
 
 // crawlerSetupWait bounds the crawler's setup, whose npm ci can wait on the
-// network for as long as npm retries: cfo install runs it last, and the
-// board's Update ends an install that runs past releaseRefreshWait.
-var crawlerSetupWait = 2 * time.Minute
+// network for as long as npm retries. On cold CI runners it took under a
+// minute in every job that finished, and one was still running at two
+// minutes. cfo install runs it last, and the board's Update ends an install
+// that runs past releaseRefreshWait, so four minutes leaves that install one.
+var crawlerSetupWait = 4 * time.Minute
 
 // setUpCrawler makes the crawler connector in the home at root this build's,
 // with the npm runtime names, or the machine's. A setup that runs past

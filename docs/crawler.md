@@ -51,7 +51,7 @@ It exits 0 when it crawled, 1 with one line saying why when nothing could be cra
   Git ignores the home's caches, so a home that is a checkout of this repository keeps its `connectors\crawler` as git has it.
   An install of a newer build replaces a connector an earlier build installed, and leaves one already the build's alone.
   It needs Node.js, which the fleet's other tools need too, and the crawl needs Chrome.
-  A setup that runs past two minutes, as an `npm ci` waiting on a registry it cannot reach does, is stopped with every process it started, so the install ends inside the board's **Update** bound of five minutes.
+  A setup that runs past four minutes, as an `npm ci` waiting on a registry it cannot reach does, is stopped with every process it started, so the install ends inside the board's **Update** bound of five minutes.
   A connector it cannot set up never fails the install: a `Note:` line says goblins go without `goblin-crawl` until `cfo crawler setup` succeeds, and on a machine without Node.js the install script's closing note names `crawler`.
 - `cfo spawn` puts `caches\crawler\bin` on every goblin's PATH, after its codex guard folder and before the user's PATH, whichever harness it runs, with no word of it in the brief.
   It is a command rather than an MCP server because Claude Code goblins are the only goblins given MCP servers: a command reaches Codex and pi goblins too.

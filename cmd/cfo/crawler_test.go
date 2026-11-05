@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/crawler"
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -101,5 +102,26 @@ func TestCrawlerTakesOnlySetup(t *testing.T) {
 				t.Errorf("cfo %s = %d, want 2 with the usage\nstderr: %s", strings.Join(args, " "), code, stderr.String())
 			}
 		})
+	}
+}
+
+// The setup's budget comes from what npm ci took on cold CI runners: under a
+// minute in every job that finished, and one was still running when a budget
+// of two minutes stopped it. It stays inside an update's whole install, which
+// is ended past releaseRefreshWait, with room for what that install does first.
+func TestCrawlerSetupBudgetOutlastsASlowNpmAndEndsInsideAnUpdate(t *testing.T) {
+	// Arrange
+	stoppedStillRunning := 2 * time.Minute
+	restOfTheInstall := time.Minute
+
+	// Act
+	room := releaseRefreshWait - crawlerSetupWait
+
+	// Assert
+	if crawlerSetupWait <= stoppedStillRunning {
+		t.Errorf("the crawler setup's budget is %s, and a cold runner's npm ci was still running at %s", crawlerSetupWait, stoppedStillRunning)
+	}
+	if room < restOfTheInstall {
+		t.Errorf("the crawler setup leaves an update's install %s of its %s, want at least %s", room, releaseRefreshWait, restOfTheInstall)
 	}
 }
