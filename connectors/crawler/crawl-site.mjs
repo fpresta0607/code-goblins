@@ -45,6 +45,14 @@ const BODY_HEADERS = new Set(["content-encoding", "content-language", "content-l
 // and a memory budget so it never asks the machine for its total.
 const CRAWLEE_MEMORY_MBYTES = 4096;
 
+// Leaves the browser no network of its own: it can resolve no host, not even
+// the local proxy Crawlee gives it. The crawler sends each request a route
+// sees from Node, which this switch does not touch. What no route sees, such
+// as a speculation rule's prefetch, a request sent as a page closes or a
+// favicon, then fails in the browser, where it would pass robots.txt and the
+// slots.
+const NO_BROWSER_NETWORK = "--host-resolver-rules=MAP * ~NOTFOUND";
+
 export const NAVIGATION_TIMEOUT_SECS = 30;
 
 const MAX_SITEMAPS = 50;
@@ -123,7 +131,7 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
     retryOnBlocked: false,
     // One browser, a fresh context for each page: Crawlee's default, one
     // persistent context, launches a second Chrome only to read its version.
-    launchContext: { launcher: chromium, useChrome: true, useIncognitoPages: true, userAgent: USER_AGENT, launchOptions: { headless: true } },
+    launchContext: { launcher: chromium, useChrome: true, useIncognitoPages: true, userAgent: USER_AGENT, launchOptions: { headless: true, args: [NO_BROWSER_NETWORK] } },
     // Playwright never routes a service worker's requests, so no page may
     // start one.
     browserPoolOptions: {

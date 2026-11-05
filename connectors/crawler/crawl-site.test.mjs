@@ -132,6 +132,13 @@ describe("a crawl of the fixture site", () => {
     assert.ok(!site.offSiteRequests.some((request) => request.path === "/sitemap.xml"), "the crawl asked another site for its sitemap");
   });
 
+  test("what the browser sends past the crawler's routes never reaches the site", () => {
+    const asked = site.requests.map((request) => request.path);
+    for (const pathname of ["/private/prefetched", "/private/prerendered", "/private/farewell", "/favicon.ico"]) {
+      assert.ok(!asked.includes(pathname), `the browser sent ${pathname} by itself, past robots.txt and the crawl's slots`);
+    }
+  });
+
   test("holds a request to another site that redirects onto this one to robots.txt", () => {
     assert.ok(site.offSiteRequests.some((request) => request.path === "/widget.js"), "the catalog never asked the second site for its script, so nothing redirected onto the site");
     assert.deepEqual(site.requests.map((request) => request.path).filter((pathname) => pathname.startsWith("/private/")), [], "a redirect from the second site sent the crawl into a path robots.txt disallows");

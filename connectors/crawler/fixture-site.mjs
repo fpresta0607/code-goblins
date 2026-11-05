@@ -13,9 +13,11 @@ import { pathToFileURL } from "node:url";
 // asking for data, linked PDFs, two of them at addresses that differ only in
 // a slash, one that redirects into a disallowed folder, and a folder
 // robots.txt disallows. The catalog's script also posts a search a redirect
-// answers, and opens an event stream, a WebSocket and a window into the
-// disallowed folder, and the catalog loads a script from a second site, on
-// another port, which redirects into the disallowed folder. A page redirects
+// answers, opens an event stream, a WebSocket and a window into the
+// disallowed folder, and asks that folder for more as the page closes. The
+// catalog's speculation rules prefetch and prerender from that folder too, and
+// the catalog loads a script from a second site, on another port, which
+// redirects into the disallowed folder. A page redirects
 // to itself until it is asked with the cookie it sets, two routes redirect to
 // each other, and the site drops the connection of one page. It records every
 // request it is sent, WebSocket handshakes included, with its method, its
@@ -78,8 +80,8 @@ export function startFixtureSite({ delayMs = 0, extraPages = 0 } = {}) {
     "/sitemap-pages.xml": () => ["application/xml", `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${["/", "/about", "/workshops", "/visit/"].map((route) => `<url><loc>${origin}${route}</loc></url>`).join("")}</urlset>`],
     "/": () => ["text/html", page("Fernwood Kites", `${NAV}<main><h1>Fernwood Kites</h1><p>Hand-sewn kites since 1987.</p><p><a href="/docs/price-list.pdf">Price list (PDF)</a> <a href="/docs/old-price-list.pdf">Last year's price list (PDF)</a> <a href="/docs/kites/care.pdf">Care guide (PDF)</a> <a href="/docs/kites-care.pdf">Care sheet (PDF)</a> <a href="/visit">Visit us</a> <a href="/staff">Staff room</a> <a href="/private/notes">Staff notes</a> <a href="/live">Live wind</a> <a href="/welcome">Welcome</a> <a href="/loop">Kite loop</a> <a href="/kite-cam">Kite cam</a><a href="https://example.org/partner">Our partner</a></p>${extra.map((route) => `<a href="${route}">${route}</a>`).join(" ")}</main><footer>Fernwood Kites, a made-up shop</footer>`)],
     "/about": () => ["text/html", page("About", `${NAV}<main><h1>About us</h1><img src="/images/workshop.jpg" alt="The workshop"><table><tr><th>Day</th><th>Hours</th></tr><tr><td>Saturday</td><td>9 to 17</td></tr></table><svg width="200" height="20"><a href="/shows"><text y="15">Shows</text></a><a xlink:href="/gallery"><text x="80" y="15">Gallery</text></a></svg></main>`)],
-    "/catalog": () => ["text/html", page("Catalog", `${NAV}<main id="catalog"><h1>Catalog</h1><p>Loading...</p></main><script src="/catalog.js"></script><script src="${offSiteOrigin}/widget.js"></script>`)],
-    "/catalog.js": () => ["text/javascript", `document.getElementById("catalog").innerHTML = '<h1>Catalog</h1><ul><li><a href="/catalog/box-kite">Box kite</a></li></ul>'; fetch("/private/stock.json").catch(() => {}); fetch("/api/stock").catch(() => {}); Promise.resolve(navigator.serviceWorker?.register("/sw.js")).catch(() => {}); fetch("/search", { method: "POST", body: "q=box kite" }).catch(() => {}); new EventSource("/events"); new WebSocket(\`ws://\${location.host}/live/socket\`); window.open("/private/popup");`],
+    "/catalog": () => ["text/html", page("Catalog", `${NAV}<main id="catalog"><h1>Catalog</h1><p>Loading...</p></main><script type="speculationrules">{"prefetch":[{"source":"list","urls":["/private/prefetched"],"eagerness":"immediate"}],"prerender":[{"source":"list","urls":["/private/prerendered"],"eagerness":"immediate"}]}</script><script src="/catalog.js"></script><script src="${offSiteOrigin}/widget.js"></script>`)],
+    "/catalog.js": () => ["text/javascript", `document.getElementById("catalog").innerHTML = '<h1>Catalog</h1><ul><li><a href="/catalog/box-kite">Box kite</a></li></ul>'; fetch("/private/stock.json").catch(() => {}); fetch("/api/stock").catch(() => {}); Promise.resolve(navigator.serviceWorker?.register("/sw.js")).catch(() => {}); fetch("/search", { method: "POST", body: "q=box kite" }).catch(() => {}); new EventSource("/events"); new WebSocket(\`ws://\${location.host}/live/socket\`); window.open("/private/popup"); addEventListener("pagehide", () => fetch("/private/farewell", { method: "POST", body: "left", keepalive: true }).catch(() => {}));`],
     "/sw.js": () => ["text/javascript", `self.addEventListener("install", (event) => event.waitUntil(fetch("/private/worker.json").catch(() => {})));`],
     "/live": () => ["text/html", page("Live wind", `${NAV}<main><h1>Live wind</h1><p>Wind at the kite field, as it changes.</p></main><script>${POLL}</script>`)],
     "/live/data": () => ["application/json", `{"wind_knots": 12}`],
