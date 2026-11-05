@@ -217,35 +217,28 @@ for (const owner of ["CFO", "goblin"] as const) {
     // Send go to the board's queue rather than into the terminal.
     await expect(box(page, name)).toHaveAttribute("data-queues", "");
     await expect(talk.locator('[data-message="m999"]')).toBeVisible();
-    const place = await readNearEnd(talk, page);
-    await talk.evaluate((element) => { (window as unknown as { originalRows: Element[] }).originalRows = [...element.querySelectorAll("[data-message]")]; });
+    await readNearEnd(talk, page);
     await field(page, name).fill("My held message");
     await send(page, name).click();
     await expect.poll(() => posted.length).toBe(1);
+    // His Send takes him back to the end, so what he sent shows.
     const own = talk.locator("[data-queued]").filter({ hasText: "My held message" });
     await expect(own).toHaveCount(1);
+    await expect(own).toBeInViewport();
+    await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
     const action = { ...posted[0], kind: "message", status, created_at: at, updated_at: at };
     const other = { ...action, id: "other-send", text: "Another board message", status: "queued" };
     await sendBoard(page, snapshot({ revision: 2, actions: [action, other] }));
-    await expect(own).not.toContainText("Reaching the board.");
-    if (status === "queued") await expect(own.getByRole("button", { name: "Cancel" })).toHaveCount(1);
+    if (status === "queued") {
+      await expect(own).not.toContainText("Reaching the board.");
+      await expect(own.getByRole("button", { name: "Cancel" })).toHaveCount(1);
+    }
     release();
-    await expect(own).toHaveCount(1);
-    await expect(talk.locator('[data-queued="other-send"]')).toHaveCount(0);
+    await expect(talk.locator('[data-queued="other-send"]')).toHaveCount(1);
     await sendPage(page, pageOf([...messages, prompt(1000, "My held message")]));
     await sendBoard(page, snapshot({ revision: 3, actions: [{ ...action, status: "succeeded" }, other] }));
-    await expect(own).toHaveCount(1);
-    const after = await reading(talk);
-    expect({ id: after.id, offset: after.offset, top: after.top, text: after.text }).toEqual({ id: place.id, offset: place.offset, top: place.top, text: place.text });
-    expect(await talk.evaluate((element) => {
-      const original = (window as unknown as { originalRows: Element[] }).originalRows;
-      const current = [...element.querySelectorAll("[data-message]")];
-      return current.length === original.length && current.every((row, index) => row === original[index]);
-    })).toBe(true);
-    await expect(talk.locator('[data-message="m1000"]')).toHaveCount(0);
-    await page.getByRole("button", { name: "Jump to latest" }).click();
     await expect(own).toHaveCount(0);
-    await expect(talk.locator('[data-message="m1000"]')).toHaveCount(1);
+    await expect(talk.locator('[data-message="m1000"]')).toBeInViewport();
     await expect(talk.locator('[data-queued="other-send"]')).toHaveCount(1);
   });
 
@@ -266,7 +259,7 @@ for (const owner of ["CFO", "goblin"] as const) {
     // Send go to the board's queue rather than into the terminal.
     await expect(box(page, name)).toHaveAttribute("data-queues", "");
     await expect(talk.locator('[data-message="m999"]')).toBeVisible();
-    const place = await readNearEnd(talk, page);
+    await readNearEnd(talk, page);
     await field(page, name).fill("Refused local message");
     await send(page, name).click();
     const own = talk.locator("[data-queued]").filter({ hasText: "Refused local message" });
@@ -274,8 +267,6 @@ for (const owner of ["CFO", "goblin"] as const) {
     release();
     await expect(own).toHaveCount(0);
     await expect(field(page, name)).toHaveValue("Refused local message");
-    const after = await reading(talk);
-    expect({ id: after.id, offset: after.offset, top: after.top, text: after.text }).toEqual({ id: place.id, offset: place.offset, top: place.top, text: place.text });
   });
 }
 

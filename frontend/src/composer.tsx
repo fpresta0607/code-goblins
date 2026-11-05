@@ -120,7 +120,7 @@ function storeAttached(key: string, paths: string[]): void {
 // harness's interrupt, and a paste the board cannot keep says so here. On a
 // touch screen the + opens Paste a picture, since an iPhone's own Paste in a
 // text box takes text alone, and Photos or files, the phone's own picker.
-export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], usage, onActive }: {
+export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onSend, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], usage, onActive }: {
   snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
   model?: string;
   // model and effort are what the session's own record last says it runs.
@@ -129,6 +129,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // onShowTerminal steps that terminal in, for a screen of the harness's own
   // its list does not cover.
   terminal: string; focus?: number; onShowTerminal?: () => void;
+  // onSend is told of a message he sends, as it leaves the box.
+  onSend?: () => void;
   isTerminalShown?: boolean; isShown?: boolean; onActive?: (terminal: string, isActive: boolean) => void;
   // isWorking says the session's harness is running a turn, which Stop in
   // the send button's place interrupts while the box is empty, and history
@@ -437,7 +439,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         if (live?.paste(text.replace(/\s*\n\s*/g, " "))) afterSend(); else setUnsent(unsentWhy);
         return;
       }
-      if (live?.send(text)) afterSend(); else setUnsent(unsentWhy);
+      if (live?.send(text)) {
+        afterSend();
+        onSend?.();
+      } else setUnsent(unsentWhy);
       return;
     }
     sendID.current ||= crypto.randomUUID();
@@ -450,6 +455,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       addPendingSend({ id, task: task?.id || "", text });
       setDraft("");
       setAttached([]);
+      onSend?.();
     }
     setSending(true);
     try {
