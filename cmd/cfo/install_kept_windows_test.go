@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	codegoblins "github.com/fpresta0607/code-goblins"
+	"github.com/fpresta0607/code-goblins/internal/crawler"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/installbase"
 	"github.com/fpresta0607/code-goblins/internal/standin"
@@ -34,7 +36,7 @@ func newKeptHome(t *testing.T) *keptHome {
 	root := filepath.Join(t.TempDir(), "code-goblins")
 	k := &keptHome{
 		updateHome: &updateHome{t: t, root: root, bin: filepath.Join(root, home.BinDir), programs: root, state: filepath.Join(root, "state"), started: map[*exec.Cmd]time.Time{}},
-		tracked:    map[string]string{"AGENTS.md": "the checkout's own contract", "cmd/cfo/main.go": "package main"},
+		tracked:    map[string]string{"AGENTS.md": "the checkout's own contract", "cmd/cfo/main.go": "package main", "connectors/crawler/crawl-site.mjs": "// the checkout's own crawler, as its commit holds it"},
 		fleet: map[string]string{
 			"state/tasks/demo-task/meta.json":     `{"id":"demo-task","status":"working"}`,
 			"data/demo-task/brief.md":             "# Brief demo-task",
@@ -124,8 +126,9 @@ func (k *keptHome) install(build string) (int, string, []byte) {
 // The Overlord's machine: an install over a checkout made the home, while its
 // board and the CFO run, keeps the home where it is and says so in one line,
 // puts this build in bin and at the root, where his running sessions call it,
-// restarts only the board on it, and leaves the CFO's terminal, the files git
-// tracks and the fleet's state, data and worktrees exactly as they were.
+// restarts only the board on it, sets the crawler up among its caches, and
+// leaves the CFO's terminal, the files git tracks, the crawler's source among
+// them, and the fleet's state, data and worktrees exactly as they were.
 func TestInstallOverACheckoutHomeInUseKeepsItAndItsFleetWorking(t *testing.T) {
 	// Arrange
 	k := newKeptHome(t)
@@ -163,6 +166,12 @@ func TestInstallOverACheckoutHomeInUseKeepsItAndItsFleetWorking(t *testing.T) {
 		if got, err := os.ReadFile(filepath.Join(k.root, filepath.FromSlash(name))); err != nil || string(got) != content {
 			t.Errorf("%s = %q (%v), want it left as %q", name, got, err, content)
 		}
+	}
+	if left, err := os.ReadDir(filepath.Join(k.root, "connectors", "crawler")); err != nil || len(left) != 1 {
+		t.Errorf("the checkout's connectors\\crawler holds %d entries (%v), want only the file git tracks there", len(left), err)
+	}
+	if state, err := crawler.Check(k.root, codegoblins.Crawler); state != crawler.Ready || err != nil {
+		t.Errorf("the home's crawler after the install is %v (%v), want this build's, ready", state, err)
 	}
 	if !home.IsPrimary(home.Home{Root: k.root, State: k.state}) {
 		t.Errorf("the checkout is not the primary home after the install, so its commands and hooks refuse it:\n%s", output)

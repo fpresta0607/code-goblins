@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/crawler"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -32,7 +33,7 @@ func inspectorFixture(t *testing.T) (*Inspector, state.TaskMeta) {
 			t.Fatal(err)
 		}
 	}
-	inspector := NewInspector(filepath.Join(root, "data"), filepath.Join(root, "state"))
+	inspector := NewInspector(root, filepath.Join(root, "data"), filepath.Join(root, "state"))
 	store, err := auth.OpenFileStore(filepath.Join(root, "credentials"))
 	if err != nil {
 		t.Fatal(err)
@@ -247,7 +248,7 @@ func TestRuntimeFailureCannotReuseConnectedOrProvidedEvidence(t *testing.T) {
 		return nil, nil, errors.New("Goblin runtime unavailable.")
 	}
 	snapshot := inspector.Check(context.Background(), meta)
-	if snapshot.Error == "" || len(snapshot.Entries) != 3 {
+	if snapshot.Error == "" || len(snapshot.Entries) != 4 || !slices.ContainsFunc(snapshot.Entries, func(entry Entry) bool { return entry.ID == "connector:crawler" && entry.Status == "unverified" }) {
 		t.Fatalf("missing unavailable evidence: %+v", snapshot)
 	}
 	for _, entry := range snapshot.Entries {
@@ -395,4 +396,55 @@ func entryGrant(entries []Entry, index int) string {
 		return "no entry"
 	}
 	return entries[index].Grant
+}
+
+// Every goblin's Connections lists the crawler connector, whichever harness
+// it runs: provided when its terminal's PATH finds goblin-crawl, disabled
+// when its brief left it out, and missing when the home never set it up, or
+// set it up after the goblin's terminal started, which a relaunch carries.
+func TestInspectorListsTheCrawlerAsTheGoblinsTerminalFindsIt(t *testing.T) {
+	setUpHome, bareHome := t.TempDir(), t.TempDir()
+	bin := crawler.BinDir(setUpHome)
+	writeConnectionFixture(t, filepath.Join(bin, crawler.Command+".cmd"), "@node \"%~dp0..\\goblin-crawl.mjs\" %*\r\n")
+	userPath := filepath.Join(setUpHome, "user-tools")
+	for _, kind := range []string{"claude", "codex", "pi"} {
+		for _, test := range []struct {
+			name       string
+			homeRoot   string
+			path       string
+			isLeftOut  bool
+			wantStatus string
+			wantDetail string
+		}{
+			{name: "carried", homeRoot: setUpHome, path: bin + string(os.PathListSeparator) + userPath, wantStatus: "provided"},
+			{name: "left out by its brief", homeRoot: setUpHome, path: userPath, isLeftOut: true, wantStatus: "disabled", wantDetail: "connectors: none"},
+			{name: "started before the home set it up", homeRoot: setUpHome, path: userPath, wantStatus: "missing", wantDetail: "its terminal started before the crawler was set up. A resume, switch or respawn starts one that carries it."},
+			{name: "never set up", homeRoot: bareHome, path: filepath.Join(t.TempDir(), "empty") + string(os.PathListSeparator) + userPath, wantStatus: "missing", wantDetail: "The CFO installs it with cfo crawler setup."},
+		} {
+			t.Run(kind+" "+test.name, func(t *testing.T) {
+				// Arrange
+				inspector, meta := inspectorFixture(t)
+				inspector.HomeRoot = test.homeRoot
+				meta.Harness, meta.IsCrawlerLeftOut = kind, test.isLeftOut
+				inspector.Runtime = func(context.Context, string, state.TaskMeta) ([]string, []string, error) {
+					return []string{"Path=" + test.path}, nil, nil
+				}
+				inspector.Claude = func(context.Context, string, []string, []string) ([]Entry, error) { return nil, nil }
+				inspector.Codex = func(context.Context, string, []string, []string) ([]Entry, error) { return nil, nil }
+
+				// Act
+				snapshot := inspector.Check(context.Background(), meta)
+
+				// Assert
+				index := slices.IndexFunc(snapshot.Entries, func(entry Entry) bool { return entry.ID == "connector:crawler" })
+				if index < 0 {
+					t.Fatalf("the %s goblin's Connections list no crawler: %+v", kind, snapshot.Entries)
+				}
+				entry := snapshot.Entries[index]
+				if entry.Name != "crawler" || entry.Kind != "connector" || entry.Status != test.wantStatus || !strings.Contains(entry.Detail, test.wantDetail) || entry.Grant != "" {
+					t.Errorf("the crawler entry = %+v, want %s naming %q and no grant", entry, test.wantStatus, test.wantDetail)
+				}
+			})
+		}
+	}
 }

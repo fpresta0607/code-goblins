@@ -1,0 +1,22 @@
+{
+  "name": "code-goblins-crawler",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The crawler connector every goblin carries: it finds every route and file of a site and reads each page, politely.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "goblin-crawl": "goblin-crawl.mjs"
+  },
+  "engines": {
+    "node": ">=20.10"
+  },
+  "scripts": {
+    "test": "node --test crawl-site.test.mjs"
+  },
+  "dependencies": {
+    "@crawlee/playwright": "3.18.2",
+    "@crawlee/utils": "3.18.2",
+    "playwright-core": "1.64.1"
+  }
+}

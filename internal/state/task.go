@@ -97,6 +97,9 @@ type TaskMeta struct {
 	// terminal starts while Codex's included allowance is used up is refused
 	// by its codex guard (codexguard).
 	CodexCredits bool
+	// IsCrawlerLeftOut says the task's brief left the crawler connector out
+	// with connectors: none, so its terminal carries no goblin-crawl.
+	IsCrawlerLeftOut bool
 }
 
 // CarriedServices names, for a table, the services whose credentials the
@@ -361,6 +364,7 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 		meta.MCPServers = strings.Split(servers, credentialsSeparator)
 	}
 	meta.CodexCredits = kv[codexCreditsKey] == codexCreditsAuthorized
+	meta.IsCrawlerLeftOut = kv[connectorsKey] == connectorsLeftOut
 	if meta.Kind == "" {
 		meta.Kind = "ship"
 	}
@@ -454,6 +458,9 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 	if meta.CodexCredits {
 		fields[codexCreditsKey] = codexCreditsAuthorized
 	}
+	if meta.IsCrawlerLeftOut {
+		fields[connectorsKey] = connectorsLeftOut
+	}
 	if meta.Kind == "ship" {
 		fields["mode"] = meta.Mode
 		fields["yolo"] = meta.Yolo
@@ -534,6 +541,13 @@ func WriteTaskCodexCredits(stateDir, id string, isAuthorized bool) error {
 const (
 	codexCreditsKey        = "codex_credits"
 	codexCreditsAuthorized = "authorized"
+)
+
+// connectorsKey is the record's line for TaskMeta.IsCrawlerLeftOut, which
+// holds connectorsLeftOut when it is set and is absent otherwise.
+const (
+	connectorsKey     = "connectors"
+	connectorsLeftOut = "none"
 )
 
 func validateTaskMetaValues(meta TaskMeta) error {
