@@ -30,8 +30,8 @@ export const reviewImages = (review: Review) => Array.from({ length: review.imag
 // button, telling the goblin to go on without it, and the pencil, which sends
 // his answer in words to the asker once. Anything else takes a written answer
 // that goes to the asker once, with Skip beside its Send.
-export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend, onClear, onAnswer, onOpen, onImage, pager }: {
-  review: Review; snapshot: Snapshot; connected: boolean; draft: Draft;
+export function ReviewCard({ review, snapshot, connected, now, draft, onDraft, onSend, onClear, onAnswer, onOpen, onImage, pager }: {
+  review: Review; snapshot: Snapshot; connected: boolean; now: number; draft: Draft;
   onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onClear: () => void; onAnswer: (text: string) => void; onOpen: (key: string) => void; onImage: (index: number) => void; pager?: ReactNode;
 }) {
   const [feedback, showFeedback] = useClickFeedback();
@@ -61,7 +61,7 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
   // Each local path its words name opens in File Explorer.
   const paths = pathLinks({ kind: "review", id: review.id, instance: snapshot.instance });
   return <form className="question-card" aria-labelledby={"review-" + review.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
-    <p className="asker"><Avatar persona={review.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> {status ? "is waiting on you" : "asks"} · waiting {age(review.created_at).replace(/ ago$/, "")}</span></p>
+    <p className="asker"><Avatar persona={review.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> {status ? "is waiting on you" : "asks"} · waiting {age(review.created_at, now).replace(/ ago$/, "")}</span></p>
     {!lead ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(rest, copyValues, paths)}</div>
       : <h3 id={"review-" + review.id} tabIndex={-1}>{inlineElements(lead, copyValues, paths)}</h3>}
     {lead && rest && <div className="question-body">{messageElements(rest, copyValues, paths)}</div>}

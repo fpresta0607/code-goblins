@@ -34,7 +34,7 @@ function ReviewCardLook() {
   useEffect(() => { if (!isBox) setFocus({ key: "review:" + shown.id, at: 1 }); }, []);
   return <main style={{ display: "grid", alignContent: "start", gap: 28, padding: 24 }}>
     {isBox && <section className="task-board" aria-label="Task board"><CfoPin afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} now={NOW} onOpen={() => {}} onCommand={() => {}} onStart={() => {}} /></section>}
-    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} />
+    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={focus} onUnsent={() => {}} />
   </main>;
 }
 

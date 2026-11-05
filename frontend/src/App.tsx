@@ -546,7 +546,7 @@ export function App() {
             Overlord, 2026-10-28: "dont need live status pill in top right
             corner of desktop", and his mobile corrections of 2026-11-04). */}
         {!connected && <Notice tone="warning">{connection}</Notice>}
-        {snapshot && <CommandCenterMenu snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={setHasUnsentAnswers} onSent={sent} />}
+        {snapshot && <CommandCenterMenu snapshot={snapshot} connected={connected} presentations={presentations} now={freshNow} focus={commandFocus} onUnsent={setHasUnsentAnswers} onSent={sent} />}
         {!paneOpen && !compact && <button onClick={() => setPaneOpen(true)}>Open {selected ? "details" : "CFO"}</button>}
       </div>
     </header>

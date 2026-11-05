@@ -26,7 +26,7 @@ const inChat = { ...base, revision: 2, questions: [{ ...strays, status: "succeed
 function AnswerElsewhere() {
   const [snapshot, setSnapshot] = useState(() => parseSnapshot(base));
   window.recordInChat = () => setSnapshot(parseSnapshot(inChat));
-  return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={null} onUnsent={() => {}} /></main>;
+  return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={null} onUnsent={() => {}} /></main>;
 }
 
 createRoot(document.getElementById("root")!).render(<AnswerElsewhere />);

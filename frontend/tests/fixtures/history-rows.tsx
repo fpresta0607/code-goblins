@@ -29,4 +29,4 @@ const snapshot = parseSnapshot({
   questions: [question], reviews,
 });
 
-createRoot(document.getElementById("root")!).render(<main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={null} onUnsent={() => {}} /></main>);
+createRoot(document.getElementById("root")!).render(<main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={null} onUnsent={() => {}} /></main>);

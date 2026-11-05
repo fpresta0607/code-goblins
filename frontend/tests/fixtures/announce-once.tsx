@@ -48,7 +48,7 @@ function Page() {
   return <main data-step={shown} style={{ minHeight: "100vh", padding: 24 }}>
     <output>{said}</output>
     <Alerts snapshot={snapshot} onOpen={(key) => { setSaid("opened " + key); setFocus({ key, at: Date.now() }); }} />
-    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={ignore} />
+    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={focus} onUnsent={ignore} />
   </main>;
 }
 

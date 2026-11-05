@@ -66,7 +66,7 @@ function QuestionClarity() {
     <button onClick={() => open("question:notify-ci-simplify-1015292")}>Open the screenshot question</button>
     <button onClick={() => open("question:ci-review-repair")}>Open the clear question</button>
     <button onClick={() => open("question:hostile-markup")}>Open the hostile question</button>
-    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} />
+    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={focus} onUnsent={() => {}} />
   </main>;
 }
 

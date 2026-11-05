@@ -65,7 +65,7 @@ function AnswerReopen() {
     }),
   });
   window.changeDelivered = (actionID) => next({ actions: raw.actions.map((action) => action.id === actionID ? { ...action, status: "succeeded" } : action) });
-  return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} /></main>;
+  return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={focus} onUnsent={() => {}} /></main>;
 }
 
 createRoot(document.getElementById("root")!).render(<AnswerReopen />);
