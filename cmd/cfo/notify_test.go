@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -1810,6 +1811,62 @@ func TestAGoblinTheCFORuledFinishedReportsDoneWithTheIssueItClosed(t *testing.T)
 				t.Errorf("wake records = %+v, %v; want the CFO woken with %q", records, err, want)
 			}
 		})
+	}
+}
+
+// An answer the Overlord gives on the board names no sequence, as cfo answer's
+// does, so the goblin cites what its --blocked notify printed.
+func TestAGoblinCitesTheDecisionItsBlockedNotifyPrintedThoughTheBoardAnsweredIt(t *testing.T) {
+	// Arrange
+	stateDir := questionHome(t)
+	nativeGoblin(t, stateDir, "g1")
+	var asked, stderr bytes.Buffer
+	if exit := runNotify([]string{"g1", "--blocked", "Close it? options: Close it, no PR (Recommended) | Keep it open"}, &asked, &stderr, defaultCommandRuntime()); exit != 0 {
+		t.Fatalf("exit = %d, stderr = %s", exit, stderr.String())
+	}
+	printed := regexp.MustCompile(`--decision (\d+)`).FindStringSubmatch(asked.String())
+	if printed == nil {
+		t.Fatalf("stdout = %q, want the sequence to cite", asked.String())
+	}
+	questions, err := supervisor.OpenDecisions(stateDir, "g1")
+	if err != nil || len(questions) != 1 {
+		t.Fatalf("open decisions = %+v, %v; want the question the notify asked", questions, err)
+	}
+	answered := questions[0]
+	answered.Status, answered.Answer, answered.AnsweredBy = "succeeded", "Close it, no PR", "overlord"
+	plantJSON(t, filepath.Join(stateDir, ".supervisor.json"), map[string]any{"questions": []supervisor.Question{answered}})
+	var stdout bytes.Buffer
+
+	// Act
+	exit := runNotify([]string{"g1", "--done", "--closed", closedIssue, "--decision", printed[1]}, &stdout, &stderr, defaultCommandRuntime())
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, stderr = %s", exit, stderr.String())
+	}
+	want := "done: closed " + closedIssue + " (decision " + printed[1] + ": Close it, no PR)"
+	lines, err := state.TailStatus(stateDir, "g1", 1)
+	if err != nil || len(lines) != 1 {
+		t.Fatalf("status = %v, %v; want one done line", lines, err)
+	}
+	if _, event := state.SplitStatus(lines[0]); event != want {
+		t.Errorf("status = %q, want %q", event, want)
+	}
+}
+
+// A helper's done rests on no decision, so a question that reached the CFO in
+// its parent's place sends it to no --decision that would refuse it.
+func TestAHelpersQuestionNamesNoDecisionToCite(t *testing.T) {
+	// Arrange
+	_, runtime, _ := helperHome(t, errors.New("the terminal is gone"))
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runNotify([]string{"g1-h1", "--blocked", "Which table? options: users | accounts"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 0 || strings.Contains(stdout.String(), "--decision") {
+		t.Errorf("exit = %d, stdout = %q; want the question taken and no decision named", exit, stdout.String())
 	}
 }
 

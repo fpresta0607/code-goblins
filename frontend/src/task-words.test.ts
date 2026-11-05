@@ -69,6 +69,7 @@ test("plain text is sentence case with no semicolon chains, hashes, paths or lin
     ["a pull request named before its link is named once", "delivered as PR https://github.com/fpresta0607/code-goblins/pull/326", "Delivered as PR #326."],
     ["an issue link reads as the issue", "closed https://github.com/o/r/issues/1450 (decision 7: close it)", "Closed issue #1450 (decision 7: close it)."],
     ["an issue named before its link is named once", "see issue https://github.com/o/r/issues/1450", "See issue #1450."],
+    ["an issue named with a capital before its link is named once", "Issue https://github.com/o/r/issues/1450 is a duplicate", "Issue #1450 is a duplicate."],
     ["a run link reads as a CI run", "see https://github.com/o/r/actions/runs/37360134485/job/1", "See a CI run."],
     ["other links read as their site", "the page at https://lavish.example.ts.net/p/abc is up", "The page at lavish.example.ts.net is up."],
     ["a question keeps its sentence, not its choices", "Should the board wait for Codex? options: Wait (Recommended) | Ask now - PR 331 is merged", "Should the board wait for Codex?"],

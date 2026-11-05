@@ -106,7 +106,7 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	done := fs.Bool("done", false, "report completion")
 	pr := fs.String("pr", "", "PR URL, required with --done unless --closed says what you closed in its place")
 	closed := fs.String("closed", "", "with --done and --decision, the https link of the GitHub issue you closed in place of a pull request")
-	decision := fs.String("decision", "", "with --closed, the wake sequence of your answered question that ruled the task finished with no pull request, as its answer names it")
+	decision := fs.String("decision", "", "with --closed, the wake sequence of your answered question that ruled the task finished with no pull request, which its --blocked notify printed")
 	blocked := fs.String("blocked", "", "report a question the goblin is blocked on: one short sentence that is the question, details on lines starting with \"- \" that give the recommendation and what each choice does, **bold** only on the verdict or the blocking item, and run IDs, findings and other evidence after a line that reads only Details:, which the board folds away")
 	failed := fs.String("failed", "", "report a failure reason")
 	working := fs.String("working", "", "report what you are working on now")
@@ -379,7 +379,7 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	case *closed != "":
 		answer, err := supervisor.DecisionAnswer(h.State, meta, decisionSeq)
 		if err != nil {
-			fmt.Fprintf(stderr, "cfo notify: %v. A done with no pull request rests on your own answered question: ask it with cfo notify %s --blocked \"<one short question> options: <answer> (Recommended) | <answer>\", and give --decision the sequence its answer names\n", err, id)
+			fmt.Fprintf(stderr, "cfo notify: %v. A done with no pull request rests on your own answered question: ask it with cfo notify %s --blocked \"<one short question> options: <answer> (Recommended) | <answer>\", and give --decision the sequence that notify prints\n", err, id)
 			return 2
 		}
 		detail = fmt.Sprintf("closed %s (decision %d: %s)", *closed, decisionSeq, answer)
@@ -560,6 +560,9 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	// The board shows the report now, not at its next refresh.
 	supervisor.Reported(h.State)
 	fmt.Fprintf(stdout, "notified %s %s\n", id, line)
+	if verb == "blocked" && parent == "" {
+		fmt.Fprintf(stdout, "Asked as notify %d: if this question has choices and its answer rules the task finished with no pull request, give --decision %d on your done.\n", record.Seq, record.Seq)
+	}
 	if stepCard != "" {
 		fmt.Fprintf(stdout, "Your step card %s is open, so it stands for this wait in the Command Center and no second card was opened. Wait on it in the background with cfo auth request --wait-on %s --task %s, which ends when the card closes. If you wait on him for something that card does not ask, ask it once the card closes.\n", stepCard, stepCard, id)
 	}

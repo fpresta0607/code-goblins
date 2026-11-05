@@ -45,7 +45,7 @@ func TestATaskRuledFinishedReadsDoneWithTheIssueItClosed(t *testing.T) {
 				got := snapshotTask(t, &Service{Store: store}, meta.ID)
 
 				// Assert
-				if got.Phase != "done" || got.Reason != closedReport || got.Report != "done" {
+				if got.Phase != "done" || got.Reason != closedReport || got.Report != "done" || got.ClosedIssue != "https://github.com/o/r/issues/1450" {
 					t.Fatalf("task = %+v, want it done with what it closed", got)
 				}
 				if got.Verified || got.PR != "" || got.WaitingOn != "" {
@@ -77,7 +77,7 @@ func TestADoneLineThatNamesNoIssueDoesNotFinishATopLevelTask(t *testing.T) {
 	got := snapshotTask(t, &Service{Store: store}, meta.ID)
 
 	// Assert
-	if got.Phase == "done" {
+	if got.Phase == "done" || got.ClosedIssue != "" {
 		t.Fatalf("task = %+v, want no delivery read from a line that names no issue", got)
 	}
 }

@@ -11,14 +11,15 @@ Where a harness runs its tool calls in its terminal's own console, which everyth
 What a report would name it reads again two seconds later, and it names only what still runs then by its pid and its start, so a tool call run beside the report that ends meanwhile is not named. **`--done` is per delivery, not per task: it requires `--pr` and records the literal line `done: PR <url>`, and a task can ship several under one id, which is the ordinary shape for a landing task.** So a terminal verb in a status log establishes that a delivery finished and nothing whatever about whether the goblin is still working; anything that reads it as "the goblin is gone" is wrong, and the more destructive the thing it decides, the more wrong.
 Live evidence answers that question: a pane holding an agent working in the goblin's worktree.
 A task ruled finished with no pull request, such as one whose issue closes as no defect, a duplicate or already fixed, reports `--done --closed <issue-url> --decision <sequence>` in place of `--pr`, once it closed the issue.
-`--closed` takes the link of a GitHub issue, and `--decision` the wake sequence of the goblin's own question in its current run, or that question's ID, as the answer names it.
+`--closed` takes the link of a GitHub issue, and `--decision` the wake sequence of the goblin's own question in its current run, or that question's ID.
+That question's `--blocked` notify prints its sequence, since only an answer from `cfo answer` names it, and one the Overlord gives on the board does not.
 The notify reads that question's answer from its record and records `done: closed <issue-url> (decision <sequence>: <answer>)`, so the report quotes what was decided rather than the goblin's account of it.
 The record proves an answer was given, and only its words say it approved this, which is why the line carries them.
 A question the goblin never asked, one from an earlier run, one with no answer on record and a `--done` with neither form are refused before anything is recorded, and so is `--closed` from a helper, whose done needs neither.
-So the goblin asks with `--blocked` and choices, which `cfo answer` answers: a `cfo send` leaves no decision on record.
+So the goblin asks with `--blocked` and choices, which the CFO answers with `cfo answer` or the Overlord on the board: a `cfo send` leaves no decision on record.
 The same issue reported again wakes nobody, as a pull request's unchanged head does.
 Nothing asks GitHub whether the issue closed, since a goblin's terminal may carry no credential to ask with: the link is there for the CFO to follow.
-Cleanup, the board, a restart and the AFK report all read that line as a delivery.
+Cleanup, the board, which reads the task `Done`, a restart, the wake for its gone terminal and the AFK report all read that line as a delivery.
 A question goes out as `cfo notify <id> --blocked "<one short question> options: <answer> (Recommended) \| <answer>"`: the question in one short sentence, every detail on a line of its own that starts with `- ` and comes before `options:`, and the choices after `options:` on its line, each the answer itself as a short phrase, such as `Fix it next` or `Keep 300 s`.
 Its `- ` lines give the recommendation and what each choice does in plain words, and run IDs, finding codes and other evidence go after a line that reads only `Details:`, which the Command Center folds under Technical details, as the [decisions procedure](../contract/decisions.md#user-decisions-on-the-board) shows.
 `cfo drain` shows it as a decision with those choices listed.
