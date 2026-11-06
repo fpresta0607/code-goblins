@@ -31,10 +31,12 @@ import (
 )
 
 type pipelineRunner struct {
-	gate       pipeline.Gate
-	native     []execx.Request
-	worktree   string
-	activeRuns int
+	gate         pipeline.Gate
+	native       []execx.Request
+	worktree     string
+	activeRuns   int
+	nativeResult *execx.Result
+	nativeError  error
 }
 
 type pipelineStartRunner struct {
@@ -203,6 +205,9 @@ func (r *pipelineRunner) Run(_ context.Context, q execx.Request) (execx.Result, 
 		return execx.Result{Stdout: data}, err
 	case "no-mistakes":
 		r.native = append(r.native, q)
+		if r.nativeResult != nil {
+			return *r.nativeResult, r.nativeError
+		}
 		return execx.Result{Stdout: []byte("native decision output\n")}, nil
 	}
 	return execx.Result{}, errors.New("unexpected command")
@@ -1980,4 +1985,89 @@ func TestPipelineTestExceptionReasonIsHonouredOnlyFromTheRegisteredCFO(t *testin
 			t.Fatalf("an empty reason: %v, %d native calls, status %q; want it refused with nothing recorded or sent", err, len(runner.native), lines)
 		}
 	})
+}
+
+func TestPipelineConfiguredTestDispositionKeepsCFOAuthorityAndNativeRefusals(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	const report = `{"findings":[{"id":"test-1","severity":"error","category":"test-command","description":"configured test command failed with exit code 4"}],"summary":"FAIL: configured baseline"}`
+	const reason = "accept the recorded baseline failure after inspecting its evidence"
+	for _, test := range []struct {
+		name           string
+		caller         string
+		flags          []string
+		result         *execx.Result
+		nativeError    error
+		refusal        string
+		isNativeCalled bool
+		isStaleCFO     bool
+	}{
+		{name: "primary CFO", caller: "cfo", isNativeCalled: true},
+		{name: "worker", caller: "goblin", refusal: "registered primary CFO"},
+		{name: "stale CFO registration", caller: "cfo", isStaleCFO: true, refusal: "registered primary CFO"},
+		{name: "stale requested run", caller: "cfo", flags: []string{"--action", "approve", "--accept", "test-1", "--reason", reason, "--run", "old"}, refusal: "no longer the latest run"},
+		{name: "no reason", caller: "cfo", flags: []string{"--action", "approve", "--accept", "test-1"}, refusal: "unresolved"},
+		{name: "blank reason", caller: "cfo", flags: []string{"--action", "approve", "--accept", "test-1", "--reason", " "}, refusal: "must say why"},
+		{name: "empty reason", caller: "cfo", flags: []string{"--action", "approve", "--accept", "test-1", "--reason", ""}, refusal: "--reason is empty"},
+		{name: "extra acceptance", caller: "cfo", flags: []string{"--action", "approve", "--accept", "test-1,other", "--reason", reason}, refusal: "exactly"},
+		{name: "native refusal", caller: "cfo", result: &execx.Result{ExitCode: 1, Stdout: []byte("error: recorded Test binding changed\n")}, refusal: "native command exited 1", isNativeCalled: true},
+		{name: "native unsupported run binding", caller: "cfo", result: &execx.Result{ExitCode: 2, Stderr: []byte("unknown flag: --run\n")}, refusal: "native command exited 2", isNativeCalled: true},
+		{name: "native execution error", caller: "cfo", result: &execx.Result{}, nativeError: errors.New("native transport refused"), refusal: "native transport refused", isNativeCalled: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			gate := pipeline.Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 3, Findings: report}
+			h, nm, runner := registeredCFOStage(t, test.caller, gate)
+			runner.nativeResult, runner.nativeError = test.result, test.nativeError
+			if test.isStaleCFO {
+				if err := os.Remove(filepath.Join(h.State, "primary.json")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			commands := taskWorktreesRunner{Runner: runner, branches: map[string]string{runner.worktree: "feat/policy"}, runBranch: "feat/policy"}
+			selectionPath := filepath.Join(h.State, "tasktmp", "task", "pipeline.json")
+			before, err := os.ReadFile(selectionPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			flags := test.flags
+			if flags == nil {
+				flags = []string{"--action", "approve", "--accept", "test-1", "--reason", reason}
+			}
+			var out bytes.Buffer
+
+			// Act
+			err = pipelineCommand(t.Context(), h, nm, commands, append([]string{"respond", "task"}, flags...), &out)
+
+			// Assert
+			if test.refusal == "" && err != nil || test.refusal != "" && (err == nil || !strings.Contains(err.Error(), test.refusal)) {
+				t.Fatalf("got %v; want refusal %q", err, test.refusal)
+			}
+			after, readErr := os.ReadFile(selectionPath)
+			if readErr != nil || !bytes.Equal(before, after) || runner.gate != gate {
+				t.Fatalf("disposition changed policy, gate evidence or budgets: %v", readErr)
+			}
+			lines, err := state.TailStatus(h.State, "task", 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !test.isNativeCalled {
+				if len(runner.native) != 0 || len(lines) != 0 {
+					t.Fatalf("refusal sent %d native commands or wrote audit %q", len(runner.native), lines)
+				}
+				return
+			}
+			want := []string{"axi", "respond", "--step", "test", "--action", "approve", "--reason", reason, "--run", "run"}
+			if len(runner.native) != 1 || !slices.Equal(runner.native[0].Args, want) || runner.native[0].Dir != runner.worktree {
+				t.Fatalf("got %d native commands; want one bound Test approval in the task worktree", len(runner.native))
+			}
+			if len(lines) != 2 || !strings.HasSuffix(lines[0], "pipeline-findings-accepted: step=test run=run round=3 findings=test-1 by=cfo") || !strings.HasSuffix(lines[1], `pipeline-approval-reason: step=test run=run round=3 reason="`+reason+`" by=cfo`) {
+				t.Fatalf("audit %q; want exact acceptance and operator reason", lines)
+			}
+			if test.result != nil && (!strings.Contains(out.String(), string(test.result.Stdout)) || !strings.Contains(out.String(), string(test.result.Stderr))) {
+				t.Fatalf("native refusal evidence was lost: %q", out.String())
+			}
+		})
+	}
 }
