@@ -255,14 +255,17 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 	// short is where the step's own output goes, and full takes every line
 	// the tests wrote: the log, when the run has one.
 	short, full := stdout, io.Discard
-	log, reportPath, err := verify.Begin(report.Project, start, plan.Commit, report.Level)
-	if err != nil {
-		fmt.Fprintf(stderr, "%s: this run leaves no report: %v\n", label, err)
-	} else {
-		defer log.Close()
-		report.Log = log.Name()
-		full = log
-		stdout, stderr = io.MultiWriter(stdout, log), io.MultiWriter(stderr, log)
+	reportPath := ""
+	if !isLint {
+		log, filename, err := verify.Begin(report.Project, start, plan.Commit, report.Level)
+		if err != nil {
+			fmt.Fprintf(stderr, "%s: this run leaves no report: %v\n", label, err)
+		} else {
+			defer log.Close()
+			reportPath, report.Log = filename, log.Name()
+			full = log
+			stdout, stderr = io.MultiWriter(stdout, log), io.MultiWriter(stderr, log)
+		}
 	}
 	printPlan()
 	if taskErr != nil {
@@ -285,7 +288,8 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 		who += ", task " + taskLabel(report.Task, runtime)
 	}
 	env := gatetest.Environment(os.Environ())
-	for commandIndex, command := range commands {
+	remainingFailures := slices.Clone(plan.Failures)
+	for _, command := range commands {
 		check := verify.Result{Command: command, Scope: report.Level, Status: "not_run", ExitCode: -1}
 		if report.Status == "passed" {
 			budget := runtime.gateBudget(plan.Level)
@@ -321,13 +325,9 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 				if outputErr := events.End(); outputErr != nil && !errors.Is(err, outputErr) {
 					err = errors.Join(err, outputErr)
 				}
-				if commandIndex >= len(plan.Guards) {
-					for _, failure := range plan.Failures {
-						if (slices.Contains(command, failure.Package) || slices.Contains(command, "./...")) && !events.Tested(failure.Package, failure.Name) {
-							err = errors.Join(err, fmt.Errorf("named failure %s %s was missing, skipped or unfinished", failure.Package, failure.Name))
-						}
-					}
-				}
+				remainingFailures = slices.DeleteFunc(remainingFailures, func(failure gatetest.FailedTest) bool {
+					return events.Tested(failure.Package, failure.Name)
+				})
 				// What this run timed is what cfo gate prepush goes by when
 				// it leaves a slow package's slowest tests to CI.
 				if keepErr := verify.KeepTimes(report.Project, events.Times()); keepErr != nil {
@@ -350,6 +350,10 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 			}
 		}
 		report.Checks = append(report.Checks, check)
+	}
+	for _, failure := range remainingFailures {
+		report.Status = "failed"
+		fmt.Fprintf(stderr, "%s: named failure %s %s was missing, skipped or unfinished\n", label, failure.Package, failure.Name)
 	}
 	report.DurationSeconds = time.Since(start).Seconds()
 

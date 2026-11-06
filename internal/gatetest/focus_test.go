@@ -74,8 +74,25 @@ func TestFocusedRepairBroadensUnmappedPathsWithoutAClassifyingPolicy(t *testing.
 	}
 }
 
+func TestFocusedRepairRetainsUnmappedFailureObligations(t *testing.T) {
+	for _, policy := range []string{`{"version":1}`, `{"version":1,"alone_packages":["c"]}`} {
+		t.Run(policy, func(t *testing.T) {
+			found := branch("a/a.go")
+			found.hasPolicy, found.policy = true, policy
+			text := "test example.com/repo/gone --- FAIL: TestBroken/subtest (0.01s)\n" +
+				"test example.com/repo/gone --- FAIL: TestBroken (0.01s)\npath a/a.go\n"
+
+			plan, note, err := focused(found, text)
+
+			if err != nil || plan.Level != Full || !strings.Contains(note, "unmappable") || !slices.Equal(plan.Failures, []FailedTest{{Package: "example.com/repo/gone", Name: "TestBroken"}}) {
+				t.Fatalf("unmapped failure obligation lost: %+v, %q, %v", plan, note, err)
+			}
+		})
+	}
+}
+
 func TestFocusedRepairRejectsUnsafePathsAndEncoding(t *testing.T) {
-	for _, value := range []string{"../a/a.go", "/a/a.go", `C:\a\a.go`, `a\na.go`, "a/../b.go", "a/a.go\x00", "a/\xff.go"} {
+	for _, value := range []string{"..", "../a/a.go", "/a/a.go", `C:\a\a.go`, `a\na.go`, "a/../b.go", "a/a.go\x00", "a/\xff.go"} {
 		t.Run(value, func(t *testing.T) {
 			// Act
 			_, _, err := focused(branch("a/a.go"), "test example.com/repo/a --- FAIL: TestBroken (0.01s)\npath "+value+"\n")

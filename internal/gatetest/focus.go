@@ -58,7 +58,7 @@ func focused(found findings, text string) (Plan, string, error) {
 		switch {
 		case strings.HasPrefix(line, "test "):
 			match := failedTestLine.FindStringSubmatch(strings.TrimPrefix(line, "test "))
-			if match == nil || !slices.ContainsFunc(found.packages, func(p Package) bool { return p.ImportPath == match[1] }) {
+			if match == nil {
 				reason = "an unrecognized or unmappable failed test"
 				continue
 			}
@@ -66,9 +66,12 @@ func focused(found findings, text string) (Plan, string, error) {
 			if !slices.Contains(failures, failure) {
 				failures = append(failures, failure)
 			}
+			if !slices.ContainsFunc(found.packages, func(p Package) bool { return p.ImportPath == failure.Package }) {
+				reason = "an unrecognized or unmappable failed test"
+			}
 		case strings.HasPrefix(line, "path "):
 			file := strings.TrimPrefix(line, "path ")
-			if file == "" || file == "." || path.IsAbs(file) || path.Clean(file) != file || strings.HasPrefix(file, "../") || strings.ContainsAny(file, "\\:") || strings.ContainsFunc(file, unicode.IsControl) {
+			if file == "" || file == "." || file == ".." || path.IsAbs(file) || path.Clean(file) != file || strings.HasPrefix(file, "../") || strings.ContainsAny(file, "\\:") || strings.ContainsFunc(file, unicode.IsControl) {
 				return Plan{}, "", fmt.Errorf("gatetest: unsafe or escaped focus path %q", file)
 			}
 			paths = append(paths, file)
