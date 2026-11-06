@@ -528,6 +528,95 @@ func TestApprovedTestExceptionCarriesTheOperatorReason(t *testing.T) {
 	}
 }
 
+func TestConfiguredTestFailureRequiresExplicitDisposition(t *testing.T) {
+	selection, err := testPolicy(t).Select("high-risk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const report = `{"findings":[{"id":"test-1","severity":"error","category":"test-command","description":"configured test command failed with exit code 4"}],"summary":"FAIL: configured baseline","risk_level":"","risk_rationale":""}`
+	const reason = "accept the recorded baseline failure after inspecting its evidence"
+	for _, test := range []struct {
+		name      string
+		change    func(*Gate, *Response)
+		isAllowed bool
+	}{
+		{name: "native failure with no repair budget", isAllowed: true},
+		{name: "native failure with a positive repair budget", change: func(g *Gate, _ *Response) { limit := 1; g.AutoFixLimit = &limit }, isAllowed: true},
+		{name: "explicitly empty native action", change: func(g *Gate, _ *Response) {
+			g.Findings = strings.Replace(report, `"severity"`, `"action":"","severity"`, 1)
+		}, isAllowed: true},
+		{name: "no reason", change: func(_ *Gate, r *Response) { r.Reason = "" }},
+		{name: "no reason with a repair budget", change: func(g *Gate, r *Response) { limit := 1; g.AutoFixLimit = &limit; r.Reason = "" }},
+		{name: "blank reason", change: func(_ *Gate, r *Response) { r.Reason = "   " }},
+		{name: "multiline reason", change: func(_ *Gate, r *Response) { r.Reason = "accept\nfailure" }},
+		{name: "no acceptance", change: func(_ *Gate, r *Response) { r.Accept = "" }},
+		{name: "extra acceptance", change: func(_ *Gate, r *Response) { r.Accept += ",other" }},
+		{name: "duplicate acceptance", change: func(_ *Gate, r *Response) { r.Accept += ",test-1" }},
+		{name: "different acceptance", change: func(_ *Gate, r *Response) { r.Accept = "other" }},
+		{name: "another open finding omitted", change: func(g *Gate, _ *Response) {
+			g.Findings = strings.Replace(report, `}],`, `},{"id":"ask","action":"ask-user"}],`, 1)
+		}},
+		{name: "every open finding accepted", change: func(g *Gate, r *Response) {
+			g.Findings = strings.Replace(report, `}],`, `},{"id":"ask","action":"ask-user"}],`, 1)
+			r.Accept = "ask,test-1"
+		}, isAllowed: true},
+		{name: "unrelated blank finding", change: func(g *Gate, _ *Response) {
+			g.Findings = strings.Replace(report, `}],`, `},{"id":"unknown","severity":"error"}],`, 1)
+		}},
+		{name: "required environment refusal", change: func(g *Gate, _ *Response) {
+			g.Findings = strings.Replace(report, "FAIL: configured baseline", "Base attribution unavailable (test command was given no turn on the base checkout: required test environment refused)", 1)
+		}},
+		{name: "unknown category", change: func(g *Gate, _ *Response) { g.Findings = strings.Replace(report, `"test-command"`, `"unknown"`, 1) }},
+		{name: "absent category", change: func(g *Gate, _ *Response) { g.Findings = strings.Replace(report, `"category":"test-command",`, "", 1) }},
+		{name: "unknown action", change: func(g *Gate, _ *Response) {
+			g.Findings = strings.Replace(report, `"severity"`, `"action":"unknown","severity"`, 1)
+		}},
+		{name: "unrelated description", change: func(g *Gate, _ *Response) {
+			g.Findings = strings.Replace(report, "configured test command failed with exit code 4", "unverified test evidence", 1)
+		}},
+		{name: "passing command", change: func(g *Gate, _ *Response) { g.Findings = strings.Replace(report, "exit code 4", "exit code 0", 1) }},
+		{name: "invalid exit code", change: func(g *Gate, _ *Response) {
+			g.Findings = strings.Replace(report, "exit code 4", "exit code unknown", 1)
+		}},
+		{name: "non-error finding", change: func(g *Gate, _ *Response) { g.Findings = strings.Replace(report, `"error"`, `"warning"`, 1) }},
+		{name: "non-Test phase", change: func(g *Gate, _ *Response) { g.Step = "review" }},
+		{name: "active gate", change: func(g *Gate, _ *Response) { g.Status = "running" }},
+		{name: "answered gate", change: func(g *Gate, _ *Response) { g.Selected = "user" }},
+		{name: "absent run", change: func(g *Gate, _ *Response) { g.RunID = "" }},
+		{name: "absent step", change: func(g *Gate, _ *Response) { g.StepID = "" }},
+		{name: "absent round", change: func(g *Gate, _ *Response) { g.Round = 0 }},
+		{name: "fix arguments", change: func(_ *Gate, r *Response) { r.Findings = "test-1" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			gate := Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 3, Findings: report}
+			response := Response{Action: "approve", Accept: "test-1", Reason: reason}
+			if test.change != nil {
+				test.change(&gate, &response)
+			}
+			original := gate
+
+			// Act
+			args, err := ResponseArgs(selection, gate, response)
+
+			// Assert
+			if gate != original {
+				t.Fatal("disposition changed the original finding or spending evidence")
+			}
+			if !test.isAllowed {
+				if err == nil || len(args) != 0 {
+					t.Fatalf("got %q, %v; want refusal without native arguments", args, err)
+				}
+				return
+			}
+			want := []string{"axi", "respond", "--step", "test", "--action", "approve", "--reason", reason, "--run", "run"}
+			if err != nil || !slices.Equal(args, want) {
+				t.Fatalf("got %q, %v; want %q", args, err, want)
+			}
+		})
+	}
+}
+
 func TestRequiredEnvironmentRefusalRequiresRetryInsteadOfApproval(t *testing.T) {
 	selection, err := testPolicy(t).Select("high-risk")
 	if err != nil {
