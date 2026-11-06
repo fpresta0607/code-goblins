@@ -352,6 +352,8 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 // GitHub shows the head, "none" while no check on it ran, "pending" until
 // every check on it concluded, "closed" once the pull request is not open,
 // else "passed" or "failed", with the observed checks.
+// Proof errors return "unproven" so step reconciles lifecycle changes before
+// refusing incomplete checks or unproven native attestation provenance.
 // It also returns GitHub's current merge readiness.
 func (e Engine) ci(ctx context.Context, t Train) (string, []Check, []Check, string, error) {
 	url, head := t.PR, t.Head
