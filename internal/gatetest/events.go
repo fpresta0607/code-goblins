@@ -79,6 +79,18 @@ func NewEvents(short, full io.Writer) *Events {
 	return &Events{short: short, full: full, packages: map[string]*packageRun{}}
 }
 
+// Tested says whether a named test actually finished, without being skipped.
+func (e *Events) Tested(importPath, name string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	run := e.packages[importPath]
+	if run == nil || run.tests[name] == nil {
+		return false
+	}
+	outcome := run.tests[name].outcome
+	return outcome == "pass" || outcome == "fail"
+}
+
 // Write takes the next piece of go test's output, which can end anywhere in
 // a line.
 func (e *Events) Write(p []byte) (int, error) {

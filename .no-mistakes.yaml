@@ -32,16 +32,26 @@ disable_project_settings: true
 # the 30-minute test agent limit with no failing test. It runs the installed
 # cfo, so it works once the CFO installs a build that has `cfo gate test`.
 #
-# The lint step's command is the Go check CI runs, `go vet ./...`, in the
-# go (rest) job of .github/workflows/go.yml, where it took 44 seconds on
-# 2026-10-10. With no command named an agent worked out what to lint, in the
-# same pass that edits the docs. CI's frontend job also runs `npm run
+# The lint step reuses the affected-check planner for go vet, without running
+# tests again. Unknown changes keep its full-tree fallback. CI's frontend job also runs `npm run
 # typecheck` and `npm run lint` in frontend, which need the node_modules a
 # gate's worktree does not have, so those two stay CI's, and the gate's ci
 # step waits for that run.
 commands:
   test: "cfo gate test"
-  lint: "go vet ./..."
+  test_focused: "cfo gate test --focused"
+  lint: "cfo gate lint"
+
+test:
+  instructions: |
+    Use the repository environment and existing fixtures for the changed surface.
+    CONTRIBUTING.md describes the existing Go, frontend and acceptance-test prerequisites.
+    Exercise changed behavior with the existing package fixtures and fake runners; these do not require a board build or live harness sessions.
+    Keep required guards inside commands.test and run its baseline once; commands.test_focused reads NO_MISTAKES_TEST_FOCUS as a UTF-8 filename containing data, never shell code.
+    A repair checks every named failure and the packages affected by its repaired paths, including transitive dependents.
+    Live terminal and browser journeys require their existing executable, input and environment fixtures.
+    When a prerequisite is unavailable, record the scenario as untested and name the missing prerequisite, without inventing or building a disposable full application.
+    CI owns the broader package coverage and platform checks that the local plan explicitly defers.
 
 # This repository does not override the primary pipeline agent.
 # Under pipeline policy version 5 every gate role runs the owned global chain,
