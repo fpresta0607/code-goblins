@@ -9,6 +9,31 @@ import (
 	"time"
 )
 
+// The native no-mistakes-required.yml workflow checks live PR body/head
+// compliance, not the combined source tree (issue #2008).
+func nativeCheck(t *testing.T, conclusion string) Check {
+	t.Helper()
+	return Check{Kind: "CheckRun", Name: "PR must be raised via no-mistakes", WorkflowName: "Require no-mistakes", Status: "COMPLETED", Conclusion: conclusion, DetailsURL: "https://github.com/o/r/actions/runs/900/job/9001"}
+}
+
+func TestRidersRequireOneSuccessfulNativeAttestation(t *testing.T) {
+	for _, conclusion := range []string{"SKIPPED", "NEUTRAL", "FAILURE", ""} {
+		t.Run(conclusion, func(t *testing.T) {
+			pr := greenPull(1)
+			pr.Checks = append(pr.Checks, nativeCheck(t, conclusion))
+			riders, _ := Riders([]PullRequest{pr}, "main", fleetAccount, goblinsFor(pr), nil)
+			if len(riders) != 0 {
+				t.Fatalf("native attestation %q admitted a rider", conclusion)
+			}
+		})
+	}
+	pr := greenPull(1)
+	pr.Checks = append(pr.Checks, nativeCheck(t, "SUCCESS"), nativeCheck(t, "SUCCESS"))
+	if riders, _ := Riders([]PullRequest{pr}, "main", fleetAccount, goblinsFor(pr), nil); len(riders) != 0 {
+		t.Fatal("ambiguous native attestations admitted a rider")
+	}
+}
+
 func greenPull(number int) PullRequest {
 	pr := PullRequest{
 		Number: number, URL: fmt.Sprintf("https://github.com/o/r/pull/%d", number), HeadRefName: fmt.Sprintf("feat/%d", number),
