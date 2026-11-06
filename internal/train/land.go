@@ -203,6 +203,11 @@ func (e Engine) recheck(ctx context.Context, t *Train) ([]string, string, error)
 				return nil, "", fmt.Errorf("merge train %s: #%d's mergeability is unknown", t.ID, car.Number)
 			default:
 				why = ""
+				attestation, hasAttestation := nativeAttestation(pr.Checks)
+				if car.NativeAttestation != nil && (!successfulAttestation(attestation) || *attestation != *car.NativeAttestation) || hasAttestation && !successfulAttestation(attestation) {
+					why = "its native attestation no longer matches the admitted head's proof"
+					break
+				}
 				if outcome, _ := checksOutcome(pr.Checks); outcome != "passed" && !slices.ContainsFunc(t.History, func(run Run) bool {
 					return run.OwnRun != "" && len(run.Passed) > 0 && run.PR == car.URL
 				}) {
