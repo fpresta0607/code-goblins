@@ -216,7 +216,7 @@ See [conversation recovery and fresh starts](docs/native-board.md#a-cfo-whose-te
 Use `cfo help` to list topics, then ask for one command, such as `cfo help auth request`.
 The [help reference](docs/commands/help.md), [operator contract](AGENTS.md) and [pipeline guide](docs/pipeline.md) cover fleet operation and verification levels.
 See the [update command reference](docs/commands/update.md) for installing a candidate build and recovering an update.
-See the [memory command reference](docs/commands/memory.md) for startup memory retrieval, budget reports and read-only migration inventories.
+See the [memory command reference](docs/commands/memory.md) for startup memory retrieval, budget reports and read-only migration and retention plans.
 
 For persistent Command Center reviews:
 

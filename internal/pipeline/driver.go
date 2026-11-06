@@ -466,6 +466,7 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 	emptyActionFixable := gate.Step != "review" && gate.AutoFixLimit != nil && *gate.AutoFixLimit > 0
 	actions := map[string]string{}
 	var open []string
+	var informational []string
 	unresolved, blank := false, false
 	isConfiguredTestException := false
 	baseRefusal, _, _ := strings.Cut(report.Summary, "\n")
@@ -480,6 +481,7 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 		case "no-op":
 			// Native selection includes all matching IDs; informational rows
 			// add no actionable meaning to a selected repair.
+			informational = append(informational, f.ID)
 			continue
 		case "auto-fix", "ask-user":
 			unresolved = true
@@ -570,6 +572,20 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 			seen[id] = true
 		}
 		args = append(args, "--findings", response.Findings)
+		var ignored []string
+		for _, id := range informational {
+			if _, isActionable := actions[id]; isActionable {
+				continue
+			}
+			if seen[id] || strings.TrimSpace(id) != id || strings.ContainsRune(id, ',') || strings.IndexFunc(id, unicode.IsControl) >= 0 {
+				return nil, errors.New("pipeline: ignored no-op finding ID is invalid or duplicated")
+			}
+			seen[id] = true
+			ignored = append(ignored, id)
+		}
+		if len(ignored) > 0 {
+			args = append(args, "--ignore", strings.Join(ignored, ","), "--run", gate.RunID)
+		}
 		if response.Instructions != "" {
 			args = append(args, "--instructions", response.Instructions)
 		}

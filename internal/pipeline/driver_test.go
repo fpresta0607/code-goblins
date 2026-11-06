@@ -127,6 +127,77 @@ func TestResponseSelectsRepairWithInformationalIDCollision(t *testing.T) {
 	}
 }
 
+func TestResponseForwardsOnlyVerifiedNoOpsOnSelectedFix(t *testing.T) {
+	selection, err := testPolicy(t).Select("high-risk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const report = `{"findings":[{"id":"test-1","action":"auto-fix"},{"id":"configured-test-failure","action":"no-op"},{"id":"test-4","action":"ask-user"},{"id":"build-cleanup-blocked","action":"no-op"}]}`
+	for _, test := range []struct {
+		name      string
+		change    func(*Gate, *Response)
+		isRefused bool
+		ignored   string
+	}{
+		{name: "current parked round"},
+		{name: "no-op actionable collision is selected, never ignored", change: func(g *Gate, _ *Response) {
+			g.Findings = strings.Replace(report, `"id":"configured-test-failure"`, `"id":"test-1"`, 1)
+		}, ignored: "build-cleanup-blocked"},
+		{name: "duplicate ignored ID", change: func(g *Gate, _ *Response) {
+			g.Findings = strings.Replace(report, `"id":"build-cleanup-blocked"`, `"id":"configured-test-failure"`, 1)
+		}, isRefused: true},
+		{name: "unknown action", change: func(g *Gate, _ *Response) { g.Findings = strings.Replace(report, `"no-op"`, `"unknown"`, 1) }, isRefused: true},
+		{name: "unknown selected ID", change: func(_ *Gate, r *Response) { r.Findings += ",unknown" }, isRefused: true},
+		{name: "duplicate selected ID", change: func(_ *Gate, r *Response) { r.Findings += ",test-1" }, isRefused: true},
+		{name: "no-op selected for repair", change: func(_ *Gate, r *Response) { r.Findings += ",configured-test-failure" }, isRefused: true},
+		{name: "CSV in ignored ID", change: func(g *Gate, _ *Response) {
+			g.Findings = strings.Replace(report, "configured-test-failure", "unknown,test-4", 1)
+		}, isRefused: true},
+		{name: "whitespace around ignored ID", change: func(g *Gate, _ *Response) {
+			g.Findings = strings.Replace(report, "configured-test-failure", " test-4 ", 1)
+		}, isRefused: true},
+		{name: "control character in ignored ID", change: func(g *Gate, _ *Response) {
+			g.Findings = strings.Replace(report, "configured-test-failure", `unknown\ntest-4`, 1)
+		}, isRefused: true},
+		{name: "answered round", change: func(g *Gate, _ *Response) { g.Selected = "user" }, isRefused: true},
+		{name: "missing round", change: func(g *Gate, _ *Response) { g.Round = 0 }, isRefused: true},
+		{name: "running step", change: func(g *Gate, _ *Response) { g.Status = "running" }, isRefused: true},
+		{name: "spent review", change: func(g *Gate, _ *Response) { g.Step = "review"; g.Round = 4 }, isRefused: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			gate := Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 2, Findings: report}
+			response := Response{Action: "fix", Findings: "test-1,test-4"}
+			if test.change != nil {
+				test.change(&gate, &response)
+			}
+			before := gate
+
+			// Act
+			args, err := ResponseArgs(selection, gate, response)
+
+			// Assert
+			if before != gate {
+				t.Fatal("translation changed findings or spending evidence")
+			}
+			if test.isRefused {
+				if err == nil || len(args) != 0 {
+					t.Fatalf("got %q, %v; want refusal without native arguments", args, err)
+				}
+				return
+			}
+			ignored := "configured-test-failure,build-cleanup-blocked"
+			if test.ignored != "" {
+				ignored = test.ignored
+			}
+			want := []string{"axi", "respond", "--step", "test", "--action", "fix", "--findings", "test-1,test-4", "--ignore", ignored, "--run", "run"}
+			if err != nil || !slices.Equal(args, want) {
+				t.Fatalf("got %q, %v; want %q", args, err, want)
+			}
+		})
+	}
+}
+
 func TestResponseDistinguishesInformationalAndActionableIDCollisions(t *testing.T) {
 	selection, err := testPolicy(t).Select("ordinary")
 	if err != nil {
