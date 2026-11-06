@@ -103,7 +103,16 @@ func ownerInfo(pid int, session string) (*Info, processStatus) {
 // The record is written whole beside path and renamed into place, so no
 // reader finds it part written, and a writer ended while it writes leaves no
 // empty record that every later acquisition refuses as unreadable (#1665).
+//
+// A record already there costs no file of its own. Staging one is the slow
+// part of a write, and a look at a held lock that paid for it could spend its
+// whole wait on it before it saw who holds the lock (#1878). This check needs
+// no deadline and no open of the record, so neither a look that starts late
+// nor a scan holding the record keeps it from finding the record there.
 func writeInfo(ctx context.Context, path string, info *Info) error {
+	if _, err := os.Lstat(path); err == nil {
+		return os.ErrExist
+	}
 	data, err := json.Marshal(info)
 	if err != nil {
 		return err
@@ -145,7 +154,7 @@ func acquireNamedOwnerContext(ctx context.Context, dir, name string, ownerPID in
 // AcquireNamedOwnerWithin is AcquireNamedOwner waiting out a live holder for
 // up to wait, for a lock whose holder only reads and writes a file: a loaded
 // machine can slow that for seconds. Past wait it returns the holder's
-// ErrHeld.
+// ErrHeld, which names the holder unless its record could not be read in time.
 //
 // Its callers queue. Each lines up beside the lock first (lineUp) and takes
 // the lock's record only at the head of the line, where it stays until
@@ -175,25 +184,24 @@ func AcquireNamedOwnerWithin(dir, name string, ownerPID int, session string, wai
 	// Each look waits out another process holding the record only until
 	// the deadline, as a scan of a record just written can hold it for
 	// seconds. At the head of the line the record is this caller's to take,
-	// so it takes one look at it however late the line let it through, and
-	// that look waits out a holder for one pause at most: a machine that
-	// stalls can spend the whole wait in a line with nobody ahead, and on a
-	// CI runner that did (train PR 1043) a free wake lock was given up as
-	// "context deadline exceeded" before its record was ever tried.
-	ctx, cancel := awake.WithTimeout(context.Background(), max(waiting.Left(), longestPause))
-	defer cancel()
+	// so every look gets a deadline of its own however late it starts, and
+	// past the wait that deadline is one pause: a machine that stalls can
+	// spend the whole wait in a line with nobody ahead, and on a CI runner
+	// that did (train PR 1043) a free wake lock was given up as "context
+	// deadline exceeded" before its record was ever tried.
 	pause := 10 * time.Millisecond
 	var held error
 	for {
-		info, err := acquireNamedOwnerContext(ctx, dir, name, ownerPID, session)
+		look, endLook := awake.WithTimeout(context.Background(), max(waiting.Left(), longestPause))
+		info, err := acquireNamedOwnerContext(look, dir, name, ownerPID, session)
+		endLook()
 		if err == nil {
 			keepPlace(exclusiveLeaseKey(dir, name), place)
 			return info, nil
 		}
-		// A loaded machine can start a look late, after a pause that ran past
-		// the deadline, or slow it across the deadline, and the look then ends
-		// with the deadline, not with the holder: the holder the last look
-		// found is the answer (#1393).
+		// A loaded machine can slow a look across its deadline, and the look
+		// then ends with the deadline, not with the holder: the holder the
+		// last look found is the answer (#1393).
 		if errors.Is(err, ErrHeld) {
 			held = err
 		} else if held != nil && errors.Is(err, context.DeadlineExceeded) {
@@ -356,6 +364,12 @@ func acquireReading(ctx context.Context, dir, name string, self *Info, allowReac
 					continue
 				}
 				return nil, herr
+			}
+			// The deadline ended the read, which says nothing about the
+			// record it never read: the record is there, so the lock is held,
+			// and it must not count towards the orphan below.
+			if errors.Is(herr, context.DeadlineExceeded) {
+				return nil, fmt.Errorf("%w: its record %s went unread: %v", ErrHeld, path, herr)
 			}
 			// File is unreadable, corrupt, or zero-byte (holder mid-write).
 			// Treat as transient: sleep and retry, but only after seeing
