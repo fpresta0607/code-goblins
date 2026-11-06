@@ -150,9 +150,14 @@ A rider's checks must still pass unless the train retains that rider's recorded 
 Unknown mergeability holds the step; a waiting rider is rechecked when selected for compute, so its change never invalidates a distinct green half.
 
 A train's synthetic pull request can exclude exactly one `COMPLETED FAILURE` check named `PR must be raised via no-mistakes` from workflow `Require no-mistakes`, which attests the live pull request rather than the combined source tree.
-The exception requires GitHub run metadata for that check and every rider's captured successful attestation to identify `.github/workflows/no-mistakes-required.yml`, the same workflow name, the `pull_request` event, this repository and each respective admitted head.
-When a rider exposes that check name, admission requires exactly one matching `COMPLETED SUCCESS` check and captures its full value; skipped, neutral, pending, failed or ambiguous attestations do not qualify.
-Every subsequent rider recheck, including the final landing recheck, requires that captured attestation to remain exactly equal and successful; disappearance or replacement withdraws the rider even with recorded own-run proof.
+The exception binds that check and every rider's captured successful attestation by immutable check, app, suite, run, attempt and workflow identities to `.github/workflows/no-mistakes-required.yml`, the `Require no-mistakes` workflow, the `pull_request` event, this repository and each respective admitted head.
+The workflow object's name identifies the workflow; a run's dynamic name and display title never substitute for that identity, and an event action inferred from a title grants no authority.
+When a rider exposes that check name, every matching entry must be a distinct GitHub Actions app 15368 `COMPLETED SUCCESS` check from that native workflow at the rider's head.
+Missing provenance, repeated check, suite or run identities, another source, and skipped, neutral, pending or failed siblings refuse the rider; a successful sibling never hides one.
+After validating the whole group, admission captures the full check value with the smallest immutable check ID as its witness, independent of rollup order and timestamps.
+Every subsequent rider recheck, including the final landing recheck, requires that exact recorded witness to remain equal and successful and validates every current sibling; disappearance or replacement withdraws the rider even with recorded own-run proof, while another proven successful run cannot replace the witness.
+An older saved witness without immutable provenance stays preserved and cannot authorize this exception.
+An incomplete check rollup refuses validation rather than silently passing over unobserved checks.
 A rider without a captured successful attestation cannot authorize the synthetic pull request's exception.
 The raw excluded failure stays in `Run.PRChecks`, separate from source CI proof in `Run.Passed`, and never counts as a passing test, a failed-once check or a retry candidate.
 Every other check retains its ordinary classification, and source CI must pass before landing; a rider's own-run landing receives no such exception.

@@ -206,9 +206,10 @@ func (s *scratch) goblinTold(task string) []string {
 // merge commit and, as GitHub does, marks a pull request merged once main
 // holds its head, however that head got there.
 type fakeGitHub struct {
-	s          *scratch
-	pulls      map[string]*pull
-	nativeRuns map[string]map[string]any
+	s               *scratch
+	pulls           map[string]*pull
+	nativeRuns      map[string]map[string]any
+	nativeWorkflows map[string]map[string]any
 	// breaks are heads whose presence on a train's head turns its CI red, on
 	// every try.
 	breaks []string
@@ -425,6 +426,13 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.calls = append(f.calls, []string{r.Method, path, r.URL.RawQuery})
 		found := actionsRead.FindStringSubmatch(path)
 		switch {
+		case strings.HasPrefix(path, "repos/o/r/actions/workflows/"):
+			workflow := f.nativeWorkflows[strings.TrimPrefix(path, "repos/o/r/actions/workflows/")]
+			if workflow == nil {
+				githubtest.Refuse(w, http.StatusNotFound, "unknown native workflow")
+				return
+			}
+			_ = json.NewEncoder(w).Encode(workflow)
 		case found != nil && found[1] == "":
 			f.serve(w, "run list", func() (execx.Result, error) {
 				return execx.Result{Stdout: []byte(`{"workflow_runs":` + f.mainRuns + `}`)}, nil

@@ -3,6 +3,7 @@ package train
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -13,7 +14,10 @@ import (
 // compliance, not the combined source tree (issue #2008).
 func nativeCheck(t *testing.T, conclusion string) Check {
 	t.Helper()
-	return Check{Kind: "CheckRun", Name: "PR must be raised via no-mistakes", WorkflowName: "Require no-mistakes", Status: "COMPLETED", Conclusion: conclusion, DetailsURL: "https://github.com/o/r/actions/runs/900/job/9001"}
+	return Check{Kind: "CheckRun", Name: "PR must be raised via no-mistakes", WorkflowName: "Require no-mistakes", Status: "COMPLETED", Conclusion: conclusion, DetailsURL: "https://github.com/o/r/actions/runs/900/job/9001",
+		DatabaseID: 9001, NodeID: "CR9001", SuiteID: 900, SuiteNodeID: "CS900", AppID: githubActions,
+		Repository: "o/r", HeadSHA: fmt.Sprintf("%040d", 1), RunID: 900, RunNodeID: "WFR900", RunAttempt: 1,
+		Event: "pull_request", WorkflowID: 99, WorkflowNodeID: "W99", WorkflowPath: nativeAttestationPath, WorkflowRepository: "o/r"}
 }
 
 func TestRidersRequireOneSuccessfulNativeAttestation(t *testing.T) {
@@ -256,6 +260,143 @@ func TestARateLimitedDeployCountsAsNotRunNeverAsFailed(t *testing.T) {
 			}
 			if len(riders) != 1 || len(left) != 0 || !strings.Contains(riders[0].Note, test.note) {
 				t.Fatalf("riders %+v, left %q, want it riding with a note that says %s", riders, left, test.note)
+			}
+		})
+	}
+}
+
+func capturedNativePull(t *testing.T) PullRequest {
+	t.Helper()
+	data, err := os.ReadFile("testdata/native-attestation-pr.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var graph GraphPullRequest
+	if err := json.Unmarshal(data, &graph); err != nil {
+		t.Fatal(err)
+	}
+	return graph.PullRequest()
+}
+
+func TestRidersAdmitDistinctSuccessfulNativeAttestations(t *testing.T) {
+	// Arrange: the captured PR122 rollup has 23 successes, two distinct native runs.
+	pr := capturedNativePull(t)
+	before := slices.Clone(pr.Checks)
+
+	// Act
+	riders, left := Riders([]PullRequest{pr}, "main", pr.Author.Login, goblinsFor(pr), nil)
+
+	// Assert
+	if len(riders) != 1 || len(left) != 0 {
+		t.Fatalf("riders %v, left %v: distinct native successes must admit", riders, left)
+	}
+	if len(pr.Checks) != 23 || !slices.Equal(pr.Checks, before) {
+		t.Fatal("admission changed the original check values or multiplicity")
+	}
+	witness := riders[0].NativeAttestation
+	if witness == nil || witness.DetailsURL != "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780731/job/127956358474" {
+		t.Fatalf("witness %+v, want the immutable first check", witness)
+	}
+}
+
+func TestRidersRequireEveryNativeAttestationToBeProvenAndSuccessful(t *testing.T) {
+	for name, change := range map[string]func(*Check){
+		"failed sibling":              func(c *Check) { c.Conclusion = "FAILURE" },
+		"pending sibling":             func(c *Check) { c.Status, c.Conclusion = "IN_PROGRESS", "" },
+		"skipped sibling":             func(c *Check) { c.Conclusion = "SKIPPED" },
+		"neutral sibling":             func(c *Check) { c.Conclusion = "NEUTRAL" },
+		"cancelled sibling":           func(c *Check) { c.Conclusion = "CANCELLED" },
+		"status context":              func(c *Check) { c.Kind, c.Context = "StatusContext", c.Name },
+		"missing check ID":            func(c *Check) { c.DatabaseID = 0 },
+		"missing check node":          func(c *Check) { c.NodeID = "" },
+		"missing suite":               func(c *Check) { c.SuiteID = 0 },
+		"missing suite node":          func(c *Check) { c.SuiteNodeID = "" },
+		"foreign app":                 func(c *Check) { c.AppID++ },
+		"missing run":                 func(c *Check) { c.RunID = 0 },
+		"missing run node":            func(c *Check) { c.RunNodeID = "" },
+		"missing attempt":             func(c *Check) { c.RunAttempt = 0 },
+		"foreign head":                func(c *Check) { c.HeadSHA = strings.Repeat("a", 40) },
+		"foreign repository":          func(c *Check) { c.Repository = "foreign/repo" },
+		"foreign workflow repository": func(c *Check) { c.WorkflowRepository = "foreign/repo" },
+		"foreign workflow":            func(c *Check) { c.WorkflowID++ },
+		"missing workflow node":       func(c *Check) { c.WorkflowNodeID = "" },
+		"wrong workflow name":         func(c *Check) { c.WorkflowName = "test" },
+		"wrong file":                  func(c *Check) { c.WorkflowPath = ".github/workflows/test.yml" },
+		"wrong event":                 func(c *Check) { c.Event = "push" },
+		"wrong run link":              func(c *Check) { c.DetailsURL = strings.Replace(c.DetailsURL, "42237139244", "42236780731", 1) },
+		"duplicate check ID":          func(c *Check) { c.DatabaseID = 127956358474 },
+		"duplicate suite":             func(c *Check) { c.SuiteID = 114442038361 },
+		"same run and attempt":        func(c *Check) { c.RunID = 42236780731 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			pr := capturedNativePull(t)
+			admitted, _ := nativeRiderAttestation(pr, nil)
+			change(&pr.Checks[3])
+			before := slices.Clone(pr.Checks)
+			// Act / Assert: a valid first witness cannot hide an invalid sibling.
+			for _, witness := range []*Check{nil, admitted} {
+				if proof, present := nativeRiderAttestation(pr, witness); proof != nil || !present {
+					t.Fatalf("accepted invalid native group: %+v, present %v", proof, present)
+				}
+			}
+			if !slices.Equal(pr.Checks, before) {
+				t.Fatal("validation rewrote its input")
+			}
+		})
+	}
+}
+
+func TestRidersNativeAttestationWitnessIsStableByImmutableIdentity(t *testing.T) {
+	// Arrange
+	pr := capturedNativePull(t)
+	admitted, _ := nativeRiderAttestation(pr, nil)
+	if admitted == nil {
+		t.Fatal("missing admitted witness")
+	}
+	for _, variant := range []string{"reordered", "timestamps", "new successful sibling", "replacement", "changed witness", "legacy witness", "identical duplicate"} {
+		t.Run(variant, func(t *testing.T) {
+			current := pr
+			current.Checks = slices.Clone(pr.Checks)
+			witness := *admitted
+			shouldPass := true
+			switch variant {
+			case "reordered":
+				slices.Reverse(current.Checks)
+			case "timestamps":
+				current.Checks[3].StartedAt, current.Checks[3].CompletedAt = "2000-01-01T00:00:00Z", "2000-01-01T00:00:01Z"
+			case "new successful sibling":
+				sibling := current.Checks[3]
+				sibling.DatabaseID++
+				sibling.SuiteID++
+				sibling.RunID++
+				sibling.NodeID, sibling.SuiteNodeID, sibling.RunNodeID = "new-check", "new-suite", "new-run"
+				sibling.DetailsURL = fmt.Sprintf("https://github.com/%s/actions/runs/%d/job/%d", sibling.Repository, sibling.RunID, sibling.DatabaseID)
+				current.Checks = append(current.Checks, sibling)
+			case "replacement":
+				current.Checks = append(current.Checks[:2:2], current.Checks[3:]...)
+				shouldPass = false
+			case "changed witness":
+				current.Checks[2].CompletedAt = "2030-01-01T00:00:00Z"
+				shouldPass = false
+			case "legacy witness":
+				witness.DatabaseID, witness.NodeID = 0, ""
+				shouldPass = false
+			case "identical duplicate":
+				current.Checks = append(current.Checks, current.Checks[2])
+				shouldPass = false
+			}
+			// Act
+			proof, present := nativeRiderAttestation(current, &witness)
+			// Assert
+			if !present || (proof != nil) != shouldPass || proof != nil && *proof != *admitted {
+				t.Fatalf("proof %+v, want admitted %+v, should pass %v", proof, admitted, shouldPass)
+			}
+			if variant == "reordered" || variant == "timestamps" {
+				fresh, _ := nativeRiderAttestation(current, nil)
+				if fresh == nil || fresh.DatabaseID != admitted.DatabaseID {
+					t.Fatal("selection depended on order or time")
+				}
 			}
 		})
 	}

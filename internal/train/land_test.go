@@ -38,14 +38,20 @@ func nativeTrain(t *testing.T) (*scratch, *fakeGitHub, Engine, Train, []PullRequ
 	s := newScratch(t)
 	gh := newFakeGitHub(s)
 	gh.nativeRuns = map[string]map[string]any{}
+	gh.nativeWorkflows = map[string]map[string]any{"99": {"id": 99, "node_id": "W99", "name": "Require no-mistakes", "path": nativeAttestationPath}}
 	var pulls []PullRequest
 	for _, number := range []int{11, 12} {
 		branch := fmt.Sprintf("feat/%d", number)
 		pr := gh.open(number, branch, s.branch(branch, fmt.Sprintf("%d.txt", number), "change\n"))
-		check := nativeCheck(t, "SUCCESS")
-		check.DetailsURL = fmt.Sprintf("https://github.com/o/r/actions/runs/%d/job/1", 900+number)
-		pr.Checks = append(pr.Checks, check)
-		gh.nativeRuns[fmt.Sprint(900+number)] = map[string]any{"name": "Require no-mistakes", "path": ".github/workflows/no-mistakes-required.yml", "event": "pull_request", "head_sha": pr.HeadRefOid}
+		for _, offset := range []int{0, 1000} {
+			check := nativeCheck(t, "SUCCESS")
+			check.HeadSHA = pr.HeadRefOid
+			check.RunID, check.SuiteID, check.DatabaseID = int64(900+number+offset), int64(900+number+offset), int64(9000+number+offset)
+			check.RunNodeID, check.SuiteNodeID, check.NodeID = fmt.Sprint("WFR", check.RunID), fmt.Sprint("CS", check.SuiteID), fmt.Sprint("CR", check.DatabaseID)
+			check.DetailsURL = fmt.Sprintf("https://github.com/o/r/actions/runs/%d/job/%d", check.RunID, check.DatabaseID)
+			pr.Checks = append(pr.Checks, check)
+			gh.nativeRuns[fmt.Sprint(check.RunID)] = nativeRunResponse(check)
+		}
 		gh.pulls[pr.URL].checks = pr.Checks
 		pulls = append(pulls, pr)
 	}
@@ -55,15 +61,28 @@ func nativeTrain(t *testing.T) (*scratch, *fakeGitHub, Engine, Train, []PullRequ
 	if err != nil {
 		t.Fatal(err)
 	}
-	gh.workflowOf(started.Head).extra = []Check{nativeCheck(t, "FAILURE")}
-	gh.nativeRuns["900"] = map[string]any{"name": "Require no-mistakes", "path": ".github/workflows/no-mistakes-required.yml", "event": "pull_request", "head_sha": started.Head}
+	failure := nativeCheck(t, "FAILURE")
+	failure.HeadSHA = started.Head
+	gh.workflowOf(started.Head).extra = []Check{failure}
+	gh.nativeRuns["900"] = nativeRunResponse(failure)
 	return s, gh, engine, started, pulls
+}
+
+func nativeRunResponse(check Check) map[string]any {
+	return map[string]any{
+		"id": check.RunID, "node_id": check.RunNodeID,
+		"check_suite_id": check.SuiteID, "check_suite_node_id": check.SuiteNodeID,
+		"workflow_id": check.WorkflowID, "run_attempt": check.RunAttempt,
+		"name": "PR body compliance - dynamic event title", "display_title": "Separate display title",
+		"path": check.WorkflowPath, "event": check.Event, "head_sha": check.HeadSHA,
+		"repository": map[string]any{"full_name": check.Repository},
+	}
 }
 
 func TestNativeAttestationExceptionRetainsOtherCIAndExactProvenance(t *testing.T) {
 	_, gh, engine, started, _ := nativeTrain(t)
 	w := gh.workflowOf(started.Head)
-	original := nativeCheck(t, "FAILURE")
+	original := w.extra[0]
 	for _, test := range []struct {
 		name      string
 		change    func()
@@ -99,10 +118,16 @@ func TestNativeAttestationExceptionRetainsOtherCIAndExactProvenance(t *testing.T
 }
 
 func TestNativeAttestationIsRecheckedBeforeLanding(t *testing.T) {
-	for _, change := range []string{"missing", "pending", "failed", "skipped", "changed", "ambiguous", "head", "held", "draft", "review", "base"} {
+	for _, change := range []string{"missing", "pending", "failed", "skipped", "changed", "ambiguous", "head", "held", "draft", "review", "base", "sibling failed", "sibling pending", "sibling foreign", "replacement", "legacy"} {
 		t.Run(change, func(t *testing.T) {
 			s, gh, engine, started, pulls := nativeTrain(t)
 			pr := gh.pulls[pulls[0].URL]
+			if change == "legacy" {
+				started.Cars[0].NativeAttestation.DatabaseID = 0
+				if err := engine.save(&started); err != nil {
+					t.Fatal(err)
+				}
+			}
 			gh.beforeList = func() {
 				switch change {
 				case "missing":
@@ -117,6 +142,14 @@ func TestNativeAttestationIsRecheckedBeforeLanding(t *testing.T) {
 					pr.checks[1].DetailsURL += "0"
 				case "ambiguous":
 					pr.checks = append(pr.checks, pr.checks[1])
+				case "sibling failed":
+					pr.checks[2].Conclusion = "FAILURE"
+				case "sibling pending":
+					pr.checks[2].Status, pr.checks[2].Conclusion = "IN_PROGRESS", ""
+				case "sibling foreign":
+					pr.checks[2].AppID++
+				case "replacement":
+					pr.checks = append(pr.checks[:1:1], pr.checks[2:]...)
 				case "head":
 					s.extend(pulls[0].HeadRefName, "more.txt", "more\n")
 				case "held":
@@ -128,6 +161,13 @@ func TestNativeAttestationIsRecheckedBeforeLanding(t *testing.T) {
 				case "base":
 					pr.baseRefName = "release"
 				}
+			}
+			if change == "legacy" {
+				stepped, err := engine.Advance(context.Background(), started.ID)
+				if err == nil || !strings.Contains(err.Error(), "native attestation provenance") || len(gh.merged) != 0 || stepped.Cars[0].NativeAttestation.DatabaseID != 0 {
+					t.Fatalf("legacy proof was refreshed or used: %+v, error %v", stepped, err)
+				}
+				return
 			}
 			stepped := s.step(engine, started.ID)
 			if len(gh.merged) != 0 || stepped.Cars[0].State != CarReturned || stepped.History[0].Result != RunChanged {

@@ -40,7 +40,7 @@ func (e Engine) ownRun(ctx context.Context, t Train, car Car, base string) (proo
 	read, cancel := context.WithTimeout(ctx, callWithin)
 	view, err := viewPullRequest(read, e.GitHub, car.URL)
 	cancel()
-	if err != nil || view.HeadRefOid != car.Head {
+	if err != nil || view.HeadRefOid != car.Head || !view.completeChecks() {
 		return "", "", nil
 	}
 	viewed := view.Checks()

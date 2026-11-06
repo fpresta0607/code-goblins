@@ -368,6 +368,9 @@ func (e Engine) ci(ctx context.Context, t Train) (string, []Check, []Check, stri
 	if view.HeadRefOid != head {
 		return "stale", nil, nil, view.MergeStateStatus, nil
 	}
+	if !view.completeChecks() {
+		return "", nil, nil, view.MergeStateStatus, fmt.Errorf("merge train %s: GitHub returned an incomplete check rollup for %s", t.ID, url)
+	}
 	checks := view.Checks()
 	var prChecks []Check
 	attestation, _ := nativeAttestation(checks)
@@ -407,24 +410,39 @@ func (e Engine) ci(ctx context.Context, t Train) (string, []Check, []Check, stri
 // workflow file, event and PR head. A same-named foreign job or workflow
 // is ordinary CI and receives no exception.
 func (e Engine) isNativePRCheck(ctx context.Context, t Train, check Check, head string) (bool, error) {
-	prefix := "https://github.com/" + t.Repository + "/actions/runs/"
-	if !strings.HasPrefix(check.DetailsURL, prefix) {
+	if !check.isNativePRCheck(t.Repository, head) {
 		return false, nil
 	}
-	found := actionsRun.FindStringSubmatch(check.DetailsURL)
-	if found == nil {
+	var run struct {
+		ID          int64  `json:"id"`
+		NodeID      string `json:"node_id"`
+		SuiteID     int64  `json:"check_suite_id"`
+		SuiteNodeID string `json:"check_suite_node_id"`
+		WorkflowID  int64  `json:"workflow_id"`
+		Attempt     int    `json:"run_attempt"`
+		Path        string `json:"path"`
+		Event       string `json:"event"`
+		Head        string `json:"head_sha"`
+		Repository  struct {
+			FullName string `json:"full_name"`
+		} `json:"repository"`
+	}
+	if err := e.get(ctx, fmt.Sprintf("repos/%s/actions/runs/%d", t.Repository, check.RunID), &run); err != nil {
+		return false, err
+	}
+	if run.ID != check.RunID || run.NodeID != check.RunNodeID || run.SuiteID != check.SuiteID || run.SuiteNodeID != check.SuiteNodeID || run.WorkflowID != check.WorkflowID || run.Attempt != check.RunAttempt || run.Path != nativeAttestationPath || run.Event != "pull_request" || run.Head != head || run.Repository.FullName != t.Repository {
 		return false, nil
 	}
 	var workflow struct {
-		Name  string `json:"name"`
-		Path  string `json:"path"`
-		Event string `json:"event"`
-		Head  string `json:"head_sha"`
+		ID     int64  `json:"id"`
+		NodeID string `json:"node_id"`
+		Name   string `json:"name"`
+		Path   string `json:"path"`
 	}
-	if err := e.get(ctx, "repos/"+t.Repository+"/actions/runs/"+found[1], &workflow); err != nil {
+	if err := e.get(ctx, fmt.Sprintf("repos/%s/actions/workflows/%d", t.Repository, check.WorkflowID), &workflow); err != nil {
 		return false, err
 	}
-	return workflow.Name == nativeAttestationWorkflow && workflow.Path == ".github/workflows/no-mistakes-required.yml" && workflow.Event == "pull_request" && workflow.Head == head, nil
+	return workflow.ID == check.WorkflowID && workflow.NodeID == check.WorkflowNodeID && workflow.Name == nativeAttestationWorkflow && workflow.Path == nativeAttestationPath, nil
 }
 
 func (e Engine) save(t *Train) error {

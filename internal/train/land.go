@@ -202,8 +202,11 @@ func (e Engine) recheck(ctx context.Context, t *Train) ([]string, string, error)
 			case pr.Mergeable != "MERGEABLE":
 				return nil, "", fmt.Errorf("merge train %s: #%d's mergeability is unknown", t.ID, car.Number)
 			default:
+				if pr.IsCheckRollupIncomplete {
+					return nil, "", fmt.Errorf("merge train %s: #%d's check rollup is incomplete", t.ID, car.Number)
+				}
 				why = ""
-				attestation, hasAttestation := nativeAttestation(pr.Checks)
+				attestation, hasAttestation := nativeRiderAttestation(pr, car.NativeAttestation)
 				if car.NativeAttestation != nil && (!successfulAttestation(attestation) || *attestation != *car.NativeAttestation) || hasAttestation && !successfulAttestation(attestation) {
 					why = "its native attestation no longer matches the admitted head's proof"
 					break

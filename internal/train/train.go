@@ -147,7 +147,8 @@ type Car struct {
 	// head is still this commit.
 	Head string `json:"head"`
 	// NativeAttestation is the exact successful PR-only check admitted with
-	// this head. Its disappearance or replacement withdraws the rider.
+	// this head, pinned by immutable check ID after every native sibling
+	// passed. Its disappearance or replacement withdraws the rider.
 	NativeAttestation *Check `json:"native_attestation,omitempty"`
 	// Task is the goblin that reported the pull request done, and Goblin
 	// and GoblinTitle its fun name and title.
