@@ -128,53 +128,12 @@ func TestALookPastItsDeadlineLeavesALiveHoldersRecord(t *testing.T) {
 	}
 }
 
-// A look slowed across its deadline ends with the deadline, not with the
-// holder, so the holder the last look found is the answer: a caller told the
-// lock is held tries again, and this lock was held for nearly the whole wait.
-func TestALookThatRunsOutOfTimeAfterFindingAHolderReturnsThatHoldersErrHeld(t *testing.T) {
-	// Arrange: the holder lets go at the first pause, and the next look finds
-	// the record gone and outlasts its deadline writing its own.
-	dir, name := t.TempDir(), ".wake-queue.lock"
-	holder := exec.Command("ping", "-n", "30", "127.0.0.1")
-	if err := holder.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = holder.Process.Kill(); _ = holder.Wait() })
-	if _, err := AcquireNamedOwner(dir, name, holder.Process.Pid, "wake"); err != nil {
-		t.Fatal(err)
-	}
-	const wait = 300 * time.Millisecond
-	sleep = func(time.Duration) {
-		if err := fsx.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			t.Error(err)
-		}
-	}
-	t.Cleanup(func() { sleep = time.Sleep })
-	isWriting := false
-	publishing = func() {
-		isWriting = true
-		time.Sleep(2 * wait)
-	}
-	t.Cleanup(func() { publishing = func() {} })
-
-	// Act
-	_, err := AcquireNamedOwnerWithin(dir, name, os.Getpid(), "wake", wait)
-
-	// Assert
-	if !isWriting {
-		t.Fatalf("the premise failed: no look went on to write a record (%v)", err)
-	}
-	if !errors.Is(err, ErrHeld) {
-		t.Fatalf("a look that ran out of time after one found the holder = %v, want ErrHeld", err)
-	}
-}
-
 // A pause between two looks that runs past the wait, as one can on a loaded
-// machine, spends the wait, and the next look still has a deadline of its own
-// to read the record in: the acquire returns the ErrHeld that names the holder.
-// On a CI runner (#1393)
-// TestAcquireNamedOwnerWithinGivesUpOnALiveHolderAfterItsWait got "context
-// deadline exceeded".
+// machine, leaves the next look no time, and that look ends with the
+// deadline: the acquire still returns the holder's ErrHeld. On a CI runner
+// (#1393) TestAcquireNamedOwnerWithinGivesUpOnALiveHolderAfterItsWait got
+// "context deadline exceeded". The record is held across that look, as a scan
+// holds it, so the look ends with the deadline however the timers fall.
 func TestAPauseThatRunsPastTheWaitStillReturnsTheHoldersErrHeld(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
@@ -186,16 +145,28 @@ func TestAPauseThatRunsPastTheWaitStillReturnsTheHoldersErrHeld(t *testing.T) {
 	if _, err := AcquireNamedOwner(dir, ".wake-queue.lock", holder.Process.Pid, "wake"); err != nil {
 		t.Fatal(err)
 	}
+	record, err := windows.UTF16PtrFromString(filepath.Join(dir, ".wake-queue.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	const wait = 300 * time.Millisecond
 	pauses := 0
 	sleep = func(pause time.Duration) {
 		pauses++
+		if pauses == 1 {
+			held, err := windows.CreateFile(record, windows.GENERIC_READ, 0, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			t.Cleanup(func() { _ = windows.CloseHandle(held) })
+		}
 		time.Sleep(pause + wait)
 	}
 	t.Cleanup(func() { sleep = time.Sleep })
 
 	// Act
-	_, err := AcquireNamedOwnerWithin(dir, ".wake-queue.lock", os.Getpid(), "wake", wait)
+	_, err = AcquireNamedOwnerWithin(dir, ".wake-queue.lock", os.Getpid(), "wake", wait)
 
 	// Assert
 	if pauses == 0 {

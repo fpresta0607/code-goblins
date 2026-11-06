@@ -184,28 +184,29 @@ func AcquireNamedOwnerWithin(dir, name string, ownerPID int, session string, wai
 	// Each look waits out another process holding the record only until
 	// the deadline, as a scan of a record just written can hold it for
 	// seconds. At the head of the line the record is this caller's to take,
-	// so every look gets a deadline of its own however late it starts, and
-	// past the wait that deadline is one pause: a machine that stalls can
-	// spend the whole wait in a line with nobody ahead, and on a CI runner
-	// that did (train PR 1043) a free wake lock was given up as "context
-	// deadline exceeded" before its record was ever tried.
+	// so it takes one look at it however late the line let it through, and
+	// that look waits out a holder for one pause at most: a machine that
+	// stalls can spend the whole wait in a line with nobody ahead, and on a
+	// CI runner that did (train PR 1043) a free wake lock was given up as
+	// "context deadline exceeded" before its record was ever tried.
+	ctx, cancel := awake.WithTimeout(context.Background(), max(waiting.Left(), longestPause))
+	defer cancel()
 	pause := 10 * time.Millisecond
 	var held error
 	for {
-		look, endLook := awake.WithTimeout(context.Background(), max(waiting.Left(), longestPause))
-		info, err := acquireNamedOwnerContext(look, dir, name, ownerPID, session)
-		endLook()
+		info, err := acquireNamedOwnerContext(ctx, dir, name, ownerPID, session)
 		if err == nil {
 			keepPlace(exclusiveLeaseKey(dir, name), place)
 			return info, nil
 		}
-		// A loaded machine can slow a look across its deadline, and the look
-		// then ends with the deadline, not with the holder: the holder the
-		// last look found is the answer (#1393).
-		if errors.Is(err, ErrHeld) {
-			held = err
-		} else if held != nil && errors.Is(err, context.DeadlineExceeded) {
+		// A loaded machine can start a look late, after a pause that ran past
+		// the deadline, or slow it across the deadline, and the look then ends
+		// with the deadline, not with the holder: the holder the last look
+		// found is the answer (#1393).
+		if held != nil && errors.Is(err, context.DeadlineExceeded) {
 			err = held
+		} else if errors.Is(err, ErrHeld) {
+			held = err
 		}
 		if !errors.Is(err, ErrHeld) || waiting.Left() < pause {
 			leaveLine(place)
@@ -367,9 +368,11 @@ func acquireReading(ctx context.Context, dir, name string, self *Info, allowReac
 			}
 			// The deadline ended the read, which says nothing about the
 			// record it never read: the record is there, so the lock is held,
-			// and it must not count towards the orphan below.
+			// and it must not count towards the orphan below. It stays a
+			// deadline error too, so a holder an earlier look named stays the
+			// answer.
 			if errors.Is(herr, context.DeadlineExceeded) {
-				return nil, fmt.Errorf("%w: its record %s went unread: %v", ErrHeld, path, herr)
+				return nil, fmt.Errorf("%w: its record %s went unread: %w", ErrHeld, path, herr)
 			}
 			// File is unreadable, corrupt, or zero-byte (holder mid-write).
 			// Treat as transient: sleep and retry, but only after seeing
