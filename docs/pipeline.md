@@ -243,7 +243,7 @@ It is honoured from the registered primary CFO process, proven as `cfo question`
 It is honoured too from the task's own goblin, on its run's review step once that run has spent its review repair cycles (issue 2049).
 The goblin is proven by its terminal: the process names the task's own terminal and carries a proof that terminal was given, and an agent a gate started is refused, since it carries the environment of whichever goblin started the shared gate daemon.
 A goblin's accept on any other step, the Test step included, before the cycles are spent, on another task's run or with `--reason` is refused with why before anything is recorded.
-The IDs must be exactly the gate's open `ask-user` and `auto-fix` findings, no more and no fewer.
+The IDs must be exactly the gate's open `ask-user` and `auto-fix` findings plus any configured Test command failures accepted under the following exception, no more and no fewer.
 A configured Test command failure with an empty action can also be explicitly accepted by the primary CFO with a nonblank `--reason` and every open finding ID in `--accept`, including that failure.
 This exception recognizes only the native `test-command` category, `error` severity and configured-command failure description with a nonzero exit code; unrelated empty actions still need their fix.
 The response names the recorded native run with `--run`, preserves the failed command, findings, evidence and spent budgets, and records a Test exception rather than a successful command.
