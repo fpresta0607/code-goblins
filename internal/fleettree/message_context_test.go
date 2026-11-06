@@ -189,7 +189,7 @@ func TestMessagePageContextCancelsActiveParsingWithoutPoisoningHistory(t *testin
 
 					checkContextMessageHistory(t, reader, path, count)
 					if isWarm {
-						changed, _, isAnew, err := reader.MessagesSince(path, cursor)
+						changed, _, _, isAnew, err := reader.MessagesSince(path, cursor)
 						if err != nil || isAnew || len(changed) != 20 {
 							t.Fatalf("sibling cursor after cancellation = %d changes, anew %t, %v", len(changed), isAnew, err)
 						}
@@ -259,7 +259,7 @@ func TestMessagePageContextCancelsWholeHistoryWaitWithoutPoisoningHistory(t *tes
 				}
 
 				again, _, err := reader.MessagePage(path, -1)
-				changed, _, isAnew, sinceErr := reader.MessagesSince(path, cursor)
+				changed, _, _, isAnew, sinceErr := reader.MessagesSince(path, cursor)
 				if err != nil || sinceErr != nil || isAnew || len(changed) != 0 || !reflect.DeepEqual(held, again) {
 					t.Fatalf("cancelled history wait changed a sibling's cache: anew %t, %v, %v", isAnew, err, sinceErr)
 				}
@@ -333,7 +333,7 @@ func TestMessagePageContextCancelsContendedLocksWithoutPoisoningHistory(t *testi
 					isLocked = false
 
 					again, _, err := reader.MessagePage(path, -1)
-					changed, _, isAnew, sinceErr := reader.MessagesSince(path, cursor)
+					changed, _, _, isAnew, sinceErr := reader.MessagesSince(path, cursor)
 					if err != nil || sinceErr != nil || isAnew || len(changed) != 0 || !reflect.DeepEqual(held, again) {
 						t.Fatalf("cancelled lock wait changed a sibling's cache: anew %t, %v, %v", isAnew, err, sinceErr)
 					}

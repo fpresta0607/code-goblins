@@ -9,7 +9,7 @@ import { MessageDocumentScope } from "./message-document-scope";
 import { drawnSpans, ESTIMATED_ROW_PX, messageRowAt, messageWindow, OVERSCAN_PX } from "./message-window";
 import { Notice } from "./notice";
 import { ReplyWorking } from "./reply-working";
-import { changeMessages, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
+import { changeMessages, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseUsage, parseWaiting, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { object, parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
 import { useTerminalLink } from "./terminal-link";
@@ -43,6 +43,8 @@ const OLDER_TRIES = 3;
 // A row with no folds open, shared so its props stay the same.
 const NO_FOLDS: ReadonlySet<string> = new Set();
 const UNREAD = "The session's messages cannot be read";
+const RECENT_SESSIONS = 8;
+const RECENT_MESSAGES = 50;
 type PublishedMessages = MessagePage & { isWorking: boolean; said: string; isLive: boolean; task?: Task; sent: Action[]; pending: Action[]; sending: PendingSend[] };
 // What the box under the conversation shows of the session: what it spent and
 // the words he sent it.
@@ -64,8 +66,9 @@ type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 // whose link reads what it is doing, sent is every message of his to the session the
 // board knows, pending those of them that still wait, and box is the message
 // box under the conversation.
-export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, isWorking, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
+export function MessagesView({ query, instance, pages, name, task, terminal, harness, model, effort, isWorking, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
   query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isWorking: boolean; isCompacting: boolean;
+  pages: Map<string, MessagePage>;
   sent: Action[]; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
   shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode, onSend: () => void) => ReactNode;
@@ -77,14 +80,15 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const said = link?.screen?.isWorking && link.screen.doing || "";
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
-  const [held, setHeld] = useState<PublishedMessages>({ conversation: "", messages: [], more: false, isWorking, said, isLive: false, task, sent, pending, sending });
+  const pageKey = instance + "\0" + query;
+  const [held, setHeld] = useState<PublishedMessages>(() => ({ conversation: "", messages: [], more: false, waiting: [], ...pages.get(pageKey), isWorking, said, isLive: false, task, sent, pending, sending }));
   const heldValue = useRef(held);
   // The stream keeps one latest version while the displayed history stays
   // where he reads. Returning to the end publishes it once, without replay.
   const latest = useRef(held);
   // The box speaks for the session as it is now, however far up he reads, so
   // it follows the stream while the history he reads holds still.
-  const [composing, setComposing] = useState<Composing>({ history: [] });
+  const [composing, setComposing] = useState<Composing>(() => composerOf({ history: [] }, held));
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
   const [isReconnecting, setReconnecting] = useState(false);
   const [closedWhy, setClosedWhy] = useState("");
@@ -233,6 +237,11 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       heard();
       const next = { ...latest.current, ...change(latest.current) };
       latest.current = next;
+      // Reopening a session paints its last page while its fresh stream
+      // connects. Keep data alone, bounded, with no inactive view or stream.
+      pages.delete(pageKey);
+      pages.set(pageKey, { conversation: next.conversation, messages: next.messages.slice(-RECENT_MESSAGES), more: next.more || next.messages.length > RECENT_MESSAGES, usage: next.usage, waiting: next.waiting });
+      if (pages.size > RECENT_SESSIONS) pages.delete(pages.keys().next().value!);
       reconcile.current();
       isTaking.current = true;
       try {
@@ -254,7 +263,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       try { const page = parsePage(JSON.parse(event.data)); olderFailures.current = { count: 0, at: 0 }; take((prior) => pageMessages(prior, page)); } catch { invalid(); }
     });
     stream.addEventListener("messages", (event: MessageEvent<string>) => {
-      try { const data = object(JSON.parse(event.data)); const conversation = parseConversation(data.conversation); const changed = parseMessages(data.messages); take((prior) => { if (prior.conversation !== conversation) throw new Error("Invalid conversation"); return { ...prior, messages: changeMessages(prior.messages, changed) }; }); } catch { invalid(); }
+      try { const data = object(JSON.parse(event.data)); const conversation = parseConversation(data.conversation); const changed = parseMessages(data.messages); const waiting = parseWaiting(data.waiting); take((prior) => { if (prior.conversation !== conversation) throw new Error("Invalid conversation"); return { ...prior, messages: changeMessages(prior.messages, changed), waiting }; }); } catch { invalid(); }
     });
     stream.addEventListener("usage", (event: MessageEvent<string>) => {
       try { const data = object(JSON.parse(event.data)); const conversation = parseConversation(data.conversation); const usage = parseUsage(data.usage); take((prior) => { if (prior.conversation !== conversation) throw new Error("Invalid conversation"); return { ...prior, usage }; }); } catch { invalid(); }
@@ -276,7 +285,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       clearTimeout(silence);
       stream.close();
     };
-  }, [address, visible, attempt, where]);
+  }, [address, visible, attempt, where, pages, pageKey]);
 
   // settle keeps the list where he reads it after anything moved its
   // contents: at its end while he follows it, or else with the message at its
@@ -602,7 +611,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   }, [font, settle]);
   // A picture that loads or a message unfolded above where he reads moves
   // nothing either, and a view that changes size draws the rows it reaches.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const observer = new ResizeObserver(() => {
       settle();
       const box = list.current;
@@ -741,7 +750,13 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     read.add(action.id);
   }
   const queued = waiting.filter((action) => !read.has(action.id));
-  const queuedIDs = queued.map((action) => action.id).join("\0");
+  const harnessActions = new Map<string, Action>();
+  for (const prompt of held.waiting) {
+    const row = queued.findIndex((action) => prompt.source === "overlord" && action.status === "running"
+      && Date.parse(prompt.at) >= Date.parse(action.awaiting ? action.created_at : action.updated_at) && sameWords(action.text, prompt.text));
+    if (row >= 0) harnessActions.set(prompt.id, queued.splice(row, 1)[0]);
+  }
+  const queuedIDs = [...held.waiting, ...queued].map((each) => each.id).join("\0");
   useLayoutEffect(() => {
     const observer = new ResizeObserver(settle);
     for (const row of items.current?.querySelectorAll<HTMLElement>(":scope > .reply-working, :scope > [data-queued]") ?? []) observer.observe(row);
@@ -779,11 +794,21 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
               "the double scrolls and having its own little scroll for queued
               messages doesn't really work"), so whatever the session prints
               comes before them and the list, following its end, keeps them
-              right above the box. */}
+              right above the box. What the harness already holds was typed
+              first, so it comes before what the board still holds. */}
+          {held.waiting.map((prompt) => {
+            const action = harnessActions.get(prompt.id);
+            return action
+              ? <QueuedMessage key={"queued-" + action.id} action={action} harnessState={prompt.sending ? "Sending" : "Queued"} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />
+              : <div key={"waiting-" + prompt.id} className={"queued-message pane " + prompt.source} data-queued={prompt.id}>
+                <div className={"message-bubble queued-bubble" + (prompt.sending ? "" : " waiting")}>{prompt.text}</div>
+                <p className="queued-state">{prompt.sending ? "Sending" : "Queued"}</p>
+              </div>;
+          })}
           {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />)}
         </div>
       </div>
-      {phase === "live" && !held.messages.length && !queued.length && <p className="messages-empty" role="status">No messages yet</p>}
+      {phase === "live" && !held.messages.length && !queued.length && !held.waiting.length && <p className="messages-empty" role="status">No messages yet</p>}
       {/* A touch that stops the conversation gliding after a flick is one
           the browser gives no click, and the button shows the moment he
           leaves the end, while it glides, so a touch's lift takes him there

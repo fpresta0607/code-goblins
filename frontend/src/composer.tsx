@@ -290,8 +290,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   }, [terminal, isActive, onActive]);
   const post = (body: object) => request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify(body) });
   const isHeld = !!live?.held;
-  // A real question of the harness's own, a list to choose from, is drawn
-  // and answered here, and takes what he writes as its answer. Any other
+  // A question with choices or an explicit Enter hint is drawn and answered
+  // here, and takes what he writes as its answer. Any other
   // screen, words with nothing to choose, such as the prompt line with his
   // message on it, an error or the harness's words for a usage limit, or one
   // the relay could not read, is never mirrored above the box, whether a turn
@@ -301,7 +301,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // Terminal style and Open in Windows Terminal show it.
   const isScreenOpen = !!live?.screen?.isOpen;
   const screenPanel = isScreenOpen ? live?.screen?.panel ?? null : null;
-  const panel = screenPanel && screenPanel.choices.length > 0 ? screenPanel : null;
+  const panel = screenPanel && (screenPanel.choices.length > 0 || screenPanel.hints.some((hint) => /\benter\b/i.test(hint))) ? screenPanel : null;
   const isAsking = !!panel;
   // The permission mode the session's terminal shows, which Shift+Tab cycles.
   const mode = live?.screen?.mode ?? "";
