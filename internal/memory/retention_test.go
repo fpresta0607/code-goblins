@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -110,6 +111,7 @@ func TestRetentionProtectsGovernedAliasesAndRejectsHardlinkRecovery(t *testing.T
 }
 
 func TestRetentionUsesFileIdentityForAuthorityDuplicatesAndRecovery(t *testing.T) {
+	completed := map[string]int{}
 	for _, test := range []struct {
 		path       string
 		isGoverned bool
@@ -178,7 +180,14 @@ func TestRetentionUsesFileIdentityForAuthorityDuplicatesAndRecovery(t *testing.T
 						t.Fatalf("alias accepted as independent recovery: %+v %v", plan, err)
 					}
 				}
+				completed[aliasKind]++
 			})
+		}
+	}
+	for _, aliasKind := range []string{"symlink", "hardlink", "case"} {
+		t.Logf("%s: %d/5 completed cases", aliasKind, completed[aliasKind])
+		if runtime.GOOS == "windows" && os.Getenv("GITHUB_ACTIONS") == "true" && completed[aliasKind] != 5 {
+			t.Errorf("Windows GitHub Actions requires five completed %s cases, got %d", aliasKind, completed[aliasKind])
 		}
 	}
 }

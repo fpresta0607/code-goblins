@@ -526,31 +526,6 @@ jobs:
           SKIP: ${{ matrix.skip }}
           CFO_HOME: ${{ runner.temp }}\cfo-go-tests
           CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
-      - name: Prove Windows retention aliases run without skips
-        if: matrix.shard == 'rest'
-        shell: pwsh
-        run: |
-          $events = @(& go test ./internal/memory -run '^TestRetentionUsesFileIdentityForAuthorityDuplicatesAndRecovery$' -count=1 -json | ForEach-Object { $_ | ConvertFrom-Json })
-          $testExit = $LASTEXITCODE
-          $summary = @('### Windows retention alias proof', '', '| Kind | Pass | Skip | Fail |', '| --- | ---: | ---: | ---: |')
-          $isComplete = $testExit -eq 0
-          foreach ($kind in 'symlink', 'hardlink', 'case') {
-            $results = @($events | Where-Object { $_.Test -cmatch "^TestRetentionUsesFileIdentityForAuthorityDuplicatesAndRecovery/.+/$kind`$" })
-            $passed = @($results | Where-Object { $_.Action -eq 'pass' }).Count
-            $skipped = @($results | Where-Object { $_.Action -eq 'skip' }).Count
-            $failed = @($results | Where-Object { $_.Action -eq 'fail' }).Count
-            $summary += "| $kind | $passed | $skipped | $failed |"
-            if ($passed -ne 5 -or $skipped -ne 0 -or $failed -ne 0) { $isComplete = $false }
-          }
-          $summary | ForEach-Object { Write-Host $_ }
-          $summary | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
-          if (-not $isComplete) {
-            $events | Where-Object { $_.Output } | ForEach-Object { Write-Host $_.Output }
-            throw 'Windows retention alias proof requires five passes and no skips or failures for each kind.'
-          }
-        env:
-          CFO_HOME: ''
-          CFO_STATE_OVERRIDE: ''
       - name: Show Chrome's start, first cookie and exit times
         # Chrome's own tail where nothing competes with it, as
         # TestChromeStartCookieAndExitTimes recorded it in the step above:
