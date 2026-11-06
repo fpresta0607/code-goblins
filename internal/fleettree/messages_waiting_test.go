@@ -70,6 +70,18 @@ func TestAPromptClaudeCodeHoldsWaitsInThePageUntilItIsDelivered(t *testing.T) {
 			prompts: []string{"again"},
 		},
 		{
+			name:    "compaction leaves a waiting prompt queued until the harness takes it",
+			entries: []any{queued("after compaction", at), system("c1", "compact_boundary", object{"compactMetadata": object{"trigger": "auto"}})},
+			waiting: []string{"after compaction"},
+			prompts: []string{},
+		},
+		{
+			name:    "a prompt queued during compaction is delivered once after it",
+			entries: []any{system("c1", "compact_boundary", object{"compactMetadata": object{"trigger": "auto"}}), queued("after compaction", at), dequeued(), prompted("u1", "after compaction")},
+			waiting: []string{},
+			prompts: []string{"after compaction"},
+		},
+		{
 			name:    "the fleet's notices are never his waiting words",
 			entries: []any{queued(notification("b1", "toolu_9", "completed", "The suite passed", ""), at), queued(WakePrefix+"look at the board", at)},
 			waiting: []string{},

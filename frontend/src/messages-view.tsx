@@ -43,6 +43,8 @@ const OLDER_TRIES = 3;
 // A row with no folds open, shared so its props stay the same.
 const NO_FOLDS: ReadonlySet<string> = new Set();
 const UNREAD = "The session's messages cannot be read";
+const RECENT_SESSIONS = 8;
+const RECENT_MESSAGES = 50;
 type PublishedMessages = MessagePage & { isWorking: boolean; said: string; isLive: boolean; task?: Task; sent: Action[]; pending: Action[]; sending: PendingSend[] };
 // What the box under the conversation shows of the session: what it spent and
 // the words he sent it.
@@ -64,8 +66,9 @@ type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 // whose link reads what it is doing, sent is every message of his to the session the
 // board knows, pending those of them that still wait, and box is the message
 // box under the conversation.
-export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, isWorking, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
+export function MessagesView({ query, instance, pages, name, task, terminal, harness, model, effort, isWorking, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
   query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isWorking: boolean; isCompacting: boolean;
+  pages: Map<string, MessagePage>;
   sent: Action[]; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
   shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode, onSend: () => void) => ReactNode;
@@ -77,14 +80,15 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const said = link?.screen?.isWorking && link.screen.doing || "";
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
-  const [held, setHeld] = useState<PublishedMessages>({ conversation: "", messages: [], more: false, waiting: [], isWorking, said, isLive: false, task, sent, pending, sending });
+  const pageKey = instance + "\0" + query;
+  const [held, setHeld] = useState<PublishedMessages>(() => ({ conversation: "", messages: [], more: false, waiting: [], ...pages.get(pageKey), isWorking, said, isLive: false, task, sent, pending, sending }));
   const heldValue = useRef(held);
   // The stream keeps one latest version while the displayed history stays
   // where he reads. Returning to the end publishes it once, without replay.
   const latest = useRef(held);
   // The box speaks for the session as it is now, however far up he reads, so
   // it follows the stream while the history he reads holds still.
-  const [composing, setComposing] = useState<Composing>({ history: [] });
+  const [composing, setComposing] = useState<Composing>(() => composerOf({ history: [] }, held));
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
   const [isReconnecting, setReconnecting] = useState(false);
   const [closedWhy, setClosedWhy] = useState("");
@@ -233,6 +237,11 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       heard();
       const next = { ...latest.current, ...change(latest.current) };
       latest.current = next;
+      // Reopening a session paints its last page while its fresh stream
+      // connects. Keep data alone, bounded, with no inactive view or stream.
+      pages.delete(pageKey);
+      pages.set(pageKey, { conversation: next.conversation, messages: next.messages.slice(-RECENT_MESSAGES), more: next.more || next.messages.length > RECENT_MESSAGES, usage: next.usage, waiting: next.waiting });
+      if (pages.size > RECENT_SESSIONS) pages.delete(pages.keys().next().value!);
       reconcile.current();
       isTaking.current = true;
       try {
@@ -276,7 +285,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       clearTimeout(silence);
       stream.close();
     };
-  }, [address, visible, attempt, where]);
+  }, [address, visible, attempt, where, pages, pageKey]);
 
   // settle keeps the list where he reads it after anything moved its
   // contents: at its end while he follows it, or else with the message at its
@@ -602,7 +611,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   }, [font, settle]);
   // A picture that loads or a message unfolded above where he reads moves
   // nothing either, and a view that changes size draws the rows it reaches.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const observer = new ResizeObserver(() => {
       settle();
       const box = list.current;
