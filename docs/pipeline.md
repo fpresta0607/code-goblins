@@ -316,9 +316,7 @@ cfo gate lint                    # required vet scope, without running tests
 | `affected` | the packages the change reaches | the same packages |
 | `full` | every package | every package |
 
-The repository's `commands.test_focused` uses the same planner at the affected level for repair paths and adds the named failures from its UTF-8 focus file.
-It records focused coverage separately from a baseline and broadens unrecognized data explicitly; [the test command](commands/gate/test.md) owns its input and failure rules.
-The lint command reuses the required vet scope, retaining full-tree fallback for unknown changes without running tests again.
+See [the test and lint command contract](commands/gate/test.md) for focused repair inputs, named-failure requirements, fallback scope and vet-only lint behavior.
 The Test step reuses the repository environment and existing fixtures described in CONTRIBUTING.md.
 Unavailable browser or live-harness prerequisites leave their scenarios untested with the missing prerequisite named, without building another full application.
 
@@ -328,8 +326,9 @@ A guard with named `tests` runs exactly those tests, so selecting it does not ru
 An optional `goos` restricts the guard to that operating system; other platforms list it as deferred with the required and current platforms, never as executed, and its platform's CI remains required.
 `cfo gate prepush` uses the same guard declarations and platform rules, omitting a separate guard run when its selected whole-package tests already cover it.
 
-A change reaches the packages that own a changed file, the packages that import one of those directly or transitively, and the packages a contract of the policy names for a changed file.
-A package owns the Go files in its directory, the files under its `testdata` folder and the files its `//go:embed` patterns cover, so a doc the binary embeds selects the package that embeds it and a doc nothing embeds selects none.
+A change reaches the packages that own a changed file, the packages that import one of those directly or transitively from their code or tests, and the packages a contract of the policy names for a changed file.
+A package owns Go build inputs (`.go`, `.s`, `.c`, `.h` or `.syso`) directly in its directory, the files under its `testdata` folder and the files its embed patterns cover, even deleted files, so a doc the binary embeds selects the package that embeds it and a doc nothing embeds selects none.
+A changed Go build input in a directory with no package names a deleted or moved package, which is not tested, but every package that still imports it directly or transitively is.
 
 A change requires `affected` before it merges, and `full` once `go.mod` or `go.sum` changed, the policy cannot be read, or a changed file is one the policy does not account for.
 CI tests the level a change requires on the pull request's own run, reading what the change reaches as `cfo gate test --plan` does, and every package in the merge train's run that lands it.
@@ -387,7 +386,7 @@ A build ignores a field it does not know, so the build a gate has installed keep
 A file that does not parse, or a version the build does not know, makes the change require `full`.
 A repository with no policy file has no slow packages.
 
-Every run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\cfo\verify\reports\<project>\`, and its verdict line names the report.
+Every `cfo gate test` run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\cfo\verify\reports\<project>\`, and its verdict line names the report.
 A run at a level narrower than the change requires ends with one more line naming the level the change requires, which CI's run checks.
 `CFO_VERIFY_DIR` names a folder to use in place of `<user cache folder>\cfo\verify`, so they go under its `reports\<project>\`.
 The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, `over_budget` when a check passed but ran past its budget, or `not_run` when admission or an earlier command failed.

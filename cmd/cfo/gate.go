@@ -107,11 +107,11 @@ func approvedHeads(ctx context.Context) ([]string, error) {
 
 // runGateChecks runs this repository's test or vet-only lint step. It plans what the
 // branch's change requires, prints the plan with why each package is in it,
-// runs go vet and go test at the planned level without the fleet's CFO_HOME
+// runs go vet and, for the test step, go test without the fleet's CFO_HOME
 // and CFO_STATE_OVERRIDE, which a gate step inherits from the goblin's pane,
-// and leaves a report of what it ran. With no --level it runs the fast level,
-// because CI runs every package on every pull request and so is the check of
-// the level the change requires: the changed packages, the packages that
+// and leaves a report only for the test step. With no --level or --focused,
+// test runs fast; lint vets at the required level. CI checks the level the
+// change requires: the changed packages, the packages that
 // import them directly or transitively and the packages a contract of the
 // policy names for a changed file, or every package once a module file
 // changed or a changed file is one the policy does not account for. Running

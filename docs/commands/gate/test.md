@@ -2,22 +2,22 @@
 
 `cfo gate test [--level fast\|affected\|full \| --focused] [--plan]`
 
-This repository's no-mistakes test step, run from `.no-mistakes.yaml`'s `commands.test` as the step's baseline: it runs `go vet` and `go test -json -count=1 -p 2 -timeout 45m` on the packages the branch changed since it left the default branch (a package owns a Go build input, `.go`, `.s`, `.c`, `.h` or `.syso`, directly in its directory, a file under its own `testdata` directory, and a file its embed patterns cover, even a deleted one), the packages that import one of them directly or transitively from their code or tests, and the packages a contract in `config/verify.json` names for a changed file their tests read by path, such as an install script, and prints each with why (`changed`, `imports <package>`, or the contract's reason with the file) so a reviewer can check the scope; a changed file the policy lists as outside the Go checks, such as a doc nothing embeds or a frontend source, chooses no package and is listed under the policy's reason, and a changed file the policy does not account for makes the change require `full` and is named; a Go build input changed in a directory with no package names a deleted or moved package, which is not tested, but every package that still imports it directly or transitively is; a changed `go.mod` or `go.sum` tests every package.
+This repository's no-mistakes test step, run from `.no-mistakes.yaml`'s `commands.test` as the step's baseline, runs `go vet` and `go test -json -count=1 -p 2 -timeout 45m` at the selected verification level.
 It runs them without `CFO_HOME` and `CFO_STATE_OVERRIDE`, which a gate step inherits from the goblin's pane, and without `NO_MISTAKES_GATE`, under which every `cfo hook` does nothing and the hook tests would test nothing.
 CI still runs every package before a change reaches the default branch, in its merge train's run; the local step is bounded because an agent-chosen step ran the whole suite on this machine, where supervisor alone takes about 22 minutes, and hit the 30-minute test agent limit.
-With no `--level` the step, the gate's included, runs `fast`; [Verification levels](../../pipeline.md#verification-levels) owns package selection, required guards and platform deferrals.
+With neither `--level` nor `--focused` the step, the gate's included, runs `fast`; [Verification levels](../../pipeline.md#verification-levels) owns package selection, required guards and platform deferrals.
 Running the required level here as well ran the slowest packages twice, here in a median of 33 minutes and again in CI.
-`--level affected` runs the required level here, such as to reproduce what CI found; `--level full` tests every package; `--plan` prints the plan and runs nothing.
-`--focused`, the repository's `commands.test_focused`, reads `NO_MISTAKES_TEST_FOCUS` as an absolute UTF-8 filename, never as shell code.
-Its `test <package> --- FAIL: TestName/subtest (0.01s)` and `path <relative/path>` records select each failed top-level test and every check the repair paths reach under the same trusted affected-level planner, including transitive dependents and required guards.
-A named failure already covered by a selected whole package is not run twice, and a named test that is missing, skipped or unfinished cannot pass the check.
-Unrecognized or unmappable records widen the existing planner to full with an explicit reason; unsafe, escaped or invalid UTF-8 paths fail explicitly.
-Focused reports name their scope as `focused`, never a full baseline.
+`--level affected` runs affected checks here, such as to reproduce what CI found; `--level full` tests every package; `--plan` prints the plan and runs nothing.
+`--focused`, the repository's `commands.test_focused`, reads `NO_MISTAKES_TEST_FOCUS` as an absolute path to a UTF-8 file, never as shell code.
+Its `test <package> --- FAIL: TestName/subtest (0.01s)` and `path <relative/path>` records select each failed top-level test and every check the repository-relative repair paths reach under the same trusted affected-level planner, including transitive dependents and required guards.
+A named failure already covered by a selected whole package is not run twice.
+Every recognized package/test pair must finish without skipping across the run, including a full fallback; removing or renaming its package or test does not discharge that requirement.
+Missing failure or repair-path records and unrecognized or unmappable data widen the existing planner to full with an explicit reason; unsafe or escaped paths and invalid UTF-8 fail explicitly.
+A narrowed repair report uses `focused` scope; a full fallback uses `full`.
 `--focused` cannot be combined with `--level`.
 
 `cfo gate lint [--plan]` uses the same trusted planner's vet selection at the required level, with full-tree vet for unknown changes, module changes or an unreadable policy.
-It runs no tests and records its checks with `lint` scope.
-It prints what `go test` prints without `-v`, and a run in which a package did not pass ends its tests' output by naming each such package and the tests in it that failed or never finished.
-Every run leaves a report (commit, level, each package with why, the changed files outside the Go checks and those unaccounted for, each command with its result, its time and the source it ran on, the files git does not ignore, and each tested package with its result, its time and its failed tests) with its log, which holds every line the tests wrote, under `cfo\verify\reports` in the user's cache folder (`CFO_VERIFY_DIR` moves it); the run's verdict line names the report, and a run at a level narrower than the change requires ends with one more line naming the level the change requires, which CI checks.
-At every level its checks wait for the run's turn on the machine, one run at a time whoever started it (a `CFO_VERIFY_SLOTS` setting is refused, and `cfo gate turn` puts any other command in the same line), and tests that ran past their level's budget do not pass; the wait itself is neither a pass nor a failure.
-Each check runs in a job of its own that ends with the run, so a step its gate's time limit ends leaves nothing of its tests running, a test's helper whose parent already exited included; see [docs/pipeline.md](../../pipeline.md#verification-levels)
+It runs no tests and prints its vet plan and verdict without writing test reports or logs.
+
+`cfo gate test` prints what `go test` prints without `-v`, and a run in which a package did not pass ends its tests' output by naming each such package and the tests in it that failed or never finished.
+See [Verification levels](../../pipeline.md#verification-levels) for test reports, logs, recorded source details, admission, budgets and process cleanup.
