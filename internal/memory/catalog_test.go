@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -851,7 +852,7 @@ func TestCatalogEntryInsideAnEarlierEntrysFenceKeepsRulingAuthority(t *testing.T
 	_, coldErr := Load(dir, referenceDate)
 
 	// Assert
-	if loadErr != nil || retrieveErr != nil || !strings.Contains(retrieved, " tier=pinned\n") || strings.Contains(retrieved, "STOW REQUIRED") {
+	if loadErr != nil || retrieveErr != nil || !slices.Contains(strings.Fields(retrieved), "tier=pinned") || strings.Contains(retrieved, "STOW REQUIRED") {
 		t.Fatalf("a fenced example reclassified ruling authority: %s, %v, %v", retrieved, loadErr, retrieveErr)
 	}
 	if coldErr == nil || !strings.Contains(coldErr.Error(), "pinned offload requires") {

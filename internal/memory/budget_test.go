@@ -112,7 +112,7 @@ func TestMemoryReportCountsCatalogRoutesAndPreservesSourceHashes(t *testing.T) {
 		{Path: "memory/history.md", SHA256: Hash(history), Entries: []Entry{{ID: "old", End: len(history), SHA256: Hash(history), Authority: "history", Location: "cold", Trigger: "investigating history", Topics: []string{"history"}, Approval: &Approval{By: "Overlord", Quote: "Offload old.", Date: "2026-10-30", Destination: "memory/history.md#old"}}}},
 	}}
 	writeCatalog(t, dir, catalog)
-	expected := "\n[rule] overlord.md bytes 0:6 sha256=83768329c26475abbbc68d9a5c279c8021e5b50caced12b379eed83c11ab19a2 authority=ruling tier=pinned\nKeep.\n\nold: investigating history (projects= tasks= topics=history)\n"
+	expected := "\n[rule] overlord.md bytes 0:6 sha256=83768329c26475abbbc68d9a5c279c8021e5b50caced12b379eed83c11ab19a2 authority=ruling tier=pinned delivery=04177382a53182507e1d0d41a0a5fd6c59a3148d42ca798677319c65592bdc5f\nKeep.\n\nold: investigating history (projects= tasks= topics=history)\n"
 	loaded, err := Load(dir, referenceDate)
 	if err != nil {
 		t.Fatal(err)
@@ -124,17 +124,17 @@ func TestMemoryReportCountsCatalogRoutesAndPreservesSourceHashes(t *testing.T) {
 	for _, test := range []struct {
 		allowance    string
 		isOverBudget bool
-	}{{"50", false}, {"49", true}} {
+	}{{"69", false}, {"68", true}} {
 		t.Run(test.allowance, func(t *testing.T) {
 			writeMemoryFile(t, root, "config/startup-memory-budget", []byte(test.allowance))
 
 			report, err := MemoryReport(dir, referenceDate)
 
-			if err != nil || report.IsLegacy || report.Bytes != 199 || report.EstimatedTokens != 50 || report.IsOverBudget != test.isOverBudget || len(report.Inputs) != 1 {
-				t.Fatalf("warm accounting disagrees with 199-byte fixture: %+v, %v", report, err)
+			if err != nil || report.IsLegacy || report.Bytes != 273 || report.EstimatedTokens != 69 || report.IsOverBudget != test.isOverBudget || len(report.Inputs) != 1 {
+				t.Fatalf("warm accounting disagrees with 273-byte fixture: %+v, %v", report, err)
 			}
 			input := report.Inputs[0]
-			if input.Bytes != 199 || input.EstimatedTokens != 50 || input.SHA256 != "b81af7343c3684e5065fa05cb8cfb9375fc5e8a30f4bdccd06ab4a5e0c7f4d52" {
+			if input.Bytes != 273 || input.EstimatedTokens != 69 || input.SHA256 != "4de503cbd08cd0c732cf0196b51c33c311e8666a33aeb125e9d8c099de06fc11" {
 				t.Fatalf("warm memory or its route bookkeeping was omitted: %+v", input)
 			}
 		})
