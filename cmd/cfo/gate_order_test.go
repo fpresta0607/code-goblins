@@ -118,9 +118,9 @@ func TestAGateTestStepPassesAQueuedGoblinTurn(t *testing.T) {
 
 // taskGate gives the test a gate run of task cg-example, in a project that
 // requires no test environment, under a home whose backlog says backlog. It
-// returns the run's managed checkout, where the test now stands, and its Test
-// comparison.
-func taskGate(t *testing.T, backlog string) (managed, comparison string) {
+// returns the project, the run's managed checkout, where the test now stands,
+// and its Test comparison.
+func taskGate(t *testing.T, backlog string) (project, managed, comparison string) {
 	t.Helper()
 	project, gateRoot, worktree := gateTaskFixture(t, "cg-example")
 	comparison = writeGateSource(t, gateRoot, project, worktree, "feature")
@@ -130,109 +130,137 @@ func taskGate(t *testing.T, backlog string) (managed, comparison string) {
 	if err := state.WriteTaskMeta(filepath.Join(filepath.Dir(data), "state"), meta); err != nil {
 		t.Fatal(err)
 	}
-	return worktree, comparison
+	return project, worktree, comparison
+}
+
+// recordInGate changes the gate's record of its runs with sql.
+func recordInGate(t *testing.T, sql string) {
+	t.Helper()
+	if output, err := exec.Command("sqlite3", filepath.Join(os.Getenv("NM_HOME"), "state.sqlite"), sql).CombinedOutput(); err != nil {
+		t.Fatalf("change the gate's record: %s (%v)", output, err)
+	}
 }
 
 // A gate's Test step stands by its own run's task in either of that run's
 // checkouts: a base clone's folder names no task, and the daemon's environment
-// can name another goblin's. By the line's documented order a Test step with
-// no task passes an ops-root one that asked first, which a step read as having
-// no task, or as the production defect its environment names, never lets it do.
+// can name another goblin's. What became of the checkout's origin or head, or a
+// wrapper that gives no comparison, costs it nothing, since a changed local
+// origin must never touch a project that requires no test environment. By the
+// line's documented order a Test step with no task passes an ops-root one that
+// asked first, which a step read as having no task, or as the production defect
+// its environment names, never lets it do.
 func TestAGateTestStepStandsByItsRunsTaskInEitherCheckout(t *testing.T) {
 	const backlog = "## Queued\n\n" +
 		"- [ ] cg-example - The run's task (repo: demo) (kind: ship) (priority: " + supervisor.RootPriority + ")\n" +
 		"- [ ] cg-inherited - Another goblin's task (repo: demo) (kind: ship) (priority: production-defect)\n"
 	for _, location := range []string{"managed", "base clone"} {
-		t.Run(location, func(t *testing.T) {
-			// Arrange
-			managed, comparison := taskGate(t, backlog)
-			if location == "base clone" {
-				base := filepath.Join(t.TempDir(), "base")
-				if output, err := exec.Command("git", "clone", "--quiet", "--shared", managed, base).CombinedOutput(); err != nil {
-					t.Fatalf("clone the run's base: %s (%v)", output, err)
+		for _, source := range []string{"verified source", "changed project origin", "moved managed head", "no comparison"} {
+			t.Run(location+"/"+source, func(t *testing.T) {
+				// Arrange
+				project, managed, comparison := taskGate(t, backlog)
+				if location == "base clone" {
+					base := filepath.Join(t.TempDir(), "base")
+					if output, err := exec.Command("git", "clone", "--quiet", "--shared", managed, base).CombinedOutput(); err != nil {
+						t.Fatalf("clone the run's base: %s (%v)", output, err)
+					}
+					t.Chdir(base)
 				}
-				t.Chdir(base)
-			}
-			slots := turnLine(t)
-			t.Setenv("CFO_TASK_ID", "cg-inherited")
-			marks := commandFolder(t)
-			lineRun := verify.Admission{Dir: slots, Available: func() (uint64, error) { return 16 << 30, nil }, Limit: time.Minute, Poll: 10 * time.Millisecond}
-			holding := lineRun
-			holding.Who = "the holder"
-			holder, err := holding.Wait(context.Background())
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer holder.Release()
-			var stdout, stderr lockedBuffer
-			stepEnded := make(chan int, 1)
-			go func() {
-				stepEnded <- gateTurn(turnRuntime(), &stdout, &stderr, append([]string{"--as", "the run's Test step", "--gate-run", "run", "--test-comparison-sha", comparison}, turnCommand(marks, "step", 0, false)...)...)
-			}()
-			inLine(t, slots, "the run's Test step waits", func(waiting []verify.Standing) bool { return len(waiting) == 1 })
-			noTask := lineRun
-			noTask.Who = "a Test step with no task"
-			noTask.IsTestStep = true
-			passed := make(chan error, 1)
-			go func() {
-				turn, err := noTask.Wait(context.Background())
-				passed <- errors.Join(err, turn.Release())
-			}()
+				step := []string{"--as", "the run's Test step", "--gate-run", "run", "--test-comparison-sha", comparison}
+				switch source {
+				case "changed project origin":
+					if output, err := exec.Command("git", "-C", project, "remote", "set-url", "origin", "git@example.invalid:renamed/project.git").CombinedOutput(); err != nil {
+						t.Fatalf("change the project's origin: %s (%v)", output, err)
+					}
+				case "moved managed head":
+					recordInGate(t, "UPDATE runs SET head_sha='"+strings.Repeat("1", len(comparison))+"'")
+				case "no comparison":
+					step = step[:4]
+				}
+				slots := turnLine(t)
+				t.Setenv("CFO_TASK_ID", "cg-inherited")
+				marks := commandFolder(t)
+				lineRun := verify.Admission{Dir: slots, Available: func() (uint64, error) { return 16 << 30, nil }, Limit: time.Minute, Poll: 10 * time.Millisecond}
+				holding := lineRun
+				holding.Who = "the holder"
+				holder, err := holding.Wait(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer holder.Release()
+				var stdout, stderr lockedBuffer
+				stepEnded := make(chan int, 1)
+				go func() {
+					stepEnded <- gateTurn(turnRuntime(), &stdout, &stderr, append(step, turnCommand(marks, "step", 0, false)...)...)
+				}()
+				inLine(t, slots, "the run's Test step waits", func(waiting []verify.Standing) bool { return len(waiting) == 1 })
+				noTask := lineRun
+				noTask.Who = "a Test step with no task"
+				noTask.IsTestStep = true
+				passed := make(chan error, 1)
+				go func() {
+					turn, err := noTask.Wait(context.Background())
+					passed <- errors.Join(err, turn.Release())
+				}()
 
-			// Act
-			waiting := inLine(t, slots, "the Test step with no task stands first", func(waiting []verify.Standing) bool {
-				return len(waiting) == 2 && waiting[0].Who == noTask.Who
+				// Act
+				waiting := inLine(t, slots, "the Test step with no task stands first", func(waiting []verify.Standing) bool {
+					return len(waiting) == 2 && waiting[0].Who == noTask.Who
+				})
+				if err := holder.Release(); err != nil {
+					t.Fatal(err)
+				}
+
+				// Assert
+				if want := "no task priority goes ahead of task priority " + supervisor.RootPriority; waiting[1].Behind != want {
+					t.Errorf("the run's Test step stands behind for %q; want %q", waiting[1].Behind, want)
+				}
+				if want := ", task cg-example"; !strings.HasSuffix(waiting[1].Who, want) {
+					t.Errorf("the run's Test step goes by %q; want a name ending %q", waiting[1].Who, want)
+				}
+				if err := <-passed; err != nil {
+					t.Errorf("the Test step with no task: %v", err)
+				}
+				select {
+				case exit := <-stepEnded:
+					if exit != 0 {
+						t.Errorf("the run's Test step exited %d; stderr=%q", exit, stderr.String())
+					}
+				case <-time.After(time.Minute):
+					t.Fatalf("the run's Test step had not ended a minute after its turn came; stderr=%q", stderr.String())
+				}
 			})
-			if err := holder.Release(); err != nil {
-				t.Fatal(err)
-			}
-
-			// Assert
-			if want := "no task priority goes ahead of task priority " + supervisor.RootPriority; waiting[1].Behind != want {
-				t.Errorf("the run's Test step stands behind for %q; want %q", waiting[1].Behind, want)
-			}
-			if want := ", task cg-example"; !strings.HasSuffix(waiting[1].Who, want) {
-				t.Errorf("the run's Test step goes by %q; want a name ending %q", waiting[1].Who, want)
-			}
-			if err := <-passed; err != nil {
-				t.Errorf("the Test step with no task: %v", err)
-			}
-			select {
-			case exit := <-stepEnded:
-				if exit != 0 {
-					t.Errorf("the run's Test step exited %d; stderr=%q", exit, stderr.String())
-				}
-			case <-time.After(time.Minute):
-				t.Fatalf("the run's Test step had not ended a minute after its turn came; stderr=%q", stderr.String())
-			}
-		})
+		}
 	}
 }
 
-// A Test step its run does not vouch for takes no task, least of all the one
-// its environment names, and a run that names no gate run keeps its own.
-func TestAGateTurnTakesOnlyTheTaskItsRunVerifies(t *testing.T) {
+// A run that names its gate run takes the task that owns the run's recorded
+// checkout, whatever folder it stands in. A record that cannot be read gives no
+// task, least of all the one the environment names, and a run that names no
+// gate run keeps the one its own folder says.
+func TestAGateTurnTakesItsTaskFromItsRunsRecord(t *testing.T) {
 	for name, test := range map[string]struct {
-		runID     string
-		dir       func(t *testing.T, managed string) string
-		want      string
-		isRefused bool
+		runID, record, want string
+		isUnread            bool
 	}{
-		"a folder that is no checkout of the run": {runID: "run", dir: func(t *testing.T, _ string) string { return t.TempDir() }, isRefused: true},
-		"a run the gate does not know":            {runID: "unknown", dir: func(_ *testing.T, managed string) string { return managed }, isRefused: true},
-		"no gate run":                             {dir: func(t *testing.T, _ string) string { return t.TempDir() }, want: "cg-inherited"},
+		"a folder that is no checkout of the run": {runID: "run", want: "cg-example"},
+		"a run the gate does not know":            {runID: "unknown", isUnread: true},
+		"a record outside the gate's worktrees":   {runID: "run", record: "UPDATE runs SET worktree_dir='C:/different/worktree'", isUnread: true},
+		"no gate run":                             {want: "cg-inherited"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			managed, comparison := taskGate(t, "")
+			taskGate(t, "")
 			t.Setenv("CFO_TASK_ID", "cg-inherited")
+			if test.record != "" {
+				recordInGate(t, test.record)
+			}
 
 			// Act
-			task, err := gateTurnTask(t.Context(), test.dir(t, managed), test.runID, comparison, defaultCommandRuntime())
+			task, err := gateTurnTask(t.Context(), t.TempDir(), test.runID, defaultCommandRuntime())
 
 			// Assert
-			if task != test.want || (err != nil) != test.isRefused {
-				t.Errorf("task=%q, err=%v; want task %q, refused=%v", task, err, test.want, test.isRefused)
+			if task != test.want || (err != nil) != test.isUnread {
+				t.Errorf("task=%q, err=%v; want task %q, unread=%v", task, err, test.want, test.isUnread)
 			}
 		})
 	}
