@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 )
 
 // RetentionProposal is an operator's declaration, not verified task state or
@@ -43,10 +42,18 @@ type RetentionPlan struct {
 // intentionally exposes no apply operation or remote upload path.
 func PlanRetention(dataDir string, proposals []RetentionProposal) (RetentionPlan, error) {
 	plan := RetentionPlan{IsDryRun: true, Items: []RetentionItem{}, AuthorityRule: "Task state and capture are unverified operator proposals. Local recovery is not disk relief, GitHub offload or removal approval. Keep sources until the owning retention process verifies current task custody, durable capture, privacy and each pinned approval."}
-	paths := map[string]bool{}
+	var sources []os.FileInfo
 	governed, err := GovernedFiles(dataDir)
 	if err != nil {
 		return RetentionPlan{}, err
+	}
+	var governedFiles []os.FileInfo
+	for _, path := range governed {
+		info, err := os.Stat(filepath.Join(dataDir, filepath.FromSlash(path)))
+		if err != nil {
+			return RetentionPlan{}, err
+		}
+		governedFiles = append(governedFiles, info)
 	}
 	for _, proposal := range proposals {
 		proposal.Path = filepath.ToSlash(filepath.Clean(filepath.FromSlash(proposal.Path)))
@@ -54,21 +61,21 @@ func PlanRetention(dataDir string, proposals []RetentionProposal) (RetentionPlan
 		if err != nil {
 			return RetentionPlan{}, fmt.Errorf("retention source %s: %w", proposal.Path, err)
 		}
-		resolved, err := filepath.EvalSymlinks(filepath.Join(dataDir, filepath.FromSlash(proposal.Path)))
+		sourceInfo, err := os.Stat(filepath.Join(dataDir, filepath.FromSlash(proposal.Path)))
 		if err != nil {
 			return RetentionPlan{}, err
 		}
-		if paths[resolved] {
+		if slices.ContainsFunc(sources, func(info os.FileInfo) bool { return os.SameFile(info, sourceInfo) }) {
 			return RetentionPlan{}, fmt.Errorf("duplicate retention proposal %s", proposal.Path)
 		}
-		paths[resolved] = true
+		sources = append(sources, sourceInfo)
 		if !slices.Contains([]string{"summary", "index", "artifact", "authority"}, proposal.Kind) || !slices.Contains([]string{"active", "held", "completed"}, proposal.TaskState) {
 			return RetentionPlan{}, errors.New("retention proposal needs a known kind and explicit task_state")
 		}
 		item := RetentionItem{RetentionProposal: proposal, Bytes: len(content)}
 		item.SourceSHA256 = Hash(content)
 		switch {
-		case slices.ContainsFunc(governed, func(path string) bool { return strings.EqualFold(path, proposal.Path) }) || proposal.Kind == "authority":
+		case slices.ContainsFunc(governedFiles, func(info os.FileInfo) bool { return os.SameFile(info, sourceInfo) }) || proposal.Kind == "authority":
 			item.Reason = "retain authority; use migration-plan and individually named approval"
 		case proposal.IsHeld || proposal.TaskState == "held":
 			item.Reason = "retain held work"
@@ -85,10 +92,6 @@ func PlanRetention(dataDir string, proposals []RetentionProposal) (RetentionPlan
 			if err != nil {
 				item.Reason = "retain: recovery unavailable: " + err.Error()
 				break
-			}
-			sourceInfo, err := os.Stat(resolved)
-			if err != nil {
-				return RetentionPlan{}, err
 			}
 			recoveryInfo, err := os.Stat(filepath.Join(dataDir, filepath.FromSlash(proposal.Destination)))
 			if err != nil {

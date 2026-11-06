@@ -108,3 +108,97 @@ func TestRetentionProtectsGovernedAliasesAndRejectsHardlinkRecovery(t *testing.T
 		t.Fatalf("hardlink recovery accepted: %+v %v", plan, err)
 	}
 }
+
+func TestRetentionUsesFileIdentityForAuthorityDuplicatesAndRecovery(t *testing.T) {
+	for _, test := range []struct {
+		path       string
+		isGoverned bool
+	}{
+		{"overlord.md", true},
+		{"projects.md", true},
+		{"memory-archive.md", true},
+		{"memory/fact.md", true},
+		{"finished/original.md", false},
+	} {
+		for _, aliasKind := range []string{"symlink", "hardlink", "case"} {
+			t.Run(test.path+"/"+aliasKind, func(t *testing.T) {
+				dir := t.TempDir()
+				content := []byte("Exact source bytes with provenance.\n")
+				writeMemoryFile(t, dir, test.path, content)
+				writeMemoryFile(t, dir, "archive/recovery.md", content)
+				alias := "finished/summary.md"
+				if err := os.MkdirAll(filepath.Join(dir, "finished"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				sourcePath := filepath.Join(dir, filepath.FromSlash(test.path))
+				aliasPath := filepath.Join(dir, filepath.FromSlash(alias))
+				switch aliasKind {
+				case "symlink":
+					if err := os.Symlink(sourcePath, aliasPath); err != nil {
+						t.Skipf("symlink unavailable: %v", err)
+					}
+				case "hardlink":
+					if err := os.Link(sourcePath, aliasPath); err != nil {
+						t.Fatal(err)
+					}
+				case "case":
+					alias = strings.ToUpper(test.path)
+					if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(alias))); os.IsNotExist(err) {
+						t.Skip("filesystem is case sensitive")
+					} else if err != nil {
+						t.Fatal(err)
+					}
+				}
+				proposal := RetentionProposal{Path: alias, Destination: "archive/recovery.md", SHA256: Hash(content), Kind: "summary", TaskState: "completed", IsLanded: true, IsCaptureComplete: true}
+
+				plan, err := PlanRetention(dir, []RetentionProposal{proposal})
+
+				if err != nil {
+					t.Fatal(err)
+				}
+				item := plan.Items[0]
+				if test.isGoverned {
+					if item.IsRecoverable || item.Reason != "retain authority; use migration-plan and individually named approval" {
+						t.Fatalf("governed file alias lost authority protection: %+v", item)
+					}
+				} else if !item.IsRecoverable {
+					t.Fatalf("independent recovery rejected: %+v", item)
+				}
+				original := proposal
+				original.Path = test.path
+				for _, proposals := range [][]RetentionProposal{{original, proposal}, {proposal, original}} {
+					if _, err := PlanRetention(dir, proposals); err == nil || !strings.Contains(err.Error(), "duplicate retention proposal") {
+						t.Fatalf("duplicate file identities accepted: %v", err)
+					}
+				}
+				if !test.isGoverned {
+					original.Destination = alias
+					plan, err := PlanRetention(dir, []RetentionProposal{original})
+					if err != nil || plan.Items[0].IsRecoverable || !strings.Contains(plan.Items[0].Reason, "independent") {
+						t.Fatalf("alias accepted as independent recovery: %+v %v", plan, err)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestRetentionAcceptsIndependentSourcesWithIdenticalBytes(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte("Completed task facts.\n")
+	writeMemoryFile(t, dir, "finished/first.md", content)
+	writeMemoryFile(t, dir, "finished/second.md", content)
+	proposals := []RetentionProposal{
+		{Path: "finished/first.md", Destination: "finished/second.md", SHA256: Hash(content), Kind: "summary", TaskState: "completed", IsLanded: true, IsCaptureComplete: true},
+		{Path: "finished/second.md", Destination: "finished/first.md", SHA256: Hash(content), Kind: "summary", TaskState: "completed", IsLanded: true, IsCaptureComplete: true},
+	}
+
+	plan, err := PlanRetention(dir, proposals)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Items) != 2 || !plan.Items[0].IsRecoverable || !plan.Items[1].IsRecoverable {
+		t.Fatalf("independent files treated as aliases: %+v", plan)
+	}
+}
