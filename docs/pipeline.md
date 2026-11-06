@@ -428,6 +428,8 @@ Test steps order among themselves by the same task priorities, and a Test step o
 Runs of one place keep the order they asked in.
 `cfo gate turn`, `cfo gate test`, `cfo gate prepush` and `cfo verify` each read the priority on their task's row as they join the line, so a row changed later moves no run that already waits.
 A row they cannot read costs a run only its priority: it says so and stands as a run with no task.
+A gate's Test step finds its task through its run's verified managed checkout, so its command stands by that task's priority in the managed checkout and in the run's base clone alike.
+A step whose checkout its run does not verify stands as a Test step with no task.
 
 The order is only of runs that wait: a run that holds a turn, or is in the moment of taking one, keeps it until it ends, whatever joins the line behind it.
 

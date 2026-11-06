@@ -156,7 +156,7 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 	}
 	// A run whose task cannot be read stands in line all the same, under what
 	// is known of it.
-	task, err := gateTask(dir, runtime)
+	task, err := gateTurnTask(ctx, dir, request.gateRun, request.testComparisonSHA, runtime)
 	if err != nil {
 		task = ""
 	}
@@ -345,6 +345,26 @@ func gateTestEnvironment(ctx context.Context, dir, runID, comparison string, run
 	}
 	environment, err := pipeline.ProjectTestEnvironment(ctx, execx.OSRunner{}, h.Data, meta.Project, meta.Worktree)
 	return gateTestBinding{environment: environment, source: source}, err
+}
+
+// gateTurnTask is the fleet task whose run this is. A gate's Test step names
+// its run, whose verified managed checkout says the task, since the step may
+// run in the run's base clone, and neither that folder nor the environment it
+// inherits from the gate's daemon does.
+func gateTurnTask(ctx context.Context, dir, runID, comparison string, runtime commandRuntime) (string, error) {
+	if runID == "" {
+		return gateTask(dir, runtime)
+	}
+	root, err := pipeline.DefaultRoot()
+	if err != nil {
+		return "", err
+	}
+	reader := pipeline.Reader{Root: root, Commands: gatedb.Runner{Next: execx.OSRunner{}}}
+	source, err := reader.CommandSource(ctx, dir, runID, comparison)
+	if err != nil {
+		return "", err
+	}
+	return gateTask(source.Worktree, runtime)
 }
 
 // oneLine is err's text on one line, the errors it joins separated by commas.
