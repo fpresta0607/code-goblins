@@ -140,7 +140,11 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	}
 	if isAdmission || isPreflight {
 		cfo := supervisor.CFOConnection{State: h.State}
-		_, release, err := cfo.CallerIdentity()
+		var release func()
+		err := errors.New("gate agents and goblins cannot act as the registered primary CFO")
+		if os.Getenv(gateAgentVariable) == "" && os.Getenv(harness.RoleVariable) != harness.RoleGoblin {
+			_, release, err = cfo.CallerIdentity()
+		}
 		if err != nil {
 			if isAdmission {
 				return fmt.Errorf("pipeline: validation admission and successor selection require the registered primary CFO: %w", err)

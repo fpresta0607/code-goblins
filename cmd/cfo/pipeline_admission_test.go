@@ -14,9 +14,13 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 type admissionCommands struct {
@@ -323,6 +327,93 @@ func TestPipelineTerminalPreflightRemainsReadOnly(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(meta.TaskTmp, "validation-admissions.jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("preflight recorded an admission: %v", err)
+	}
+}
+
+func TestPipelineAdmissionAndPreflightEnforceCallerRole(t *testing.T) {
+	for _, operation := range []string{"validate-authored", "validate-terminal", "terminal-preflight"} {
+		for _, scenario := range []struct {
+			name, terminal, gate string
+			isInvalidProof       bool
+		}{
+			{name: "registered CFO"},
+			{name: "gate inherits CFO proof", gate: "1"},
+			{name: "gate inherits own contributor proof", terminal: "task", gate: "1"},
+			{name: "gate inherits foreign contributor proof", terminal: "another-task", gate: "1"},
+			{name: "own contributor inherits CFO ancestry", terminal: "task"},
+			{name: "foreign contributor inherits CFO ancestry", terminal: "another-task"},
+			{name: "invalid contributor proof inherits CFO ancestry", terminal: "task", isInvalidProof: true},
+		} {
+			t.Run(operation+"/"+scenario.name, func(t *testing.T) {
+				h, root, fixture := admissionControllerStage(t)
+				inGoblinTerminal(t, h.State, "cfo")
+				t.Setenv(harness.RoleVariable, "cfo")
+				record, err := host.ReadRecord(h.State, "cfo")
+				if err != nil {
+					t.Fatal(err)
+				}
+				var isStarted bool
+				record.ChildStart, isStarted = proc.StartTime(os.Getpid())
+				if !isStarted {
+					t.Fatal("the registered CFO process has no start time")
+				}
+				record.ProofSum = host.ProofSum(os.Getenv(host.ProofVariable))
+				data, err := json.Marshal(record)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(h.State, "hosts", "cfo.json"), data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if scenario.terminal != "" {
+					inGoblinTerminal(t, h.State, scenario.terminal)
+				}
+				if scenario.isInvalidProof {
+					t.Setenv(host.ProofVariable, "unissued-proof")
+				}
+				t.Setenv(gateAgentVariable, scenario.gate)
+				cfo := supervisor.CFOConnection{State: h.State}
+				_, release, err := cfo.CallerIdentity()
+				if err != nil {
+					t.Fatalf("fixture must carry inherited CFO identity: %v", err)
+				}
+				release()
+				meta, err := state.ReadTaskMeta(h.State, "task")
+				if err != nil {
+					t.Fatal(err)
+				}
+				data = controllerAdmission(t, meta, operation == "validate-terminal")
+				file := filepath.Join(h.Root, "admission.json")
+				if err := os.WriteFile(file, data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				commands := &admissionCommands{worktree: fixture.worktree, branch: "feat/admission", admission: string(data), result: execx.Result{Stdout: []byte("private native result")}}
+				args := []string{operation, "task", "--admission-file", file}
+				if operation == "terminal-preflight" {
+					args = []string{operation, "task", "--run", "predecessor"}
+				}
+				var output bytes.Buffer
+
+				err = pipelineCommand(t.Context(), h, root, commands, args, &output)
+
+				isAllowed := scenario.gate == "" && (scenario.terminal == "" || (operation == "terminal-preflight" && scenario.terminal == "task" && !scenario.isInvalidProof))
+				if isAllowed {
+					if err != nil || len(commands.native) != 1 || output.String() != "private native result" {
+						t.Fatalf("authorized caller: %v, native calls=%d, output=%q", err, len(commands.native), output.String())
+					}
+					return
+				}
+				if err == nil || !strings.Contains(err.Error(), "registered primary CFO") || len(commands.native) != 0 || output.Len() != 0 {
+					t.Fatalf("unauthorized caller: %v, native calls=%d, output=%q", err, len(commands.native), output.String())
+				}
+				if lines, err := state.TailStatus(h.State, "task", 10); err != nil || len(lines) != 0 {
+					t.Fatalf("unauthorized caller wrote task audit: %v", err)
+				}
+				if _, err := os.Stat(filepath.Join(meta.TaskTmp, "validation-admissions.jsonl")); !os.IsNotExist(err) {
+					t.Fatalf("unauthorized caller recorded an admission: %v", err)
+				}
+			})
+		}
 	}
 }
 
