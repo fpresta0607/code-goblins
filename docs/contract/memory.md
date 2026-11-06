@@ -58,6 +58,7 @@ Each entry has:
 | `projects`, `tasks`, `topics` | Exact nonblank routing-key arrays; a cold item needs at least one key. |
 | `expiry` | A checkable condition quoted in a perishable entry's own text. |
 | `supersedes` | Earlier item ids; they remain retrievable and are candidates for review, not automatically retired. |
+| `task_state` | Optional `active`, `held` or `completed` classification; active and held constraints must remain warm. Completed entries stay exactly retrievable and are omitted only from default keyword discovery. |
 | `approval` | Required per-item approval for a pinned cold item or any cold range from `overlord.md`. |
 
 `approval` holds `by: "Overlord"`, the verbatim `quote` naming this entry's exact, separately delimited id, a `date` in `YYYY-MM-DD` format and `destination` equal to the live source-range owner `path#id`.
@@ -66,6 +67,8 @@ Existing history already owned by `memory-archive.md` may remain cold without in
 Broad approval, an uncreated destination or a proposed project change is insufficient.
 The original file remains the live retrieval owner in this catalog; migration to a different owner needs a new approved plan and discoverability proof.
 No command here moves or deletes history.
+The optional keyword discovery, caller-declared delivery fingerprints and local retention proposals are defined in [the memory command reference](../commands/memory.md).
+They preserve this approval boundary, never promote a search match to authority and never establish task custody from a proposal.
 
 Tier markers in source text are interpreted by the shared `stow` skill, the single owner of their spellings, clocks and curation procedure; the [load map](../load-map.md) owns its discovery across harnesses.
 Only trailing annotations carry tier metadata; literal examples in prose and code remain source content.

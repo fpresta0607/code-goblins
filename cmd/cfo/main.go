@@ -64,7 +64,7 @@ Run as goblins with no command, from any folder, it is the quick start: one Ente
 
 commands:
   help      [<command> [<subcommand>] | contract <topic>]: read only the requested embedded command or procedure contract; with no topic, list available references
-  memory    retrieve [--project <name>] [--task <id>] [--topic <topic>] | retrieve --id <id> | routes | budget [--packages <file>] | migration-plan; source-backed warm/cold memory, combined startup accounting and lossless dry-run planning
+  memory    retrieve [--project <name>] [--task <id>] [--topic <topic>] [--search <words> --limit <n>] [--seen <file>] | retrieve --id <id> | routes | budget [--packages <file>] | migration-plan | retention-plan --manifest <file>; exact source-backed memory and read-only recovery planning
   version   print the cfo version
   serve     run the persistent native supervisor and embedded browser board on loopback
   remote    on|status|off: private phone access to the board and CFO terminal over your Tailscale account
