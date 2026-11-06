@@ -47,6 +47,7 @@ type Entry struct {
 	Expiry     string    `json:"expiry,omitempty"`
 	Supersedes []string  `json:"supersedes,omitempty"`
 	Approval   *Approval `json:"approval,omitempty"`
+	TaskState  string    `json:"task_state,omitempty"`
 }
 
 type Source struct {
@@ -64,18 +65,24 @@ type Layer struct {
 }
 
 type Catalog struct {
-	Version int      `json:"version"`
-	Sources []Source `json:"sources"`
-	Layers  []Layer  `json:"layers,omitempty"`
-	content map[string][]byte
-	status  map[string]Status
+	Version  int      `json:"version"`
+	Sources  []Source `json:"sources"`
+	Layers   []Layer  `json:"layers,omitempty"`
+	content  map[string][]byte
+	status   map[string]Status
+	dataDir  string
+	checksum string
 }
 
 type Query struct {
-	ID      string
-	Project string
-	Task    string
-	Topic   string
+	ID               string
+	Project          string
+	Task             string
+	Topic            string
+	Search           string
+	Limit            int
+	IncludeCompleted bool
+	Delivered        []string
 }
 
 func Hash(content []byte) string {
@@ -288,10 +295,20 @@ func Load(dataDir string, now time.Time) (Catalog, error) {
 	if err := validateLayers(catalog.Layers); err != nil {
 		return Catalog{}, err
 	}
+	catalog.dataDir, catalog.checksum = dataDir, Hash(data)
+	if err := catalog.checkFresh(); err != nil {
+		return Catalog{}, err
+	}
 	return catalog, nil
 }
 
 func validateEntry(source string, entry Entry, content []byte, status Status, now time.Time) error {
+	if !slices.Contains([]string{"", "active", "held", "completed"}, entry.TaskState) {
+		return errors.New("invalid task_state; use active, held or completed")
+	}
+	if (entry.TaskState == "active" || entry.TaskState == "held") && entry.Location != "warm" {
+		return errors.New("active and held task constraints must remain warm")
+	}
 	if !slices.Contains([]string{"ruling", "fact", "project", "history"}, entry.Authority) || !slices.Contains([]string{"warm", "cold"}, entry.Location) {
 		return errors.New("invalid authority or warm/cold location")
 	}
@@ -354,6 +371,13 @@ func validateLayers(layers []Layer) error {
 }
 
 func (catalog Catalog) Retrieve(query Query) (string, error) {
+	if err := catalog.checkFresh(); err != nil {
+		return "", err
+	}
+	selected, err := catalog.selectEntries(query)
+	if err != nil {
+		return "", err
+	}
 	var output strings.Builder
 	if len(catalog.Sources) == 0 {
 		output.WriteString("MEMORY SOURCES ABSENT: no governed source files; no authority was assumed read.\n")
@@ -364,29 +388,54 @@ func (catalog Catalog) Retrieve(query Query) (string, error) {
 	matched := false
 	for _, source := range catalog.Sources {
 		for _, entry := range source.Entries {
-			isSelected := entry.Location == "warm" || slices.Contains(entry.Projects, query.Project) && query.Project != "" || slices.Contains(entry.Tasks, query.Task) && query.Task != "" || slices.Contains(entry.Topics, query.Topic) && query.Topic != ""
-			if query.ID != "" {
-				isSelected = entry.ID == query.ID
-			}
-			if !isSelected {
+			if !selected[entry.ID] {
 				continue
 			}
 			matched = true
 			content := catalog.content[source.Path][entry.Start:entry.End]
 			status := catalog.status[entry.ID]
-			fmt.Fprintf(&output, "\n[%s] %s bytes %d:%d sha256=%s authority=%s tier=%s\n", entry.ID, source.Path, entry.Start, entry.End, entry.SHA256, entry.Authority, status.Tier)
+			fingerprint := catalog.deliveryKey(entry.ID)
+			isDelivered := query.ID == "" && slices.Contains(query.Delivered, fingerprint)
+			if isDelivered {
+				fmt.Fprintf(&output, "[%s] already delivered.\n", entry.ID)
+			} else {
+				fmt.Fprintf(&output, "\n[%s] %s bytes %d:%d sha256=%s authority=%s tier=%s delivery=%s", entry.ID, source.Path, entry.Start, entry.End, entry.SHA256, entry.Authority, status.Tier, fingerprint)
+				if entry.TaskState != "" {
+					fmt.Fprintf(&output, " task-state=%s", entry.TaskState)
+				}
+				output.WriteByte('\n')
+			}
 			if status.IsStale || status.IsLegacy || status.IsGrace || status.PendingCapture != "" {
 				fmt.Fprintf(&output, "STOW REQUIRED: stale=%t legacy=%t grace=%t pending-capture=%s; retain until the owning pass resolves it.\n", status.IsStale, status.IsLegacy, status.IsGrace, status.PendingCapture)
 			}
 			if len(entry.Supersedes) > 0 {
 				fmt.Fprintf(&output, "Supersession candidates (no automatic retirement): %s\n", strings.Join(entry.Supersedes, ", "))
 			}
-			output.Write(content)
-			output.WriteByte('\n')
+			if !isDelivered {
+				output.Write(content)
+				output.WriteByte('\n')
+			}
 		}
 	}
 	if query.ID != "" && !matched {
 		return "", fmt.Errorf("memory id %q is absent", query.ID)
+	}
+	if query.Search != "" {
+		cold := 0
+		for _, source := range catalog.Sources {
+			for _, entry := range source.Entries {
+				if selected[entry.ID] && entry.Location == "cold" {
+					cold++
+				}
+			}
+		}
+		if cold == 0 {
+			output.WriteString("No cold search matches; try routing keys or an exact --id.\n")
+		}
+		output.WriteString("Search discovers source ranges, never resolves authority conflicts or retires superseded rulings.\n")
+	}
+	if err := catalog.checkFresh(); err != nil {
+		return "", err
 	}
 	return output.String(), nil
 }
