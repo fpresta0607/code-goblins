@@ -237,7 +237,7 @@ It refuses a gate already answered or still running and checks that the active r
 An explicitly selected finding with an empty action is actionable only when the active gate is not review and its persisted automatic-fix limit is positive.
 Review remains fail-closed for empty or unknown actions.
 Fix responses name concrete actionable finding IDs; selecting an `ask-user` finding is an explicit decision, never automatic consent.
-On a selected fix, the driver forwards the current parked gate's verified `no-op` IDs through native `--ignore` and binds that response to the recorded run with `--run`.
+When a selected fix has verified `no-op` IDs to ignore, the driver forwards them from the current parked gate through native `--ignore` and binds the recorded run and step with `--run` and `--step`.
 An ID that also names an actionable row is never ignored, and duplicated or malformed ignored IDs are refused.
 There is no arbitrary managed `--ignore` input: unknown or actionable findings cannot be declined through this translation.
 Native refusal, including an earlier round's applied fix that cannot be declined, stays a refusal without a retry or replacement run.
