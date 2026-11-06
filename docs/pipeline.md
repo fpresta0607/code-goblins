@@ -232,6 +232,32 @@ It requires a native build supporting `axi handback --expect` and receipt-bound 
 It never substitutes recovery, approval, a CI fixer or a fresh run.
 A refusal or elapsed hold is reported without automatic retry; inspect the native status and receipt before continuing.
 
+Terminal validation admission is separate from `run`, recovery and CI handback:
+
+```powershell
+cfo pipeline terminal-preflight <id> --run <predecessor>
+cfo pipeline validate-authored <id> --admission-file admission.json
+cfo pipeline validate-terminal <id> --branch fix/correction --admission-file admission.json
+```
+
+Only the registered primary CFO may submit either admission, including accepting the committed source and choosing a terminal successor's fresh harness selection.
+The task's own goblin may inspect `terminal-preflight`, which delegates read-only observations to native without fetching, recovering custody, preparing an admission or starting validation.
+Keep that output private: it holds local paths, source observations and recovery anchors.
+The controller prepares the bounded UTF-8 JSON described by the native [validation admission contract](https://kunchenguid.github.io/no-mistakes/reference/cli/#no-mistakes-axi-validate-authored), using its original predecessor receipt, immutable snapshot digest, original intent digest and publication identity.
+Its `controller_policy` must exactly match this task's frozen policy hash, class and review cycles, as a controller assertion rather than proof of native historical policy.
+`historical_source_completeness` stays `unknown`; a clean candidate certifies none of the predecessor's missing dirty or untracked files.
+An unchanged terminal candidate also requires the native terminal protocol's independent `terminal_generation`, explicit `accept_unknown_source: true`, current trusted launch assertion and exact `source_anchors`.
+The driver checks task, project, recorded worktree, branch, predecessor repository and exact clean candidate commit/tree before delegating; native atomically checks the immutable history, latest owner, original launch and intent, publication target, anchors and successor proof.
+To prevent a replaced input file from changing checked bindings, native receives a temporary byte-identical snapshot, deleted when the call ends.
+No ordinary `axi run`, policy migration, repair, skip or automatic retry is substituted on refusal.
+Every stage runs fresh with zero automatic and manual repair capacity, and native retains the predecessor and cumulative spending.
+Repeating identical admission observes the same child; only an untouched pending acceptance can explicitly start after native revalidation, and progressed or cancelled children are never restarted.
+Each native result, including errors, receipts and cumulative spending, is appended unchanged to the private task file `validation-admissions.jsonl`, keyed by input digest, with an entry in the task status log.
+A bounded hold returns unresolved work and directs the controller to inspect the receipt before explicitly replaying the identical admission.
+Pending or unreadable migration journals refuse all three operations without mutation; only explicit `migrate` may resolve them.
+These routes require native support for their exact `axi validate-authored --admission-file`, `axi validate-terminal --admission-file` and `axi terminal-preflight --predecessor` contracts.
+The install pin predates these contracts; installing the required native build and this managed driver is separate from validation, and admission grants no live installation or adoption authority.
+
 `respond` requires durable evidence of one parked gate in this project's current branch.
 It refuses a gate already answered or still running and checks that the active review's persisted automatic limit is disabled or zero.
 An explicitly selected finding with an empty action is actionable only when the active gate is not review and its persisted automatic-fix limit is positive.

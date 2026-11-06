@@ -89,7 +89,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `cfo spawn <id> --project <p> --brief <b> [--harness <h>] [--mode <m>] [--delivery-exception "<authority and reason>"] [--model <m>] [--effort <e>] [--class <c>] [--title "<short title>"] [--yolo] [--overlap-ok "<why>"]` | [cfo help spawn](../commands/spawn.md) |
 | `cfo title <id> "<short title>"` | [cfo help title](../commands/title.md) |
 | `cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart]` | [cfo help switch](../commands/switch.md) |
-| `cfo pipeline config-drift \| config-apply \| migrate <id> \| run <id> [--branch <b>] --intent-file <file> \| respond <id> [--branch <b> \| --run <run>] --action <fix\|approve> [--findings <ids>] [--instructions <text>] [--accept <ids>] [--reason <text>] \| recover <id> [--branch <b> \| --run <run>]` | [cfo help pipeline](../commands/pipeline.md) |
+| `cfo pipeline config-drift \| config-apply \| migrate <id> \| run <id> [--branch <b>] --intent-file <file> \| respond <id> [--branch <b> \| --run <run>] --action <fix\|approve> [--findings <ids>] [--instructions <text>] [--accept <ids>] [--reason <text>] \| recover <id> [--branch <b> \| --run <run>] \| terminal-preflight <id> --run <predecessor> \| validate-authored <id> [--branch <b>] --admission-file <file> \| validate-terminal <id> [--branch <b>] --admission-file <file>` | [cfo help pipeline](../commands/pipeline.md) |
 | `cfo gate tests-kept` | [cfo help gate tests-kept](../commands/gate/tests-kept.md) |
 | `cfo gate test [--level fast\|affected\|full] [--plan]` | [cfo help gate test](../commands/gate/test.md) |
 | `cfo gate prepush [--plan] [--limit <duration>]` | [cfo help gate prepush](../commands/gate/prepush.md) |
