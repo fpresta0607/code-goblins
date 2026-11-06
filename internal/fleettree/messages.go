@@ -239,10 +239,9 @@ type MessagePage struct {
 	Waiting      []WaitingPrompt `json:"waiting,omitempty"`
 }
 
-// WaitingPrompt is a prompt Claude Code holds in its queue while it works, in
-// the order it will deliver them. It is not a Message, since a message keeps
-// its place in the session, and this one's place comes only once it is
-// delivered, when the message of the same words takes over from it.
+// WaitingPrompt keeps a Claude Code prompt visible from enqueue through its
+// handoff until its delivered Message appears. It has no delivery offset yet,
+// so it stays separate from messages; IsSending marks the handoff.
 type WaitingPrompt struct {
 	ID        string    `json:"id"`
 	At        time.Time `json:"at"`
@@ -1502,11 +1501,13 @@ func (r *Reader) UsageAt(path string, cursor MessageCursor) *Usage {
 	return nil
 }
 
-// MessagesSince reads the Claude Code conversation at path on and returns
-// every message that began or changed after cursor, with where the reader
-// then stands. isAnew says the conversation was read anew since cursor, as
-// one replaced is, so nothing a page before it held still stands: the
-// reader takes a page again.
+// MessagesSince reads the conversation at path on and returns every message
+// that began or changed after cursor, with the waiting prompts and cursor
+// from the same locked snapshot, so concurrent streams cannot separate a
+// delivered row from the end of its wait.
+// isAnew says the conversation was read anew since cursor, as one replaced
+// is, so nothing a page before it held still stands: the reader takes a page
+// again.
 func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Message, waiting []WaitingPrompt, now MessageCursor, isAnew bool, err error) {
 	if isPiSession(path) {
 		log, err := r.piLog(context.Background(), path)
