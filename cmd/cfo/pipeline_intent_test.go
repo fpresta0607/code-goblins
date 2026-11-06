@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -273,9 +275,9 @@ func TestPipelineRunReportsABoundedWaitAsNotAFailure(t *testing.T) {
 			wantNot: "native command exited 1",
 		},
 		{
-			name:   "a refusal of its own",
-			result: execx.Result{ExitCode: 1, Stdout: []byte("error: protected-path refusal requires an explicit response\n")},
-			want:   "native command exited 1",
+			name:    "a refusal of its own",
+			result:  execx.Result{ExitCode: 1, Stdout: []byte("error: protected-path refusal requires an explicit response\n")},
+			want:    "native command exited 1",
 			wantNot: "Repeat this command to reattach",
 		},
 	} {
@@ -293,6 +295,131 @@ func TestPipelineRunReportsABoundedWaitAsNotAFailure(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), test.wantNot) {
 				t.Errorf("refusal %q says %q", err, test.wantNot)
+			}
+		})
+	}
+}
+
+func acceptedHandbackStart(t *testing.T) (home.Home, string, taskWorktreesRunner, *pipelineStartRunner) {
+	t.Helper()
+	h, nm, branches := extraWorktreeTask(t)
+	meta, err := state.ReadTaskMeta(h.State, "task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	caller, err := fsx.Canonical(meta.Extras[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := json.Marshal(map[string]string{"Head": liveRunHead, "BaseHead": movedRunHead, "ManagedBranch": "HEAD", "UpstreamURL": "https://example.com/widget.git", "ForkURL": "", "ReviewRoundID": "review-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := map[string]json.RawMessage{
+		"receipt_round_id": json.RawMessage(`"round-1"`),
+		"receipt_id":       json.RawMessage(`"receipt-1"`), "run_id": json.RawMessage(`"live"`), "repo_id": json.RawMessage(`"repo-1"`), "branch": json.RawMessage(`"fix/connections"`), "status": json.RawMessage(`"running"`),
+		"head": json.RawMessage(`"` + liveRunHead + `"`), "submitted_head": json.RawMessage(`"` + movedRunHead + `"`), "intent": json.RawMessage(`"ship the correction"`),
+		"released_head": json.RawMessage(`"` + movedRunHead + `"`), "accepted_head": json.RawMessage(`"` + liveRunHead + `"`), "accepted_at": json.RawMessage(`2`),
+		"run_pr": json.RawMessage(`"https://example.com/widget/pull/1"`), "receipt_pr": json.RawMessage(`"https://example.com/widget/pull/1"`), "pr_state": json.RawMessage(`"open"`),
+		"push_ref": json.RawMessage(`"refs/heads/fix/connections"`), "receipt_push_ref": json.RawMessage(`"refs/heads/fix/connections"`), "target": json.RawMessage(`"target-1"`), "receipt_target": json.RawMessage(`"target-1"`),
+		"upstream_url": json.RawMessage(`"https://example.com/widget.git"`), "fork_url": json.RawMessage(`""`), "published_head": json.RawMessage(`"` + movedRunHead + `"`),
+		"push_generation": json.RawMessage(`7`), "receipt_generation": json.RawMessage(`7`), "custody_returned": json.RawMessage(`0`), "push_active": json.RawMessage(`0`),
+	}
+	row["caller_dir"], err = json.Marshal(caller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row["candidate"], err = json.Marshal(string(candidate))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal([]map[string]json.RawMessage{row})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := &pipelineStartRunner{worktree: caller, head: liveRunHead, handback: data,
+		previous: []byte(`[{"id":"live","status":"running","head":"` + liveRunHead + `","submitted_head":"` + movedRunHead + `","intent":"ship the correction"}]`)}
+	return h, nm, taskWorktreesRunner{Runner: start, branches: branches}, start
+}
+
+func TestPipelineRunReattachesToAcceptedCIHandback(t *testing.T) {
+	// Arrange
+	h, nm, commands, start := acceptedHandbackStart(t)
+	intentFile := filepath.Join(t.TempDir(), "intent.txt")
+	if err := os.WriteFile(intentFile, []byte("ship the correction"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := state.ReadTaskMeta(h.State, "task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{filepath.Join(h.State, "task.meta"), filepath.Join(meta.TaskTmp, "pipeline.json"), filepath.Join(nm, "config.yaml"), filepath.Join(nm, "state.sqlite")}
+	before := make([][]byte, len(paths))
+	for i, path := range paths {
+		before[i], err = os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+
+	// Act
+	err = pipelineCommand(t.Context(), h, nm, commands, []string{"run", "task", "--branch", "fix/connections", "--intent-file", intentFile}, &out)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(start.native) != 1 || !slices.Equal(start.native[0].Args, []string{"axi", "run"}) || !fsx.SamePath(start.native[0].Dir, meta.Extras[0]) {
+		t.Fatalf("native calls = %+v; want exactly one bare reattachment in the registered extra", start.native)
+	}
+	if !strings.Contains(out.String(), "reattached to run live on fix/connections") {
+		t.Fatalf("missing same-run report: %s", out.String())
+	}
+	for i, path := range paths {
+		after, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(before[i], after) {
+			t.Fatalf("reattachment changed retained metadata, policy or state at %s: %v", path, err)
+		}
+	}
+}
+
+func TestPipelineRunRefusesInvalidCIHandbackReattachment(t *testing.T) {
+	for _, name := range []string{"changed intent", "changed head", "foreign caller", "absent receipt"} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			h, nm, commands, start := acceptedHandbackStart(t)
+			intent := "ship the correction"
+			switch name {
+			case "changed intent":
+				intent = "other work"
+			case "changed head":
+				start.head = strings.Repeat("d", 40)
+			case "foreign caller":
+				var rows []map[string]json.RawMessage
+				if err := json.Unmarshal(start.handback, &rows); err != nil {
+					t.Fatal(err)
+				}
+				rows[0]["caller_dir"] = json.RawMessage(`"foreign"`)
+				data, err := json.Marshal(rows)
+				if err != nil {
+					t.Fatal(err)
+				}
+				start.handback = data
+			case "absent receipt":
+				start.handback = nil
+			}
+			intentFile := filepath.Join(t.TempDir(), "intent.txt")
+			if err := os.WriteFile(intentFile, []byte(intent), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err := pipelineCommand(t.Context(), h, nm, commands, []string{"run", "task", "--branch", "fix/connections", "--intent-file", intentFile}, &bytes.Buffer{})
+
+			// Assert
+			if !errors.Is(err, pipeline.ErrUnresolved) || len(start.native) != 0 {
+				t.Fatalf("got %v, native calls %+v; want refusal without dispatch", err, start.native)
 			}
 		})
 	}

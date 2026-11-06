@@ -218,8 +218,13 @@ A repository's `agent` field continues to select only its native primary path an
 An earlier unresolved run cannot be restarted to reset its budget.
 A run that is still working is reattached to instead: repeating `cfo pipeline run` with the same branch, head and intent reattaches to it, so no new run starts and no review budget resets.
 A reattachment starts nothing and carries no launch selection, so none of the checks of what a new run starts from applies to it: a clean worktree, the committed gate files, and origin's default branch with its tracking ref, which a merge landing while the hold lasts leaves stale until the next fetch (issue 1586).
+After an accepted CI handback, the same intent may also reattach when the latest receipt's accepted head, candidate head, current run head and clean caller HEAD all match exactly.
+This exception verifies the latest run, canonical caller and symbolic branch, retained custody, open PR, repository targets, push ref and publication generation, then re-reads the binding and caller before dispatching one bare `axi run`.
+It permits the released publication at the receipt's generation or the accepted publication at exactly the next generation; missing or changed evidence refuses.
+A later native descendant of the accepted head remains outside this exception, and the final re-read is a cooperative check, not an atomic native expected-run assertion.
+Reattachment grants no finding approval, custody change or repair allowance.
 Native `axi run` bounds its hold so a harness tool cap cannot hang it, and a hold that ends with no decision is not a gate failure: `cfo pipeline run` then says the run keeps working and names the reattachment, never only the native exit code.
-A start whose intent or head names other work than the live run's is still refused, with that run named.
+A start whose intent or head names other work than the live run's or its verified accepted handback is still refused, with that run named.
 Use native read-only `axi status` and `axi logs` to inspect progress; the engine's guarded `axi sync` remains the branch synchronization interface after validation.
 
 For eligible published CI failures with automatic CI repair disabled, `handback` explicitly returns the work to its contributor through the native handback protocol.

@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"gopkg.in/yaml.v3"
 )
 
@@ -206,7 +207,9 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch, inten
 			return StartCheck{}, err
 		}
 		if !run.sameHead(head) {
-			return StartCheck{}, fmt.Errorf("%w; run %s is %s on %s and started at %s, not the head this start has, so an earlier run must be resolved, not restarted: read it with no-mistakes axi status --run %s", ErrUnresolved, run.ID, run.Status, branch, run.submittedOrHead(), run.ID)
+			if err := r.checkAcceptedHandbackReattachment(ctx, project, worktree, branch, run, head); err != nil {
+				return StartCheck{}, fmt.Errorf("%w; run %s is %s on %s and started at %s, not the head this start has; accepted handback reattachment refused: %v; read it with no-mistakes axi status --run %s", ErrUnresolved, run.ID, run.Status, branch, run.submittedOrHead(), err, run.ID)
+			}
 		}
 		// A reattachment starts nothing and carries no launch selection, so the
 		// checks below, of what a new run starts from, do not apply to it: the
@@ -250,6 +253,111 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch, inten
 		return StartCheck{}, err
 	}
 	return StartCheck{TrustedHead: remoteHead}, nil
+}
+
+type handbackReattachmentState struct {
+	ReceiptID         string `json:"receipt_id"`
+	ReceiptRoundID    string `json:"receipt_round_id"`
+	RunID             string `json:"run_id"`
+	RepoID            string `json:"repo_id"`
+	Branch            string `json:"branch"`
+	Status            string `json:"status"`
+	Head              string `json:"head"`
+	SubmittedHead     string `json:"submitted_head"`
+	Intent            string `json:"intent"`
+	CallerDir         string `json:"caller_dir"`
+	ReleasedHead      string `json:"released_head"`
+	AcceptedHead      string `json:"accepted_head"`
+	AcceptedAt        int64  `json:"accepted_at"`
+	Candidate         string `json:"candidate"`
+	RunPR             string `json:"run_pr"`
+	ReceiptPR         string `json:"receipt_pr"`
+	PRState           string `json:"pr_state"`
+	PushRef           string `json:"push_ref"`
+	ReceiptPushRef    string `json:"receipt_push_ref"`
+	Target            string `json:"target"`
+	ReceiptTarget     string `json:"receipt_target"`
+	UpstreamURL       string `json:"upstream_url"`
+	ForkURL           string `json:"fork_url"`
+	PublishedHead     string `json:"published_head"`
+	PushGeneration    int64  `json:"push_generation"`
+	ReceiptGeneration int64  `json:"receipt_generation"`
+	CustodyReturned   int    `json:"custody_returned"`
+	PushActive        int    `json:"push_active"`
+}
+
+func (r Reader) checkAcceptedHandbackReattachment(ctx context.Context, project, worktree, branch string, run previousRun, head string) error {
+	query := `SELECT h.id AS receipt_id,h.round_id AS receipt_round_id,runs.id AS run_id,runs.repo_id,runs.branch,runs.status,runs.head_sha AS head,COALESCE(runs.submitted_head_sha,'') AS submitted_head,COALESCE(runs.intent,'') AS intent,h.caller_dir,h.released_head,h.accepted_head,COALESCE(h.accepted_at,0) AS accepted_at,h.candidate_json AS candidate,runs.pr_url AS run_pr,h.pr_url AS receipt_pr,runs.pr_state,runs.push_ref,h.push_ref AS receipt_push_ref,runs.push_target_fingerprint AS target,h.target_fingerprint AS receipt_target,repos.upstream_url,COALESCE(repos.fork_url,'') AS fork_url,runs.last_pushed_sha AS published_head,COALESCE(runs.push_generation,0) AS push_generation,h.push_generation AS receipt_generation,CASE WHEN runs.custody_returned_at IS NULL THEN 0 ELSE 1 END AS custody_returned,COALESCE(runs.push_active,-1) AS push_active FROM runs JOIN repos ON repos.id=runs.repo_id JOIN ci_handbacks h ON h.run_id=runs.id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(` + sqlString(filepath.ToSlash(project)) + `) AND runs.branch=` + sqlString(branch) + ` AND runs.id=` + sqlString(run.ID) + ` AND runs.id=(SELECT latest.id FROM runs latest WHERE latest.repo_id=runs.repo_id AND latest.branch=runs.branch ORDER BY latest.created_at DESC,latest.id DESC LIMIT 1) AND h.id=(SELECT latest.id FROM ci_handbacks latest WHERE latest.run_id=runs.id ORDER BY latest.id DESC LIMIT 1)`
+	read := func() (handbackReattachmentState, error) {
+		var rows []handbackReattachmentState
+		if err := r.query(ctx, query, &rows); err != nil {
+			return handbackReattachmentState{}, err
+		}
+		if len(rows) != 1 {
+			return handbackReattachmentState{}, errors.New("expected exactly one latest run and handback receipt")
+		}
+		return rows[0], nil
+	}
+	state, err := read()
+	if err != nil {
+		return err
+	}
+	if !gateIdentity.MatchString(state.ReceiptID) || !gateIdentity.MatchString(state.ReceiptRoundID) || !gateIdentity.MatchString(state.RunID) || !gateIdentity.MatchString(state.RepoID) || state.RunID != run.ID || state.Branch != branch || state.Status != "running" || state.Status != run.Status || state.Head != run.Head || state.SubmittedHead != run.SubmittedHead || state.Intent != run.Intent || state.PushActive != 0 || state.CustodyReturned != 0 {
+		return errors.New("run identity or custody does not match the accepted continuation")
+	}
+	if !gateCommit.MatchString(state.ReleasedHead) || !gateCommit.MatchString(state.AcceptedHead) || state.AcceptedAt <= 0 || state.AcceptedHead != head || state.Head != head {
+		return errors.New("caller and current run head must equal the accepted handback head")
+	}
+	var candidate struct {
+		Head, BaseHead, ManagedBranch, UpstreamURL, ForkURL, ReviewRoundID string
+	}
+	if err := json.Unmarshal([]byte(state.Candidate), &candidate); err != nil {
+		return fmt.Errorf("invalid accepted handback candidate: %w", err)
+	}
+	if candidate.Head != head || !gateCommit.MatchString(candidate.BaseHead) || candidate.ManagedBranch != "HEAD" && candidate.ManagedBranch != branch || !gateIdentity.MatchString(candidate.ReviewRoundID) || candidate.UpstreamURL == "" || candidate.UpstreamURL != state.UpstreamURL || candidate.ForkURL != state.ForkURL {
+		return errors.New("accepted handback candidate or repository target changed")
+	}
+	if state.PRState != "open" || state.RunPR == "" || state.RunPR != state.ReceiptPR || state.Target == "" || state.Target != state.ReceiptTarget || state.PushRef != "refs/heads/"+branch || state.PushRef != state.ReceiptPushRef || state.ReceiptGeneration <= 0 {
+		return errors.New("accepted handback publication identity changed")
+	}
+	isOriginalPublication := state.PublishedHead == state.ReleasedHead && state.PushGeneration == state.ReceiptGeneration
+	isAcceptedPublication := state.PublishedHead == state.AcceptedHead && state.PushGeneration == state.ReceiptGeneration+1
+	if !isOriginalPublication && !isAcceptedPublication {
+		return errors.New("accepted handback publication generation changed")
+	}
+	caller, err := fsx.Canonical(worktree)
+	if err != nil {
+		return err
+	}
+	if !fsx.SamePath(caller, state.CallerDir) {
+		return errors.New("accepted handback belongs to another caller worktree")
+	}
+	checkCaller := func() error {
+		actualBranch, err := r.runGit(ctx, caller, false, "symbolic-ref", "--quiet", "--short", "HEAD")
+		if err != nil || actualBranch.ExitCode != 0 || strings.TrimSpace(string(actualBranch.Stdout)) != branch {
+			return errors.New("accepted handback caller branch changed")
+		}
+		actualHead, err := r.branchHead(ctx, caller)
+		if err != nil || actualHead != head {
+			return errors.New("accepted handback caller head changed")
+		}
+		clean, err := r.runGit(ctx, caller, false, "status", "--porcelain", "--untracked-files=all")
+		if err != nil || clean.ExitCode != 0 || len(strings.TrimSpace(string(clean.Stdout))) != 0 {
+			return errors.New("accepted handback requires a clean caller worktree")
+		}
+		return nil
+	}
+	if err := checkCaller(); err != nil {
+		return err
+	}
+	fresh, err := read()
+	if err != nil {
+		return err
+	}
+	if fresh != state {
+		return errors.New("accepted handback binding changed during reattachment")
+	}
+	return checkCaller()
 }
 
 // previousRun is the branch's latest run as CheckStart reads it.
