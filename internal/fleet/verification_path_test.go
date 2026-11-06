@@ -45,3 +45,15 @@ func TestStrictQueuedBriefAssignsChecksToOnePipelineOwner(t *testing.T) {
 		t.Fatalf("strict brief duplicates or omits its check owner: %s", verification)
 	}
 }
+
+func TestPipelineVerificationReusesTheProjectEnvironmentAndReportsMissingFixtures(t *testing.T) {
+	// Act
+	verification := BriefVerification("task", "no-mistakes")
+
+	// Assert
+	for _, want := range []string{"repository environment", "existing fixtures", "untested", "disposable full application"} {
+		if !strings.Contains(verification, want) {
+			t.Errorf("verification lacks %q", want)
+		}
+	}
+}
