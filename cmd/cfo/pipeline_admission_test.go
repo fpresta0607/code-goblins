@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -72,42 +73,61 @@ func (commands *admissionCommands) Run(_ context.Context, request execx.Request)
 }
 
 func TestPipelineAdmissionForwardsExactControllerFile(t *testing.T) {
-	// Arrange
-	h, root, fixture := admissionControllerStage(t)
-	meta, err := state.ReadTaskMeta(h.State, "task")
-	if err != nil {
-		t.Fatal(err)
-	}
-	data := controllerAdmission(t, meta, false)
-	file := filepath.Join(h.Root, "admission.json")
-	if err := os.WriteFile(file, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	commands := &admissionCommands{worktree: fixture.worktree, branch: "feat/admission", admission: string(data), result: execx.Result{Stdout: []byte("authored_validation:\n  automatic_repairs_remaining: 0\n  manual_repairs_remaining: 0\n  spending: native-ledger\n")}}
-	var output bytes.Buffer
+	for _, scenario := range []struct {
+		name, suffix string
+	}{
+		{name: "registered path"},
+		{name: "equivalent path", suffix: string(os.PathSeparator) + "."},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			// Arrange
+			h, root, fixture := admissionControllerStage(t)
+			meta, err := state.ReadTaskMeta(h.State, "task")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario.suffix != "" {
+				meta.Worktree += scenario.suffix
+				if err := state.WriteTaskMeta(h.State, meta); err != nil {
+					t.Fatal(err)
+				}
+			}
+			caller, err := fsx.Canonical(meta.Worktree)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data := controllerAdmission(t, meta, false)
+			file := filepath.Join(h.Root, "admission.json")
+			if err := os.WriteFile(file, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			commands := &admissionCommands{worktree: fixture.worktree, branch: "feat/admission", admission: string(data), result: execx.Result{Stdout: []byte("authored_validation:\n  automatic_repairs_remaining: 0\n  manual_repairs_remaining: 0\n  spending: native-ledger\n")}}
+			var output bytes.Buffer
 
-	// Act
-	err = pipelineCommand(t.Context(), h, root, commands, []string{"validate-authored", "task", "--admission-file", file}, &output)
+			// Act
+			err = pipelineCommand(t.Context(), h, root, commands, []string{"validate-authored", "task", "--admission-file", file}, &output)
 
-	// Assert
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(commands.native) != 1 {
-		t.Fatalf("native calls = %d, want one admission", len(commands.native))
-	}
-	request := commands.native[0]
-	if len(request.Args) != 4 || !reflect.DeepEqual(request.Args[:3], []string{"axi", "validate-authored", "--admission-file"}) || request.Dir != meta.Worktree {
-		t.Fatalf("native args = %q in %q", request.Args, request.Dir)
-	}
-	if request.Args[3] == file {
-		t.Fatal("native should receive a private byte-identical snapshot of the verified file")
-	}
-	if _, err := os.Stat(request.Args[3]); !os.IsNotExist(err) {
-		t.Fatalf("private admission snapshot survived invocation: %v", err)
-	}
-	if output.String() != string(commands.result.Stdout) {
-		t.Fatalf("native result changed: %q", output.String())
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(commands.native) != 1 {
+				t.Fatalf("native calls = %d, want one admission", len(commands.native))
+			}
+			request := commands.native[0]
+			if len(request.Args) != 4 || !reflect.DeepEqual(request.Args[:3], []string{"axi", "validate-authored", "--admission-file"}) || request.Dir != caller {
+				t.Fatalf("native args = %q in %q", request.Args, request.Dir)
+			}
+			if request.Args[3] == file {
+				t.Fatal("native should receive a private byte-identical snapshot of the verified file")
+			}
+			if _, err := os.Stat(request.Args[3]); !os.IsNotExist(err) {
+				t.Fatalf("private admission snapshot survived invocation: %v", err)
+			}
+			if output.String() != string(commands.result.Stdout) {
+				t.Fatalf("native result changed: %q", output.String())
+			}
+		})
 	}
 }
 
@@ -117,8 +137,12 @@ func controllerAdmission(t *testing.T, meta state.TaskMeta, isTerminal bool) []b
 	if err != nil {
 		t.Fatal(err)
 	}
+	caller, err := fsx.Canonical(meta.Worktree)
+	if err != nil {
+		t.Fatal(err)
+	}
 	admission := map[string]interface{}{
-		"predecessor_id": "predecessor", "repo_id": "repo-1", "branch": "feat/admission", "caller_dir": meta.Worktree,
+		"predecessor_id": "predecessor", "repo_id": "repo-1", "branch": "feat/admission", "caller_dir": caller,
 		"candidate_sha": strings.Repeat("b", 40), "candidate_tree": strings.Repeat("c", 40),
 		"snapshot_digest": strings.Repeat("d", 64), "intent_digest": strings.Repeat("e", 64),
 		"launch_nonce": "original-nonce", "validation_generation": "original-generation",
