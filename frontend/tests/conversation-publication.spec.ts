@@ -363,7 +363,7 @@ test("a disjoint reconnect replaces the latest page and makes the missing histor
   await expect(talk.locator('[data-message="m49"]')).toHaveCount(0);
 });
 
-test("an older response spanning a disjoint reconnect cannot hide missing history", async ({ page }) => {
+for (const ordering of ["before jumping", "after returning to history"] as const) test(`an older response spanning a disjoint reconnect cannot hide missing history ${ordering}`, async ({ page }) => {
   await open(page, snapshot(), "", pageOf(messages.slice(50, 100), conversation, true));
   let release = () => {};
   const held = new Promise<void>((resolve) => { release = resolve; });
@@ -382,9 +382,11 @@ test("an older response spanning a disjoint reconnect cannot hide missing histor
   const place = await reading(talk);
   const rows = await captureRows(talk);
   await sendPage(page, pageOf(messages.slice(150, 200), conversation, true));
-  const response = page.waitForResponse((value) => new URL(value.url()).searchParams.get("before") === "50");
-  release();
-  await (await response).finished();
+  if (ordering === "before jumping") {
+    const response = page.waitForResponse((value) => new URL(value.url()).searchParams.get("before") === "50");
+    release();
+    await (await response).finished();
+  }
   expect(await reading(talk)).toEqual(place);
   expect(await currentRows(talk)).toEqual({ sameNodes: true, rows });
   await page.getByRole("button", { name: "Jump to latest" }).click();
@@ -393,6 +395,11 @@ test("an older response spanning a disjoint reconnect cannot hide missing histor
     await reading(talk);
     const older = page.waitForResponse((value) => new URL(value.url()).searchParams.get("before") === String(before));
     await talk.evaluate((element) => { element.scrollTop = 0; });
+    if (index === 0 && ordering === "after returning to history") {
+      const response = page.waitForResponse((value) => new URL(value.url()).searchParams.get("before") === "50");
+      release();
+      await (await response).finished();
+    }
     await expect.poll(() => requests.length).toBe(index + 2);
     expect(requests[index + 1]).toBe(before);
     await (await older).finished();
@@ -444,4 +451,75 @@ test("an older response remains valid when the latest page retains its first cur
   await page.getByRole("button", { name: "Jump to latest" }).click();
   await expect(talk.locator('[data-message="m100"]')).toBeVisible();
   await expect(talk.locator('[data-message="m99"]')).toContainText("Updated answer");
+});
+
+for (const outcome of ["success", "deferred success", "failure"] as const) test(`a stale older ${outcome} cannot release a replacement history request`, async ({ page }) => {
+  if (outcome === "deferred success") await page.clock.install();
+  await page.addInitScript(() => {
+    const json = Response.prototype.json;
+    Response.prototype.json = async function () {
+      const value: unknown = await json.call(this);
+      if (new URL(this.url).searchParams.get("before") === "50") {
+        // The next frame observes the consumer's success or failure handler,
+        // rather than only the network response finishing.
+        requestAnimationFrame(() => { document.documentElement.dataset.staleRead = "done"; });
+      }
+      return value;
+    };
+  });
+  await open(page, snapshot(), "", pageOf(messages.slice(50, 100), conversation, true));
+  let releaseStale = () => {}, releaseCurrent = () => {};
+  const stale = new Promise<void>((resolve) => { releaseStale = resolve; });
+  const current = new Promise<void>((resolve) => { releaseCurrent = resolve; });
+  const requests: number[] = [], reports: string[] = [];
+  await page.route("**/api/cfo/report", (route) => {
+    const report: unknown = route.request().postDataJSON();
+    if (typeof report === "object" && report !== null && "where" in report && report.where === "the messages of " + NAME) reports.push(route.request().postData() ?? "");
+    return route.fulfill({ json: {} });
+  });
+  await page.route((url) => url.pathname === "/api/messages" && url.searchParams.has("before"), async (route) => {
+    const before = Number(new URL(route.request().url()).searchParams.get("before"));
+    requests.push(before);
+    await (before === 50 ? stale : current);
+    await route.fulfill(before === 50 && outcome === "failure"
+      ? { status: 500, json: { error: "Stale history failed" } }
+      : { json: pageOf(messages.slice(before - 50, before), conversation, before > 50) });
+  });
+  await openGoblin(page);
+  const talk = talkOf(page);
+  await expect(talk.locator('[data-message="m99"]')).toBeVisible();
+  await talk.evaluate((element) => { element.scrollTop = 0; });
+  await expect.poll(() => requests).toEqual([50]);
+  await reading(talk);
+  if (outcome === "deferred success") {
+    await talk.dispatchEvent("pointerdown", { button: 0, pointerType: "mouse" });
+    releaseStale();
+    await expect(page.locator("html")).toHaveAttribute("data-stale-read", "done");
+  }
+  await sendPage(page, pageOf(messages.slice(150, 200), conversation, true));
+  const jump = page.getByRole("button", { name: "Jump to latest" });
+  if (outcome === "deferred success") await jump.press("Enter");
+  else await jump.click();
+  await expect(talk.locator('[data-message="m199"]')).toBeVisible();
+  await reading(talk);
+  await talk.evaluate((element) => { element.scrollTop = 0; });
+  await expect.poll(() => requests).toEqual([50, 150]);
+  if (outcome === "deferred success") {
+    await talk.dispatchEvent("pointerup", { button: 0, pointerType: "mouse" });
+    await page.clock.runFor(250);
+  } else {
+    releaseStale();
+    await expect(page.locator("html")).toHaveAttribute("data-stale-read", "done");
+  }
+  await talk.evaluate((element) => { element.scrollTop = 100; });
+  await reading(talk);
+  await talk.evaluate((element) => { element.scrollTop = 0; });
+  await reading(talk);
+  expect(requests).toEqual([50, 150]);
+  expect(reports).toEqual([]);
+  releaseCurrent();
+  await expect(talk.locator('[data-message="m149"]')).toBeAttached();
+  await reading(talk);
+  await talk.evaluate((element) => { element.scrollTop = 0; });
+  await expect(talk.locator('[data-message="m100"]')).toBeVisible();
 });
