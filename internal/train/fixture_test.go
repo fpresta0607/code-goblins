@@ -308,16 +308,18 @@ type fakeGitHub struct {
 // workflow is one workflow run of the train's CI: the head it tests, how
 // often it was tried, and whether its first try fails by chance.
 type workflow struct {
-	id, tries  int
-	head       string
-	isFlaky    bool
-	conclusion string
-	extra      []Check
+	id, tries               int
+	head                    string
+	isFlaky                 bool
+	isCheckRollupIncomplete bool
+	conclusion              string
+	extra                   []Check
 }
 
 // pull is a pull request as the fake GitHub holds it.
 type pull struct {
 	checks                    []Check
+	isCheckRollupIncomplete   bool
 	number                    int
 	branch                    string
 	isDraft, isHeld, isClosed bool
@@ -645,7 +647,7 @@ func (f *fakeGitHub) list() (execx.Result, error) {
 		if p.isMerged {
 			p.late--
 		}
-		pr := PullRequest{URL: url, Number: p.number, HeadRefOid: f.s.git(f.s.remote, "rev-parse", "refs/heads/"+p.branch), BaseRefName: cmp.Or(p.baseRefName, "main"), IsDraft: p.isDraft, IsCrossRepository: p.isCrossRepository, Mergeable: cmp.Or(p.mergeable, "MERGEABLE"), ReviewDecision: p.reviewDecision, Checks: []Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}}
+		pr := PullRequest{URL: url, Number: p.number, HeadRefOid: f.s.git(f.s.remote, "rev-parse", "refs/heads/"+p.branch), BaseRefName: cmp.Or(p.baseRefName, "main"), IsDraft: p.isDraft, IsCrossRepository: p.isCrossRepository, Mergeable: cmp.Or(p.mergeable, "MERGEABLE"), ReviewDecision: p.reviewDecision, IsCheckRollupIncomplete: p.isCheckRollupIncomplete, Checks: []Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}}
 		if f.ownRuns[url] != nil {
 			pr.Checks = f.riderChecks(url)
 		}
@@ -696,7 +698,7 @@ func (f *fakeGitHub) view() (execx.Result, error) {
 	if f.noChecks {
 		checks = []Check{}
 	}
-	data, err := json.Marshal(map[string]any{"state": f.state[f.trainURL], "headRefOid": head, "statusCheckRollup": checks, "mergeStateStatus": cmp.Or(f.readiness, "CLEAN")})
+	data, err := json.Marshal(map[string]any{"state": f.state[f.trainURL], "headRefOid": head, "statusCheckRollup": checks, "mergeStateStatus": cmp.Or(f.readiness, "CLEAN"), "isCheckRollupIncomplete": w.isCheckRollupIncomplete})
 	return execx.Result{Stdout: data}, err
 }
 

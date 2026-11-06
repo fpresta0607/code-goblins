@@ -151,7 +151,7 @@ func PullRequestNode(pull map[string]any) map[string]any {
 			}
 			contexts = append(contexts, context)
 		}
-		rollup = map[string]any{"contexts": map[string]any{"nodes": append([]any{}, contexts...), "pageInfo": map[string]any{"hasNextPage": false}}}
+		rollup = map[string]any{"contexts": map[string]any{"nodes": append([]any{}, contexts...), "pageInfo": map[string]any{"hasNextPage": pull["isCheckRollupIncomplete"] == true}}}
 	}
 	delete(node, "statusCheckRollup")
 	node["commits"] = map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"statusCheckRollup": rollup}}}}

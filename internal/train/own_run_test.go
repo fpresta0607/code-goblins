@@ -35,7 +35,7 @@ func (f *fakeGitHub) riderView(url string) (execx.Result, error) {
 	} else if f.pulls[url].isMerged {
 		state = "MERGED"
 	}
-	data, err := json.Marshal(map[string]any{"state": state, "headRefOid": head, "statusCheckRollup": f.riderChecks(url), "mergeStateStatus": cmp.Or(f.readiness, "CLEAN")})
+	data, err := json.Marshal(map[string]any{"state": state, "headRefOid": head, "statusCheckRollup": f.riderChecks(url), "mergeStateStatus": cmp.Or(f.readiness, "CLEAN"), "isCheckRollupIncomplete": f.pulls[url].isCheckRollupIncomplete})
 	return execx.Result{Stdout: data}, err
 }
 
@@ -135,6 +135,55 @@ func TestALoneRiderWhoseOwnRunTestedTodaysMainLandsWithNoTrainRun(t *testing.T) 
 	}
 	if len(s.cfo) != 2 || !strings.Contains(s.cfo[0], "lands #5 on its own CI run ("+ownRun+")") || !strings.Contains(s.cfo[1], "#5 landed on its own CI run ("+ownRun+")") {
 		t.Fatalf("CFO told %q, want the start and the landing on its own run", s.cfo)
+	}
+}
+
+func TestOwnRunIncompleteChecksReconcileLifecycle(t *testing.T) {
+	for _, lifecycle := range []string{"unchanged", "closed", "base moved", "held"} {
+		t.Run(lifecycle, func(t *testing.T) {
+			s := newScratch(t)
+			gh := newFakeGitHub(s)
+			pr := provenRider(s, gh, 5)
+			riders, _ := Riders([]PullRequest{pr}, "main", fleetAccount, goblinsFor(pr), nil)
+			engine := s.engine(gh)
+			started, err := engine.Start(context.Background(), landsLoneRider(s), riders)
+			if err != nil {
+				t.Fatal(err)
+			}
+			gh.pulls[pr.URL].isCheckRollupIncomplete = true
+			switch lifecycle {
+			case "closed":
+				gh.pulls[pr.URL].isClosed = true
+			case "base moved":
+				s.advanceMain("outside.txt", "outside\n")
+			case "held":
+				gh.pulls[pr.URL].isHeld = true
+			}
+
+			stepped, err := engine.Advance(context.Background(), started.ID)
+
+			if len(gh.mergeCalls()) != 0 || len(gh.rerunCalls()) != 0 || !slices.Equal(stepped.History[0].Passed, started.History[0].Passed) {
+				t.Fatalf("incomplete own-run proof was used or replaced: %+v, %v", stepped, err)
+			}
+			switch lifecycle {
+			case "unchanged":
+				if err == nil || stepped.History[0].Result != "" || stepped.Cars[0].State != CarRiding {
+					t.Fatalf("incomplete proof was accepted or discarded: %+v, %v", stepped, err)
+				}
+			case "closed":
+				if err != nil || stepped.State != StateFailed || stepped.History[0].Result != RunStopped {
+					t.Fatalf("closed own-run PR was stranded: %+v, %v", stepped, err)
+				}
+			case "base moved":
+				if err == nil || stepped.History[0].Result != RunMoved {
+					t.Fatalf("moved own-run base was not reconciled: %+v, %v", stepped, err)
+				}
+			case "held":
+				if err != nil || stepped.State != StateStopped || stepped.Cars[0].State != CarReturned || stepped.History[0].Result != RunChanged {
+					t.Fatalf("held own-run rider was stranded: %+v, %v", stepped, err)
+				}
+			}
+		})
 	}
 }
 
