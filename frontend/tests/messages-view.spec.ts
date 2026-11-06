@@ -561,6 +561,10 @@ test("a prompt its harness holds reads Queued from the moment it waits, until it
   const waiting = talk.locator(".queued-message.pane").filter({ hasText: words });
   await expect(waiting).toContainText("Queued");
 
+  await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [{ id: "q1", at, source: "overlord", text: words, sending: true }] });
+  await expect(waiting).toHaveCount(1);
+  await expect(waiting).toContainText("Sending");
+
   // Act: the harness takes it.
   await send(page, "messages", { conversation: "fixture-conversation", messages: [message(11, { source: "overlord", queued: true, text: words })], waiting: [] });
 
@@ -583,56 +587,64 @@ test("a stream's first page shows what the harness already holds, the CFO's word
   await expect(page.locator(".messages-empty")).toHaveCount(0);
 });
 
-test("a message both the board and its harness hold is one row, and a second of the same words its own", async ({ page }) => {
-  // Arrange
-  await open(page);
-  await openGoblin(page);
-  const talk = list(page, "Zeke - Touch Wrangler");
-  const words = "also check the iPad";
-  const action = { id: "a1", kind: "message", task_id: "cg-touch", text: words, status: "running", message: "", awaiting: { task: "cg-touch" }, created_at: at };
-  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [action] });
-  const rows = talk.locator(".queued-message.pane");
-  await expect(rows.filter({ hasText: words })).toHaveCount(1);
-  const prompt = (id: string, text: string) => ({ id, at, source: "overlord", text });
+for (const isAwaiting of [false, true]) {
+  test(`a message both the board and its harness hold is one row with awaiting ${isAwaiting}, and a second of the same words its own`, async ({ page }) => {
+    // Arrange
+    await open(page);
+    await openGoblin(page);
+    const talk = list(page, "Zeke - Touch Wrangler");
+    const words = "also check the iPad";
+    const action = { id: "a1", kind: "message", task_id: "cg-touch", text: words, status: "running", message: "", awaiting: isAwaiting ? { task: "cg-touch" } : undefined, created_at: at, updated_at: at };
+    await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [action] });
+    const rows = talk.locator(".queued-message.pane");
+    await expect(rows.filter({ hasText: words })).toHaveCount(1);
+    const prompt = (id: string, text: string) => ({ id, at, source: "overlord", text });
 
-  // Act
-  await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [prompt("q1", words), prompt("q2", "and the phone")] });
+    // Act
+    await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [prompt("q1", words), prompt("q2", "and the phone")] });
 
-  // Assert
-  await expect(rows.filter({ hasText: "and the phone" })).toHaveCount(1);
-  await expect(rows.filter({ hasText: words })).toHaveCount(1);
-  await expect(rows.filter({ hasText: words })).toContainText("Queued");
-  await expect(rows.filter({ hasText: words }).getByRole("button", { name: "Cancel" })).toHaveCount(0);
+    // Assert
+    await expect(rows.filter({ hasText: "and the phone" })).toHaveCount(1);
+    await expect(rows.filter({ hasText: words })).toHaveCount(1);
+    await expect(rows.filter({ hasText: words })).toContainText("Queued");
+    await expect(rows.filter({ hasText: words }).getByRole("button", { name: "Cancel" })).toHaveCount(0);
 
-  // Act
-  await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [prompt("q1", words), prompt("q3", words)] });
+    // Act
+    await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [prompt("q1", words), prompt("q3", words)] });
 
-  // Assert
-  await expect(rows.filter({ hasText: words })).toHaveCount(2);
-  await expect(rows.filter({ hasText: words }).filter({ hasText: "Queued" })).toHaveCount(2);
-  await send(page, "messages", { conversation: "fixture-conversation", messages: [message(11, { source: "overlord", queued: true, text: words })], waiting: [prompt("q3", words)] });
-  await expect(rows.filter({ hasText: words })).toHaveCount(1);
-  await expect(rows.filter({ hasText: words })).toContainText("Queued");
-  await expect(talk.locator(".message-prompt").filter({ hasText: words })).toHaveCount(1);
-});
+    // Assert
+    await expect(rows.filter({ hasText: words })).toHaveCount(2);
+    await expect(rows.filter({ hasText: words }).filter({ hasText: "Queued" })).toHaveCount(2);
+    await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [{ ...prompt("q1", words), sending: true }, prompt("q3", words)] });
+    await expect(rows.filter({ hasText: words })).toHaveCount(2);
+    await expect(rows.filter({ hasText: words }).filter({ hasText: "Sending" })).toHaveCount(1);
+    await expect(rows.filter({ hasText: words }).locator(".queued-state")).toHaveText(["Sending", "Queued"]);
+    await expect(rows.filter({ hasText: words }).getByRole("button", { name: "Cancel" })).toHaveCount(0);
+    await send(page, "messages", { conversation: "fixture-conversation", messages: [message(11, { source: "overlord", queued: true, text: words })], waiting: [prompt("q3", words)] });
+    await expect(rows.filter({ hasText: words })).toHaveCount(1);
+    await expect(rows.filter({ hasText: words })).toContainText("Queued");
+    await expect(talk.locator(".message-prompt").filter({ hasText: words })).toHaveCount(1);
+  });
+}
 
-for (const state of ["unsubmitted", "older terminal prompt", "CFO prompt"] as const) {
+for (const state of ["unsubmitted", "older terminal prompt", "before this send started", "CFO prompt"] as const) {
   test(`harness queue matching preserves a separate ${state}`, async ({ page }) => {
     await open(page);
     await openGoblin(page);
     const talk = list(page, "Zeke - Touch Wrangler");
     const words = "continue";
     await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{
-      id: "a1", kind: "message", task_id: "cg-touch", text: words, status: "running", message: "",
-      awaiting: state === "unsubmitted" ? "" : { task: "cg-touch" },
+      id: "a1", kind: "message", task_id: "cg-touch", text: words, status: state === "unsubmitted" ? "queued" : "running", message: "",
+      awaiting: state === "unsubmitted" || state === "before this send started" ? "" : { task: "cg-touch" },
       created_at: state === "older terminal prompt" ? "2026-10-22T09:00:01Z" : at,
+      updated_at: state === "before this send started" ? "2026-10-22T09:00:01Z" : at,
     }] });
     await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [{
       id: "q1", at, source: state === "CFO prompt" ? "cfo" : "overlord", text: words,
     }] });
     const rows = talk.locator(".queued-message.pane").filter({ hasText: words });
     await expect(rows).toHaveCount(2);
-    await expect(rows.filter({ hasText: "Queued" })).toHaveCount(state === "unsubmitted" ? 2 : 1);
+    await expect(rows.filter({ hasText: "Queued" })).toHaveCount(state === "unsubmitted" || state === "before this send started" ? 2 : 1);
     if (state === "CFO prompt") await expect(talk.locator(".queued-message.cfo")).toContainText(words);
   });
 }

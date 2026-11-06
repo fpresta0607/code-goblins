@@ -89,14 +89,14 @@ export interface SessionUsage {
 
 // A prompt its harness recorded and holds for a later turn. It has no place
 // among the messages until the harness takes it, so it is listed apart.
-export interface WaitingPrompt { id: string; at: string; source: PromptSource; text: string }
+export interface WaitingPrompt { id: string; at: string; source: PromptSource; text: string; sending: boolean }
 
 export interface MessagePage { conversation: string; messages: SessionMessage[]; more: boolean; usage?: SessionUsage; waiting: WaitingPrompt[] }
 
 export function parseWaiting(value: unknown): WaitingPrompt[] {
   return array(value).map((item) => {
     const each = object(item);
-    return { id: string(each.id), at: string(each.at), source: each.source == null ? "" : choice(each.source, SOURCES, "prompt source"), text: string(each.text) };
+    return { id: string(each.id), at: string(each.at), source: each.source == null ? "" : choice(each.source, SOURCES, "prompt source"), text: string(each.text), sending: each.sending == null ? false : boolean(each.sending) };
   });
 }
 

@@ -112,12 +112,9 @@ func TestAPromptClaudeCodeHoldsWaitsInThePageUntilItIsDelivered(t *testing.T) {
 			prompts: []string{},
 		},
 		{
-			// A harness that dies leaves what it held queued in its record
-			// for good, one ahead of the entries of the session resumed after
-			// it, so the words that reach the record end their own wait.
-			name:    "a prompt that reaches the record no longer waits, past an entry its harness lost",
+			name:    "a delivered prompt ends only its own wait, past an entry its harness lost",
 			entries: []any{queued("lost with the harness", at), queued("sent after the resume", at), dequeued(), prompted("u1", "sent after the resume")},
-			waiting: []string{},
+			waiting: []string{"lost with the harness"},
 			prompts: []string{"sent after the resume"},
 		},
 	}
@@ -219,7 +216,7 @@ func TestQueueMatchingPreservesPromptProvenance(t *testing.T) {
 	}{
 		{"named removal", []any{absorbed("CFO: continue"), prompted("u1", "CFO: continue")}, []string{FromOverlord, FromCFO}},
 		{"delivery without removal", []any{prompted("u1", "CFO: continue")}, []string{FromOverlord, FromCFO}},
-		{"handoff with different provenance", []any{dequeued(), prompted("u1", "CFO: continue")}, []string{FromCFO}},
+		{"handoff with different provenance", []any{dequeued(), prompted("u1", "CFO: continue")}, []string{FromOverlord, FromCFO}},
 		{"Overlord removal preserves CFO duplicates", []any{absorbed("continue"), prompted("u1", "continue")}, []string{FromCFO, FromCFO}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -264,5 +261,65 @@ func TestMessagesSinceKeepsEachStreamsQueueSnapshot(t *testing.T) {
 	first, firstWaiting, _, isAnew, err = reader.MessagesSince(path, firstCursor)
 	if err != nil || isAnew || len(first) != 1 || first[0].Text != "hold this" || len(firstWaiting) != 0 {
 		t.Fatalf("first stream delivery: messages %+v, waiting %+v, anew %t, error %v", first, firstWaiting, isAnew, err)
+	}
+}
+
+func TestQueueHandoffStaysVisibleUntilItsDeliveredRow(t *testing.T) {
+	for _, operation := range []struct {
+		name  string
+		entry object
+	}{
+		{"dequeue", dequeued()},
+		{"remove", absorbed("continue")},
+	} {
+		t.Run(operation.name, func(t *testing.T) {
+			path := conversation(t, t.TempDir(), queued("continue", at), queued("continue", at))
+			var reader Reader
+			page, cursor, err := reader.MessagePage(path, -1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			firstID, secondID := page.Waiting[0].ID, page.Waiting[1].ID
+			appendLines(t, path, operation.entry)
+			changed, waiting, cursor, isAnew, err := reader.MessagesSince(path, cursor)
+			if err != nil || isAnew || len(changed) != 0 || len(waiting) != 2 {
+				t.Fatalf("handoff: changed %+v, waiting %+v, anew %t, error %v", changed, waiting, isAnew, err)
+			}
+			if waiting[0].ID != firstID || !waiting[0].IsSending || waiting[1].ID != secondID || waiting[1].IsSending {
+				t.Fatalf("handoff lost identity or state: %+v", waiting)
+			}
+			var reconnected Reader
+			page, _, err = reconnected.MessagePage(path, -1)
+			if err != nil || !reflect.DeepEqual(page.Waiting, waiting) {
+				t.Fatalf("reconnected handoff: %+v, error %v", page.Waiting, err)
+			}
+			appendLines(t, path, stamped(prompted("u1", "continue")))
+			changed, waiting, _, isAnew, err = reader.MessagesSince(path, cursor)
+			if err != nil || isAnew || len(changed) != 1 || changed[0].Text != "continue" || len(waiting) != 1 {
+				t.Fatalf("delivery: changed %+v, waiting %+v, anew %t, error %v", changed, waiting, isAnew, err)
+			}
+			if waiting[0].ID != secondID || waiting[0].IsSending {
+				t.Fatalf("delivery consumed its sibling: %+v", waiting)
+			}
+		})
+	}
+}
+
+func TestSuccessiveQueueHandoffsKeepTheirOwnDelivery(t *testing.T) {
+	path := conversation(t, t.TempDir(), queued("continue", at), queued(WakePrefix+"look at the board", at), queued("CFO: continue", at), dequeued(), dequeued(), dequeued())
+	var reader Reader
+	page, cursor, err := reader.MessagePage(path, -1)
+	if err != nil || len(page.Waiting) != 2 || !page.Waiting[0].IsSending || !page.Waiting[1].IsSending {
+		t.Fatalf("handoffs: waiting %+v, error %v", page.Waiting, err)
+	}
+	appendLines(t, path, prompted("u1", "CFO: continue"))
+	changed, waiting, cursor, isAnew, err := reader.MessagesSince(path, cursor)
+	if err != nil || isAnew || len(changed) != 1 || len(waiting) != 1 || waiting[0].Source != FromOverlord || !waiting[0].IsSending {
+		t.Fatalf("CFO delivery: changed %+v, waiting %+v, anew %t, error %v", changed, waiting, isAnew, err)
+	}
+	appendLines(t, path, prompted("u2", "continue"))
+	changed, waiting, _, isAnew, err = reader.MessagesSince(path, cursor)
+	if err != nil || isAnew || len(changed) != 1 || changed[0].Source != FromOverlord || len(waiting) != 0 {
+		t.Fatalf("Overlord delivery: changed %+v, waiting %+v, anew %t, error %v", changed, waiting, isAnew, err)
 	}
 }

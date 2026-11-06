@@ -244,10 +244,11 @@ type MessagePage struct {
 // its place in the session, and this one's place comes only once it is
 // delivered, when the message of the same words takes over from it.
 type WaitingPrompt struct {
-	ID     string    `json:"id"`
-	At     time.Time `json:"at"`
-	Source string    `json:"source,omitempty"`
-	Text   string    `json:"text"`
+	ID        string    `json:"id"`
+	At        time.Time `json:"at"`
+	Source    string    `json:"source,omitempty"`
+	Text      string    `json:"text"`
+	IsSending bool      `json:"sending,omitempty"`
 }
 
 // Usage is what a session has spent, read from its own conversation: its
@@ -399,7 +400,6 @@ type messageState struct {
 	usage   Usage
 	window  int64
 	waiting []WaitingPrompt
-	handed  WaitingPrompt
 }
 
 type blockAt struct {
@@ -771,28 +771,36 @@ func (l *messageLog) queueOperation(entry messageEntry, id string) {
 	// A dequeue has no content, and an enqueue of a picture none that is text.
 	_ = json.Unmarshal(entry.Content, &content)
 	source, text := promptOf(content)
+	at := -1
 	switch entry.Operation {
 	case "enqueue":
 		l.waiting = append(l.waiting, WaitingPrompt{ID: id, At: entry.Timestamp, Source: source, Text: text})
 	case "dequeue":
-		if len(l.waiting) > 0 {
-			l.handed = l.waiting[0]
-			l.waiting = l.waiting[1:]
-		}
+		at = slices.IndexFunc(l.waiting, func(prompt WaitingPrompt) bool { return !prompt.IsSending })
 	case "remove":
-		if l.stopWaiting(source, text) {
-			l.handed = WaitingPrompt{Source: source, Text: text}
+		at = slices.IndexFunc(l.waiting, func(prompt WaitingPrompt) bool {
+			return !prompt.IsSending && prompt.Source == source && prompt.Text == text
+		})
+	}
+	if at >= 0 {
+		if l.waiting[at].Source == FromNotice || l.waiting[at].Text == "" {
+			l.waiting = slices.Delete(l.waiting, at, at+1)
+		} else {
+			l.waiting[at].IsSending = true
 		}
 	}
 }
 
-func (l *messageLog) stopWaiting(source, text string) bool {
-	at := slices.IndexFunc(l.waiting, func(prompt WaitingPrompt) bool { return prompt.Source == source && prompt.Text == text })
+func (l *messageLog) stopWaiting(source, text string) {
+	at := slices.IndexFunc(l.waiting, func(prompt WaitingPrompt) bool {
+		return prompt.IsSending && prompt.Source == source && prompt.Text == text
+	})
 	if at < 0 {
-		return false
+		at = slices.IndexFunc(l.waiting, func(prompt WaitingPrompt) bool { return prompt.Source == source && prompt.Text == text })
 	}
-	l.waiting = slices.Delete(l.waiting, at, at+1)
-	return true
+	if at >= 0 {
+		l.waiting = slices.Delete(l.waiting, at, at+1)
+	}
 }
 
 // add appends message to the log and returns where it is.
@@ -955,18 +963,12 @@ var (
 // (internal/spawn/native_launch.go).
 const cfoBrief = ": it is your instruction from the CFO."
 
-// prompt adds a prompt of text to the log, with where it came from. Words the
-// last queue entry to end did not hand over were not what it took: a harness
-// that died left an entry ahead of them, so they end their own wait here.
 func (l *messageLog) prompt(message Message, text string) {
 	message.Kind = MessagePrompt
 	message.Source, message.Text = promptOf(text)
 	if message.Text != "" || len(message.Pictures) > 0 {
 		l.add(message)
-		if message.Source != l.handed.Source || message.Text != l.handed.Text {
-			l.stopWaiting(message.Source, message.Text)
-		}
-		l.handed = WaitingPrompt{}
+		l.stopWaiting(message.Source, message.Text)
 	}
 }
 

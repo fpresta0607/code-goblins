@@ -750,16 +750,13 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     read.add(action.id);
   }
   const queued = waiting.filter((action) => !read.has(action.id));
-  const unclaimed = [...queued];
-  const harnessActions = new Set<string>();
-  const harnessHeld = held.waiting.filter((prompt) => {
-    const row = unclaimed.findIndex((action) => prompt.source === "overlord" && action.status === "running" && !!action.awaiting
-      && Date.parse(prompt.at) >= Date.parse(action.created_at) && sameWords(action.text, prompt.text));
-    if (row < 0) return true;
-    harnessActions.add(unclaimed.splice(row, 1)[0].id);
-    return false;
-  });
-  const queuedIDs = [...harnessHeld, ...queued].map((each) => each.id).join("\0");
+  const harnessActions = new Map<string, Action>();
+  for (const prompt of held.waiting) {
+    const row = queued.findIndex((action) => prompt.source === "overlord" && action.status === "running"
+      && Date.parse(prompt.at) >= Date.parse(action.awaiting ? action.created_at : action.updated_at) && sameWords(action.text, prompt.text));
+    if (row >= 0) harnessActions.set(prompt.id, queued.splice(row, 1)[0]);
+  }
+  const queuedIDs = [...held.waiting, ...queued].map((each) => each.id).join("\0");
   useLayoutEffect(() => {
     const observer = new ResizeObserver(settle);
     for (const row of items.current?.querySelectorAll<HTMLElement>(":scope > .reply-working, :scope > [data-queued]") ?? []) observer.observe(row);
@@ -799,14 +796,19 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
               comes before them and the list, following its end, keeps them
               right above the box. What the harness already holds was typed
               first, so it comes before what the board still holds. */}
-          {harnessHeld.map((prompt) => <div key={"waiting-" + prompt.id} className={"queued-message pane " + prompt.source} data-queued={prompt.id}>
-            <div className="message-bubble queued-bubble waiting">{prompt.text}</div>
-            <p className="queued-state">Queued</p>
-          </div>)}
-          {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} isHarnessHeld={harnessActions.has(action.id)} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />)}
+          {held.waiting.map((prompt) => {
+            const action = harnessActions.get(prompt.id);
+            return action
+              ? <QueuedMessage key={"queued-" + action.id} action={action} harnessState={prompt.sending ? "Sending" : "Queued"} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />
+              : <div key={"waiting-" + prompt.id} className={"queued-message pane " + prompt.source} data-queued={prompt.id}>
+                <div className={"message-bubble queued-bubble" + (prompt.sending ? "" : " waiting")}>{prompt.text}</div>
+                <p className="queued-state">{prompt.sending ? "Sending" : "Queued"}</p>
+              </div>;
+          })}
+          {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />)}
         </div>
       </div>
-      {phase === "live" && !held.messages.length && !queued.length && !harnessHeld.length && <p className="messages-empty" role="status">No messages yet</p>}
+      {phase === "live" && !held.messages.length && !queued.length && !held.waiting.length && <p className="messages-empty" role="status">No messages yet</p>}
       {/* A touch that stops the conversation gliding after a flick is one
           the browser gives no click, and the button shows the moment he
           leaves the end, while it glides, so a touch's lift takes him there

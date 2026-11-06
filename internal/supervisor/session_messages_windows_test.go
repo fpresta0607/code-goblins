@@ -227,7 +227,9 @@ func TestMessagesServeASessionsConversation(t *testing.T) {
 		// Act and Assert: the same event ends its wait and brings its row, so
 		// the board never draws it twice.
 		appendEntries(t, conversation,
-			`{"type":"queue-operation","operation":"dequeue","timestamp":"`+stamp+`"}`,
+			`{"type":"queue-operation","operation":"dequeue","timestamp":"`+stamp+`"}`)
+		read("messages", `"sending":true`)
+		appendEntries(t, conversation,
 			`{"type":"user","uuid":"u9","timestamp":"`+stamp+`","message":{"role":"user","content":"check the phone too"}}`)
 		read("messages", `}],"waiting":[]`)
 	})
