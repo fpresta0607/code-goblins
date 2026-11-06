@@ -161,7 +161,7 @@ func TestNativeAttestationRecoveryRejectsChangedSavedChecks(t *testing.T) {
 		t.Run(change, func(t *testing.T) {
 			s, gh, engine, started, pulls := nativeTrain(t)
 			gh.readiness = "BLOCKED"
-			s.step(engine, started.ID)
+			held := s.step(engine, started.ID)
 			gh.readiness = "CLEAN"
 			switch change {
 			case "source":
@@ -175,7 +175,93 @@ func TestNativeAttestationRecoveryRejectsChangedSavedChecks(t *testing.T) {
 			if len(gh.merged) != 0 || stepped.State == StateLanded {
 				t.Fatalf("changed proof landed: %+v", stepped)
 			}
+			if !slices.Equal(stepped.History[0].Passed, held.History[0].Passed) || !slices.Equal(stepped.History[0].PRChecks, held.History[0].PRChecks) {
+				t.Fatalf("changed checks overwrote saved proof: %+v", stepped.History)
+			}
 		})
+	}
+}
+
+func TestNativeAttestationRecoveryReconcilesLifecycle(t *testing.T) {
+	for _, observation := range []string{"changed failure", "pending", "success", "missing", "ambiguous"} {
+		for _, lifecycle := range []string{"closed", "base moved", "rider withdrawn", "base moved and rider withdrawn"} {
+			t.Run(observation+"/"+lifecycle, func(t *testing.T) {
+				s, gh, engine, started, pulls := nativeTrain(t)
+				gh.readiness = "BLOCKED"
+				held := s.step(engine, started.ID)
+				if len(held.History[0].Passed) != 1 || len(held.History[0].PRChecks) != 1 || held.History[0].MergeHold == "" {
+					t.Fatalf("no saved proof to recover: %+v", held.History)
+				}
+				workflow := gh.workflowOf(held.Head)
+				switch observation {
+				case "changed failure":
+					workflow.extra[0].CompletedAt = "2026-10-07T17:00:00Z"
+				case "pending":
+					workflow.extra[0].Status, workflow.extra[0].Conclusion = "IN_PROGRESS", ""
+				case "success":
+					workflow.extra[0].Conclusion = "SUCCESS"
+				case "missing":
+					workflow.extra = nil
+				case "ambiguous":
+					workflow.extra = append(workflow.extra, workflow.extra[0])
+				}
+				base := held.BaseSHA
+				if lifecycle == "base moved" || lifecycle == "base moved and rider withdrawn" {
+					base = s.advanceMain("outside.txt", "outside\n")
+				}
+				if lifecycle == "rider withdrawn" || lifecycle == "base moved and rider withdrawn" {
+					gh.pulls[pulls[0].URL].isHeld = true
+				}
+				if lifecycle == "closed" {
+					gh.state[held.PR] = "CLOSED"
+				}
+				gh.readiness = "CLEAN"
+
+				stepped := s.step(s.engine(gh), held.ID)
+
+				if !slices.Equal(stepped.History[0].Passed, held.History[0].Passed) || !slices.Equal(stepped.History[0].PRChecks, held.History[0].PRChecks) || len(gh.mergeCalls()) != 0 || len(gh.rerunCalls()) != 0 {
+					t.Fatalf("recovery changed proof, merged or retried: %+v, calls %v", stepped, gh.calls)
+				}
+				if lifecycle == "closed" {
+					if stepped.State != StateFailed || stepped.History[0].Result != RunStopped || s.hasBranch(held.Branch) {
+						t.Fatalf("closed PR stranded the train: %+v", stepped)
+					}
+					return
+				}
+				result := RunMoved
+				if lifecycle == "rider withdrawn" {
+					result = RunChanged
+				}
+				if stepped.IsFinished() || stepped.Runs != 2 || stepped.BaseSHA != base || stepped.History[0].Result != result || stepped.Cars[1].State != CarRiding || *stepped.Cars[1].NativeAttestation != *held.Cars[1].NativeAttestation {
+					t.Fatalf("lifecycle did not rebuild eligible riders: %+v", stepped)
+				}
+				if lifecycle != "base moved" && (stepped.Cars[0].State != CarReturned || !slices.Equal(stepped.History[1].Riders, []int{12})) {
+					t.Fatalf("withdrawn rider stayed on the train: %+v", stepped)
+				}
+				landed := s.step(s.engine(gh), held.ID)
+				if landed.State != StateLanded || s.tree("refs/heads/main") != s.tree(stepped.Head) || !slices.Equal(landed.History[0].Passed, held.History[0].Passed) || !slices.Equal(landed.History[0].PRChecks, held.History[0].PRChecks) {
+					t.Fatalf("rebuilt train did not land with saved proof intact: %+v", landed)
+				}
+			})
+		}
+	}
+}
+
+func TestNativeAttestationRecoveryKeepsStaleHeadProof(t *testing.T) {
+	s, gh, engine, started, pulls := nativeTrain(t)
+	gh.readiness = "BLOCKED"
+	held := s.step(engine, started.ID)
+	s.extend(held.Branch, "external.txt", "external\n")
+	externalHead := s.git(s.remote, "rev-parse", "refs/heads/"+held.Branch)
+	s.advanceMain("outside.txt", "outside\n")
+	gh.pulls[pulls[0].URL].isHeld = true
+	s.now = s.now.Add(noCIWithin)
+	gh.readiness = "CLEAN"
+
+	kept := s.step(s.engine(gh), held.ID)
+
+	if kept.IsFinished() || kept.Runs != 1 || kept.Head != held.Head || kept.BaseSHA != held.BaseSHA || !slices.Equal(kept.History[0].Passed, held.History[0].Passed) || !slices.Equal(kept.History[0].PRChecks, held.History[0].PRChecks) || s.git(s.remote, "rev-parse", "refs/heads/"+held.Branch) != externalHead || len(gh.mergeCalls()) != 0 || len(gh.rerunCalls()) != 0 {
+		t.Fatalf("stale head lost custody or saved proof: %+v", kept)
 	}
 }
 

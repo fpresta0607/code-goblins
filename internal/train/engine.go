@@ -259,10 +259,7 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 	if err != nil {
 		return err
 	}
-	if run != nil {
-		if len(run.Passed) > 0 && !sameChecks(run.PRChecks, prChecks) {
-			return e.holdMerge(ctx, t, "the PR-only checks no longer match the green proof", readiness)
-		}
+	if run != nil && len(run.Passed) == 0 {
 		run.PRChecks = prChecks
 	}
 	if outcome != "passed" && t.DeployHold != nil {
@@ -284,7 +281,7 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 				return e.rebuildOnMovedBase(ctx, t, base)
 			}
 		}
-		if outcome != "passed" && outcome != "closed" {
+		if outcome != "closed" && (outcome != "passed" || !sameChecks(run.PRChecks, prChecks)) {
 			changed, _, err := e.recheck(ctx, t)
 			if err != nil {
 				return err
