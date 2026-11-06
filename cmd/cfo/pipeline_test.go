@@ -2071,3 +2071,58 @@ func TestPipelineConfiguredTestDispositionKeepsCFOAuthorityAndNativeRefusals(t *
 		})
 	}
 }
+
+func TestPipelineFixTranslatesCurrentNoOpsWithoutArbitraryIgnores(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the fixture registers the primary CFO on Windows only")
+	}
+	const report = `{"findings":[{"id":"test-1","action":"auto-fix"},{"id":"configured-test-failure","action":"no-op"},{"id":"test-4","action":"ask-user"},{"id":"build-cleanup-blocked","action":"no-op"}]}`
+	for _, test := range []struct {
+		name           string
+		extra          []string
+		result         *execx.Result
+		refusal        string
+		isNativeCalled bool
+	}{
+		{name: "verified automatic translation", isNativeCalled: true},
+		{name: "unknown arbitrary ignore", extra: []string{"--ignore", "unknown"}, refusal: "flag provided but not defined"},
+		{name: "actionable arbitrary ignore", extra: []string{"--ignore", "test-4"}, refusal: "flag provided but not defined"},
+		{name: "duplicate arbitrary ignore", extra: []string{"--ignore", "configured-test-failure,configured-test-failure"}, refusal: "flag provided but not defined"},
+		{name: "native earlier-fix refusal", result: &execx.Result{ExitCode: 2, Stdout: []byte("error: configured-test-failure already chosen to fix in an earlier round of this step\n")}, refusal: "native command exited 2", isNativeCalled: true},
+		{name: "native unaccounted finding refusal", result: &execx.Result{ExitCode: 2, Stdout: []byte("error: new-finding not addressed: list it in --findings or --ignore\n")}, refusal: "native command exited 2", isNativeCalled: true},
+		{name: "unsupported native ignore flag", result: &execx.Result{ExitCode: 2, Stderr: []byte("unknown flag: --ignore\n")}, refusal: "native command exited 2", isNativeCalled: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			gate := pipeline.Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 2, Findings: report}
+			h, nm, runner := registeredCFOStage(t, "cfo", gate)
+			runner.nativeResult = test.result
+			arguments := append([]string{"respond", "task", "--action", "fix", "--findings", "test-1,test-4"}, test.extra...)
+			var out bytes.Buffer
+
+			// Act
+			err := pipelineCommand(t.Context(), h, nm, runner, arguments, &out)
+
+			// Assert
+			if test.refusal == "" && err != nil || test.refusal != "" && (err == nil || !strings.Contains(err.Error(), test.refusal)) {
+				t.Fatalf("got %v; want refusal %q", err, test.refusal)
+			}
+			if runner.gate != gate {
+				t.Fatal("translation changed the parked gate or its budgets")
+			}
+			if !test.isNativeCalled {
+				if len(runner.native) != 0 {
+					t.Fatalf("refusal sent %d native commands", len(runner.native))
+				}
+				return
+			}
+			want := []string{"axi", "respond", "--step", "test", "--action", "fix", "--findings", "test-1,test-4", "--ignore", "configured-test-failure,build-cleanup-blocked", "--run", "run"}
+			if len(runner.native) != 1 || !slices.Equal(runner.native[0].Args, want) || runner.native[0].Dir != runner.worktree {
+				t.Fatalf("got %d native commands; want one exact bound fix with verified no-ops", len(runner.native))
+			}
+			if test.result != nil && (!strings.Contains(out.String(), string(test.result.Stdout)) || !strings.Contains(out.String(), string(test.result.Stderr))) {
+				t.Fatalf("native refusal cause was lost: %q", out.String())
+			}
+		})
+	}
+}
