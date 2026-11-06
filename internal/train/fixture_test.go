@@ -206,8 +206,9 @@ func (s *scratch) goblinTold(task string) []string {
 // merge commit and, as GitHub does, marks a pull request merged once main
 // holds its head, however that head got there.
 type fakeGitHub struct {
-	s     *scratch
-	pulls map[string]*pull
+	s          *scratch
+	pulls      map[string]*pull
+	nativeRuns map[string]map[string]any
 	// breaks are heads whose presence on a train's head turns its CI red, on
 	// every try.
 	breaks []string
@@ -315,6 +316,7 @@ type workflow struct {
 
 // pull is a pull request as the fake GitHub holds it.
 type pull struct {
+	checks                    []Check
 	number                    int
 	branch                    string
 	isDraft, isHeld, isClosed bool
@@ -428,6 +430,10 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return execx.Result{Stdout: []byte(`{"workflow_runs":` + f.mainRuns + `}`)}, nil
 			})
 		case found != nil:
+			if run := f.nativeRuns[found[1]]; run != nil {
+				_ = json.NewEncoder(w).Encode(run)
+				return
+			}
 			f.serve(w, "run view", func() (execx.Result, error) { return f.runView(found[1]) })
 		default:
 			f.serve(w, path, func() (execx.Result, error) { return f.actionsAPI(r.URL.RequestURI()[1:]) })
@@ -634,6 +640,9 @@ func (f *fakeGitHub) list() (execx.Result, error) {
 		pr := PullRequest{URL: url, Number: p.number, HeadRefOid: f.s.git(f.s.remote, "rev-parse", "refs/heads/"+p.branch), BaseRefName: cmp.Or(p.baseRefName, "main"), IsDraft: p.isDraft, IsCrossRepository: p.isCrossRepository, Mergeable: cmp.Or(p.mergeable, "MERGEABLE"), ReviewDecision: p.reviewDecision, Checks: []Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}}
 		if f.ownRuns[url] != nil {
 			pr.Checks = f.riderChecks(url)
+		}
+		if p.checks != nil {
+			pr.Checks = p.checks
 		}
 		if p.isHeld {
 			pr.Labels = []Label{{Name: HoldLabel}}

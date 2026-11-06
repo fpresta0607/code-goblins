@@ -271,13 +271,22 @@ It refuses a gate already answered or still running and checks that the active r
 An explicitly selected finding with an empty action is actionable only when the active gate is not review and its persisted automatic-fix limit is positive.
 Review remains fail-closed for empty or unknown actions.
 Fix responses name concrete actionable finding IDs; selecting an `ask-user` finding is an explicit decision, never automatic consent.
+When a selected fix has verified `no-op` IDs to ignore, the driver forwards them from the current parked gate through native `--ignore` and binds the recorded run and step with `--run` and `--step`.
+An ID that also names an actionable row is never ignored, and duplicated or malformed ignored IDs are refused.
+There is no arbitrary managed `--ignore` input: unknown or actionable findings cannot be declined through this translation.
+Native refusal, including an earlier round's applied fix that cannot be declined, stays a refusal without a retry or replacement run.
+The native ordinary-fix API binds run and step but exposes no expected-round assertion; this translation uses the durable current gate and does not claim an atomic round assertion at native dispatch.
 Approval is accepted only when every finding is explicitly `no-op`, or the findings list is empty.
 The one exception is the CFO's own decision: `respond <id> --action approve --accept <ids>` takes the open findings as they stand, except a recorded required test environment refusal, which only a successful Test retry clears, as [the binding](#any-command-in-the-line) says.
 It is honoured from the registered primary CFO process, proven as `cfo question` proves it.
 It is honoured too from the task's own goblin, on its run's review step once that run has spent its review repair cycles (issue 2049).
 The goblin is proven by its terminal: the process names the task's own terminal and carries a proof that terminal was given, and an agent a gate started is refused, since it carries the environment of whichever goblin started the shared gate daemon.
 A goblin's accept on any other step, the Test step included, before the cycles are spent, on another task's run or with `--reason` is refused with why before anything is recorded.
-The IDs must be exactly the gate's open `ask-user` and `auto-fix` findings, no more and no fewer; a finding with an empty action still needs its fix.
+The IDs must be exactly the gate's open `ask-user` and `auto-fix` findings plus any configured Test command failures accepted under the following exception, no more and no fewer.
+A configured Test command failure with an empty action can also be explicitly accepted by the primary CFO with a nonblank `--reason` and every open finding ID in `--accept`, including that failure.
+This exception recognizes only the native `test-command` category, `error` severity and configured-command failure description with a nonzero exit code; unrelated empty actions still need their fix.
+The response names the recorded native run with `--run`, preserves the failed command, findings, evidence and spent budgets, and records a Test exception rather than a successful command.
+Native refusal remains a refusal, including when the installed engine does not support the run binding.
 The task's status log records `pipeline-findings-accepted` with the step, run, round, IDs and who accepted (`by=cfo`, or `by=<task>` for its goblin) before approve reaches the gate.
 A goblin's accept also reaches the CFO's wake queue as a notify with the same words, which asks nothing, so nothing waits on it; one that cannot be queued sends no approve.
 The goblin accepts as they stand only findings that are not correctness, security or regression defects, and a real defect among them goes in one follow-up commit on the same pull request after its first CI, named in its done report.
@@ -340,6 +349,8 @@ cfo gate test                     # fast, the default
 cfo gate test --level affected    # every package the change reaches, which CI's run also covers
 cfo gate test --level full        # every package
 cfo gate test --plan              # print the plan and run nothing
+cfo gate test --focused           # repair failures and paths from NO_MISTAKES_TEST_FOCUS
+cfo gate lint                    # required vet scope, without running tests
 ```
 
 | Level | `go vet` | `go test` |
@@ -348,14 +359,19 @@ cfo gate test --plan              # print the plan and run nothing
 | `affected` | the packages the change reaches | the same packages |
 | `full` | every package | every package |
 
+See [the test and lint command contract](commands/gate/test.md) for focused repair inputs, named-failure requirements, fallback scope and vet-only lint behavior.
+The Test step reuses the repository environment and existing fixtures described in CONTRIBUTING.md.
+Unavailable browser or live-harness prerequisites leave their scenarios untested with the missing prerequisite named, without building another full application.
+
 At every level, `cfo gate test` also selects the trusted policy's `guards`, even when no Go package changed.
 A guard runs separately before vet and package tests, with their `go test` arguments and `-timeout 45m`, only when those package tests do not already cover its whole package, including packages scheduled alone.
 A guard with named `tests` runs exactly those tests, so selecting it does not run unrelated slow tests; without `tests`, it runs its whole package.
 An optional `goos` restricts the guard to that operating system; other platforms list it as deferred with the required and current platforms, never as executed, and its platform's CI remains required.
 `cfo gate prepush` uses the same guard declarations and platform rules, omitting a separate guard run when its selected whole-package tests already cover it.
 
-A change reaches the packages that own a changed file, the packages that import one of those directly or transitively, and the packages a contract of the policy names for a changed file.
-A package owns the Go files in its directory, the files under its `testdata` folder and the files its `//go:embed` patterns cover, so a doc the binary embeds selects the package that embeds it and a doc nothing embeds selects none.
+A change reaches the packages that own a changed file, the packages that import one of those directly or transitively from their code or tests, and the packages a contract of the policy names for a changed file.
+A package owns Go build inputs (`.go`, `.s`, `.c`, `.h` or `.syso`) directly in its directory, the files under its `testdata` folder and the files its embed patterns cover, even deleted files, so a doc the binary embeds selects the package that embeds it and a doc nothing embeds selects none.
+A changed Go build input in a directory with no package names a deleted or moved package, which is not tested, but every package that still imports it directly or transitively is.
 
 A change requires `affected` before it merges, and `full` once `go.mod` or `go.sum` changed, the policy cannot be read, or a changed file is one the policy does not account for.
 CI tests the level a change requires on the pull request's own run, reading what the change reaches as `cfo gate test --plan` does, and every package in the merge train's run that lands it.
@@ -413,7 +429,7 @@ A build ignores a field it does not know, so the build a gate has installed keep
 A file that does not parse, or a version the build does not know, makes the change require `full`.
 A repository with no policy file has no slow packages.
 
-Every run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\cfo\verify\reports\<project>\`, and its verdict line names the report.
+Every `cfo gate test` run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\cfo\verify\reports\<project>\`, and its verdict line names the report.
 A run at a level narrower than the change requires ends with one more line naming the level the change requires, which CI's run checks.
 `CFO_VERIFY_DIR` names a folder to use in place of `<user cache folder>\cfo\verify`, so they go under its `reports\<project>\`.
 The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, `over_budget` when a check passed but ran past its budget, or `not_run` when admission or an earlier command failed.

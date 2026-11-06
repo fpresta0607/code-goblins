@@ -106,7 +106,7 @@ While [AFK mode](afk.md#afk-mode) is on, merge authority is your own merge word 
 
 ### What CI runs
 
-A pull request's checks come from `.github/workflows/go.yml`, whose jobs run at once: the frontend's checks, the board's browser tests in four jobs, each slow Go package in two jobs and cmd/cfo in three, and every other package in one.
+A pull request's checks come from `.github/workflows/go.yml`, whose jobs run at once: the frontend's checks, the board's browser tests across the shards in the browser job matrix, each slow Go package in two jobs and cmd/cfo in three, and every other package in one.
 A merge train's run and a run on the default branch start every one of them, so nothing reaches the default branch that the full set did not test.
 A push to the default branch starts none of them again when a pull request run of the same workflow that started every job passed on the push's exact tree and first parent, which is what a merge train's run is for the tree the train lands: that run leaves a record named for the pair, kept a week, and the push's plan job finds it with `tools/pushreuse`, takes it only from a green pull request run whose head is in this repository, and names it in the push's `test` check.
 Any other push, one whose records cannot be read, and one whose pull request was tested on an older main start every job as before, and `install.yml` reuses its own records the same way.
@@ -148,6 +148,15 @@ A selected head already on that base is recorded and reported as landed before a
 Otherwise a rider that closed, became a draft, gained `hold`, moved heads, changed repository or base, conflicts or waits on review is left off without being retried or blamed, and only the eligible remainder is tested again.
 A rider's checks must still pass unless the train retains that rider's recorded own-run proof, whose changed checks follow the hold rules below.
 Unknown mergeability holds the step; a waiting rider is rechecked when selected for compute, so its change never invalidates a distinct green half.
+
+A train's synthetic pull request can exclude exactly one `COMPLETED FAILURE` check named `PR must be raised via no-mistakes` from workflow `Require no-mistakes`, which attests the live pull request rather than the combined source tree.
+The exception requires GitHub run metadata for that check and every rider's captured successful attestation to identify `.github/workflows/no-mistakes-required.yml`, the same workflow name, the `pull_request` event, this repository and each respective admitted head.
+When a rider exposes that check name, admission requires exactly one matching `COMPLETED SUCCESS` check and captures its full value; skipped, neutral, pending, failed or ambiguous attestations do not qualify.
+Every subsequent rider recheck, including the final landing recheck, requires that captured attestation to remain exactly equal and successful; disappearance or replacement withdraws the rider even with recorded own-run proof.
+A rider without a captured successful attestation cannot authorize the synthetic pull request's exception.
+The raw excluded failure stays in `Run.PRChecks`, separate from source CI proof in `Run.Passed`, and never counts as a passing test, a failed-once check or a retry candidate.
+Every other check retains its ordinary classification, and source CI must pass before landing; a rider's own-run landing receives no such exception.
+
 Nor does it merge while the branch deploys: a push to the branch starts its deploy workflows, those whose names say deploy, and while a push run of one has not finished, or the newest run of one ended otherwise than successfully, the train waits, says what it waits on in its note and, once for each run and how it stands, in a `merge_train:` message, and merges once that deploy has finished successfully.
 A merge during a deploy would start a second one before the first is verified, so a failed deploy could no longer be pinned to one change, and the second could overlap or cancel the first.
 A failed or cancelled deploy holds the train until a run of it, run again or started by a fix landed by hand, passes; a skipped run deployed nothing and holds nothing; and the train still tests while the branch deploys, so only its merge waits.
@@ -158,11 +167,11 @@ With that proof it pushes nothing, opens no pull request of its own, and merges 
 If that proof cannot be established when the train is built, it gets a train run instead.
 It holds only where a pull request's own run starts every job a train's run would, so code-goblins, whose own runs test only what a change reaches, leaves it off.
 That one merge lands every pull request of the run or none.
-A green run blocked by repository policy or an exhausted bounded merge budget stays active with its exact tested head and base, pull request, successful check identities, commits, refusal reasons, failures and spent attempts preserved across polls and restarts.
+A green run blocked by repository policy or an exhausted bounded merge budget stays active with its exact tested head and base, pull request, successful source and excluded PR-only check identities, commits, refusal reasons, failures and spent attempts preserved across polls and restarts.
 It leaves its pull request open and its unchanged riders on that train, without pushing another branch, opening a replacement pull request or launching identical CI.
 Each merge attempt is spent before the command, even if its acknowledgement is lost; holding and successful polls never reset spent merge attempts or the held error budget.
 Unknown readiness holds; after a merge hold, a distinct transition to GitHub's positive readiness (`CLEAN` or `HAS_HOOKS`) permits one normal merge attempt pinned to the head, only after fresh exact head, base, rider and check validation.
-Changed successful check identities, resumed or red checks after green proof, or a changed own-run merge identity hold that proof rather than retrying its CI; actual rider withdrawal still removes the rider, and a genuinely changed base requires validation of the eligible remainder there.
+Changed successful source or excluded PR-only check identities, resumed or red source checks after green proof, or a changed own-run merge identity hold that proof rather than retrying its CI; closure of the train pull request still ends the run, actual rider withdrawal still removes the rider, and a genuinely changed base requires validation of the eligible remainder there.
 These rules apply equally to a train run and a rider's own run, whose successful checks are saved with its initial proof; deploy clearance also preserves that proof.
 Both the supervisor and `cfo pr train` publish one durable `merge_train:` hold notice through the existing `pr` wake keyed `train:<owner>/<repo>`, bound to the train and run identity.
 Failed delivery is retried without another merge attempt, and a lost publication acknowledgement cannot duplicate the notice.

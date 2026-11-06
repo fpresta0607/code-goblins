@@ -72,18 +72,43 @@ func IsRateLimitedDeploy(state, targetURL string) bool {
 // Check is one entry of a check rollup: a check run, with a status and a
 // conclusion, or a commit status context, with a state and a target page.
 type Check struct {
-	Kind       string `json:"__typename"`
-	Name       string `json:"name"`
-	Context    string `json:"context"`
-	Status     string `json:"status"`
-	Conclusion string `json:"conclusion"`
-	State      string `json:"state"`
-	DetailsURL string `json:"detailsUrl"`
-	TargetURL  string `json:"targetUrl"`
+	Kind         string `json:"__typename"`
+	Name         string `json:"name"`
+	Context      string `json:"context"`
+	Status       string `json:"status"`
+	Conclusion   string `json:"conclusion"`
+	State        string `json:"state"`
+	DetailsURL   string `json:"detailsUrl"`
+	TargetURL    string `json:"targetUrl"`
+	WorkflowName string `json:"workflowName,omitempty"`
 	// StartedAt and CompletedAt are when GitHub says a check run started and
 	// finished. A commit status has only the first, the time it was set.
 	StartedAt   string `json:"startedAt"`
 	CompletedAt string `json:"completedAt"`
+}
+
+const nativeAttestationName = "PR must be raised via no-mistakes"
+const nativeAttestationWorkflow = "Require no-mistakes"
+
+// nativeAttestation recognizes the native no-mistakes-required.yml job's
+// exact name and workflow. Duplicate or differently sourced names are
+// ambiguous. The caller requires an actual success for a rider.
+func nativeAttestation(checks Checks) (*Check, bool) {
+	var found *Check
+	for _, check := range checks {
+		if check.name() != nativeAttestationName {
+			continue
+		}
+		if found != nil || check.Kind != "CheckRun" || check.WorkflowName != nativeAttestationWorkflow {
+			return nil, true
+		}
+		found = &check
+	}
+	return found, found != nil
+}
+
+func successfulAttestation(check *Check) bool {
+	return check != nil && check.Status == "COMPLETED" && check.Conclusion == "SUCCESS"
 }
 
 func (c Check) name() string {
@@ -238,6 +263,7 @@ func Riders(open []PullRequest, base, viewer string, goblins []Goblin, past []Tr
 		}
 		owner, done := ownerOf(goblins, pr.URL)
 		limited := rateLimited(pr.Checks)
+		attestation, hasAttestation := nativeAttestation(pr.Checks)
 		why := ""
 		switch outcome, _ := checksOutcome(pr.Checks); {
 		case owner.Task == "":
@@ -252,6 +278,8 @@ func Riders(open []PullRequest, base, viewer string, goblins []Goblin, past []Tr
 			why = "it conflicts with " + base
 		case pr.ReviewDecision == "CHANGES_REQUESTED" || pr.ReviewDecision == "REVIEW_REQUIRED":
 			why = "it waits on a review"
+		case hasAttestation && !successfulAttestation(attestation):
+			why = "it has no unambiguous successful native attestation"
 		case outcome == "none" && len(pr.Checks) == 0:
 			why = "it has no checks"
 		case outcome == "none" && limited != "":
@@ -274,6 +302,7 @@ func Riders(open []PullRequest, base, viewer string, goblins []Goblin, past []Tr
 			continue
 		}
 		car := Car{Number: pr.Number, URL: pr.URL, Title: pr.Title, Branch: pr.HeadRefName, Head: pr.HeadRefOid, Task: owner.Task, Goblin: owner.Name, GoblinTitle: owner.Title, State: CarRiding}
+		car.NativeAttestation = attestation
 		if limited != "" {
 			car.Note = "the host rate limited the deploy of " + limited + ", which never built this head"
 		}

@@ -81,6 +81,7 @@ type GraphCheck struct {
 // keeps: a commit status starts when it was set.
 func (c GraphCheck) Check() Check {
 	check := Check{Kind: c.Kind, Name: c.Name, Context: c.Context, Status: c.Status, Conclusion: c.Conclusion, State: c.State, DetailsURL: c.DetailsURL, TargetURL: c.TargetURL, StartedAt: c.StartedAt, CompletedAt: c.CompletedAt}
+	check.WorkflowName = c.WorkflowName()
 	if c.Kind == "StatusContext" {
 		check.StartedAt = c.CreatedAt
 	}

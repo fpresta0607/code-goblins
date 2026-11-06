@@ -91,7 +91,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart]` | [cfo help switch](../commands/switch.md) |
 | `cfo pipeline` | [cfo help pipeline](../commands/pipeline.md) |
 | `cfo gate tests-kept` | [cfo help gate tests-kept](../commands/gate/tests-kept.md) |
-| `cfo gate test [--level fast\|affected\|full] [--plan]` | [cfo help gate test](../commands/gate/test.md) |
+| `cfo gate test [--level fast\|affected\|full \| --focused] [--plan]`, `cfo gate lint [--plan]` | [cfo help gate test](../commands/gate/test.md) |
 | `cfo gate prepush [--plan] [--limit <duration>]` | [cfo help gate prepush](../commands/gate/prepush.md) |
 | `cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]` | [cfo help gate turn](../commands/gate/turn.md) |
 | `cfo gate turns [--json]` | [cfo help gate turns](../commands/gate/turns.md) |
@@ -122,7 +122,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `cfo helper start <parent-id> --brief <file> [--title "<short title>"]` \| `merge <parent-id>` | [cfo help helper](../commands/helper.md) |
 | `cfo drain` | [cfo help drain](../commands/drain.md) |
 | `cfo session-start` | [cfo help session-start](../commands/session-start.md) |
-| `cfo memory retrieve \| routes \| budget \| migration-plan` | [cfo help memory](../commands/memory.md) and [memory contract](memory.md) |
+| `cfo memory` | [cfo help memory](../commands/memory.md) and [memory contract](memory.md) |
 | `cfo hook <name>` | [cfo help hook](../commands/hook.md) |
 | `<candidate> update [--recover]` | [cfo help update](../commands/update.md) |
 | `goblins update [--check] [--to <tag> [--run <item>]]` | [cfo help update](../commands/update.md) |
