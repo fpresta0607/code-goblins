@@ -255,9 +255,12 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 	if run == nil || t.Head == "" || t.PR == "" && run.OwnRun == "" {
 		return e.rebuild(ctx, t, "")
 	}
-	outcome, checks, readiness, err := e.ci(ctx, *t)
+	outcome, checks, prChecks, readiness, err := e.ci(ctx, *t)
 	if err != nil {
 		return err
+	}
+	if run != nil && len(run.Passed) == 0 {
+		run.PRChecks = prChecks
 	}
 	if outcome != "passed" && t.DeployHold != nil {
 		t.DeployHold, t.Note = nil, ""
@@ -278,7 +281,7 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 				return e.rebuildOnMovedBase(ctx, t, base)
 			}
 		}
-		if outcome != "passed" && outcome != "closed" {
+		if outcome != "closed" && (outcome != "passed" || !sameChecks(run.PRChecks, prChecks)) {
 			changed, _, err := e.recheck(ctx, t)
 			if err != nil {
 				return err
@@ -345,7 +348,7 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 // every check on it concluded, "closed" once the pull request is not open,
 // else "passed" or "failed", with the observed checks.
 // It also returns GitHub's current merge readiness.
-func (e Engine) ci(ctx context.Context, t Train) (string, []Check, string, error) {
+func (e Engine) ci(ctx context.Context, t Train) (string, []Check, []Check, string, error) {
 	url, head := t.PR, t.Head
 	if run := t.openRun(); run != nil && run.OwnRun != "" {
 		url, head = run.PR, t.Cars[t.carsIn(CarRiding)[0]].Head
@@ -354,20 +357,74 @@ func (e Engine) ci(ctx context.Context, t Train) (string, []Check, string, error
 	defer cancel()
 	view, err := viewPullRequest(read, e.GitHub, url)
 	if err != nil {
-		return "", nil, "", fmt.Errorf("merge train %s: read its CI: %w", t.ID, err)
+		return "", nil, nil, "", fmt.Errorf("merge train %s: read its CI: %w", t.ID, err)
 	}
 	if view.State != "OPEN" && view.State != "CLOSED" && view.State != "MERGED" || view.HeadRefOid == "" {
-		return "", nil, view.MergeStateStatus, fmt.Errorf("merge train %s: GitHub did not identify its pull request state and head", t.ID)
+		return "", nil, nil, view.MergeStateStatus, fmt.Errorf("merge train %s: GitHub did not identify its pull request state and head", t.ID)
 	}
 	if view.State != "OPEN" {
-		return "closed", nil, view.MergeStateStatus, nil
+		return "closed", nil, nil, view.MergeStateStatus, nil
 	}
 	if view.HeadRefOid != head {
-		return "stale", nil, view.MergeStateStatus, nil
+		return "stale", nil, nil, view.MergeStateStatus, nil
 	}
 	checks := view.Checks()
+	var prChecks []Check
+	attestation, _ := nativeAttestation(checks)
+	if run := t.openRun(); (run == nil || run.OwnRun == "") && attestation != nil && attestation.Status == "COMPLETED" && attestation.Conclusion == "FAILURE" {
+		isNative, err := e.isNativePRCheck(ctx, t, *attestation, t.Head)
+		if err != nil {
+			return "", nil, nil, view.MergeStateStatus, err
+		}
+		if isNative {
+			for _, i := range t.carsIn(CarRiding) {
+				car := t.Cars[i]
+				if !successfulAttestation(car.NativeAttestation) {
+					return "", nil, nil, view.MergeStateStatus, fmt.Errorf("merge train %s: #%d has no admitted native attestation", t.ID, t.Cars[i].Number)
+				}
+				isNative, err := e.isNativePRCheck(ctx, t, *car.NativeAttestation, car.Head)
+				if err != nil {
+					return "", nil, nil, view.MergeStateStatus, err
+				}
+				if !isNative {
+					return "", nil, nil, view.MergeStateStatus, fmt.Errorf("merge train %s: #%d's native attestation provenance does not match the required PR-only workflow", t.ID, car.Number)
+				}
+			}
+			prChecks = []Check{*attestation}
+			for i, check := range checks {
+				if check == *attestation {
+					checks = append(checks[:i:i], checks[i+1:]...)
+					break
+				}
+			}
+		}
+	}
 	outcome, _ := checksOutcome(checks)
-	return outcome, checks, view.MergeStateStatus, nil
+	return outcome, checks, prChecks, view.MergeStateStatus, nil
+}
+
+// isNativePRCheck binds the exact job/workflow pair to the native PR-only
+// workflow file, event and PR head. A same-named foreign job or workflow
+// is ordinary CI and receives no exception.
+func (e Engine) isNativePRCheck(ctx context.Context, t Train, check Check, head string) (bool, error) {
+	prefix := "https://github.com/" + t.Repository + "/actions/runs/"
+	if !strings.HasPrefix(check.DetailsURL, prefix) {
+		return false, nil
+	}
+	found := actionsRun.FindStringSubmatch(check.DetailsURL)
+	if found == nil {
+		return false, nil
+	}
+	var workflow struct {
+		Name  string `json:"name"`
+		Path  string `json:"path"`
+		Event string `json:"event"`
+		Head  string `json:"head_sha"`
+	}
+	if err := e.get(ctx, "repos/"+t.Repository+"/actions/runs/"+found[1], &workflow); err != nil {
+		return false, err
+	}
+	return workflow.Name == nativeAttestationWorkflow && workflow.Path == ".github/workflows/no-mistakes-required.yml" && workflow.Event == "pull_request" && workflow.Head == head, nil
 }
 
 func (e Engine) save(t *Train) error {
