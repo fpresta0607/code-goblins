@@ -94,6 +94,24 @@ func TestAPromptClaudeCodeHoldsWaitsInThePageUntilItIsDelivered(t *testing.T) {
 			prompts: []string{},
 		},
 		{
+			name:    "a hidden notice retains its FIFO slot ahead of a prompt",
+			entries: []any{queued(WakePrefix+"look at the board", at), queued("hold this", at), dequeued()},
+			waiting: []string{"hold this"},
+			prompts: []string{},
+		},
+		{
+			name:    "a named notice removal leaves the prompt for its own dequeue",
+			entries: []any{queued(WakePrefix+"look at the board", at), queued("hold this", at), absorbed(WakePrefix + "look at the board"), dequeued(), prompted("u1", "hold this")},
+			waiting: []string{},
+			prompts: []string{"hold this"},
+		},
+		{
+			name:    "an enqueue without text retains its FIFO slot",
+			entries: []any{queued("", at), queued("hold this", at), dequeued()},
+			waiting: []string{"hold this"},
+			prompts: []string{},
+		},
+		{
 			// A harness that dies leaves what it held queued in its record
 			// for good, one ahead of the entries of the session resumed after
 			// it, so the words that reach the record end their own wait.
@@ -155,7 +173,7 @@ func TestAWaitingPromptReadsAsItsMessageWill(t *testing.T) {
 	}
 }
 
-func TestWaitingAtFollowsTheQueueBetweenPages(t *testing.T) {
+func TestMessagesSinceFollowsTheQueueBetweenPages(t *testing.T) {
 	// Arrange
 	path := conversation(t, t.TempDir(), prompted("u1", "start"))
 	var reader Reader
@@ -166,19 +184,19 @@ func TestWaitingAtFollowsTheQueueBetweenPages(t *testing.T) {
 
 	// Act: queued, which changes no message.
 	appendLines(t, path, queued("hold this", at))
-	changed, cursor, isAnew, err := reader.MessagesSince(path, cursor)
+	changed, waiting, cursor, isAnew, err := reader.MessagesSince(path, cursor)
 	if err != nil || isAnew || len(changed) != 0 {
 		t.Fatalf("after the queue: %d changed, anew %t, error %v", len(changed), isAnew, err)
 	}
 
 	// Assert
-	if got := waitingWords(reader.WaitingAt(path, cursor)); !reflect.DeepEqual(got, []string{"hold this"}) {
+	if got := waitingWords(waiting); !reflect.DeepEqual(got, []string{"hold this"}) {
 		t.Fatalf("waiting = %q; want the queued prompt", got)
 	}
 
 	// Act: delivered.
 	appendLines(t, path, dequeued(), stamped(prompted("u2", "hold this")))
-	changed, cursor, isAnew, err = reader.MessagesSince(path, cursor)
+	changed, waiting, cursor, isAnew, err = reader.MessagesSince(path, cursor)
 	if err != nil || isAnew {
 		t.Fatalf("after delivery: anew %t, error %v", isAnew, err)
 	}
@@ -188,24 +206,63 @@ func TestWaitingAtFollowsTheQueueBetweenPages(t *testing.T) {
 	if got := promptWords(changed); !reflect.DeepEqual(got, []string{"hold this"}) {
 		t.Fatalf("changed prompts = %q; want the delivered one", got)
 	}
-	if got := reader.WaitingAt(path, cursor); len(got) != 0 {
+	if got := waiting; len(got) != 0 {
 		t.Fatalf("waiting = %+v; want nothing once it is delivered", got)
 	}
 }
 
-func TestWaitingAtIsEmptyForACursorOfAnotherRead(t *testing.T) {
-	// Arrange
+func TestQueueMatchingPreservesPromptProvenance(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		entries []any
+		sources []string
+	}{
+		{"named removal", []any{absorbed("CFO: continue"), prompted("u1", "CFO: continue")}, []string{FromOverlord, FromCFO}},
+		{"delivery without removal", []any{prompted("u1", "CFO: continue")}, []string{FromOverlord, FromCFO}},
+		{"handoff with different provenance", []any{dequeued(), prompted("u1", "CFO: continue")}, []string{FromCFO}},
+		{"Overlord removal preserves CFO duplicates", []any{absorbed("continue"), prompted("u1", "continue")}, []string{FromCFO, FromCFO}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			entries := []any{queued("continue", at), queued("CFO: continue", at), queued("CFO: continue", at)}
+			path := conversation(t, t.TempDir(), append(entries, test.entries...)...)
+			var reader Reader
+			page, _, err := reader.MessagePage(path, -1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(page.Waiting) != len(test.sources) {
+				t.Fatalf("waiting = %+v; want sources %q", page.Waiting, test.sources)
+			}
+			for index, source := range test.sources {
+				if page.Waiting[index].Source != source || page.Waiting[index].Text != "continue" {
+					t.Fatalf("waiting = %+v; want sources %q with unchanged words", page.Waiting, test.sources)
+				}
+			}
+		})
+	}
+}
+
+func TestMessagesSinceKeepsEachStreamsQueueSnapshot(t *testing.T) {
 	path := conversation(t, t.TempDir(), queued("hold this", at))
 	var reader Reader
-	if _, _, err := reader.MessagePage(path, -1); err != nil {
+	_, cursor, err := reader.MessagePage(path, -1)
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	// Act
-	got := reader.WaitingAt(path, MessageCursor{})
-
-	// Assert
-	if got != nil {
-		t.Fatalf("waiting = %+v; want nothing for a read this log is not", got)
+	first, firstWaiting, firstCursor, isAnew, err := reader.MessagesSince(path, cursor)
+	if err != nil || isAnew || len(first) != 0 {
+		t.Fatalf("first stream: messages %+v, anew %t, error %v", first, isAnew, err)
+	}
+	appendLines(t, path, dequeued(), stamped(prompted("u1", "hold this")))
+	second, secondWaiting, _, isAnew, err := reader.MessagesSince(path, cursor)
+	if err != nil || isAnew || len(second) != 1 || len(secondWaiting) != 0 {
+		t.Fatalf("second stream: messages %+v, waiting %+v, anew %t, error %v", second, secondWaiting, isAnew, err)
+	}
+	if got := waitingWords(firstWaiting); !reflect.DeepEqual(got, []string{"hold this"}) {
+		t.Fatalf("first stream lost its queued prompt before receiving delivery: %q", got)
+	}
+	first, firstWaiting, _, isAnew, err = reader.MessagesSince(path, firstCursor)
+	if err != nil || isAnew || len(first) != 1 || first[0].Text != "hold this" || len(firstWaiting) != 0 {
+		t.Fatalf("first stream delivery: messages %+v, waiting %+v, anew %t, error %v", first, firstWaiting, isAnew, err)
 	}
 }

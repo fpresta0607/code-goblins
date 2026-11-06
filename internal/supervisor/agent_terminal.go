@@ -399,7 +399,7 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 			if path == "" {
 				continue
 			}
-			messages, now, isAnew, err := h.Service.Options.Tree.MessagesSince(path, cursor)
+			messages, waiting, now, isAnew, err := h.Service.Options.Tree.MessagesSince(path, cursor)
 			switch {
 			case err != nil:
 				send("unavailable", unreadMessages)
@@ -413,7 +413,6 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 				// What the harness holds rides with the messages, so a prompt
 				// leaves the one in the event that brings it to the other, and
 				// the board never draws it twice.
-				waiting := h.Service.Options.Tree.WaitingAt(path, cursor)
 				if (len(messages) > 0 || !slices.Equal(waiting, lastWaiting)) && !send("messages", struct {
 					Conversation string                    `json:"conversation"`
 					Messages     []fleettree.Message       `json:"messages"`

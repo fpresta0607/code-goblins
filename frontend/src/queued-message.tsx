@@ -39,7 +39,7 @@ export const QUEUED_NOTICE = "cfo-queued-notice";
 // messages"): one that cannot go now says why over the box when pressed, as
 // whatever else a press could not do does, and a press that comes after the
 // board let it go says where it went.
-export const QueuedMessage = memo(function QueuedMessage({ action, liveAction, instance, name, variant, onDeleted }: QueuedProps) {
+export const QueuedMessage = memo(function QueuedMessage({ action, isHarnessHeld = false, liveAction, instance, name, variant, onDeleted }: QueuedProps) {
   const [isSending, setSending] = useState(false);
   // What he already asked of this message, so a second press asks nothing
   // more (the Overlord, 2026-10-28: "lack of indmepotent click on teh
@@ -70,7 +70,7 @@ export const QueuedMessage = memo(function QueuedMessage({ action, liveAction, i
   // trying to type, running with nothing awaited, it still holds.
   const isHeld = action.status === "queued" || action.status === "running" && !action.awaiting;
   const isTyped = action.status === "running" && !!action.awaiting;
-  const state = messageState(action);
+  const state = isHarnessHeld ? "Queued" : messageState(action);
   // While he reads up the row shows the message as it was, and its controls
   // act on the board's live copy of it, which the board may hold no longer.
   const current = liveAction === undefined ? action : liveAction;
@@ -86,7 +86,7 @@ export const QueuedMessage = memo(function QueuedMessage({ action, liveAction, i
   const why = "queued-why-" + action.id;
   return <div className={"queued-message " + variant} data-queued={action.id}>
     {variant === "pane" && <MessagePictures sources={kept.paths.map((path) => keptFileAddress(instance, action.task_id || undefined, path))} />}
-    {variant === "pane" && kept.text && <div className={"message-bubble queued-bubble" + (isHeld ? " waiting" : "")} aria-describedby={why}>{kept.text}</div>}
+    {variant === "pane" && kept.text && <div className={"message-bubble queued-bubble" + (isHeld || isHarnessHeld ? " waiting" : "")} aria-describedby={why}>{kept.text}</div>}
     {variant === "pane" && <p className="queued-state">{state}</p>}
     {variant === "queue" && <span className="composer-sent-text" aria-describedby={why}>{action.text}</span>}
     {variant === "queue" && <p className="queued-line"><strong>{state}</strong></p>}
@@ -106,7 +106,7 @@ export const QueuedMessage = memo(function QueuedMessage({ action, liveAction, i
   </div>;
 }, isSameQueued);
 
-type QueuedProps = { action: Action; liveAction?: Action | null; instance: string; name: string; variant: "pane" | "queue"; onDeleted?: () => void };
+type QueuedProps = { action: Action; isHarnessHeld?: boolean; liveAction?: Action | null; instance: string; name: string; variant: "pane" | "queue"; onDeleted?: () => void };
 
 // Each snapshot parses every action anew, so a comparison by identity drew
 // every queued message again on every snapshot, 315 times in 120 s of a live
@@ -119,5 +119,5 @@ function isSameAction(was: Action | null | undefined, is: Action | null | undefi
 
 function isSameQueued(prior: QueuedProps, next: QueuedProps): boolean {
   return isSameAction(prior.action, next.action) && isSameAction(prior.liveAction, next.liveAction)
-    && prior.instance === next.instance && prior.name === next.name && prior.variant === next.variant && prior.onDeleted === next.onDeleted;
+    && prior.isHarnessHeld === next.isHarnessHeld && prior.instance === next.instance && prior.name === next.name && prior.variant === next.variant && prior.onDeleted === next.onDeleted;
 }

@@ -750,13 +750,13 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     read.add(action.id);
   }
   const queued = waiting.filter((action) => !read.has(action.id));
-  // What its harness holds, less the prompts a row of the board already shows:
-  // a row answers for one prompt of its words, so a second keeps its own.
   const unclaimed = [...queued];
+  const harnessActions = new Set<string>();
   const harnessHeld = held.waiting.filter((prompt) => {
-    const row = unclaimed.findIndex((action) => sameWords(action.text, prompt.text));
+    const row = unclaimed.findIndex((action) => prompt.source === "overlord" && action.status === "running" && !!action.awaiting
+      && Date.parse(prompt.at) >= Date.parse(action.created_at) && sameWords(action.text, prompt.text));
     if (row < 0) return true;
-    unclaimed.splice(row, 1);
+    harnessActions.add(unclaimed.splice(row, 1)[0].id);
     return false;
   });
   const queuedIDs = [...harnessHeld, ...queued].map((each) => each.id).join("\0");
@@ -803,7 +803,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
             <div className="message-bubble queued-bubble waiting">{prompt.text}</div>
             <p className="queued-state">Queued</p>
           </div>)}
-          {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />)}
+          {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} isHarnessHeld={harnessActions.has(action.id)} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />)}
         </div>
       </div>
       {phase === "live" && !held.messages.length && !queued.length && !harnessHeld.length && <p className="messages-empty" role="status">No messages yet</p>}
