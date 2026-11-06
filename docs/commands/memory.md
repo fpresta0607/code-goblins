@@ -7,12 +7,12 @@ Print all exact warm ranges plus cold ranges matching any supplied project, task
 Source provenance, checksums and stale or pending-capture diagnostics accompany the original bytes.
 `cfo memory routes` lists every cold trigger and routing key without loading its body into the response.
 
-`cfo memory retrieve --search "cache port" --project <name> [--task <id>] [--topic <topic>] [--limit 5]`
+`cfo memory retrieve --search "cache port" [--project <name>] [--task <id>] [--topic <topic>] [--limit 5] [--include-completed]`
 
 Discover cold source ranges by case-insensitive whole-word keywords in their id, trigger, topics and exact body.
 Every search word must match; supplied scope keys restrict candidates together.
 The limit is 1 to 50 and applies only to cold candidates; warm authority is always selected.
-Completed task entries are excluded from keyword discovery unless `--include-completed` or their exact `--task` is supplied.
+Completed cold task entries are excluded from keyword discovery unless `--include-completed` or their exact `--task` is supplied.
 Exact routing without `--search` retains its existing union-of-keys behavior.
 Search is discovery, never a verdict on contradictory authority or automatic supersession.
 No match is explicit; use routing keys or `--id` when wording differs.
@@ -42,8 +42,10 @@ Keep any redirected inventory private because its source paths and provenance be
 
 Read a JSON array of proposals with `path`, `destination`, `sha256`, `kind` (`summary`, `index`, `artifact` or `authority`), `task_state` (`active`, `held` or `completed`), `is_held`, `is_landed` and `is_capture_complete`.
 Source and destination paths are relative to the supplied private data directory, including subfolders; links outside it are refused.
-Each item reports bytes, the proposed hash, current source hash, recovery hash and a reason to retain it.
+Each item reports bytes, the proposed hash, current source hash and a reason to retain it; the recovery hash is included when recovery bytes are checked.
 A completed, landed, captured proposal requires an existing independent byte-identical local copy before it can report local recoverability.
+Symlinks, hardlinks and case aliases of the source do not count as independent recovery copies, and duplicate proposals for the same file identity are rejected.
+Every [governed source](../contract/memory.md#catalog-schema) is protected as authority by filesystem identity, even when proposed through an alias or classified as another kind.
 Authority, held, active, unlanded and incompletely captured items remain protected.
 Task state and capture fields are operator declarations, not verified custody or removal permission.
 Every plan is read-only, reports zero reclaimed bytes and no remote verification, and exposes no apply operation.

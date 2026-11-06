@@ -58,7 +58,7 @@ Each entry has:
 | `projects`, `tasks`, `topics` | Exact nonblank routing-key arrays; a cold item needs at least one key. |
 | `expiry` | A checkable condition quoted in a perishable entry's own text. |
 | `supersedes` | Earlier item ids; they remain retrievable and are candidates for review, not automatically retired. |
-| `task_state` | Optional `active`, `held` or `completed` classification; active and held constraints must remain warm. Completed entries stay exactly retrievable and are omitted only from default keyword discovery. |
+| `task_state` | Optional `active`, `held` or `completed` classification; active and held entries must remain warm. |
 | `approval` | Required per-item approval for a pinned cold item or any cold range from `overlord.md`. |
 
 `approval` holds `by: "Overlord"`, the verbatim `quote` naming this entry's exact, separately delimited id, a `date` in `YYYY-MM-DD` format and `destination` equal to the live source-range owner `path#id`.
