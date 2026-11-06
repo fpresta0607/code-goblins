@@ -306,6 +306,8 @@ cfo gate test                     # fast, the default
 cfo gate test --level affected    # every package the change reaches, which CI's run also covers
 cfo gate test --level full        # every package
 cfo gate test --plan              # print the plan and run nothing
+cfo gate test --focused           # repair failures and paths from NO_MISTAKES_TEST_FOCUS
+cfo gate lint                    # required vet scope, without running tests
 ```
 
 | Level | `go vet` | `go test` |
@@ -313,6 +315,12 @@ cfo gate test --plan              # print the plan and run nothing
 | `fast` | the packages the change reaches | the changed packages and the packages a contract selects, unless the policy lists them as slow, plus required policy guards |
 | `affected` | the packages the change reaches | the same packages |
 | `full` | every package | every package |
+
+The repository's `commands.test_focused` uses the same planner at the affected level for repair paths and adds the named failures from its UTF-8 focus file.
+It records focused coverage separately from a baseline and broadens unrecognized data explicitly; [the test command](commands/gate/test.md) owns its input and failure rules.
+The lint command reuses the required vet scope, retaining full-tree fallback for unknown changes without running tests again.
+The Test step reuses the repository environment and existing fixtures described in CONTRIBUTING.md.
+Unavailable browser or live-harness prerequisites leave their scenarios untested with the missing prerequisite named, without building another full application.
 
 At every level, `cfo gate test` also selects the trusted policy's `guards`, even when no Go package changed.
 A guard runs separately before vet and package tests, with their `go test` arguments and `-timeout 45m`, only when those package tests do not already cover its whole package, including packages scheduled alone.

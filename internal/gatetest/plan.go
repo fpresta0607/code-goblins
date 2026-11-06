@@ -58,6 +58,9 @@ type Plan struct {
 	// in a turn of their own and one at a time, as import paths.
 	Alone  []string
 	Guards []Step
+	// Named adds failed tests outside the repair's affected packages.
+	Named    []Step
+	Failures []FailedTest
 }
 
 // listFields are the fields of a package the plan reads. Asking go list for
