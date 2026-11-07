@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -239,7 +241,7 @@ func TestRecoverAuthoredCandidateRefusesUnsafeBindings(t *testing.T) {
 				case "active publisher":
 					fixture.execute(t, "UPDATE runs SET push_active=1 WHERE id=?", recoveryRun)
 				case "active agent":
-					fixture.execute(t, "UPDATE step_results SET agent_pid=1 WHERE run_id=?", recoveryRun)
+					fixture.execute(t, "UPDATE step_results SET agent_pid=? WHERE run_id=?", os.Getpid(), recoveryRun)
 				case "repair budget":
 					fixture.execute(t, "UPDATE step_results SET auto_fix_limit=1 WHERE run_id=?", recoveryRun)
 				case "repair selection":
@@ -288,6 +290,56 @@ func TestRecoverAuthoredCandidateRefusesUnsafeBindings(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestRecoverAuthoredCandidateJudgesRecordedAgentByLiveness proves the fix for
+// the daemon-crash recovery refusal: a pid left on a failed step by a crash is
+// evidence of past ownership, not present ownership, so a step whose process is
+// verifiably gone recovers, while a live process, an unreadable liveness, and a
+// step still in progress all keep refusing. The naming of the step and pid in a
+// live refusal is asserted so a real conflict stays diagnosable.
+func TestRecoverAuthoredCandidateJudgesRecordedAgentByLiveness(t *testing.T) {
+	for _, isPublished := range []bool{false, true} {
+		t.Run(fmt.Sprintf("published=%t", isPublished), func(t *testing.T) {
+			for _, scenario := range []struct {
+				name, status string
+				pid          int
+				readState    agentProcessStatus
+				isRefused    bool
+				wantNamed    bool
+			}{
+				{name: "failed step whose recorded agent process is gone", status: "failed", pid: deadAgentPID, readState: agentProcessDead},
+				{name: "failed step whose recorded agent process is alive", status: "failed", pid: 4242, readState: agentProcessAlive, isRefused: true, wantNamed: true},
+				{name: "failed step whose recorded agent liveness is unreadable", status: "failed", pid: 4243, readState: agentProcessUnknown, isRefused: true, wantNamed: true},
+				{name: "in-progress step even with a dead recorded pid", status: "running", pid: deadAgentPID, readState: agentProcessDead, isRefused: true},
+			} {
+				t.Run(scenario.name, func(t *testing.T) {
+					fixture := newAuthoredRecoveryFixture(t, isPublished)
+					// The recorded shape of issue 2166 is a failed `test` step whose
+					// interrupted agent pid is gone and whose repair budget is zero.
+					fixture.execute(t, "UPDATE step_results SET step_name='test',status=?,agent_pid=? WHERE id='child-review'", scenario.status, scenario.pid)
+					previous := agentProcessReader
+					agentProcessReader = func(int) agentProcessStatus { return scenario.readState }
+					t.Cleanup(func() { agentProcessReader = previous })
+
+					_, err := fixture.reader.RecoverKeepLocal(context.Background(), fixture.caller, fixture.caller, recoveryBranch, nil)
+
+					if scenario.isRefused {
+						if err == nil {
+							t.Fatal("recovery accepted a step the run may still own")
+						}
+						if scenario.wantNamed && (!strings.Contains(err.Error(), "step test") || !strings.Contains(err.Error(), strconv.Itoa(scenario.pid))) {
+							t.Fatalf("refusal does not name the step and pid: %v", err)
+						}
+						return
+					}
+					if err != nil {
+						t.Fatalf("recovery refused a step whose recorded agent process is verifiably gone: %v", err)
+					}
+				})
+			}
+		})
 	}
 }
 

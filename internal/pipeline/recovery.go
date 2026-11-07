@@ -216,6 +216,52 @@ func (r Reader) latestRecoveryCandidate(ctx context.Context, project, branch str
 	return run, nil
 }
 
+// agentProcessStatus says whether the process a recorded agent pid names is
+// verifiably running, verifiably gone, or could not be read.
+type agentProcessStatus int
+
+const (
+	// agentProcessDead is a pid that names no process: a leftover from a
+	// crash, which is evidence of past ownership and not a live conflict.
+	agentProcessDead agentProcessStatus = iota
+	// agentProcessAlive is a pid that names a running process.
+	agentProcessAlive
+	// agentProcessUnknown is a pid whose liveness could not be answered.
+	agentProcessUnknown
+)
+
+// agentProcessReader reads the liveness of a recorded agent pid. It is a
+// variable so a test can prove an answer that cannot be read refuses.
+var agentProcessReader = readAgentProcessStatus
+
+// requireNoLiveAgent refuses authored recovery while a step of the run
+// recorded an agent process that is still running or whose liveness cannot be
+// read. A pid recorded on a row is evidence that an agent owned the step at
+// the time, not that it still owns it: a daemon crash leaves the interrupted
+// step's pid behind after its process is gone, and that is the case authored
+// recovery exists for. A step that is genuinely still in progress is refused
+// by the admission query itself. An unreadable pid refuses too, since a pid
+// read that cannot be answered is never permission.
+func (r Reader) requireNoLiveAgent(ctx context.Context, runID string) error {
+	var rows []struct {
+		Step string `json:"step"`
+		PID  int    `json:"pid"`
+	}
+	query := `SELECT step_name AS step,agent_pid AS pid FROM step_results WHERE run_id=` + sqlString(runID) + ` AND COALESCE(agent_pid,0)<>0 ORDER BY step_name,id`
+	if err := r.query(ctx, query, &rows); err != nil {
+		return err
+	}
+	for _, row := range rows {
+		switch agentProcessReader(row.PID) {
+		case agentProcessAlive:
+			return fmt.Errorf("pipeline: authored recovery refused: step %s still records live agent process %d", row.Step, row.PID)
+		case agentProcessUnknown:
+			return fmt.Errorf("pipeline: authored recovery refused: step %s records agent process %d, whose liveness cannot be read", row.Step, row.PID)
+		}
+	}
+	return nil
+}
+
 type authoredRecovery struct {
 	AdmissionID          string `json:"admission_id"`
 	Event                string `json:"event"`
@@ -241,13 +287,18 @@ func (r Reader) authoredRecovery(ctx context.Context, run recoveryRecord) (autho
 	for _, field := range []string{"LastPushedSHA", "PushGeneration", "PushTargetKind", "PushTargetFingerprint", "PushRef", "LastPushedAt", "PRURL"} {
 		query += ` AND json_extract(a.event_json,'$.InitialChild.` + field + `') IS json_extract(a.event_json,'$.Snapshot.Run.` + field + `')`
 	}
-	query += ` AND r.terminal_source_state='clean:'||r.head_sha AND NOT EXISTS(SELECT 1 FROM step_results s WHERE s.run_id=r.id AND (COALESCE(s.agent_pid,0)<>0 OR COALESCE(s.auto_fix_limit,0)<>0 OR s.status IN ('running','fixing','awaiting_approval','fix_review'))) AND r.id=(SELECT latest.id FROM runs latest WHERE latest.repo_id=r.repo_id AND latest.branch=r.branch ORDER BY latest.created_at DESC,latest.id DESC LIMIT 1)`
+	query += ` AND r.terminal_source_state='clean:'||r.head_sha AND NOT EXISTS(SELECT 1 FROM step_results s WHERE s.run_id=r.id AND (COALESCE(s.auto_fix_limit,0)<>0 OR s.status IN ('running','fixing','awaiting_approval','fix_review'))) AND r.id=(SELECT latest.id FROM runs latest WHERE latest.repo_id=r.repo_id AND latest.branch=r.branch ORDER BY latest.created_at DESC,latest.id DESC LIMIT 1)`
 	query += ` AND NOT EXISTS(SELECT 1 FROM step_rounds q JOIN step_results s ON s.id=q.step_result_id WHERE s.run_id=r.id AND (q.trigger_type IN ('auto_fix','user_fix') OR q.selection_source IN ('auto_fix','user') OR q.starting_head_sha<>r.head_sha OR q.reviewed_head_sha<>r.head_sha))`
 	if err := r.query(ctx, query, &rows); err != nil {
 		return authoredRecovery{}, err
 	}
 	if len(rows) != 1 || !gateIdentity.MatchString(rows[0].AdmissionID) || !gateCommit.MatchString(rows[0].Tree) || !filepath.IsAbs(rows[0].ManagedDir) {
 		return authoredRecovery{}, errors.New("pipeline: authored recovery lacks exact unchanged admission provenance")
+	}
+	// A recorded pid is checked only once every other binding holds, so a
+	// conflict elsewhere keeps its own wording.
+	if err := r.requireNoLiveAgent(ctx, run.RunID); err != nil {
+		return authoredRecovery{}, err
 	}
 	return rows[0], nil
 }
