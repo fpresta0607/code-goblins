@@ -23,6 +23,8 @@ type Client struct {
 	// isToldSizes is whether the host tells this client the terminal's sizes.
 	isToldSizes bool
 	view        uint64
+	// his is whether the host knows frameHis.
+	his bool
 	// first is the history View read from a host that tells no sizes, for
 	// Next to return first.
 	first *Event
@@ -129,7 +131,7 @@ func dial(record Record, greeting hello) (*Client, hello, error) {
 		pipe.Close()
 		return nil, hello{}, fmt.Errorf("host: refused the connection: %s", answer.Error)
 	}
-	return &Client{pipe: pipe}, answer, nil
+	return &Client{pipe: pipe, his: answer.His}, answer, nil
 }
 
 // Next reads the next event.
@@ -170,6 +172,16 @@ func (c *Client) Next() (Event, error) {
 // Input types p into the terminal.
 func (c *Client) Input(p []byte) error {
 	return c.send(frameInput, p)
+}
+
+// MarkHis says this connection's input is the Overlord's own, so a screen his
+// harness draws from it is his to answer. A host from before it is told
+// nothing, which leaves every screen as no view's submission.
+func (c *Client) MarkHis() error {
+	if !c.his {
+		return nil
+	}
+	return c.send(frameHis, nil)
 }
 
 // MarkSubmission precedes the submitted input on this viewer's connection.

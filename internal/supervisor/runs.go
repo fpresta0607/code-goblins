@@ -441,11 +441,12 @@ func (s *Service) declineRun(ctx context.Context, a Action) (Evaluation, error) 
 		s.publish(err)
 	}
 	text := "The Overlord skipped your command " + r.ID + " (" + r.Title + ") from the Command Center. Go on without it."
-	if a.Kind == "run_answer" {
+	his := a.Kind == "run_answer"
+	if his {
 		text = "The Overlord answered your command " + r.ID + " (" + r.Title + ") instead of running it: " + a.Text
 	}
 	if r.Task == "" {
-		if err := s.tellCFO(ctx, text); err != nil {
+		if err := s.tellCFO(ctx, text, his); err != nil {
 			return Evaluation{Reason: "Closed. The CFO could not be told: " + bounded(err.Error(), 300)}, nil
 		}
 		return Evaluation{Reason: "Closed, and the CFO was told."}, nil
@@ -453,7 +454,11 @@ func (s *Service) declineRun(ctx context.Context, a Action) (Evaluation, error) 
 	if s.Options.CFO == nil {
 		return Evaluation{Reason: "Closed. " + r.Task + " could not be told: message transport is unavailable."}, nil
 	}
-	if _, err := s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, text); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+	deliver := s.Options.CFO.SendGoblin
+	if his {
+		deliver = s.Options.CFO.SendGoblinHis
+	}
+	if _, err := deliver(ctx, r.Task, r.Identity, text); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 		return Evaluation{Reason: "Closed. " + r.Task + " could not be told: " + bounded(err.Error(), 300)}, nil
 	}
 	return Evaluation{Reason: "Closed, and " + r.Task + " was told."}, nil
@@ -878,7 +883,7 @@ func (s *Service) endRun(ctx context.Context, r Run, state string, code *int, re
 	if r.By == "cfo" && !s.Store.cfoLive() {
 		return errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
 	}
-	delivery := s.tellCFO(ctx, text)
+	delivery := s.tellCFO(ctx, text, false)
 	if r.By == "cfo" && (errors.Is(delivery, ErrRejected) || errors.Is(delivery, ErrDeferred)) {
 		return errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
 	}
@@ -897,7 +902,7 @@ func (s *Service) retellRuns(ctx context.Context) error {
 		if r.By != "cfo" || r.Untold == "" {
 			continue
 		}
-		delivery := s.tellCFO(ctx, r.Untold)
+		delivery := s.tellCFO(ctx, r.Untold, false)
 		if errors.Is(delivery, ErrDeferred) {
 			continue
 		}
@@ -916,14 +921,15 @@ func (s *Service) retellRuns(ctx context.Context) error {
 // restarted since it created the item. A result submitted behind the CFO's
 // turn is told: the CFO takes it when the turn ends. An error that is
 // ErrRejected sent nothing; any other may have reached the CFO.
-func (s *Service) tellCFO(ctx context.Context, text string) error {
-	_, err := s.sendToCFO(ctx, text)
+func (s *Service) tellCFO(ctx context.Context, text string, his bool) error {
+	_, err := s.sendToCFO(ctx, text, his)
 	return err
 }
 
 // sendToCFO is tellCFO for a delivery that keeps how it went, such as one the
-// CFO takes as its turn ends.
-func (s *Service) sendToCFO(ctx context.Context, text string) (Evaluation, error) {
+// CFO takes as its turn ends. One from him keeps his mark on the terminal the
+// CFO's next screen is bound to.
+func (s *Service) sendToCFO(ctx context.Context, text string, his bool) (Evaluation, error) {
 	if s.Options.CFO == nil {
 		return Evaluation{}, errors.New("no CFO transport")
 	}
@@ -936,7 +942,10 @@ func (s *Service) sendToCFO(ctx context.Context, text string) (Evaluation, error
 	if err != nil {
 		return Evaluation{}, fmt.Errorf("%w: the CFO registration is unreadable", ErrRejected)
 	}
-	return s.Options.CFO.Send(ctx, identity, text)
+	if his {
+		return s.Options.CFO.Send(ctx, identity, text)
+	}
+	return s.Options.CFO.SendNotice(ctx, identity, text)
 }
 
 func tail(text string, n int) string {

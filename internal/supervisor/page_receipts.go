@@ -249,7 +249,7 @@ func (s *Service) tellAnswer(ctx context.Context, answer pageAnswer) error {
 				if err := s.Store.keepPageAnswer(answer); err != nil {
 					return err
 				}
-				_, err = s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, text)
+				_, err = s.Options.CFO.SendGoblinHis(ctx, r.Task, r.Identity, text)
 				// A task that reuses the id began after the note was written,
 				// by the generation it was first spawned on, which a relaunch
 				// does not move; a task an older build spawned records none.
@@ -258,7 +258,7 @@ func (s *Service) tellAnswer(ctx context.Context, answer pageAnswer) error {
 					// Its goblin came back in a new session, as a pause's
 					// resume brings it, and the page is still its own. A
 					// refusal typed nothing, so it is sent again.
-					_, err = s.Options.CFO.SendGoblin(ctx, r.Task, current, text)
+					_, err = s.Options.CFO.SendGoblinHis(ctx, r.Task, current, text)
 				}
 				switch {
 				case err == nil:

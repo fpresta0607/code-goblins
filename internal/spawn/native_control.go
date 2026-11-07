@@ -17,6 +17,8 @@ import (
 // tool call. A slash or dollar command waits out the harness's completion
 // popup before it is submitted, and is reported unconfirmed: /exit ends the
 // harness and /model opens a picker, so no screen afterwards proves it ran.
+// Text nobody says is the Overlord's own, a wake line, a notice or a key,
+// clears the terminal's mark of his input.
 func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text string) error {
 	screens, ok := harness.NativeScreens(harness.Kind(meta.Harness))
 	if !ok {

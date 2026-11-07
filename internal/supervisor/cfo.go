@@ -472,15 +472,33 @@ func oneLine(text string) string {
 	return strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(text)
 }
 
-// Send types text to the primary CFO behind the Overlord's stamp, which says
-// an answer or a result is his, unless it is a command for the harness
-// itself, a line that starts with / or !.
-func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evaluation, error) {
+// stampedForCFO is the line the board types to the primary CFO: it is the
+// board speaking, behind the Overlord's stamp, which is what tells the fleet
+// the line is his, unless it is a command for the harness itself, a line that
+// starts with / or !, which the harness runs as it was written. The stamp is
+// the words' own and every board delivery carries it; whether a screen the
+// harness draws from the delivery is his to answer is the delivery's mark,
+// which only his own message or answer leaves (the CEO, 2026-11-07).
+func stampedForCFO(text string) string {
 	line := oneLine(text)
-	if !strings.HasPrefix(line, "/") && !strings.HasPrefix(line, "!") {
-		line = "Overlord: " + line
+	if strings.HasPrefix(line, "/") || strings.HasPrefix(line, "!") {
+		return line
 	}
-	return c.sendNative(ctx, identity, line)
+	return "Overlord: " + line
+}
+
+// Send types text to the primary CFO as one of his own messages or answers,
+// behind the Overlord's stamp, and leaves the terminal's mark of his input.
+func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evaluation, error) {
+	return c.sendNative(ctx, identity, stampedForCFO(text), false, true)
+}
+
+// SendNotice delivers a line the supervisor writes to the CFO, such as a
+// review request or how a run item ended, behind the same Overlord's stamp
+// the board speaks with. It is nobody's own input, so it clears the
+// terminal's mark of his.
+func (c *CFOConnection) SendNotice(ctx context.Context, identity, text string) (Evaluation, error) {
+	return c.sendNative(ctx, identity, stampedForCFO(text), false, false)
 }
 
 // nativeSubmitSettle lets the CFO's harness take typed text before its submit
@@ -514,7 +532,13 @@ const (
 // CFO; a line submitted during a turn waits in the harness's own queue, as
 // one typed into its terminal by hand does, and is taken at the CFO's next
 // tool call, which only the CFO's own record of its conversation proves.
-func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (Evaluation, error) {
+// With sendsNow, a line that queued into a turn gets the harness's own
+// send-now key once, which interrupts the turn and has the CFO take it at
+// once (the CFO, 2026-11-03, withdrawing the 2026-11-02 rule that
+// interrupting stays the box's Stop). With his, the line is the Overlord's
+// own board message, so the terminal keeps his mark for the screen the CFO's
+// harness draws from it.
+func (c *CFOConnection) sendNative(ctx context.Context, identity, line string, sendsNow, his bool) (Evaluation, error) {
 	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
 	if err != nil {
 		return Evaluation{}, fmt.Errorf("%w: %v", ErrRejected, errNotRegistered)
@@ -549,6 +573,9 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (
 		return Evaluation{}, fmt.Errorf("%w: the CFO's native terminal does not answer; nothing was sent", ErrRejected)
 	}
 	defer delivery.Close()
+	if his {
+		_ = delivery.MarkHis()
+	}
 	before, err := read(record)
 	if err != nil {
 		return Evaluation{Reason: "The CFO's input cannot be read. Your answer is queued; nothing was sent."}, ErrDeferred
@@ -655,6 +682,35 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (
 	// sent once its submit key went, and settleDeliveries reads that record.
 	waiting := &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Digest: monitor.TextDigest(instruction), Session: cfoSession(c.State, primary), Typed: instruction, Pasted: isPasted}
 	if busy {
+		// A Send now he asked for interrupts the turn through the key the
+		// CFO's own harness binds to that, as a goblin's does, once its
+		// input line shows the answer gone into its queue and no screen of
+		// its own is open over it, and never once the CFO's own record
+		// proves it took the answer: a turn that ended as the answer was
+		// typed and submitted leaves the busy read before typing stale, and
+		// its harness starts a turn on the answer itself.
+		if sendsNow && screens.SendNow != "" {
+			for pressed := time.Now().Add(nativeConfirm); ; {
+				if cfoConversationTook(ctx, c.State, *waiting) {
+					return Evaluation{Reason: "Taken by the CFO in its native terminal, as its record showed."}, nil
+				}
+				screen, readErr := read(record)
+				if readErr == nil && !screens.IsOpen(screen) && screens.ComposerEmpty(screen) {
+					if err := spawn.PressKeys(delivery.Write, screens.SendNow); err != nil {
+						return Evaluation{}, fmt.Errorf("the CFO's send-now key could not be pressed: %w", err)
+					}
+					return Evaluation{Reason: sentNowInTurn, Awaiting: waiting}, nil
+				}
+				if time.Now().After(pressed) {
+					break
+				}
+				select {
+				case <-time.After(nativeConfirmPoll):
+				case <-ctx.Done():
+					return Evaluation{}, fmt.Errorf("the CFO's send-now key was not pressed: %w", ctx.Err())
+				}
+			}
+		}
 		return Evaluation{Reason: sentToCFO, Awaiting: waiting}, nil
 	}
 	taken, cancelTaken := awake.WithTimeout(context.Background(), nativeConfirm)
