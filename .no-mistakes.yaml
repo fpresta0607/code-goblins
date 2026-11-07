@@ -30,7 +30,8 @@ disable_project_settings: true
 # machine and ran the slowest packages twice. An agent-chosen step ran the
 # whole suite here, where supervisor alone takes about 22 minutes, and hit
 # the 30-minute test agent limit with no failing test. It runs the installed
-# cfo, so it works once the CEO installs a build that has `cfo gate test`.
+# cfo, so activation needs an installed build with both `cfo gate test` and
+# `cfo gate prepare` after this configuration lands on the default branch.
 #
 # The lint step reuses the affected-check planner for go vet, without running
 # tests again. Unknown changes keep its full-tree fallback. Native preparation
