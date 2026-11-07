@@ -83,6 +83,25 @@ func ReadPreparedWait(directory, id string) (PreparedWait, error) {
 	return record, record.validate()
 }
 
+// CheckPreparedComeback keeps an uncertain prepared admission from being
+// retried by reboot recovery, including after it published a new generation.
+func CheckPreparedComeback(directory string, meta TaskMeta) error {
+	record, err := ReadPreparedWait(directory, meta.ID)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("prepared dependency evidence cannot be read: %w", err)
+	}
+	if record.Generation != meta.SpawnGen && meta.ResumeOperation != "resume-"+record.Operation {
+		return nil
+	}
+	if record.Phase == "pause-requested" || record.Phase == "resume-requested" || record.Phase == "failed" {
+		return fmt.Errorf("prepared lifecycle admission is %s; inspect before retrying", record.Phase)
+	}
+	return nil
+}
+
 func WritePreparedWait(directory string, record PreparedWait) error {
 	if err := record.validate(); err != nil {
 		return err

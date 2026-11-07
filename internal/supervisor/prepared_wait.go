@@ -389,7 +389,7 @@ func (s *Service) reconcilePreparedWait(ctx context.Context, watched *fleetWakes
 	}
 	lifecycle, err := state.ReadLifecycle(s.Store.Home.State, id)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return s.preparedProblem(&record, "prepared", err)
+		return s.preparedProblem(&record, record.Phase, err)
 	}
 	if record.Phase != "prepared" {
 		switch {

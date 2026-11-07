@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -834,5 +835,110 @@ func TestPreparedRexCleanupDoesNotInventDelivery(t *testing.T) {
 	outcome, err := state.ReadOutcome(fixture.home.State, "package-delivery")
 	if err != nil || outcome.Phase != "stopped" || outcome.Reason != "Worktree returned by cleanup" {
 		t.Fatalf("truthful cleanup outcome overwritten: %+v, %v", outcome, err)
+	}
+}
+
+func TestPreparedWaitPreservesAdmittedPhaseAcrossLifecycleReadErrors(t *testing.T) {
+	for _, phase := range []string{"pause-requested", "paused", "resume-requested"} {
+		t.Run(phase, func(t *testing.T) {
+			fixture := preparedPackage(t)
+			before := fixture.reconcile(t)
+			before.Phase = phase
+			if err := state.WritePreparedWait(fixture.home.State, before); err != nil {
+				t.Fatal(err)
+			}
+			path := state.LifecyclePath(fixture.home.State, fixture.meta.ID)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, path, "{")
+
+			for range 2 {
+				fixture.reopen(t)
+				after := fixture.reconcile(t)
+				if after.Problem == "" {
+					t.Fatal("unreadable lifecycle was not reported")
+				}
+				after.Problem = before.Problem
+				if after != before {
+					t.Fatalf("read error changed admitted state: got %+v, want %+v", after, before)
+				}
+			}
+
+			writeFile(t, path, string(data))
+			fixture.deliver(t)
+			wantCalls := 2
+			if phase == "resume-requested" {
+				wantCalls = 1
+			}
+			for range 2 {
+				fixture.reopen(t)
+				fixture.reconcile(t)
+				if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte}, ""); err != nil {
+					t.Fatal(err)
+				}
+				if wantCalls == 2 {
+					awaitDispatch(t, fixture.service, fixture.spawner, wantCalls)
+				}
+			}
+			if calls := fixture.spawner.recorded(); len(calls) != wantCalls {
+				t.Fatalf("calls after evidence recovered=%v, want %d", calls, wantCalls)
+			}
+		})
+	}
+}
+
+func TestPreparedResumeAdmissionBlocksRebootComeback(t *testing.T) {
+	for _, phase := range []string{"resume-requested", "failed"} {
+		for _, isPublished := range []bool{false, true} {
+			for _, isQueued := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/published=%t/queued=%t", phase, isPublished, isQueued), func(t *testing.T) {
+					fixture := preparedPackage(t)
+					record := fixture.reconcile(t)
+					record.Phase = phase
+					if err := state.WritePreparedWait(fixture.home.State, record); err != nil {
+						t.Fatal(err)
+					}
+					if err := state.WriteLifecycle(fixture.home.State, state.Lifecycle{ID: fixture.meta.ID, Generation: fixture.meta.SpawnGen, Operation: "resume-" + record.Operation, Action: "resume", Phase: "resuming"}); err != nil {
+						t.Fatal(err)
+					}
+					if isPublished {
+						fixture.meta.SpawnGen, fixture.meta.ResumeOperation = "resumed-generation", "resume-"+record.Operation
+						if err := state.WriteTaskMeta(fixture.home.State, fixture.meta); err != nil {
+							t.Fatal(err)
+						}
+					}
+					recorder := &comebackRecorder{}
+					fixture.service.Options.Comeback = &Comeback{SignedIn: func() (time.Time, error) { return thisSignIn, nil }, Goblin: recorder.goblin}
+					comeback := state.Comeback{SignedIn: lastSignIn}
+					if isQueued {
+						comeback.SignedIn = thisSignIn
+						comeback.Goblins = []state.ComebackEntry{{ID: fixture.meta.ID, Generation: fixture.meta.SpawnGen, State: state.ComebackWaiting}}
+					}
+					if err := state.WriteComeback(fixture.home.State, comeback); err != nil {
+						t.Fatal(err)
+					}
+
+					for range 2 {
+						fixture.reopen(t)
+						if _, _, err := fixture.service.planComeback(fixture.now); err != nil {
+							t.Fatal(err)
+						}
+						if isQueued {
+							fixture.service.bringGoblinBack(fixture.service.Options.Comeback, fixture.meta.ID, Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte})
+						}
+					}
+
+					comeback, err := state.ReadComeback(fixture.home.State)
+					if err != nil || len(comeback.Goblins) != 1 || comeback.Goblins[0].State != state.ComebackStopped || !strings.Contains(comeback.Goblins[0].Reason, "prepared") {
+						t.Fatalf("uncertain prepared admission not held visibly: %+v, %v", comeback, err)
+					}
+					if calls := recorder.came(); len(calls) != 0 {
+						t.Fatalf("reboot retried admitted prepared resume: %v", calls)
+					}
+				})
+			}
+		}
 	}
 }

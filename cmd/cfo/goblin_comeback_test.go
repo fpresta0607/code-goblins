@@ -83,6 +83,95 @@ func comebackRuntime(running []string, refused error, switched func(spawn.Switch
 	}
 }
 
+func TestGoblinsResumeDoesNotRepeatPreparedResumeAdmission(t *testing.T) {
+	for _, test := range []struct {
+		name, phase, lifecycle                     string
+		isPublished, isStale, isUnreadable, isLate bool
+		shouldComeBack                             bool
+	}{
+		{name: "uncertain pause", phase: "pause-requested", lifecycle: "resuming"},
+		{name: "interrupted", phase: "resume-requested", lifecycle: "resuming"},
+		{name: "failed", phase: "failed", lifecycle: "resuming"},
+		{name: "published interrupted", phase: "resume-requested", lifecycle: "resuming", isPublished: true},
+		{name: "published failed", phase: "failed", lifecycle: "resuming", isPublished: true},
+		{name: "running lifecycle without completion", phase: "resume-requested", lifecycle: "running"},
+		{name: "unreadable", lifecycle: "resuming", isUnreadable: true},
+		{name: "admitted during room check", phase: "resume-requested", lifecycle: "resuming", isLate: true},
+		{name: "ordinary interrupted", lifecycle: "resuming", shouldComeBack: true},
+		{name: "superseded generation", phase: "failed", lifecycle: "resuming", isStale: true, shouldComeBack: true},
+		{name: "completed prepared resume", phase: "cleared", lifecycle: "running", isPublished: true, shouldComeBack: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			h := comebackHome(t, map[string][2]string{"rex": {"codex", "native"}}, nil)
+			meta, err := state.ReadTaskMeta(h.State, "rex")
+			if err != nil {
+				t.Fatal(err)
+			}
+			at := time.Now().UTC()
+			condition, err := state.NewPauseCondition("dependency", "task:package-delivery", at)
+			if err != nil {
+				t.Fatal(err)
+			}
+			record := state.PreparedWait{ID: meta.ID, Generation: meta.SpawnGen, Project: h.Root, Worktree: h.Root, Session: "saved-rex", Branch: "feat/rex", Head: strings.Repeat("a", 40), Handoff: "handoff.md", Digest: strings.Repeat("b", 64), Condition: condition, PreparedAt: at, Phase: test.phase}
+			if test.isStale {
+				record.Generation = "old-generation"
+			}
+			record.Operation = record.OperationID()
+			if test.isPublished {
+				meta.SpawnGen, meta.ResumeOperation = "resumed-generation", "resume-"+record.Operation
+				if err := state.WriteTaskMeta(h.State, meta); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: "s1", Action: "resume", Phase: test.lifecycle, Operation: "resume-" + record.Operation}); err != nil {
+				t.Fatal(err)
+			}
+			save := func() {
+				t.Helper()
+				if err := state.WritePreparedWait(h.State, record); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if test.phase != "" && !test.isLate {
+				save()
+			}
+			if test.isUnreadable {
+				path := filepath.Join(h.State, "prepared-waits")
+				if err := os.MkdirAll(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(path, meta.ID+".json"), []byte("{"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var switches []spawn.SwitchRequest
+			var resumes []lifecycle.Request
+			runtime := comebackRuntime(nil, nil, func(spawn.SwitchRequest) (spawn.SwitchResult, error) { return spawn.SwitchResult{Resumed: true}, nil }, &switches)
+			runtime.taskLifecycle = func(_ context.Context, _ home.Home, request lifecycle.Request, _ string) (state.Lifecycle, error) {
+				resumes = append(resumes, request)
+				return state.Lifecycle{}, nil
+			}
+			if test.isLate {
+				runtime.admitLaunch = func(home.Home) error { save(); return nil }
+			}
+
+			comeback, _ := bringGoblinBack(t.Context(), h, runtime, meta.ID, restartNote, false)
+
+			if test.shouldComeBack {
+				wantResumes, wantSwitches := 1, 0
+				if test.lifecycle == "running" {
+					wantResumes, wantSwitches = 0, 1
+				}
+				if !comeback.isBack || len(resumes) != wantResumes || len(switches) != wantSwitches {
+					t.Fatalf("ordinary recovery changed: %+v, resumes=%v, switches=%v", comeback, resumes, switches)
+				}
+			} else if comeback.isBack || comeback.isWaiting || !strings.Contains(comeback.said, "prepared") || len(resumes) != 0 || len(switches) != 0 {
+				t.Fatalf("prepared admission retried: %+v, resumes=%v, switches=%v", comeback, resumes, switches)
+			}
+		})
+	}
+}
+
 // After a reboot goblins resume brings back, in place, every goblin whose
 // terminal ended: on its own conversation where the board's record proves it
 // is the task's, and from a handoff where it does not. It leaves a goblin

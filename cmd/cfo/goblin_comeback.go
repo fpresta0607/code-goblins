@@ -111,6 +111,14 @@ func bringGoblinBack(ctx context.Context, h home.Home, runtime commandRuntime, i
 	if err := runtime.admitLaunch(h); err != nil {
 		return goblinComeback{id: id, said: "waits for room: " + err.Error(), isWaiting: true}, true
 	}
+	name := ".prepared-wait-" + id + ".lock"
+	if _, err := lock.AcquireExclusiveNamed(h.State, name); err != nil {
+		return goblinComeback{id: id, said: "prepared dependency admission cannot be checked: " + err.Error()}, true
+	}
+	defer lock.ReleaseExclusiveNamed(h.State, name)
+	if err := state.CheckPreparedComeback(h.State, meta); err != nil {
+		return goblinComeback{id: id, said: err.Error()}, true
+	}
 	// A resume the reboot cut short is finished by a resume, which takes up
 	// what its record kept and leaves the record running, where a bare
 	// switch would leave it reading resuming. A failed pause his message
