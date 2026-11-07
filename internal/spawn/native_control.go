@@ -20,10 +20,6 @@ import (
 // Text nobody says is the Overlord's own, a wake line, a notice or a key,
 // clears the terminal's mark of his input.
 func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text string) error {
-	return s.sendNative(ctx, meta, text)
-}
-
-func (s Service) sendNative(ctx context.Context, meta state.TaskMeta, text string) error {
 	screens, ok := harness.NativeScreens(harness.Kind(meta.Harness))
 	if !ok {
 		return fmt.Errorf("send: native task %s runs %s, whose screens cfo cannot read", meta.ID, meta.Harness)

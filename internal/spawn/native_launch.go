@@ -374,7 +374,6 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 		return fmt.Errorf("spawn: type into native terminal %s: %w", record.ID, err)
 	}
 	defer client.Close()
-	s.markHis(client)
 	if dialog.EscapeHint != "" {
 		if err := client.Input([]byte("\x1b")); err != nil {
 			return fmt.Errorf("spawn: dismiss %s in native terminal %s: %w", dialog.Name, record.ID, err)

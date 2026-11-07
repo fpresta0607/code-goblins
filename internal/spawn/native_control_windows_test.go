@@ -612,6 +612,59 @@ func submittedLines(t *testing.T, f *nativeFixture, n int) []string {
 	return submitted
 }
 
+// A board message or answer of his is his own input, so his harness's next
+// screen is bound to him, while a line nobody says is his, the supervisor's
+// notice, a wake line or a command's own typing, clears that binding: a
+// picker those draw never reaches Modern Chat as his to answer. His mark is
+// never a property of what the generic SendNative is given, so a caller that
+// authors a notice cannot set it by accident.
+func TestOnlyHisOwnDeliveryKeepsTheGoblinsMenuHis(t *testing.T) {
+	// Arrange
+	f := newNativeFixture(t, harness.Codex, "turns")
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitComposer(t, f)
+	record, found := f.terminal()
+	if !found {
+		t.Fatal("the spawn recorded no terminal")
+	}
+	viewer, err := host.View(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer viewer.Close()
+
+	// Act: the board delivers the message he queued, which its own path marks
+	// as his.
+	his := f.service
+	his.His = true
+	if err := his.SendNative(t.Context(), meta, "carry on"); err != nil {
+		t.Fatalf("SendNative: %v", err)
+	}
+
+	// Assert
+	if _, submission, _, err := viewer.Screen(record, ""); err != nil || submission == "" {
+		t.Fatalf("submission = %q, %v after his own message; want the screen bound to him", submission, err)
+	}
+
+	// Act: a notice nobody says is his, as the supervisor's own lines go,
+	// once his own message's turn has ended and the composer waits again.
+	awaitComposer(t, f)
+	if err := f.service.SendNative(t.Context(), meta, "the supervisor's notice"); err != nil {
+		t.Fatalf("SendNative: %v", err)
+	}
+
+	// Assert
+	if _, submission, _, err := viewer.Screen(record, ""); err != nil || submission != "" {
+		t.Fatalf("submission = %q, %v after a notice; want it cleared", submission, err)
+	}
+}
+
 // awaitComposer waits until the fake harness's turn has ended and its
 // composer waits for input.
 func awaitComposer(t *testing.T, f *nativeFixture) {
