@@ -99,7 +99,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	}
 	flags := flag.NewFlagSet("pipeline", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var intent, intentFile, wantBranch, wantRun, admissionFile string
+	var intent, intentFile, wantBranch, wantRun, admissionFile, scopeDecision string
 	isAdmission := args[0] == "validate-authored" || args[0] == "validate-terminal"
 	isPreflight := args[0] == "terminal-preflight"
 	var shouldResume, shouldRevalidatePublication bool
@@ -114,6 +114,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		flags.StringVar(&response.Instructions, "instructions", "", "guidance for selected findings")
 		flags.StringVar(&response.Accept, "accept", "", "with approve: every open ask-user and auto-fix finding the CEO, or the task's own goblin on its run's spent review, accepts as it stands")
 		flags.StringVar(&response.Reason, "reason", "", "with approve of the test step: the operator's reason the native exception record keeps")
+		flags.StringVar(&scopeDecision, "scope-decision", "", "with a Review fix: an answered task decision sequence whose exact accepted scope reaches native")
 	} else if isAdmission {
 		flags.StringVar(&admissionFile, "admission-file", "", "controller-owned native validation admission JSON")
 	} else if args[0] == "handback" {
@@ -185,6 +186,30 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		// An empty --reason, as an unset variable gives, read as no reason would
 		// approve a Test exception with none and no audit of it (issue 1585).
 		return errors.New("pipeline: --reason is empty; it must say why the exception is approved")
+	}
+	scopeDecisionSequence := 0
+	if scopeDecision != "" {
+		// Accepting a Review scope is the registered primary CFO's own
+		// assertion. A gate agent, a goblin or a helper it spawned descends
+		// from that process too, so its environment label is what keeps one
+		// from minting a decision, and the registration stays open until this
+		// command is done so the primary cannot change under it.
+		identityErr := errors.New("a gate agent, goblin or helper cannot act as the registered primary CFO")
+		if os.Getenv(gateAgentVariable) == "" && os.Getenv(harness.RoleVariable) != harness.RoleGoblin {
+			cfo := supervisor.CFOConnection{State: h.State}
+			var release func()
+			_, release, identityErr = cfo.CallerIdentity()
+			if identityErr == nil {
+				defer release()
+			}
+		}
+		if identityErr != nil {
+			return fmt.Errorf("pipeline: --scope-decision is honoured only from the registered primary CFO: %w", identityErr)
+		}
+		scopeDecisionSequence, err = supervisor.QuestionSeq(scopeDecision)
+		if err != nil {
+			return fmt.Errorf("pipeline: --scope-decision %w", err)
+		}
 	}
 	// acceptedBy is who takes the open findings as they stand: the CFO, or
 	// the task itself when its own goblin does.
@@ -346,6 +371,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return nil
 	}
 	var nativeArgs []string
+	var scopeJournal *reviewScopeJournal
 	if args[0] == "respond" {
 		gate, err := reader.Gate(ctx, meta.Project, branch)
 		if err != nil {
@@ -368,6 +394,28 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		}
 		if err != nil {
 			return err
+		}
+		if scopeDecisionSequence != 0 {
+			if gate.Step != "review" || response.Action != "fix" || response.Instructions != "" || pipeline.ReviewCyclesSpent(selection, gate) {
+				return errors.New("pipeline: --scope-decision requires one unspent Review fix with no ordinary instructions")
+			}
+			acceptedScope, err := supervisor.DecisionAnswer(h.State, meta, scopeDecisionSequence)
+			if err != nil {
+				return fmt.Errorf("pipeline: --scope-decision %d: %w", scopeDecisionSequence, err)
+			}
+			encoded, err := reader.ReviewScopeDecision(ctx, gated, nativeEnv(root), gate, response.Findings, fmt.Sprintf("notify-%s-%d", meta.ID, scopeDecisionSequence), acceptedScope)
+			if err != nil {
+				return err
+			}
+			scopeJournal, err = prepareReviewScopeJournal(meta.TaskTmp, encoded)
+			if err != nil {
+				return err
+			}
+			defer os.Remove(scopeJournal.file)
+			if !slices.Contains(nativeArgs, "--run") {
+				nativeArgs = append(nativeArgs, "--run", gate.RunID)
+			}
+			nativeArgs = append(nativeArgs, "--scope-decision-file", scopeJournal.file)
 		}
 		if response.Accept != "" {
 			audit := fmt.Sprintf("pipeline-findings-accepted: step=%s run=%s round=%d findings=%s by=%s", gate.Step, gate.RunID, gate.Round, response.Accept, acceptedBy)
@@ -442,10 +490,33 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if len(result.Stderr) > 0 {
 		fmt.Fprint(out, string(result.Stderr))
 	}
+	if scopeJournal != nil {
+		if recordErr := scopeJournal.Record(h, meta.ID, result, err); recordErr != nil {
+			return errors.Join(err, recordErr)
+		}
+		if err == nil && result.ExitCode == 0 {
+			// Native's exit names its own acknowledgement of the decision ID.
+			// The durable record is required as well, so an acknowledged
+			// acceptance this controller cannot show is still refused rather
+			// than reported as delivered.
+			if confirmErr := reader.ConfirmReviewScope(ctx, gated, nativeEnv(root), scopeJournal.request); confirmErr != nil {
+				return fmt.Errorf("pipeline: native did not confirm the accepted Review scope; the exact outcome is recorded in %s, so inspect its run before any explicit identical replay: %w", reviewScopeJournalFile, confirmErr)
+			}
+			if auditErr := state.AppendStatus(h.State, meta.ID, "pipeline-review-scope-confirmed: "+scopeJournal.describe()); auditErr != nil {
+				return auditErr
+			}
+		}
+	}
 	if err != nil {
+		if scopeJournal != nil {
+			return fmt.Errorf("pipeline: native scope response failed; inspect the recorded outcome before any explicit identical replay: %w", err)
+		}
 		return fmt.Errorf("pipeline: native command failed: %w", err)
 	}
 	if result.ExitCode != 0 {
+		if scopeJournal != nil {
+			return fmt.Errorf("pipeline: native scope response exited %d; its exact outcome is recorded in %s and no ordinary response or retry was attempted", result.ExitCode, reviewScopeJournalFile)
+		}
 		if args[0] == "run" && selection.Policy.Version > 5 && isLaunchSelectionUnknown(result) {
 			return fmt.Errorf("pipeline: native command exited %d. This no-mistakes build takes no launch selection, which policy version %d needs to run a gate on its task's own harness. See docs/pipeline.md for the build that does", result.ExitCode, selection.Policy.Version)
 		}
