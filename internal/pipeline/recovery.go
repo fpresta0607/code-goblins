@@ -17,8 +17,9 @@ import (
 )
 
 type RecoveryResult struct {
-	RunID string
-	Head  string
+	RunID    string
+	Head     string
+	GateHead string
 	// WorktreeEdits is the commit the run worktree's unfinished changes were
 	// preserved at, under WorktreeRef(run), and empty when it held none.
 	WorktreeEdits string
@@ -169,7 +170,7 @@ func (r Reader) recoverRun(ctx context.Context, project, worktree, branch string
 	if err := r.requireReturnedCustody(ctx, worktree, bare, env, run); err != nil {
 		return RecoveryResult{}, err
 	}
-	return RecoveryResult{RunID: run.RunID, Head: run.SubmittedHead, NativeOutput: output}, nil
+	return RecoveryResult{RunID: run.RunID, Head: run.SubmittedHead, GateHead: run.SubmittedHead, NativeOutput: output}, nil
 }
 
 func (r Reader) latestRecoveryRun(ctx context.Context, project, branch string) (recoveryRecord, error) {
@@ -336,7 +337,7 @@ func (r Reader) recoverInheritedPublication(ctx context.Context, project, worktr
 			return RecoveryResult{}, errors.New("pipeline: inherited recovery source anchors changed")
 		}
 	}
-	return RecoveryResult{RunID: run.RunID, Head: run.RecordedHead, NativeOutput: output}, nil
+	return RecoveryResult{RunID: run.RunID, Head: run.RecordedHead, GateHead: gate, NativeOutput: output}, nil
 }
 
 func (s recoverySync) inheritedSource(run recoveryRecord) bool {
@@ -447,7 +448,7 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 		if err := r.requireRef(ctx, bare, gateRef, status.Local.Head); err != nil {
 			return RecoveryResult{}, fmt.Errorf("pipeline: recovered gate branch is unsafe: %w", err)
 		}
-		return RecoveryResult{RunID: run.RunID, Head: status.Local.Head, WorktreeEdits: status.WorktreeEdits, NativeOutput: output}, nil
+		return RecoveryResult{RunID: run.RunID, Head: status.Local.Head, GateHead: status.Local.Head, WorktreeEdits: status.WorktreeEdits, NativeOutput: output}, nil
 	}
 	for _, head := range []string{run.SubmittedHead, status.Local.Head} {
 		if err := r.requireCommit(ctx, worktree, head, false); err != nil {
@@ -520,7 +521,7 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 		}
 		return RecoveryResult{}, errors.Join(err, r.rollbackUserOwned(ctx, bare, gateRef, run, status.Local.Head))
 	}
-	return RecoveryResult{RunID: run.RunID, Head: status.Local.Head, WorktreeEdits: post.WorktreeEdits, NativeOutput: postOutput}, nil
+	return RecoveryResult{RunID: run.RunID, Head: status.Local.Head, GateHead: status.Local.Head, WorktreeEdits: post.WorktreeEdits, NativeOutput: postOutput}, nil
 }
 
 func (r Reader) requireReturnedCustody(ctx context.Context, worktree, bare string, env []string, run recoveryRecord) error {

@@ -14,6 +14,72 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
+func TestRecoverInheritedPublicationReportsDistinctPreservedHeads(t *testing.T) {
+	for _, isReturned := range []bool{false, true} {
+		t.Run(fmt.Sprintf("custody_returned=%t", isReturned), func(t *testing.T) {
+			worktree := t.TempDir()
+			candidate := strings.Repeat("b", 40)
+			publication := strings.Repeat("a", 40)
+			tree := strings.Repeat("c", 40)
+			run := recoveryRecord{RunID: recoveryRun, RepoID: recoveryRepo, Branch: recoveryBranch, Status: "failed", RecordedHead: candidate, SubmittedHead: candidate, PushedHead: publication}
+			if isReturned {
+				run.CustodyReturnedAt = 1
+			}
+			proof := inheritedRecovery{AdmissionID: recoveryRun, Caller: worktree, Tree: tree, PredecessorHead: publication, PredecessorSubmitted: publication, ManagedDir: filepath.Join(worktree, "removed-managed-source")}
+			commands := runnerFunc(func(_ context.Context, request execx.Request) (execx.Result, error) {
+				command := strings.Join(request.Args, " ")
+				switch request.Name {
+				case "sqlite3":
+					var data []byte
+					var err error
+					if strings.Contains(command, "FROM validation_admissions") {
+						data, err = json.Marshal([]inheritedRecovery{proof})
+					} else if strings.Contains(command, "AS recorded_head") {
+						data, err = json.Marshal([]recoveryRecord{run})
+					} else {
+						return execx.Result{}, fmt.Errorf("unexpected recovery query: %s", command)
+					}
+					return execx.Result{Stdout: data}, err
+				case "git":
+					switch {
+					case command == "status --porcelain --untracked-files=all":
+						return execx.Result{}, nil
+					case command == "rev-parse HEAD":
+						return execx.Result{Stdout: []byte(candidate)}, nil
+					case strings.HasSuffix(command, " rev-parse refs/heads/"+recoveryBranch):
+						return execx.Result{Stdout: []byte(publication)}, nil
+					}
+				case "no-mistakes":
+					if command == "axi terminal-preflight --predecessor "+recoveryRun {
+						return execx.Result{Stdout: fmt.Appendf(nil, "predecessor_id: %s\nrepo_id: %s\nbranch: %s\ncandidate_sha: %s\ncandidate_tree: %s\ncaller_is_clean: true\ncandidate_is_terminal_head: true\npublished_head_sha: %s\nsource_anchors:\n  gate/refs/no-mistakes/authored-candidate/%s: %s\n  gate/refs/no-mistakes/recover/%s: %s\n", recoveryRun, recoveryRepo, recoveryBranch, candidate, tree, publication, recoveryRun, candidate, recoveryRun, candidate)}, nil
+					}
+					state, safety, relation := "pipeline_owned", "blocked_pipeline_owned_recoverable", "ahead"
+					if run.CustodyReturnedAt != 0 {
+						state, safety = "local_ahead", "blocked_local_ahead"
+					}
+					if command == "axi sync --recover" && run.CustodyReturnedAt == 0 {
+						run.CustodyReturnedAt = 1
+					} else if command != "axi sync --check" {
+						return execx.Result{}, fmt.Errorf("unexpected native recovery: %s", command)
+					}
+					return execx.Result{Stdout: fmt.Appendf(nil, "branch_sync:\n  recovered: true\n  changed: false\n  state: %s\n  safety: %s\n  relation: %s\n  local: {head: %s, clean: true}\n  pipeline: {run: %s, submitted_head: %s, current_head: %s, pushed_head: %s}\n  next_action: {command: 'no-mistakes axi sync --recover'}\n", state, safety, relation, candidate, recoveryRun, candidate, candidate, publication)}, nil
+				}
+				return execx.Result{}, fmt.Errorf("unexpected recovery command: %s %s", request.Name, command)
+			})
+			reader := newRecoveryReader(t, commands)
+
+			result, err := reader.RecoverKeepLocal(context.Background(), worktree, worktree, recoveryBranch, nil)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Head != candidate || result.GateHead != publication {
+				t.Fatalf("recovery must report the candidate locally and retain the predecessor publication on the gate: %+v", result)
+			}
+		})
+	}
+}
+
 func TestRecoverInheritedPublicationNativeJourney(t *testing.T) {
 	source := os.Getenv("CFO_RECOVERY_NATIVE_SOURCE")
 	if source == "" {
@@ -230,13 +296,14 @@ func TestRecoverInheritedPublicationNativeFixture(t *testing.T) {
 	if original != readDatabase() {
 		t.Fatal("refusal matrix changed the original history")
 	}
+	preservedGate := runPipelineGit(t, bare, "rev-parse", "refs/heads/feature")
 	result, err := reader.RecoverKeepLocal(ctx, project, project, "feature", env)
 	if err != nil {
 		probe, probeErr := reader.Commands.Run(ctx, execx.Request{Dir: project, Env: env, Name: "no-mistakes", Args: []string{"axi", "terminal-preflight", "--predecessor", os.Getenv("CFO_RECOVERY_NATIVE_RUN")}})
 		t.Logf("native preflight: %s %s error=%v", probe.Stdout, probe.Stderr, probeErr)
 		t.Fatal(err)
 	}
-	if result.RunID != os.Getenv("CFO_RECOVERY_NATIVE_RUN") || result.Head != os.Getenv("CFO_RECOVERY_NATIVE_HEAD") {
+	if result.RunID != os.Getenv("CFO_RECOVERY_NATIVE_RUN") || result.Head != os.Getenv("CFO_RECOVERY_NATIVE_HEAD") || result.GateHead != preservedGate || result.GateHead == result.Head {
 		t.Fatalf("recovered another source: %+v", result)
 	}
 	t.Logf("managed recovery: run=%s head=%s\n%s", result.RunID, result.Head, result.NativeOutput)
