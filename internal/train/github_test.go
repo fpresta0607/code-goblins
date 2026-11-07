@@ -2,9 +2,14 @@ package train
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 )
 
 // merges says each merge commit in revision's history, oldest first, as its
@@ -431,5 +436,200 @@ func TestLandedInReadsThePullRequestsOfATrainsMergeCommit(t *testing.T) {
 		if !slices.Equal(got, want) {
 			t.Errorf("LandedIn(%q) = %q, want %q", subject, got, want)
 		}
+	}
+}
+
+func TestNativeCheckProjectionRetainsIdentitiesAndRefusesIncompleteRollup(t *testing.T) {
+	for _, completeness := range []string{"complete", "truncated", "missing page", "missing flag"} {
+		t.Run(completeness, func(t *testing.T) {
+			// Arrange
+			data, err := os.ReadFile("testdata/native-attestation-pr.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var raw GraphPullRequest
+			if err := json.Unmarshal(data, &raw); err != nil {
+				t.Fatal(err)
+			}
+			contexts := &raw.Commits.Nodes[0].Commit.StatusCheckRollup.Contexts
+			switch completeness {
+			case "truncated":
+				*contexts.PageInfo.HasNextPage = true
+			case "missing page":
+				contexts.PageInfo = nil
+			case "missing flag":
+				contexts.PageInfo.HasNextPage = nil
+			}
+			client := githubtest.Client(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				query, _, err := githubtest.Query(r)
+				if err != nil {
+					t.Fatal(err)
+				}
+				repository := map[string]any{}
+				if strings.Contains(query, "pullRequests(") {
+					repository["pullRequests"] = map[string]any{"nodes": []GraphPullRequest{raw}}
+				} else {
+					repository["pullRequest"] = raw
+				}
+				githubtest.Answer(w, map[string]any{"repository": repository})
+			}))
+			// Act
+			listed, listErr := ListPullRequests(context.Background(), client, "fpresta0607/no-mistakes", "main", "")
+			viewed, viewErr := viewPullRequest(context.Background(), client, raw.URL)
+			// Assert
+			if completeness != "complete" {
+				if listErr != nil || viewErr != nil || len(listed) != 1 {
+					t.Fatalf("lost lifecycle metadata: list %v, view %v", listErr, viewErr)
+				}
+				pr := listed[0].PullRequest()
+				riders, _ := Riders([]PullRequest{pr}, "main", pr.Author.Login, goblinsFor(pr), nil)
+				if !pr.IsCheckRollupIncomplete || len(riders) != 0 {
+					t.Fatal("incomplete rollup admitted a rider")
+				}
+				_, _, _, _, ciErr := (Engine{GitHub: client}).ci(context.Background(), Train{PR: raw.URL, Head: raw.HeadRefOid})
+				if ciErr == nil || !strings.Contains(ciErr.Error(), "incomplete check rollup") {
+					t.Fatalf("incomplete CI proof: %v", ciErr)
+				}
+				proof, merge, checks := (Engine{GitHub: client}).ownRun(context.Background(), Train{}, Car{URL: raw.URL, Head: raw.HeadRefOid}, raw.HeadRefOid)
+				if proof != "" || merge != "" || len(checks) != 0 {
+					t.Fatal("incomplete rollup authorized own-run proof")
+				}
+				return
+			}
+			if listErr != nil || viewErr != nil || len(listed) != 1 {
+				t.Fatalf("list %v, view %v", listErr, viewErr)
+			}
+			for _, projected := range []GraphPullRequest{listed[0], viewed} {
+				pr := projected.PullRequest()
+				if len(pr.Checks) != 23 {
+					t.Fatalf("lost check multiplicity: %+v", pr.Checks)
+				}
+				proof, _ := nativeRiderAttestation(pr, nil)
+				if proof == nil || proof.DatabaseID != 127956358474 || proof.SuiteID != 114442038361 || proof.RunID != 42236780731 || proof.WorkflowID != 377882636 || proof.AppID != 15368 || proof.RunAttempt != 1 {
+					t.Fatalf("lost provenance: %+v", proof)
+				}
+			}
+		})
+	}
+}
+
+func TestNativeAttestationBindsActualRunAndWorkflowIdentity(t *testing.T) {
+	for _, test := range []struct {
+		name, target, key string
+		value             any
+		shouldPass        bool
+	}{
+		{name: "dynamic names and absent event action", shouldPass: true},
+		{"run ID", "run", "id", int64(42237139244), false},
+		{"run node", "run", "node_id", "foreign", false},
+		{"suite ID", "run", "check_suite_id", int64(114443026635), false},
+		{"suite node", "run", "check_suite_node_id", "foreign", false},
+		{"run workflow ID", "run", "workflow_id", 1, false},
+		{"run attempt", "run", "run_attempt", 2, false},
+		{"run file", "run", "path", ".github/workflows/test.yml", false},
+		{"event", "run", "event", "push", false},
+		{"head", "run", "head_sha", "other", false},
+		{"repository", "run", "repository", map[string]string{"full_name": "other/repo"}, false},
+		{"workflow ID", "workflow", "id", 1, false},
+		{"workflow node", "workflow", "node_id", "foreign", false},
+		{"workflow name", "workflow", "name", "Other workflow", false},
+		{"workflow path", "workflow", "path", ".github/workflows/test.yml", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			pr := capturedNativePull(t)
+			check, _ := nativeRiderAttestation(pr, nil)
+			if check == nil {
+				t.Fatal("missing native witness")
+			}
+			responses := map[string]map[string]json.RawMessage{}
+			for _, kind := range []string{"run", "workflow"} {
+				data, err := os.ReadFile("testdata/native-attestation-" + kind + ".json")
+				if err != nil {
+					t.Fatal(err)
+				}
+				var response map[string]json.RawMessage
+				if err := json.Unmarshal(data, &response); err != nil {
+					t.Fatal(err)
+				}
+				responses[kind] = response
+			}
+			if test.target != "" {
+				value, err := json.Marshal(test.value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				responses[test.target][test.key] = value
+			}
+			engine := Engine{GitHub: githubtest.Client(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/repos/fpresta0607/no-mistakes/actions/runs/42236780731":
+					githubtest.Write(w, http.StatusOK, responses["run"])
+				case "/repos/fpresta0607/no-mistakes/actions/workflows/377882636":
+					githubtest.Write(w, http.StatusOK, responses["workflow"])
+				default:
+					t.Errorf("unexpected request %s", r.URL.Path)
+					githubtest.Refuse(w, http.StatusNotFound, "unexpected request")
+				}
+			}))}
+			// Act
+			matched, err := engine.isNativePRCheck(context.Background(), Train{Repository: "fpresta0607/no-mistakes"}, *check, pr.HeadRefOid)
+			// Assert
+			if err != nil || matched != test.shouldPass {
+				t.Fatalf("matched %v, error %v", matched, err)
+			}
+		})
+	}
+}
+
+func TestNativeCheckProjectionPreservesOrdinarySavedProof(t *testing.T) {
+	// Arrange: old source proof had no native-only identity fields.
+	data, err := os.ReadFile("testdata/native-attestation-pr.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw GraphPullRequest
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	entry := raw.Rollup()[2]
+	entry.Name = "ordinary source check"
+	expected := Check{Kind: entry.Kind, Name: entry.Name, Status: entry.Status, Conclusion: entry.Conclusion, DetailsURL: entry.DetailsURL, WorkflowName: entry.WorkflowName(), StartedAt: entry.StartedAt, CompletedAt: entry.CompletedAt}
+	// Act / Assert
+	if got := entry.Check(); got != expected {
+		t.Fatalf("native identity extension changed unrelated saved source proof: %+v", got)
+	}
+}
+
+func TestNativeCheckProjectionReconcilesClosedPRBeforeIncompleteChecks(t *testing.T) {
+	// Arrange: closure ends the run even when its old rollup cannot prove CI.
+	data, err := os.ReadFile("testdata/native-attestation-pr.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw GraphPullRequest
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	raw.State = "CLOSED"
+	*raw.Commits.Nodes[0].Commit.StatusCheckRollup.Contexts.PageInfo.HasNextPage = true
+	client := githubtest.Client(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		githubtest.Answer(w, map[string]any{"repository": map[string]any{"pullRequest": raw}})
+	}))
+	// Act
+	viewed, err := viewPullRequest(context.Background(), client, raw.URL)
+	// Assert
+	if err != nil || viewed.State != "CLOSED" {
+		t.Fatalf("closed PR was held by obsolete checks: %+v, %v", viewed, err)
+	}
+	engine := Engine{GitHub: client}
+	outcome, _, _, _, err := engine.ci(context.Background(), Train{PR: raw.URL, Head: raw.HeadRefOid})
+	if err != nil || outcome != "closed" {
+		t.Fatalf("closure outcome %q, %v", outcome, err)
+	}
+	raw.State = "OPEN"
+	outcome, _, _, _, err = engine.ci(context.Background(), Train{PR: raw.URL, Head: "different-head"})
+	if err != nil || outcome != "stale" {
+		t.Fatalf("head transition outcome %q, %v", outcome, err)
 	}
 }

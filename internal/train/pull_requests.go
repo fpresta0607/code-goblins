@@ -13,7 +13,7 @@ import (
 // pullRequestFields selects what Riders, a train and the supervisor read of a
 // pull request in GitHub's GraphQL API: the fields PullRequest holds, and the
 // check rollup of its head as gh's own query asks for it.
-const pullRequestFields = `number url title headRefName headRefOid baseRefName isDraft isCrossRepository mergeable reviewDecision author{login} labels(first:100){nodes{name}} commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ...on CheckRun{name status conclusion startedAt completedAt detailsUrl checkSuite{workflowRun{workflow{name}}}} ...on StatusContext{context state targetUrl createdAt}}}}}}}`
+const pullRequestFields = `number url title headRefName headRefOid baseRefName isDraft isCrossRepository mergeable reviewDecision author{login} labels(first:100){nodes{name}} commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){pageInfo{hasNextPage} nodes{__typename ...on CheckRun{id databaseId name status conclusion startedAt completedAt detailsUrl checkSuite{id databaseId app{databaseId} commit{oid} repository{nameWithOwner} workflowRun{id databaseId runAttempt event file{path repositoryName} workflow{id databaseId name}}}} ...on StatusContext{context state targetUrl createdAt}}}}}}}`
 
 const listPullRequestsQuery = `query($owner:String!,$name:String!,$base:String,$head:String){repository(owner:$owner,name:$name){pullRequests(states:OPEN,baseRefName:$base,headRefName:$head,first:100,orderBy:{field:CREATED_AT,direction:DESC}){nodes{` + pullRequestFields + `}}}}`
 
@@ -45,7 +45,10 @@ type GraphPullRequest struct {
 			Commit struct {
 				StatusCheckRollup *struct {
 					Contexts struct {
-						Nodes []GraphCheck `json:"nodes"`
+						Nodes    []GraphCheck `json:"nodes"`
+						PageInfo *struct {
+							HasNextPage *bool `json:"hasNextPage"`
+						} `json:"pageInfo"`
 					} `json:"contexts"`
 				} `json:"statusCheckRollup"`
 			} `json:"commit"`
@@ -57,6 +60,8 @@ type GraphPullRequest struct {
 // gives it: a check run, with a status and a conclusion, or a commit
 // status, with a state.
 type GraphCheck struct {
+	NodeID      string `json:"id"`
+	DatabaseID  int64  `json:"databaseId"`
 	Kind        string `json:"__typename"`
 	Name        string `json:"name"`
 	Context     string `json:"context"`
@@ -69,9 +74,30 @@ type GraphCheck struct {
 	DetailsURL  string `json:"detailsUrl"`
 	TargetURL   string `json:"targetUrl"`
 	CheckSuite  struct {
+		NodeID     string `json:"id"`
+		DatabaseID int64  `json:"databaseId"`
+		App        struct {
+			DatabaseID int64 `json:"databaseId"`
+		} `json:"app"`
+		Commit struct {
+			OID string `json:"oid"`
+		} `json:"commit"`
+		Repository struct {
+			NameWithOwner string `json:"nameWithOwner"`
+		} `json:"repository"`
 		WorkflowRun *struct {
+			NodeID     string `json:"id"`
+			DatabaseID int64  `json:"databaseId"`
+			RunAttempt int    `json:"runAttempt"`
+			Event      string `json:"event"`
+			File       *struct {
+				Path           string `json:"path"`
+				RepositoryName string `json:"repositoryName"`
+			} `json:"file"`
 			Workflow struct {
-				Name string `json:"name"`
+				NodeID     string `json:"id"`
+				DatabaseID int64  `json:"databaseId"`
+				Name       string `json:"name"`
 			} `json:"workflow"`
 		} `json:"workflowRun"`
 	} `json:"checkSuite"`
@@ -82,6 +108,19 @@ type GraphCheck struct {
 func (c GraphCheck) Check() Check {
 	check := Check{Kind: c.Kind, Name: c.Name, Context: c.Context, Status: c.Status, Conclusion: c.Conclusion, State: c.State, DetailsURL: c.DetailsURL, TargetURL: c.TargetURL, StartedAt: c.StartedAt, CompletedAt: c.CompletedAt}
 	check.WorkflowName = c.WorkflowName()
+	// Keep ordinary source checks byte-equivalent to their saved proof.
+	if c.Kind == "CheckRun" && c.Name == nativeAttestationName {
+		check.DatabaseID, check.NodeID = c.DatabaseID, c.NodeID
+		check.SuiteID, check.SuiteNodeID, check.AppID = c.CheckSuite.DatabaseID, c.CheckSuite.NodeID, c.CheckSuite.App.DatabaseID
+		check.Repository, check.HeadSHA = c.CheckSuite.Repository.NameWithOwner, c.CheckSuite.Commit.OID
+		if run := c.CheckSuite.WorkflowRun; run != nil {
+			check.RunID, check.RunNodeID, check.RunAttempt, check.Event = run.DatabaseID, run.NodeID, run.RunAttempt, run.Event
+			check.WorkflowID, check.WorkflowNodeID = run.Workflow.DatabaseID, run.Workflow.NodeID
+			if run.File != nil {
+				check.WorkflowPath, check.WorkflowRepository = run.File.Path, run.File.RepositoryName
+			}
+		}
+	}
 	if c.Kind == "StatusContext" {
 		check.StartedAt = c.CreatedAt
 	}
@@ -110,6 +149,18 @@ func (p GraphPullRequest) Rollup() []GraphCheck {
 	return rollup
 }
 
+func (p GraphPullRequest) completeChecks() bool {
+	for _, node := range p.Commits.Nodes {
+		if rollup := node.Commit.StatusCheckRollup; rollup != nil {
+			page := rollup.Contexts.PageInfo
+			if page == nil || page.HasNextPage == nil || *page.HasNextPage {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // Checks is the rollup less the workflows' draft job's check, as Checks
 // reads gh's.
 func (p GraphPullRequest) Checks() Checks {
@@ -122,7 +173,7 @@ func (p GraphPullRequest) Checks() Checks {
 
 // PullRequest is the pull request as Riders reads it.
 func (p GraphPullRequest) PullRequest() PullRequest {
-	pr := PullRequest{Number: p.Number, URL: p.URL, Title: p.Title, HeadRefName: p.HeadRefName, HeadRefOid: p.HeadRefOid, BaseRefName: p.BaseRefName, IsDraft: p.IsDraft, IsCrossRepository: p.IsCrossRepository, Mergeable: p.Mergeable, ReviewDecision: p.ReviewDecision, Labels: p.Labels.Nodes, Checks: p.Checks()}
+	pr := PullRequest{Number: p.Number, URL: p.URL, Title: p.Title, HeadRefName: p.HeadRefName, HeadRefOid: p.HeadRefOid, BaseRefName: p.BaseRefName, IsDraft: p.IsDraft, IsCrossRepository: p.IsCrossRepository, Mergeable: p.Mergeable, ReviewDecision: p.ReviewDecision, Labels: p.Labels.Nodes, Checks: p.Checks(), IsCheckRollupIncomplete: !p.completeChecks()}
 	pr.Author.Login = p.Author.Login
 	return pr
 }

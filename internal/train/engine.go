@@ -255,11 +255,11 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 	if run == nil || t.Head == "" || t.PR == "" && run.OwnRun == "" {
 		return e.rebuild(ctx, t, "")
 	}
-	outcome, checks, prChecks, readiness, err := e.ci(ctx, *t)
-	if err != nil {
-		return err
+	outcome, checks, prChecks, readiness, ciErr := e.ci(ctx, *t)
+	if ciErr != nil && outcome != "unproven" {
+		return ciErr
 	}
-	if run != nil && len(run.Passed) == 0 {
+	if ciErr == nil && run != nil && len(run.Passed) == 0 {
 		run.PRChecks = prChecks
 	}
 	if outcome != "passed" && t.DeployHold != nil {
@@ -268,7 +268,7 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 			return err
 		}
 	}
-	if run != nil && len(run.Passed) > 0 {
+	if run != nil && (len(run.Passed) > 0 || ciErr != nil) {
 		if outcome == "stale" && run.OwnRun == "" {
 			return e.holdMerge(ctx, t, "the train head no longer matches the green proof", readiness)
 		}
@@ -281,17 +281,20 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 				return e.rebuildOnMovedBase(ctx, t, base)
 			}
 		}
-		if outcome != "closed" && (outcome != "passed" || !sameChecks(run.PRChecks, prChecks)) {
-			changed, _, err := e.recheck(ctx, t)
-			if err != nil {
-				return err
-			}
-			if len(changed) > 0 {
-				t.endRun(RunChanged, "")
-				return e.rebuild(ctx, t, "the green proof no longer applies, since "+strings.Join(changed, "; "))
-			}
-			return e.holdMerge(ctx, t, "the checks no longer match the green proof", readiness)
+	}
+	if outcome != "closed" && (ciErr != nil || run != nil && len(run.Passed) > 0 && (outcome != "passed" || !sameChecks(run.PRChecks, prChecks))) {
+		changed, _, err := e.recheck(ctx, t)
+		if err != nil {
+			return err
 		}
+		if len(changed) > 0 {
+			t.endRun(RunChanged, "")
+			return e.rebuild(ctx, t, "the run no longer applies, since "+strings.Join(changed, "; "))
+		}
+		if ciErr != nil {
+			return ciErr
+		}
+		return e.holdMerge(ctx, t, "the checks no longer match the green proof", readiness)
 	}
 	if outcome == "failed" {
 		_, failed := checksOutcome(checks)
@@ -304,9 +307,11 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 				return err
 			}
 		}
-		if outcome, err = e.secondTry(ctx, t, failed); err != nil {
+		retriedOutcome, err := e.secondTry(ctx, t, failed)
+		if err != nil {
 			return err
 		}
+		outcome = retriedOutcome
 	}
 	waited := e.Now().Sub(t.Pushed)
 	switch {
@@ -347,6 +352,8 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 // GitHub shows the head, "none" while no check on it ran, "pending" until
 // every check on it concluded, "closed" once the pull request is not open,
 // else "passed" or "failed", with the observed checks.
+// Proof errors return "unproven" so step reconciles lifecycle changes before
+// refusing incomplete checks or unproven native attestation provenance.
 // It also returns GitHub's current merge readiness.
 func (e Engine) ci(ctx context.Context, t Train) (string, []Check, []Check, string, error) {
 	url, head := t.PR, t.Head
@@ -368,26 +375,29 @@ func (e Engine) ci(ctx context.Context, t Train) (string, []Check, []Check, stri
 	if view.HeadRefOid != head {
 		return "stale", nil, nil, view.MergeStateStatus, nil
 	}
+	if !view.completeChecks() {
+		return "unproven", nil, nil, view.MergeStateStatus, fmt.Errorf("merge train %s: GitHub returned an incomplete check rollup for %s", t.ID, url)
+	}
 	checks := view.Checks()
 	var prChecks []Check
 	attestation, _ := nativeAttestation(checks)
 	if run := t.openRun(); (run == nil || run.OwnRun == "") && attestation != nil && attestation.Status == "COMPLETED" && attestation.Conclusion == "FAILURE" {
 		isNative, err := e.isNativePRCheck(ctx, t, *attestation, t.Head)
 		if err != nil {
-			return "", nil, nil, view.MergeStateStatus, err
+			return "unproven", nil, nil, view.MergeStateStatus, err
 		}
 		if isNative {
 			for _, i := range t.carsIn(CarRiding) {
 				car := t.Cars[i]
 				if !successfulAttestation(car.NativeAttestation) {
-					return "", nil, nil, view.MergeStateStatus, fmt.Errorf("merge train %s: #%d has no admitted native attestation", t.ID, t.Cars[i].Number)
+					return "unproven", nil, nil, view.MergeStateStatus, fmt.Errorf("merge train %s: #%d has no admitted native attestation", t.ID, t.Cars[i].Number)
 				}
 				isNative, err := e.isNativePRCheck(ctx, t, *car.NativeAttestation, car.Head)
 				if err != nil {
-					return "", nil, nil, view.MergeStateStatus, err
+					return "unproven", nil, nil, view.MergeStateStatus, err
 				}
 				if !isNative {
-					return "", nil, nil, view.MergeStateStatus, fmt.Errorf("merge train %s: #%d's native attestation provenance does not match the required PR-only workflow", t.ID, car.Number)
+					return "unproven", nil, nil, view.MergeStateStatus, fmt.Errorf("merge train %s: #%d's native attestation provenance does not match the required PR-only workflow", t.ID, car.Number)
 				}
 			}
 			prChecks = []Check{*attestation}
@@ -407,24 +417,39 @@ func (e Engine) ci(ctx context.Context, t Train) (string, []Check, []Check, stri
 // workflow file, event and PR head. A same-named foreign job or workflow
 // is ordinary CI and receives no exception.
 func (e Engine) isNativePRCheck(ctx context.Context, t Train, check Check, head string) (bool, error) {
-	prefix := "https://github.com/" + t.Repository + "/actions/runs/"
-	if !strings.HasPrefix(check.DetailsURL, prefix) {
+	if !check.isNativePRCheck(t.Repository, head) {
 		return false, nil
 	}
-	found := actionsRun.FindStringSubmatch(check.DetailsURL)
-	if found == nil {
+	var run struct {
+		ID          int64  `json:"id"`
+		NodeID      string `json:"node_id"`
+		SuiteID     int64  `json:"check_suite_id"`
+		SuiteNodeID string `json:"check_suite_node_id"`
+		WorkflowID  int64  `json:"workflow_id"`
+		Attempt     int    `json:"run_attempt"`
+		Path        string `json:"path"`
+		Event       string `json:"event"`
+		Head        string `json:"head_sha"`
+		Repository  struct {
+			FullName string `json:"full_name"`
+		} `json:"repository"`
+	}
+	if err := e.get(ctx, fmt.Sprintf("repos/%s/actions/runs/%d", t.Repository, check.RunID), &run); err != nil {
+		return false, err
+	}
+	if run.ID != check.RunID || run.NodeID != check.RunNodeID || run.SuiteID != check.SuiteID || run.SuiteNodeID != check.SuiteNodeID || run.WorkflowID != check.WorkflowID || run.Attempt != check.RunAttempt || run.Path != nativeAttestationPath || run.Event != "pull_request" || run.Head != head || run.Repository.FullName != t.Repository {
 		return false, nil
 	}
 	var workflow struct {
-		Name  string `json:"name"`
-		Path  string `json:"path"`
-		Event string `json:"event"`
-		Head  string `json:"head_sha"`
+		ID     int64  `json:"id"`
+		NodeID string `json:"node_id"`
+		Name   string `json:"name"`
+		Path   string `json:"path"`
 	}
-	if err := e.get(ctx, "repos/"+t.Repository+"/actions/runs/"+found[1], &workflow); err != nil {
+	if err := e.get(ctx, fmt.Sprintf("repos/%s/actions/workflows/%d", t.Repository, check.WorkflowID), &workflow); err != nil {
 		return false, err
 	}
-	return workflow.Name == nativeAttestationWorkflow && workflow.Path == ".github/workflows/no-mistakes-required.yml" && workflow.Event == "pull_request" && workflow.Head == head, nil
+	return workflow.ID == check.WorkflowID && workflow.NodeID == check.WorkflowNodeID && workflow.Name == nativeAttestationWorkflow && workflow.Path == nativeAttestationPath, nil
 }
 
 func (e Engine) save(t *Train) error {

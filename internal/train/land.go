@@ -163,6 +163,7 @@ func (e Engine) recheck(ctx context.Context, t *Train) ([]string, string, error)
 		return nil, "", err
 	}
 	var changed []string
+	var proofErr error
 	for _, i := range t.carsIn(CarRiding) {
 		car := &t.Cars[i]
 		isLanded, err := e.isOnFetchedBase(ctx, *t, car.Head, base)
@@ -200,10 +201,15 @@ func (e Engine) recheck(ctx context.Context, t *Train) ([]string, string, error)
 			case pr.ReviewDecision == "CHANGES_REQUESTED" || pr.ReviewDecision == "REVIEW_REQUIRED":
 				why = "it waits on a review"
 			case pr.Mergeable != "MERGEABLE":
-				return nil, "", fmt.Errorf("merge train %s: #%d's mergeability is unknown", t.ID, car.Number)
+				why = ""
+				proofErr = errors.Join(proofErr, fmt.Errorf("merge train %s: #%d's mergeability is unknown", t.ID, car.Number))
 			default:
 				why = ""
-				attestation, hasAttestation := nativeAttestation(pr.Checks)
+				if pr.IsCheckRollupIncomplete {
+					proofErr = errors.Join(proofErr, fmt.Errorf("merge train %s: #%d's check rollup is incomplete", t.ID, car.Number))
+					break
+				}
+				attestation, hasAttestation := nativeRiderAttestation(pr, car.NativeAttestation)
 				if car.NativeAttestation != nil && (!successfulAttestation(attestation) || *attestation != *car.NativeAttestation) || hasAttestation && !successfulAttestation(attestation) {
 					why = "its native attestation no longer matches the admitted head's proof"
 					break
@@ -220,7 +226,13 @@ func (e Engine) recheck(ctx context.Context, t *Train) ([]string, string, error)
 			changed = append(changed, fmt.Sprintf("#%d %s", car.Number, why))
 		}
 	}
-	return changed, base, nil
+	if proofErr != nil {
+		if len(changed) > 0 {
+			t.endRun(RunChanged, "")
+		}
+		proofErr = errors.Join(proofErr, e.save(t))
+	}
+	return changed, base, proofErr
 }
 
 // openPulls reads the open pull requests into the train's base as GitHub has
