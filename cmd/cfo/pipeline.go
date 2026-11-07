@@ -102,7 +102,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	var intent, intentFile, wantBranch, wantRun, admissionFile string
 	isAdmission := args[0] == "validate-authored" || args[0] == "validate-terminal"
 	isPreflight := args[0] == "terminal-preflight"
-	var shouldResume bool
+	var shouldResume, shouldRevalidatePublication bool
 	var receipt string
 	var response pipeline.Response
 	if args[0] == "run" {
@@ -119,6 +119,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	} else if args[0] == "handback" {
 		flags.BoolVar(&shouldResume, "resume", false, "submit the authored correction to the same native run")
 		flags.StringVar(&receipt, "receipt", "", "the native release receipt required with --resume")
+		flags.BoolVar(&shouldRevalidatePublication, "revalidate-publication", false, "release a post-validation publication with historical evidence pinned; primary CFO only")
 	}
 	if args[0] == "run" || args[0] == "respond" || args[0] == "recover" || args[0] == "handback" || isAdmission {
 		flags.StringVar(&wantBranch, "branch", "", "the branch, checked out in one of the task's worktrees, to act on")
@@ -138,7 +139,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if isPreflight && wantRun == "" {
 		return errors.New("pipeline: terminal-preflight requires --run <predecessor>")
 	}
-	if isAdmission || isPreflight {
+	if isAdmission || isPreflight || shouldRevalidatePublication {
 		cfo := supervisor.CFOConnection{State: h.State}
 		var release func()
 		err := errors.New("gate agents and goblins cannot act as the registered primary CFO")
@@ -146,6 +147,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			_, release, err = cfo.CallerIdentity()
 		}
 		if err != nil {
+			if shouldRevalidatePublication {
+				return fmt.Errorf("pipeline: --revalidate-publication requires the registered primary CFO: %w", err)
+			}
 			if isAdmission {
 				return fmt.Errorf("pipeline: validation admission and successor selection require the registered primary CFO: %w", err)
 			}
@@ -314,7 +318,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return nil
 	}
 	if args[0] == "handback" {
-		result, err := reader.Handback(ctx, meta.Project, gated, branch, wantRun, receipt, nativeEnv(root))
+		result, err := reader.Handback(ctx, meta.Project, gated, branch, wantRun, receipt, shouldRevalidatePublication, nativeEnv(root))
 		fmt.Fprint(out, string(result.Stdout), string(result.Stderr))
 		if err != nil {
 			return fmt.Errorf("pipeline: native handback failed: %w", err)
@@ -323,7 +327,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			if shouldResume && isGateWaitElapsed(result) {
 				return fmt.Errorf("%w: the native handback hold elapsed while the same run continues; inspect its status and receipt before an explicit continuation; no replacement run was started", pipeline.ErrUnresolved)
 			}
-			return fmt.Errorf("pipeline: native handback exited %d; inspect its result before any explicit retry; a supported axi handback --expect contract is required", result.ExitCode)
+			return fmt.Errorf("pipeline: native handback exited %d; inspect the native refusal above and its status and receipt before any explicit retry; no replacement run was started", result.ExitCode)
 		}
 		return nil
 	}

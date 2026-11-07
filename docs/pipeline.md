@@ -189,6 +189,7 @@ cfo pipeline respond <id> --action approve --accept ask-1,bug-2 --reason "the on
 cfo pipeline respond <id> --branch fix/connections --action approve
 cfo pipeline recover <id>
 cfo pipeline handback <id> --run <run-id>
+cfo pipeline handback <id> --run <run-id> --revalidate-publication
 cfo pipeline handback <id> --run <run-id> --resume --receipt <native-receipt-id>
 cfo pipeline migrate <id>
 ```
@@ -229,9 +230,15 @@ For eligible published CI failures with automatic CI repair disabled, `handback`
 It prints the native receipt and next action while retaining the same task, run, pull request, unresolved findings, commits and spent repair allowance.
 Follow the native source-preservation instructions, commit the authored correction, then submit it with `handback --resume --receipt <native-receipt-id>` for full validation in that same run before publication.
 The wrapper binds each request to the exact recorded repository, run, branch, caller, heads and push generation; continuation also binds the native release receipt.
+When Document or Lint advances the publication beyond its recorded Review or Test head, the registered primary CEO may explicitly select `--revalidate-publication` to request native publication revalidation.
+Goblins and gate agents cannot select this new source authority, even with inherited primary credentials or ancestry.
+Without the flag the existing native eligibility checks apply unchanged.
+The selection preserves historical evidence and spending; it does not certify the published descendant, and receipt-bound `--resume` requires fresh proof of the final source in the same run and pull request.
+Continuation uses the receipt's recorded selection without requiring the flag again.
+Native still verifies source ancestry and publication identity, and a refusal, including one after a native rebase, remains unresolved rather than being relaxed by the wrapper.
 Both handback modes refuse a pending or unreadable policy migration journal without changing the journal, frozen policy, task metadata or audit log.
 Recover the migration explicitly with `cfo pipeline migrate <id>` before requesting handback.
-It requires a native build supporting `axi handback --expect` and receipt-bound `--resume`, and refuses when that contract is unavailable.
+It requires a native build supporting `axi handback --expect` and receipt-bound `--resume`, plus `--revalidate-publication` when explicitly selected, and refuses when that contract is unavailable.
 It never substitutes recovery, approval, a CI fixer or a fresh run.
 A refusal or elapsed hold is reported without automatic retry; inspect the native status and receipt before continuing.
 
