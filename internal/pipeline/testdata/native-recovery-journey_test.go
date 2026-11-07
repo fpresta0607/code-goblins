@@ -210,13 +210,34 @@ func TestControllerInheritedPublicationJourney(t *testing.T) {
 	}
 }
 
-func TestControllerAuthoredCancellationRemainsRefused(t *testing.T) {
+func TestControllerUnpublishedAuthoredJourney(t *testing.T) {
 	manager, database, repo, params, gate := authoredAdmissionFixture(t, nil)
 	parent, err := database.GetRun(params.Request.PredecessorID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := database.UpdateRunStatusWithVerifiedHead(parent.ID, types.RunCancelled, parent.HeadSHA); err != nil {
+		t.Fatal(err)
+	}
+	review, err := database.InsertStepResult(parent.ID, types.StepReview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.StartStepWithAutoFixLimit(review.ID, 2); err != nil {
+		t.Fatal(err)
+	}
+	selected := `["R1"]`
+	round, err := database.InsertStepRound(review.ID, 1, "initial", nil, nil, 71)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetStepRoundSelection(round.ID, &selected, db.RoundSelectionSourceUser); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.InsertStepRound(review.ID, 2, "user_fix", nil, nil, 83); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.FailStep(review.ID, "retained original Review failure", 154); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := database.ReadTerminalSnapshot(params.Request.PredecessorID)
@@ -234,7 +255,72 @@ func TestControllerAuthoredCancellationRemainsRefused(t *testing.T) {
 	}
 	gitCmd(t, gate, "fetch", "--no-tags", "--no-write-fetch-head", repo.WorkingPath, params.Request.CandidateSHA)
 	gitCmd(t, gate, "update-ref", "refs/no-mistakes/authored-candidate/"+event.ID, params.Request.CandidateSHA)
+	childReview, err := database.InsertStepResult(event.ChildID, types.StepReview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.StartStepWithAutoFixLimit(childReview.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.FailStep(childReview.ID, "cancelled at Review", 19); err != nil {
+		t.Fatal(err)
+	}
 	if err := database.UpdateRunStatusWithVerifiedHead(event.ChildID, types.RunCancelled, params.Request.CandidateSHA); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.RecordTerminalSourceState(event.ChildID, "clean:"+params.Request.CandidateSHA); err != nil {
+		t.Fatal(err)
+	}
+	gateHead := gitOutput(t, gate, "rev-parse", "refs/heads/feature")
+	before, err := database.ReadTerminalSnapshot(event.ChildID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &branchsync.Service{DB: database, Repo: repo, WorkDir: repo.WorkingPath, GateDir: gate, Paths: manager.paths}
+	status := service.InspectCached(context.Background())
+	if status.State != "user_owned" || before.Run.CustodyReturnedAt != nil || gateHead == params.Request.CandidateSHA {
+		t.Fatalf("unpublished authored fixture: %+v", status)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	native := exec.CommandContext(ctx, "no-mistakes", "axi", "sync", "--recover")
+	native.Dir = repo.WorkingPath
+	native.Env = append(os.Environ(), "NM_HOME="+manager.paths.Root())
+	winproc.Harden(native)
+	output, err := native.CombinedOutput()
+	t.Logf("independent unpublished native recovery:\n%s", output)
+	after, snapshotErr := database.ReadTerminalSnapshot(event.ChildID)
+	if err != nil || snapshotErr != nil || !reflect.DeepEqual(before, after) || gitOutput(t, gate, "rev-parse", "refs/heads/feature") != gateHead {
+		t.Fatalf("native user-owned recovery changed source or history: %v %v", err, snapshotErr)
+	}
+	if err := os.WriteFile(filepath.Join(manager.paths.Root(), ".controller-recovery-fixture"), []byte("isolated native admission fixture\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.CommandContext(ctx, os.Getenv("CFO_RECOVERY_CONTROLLER_TESTS"), "-test.run", "^TestRecoverInheritedPublicationNativeFixture$", "-test.v", "-test.timeout", "25s")
+	command.Dir = filepath.Join(os.Getenv("CFO_RECOVERY_NATIVE_CONTROLLER"), "internal", "pipeline")
+	winproc.Harden(command)
+	command.Env = append(os.Environ(), "CFO_RECOVERY_NATIVE_ROOT="+manager.paths.Root(), "CFO_RECOVERY_NATIVE_PROJECT="+repo.WorkingPath, "CFO_RECOVERY_NATIVE_RUN="+event.ChildID, "CFO_RECOVERY_NATIVE_HEAD="+params.Request.CandidateSHA, "CFO_RECOVERY_EXPECT_AUTHORED_UNPUBLISHED=1")
+	output, err = command.CombinedOutput()
+	t.Logf("unpublished authored controller recovery:\n%s", output)
+	if err != nil || gitOutput(t, gate, "rev-parse", "refs/heads/feature") != gateHead {
+		t.Fatalf("unpublished authored recovery failed: %v", err)
+	}
+}
+
+func TestControllerOrdinaryCancellationRemainsRefused(t *testing.T) {
+	manager, database, repo, params, gate := authoredAdmissionFixture(t, nil)
+	parent, err := database.GetRun(params.Request.PredecessorID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.UpdateRunStatusWithVerifiedHead(parent.ID, types.RunCancelled, parent.HeadSHA); err != nil {
+		t.Fatal(err)
+	}
+	run, err := database.InsertRun(repo.ID, "feature", params.Request.CandidateSHA, params.Request.CandidateSHA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.UpdateRunStatusWithVerifiedHead(run.ID, types.RunCancelled, run.HeadSHA); err != nil {
 		t.Fatal(err)
 	}
 	gateHead := gitOutput(t, gate, "rev-parse", "refs/heads/feature")
@@ -246,10 +332,10 @@ func TestControllerAuthoredCancellationRemainsRefused(t *testing.T) {
 	command := exec.CommandContext(ctx, os.Getenv("CFO_RECOVERY_CONTROLLER_TESTS"), "-test.run", "^TestRecoverInheritedPublicationNativeFixture$", "-test.v", "-test.timeout", "25s")
 	command.Dir = filepath.Join(os.Getenv("CFO_RECOVERY_NATIVE_CONTROLLER"), "internal", "pipeline")
 	winproc.Harden(command)
-	command.Env = append(os.Environ(), "CFO_RECOVERY_NATIVE_ROOT="+manager.paths.Root(), "CFO_RECOVERY_NATIVE_PROJECT="+repo.WorkingPath, "CFO_RECOVERY_NATIVE_RUN="+event.ChildID, "CFO_RECOVERY_NATIVE_HEAD="+params.Request.CandidateSHA, "CFO_RECOVERY_EXPECT_USER_OWNED=1")
+	command.Env = append(os.Environ(), "CFO_RECOVERY_NATIVE_ROOT="+manager.paths.Root(), "CFO_RECOVERY_NATIVE_PROJECT="+repo.WorkingPath, "CFO_RECOVERY_NATIVE_RUN="+run.ID, "CFO_RECOVERY_NATIVE_HEAD="+run.HeadSHA, "CFO_RECOVERY_EXPECT_USER_OWNED=1")
 	output, err := command.CombinedOutput()
-	t.Logf("separate user-owned cancellation:\n%s", output)
+	t.Logf("ordinary user-owned cancellation:\n%s", output)
 	if err != nil || gitOutput(t, gate, "rev-parse", "refs/heads/feature") != gateHead {
-		t.Fatalf("user-owned cancellation changed: %v", err)
+		t.Fatalf("ordinary cancellation changed: %v", err)
 	}
 }

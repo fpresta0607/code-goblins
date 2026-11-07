@@ -70,7 +70,22 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 		return RecoveryResult{}, err
 	}
 	if run.PushedHead != "" {
-		return r.recoverInheritedPublication(ctx, project, worktree, branch, env, run)
+		return r.recoverAuthoredCandidate(ctx, project, worktree, branch, env, run)
+	}
+	if run.RecordedHead == run.SubmittedHead && run.CustodyReturnedAt == 0 {
+		gate, err := r.readRef(ctx, filepath.Join(r.Root, "repos", run.RepoID+".git"), "refs/heads/"+branch)
+		if err != nil {
+			return RecoveryResult{}, err
+		}
+		if gate != run.RecordedHead {
+			head, err := r.runGit(ctx, worktree, false, "rev-parse", "HEAD")
+			if err != nil || head.ExitCode != 0 {
+				return RecoveryResult{}, errors.New("pipeline: recovery caller head cannot be read")
+			}
+			if strings.TrimSpace(string(head.Stdout)) == run.RecordedHead {
+				return r.recoverAuthoredCandidate(ctx, project, worktree, branch, env, run)
+			}
+		}
 	}
 	// Native recovery removes a failed run's worktree with force, so the
 	// fixer's unfinished repairs are preserved before anything recovery runs.
@@ -197,7 +212,7 @@ func (r Reader) latestRecoveryCandidate(ctx context.Context, project, branch str
 	return run, nil
 }
 
-type inheritedRecovery struct {
+type authoredRecovery struct {
 	AdmissionID          string `json:"admission_id"`
 	Event                string `json:"event"`
 	Caller               string `json:"caller"`
@@ -207,36 +222,36 @@ type inheritedRecovery struct {
 	ManagedDir           string `json:"managed_dir"`
 }
 
-// inheritedRecovery binds the child's unchanged source and publication to its
+// authoredRecovery binds the child's unchanged source and publication to its
 // immutable admission. Native preflight owns history and source-anchor proof.
-func (r Reader) inheritedRecovery(ctx context.Context, run recoveryRecord) (inheritedRecovery, error) {
-	var rows []inheritedRecovery
-	query := `SELECT a.id AS admission_id,a.event_json AS event,json_extract(a.event_json,'$.Request.caller_dir') AS caller,json_extract(a.event_json,'$.Request.candidate_tree') AS tree,json_extract(a.event_json,'$.Snapshot.Run.HeadSHA') AS predecessor_head,json_extract(a.event_json,'$.Snapshot.Run.SubmittedHeadSHA') AS predecessor_submitted,r.worktree_dir AS managed_dir FROM validation_admissions a JOIN runs r ON r.id=a.child_id WHERE r.id=` + sqlString(run.RunID) + ` AND r.repo_id=` + sqlString(run.RepoID) + ` AND r.branch=` + sqlString(run.Branch) + ` AND r.head_sha=` + sqlString(run.RecordedHead) + ` AND r.submitted_head_sha=r.head_sha AND r.last_pushed_sha=` + sqlString(run.PushedHead) + ` AND r.head_sha<>r.last_pushed_sha AND r.status=` + sqlString(run.Status) + ` AND COALESCE(r.push_active,0)=0 AND r.terminal_head_verified_at>0 AND a.id=json_extract(a.event_json,'$.ID') AND a.child_id=json_extract(a.event_json,'$.ChildID') AND a.predecessor_id=json_extract(a.event_json,'$.Request.predecessor_id') AND r.head_sha=json_extract(a.event_json,'$.Request.candidate_sha') AND r.last_pushed_sha=json_extract(a.event_json,'$.Request.published_head_sha') AND r.push_generation=json_extract(a.event_json,'$.Request.push_generation') AND r.push_target_fingerprint=json_extract(a.event_json,'$.Request.push_target_fingerprint')`
+func (r Reader) authoredRecovery(ctx context.Context, run recoveryRecord) (authoredRecovery, error) {
+	var rows []authoredRecovery
+	query := `SELECT a.id AS admission_id,a.event_json AS event,json_extract(a.event_json,'$.Request.caller_dir') AS caller,json_extract(a.event_json,'$.Request.candidate_tree') AS tree,json_extract(a.event_json,'$.Snapshot.Run.HeadSHA') AS predecessor_head,json_extract(a.event_json,'$.Snapshot.Run.SubmittedHeadSHA') AS predecessor_submitted,r.worktree_dir AS managed_dir FROM validation_admissions a JOIN runs r ON r.id=a.child_id WHERE r.id=` + sqlString(run.RunID) + ` AND r.repo_id=` + sqlString(run.RepoID) + ` AND r.branch=` + sqlString(run.Branch) + ` AND r.head_sha=` + sqlString(run.RecordedHead) + ` AND r.submitted_head_sha=r.head_sha AND COALESCE(r.last_pushed_sha,'')=` + sqlString(run.PushedHead) + ` AND r.head_sha<>COALESCE(r.last_pushed_sha,'') AND r.status=` + sqlString(run.Status) + ` AND COALESCE(r.push_active,0)=0 AND r.terminal_head_verified_at>0 AND a.id=json_extract(a.event_json,'$.ID') AND a.child_id=json_extract(a.event_json,'$.ChildID') AND a.predecessor_id=json_extract(a.event_json,'$.Request.predecessor_id') AND r.head_sha=json_extract(a.event_json,'$.Request.candidate_sha') AND COALESCE(r.last_pushed_sha,'')=json_extract(a.event_json,'$.Request.published_head_sha') AND COALESCE(r.push_generation,0)=json_extract(a.event_json,'$.Request.push_generation') AND COALESCE(r.push_target_fingerprint,'')=json_extract(a.event_json,'$.Request.push_target_fingerprint')`
 	for column, field := range map[string]string{
 		"id": "ID", "repo_id": "RepoID", "branch": "Branch", "head_sha": "HeadSHA", "submitted_head_sha": "SubmittedHeadSHA",
 		"last_pushed_sha": "LastPushedSHA", "push_generation": "PushGeneration", "push_target_kind": "PushTargetKind", "push_target_fingerprint": "PushTargetFingerprint", "push_ref": "PushRef", "last_pushed_at": "LastPushedAt", "pr_url": "PRURL",
 		"launch_nonce": "LaunchNonce", "launch_validation_generation": "LaunchValidationGeneration", "launch_intent_digest": "LaunchIntentDigest", "intent": "Intent", "worktree_dir": "WorktreeDir",
 	} {
-		query += ` AND r.` + column + `=json_extract(a.event_json,'$.InitialChild.` + field + `')`
+		query += ` AND r.` + column + ` IS json_extract(a.event_json,'$.InitialChild.` + field + `')`
 	}
 	for _, field := range []string{"LastPushedSHA", "PushGeneration", "PushTargetKind", "PushTargetFingerprint", "PushRef", "LastPushedAt", "PRURL"} {
-		query += ` AND json_extract(a.event_json,'$.InitialChild.` + field + `')=json_extract(a.event_json,'$.Snapshot.Run.` + field + `')`
+		query += ` AND json_extract(a.event_json,'$.InitialChild.` + field + `') IS json_extract(a.event_json,'$.Snapshot.Run.` + field + `')`
 	}
 	query += ` AND r.terminal_source_state='clean:'||r.head_sha AND NOT EXISTS(SELECT 1 FROM step_results s WHERE s.run_id=r.id AND (COALESCE(s.agent_pid,0)<>0 OR COALESCE(s.auto_fix_limit,0)<>0 OR s.status IN ('running','fixing','awaiting_approval','fix_review'))) AND r.id=(SELECT latest.id FROM runs latest WHERE latest.repo_id=r.repo_id AND latest.branch=r.branch ORDER BY latest.created_at DESC,latest.id DESC LIMIT 1)`
 	query += ` AND NOT EXISTS(SELECT 1 FROM step_rounds q JOIN step_results s ON s.id=q.step_result_id WHERE s.run_id=r.id AND (q.trigger_type IN ('auto_fix','user_fix') OR q.selection_source IN ('auto_fix','user') OR q.starting_head_sha<>r.head_sha OR q.reviewed_head_sha<>r.head_sha))`
 	if err := r.query(ctx, query, &rows); err != nil {
-		return inheritedRecovery{}, err
+		return authoredRecovery{}, err
 	}
 	if len(rows) != 1 || !gateIdentity.MatchString(rows[0].AdmissionID) || !gateCommit.MatchString(rows[0].Tree) || !filepath.IsAbs(rows[0].ManagedDir) {
-		return inheritedRecovery{}, errors.New("pipeline: inherited publication lacks exact unchanged admission provenance")
+		return authoredRecovery{}, errors.New("pipeline: authored recovery lacks exact unchanged admission provenance")
 	}
 	return rows[0], nil
 }
 
-func (r Reader) inheritedRecoveryAnchors(ctx context.Context, worktree string, env []string, run recoveryRecord, proof inheritedRecovery) (map[string]string, error) {
+func (r Reader) authoredRecoveryAnchors(ctx context.Context, worktree string, env []string, run recoveryRecord, proof authoredRecovery) (map[string]string, error) {
 	result, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Env: env, Name: "no-mistakes", Args: []string{"axi", "terminal-preflight", "--predecessor", run.RunID}})
 	if err != nil || result.ExitCode != 0 {
-		return nil, errors.New("pipeline: native inherited recovery history could not be verified")
+		return nil, errors.New("pipeline: native authored recovery history could not be verified")
 	}
 	var status struct {
 		RunID       string            `yaml:"predecessor_id"`
@@ -251,21 +266,21 @@ func (r Reader) inheritedRecoveryAnchors(ctx context.Context, worktree string, e
 		Anchors     map[string]string `yaml:"source_anchors"`
 	}
 	if yaml.Unmarshal(result.Stdout, &status) != nil || status.RunID != run.RunID || status.RepoID != run.RepoID || status.Branch != run.Branch || status.Candidate != run.RecordedHead || status.Tree != proof.Tree || !status.IsClean || !status.IsTerminal || status.IsCompeting || status.Publication != run.PushedHead {
-		return nil, errors.New("pipeline: native inherited recovery source or ownership changed")
+		return nil, errors.New("pipeline: native authored recovery source or ownership changed")
 	}
-	if status.Anchors["gate/refs/no-mistakes/authored-candidate/"+proof.AdmissionID] != run.RecordedHead || status.Anchors["gate/refs/no-mistakes/recover/"+run.RunID] != run.RecordedHead {
-		return nil, errors.New("pipeline: inherited recovery requires exact admission and restart source anchors")
+	if status.Anchors["gate/refs/no-mistakes/authored-candidate/"+proof.AdmissionID] != run.RecordedHead || run.PushedHead != "" && status.Anchors["gate/refs/no-mistakes/recover/"+run.RunID] != run.RecordedHead {
+		return nil, errors.New("pipeline: authored recovery requires exact admission and restart source anchors")
 	}
 	return status.Anchors, nil
 }
 
-func (r Reader) recoverInheritedPublication(ctx context.Context, project, worktree, branch string, env []string, run recoveryRecord) (RecoveryResult, error) {
-	proof, err := r.inheritedRecovery(ctx, run)
+func (r Reader) recoverAuthoredCandidate(ctx context.Context, project, worktree, branch string, env []string, run recoveryRecord) (RecoveryResult, error) {
+	proof, err := r.authoredRecovery(ctx, run)
 	if err != nil {
 		return RecoveryResult{}, err
 	}
 	if !fsx.SamePath(proof.Caller, worktree) {
-		return RecoveryResult{}, errors.New("pipeline: inherited recovery belongs to another caller")
+		return RecoveryResult{}, errors.New("pipeline: authored recovery belongs to another caller")
 	}
 	if err := r.requireCleanHead(ctx, worktree, run.RecordedHead); err != nil {
 		return RecoveryResult{}, err
@@ -274,7 +289,7 @@ func (r Reader) recoverInheritedPublication(ctx context.Context, project, worktr
 	if _, err := os.Stat(proof.ManagedDir); err == nil {
 		common, err := r.runGit(ctx, proof.ManagedDir, false, "rev-parse", "--path-format=absolute", "--git-common-dir")
 		if err != nil || common.ExitCode != 0 || !fsx.SamePath(strings.TrimSpace(string(common.Stdout)), bare) {
-			return RecoveryResult{}, errors.New("pipeline: inherited recovery managed source belongs to another repository")
+			return RecoveryResult{}, errors.New("pipeline: authored recovery managed source belongs to another repository")
 		}
 		if err := r.requireCleanHead(ctx, proof.ManagedDir, run.RecordedHead); err != nil {
 			return RecoveryResult{}, err
@@ -282,7 +297,7 @@ func (r Reader) recoverInheritedPublication(ctx context.Context, project, worktr
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return RecoveryResult{}, err
 	}
-	anchors, err := r.inheritedRecoveryAnchors(ctx, worktree, env, run, proof)
+	anchors, err := r.authoredRecoveryAnchors(ctx, worktree, env, run, proof)
 	if err != nil {
 		return RecoveryResult{}, err
 	}
@@ -291,56 +306,61 @@ func (r Reader) recoverInheritedPublication(ctx context.Context, project, worktr
 		return RecoveryResult{}, err
 	}
 	if gate != run.PushedHead && gate != proof.PredecessorHead && gate != proof.PredecessorSubmitted {
-		return RecoveryResult{}, errors.New("pipeline: inherited recovery gate moved outside the predecessor binding")
+		return RecoveryResult{}, errors.New("pipeline: authored recovery gate moved outside the predecessor binding")
 	}
 	status, output, err := r.readRecoverySync(ctx, worktree, env)
-	if err != nil || !status.inheritedSource(run) {
-		return RecoveryResult{}, errors.New("pipeline: native inherited recovery custody does not match the admission")
+	if err != nil || !status.authoredSource(run) {
+		return RecoveryResult{}, errors.New("pipeline: native authored recovery custody does not match the admission")
 	}
-	if run.CustodyReturnedAt == 0 {
+	isUnpublished := run.PushedHead == ""
+	if isUnpublished {
+		if run.CustodyReturnedAt != 0 || status.State != "user_owned" || status.Safety != "user_owned" || status.Relation != "equal" {
+			return RecoveryResult{}, errors.New("pipeline: unpublished authored recovery requires native user-owned source")
+		}
+	} else if run.CustodyReturnedAt == 0 {
 		if status.State != "pipeline_owned" || status.Safety != "blocked_pipeline_owned_recoverable" || status.NextAction.Command != "no-mistakes axi sync --recover" {
-			return RecoveryResult{}, errors.New("pipeline: native engine does not offer source-preserving inherited recovery")
+			return RecoveryResult{}, errors.New("pipeline: native engine does not offer source-preserving authored recovery")
 		}
 		native, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Env: env, Name: "no-mistakes", Args: []string{"axi", "sync", "--recover"}})
 		output = append(append([]byte(nil), native.Stdout...), native.Stderr...)
 		var returned struct {
 			BranchSync recoverySync `yaml:"branch_sync"`
 		}
-		if err != nil || native.ExitCode != 0 || yaml.Unmarshal(native.Stdout, &returned) != nil || !returned.BranchSync.IsRecovered || returned.BranchSync.IsChanged || !returned.BranchSync.inheritedSource(run) {
-			return RecoveryResult{NativeOutput: output}, errors.New("pipeline: native inherited recovery did not return unchanged source custody")
+		if err != nil || native.ExitCode != 0 || yaml.Unmarshal(native.Stdout, &returned) != nil || !returned.BranchSync.IsRecovered || returned.BranchSync.IsChanged || !returned.BranchSync.authoredSource(run) {
+			return RecoveryResult{NativeOutput: output}, errors.New("pipeline: native authored recovery did not return unchanged source custody")
 		}
 	} else if status.State != "local_ahead" || status.Safety != "blocked_local_ahead" || status.Relation != "ahead" {
 		return RecoveryResult{}, errors.New("pipeline: native inherited returned custody is uncertain")
 	}
 	current, err := r.latestRecoveryCandidate(ctx, project, branch)
-	if err != nil || current.RunID != run.RunID || current.RecordedHead != run.RecordedHead || current.SubmittedHead != run.SubmittedHead || current.PushedHead != run.PushedHead || current.Status != run.Status || current.CustodyReturnedAt == 0 {
-		return RecoveryResult{}, errors.New("pipeline: inherited recovery did not preserve the selected run and publication")
+	if err != nil || current.RunID != run.RunID || current.RecordedHead != run.RecordedHead || current.SubmittedHead != run.SubmittedHead || current.PushedHead != run.PushedHead || current.Status != run.Status || (current.CustodyReturnedAt == 0) != isUnpublished {
+		return RecoveryResult{}, errors.New("pipeline: authored recovery did not preserve the selected run and publication")
 	}
-	confirmed, err := r.inheritedRecovery(ctx, current)
+	confirmed, err := r.authoredRecovery(ctx, current)
 	if err != nil || confirmed != proof {
-		return RecoveryResult{}, errors.New("pipeline: inherited recovery admission changed")
+		return RecoveryResult{}, errors.New("pipeline: authored recovery admission changed")
 	}
 	if err := r.requireCleanHead(ctx, worktree, run.RecordedHead); err != nil {
 		return RecoveryResult{}, err
 	}
 	if err := r.requireRef(ctx, bare, "refs/heads/"+branch, gate); err != nil {
-		return RecoveryResult{}, errors.New("pipeline: inherited recovery moved the gate branch")
+		return RecoveryResult{}, errors.New("pipeline: authored recovery moved the gate branch")
 	}
-	postAnchors, err := r.inheritedRecoveryAnchors(ctx, worktree, env, current, proof)
+	postAnchors, err := r.authoredRecoveryAnchors(ctx, worktree, env, current, proof)
 	if err != nil || !maps.Equal(anchors, postAnchors) {
 		// Native may add the same recovery anchor in the caller repository.
 		if postAnchors["caller/refs/no-mistakes/recover/"+run.RunID] != run.RecordedHead {
-			return RecoveryResult{}, errors.New("pipeline: inherited recovery source anchors changed")
+			return RecoveryResult{}, errors.New("pipeline: authored recovery source anchors changed")
 		}
 		delete(postAnchors, "caller/refs/no-mistakes/recover/"+run.RunID)
 		if err != nil || !maps.Equal(anchors, postAnchors) {
-			return RecoveryResult{}, errors.New("pipeline: inherited recovery source anchors changed")
+			return RecoveryResult{}, errors.New("pipeline: authored recovery source anchors changed")
 		}
 	}
 	return RecoveryResult{RunID: run.RunID, Head: run.RecordedHead, GateHead: gate, NativeOutput: output}, nil
 }
 
-func (s recoverySync) inheritedSource(run recoveryRecord) bool {
+func (s recoverySync) authoredSource(run recoveryRecord) bool {
 	return s.Local.Clean && s.Local.Head == run.RecordedHead && s.Pipeline.Run == run.RunID && s.Pipeline.SubmittedHead == run.SubmittedHead && s.Pipeline.CurrentHead == run.RecordedHead && s.Pipeline.PushedHead == run.PushedHead
 }
 

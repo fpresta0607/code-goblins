@@ -25,7 +25,7 @@ func TestRecoverInheritedPublicationReportsDistinctPreservedHeads(t *testing.T) 
 			if isReturned {
 				run.CustodyReturnedAt = 1
 			}
-			proof := inheritedRecovery{AdmissionID: recoveryRun, Caller: worktree, Tree: tree, PredecessorHead: publication, PredecessorSubmitted: publication, ManagedDir: filepath.Join(worktree, "removed-managed-source")}
+			proof := authoredRecovery{AdmissionID: recoveryRun, Caller: worktree, Tree: tree, PredecessorHead: publication, PredecessorSubmitted: publication, ManagedDir: filepath.Join(worktree, "removed-managed-source")}
 			commands := runnerFunc(func(_ context.Context, request execx.Request) (execx.Result, error) {
 				command := strings.Join(request.Args, " ")
 				switch request.Name {
@@ -33,7 +33,7 @@ func TestRecoverInheritedPublicationReportsDistinctPreservedHeads(t *testing.T) 
 					var data []byte
 					var err error
 					if strings.Contains(command, "FROM validation_admissions") {
-						data, err = json.Marshal([]inheritedRecovery{proof})
+						data, err = json.Marshal([]authoredRecovery{proof})
 					} else if strings.Contains(command, "AS recorded_head") {
 						data, err = json.Marshal([]recoveryRecord{run})
 					} else {
@@ -133,7 +133,7 @@ func TestRecoverInheritedPublicationNativeJourney(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := runner.Run(ctx, execx.Request{Dir: source, Env: append(os.Environ(), "CFO_RECOVERY_NATIVE_CONTROLLER="+controller, "CFO_RECOVERY_CONTROLLER_TESTS="+controllerTests), Name: fixture, Args: []string{"-test.run", "^TestController(InheritedPublicationJourney|AuthoredCancellationRemainsRefused)$", "-test.v", "-test.timeout", "3m"}, KillTree: true})
+	result, err := runner.Run(ctx, execx.Request{Dir: source, Env: append(os.Environ(), "CFO_RECOVERY_NATIVE_CONTROLLER="+controller, "CFO_RECOVERY_CONTROLLER_TESTS="+controllerTests), Name: fixture, Args: []string{"-test.run", "^TestController(InheritedPublicationJourney|UnpublishedAuthoredJourney|OrdinaryCancellationRemainsRefused)$", "-test.v", "-test.timeout", "3m"}, KillTree: true})
 	t.Logf("native=%s\n%s%s", version.Stdout, result.Stdout, result.Stderr)
 	if err != nil || result.ExitCode != 0 {
 		t.Fatalf("managed native journey: exit=%d error=%v", result.ExitCode, err)
@@ -176,6 +176,19 @@ func TestRecoverInheritedPublicationNativeFixture(t *testing.T) {
 		}
 	}
 	original := readDatabase()
+	if os.Getenv("CFO_RECOVERY_EXPECT_AUTHORED_UNPUBLISHED") == "1" {
+		bare := filepath.Join(root, "repos", run.RepoID+".git")
+		gate := runPipelineGit(t, bare, "rev-parse", "refs/heads/feature")
+		result, err := reader.RecoverKeepLocal(ctx, project, project, "feature", env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Head != run.RecordedHead || result.GateHead != gate || readDatabase() != original || runPipelineGit(t, bare, "rev-parse", "refs/heads/feature") != gate {
+			t.Fatalf("unpublished authored recovery changed retained source/history: %+v", result)
+		}
+		t.Logf("unpublished authored controller: run=%s local=%s gate=%s\n%s", result.RunID, result.Head, result.GateHead, result.NativeOutput)
+		return
+	}
 	if os.Getenv("CFO_RECOVERY_EXPECT_USER_OWNED") == "1" {
 		status, _, err := reader.readRecoverySync(ctx, project, env)
 		if err != nil || !status.userOwned(run, true) {
@@ -254,12 +267,12 @@ func TestRecoverInheritedPublicationNativeFixture(t *testing.T) {
 			if err != nil || result.ExitCode != 0 {
 				t.Fatalf("copy native fixture ledger: %s %v", result.Stderr, err)
 			}
-			if _, err := shadow.inheritedRecovery(ctx, run); err != nil {
+			if _, err := shadow.authoredRecovery(ctx, run); err != nil {
 				t.Fatalf("unaltered provenance must be readable: %v", err)
 			}
 			// Corruption is injected only into this separate database copy.
 			writeFixtureSQLite(t, path, "DROP TRIGGER validation_admission_immutable;"+mutation)
-			if _, err := shadow.inheritedRecovery(ctx, run); err == nil {
+			if _, err := shadow.authoredRecovery(ctx, run); err == nil {
 				t.Fatal("damaged admission provenance accepted")
 			}
 		})

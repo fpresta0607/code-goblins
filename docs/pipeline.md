@@ -318,9 +318,15 @@ Before custody is returned, native status must offer plain `axi sync --recover`,
 The driver then verifies the durable custody stamp, admission, local head, retained gate branch and source anchors without controller-side database updates or gate alignment.
 The output reports the local head and gate branch head separately.
 A retry after custody returned requires native `local_ahead` / `blocked_local_ahead` with an `ahead` relation, which is expected when the candidate is ahead of the retained publication.
+An unpublished authored child can also retain its predecessor's older gate branch while its unchanged recorded and submitted candidate is already user-owned.
+That case requires the same immutable admission, clean source, verified history and exact authored-candidate anchor, with native `user_owned` state and safety and an `equal` relation.
+The driver reports the separately preserved local and gate heads without changing refs, history or the null custody stamp, since native has already released this source.
+Ordinary unpublished cancellations gain no authored-provenance exception.
 Ordinary published runs, children that published their own source, changed or missing provenance or anchors, stale generations, active ownership and uncertain history remain refused.
 Recovery preserves failed stages, historical source uncertainty and cumulative automatic and manual spending; it renews no repair allowance or review cycles.
 It returns source custody only: a later authored correction still requires the source-bound validation admission described above and every required stage before publication.
+Default repository CI exercises these controller paths and refusals with real Git and SQLite fixtures, substituting only the external native transport.
+The separate native admission, restart, recovery and continuation journey keeps its prepared-executable/source binding and explicit native-fixture prerequisite.
 
 For an unpublished run, `recover` can repair a stale recorded head that blocks native recovery.
 It first preserves whatever the run's worktree still holds uncommitted, as described below, and names that commit in its output.
