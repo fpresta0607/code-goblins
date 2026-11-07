@@ -462,3 +462,54 @@ func TestGoblinsResumeLeavesAGoblinItsRelaunchHadNoRoomForWaiting(t *testing.T) 
 		})
 	}
 }
+
+// A prepared pause that failed leaves its goblin down, and only the
+// Overlord's own message wakes it; a restart still may not retry the
+// uncertain lifecycle admission by itself.
+func TestGoblinsResumeWakesAFailedPreparedPauseForTheOverlordOnly(t *testing.T) {
+	for _, isPrompted := range []bool{false, true} {
+		t.Run(map[bool]string{false: "automatic restart", true: "Overlord message"}[isPrompted], func(t *testing.T) {
+			h := comebackHome(t, map[string][2]string{"rex": {"codex", "native"}}, nil)
+			meta, err := state.ReadTaskMeta(h.State, "rex")
+			if err != nil {
+				t.Fatal(err)
+			}
+			at := time.Now().UTC()
+			condition, err := state.NewPauseCondition("dependency", "task:package-delivery", at)
+			if err != nil {
+				t.Fatal(err)
+			}
+			record := state.PreparedWait{ID: meta.ID, Generation: meta.SpawnGen, Project: h.Root, Worktree: h.Root, Session: "saved-rex", Branch: "feat/rex", Head: strings.Repeat("a", 40), Handoff: "handoff.md", Digest: strings.Repeat("b", 64), Condition: condition, PreparedAt: at, Phase: "failed"}
+			record.Operation = record.OperationID()
+			if err := state.WritePreparedWait(h.State, record); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: record.Operation, Action: "pause", Phase: "failed"}); err != nil {
+				t.Fatal(err)
+			}
+			var switches []spawn.SwitchRequest
+			var resumes []lifecycle.Request
+			runtime := comebackRuntime(nil, nil, func(spawn.SwitchRequest) (spawn.SwitchResult, error) { return spawn.SwitchResult{Resumed: true}, nil }, &switches)
+			runtime.taskLifecycle = func(_ context.Context, _ home.Home, request lifecycle.Request, _ string) (state.Lifecycle, error) {
+				resumes = append(resumes, request)
+				return state.Lifecycle{}, nil
+			}
+			note := restartNote
+			if isPrompted {
+				note = messageNote
+			}
+
+			comeback, _ := bringGoblinBack(t.Context(), h, runtime, meta.ID, note, isPrompted)
+
+			if isPrompted {
+				if !comeback.isBack || len(resumes) != 1 || resumes[0].Action != "resume" || resumes[0].Reason != "the Overlord sent it a message" || len(switches) != 0 {
+					t.Fatalf("the Overlord's message did not wake a failed prepared pause: %+v, resumes=%v, switches=%v", comeback, resumes, switches)
+				}
+				return
+			}
+			if comeback.isBack || len(resumes) != 0 || len(switches) != 0 {
+				t.Fatalf("a restart retried a failed prepared pause: %+v, resumes=%v, switches=%v", comeback, resumes, switches)
+			}
+		})
+	}
+}

@@ -399,6 +399,11 @@ func (s *Service) reconcilePreparedWait(ctx context.Context, watched *fleetWakes
 		case lifecycle.Operation == "resume-"+record.Operation && lifecycle.Phase == "running":
 			record.Phase, record.Problem = "cleared", ""
 			return state.WritePreparedWait(s.Store.Home.State, record)
+		case preparedTransitionInFlight(s.Store.Home.State, record, lifecycle):
+			// The admitted controller still runs, so a transition a restart
+			// found in flight publishes its completed record instead of being
+			// called failed before it can.
+			return nil
 		default:
 			return s.preparedProblem(&record, "failed", errors.New("prepared lifecycle admission has no completed matching transition; inspect before retrying"))
 		}
@@ -471,11 +476,36 @@ func (s *Service) reconcilePreparedWait(ctx context.Context, watched *fleetWakes
 		return s.preparedProblem(&record, "failed", errors.New(spawnFailure(output, err)))
 	}
 	lifecycle, err = state.ReadLifecycle(s.Store.Home.State, id)
-	if err != nil || lifecycle.Operation != record.Operation || lifecycle.Generation != record.Generation || lifecycle.Phase != "paused" {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		// The pause ran, so its outcome is still to be read: keep the
+		// admission and let the next scan reconcile it.
+		return s.preparedProblem(&record, record.Phase, fmt.Errorf("prepared pause record is unreadable: %w", err))
+	}
+	if lifecycle.Operation != record.Operation || lifecycle.Generation != record.Generation || lifecycle.Phase != "paused" {
 		return s.preparedProblem(&record, "failed", errors.New("prepared pause did not produce a matching completed lifecycle record"))
 	}
 	record.Phase = "paused"
 	return state.WritePreparedWait(s.Store.Home.State, record)
+}
+
+// preparedTransitionInFlight reports whether lifecycle is the transition this
+// prepared admission asked for and the controller running it still holds the
+// task's lifecycle lock, so its completed record is still to come.
+func preparedTransitionInFlight(directory string, record state.PreparedWait, lifecycle state.Lifecycle) bool {
+	switch record.Phase {
+	case "pause-requested":
+		if lifecycle.Operation != record.Operation || lifecycle.Phase != "pausing" {
+			return false
+		}
+	case "resume-requested":
+		if lifecycle.Operation != "resume-"+record.Operation || lifecycle.Phase != "resuming" {
+			return false
+		}
+	default:
+		return false
+	}
+	controller, err := lock.ReadNamed(directory, state.LifecycleLockName(record.ID))
+	return err == nil && controller.Alive()
 }
 
 func (s *Service) admitPreparedResume(paused state.Lifecycle) (string, bool, error) {
@@ -518,7 +548,12 @@ func (s *Service) finishPreparedResume(paused state.Lifecycle, operation string,
 		return s.preparedProblem(&record, "failed", fmt.Errorf("prepared resume failed; inspect before retrying: %w", resumeErr))
 	}
 	current, err := state.ReadLifecycle(s.Store.Home.State, record.ID)
-	if err != nil || current.Operation != operation || current.Phase != "running" {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		// The resume ran, so its outcome is still to be read: keep the
+		// admission and let the next scan reconcile it.
+		return s.preparedProblem(&record, record.Phase, fmt.Errorf("prepared resume record is unreadable: %w", err))
+	}
+	if current.Operation != operation || current.Phase != "running" {
 		return s.preparedProblem(&record, "failed", errors.New("prepared resume has no matching completed lifecycle transition; inspect before retrying"))
 	}
 	record.Phase, record.Problem = "cleared", ""

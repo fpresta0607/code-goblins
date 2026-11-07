@@ -942,3 +942,157 @@ func TestPreparedResumeAdmissionBlocksRebootComeback(t *testing.T) {
 		}
 	}
 }
+
+// A restart that finds an admitted pause or resume still running leaves the
+// admission to the controller that holds it, so its completed record is
+// recognized for the one next state the dependency delivers.
+func TestPreparedTransitionInFlightIsLeftToItsController(t *testing.T) {
+	for _, test := range []struct {
+		prepared, lifecycle, action string
+		isLive                      bool
+	}{
+		{prepared: "pause-requested", lifecycle: "pausing", action: "pause", isLive: true},
+		{prepared: "resume-requested", lifecycle: "resuming", action: "resume", isLive: true},
+		{prepared: "pause-requested", lifecycle: "pausing", action: "pause"},
+		{prepared: "resume-requested", lifecycle: "resuming", action: "resume"},
+	} {
+		t.Run(test.prepared+"/"+map[bool]string{true: "controller alive", false: "cut short"}[test.isLive], func(t *testing.T) {
+			fixture := preparedPackage(t)
+			record := fixture.reconcile(t)
+			record.Phase = test.prepared
+			if err := state.WritePreparedWait(fixture.home.State, record); err != nil {
+				t.Fatal(err)
+			}
+			transition, err := state.ReadLifecycle(fixture.home.State, fixture.meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.prepared == "resume-requested" {
+				transition.Operation = "resume-" + record.Operation
+			}
+			transition.Action, transition.Phase = test.action, test.lifecycle
+			if err := state.WriteLifecycle(fixture.home.State, transition); err != nil {
+				t.Fatal(err)
+			}
+			name := state.LifecycleLockName(fixture.meta.ID)
+			if test.isLive {
+				if _, err := lock.AcquireExclusiveNamed(fixture.home.State, name); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			want := test.prepared
+			if !test.isLive {
+				want = "failed"
+			}
+			for range 2 {
+				fixture.reopen(t)
+				got := fixture.reconcile(t)
+				if got.Phase != want || (got.Problem == "") != test.isLive {
+					t.Fatalf("in-flight transition was not left to its controller: %+v, want %s", got, want)
+				}
+			}
+			if calls := fixture.spawner.recorded(); len(calls) != 1 || calls[0][0] != "pause" {
+				t.Fatalf("in-flight transition was retried or stopped: %v", calls)
+			}
+			if !test.isLive {
+				if record, err := state.ReadPreparedWait(fixture.home.State, fixture.meta.ID); err != nil || record.Phase != "failed" || !strings.Contains(record.Problem, "no completed matching transition") {
+					t.Fatalf("cut-short transition is not durable: %+v, %v", record, err)
+				}
+				return
+			}
+			if err := lock.ReleaseExclusiveNamed(fixture.home.State, name); err != nil {
+				t.Fatal(err)
+			}
+			transition.Phase = map[string]string{"pause": "paused", "resume": "running"}[test.action]
+			if err := state.WriteLifecycle(fixture.home.State, transition); err != nil {
+				t.Fatal(err)
+			}
+			fixture.reopen(t)
+			completed := map[string]string{"paused": "paused", "running": "cleared"}[transition.Phase]
+			if got := fixture.reconcile(t); got.Phase != completed || got.Problem != "" {
+				t.Fatalf("completed transition was not recognized: %+v, want %s", got, completed)
+			}
+			if test.prepared != "pause-requested" {
+				if calls := fixture.spawner.recorded(); len(calls) != 1 {
+					t.Fatalf("completed resume dispatched again: %v", calls)
+				}
+				return
+			}
+			fixture.deliver(t)
+			if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte}, ""); err != nil {
+				t.Fatal(err)
+			}
+			if calls := awaitDispatch(t, fixture.service, fixture.spawner, 2); len(calls) != 2 || calls[1][0] != "resume" || valueAfter(calls[1], "--operation") != "resume-"+record.Operation {
+				t.Fatalf("completed pause did not resume once: %v", calls)
+			}
+		})
+	}
+}
+
+// An unreadable lifecycle record after an admitted call keeps the admission,
+// so a transient read error never spends it: the next scan reconciles the
+// outcome the controller published.
+func TestPreparedAdmittedTransitionSurvivesUnreadableOutcome(t *testing.T) {
+	t.Run("pause", func(t *testing.T) {
+		fixture := preparedPackage(t)
+		path := state.LifecyclePath(fixture.home.State, fixture.meta.ID)
+		admit := fixture.spawner.during
+		fixture.spawner.during = func(args []string) {
+			admit(args)
+			writeFile(t, path, "{")
+		}
+
+		record := fixture.reconcile(t)
+		if record.Phase != "pause-requested" || !strings.Contains(record.Problem, "unreadable") {
+			t.Fatalf("unreadable outcome spent the pause admission: %+v", record)
+		}
+
+		transition := state.Lifecycle{ID: fixture.meta.ID, Generation: fixture.meta.SpawnGen, Operation: record.Operation, Action: "pause", Phase: "paused"}
+		if err := state.WriteLifecycle(fixture.home.State, transition); err != nil {
+			t.Fatal(err)
+		}
+		if got := fixture.reconcile(t); got.Phase != "paused" || got.Problem != "" {
+			t.Fatalf("recovered pause outcome was not recognized: %+v", got)
+		}
+		if calls := fixture.spawner.recorded(); len(calls) != 1 {
+			t.Fatalf("unreadable outcome retried the pause: %v", calls)
+		}
+	})
+
+	t.Run("resume", func(t *testing.T) {
+		fixture := preparedPackage(t)
+		fixture.reconcile(t)
+		paused, err := state.ReadLifecycle(fixture.home.State, fixture.meta.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		operation, isAdmitted, err := fixture.service.admitPreparedResume(paused)
+		if err != nil || !isAdmitted {
+			t.Fatalf("admitted=%t, error=%v", isAdmitted, err)
+		}
+		writeFile(t, state.LifecyclePath(fixture.home.State, fixture.meta.ID), "{")
+		if err := fixture.service.finishPreparedResume(paused, operation, nil); err != nil {
+			t.Fatal(err)
+		}
+		record, err := state.ReadPreparedWait(fixture.home.State, fixture.meta.ID)
+		if err != nil || record.Phase != "resume-requested" || !strings.Contains(record.Problem, "unreadable") {
+			t.Fatalf("unreadable outcome spent the resume admission: %+v, %v", record, err)
+		}
+
+		current := paused
+		current.Operation, current.Action, current.Phase = operation, "resume", "running"
+		if err := state.WriteLifecycle(fixture.home.State, current); err != nil {
+			t.Fatal(err)
+		}
+		if err := fixture.service.finishPreparedResume(paused, operation, nil); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := state.ReadPreparedWait(fixture.home.State, fixture.meta.ID); err != nil || got.Phase != "cleared" || got.Problem != "" {
+			t.Fatalf("recovered resume outcome was not recognized: %+v, %v", got, err)
+		}
+		if calls := fixture.spawner.recorded(); len(calls) != 1 {
+			t.Fatalf("unreadable outcome retried the resume: %v", calls)
+		}
+	})
+}
