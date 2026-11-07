@@ -183,7 +183,7 @@ test("while the harness asks in its terminal the box shows what it asks as a lis
 
   // The screen is bound to his own input, as the relay marks every key he
   // types in that terminal, so the question it asks is his to answer here.
-  relay.say({ type: "screen", asking: true, open: true, working: false, submission: "menu-1", panel: { rows: ["Do you want to proceed?"], choices: [{ text: "Yes", number: 1, focused: true }, { text: "No", number: 2 }] } });
+  relay.say({ type: "screen", asking: true, open: true, working: false, submission: "his", panel: { rows: ["Do you want to proceed?"], choices: [{ text: "Yes", number: 1, focused: true }, { text: "No", number: 2 }] } });
 
   const asking = box(page).getByRole("group", { name: NAME + " asks" });
   await expect(asking).toContainText("Do you want to proceed?");
