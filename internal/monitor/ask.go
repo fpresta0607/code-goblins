@@ -15,7 +15,7 @@ import (
 // as "waiting for your merge", "parked per your decision" or "PR 301 still
 // needs your answer" about a page it will file again, asks nothing.
 var askingPhrase = regexp.MustCompile(`(?i)` + strings.Join([]string{
-	`\bunless (you|the CFO)\b`,
+	`\bunless (you|the CFO|the CEO)\b`,
 	`\bif you(?:'d| would) rather\b`,
 	`\bif you prefer\b`,
 	`\bif you(?:'d like| would like| want) me to\b`,
@@ -29,7 +29,7 @@ var askingPhrase = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	`\bor would you\b`,
 	`\b(?:it's|that's) your call\b`,
 	`\bI(?:'ve| have)? asked\b[^.?!]*\b(?:whether|which)\b`,
-	`\bwait(?:ing)? (?:for|on) (?:your|the CFO's) (?:answer|decision|choice|go-ahead|approval|call|word|reply|ok)\b`,
+	`\bwait(?:ing)? (?:for|on) (?:your|the (?:CFO|CEO)'s) (?:answer|decision|choice|go-ahead|approval|call|word|reply|ok)\b`,
 	`\byour (?:answer|decision|choice) (?:decides|will decide)\b`,
 	`\bonce you (?:answer|decide|choose|pick|confirm|approve)\b`,
 	`\bawaiting your\b`,
