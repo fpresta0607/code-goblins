@@ -52,6 +52,9 @@ func TestRecoverInheritedPublicationNativeJourney(t *testing.T) {
 		filepath.Join(controller, "internal", "pipeline", "testdata", "native-recovery-journey_test.go"): binding.FixtureSHA256,
 	} {
 		data, err := os.ReadFile(path)
+		if path != fixture {
+			data = []byte(strings.ReplaceAll(string(data), "\r\n", "\n"))
+		}
 		if err != nil || fmt.Sprintf("%x", sha256.Sum256(data)) != expected {
 			t.Fatalf("prepared native fixture does not match %s: %v", path, err)
 		}
