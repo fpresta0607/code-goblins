@@ -337,6 +337,52 @@ func TestSendNowDoesNotInterruptTheTurnThatTookHisAnswerFirst(t *testing.T) {
 	}
 }
 
+// A board message or answer from him is his own input, so the CFO's next
+// screen is bound to him, while a notice the supervisor writes is nobody's and
+// clears that binding: a picker a notice draws never reaches Modern Chat as
+// his.
+func TestABoardMessageKeepsHisMarkOnTheCFOsTerminalAndANoticeClearsIt(t *testing.T) {
+	// Arrange
+	useConversations(t)
+	store, h := testStore(t)
+	cfo := nativeCFOComposer(t, h.State, "ready")
+	service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: h.State}}}
+	if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "carry on"}); err != nil {
+		t.Fatal(err)
+	}
+	pastUndoWindow(t, store)
+	if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+	record, err := host.ReadRecord(h.State, "cfo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewer, err := host.View(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer viewer.Close()
+
+	// Assert: his board message is his.
+	if _, submission, _, err := viewer.Screen(record, ""); err != nil || submission == "" {
+		t.Fatalf("submission = %q, %v after his board message; want the screen bound to him", submission, err)
+	}
+
+	// Act: a notice the supervisor writes.
+	if _, err := service.Options.CFO.SendNotice(context.Background(), registrationIdentity(t, h.State), "Review request for CFO: look"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert: the notice is nobody's input.
+	if _, submission, _, err := viewer.Screen(record, ""); err != nil || submission != "" {
+		t.Fatalf("submission = %q, %v after a notice; want it cleared", submission, err)
+	}
+	if lines := cfo.lines(t); !slices.Contains(lines, "accepted carry on") {
+		t.Errorf("terminal input = %q; want his message typed", lines)
+	}
+}
+
 // A line waiting in Claude Code's queue leaves its prompt line empty but for
 // the hint it draws there, which is nothing he left unsent, so his next message
 // is typed into the turn behind it and not held back as if it were.

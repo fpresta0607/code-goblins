@@ -98,14 +98,16 @@ func TestAMessageRefusedBeforeTypingStaysQueuedUntilTheComposerReturns(t *testin
 	messageTo(t, store, meta, "message-1", "keep this through the picker")
 	previous := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = previous })
-	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool, bool) error { return fleet.ErrNotTyped }
+	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool, bool, bool) error {
+		return fleet.ErrNotTyped
+	}
 
 	err := store.ProcessOne(t.Context(), service.execute)
 	if !errors.Is(err, ErrDeferred) || actionOf(store, "message-1").Status != "queued" {
 		t.Fatalf("delivery = %v, action = %+v, want durable queue", err, actionOf(store, "message-1"))
 	}
 	var received []string
-	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _, _ bool) error {
 		received = append(received, text)
 		return nil
 	}
@@ -2016,7 +2018,7 @@ func inTurnGoblin(t *testing.T, isWorking *bool) (received, sentNow *[]string) {
 	previous := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = previous })
 	received, sentNow = &[]string{}, &[]string{}
-	typeIntoGoblin = func(_ context.Context, _ string, meta state.TaskMeta, text string, shouldRefuseTurn, shouldSendNow bool) error {
+	typeIntoGoblin = func(_ context.Context, _ string, meta state.TaskMeta, text string, shouldRefuseTurn, shouldSendNow, _ bool) error {
 		if *isWorking && shouldRefuseTurn {
 			return fmt.Errorf("spawn: native terminal %s: %w: %w", meta.ID, fleet.ErrNotTyped, spawn.ErrInTurn)
 		}
@@ -2105,6 +2107,46 @@ func TestSendNowTypesAHeldMessageIntoTheGoblinsTurnToBeTakenAtOnce(t *testing.T)
 	}
 }
 
+// Only a board message or answer he sent is delivered as the Overlord's own,
+// so only its screen can flash a picker into Modern Chat as his: a notice the
+// CFO or the supervisor writes clears the terminal's mark of him.
+func TestOnlyHisBoardMessageIsDeliveredAsHis(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta := makeNative(t, h.State, "task-1")
+	gitWorktree(t, meta.Worktree)
+	goblinTerminal(t, h.State, meta.ID)
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	messageTo(t, store, meta, "message-1", "carry on")
+	previous := typeIntoGoblin
+	t.Cleanup(func() { typeIntoGoblin = previous })
+	type delivery struct {
+		text string
+		his  bool
+	}
+	var deliveries []delivery
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _, his bool) error {
+		deliveries = append(deliveries, delivery{text: text, his: his})
+		return nil
+	}
+
+	// Act
+	if err := store.ProcessOne(t.Context(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Options.CFO.SendGoblin(t.Context(), meta.ID, goblinIdentity(meta), "credentials refreshed: re-source x"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if len(deliveries) != 2 || !deliveries[0].his || deliveries[1].his {
+		t.Fatalf("deliveries = %+v; want his board message delivered as his and the notice not", deliveries)
+	}
+	if !strings.Contains(deliveries[0].text, "carry on") || !strings.Contains(deliveries[1].text, "credentials refreshed") {
+		t.Fatalf("deliveries = %+v; want his message then the notice", deliveries)
+	}
+}
+
 // A message held behind a command that waits for a goblin's turn says what
 // Send now does for its harness: every harness the board reads has a key that
 // interrupts its own turn, Claude Code's Ctrl+X Ctrl+S and the Escape Codex's
@@ -2137,7 +2179,7 @@ func TestAHeldGoblinMessageSaysWhatSendNowDoesForItsHarness(t *testing.T) {
 			messageTo(t, store, meta, "message-2", "stop and rebase")
 			previous := typeIntoGoblin
 			t.Cleanup(func() { typeIntoGoblin = previous })
-			typeIntoGoblin = func(_ context.Context, _ string, meta state.TaskMeta, _ string, shouldRefuseTurn, _ bool) error {
+			typeIntoGoblin = func(_ context.Context, _ string, meta state.TaskMeta, _ string, shouldRefuseTurn, _, _ bool) error {
 				if shouldRefuseTurn {
 					return fmt.Errorf("spawn: native terminal %s: %w: %w", meta.ID, fleet.ErrNotTyped, spawn.ErrInTurn)
 				}
@@ -2194,7 +2236,7 @@ func TestACommandForAGoblinInATurnOffersNoSendNow(t *testing.T) {
 			messageTo(t, store, meta, "message-1", test.text)
 			previous := typeIntoGoblin
 			t.Cleanup(func() { typeIntoGoblin = previous })
-			typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool, bool) error { return test.refusal }
+			typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool, bool, bool) error { return test.refusal }
 
 			// Act
 			err := store.ProcessOne(t.Context(), service.execute)

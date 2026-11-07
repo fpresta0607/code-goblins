@@ -275,7 +275,6 @@ func (s *Service) submitOnto(ctx context.Context, terminal string, deliveries []
 		return nil
 	}
 	defer client.Close()
-	_ = client.MarkHis()
 	submit := "\r"
 	if screens.PasteTakesEnter {
 		submit = "\x1b[F\r"
@@ -330,18 +329,8 @@ func (s *Service) lookAtTerminal(a Awaiting) terminalLook {
 		}
 		id = meta.ID
 		took = a.Digest != "" && conversations().Took(context.Background(), goblinConversation(meta), a.Digest, a.Since)
-	} else if a.Digest != "" {
-		// The CFO may have cleared or compacted its conversation since the
-		// submit, which moves it to a new session.
-		sessions := []string{a.Session}
-		if primary, live := livePrimary(s.Store.Home.State); live && primary.Host == a.Host {
-			sessions = append(sessions, cfoSession(s.Store.Home.State, primary))
-		}
-		for _, session := range slices.Compact(sessions) {
-			if session != "" && conversations().Took(context.Background(), monitor.Conversation{Harness: a.Harness, Session: session}, a.Digest, a.Since) {
-				took = true
-			}
-		}
+	} else {
+		took = cfoConversationTook(context.Background(), s.Store.Home.State, a)
 	}
 	record, err := host.ReadRecord(s.Store.Home.State, id)
 	if err != nil || !host.Running(record) {
@@ -353,6 +342,26 @@ func (s *Service) lookAtTerminal(a Awaiting) terminalLook {
 	}
 	rows, err := host.ReadScreen(record)
 	return terminalLook{Working: err == nil && screens.IsWorking(rows), Took: took}
+}
+
+// cfoConversationTook reports whether the CFO's own record of conversation a
+// shows it took a's text since: the session a was submitted in, and the one a
+// live primary holds now, since a clear, compact or resume moves the
+// conversation to a new session after the submit.
+func cfoConversationTook(ctx context.Context, stateDir string, a Awaiting) bool {
+	if a.Digest == "" {
+		return false
+	}
+	sessions := []string{a.Session}
+	if primary, live := livePrimary(stateDir); live && primary.Host == a.Host {
+		sessions = append(sessions, cfoSession(stateDir, primary))
+	}
+	for _, session := range slices.Compact(sessions) {
+		if session != "" && conversations().Took(ctx, monitor.Conversation{Harness: a.Harness, Session: session}, a.Digest, a.Since) {
+			return true
+		}
+	}
+	return false
 }
 
 // conversationReaders keeps one reader of the harnesses' records for each

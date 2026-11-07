@@ -480,7 +480,14 @@ func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evalua
 	if !strings.HasPrefix(line, "/") && !strings.HasPrefix(line, "!") {
 		line = "Overlord: " + line
 	}
-	return c.sendNative(ctx, identity, line, false)
+	return c.sendNative(ctx, identity, line, false, true)
+}
+
+// SendNotice delivers a line the supervisor writes to the CFO, such as a
+// review request. It is nobody's own input, so it clears the terminal's mark
+// of his.
+func (c *CFOConnection) SendNotice(ctx context.Context, identity, text string) (Evaluation, error) {
+	return c.sendNative(ctx, identity, oneLine(text), false, false)
 }
 
 // nativeSubmitSettle lets the CFO's harness take typed text before its submit
@@ -517,8 +524,10 @@ const (
 // With sendsNow, a line that queued into a turn gets the harness's own
 // send-now key once, which interrupts the turn and has the CFO take it at
 // once (the CFO, 2026-11-03, withdrawing the 2026-11-02 rule that
-// interrupting stays the box's Stop).
-func (c *CFOConnection) sendNative(ctx context.Context, identity, line string, sendsNow bool) (Evaluation, error) {
+// interrupting stays the box's Stop). With his, the line is the Overlord's
+// own board message, so the terminal keeps his mark for the screen the CFO's
+// harness draws from it.
+func (c *CFOConnection) sendNative(ctx context.Context, identity, line string, sendsNow, his bool) (Evaluation, error) {
 	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
 	if err != nil {
 		return Evaluation{}, fmt.Errorf("%w: %v", ErrRejected, errNotRegistered)
@@ -553,7 +562,9 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string, s
 		return Evaluation{}, fmt.Errorf("%w: the CFO's native terminal does not answer; nothing was sent", ErrRejected)
 	}
 	defer delivery.Close()
-	_ = delivery.MarkHis()
+	if his {
+		_ = delivery.MarkHis()
+	}
 	before, err := read(record)
 	if err != nil {
 		return Evaluation{Reason: "The CFO's input cannot be read. Your answer is queued; nothing was sent."}, ErrDeferred
@@ -668,9 +679,8 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string, s
 		// typed and submitted leaves the busy read before typing stale, and
 		// its harness starts a turn on the answer itself.
 		if sendsNow && screens.SendNow != "" {
-			recorded := monitor.Conversation{Harness: primary.Agent, Session: waiting.Session}
 			for pressed := time.Now().Add(nativeConfirm); ; {
-				if conversations().Took(ctx, recorded, waiting.Digest, submitted) {
+				if cfoConversationTook(ctx, c.State, *waiting) {
 					return Evaluation{Reason: "Taken by the CFO in its native terminal, as its record showed."}, nil
 				}
 				screen, readErr := read(record)

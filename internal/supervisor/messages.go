@@ -77,7 +77,7 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		// queued up and sent with the clawed code session. The terminal
 		// already handles this."). What keeps it from the CFO's terminal keeps
 		// it from Send now too.
-		result, err := s.Options.CFO.sendNative(ctx, identity, strings.TrimSpace(a.Text), a.IsSentNow)
+		result, err := s.Options.CFO.sendNative(ctx, identity, strings.TrimSpace(a.Text), a.IsSentNow, true)
 		if errors.Is(err, ErrDeferred) {
 			result.SendNowWhy = "Its terminal is not ready to take it yet."
 		}
@@ -165,7 +165,7 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 			// Overlord, 2026-11-04: "Modern shat goblins that are not the CFO.
 			// Never pick up their cube message when I send them."). A command
 			// still waits for the turn to end, when its harness would run it.
-			result, err := s.Options.CFO.sendGoblin(ctx, a.TaskID, goblinIdentity(meta), text, isHarnessCommand(a.Text), a.IsSentNow)
+			result, err := s.Options.CFO.sendGoblin(ctx, a.TaskID, goblinIdentity(meta), text, isHarnessCommand(a.Text), a.IsSentNow, true)
 			// A message whose harness's send-now key went is taken at once;
 			// one whose key never went, or whose harness has none, at its next
 			// tool call.

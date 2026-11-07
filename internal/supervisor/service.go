@@ -1214,7 +1214,7 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 			notices = append(notices, "The Overlord dismissed "+whose+" from the Command Center: answered elsewhere or no longer needed. It asked: "+question.Text)
 		}
 		if len(notices) > 0 {
-			if err := s.tellCFO(ctx, strings.Join(notices, "\n")); err != nil {
+			if err := s.tellCFO(ctx, strings.Join(notices, "\n"), false); err != nil {
 				if errors.Is(err, ErrDeferred) {
 					return Evaluation{Reason: "Dismissed. The CFO will be told when its input is ready."}, err
 				}
