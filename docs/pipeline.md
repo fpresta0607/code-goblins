@@ -779,13 +779,23 @@ So this repository's own `cfo gate test` runs behind `cfo gate turn` under a gat
 A repository whose `.no-mistakes.yaml` names no `commands.test` gives the fork nothing to wrap: its test step logs `no test command configured` and asks the test agent to run the tests, which it does outside the line.
 So every gated repository names its suite there, on its default branch.
 The string runs as `cmd.exe /c <string>`, so it is in `cmd.exe` syntax, with `&&` between commands.
-A gate's worktree holds tracked files only, so `commands.prepare` installs what the suite needs, outside the line:
+A gate's worktree holds tracked files only, so `commands.prepare` installs what the suite needs, outside the line, before the baseline and first Test agent invocation.
+This repository configures:
 
 ```yaml
 commands:
-  prepare: "pnpm install --frozen-lockfile"
-  test: "pnpm run build && pnpm test"
+  prepare: "cfo gate prepare"
+  test: "cfo gate test"
 ```
+
+`cfo gate prepare` reads the existing scoped change plan and runs `npm ci` in the validation worktree's own `frontend` directory only when the plan contains a path under `frontend/`, including source and lockfile changes.
+Go-only and documentation-only changes install nothing.
+An existing `node_modules` directory does not authorize reuse: every frontend-affected preparation runs the locked install, without sharing materialized dependencies between worktrees or adding a receipt or cache.
+On Windows it invokes npm through `cmd.exe /d /c npm ci`, so standard `npm.cmd` installations work.
+An unreadable plan fails preparation before an installer starts; missing tooling and installer failures also fail preparation, with no fallback to an unlocked install.
+Missing or invalid lockfiles are rejected by `npm ci`, not independently validated by this command.
+The command reports the locked install's elapsed time; its isolated regression fixtures are in `cmd/cfo/gate_prepare_test.go`.
+Activation requires this configuration on the default branch, from which the gate trusts it, and a reviewed installed CFO build supporting both `cfo gate prepare` and `cfo gate test`.
 
 An existing verified Python environment can be required by the project's machine-local `data/projects/<checkout folder>/project.json`:
 
