@@ -227,6 +227,8 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
    under them its status in at most two lines and its project. */
 .task-card { position: static; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "face head" "face status"; align-items: center; gap: 2px 12px; width: 100%; min-width: 0; text-align: left; padding: 0; min-height: 0; border: 0; border-radius: 10px; background: none; box-shadow: none; }
 .task-card > .goblin-avatar { grid-area: face; }
+.task-card:has(.card-activity) { grid-template-areas: "face head" "face status" "face activity"; }
+.task-card .card-activity { grid-area: activity; color: var(--muted); font-size: .9375rem; line-height: 1.4; overflow-wrap: anywhere; }
 .task-card > .card-copy { display: contents; }
 .task-card .card-head { grid-area: head; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; }
 .task-card .card-head > :not(.card-title) { flex: none; max-width: 100%; }

@@ -1827,7 +1827,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 				return r.Key == id && (r.Time.Before(spawned.Truncate(time.Second)) || supersedesQuestion(report) && !r.Time.Truncate(time.Second).After(reportedAt))
 			})
 		}
-		if !linked {
+		if !linked && !isGateHeld {
 			evaluation = fleetEvaluation(evaluation, meta, runtime, decisions)
 		}
 		if linked && !isGateHeld && (node.Phase == "active" || node.Phase == "started") && node.UpdatedAt.After(evaluation.At) {

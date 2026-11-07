@@ -13,6 +13,8 @@ import { CardPullRequest } from "./card-pull-request";
 import { BrandGlyph } from "./brand-glyph";
 import { safeGitHubLink } from "./people";
 
+const TERMINAL_ACTIVITY: Record<string, string> = { busy: "Terminal active", active: "Terminal active", parked: "Terminal awaiting input", idle: "Terminal idle", stale: "Terminal evidence stale", unknown: "Terminal state unknown", unavailable: "Terminal unavailable", launching: "Terminal starting", ended: "Terminal ended" };
+
 // A task's card on the board is one row, like a conversation in a list (the
 // Overlord, 2026-10-17: "minimal cards are better like an imessage history
 // with name status of whether working time working or last worked tickets pr
@@ -55,11 +57,14 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
   const tip = isNamed ? { "data-tip": taskName(task) } : clipped ? { "data-tip": name } : {};
   const icon = pullRequestIcon(task);
   const repositoryLink = repository ? safeGitHubLink("https://github.com/" + repository) : "";
+  const activity = task.gate_step && ["blocked", "review"].includes(task.phase)
+    ? [(TERMINAL_ACTIVITY[task.runtime.state] || (task.runtime.state ? "Terminal: " + task.runtime.state : "Terminal state unreported")), task.report && "Last report: " + task.report].filter(Boolean).join(" · ") : "";
   const content = <>
     <Avatar persona={personaFor(task)} />
     <span className="card-copy"><span className="card-head">{isPresenting && <span className="browser-indicator">Browser active</span>}{nextText && <span className={"next-chip" + (nextTone ? " " + nextTone : "")}>{nextText}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>
       {rank && <span className="sr-only">, {rank}</span>}
-      <span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span>
+      <span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text" data-tip={task.gate_step && task.reason ? task.reason : undefined}>{status}</span></span>
+      {activity && <span className="card-activity">{activity}</span>}
     </span>
   </>;
   return <div className={"task-card-shell" + (selected ? " selected" : "")}>

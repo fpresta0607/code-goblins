@@ -214,7 +214,7 @@ export function inLineStatus(place: number): string {
   const suffix = place % 100 >= 11 && place % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][place % 10] || "th";
   return place + suffix + " in line for the machine";
 }
-const GATE_STEPS: Record<string, string> = { review: "code review", lint: "lint", push: "push", test: "tests", ci: "CI", pr: "PR", document: "docs" };
+const GATE_STEPS: Record<string, string> = { intent: "intent", rebase: "rebase", review: "code review", lint: "lint", push: "push", test: "tests", ci: "CI", pr: "PR", document: "docs" };
 
 // A resume or stop that did not finish is the task's state until the next
 // one starts, whatever its goblin last reported, drawn as that action under
@@ -292,6 +292,7 @@ export function nodeStatus(node: WorkflowNode, isWaitingOnYou = false, tasks: Ta
     if (isWaitingOnYou) return WAITING_ON_YOU;
     if (isInLine(node.task)) return inLineStatus(node.task.tree?.line_place || 0);
     if (isPastLine(node.task)) return statusText("working");
+    if (phase === "blocked" && node.task.gate_step && reason.startsWith("Pipeline decision required at ")) return "Waiting on the CFO: " + (GATE_STEPS[node.task.gate_step] || node.task.gate_step) + " gate";
     if ((phase === "blocked" || phase === "failed") && reason.startsWith("Waiting on the CFO")) return "Waiting on the CFO";
     // A question it asked or a session gone quiet waits on whoever answers
     // it: a helper's parent, which its reports reach, else the CFO.

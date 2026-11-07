@@ -22,6 +22,26 @@ const board = (task: Record<string, unknown>, available = 9): Snapshot => parseS
 });
 const zane = (snapshot: Snapshot) => snapshot.tasks[0];
 
+for (const [phase, step, reason, runtime, text] of [
+  ["blocked", "rebase", "Pipeline decision required at rebase; use cfo pipeline respond", "busy", "Waiting on the CFO: rebase gate"],
+  ["blocked", "rebase", "Pipeline decision required at rebase; use cfo pipeline respond", "parked", "Waiting on the CFO: rebase gate"],
+  ["review", "test", "Pipeline evidence is incomplete or belongs to a different HEAD", "busy", "In review gate: tests"],
+  ["review", "test", "Pipeline evidence is incomplete or belongs to a different HEAD", "parked", "In review gate: tests"],
+  ["blocked", "test", "Waiting on the CFO: Which source should ship?", "busy", "Waiting on the CFO"],
+] as const) {
+  test(`gate ${step}/${phase} preserves its decision and reason beside a ${runtime} terminal`, () => {
+    const snapshot = board({ phase, gate_step: step, reason, report: "working", runtime: { state: runtime } });
+    const task = zane(snapshot);
+
+    const status = taskStatus(task, snapshot);
+
+    assert.deepEqual(status, { text, phase });
+    assert.equal(task.reason, reason);
+    assert.equal(task.runtime.state, runtime);
+    assert.equal(task.report, "working");
+  });
+}
+
 for (const [name, reason, text] of [
   ["a gate", "Review gate needs approval before continuing", "Waiting on the CFO"],
   ["a dependency", "Wait for the dependency task to land before continuing", "Waiting on the CFO"],
