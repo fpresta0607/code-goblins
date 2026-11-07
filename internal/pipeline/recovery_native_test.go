@@ -36,6 +36,8 @@ func TestRecoverInheritedPublicationReportsDistinctPreservedHeads(t *testing.T) 
 						data, err = json.Marshal([]authoredRecovery{proof})
 					} else if strings.Contains(command, "AS recorded_head") {
 						data, err = json.Marshal([]recoveryRecord{run})
+					} else if strings.Contains(command, "FROM step_results") {
+						data = []byte("[]")
 					} else {
 						return execx.Result{}, fmt.Errorf("unexpected recovery query: %s", command)
 					}
@@ -215,7 +217,7 @@ func TestRecoverInheritedPublicationNativeFixture(t *testing.T) {
 		{"unverified source", "runs", "terminal_head_verified_at", "NULL", "id=" + sqlString(run.RunID)},
 		{"uncertain source", "runs", "terminal_source_state", "'unknown'", "id=" + sqlString(run.RunID)},
 		{"active publisher", "runs", "push_active", "1", "id=" + sqlString(run.RunID)},
-		{"active agent", "step_results", "agent_pid", "1", "run_id=" + sqlString(run.RunID)},
+		{"active agent", "step_results", "agent_pid", fmt.Sprint(os.Getpid()), "run_id=" + sqlString(run.RunID)},
 		{"renewed repair budget", "step_results", "auto_fix_limit", "1", "run_id=" + sqlString(run.RunID)},
 		{"changed predecessor history", "runs", "error", "'changed history'", "id=(SELECT predecessor_id FROM validation_admissions WHERE child_id=" + sqlString(run.RunID) + ")"},
 	} {
