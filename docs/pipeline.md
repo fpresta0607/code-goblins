@@ -299,17 +299,17 @@ The task's status log records `pipeline-findings-accepted` with the step, run, r
 A goblin's accept also reaches the CEO's wake queue as a notify with the same words, which asks nothing, so nothing waits on it; one that cannot be queued sends no approve.
 The goblin accepts as they stand only findings that are not correctness, security or regression defects, and a real defect among them goes in one follow-up commit on the same pull request after its first CI, named in its done report.
 An approved Test exception likewise keeps the operator's reason: `respond <id> --action approve --reason "<why>"` hands it to the native `--reason`, which no-mistakes records as the Test step's approval reason, and the task's status log records `pipeline-approval-reason` with the step, run, round and reason before approve reaches the gate.
-The registered primary CEO alone may answer a pending Review finding with `respond <id> --action fix --findings <one-id> --scope-decision <answered-notify-sequence>`.
-The sequence identifies the answered blocked notify the task asked in its current generation, whose exact answer is the accepted requirement correction and whose stable `notify-<task>-<sequence>` ID native persists.
-The managed driver reads native typed `get_run` source identity and the latest persisted `axi rounds --step review --run <run> --json` round before writing the one private JSON scope file native consumes.
-It retains that request's bytes and hash with the exact native stdout, stderr and outcome in the task-private `review-scope-decisions.jsonl` journal, and reports the response only once native's own rounds evidence keeps that exact decision.
-An old native engine, wrong or unavailable acknowledgement, unreadable evidence, replay with any changed scope binding, or a non-primary caller refuses without an ordinary response fallback, automatic retry, changed repair budget or replacement run.
-It requires a native build carrying the typed accepted-Review-scope contract, with `get_run` RunInfo naming the parked Review round and `--scope-decision-file`; an earlier build is refused safely before the scope file is written or a response is sent.
-A blank `--scope-decision`, as an unset variable gives, is a decision given and refused, never read as no decision.
 It is the registered primary CEO's reason alone, so a goblin is refused before anything is recorded.
 The native engine keeps a reason only for an approve of the Test step, so the driver refuses one for any other gate and for `fix`, and it refuses a blank reason or one that is not a single line of plain text: the engine would store a blank as none and the run would read as a Test exception nobody explained (issue 1422).
 An empty `--reason`, as `--reason "$WHY"` gives with `WHY` unset, is a reason given and refused like any blank one, never read as no reason (issue 1585).
 A reason never approves anything, so open findings still need the exact `--accept` and a clean gate still needs its own approve.
+The registered primary CEO alone may answer a pending Review finding with `respond <id> --action fix --findings <one-id> --scope-decision <answered-notify-sequence>`.
+The reference is the task's own `notify-<task>-<sequence>` ID or its bare sequence, and it identifies the answered blocked notify the task asked in its current generation, whose exact answer is the accepted requirement correction; another task's notify is refused.
+The managed driver reads native typed `get_run` source identity and the latest persisted `axi rounds --step review --run <run> --json` round before writing the one private JSON scope file native consumes.
+It retains that request's bytes and hash with the exact native stdout, stderr and outcome in the task-private `review-scope-decisions.jsonl` journal, and reports the response only once native's own rounds evidence keeps that exact decision.
+An old native engine, wrong or unavailable acknowledgement, unreadable evidence, replay with any changed scope binding, or a non-primary caller refuses without an ordinary response fallback, automatic retry, changed repair budget or replacement run.
+It requires a native build carrying the typed accepted-Review-scope contract: `get_run` RunInfo naming the parked Review round, `--scope-decision-file`, and an `axi rounds --json` document whose round publishes `id`, `step_result_id`, `reviewed_head_sha` and `trusted_config_sha` and whose top level has the `scope_decisions` array; an earlier build is refused safely before the scope file is written or a response is sent.
+A blank `--scope-decision`, as an unset variable gives, is a decision given and refused, never read as no decision.
 Unsupported or malformed evidence fails closed.
 The command returns exit 3 for unresolved work requiring a CEO decision, or on a spent review its own goblin's accept, which the refusal names, without advancing the gate.
 Other refusals return exit 1.

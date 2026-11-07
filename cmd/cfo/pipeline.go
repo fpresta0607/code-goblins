@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -196,6 +197,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return errors.New("pipeline: --scope-decision is empty; it must name an answered task decision sequence")
 	}
 	scopeDecisionSequence := 0
+	scopeDecisionID := ""
 	if isScopeDecisionGiven {
 		// Accepting a Review scope is the registered primary CFO's own
 		// assertion. A gate agent, a goblin or a helper it spawned descends
@@ -217,6 +219,10 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		scopeDecisionSequence, err = supervisor.QuestionSeq(scopeDecision)
 		if err != nil {
 			return fmt.Errorf("pipeline: --scope-decision %w", err)
+		}
+		scopeDecisionID = fmt.Sprintf("notify-%s-%d", id, scopeDecisionSequence)
+		if scopeDecision != strconv.Itoa(scopeDecisionSequence) && scopeDecision != scopeDecisionID {
+			return fmt.Errorf("pipeline: --scope-decision %s is not the question of task %s's decision %d, which is %s", scopeDecision, id, scopeDecisionSequence, scopeDecisionID)
 		}
 	}
 	// acceptedBy is who takes the open findings as they stand: the CFO, or
@@ -404,14 +410,14 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			return err
 		}
 		if scopeDecisionSequence != 0 {
-			if gate.Step != "review" || response.Action != "fix" || response.Instructions != "" || pipeline.ReviewCyclesSpent(selection, gate) {
-				return errors.New("pipeline: --scope-decision requires one unspent Review fix with no ordinary instructions")
+			if gate.Step != "review" || response.Action != "fix" || response.Instructions != "" {
+				return errors.New("pipeline: --scope-decision requires a Review fix with no ordinary instructions")
 			}
 			acceptedScope, err := supervisor.DecisionAnswer(h.State, meta, scopeDecisionSequence)
 			if err != nil {
 				return fmt.Errorf("pipeline: --scope-decision %d: %w", scopeDecisionSequence, err)
 			}
-			encoded, err := reader.ReviewScopeDecision(ctx, gated, nativeEnv(root), gate, response.Findings, fmt.Sprintf("notify-%s-%d", meta.ID, scopeDecisionSequence), acceptedScope)
+			encoded, err := reader.ReviewScopeDecision(ctx, gated, nativeEnv(root), gate, response.Findings, scopeDecisionID, acceptedScope)
 			if err != nil {
 				return err
 			}

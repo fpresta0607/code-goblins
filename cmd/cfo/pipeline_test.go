@@ -1311,7 +1311,12 @@ func scopeStage(t *testing.T) (home.Home, state.TaskMeta, string, *pipelineRunne
 
 func scopeRespond(t *testing.T, h home.Home, nativeRoot string, runner *pipelineRunner) error {
 	t.Helper()
-	return pipelineCommand(t.Context(), h, nativeRoot, runner, []string{"respond", "task", "--action", "fix", "--findings", "bug", "--scope-decision", "7"}, &bytes.Buffer{})
+	return scopeRespondRef(t, h, nativeRoot, runner, "7")
+}
+
+func scopeRespondRef(t *testing.T, h home.Home, nativeRoot string, runner *pipelineRunner, ref string) error {
+	t.Helper()
+	return pipelineCommand(t.Context(), h, nativeRoot, runner, []string{"respond", "task", "--action", "fix", "--findings", "bug", "--scope-decision", ref}, &bytes.Buffer{})
 }
 
 func scopeJournalPath(meta state.TaskMeta) string {
@@ -1442,7 +1447,7 @@ func TestPipelineScopeDecisionAllowsAnIdenticalReplay(t *testing.T) {
 	runner.roundsAfter = []byte(scopeAccepted())
 	requests := serveScopeRun(t, nativeRoot, scopeRunInfo())
 
-	if err := scopeRespond(t, h, nativeRoot, runner); err != nil {
+	if err := scopeRespondRef(t, h, nativeRoot, runner, "notify-task-7"); err != nil {
 		t.Fatalf("identical replay: %v", err)
 	}
 	if len(runner.native) != 1 {
@@ -1548,24 +1553,80 @@ func TestPipelineScopeDecisionRefusesMismatchedNativeEvidence(t *testing.T) {
 	}
 	const otherHead = "fedcba9876543210fedcba9876543210fedcba98"
 	cases := []struct {
-		Name   string
-		Rounds string
-		Want   string
+		Name    string
+		Rounds  string
+		RunInfo string
+		Want    string
 	}{
-		{"reviewed head differs", strings.Replace(scopeRounds(), `"reviewed_head_sha":"`+scopeHead+`"`, `"reviewed_head_sha":"`+otherHead+`"`, 1), "exact source, configuration or identity"},
-		{"round differs", strings.Replace(scopeRounds(), `"round":1`, `"round":2`, 1), "exact source, configuration or identity"},
-		{"finding absent", strings.Replace(scopeRounds(), `"id":"bug"`, `"id":"other"`, 1), "absent from the native Review round"},
+		{"reviewed head differs", strings.Replace(scopeRounds(), `"reviewed_head_sha":"`+scopeHead+`"`, `"reviewed_head_sha":"`+otherHead+`"`, 1), "", "exact source, configuration or identity"},
+		{"round differs", strings.Replace(scopeRounds(), `"round":1`, `"round":2`, 1), "", "exact source, configuration or identity"},
+		{"finding absent", strings.Replace(scopeRounds(), `"id":"bug"`, `"id":"other"`, 1), "", "absent from the native Review round"},
+		{"trusted configuration absent", strings.Replace(scopeRounds(), `"trusted_config_sha":"trusted-config"`, `"trusted_config_sha":""`, 1), "", "exact source, configuration or identity"},
+		{"foreign step result", strings.Replace(scopeRounds(), `"step_result_id":"step"`, `"step_result_id":"other"`, 1), "", "exact source, configuration or identity"},
+		{"base source absent", "", strings.Replace(scopeRunInfo(), `"base_sha":"`+scopeBase+`"`, `"base_sha":""`, 1), "lacks the exact source binding"},
+		{"step status differs", "", strings.Replace(scopeRunInfo(), `"status":"awaiting_approval"`, `"status":"running"`, 1), "does not confirm the parked Review step"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.Name, func(t *testing.T) {
 			h, _, nativeRoot, runner := scopeStage(t)
-			runner.rounds = []byte(testCase.Rounds)
-			serveScopeRun(t, nativeRoot, scopeRunInfo())
+			if testCase.Rounds != "" {
+				runner.rounds = []byte(testCase.Rounds)
+			}
+			runInfo := scopeRunInfo()
+			if testCase.RunInfo != "" {
+				runInfo = testCase.RunInfo
+			}
+			serveScopeRun(t, nativeRoot, runInfo)
 			err := scopeRespond(t, h, nativeRoot, runner)
 			if err == nil || !strings.Contains(err.Error(), testCase.Want) || len(runner.native) != 0 {
 				t.Fatalf("mismatched evidence err=%v native=%+v, want it refused before writing a scope file", err, runner.native)
 			}
 		})
+	}
+}
+
+// A durable decision that keeps the identity but not the accepted correction
+// is a wrong acknowledgement, refused like a missing one.
+func TestPipelineScopeDecisionRefusesADifferingAcknowledgement(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	h, meta, nativeRoot, runner := scopeStage(t)
+	runner.roundsAfter = []byte(strings.Replace(scopeAccepted(), `"accepted_scope":"`+scopeText+`"`, `"accepted_scope":"A different requirement correction."`, 1))
+	serveScopeRun(t, nativeRoot, scopeRunInfo())
+
+	err := scopeRespond(t, h, nativeRoot, runner)
+	if err == nil || !strings.Contains(err.Error(), "differs from the accepted request") {
+		t.Fatalf("differing acknowledgement err=%v, want it refused", err)
+	}
+	if len(runner.native) != 1 || runner.roundsReads != 2 {
+		t.Fatalf("native calls=%+v rounds reads=%d, want one scoped response and its acknowledgement read", runner.native, runner.roundsReads)
+	}
+	journal, readErr := os.ReadFile(scopeJournalPath(meta))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Contains(journal, []byte(`"exit_code":0`)) || scopeStatusHas(h, "pipeline-review-scope-confirmed") {
+		t.Fatalf("scope journal=%s, want the native success kept and no confirmed audit", journal)
+	}
+}
+
+// A --scope-decision naming another task's notify is not this task's decision.
+func TestPipelineScopeDecisionRefusesAnotherTasksNotify(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	h, meta, nativeRoot, runner := scopeStage(t)
+	serveScopeRun(t, nativeRoot, scopeRunInfo())
+	err := scopeRespondRef(t, h, nativeRoot, runner, "notify-other-7")
+	if err == nil || !strings.Contains(err.Error(), "is not the question of task task's decision 7") {
+		t.Fatalf("another task's notify err=%v, want it refused", err)
+	}
+	if len(runner.native) != 0 || runner.roundsReads != 0 {
+		t.Fatalf("native=%+v rounds reads=%d, want nothing read or sent", runner.native, runner.roundsReads)
+	}
+	if _, statErr := os.Stat(scopeJournalPath(meta)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("another task's notify wrote scope evidence (%v), want none", statErr)
 	}
 }
 
