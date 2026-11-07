@@ -83,8 +83,9 @@ func (r Reader) ReviewScopeDecision(ctx context.Context, worktree string, env []
 	if err != nil {
 		return nil, err
 	}
-	// ordinary axi status output exposes no base_sha, so the RunInfo IPC is the
-	// only source of the run's exact source pair.
+	// Native's typed get_run RunInfo carries the run's exact source pair; the
+	// round itself and its configuration digest come from native's typed
+	// `axi rounds` document below, and the gate supplies the round number.
 	if run.ID != gate.RunID || run.HeadSHA == "" || run.BaseSHA == "" {
 		return nil, errors.New("pipeline: native RunInfo lacks the exact source binding for this Review gate")
 	}

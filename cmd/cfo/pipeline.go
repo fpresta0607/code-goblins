@@ -114,7 +114,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		flags.StringVar(&response.Instructions, "instructions", "", "guidance for selected findings")
 		flags.StringVar(&response.Accept, "accept", "", "with approve: every open ask-user and auto-fix finding the CEO, or the task's own goblin on its run's spent review, accepts as it stands")
 		flags.StringVar(&response.Reason, "reason", "", "with approve of the test step: the operator's reason the native exception record keeps")
-		flags.StringVar(&scopeDecision, "scope-decision", "", "with a Review fix: an answered task decision sequence whose exact accepted scope reaches native")
+		flags.StringVar(&scopeDecision, "scope-decision", "", "with a Review fix: an answered task decision sequence whose exact accepted scope reaches native; a blank one is refused")
 	} else if isAdmission {
 		flags.StringVar(&admissionFile, "admission-file", "", "controller-owned native validation admission JSON")
 	} else if args[0] == "handback" {
@@ -187,8 +187,16 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		// approve a Test exception with none and no audit of it (issue 1585).
 		return errors.New("pipeline: --reason is empty; it must say why the exception is approved")
 	}
+	isScopeDecisionGiven := false
+	flags.Visit(func(given *flag.Flag) { isScopeDecisionGiven = isScopeDecisionGiven || given.Name == "scope-decision" })
+	if isScopeDecisionGiven && strings.TrimSpace(scopeDecision) == "" {
+		// A blank --scope-decision, as an unset variable gives, read as no
+		// scope decision would send the ordinary fix and drop the accepted
+		// scope the primary CEO answered with.
+		return errors.New("pipeline: --scope-decision is empty; it must name an answered task decision sequence")
+	}
 	scopeDecisionSequence := 0
-	if scopeDecision != "" {
+	if isScopeDecisionGiven {
 		// Accepting a Review scope is the registered primary CFO's own
 		// assertion. A gate agent, a goblin or a helper it spawned descends
 		// from that process too, so its environment label is what keeps one

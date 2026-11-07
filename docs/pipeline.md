@@ -304,6 +304,8 @@ The sequence identifies the answered blocked notify the task asked in its curren
 The managed driver reads native typed `get_run` source identity and the latest persisted `axi rounds --step review --run <run> --json` round before writing the one private JSON scope file native consumes.
 It retains that request's bytes and hash with the exact native stdout, stderr and outcome in the task-private `review-scope-decisions.jsonl` journal, and reports the response only once native's own rounds evidence keeps that exact decision.
 An old native engine, wrong or unavailable acknowledgement, unreadable evidence, replay with any changed scope binding, or a non-primary caller refuses without an ordinary response fallback, automatic retry, changed repair budget or replacement run.
+It requires a native build carrying the typed accepted-Review-scope contract, with `get_run` RunInfo naming the parked Review round and `--scope-decision-file`; an earlier build is refused safely before the scope file is written or a response is sent.
+A blank `--scope-decision`, as an unset variable gives, is a decision given and refused, never read as no decision.
 It is the registered primary CEO's reason alone, so a goblin is refused before anything is recorded.
 The native engine keeps a reason only for an approve of the Test step, so the driver refuses one for any other gate and for `fix`, and it refuses a blank reason or one that is not a single line of plain text: the engine would store a blank as none and the run would read as a Test exception nobody explained (issue 1422).
 An empty `--reason`, as `--reason "$WHY"` gives with `WHY` unset, is a reason given and refused like any blank one, never read as no reason (issue 1585).

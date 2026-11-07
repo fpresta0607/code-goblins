@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strconv"
@@ -39,7 +40,11 @@ type pipelineRunner struct {
 	rounds       []byte
 	roundsAfter  []byte
 	roundsReads  int
-	worktree     string
+	// scopeDecision is the scope decision file the scoped native response was
+	// handed, with the run it named, read while the command was still running.
+	scopeDecision []byte
+	scopeRun      string
+	worktree      string
 	activeRuns   int
 	nativeResult *execx.Result
 	nativeError  error
@@ -217,6 +222,16 @@ func (r *pipelineRunner) Run(_ context.Context, q execx.Request) (execx.Result, 
 			}
 			if r.rounds != nil {
 				return execx.Result{Stdout: r.rounds}, nil
+			}
+		}
+		if at := slices.Index(q.Args, "--scope-decision-file"); at >= 0 && at+1 < len(q.Args) {
+			data, err := os.ReadFile(q.Args[at+1])
+			if err != nil {
+				return execx.Result{}, err
+			}
+			r.scopeDecision = data
+			if runAt := slices.Index(q.Args, "--run"); runAt >= 0 && runAt+1 < len(q.Args) {
+				r.scopeRun = q.Args[runAt+1]
 			}
 		}
 		r.native = append(r.native, q)
@@ -1323,8 +1338,18 @@ func TestPipelineScopeDecisionUsesTheRegisteredCFOAndNativeEvidence(t *testing.T
 		t.Fatalf("native calls=%+v, want one scoped response", runner.native)
 	}
 	request := runner.native[0]
-	if request.Dir != runner.worktree || !slices.Contains(request.Args, "--scope-decision-file") || !slices.Contains(request.Args, "--run") || !slices.Contains(request.Args, "run") {
-		t.Fatalf("native request=%+v, want one run-bound scope response from the task worktree", request)
+	if request.Dir != runner.worktree {
+		t.Fatalf("native request=%+v, want the scope response sent from the task worktree", request)
+	}
+	var sent, want any
+	if err := json.Unmarshal(runner.scopeDecision, &sent); err != nil {
+		t.Fatalf("native scope decision file=%q, want the request's decoded decision: %v", runner.scopeDecision, err)
+	}
+	if err := json.Unmarshal([]byte(scopeRequest()), &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(sent, want) || runner.scopeRun != scopeGate().RunID {
+		t.Fatalf("native scope file=%s run=%q, want the exact decision bound to run %q", runner.scopeDecision, runner.scopeRun, scopeGate().RunID)
 	}
 	if runner.roundsReads != 2 {
 		t.Fatalf("native rounds reads=%d, want the pre-response evidence and its durable acknowledgement", runner.roundsReads)
@@ -1463,6 +1488,29 @@ func TestPipelineScopeDecisionRefusesAChangedReplay(t *testing.T) {
 	}
 	if string(journal) != record {
 		t.Fatalf("scope journal=%s, want the earlier decision left as it stood", journal)
+	}
+}
+
+// A --scope-decision given with no sequence is a decision refused before
+// anything is read or sent, never read as no decision that would send the
+// ordinary fix and drop the accepted scope the primary CEO answered with.
+func TestPipelineScopeDecisionRefusesABlankDecision(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	h, meta, nativeRoot, runner := scopeStage(t)
+	serveScopeRun(t, nativeRoot, scopeRunInfo())
+	for _, given := range []string{"", "  "} {
+		err := pipelineCommand(t.Context(), h, nativeRoot, runner, []string{"respond", "task", "--action", "fix", "--findings", "bug", "--scope-decision", given}, &bytes.Buffer{})
+		if err == nil || !strings.Contains(err.Error(), "--scope-decision is empty") {
+			t.Fatalf("--scope-decision %q err=%v, want it refused as a blank decision", given, err)
+		}
+		if len(runner.native) != 0 || runner.roundsReads != 0 {
+			t.Fatalf("--scope-decision %q native=%+v rounds reads=%d, want nothing read or sent", given, runner.native, runner.roundsReads)
+		}
+		if _, statErr := os.Stat(scopeJournalPath(meta)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("--scope-decision %q wrote scope evidence (%v), want none", given, statErr)
+		}
 	}
 }
 
