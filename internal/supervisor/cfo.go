@@ -472,22 +472,33 @@ func oneLine(text string) string {
 	return strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(text)
 }
 
-// Send types text to the primary CFO behind the Overlord's stamp, which says
-// an answer or a result is his, unless it is a command for the harness
-// itself, a line that starts with / or !.
-func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evaluation, error) {
+// stampedForCFO is the line the board types to the primary CFO: it is the
+// board speaking, behind the Overlord's stamp, which is what tells the fleet
+// the line is his, unless it is a command for the harness itself, a line that
+// starts with / or !, which the harness runs as it was written. The stamp is
+// the words' own and every board delivery carries it; whether a screen the
+// harness draws from the delivery is his to answer is the delivery's mark,
+// which only his own message or answer leaves (the CEO, 2026-11-07).
+func stampedForCFO(text string) string {
 	line := oneLine(text)
-	if !strings.HasPrefix(line, "/") && !strings.HasPrefix(line, "!") {
-		line = "Overlord: " + line
+	if strings.HasPrefix(line, "/") || strings.HasPrefix(line, "!") {
+		return line
 	}
-	return c.sendNative(ctx, identity, line, false, true)
+	return "Overlord: " + line
+}
+
+// Send types text to the primary CFO as one of his own messages or answers,
+// behind the Overlord's stamp, and leaves the terminal's mark of his input.
+func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evaluation, error) {
+	return c.sendNative(ctx, identity, stampedForCFO(text), false, true)
 }
 
 // SendNotice delivers a line the supervisor writes to the CFO, such as a
-// review request. It is nobody's own input, so it clears the terminal's mark
-// of his.
+// review request or how a run item ended, behind the same Overlord's stamp
+// the board speaks with. It is nobody's own input, so it clears the
+// terminal's mark of his.
 func (c *CFOConnection) SendNotice(ctx context.Context, identity, text string) (Evaluation, error) {
-	return c.sendNative(ctx, identity, oneLine(text), false, false)
+	return c.sendNative(ctx, identity, stampedForCFO(text), false, false)
 }
 
 // nativeSubmitSettle lets the CFO's harness take typed text before its submit
