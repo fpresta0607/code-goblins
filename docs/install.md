@@ -25,7 +25,7 @@ Either way you see the same four steps, `[1/4] Download Code Goblins`, `[2/4] Ch
 Every other detail goes to the install's log, `CodeGoblinsInstall.log` in your temp folder.
 When something stops the install, it says in one sentence what happened and what to do, and names the log; the setup offers **Show details**, **Open the log** and **Try again**.
 Closing the setup ends the install, and running it again finishes it.
-The install asks nothing: the app's first-run page starts the CFO and records [your projects folder](#your-projects-folder).
+The install asks nothing: the app's first-run page starts the CEO and records [your projects folder](#your-projects-folder).
 
 The setup draws at your display's own scale, so its text is sharp at 100, 125, 150 or 200 percent.
 Every page fits its window at each of those scales, with Cancel and Install at the bottom and nothing to scroll.
@@ -40,7 +40,7 @@ The install never stops to ask you to run anything first; it decides by what it 
 | An earlier install | Updates it in place and keeps your settings, policy and fleet. |
 | The command line only | Updates it and adds the app, with the shortcuts described below. |
 | `CFO_HOME` naming another folder that holds a fleet, such as a clone an older build made the home | Keeps using that folder and says so in one line: the programs go into its `bin`, those at its root are brought up to date too, and in a clone the files git tracks are left as they are, while the clone gets the `.cfo-home` marker, which git ignores, that makes it the home in use. Moving it to the standard folder is [`cfo home move`](#where-your-data-lives), whenever you choose. |
-| The board, the CFO or goblins running | Restarts only the board on the new build, on the address it served; no goblin's or the CFO's terminal is touched, and a build that does not start gives the board back to the one before. |
+| The board, the CEO or goblins running | Restarts only the board on the new build, on the address it served; no goblin's or the CEO's terminal is touched, and a build that does not start gives the board back to the one before. |
 | An install that stopped part way | Finishes it: every step is safe to run again. |
 
 The install never moves, deletes or rewrites a fleet's state, data or worktrees.
@@ -50,10 +50,10 @@ In order, it:
 
 1. Stops before changing anything when git or gh is missing and winget, which installs them, is missing too; the fix is App Installer from the Microsoft Store.
 2. Downloads `cfo.exe`, and the desktop window `goblins-window.exe` and the hook program `cfo-hook.exe` when the release lists them, from the release this `install.ps1` was published with, so the script and the programs are always one release's, and refuses each unless it matches the release's `SHA256SUMS`.
-3. Sets up the CFO home it picked, as [the table above](#which-home-it-installs) says, normally `%LOCALAPPDATA%\CodeGoblins`: the CFO's contract, the default policy, the program as `bin\cfo.exe` and `bin\goblins.exe`, and the desktop window beside them as `goblins-window.exe` and the hook program as `cfo-hook.exe` where the release ships them, with the `state`, `data`, `worktrees`, `scratch` and `caches` folders beside `bin`.
+3. Sets up the CEO home it picked, as [the table above](#which-home-it-installs) says, normally `%LOCALAPPDATA%\CodeGoblins`: the CEO's contract, the default policy, the program as `bin\cfo.exe` and `bin\goblins.exe`, and the desktop window beside them as `goblins-window.exe` and the hook program as `cfo-hook.exe` where the release ships them, with the `state`, `data`, `worktrees`, `scratch` and `caches` folders beside `bin`.
    The skills Code Goblins ships go once into `~\.agents\skills`, which Codex and Pi read, with a junction to each from Claude Code's skills folder, and `state\harnesses.json` records where each harness keeps its configuration; nothing in a harness folder that Code Goblins did not put there is changed.
    `CFO_HOME` and the home's `bin` on your PATH are set for your user.
-   The CFO's hooks go into no settings file of yours: [the CFO's own session](contract/supervision.md#the-cfos-own-session), the one `goblins` starts in native terminal `cfo`, starts with them, so a Claude Code session you open yourself, in the desktop app or a terminal, runs none of them and never holds the fleet.
+   The CEO's hooks go into no settings file of yours: [the CEO's own session](contract/supervision.md#the-ceos-own-session), the one `goblins` starts in native terminal `cfo`, starts with them, so a Claude Code session you open yourself, in the desktop app or a terminal, runs none of them and never holds the fleet.
    Where an older build merged them into your `~/.claude/settings.json`, the install takes them out, backing the file up first and keeping your own hooks.
    The same write adds allow rules for the commands that only put an item in front of you in the Command Center (`cfo question`, `cfo run-request`, `cfo review`, `cfo present`, `cfo deliver` and `cfo auth request`), so Claude Code's auto mode approves them without its classifier unless `autoMode.classifyAllShell` is on ([Safety model](../README.md#safety-model) says why these and no others); `settings.json.cfo-install.rules` beside the file records which ones it added, for the uninstall.
    Windows then starts Code Goblins at login, in the tray, which brings back what a restart ended, unless Start at login was turned off: the setup's box, `-NoStartAtLogin` given to `install.ps1` run as a file, or `cfo install --start-at-login off`; `-StartAtLogin` and `--start-at-login on` turn it back on.
@@ -72,7 +72,7 @@ In order, it:
    A download that fails is tried twice more, a few seconds apart; if all three attempts fail, the install says why, goes on with the rest, and names no-mistakes among the installs that did not complete.
    Claude Code is the native build, `claude.exe`, because a native terminal starts it with no shell; a `claude` that is only a script, such as npm's `claude.cmd`, counts as missing, and the install adds `~\.local\bin`, where the native build lives, to your PATH.
    When npm's copy still comes first on your PATH, the closing note names claude, and the log has the command that removes it, `npm.cmd uninstall -g @anthropic-ai/claude-code`.
-   Neither Herdr nor Kimi is installed or checked: every goblin and the CFO run in native terminals, and the fleet runs no Kimi for now.
+   Neither Herdr nor Kimi is installed or checked: every goblin and the CEO run in native terminals, and the fleet runs no Kimi for now.
 5. Installs the skills of gh-axi, chrome-devtools-axi and no-mistakes at user scope, for Claude Code, Codex and pi, through the version of the skills CLI `install.ps1` pins.
    A skill whose install fails is tried once more; one that fails again is named in the closing note, and the rest of the install goes on.
 6. Installs pi's native lifecycle hooks, its extension, when pi is installed.
@@ -126,27 +126,27 @@ The tick and each agent's mark are drawn in Unicode where the console says it ca
 
 1. It finds the supervisor, or starts it in the background, and prints the board's link; it never opens the board on its own.
    Its first line says which: `Supervisor already running`, or `Supervisor started`.
-2. When no CFO runs, it asks Claude Code, Codex and pi, each with its own read-only status command, whether it is installed and signed in, and shows them as one row of tabs, each with the agent's own mark, moved with Left and Right.
+2. When no CEO runs, it asks Claude Code, Codex and pi, each with its own read-only status command, whether it is installed and signed in, and shows them as one row of tabs, each with the agent's own mark, moved with Left and Right.
    Under the row is the marked agent's state: Ready, Not installed, Sign-in needed, or Sign-in could not be verified.
-   Claude Code's tab is marked as recommended, for the best experience, and Codex's and pi's notes say what a CFO in them gets: woken by a typed line, with no digest or guards.
+   Claude Code's tab is marked as recommended, for the best experience, and Codex's and pi's notes say what a CEO in them gets: woken by a typed line, with no digest or guards.
 3. When the agent you choose is missing, Enter installs it the way the install script does: Claude Code's native build from <https://claude.ai/install.ps1>, Codex and pi with `npm install -g`, which needs Node.js.
    When npm's `claude.cmd` comes before Claude Code's native build on PATH, which a native terminal cannot start, it shows the uninstall command to run instead, on a line of its own, and Enter checks again once you have run it.
 4. When nobody is signed in, Enter opens the agent's own sign-in in the same window (`claude auth login`, `codex login`, or pi itself, where `/login` signs in and `/model` picks the provider), and the quick start checks again when it ends.
    You sign in there yourself; nothing is typed for you.
    An installer and a sign-in run on the console's other screen, under a line that says what is running, so what they print leaves with them; one that fails keeps that screen until you have read why.
-5. It remembers the agent and starts the CFO in the CFO home, in a native terminal of its own, and says so in one line: `CFO started as Claude Code in` the home, or `CFO already running` and where.
-   In a native terminal it answers the CFO's startup dialogs whose answers are known and safe, as a goblin's spawn does: Claude Code's trust in the home, Codex's directory or folder trust and update prompt, and Codex's hook review without trusting the hooks, which stay your decision.
-   Codex's optional Daybreak security setup offer is no startup dialog: it is drawn above the composer, and the first wake or board message typed into the CFO dismisses a live one with Escape and never chooses it, so account security setup stays your decision.
+5. It remembers the agent and starts the CEO in the CEO home, in a native terminal of its own, and says so in one line: `CFO started as Claude Code in` the home, or `CFO already running` and where.
+   In a native terminal it answers the CEO's startup dialogs whose answers are known and safe, as a goblin's spawn does: Claude Code's trust in the home, Codex's directory or folder trust and update prompt, and Codex's hook review without trusting the hooks, which stay your decision.
+   Codex's optional Daybreak security setup offer is no startup dialog: it is drawn above the composer, and the first wake or board message typed into the CEO dismisses a live one with Escape and never chooses it, so account security setup stays your decision.
    It reads a dialog's focus by the mark the agent draws, Claude Code's `❯` or the plain `>` it draws in a console that does not announce Unicode.
    It types nothing at a screen it does not know, such as Claude Code's own first-run questions.
    For a dialog it has not answered, in Herdr or after those questions, it says what to choose: Yes at Claude Code's trust dialog, whose first choice, No, exits, and Continue without trusting at Codex's hook review.
-6. It ends on one screen with the home and the board's link, which Ctrl+click opens: **Open the CFO terminal**, which Enter takes, or **Open the board**, which B takes, in the desktop window where `goblins-window.exe` sits beside `goblins` and in the browser otherwise.
+6. It ends on one screen with the home and the board's link, which Ctrl+click opens: **Open the CEO terminal**, which Enter takes, or **Open the board**, which B takes, in the desktop window where `goblins-window.exe` sits beside `goblins` and in the browser otherwise.
    Esc there leaves both running and exits.
 
-A CFO that ran in a native terminal and was closed comes back in it on its conversation, and the line reads `CFO back as Claude Code on its conversation`, its id and the terminal; the README's [Everyday commands](../README.md#everyday-commands) say when it starts a new conversation instead.
-Later runs skip what is already set up: with the remembered agent ready they go straight to the last screen, and with a CFO running they start nothing.
+A CEO that ran in a native terminal and was closed comes back in it on its conversation, and the line reads `CFO back as Claude Code on its conversation`, its id and the terminal; the README's [Everyday commands](../README.md#everyday-commands) say when it starts a new conversation instead.
+Later runs skip what is already set up: with the remembered agent ready they go straight to the last screen, and with a CEO running they start nothing.
 `goblins setup` shows the choice of agent again, and `goblins --harness codex|claude|pi` names it instead of asking.
-`goblins resume` restarts a running CFO in its native terminal on its conversation, for a screen that froze, and with none running there does what `goblins` does; then, as after a reboot, it brings back every goblin whose terminal ended, except one paused or stopped on purpose or whose latest report is `done` with a pull request, or with the issue it closed in place of one, and that took no prompt since, which waits on its merge or on nothing, and lists which came back and which need a hand.
+`goblins resume` restarts a running CEO in its native terminal on its conversation, for a screen that froze, and with none running there does what `goblins` does; then, as after a reboot, it brings back every goblin whose terminal ended, except one paused or stopped on purpose or whose latest report is `done` with a pull request, or with the issue it closed in place of one, and that took no prompt since, which waits on its merge or on nothing, and lists which came back and which need a hand.
 A screen nobody can answer, as in a script or the install's own CI run, accepts nothing and says to run `goblins` in a terminal.
 
 A no-mistakes that cannot gate as the pinned build does is replaced with it the same way: one older than the build `install.ps1` pins, and one whose `axi run` has no `--intent-file` or no `--launch-assertion`, as no upstream release has.
@@ -167,7 +167,7 @@ An update that did not install offers one **Try again**, which starts the next u
 Only you press it, from a board of your own; `"check_for_updates": false` in the home's `config\fleet.json` turns the look off.
 [Update Code Goblins](native-board.md#update-code-goblins) says all it does.
 
-`goblins update`, run in a terminal of your own, does the same: it updates the home to the newest published release without touching your goblins or the CFO.
+`goblins update`, run in a terminal of your own, does the same: it updates the home to the newest published release without touching your goblins or the CEO.
 It runs only as the home's own `goblins` or `cfo`, and it says four steps as it goes:
 
 1. `[1/4] Download Code Goblins <version>`: it reads the newest release from GitHub's `/releases/latest`, refuses a pre-release or a draft, and downloads its `cfo.exe`, its desktop window `goblins-window.exe` and its hook program `cfo-hook.exe` where the release ships them, its `SHA256SUMS` and its `install.ps1` into the home's `state\update`.
@@ -193,7 +193,7 @@ The download is removed afterwards.
 `goblins update --check` says how your build stands against the newest release and what is new in it, and changes nothing.
 A build that already runs the newest release, or one newer than it, such as a pre-release, is told so, and neither command changes anything until a newer release is published.
 A build made from a clone has no release version, so it says to run `git pull` and then `.\install.cmd -Dev` in the clone instead.
-The update is yours alone: it refuses to run under the CFO, in a goblin's or a gate's terminal, under an agent harness, and where its parents cannot be followed to the desktop, as in Git Bash; run it in PowerShell or cmd.
+The update is yours alone: it refuses to run under the CEO, in a goblin's or a gate's terminal, under an agent harness, and where its parents cannot be followed to the desktop, as in Git Bash; run it in PowerShell or cmd.
 Rerunning the install still updates the tools it pins, such as no-mistakes, which an update leaves as they are.
 
 ### What an update keeps
@@ -205,7 +205,7 @@ An update replaces the programs and brings the home's contract, skills and hooks
   The one exception is a setting this build no longer reads, such as `max_live_goblins` in `config\fleet.json`, which it takes out and says so.
 - Your projects folder, `CFO_PROJECTS_ROOT`.
 - The dictation model, unless the new build pins a different one, which then replaces it.
-- Your running goblins and the CFO: only the board restarts, and no goblin's or the CFO's terminal is touched.
+- Your running goblins and the CEO: only the board restarts, and no goblin's or the CEO's terminal is touched.
 
 A build whose board does not start is rolled back: the previous build is put back and serves the board again, and the update ends on `Rolled back:`.
 
@@ -272,7 +272,7 @@ Rerun it after you pull, to rebuild.
 ## Where your data lives
 
 The [data overview](../README.md#your-data) describes where the fleet keeps its files for release and source builds.
-[The CFO home](contract/home.md#the-cfo-home) describes each folder and the janitor's cleanup rules.
+[The CEO home](contract/home.md#the-ceo-home) describes each folder and the janitor's cleanup rules.
 The board and `cfo runtime` show what it holds.
 It all stays on your machine: Code Goblins needs no backup repository, account or service for it.
 Backing the home up, for example its `data` folder to a private git repository, is only your own choice.

@@ -58,8 +58,8 @@ The janitor keeps the folder under `config/fleet.json`'s `caches_cap_gb`, defaul
 The goblin runs its dependency install in that pane, against those same redirects, which is where they matter most: the install is both the largest consumer of the store and the thing that fills it.
 It also installs from the store the goblin's later commands use, by construction, which matters because pnpm records the store it installed from and a pane pointed at a different one tears `node_modules` down and reinstalls.
 `CARGO_HOME` is deliberately excluded and must not be added: cargo has no cache-only variable, so redirecting it would also relocate `config.toml`, `credentials.toml` and `bin/`, and a goblin would lose the operator's registry and linker configuration.
-These locations are a property of the machine rather than of any project, so they live in the CFO home and no manifest repeats them.
-A variable the CFO's own environment already sets is inherited untouched, and a project's `worktree.json` `env` block wins over both for that project, in the pane and so in the install.
+These locations are a property of the machine rather than of any project, so they live in the CEO home and no manifest repeats them.
+A variable the CEO's own environment already sets is inherited untouched, and a project's `worktree.json` `env` block wins over both for that project, in the pane and so in the install.
 The one exception is the names the launch contract owns - `GOTMPDIR`, `TEMP` and `TMPDIR`, which point into the task's scratch folder, `TMP`, which points to the folder every goblin shares, `CFO_HOME` and `CFO_STATE_OVERRIDE`, `CFO_ROLE`, and `LOCALAPPDATA`, `XDG_CACHE_HOME` and `HOME` - which a manifest cannot redirect in the pane, where the install runs too.
 A pane whose cache root moved would leave every `cfo` command run there computing a different Go temporary directory than the spawn that created it.
 `cfo auth <project> --env` prints every one of them in full and names where each came from, marking a project-declared one `(project)` and an inherited one `(inherited)`, so a tuned location is visible rather than indistinguishable from one that was never set.

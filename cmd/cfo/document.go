@@ -29,7 +29,7 @@ func runDeliver(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 	title := f.String("title", "", "what the file is, for the Overlord")
 	file := f.String("file", "", "the file to deliver: a goblin's from its worktree, task scratch or data directory")
 	isDownload := f.Bool("download", false, "offer the file to download on its page: a generated asset or a file the Overlord asked to keep")
-	task := f.String("task", "", "your task ID, run from your own pane; omit only from the registered primary CFO")
+	task := f.String("task", "", "your task ID, run from your own pane; omit only from the registered primary CEO")
 	if !parseFlags(f, args) {
 		return 2
 	}

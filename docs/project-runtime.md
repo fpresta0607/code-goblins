@@ -439,5 +439,5 @@ The `project-check` skill is the rest of the pass, one text for every harness, i
 It runs `cfo project check` and `cfo auth <project> --check`, then proves each listed build, test and lint command by running it or its dry form.
 It runs no deploy, no migration and no test while the report holds a `test-reaches-production` line.
 It completes the draft from evidence, proves it in a scratch home with `--area record`, and writes a report with one line for each finding.
-A fix in the home's files is the CFO's to place.
+A fix in the home's files is the CEO's to place.
 A fix inside the project's repository is written up with its proposed text for a follow-up task, which ships through that repository's own gate.

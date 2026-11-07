@@ -1,9 +1,11 @@
 ---
 name: cfo-home
-description: Use when locating, installing, updating, migrating or cleaning a CFO home, interpreting its layout or handling a janitor or storage finding.
+description: Use when locating, installing, updating, migrating or cleaning a CEO home, interpreting its layout or handling a janitor or storage finding.
 ---
 
-# CFO home
+<a id="cfo-home"></a>
+
+# CEO home
 
 In a source checkout, read `docs/contract/home.md` at the repository root before acting at this trigger.
 In an installed home, run `cfo help contract home` to retrieve this build's complete procedure from the same policy source.

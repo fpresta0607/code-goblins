@@ -19,9 +19,9 @@ nothing. It reads the machine's processes and this home's terminals and task
 records, and writes nothing into the home.
 
 It lists what the janitor's hourly sweep would end, what it would name for the
-CFO and what it would leave, each with the rule that decides it, then what a
+CEO and what it would leave, each with the rule that decides it, then what a
 cleanup or a relaunch of each task would end beside the task's terminal. A
-would-end process that looks like the Overlord's, the CFO terminal's or a
+would-end process that looks like the Overlord's, the CEO terminal's or a
 working goblin's is listed first, under Alarms.
 `
 

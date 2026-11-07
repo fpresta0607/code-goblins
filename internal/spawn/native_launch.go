@@ -244,7 +244,7 @@ func (s Service) typedInstruction(id, instruction string) (string, error) {
 // instructionPointer is the line typed in place of an instruction written to
 // path.
 func instructionPointer(path string) string {
-	return "Read " + path + " and follow it exactly: it is your instruction from the CFO."
+	return "Read " + path + " and follow it exactly: it is your instruction from the CEO."
 }
 
 // awaitNativeReady reads the terminal's screen until the harness's composer

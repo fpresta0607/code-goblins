@@ -469,14 +469,14 @@ const briefWaitsRoom = 1500
 func writeCFOWaits(waits []supervisor.CFOWait, err error, now time.Time, room, errorWidth int, ew *werr) {
 	var section bytes.Buffer
 	sw := &werr{w: &section}
-	sw.println("== WAITING ON THE CFO ==")
+	sw.println("== WAITING ON THE CEO ==")
 	if err != nil {
-		sw.printf("WAITING ON THE CFO: UNREADABLE (%s)\n", cutError(err, errorWidth))
+		sw.printf("WAITING ON THE CEO: UNREADABLE (%s)\n", cutError(err, errorWidth))
 	} else if len(waits) == 0 {
-		sw.println("No goblin waits on the CFO.")
+		sw.println("No goblin waits on the CEO.")
 	}
 	more := func(left int) string {
-		return fmt.Sprintf("(+%d more goblins wait on the CFO: see WAITING ON THE CFO in the file named under READ THIS NEXT)\n", left)
+		return fmt.Sprintf("(+%d more goblins wait on the CEO: see WAITING ON THE CEO in the file named under READ THIS NEXT)\n", left)
 	}
 	for listed, wait := range waits {
 		line := fmt.Sprintf("%s has waited %d minutes: %s\n", wait.Who(), wait.Minutes(now), wait.What)
@@ -732,12 +732,12 @@ func writeSupervisionInstructions(dataDir string, isBrief bool, ew *werr) {
 		indexPrinted, orphans = "printed in full in the file named under READ THIS NEXT", "The ORPHANS section of the file named under READ THIS NEXT"
 	}
 	if _, err := os.Lstat(filepath.Join(dataDir, "memory", "startup.json")); !errors.Is(err, os.ErrNotExist) {
-		ew.printf("The CFO's memory is %s, the same for Claude Code, Codex and Pi. Once it validates, startup.json selects exact warm source ranges; cold facts and original rulings remain at their owners. Use cfo memory retrieve for the task's project, task and topic before dependent action. Read the Stow skill for capture, corrections, provenance and per-item pinned-offload authority; no digest grants that authority.\n", memory)
+		ew.printf("The CEO's memory is %s, the same for Claude Code, Codex and Pi. Once it validates, startup.json selects exact warm source ranges; cold facts and original rulings remain at their owners. Use cfo memory retrieve for the task's project, task and topic before dependent action. Read the Stow skill for capture, corrections, provenance and per-item pinned-offload authority; no digest grants that authority.\n", memory)
 	} else {
-		ew.printf("The CFO's memory is %s, the same for Claude Code, Codex and Pi: MEMORY.md there is its index, %s, one line per fact. Read a fact's own file when its line bears on the work. When you learn something durable, write it there as one file (frontmatter name, description and type, then the fact) and add its one line to MEMORY.md, never only to a harness's own memory folder, which the next CFO may not see.\n", memory, indexPrinted)
+		ew.printf("The CEO's memory is %s, the same for Claude Code, Codex and Pi: MEMORY.md there is its index, %s, one line per fact. Read a fact's own file when its line bears on the work. When you learn something durable, write it there as one file (frontmatter name, description and type, then the fact) and add its one line to MEMORY.md, never only to a harness's own memory folder, which the next CEO may not see.\n", memory, indexPrinted)
 	}
-	ew.println("For an explicit user decision, the registered primary CFO uses cfo question --id <stable-id> --text <question> --option <choice> --recommend <exact-choice>. Repeat --option for real choices; omit --recommend unless you recommend one. Other always permits a written answer.")
-	ew.println("This contract applies to Claude Code, Codex and Pi: publish from this primary session's shell, then continue independent work or end the turn awaiting the answer. The durable answer returns to the same CFO as a normal message; it does NOT answer a pending native prompt tool. Do not open a native prompt for the same decision or promote worker wake diagnostics into user questions.")
+	ew.println("For an explicit user decision, the registered primary CEO uses cfo question --id <stable-id> --text <question> --option <choice> --recommend <exact-choice>. Repeat --option for real choices; omit --recommend unless you recommend one. Other always permits a written answer.")
+	ew.println("This contract applies to Claude Code, Codex and Pi: publish from this primary session's shell, then continue independent work or end the turn awaiting the answer. The durable answer returns to the same CEO as a normal message; it does NOT answer a pending native prompt tool. Do not open a native prompt for the same decision or promote worker wake diagnostics into user questions.")
 	ew.println("For a nonblocking presentation, use a Scrawl page (lavish-axi <file> --no-open) and cfo present --id <stable-id> --kind review --url <returned-safe-url> from this registered primary; workers add --task and --generation. Report only a successful tool result, refresh only while live and finish with --state ended. Do not wait for a viewing choice or claim URL opening mirrors browser control; see docs/native-board.md.")
 	ew.println("The Stop-owned auto-arm hook owns watcher continuity: it hosts the watcher in-process across every turn for up to 8 hours.")
 	ew.println("Never run \"cfo watch\" from the agent shell. The watcher is armed and supervised by that hook alone; running it manually bypasses supervision.")

@@ -5,7 +5,7 @@
 # CLAUDE.md, and automatic fix rounds stay bounded. docs/load-map.md places
 # it among everything else the gate's agents read.
 
-# AGENTS.md installs a CFO identity. Disable project-level agent settings and
+# AGENTS.md installs a CEO identity. Disable project-level agent settings and
 # instructions for gate agents so a no-mistakes review/fix/document/test/lint
 # agent never adopts that identity or drives the fleet.
 disable_project_settings: true
@@ -30,7 +30,7 @@ disable_project_settings: true
 # machine and ran the slowest packages twice. An agent-chosen step ran the
 # whole suite here, where supervisor alone takes about 22 minutes, and hit
 # the 30-minute test agent limit with no failing test. It runs the installed
-# cfo, so it works once the CFO installs a build that has `cfo gate test`.
+# cfo, so it works once the CEO installs a build that has `cfo gate test`.
 #
 # The lint step reuses the affected-check planner for go vet, without running
 # tests again. Unknown changes keep its full-tree fallback. CI's frontend job also runs `npm run
@@ -85,7 +85,7 @@ auto_fix:
 # person approved or skipped, read from the gate's database, is left out on
 # any branch carrying it; one the rebase step rewrote after the approval is a
 # new commit and parks once more. It runs the installed cfo, the trusted
-# binary, so it works once the CFO installs a build that has `cfo gate`.
+# binary, so it works once the CEO installs a build that has `cfo gate`.
 gates:
   - name: tests-kept
     after: lint

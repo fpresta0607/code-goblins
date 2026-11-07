@@ -3,7 +3,9 @@ name: cfo-dispatch
 description: Use when dispatching, routing, pausing, resuming, switching or recovering a worker, assigning a helper, or reconciling queued work.
 ---
 
-# CFO dispatch
+<a id="cfo-dispatch"></a>
+
+# CEO dispatch
 
 In a source checkout, read `docs/contract/dispatch.md` at the repository root before acting at this trigger.
 In an installed home, run `cfo help contract dispatch` to retrieve this build's complete procedure from the same policy source.

@@ -14,7 +14,7 @@ import (
 func runQuestion(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	f := flag.NewFlagSet("question", flag.ContinueOnError)
 	f.SetOutput(stderr)
-	id := f.String("id", "", "stable ID for this CFO question")
+	id := f.String("id", "", "stable ID for this CEO question")
 	text := f.String("text", "", "the question deliberately escalated to the user: one short sentence that is the question, details on lines starting with \"- \" that give the recommendation and what each choice does, **bold** only on the verdict or the blocking item, and run IDs, findings and other evidence after a line that reads only Details:, which his card folds away")
 	recommended := f.String("recommend", "", "exact supplied choice to recommend; omit when there is no recommendation")
 	forTask := f.String("for", "", "the goblin's task ID when this puts that goblin's decision to the user; while this question waits, that goblin's waits on the user must declare whether they are this decision, and one it declares with cfo notify --follows <this question's ID> is hidden while this question waits and closed by its answer")

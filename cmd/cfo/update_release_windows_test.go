@@ -152,7 +152,7 @@ func TestAnUpdateFromAReleaseInstallsItAndRestartsOnlyTheBoard(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(update.Dir(u.state), "release", "v0.5.0")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the download is still in the home (%v)", err)
 	}
-	if contract, err := os.ReadFile(filepath.Join(u.root, "AGENTS.md")); err != nil || !bytes.Contains(contract, []byte("Chief Fuckaround Officer")) {
+	if contract, err := os.ReadFile(filepath.Join(u.root, "AGENTS.md")); err != nil || !bytes.Contains(contract, []byte("Chief Executive Officer")) {
 		t.Errorf("the home's contract was not brought up to date (%v)", err)
 	}
 }

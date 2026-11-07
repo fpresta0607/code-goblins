@@ -1,6 +1,6 @@
 ## Startup memory and retrieval
 
-This is the shared contract for the CFO and goblins in Claude Code, Codex and Pi.
+This is the shared contract for the CEO and goblins in Claude Code, Codex and Pi.
 It adapts First Mate's [Stow](https://github.com/kunchenguid/firstmate/blob/bb3e6906548b5c03d3212e9f060bafde982e0cf1/.agents/skills/stow/SKILL.md), knowledge routing, Bearings, session-start-recovery and operational-home-layout at the reviewed revision.
 The upstream copyright and MIT permissions are retained in [LICENSE](../../LICENSE).
 No memory service, external model call, new board, scheduler or hook-trust change is part of this contract.
@@ -79,7 +79,7 @@ Only the native date markers are accepted; unsupported marker bytes remain uncha
 
 Each optional `layers` entry declares a unique `name`, nonoverlapping knowledge `classes`, `owner`, `capture` and `correction` instructions.
 It declares ownership through existing tools, not a connector or a new service.
-The CFO captures a worker's reported knowledge on its behalf when that worker cannot reach a declared owner.
+The CEO captures a worker's reported knowledge on its behalf when that worker cannot reach a declared owner.
 An unreachable tier leaves `<!--t:NAME-->` on the local warm entry and is an unresolved exception, never completed capture.
 Corrections follow that tier's declared rule and preserve provenance.
 If a tier is renamed or retired, Stow retargets the pending marker to the new owner or removes it only when no declared tier owns that class.
@@ -103,7 +103,7 @@ Do not substitute a skill's full body for its discovery entry or omit a harness-
 Record the capture method and any inaccessible provider-owned inputs; the report measures the supplied text, not undisclosed system prompts.
 
 The combined package allowance is `config/startup-context-budget`, a positive integer defaulting to 20,000 estimated tokens.
-Both allowance files are resolved in `config/` beside the absolute, normalized data directory selected by `--data` or the CFO home.
+Both allowance files are resolved in `config/` beside the absolute, normalized data directory selected by `--data` or the CEO home.
 Reports retain the hash, byte size and category of every supplied input and explicitly mark overruns.
 The estimate is `ceil(bytes/4)`, a stable local approximation, not provider billing, a tokenizer measurement or actual RAM usage.
 Report before and after using the same capture boundaries, and distinguish synthetic consumer fixtures from measurements of an installed home.
@@ -123,7 +123,7 @@ Legacy `overlord.md` is conservatively all ruling authority; the tool does not i
 Proposed headings and bullet ranges are inventory units for human review, not automatic curation decisions.
 An archive remains recoverable, with its original provenance.
 
-The CFO names the concrete items proposed for relocation, their exact quote, source hash/range, trigger, destination, privacy and visibility, estimated relief and approval state.
+The CEO names the concrete items proposed for relocation, their exact quote, source hash/range, trigger, destination, privacy and visibility, estimated relief and approval state.
 Each pinned item stays at its current owner until its own explicit approval and live-destination proof exist.
 Moving a current pinned item into a local conditional skill requires checking its private untracked destination, resolved repository-local exclude rule and actual discovery in a fresh skill index before removal.
 An approved project destination ships through its normal project task and must land before removal.
