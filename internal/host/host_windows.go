@@ -345,7 +345,7 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 		return
 	}
 	if greeting.Deliver {
-		serveDelivery(connection, console)
+		serveDelivery(connection, console, output)
 		return
 	}
 	past, sizes, feed, detach := output.attach()
@@ -403,6 +403,7 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 				}
 			case frameInput:
 				_, _ = console.Write(payload)
+				output.typedFrom(feed)
 			case frameResize:
 				if cols, rows, ok := parseSize(payload); ok {
 					_ = output.resize(cols, rows, func() error { return console.Resize(cols, rows) })

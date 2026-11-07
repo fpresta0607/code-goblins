@@ -64,6 +64,39 @@ func TestHistoryKeepsSubmissionTurnEvidenceAcrossScreenReplacement(t *testing.T)
 	}
 }
 
+// A submission mark says the viewer's own keys are what the screen shows, and
+// stands only until another connection types into the terminal: a watcher's
+// wake line or a board delivery typed after the viewer's submission clears
+// it, so a menu the harness draws then is never read as the viewer's own
+// human-triggered one. The viewer's own later keys keep its mark, since
+// choosing in the menu it opened is still its own input.
+func TestAViewersSubmissionStandsUntilAnotherConnectionTypes(t *testing.T) {
+	output := newTestHistory(t, 100, 20)
+	_, _, viewer, detach := output.attach()
+	defer detach()
+	_, _, watcher, detachWatcher := output.attach()
+	defer detachWatcher()
+	if err := viewer.submit(submission{ID: "menu", Harness: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act: the viewer's own keys keep its mark.
+	output.typedFrom(viewer)
+
+	// Assert
+	if viewer.submission != "menu" {
+		t.Fatalf("submission = %q, want the viewer's own input to keep its mark", viewer.submission)
+	}
+
+	// Act: input from another connection clears it.
+	output.typedFrom(watcher)
+
+	// Assert
+	if viewer.submission != "" || viewer.hasStarted {
+		t.Fatalf("submission = %q, started = %v; want another connection's input to clear the mark", viewer.submission, viewer.hasStarted)
+	}
+}
+
 // A viewer that stops reading is dropped once it is further behind than a
 // replay reaches, rather than waited on, and the others keep receiving.
 func TestHistoryDropsAViewerThatCannotKeepUp(t *testing.T) {

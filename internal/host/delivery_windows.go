@@ -69,7 +69,7 @@ func (d *Delivery) Close() error {
 
 // serveDelivery writes each input frame a delivery sends into the terminal
 // and acknowledges it, with no history or output.
-func serveDelivery(connection *os.File, console *conpty.Console) {
+func serveDelivery(connection *os.File, console *conpty.Console, output *history) {
 	if writeHello(connection, hello{Version: Version, Deliver: true}) != nil {
 		return
 	}
@@ -82,6 +82,9 @@ func serveDelivery(connection *os.File, console *conpty.Console) {
 		if _, err := console.Write(payload); err != nil {
 			refusal = []byte(err.Error())
 		}
+		// A delivery is nobody's submission: the panel the harness draws next
+		// is never read as the viewer's own menu.
+		output.typedFrom(nil)
 		if writeFrame(connection, frameAck, refusal) != nil {
 			return
 		}

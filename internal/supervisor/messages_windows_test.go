@@ -2106,10 +2106,11 @@ func TestSendNowTypesAHeldMessageIntoTheGoblinsTurnToBeTakenAtOnce(t *testing.T)
 }
 
 // A message held behind a command that waits for a goblin's turn says what
-// Send now does for its harness: one with a send-now key, as Claude Code's
-// Ctrl+X Ctrl+S, has the goblin take it at once, and once its key has gone it
-// says so; one whose key never went, as one with none, as pi, says the goblin
-// takes it at its next tool call.
+// Send now does for its harness: every harness the board reads has a key that
+// interrupts its own turn, Claude Code's Ctrl+X Ctrl+S and the Escape Codex's
+// working row names and pi binds to app.interrupt, so each has the goblin
+// take it at once, and once the key has gone the message says so; one whose
+// key never went says the goblin takes it at its next tool call.
 func TestAHeldGoblinMessageSaysWhatSendNowDoesForItsHarness(t *testing.T) {
 	for _, test := range []struct {
 		name, harness, wantHeld, wantSent string
@@ -2117,7 +2118,9 @@ func TestAHeldGoblinMessageSaysWhatSendNowDoesForItsHarness(t *testing.T) {
 	}{
 		{name: "claude", harness: "claude", queued: spawn.ErrSentNow, wantHeld: "Queued until task-1's turn ends. Send now has it take the message at once.", wantSent: "Typed while it was working and sent now."},
 		{name: "claude whose key never went", harness: "claude", queued: fleet.ErrQueuedForToolCall, wantHeld: "Queued until task-1's turn ends. Send now has it take the message at once.", wantSent: sentToGoblin},
-		{name: "pi", harness: "pi", queued: fleet.ErrQueuedForToolCall, wantHeld: "Queued until task-1's turn ends. Send now types it for the goblin to take at its next tool call.", wantSent: sentToGoblin},
+		{name: "codex", harness: "codex", queued: spawn.ErrSentNow, wantHeld: "Queued until task-1's turn ends. Send now has it take the message at once.", wantSent: "Typed while it was working and sent now."},
+		{name: "pi", harness: "pi", queued: spawn.ErrSentNow, wantHeld: "Queued until task-1's turn ends. Send now has it take the message at once.", wantSent: "Typed while it was working and sent now."},
+		{name: "pi whose key never went", harness: "pi", queued: fleet.ErrQueuedForToolCall, wantHeld: "Queued until task-1's turn ends. Send now has it take the message at once.", wantSent: sentToGoblin},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

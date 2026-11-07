@@ -480,7 +480,7 @@ func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evalua
 	if !strings.HasPrefix(line, "/") && !strings.HasPrefix(line, "!") {
 		line = "Overlord: " + line
 	}
-	return c.sendNative(ctx, identity, line)
+	return c.sendNative(ctx, identity, line, false)
 }
 
 // nativeSubmitSettle lets the CFO's harness take typed text before its submit
@@ -514,7 +514,11 @@ const (
 // CFO; a line submitted during a turn waits in the harness's own queue, as
 // one typed into its terminal by hand does, and is taken at the CFO's next
 // tool call, which only the CFO's own record of its conversation proves.
-func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (Evaluation, error) {
+// With sendsNow, a line that queued into a turn gets the harness's own
+// send-now key once, which interrupts the turn and has the CFO take it at
+// once (the CFO, 2026-11-03, withdrawing the 2026-11-02 rule that
+// interrupting stays the box's Stop).
+func (c *CFOConnection) sendNative(ctx context.Context, identity, line string, sendsNow bool) (Evaluation, error) {
 	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
 	if err != nil {
 		return Evaluation{}, fmt.Errorf("%w: %v", ErrRejected, errNotRegistered)
@@ -655,6 +659,42 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (
 	// sent once its submit key went, and settleDeliveries reads that record.
 	waiting := &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Digest: monitor.TextDigest(instruction), Session: cfoSession(c.State, primary), Typed: instruction, Pasted: isPasted}
 	if busy {
+		// A Send now he asked for interrupts the turn through the key the
+		// CFO's own harness binds to that, as a goblin's does, once its
+		// input line shows the answer gone into its queue and no screen of
+		// its own is open over it.
+		if sendsNow && screens.SendNow != "" {
+			// The key goes once the answer has left the input line into the
+			// harness's own queue, which its screen shows a moment after the
+			// submit, and never while a screen of its own is open over it,
+			// where the key would go to that screen.
+			for pressed := time.Now().Add(nativeConfirm); ; {
+				screen, readErr := read(record)
+				if readErr == nil && !screens.IsOpen(screen) && screens.ComposerEmpty(screen) {
+					for i, key := range []byte(screens.SendNow) {
+						if i > 0 {
+							select {
+							case <-time.After(spawn.ChordGap):
+							case <-ctx.Done():
+								return Evaluation{}, fmt.Errorf("the CFO's send-now key was not finished: %w", ctx.Err())
+							}
+						}
+						if err := delivery.Write([]byte{key}); err != nil {
+							return Evaluation{}, fmt.Errorf("the CFO's send-now key could not be pressed: %w", err)
+						}
+					}
+					return Evaluation{Reason: sentNowInTurn, Awaiting: waiting}, nil
+				}
+				if time.Now().After(pressed) {
+					break
+				}
+				select {
+				case <-time.After(nativeConfirmPoll):
+				case <-ctx.Done():
+					return Evaluation{}, fmt.Errorf("the CFO's send-now key was not pressed: %w", ctx.Err())
+				}
+			}
+		}
 		return Evaluation{Reason: sentToCFO, Awaiting: waiting}, nil
 	}
 	taken, cancelTaken := awake.WithTimeout(context.Background(), nativeConfirm)

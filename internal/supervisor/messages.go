@@ -77,7 +77,7 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		// queued up and sent with the clawed code session. The terminal
 		// already handles this."). What keeps it from the CFO's terminal keeps
 		// it from Send now too.
-		result, err := s.Options.CFO.sendNative(ctx, identity, strings.TrimSpace(a.Text))
+		result, err := s.Options.CFO.sendNative(ctx, identity, strings.TrimSpace(a.Text), a.IsSentNow)
 		if errors.Is(err, ErrDeferred) {
 			result.SendNowWhy = "Its terminal is not ready to take it yet."
 		}

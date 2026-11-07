@@ -585,22 +585,23 @@ func pressNativeKeys(record host.Record, name, keys string) error {
 	return nil
 }
 
-// chordGap is how long a chord's second key follows its first: long enough
+// ChordGap is how long a chord's second key follows its first: long enough
 // for a harness to read two keys, as fingers press them, and well inside the
-// time it waits for the second.
-const chordGap = 50 * time.Millisecond
+// time it waits for the second. A delivery to the CFO presses its send-now
+// chord with the same gap (internal/supervisor's sendNative).
+const ChordGap = 50 * time.Millisecond
 
 // keyInput is what takes the keys pressed in a native terminal.
 type keyInput interface {
 	Input(keys []byte) error
 }
 
-// pressKeys presses keys on input one write each, chordGap apart, so a chord
+// pressKeys presses keys on input one write each, ChordGap apart, so a chord
 // such as Claude Code's Ctrl+X Ctrl+S never reaches a harness as one input.
 func pressKeys(input keyInput, keys string) error {
 	for i, key := range []byte(keys) {
 		if i > 0 {
-			time.Sleep(chordGap)
+			time.Sleep(ChordGap)
 		}
 		if err := input.Input([]byte{key}); err != nil {
 			return err

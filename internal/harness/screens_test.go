@@ -424,8 +424,11 @@ func TestFullScreenCodexAndPiReadAsReadyOnlyWhileNoTurnRuns(t *testing.T) {
 	}{
 		"codex in a turn": {Codex, []string{"› Count from 1 to 300, one number per line, nothing else.", "", "", "Working (2s • esc to interrupt)", "", "", "› Ask Codex to do anything", "", `  GPT-6-Astra low · ~\work\task · ⠋`, codexFooter}, false, true, true},
 		"codex after it":  {Codex, []string{"• done", "", "  Worked for 10s • 10:28 PM", "", "", "› Ask Codex to do anything", "", `  GPT-6-Astra low · ~\work\task · Count to 300`, codexFooter}, true, false, true},
-		"pi in a turn":    {Pi, []string{" Reply from 127.0.0.1: bytes=32 time<1ms TTL=128", " Elapsed 2.0s", "", "", "── ⠸ Working " + rule, "", rule, `~\work\task`, piFooter}, false, true, false},
-		"pi after it":     {Pi, []string{" Took 5.7s", "", " done", "", rule, "", rule, `~\work\task`, piFooter}, true, false, true},
+		// The editor is the rows between the working border and the rule
+		// under it, and holds nothing there, so it reads empty even in a
+		// turn (TestPisEditorIsReadWhileItsTurnRuns).
+		"pi in a turn": {Pi, []string{" Reply from 127.0.0.1: bytes=32 time<1ms TTL=128", " Elapsed 2.0s", "", "", "── ⠸ Working " + rule, "", rule, `~\work\task`, piFooter}, false, true, true},
+		"pi after it":  {Pi, []string{" Took 5.7s", "", " done", "", rule, "", rule, `~\work\task`, piFooter}, true, false, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -796,6 +799,75 @@ func TestOutputDigestMovesOnlyWithOutput(t *testing.T) {
 		if isMoved := OutputDigest(test.before) != OutputDigest(test.after); isMoved != test.isMoved {
 			t.Errorf("%s: output moved = %v, want %v", name, isMoved, test.isMoved)
 		}
+	}
+}
+
+// Send now interrupts a harness's own turn through the control it binds to
+// that, and reports its key only once that key went: Claude Code 2.1.275's
+// chat:sendNow chord, and the Escape Codex's working row names and pi binds
+// to app.interrupt. Codex and pi were read as having none, so a message sent
+// now into either stayed in its queue until its next tool call.
+func TestEachHarnessNamesTheKeyItsSendNowPresses(t *testing.T) {
+	for name, test := range map[string]struct {
+		kind Kind
+		key  string
+	}{
+		"claude": {Claude, "\x18\x13"},
+		"codex":  {Codex, "\x1b"},
+		"pi":     {Pi, "\x1b"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+
+			// Act and assert
+			if screens.SendNow != test.key {
+				t.Fatalf("SendNow = %q, want %q", screens.SendNow, test.key)
+			}
+		})
+	}
+}
+
+// pi 1.4.0 draws the turn's status inside its editor's top border while a
+// turn runs, as in "── ⠸ Working ──" (pi-tui's Editor.renderTopBorder with
+// embedWorkingStatus), and the count of lines above it while the editor
+// shows older ones, as in "─── ↑ 3 more ───". Its editor is still the rows
+// between its last two borders, so the board reads a draft a person left
+// there, types into an editor it proves empty, and reads typed text only
+// from the editor, never from the conversation above it. Reading those rows
+// as no composer at all was how a message typed into a working pi was
+// submitted on words already in the transcript, and how pi's own Send now
+// found no empty composer to press its key over.
+func TestPisEditorIsReadWhileItsTurnRuns(t *testing.T) {
+	rule := strings.Repeat("─", 120)
+	footer := "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)"
+	working := "── ⠸ Working " + rule
+	for name, test := range map[string]struct {
+		screen              []string
+		empty, holds, shows bool
+	}{
+		"empty editor in a turn":        {[]string{" Elapsed 2.0s", "", working, "", rule, footer}, true, false, false},
+		"a draft in a turn":             {[]string{working, " run the tests ", rule, footer}, false, true, true},
+		"an editor showing older lines": {[]string{"─── ↑ 3 more " + rule, "last line", rule, footer}, false, true, false},
+		"his words only in the reply":   {[]string{" run the tests", working, "", rule, footer}, true, false, false},
+		"an idle empty editor":          {[]string{" Done.", rule, "  ", rule, footer}, true, false, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(Pi)
+
+			// Act
+			empty, holds := screens.ComposerEmpty(test.screen), screens.ComposerHoldsText(test.screen)
+			shows := screens.Shows(test.screen, "run the tests")
+
+			// Assert
+			if empty != test.empty || holds != test.holds {
+				t.Errorf("ComposerEmpty = %v, ComposerHoldsText = %v; want %v and %v", empty, holds, test.empty, test.holds)
+			}
+			if shows != test.shows {
+				t.Errorf("Shows(%v, %q) = %v, want %v", test.screen, "run the tests", shows, test.shows)
+			}
+		})
 	}
 }
 

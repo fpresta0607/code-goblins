@@ -242,17 +242,18 @@ func sendNow(service *Service, task, id string) *httptest.ResponseRecorder {
 	return boardRequest(NewHTTP(service, "board.local", nil), "POST", "/api/actions", fmt.Sprintf(`{"id":"now-%s","kind":"message_now","task_id":%q,"generation":"","target":%q}`, id, task, id))
 }
 
-// The CFO, 2026-11-02: his message to the CFO waits on the board for its
-// undo window, and Send now skips the window and types it into the turn at
-// once, without the harness's own send-now key, which would interrupt the
-// turn: interrupting stays the box's Stop. Once typed it is the harness's, so
-// Send now is no longer offered. A line starting with $ is words, not a
+// The CFO, 2026-11-03, withdrawing the 2026-11-02 rule that interrupting
+// stays the box's Stop: his message to the CFO waits on the board for its
+// undo window, and Send now skips the window, types it into the turn and
+// presses the harness's own send-now key once, which interrupts that turn
+// and has the CFO take the message at once. Once typed it is the harness's,
+// so Send now is no longer offered. A line starting with $ is words, not a
 // command, so it waits too.
-func TestSendNowTypesHisHeldMessageIntoTheCFOsTurnWithoutItsKey(t *testing.T) {
-	for _, test := range []struct{ mode, text string }{
-		{mode: "claude-busy", text: "stop and rebase"},
-		{mode: "claude-busy", text: "$40k a month is too much, stop the migration"},
-		{mode: "busy", text: "stop and rebase"},
+func TestSendNowInterruptsTheCFOsTurnAndDeliversHisMessageOnce(t *testing.T) {
+	for _, test := range []struct{ mode, text, interrupt string }{
+		{mode: "claude-busy", text: "stop and rebase", interrupt: "sent now"},
+		{mode: "claude-busy", text: "$40k a month is too much, stop the migration", interrupt: "sent now"},
+		{mode: "busy", text: "stop and rebase", interrupt: "interrupted"},
 	} {
 		t.Run(test.mode+" "+test.text, func(t *testing.T) {
 			// Arrange
@@ -282,14 +283,14 @@ func TestSendNowTypesHisHeldMessageIntoTheCFOsTurnWithoutItsKey(t *testing.T) {
 			if first.Code != http.StatusAccepted || second.Code != http.StatusAccepted {
 				t.Fatalf("Send now answered %d %q, then %d %q; want both accepted", first.Code, first.Body, second.Code, second.Body)
 			}
-			if lines := terminal.waitForLines(t, 2); len(lines) != 2 || !strings.HasPrefix(lines[1], "queued ") || !strings.HasSuffix(lines[1], test.text) {
-				t.Fatalf("terminal input = %q; want the message typed into the turn once", lines)
+			if lines := terminal.waitForLines(t, 3); len(lines) != 3 || !strings.HasPrefix(lines[1], "queued ") || !strings.HasSuffix(lines[1], test.text) || lines[2] != test.interrupt {
+				t.Fatalf("terminal input = %q; want the message queued into the turn once and the harness's own send-now key pressed once", lines)
 			}
 			time.Sleep(500 * time.Millisecond)
-			if lines := terminal.lines(t); slices.Contains(lines, "sent now") || len(lines) != 2 {
-				t.Errorf("terminal input = %q; want no send-now key pressed", lines)
+			if lines := terminal.lines(t); len(lines) != 3 || lines[2] != test.interrupt {
+				t.Errorf("terminal input = %q; want the send-now key pressed exactly once", lines)
 			}
-			if sent := store.Snapshot().Actions[0]; !sent.IsSentNow || sent.CanSendNow || sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentToCFO {
+			if sent := store.Snapshot().Actions[0]; !sent.IsSentNow || sent.CanSendNow || sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentNowInTurn {
 				t.Errorf("after Send now = %+v; want it typed into the turn, awaiting the CFO, and Send now gone", sent)
 			}
 		})

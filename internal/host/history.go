@@ -273,6 +273,24 @@ func (f *feed) submit(mark submission) error {
 	return nil
 }
 
+// typedFrom takes the terminal's key presses from whoever wrote them: input
+// from writer keeps its own submission mark, and input from anywhere else
+// clears every other viewer's. A mark says the viewer's own submission is
+// what the screen shows, and another writer's keys, a watcher's wake line, a
+// board delivery or another viewer, may be what the harness drew the current
+// screen from, so a menu it opened is never read as the first viewer's own.
+// writer is nil for input that belongs to no viewer.
+func (h *history) typedFrom(writer *feed) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for viewer := range h.viewers {
+		if viewer == writer || viewer.submission == "" {
+			continue
+		}
+		viewer.submission, viewer.hasStarted = "", false
+	}
+}
+
 // stop ends viewer's feed once it has taken what is already queued. The
 // caller holds h.mu.
 func (h *history) stop(viewer *feed) {
