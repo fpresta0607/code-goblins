@@ -22,6 +22,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
+const PREPARED_NOTIFY_TIMEOUT = 10 * time.Second
+
 // runNotify is the goblin-to-CFO direct ping: it writes a task's outcome
 // straight into the wake queue with the actual payload (PR URL, question, or
 // failure reason), so the CFO is woken with the real thing instead of the
@@ -33,6 +35,7 @@ import (
 //	cfo notify <task-id> --blocked "<question> options: <answer> (Recommended) | <answer>" --image a.png --image b.png
 //	cfo notify <task-id> --failed "<reason>"
 //	cfo notify <task-id> --working "<what>"
+//	cfo notify <task-id> --prepared-wait task:<id>|pr:<URL> --generation <generation> --handoff <data/task/handoff.md>
 //	cfo notify <task-id> --waiting-on <task-id|run-id|overlord|ci|deploy|memory> "<why>"
 //	cfo notify <task-id> --waiting-on overlord "<why>" --lavish <html-file>
 //	cfo notify <task-id> --waiting-on overlord "<why>" --link <https-url>
@@ -111,6 +114,9 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	failed := fs.String("failed", "", "report a failure reason")
 	working := fs.String("working", "", "report what you are working on now")
 	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, a gate run's ID, overlord, ci, deploy or memory, followed by why. For overlord, lead with one sentence; values he must enter somewhere go in a Markdown table on the lines after it, a header row, a separator row and one row each (\"| Type | Name |\", \"| --- | --- |\", \"| CNAME | `mcp` |\"), each value in backticks so his card copies it with one click")
+	preparedWait := fs.String("prepared-wait", "", "authorize one dependency pause: task:<id> delivery or pr:<URL> merge; preparation is complete and no worker-owned work remains")
+	preparedGeneration := fs.String("generation", "", "with --prepared-wait, the exact current spawn generation")
+	preparedHandoff := fs.String("handoff", "", "with --prepared-wait, the saved data/<task>/handoff.md file")
 	lavish := fs.String("lavish", "", "with --waiting-on overlord, the HTML file of the Scrawl page the Overlord answers on")
 	link := fs.String("link", "", "with --waiting-on overlord, the https link the Overlord goes to, which his card opens; an address only named in the text is never opened")
 	run := fs.String("run", "", "with --waiting-on overlord or --blocked, a .ps1 or .sh file holding a command the Overlord must run, such as a sign-in: his card shows the exact command and runs it with one click in a terminal on his card, where he types into it")
@@ -124,6 +130,24 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	})
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
+	}
+	if *preparedWait != "" || *preparedGeneration != "" || *preparedHandoff != "" {
+		if *preparedWait == "" || *preparedGeneration == "" || *preparedHandoff == "" || fs.NArg() != 0 || fs.NFlag() != 3 {
+			fmt.Fprintln(stderr, "cfo notify: --prepared-wait requires only --generation and --handoff; it declares preparation complete with no worker-owned work remaining")
+			return 2
+		}
+		h, err := runtime.resolveHome()
+		if err == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), PREPARED_NOTIFY_TIMEOUT)
+			defer cancel()
+			err = supervisor.PublishPreparedWait(ctx, h, id, *preparedGeneration, *preparedWait, *preparedHandoff, execx.OSRunner{})
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, "cfo notify: prepared wait: "+err.Error())
+			return 1
+		}
+		fmt.Fprintf(stdout, "notified %s prepared for %s\n", id, *preparedWait)
+		return 0
 	}
 	// A wait's reason is its one plain argument, and flags may follow it.
 	positional := fs.Args()

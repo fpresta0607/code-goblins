@@ -133,6 +133,13 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			continue
 		}
 		isReady, err := s.pauseCleared(ctx, *record.Pause, now, watched)
+		prepared, preparedErr := state.ReadPreparedWait(s.Store.Home.State, meta.ID)
+		if preparedErr == nil && prepared.Operation == record.Operation {
+			isReady, err = s.preparedCleared(ctx, prepared, now, watched)
+			isReady = isReady && prepared.Phase == "paused"
+		} else if preparedErr != nil && !errors.Is(preparedErr, os.ErrNotExist) {
+			isReady, err = false, preparedErr
+		}
 		if err != nil {
 			unreadPauses[meta.ID] = true
 			problems = errors.Join(problems, watched.failing("pause:"+meta.ID, fmt.Errorf("pause condition for %s: %w", meta.ID, err)))
@@ -311,11 +318,18 @@ func (s *Service) resumeAutomatically(record state.Lifecycle) error {
 	}
 	s.markChanging(record.ID, "resume")
 	delete(s.changeErrors, record.ID)
-	operation := fmt.Sprintf("auto-resume-%d", time.Now().UnixNano())
+	operation, isAdmitted, err := s.admitPreparedResume(record)
+	if err != nil || !isAdmitted {
+		delete(s.changing, record.ID)
+		return err
+	}
 	go func() {
 		launched := make(chan struct{})
 		go s.watchLaunch(record.ID, launched)
 		output, err := s.runPastTheSpawnLock(s.Options.Dispatch, []string{"resume", record.ID, "--generation", record.Generation, "--operation", operation, "--reason", "Pause condition cleared"})
+		if preparedErr := s.finishPreparedResume(record, operation, err); preparedErr != nil {
+			s.publish(preparedErr)
+		}
 		close(launched)
 		isFailed := err != nil && !isRetiring(s.Store.Home.State, record.ID, output)
 		var failure taskChangeError

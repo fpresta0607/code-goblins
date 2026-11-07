@@ -171,6 +171,9 @@ type Options struct {
 	// the board's record of each goblin's conversation. Without it no card
 	// shows one, and nothing watches what the fleet starts.
 	Tree *fleettree.Reader
+	// PreparedOwnership re-reads ownership at prepared pause admission;
+	// nil uses Tree's existing process and harness readers.
+	PreparedOwnership func(context.Context, state.TaskMeta) (fleettree.Tree, error)
 	// Windows lists the processes that show a window on the desktop, and
 	// ConsoleShown says the console a process is attached to shows in one,
 	// for the start watch; nil reads the desktop.
