@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -29,7 +29,7 @@ func TestConnectionRuntimeChild(t *testing.T) {
 func TestConnectionRuntimeRequiresMatchingOwnerFolderAndGeneration(t *testing.T) {
 	directory := t.TempDir()
 	stateDir := t.TempDir()
-	command := exec.Command(os.Args[0], "-test.run=^TestConnectionRuntimeChild$")
+	command := execx.Command(os.Args[0], "-test.run=^TestConnectionRuntimeChild$")
 	command.Dir = directory
 	command.Env = append(os.Environ(), "CONNECTION_RUNTIME_FIXTURE=1", "CFO_SPAWN_GEN=proof", "CONNECTION_FIXTURE_TOKEN=synthetic")
 	command.Stderr = io.Discard
@@ -60,17 +60,20 @@ func TestConnectionRuntimeRequiresMatchingOwnerFolderAndGeneration(t *testing.T)
 		t.Fatal(err)
 	}
 	meta := state.TaskMeta{ID: "proof", SpawnGen: "proof", Backend: "native", Worktree: directory}
-	env, args, err := nativeRuntime(context.Background(), stateDir, meta)
-	if err != nil || len(args) == 0 || !slices.Contains(env, "CONNECTION_FIXTURE_TOKEN=synthetic") {
+	observed, err := nativeRuntime(context.Background(), stateDir, meta)
+	if err != nil || len(observed.Args) == 0 || !slices.Contains(observed.Env, "CONNECTION_FIXTURE_TOKEN=synthetic") {
 		t.Fatalf("matching runtime unavailable: %v", err)
 	}
+	if observed.Identity.ProcessID != command.Process.Pid || observed.Identity.StartedAt.IsZero() || observed.Identity.Workspace != directory {
+		t.Fatalf("lost proven process identity: %+v", observed.Identity)
+	}
 	meta.SpawnGen = "replacement"
-	if _, _, err := nativeRuntime(context.Background(), stateDir, meta); err == nil {
+	if _, err := nativeRuntime(context.Background(), stateDir, meta); err == nil {
 		t.Fatal("accepted another generation")
 	}
 	meta.SpawnGen = "proof"
 	meta.Worktree = stateDir
-	if _, _, err := nativeRuntime(context.Background(), stateDir, meta); err == nil {
+	if _, err := nativeRuntime(context.Background(), stateDir, meta); err == nil {
 		t.Fatal("accepted another working folder")
 	}
 	meta.Worktree = directory
@@ -79,7 +82,7 @@ func TestConnectionRuntimeRequiresMatchingOwnerFolderAndGeneration(t *testing.T)
 	if err := os.WriteFile(filepath.Join(stateDir, "hosts", "proof.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := nativeRuntime(context.Background(), stateDir, meta); err == nil {
+	if _, err := nativeRuntime(context.Background(), stateDir, meta); err == nil {
 		t.Fatal("accepted another process owner")
 	}
 }

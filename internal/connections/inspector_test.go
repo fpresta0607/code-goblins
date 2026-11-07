@@ -39,8 +39,8 @@ func inspectorFixture(t *testing.T) (*Inspector, state.TaskMeta) {
 		t.Fatal(err)
 	}
 	inspector.OpenStore = func() (auth.Store, error) { return store, nil }
-	inspector.Runtime = func(context.Context, string, state.TaskMeta) ([]string, []string, error) {
-		return []string{"FIXTURE_SECRET=synthetic-value"}, []string{"--strict-mcp-config", "--mcp-config", filepath.Join(meta.TaskTmp, "mcp.json")}, nil
+	inspector.Runtime = func(context.Context, string, state.TaskMeta) (RuntimeObservation, error) {
+		return RuntimeObservation{Identity: RuntimeIdentity{ProcessID: 42, StartedAt: time.Unix(100, 0), Workspace: meta.Worktree}, Env: []string{"FIXTURE_SECRET=synthetic-value"}, Args: []string{"--strict-mcp-config", "--mcp-config", filepath.Join(meta.TaskTmp, "mcp.json")}}, nil
 	}
 	inspector.Runner = checkRunner(func(_ context.Context, request execx.Request) (execx.Result, error) {
 		if request.Dir != meta.Worktree || !request.KillTree {
@@ -67,13 +67,267 @@ func writeConnectionFixture(t *testing.T, path, content string) {
 	}
 }
 
+func TestSuccessfulSeparateCodexProbeDoesNotVerifyLiveSession(t *testing.T) {
+	inspector, meta := inspectorFixture(t)
+	meta.Harness = "codex"
+	executable := "codex"
+	if runtime.GOOS == "windows" {
+		executable += ".exe"
+	}
+	directory := t.TempDir()
+	writeConnectionFixture(t, filepath.Join(directory, executable), "")
+	if err := os.Chmod(filepath.Join(directory, executable), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	inspector.Runner = checkRunner(func(context.Context, execx.Request) (execx.Result, error) {
+		return execx.Result{Stdout: []byte(`[{"name":"tools","enabled":true}]`)}, nil
+	})
+	inspector.Codex = func(context.Context, string, []string, []string) ([]Entry, error) {
+		return []Entry{codexEntry(codexStatus{Name: "tools", RuntimeStatus: "connected"})}, nil
+	}
+
+	result := inspector.Check(context.Background(), meta)
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response Snapshot
+	if err := json.Unmarshal(data, &response); err != nil {
+		t.Fatal(err)
+	}
+	index := slices.IndexFunc(response.Entries, func(entry Entry) bool { return entry.ID == "mcp:tools" })
+	if index < 0 {
+		t.Fatalf("missing fake probe result: %s", data)
+	}
+	entry := response.Entries[index]
+	if response.Generation != meta.SpawnGen || entry.Status != "probe_succeeded" || entry.Scope != "separate_probe" || entry.LiveStatus != "unknown" || entry.AccountIdentity != "unknown" || entry.TargetIdentity != "unknown" {
+		t.Fatalf("separate probe implied live health or identity: %s", data)
+	}
+}
+
+func TestInspectorRejectsRuntimeIdentityChangesDuringProbe(t *testing.T) {
+	for _, change := range []string{"process", "start", "workspace", "unreadable"} {
+		t.Run(change, func(t *testing.T) {
+			inspector, meta := inspectorFixture(t)
+			readRuntime := inspector.Runtime
+			calls := 0
+			inspector.Runtime = func(ctx context.Context, directory string, task state.TaskMeta) (RuntimeObservation, error) {
+				observed, err := readRuntime(ctx, directory, task)
+				calls++
+				if calls == 2 {
+					switch change {
+					case "process":
+						observed.Identity.ProcessID++
+					case "start":
+						observed.Identity.StartedAt = observed.Identity.StartedAt.Add(time.Second)
+					case "workspace":
+						observed.Identity.Workspace = meta.Project
+					case "unreadable":
+						return RuntimeObservation{}, errors.New("private diagnostic")
+					}
+				}
+				return observed, err
+			}
+
+			result := inspector.Check(context.Background(), meta)
+
+			if result.Error == "" || len(result.Entries) != 0 || result.Runtime != nil {
+				t.Fatalf("published stale runtime evidence: %+v", result)
+			}
+		})
+	}
+}
+
+func TestInspectorKeepsSameProviderWorkersEvidenceSeparate(t *testing.T) {
+	inspector, first := inspectorFixture(t)
+	first.ID, first.SpawnGen, first.HasCredentials, first.Credentials = "first", "g1", true, []string{"repo"}
+	second := first
+	second.ID, second.SpawnGen, second.Worktree, second.Credentials = "second", "g2", filepath.Join(t.TempDir(), "work"), nil
+	writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, first.Project), `{"project":"project","services":[{"name":"repo","method":"env","env":["FIXTURE_SECRET"]}]}`)
+	inspector.Runtime = func(_ context.Context, _ string, task state.TaskMeta) (RuntimeObservation, error) {
+		observed := RuntimeObservation{Identity: RuntimeIdentity{ProcessID: 42, StartedAt: time.Unix(100, 0), Workspace: task.Worktree}, Args: []string{"--strict-mcp-config"}}
+		if task.ID == "first" {
+			observed.Env = []string{"FIXTURE_SECRET=synthetic-value"}
+		} else {
+			observed.Identity.ProcessID = 43
+		}
+		return observed, nil
+	}
+	inspector.Claude = func(context.Context, string, []string, []string) ([]Entry, error) {
+		return []Entry{{ID: "mcp:tools", Name: "tools", Kind: "mcp", Status: "connected"}}, nil
+	}
+	tasks := map[string]state.TaskMeta{"first\ng1": first, "second\ng2": second}
+	cache := NewCache(time.Minute, time.Minute, func(ctx context.Context, key string) Snapshot { return inspector.Check(ctx, tasks[key]) })
+	defer cache.Close()
+	for key := range tasks {
+		cache.Get(key, false)
+	}
+
+	for key, task := range tasks {
+		result := waitChecked(t, cache, key)
+		if result.Generation != task.SpawnGen || result.Runtime == nil || result.Runtime.Workspace != task.Worktree {
+			t.Fatalf("mixed worker identity: %+v", result)
+		}
+		index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == "service:repo" })
+		if index < 0 {
+			t.Fatal("service missing")
+		}
+		if result.Entries[index].Grant != map[string]string{"first": "revoke", "second": "grant"}[task.ID] {
+			t.Fatalf("mixed grants: %+v", result)
+		}
+		credentialIndex := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == "credential:FIXTURE_SECRET" })
+		if credentialIndex < 0 || result.Entries[credentialIndex].Status != map[string]string{"first": "provided", "second": "withheld"}[task.ID] {
+			t.Fatalf("mixed environments: %+v", result)
+		}
+	}
+}
+
+func TestInspectorExplainsMCPGrantDifferencesOnlyWithLaunchEvidence(t *testing.T) {
+	for _, test := range []struct {
+		name, setting          string
+		isGranted, wantRestart bool
+	}{
+		{"granted disabled", "false", true, true},
+		{"revoked enabled", "true", false, true},
+		{"granted enabled", "true", true, false},
+		{"revoked disabled", "false", false, false},
+		{"unknown launch", "", true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			inspector, meta := inspectorFixture(t)
+			meta.Harness = "codex"
+			executable := "codex"
+			if runtime.GOOS == "windows" {
+				executable += ".exe"
+			}
+			directory := t.TempDir()
+			writeConnectionFixture(t, filepath.Join(directory, executable), "")
+			if err := os.Chmod(filepath.Join(directory, executable), 0700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+			inspector.Runner = checkRunner(func(context.Context, execx.Request) (execx.Result, error) {
+				return execx.Result{Stdout: []byte(`[{"name":"tools","enabled":true}]`)}, nil
+			})
+			inspector.Codex = func(context.Context, string, []string, []string) ([]Entry, error) {
+				return []Entry{{ID: "mcp:tools", Name: "tools", Kind: "mcp", Status: "connected"}}, nil
+			}
+			if test.isGranted {
+				meta.MCPServers = []string{"tools"}
+			}
+			readRuntime := inspector.Runtime
+			inspector.Runtime = func(ctx context.Context, directory string, task state.TaskMeta) (RuntimeObservation, error) {
+				observed, err := readRuntime(ctx, directory, task)
+				if test.setting != "" {
+					observed.Args = append(observed.Args, "-c", "mcp_servers.tools.enabled="+test.setting)
+				}
+				return observed, err
+			}
+
+			result := inspector.Check(context.Background(), meta)
+
+			index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == "mcp:tools" })
+			if index < 0 || result.Entries[index].RestartRequired != test.wantRestart {
+				t.Fatalf("invented MCP load evidence: %+v", result)
+			}
+		})
+	}
+}
+
+func TestFailedSeparateProbeCannotRetainPartialSuccess(t *testing.T) {
+	inspector, meta := inspectorFixture(t)
+	inspector.Claude = func(context.Context, string, []string, []string) ([]Entry, error) {
+		return []Entry{{ID: "mcp:tools", Name: "tools", Kind: "mcp", Status: "connected"}}, errors.New("private diagnostic")
+	}
+
+	result := inspector.Check(context.Background(), meta)
+
+	for _, entry := range result.Entries {
+		if entry.ID == "mcp:tools" {
+			if entry.Status != "unverified" || entry.LiveStatus != "unknown" {
+				t.Fatalf("failed probe kept success: %+v", entry)
+			}
+			return
+		}
+	}
+	t.Fatal("lost probe entry")
+}
+
+func TestInspectorExplainsCredentialGrantDifferencesFromObservedProcess(t *testing.T) {
+	for _, test := range []struct {
+		name                string
+		isGranted, isLoaded bool
+		wantReason          string
+	}{
+		{"granted absent", true, false, "Restart to load"},
+		{"revoked present", false, true, "Restart to remove"},
+		{"granted present", true, true, ""},
+		{"revoked absent", false, false, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			inspector, meta := inspectorFixture(t)
+			meta.HasCredentials = true
+			if test.isGranted {
+				meta.Credentials = []string{"repo"}
+			}
+			writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"repo","method":"env","env":["FIXTURE_SECRET"]}]}`)
+			readRuntime := inspector.Runtime
+			inspector.Runtime = func(ctx context.Context, directory string, task state.TaskMeta) (RuntimeObservation, error) {
+				observed, err := readRuntime(ctx, directory, task)
+				if !test.isLoaded {
+					observed.Env = nil
+				}
+				return observed, err
+			}
+			inspector.Claude = func(context.Context, string, []string, []string) ([]Entry, error) { return nil, nil }
+
+			result := inspector.Check(context.Background(), meta)
+
+			index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == "service:repo" })
+			if index < 0 {
+				t.Fatal("service missing")
+			}
+			entry := result.Entries[index]
+			if entry.RestartRequired != (test.wantReason != "") || !strings.Contains(entry.RestartReason, test.wantReason) || entry.Grant != map[bool]string{true: "revoke", false: "grant"}[test.isGranted] {
+				t.Fatalf("grant confused with loaded state: %+v", entry)
+			}
+		})
+	}
+}
+
+func TestSharedAndPartiallyLoadedCredentialsHaveAccurateRestartExplanations(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		grants      []string
+		wantRestart bool
+		wantReason  string
+	}{
+		{"shared revoked service", []string{"other"}, false, "Restarting retains those shared credentials"},
+		{"partially loaded service", []string{"repo"}, true, "Restart to load available credentials"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			inspector, meta := inspectorFixture(t)
+			meta.HasCredentials, meta.Credentials = true, test.grants
+			writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"repo","method":"env","env":["FIXTURE_SECRET","MISSING_TOKEN"]},{"name":"other","method":"env","env":["FIXTURE_SECRET"]}]}`)
+
+			result := inspector.Check(context.Background(), meta)
+
+			index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == "service:repo" })
+			if index < 0 || result.Entries[index].RestartRequired != test.wantRestart || !strings.Contains(result.Entries[index].RestartReason, test.wantReason) {
+				t.Fatalf("wrong restart claim: %+v", result)
+			}
+		})
+	}
+}
+
 func TestInspectorChecksServicesAndLaunchCredentialsWithoutExposingValues(t *testing.T) {
 	inspector, meta := inspectorFixture(t)
 	writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"repo","method":"cli","probe":["probe"]},{"name":"missing","method":"env","env":["FIXTURE_MISSING_TOKEN"]}]}`)
 	writeConnectionFixture(t, filepath.Join(meta.TaskTmp, "mcp.json"), `{"mcpServers":{"tools":{"command":"private-command"}}}`)
 	writeConnectionFixture(t, filepath.Join(meta.Project, ".mcp.json"), `{"mcpServers":{"tools":{"command":"private-command"},"oauth":{"url":"https://example.invalid/mcp"}}}`)
 	result := inspector.Check(context.Background(), meta)
-	for id, status := range map[string]string{"service:repo": "connected", "service:missing": "missing", "mcp:tools": "connected", "withheld:oauth": "withheld", "credential:FIXTURE_SECRET": "provided", "credential:FIXTURE_MISSING_TOKEN": "missing"} {
+	for id, status := range map[string]string{"service:repo": "probe_succeeded", "service:missing": "missing", "mcp:tools": "probe_succeeded", "withheld:oauth": "withheld", "credential:FIXTURE_SECRET": "provided", "credential:FIXTURE_MISSING_TOKEN": "missing"} {
 		index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == id })
 		if index < 0 || result.Entries[index].Status != status {
 			t.Fatalf("%s did not have status %s: %+v", id, status, result)
@@ -116,8 +370,8 @@ func TestCodexDisabledInventoryDoesNotStartMCPServers(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
-	inspector.Runtime = func(context.Context, string, state.TaskMeta) ([]string, []string, error) {
-		return []string{"TEST_TOKEN=synthetic"}, []string{"-c", "mcp_servers.tools.enabled=false"}, nil
+	inspector.Runtime = func(context.Context, string, state.TaskMeta) (RuntimeObservation, error) {
+		return RuntimeObservation{Env: []string{"TEST_TOKEN=synthetic"}, Args: []string{"-c", "mcp_servers.tools.enabled=false"}}, nil
 	}
 	inspector.Runner = checkRunner(func(_ context.Context, request execx.Request) (execx.Result, error) {
 		if !slices.Contains(request.Args, "mcp_servers.tools.enabled=false") {
@@ -213,7 +467,7 @@ func TestCLIRepairRunsOnlyChosenLoginAndRechecksItsResult(t *testing.T) {
 			}
 			result := inspector.Check(context.Background(), meta)
 			index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == "service:repo" })
-			if index < 0 || (result.Entries[index].Status == "connected") != isSuccessful {
+			if index < 0 || (result.Entries[index].Status == "probe_succeeded") != isSuccessful {
 				t.Fatalf("recheck=%+v", result)
 			}
 		})
@@ -244,8 +498,8 @@ func TestRuntimeFailureCannotReuseConnectedOrProvidedEvidence(t *testing.T) {
 	inspector, meta := inspectorFixture(t)
 	writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"repo","method":"env","env":["FIXTURE_MISSING_TOKEN"]}]}`)
 	writeConnectionFixture(t, filepath.Join(meta.Project, ".mcp.json"), `{"mcpServers":{"tools":{"command":"fixture"}}}`)
-	inspector.Runtime = func(context.Context, string, state.TaskMeta) ([]string, []string, error) {
-		return nil, nil, errors.New("Goblin runtime unavailable.")
+	inspector.Runtime = func(context.Context, string, state.TaskMeta) (RuntimeObservation, error) {
+		return RuntimeObservation{}, errors.New("Goblin runtime unavailable.")
 	}
 	snapshot := inspector.Check(context.Background(), meta)
 	if snapshot.Error == "" || len(snapshot.Entries) != 4 || !slices.ContainsFunc(snapshot.Entries, func(entry Entry) bool { return entry.ID == "connector:crawler" && entry.Status == "unverified" }) {
@@ -288,8 +542,8 @@ func TestLaunchDisabledCodexServerNeverOffersSignIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
-	inspector.Runtime = func(context.Context, string, state.TaskMeta) ([]string, []string, error) {
-		return nil, []string{"-c", "mcp_servers.oauth.enabled=false"}, nil
+	inspector.Runtime = func(context.Context, string, state.TaskMeta) (RuntimeObservation, error) {
+		return RuntimeObservation{Args: []string{"-c", "mcp_servers.oauth.enabled=false"}}, nil
 	}
 	inspector.Runner = checkRunner(func(context.Context, execx.Request) (execx.Result, error) {
 		return execx.Result{Stdout: []byte(`[{"name":"tools","enabled":true},{"name":"oauth","enabled":false}]`)}, nil
@@ -426,8 +680,8 @@ func TestInspectorListsTheCrawlerAsTheGoblinsTerminalFindsIt(t *testing.T) {
 				inspector, meta := inspectorFixture(t)
 				inspector.HomeRoot = test.homeRoot
 				meta.Harness, meta.IsCrawlerLeftOut = kind, test.isLeftOut
-				inspector.Runtime = func(context.Context, string, state.TaskMeta) ([]string, []string, error) {
-					return []string{"Path=" + test.path}, nil, nil
+				inspector.Runtime = func(context.Context, string, state.TaskMeta) (RuntimeObservation, error) {
+					return RuntimeObservation{Env: []string{"Path=" + test.path}}, nil
 				}
 				inspector.Claude = func(context.Context, string, []string, []string) ([]Entry, error) { return nil, nil }
 				inspector.Codex = func(context.Context, string, []string, []string) ([]Entry, error) { return nil, nil }

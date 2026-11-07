@@ -1,6 +1,6 @@
 import { BrandGlyph } from "./brand-glyph";
 import { connectorAbout, connectorLogo } from "./connectors";
-import { connectionAction, connectionTrouble, type ConnectionEntry } from "./connections";
+import { connectionAction, connectionEvidence, connectionTrouble, type ConnectionEntry } from "./connections";
 import { Icon } from "./Icon";
 
 // One connector as a card, as Claude lists its connectors (the Overlord,
@@ -23,6 +23,9 @@ export function ConnectorCard({ entry, isCarried, isBusy, isChanging, onFix, onT
       <span className="connector-name"><strong>{entry.name}</strong>{trouble && <span className="connector-trouble" aria-hidden="true"><Icon name="warning" /></span>}</span>
       {about && <span className="connector-about">{about}</span>}
       {trouble && <span className="connector-about">{trouble}</span>}
+      <span className="connector-about">{connectionEvidence(entry)}</span>
+      {entry.checkedAt && <span className="connector-about">Observed <time dateTime={entry.checkedAt}>{entry.checkedAt}</time></span>}
+      {entry.restartReason && <span className="connector-about">{entry.isRestartRequired && "Restart required. "}{entry.restartReason}</span>}
     </span>
     {trouble && entry.actions.map((action) => <button key={action} type="button" className="icon-button connector-repair" disabled={isBusy} aria-label={connectionAction(action, entry.name)} onClick={() => onFix(entry, action)}><Icon name={action.startsWith("store:") ? "key" : action === "cli" ? "terminal" : "external"} /></button>)}
     {entry.grant && <button type="button" className={"connector-toggle" + (isCarried ? " is-carried" : "")} aria-label={toggle} disabled={isChanging} onClick={() => onToggle(entry)}><Icon name={isCarried ? "check" : "plus"} /></button>}
