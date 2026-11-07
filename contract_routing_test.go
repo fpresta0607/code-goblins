@@ -90,11 +90,11 @@ func TestRoutedContractKeepsAuthorityAndCustodyBoundaries(t *testing.T) {
 		"docs/contract/worktrees.md":      {"Project worktree environment", "Share caches, never share materialized environments", "A release a week old, never a fresher one", "Code that runs at every Python start"},
 		"docs/contract/services.md":       {"Project local services"},
 		"docs/contract/delivery.md":       {"Delivery", "What CI runs", "The board's render budget", "Merge trains"},
-		"docs/contract/supervision.md":    {"Supervision", "The CFO's own session"},
+		"docs/contract/supervision.md":    {"Supervision", "The CEO's own session"},
 		"docs/contract/decisions.md":      {"Reporting surface", "User decisions on the board"},
 		"docs/contract/afk.md":            {"AFK mode"},
 		"docs/contract/root-issues.md":    {"Root issues"},
-		"docs/contract/home.md":           {"The CFO home", "The janitor"},
+		"docs/contract/home.md":           {"The CEO home", "The janitor"},
 		"docs/contract/memory.md":         {"Startup memory and retrieval", "Owners and startup", "Catalog schema", "Budgets and exceptions", "Lossless planning and pinned offload"},
 	} {
 		for _, section := range sections {

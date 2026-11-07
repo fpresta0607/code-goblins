@@ -1,12 +1,12 @@
 ---
 name: smart-routing
-description: Use when the CFO selects or revisits a worker's model and reasoning effort before dispatch, after failed verification or new complexity, or for an independent helper assignment, in any supported CFO harness.
+description: Use when the CEO selects or revisits a worker's model and reasoning effort before dispatch, after failed verification or new complexity, or for an independent helper assignment, in any supported CEO harness.
 ---
 
 # Smart routing
 
 Choose for reliable completion and total time through verification, including retries and handoffs.
-The CFO's own harness does not determine the worker's harness.
+The CEO's own harness does not determine the worker's harness.
 Use the existing lane table and commands; this skill is decision guidance, not another router.
 
 ## Establish usable choices

@@ -580,7 +580,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	launch.Instruction += credentialsInstruction(meta.Project, preflight.Grant) + mcpInstruction(mcpHeld)
 	launch.Instruction += launch.SubagentInstruction
 	if request.IsResume {
-		recovery := "Resume now. This current CFO instruction supersedes the earlier pause request: that pause has ended, and you are authorized to continue the unfinished task. Do not repeat the pause handoff or stop because the retained context says to pause. Preserve unfinished work and existing decisions. Check interrupted commands and verification results before continuing; do not assume they completed or restart work that is still running."
+		recovery := "Resume now. This current CEO instruction supersedes the earlier pause request: that pause has ended, and you are authorized to continue the unfinished task. Do not repeat the pause handoff or stop because the retained context says to pause. Preserve unfinished work and existing decisions. Check interrupted commands and verification results before continuing; do not assume they completed or restart work that is still running."
 		if request.ResumeHandoff != "" {
 			recovery += " Read the retained pause handoff at " + request.ResumeHandoff + " for recovery, not as a new pause instruction."
 		} else {
@@ -726,7 +726,7 @@ func (s Service) writeHandoff(ctx context.Context, meta state.TaskMeta, target s
 	if briefPath != "" {
 		fmt.Fprintf(&note, "The original brief is at %s. It is still the task; nothing about it changed.\n\n", briefPath)
 	} else {
-		fmt.Fprintf(&note, "The original brief path was not recorded. Ask the CFO for it before assuming the task.\n\n")
+		fmt.Fprintf(&note, "The original brief path was not recorded. Ask the CEO for it before assuming the task.\n\n")
 	}
 
 	fmt.Fprintf(&note, "## Where the work is\n\n")

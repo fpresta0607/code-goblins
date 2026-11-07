@@ -56,8 +56,8 @@ func TestTheCheckpointListsEachGoblinWaitingOnTheCFO(t *testing.T) {
 			checkpoint := readCheckpoint(t, h, now)
 
 			// Assert
-			if waits := section(t, checkpoint, "== WAITING ON THE CFO =="); !strings.Contains(waits, "Jerry (cg-waits) has waited 42 minutes: waiting on cfo: which schema do I migrate first?") {
-				t.Errorf("WAITING ON THE CFO does not list Jerry's wait:\n%s", waits)
+			if waits := section(t, checkpoint, "== WAITING ON THE CEO =="); !strings.Contains(waits, "Jerry (cg-waits) has waited 42 minutes: waiting on cfo: which schema do I migrate first?") {
+				t.Errorf("WAITING ON THE CEO does not list Jerry's wait:\n%s", waits)
 			}
 			if questions := section(t, checkpoint, "== OPEN QUESTIONS =="); strings.Contains(questions, "No goblin waits on your answer.") {
 				t.Errorf("OPEN QUESTIONS says no goblin waits while Jerry does:\n%s", questions)
@@ -94,10 +94,10 @@ func TestTheDigestListsTheGoblinsWaitingOnTheCFOAfterTheWakeQueue(t *testing.T) 
 				out := test.compose(t, h)
 
 				// Assert
-				assertHeaderOrder(t, out, []string{"== WAKE QUEUE ==", "== WAITING ON THE CFO ==", "== SUPERVISION OPERATING INSTRUCTIONS =="})
-				waits := out[strings.Index(out, "== WAITING ON THE CFO =="):strings.Index(out, "== SUPERVISION OPERATING INSTRUCTIONS ==")]
-				if want := "== WAITING ON THE CFO ==\nJerry (cg-waits) has waited 42 minutes: waiting on cfo: which schema do I migrate first?\n"; waits != want {
-					t.Errorf("WAITING ON THE CFO = %q, want %q", waits, want)
+				assertHeaderOrder(t, out, []string{"== WAKE QUEUE ==", "== WAITING ON THE CEO ==", "== SUPERVISION OPERATING INSTRUCTIONS =="})
+				waits := out[strings.Index(out, "== WAITING ON THE CEO =="):strings.Index(out, "== SUPERVISION OPERATING INSTRUCTIONS ==")]
+				if want := "== WAITING ON THE CEO ==\nJerry (cg-waits) has waited 42 minutes: waiting on cfo: which schema do I migrate first?\n"; waits != want {
+					t.Errorf("WAITING ON THE CEO = %q, want %q", waits, want)
 				}
 				if strings.Contains(out, "AFK MODE IS ON") != isAFKOn {
 					t.Errorf("the digest's AFK notice shows: %t, want %t", !isAFKOn, isAFKOn)
@@ -114,7 +114,7 @@ func TestTheDigestSaysWhenNoGoblinWaitsOnTheCFO(t *testing.T) {
 
 	out := composeBrief(t, h)
 
-	if !strings.Contains(out, "== WAITING ON THE CFO ==\nNo goblin waits on the CFO.\n") {
+	if !strings.Contains(out, "== WAITING ON THE CEO ==\nNo goblin waits on the CEO.\n") {
 		t.Errorf("the digest does not say no goblin waits on the CFO:\n%s", out)
 	}
 }
@@ -138,15 +138,15 @@ func TestTheBriefCountsTheGoblinsWaitingOnTheCFOThatDoNotFit(t *testing.T) {
 	if len(out) > Budget {
 		t.Fatalf("the brief digest is %d bytes, over its %d budget", len(out), Budget)
 	}
-	waits := out[strings.Index(out, "== WAITING ON THE CFO =="):strings.Index(out, "== SUPERVISION OPERATING INSTRUCTIONS ==")]
+	waits := out[strings.Index(out, "== WAITING ON THE CEO =="):strings.Index(out, "== SUPERVISION OPERATING INSTRUCTIONS ==")]
 	listed, more := strings.Count(waits, " has waited "), 0
 	for _, line := range strings.Split(waits, "\n") {
-		_, _ = fmt.Sscanf(line, "(+%d more goblins wait on the CFO", &more)
+		_, _ = fmt.Sscanf(line, "(+%d more goblins wait on the CEO", &more)
 	}
 	if listed == 0 || more == 0 || listed+more != 40 {
-		t.Fatalf("WAITING ON THE CFO accounts for %d listed and %d more, want some of each and 40 goblins:\n%s", listed, more, waits)
+		t.Fatalf("WAITING ON THE CEO accounts for %d listed and %d more, want some of each and 40 goblins:\n%s", listed, more, waits)
 	}
 	if !strings.Contains(waits, "cg-goblin-01 has waited") {
-		t.Errorf("WAITING ON THE CFO does not list the goblin that has waited longest first:\n%s", waits)
+		t.Errorf("WAITING ON THE CEO does not list the goblin that has waited longest first:\n%s", waits)
 	}
 }

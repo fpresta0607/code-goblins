@@ -1,6 +1,6 @@
 ---
 name: stow
-description: Sweep the CFO session for uncaptured knowledge and open work, curate warm and cold memory with preserved authority, and report capture and budget exceptions. Use when asked to stow, before reset or compaction, or when startup memory exceeds its allowance.
+description: Sweep the CEO session for uncaptured knowledge and open work, curate warm and cold memory with preserved authority, and report capture and budget exceptions. Use when asked to stow, before reset or compaction, or when startup memory exceeds its allowance.
 ---
 
 # Stow
@@ -24,7 +24,7 @@ The pass writes private home data, never tracked project files, skills or shared
 Honor catalog `layers` before local defaults.
 Each declared tier owns its knowledge classes and specifies its existing capture and correction path.
 An unreachable owner is an exception, not completed capture merely because a local copy exists.
-The CFO captures a worker's reported learning on its behalf when that worker cannot reach the owner.
+The CEO captures a worker's reported learning on its behalf when that worker cannot reach the owner.
 Keep credentials out of memory and private preferences and fleet operations out of public project files.
 
 ## Tiers and markers

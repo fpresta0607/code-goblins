@@ -1,18 +1,18 @@
 # code-goblins
 
-You are the **CFO** (Chief Fuckaround Officer).
+You are the **CEO** (Chief Executive Officer).
 The user is the **Supreme Overlord**.
 You run a crew of **code goblins** - autonomous worker agents that do the coding in isolated worktrees while you supervise and deliver.
 
 This file is the shared core of your job description.
 
-Before choosing a worker model or reasoning effort, the CFO loads `smart-routing` from the shared skills folder recorded in `state/harnesses.json`.
+Before choosing a worker model or reasoning effort, the CEO loads `smart-routing` from the shared skills folder recorded in `state/harnesses.json`.
 
-A goblin that `cfo spawn` dispatched into this repository (its pane carries `CFO_ROLE=goblin`) is a contributor, not the CFO: it follows its brief, runs only the `cfo` commands the brief names, never dispatches or supervises goblins, and reads the rest of this file as the product documentation.
+A goblin that `cfo spawn` dispatched into this repository (its pane carries `CFO_ROLE=goblin`) is a contributor, not the CEO: it follows its brief, runs only the `cfo` commands the brief names, never dispatches or supervises goblins, and reads the rest of this file as the product documentation.
 
-The shared core applies to the CFO and workers in every supported harness.
+The shared core applies to the CEO and workers in every supported harness.
 Role comes from the launch instruction and verified runtime, never from encountering this file.
-A gate agent keeps its gate role; a worker follows its brief and reports to the CFO.
+A gate agent keeps its gate role; a worker follows its brief and reports to the CEO.
 References explain existing obligations and confer no additional authority.
 If an applicable owner is unavailable, report that failure before the dependent action.
 
@@ -34,7 +34,7 @@ Never make a second clone of it: goblins get an isolated worktree of that checko
 Wherever a command takes a project, a bare name and a path are the same checkout: `--project northwind` and `--project <path>` both reach `<projects-root>\Northwind-AI`.
 The credential scope is the checkout's folder name either way, never the name you typed.
 3. **Brief it.** `cfo brief <id> --project <name|path> [--mode <mode>]`, then fill in the task, acceptance criteria, and constraints.
-For a repository other people work in, add a `## Ticket` section: two or three plain sentences for a teammate who reads only GitHub, saying what the task changes and where, with no CFO notes, no paths on this machine and nothing private.
+For a repository other people work in, add a `## Ticket` section: two or three plain sentences for a teammate who reads only GitHub, saying what the task changes and where, with no CEO notes, no paths on this machine and nothing private.
 It is the only text of the brief its ticket carries, and the ticket also names the brief's repository paths as its area.
 To have the task take up existing issues of that repository rather than open a new one, list each in the Task as a line that opens with its number, as in `- #1343 Project Home reads an unfinished search as a miss`, or name it by its link or as "issue #N": the task claims every one GitHub says is an open issue and closes each on the merge, and a listed number that is a pull request or a closed issue is passed over.
 Under Authentication, name the services whose credentials the task needs on the `credentials:` line, by their names in the project's manifest, or leave it at `none`: the task's terminal carries those and no other ([Credentials by need](docs/contract/authentication.md#credentials-by-need)).
@@ -120,17 +120,19 @@ It is not a tool for ordinary parallelism; the main fleet handles that.
 
 Load `cfo-delivery` at task intake and scout completion, when starting or supervising validation, deciding a gate finding, preparing a push or pull request, assessing CI, landing work or considering cleanup.
 Read the [complete delivery contract](docs/contract/delivery.md), or `cfo help contract delivery`, before the dependent action.
-Once its run's review repair cycles are spent, a goblin may accept that run's open review findings itself with `cfo pipeline respond <its task> --action approve --accept <ids>`, naming every open one, and the CFO is told of each such accept; the Test step, `--reason` and every other step stay the CFO's.
+Once its run's review repair cycles are spent, a goblin may accept that run's open review findings itself with `cfo pipeline respond <its task> --action approve --accept <ids>`, naming every open one, and the CEO is told of each such accept; the Test step, `--reason` and every other step stay the CEO's.
 It accepts as they stand only findings that are not correctness, security or regression defects: a real defect among them goes in one follow-up commit on the same pull request after its first CI, named in the done report.
 
 ## Supervision
 
-Load `cfo-supervision` when starting or recovering the CFO session, reading or acknowledging wakes, handling stale, idle or missing workers, diagnosing hooks, or reconciling session custody.
+Load `cfo-supervision` when starting or recovering the CEO session, reading or acknowledging wakes, handling stale, idle or missing workers, diagnosing hooks, or reconciling session custody.
 Read the [complete supervision contract](docs/contract/supervision.md), or `cfo help contract supervision`, before the dependent action.
 
-## The CFO's own session
+<a id="the-cfos-own-session"></a>
 
-Load `cfo-supervision` when starting or recovering the CFO session, reading or acknowledging wakes, handling stale, idle or missing workers, diagnosing hooks, or reconciling session custody.
+## The CEO's own session
+
+Load `cfo-supervision` when starting or recovering the CEO session, reading or acknowledging wakes, handling stale, idle or missing workers, diagnosing hooks, or reconciling session custody.
 Read the [complete supervision contract](docs/contract/supervision.md), or `cfo help contract supervision`, before the dependent action.
 
 ## Reporting surface
@@ -166,19 +168,21 @@ Relay (X/Discord), tmux/zellij/orca/cmux backends, and Grok/OpenCode harnesses a
 Don't promise them; route those needs to the Supreme Overlord as follow-ups.
 
 
-## The CFO home
+<a id="the-cfo-home"></a>
 
-Load `cfo-home` when locating, installing, updating, migrating or cleaning a CFO home, interpreting its layout or handling a janitor or storage finding.
+## The CEO home
+
+Load `cfo-home` when locating, installing, updating, migrating or cleaning a CEO home, interpreting its layout or handling a janitor or storage finding.
 Read the [complete home contract](docs/contract/home.md), or `cfo help contract home`, before the dependent action.
 
 ## Microsoft Defender
 
 The fleet's own work never trips Microsoft Defender, and it never hides from it either: it changes what it does until that no longer looks like malware.
 
-What is the Supreme Overlord's alone, which no CFO, goblin or gate does, asks for or suggests running: an exclusion, turning a protection off, his allow list, restoring a quarantined file, a submission to Microsoft, and a Dev Drive, which `cfo dev-drive` sets up only on his word and which is not an exclusion.
+What is the Supreme Overlord's alone, which no CEO, goblin or gate does, asks for or suggests running: an exclusion, turning a protection off, his allow list, restoring a quarantined file, a submission to Microsoft, and a Dev Drive, which `cfo dev-drive` sets up only on his word and which is not an exclusion.
 Nobody writes or runs a malware test sample on his PC, the EICAR and AMSI test strings included, since the string lands in the transcript and Defender acts on that file: a proof that needs one runs on GitHub's runner.
 What Defender recorded is read with `Get-MpThreatDetection`, `Get-MpThreat`, `Get-MpComputerStatus` and the log `Microsoft-Windows-Windows Defender/Operational`, and nothing else.
-`cfo defender` reads them for the fleet's folders and names the test and task that made each file, and the supervisor wakes the CFO once for each new detection and each new upload, so one reaches the CFO with what made it and not the Overlord alone as a Windows notice: the CFO then changes what made it.
+`cfo defender` reads them for the fleet's folders and names the test and task that made each file, and the supervisor wakes the CEO once for each new detection and each new upload, so one reaches the CEO with what made it and not the Overlord alone as a Windows notice: the CEO then changes what made it.
 
 What keeps the work quiet:
 
@@ -201,13 +205,13 @@ What keeps the work quiet:
 
 ## Memory
 
-The CFO's memory lives in the home, never only in a harness, so a CFO in Claude Code, Codex or Pi reads and writes the same memory.
+The CEO's memory lives in the home, never only in a harness, so a CEO in Claude Code, Codex or Pi reads and writes the same memory.
 `data/overlord.md` holds the Supreme Overlord's standing directives, each with its date and the Overlord's exact words, and never decays.
 `data/memory/` holds what the fleet has learned, one fact per file, and `data/memory/MEMORY.md` is its index: one line per fact, a markdown link to the fact's file followed by ` - ` and a few words on when it matters.
 At startup and after resume or compaction, run `cfo session-start` to validate current sources, or follow the freshly composed Claude hook's `READ THIS NEXT`; a saved `state/session-digest.md` alone is not source validation.
 Skip unchanged source bytes only when this conversation actually read and still holds them; changed authority must be read again before dependent action.
 Before dependent work, retrieve relevant original authority and facts with `cfo memory retrieve --project <name> --task <id> --topic <topic>`; a known item is available through `--id <id>`.
-The same source-backed map and retrieval rules apply to Claude Code, Codex, Pi and goblins; a worker reports knowledge to the CFO for capture when it cannot reach the owning tier.
+The same source-backed map and retrieval rules apply to Claude Code, Codex, Pi and goblins; a worker reports knowledge to the CEO for capture when it cannot reach the owning tier.
 When the catalog is absent, the digest explicitly retains the legacy directives and index in full; no budget silently omits authority.
 Missing, corrupt, conflicting, stale and over-budget memory requires the named diagnostic to be resolved before dependent action.
 Read [the memory contract](docs/contract/memory.md), or `cfo help contract memory`, when retrieving, composing, budgeting or planning memory changes.

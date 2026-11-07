@@ -10,7 +10,7 @@ owner account. No personal hostname, account or key is included in the build.
    PC and phone, using the same personal Tailscale account. A tagged PC cannot
    use owner-only access. Tailnet access rules must allow the phone to reach the
    PC on TCP port 4311.
-2. Open Code Goblins on the PC. Open the **CFO** panel, choose **Task**, expand
+2. Open Code Goblins on the PC. Open the **CEO** panel, choose **Task**, expand
    **Remote access**, and turn the **Tailscale** switch on. The board finds
    Tailscale by itself and offers the switch once Tailscale is installed and
    signed in on the PC; until then a few words under it say what is missing,
@@ -19,7 +19,7 @@ owner account. No personal hostname, account or key is included in the build.
    so Tailscale stopping or starting, `cfo remote on` or `off` and a restart
    show on the switch within seconds.
 3. Copy the private HTTPS link shown there. On the phone, connect Tailscale and
-   open the link in its browser. Open the CFO terminal to control the existing
+   open the link in its browser. Open the CEO terminal to control the existing
    session: on the phone a terminal fills the screen, with the top bar put
    away while it does, and stays above the keyboard while you type, and
    **Back** returns to the board.
@@ -85,7 +85,7 @@ terminal until you approve it or press Stop.
 ## Scrawl reviews
 
 Once Tailscale is on, **Scrawl reviews** shows under it, indented, as a switch
-of its own; turn it on on the PC. It is separate so the board and CFO terminal
+of its own; turn it on on the PC. It is separate so the board and CEO terminal
 work even if Scrawl needs setup, and a phone can turn it off but not on. Beside
 it a green check says reviews reach your phone, or an amber triangle and a word
 or two say what is wrong: Direct route when a Tailscale route of your own
@@ -116,9 +116,9 @@ an existing Serve route (including raw TCP forwarding) that points directly at
 Scrawl, because it would bypass the owner gate. Remove that route in Tailscale
 first; Code Goblins never removes another service's route for you.
 
-New CFO and goblin terminals and Code Goblins' own Scrawl calls start Scrawl
+New CEO and goblin terminals and Code Goblins' own Scrawl calls start Scrawl
 on loopback. No global environment settings are changed. **One-time upgrade
-step:** restart or resume CFO and goblin terminal sessions created before this
+step:** restart or resume CEO and goblin terminal sessions created before this
 update through Code Goblins' existing controls when their work is safe. Their
 work and saved sessions remain; setup never restarts those terminals for you.
 An older terminal keeps its old environment and can start Scrawl's automatic
@@ -150,7 +150,7 @@ once Tailscale answers, and looks again every 15 seconds until it does. The
 PC must be awake, online, signed in, and connected to Tailscale. This does not change
 power settings, Windows sign-in policy, router ports or the firewall, and cannot
 wake a powered off PC. Closing the phone's browser or disconnecting the phone
-leaves the CFO and workers running.
+leaves the CEO and workers running.
 
 Turning the **Tailscale** switch off revokes remote requests immediately
 and closes existing remote streams within one second. It detaches their views;
@@ -176,7 +176,7 @@ board that moved could not take its route with it, turn remote access off and
 on again on the PC. `off` revokes
 access even when Tailscale is stopped, then reports any remaining proxy cleanup.
 `on` and `off` are refused in a goblin's or a gate agent's terminal: only you,
-or the CFO on your word, turn remote access on or off. `cfo doctor` reports it
+or the CEO on your word, turn remote access on or off. `cfo doctor` reports it
 in one `remote access:` line, off, ready or what it needs, without naming your
 tailnet or account.
 

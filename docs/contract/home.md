@@ -1,4 +1,6 @@
-## The CFO home
+<a id="the-cfo-home"></a>
+
+## The CEO home
 
 `$CFO_HOME` is the one folder that holds everything the fleet writes: `%LOCALAPPDATA%\CodeGoblins` for every install, from the desktop installer, the one-line install or `cfo install` run in a checkout alike, unless `CFO_HOME` names another folder.
 New installations keep the home outside the source checkout; existing checkout homes follow the [legacy checkout activation boundary](ownership.md#legacy-checkout-activation).
@@ -27,7 +29,7 @@ The target for a home is small: the binaries, records under 200 MB, capped cache
 | --- | --- |
 | `data/backlog.md` | Open work in three sections. `## Queued` is work waiting to start, and `tasks-axi` manages its rows; they are in priority order, top first, so dispatch from the top. The Supreme Overlord reorders them by dragging Tasks on the board, which moves each row with its indented detail lines and changes nothing else in the file; the row of a task that already has a live task record is in progress, not queued, and stays where it is. `## Parked` is work set aside on purpose: nothing lists it as work to start, and moving a row back under Queued revives it. A row parked in place with `(hold-kind: parked)` counts as parked too. `## Done` is finished work: when cleanup retires a delivered task, its row moves there by itself with its detail lines. |
 | `data/overlord.md` | The Supreme Overlord's standing directives, word for word. |
-| `data/memory/` | The CFO's memory: `MEMORY.md`, its index, and one file per fact (see [Memory](../../AGENTS.md#memory)). |
+| `data/memory/` | The CEO's memory: `MEMORY.md`, its index, and one file per fact (see [Memory](../../AGENTS.md#memory)). |
 | `data/memory-archive.md` | Recoverable history governed by the [memory contract](memory.md). |
 | `data/memory/startup.json` | Verified warm ranges and cold routes over original source owners, optional memory layers; see [memory](memory.md). No automatic legacy migration. |
 | `config/startup-memory-budget`, `config/startup-context-budget` | Estimated-token allowances for combined memory and complete captured startup packages; see [budgets](memory.md#budgets-and-exceptions). |
@@ -83,10 +85,10 @@ Every check that decides a removal refuses when it cannot read what it checks, a
   Every background command a harness starts through Git Bash is detached from its terminal's host, and nothing the sweep can read says which of them the goblin still waits on: a gate waiter that blocks for hours, a watch on a quiet file, a test it reads from.
   They end with the goblin, at its pause, stop, cleanup or relaunch, and show on the board under it meanwhile.
   A goblin works unless both hold: the last outcome it reported is `done` or `failed`, and the monitor reads it at its prompt with no turn in progress and nothing asked.
-  The CFO's terminal and a run item's always work, and so does a goblin whose state cannot be read.
+  The CEO's terminal and a run item's always work, and so does a goblin whose state cannot be read.
 - The browser bridge of a running terminal whose goblin has delivered and rests is ended once the rest and the bridge's disuse have both lasted an hour, by when the tool last wrote the session's files.
   A bridge keeps its page drawing whether or not anything drives it, so its processor time never says it is idle.
-- A process a terminal of the home left running is ended once the terminal has no host: a goblin's, the CFO's or a run item's, whether it was paused, retired or failed.
+- A process a terminal of the home left running is ended once the terminal has no host: a goblin's, the CEO's or a run item's, whether it was paused, retired or failed.
   A pause, a stop, a cleanup and a relaunch each end what their own goblin left, so this pass ends what one of them ran out of time on, and what a goblin that failed left.
   It is proven the terminal's own exactly as a pause proves it ([Pausing and automatic resume](dispatch.md#pausing-and-automatic-resume)): by the terminal's mark, by its place in the task's folders, or by a parent that is the terminal's own.
   A machine service, a gate's agent and a desktop program the Overlord uses are never among them.
@@ -103,7 +105,7 @@ Every check that decides a removal refuses when it cannot read what it checks, a
   A run outside the line, as a test run by name, is not seen and can build beside a prune.
 - A bucket holding an entry the sweep cannot read, as a folder another account owns, is named under `cfo runtime`'s table of buckets, since its size, and the home's, is then only what could be counted.
   The sweep notes when the caches could not all be read, as their size against `caches_cap_gb` is then a lower bound.
-- It reports, and wakes the CFO with an `orphan` wake when it reports something it had not reported before: a worktree no task records, a new folder or file in the projects root that is no checkout, a retired task's folder it would not trim, and a `data` folder over 200 MB.
+- It reports, and wakes the CEO with an `orphan` wake when it reports something it had not reported before: a worktree no task records, a new folder or file in the projects root that is no checkout, a retired task's folder it would not trim, and a `data` folder over 200 MB.
 - It names, and never ends, the processes nothing proves the fleet's own: a browser bridge with no mark whose parent is gone, and a gate agent's process whose gate is gone.
   They reach you as one `orphan` wake for all of them, raised once for each process, with its pid, its age, the memory of its tree and its command, with the value of any argument named as a secret left out.
   End by pid what is the fleet's leftover and leave what is the Overlord's.

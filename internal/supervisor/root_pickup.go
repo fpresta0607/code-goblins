@@ -390,7 +390,7 @@ Change only what this root needs. %s %s
 credentials: %s
 mcp: none
 
-The brief records the project manifest's default services when it is written. The CFO grants another with cfo auth grant. %s
+The brief records the project manifest's default services when it is written. The CEO grants another with cfo auth grant. %s
 
 ## Commits
 

@@ -38,14 +38,14 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | The board's render budget | [docs/contract/delivery.md](delivery.md#the-boards-render-budget) |
 | Merge trains | [docs/contract/delivery.md](delivery.md#merge-trains) |
 | Supervision | [docs/contract/supervision.md](supervision.md#supervision) |
-| The CFO's own session | [docs/contract/supervision.md](supervision.md#the-cfos-own-session) |
+| The CEO's own session | [docs/contract/supervision.md](supervision.md#the-ceos-own-session) |
 | Reporting surface | [docs/contract/decisions.md](decisions.md#reporting-surface) |
 | User decisions on the board | [docs/contract/decisions.md](decisions.md#user-decisions-on-the-board) |
 | AFK mode | [docs/contract/afk.md](afk.md#afk-mode) |
 | Root issues | [docs/contract/root-issues.md](root-issues.md#root-issues) |
 | Escalation | [AGENTS.md](../../AGENTS.md#escalation) |
 | Cut from this build | [AGENTS.md](../../AGENTS.md#cut-from-this-build) |
-| The CFO home | [docs/contract/home.md](home.md#the-cfo-home) |
+| The CEO home | [docs/contract/home.md](home.md#the-ceo-home) |
 | The janitor | [docs/contract/home.md](home.md#the-janitor) |
 | Microsoft Defender | [AGENTS.md](../../AGENTS.md#microsoft-defender) |
 | Memory | [AGENTS.md](../../AGENTS.md#memory) |
@@ -142,7 +142,7 @@ No upstream runtime, Relay, secondmate or terminal-backend behavior is activated
 | Session start, complete digest and recovery interpretation | cfo-supervision and cfo session-start/native hooks retain custody and hook trust; [memory](memory.md) owns warm composition and bounded state. |
 | Warm retrieved context, cold archive and authoritative memory tiers | [Memory](memory.md) and cfo memory own source coverage, selective retrieval, budgets and lossless dry runs; active for a verified catalog, with no automatic legacy migration. |
 | Required Stow pass and capture receipts | The shared `stow` skill owns tier clocks, independent evidence, pending capture, open records and individually approved pinned offload; [memory](memory.md) owns its data interfaces. |
-| Validation supervision and ask-user findings | [Delivery](delivery.md), `cfo-delivery` and docs/pipeline.md own adaptive verification with preserved frozen policy, run custody and CFO decisions; active. |
+| Validation supervision and ask-user findings | [Delivery](delivery.md), `cfo-delivery` and docs/pipeline.md own adaptive verification with preserved frozen policy, run custody and CEO decisions; active. |
 | Project intake and verification selection | [Delivery](delivery.md), `cfo-delivery`, project-check, project records and cfo verify own selection at task intake and scout completion; routing and delivery selection are active for newly spawned tasks. |
 | Landing and cleanup | cfo-delivery and cfo-worktrees preserve merge authority and unlanded-work custody. |
 | Away supervision and user decisions | cfo-afk, cfo-decisions and step-card preserve the native board and explicit switch authority. |
@@ -161,7 +161,7 @@ See [the load map](../load-map.md) for the harness-specific adapters and constra
 ## Legacy checkout activation
 
 A home that is also a tracked checkout keeps its own AGENTS.md, CLAUDE.md and tracked references when installed or updated.
-The next CFO still starts in that home and reads its on-disk contract, even when the new binary contains a newer core.
+The next CEO still starts in that home and reads its on-disk contract, even when the new binary contains a newer core.
 The new binary's cfo help returns its embedded reference independently of that stale checkout.
 Shared skills can update without replacing tracked checkout instructions; their presence alone does not activate the new core.
 Workers start in isolated project worktrees, read their launch instruction and brief, and load that worktree's project instructions where their harness supports them.

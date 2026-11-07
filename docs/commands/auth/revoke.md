@@ -14,7 +14,7 @@ The command says so and prints the `cfo switch <task-id> --restart` that starts 
 Where that script cannot be regenerated, the record's change stands, so the command says so and names the `cfo auth refresh <task-id>` that regenerates it, since the same revoke run again finds nothing to take.
 It changes no other task, a helper the task started included.
 A service the task does not carry, whether or not the manifest declares it, is refused with the ones it does carry, and nothing is written.
-It is the CFO's act, refused in a goblin's terminal and a gate agent's.
+It is the CEO's act, refused in a goblin's terminal and a gate agent's.
 It prints service names, never a value
 
 `cfo auth revoke <task-id> --mcp <server> [<server>...]`
@@ -24,5 +24,5 @@ It takes them out of the task's record, so its next terminal is given none of th
 A harness reads its MCP servers when it starts, so the one running then keeps them until it ends, and the command prints the `cfo switch <task-id> --restart` that starts one without them.
 It changes no other task.
 A server the record does not name is refused with the ones it does name, and nothing is written.
-It is the CFO's act, refused in a goblin's terminal and a gate agent's.
+It is the CEO's act, refused in a goblin's terminal and a gate agent's.
 It prints server names, never a value

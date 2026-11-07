@@ -32,7 +32,7 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 	f.SetOutput(stderr)
 	root := f.String("home", "", "fleet home")
 	dir := f.String("state", "", "fleet state")
-	isKeyAlarm := f.Bool("key-alarm", false, "also wake the CFO when a goblin's tool output holds a secret key, as cfo hook goblin-key-alarm does")
+	isKeyAlarm := f.Bool("key-alarm", false, "also wake the CEO when a goblin's tool output holds a secret key, as cfo hook goblin-key-alarm does")
 	if !parseFlags(f, args[1:]) {
 		return 2
 	}
@@ -111,7 +111,7 @@ func nativeHookEvent(harnessName, root, dir string, getenv func(string) string, 
 			} `json:"hookSpecificOutput"`
 		}
 		reply.Output.Event = "SessionStart"
-		reply.Output.Context = fmt.Sprintf("CFO compact continuation: before further fleet action, read %s and run cfo session-start for the freshly validated operating map, resolving memory diagnostics before dependent action. Retrieve relevant cold authority and facts with cfo memory retrieve --project <name> --task <id> --topic <topic>, or --id <id>. Read the saved handoff for each active item and use cfo fleet-view to reconcile current work. Preserve held and answered states; recover only durable on-disk state. Run cfo drain and ack only wakes actually read. Use the existing stow contract before another context reset. This hook has not delivered source memory; conversational holds absent from disk cannot be recovered.", filepath.Join(root, "AGENTS.md"))
+		reply.Output.Context = fmt.Sprintf("CEO compact continuation: before further fleet action, read %s and run cfo session-start for the freshly validated operating map, resolving memory diagnostics before dependent action. Retrieve relevant cold authority and facts with cfo memory retrieve --project <name> --task <id> --topic <topic>, or --id <id>. Read the saved handoff for each active item and use cfo fleet-view to reconcile current work. Preserve held and answered states; recover only durable on-disk state. Run cfo drain and ack only wakes actually read. Use the existing stow contract before another context reset. This hook has not delivered source memory; conversational holds absent from disk cannot be recovered.", filepath.Join(root, "AGENTS.md"))
 		if err := json.NewEncoder(stdout).Encode(reply); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -159,7 +159,7 @@ func compactNativeCFO(h home.Home, e nativehook.Event, now time.Time) error {
 	detail := fmt.Sprintf("compacted: the %s CFO's context was just compacted; read %s, written %s as it began, then cfo session-start for freshly validated memory, cfo fleet-view and cfo drain before any fleet action", e.Harness, path, written.UTC().Format(time.RFC3339))
 	if !isFresh {
 		identity = fmt.Sprintf("compact/%s/%s/%s", e.Harness, e.SessionID, e.TurnID)
-		detail = fmt.Sprintf("compacted: the %s CFO's context was just compacted and no fresh checkpoint was written for it; run cfo session-start for freshly validated memory, then reconcile from cfo fleet-view and cfo drain before any fleet action", e.Harness)
+		detail = fmt.Sprintf("compacted: the %s CEO's context was just compacted and no fresh checkpoint was written for it; run cfo session-start for freshly validated memory, then reconcile from cfo fleet-view and cfo drain before any fleet action", e.Harness)
 	}
 	if _, err := wake.AppendOnce(h.State, identity, "check", "compact", detail); err != nil {
 		return err
