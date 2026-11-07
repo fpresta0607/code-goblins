@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -22,9 +23,12 @@ func TestHandbackReadsTheExactPersistedPublicationAndReceipt(t *testing.T) {
 	}
 	for _, test := range []struct {
 		name, receipt, project, run, extraSQL, refusal string
+		shouldRevalidatePublication                    bool
 	}{
 		{name: "release", run: "original-run"},
+		{name: "explicit publication revalidation", run: "original-run", shouldRevalidatePublication: true},
 		{name: "receipt binds continuation after accepted replay", run: "original-run", receipt: "native-receipt", extraSQL: "UPDATE runs SET head_sha='" + strings.Repeat("c", 40) + "',push_generation=8;"},
+		{name: "explicit revalidation retains released identity on replay", run: "original-run", receipt: "native-receipt", shouldRevalidatePublication: true, extraSQL: "UPDATE runs SET head_sha='" + strings.Repeat("c", 40) + "',push_generation=8;"},
 		{name: "wrong repository", run: "original-run", project: "other", refusal: "exactly one latest published run"},
 		{name: "stale run", run: "earlier-run", refusal: "no longer the latest run"},
 		{name: "unknown checkpoint", run: "original-run", receipt: "unknown-receipt", refusal: "exactly one latest published run"},
@@ -98,11 +102,21 @@ INSERT INTO ci_handbacks VALUES('native-receipt','original-run','%s','%s',7);`, 
 				if binding.RunID != "original-run" || binding.RepoID != "repo-1" || binding.Branch != "fix/handback" || binding.CallerDir != caller || binding.CallerHead != head || binding.CurrentHead != published || binding.PublishedHead != published || binding.PushGeneration != 7 {
 					t.Fatalf("native expectation = %+v", binding)
 				}
+				wantArgs := []string{"axi", "handback", "--expect", request.Args[3]}
+				if test.shouldRevalidatePublication {
+					wantArgs = append(wantArgs, "--revalidate-publication")
+				}
+				if test.receipt != "" {
+					wantArgs = append(wantArgs, "--resume", "--receipt", test.receipt)
+				}
+				if !slices.Equal(request.Args, wantArgs) || request.Dir != caller || !slices.Equal(request.Env, []string{"NM_HOME=" + root}) {
+					t.Fatalf("native request = %+v, want %q in %s with unchanged environment", request, wantArgs, caller)
+				}
 				return execx.Result{}, nil
 			})}
 
 			// Act
-			_, err = reader.Handback(t.Context(), project, caller, "fix/handback", test.run, test.receipt, []string{"NM_HOME=" + root})
+			_, err = reader.Handback(t.Context(), project, caller, "fix/handback", test.run, test.receipt, test.shouldRevalidatePublication, []string{"NM_HOME=" + root})
 
 			// Assert
 			if test.refusal == "" {

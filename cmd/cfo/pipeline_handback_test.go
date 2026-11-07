@@ -17,10 +17,14 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 type handbackCommands struct {
@@ -32,6 +36,7 @@ type handbackCommands struct {
 	isDirty                      bool
 	nativeExit                   int
 	shouldWait                   bool
+	nativeRefusal                string
 }
 
 func (commands *handbackCommands) Run(_ context.Context, request execx.Request) (execx.Result, error) {
@@ -79,7 +84,7 @@ func (commands *handbackCommands) Run(_ context.Context, request execx.Request) 
 			return execx.Result{ExitCode: 1, Stderr: []byte("elapsed while driving the run")}, nil
 		}
 		if commands.nativeExit != 0 {
-			return execx.Result{ExitCode: commands.nativeExit, Stderr: []byte("native identity or capability refused")}, nil
+			return execx.Result{ExitCode: commands.nativeExit, Stderr: []byte(commands.nativeRefusal)}, nil
 		}
 		return execx.Result{ExitCode: commands.nativeExit, Stdout: []byte("handback: released\nreceipt:\n  id: native-receipt\n")}, nil
 	}
@@ -445,5 +450,169 @@ func TestPipelineHandbackBindsTheNativeOperationToTheRecordedTask(t *testing.T) 
 				}
 			})
 		}
+	}
+}
+
+func TestPipelineHandbackPublicationRevalidationPreservesNativeBinding(t *testing.T) {
+	for _, shouldResume := range []bool{false, true} {
+		for _, selector := range []string{"--branch", "--run"} {
+			t.Run(fmt.Sprintf("resume=%t/%s", shouldResume, selector), func(t *testing.T) {
+				// Arrange
+				h, root, fixture := admissionControllerStage(t)
+				outsideGoblinTerminal(t)
+				caller, err := fsx.Canonical(fixture.worktree)
+				if err != nil {
+					t.Fatal(err)
+				}
+				published := strings.Repeat("a", 40)
+				head := published
+				if shouldResume {
+					head = strings.Repeat("b", 40)
+				}
+				commands := &handbackCommands{worktree: caller, branch: "fix/publication", callerHead: head}
+				commands.rows = fmt.Sprintf(`[{"repo_id":"repo-1","run_id":"original-run","branch":%q,"caller_dir":%q,"current_head":%q,"published_head":%q,"push_generation":7}]`, commands.branch, caller, published, published)
+				args := []string{"handback", "task", selector, commands.branch, "--revalidate-publication"}
+				if selector == "--run" {
+					args[3] = "original-run"
+				}
+				if shouldResume {
+					args = append(args, "--resume", "--receipt", "native-receipt")
+				}
+				meta, err := state.ReadTaskMeta(h.State, "task")
+				if err != nil {
+					t.Fatal(err)
+				}
+				policyBefore, err := os.ReadFile(filepath.Join(meta.TaskTmp, "pipeline.json"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var output bytes.Buffer
+
+				// Act
+				err = pipelineCommand(t.Context(), h, root, commands, args, &output)
+
+				// Assert
+				if err != nil || len(commands.native) != 1 {
+					t.Fatalf("handback = %v, native calls = %d", err, len(commands.native))
+				}
+				wantArgs := []string{"axi", "handback", "--expect", commands.expectationPath, "--revalidate-publication"}
+				if shouldResume {
+					wantArgs = append(wantArgs, "--resume", "--receipt", "native-receipt")
+				}
+				if !reflect.DeepEqual(commands.native[0].Args, wantArgs) || !fsx.SamePath(commands.native[0].Dir, caller) {
+					t.Fatalf("native request = %+v, want %q in %s", commands.native[0], wantArgs, caller)
+				}
+				want := fmt.Sprintf(`{"repo_id":"repo-1","run_id":"original-run","branch":%q,"caller_dir":%q,"caller_head":%q,"current_head":%q,"published_head":%q,"push_generation":7}`, commands.branch, caller, head, published, published)
+				var expected map[string]json.RawMessage
+				if err := json.Unmarshal([]byte(want), &expected); err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(commands.expectation, expected) {
+					t.Fatalf("native binding = %v, want %v", commands.expectation, expected)
+				}
+				policyAfter, err := os.ReadFile(filepath.Join(meta.TaskTmp, "pipeline.json"))
+				if err != nil || !bytes.Equal(policyBefore, policyAfter) {
+					t.Fatalf("handback changed frozen policy: %v", err)
+				}
+				if _, err := os.Stat(commands.expectationPath); !os.IsNotExist(err) {
+					t.Fatalf("expectation file was not removed: %v", err)
+				}
+				if !strings.Contains(output.String(), "native-receipt") {
+					t.Fatalf("native receipt was not delivered: %q", &output)
+				}
+			})
+		}
+	}
+}
+
+func TestPipelineHandbackPublicationRevalidationRequiresPrimaryCFO(t *testing.T) {
+	for _, scenario := range []struct {
+		name, terminal, gate string
+		isInvalidProof       bool
+	}{
+		{name: "gate inherits CFO proof", gate: "1"},
+		{name: "own contributor inherits CFO ancestry", terminal: "task"},
+		{name: "foreign contributor inherits CFO ancestry", terminal: "another-task"},
+		{name: "invalid contributor proof inherits CFO ancestry", terminal: "task", isInvalidProof: true},
+		{name: "gate inherits own contributor proof", terminal: "task", gate: "1"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			// Arrange
+			h, root, fixture := admissionControllerStage(t)
+			inGoblinTerminal(t, h.State, "cfo")
+			t.Setenv(harness.RoleVariable, "cfo")
+			record, err := host.ReadRecord(h.State, "cfo")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var isStarted bool
+			record.ChildStart, isStarted = proc.StartTime(os.Getpid())
+			if !isStarted {
+				t.Fatal("the registered CFO process has no start time")
+			}
+			record.ProofSum = host.ProofSum(os.Getenv(host.ProofVariable))
+			data, err := json.Marshal(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.State, "hosts", "cfo.json"), data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if scenario.terminal != "" {
+				inGoblinTerminal(t, h.State, scenario.terminal)
+			}
+			if scenario.isInvalidProof {
+				t.Setenv(host.ProofVariable, "unissued-proof")
+			}
+			t.Setenv(gateAgentVariable, scenario.gate)
+			connection := supervisor.CFOConnection{State: h.State}
+			_, release, err := connection.CallerIdentity()
+			if err != nil {
+				t.Fatalf("fixture must inherit CFO identity: %v", err)
+			}
+			release()
+			commands := &handbackCommands{worktree: fixture.worktree, branch: "fix/publication"}
+			var output bytes.Buffer
+
+			// Act
+			err = pipelineCommand(t.Context(), h, root, commands, []string{"handback", "task", "--revalidate-publication"}, &output)
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), "registered primary CFO") || len(commands.native) != 0 || output.Len() != 0 {
+				t.Fatalf("unauthorized handback = %v, native calls = %d, output = %q", err, len(commands.native), &output)
+			}
+		})
+	}
+}
+
+func TestPipelineHandbackReportsNativePublicationRefusalWithoutClaimingMissingExpectation(t *testing.T) {
+	for _, test := range []struct {
+		refusal                     string
+		shouldRevalidatePublication bool
+	}{
+		{refusal: "ordinary CI handback requires exact reviewed publication and request identity with automatic repair disabled"},
+		{refusal: "publication revalidation requires submitted, reviewed, tested and published ancestry", shouldRevalidatePublication: true},
+	} {
+		t.Run(test.refusal, func(t *testing.T) {
+			// Arrange
+			h, root, fixture := admissionControllerStage(t)
+			outsideGoblinTerminal(t)
+			published := strings.Repeat("a", 40)
+			commands := &handbackCommands{worktree: fixture.worktree, branch: "fix/publication", callerHead: published, nativeExit: 1, nativeRefusal: test.refusal}
+			commands.rows = fmt.Sprintf(`[{"repo_id":"repo-1","run_id":"original-run","branch":%q,"current_head":%q,"published_head":%q,"push_generation":7}]`, commands.branch, published, published)
+			args := []string{"handback", "task", "--branch", commands.branch}
+			if test.shouldRevalidatePublication {
+				args = append(args, "--revalidate-publication")
+			}
+			var output bytes.Buffer
+
+			// Act
+			err := pipelineCommand(t.Context(), h, root, commands, args, &output)
+
+			// Assert
+			if err == nil || strings.Contains(err.Error(), "--expect") || output.String() != test.refusal || len(commands.native) != 1 {
+				t.Fatalf("native refusal = %v, output = %q, native calls = %d", err, &output, len(commands.native))
+			}
+		})
 	}
 }
