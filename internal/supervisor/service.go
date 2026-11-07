@@ -1672,7 +1672,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	// The build reads the folders of task records whole, once, to learn
 	// which of their files changed.
 	directory := s.Store.Home.State
-	defer s.reads.begin(directory, filepath.Dir(state.LifecyclePath(directory, "task")), filepath.Dir(monitor.ObservationPath(directory, "task")))()
+	defer s.reads.begin(directory, filepath.Dir(state.LifecyclePath(directory, "task")), filepath.Dir(monitor.ObservationPath(directory, "task")), filepath.Dir(state.ConversationPath(directory, "task")))()
 	d := s.Store.Snapshot()
 	s.mu.Lock()
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
@@ -1808,7 +1808,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// kept. Without the second a pi goblin, whose start its ledger never
 		// took here, is named by no session at all, and Modern Chat, the
 		// family tree and its panel have nothing to attach to.
-		named, hasNamed := namedSession(d, s.Store.Home.State, meta)
+		named, hasNamed := namedSession(d, s.keptConversation, meta)
 		if !linked && hasNamed {
 			named.Runtime = s.runtimeEvidence(meta, named, out.At)
 			keptSessions = append(keptSessions, named)

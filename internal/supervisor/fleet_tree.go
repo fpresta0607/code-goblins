@@ -136,11 +136,13 @@ func (s *Service) helperStanding(meta state.TaskMeta) fleettree.HelperStanding {
 // session. A harness whose start the ledger never took, as pi's is on a home
 // whose native hook it never ran, is still the session Modern Chat, the
 // family tree and the goblin's panel all find, and a relaunch finds it again.
-func namedSession(d Database, stateDir string, meta state.TaskMeta) (Session, bool) {
+// conversation reads the kept record for a task, which a caller serving the
+// board caches as it caches every other file a snapshot reads.
+func namedSession(d Database, conversation func(string) (state.Conversation, error), meta state.TaskMeta) (Session, bool) {
 	if node, ok := d.Sessions[d.TaskSessions[meta.ID]]; ok && node.Generation == meta.SpawnGen && node.Harness == meta.Harness {
 		return node, true
 	}
-	kept, err := state.ReadConversation(stateDir, meta.ID)
+	kept, err := conversation(meta.ID)
 	if err != nil || kept.Session == "" || kept.Generation != meta.SpawnGen || kept.Harness != meta.Harness {
 		return Session{}, false
 	}

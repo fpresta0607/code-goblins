@@ -245,6 +245,17 @@ func (s *Service) taskMeta(id string) (state.TaskMeta, error) {
 	return kept(&s.reads, "meta", []string{state.TaskMetaPath(directory, id)}, func() (state.TaskMeta, error) { return state.ReadTaskMeta(directory, id) })
 }
 
+// keptConversation is the conversation the board kept for a task, read once
+// per state of its file as every other file a snapshot reads is: a snapshot
+// runs every few seconds, and opening one file for each goblin every time
+// broke the read budget the board's own reads keep.
+func (s *Service) keptConversation(id string) (state.Conversation, error) {
+	directory := s.Store.Home.State
+	return kept(&s.reads, "conversation", []string{state.ConversationPath(directory, id)}, func() (state.Conversation, error) {
+		return state.ReadConversation(directory, id)
+	})
+}
+
 // Lifecycle includes live teardown identities, so file signatures cannot cache it.
 func (s *Service) lifecycle(id string) (state.Lifecycle, error) {
 	if err := state.ValidTaskID(id); err != nil {
