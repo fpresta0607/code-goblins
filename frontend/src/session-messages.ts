@@ -207,7 +207,11 @@ export function replyParts(blocks: MessageBlock[]): ReplyPart[] {
   blocks.forEach((block, at) => {
     const last = parts.at(-1);
     if (block.kind !== "call") {
-      if (block.text) parts.push({ kind: block.kind, at, text: block.text });
+      // A block whose words are only whitespace, as pi writes "\n\n"
+      // between the steps of a turn, is drawn as nothing: no prose row and no
+      // Copy under it (the Overlord, 2026-11-07: "no copy button without
+      // content").
+      if (block.text.trim()) parts.push({ kind: block.kind, at, text: block.text });
     } else if (last?.kind === "calls") last.calls.push(block);
     else parts.push({ kind: "calls", at, calls: [block] });
   });
