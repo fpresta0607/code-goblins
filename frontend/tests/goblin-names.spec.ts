@@ -120,12 +120,11 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
         await node.locator("strong").hover();
         await expect(page.getByRole("tooltip")).toHaveText("Say why a billing sync fails");
       } else {
-        // A phone shows the canvas as its list, which says the task under
-        // the name.
+        // A phone uses the same task tip as the board.
         const row = page.locator(".workflow-node").filter({ hasText: "Jerry - Code Designer" });
         await expect(row).toHaveCount(1);
         await expect(row.locator(".goblin-avatar")).toBeVisible();
-        await expect(row.locator(".node-task")).toHaveText("Task: Say why a billing sync fails");
+        await expect(row.locator(".task-card")).toHaveAttribute("data-tip", "Say why a billing sync fails");
       }
     });
   });

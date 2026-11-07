@@ -22,6 +22,6 @@ test("a call reads with its tool's icon and verb, as it runs and once it has run
 });
 
 test("a call that ran a command names the command's language, and any other call none", () => {
-  const cases: [string, string][] = [["Bash", "bash"], ["PowerShell", "powershell"], ["exec_command", "shell"], ["shell", "shell"], ["Read", ""], ["mcp__docs__fetch", ""]];
+  const cases: [string, string][] = [["Bash", "bash"], ["PowerShell", "powershell"], ["exec", "javascript"], ["exec_command", "shell"], ["shell", "shell"], ["Read", ""], ["mcp__docs__fetch", ""]];
   for (const [tool, want] of cases) assert.equal(commandLanguage(tool), want, tool);
 });

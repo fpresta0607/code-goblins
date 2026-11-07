@@ -43,6 +43,30 @@ async function open(page: Page) {
 const card = (page: Page, name: string) => page.locator(".task-board .task-card-shell").filter({ has: page.locator(".card-title").getByText(name, { exact: true }) });
 const box = async (part: ReturnType<Page["locator"]>) => (await part.boundingBox())!;
 
+for (const width of [390, 1440]) {
+  test(`Orchestration keeps task controls and keyboard selection at ${width}px`, async ({ page }) => {
+    await open(page);
+    await page.getByRole("button", { name: "Close panel" }).click();
+    await page.setViewportSize({ width, height: 900 });
+    const board = card(page, "Benny - AFK Ace");
+    const expectedStatus = await board.locator(".card-status-text").innerText();
+    const expectedClock = await board.locator(".card-clock").innerText();
+
+    await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+
+    const row = page.locator(width > 640 ? ".flow-node" : ".workflow-node").filter({ has: page.locator(".card-title", { hasText: "Benny - AFK Ace" }) });
+    await expect(row.locator(".card-status-text")).toHaveText(expectedStatus);
+    await expect(row.locator(".card-clock")).toHaveText(expectedClock);
+    await expect(row.locator(".card-repo-link")).toHaveAttribute("href", REPO);
+    await expect(row.locator(".card-ticket")).toHaveAttribute("href", REPO + "/issues/1013");
+    await expect(row.locator(".card-pr")).toHaveAttribute("href", REPO + "/pull/1031");
+    await expect(row.locator("button button, button a")).toHaveCount(0);
+    await row.getByRole("button", { name: "Open Benny - AFK Ace harness details" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#panel-title")).toHaveText("Benny - AFK Ace");
+  });
+}
+
 test("a working goblin's card is one row: face, name, time and status, with its parts as icons", async ({ page }) => {
   // Arrange: the board without the CFO's panel beside it.
   await open(page);

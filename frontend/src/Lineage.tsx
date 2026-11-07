@@ -2,15 +2,14 @@ import { useState } from "react";
 import type { BoardActivity, Session, Snapshot, Task } from "./types";
 import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type ActivityEffect } from "./activity";
 import { CFO_ROOT, isHelperHeld, isInProgress, lineageFamily, nodeStatus } from "./workflow";
-import { taskStatus } from "./task-status";
 import { Avatar } from "./Avatar";
 import { Chevron } from "./Chevron";
 import { personaFor } from "./workflow";
-import { childSelection, lineageRoots, ownsTaskSession, sessionRole, sessionTitle, tasksWithoutSession, type Selection } from "./lineageTree";
-import { goblinName, taskName, withoutHarness } from "./task-words";
+import { childSelection, lineageRoots, ownsTaskSession, sessionRole, sessionTitle, tasksWithoutSession, taskSessionDetails, type Selection } from "./lineageTree";
+import { goblinName, withoutHarness } from "./task-words";
 import { hasRunningChildren } from "./fleet-tree";
 import { TreeUnder } from "./TreeUnder";
-import { CardFacts } from "./card-facts";
+import { cardFacts, TaskCard } from "./TaskCard";
 import { CfoCardFacts } from "./cfo-card-facts";
 import type { AfkToggleState } from "./useAfkToggle";
 
@@ -80,16 +79,16 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkT
       {activity.creation && <span key={activity.creation.id} ref={playFrom(activity.creation.expires - EFFECT_MS)} className="compact-creation-highlight" style={{ animationDuration: EFFECT_MS + "ms" }} aria-hidden="true" />}
       <div className="node-group">
         {relation && <p className="node-relation">{relation}{ancestors.size >= 3 && parent && " · Parent: " + sessionTitle(parent, snapshot.tasks.find((task) => task.id === parent.task_id))}</p>}
-        <div className={"workflow-node role-" + node.role + (activity.created ? " node-enter" : "") + (selected?.session === node.id ? " selected" : "")}>
+        <div className={"workflow-node role-" + node.role + (owner && task ? " has-task" : "") + (activity.created ? " node-enter" : "") + (selected?.session === node.id ? " selected" : "")}>
           {glow && <span key={glow.id} ref={playFrom(glow.expires - EFFECT_MS)} className="activity-glow" aria-hidden="true" />}
-          <button className="node-select" aria-pressed={selected?.session === node.id}
+          {owner && task ? <TaskCard task={task} {...cardFacts(task, snapshot, presentations)} selected={selected?.session === node.id || selected?.task === task.id} now={now}
+            onSelect={(_, source) => onSelect({ task: task.id }, source)} /> : <button className="node-select" aria-pressed={selected?.session === node.id}
             onClick={(event) => onSelect(node.id === CFO_ROOT ? {} : { session: node.id }, event.currentTarget)}>
             <Avatar persona={personaFor(task, node)} small /><span className="node-role">{sessionRole(node)}</span>
             <strong>{title}</strong>{presentations.some(a=>presentationShownOn(a,node,task))&&<span className="browser-indicator">Browser active</span>}{task?.project && <span className="project-label">{task.project}</span>}
             {(!owner || task?.goblin_name) && node.role !== "cfo" && task?.title && <span className="node-task">Task: {withoutHarness(task.title)}</span>}
-            <span className="node-status">{owner && task ? taskStatus(task, snapshot).text : nodeStatus(node.id === CFO_ROOT && family.cfo ? family.cfo : { id: node.id, title, task, session: node, relation }, false, snapshot.tasks, snapshot.merge_trains)}</span>
-          </button>
-          {owner && task && <div className="node-facts"><CardFacts task={task} now={now} /></div>}
+            <span className="node-status">{nodeStatus(node.id === CFO_ROOT && family.cfo ? family.cfo : { id: node.id, title, task, session: node, relation }, false, snapshot.tasks, snapshot.merge_trains)}</span>
+          </button>}
           {node.role === "cfo" && snapshot.cfo_runs && !snapshot.cfo_closed && <div className="node-facts"><CfoCardFacts snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpenCfo={onOpenCfo} /></div>}
           {descendants.length > 0 && <button className="node-disclosure" aria-expanded={!isCollapsed}
             aria-label={(isCollapsed ? "Expand" : "Collapse") + " children of " + title} onClick={() => toggle(node.id)}>
@@ -108,15 +107,9 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkT
     const helpers = helpersOf(task.id, new Set());
     return <li className="workflow-branch" key={"task:" + task.id}>
       <div className="node-group">
-        <p className="node-relation">{isHelper ? "Helper goblin" : "Session unreported"}</p>
-        <div className={"workflow-node" + (selected?.task === task.id ? " selected" : "")}>
-          <button className="node-select" aria-pressed={selected?.task === task.id}
-            onClick={(event) => onSelect({ task: task.id }, event.currentTarget)}>
-            <Avatar persona={personaFor(task)} small /><span className="node-role">Task</span><strong>{title}</strong>{presentations.some(a=>presentationShownOn(a,undefined,task))&&<span className="browser-indicator">Browser active</span>}{task.project && <span className="project-label">{task.project}</span>}
-            {task.goblin_name && <span className="node-task">Task: {taskName(task)}</span>}
-            <span className="node-status">{taskStatus(task, snapshot).text}</span>
-          </button>
-          <div className="node-facts"><CardFacts task={task} now={now} /></div>
+        <p className="node-relation">{isHelper ? "Helper goblin · " : ""}{taskSessionDetails(task)}</p>
+        <div className={"workflow-node has-task" + (selected?.task === task.id ? " selected" : "")}>
+          <TaskCard task={task} {...cardFacts(task, snapshot, presentations)} selected={selected?.task === task.id} now={now} onSelect={(_, source) => onSelect({ task: task.id }, source)} />
         </div>
       </div>
       {task.tree && hasRunningChildren(task.tree) && <TreeUnder goblin={task} tree={task.tree} title={title} now={now} selected={selected?.task === task.id ? selected.child : undefined} onOpen={(child, source) => onSelect(childSelection(task, child), source)} />}

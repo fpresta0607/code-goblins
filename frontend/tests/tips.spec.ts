@@ -448,7 +448,7 @@ test("a press takes a tip away, even on a part that keeps the press to itself", 
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   // Focus leaving a part takes its tip away too, so nothing holds it here.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-  const node = page.locator(".flow-node-main[data-tip]").first();
+  const node = page.locator(".flow-node .task-card[data-tip]").first();
   const tip = page.getByRole("tooltip");
   await node.hover();
   await expect(tip).toBeVisible();

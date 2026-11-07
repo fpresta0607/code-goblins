@@ -1,4 +1,4 @@
-import { memo, useRef, useState, type SyntheticEvent } from "react";
+import { memo, useState, type ButtonHTMLAttributes, type SyntheticEvent } from "react";
 import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { HarnessMark } from "./harness-mark";
@@ -37,15 +37,15 @@ import { safeGitHubLink } from "./people";
 // A card is given what it shows as plain values (cardFacts) and is drawn
 // again only when one of them changed, so a snapshot that changed another
 // goblin, or only the meters, leaves it as it is (#1599).
-export const TaskCard = memo(function TaskCard({ task, status, phase, repository, isPresenting, selected, now, rank, nextText, nextTone, onSelect }: CardFacts & {
+export const TaskCard = memo(function TaskCard({ task, status, phase, repository, isPresenting, selected, now, rank, nextText, nextTone, onSelect, buttonProps }: CardFacts & {
   task: Task; selected: boolean; now: number; rank?: string;
   nextText?: string; nextTone?: NextUp["tone"];
   onSelect: (task: Task, source: HTMLElement) => void;
+  buttonProps?: Pick<ButtonHTMLAttributes<HTMLButtonElement>, "onPointerDown" | "onPointerMove" | "onPointerUp" | "onPointerCancel" | "onKeyDown" | "onKeyUp" | "aria-describedby">;
 }) {
   // A task with no goblin yet goes by its title, which shows in full in its
   // tip while it is shortened: that card carries data-tip only then.
   const [clipped, setClipped] = useState(false);
-  const card = useRef<HTMLButtonElement>(null);
   const measure = (event: SyntheticEvent<HTMLElement>) => {
     const title = event.currentTarget.querySelector<HTMLElement>(".card-title");
     setClipped(!!title && (title.scrollWidth > title.clientWidth + 1 || title.scrollHeight > title.clientHeight + 1));
@@ -63,7 +63,7 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
     </span>
   </>;
   return <div className={"task-card-shell" + (selected ? " selected" : "")}>
-    <button ref={card} className="task-card"
+    <button {...buttonProps} className="task-card"
       aria-pressed={selected} onClick={(event) => onSelect(task, event.currentTarget)} onPointerEnter={measure} onFocus={measure} {...tip}>{content}</button>
     {task.project && <span className="card-repo">{task.project}{repositoryLink && <a className="card-repo-link" href={repositoryLink} target="_blank" rel="noreferrer" aria-label={"Open " + repository + " on GitHub"} data-tip={repository}><BrandGlyph brand="github" /></a>}</span>}
     <CardClock task={task} now={now} />
@@ -71,7 +71,7 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
       {task.ticket && <TicketLink ticket={task.ticket} className="card-ticket" isIconOnly />}
       <CardPullRequest task={task} isIconOnly />
       <SameAreaAvatars overlaps={task.overlaps} />
-      {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><HarnessMark harness={task.harness} label={harnessTip(task.harness, task.model, task.effort)} /></span>}
+      {task.harness && <button type="button" className="card-harness" aria-label={"Open " + name + " harness details"} onClick={(event) => onSelect(task, event.currentTarget)}><HarnessMark harness={task.harness} label={harnessTip(task.harness, task.model, task.effort)} /></button>}
     </div>
   </div>;
 });

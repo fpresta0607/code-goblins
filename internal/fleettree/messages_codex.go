@@ -230,7 +230,9 @@ func (l *codexMessageLog) completed(entry codexEntry, id string, offset int64) {
 func (l *codexMessageLog) response(entry codexEntry, id string, offset int64) {
 	payload := entry.Payload
 	switch payload.Type {
-	case "function_call", "custom_tool_call":
+	case "custom_tool_call":
+		l.block(entry.Timestamp, id, Block{Kind: BlockCall, CallID: payload.CallID, Tool: payload.Name, Subject: payload.Name, Input: bounded(payload.Input, messageTextLimit), State: CallRunning})
+	case "function_call":
 		l.block(entry.Timestamp, id, Block{Kind: BlockCall, CallID: payload.CallID, Tool: payload.Name, Subject: codexSubject(payload.Input, payload.Arguments), State: CallRunning, Plan: callPlan(payload.Name, payload.Arguments)})
 	case "function_call_output", "custom_tool_call_output":
 		l.outcome(payload.CallID, payload.Output, offset)

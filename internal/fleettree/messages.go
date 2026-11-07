@@ -67,6 +67,7 @@ type Block struct {
 	CallID  string `json:"call_id,omitempty"`
 	Tool    string `json:"tool,omitempty"`
 	Subject string `json:"subject,omitempty"`
+	Input   string `json:"input,omitempty"`
 	State   string `json:"state,omitempty"`
 	Result  string `json:"result,omitempty"`
 	// Spilled is the size in bytes of a result too large for the

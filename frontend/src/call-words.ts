@@ -45,6 +45,6 @@ export function callWords(tool: string, isRunning: boolean): { icon: IconName; v
 
 // The language of the command a call to tool ran, which names its card when
 // the row opens to the whole command, or none for a tool that runs none.
-const COMMAND_LANGUAGES: Record<string, string> = { bash: "bash", powershell: "powershell", exec: "shell", exec_command: "shell", shell: "shell" };
+const COMMAND_LANGUAGES: Record<string, string> = { bash: "bash", powershell: "powershell", exec: "javascript", exec_command: "shell", shell: "shell" };
 
 export const commandLanguage = (tool: string): string => COMMAND_LANGUAGES[tool.toLowerCase()] ?? "";

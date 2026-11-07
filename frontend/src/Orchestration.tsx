@@ -1,16 +1,15 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { BoardActivity, FleetTree, Snapshot, Task, TreeNode } from "./types";
 import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type ActivityEffect } from "./activity";
 import { Chevron } from "./Chevron";
 import { Icon } from "./Icon";
-import { ownsTaskSession } from "./lineageTree";
-import { taskName } from "./task-words";
+import { ownsTaskSession, taskSessionDetails } from "./lineageTree";
 import { arrange, detours, expireTraffic, fitScale, fleetTraffic, makeRoom, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, settle, waitingOn, workflowNodes, zoomAt, type Detour, type Extent, type Point, type View, type WorkflowNode } from "./workflow";
 import { taskStatus } from "./task-status";
 import { BABY_HEIGHT, BABY_WIDTH, babies, babyName, branchLayout, elbows, hasRunningChildren, LINE_GAP } from "./fleet-tree";
 import { TreeCount } from "./TreeCount";
 import { TreeChild } from "./TreeChild";
-import { CardFacts } from "./card-facts";
+import { cardFacts, TaskCard } from "./TaskCard";
 import { OrchestrationCard } from "./orchestration-card";
 import { CfoCardFacts } from "./cfo-card-facts";
 import { ConnectorEffect } from "./connector-effect";
@@ -20,7 +19,6 @@ import type { AfkToggleState } from "./useAfkToggle";
 
 // The phases a goblin is at work in, whose card glows.
 const WORKING = new Set(["working", "busy", "active", "started"]);
-const NodeFacts = memo(CardFacts);
 
 // v1 saved every card's place at each drag, which pinned the whole canvas.
 const layoutKey = "cfo-orchestration-layout-v2";
@@ -386,23 +384,28 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
           const { text: status, phase } = owner && node.task ? taskStatus(node.task, snapshot) : { text: nodeStatus(node, false, snapshot.tasks, snapshot.merge_trains), phase: node.session?.runtime?.state || node.session?.phase };
           const children = nodes.some((child) => child.parent === node.id) || !!trees[node.id];
           const hasCfoFacts = (!!node.cfo || node.session?.role === "cfo") && snapshot.cfo_runs && !snapshot.cfo_closed;
-          return <article key={node.id} className={"flow-node" + (WORKING.has(phase || "") ? " is-working" : "") + (activity.created ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }} {...lights(node.id)}>
+          const interaction = {
+            onPointerDown: (event: PointerEvent<HTMLButtonElement>) => startDrag(event, node), onPointerMove: moveDrag, onPointerUp: endDrag, onPointerCancel: endDrag,
+            onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => {
+              if (!event.altKey || !event.key.startsWith("Arrow")) return;
+              event.preventDefault();
+              const step = event.shiftKey ? 50 : 10;
+              move(node.id, { x: p.x + (event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0), y: p.y + (event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0) });
+            }, onKeyUp: (event: KeyboardEvent<HTMLButtonElement>) => { if (event.key.startsWith("Arrow")) save(); }, "aria-describedby": "canvas-help",
+          };
+          const select = (source: HTMLElement) => { if (ignoreClick.current) { ignoreClick.current = false; return; } onSelect(node, source); };
+          return <article key={node.id} className={"flow-node" + (owner && node.task ? " has-task" : "") + (WORKING.has(phase || "") ? " is-working" : "") + (activity.created ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }} {...lights(node.id)}>
             {effect && <span key={effect.id} ref={playFrom(effect.expires - EFFECT_MS)} className="activity-glow" aria-hidden="true" />}
-            <button className="flow-node-main" onPointerDown={(event) => startDrag(event, node)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
-              onKeyDown={(event) => {
-                if (!event.altKey || !event.key.startsWith("Arrow")) return;
-                event.preventDefault();
-                const step = event.shiftKey ? 50 : 10;
-                move(node.id, { x: p.x + (event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0), y: p.y + (event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0) });
-              }} onKeyUp={(event) => { if (event.key.startsWith("Arrow")) save(); }}
-              onClick={(event) => { if (ignoreClick.current) { ignoreClick.current = false; return; } onSelect(node, event.currentTarget); }} aria-pressed={selected === node.id}
-              aria-label={node.title + ". " + status + ". " + (parent ? "Parent: " + parent.title : node.relation)} aria-describedby="canvas-help"
-              data-tip={owner && node.task?.goblin_name ? taskName(node.task) : undefined}>
+            {owner && node.task ? <>
+              <TaskCard task={node.task} {...cardFacts(node.task, snapshot, presentations)} selected={selected === node.id} now={now} buttonProps={interaction} onSelect={(_, source) => select(source)} />
+              {!node.session && <p className="flow-session-details">{taskSessionDetails(node.task)}</p>}
+            </> : <button className="flow-node-main" {...interaction}
+              onClick={(event) => select(event.currentTarget)} aria-pressed={selected === node.id}
+              aria-label={node.title + ". " + status + ". " + (parent ? "Parent: " + parent.title : node.relation)}>
               <OrchestrationCard title={node.title} status={status} phase={phase} persona={node.cfo ? "cfo" : personaFor(node.task, node.session)}
                 project={node.task?.project || ""} relation={!node.parent && node.session?.role !== "cfo" && !node.cfo ? node.relation : ""}
                 isPresenting={presentations.some((presentation) => presentationShownOn(presentation, node.session, node.task))} />
-            </button>
-            {owner && node.task && <div className="flow-node-foot"><NodeFacts task={node.task} now={now} /></div>}
+            </button>}
             {hasCfoFacts && <div className="flow-node-foot"><CfoCardFacts snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpenCfo={onOpenCfo} /></div>}
             {children && <button className="node-disclosure" aria-label={(collapsed.has(node.id) ? "Expand" : "Collapse") + " descendants of " + node.title} aria-expanded={!collapsed.has(node.id)} onClick={() => toggle(node.id)}><Chevron collapsed={collapsed.has(node.id)} /></button>}
           </article>;

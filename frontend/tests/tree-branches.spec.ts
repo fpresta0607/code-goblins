@@ -82,7 +82,7 @@ test("every branch ends at the top center of its goblin or baby goblin, at every
 
 test("every branch ends at the top center of its child after a drag and after Arrange", async ({ page }) => {
   const drag = async (name: string, by: Point) => {
-    const box = (await page.locator(".flow-node").filter({ has: page.getByText(name, { exact: true }) }).locator(".flow-node-main").boundingBox())!;
+    const box = (await page.locator(".flow-node").filter({ has: page.getByText(name, { exact: true }) }).locator(".task-card").boundingBox())!;
     await page.mouse.move(box.x + 40, box.y + 20);
     await page.mouse.down();
     await page.mouse.move(box.x + 40 + by.x, box.y + 20 + by.y, { steps: 8 });

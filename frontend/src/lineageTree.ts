@@ -15,9 +15,16 @@ export function ownsTaskSession(node?: Session, task?: Task): boolean {
   return (
     !node ||
     (node.role === "goblin" &&
+      node.task_id === task?.id &&
       node.id === task?.session &&
       node.generation === task.generation)
   );
+}
+
+export function taskSessionDetails(task: Task): string {
+  return task.backend === "native" && ["busy", "active", "idle", "parked"].includes(task.runtime.state)
+    ? "Native terminal running; session details unavailable"
+    : "Session details unavailable";
 }
 
 export function sessionModel(node?: Session, task?: Task): string {
