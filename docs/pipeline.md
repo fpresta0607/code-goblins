@@ -322,7 +322,7 @@ An unpublished authored child can also retain its predecessor's older gate branc
 That case requires the same immutable admission, clean source, verified history and exact authored-candidate anchor, with native `user_owned` state and safety and an `equal` relation.
 The driver reports the separately preserved local and gate heads without changing refs, history or the null custody stamp, since native has already released this source.
 Ordinary unpublished cancellations gain no authored-provenance exception.
-A step whose status is still in progress, or whose recorded agent process is still alive, keeps refusing, and so does one whose recorded pid's liveness cannot be read, since an unanswered pid read is never permission (issue 2166).
+A step whose status is still running, fixing, awaiting_approval or fix_review keeps refusing, as does one whose recorded agent process is still alive, or whose recorded pid's liveness cannot be read, since an unanswered pid read is never permission (issue 2166).
 A pid left on a failed or cancelled step by a daemon crash is evidence of past ownership, not present ownership, so it does not block recovery once no process holds it.
 Ordinary published runs, children that published their own source, changed or missing provenance or anchors, stale generations, configured automatic repair or a spent repair round and uncertain history remain refused.
 Recovery preserves failed stages, historical source uncertainty and cumulative automatic and manual spending; it renews no repair allowance or review cycles.
