@@ -26,6 +26,9 @@
 .actions-spend-none { margin-top: 20px; color: var(--muted); }
 .actions-spend-problem { margin-top: 20px; color: var(--amber); overflow-wrap: anywhere; }
 .actions-spend-read { margin-top: 16px; font-size: .8125rem; }
+.actions-spend-recovery { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; margin-top: 16px; overflow-wrap: anywhere; }
+.actions-spend-recovery button { min-height: 44px; max-width: 100%; white-space: normal; }
+.actions-spend-recovery [role="alert"] { color: var(--amber); }
 /* A phone keeps the table's four columns by giving the names more room. */
 @media (max-width: 25rem) {
   .actions-spend-panel { padding: 20px 16px; }

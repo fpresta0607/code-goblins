@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -37,6 +38,20 @@ type Reading struct {
 	ReadAt       time.Time    `json:"read_at"`
 	CheckedAt    time.Time    `json:"checked_at"`
 	Detail       string       `json:"detail"`
+	Problem      *Problem     `json:"problem,omitempty"`
+	Recovery     *Recovery    `json:"recovery,omitempty"`
+}
+
+type Recovery struct {
+	RunID string `json:"run_id"`
+	State string `json:"state"`
+}
+
+type Problem struct {
+	Kind       string `json:"kind"`
+	Action     string `json:"action"`
+	Account    string `json:"account"`
+	Credential string `json:"credential"`
 }
 
 // Reader reads the Actions spend of the account gh is signed in as from
@@ -45,7 +60,7 @@ type Reader struct{ GitHub *githubapi.Client }
 
 func (r Reader) Read(ctx context.Context, now time.Time, month string) Reading {
 	now = now.UTC()
-	reading := Reading{Status: "unavailable", Month: month, CheckedAt: now, Detail: "Could not read GitHub Actions billing usage."}
+	reading := Reading{Status: "unavailable", Month: month, CheckedAt: now, Detail: "Could not read GitHub Actions billing usage.", Problem: &Problem{Kind: "malformed", Action: "retry", Credential: r.GitHub.CredentialSource()}}
 	reportMonth, err := time.Parse("2006-01", month)
 	if err != nil {
 		reading.Detail = "Invalid GitHub Actions report month."
@@ -53,8 +68,7 @@ func (r Reader) Read(ctx context.Context, now time.Time, month string) Reading {
 	}
 	answer, err := r.GitHub.Do(ctx, http.MethodGet, "user", nil)
 	if err != nil {
-		reading.Detail = "Could not read the signed-in GitHub account. Check gh authentication."
-		return reading
+		return failedReading(reading, err)
 	}
 	var account struct {
 		Login string `json:"login"`
@@ -63,12 +77,11 @@ func (r Reader) Read(ctx context.Context, now time.Time, month string) Reading {
 		reading.Detail = "GitHub did not return a signed-in account."
 		return reading
 	}
+	reading.Problem.Account = account.Login
 	endpoint := fmt.Sprintf("users/%s/settings/billing/usage?year=%d&month=%d", url.PathEscape(account.Login), reportMonth.Year(), reportMonth.Month())
 	answer, err = r.GitHub.Do(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		// GitHub's own words can name private repositories.
-		reading.Detail = "Could not read GitHub Actions billing usage. Check gh authentication and the token's user scope."
-		return reading
+		return failedReading(reading, err)
 	}
 	var response struct {
 		Items *[]struct {
@@ -132,6 +145,40 @@ func (r Reader) Read(ctx context.Context, now time.Time, month string) Reading {
 	})
 	total = total.inCents()
 	reading.Status, reading.Detail, reading.ReadAt, reading.Total = "available", "", now, &total
+	reading.Problem = nil
+	return reading
+}
+
+func failedReading(reading Reading, err error) Reading {
+	problem := reading.Problem
+	problem.Kind, problem.Action = "transient", "retry"
+	reading.Detail = "GitHub could not be reached. Retry the billing reading."
+	var refused *githubapi.Error
+	var credential *githubapi.CredentialError
+	isCredentialUnavailable := errors.As(err, &credential) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled)
+	if !errors.As(err, &refused) && !isCredentialUnavailable {
+		return reading
+	}
+	switch {
+	case isCredentialUnavailable || refused.Status == http.StatusUnauthorized:
+		problem.Kind, problem.Action = "authentication", "authenticate"
+		reading.Detail = "The selected GitHub credential is unavailable or was refused. Renew its login on this PC."
+	case refused.Status == http.StatusTooManyRequests || refused.Status == http.StatusForbidden && (refused.Header.Get("X-RateLimit-Remaining") == "0" || refused.Header.Get("Retry-After") != ""):
+		problem.Kind = "rate_limit"
+		reading.Detail = "GitHub is limiting requests. Wait before retrying the billing reading."
+	case refused.Status >= 500:
+		reading.Detail = "GitHub billing is temporarily unavailable. Retry the reading."
+	case (refused.Status == http.StatusForbidden || refused.Status == http.StatusNotFound) && refused.Header.Get("X-Accepted-OAuth-Scopes") == "user" && refused.Header.Get("X-OAuth-Scopes") != "" && !slices.Contains(strings.FieldsFunc(refused.Header.Get("X-OAuth-Scopes"), func(character rune) bool { return character == ',' || character == ' ' }), "user") && problem.Account != "":
+		problem.Kind, problem.Action = "permission", "allow"
+		reading.Detail = "The selected GitHub credential lacks the user scope required for billing. Account eligibility may also affect access."
+	default:
+		problem.Kind = "unavailable"
+		reading.Detail = "GitHub billing is unavailable for this account or credential. Access and account eligibility could not be confirmed."
+	}
+	if problem.Credential != "gh" && (problem.Action == "allow" || problem.Action == "authenticate") {
+		problem.Action = "update"
+		reading.Detail += " Update " + problem.Credential + " in the environment that starts Code Goblins; it takes precedence over the CLI login."
+	}
 	return reading
 }
 

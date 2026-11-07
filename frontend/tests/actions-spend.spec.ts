@@ -8,6 +8,131 @@ const reading = (changes: Record<string, unknown> = {}) => ({ status: "available
   repositories: [{ name: "moss", minutes: 400, used_usd: 7, billed_usd: 5 }, { name: "fern", minutes: 300, used_usd: 5, billed_usd: 3.5 }],
   read_at: NOW, checked_at: NOW, detail: "", ...changes });
 
+for (const width of [1440, 390, 320]) {
+  test(`billing permission repair names the account and preserves focus at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.clock.install({ time: new Date(NOW) });
+    const unavailable = reading({ status: "unavailable", total: null, repositories: [], detail: "Billing permission is missing; eligibility may also affect access.",
+      problem: { kind: "permission", action: "allow", account: "example-user", credential: "gh" } });
+    await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true, actions_spend: unavailable });
+    let repairs = 0;
+    await page.route("**/api/actions-spend/repair", async (route) => {
+      repairs++;
+      expect(route.request().method()).toBe("POST");
+      expect(route.request().headers()["x-cfo-token"]).toBe("actions-fixture");
+      expect(route.request().postDataJSON()).toEqual({ month: "2026-10", action: "allow" });
+      await route.fulfill({ json: { ...unavailable, recovery: { run_id: "billing-consent", state: "ready" } } });
+    });
+    await page.route("**/api/actions-spend?*", (route) => route.fulfill({ json: { ...unavailable, recovery: { run_id: "billing-consent", state: "ready" } } }));
+    await page.goto("/");
+    await page.getByRole("button", { name: "Board", exact: true }).click();
+    const opener = page.getByRole("button", { name: "GitHub Actions spend: unavailable", exact: true });
+    await opener.click();
+    const panel = page.getByRole("dialog", { name: "GitHub Actions" });
+    await expect(panel).toContainText("example-user");
+    await expect(panel).toContainText("user scope");
+    await expect(panel).not.toContainText("$0.00");
+    const allow = panel.getByRole("button", { name: "Allow billing access", exact: true });
+    await allow.click();
+    await expect(panel.getByRole("status")).toContainText("Command Center");
+    await expect(allow).toBeDisabled();
+    expect(repairs).toBe(1);
+    expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await panel.screenshot({ path: testInfo.outputPath(`billing-consent-${width}.png`) });
+    await page.keyboard.press("Escape");
+    await expect(opener).toBeFocused();
+  });
+}
+
+test("transient billing failure retries once and displays the refreshed reading", async ({ page }) => {
+  await page.clock.install({ time: new Date(NOW) });
+  await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+    actions_spend: reading({ status: "unavailable", total: null, repositories: [], detail: "GitHub billing is temporarily unavailable.", problem: { kind: "transient", action: "retry", account: "example-user", credential: "gh" } }) });
+  let repairs = 0;
+  await page.route("**/api/actions-spend/repair", async (route) => {
+    repairs++;
+    expect(route.request().postDataJSON()).toEqual({ month: "2026-10", action: "retry" });
+    await route.fulfill({ json: reading({ checked_at: "2026-10-15T12:00:01Z" }) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Board", exact: true }).click();
+  await page.getByRole("button", { name: "GitHub Actions spend: unavailable", exact: true }).click();
+  const panel = page.getByRole("dialog", { name: "GitHub Actions" });
+  await expect(panel.getByRole("button", { name: "Allow billing access" })).toHaveCount(0);
+  await panel.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(panel.locator("dl > div")).toHaveText(["Used$12.00", "Covered$3.50", "Billed$8.50"]);
+  expect(repairs).toBe(1);
+});
+
+test("environment billing credential offers update guidance without CLI consent", async ({ page }) => {
+  await page.clock.install({ time: new Date(NOW) });
+  await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+    actions_spend: reading({ status: "unavailable", total: null, repositories: [], detail: "Update the selected environment credential.", problem: { kind: "permission", action: "update", account: "example-user", credential: "GH_TOKEN" } }) });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Board", exact: true }).click();
+  await page.getByRole("button", { name: "GitHub Actions spend: unavailable", exact: true }).click();
+  const panel = page.getByRole("dialog", { name: "GitHub Actions" });
+  await panel.getByRole("button", { name: "Update GH_TOKEN", exact: true }).click();
+  await expect(panel.getByRole("status")).toContainText("environment that starts Code Goblins");
+  await expect(panel.getByRole("button", { name: "Allow billing access" })).toHaveCount(0);
+});
+
+test("billing repair shows loading and a recoverable owner refusal", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 1000 });
+  await page.clock.install({ time: new Date(NOW) });
+  await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+    actions_spend: reading({ status: "unavailable", total: null, repositories: [], problem: { kind: "permission", action: "allow", account: "example-user", credential: "gh" } }) });
+  let release: () => void = () => { throw new Error("repair has not started"); };
+  await page.route("**/api/actions-spend/repair", async (route) => {
+    await new Promise<void>((resolve) => { release = resolve; });
+    await route.fulfill({ status: 403, json: { error: "Allow billing access in the Code Goblins window on this PC." } });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Board", exact: true }).click();
+  await page.getByRole("button", { name: "GitHub Actions spend: unavailable", exact: true }).click();
+  const panel = page.getByRole("dialog", { name: "GitHub Actions" });
+  await expect(panel.getByRole("button", { name: "Close Actions spend" })).toBeFocused();
+  await panel.getByRole("button", { name: "Allow billing access", exact: true }).click();
+  await expect(panel.getByRole("button", { name: "Checking billing...", exact: true })).toBeDisabled();
+  await expect(panel.getByRole("region", { name: "Billing recovery" })).toHaveAttribute("aria-busy", "true");
+  release();
+  await expect(panel.getByRole("alert")).toContainText("on this PC");
+  await expect(panel.getByRole("button", { name: "Allow billing access", exact: true })).toBeEnabled();
+});
+
+for (const state of ["succeeded", "failed", "withdrawn", "stopped"]) {
+  test(`billing consent ${state} is read once without automatically repeating consent`, async ({ page }) => {
+    await page.clock.install({ time: new Date(NOW) });
+    const unavailable = reading({ status: "unavailable", total: null, repositories: [], detail: "Billing permission is missing.",
+      problem: { kind: "permission", action: "allow", account: "example-user", credential: "gh" } });
+    await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true, actions_spend: unavailable });
+    let repairs = 0;
+    let polls = 0;
+    await page.route("**/api/actions-spend/repair", async (route) => {
+      repairs++;
+      await route.fulfill({ json: { ...unavailable, recovery: { run_id: "billing-consent", state: "ready" } } });
+    });
+    await page.route("**/api/actions-spend?*", (route) => {
+      polls++;
+      return route.fulfill({ json: { ...(state === "succeeded" ? reading({ checked_at: "2026-10-15T12:00:01Z" }) : unavailable), recovery: { run_id: "billing-consent", state } } });
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Board", exact: true }).click();
+    await page.getByRole("button", { name: "GitHub Actions spend: unavailable", exact: true }).click();
+    const panel = page.getByRole("dialog", { name: "GitHub Actions" });
+    await panel.getByRole("button", { name: "Allow billing access", exact: true }).click();
+    await expect(panel.getByRole("status")).toContainText("Command Center");
+    await page.clock.runFor(2000);
+    if (state === "succeeded") await expect(panel.locator("dl > div")).toHaveText(["Used$12.00", "Covered$3.50", "Billed$8.50"]);
+    else {
+      await expect(panel.getByRole("status")).toContainText("Consent was not completed (" + state + ")");
+      await expect(panel.getByRole("button", { name: "Allow billing access", exact: true })).toBeEnabled();
+    }
+    expect(repairs).toBe(1);
+    expect(polls).toBe(1);
+  });
+}
+
 test.describe("device-local Actions month", () => {
   test.use({ timezoneId: "America/Chicago" });
 

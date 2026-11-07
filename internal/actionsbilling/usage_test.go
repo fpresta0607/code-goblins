@@ -22,6 +22,8 @@ type billingGitHub struct {
 	status   int
 	failure  string
 	account  string
+	scopes   string
+	accepted string
 }
 
 func (g *billingGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -32,6 +34,8 @@ func (g *billingGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case len(g.requests) == 1:
 		_, _ = w.Write([]byte(`{"login":"example-user"}`))
 	case g.status != 0:
+		w.Header().Set("X-OAuth-Scopes", g.scopes)
+		w.Header().Set("X-Accepted-OAuth-Scopes", g.accepted)
 		githubtest.Refuse(w, g.status, g.failure)
 	default:
 		_, _ = w.Write([]byte(g.usage))
@@ -146,6 +150,9 @@ func TestReadReportsUnavailableWithoutGuessing(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			github := &billingGitHub{usage: test.usage, status: test.status, failure: test.failure}
+			if test.name == "missing scope" {
+				github.scopes, github.accepted = "repo, gist, read:org", "user"
+			}
 			reading := reader(github).Read(context.Background(), time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC), "2026-10")
 			if reading.Status != "unavailable" || reading.Total != nil || reading.Repositories != nil || reading.Detail == "" {
 				t.Fatalf("reading = %+v", reading)
@@ -223,5 +230,63 @@ func TestReadAcceptsBillingTimestampsAndDocumentedDates(t *testing.T) {
 				t.Fatalf("reading = %+v", reading)
 			}
 		})
+	}
+}
+
+func TestReadClassifiesBillingFailuresWithoutExposingGitHubMessages(t *testing.T) {
+	for _, test := range []struct {
+		name, scopes, accepted, remaining, retryAfter, kind, action string
+		status                                                      int
+	}{
+		{name: "authenticated missing permission", status: 404, scopes: "gist, read:org, repo, workflow", accepted: "user", kind: "permission", action: "update"},
+		{name: "eligible account unknown", status: 404, scopes: "user", accepted: "user", kind: "unavailable", action: "retry"},
+		{name: "404 alone proves no permission", status: 404, kind: "unavailable", action: "retry"},
+		{name: "invalid login", status: 401, kind: "authentication", action: "update"},
+		{name: "primary rate limit", status: 403, remaining: "0", scopes: "repo", accepted: "user", kind: "rate_limit", action: "retry"},
+		{name: "secondary rate limit", status: 403, retryAfter: "60", kind: "rate_limit", action: "retry"},
+		{name: "too many requests", status: 429, kind: "rate_limit", action: "retry"},
+		{name: "server failure", status: 503, kind: "transient", action: "retry"},
+		{name: "platform refusal", status: 403, kind: "unavailable", action: "retry"},
+		{name: "malformed report", status: 200, kind: "malformed", action: "retry"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := githubtest.Client(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/user" {
+					_, _ = w.Write([]byte(`{"login":"example-user"}`))
+					return
+				}
+				if test.scopes != "" {
+					w.Header().Set("X-OAuth-Scopes", test.scopes)
+				}
+				w.Header().Set("X-Accepted-OAuth-Scopes", test.accepted)
+				w.Header().Set("X-RateLimit-Remaining", test.remaining)
+				w.Header().Set("Retry-After", test.retryAfter)
+				w.WriteHeader(test.status)
+				_, _ = w.Write([]byte(`{"message":"private-repo secret-detail"}`))
+			}))
+			client.Getenv = func(name string) string {
+				if name == "GH_TOKEN" {
+					return "fixture"
+				}
+				return ""
+			}
+
+			reading := (Reader{GitHub: client}).Read(context.Background(), time.Now(), "2026-11")
+
+			if reading.Problem == nil || reading.Problem.Kind != test.kind || reading.Problem.Action != test.action || reading.Problem.Account != "example-user" || reading.Problem.Credential != "GH_TOKEN" || reading.Total != nil {
+				t.Fatalf("reading = %+v, problem = %+v", reading, reading.Problem)
+			}
+			if strings.Contains(reading.Detail, "private-repo") || strings.Contains(reading.Detail, "secret-detail") {
+				t.Fatalf("unsafe detail = %q", reading.Detail)
+			}
+		})
+	}
+}
+
+func TestReadNetworkFailureOnlyOffersRetry(t *testing.T) {
+	client := githubtest.Client(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { githubtest.TimeOut(w) }))
+	reading := (Reader{GitHub: client}).Read(context.Background(), time.Now(), "2026-11")
+	if reading.Problem == nil || reading.Problem.Kind != "transient" || reading.Problem.Action != "retry" || reading.Total != nil {
+		t.Fatalf("reading = %+v", reading)
 	}
 }

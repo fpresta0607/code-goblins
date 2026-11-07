@@ -1,4 +1,4 @@
-import { memo, Suspense, useEffect, useState } from "react";
+import { memo, Suspense, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { boardPage } from "./board-page";
 import { BRAND_MARKS } from "./brandMarks";
@@ -12,6 +12,9 @@ const REFRESH_INTERVAL_MS = 3_600_000;
 
 export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, month, instance, now }: { usage?: ActionsSpend; month: string; instance: string; now: number }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isRepairing, setIsRepairing] = useState(false);
+  const [repairError, setRepairError] = useState("");
+  const repair = useRef<AbortController | null>(null);
   const [selected, setSelected] = useState<{ reading: ActionsSpend; instance: string; refreshAt: number }>();
   const cached = selected?.instance === instance && selected.reading.month === month ? selected : undefined;
   const shouldRequest = !!usage && usage.month !== month && (!cached || now >= cached.refreshAt);
@@ -39,8 +42,50 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
       });
     return () => controller.abort();
   }, [shouldRequest, month, instance, now]);
+  useEffect(() => () => repair.current?.abort(), []);
+  const supplied = usage?.month === month ? usage : undefined;
+  const reading = cached && (!supplied || Date.parse(cached.reading.checked_at) >= Date.parse(supplied.checked_at)) ? cached.reading : supplied;
+  const isPending = reading?.recovery?.state === "ready" || reading?.recovery?.state === "running";
+  const pendingRun = reading?.recovery?.run_id;
+  useEffect(() => {
+    if (!isOpen || !isPending) return;
+    const controller = new AbortController();
+    const deadline = setTimeout(() => controller.abort(), 5 * 60_000);
+    async function followConsent() {
+      try {
+        for (let attempt = 0; attempt < 150 && !controller.signal.aborted; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          if (controller.signal.aborted) return;
+          const updated = parseActionsSpend(await request("/api/actions-spend?month=" + month, controller.signal, { headers: { "X-CFO-Token": instance } }));
+          setSelected({ reading: updated, instance, refreshAt: Date.now() + REFRESH_INTERVAL_MS });
+          if (updated.recovery?.state !== "ready" && updated.recovery?.state !== "running") return;
+        }
+      } catch (error: unknown) {
+        if (!controller.signal.aborted) setRepairError(message(error));
+      }
+    }
+    void followConsent();
+    return () => { controller.abort(); clearTimeout(deadline); };
+  }, [isOpen, isPending, pendingRun, instance, month]);
+  async function recover(action: string) {
+    if (repair.current) return;
+    const controller = new AbortController();
+    repair.current = controller;
+    const deadline = setTimeout(() => controller.abort(), 40_000);
+    setIsRepairing(true);
+    setRepairError("");
+    try {
+      const updated = parseActionsSpend(await request("/api/actions-spend/repair", controller.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ month, action }) }));
+      if (!controller.signal.aborted) setSelected({ reading: updated, instance, refreshAt: Date.now() + REFRESH_INTERVAL_MS });
+    } catch (error: unknown) {
+      setRepairError(controller.signal.aborted ? "The billing request timed out. Reopen the panel to check its state." : message(error));
+    } finally {
+      clearTimeout(deadline);
+      repair.current = null;
+      setIsRepairing(false);
+    }
+  }
   if (!usage) return null;
-  const reading = usage.month === month ? usage : cached?.reading;
   const total = reading?.status === "available" || reading?.status === "stale" ? reading.total : null;
   const isOld = reading?.status === "stale";
   const billed = total ? DOLLARS.format(total.billed_usd) : "Unavailable";
@@ -51,7 +96,7 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
       <span className={total ? "actions-spend-billed" : undefined}>{billed}</span>{isOld && <span className="actions-spend-old">Old</span>}
     </button>
     {isOpen && createPortal(<Suspense fallback={<p role="status" className="actions-spend-loading">Opening Actions spend...</p>}>
-      <ActionsSpendPanel usage={reading} month={month} onClose={() => setIsOpen(false)} />
+      <ActionsSpendPanel usage={reading} month={month} onClose={() => setIsOpen(false)} onRepair={(action) => { void recover(action); }} isRepairing={isRepairing} repairError={repairError} />
     </Suspense>, document.body)}
   </>;
 });

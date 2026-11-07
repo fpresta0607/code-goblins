@@ -611,6 +611,8 @@ func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
 			localOnly = "Values are typed only on the board's own page on this PC."
 		case r.RemoteFix != "":
 			localOnly = "Remote access is mended only on the board's own page on this PC."
+		case r.Billing != nil:
+			localOnly = "GitHub billing consent is completed only on the board's own page on this PC."
 		}
 		return nativeBinding{id: runTerminal, name: "this command", dir: runDir(s.Store.Home.State, r), key: "run:" + id, localOnly: localOnly, check: func(context.Context) (error, error) {
 			if _, found := s.runOnCard(id, r.RunAction); !found {

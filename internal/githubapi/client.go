@@ -35,8 +35,9 @@ const tokenWithin = 30 * time.Second
 // it keeps the token gh is signed in with between calls. Its token is
 // GH_TOKEN, else GITHUB_TOKEN, from the environment, as gh reads them for
 // github.com, else the one gh auth token prints, read once and kept for the
-// client's life. GitHub refusing a kept token with 401 drops it, so the next
-// call reads it again, once. A token never reaches a log, an error or a file.
+// client's life until explicit consent invalidates it or GitHub refuses it
+// with 401. The next call then reads it again, once. A token never reaches
+// a log, an error or a file.
 type Client struct {
 	// BaseURL is where requests go: BaseURL, or a test's own server.
 	BaseURL string
@@ -55,6 +56,12 @@ type keptToken struct {
 	mu    sync.Mutex
 	value string
 }
+
+// CredentialError means gh could not supply the selected login.
+type CredentialError struct{ cause error }
+
+func (e *CredentialError) Error() string { return e.cause.Error() }
+func (e *CredentialError) Unwrap() error { return e.cause }
 
 // New is a client of github.com's API that reads gh's token through
 // commands.
@@ -88,6 +95,7 @@ type Error struct {
 	Message string
 	// Answer is the body GitHub answered with, bounded.
 	Answer []byte
+	Header http.Header
 }
 
 func (e *Error) Error() string {
@@ -171,7 +179,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body any) ([]byte,
 	}
 	token, isKept, err := c.readToken(ctx)
 	if err != nil {
-		return nil, err
+		return nil, &CredentialError{cause: err}
 	}
 	answer, err := c.send(ctx, token, method, path, content)
 	if isKept && StatusOf(err) == http.StatusUnauthorized {
@@ -218,7 +226,7 @@ func (c *Client) send(ctx context.Context, token, method, path string, content [
 		return nil, fmt.Errorf("GitHub's answer to %s %s is longer than %d bytes", method, path, maxAnswer)
 	}
 	if response.StatusCode < 200 || response.StatusCode > 299 {
-		return nil, &Error{Method: method, Path: path, Status: response.StatusCode, Message: message(response.Status, answer), Answer: bounded(answer, 4096)}
+		return nil, &Error{Method: method, Path: path, Status: response.StatusCode, Message: message(response.Status, answer), Answer: bounded(answer, 4096), Header: response.Header.Clone()}
 	}
 	return answer, nil
 }
@@ -278,4 +286,22 @@ func (c *Client) dropToken(refused string) {
 	if c.token.value == refused {
 		c.token.value = ""
 	}
+}
+
+// CredentialSource names the selected credential, never its value.
+func (c *Client) CredentialSource() string {
+	for _, name := range []string{"GH_TOKEN", "GITHUB_TOKEN"} {
+		if strings.TrimSpace(c.Getenv(name)) != "" {
+			return name
+		}
+	}
+	return "gh"
+}
+
+// InvalidateCLIToken makes every guarded copy re-read gh's persisted login
+// after user consent. Environment credentials retain their precedence.
+func (c *Client) InvalidateCLIToken() {
+	c.token.mu.Lock()
+	defer c.token.mu.Unlock()
+	c.token.value = ""
 }

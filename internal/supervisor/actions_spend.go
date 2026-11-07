@@ -12,6 +12,7 @@ type actionsSpendEntry struct {
 	reading actionsbilling.Reading
 	started time.Time
 	done    chan struct{}
+	retried time.Time
 }
 
 func (s *Service) readActionsSpend(ctx context.Context, now time.Time) {
@@ -86,6 +87,7 @@ func (s *Service) readActionsSpendMonth(ctx, lifetime context.Context, now time.
 	before := entry.reading
 	if reading.Status != "available" && before.Total != nil {
 		before.Status, before.Detail, before.CheckedAt = "stale", reading.Detail, reading.CheckedAt
+		before.Problem = reading.Problem
 		reading = before
 	}
 	entry.reading = reading
@@ -111,6 +113,13 @@ func (s *Service) actionsSpendUsage(now time.Time, month string) actionsbilling.
 	// carries no problem line.
 	if reading.Status == "available" && now.Sub(reading.ReadAt) >= 2*time.Hour {
 		reading.Status = "stale"
+	}
+	if s.Store != nil {
+		for _, run := range s.Store.Snapshot().Runs {
+			if run.Billing != nil && (run.Billing.Month == month || reading.Problem != nil && reading.Problem.Account != "" && run.Billing.Account == reading.Problem.Account) {
+				reading.Recovery = &actionsbilling.Recovery{RunID: run.ID, State: run.State}
+			}
+		}
 	}
 	return reading
 }
