@@ -388,6 +388,7 @@ func TestNativeAttestationRecoveryReconcilesLifecycle(t *testing.T) {
 				if (lifecycle != "base moved" || observation == "rider rerun") && (stepped.Cars[0].State != CarReturned || !slices.Equal(stepped.History[1].Riders, []int{12})) {
 					t.Fatalf("withdrawn rider stayed on the train: %+v", stepped)
 				}
+				gh.readiness = "CLEAN"
 				landed := s.step(s.engine(gh), held.ID)
 				if landed.State != StateLanded || s.tree("refs/heads/main") != s.tree(stepped.Head) || !slices.Equal(landed.History[0].Passed, held.History[0].Passed) || !slices.Equal(landed.History[0].PRChecks, held.History[0].PRChecks) {
 					t.Fatalf("rebuilt train did not land with saved proof intact: %+v", landed)
