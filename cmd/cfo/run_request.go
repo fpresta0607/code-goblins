@@ -24,7 +24,7 @@ func runRunRequest(args []string, stdout, stderr io.Writer, runtime commandRunti
 	f.StringVar(&req.Title, "title", "", "why the Overlord should run it")
 	f.StringVar(&req.Shell, "shell", "", "powershell (Windows PowerShell 5.1), pwsh (PowerShell 7) or bash (Git Bash)")
 	f.BoolVar(&req.Admin, "admin", false, "run it as administrator through Windows UAC")
-	f.StringVar(&req.Cwd, "cwd", "", "the folder it runs in; the CFO home when omitted")
+	f.StringVar(&req.Cwd, "cwd", "", "the folder it runs in; the CEO home when omitted")
 	f.StringVar(&req.CommandFile, "command-file", "", "the file holding the exact command; read once")
 	f.StringVar(&req.MessageFile, "message-file", "", messageFileUsage)
 	withdraw := f.String("withdraw", "", "take the item with this ID, which nobody ran yet, off the Command Center")

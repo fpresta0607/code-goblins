@@ -22,7 +22,7 @@ import (
 func TestPrimaryContextRoutesUserDecisionsThroughExplicitQuestions(t *testing.T) {
 	var out bytes.Buffer
 	writeSupervisionInstructions(`C:\home\data`, false, &werr{w: &out})
-	for _, want := range []string{"cfo question --id", "--recommend", "Claude", "Codex", "Pi", "native prompt", "same CFO"} {
+	for _, want := range []string{"cfo question --id", "--recommend", "Claude", "Codex", "Pi", "native prompt", "same CEO"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("primary context omitted %q", want)
 		}
@@ -83,7 +83,7 @@ func assertHeaderOrder(t *testing.T, output string, headers []string) {
 var sectionHeaders = []string{
 	"== SESSION LOCK ==",
 	"== WAKE QUEUE ==",
-	"== WAITING ON THE CFO ==",
+	"== WAITING ON THE CEO ==",
 	"== SUPERVISION OPERATING INSTRUCTIONS ==",
 	"== READ-ONCE CONTRACT ==",
 	"== FLEET STATE ==",

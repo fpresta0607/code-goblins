@@ -3,7 +3,9 @@ name: cfo-worktrees
 description: Use when provisioning or changing a worktree, dependencies, env files, package caches, release cutoffs, Python start hooks or cleanup custody.
 ---
 
-# CFO worktrees
+<a id="cfo-worktrees"></a>
+
+# CEO worktrees
 
 In a source checkout, read `docs/contract/worktrees.md` at the repository root before acting at this trigger.
 In an installed home, run `cfo help contract worktrees` to retrieve this build's complete procedure from the same policy source.

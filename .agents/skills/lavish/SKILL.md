@@ -1,6 +1,6 @@
 ---
 name: lavish
-description: Review surface for the CFO. Build an HTML artifact and open it with the third-party `lavish-axi` CLI so the Supreme Overlord reads it in the browser, annotates elements or selected text, queues prompts, and sends it all back to the CFO through the supervisor's poll. Use when several options, a structured report, a plan, a comparison, or a diagram is easier to judge visually than as prose. Not for a yes-or-no decision, and never a blocker: when lavish-axi is unavailable, deliver the same content as plain text.
+description: Review surface for the CEO. Build an HTML artifact and open it with the third-party `lavish-axi` CLI so the Supreme Overlord reads it in the browser, annotates elements or selected text, queues prompts, and sends it all back to the CEO through the supervisor's poll. Use when several options, a structured report, a plan, a comparison, or a diagram is easier to judge visually than as prose. Not for a yes-or-no decision, and never a blocker: when lavish-axi is unavailable, deliver the same content as plain text.
 argument-hint: <what the artifact should show>
 ---
 
@@ -35,7 +35,7 @@ If it is empty, infer what to show from the conversation.
    Start the page in the board's look and ask for a pick the way "The page" below says.
    Keep every other referenced asset beside the HTML and reference it with a relative path; apart from the two board stylesheets, a root-absolute path will not resolve.
 2. Publish it with `cfo review --id <stable-id> --title "<what to look at>" --lavish <file>`, adding `--task <your id>` from a goblin's own terminal: the command opens the page without a browser and puts its link in the Command Center.
-3. Keep working or end the turn: the supervisor polls the page, and what the Overlord sends reaches the CFO as a `review` wake, his feedback saved whole under `state/reviews/feedback/`.
+3. Keep working or end the turn: the supervisor polls the page, and what the Overlord sends reaches the CEO as a `review` wake, his feedback saved whole under `state/reviews/feedback/`.
    Never run `lavish-axi poll` yourself.
 4. Apply every queued prompt, refresh the artifact, and publish it again under a new ID to keep the loop going.
 5. Run `lavish-axi end <file>` when the review is done, or `lavish-axi export <file> [--out <path>]` for a portable single-file copy.
@@ -85,7 +85,7 @@ When the page asks him to pick, declare the question as data and Scrawl draws it
 
 - Put the declaration at the end of the page, after what he needs to read first; a list of such objects asks several questions, each with its own `id`.
 - Write each option as the answer itself, a short phrase, never a bare letter: two to four of them, with `recommended` equal to one.
-- His pick reaches the CFO as the exact option text, or the words he wrote for Other; relay it to the goblin unchanged.
+- His pick reaches the CEO as the exact option text, or the words he wrote for Other; relay it to the goblin unchanged.
 - Never build an answer form, a notes box, a dropdown or a send button of your own, and never ask the same thing again with `cfo question`: the page is the one place he answers.
   Everything else he wants to say goes in Scrawl's conversation box or as a comment on the page.
 
@@ -93,15 +93,15 @@ When the page asks him to pick, declare the question as data and Scrawl draws it
 
 Nobody polls a page themselves, and a goblin least of all: the poll takes the Overlord's feedback where only that goblin sees it, and nobody else learns that a question is waiting.
 When a goblin needs his answer on a page, it opens the page with `lavish-axi <file> --no-open` and registers the wait with `cfo notify <id> --waiting-on overlord "<why>" --lavish <file>`.
-The page's link goes on the wait's Command Center item, the supervisor polls the page, and his feedback reaches the CFO as a `review` wake with the whole reply saved under `state/reviews/feedback/`; relay it to the goblin with `cfo send`.
-While AFK mode is on the same wait is instead the goblin's question to the CFO, with the page's link and its declared choices, and the CFO answers it in his place with `cfo answer`. The goblin does nothing differently.
+The page's link goes on the wait's Command Center item, the supervisor polls the page, and his feedback reaches the CEO as a `review` wake with the whole reply saved under `state/reviews/feedback/`; relay it to the goblin with `cfo send`.
+While AFK mode is on the same wait is instead the goblin's question to the CEO, with the page's link and its declared choices, and the CEO answers it in his place with `cfo answer`. The goblin does nothing differently.
 A goblin's page that needs no answer is reported with `cfo present` instead.
 
 ## The supervisor's poll
 
 - `cfo serve` runs one bounded `lavish-axi poll` at a time for each open item that names a page, for as long as the item is open, and stops it when the item closes.
 - A poll's feedback is delivered once, so nobody else may poll the page: a second poll would take the Overlord's answer where no wake reaches it.
-- `Send & End` in the browser ends the session, and its final feedback reaches the CFO the same way.
+- `Send & End` in the browser ends the session, and its final feedback reaches the CEO the same way.
   After that, do not reopen the session uninvited; `--reopen` is for when the Overlord asks for another look.
 
 ## Sharing
@@ -111,5 +111,5 @@ Share only when the Supreme Overlord asks for it, and confirm public or `--priva
 
 ## Ownership
 
-This skill is owned by this repo, not synced down from user scope: it carries the CFO's rules around the tool, while the tool's own command reference lives in `lavish-axi --help`.
+This skill is owned by this repo, not synced down from user scope: it carries the CEO's rules around the tool, while the tool's own command reference lives in `lavish-axi --help`.
 Consult that help rather than memorizing flags.

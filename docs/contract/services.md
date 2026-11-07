@@ -64,7 +64,7 @@ A stack that was already running when cfo came is shared and never stopped by cf
 `cfo cleanup`, which `cfo kill` runs too, releases every stack the task held.
 A hold ends with the task's record, so a paused goblin keeps its stack for when it resumes, and the janitor stops a stack no live task holds.
 The record of every stack, its holders and its measured cost is `state\services.json`.
-`cfo runtime` lists each stack under Local services, with who holds it, what cfo started of it and the memory it was measured to take, and the board's Workspace panel says the same: a goblin's names the stack it holds, and the CFO's every stack held.
+`cfo runtime` lists each stack under Local services, with who holds it, what cfo started of it and the memory it was measured to take, and the board's Workspace panel says the same: a goblin's names the stack it holds, and the CEO's every stack held.
 
 A brief whose task needs its project's local services says so with the line `services: needed` in its `## Delivery` section.
 `cfo spawn` refuses such a brief for a project that declares none, before anything is built, and refuses a `services:` line with any other value.

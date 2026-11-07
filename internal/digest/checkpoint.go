@@ -35,8 +35,8 @@ func FreshCheckpoint(stateDir string, now time.Time) (string, time.Time, bool) {
 func WriteCheckpoint(h home.Home, now time.Time) error {
 	var text bytes.Buffer
 	ew := &werr{w: &text}
-	ew.printf("CFO compact checkpoint, written %s\n", now.UTC().Format(time.RFC3339))
-	ew.println("This holds only what is on disk. Holds and freezes declared only in conversation cannot be recovered here; read the CFO handoff named below.")
+	ew.printf("CEO compact checkpoint, written %s\n", now.UTC().Format(time.RFC3339))
+	ew.println("This holds only what is on disk. Holds and freezes declared only in conversation cannot be recovered here; read the CEO handoff named below.")
 
 	ew.println("\n== FLEET ==")
 	scan, err := state.ScanIDs(h.State)
@@ -118,7 +118,7 @@ func WriteCheckpoint(h home.Home, now time.Time) error {
 	for _, item := range items {
 		task := item.Task
 		if task == "" {
-			task = "the CFO"
+			task = "the CEO"
 		}
 		ew.printf("%s %s (%s): %s\n", item.Kind, item.ID, task, item.Text)
 	}

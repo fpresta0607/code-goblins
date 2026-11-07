@@ -18,7 +18,7 @@ The crawl step is `goblin-crawl`, the crawler connector every goblin carries.
   A route behind one is an unread route with that reason.
 - When the brief needs a page only a signed-in person can see, that sign-in is a step only the Supreme Overlord can take: use the `step-card` skill.
 - If your terminal finds no `goblin-crawl`, do not install another crawler.
-  Your brief may have left it out with `connectors: none`, or the home may not have it yet: say which in your report and ask the CFO.
+  Your brief may have left it out with `connectors: none`, or the home may not have it yet: say which in your report and ask the CEO.
 
 ## 1. Crawl the site
 

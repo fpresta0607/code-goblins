@@ -3,7 +3,9 @@ name: cfo-root-issues
 description: Use when an out-of-scope cause, failed-once test, red default branch or repeated supervisor error needs filing or an automatic root pickup needs reconciliation.
 ---
 
-# CFO root issues
+<a id="cfo-root-issues"></a>
+
+# CEO root issues
 
 In a source checkout, read `docs/contract/root-issues.md` at the repository root before acting at this trigger.
 In an installed home, run `cfo help contract root-issues` to retrieve this build's complete procedure from the same policy source.

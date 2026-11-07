@@ -231,7 +231,7 @@ func detachAt(keys []byte) int {
 // register it starts with. Registering is what lets the board deliver to the
 // CFO and the supervisor type its wakes, so it comes first; the rest of a
 // session's start is the contract's, which the harness reads from AGENTS.md.
-const cfoFirstPrompt = "You are the CFO of this Code Goblins home. First run the command cfo register in this terminal, so the board and the fleet can reach you. Then do what AGENTS.md says a CFO does at the start of a session, and wait for the Overlord."
+const cfoFirstPrompt = "You are the CEO of this Code Goblins home. First run the command cfo register in this terminal, so the board and the fleet can reach you. Then do what AGENTS.md says a CEO does at the start of a session, and wait for the Overlord."
 
 // cfoBackPrompt is the first instruction of a CFO started again in a home
 // whose CFO ran before, which nobody types into: that it is that home's CFO,
@@ -240,13 +240,13 @@ const cfoFirstPrompt = "You are the CFO of this Code Goblins home. First run the
 // registers it and prints the digest; a Codex or pi CFO registers itself. It passes through cmd /c for Codex and pi, so it holds none of the
 // characters cmd reads (spawn's cmdProgram).
 func cfoBackPrompt(harness, why, fresh string, isResumed bool) string {
-	prompt := "You are the CFO of this Code Goblins home, started again because " + why + "."
+	prompt := "You are the CEO of this Code Goblins home, started again because " + why + "."
 	if fresh != "" {
 		prompt += " " + fresh
 	}
 	prompt += " This instruction came with the start, not from the Overlord."
 	if supervisor.CFOWakeFor(harness) == supervisor.CFOWakeTyped {
-		prompt += " First run the command cfo register in this terminal, so the board and the fleet can reach you. Then do what AGENTS.md says a CFO does at the start of a session."
+		prompt += " First run the command cfo register in this terminal, so the board and the fleet can reach you. Then do what AGENTS.md says a CEO does at the start of a session."
 	} else if isResumed {
 		prompt += " Your SessionStart hook registered you and validated current source context; follow its READ THIS NEXT before dependent action, rereading changed authority and skipping only unchanged bytes this conversation actually read and still holds."
 	} else {

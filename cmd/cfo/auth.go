@@ -57,7 +57,7 @@ under Authentication, by their names in the project's manifest, and of no
 other. cfo auth grant adds one to a running task, and cfo auth revoke takes
 one back from every later terminal of it and from its auth.ps1. A terminal
 running then keeps what it already holds of the service until it ends, and
-cfo switch <task-id> --restart starts one without it. Only the CFO runs
+cfo switch <task-id> --restart starts one without it. Only the CEO runs
 either.
 
 An MCP server whose entry in the project's .mcp.json holds a value, in its

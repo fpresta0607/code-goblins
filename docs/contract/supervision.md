@@ -6,7 +6,7 @@
   Both fire at a turn's end: `stop-autoarm` shows it is arming before anything slow, and `turnend-guard` waits for a hook that is arming, up to ten seconds, before it calls the turn blind, so a slow start on a loaded machine is not read as supervision being off.
   While `cfo serve` holds the watcher, `stop-autoarm` still rewakes you once for each new wake record.
   It counts serve as the watcher until serve's heartbeat is older than the stall window (15 minutes, `CFO_WATCHER_STALL`), since a slow reconcile cycle can hold serve's heartbeat past five minutes and nothing can take the watcher from a live serve; past that it reports supervision down naming serve's pid and to restart cfo serve.
-  When its eight-hour wait ends with nothing queued, it rewakes you to end a turn, which re-arms it, so an idle CFO is never left with no hook watching.
+  When its eight-hour wait ends with nothing queued, it rewakes you to end a turn, which re-arms it, so an idle CEO is never left with no hook watching.
   Every monitor scan and orphan sweep, in `cfo serve` and in `cfo watch`, is cut off after three minutes, and the gate status call it makes after thirty seconds, so a subprocess that never answers cannot stop the heartbeat while the watcher keeps its lock, which would leave supervision off with nothing able to take it over (`internal/watch/reconcile_budget_test.go`).
 - A missing or stale endpoint means inspect with `cfo peek`, then steer or relaunch - never kill work.
 - **`cfo drain` is how you learn a goblin finished.
@@ -72,7 +72,7 @@
 - **A goblin that stops asking in prose wakes you with its question.** When a goblin at its prompt ended its last reply asking you something or offering you a choice instead of filing `cfo notify --blocked` (a question mark, "unless you want", "should I", "Your answer decides", options for you to pick), the wake that would say its turn ended or it sat idle is `goblin_asks` instead: it names the goblin, says to answer with `cfo send <id> "<answer>"` (`cfo answer` takes only a notify's question) and ends by quoting the sentences that ask.
   The reply is read from the goblin's own Claude Code conversation, Codex rollout or pi session, the one its family tree reads (the session Herdr names, else the one the board recorded for its generation, else the one its running Claude Code process records for itself, or for Codex and pi the rollout or session of its worktree written last), never merely the newest in its folder for Claude Code; a reply pi cut off at its output cap, failed or aborted is no reply, and its thinking never is; only a reply's last two paragraphs are read, and one that only reports, waits on CI or says it is done asks nothing and wakes as before.
   A goblin whose own background command or monitor still moves is not at a stop and is not asked about.
-  The board shows the goblin waiting on the CFO with the question, as it shows a blocked notify, until the goblin reports again or you ack the wake, and until you ack it, it is an answer owed and re-asked; it is one wake until the goblin works again, and its next ask is a wake of its own.
+  The board shows the goblin waiting on the CEO with the question, as it shows a blocked notify, until the goblin reports again or you ack the wake, and until you ack it, it is an answer owed and re-asked; it is one wake until the goblin works again, and its next ask is a wake of its own.
 - **A goblin that waits on you wakes you until it moves on.** A live goblin waits on you when its latest report is `waiting on cfo: ...`, a `done` on a pull request no merge train takes because it is a draft or carries the `hold` label, or a wait on a backlog row of kind `cfo`, and when it is paused until such a row is done, since only you end those waits.
   Once it has waited 10 minutes, the supervisor's minute sweep wakes you as a `check` wake keyed by the goblin, starting `cfo_wait:`, naming the goblin, what it waits for (its report cut short, or the row) and how long it has waited, with your next step, and again at most once every 30 minutes while the wait lasts.
   Whether a pull request is a draft or held is what the last CI poll that listed it read, by the train's own rule, so a hold that comes off ends the wait at the next poll.
@@ -80,30 +80,30 @@
   The wait ends, and wakes no more, as soon as the goblin reports again, its harness takes a prompt such as your answer, a pause other than until a `cfo` row takes hold, it stops or it is retired, and its next wait starts its own 10 minutes.
   A pause that fails while the goblin carries on does not end the wait by itself, though the pause request typed into the goblin is a prompt and ends a wait it reported before; a wait it reports after the failed pause wakes you as any other.
   A wait by design, on CI, a deploy, another goblin's task, a backlog row of another kind, the Overlord or memory, raises nothing here.
-  The session digest and the compact checkpoint list each such goblin under WAITING ON THE CFO with how long it has waited, and the checkpoint says no goblin waits on your answer only when that list and its open questions are both empty.
+  The session digest and the compact checkpoint list each such goblin under WAITING ON THE CEO with how long it has waited, and the checkpoint says no goblin waits on your answer only when that list and its open questions are both empty.
   AFK mode changes none of this: the same wakes at the same times and the same section, since you still decide while the Overlord is away.
   On 2026-11-02 a goblin waited two hours on a pull request held for your review, with its checks passed, while the checkpoint said no goblin waited on your answer.
 - **After a restart or sign-out the fleet comes back by itself.**
-  The first `cfo serve` of a Windows sign-in brings back the registered CFO, on its own conversation where that is small enough and on a new one where not, told why it is back, then each goblin that was working and had not finished, in its own session, one at a time as memory allows, and tells each in one line that the machine restarted; while anything waits to come back, nothing else starts by itself and `memory_ready` waits.
-  A goblin comes back only while memory and commit, less the about 1 GB its session takes, still meet the floor the machine's heavy line keeps for its next test run, as the scheduler starts one ([The fleet never idles](dispatch.md#the-fleet-never-idles)); the CFO does not wait on it.
+  The first `cfo serve` of a Windows sign-in brings back the registered CEO, on its own conversation where that is small enough and on a new one where not, told why it is back, then each goblin that was working and had not finished, in its own session, one at a time as memory allows, and tells each in one line that the machine restarted; while anything waits to come back, nothing else starts by itself and `memory_ready` waits.
+  A goblin comes back only while memory and commit, less the about 1 GB its session takes, still meet the floor the machine's heavy line keeps for its next test run, as the scheduler starts one ([The fleet never idles](dispatch.md#the-fleet-never-idles)); the CEO does not wait on it.
   The scheduler's queued starts and paused goblins' automatic resumes wait; a Start or Resume the Overlord presses on the board, or a `cfo spawn` you choose, is still allowed.
 - **Restart PC frees the kernel's pools.**
   The supervisor's minute memory reading keeps a record of the kernel's paged and nonpaged pools for each sign-in in `state/kernel-pools.json`, with what each pool tag holds, so a pool that grows for days names the tag behind it, and the board's **Kernel pools** meter shows both beside memory.
   Each sample also counts the processes the PC started and the tokens the kernel holds, and the record names what the board itself started by program and caller: every process start leaves the kernel a token, about two in five of them for good on 2026-10-19, so what the fleet starts is what fills the pool.
   So the board answers the reads it repeats every minute, each goblin's heads, branches, refs, reflog, worktrees and status and its gate run in the gate's database, from what the read last returned while the files it reads are unchanged, and a refresh over work nobody changed starts no git; the fleet reads the gate's database in process, with the SQLite no-mistakes writes it with, so no read of it starts sqlite3; and every fleet program runs Git for Windows' `mingw64\bin\git.exe` rather than the `cmd\git.exe` launcher on PATH, one process for a git command rather than two.
-  Past the 7.5 GB line measured on the Overlord's PC, where free memory can no longer hold more than one goblin at a time, the CFO panel's header offers him **Restart PC** on the board on this PC alone, proven his as AFK mode's on is.
+  Past the 7.5 GB line measured on the Overlord's PC, where free memory can no longer hold more than one goblin at a time, the CEO panel's header offers him **Restart PC** on the board on this PC alone, proven his as AFK mode's on is.
   His press wakes you first with a `memory` wake keyed `restart`: start, resume and merge nothing, and end your turn.
   The supervisor then pauses every working goblin until the PC has restarted, each writing its handoff first, ends the runs in the heavy line, waits up to three minutes for your turn to end, wakes you with what it did and restarts Windows; after he signs in the comeback brings you back and the goblins paused for it resume by themselves.
   A goblin that does not pause stops the restart short, and you are told why: tell him, since only he presses it again ([the native board guide](../native-board.md)).
   Do not bring those goblins back by hand: a goblin that cannot come back stays stopped with the reason on its card and wakes you once as a `check` wake naming `cfo switch <id> --harness <its harness>`, which brings it back once the cause is fixed.
 - **Your terminal ending unasked brings you back by itself.**
-  When your terminal ends in this sign-in while nobody asked it to stop, as when your harness crashes or ends itself after an update, `cfo serve` brings you back within about ten seconds (8 to 12 in a live proof), on the harness you ran, as Restart the CFO would: on your conversation where it is small enough, and on a new one where its context is past the 400K tokens you compact within, Claude Code wrote no transcript for it, or it does not resume.
-  Your first instruction then says you are the CFO started again, why, and on which conversation, and to read the digest, drain your wakes and carry on with the fleet; nobody types it.
-  A Claude Code CFO back on its own conversation follows its freshly composed hook's `READ THIS NEXT`, rereads changed authority and skips unchanged source bytes only if it actually read and still holds them.
-  Every start that brings back a CFO that ran in the home before carries such an instruction: this one, the comeback after a restart, the board's Reopen, Restart the CFO and its Update, and `goblins`; a home's first CFO waits for the Overlord as before.
+  When your terminal ends in this sign-in while nobody asked it to stop, as when your harness crashes or ends itself after an update, `cfo serve` brings you back within about ten seconds (8 to 12 in a live proof), on the harness you ran, as Restart the CEO would: on your conversation where it is small enough, and on a new one where its context is past the 400K tokens you compact within, Claude Code wrote no transcript for it, or it does not resume.
+  Your first instruction then says you are the CEO started again, why, and on which conversation, and to read the digest, drain your wakes and carry on with the fleet; nobody types it.
+  A Claude Code CEO back on its own conversation follows its freshly composed hook's `READ THIS NEXT`, rereads changed authority and skips unchanged source bytes only if it actually read and still holds them.
+  Every start that brings back a CEO that ran in the home before carries such an instruction: this one, the comeback after a restart, the board's Reopen, Restart the CEO and its Update, and `goblins`; a home's first CEO waits for the Overlord as before.
   An end somebody asked for stays: a terminal closed through its host, as Restart, a harness switch and the uninstall close it, and a harness that exited with code 0, as its own exit does.
   Each end is acted on once, from what the terminal's host recorded in `state\hosts\cfo.end` (its program, exit code, and whether it was closed), and the supervisor's own record in `state\cfo-back.json`.
-  A CFO that keeps ending soon after it started is not restarted in a loop: after its third end in a row, each of a CFO that ran under ten minutes, with no more than ten minutes between one end and the next start, it stays stopped, with one `check` wake keyed `cfo` for the next CFO and one Command Center item for the Overlord whose one action is Reopen the CFO; a comeback that fails without a newer end leaves it stopped the same way, a CFO it started that ended during startup is one more end in the row, and a CFO that runs again takes the item back.
+  A CEO that keeps ending soon after it started is not restarted in a loop: after its third end in a row, each of a CEO that ran under ten minutes, with no more than ten minutes between one end and the next start, it stays stopped, with one `check` wake keyed `cfo` for the next CEO and one Command Center item for the Overlord whose one action is Reopen the CEO; a comeback that fails without a newer end leaves it stopped the same way, a CEO it started that ended during startup is one more end in the row, and a CEO that runs again takes the item back.
   When that wake reaches you, find why your terminal ends, from your last transcript and that end record, before it ends again.
   On 2026-10-16 and 2026-10-17 the CFO's Claude Code ended with exit code 1 right after a turn ended, in conversations of 634 MB and 404 MB, and stayed closed until the Overlord reopened it and typed into it, the first time for 16 hours.
 - **Memory coming back wakes you when work waits for it.** `cfo serve` reads the memory meter once a minute, and once available memory and commit headroom both read at or above the 5 GB next-start mark on two readings in a row, while a queued task could start or a live goblin's latest report is `waiting on memory`, and a new goblin's session, about 1 GB, would still leave the machine's heavy line the floor it keeps for its next test run, it wakes you once as `memory_ready` with the numbers and the next step: the next startable task in queue order, and the goblins to release.
@@ -168,16 +168,18 @@ Git keeps every checkout in the worktree's own reflog, so a goblin that goes on 
   A single-digit-MB working set means the wrapper never started.
 - **Check PR state yourself.** A goblin's belief about its own PR goes stale: on 2026-08-19 a goblin reported its PR green and unmerged when it had already been squash-merged.
   `gh pr view` is the source of truth.
-## The CFO's own session
+<a id="the-cfos-own-session"></a>
 
-One session on the machine is the CFO's own: the agent that native terminal `cfo` of this home runs.
-`goblins`, the board's first-run page, Reopen, Restart, the comeback after a restart and the comeback after the CFO's terminal ended unasked each start the CFO in that terminal, in the home, and nothing starts it anywhere else, on a first run, with the desktop app or with `goblins` in a terminal alone.
-Each of those starts hands a Claude Code CFO its hooks (`claude --settings`, the file `state\cfo-claude-settings.json`, written anew at every start), so the hooks are this terminal's alone and no other Claude Code session on the machine runs one.
-The same file gives Claude Code a 400K-token auto-compact window, so you compact at about 342K tokens, long before your model's 1M window fills; a Codex CFO starts with Codex's own compaction limit at 360K, and pi has no setting for one.
-`cfo install` puts `cfo` on PATH, so every session can run every command, and only this one session is the CFO's.
+## The CEO's own session
+
+One session on the machine is the CEO's own: the agent that native terminal `cfo` of this home runs.
+`goblins`, the board's first-run page, Reopen, Restart, the comeback after a restart and the comeback after the CEO's terminal ended unasked each start the CEO in that terminal, in the home, and nothing starts it anywhere else, on a first run, with the desktop app or with `goblins` in a terminal alone.
+Each of those starts hands a Claude Code CEO its hooks (`claude --settings`, the file `state\cfo-claude-settings.json`, written anew at every start), so the hooks are this terminal's alone and no other Claude Code session on the machine runs one.
+The same file gives Claude Code a 400K-token auto-compact window, so you compact at about 342K tokens, long before your model's 1M window fills; a Codex CEO starts with Codex's own compaction limit at 360K, and pi has no setting for one.
+`cfo install` puts `cfo` on PATH, so every session can run every command, and only this one session is the CEO's.
 A machine a build before 2026-10 installed still holds the hooks in the user's settings, where every session runs them and each leaves on its environment, until an install takes them out.
 
-A process is in the CFO's own session when all of this holds, and no single variable is trusted alone:
+A process is in the CEO's own session when all of this holds, and no single variable is trusted alone:
 
 - its environment names that terminal, `CFO_HOST_ID=cfo`, which the terminal's host sets for everything it starts.
 - it is neither a goblin's (`CFO_ROLE=goblin`) nor a gate agent's (`NO_MISTAKES_GATE`).
@@ -188,27 +190,27 @@ That program, the harness itself for Claude Code and the `cmd /c` shim for Codex
 Only that session:
 
 - takes the session lock, from the SessionStart digest, the Stop hook, `cfo register` and `cfo session-start`.
-- registers as the primary CFO.
+- registers as the primary CEO.
 - is given the digest, guarded by the pre-tool hooks, held at a blind turn end and rewoken by the Stop hook with the fleet's wakes.
-- acts as the CFO from a command: `cfo brief`, `spawn`, `send`, `switch`, `title`, `pause`, `resume`, `kill`, `cleanup`, `supersede`, `backlog`, `pr`, `merge-local`, `deploy` and `start-hook`, a `cfo drain` that acknowledges, a `cfo reap` that acts, a `cfo allowance-floor` that sets a floor and a `cfo auth grant --codex-credits`.
+- acts as the CEO from a command: `cfo brief`, `spawn`, `send`, `switch`, `title`, `pause`, `resume`, `kill`, `cleanup`, `supersede`, `backlog`, `pr`, `merge-local`, `deploy` and `start-hook`, a `cfo drain` that acknowledges, a `cfo reap` that acts, a `cfo allowance-floor` that sets a floor and a `cfo auth grant --codex-credits`.
 
 Every other agent session is left alone.
 A Claude Code session the Overlord opens himself, in the desktop app or a terminal of his own, in any folder, gets nothing from any hook: no digest, no lock, no guard on its tools and no rewake.
-In it a command that acts as the CFO is refused, naming the harness that runs it, and changes nothing, while reading the fleet stays open: `cfo fleet-view`, `peek`, `runtime`, `tickets`, a `cfo drain` that only prints, a `cfo reap` that only reports and a `cfo allowance-floor` that only says the floors.
+In it a command that acts as the CEO is refused, naming the harness that runs it, and changes nothing, while reading the fleet stays open: `cfo fleet-view`, `peek`, `runtime`, `tickets`, a `cfo drain` that only prints, a `cfo reap` that only reports and a `cfo allowance-floor` that only says the floors.
 A goblin and a gate agent keep the commands they have always had, and a terminal no agent harness runs, such as the Overlord's own PowerShell, runs every command as before.
-`cfo session-start` anywhere but in the CFO's own session, his own terminal included, prints the read-only digest and takes no lock.
-A Codex or pi session that is not the CFO's own registers nothing either: its native hooks only report its prompts.
+`cfo session-start` anywhere but in the CEO's own session, his own terminal included, prints the read-only digest and takes no lock.
+A Codex or pi session that is not the CEO's own registers nothing either: its native hooks only report its prompts.
 
-The session lock is the CFO's own session's alone, so a live process that holds it and is not that session's harness holds it wrongly.
-The CFO's own session takes it over at its next hook or `cfo register`, with no edit of the state folder by hand.
+The session lock is the CEO's own session's alone, so a live process that holds it and is not that session's harness holds it wrongly.
+The CEO's own session takes it over at its next hook or `cfo register`, with no edit of the state folder by hand.
 Each takeover is recorded in `state\custody.audit` before the holder's record is removed, one JSON line with when, the lock, the holder replaced, the new holder and the command that did it, and a takeover that cannot be recorded is not made.
-It queues one `check` wake keyed `custody` that names the holder replaced, its conversation and since when it held the lock, because what that session did as the CFO is in its transcript and not in yours.
+It queues one `check` wake keyed `custody` that names the holder replaced, its conversation and since when it held the lock, because what that session did as the CEO is in its transcript and not in yours.
 The Stop hook that takes the lock over rewakes you with that notice at once, and a SessionStart digest prints it under SESSION LOCK.
 Tell the Overlord which session it was.
 
-Two sessions cannot both be the CFO's own.
+Two sessions cannot both be the CEO's own.
 The host refuses a second terminal `cfo` while the first answers, and the terminal's record names one program, so only that program's processes pass the proof.
-A CFO whose terminal was replaced under it no longer passes: its hooks go quiet and the new terminal's program takes the lock over, so custody follows the terminal the board shows.
+A CEO whose terminal was replaced under it no longer passes: its hooks go quiet and the new terminal's program takes the lock over, so custody follows the terminal the board shows.
 
 On 2026-10-09 the machine restarted, and the Overlord's desktop app reopened a Claude Code session of his own in another project 22 seconds before the comeback brought the CFO back.
-Under the rule before this one, whoever ran the hooks first held the home: that session took the lock a dead CFO had left, was rewoken with the fleet's wakes, drained and acknowledged them and steered a goblin, while the CFO read a read-only digest and could not register.
+Under the rule before this one, whoever ran the hooks first held the home: that session took the lock a dead CEO had left, was rewoken with the fleet's wakes, drained and acknowledged them and steered a goblin, while the CEO read a read-only digest and could not register.
