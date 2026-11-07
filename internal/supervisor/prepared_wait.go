@@ -190,13 +190,14 @@ func (s *Service) preparedEvidence(ctx context.Context, record state.PreparedWai
 	if report != record.Report() {
 		return nil, fmt.Errorf("%w: prepared signal superseded by newer worker activity", errPreparedChanged)
 	}
-	snapshot := s.Store.Snapshot()
-	for _, session := range snapshot.Sessions {
-		if session.TaskID == record.ID && session.Generation == record.Generation && session.PromptAt.After(record.PreparedAt) {
-			return nil, fmt.Errorf("%w: worker took a newer prompt", errPreparedChanged)
-		}
+	isPrompted, err := NativePromptSince(s.Store.Home.State, record.ID, record.Generation, record.PreparedAt.Add(time.Nanosecond))
+	if err != nil {
+		return nil, fmt.Errorf("prepared prompt evidence is unreadable: %w", err)
 	}
-	for _, action := range snapshot.Actions {
+	if isPrompted {
+		return nil, fmt.Errorf("%w: worker took a newer prompt", errPreparedChanged)
+	}
+	for _, action := range s.Store.Snapshot().Actions {
 		if action.TaskID == record.ID && (action.Status == "queued" || action.Status == "running") && (action.Kind == "message" || action.Kind == "feedback") {
 			return nil, errors.New("prepared worker has pending input")
 		}
@@ -220,9 +221,12 @@ func (s *Service) preparedEvidence(ctx context.Context, record state.PreparedWai
 		return nil, fmt.Errorf("prepared gate ownership: %w", err)
 	}
 	if err == nil && !progress.IsTerminal() {
-		return nil, errors.New("prepared wait refused: active or parked gate owns the task")
+		return nil, fmt.Errorf("%w: active or parked gate owns the task", errPreparedChanged)
 	}
 	if err := s.Options.Gate.CanSteer(ctx, meta.Project, meta.Worktree, branch); err != nil {
+		if errors.Is(err, pipeline.ErrCustodyHeld) || errors.Is(err, pipeline.ErrCustodyNotReturned) {
+			return nil, fmt.Errorf("%w: prepared gate custody: %w", errPreparedChanged, err)
+		}
 		return nil, fmt.Errorf("prepared gate custody: %w", err)
 	}
 	var tree fleettree.Tree
@@ -240,13 +244,19 @@ func (s *Service) preparedEvidence(ctx context.Context, record state.PreparedWai
 	if err != nil || tree.TaskID != record.ID || tree.Generation != record.Generation || tree.Session != record.Session || len(tree.Unread) > 0 || tree.FetchedAt.Before(record.PreparedAt) || now.Sub(tree.FetchedAt) > evidenceFresh || tree.FetchedAt.After(now.Add(time.Minute)) {
 		return nil, fmt.Errorf("prepared ownership is unreadable or stale: %v %s", err, strings.Join(tree.Unread, ", "))
 	}
+	if tree.Busy().After(record.PreparedAt) {
+		return nil, fmt.Errorf("%w: newer working activity", errPreparedChanged)
+	}
 	jobs, _ := tree.Jobs()
 	if len(jobs) > 0 || len(tree.Waits()) > 0 {
-		return nil, errors.New("prepared worker-owned work remains")
+		return nil, fmt.Errorf("%w: prepared worker-owned work remains", errPreparedChanged)
 	}
 	for _, child := range tree.Children {
 		if child.State != fleettree.Done && child.State != fleettree.Failed {
-			return nil, fmt.Errorf("prepared owned %s remains: %s", child.Kind, child.Label)
+			return nil, fmt.Errorf("%w: prepared owned %s remains: %s", errPreparedChanged, child.Kind, child.Label)
+		}
+		if child.Started.After(record.PreparedAt) || child.LastActivity.After(record.PreparedAt) || child.Finished.After(record.PreparedAt) {
+			return nil, fmt.Errorf("%w: newer owned %s activity: %s", errPreparedChanged, child.Kind, child.Label)
 		}
 	}
 	entries, err := os.ReadDir(s.Store.Home.State)
@@ -263,14 +273,14 @@ func (s *Service) preparedEvidence(ctx context.Context, record state.PreparedWai
 			return nil, fmt.Errorf("prepared helper ownership is unreadable: %w", err)
 		}
 		if child.Parent == record.ID {
-			return nil, errors.New("prepared helper ownership remains")
+			return nil, fmt.Errorf("%w: prepared helper ownership remains", errPreparedChanged)
 		}
 	}
 	observation, err := monitor.ReadObservation(s.Store.Home.State, record.ID)
 	if err != nil || observation.Endpoint != (herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}).String() || observation.LastObserved.Before(record.PreparedAt) || now.Sub(observation.LastObserved) > evidenceFresh || observation.LastObserved.After(now.Add(time.Minute)) || observation.ScreenUnreadSince != nil || observation.EndpointVerdict != monitor.ProbePresent {
 		return nil, errors.New("prepared worker idle evidence is unreadable or stale")
 	}
-	if observation.BusySince != nil && observation.BusySince.After(record.PreparedAt) || observation.HasJobProgress || tree.Busy().After(record.PreparedAt) {
+	if observation.BusySince != nil && observation.BusySince.After(record.PreparedAt) || observation.HasJobProgress {
 		return nil, fmt.Errorf("%w: newer working activity", errPreparedChanged)
 	}
 	isIdle, err := s.engineTaskIdle(ctx, meta)
@@ -302,6 +312,13 @@ func (s *Service) preparedEvidence(ctx context.Context, record state.PreparedWai
 	data, err = preparedHandoff(s.Store.Home, record)
 	if err != nil {
 		return nil, err
+	}
+	isPrompted, err = NativePromptSince(s.Store.Home.State, record.ID, record.Generation, record.PreparedAt.Add(time.Nanosecond))
+	if err != nil {
+		return nil, fmt.Errorf("prepared prompt evidence is unreadable: %w", err)
+	}
+	if isPrompted {
+		return nil, fmt.Errorf("%w: worker took a newer prompt during admission", errPreparedChanged)
 	}
 	return data, nil
 }
@@ -387,7 +404,7 @@ func (s *Service) reconcilePreparedWait(ctx context.Context, watched *fleetWakes
 		}
 	}
 	if lifecycle.Generation == record.Generation && lifecycle.Phase != "" && lifecycle.Phase != "running" {
-		return s.preparedProblem(&record, "prepared", errors.New("another lifecycle operation owns the worker"))
+		return s.preparedProblem(&record, "prepared", fmt.Errorf("%w: another lifecycle operation owns the worker", errPreparedChanged))
 	}
 	data, err := s.preparedEvidence(ctx, record, now)
 	if err != nil {

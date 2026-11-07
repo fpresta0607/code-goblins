@@ -326,7 +326,14 @@ func (s *Service) resumeAutomatically(record state.Lifecycle) error {
 	go func() {
 		launched := make(chan struct{})
 		go s.watchLaunch(record.ID, launched)
-		output, err := s.runPastTheSpawnLock(s.Options.Dispatch, []string{"resume", record.ID, "--generation", record.Generation, "--operation", operation, "--reason", "Pause condition cleared"})
+		args := []string{"resume", record.ID, "--generation", record.Generation, "--operation", operation, "--reason", "Pause condition cleared"}
+		var output string
+		var err error
+		if operation == "resume-"+record.Operation {
+			output, err = s.Options.Dispatch.Spawn(context.Background(), args)
+		} else {
+			output, err = s.runPastTheSpawnLock(s.Options.Dispatch, args)
+		}
 		if preparedErr := s.finishPreparedResume(record, operation, err); preparedErr != nil {
 			s.publish(preparedErr)
 		}

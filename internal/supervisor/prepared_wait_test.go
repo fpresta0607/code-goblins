@@ -16,7 +16,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -267,8 +269,16 @@ func TestPreparedWaitAdmitsOnlyAfterWorkerSettles(t *testing.T) {
 }
 
 func TestPreparedResumeFailureAndInterruptedAdmissionDoNotRetry(t *testing.T) {
-	for _, isInterrupted := range []bool{false, true} {
-		t.Run(map[bool]string{false: "failure", true: "interrupted admission"}[isInterrupted], func(t *testing.T) {
+	for _, test := range []struct {
+		name, output  string
+		isInterrupted bool
+	}{
+		{name: "failure"},
+		{name: "spawn lock", output: "another task is starting: " + lock.ErrHeld.Error()},
+		{name: "lifecycle lock", output: "lifecycle admission: " + lock.ErrHeld.Error()},
+		{name: "interrupted admission", isInterrupted: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			fixture := preparedPackage(t)
 			fixture.reconcile(t)
 			fixture.deliver(t)
@@ -276,16 +286,21 @@ func TestPreparedResumeFailureAndInterruptedAdmissionDoNotRetry(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if isInterrupted {
+			if test.isInterrupted {
 				if _, isAdmitted, err := fixture.service.admitPreparedResume(paused); err != nil || !isAdmitted {
 					t.Fatalf("admitted=%t, error=%v", isAdmitted, err)
 				}
 			} else {
 				fixture.spawner.err, fixture.spawner.during = errors.New("resume failed"), nil
+				fixture.spawner.output = test.output
 				if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte}, ""); err != nil {
 					t.Fatal(err)
 				}
 				awaitDispatch(t, fixture.service, fixture.spawner, 2)
+				record, err := state.ReadPreparedWait(fixture.home.State, fixture.meta.ID)
+				if err != nil || record.Phase != "failed" || !strings.Contains(record.Problem, "resume failed") {
+					t.Fatalf("resume failure not preserved: %+v, %v", record, err)
+				}
 			}
 			for scan := 0; scan < 2; scan++ {
 				fixture.reopen(t)
@@ -295,11 +310,176 @@ func TestPreparedResumeFailureAndInterruptedAdmissionDoNotRetry(t *testing.T) {
 				}
 			}
 			want := 2
-			if isInterrupted {
+			if test.isInterrupted {
 				want = 1
 			}
 			if calls := fixture.spawner.recorded(); len(calls) != want {
 				t.Fatalf("uncertain resume retried: %v", calls)
+			}
+		})
+	}
+}
+
+func TestPreparedWaitOwnershipCannotRenewAfterItDisappears(t *testing.T) {
+	for _, ownership := range []string{"working job", "silent job", "waiting shell", "working child", "finished child", "failed child", "helper", "active gate", "parked gate", "gate custody", "unreturned custody", "lifecycle"} {
+		t.Run(ownership, func(t *testing.T) {
+			fixture := preparedPackage(t)
+			switch ownership {
+			case "working job", "silent job", "waiting shell", "working child", "finished child", "failed child":
+				child := fleettree.Node{Kind: fleettree.KindSubagent, State: fleettree.Working, Started: fixture.now, LastActivity: fixture.now}
+				switch ownership {
+				case "working job":
+					child.Kind = fleettree.KindProcess
+				case "silent job":
+					child.Kind, child.State = fleettree.KindProcess, fleettree.Silent
+				case "waiting shell":
+					child.Kind, child.State = fleettree.KindShell, fleettree.Waiting
+				case "finished child":
+					child.State, child.Finished = fleettree.Done, fixture.now
+				case "failed child":
+					child.State, child.Finished = fleettree.Failed, fixture.now
+				}
+				fixture.tree.Children = []fleettree.Node{child}
+			case "helper":
+				if err := state.WriteTaskMeta(fixture.home.State, state.TaskMeta{ID: "helper", Parent: fixture.meta.ID, SpawnGen: "helper-generation"}); err != nil {
+					t.Fatal(err)
+				}
+			case "active gate", "parked gate":
+				fixture.gate.err = nil
+				fixture.gate.progress.Status = "running"
+				if ownership == "parked gate" {
+					fixture.gate.progress.Status = "awaiting_agent"
+				}
+			case "gate custody":
+				fixture.gate.custody = pipeline.ErrCustodyHeld
+			case "unreturned custody":
+				fixture.gate.custody = pipeline.ErrCustodyNotReturned
+			case "lifecycle":
+				if err := state.WriteLifecycle(fixture.home.State, state.Lifecycle{ID: fixture.meta.ID, Generation: fixture.meta.SpawnGen, Operation: "other", Action: "pause", Phase: "paused"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			record := fixture.reconcile(t)
+			if record.Phase != "invalid" || record.Problem == "" {
+				t.Fatalf("ownership did not invalidate authorization: %+v", record)
+			}
+			fixture.tree.Children = nil
+			fixture.gate.err, fixture.gate.custody = pipeline.ErrNoProgress, nil
+			if ownership == "helper" {
+				if err := os.Remove(state.TaskMetaPath(fixture.home.State, "helper")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if ownership == "lifecycle" {
+				if err := os.Remove(state.LifecyclePath(fixture.home.State, fixture.meta.ID)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			fixture.reopen(t)
+			if after := fixture.reconcile(t); after != record {
+				t.Fatalf("authorization changed after ownership disappeared: %+v", after)
+			}
+			if calls := fixture.spawner.recorded(); len(calls) != 0 {
+				t.Fatalf("obsolete authorization paused the worker: %v", calls)
+			}
+		})
+	}
+}
+
+func TestPreparedWaitRejectsNewPromptsAcrossEvidenceReads(t *testing.T) {
+	for _, arrival := range []string{"spool", "store", "first ownership read", "second ownership read", "first idle read", "second idle read", "older prompt", "another generation", "another task"} {
+		t.Run(arrival, func(t *testing.T) {
+			fixture := preparedPackage(t)
+			fixture.meta.Harness = "codex"
+			if err := state.WriteTaskMeta(fixture.home.State, fixture.meta); err != nil {
+				t.Fatal(err)
+			}
+			prompt := event(t, fixture.home, "UserPromptSubmit", fixture.record.Session, "new-turn", fixture.now)
+			prompt.TaskID, prompt.Generation, prompt.CWD = fixture.meta.ID, fixture.meta.SpawnGen, fixture.meta.Worktree
+			isNewPrompt := true
+			switch arrival {
+			case "older prompt":
+				prompt.OccurredAt, isNewPrompt = fixture.record.PreparedAt.Add(-time.Second), false
+			case "another generation":
+				prompt.Generation, isNewPrompt = "older-generation", false
+			case "another task":
+				prompt.TaskID, isNewPrompt = "another-task", false
+			}
+			spool := func() {
+				if err := nativehook.Spool(fixture.home.State, prompt); err != nil {
+					t.Fatal(err)
+				}
+			}
+			switch arrival {
+			case "spool", "older prompt", "another generation", "another task":
+				spool()
+			case "store":
+				start := event(t, fixture.home, "SessionStart", fixture.record.Session, "", fixture.record.PreparedAt.Add(-time.Second))
+				start.TaskID, start.Generation, start.CWD = fixture.meta.ID, fixture.meta.SpawnGen, fixture.meta.Worktree
+				if err := fixture.service.Store.Accept(start); err != nil {
+					t.Fatal(err)
+				}
+				if err := fixture.service.Store.Accept(prompt); err != nil {
+					t.Fatal(err)
+				}
+			default:
+				reads := 0
+				if strings.Contains(arrival, "ownership") {
+					fixture.service.Options.PreparedOwnership = func(context.Context, state.TaskMeta) (fleettree.Tree, error) {
+						reads++
+						if reads == 1 && arrival == "first ownership read" || reads == 2 && arrival == "second ownership read" {
+							spool()
+						}
+						return fixture.tree, nil
+					}
+				} else {
+					fixture.service.Options.Dispatch.Idle = func(context.Context, state.TaskMeta) (bool, error) {
+						reads++
+						if reads == 1 && arrival == "first idle read" || reads == 2 && arrival == "second idle read" {
+							spool()
+						}
+						return true, nil
+					}
+				}
+			}
+
+			record := fixture.reconcile(t)
+			if !isNewPrompt {
+				if calls := fixture.spawner.recorded(); record.Phase != "paused" || len(calls) != 1 {
+					t.Fatalf("unrelated prompt prevented pause: %+v, calls=%v", record, calls)
+				}
+				return
+			}
+			if record.Phase != "invalid" || !strings.Contains(record.Problem, "newer prompt") {
+				t.Fatalf("new prompt did not invalidate authorization: %+v", record)
+			}
+			fixture.reopen(t)
+			fixture.reconcile(t)
+			if calls := fixture.spawner.recorded(); len(calls) != 0 {
+				t.Fatalf("new prompt allowed obsolete pause: %v", calls)
+			}
+		})
+	}
+}
+
+func TestPreparedWaitRefusesUnreadablePromptEvidence(t *testing.T) {
+	for _, isDuringRead := range []bool{false, true} {
+		t.Run(map[bool]string{false: "before evidence", true: "during idle read"}[isDuringRead], func(t *testing.T) {
+			fixture := preparedPackage(t)
+			corrupt := func() { writeFile(t, filepath.Join(fixture.home.State, ".supervisor.json"), "invalid JSON") }
+			if isDuringRead {
+				fixture.service.Options.Dispatch.Idle = func(context.Context, state.TaskMeta) (bool, error) {
+					corrupt()
+					return true, nil
+				}
+			} else {
+				corrupt()
+			}
+
+			record := fixture.reconcile(t)
+			if calls := fixture.spawner.recorded(); len(calls) != 0 || !strings.Contains(record.Problem, "prompt evidence is unreadable") {
+				t.Fatalf("unreadable prompts authorized pause: %+v, calls=%v", record, calls)
 			}
 		})
 	}
@@ -401,6 +581,9 @@ func TestPreparedWaitRechecksBeforeLifecycleAdmission(t *testing.T) {
 			record := fixture.reconcile(t)
 			if calls := fixture.spawner.recorded(); len(calls) != 0 {
 				t.Fatalf("stale admission called lifecycle: %v, record=%+v", calls, record)
+			}
+			if change != "dependency finished" && record.Phase != "invalid" {
+				t.Fatalf("changed evidence did not invalidate authorization: %+v", record)
 			}
 		})
 	}
