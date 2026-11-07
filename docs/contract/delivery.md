@@ -36,25 +36,25 @@ Do not attach an independent model review, serial manual clean-verdict gate or s
 If the change needs independent validation, select no-mistakes instead of inventing another gate.
 Under no-mistakes, the same implementation worker drives `cfo pipeline run` and `respond` through every synchronous return.
 The pipeline alone owns review, repair, tests, documentation and publication; any focused independent question belongs within that contract.
-The CFO still inspects the concrete change and relevant proof before delivery.
+The CEO still inspects the concrete change and relevant proof before delivery.
 
 Once validation starts, new product requirements normally become follow-up work.
 Corrections needed for accepted behavior, equivalent behavioral test replacements and accurate documentation remain in scope, including their smallest downstream changes.
 The worker never hand-edits, commits, pushes or starts another run while the active pipeline owns the branch.
-An explicit instruction invalidating the entire change uses the existing supported custody procedure under the CFO's direction, preserving history and spent allowances.
+An explicit instruction invalidating the entire change uses the existing supported custody procedure under the CEO's direction, preserving history and spent allowances.
 This contract adds no native recovery procedure or authority over another task's run.
 
 **Finding authority.**
 
 Until its run's review repair cycles are spent, the implementation worker never decides its own ask-user finding.
-It reports the actual finding to the CFO and applies only the returned decision through the active gate.
-Once they are spent, the worker may accept that run's open review findings itself with `cfo pipeline respond <its task> --action approve --accept <ids>`, under the exact-IDs rule of the CFO's own accept.
-The task's status log records it with the task as who accepted, and the CFO is told of it in a notify nothing waits on.
+It reports the actual finding to the CEO and applies only the returned decision through the active gate.
+Once they are spent, the worker may accept that run's open review findings itself with `cfo pipeline respond <its task> --action approve --accept <ids>`, under the exact-IDs rule of the CEO's own accept.
+The task's status log records it with the task as who accepted, and the CEO is told of it in a notify nothing waits on.
 The worker accepts as they stand only findings that are not correctness, security or regression defects: a real defect among them goes in one follow-up commit on the same pull request after its first CI, named in the done report.
-The Test step, `--reason` and every other step stay the CFO's.
-The CFO reconstructs accepted intent, identifies what Fix would require, then names the decision's run, step, action, finding IDs, instructions and authority.
+The Test step, `--reason` and every other step stay the CEO's.
+The CEO reconstructs accepted intent, identifies what Fix would require, then names the decision's run, step, action, finding IDs, instructions and authority.
 Reviewer labels cannot amend the accepted contract.
-Routine corrections, restoring approved behavior, completing the approved design, equivalent tests and correcting final-diff delivery evidence are autonomous CFO decisions within that contract.
+Routine corrections, restoring approved behavior, completing the approved design, equivalent tests and correcting final-diff delivery evidence are autonomous CEO decisions within that contract.
 Difficulty or an unforeseen file is not a new product decision.
 Escalate unresolved product choices, a new guarantee or subsystem, a broader threat model or maintenance obligation, destructive or security-sensitive actions, and requests to waive unresolved defects.
 State the accepted requirement, proposed expansion, smallest compliant alternative, consequences and recommendation.
@@ -206,7 +206,7 @@ A run without green proof whose checks never appear stops after 20 minutes and o
 A new train pull request receives its CI window immediately before creation, including after publication recovery; recovering an already-created pull request never renews its saved deadline.
 A start that is cut short, as by one read that ran out of time, is kept and counts as the train's first failed step, so the next poll resumes its recorded build or publication rather than starting a replacement train.
 Each outcome reaches you as a `pr` wake keyed `train:<owner>/<repo>`, starting with `merge_train:`, and names any goblin it could not tell, for you to relay; while AFK mode is on, each pull request a train merges is logged as merged with the run that proved it, and one whose selected head the train finds already on its base is logged as already there, once in the stretch.
-The supervisor writes each of those lines, from the train's own record and the state GitHub gives the pull request, whoever started the train: a `cfo pr train` started detached does not run under the registered CFO, which the log of a decision needs, so it asks the supervisor to log the landing instead of writing it.
+The supervisor writes each of those lines, from the train's own record and the state GitHub gives the pull request, whoever started the train: a `cfo pr train` started detached does not run under the registered CEO, which the log of a decision needs, so it asks the supervisor to log the landing instead of writing it.
 
 On GitHub a train that landed leaves nothing closed without merging, which GitHub draws in red: its pull request reads merged, and so does every pull request it landed.
 A finished train that did not land its last run closes that run's pull request with how it ended, the failed checks and what landed before it: the one place on GitHub a train that went red says so.

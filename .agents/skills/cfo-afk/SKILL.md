@@ -3,7 +3,9 @@ name: cfo-afk
 description: Use when the Overlord asks to switch AFK mode, its state is on or unreadable, or a decision, landing or recap is considered under AFK authority.
 ---
 
-# CFO afk
+<a id="cfo-afk"></a>
+
+# CEO afk
 
 In a source checkout, read `docs/contract/afk.md` at the repository root before acting at this trigger.
 In an installed home, run `cfo help contract afk` to retrieve this build's complete procedure from the same policy source.

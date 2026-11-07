@@ -19,7 +19,7 @@ A goblin started before this keeps the `TMP` it was started with until it is res
 - `--mode` is `no-mistakes`, `direct-PR`, or `local-only`; omitted, [delivery intake](delivery.md#delivery) resolves project posture and concrete change risk, with no-mistakes for missing or uncertain inputs.
 - Every goblin starts in a native terminal of its own.
   A pi goblin starts with `--approve` where its pi advertises it, trusting the folder's project files for that run only, so it never asks.
-- Every goblin's terminal names a browser session of its own, `CHROME_DEVTOOLS_AXI_SESSION` set to its task id, and the CFO's is `cfo`. chrome-devtools-axi keeps one bridge and one browser for each session name, so a bridge belongs to one owner and is never the tool's unnamed session, which every program of the user shares.
+- Every goblin's terminal names a browser session of its own, `CHROME_DEVTOOLS_AXI_SESSION` set to its task id, and the CEO's is `cfo`. chrome-devtools-axi keeps one bridge and one browser for each session name, so a bridge belongs to one owner and is never the tool's unnamed session, which every program of the user shares.
   The bridge carries its terminal's mark and ends with its goblin at a pause, a stop or the janitor's sweep.
 - Every goblin's first instruction, a helper's and a takeover's too, says that what it starts is its own to end: browsers headless and programs hidden in tests unless a picture needs a window, every start tracked by its pid and ended by that pid, never by its name, and no retry or polling loop without a cap.
   `cfo brief` and the board's Start write the same into a brief's Constraints, and the supervisor tells you what it sees of it ([Supervision](supervision.md#supervision)).
@@ -133,7 +133,7 @@ The product does this by itself in every home, with no setting, and wakes you fo
 - **The supervisor starts the work.** `cfo serve` reads memory once a minute, and at each reading with 5 GB of memory and of commit free it takes one slot: a reported production defect, then the paused goblin highest in the Supreme Overlord's In progress order whose pause cleared, then the top of the queue, with a [root issue](root-issues.md#root-issues) it picked up after every other queued task, unless a goblin paused for memory comes back first.
   A task it starts by itself, a production defect included, joins the bottom of In progress, under every goblin the board lists, and only his Start puts one at the top.
   It starts or resumes a goblin by itself only while memory and commit, less the about 1 GB a new session takes, still meet the floor `cfo gate turns` shows for the next run of the machine's heavy line, so both test slots stay usable: the Supreme Overlord's rule of 2026-11-02, by free memory and no count of goblins (issue 1926).
-  Short of that nothing starts, resumes or comes back after a restart by itself, a production defect included, though the CFO still comes back, `memory_ready` waits too, and the scheduler's line, `cfo gate turns` and the tip of the board's memory meter, whose fill stays amber, all say that the work waits to keep the test slots open.
+  Short of that nothing starts, resumes or comes back after a restart by itself, a production defect included, though the CEO still comes back, `memory_ready` waits too, and the scheduler's line, `cfo gate turns` and the tip of the board's memory meter, whose fill stays amber, all say that the work waits to keep the test slots open.
   A line that cannot be read holds nothing, and is said on the board once three readings in a row cannot read it.
   Every other choice between goblins follows his order too: the memory floor and the allowance floor pause the lowest first, and a restart brings the highest back first.
   Slots go by memory alone: no count of goblins holds a start back, however many run.
@@ -157,7 +157,7 @@ The product does this by itself in every home, with no setting, and wakes you fo
   A brief changed during admission instead produces `start deferred: ...` and is reconsidered on the next scan with its final choices.
   Draft briefs remain held under the [brief readiness contract](../commands/brief.md), do not block ready work behind them and raise no idle-fleet wake.
   While work like that (a failed start or resume, or a row that needs you, such as one whose brief names no project) waits 30 minutes with memory free and nothing started, an `idle` wake keyed `fleet` names each task and why, and it comes again every 30 minutes that lasts.
-- **Your turn does not end idle.** When your turn ends with no goblin at work while work that could run waits and memory is free, it is reopened with an `idle` wake keyed `turn` naming the next work and the exact command: Claude Code's turn-end guard reopens it, and for a Codex or pi CFO the supervisor queues the wake from the turn end its native hook reported and types it into its terminal.
+- **Your turn does not end idle.** When your turn ends with no goblin at work while work that could run waits and memory is free, it is reopened with an `idle` wake keyed `turn` naming the next work and the exact command: Claude Code's turn-end guard reopens it, and for a Codex or pi CEO the supervisor queues the wake from the turn end its native hook reported and types it into its terminal.
   The same next work reopens a turn at most once every 30 minutes.
   It never names a task the supervisor is starting already, which has no task record until its spawn has its worktree.
   Read `cfo fleet-view` first, since the scheduler may already be starting it, then start or resume what has not started, or park a row that must not start.
@@ -228,7 +228,7 @@ Where goblin work has every core, as on a machine with a single performance core
 Where goblin work keeps to its own cores, a control that asks Windows not to throttle it, as the supervisor and every host do, answers in milliseconds either way, and the raise is for the control that asks for nothing, such as a pause the supervisor starts, which Windows keeps to the efficiency cores: beside ten busy threads on the goblins' cores, the efficiency cores then among them, such a reading took 0.9 seconds at normal priority and 0.013 raised.
 What the raise cannot reach still waits its turn where goblin work has every core: a `cfo` command or a hook takes about 0.7 seconds to come to exist there, because its process is started at its caller's priority, `cfo peek` takes 2 to 3 seconds, because the terminal's console answers each row of the screen at normal priority, and each of the supervisor's progress readings starts git twice, about 0.8 seconds a goblin.
 With goblin work kept to its cores, the efficiency cores then among them, those took 0.02, 0.07 and 0.17 seconds.
-The board shows disk free under memory and the kernel's pools, in the memory meter's box, and under `disk_wake_gb`, default 10, the supervisor wakes the CFO once with a `disk` wake, and again only after a reading back at or above the floor.
+The board shows disk free under memory and the kernel's pools, in the memory meter's box, and under `disk_wake_gb`, default 10, the supervisor wakes the CEO once with a `disk` wake, and again only after a reading back at or above the floor.
 The allowance floor is the percent of a measured weekly window the home keeps back, each provider's own as `config/fleet.json`'s `weekly_floor_percent` sets it and 5 percent where it sets none, which `cfo allowance-floor` reads and sets.
 At the floor the scheduler asks for a handoff and records an allowance pause with its weekly reset, the seam AFK mode shares.
 The 4 GB memory floor pauses the live goblin lowest in his In progress order not pushing or merging, one at a time, with a `memory` pause the scheduler resumes at 5 GB once a new session leaves the heavy line its next floor, whether or not [AFK mode](afk.md#afk-mode) is on.
@@ -240,7 +240,7 @@ While a window bounding Codex is used up, every Codex session bills paid credits
 At each fleet reading the supervisor arms it while a session or weekly window bounding Codex is used up, with a `codex.cmd` for cmd, PowerShell and every program that searches `PATHEXT` and a `codex` script for Git Bash, and empties it once the window renews; a reading that is skipped or says nothing of Codex keeps the last word until the window it named renews, and a goblin spawned meanwhile is armed at the next reading, within a minute.
 An armed codex runs `cfo codex-guard`, which prints one line that says why, starts nothing and exits 1, and the first time a task meets it before Codex renews one `allowance` wake names the goblin and the command, so a rig, a probe or a test that starts `codex exec` costs nothing.
 A task the Overlord authorizes to spend credits, which `cfo auth grant <id> --codex-credits` records, is never armed.
-A terminal started from a guarded one, as a rig's scratch goblin or scratch CFO is, keeps the guard it was started under behind its own, which `CFO_CODEX_GUARD` names.
+A terminal started from a guarded one, as a rig's scratch goblin or scratch CEO is, keeps the guard it was started under behind its own, which `CFO_CODEX_GUARD` names.
 The guard holds against a goblin that starts `codex` by name; one that names the program's path or builds a PATH of its own passes it.
 The board shows each paused card's reason and what resumes it in place of Paused, Next on the card the free-slot order takes first (a production defect says it jumps the queue), and a stall line on a live card past 20 minutes without progress; a CI or deploy wait names the repository's median measured run.
 The board's Paused section holds only goblins whose terminals were stopped for memory, by a `memory` pause or his own Pause, and a goblin paused to wait on anything else stays in In progress with its wait as its status.
@@ -270,12 +270,12 @@ It is the one-step replacement for quitting, WIP-committing, cleaning up, and re
 - Same harness, new model or effort: Claude Code, Codex and pi resume the task's own conversation by its id (`claude --resume <id>`, `codex resume <id>`, `pi --session <id>`), only when the board's record shows that conversation was this task's goblin of its current generation, or when the goblin's harness proved it is in it: the board reads that proof from the harness's own record while it runs (Claude Code's record of its process, Codex's rollout of the goblin's worktree, pi's session of it) and keeps it for the task's generation, so a pause, a resume and the comeback after a restart still find it once the harness has ended, with no native session hooks installed; without that proof the new harness starts cold with the handoff below.
   A resumed conversation that comes back mid-turn is left to finish it, with nothing typed into it.
 - Harness update: `cfo switch <id> --restart` starts the goblin's own harness, model and effort again in place, on its conversation, onto an update of its harness installed since it started.
-  The board offers it as **Update** on the goblin's card, and on the CFO's header for the CFO itself, only while one waits and only at the Overlord's press, at the end of the turn (see docs/native-board.md#harness-updates); you never press it, and AFK mode never does.
+  The board offers it as **Update** on the goblin's card, and on the CEO's header for the CEO itself, only while one waits and only at the Overlord's press, at the end of the turn (see docs/native-board.md#harness-updates); you never press it, and AFK mode never does.
 - Different harness: context cannot cross, so a handoff note is written into the task's tasktmp with the brief path, branch, commits, uncommitted state, and the previous goblin's last status lines.
   The new harness is told to read it first.
 - `cfo send` follows the new harness immediately: the switch records it before the new harness starts, and a send reaches the task's terminal through that record.
 
-When a goblin's harness starts being refused by its provider, `cfo fleet-view` shows it as `harness-erroring` and the watcher wakes the CFO with the fault and what to do about it.
+When a goblin's harness starts being refused by its provider, `cfo fleet-view` shows it as `harness-erroring` and the watcher wakes the CEO with the fault and what to do about it.
 A fault in the output of a command the goblin ran, under Claude Code's tool call or Codex's `• Ran`, is the command's, never the harness's.
 A warning that a limit nears, such as Claude Code's "You've used 76% of your weekly limit · resets Oct 13, 10am", is no refusal: the harness works on, so it raises nothing.
 The standing answers live in `data/routing.json`, as rules of this shape:
@@ -328,7 +328,7 @@ You orchestrate deliberately, never by reflex.
 Load `smart-routing` before dispatch, a routing policy adjustment or an independent helper assignment; it supplies the task and evidence judgments for the lane table below.
 
 `data/routing.json` is the fleet's editable policy for new starts and native helpers.
-Installing a build preserves a home's existing table, so the CFO chooses when to adopt a new default.
+Installing a build preserves a home's existing table, so the CEO chooses when to adopt a new default.
 `cfo doctor` prints the lanes and `cfo route` previews a brief's route.
 
 Without `--harness`, spawn classifies the brief's task, complexity and risk.
@@ -342,7 +342,7 @@ Explicit choices are recorded as such.
 An explicit model stays on the wanted lane's harness rather than being sent to another provider.
 
 Each lane names `harness`, `model`, `effort` and a short `note` saying why it runs.
-`fallbacks` maps a wanted lane to an ordered list of other lanes the CFO considers capable of its work.
+`fallbacks` maps a wanted lane to an ordered list of other lanes the CEO considers capable of its work.
 An escalation lane tries only its declared fallbacks, never an unrelated lighter lane.
 Other lanes try their declared fallbacks, then the default and escalation.
 The shipped strong fallback is Claude Opus, and the small fallback is Haiku.
@@ -353,8 +353,8 @@ A fresh session, weekly or model window at that floor makes a candidate unavaila
 Only windows that bound that model count.
 Unknown, stale or reset windows do not establish a floor.
 The existing weekly reserve still applies.
-A fallback records the wanted lane and evidence, and puts a durable notice in the CFO's queue; the goblin's card names its model and effort only in its harness mark's tip.
-This changes no running goblin: the separate `rules` array remains the CFO's authority for switching one.
+A fallback records the wanted lane and evidence, and puts a durable notice in the CEO's queue; the goblin's card names its model and effort only in its harness mark's tip.
+This changes no running goblin: the separate `rules` array remains the CEO's authority for switching one.
 
 `subagents` maps each harness to `search`, `review` and `verify`, each an ordered array of lane names on that harness.
 Search includes reading and summaries, review uses a strong model, and verification prefers the first model different from the parent's recorded model, taking the configured one when the policy names no other.

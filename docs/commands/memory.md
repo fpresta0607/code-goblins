@@ -57,5 +57,5 @@ Existing version-1 catalogs remain valid, and `task_state` is optional.
 Before rolling back to an older binary, remove only the new optional `task_state` metadata from a backed-up catalog, since older decoders reject unknown fields; keep all canonical source bytes and original approvals.
 Discard caller-created delivery lists across rollback or conversation reset.
 
-Every operation accepts `--data <directory>` for an explicit private data source; otherwise it uses the resolved CFO home's `data` folder.
+Every operation accepts `--data <directory>` for an explicit private data source; otherwise it uses the resolved CEO home's `data` folder.
 No operation grants consent, moves history, calls a model or alters task state.

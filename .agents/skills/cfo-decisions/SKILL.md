@@ -3,7 +3,9 @@ name: cfo-decisions
 description: Use when publishing or answering a board question, review, run request, file delivery or presentation, or handling Scrawl feedback.
 ---
 
-# CFO decisions
+<a id="cfo-decisions"></a>
+
+# CEO decisions
 
 In a source checkout, read `docs/contract/decisions.md` at the repository root before acting at this trigger.
 In an installed home, run `cfo help contract decisions` to retrieve this build's complete procedure from the same policy source.

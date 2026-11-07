@@ -21,7 +21,7 @@ import (
 
 const homeMoveUsage = `usage: cfo home move [--to <dir>] [--apply --plan <digest>]
 
-Move the CFO home CFO_HOME names, such as a code-goblins checkout an older
+Move the CEO home CFO_HOME names, such as a code-goblins checkout an older
 build made its home, to the per-user home every install now uses,
 %LOCALAPPDATA%\CodeGoblins, or to --to. Its state, data, config and caches
 move; a file the checkout's git tracks is copied so the checkout keeps its

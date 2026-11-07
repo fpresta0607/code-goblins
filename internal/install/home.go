@@ -23,8 +23,8 @@ import (
 // following a blank line, the marker lists the contract files the install
 // wrote, one slash-separated path per line, so the next install can remove
 // those its binary no longer ships; a checkout's lists none.
-const markerText = "This folder is a Code Goblins CFO home, which cfo install or cfo update marked.\r\n" +
-	"The CFO hooks act here only while this file exists, so leave it in place.\r\n" +
+const markerText = "This folder is a Code Goblins CEO home, which cfo install or cfo update marked.\r\n" +
+	"The CEO hooks act here only while this file exists, so leave it in place.\r\n" +
 	"Below are the contract files it wrote; the next install removes any its binary no longer ships.\r\n" +
 	"\r\n"
 

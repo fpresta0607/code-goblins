@@ -3,7 +3,9 @@ name: cfo-services
 description: Use when starting, sharing, inspecting or stopping a project local-services stack, or diagnosing its resource or startup failure.
 ---
 
-# CFO services
+<a id="cfo-services"></a>
+
+# CEO services
 
 In a source checkout, read `docs/contract/services.md` at the repository root before acting at this trigger.
 In an installed home, run `cfo help contract services` to retrieve this build's complete procedure from the same policy source.

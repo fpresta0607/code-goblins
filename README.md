@@ -4,7 +4,7 @@
 
 <p align="center">
   A Windows app for working with a crew of coding agents.<br />
-  Give the CFO an outcome.
+  Give the CEO an outcome.
   Follow the goblins as they work.
   Review the result.
 </p>
@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.webp" alt="Code Goblins example workspace: queued, active and completed tasks beside the CFO's Modern Chat conversation" width="1000" />
+  <img src="docs/images/hero.webp" alt="Code Goblins example workspace: queued, active and completed tasks beside the CEO's Modern Chat conversation" width="1000" />
   <br />
   <sub>Every screenshot shows a disposable example workspace with made-up projects, tasks and conversations.</sub>
 </p>
@@ -29,7 +29,7 @@
   · <a href="docs/install.md">Installation guide</a>
 </p>
 
-The **CFO** (Chief Fuckaround Officer) is your supervisor and main conversation.
+The **CEO** (Chief Executive Officer) is your supervisor and main conversation.
 It breaks a request into tasks, gives **goblins** isolated git worktrees, follows their progress and brings decisions back to you.
 Workers can use **Claude Code, Codex or pi**, with a harness, model and effort suited to the task.
 
@@ -50,21 +50,23 @@ irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install
 
 You need Windows and a signed-in coding harness.
 The installer includes the desktop app and the `goblins` command, sets up the tools it needs and opens the app.
-Run `goblins` to choose and sign in to the CFO's harness; `goblins setup` lets you choose again.
-Claude Code is recommended for the fullest CFO integration; the setup explains the differences for Codex and pi.
+Run `goblins` to choose and sign in to the CEO's harness; `goblins setup` lets you choose again.
+Claude Code is recommended for the fullest CEO integration; the setup explains the differences for Codex and pi.
 Your harness uses its own account and model-provider configuration.
 See [installation, prerequisites and fresh-PC checks](docs/install.md).
 
-### Give the CFO its first task
+<a id="give-the-cfo-its-first-task"></a>
+
+### Give the CEO its first task
 
 1. Open **Code Goblins** from the Start menu, or run `goblins --board`.
-2. Open the **CFO** panel and tell it which repository to use and what result you want.
+2. Open the **CEO** panel and tell it which repository to use and what result you want.
    For example: “In my trail-notes repository, add a search box for saved walks. Keep the current design, test empty results and open a pull request for review.”
-3. Follow the task cards as the CFO queues and dispatches the work.
+3. Follow the task cards as the CEO queues and dispatches the work.
    Click a goblin to open its conversation; choose **Task** for its workspace, controls, changes and history.
-4. Send a follow-up to the CFO or that goblin when you want to steer it.
+4. Send a follow-up to the CEO or that goblin when you want to steer it.
    Open **Command Center** when the app needs a decision, sign-in, review or command from you.
-5. Inspect **Task → Changes** and the pull request, give feedback and tell the CFO when to merge.
+5. Inspect **Task → Changes** and the pull request, give feedback and tell the CEO when to merge.
    Closing a panel or the window leaves the work running.
 
 The desktop opens with **Classic**, the harness's native terminal.
@@ -111,7 +113,7 @@ The native terminal keeps the harness's own keyboard controls and prompts.
 </p>
 
 To change direction, send a short follow-up to the relevant conversation.
-A message reads **Queued** at the end of the chat while the board holds it, as it holds one to the CFO for a short undo window and a command to a busy goblin until its turn ends: **Edit** takes it back into the composer and **Cancel** withdraws it.
+A message reads **Queued** at the end of the chat while the board holds it, as it holds one to the CEO for a short undo window and a command to a busy goblin until its turn ends: **Edit** takes it back into the composer and **Cancel** withdraws it.
 **Send now** is available according to the message's delivery state and harness; a request that cannot proceed explains why.
 Once typed into the session it reads **Sent**, with no Edit or Cancel, since the harness then owns it.
 Use the native Terminal for the harness's interruption controls; **Pause** and **Stop** in Task control the task's session.
@@ -126,7 +128,7 @@ Pick an answer and press **Send decision**.
 <p align="center">
   <img src="docs/images/command-center.webp" alt="Example Command Center decision with a recommended answer, alternative choices, Other and Send decision" width="620" />
   <br />
-  <sub>Example workspace: answer a concrete decision and let the CFO continue.</sub>
+  <sub>Example workspace: answer a concrete decision and let the CEO continue.</sub>
 </p>
 
 A browser step arrives as a card with the reason, the page and the steps only you can take.
@@ -143,7 +145,7 @@ A command card shows the exact command before you press **Run** and records how 
 
 ### Review and annotate
 
-Expand **Task → Changes**, open a file and select lines to send an inline comment to the CFO.
+Expand **Task → Changes**, open a file and select lines to send an inline comment to the CEO.
 For visual work, open the **Scrawl** review linked from Command Center.
 Select an element or text to annotate it, or write in the page's conversation.
 Press **Send to Agent** to deliver the collected feedback, or **Send & End** when the review is finished.
@@ -161,7 +163,7 @@ See the [board and review guide](docs/native-board.md) and the [review-surface s
 ### Your phone
 
 1. Connect [Tailscale](https://tailscale.com/download) on the Windows PC and phone using the same personal account.
-2. On the PC, open **CFO → Task → Remote access** and turn on **Tailscale**.
+2. On the PC, open **CEO → Task → Remote access** and turn on **Tailscale**.
 3. Open the private HTTPS link shown there on your phone while Tailscale is connected.
 4. To open review pages too, enable the separate **Scrawl reviews** switch on the PC.
    On iPhone, Safari's **Share → Add to Home Screen** keeps the board beside your apps.
@@ -179,12 +181,12 @@ Follow the [phone setup and troubleshooting guide](docs/remote-access.md) for Ta
 
 ### AFK mode
 
-AFK is your explicit switch for letting the CFO make decisions while you are away.
-Turn it on from the CFO's controls, then review the recorded decisions when you return.
+AFK is your explicit switch for letting the CEO make decisions while you are away.
+Turn it on from the CEO's controls, then review the recorded decisions when you return.
 It does not grant the agent authority over steps reserved for you.
 The switch shows loading or refusal feedback when it cannot change state.
 Turning AFK off opens a report of what changed, decisions made for you and work still under way.
-Use **Change answer** to revise a decision, **Go through what needs you** to handle pending items, or **Open your last AFK report** in the CFO's Task view to reopen it.
+Use **Change answer** to revise a decision, **Go through what needs you** to handle pending items, or **Open your last AFK report** in the CEO's Task view to reopen it.
 See the [AFK contract](docs/contract/afk.md) for authority, limits and the return report.
 
 ## Opening, closing and restarting
@@ -200,15 +202,15 @@ Run these in a terminal of your own:
 
 | Command | Use it to |
 | --- | --- |
-| `goblins` | Set up or open the CFO, with a choice to attach or open the board. |
-| `goblins --board` | Open the board and bring back the remembered CFO when needed. |
-| `goblins attach` | Attach to the CFO's native terminal; **Ctrl+]** detaches. |
+| `goblins` | Set up or open the CEO, with a choice to attach or open the board. |
+| `goblins --board` | Open the board and bring back the remembered CEO when needed. |
+| `goblins attach` | Attach to the CEO's native terminal; **Ctrl+]** detaches. |
 | `goblins status` | Print the board link and whether the supervisor is running. |
-| `goblins setup` | Choose the CFO's harness again. |
-| `goblins resume` | Bring back the CFO and goblins whose terminals ended. |
+| `goblins setup` | Choose the CEO's harness again. |
+| `goblins resume` | Bring back the CEO and goblins whose terminals ended. |
 | `goblins update` | Install the latest published release. |
 
-See [conversation recovery and fresh starts](docs/native-board.md#a-cfo-whose-terminal-ended) for when reopening the CFO starts a new conversation.
+See [conversation recovery and fresh starts](docs/native-board.md#a-ceo-whose-terminal-ended) for when reopening the CEO starts a new conversation.
 
 ### Core commands
 
@@ -245,10 +247,10 @@ See [uninstall options and retention details](docs/commands/uninstall.md).
 
 ## Your data
 
-The CFO home is `%LOCALAPPDATA%\CodeGoblins` by default, or the folder selected through `CFO_HOME`.
+The CEO home is `%LOCALAPPDATA%\CodeGoblins` by default, or the folder selected through `CFO_HOME`.
 It holds fleet state, briefs, the backlog, project settings, credentials, memory, isolated worktrees and caches outside your repositories.
 Your directives live in `data/overlord.md`; durable shared knowledge lives in `data/memory/`, indexed by `MEMORY.md`.
-See the [CFO home contract](docs/contract/home.md#the-cfo-home) and [instruction and context load map](docs/load-map.md).
+See the [CEO home contract](docs/contract/home.md#the-ceo-home) and [instruction and context load map](docs/load-map.md).
 Existing checkout homes retain their [legacy checkout activation boundary](docs/contract/ownership.md#legacy-checkout-activation).
 
 ## Safety model
