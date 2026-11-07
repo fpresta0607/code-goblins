@@ -17,8 +17,12 @@ import (
 )
 
 type RecoveryResult struct {
-	RunID    string
-	Head     string
+	RunID string
+	// Head is the local head recovery preserved. An authored child whose
+	// predecessor published may hold it while the gate branch still names
+	// that publication, so it is reported apart from GateHead.
+	Head string
+	// GateHead is the gate branch head recovery left in place.
 	GateHead string
 	// WorktreeEdits is the commit the run worktree's unfinished changes were
 	// preserved at, under WorktreeRef(run), and empty when it held none.

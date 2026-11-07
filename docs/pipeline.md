@@ -322,7 +322,7 @@ An unpublished authored child can also retain its predecessor's older gate branc
 That case requires the same immutable admission, clean source, verified history and exact authored-candidate anchor, with native `user_owned` state and safety and an `equal` relation.
 The driver reports the separately preserved local and gate heads without changing refs, history or the null custody stamp, since native has already released this source.
 Ordinary unpublished cancellations gain no authored-provenance exception.
-Ordinary published runs, children that published their own source, changed or missing provenance or anchors, stale generations, active ownership and uncertain history remain refused.
+Ordinary published runs, children that published their own source, changed or missing provenance or anchors, stale generations, configured automatic repair or a spent repair round, active ownership and uncertain history remain refused.
 Recovery preserves failed stages, historical source uncertainty and cumulative automatic and manual spending; it renews no repair allowance or review cycles.
 It returns source custody only: a later authored correction still requires the source-bound validation admission described above and every required stage before publication.
 Default repository CI exercises these controller paths and refusals with real Git and SQLite fixtures, substituting only the external native transport.
