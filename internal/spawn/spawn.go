@@ -162,6 +162,10 @@ type Service struct {
 	// SendNow) once its composer shows it gone into that queue: a board
 	// message he asked for now.
 	ShouldSendNow bool
+	// His says the text this delivery types is the Overlord's own, so a screen
+	// his harness draws from it is his to answer: a board message, not a
+	// spawn's briefing or a wake line.
+	His bool
 	// EndLeft ends the processes a task's ended terminal left running, for a
 	// relaunch, once no terminal runs for the task and before its next
 	// harness starts, and names them: lifecycle.EndLeft in production. Nil

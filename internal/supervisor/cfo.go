@@ -553,6 +553,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string, s
 		return Evaluation{}, fmt.Errorf("%w: the CFO's native terminal does not answer; nothing was sent", ErrRejected)
 	}
 	defer delivery.Close()
+	_ = delivery.MarkHis()
 	before, err := read(record)
 	if err != nil {
 		return Evaluation{Reason: "The CFO's input cannot be read. Your answer is queued; nothing was sent."}, ErrDeferred
@@ -662,26 +663,20 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string, s
 		// A Send now he asked for interrupts the turn through the key the
 		// CFO's own harness binds to that, as a goblin's does, once its
 		// input line shows the answer gone into its queue and no screen of
-		// its own is open over it.
+		// its own is open over it, and never once the CFO's own record
+		// proves it took the answer: a turn that ended as the answer was
+		// typed and submitted leaves the busy read before typing stale, and
+		// its harness starts a turn on the answer itself.
 		if sendsNow && screens.SendNow != "" {
-			// The key goes once the answer has left the input line into the
-			// harness's own queue, which its screen shows a moment after the
-			// submit, and never while a screen of its own is open over it,
-			// where the key would go to that screen.
+			recorded := monitor.Conversation{Harness: primary.Agent, Session: waiting.Session}
 			for pressed := time.Now().Add(nativeConfirm); ; {
+				if conversations().Took(ctx, recorded, waiting.Digest, submitted) {
+					return Evaluation{Reason: "Taken by the CFO in its native terminal, as its record showed."}, nil
+				}
 				screen, readErr := read(record)
 				if readErr == nil && !screens.IsOpen(screen) && screens.ComposerEmpty(screen) {
-					for i, key := range []byte(screens.SendNow) {
-						if i > 0 {
-							select {
-							case <-time.After(spawn.ChordGap):
-							case <-ctx.Done():
-								return Evaluation{}, fmt.Errorf("the CFO's send-now key was not finished: %w", ctx.Err())
-							}
-						}
-						if err := delivery.Write([]byte{key}); err != nil {
-							return Evaluation{}, fmt.Errorf("the CFO's send-now key could not be pressed: %w", err)
-						}
+					if err := spawn.PressKeys(delivery.Write, screens.SendNow); err != nil {
+						return Evaluation{}, fmt.Errorf("the CFO's send-now key could not be pressed: %w", err)
 					}
 					return Evaluation{Reason: sentNowInTurn, Awaiting: waiting}, nil
 				}

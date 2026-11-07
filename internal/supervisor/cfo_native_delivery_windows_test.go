@@ -297,6 +297,46 @@ func TestSendNowInterruptsTheCFOsTurnAndDeliversHisMessageOnce(t *testing.T) {
 	}
 }
 
+// Send now interrupts the turn its message was typed into, never the turn
+// that is already answering that message: a turn that ends as the answer is
+// typed and submitted leaves the busy read from before typing stale, and its
+// harness starts a turn on the just-submitted answer, which its own record
+// proves taken. The key is not pressed then, as a goblin's delivery returns
+// once the goblin's record proves the text taken rather than pressing it.
+func TestSendNowDoesNotInterruptTheTurnThatTookHisAnswerFirst(t *testing.T) {
+	// Arrange
+	home := useConversations(t)
+	store, h := testStore(t)
+	terminal := nativeCFOComposer(t, h.State, "claude-busy")
+	service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: h.State}}}
+	if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+	// Its record shows the answer taken by the turn the submit started.
+	takenInRecordAt(t, home, "claude", "session-1", "", "stop and rebase", time.Now().Add(time.Hour))
+
+	// Act
+	sendNow(service, "", "m1")
+	if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert: the answer is queued once and no interrupt key follows it.
+	if lines := terminal.waitForLines(t, 2); len(lines) != 2 || lines[1] != "queued stop and rebase" {
+		t.Fatalf("terminal input = %q; want the answer typed into the turn once", lines)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if lines := terminal.lines(t); len(lines) != 2 {
+		t.Errorf("terminal input = %q; want no interrupt key after the answer", lines)
+	}
+	if sent := store.Snapshot().Actions[0]; sent.Status != "succeeded" || sent.Message != "Taken by the CFO in its native terminal, as its record showed." {
+		t.Errorf("after Send now = %+v; want it taken by the record, with no interrupt key", sent)
+	}
+}
+
 // A line waiting in Claude Code's queue leaves its prompt line empty but for
 // the hint it draws there, which is nothing he left unsent, so his next message
 // is typed into the turn behind it and not held back as if it were.

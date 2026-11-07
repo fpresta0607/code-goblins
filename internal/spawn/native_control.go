@@ -10,14 +10,29 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// SendNative delivers text to a native task's harness the way spawn delivers
-// its instruction: typed into its terminal, submitted once the composer shows
-// it, and delivered only once the harness is proven to have it; text typed
-// while the harness is in a turn is otherwise reported queued for its next
-// tool call. A slash or dollar command waits out the harness's completion
-// popup before it is submitted, and is reported unconfirmed: /exit ends the
-// harness and /model opens a picker, so no screen afterwards proves it ran.
+// SendNative delivers the Overlord's text to a native task's harness the way
+// spawn delivers its instruction: typed into its terminal, submitted once the
+// composer shows it, and delivered only once the harness is proven to have
+// it; text typed while the harness is in a turn is otherwise reported queued
+// for its next tool call. A slash or dollar command waits out the harness's
+// completion popup before it is submitted, and is reported unconfirmed: /exit
+// ends the harness and /model opens a picker, so no screen afterwards proves
+// it ran. The text is his, so a screen the harness draws from it is his to
+// answer.
 func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text string) error {
+	s.His = true
+	return s.sendNative(ctx, meta, text)
+}
+
+// SendSystemNative delivers a line the supervisor writes, such as a wake
+// line. It is nobody's own input, so a screen the harness draws from it is
+// never read as his.
+func (s Service) SendSystemNative(ctx context.Context, meta state.TaskMeta, text string) error {
+	s.His = false
+	return s.sendNative(ctx, meta, text)
+}
+
+func (s Service) sendNative(ctx context.Context, meta state.TaskMeta, text string) error {
 	screens, ok := harness.NativeScreens(harness.Kind(meta.Harness))
 	if !ok {
 		return fmt.Errorf("send: native task %s runs %s, whose screens cfo cannot read", meta.ID, meta.Harness)
@@ -62,5 +77,6 @@ func (s Service) SendNativeKey(meta state.TaskMeta, key string) error {
 		return fmt.Errorf("send: native terminal %s does not answer: %w", meta.ID, err)
 	}
 	defer client.Close()
+	_ = client.MarkHis()
 	return client.Input([]byte(nativeKeys[name]))
 }

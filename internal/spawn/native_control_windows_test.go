@@ -457,6 +457,8 @@ func (r *keyRecorder) Input(keys []byte) error {
 // press, leaving the next key unsent.
 func TestKeysReachATerminalOneWriteEachAndApart(t *testing.T) {
 	claude, _ := harness.NativeScreens(harness.Claude)
+	codex, _ := harness.NativeScreens(harness.Codex)
+	pi, _ := harness.NativeScreens(harness.Pi)
 	failed := errors.New("the terminal went away")
 	for _, test := range []struct {
 		name       string
@@ -465,6 +467,8 @@ func TestKeysReachATerminalOneWriteEachAndApart(t *testing.T) {
 		wantWrites []string
 	}{
 		{name: "Claude Code's send-now chord", keys: claude.SendNow, wantWrites: []string{"\x18", "\x13"}},
+		{name: "Codex's interrupt key", keys: codex.SendNow, wantWrites: []string{"\x1b"}},
+		{name: "pi's interrupt key", keys: pi.SendNow, wantWrites: []string{"\x1b"}},
 		{name: "Enter", keys: "\r", wantWrites: []string{"\r"}},
 		{name: "a chord whose first key fails", keys: claude.SendNow, failure: failed, wantWrites: []string{"\x18"}},
 	} {
@@ -473,11 +477,11 @@ func TestKeysReachATerminalOneWriteEachAndApart(t *testing.T) {
 			recorder := &keyRecorder{err: test.failure}
 
 			// Act
-			err := pressKeys(recorder, test.keys)
+			err := PressKeys(recorder.Input, test.keys)
 
 			// Assert
 			if !errors.Is(err, test.failure) {
-				t.Fatalf("pressKeys = %v, want %v", err, test.failure)
+				t.Fatalf("PressKeys = %v, want %v", err, test.failure)
 			}
 			if !slices.Equal(recorder.writes, test.wantWrites) {
 				t.Fatalf("writes = %q, want %q", recorder.writes, test.wantWrites)

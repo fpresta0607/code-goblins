@@ -95,6 +95,9 @@ type history struct {
 	// isUnread is whether key presses sit unread in the terminal's input, as
 	// its console last said.
 	isUnread bool
+	// isHis is whether the input the terminal last took was the Overlord's own,
+	// so the screen it shows is his to answer for every viewer.
+	isHis bool
 	// sizing keeps resizes in the order they reach the terminal. It is apart
 	// from mu so output keeps flowing while the pseudo console resizes.
 	sizing sync.Mutex
@@ -273,16 +276,22 @@ func (f *feed) submit(mark submission) error {
 	return nil
 }
 
-// typedFrom takes the terminal's key presses from whoever wrote them: input
-// from writer keeps its own submission mark, and input from anywhere else
-// clears every other viewer's. A mark says the viewer's own submission is
-// what the screen shows, and another writer's keys, a watcher's wake line, a
-// board delivery or another viewer, may be what the harness drew the current
-// screen from, so a menu it opened is never read as the first viewer's own.
-// writer is nil for input that belongs to no viewer.
-func (h *history) typedFrom(writer *feed) {
+// typedFrom takes the terminal's key presses from whoever wrote them. Input
+// the Overlord wrote keeps both his mark and every viewer's submission, since
+// choosing in a menu his own words opened is still his own input. Input from
+// anyone else clears every viewer's submission and his mark: a watcher's wake
+// line, a spawn's briefing or a command's key may be what the harness drew
+// the current screen from, so a menu it opened is never read as his own.
+// writer is the viewer whose own keys these are, or nil for input that
+// belongs to no viewer.
+func (h *history) typedFrom(writer *feed, isHis bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if isHis {
+		h.isHis = true
+		return
+	}
+	h.isHis = false
 	for viewer := range h.viewers {
 		if viewer == writer || viewer.submission == "" {
 			continue

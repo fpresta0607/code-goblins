@@ -422,7 +422,7 @@ func (c *CFOConnection) deliverNative(ctx context.Context, terminal state.TaskMe
 	sender := spawn.Service{StateDir: c.State, ReadScreen: c.ReadScreen, ShouldRefuseTurn: true, PromptSince: func(hostID, _ string, since time.Time) (bool, error) {
 		return NativeHostPromptSince(c.State, hostID, since)
 	}}
-	return sender.SendNative(ctx, terminal, text)
+	return sender.SendSystemNative(ctx, terminal, text)
 }
 
 // readCFOWoken reads the highest sequence a typed wake line covered and when

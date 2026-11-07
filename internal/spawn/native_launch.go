@@ -203,6 +203,7 @@ func (s Service) dismissInlineOffer(ctx context.Context, record host.Record, dia
 		return fmt.Errorf("spawn: type into native terminal %s: %w", record.ID, err)
 	}
 	defer client.Close()
+	s.markHis(client)
 	if err := client.Input([]byte("\x1b")); err != nil {
 		return fmt.Errorf("spawn: dismiss %s in native terminal %s: %w", dialog.Name, record.ID, err)
 	}
@@ -373,6 +374,7 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 		return fmt.Errorf("spawn: type into native terminal %s: %w", record.ID, err)
 	}
 	defer client.Close()
+	s.markHis(client)
 	if dialog.EscapeHint != "" {
 		if err := client.Input([]byte("\x1b")); err != nil {
 			return fmt.Errorf("spawn: dismiss %s in native terminal %s: %w", dialog.Name, record.ID, err)
@@ -519,7 +521,7 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 			return nil
 		}
 		if busy && s.ShouldSendNow && !isSentNow && screens.SendNow != "" && !screens.IsOpen(screen) && screens.ComposerEmpty(screen) {
-			if err := pressNativeKeys(record, "send now", screens.SendNow); err != nil {
+			if err := s.pressNativeKeys(record, "send now", screens.SendNow); err != nil {
 				return fmt.Errorf("spawn: native terminal %s has the text submitted, and its send-now key could not be pressed: %w: %w", record.ID, err, fleet.ErrQueuedForToolCall)
 			}
 			isSentNow = true
@@ -532,7 +534,7 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 				return fmt.Errorf("spawn: native terminal %s was still starting %s after its harness first turned the instruction away; its screen ends:\n%s", record.ID, nativeStartup, host.ScreenTail(screen, 8))
 			}
 			if time.Since(startingPressed) >= nativeStartingPress {
-				if err := pressNativeEnter(record); err != nil {
+				if err := s.pressNativeEnter(record); err != nil {
 					return err
 				}
 				startingPressed = time.Now()
@@ -547,7 +549,7 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 		// wait on an Enter the harness has not taken yet, so it gets none
 		// that would reach it after the instruction.
 		if !busy && presses < screens.Resubmits && time.Since(pressed) >= time.Duration(presses+1)*time.Second && screens.Shows(screen, instruction) && screens.TookEnterAsNewLine(atPress, screen) {
-			if err := pressNativeEnter(record); err != nil {
+			if err := s.pressNativeEnter(record); err != nil {
 				return err
 			}
 			atPress, pressed, presses = screen, time.Now(), presses+1
@@ -567,43 +569,47 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 	}
 }
 
+// markHis tells the terminal that the input this delivery types is the
+// Overlord's own, for a host that knows it.
+func (s Service) markHis(client *host.Client) {
+	if s.His {
+		_ = client.MarkHis()
+	}
+}
+
 // pressNativeEnter presses Enter in native terminal record.
-func pressNativeEnter(record host.Record) error {
-	return pressNativeKeys(record, "Enter", "\r")
+func (s Service) pressNativeEnter(record host.Record) error {
+	return s.pressNativeKeys(record, "Enter", "\r")
 }
 
 // pressNativeKeys presses keys, which name names, in native terminal record.
-func pressNativeKeys(record host.Record, name, keys string) error {
+func (s Service) pressNativeKeys(record host.Record, name, keys string) error {
 	client, err := host.Dial(record)
 	if err != nil {
 		return fmt.Errorf("spawn: press %s in native terminal %s: %w", name, record.ID, err)
 	}
 	defer client.Close()
-	if err := pressKeys(client, keys); err != nil {
+	s.markHis(client)
+	if err := PressKeys(client.Input, keys); err != nil {
 		return fmt.Errorf("spawn: press %s in native terminal %s: %w", name, record.ID, err)
 	}
 	return nil
 }
 
-// ChordGap is how long a chord's second key follows its first: long enough
+// chordGap is how long a chord's second key follows its first: long enough
 // for a harness to read two keys, as fingers press them, and well inside the
-// time it waits for the second. A delivery to the CFO presses its send-now
-// chord with the same gap (internal/supervisor's sendNative).
-const ChordGap = 50 * time.Millisecond
+// time it waits for the second.
+const chordGap = 50 * time.Millisecond
 
-// keyInput is what takes the keys pressed in a native terminal.
-type keyInput interface {
-	Input(keys []byte) error
-}
-
-// pressKeys presses keys on input one write each, ChordGap apart, so a chord
+// PressKeys presses keys on write one write each, chordGap apart, so a chord
 // such as Claude Code's Ctrl+X Ctrl+S never reaches a harness as one input.
-func pressKeys(input keyInput, keys string) error {
+// A delivery to the CFO presses its send-now key the same way.
+func PressKeys(write func([]byte) error, keys string) error {
 	for i, key := range []byte(keys) {
 		if i > 0 {
-			time.Sleep(ChordGap)
+			time.Sleep(chordGap)
 		}
-		if err := input.Input([]byte{key}); err != nil {
+		if err := write([]byte{key}); err != nil {
 			return err
 		}
 	}
@@ -664,6 +670,7 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 		return nil, fmt.Errorf("spawn: type into native terminal %s: %w: %w", record.ID, fleet.ErrNotTyped, err)
 	}
 	defer client.Close()
+	s.markHis(client)
 	if shouldType {
 		if err := client.Input([]byte(screens.Submittable(instruction))); err != nil {
 			return nil, fmt.Errorf("spawn: type the instruction into native terminal %s: %w", record.ID, err)

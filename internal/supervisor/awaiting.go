@@ -275,6 +275,7 @@ func (s *Service) submitOnto(ctx context.Context, terminal string, deliveries []
 		return nil
 	}
 	defer client.Close()
+	_ = client.MarkHis()
 	submit := "\r"
 	if screens.PasteTakesEnter {
 		submit = "\x1b[F\r"

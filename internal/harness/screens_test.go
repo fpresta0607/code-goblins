@@ -802,32 +802,6 @@ func TestOutputDigestMovesOnlyWithOutput(t *testing.T) {
 	}
 }
 
-// Send now interrupts a harness's own turn through the control it binds to
-// that, and reports its key only once that key went: Claude Code 2.1.275's
-// chat:sendNow chord, and the Escape Codex's working row names and pi binds
-// to app.interrupt. Codex and pi were read as having none, so a message sent
-// now into either stayed in its queue until its next tool call.
-func TestEachHarnessNamesTheKeyItsSendNowPresses(t *testing.T) {
-	for name, test := range map[string]struct {
-		kind Kind
-		key  string
-	}{
-		"claude": {Claude, "\x18\x13"},
-		"codex":  {Codex, "\x1b"},
-		"pi":     {Pi, "\x1b"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			// Arrange
-			screens, _ := NativeScreens(test.kind)
-
-			// Act and assert
-			if screens.SendNow != test.key {
-				t.Fatalf("SendNow = %q, want %q", screens.SendNow, test.key)
-			}
-		})
-	}
-}
-
 // pi 1.4.0 draws the turn's status inside its editor's top border while a
 // turn runs, as in "── ⠸ Working ──" (pi-tui's Editor.renderTopBorder with
 // embedWorkingStatus), and the count of lines above it while the editor
