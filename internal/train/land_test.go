@@ -38,6 +38,7 @@ func nativeTrain(t *testing.T) (*scratch, *fakeGitHub, Engine, Train, []PullRequ
 	// check failing on a synthetic train with otherwise green source CI.
 	s := newScratch(t)
 	gh := newFakeGitHub(s)
+	gh.readiness = "UNSTABLE"
 	gh.nativeRuns = map[string]map[string]any{}
 	gh.nativeWorkflows = map[string]map[string]any{"99": {"id": 99, "node_id": "W99", "name": "Require no-mistakes", "path": nativeAttestationPath}}
 	var pulls []PullRequest
@@ -190,10 +191,109 @@ func TestNativeAttestationExceptionSurvivesRealCIRetryAndRecovery(t *testing.T) 
 	if len(held.History[0].Passed) != 1 || len(held.History[0].PRChecks) != 1 || held.History[0].MergeHold == "" || len(gh.merged) != 0 {
 		t.Fatalf("lost saved proof: %+v", held.History)
 	}
-	gh.readiness = "CLEAN"
+	gh.readiness = "UNSTABLE"
 	landed := s.step(s.engine(gh), started.ID)
 	if landed.State != StateLanded || len(gh.merged) != 2 || len(gh.rerunCalls()) != 1 {
 		t.Fatalf("recovery state %s, merges %v, retries %v", landed.State, gh.merged, gh.rerunCalls())
+	}
+}
+
+func TestNativeAttestationRecoversSavedUnstableReadinessHold(t *testing.T) {
+	t.Parallel()
+	// Arrange: preserve the zero-attempt hold written before UNSTABLE could
+	// be explained by the separately proven PR-only failure.
+	s, gh, engine, started, _ := nativeTrain(t)
+	gh.readiness = "BLOCKED"
+	held := s.step(engine, started.ID)
+	held.History[0].MergeHold = "GitHub reports merge readiness UNSTABLE"
+	held.History[0].MergeReadiness = "UNSTABLE"
+	if err := engine.save(&held); err != nil {
+		t.Fatal(err)
+	}
+	gh.readiness = "UNSTABLE"
+
+	// Act
+	landed := s.step(s.engine(gh), held.ID)
+
+	// Assert
+	if landed.State != StateLanded || landed.Runs != 1 || landed.History[0].MergeAttempts != 1 || !slices.Equal(gh.mergeCalls(), []string{held.PR + "@" + held.Head}) || len(gh.rerunCalls()) != 0 {
+		t.Fatalf("saved hold did not land its original proof: %+v, merges %v", landed, gh.mergeCalls())
+	}
+	if !slices.Equal(landed.History[0].Passed, held.History[0].Passed) || !slices.Equal(landed.History[0].PRChecks, held.History[0].PRChecks) || s.tree("refs/heads/main") != s.tree(held.Head) {
+		t.Fatalf("recovery changed the saved proof: %+v", landed.History)
+	}
+}
+
+func TestNativeAttestationUnstableMergeRefusalKeepsBoundedAttempts(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name     string
+		refusal  string
+		attempts int
+	}{
+		{"branch policy", "the base branch policy prohibits the merge", 1},
+		{"transient refusal", "merge temporarily refused", maxErrors},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			s, gh, engine, started, _ := nativeTrain(t)
+			gh.refuse[started.PR] = test.refusal
+
+			// Act: restart the engine on each poll, including after the refusal
+			// clears without a readiness transition.
+			var held Train
+			for range maxErrors + 2 {
+				held, _ = s.engine(gh).Advance(context.Background(), started.ID)
+			}
+			delete(gh.refuse, started.PR)
+			kept := s.step(engine, started.ID)
+
+			// Assert: branch protection refusals retain proof and polling
+			// cannot replenish a spent attempt.
+			if kept.IsFinished() || kept.History[0].MergeHold == "" || kept.History[0].MergeReadiness != "UNSTABLE" || kept.History[0].MergeAttempts != test.attempts || len(gh.mergeCalls()) != test.attempts || len(gh.merged) != 0 || len(gh.rerunCalls()) != 0 {
+				t.Fatalf("refusal lost custody or renewed attempts: %+v, merges %v", kept, gh.mergeCalls())
+			}
+			if !slices.Equal(kept.History[0].Passed, held.History[0].Passed) || !slices.Equal(kept.History[0].PRChecks, held.History[0].PRChecks) {
+				t.Fatal("polling changed the saved proof")
+			}
+			gh.readiness = "BLOCKED"
+			s.step(engine, started.ID)
+			gh.readiness = "UNSTABLE"
+			landed := s.step(s.engine(gh), started.ID)
+			if landed.State != StateLanded || landed.History[0].MergeAttempts != test.attempts+1 || len(gh.mergeCalls()) != test.attempts+1 {
+				t.Fatalf("positive transition did not grant exactly one attempt: %+v", landed)
+			}
+			for _, command := range gh.commandLines {
+				if slices.Contains(command, "--admin") {
+					t.Fatal("landing bypassed branch protection")
+				}
+			}
+		})
+	}
+}
+
+func TestUnstableTrainWithoutExcludedNativeFailureKeepsItsHold(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	s := newScratch(t)
+	gh := newFakeGitHub(s)
+	pr := provenRider(s, gh, 5)
+	riders, _ := Riders([]PullRequest{pr}, "main", fleetAccount, goblinsFor(pr), nil)
+	engine := s.engine(gh)
+	started, err := engine.Start(context.Background(), s.repository(), riders)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gh.readiness = "UNSTABLE"
+
+	// Act
+	held := s.step(engine, started.ID)
+	kept := s.step(s.engine(gh), started.ID)
+
+	// Assert
+	if kept.IsFinished() || kept.History[0].MergeHold == "" || len(kept.History[0].PRChecks) != 0 || len(kept.History[0].Passed) == 0 || len(gh.mergeCalls()) != 0 || !slices.Equal(kept.History[0].Passed, held.History[0].Passed) {
+		t.Fatalf("unexplained UNSTABLE was allowed to merge: %+v", kept)
 	}
 }
 
@@ -205,7 +305,7 @@ func TestNativeAttestationRecoveryRejectsChangedSavedChecks(t *testing.T) {
 			s, gh, engine, started, pulls := nativeTrain(t)
 			gh.readiness = "BLOCKED"
 			held := s.step(engine, started.ID)
-			gh.readiness = "CLEAN"
+			gh.readiness = "UNSTABLE"
 			switch change {
 			case "source":
 				gh.workflowOf(started.Head).extra = append(gh.workflowOf(started.Head).extra, Check{Kind: "CheckRun", Name: "extra", Status: "COMPLETED", Conclusion: "SUCCESS"})
@@ -265,7 +365,7 @@ func TestNativeAttestationRecoveryReconcilesLifecycle(t *testing.T) {
 				if lifecycle == "closed" {
 					gh.state[held.PR] = "CLOSED"
 				}
-				gh.readiness = "CLEAN"
+				gh.readiness = "UNSTABLE"
 
 				stepped := s.step(s.engine(gh), held.ID)
 
@@ -314,7 +414,7 @@ func TestNativeAttestationUnprovenCIKeepsSavedProof(t *testing.T) {
 				gh.pulls[pulls[0].URL].mergeable = "UNKNOWN"
 				gh.pulls[pulls[1].URL].isHeld = true
 			}
-			gh.readiness = "CLEAN"
+			gh.readiness = "UNSTABLE"
 
 			stepped, err := engine.Advance(context.Background(), held.ID)
 
@@ -361,7 +461,7 @@ func TestNativeAttestationIncompleteRiderReconcilesLifecycle(t *testing.T) {
 				case "landed":
 					s.git(s.github, "push", "-q", "origin", held.Cars[other].Head+":refs/heads/main")
 				}
-				gh.readiness = "CLEAN"
+				gh.readiness = "UNSTABLE"
 
 				stepped, err := engine.Advance(context.Background(), held.ID)
 
@@ -406,7 +506,7 @@ func TestNativeAttestationRecoveryKeepsStaleHeadProof(t *testing.T) {
 	s.advanceMain("outside.txt", "outside\n")
 	gh.pulls[pulls[0].URL].isHeld = true
 	s.now = s.now.Add(noCIWithin)
-	gh.readiness = "CLEAN"
+	gh.readiness = "UNSTABLE"
 
 	kept := s.step(s.engine(gh), held.ID)
 
