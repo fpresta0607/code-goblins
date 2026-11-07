@@ -132,13 +132,15 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		if allowanceBlocked(watched, harness, model, now) {
 			continue
 		}
-		isReady, err := s.pauseCleared(ctx, *record.Pause, now, watched)
+		var isReady bool
 		prepared, preparedErr := state.ReadPreparedWait(s.Store.Home.State, meta.ID)
 		if preparedErr == nil && prepared.Operation == record.Operation {
 			isReady, err = s.preparedCleared(ctx, prepared, now, watched)
 			isReady = isReady && prepared.Phase == "paused"
 		} else if preparedErr != nil && !errors.Is(preparedErr, os.ErrNotExist) {
-			isReady, err = false, preparedErr
+			err = preparedErr
+		} else {
+			isReady, err = s.pauseCleared(ctx, *record.Pause, now, watched)
 		}
 		if err != nil {
 			unreadPauses[meta.ID] = true

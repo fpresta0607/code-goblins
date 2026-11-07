@@ -479,6 +479,11 @@ func (s *Service) reconcilePreparedWait(ctx context.Context, watched *fleetWakes
 }
 
 func (s *Service) admitPreparedResume(paused state.Lifecycle) (string, bool, error) {
+	name := ".prepared-wait-" + paused.ID + ".lock"
+	if _, err := lock.AcquireExclusiveNamed(s.Store.Home.State, name); err != nil {
+		return "", false, err
+	}
+	defer lock.ReleaseExclusiveNamed(s.Store.Home.State, name)
 	record, err := state.ReadPreparedWait(s.Store.Home.State, paused.ID)
 	if errors.Is(err, os.ErrNotExist) {
 		return fmt.Sprintf("auto-resume-%d", time.Now().UnixNano()), true, nil
@@ -500,6 +505,11 @@ func (s *Service) finishPreparedResume(paused state.Lifecycle, operation string,
 	if operation != "resume-"+paused.Operation {
 		return nil
 	}
+	name := ".prepared-wait-" + paused.ID + ".lock"
+	if _, err := lock.AcquireExclusiveNamed(s.Store.Home.State, name); err != nil {
+		return err
+	}
+	defer lock.ReleaseExclusiveNamed(s.Store.Home.State, name)
 	record, err := state.ReadPreparedWait(s.Store.Home.State, paused.ID)
 	if err != nil || record.Operation != paused.Operation {
 		return err

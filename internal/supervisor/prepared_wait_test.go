@@ -320,6 +320,174 @@ func TestPreparedResumeFailureAndInterruptedAdmissionDoNotRetry(t *testing.T) {
 	}
 }
 
+func TestPreparedResumeUpdatesRespectPublicationLock(t *testing.T) {
+	for _, transition := range []string{"admission", "completion", "resume failure", "missing transition"} {
+		t.Run(transition, func(t *testing.T) {
+			fixture := preparedPackage(t)
+			fixture.reconcile(t)
+			paused, err := state.ReadLifecycle(fixture.home.State, fixture.meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			operation := "resume-" + paused.Operation
+			if transition != "admission" {
+				if _, isAdmitted, err := fixture.service.admitPreparedResume(paused); err != nil || !isAdmitted {
+					t.Fatalf("admitted=%t, error=%v", isAdmitted, err)
+				}
+			}
+			if transition == "completion" {
+				current := paused
+				current.Operation, current.Action, current.Phase = operation, "resume", "running"
+				if err := state.WriteLifecycle(fixture.home.State, current); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var resumeErr error
+			if transition == "resume failure" {
+				resumeErr = errors.New("resume failed")
+			}
+			before, err := state.ReadPreparedWait(fixture.home.State, fixture.meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			func() {
+				name := ".prepared-wait-" + fixture.meta.ID + ".lock"
+				if _, err := lock.AcquireExclusiveNamed(fixture.home.State, name); err != nil {
+					t.Fatal(err)
+				}
+				defer lock.ReleaseExclusiveNamed(fixture.home.State, name)
+				if transition == "admission" {
+					if _, isAdmitted, err := fixture.service.admitPreparedResume(paused); !errors.Is(err, lock.ErrHeld) || isAdmitted {
+						t.Fatalf("admission bypassed publication: admitted=%t, error=%v", isAdmitted, err)
+					}
+				} else if err := fixture.service.finishPreparedResume(paused, operation, resumeErr); !errors.Is(err, lock.ErrHeld) {
+					t.Fatalf("resume update bypassed publication: %v", err)
+				}
+				after, err := state.ReadPreparedWait(fixture.home.State, fixture.meta.ID)
+				if err != nil || after != before {
+					t.Fatalf("contended update changed authorization: %+v, %v", after, err)
+				}
+			}()
+
+			wantPhase := "failed"
+			if transition == "admission" {
+				if admittedOperation, isAdmitted, err := fixture.service.admitPreparedResume(paused); err != nil || !isAdmitted || admittedOperation != operation {
+					t.Fatalf("admission after publication: operation=%s, admitted=%t, error=%v", admittedOperation, isAdmitted, err)
+				}
+				wantPhase = "resume-requested"
+			} else {
+				if err := fixture.service.finishPreparedResume(paused, operation, resumeErr); err != nil {
+					t.Fatal(err)
+				}
+				if transition == "completion" {
+					wantPhase = "cleared"
+				}
+			}
+			after, err := state.ReadPreparedWait(fixture.home.State, fixture.meta.ID)
+			if err != nil || after.Phase != wantPhase {
+				t.Fatalf("update after publication: %+v, %v; want %s", after, err, wantPhase)
+			}
+		})
+	}
+}
+
+func TestPreparedResumePreservesReplacementGenerationWait(t *testing.T) {
+	for _, isFailed := range []bool{false, true} {
+		t.Run(map[bool]string{false: "completion", true: "failure"}[isFailed], func(t *testing.T) {
+			fixture := preparedPackage(t)
+			fixture.reconcile(t)
+			paused, err := state.ReadLifecycle(fixture.home.State, fixture.meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, isAdmitted, err := fixture.service.admitPreparedResume(paused); err != nil || !isAdmitted {
+				t.Fatalf("admitted=%t, error=%v", isAdmitted, err)
+			}
+			fixture.meta.SpawnGen = "replacement-generation"
+			if err := state.WriteTaskMeta(fixture.home.State, fixture.meta); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteConversation(fixture.home.State, state.Conversation{ID: fixture.meta.ID, Generation: fixture.meta.SpawnGen, Session: "replacement-session"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := publishPreparedWait(t.Context(), fixture.home, fixture.meta, fixture.record.Condition.Until, fixture.record.Handoff, fixture.git); err != nil {
+				t.Fatal(err)
+			}
+			replacement, err := state.ReadPreparedWait(fixture.home.State, fixture.meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var resumeErr error
+			if isFailed {
+				resumeErr = errors.New("resume acknowledgement lost")
+			}
+
+			if err := fixture.service.finishPreparedResume(paused, "resume-"+paused.Operation, resumeErr); err != nil {
+				t.Fatal(err)
+			}
+			fixture.reopen(t)
+			after, err := state.ReadPreparedWait(fixture.home.State, fixture.meta.ID)
+			if err != nil || after != replacement || after.Generation != "replacement-generation" || after.Phase != "prepared" {
+				t.Fatalf("old resume overwrote replacement authorization: %+v, %v", after, err)
+			}
+		})
+	}
+}
+
+func TestPreparedSchedulerEvaluatesEachPullRequestPauseOnce(t *testing.T) {
+	const pullURL = "https://github.com/owner/repo/pull/7"
+	for _, mode := range []string{"prepared", "ordinary", "unrelated prepared", "unreadable prepared"} {
+		for _, phase := range []string{"OPEN", "MERGED"} {
+			t.Run(mode+"/"+phase, func(t *testing.T) {
+				fixture := preparedPackage(t)
+				fixture.record.Condition.Until = "pr:" + pullURL
+				fixture.save(t)
+				if err := state.AppendStatus(fixture.home.State, fixture.meta.ID, fixture.record.Report()); err != nil {
+					t.Fatal(err)
+				}
+				fixture.service.Options.PullRequestState = func(context.Context, string) (PullRequestInfo, error) { return PullRequestInfo{State: "OPEN"}, nil }
+				fixture.reconcile(t)
+				switch mode {
+				case "ordinary":
+					if err := os.Remove(filepath.Join(fixture.home.State, "prepared-waits", fixture.meta.ID+".json")); err != nil {
+						t.Fatal(err)
+					}
+				case "unrelated prepared":
+					fixture.record.Generation = "another-generation"
+					fixture.save(t)
+				case "unreadable prepared":
+					writeFile(t, filepath.Join(fixture.home.State, "prepared-waits", fixture.meta.ID+".json"), "invalid JSON")
+				}
+				reads := 0
+				fixture.service.Options.PullRequestState = func(_ context.Context, target string) (PullRequestInfo, error) {
+					reads++
+					if target != pullURL {
+						t.Errorf("evaluated %s, want %s", target, pullURL)
+					}
+					return PullRequestInfo{State: phase}, nil
+				}
+
+				scheduling, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte}, "test slot held")
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantReads := 1
+				if mode == "unreadable prepared" {
+					wantReads = 0
+				}
+				if reads != wantReads {
+					t.Fatalf("PR lookups=%d, want %d", reads, wantReads)
+				}
+				isReady := phase == "MERGED" && mode != "unreadable prepared"
+				if strings.Contains(scheduling.Text, "test slot held") != isReady {
+					t.Fatalf("scheduler readiness for %s: %+v", phase, scheduling)
+				}
+			})
+		}
+	}
+}
+
 func TestPreparedWaitOwnershipCannotRenewAfterItDisappears(t *testing.T) {
 	for _, ownership := range []string{"working job", "silent job", "waiting shell", "working child", "finished child", "failed child", "helper", "active gate", "parked gate", "gate custody", "unreturned custody", "lifecycle"} {
 		t.Run(ownership, func(t *testing.T) {
