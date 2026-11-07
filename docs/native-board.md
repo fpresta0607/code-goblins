@@ -1558,6 +1558,8 @@ A reading the session does not back draws no pie, and with none the bar is not d
 While the conversation still connects the bar is not drawn, so usage shows only once the conversation is connected and its reading has come.
 The supervisor reads the context window from the session's own record: Codex's rollout names it, a Pi session's model has it in Pi's `models.json` or `models-store.json`, and a Claude Code transcript names its model, whose window the supervisor knows (`claudeContextWindow` in `internal/fleettree/model.go`).
 The page of 50 before the first message held is read once he reads within 600 px of the top, until none is older.
+A reconnect in the same conversation whose newest page has no overlap leaves the history he is reading in place; after Jump to latest, scrolling up can still reach all the missing history.
+An older read belongs to its conversation and first-message cursor: if the latest stream state replaces either, its late response or deferred insertion cannot block or release a newer read, change its retry allowance or report a stale error (`frontend/tests/conversation-publication.spec.ts`).
 A read that fails is asked again on his next approach to the top, no sooner than five seconds after it, until three in a row have failed, and then not until the stream reconnects.
 Ctrl+Plus, Ctrl+Minus and Ctrl+0, the right button held with the wheel, or the wheel with Ctrl and Shift held, size the message text a pixel at a time between 12 and 28 px from 16 px.
 The size is kept in this browser as `cfo-message-font-size`, apart from the terminals' size, since a size the terminals take resizes their programs.
