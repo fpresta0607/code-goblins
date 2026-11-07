@@ -449,6 +449,36 @@ func (r *keyRecorder) Input(keys []byte) error {
 	return r.err
 }
 
+// Send now interrupts a harness's own turn through the control it binds to
+// that, pressed the way every delivery presses it: Claude Code 2.1.275's
+// chat:sendNow chord, and the Escape Codex's working row names and pi binds to
+// app.interrupt. Codex and pi were read as having none, so a message sent now
+// into either stayed in its queue until its next tool call.
+func TestEachHarnessNamesTheKeyItsSendNowPresses(t *testing.T) {
+	for name, test := range map[string]struct {
+		kind       harness.Kind
+		wantWrites []string
+	}{
+		"claude": {harness.Claude, []string{"\x18", "\x13"}},
+		"codex":  {harness.Codex, []string{"\x1b"}},
+		"pi":     {harness.Pi, []string{"\x1b"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := harness.NativeScreens(test.kind)
+			recorder := &keyRecorder{}
+
+			// Act: the press a goblin's delivery and the CFO's delivery make.
+			err := PressKeys(recorder.Input, screens.SendNow)
+
+			// Assert
+			if err != nil || !slices.Equal(recorder.writes, test.wantWrites) {
+				t.Fatalf("pressing %q wrote %q, %v; want %q", screens.SendNow, recorder.writes, err, test.wantWrites)
+			}
+		})
+	}
+}
+
 // Ctrl+X Ctrl+S is two keys, which fingers press one after the other, so it
 // reaches a harness as two writes, in that order and 50 ms apart, never as
 // one input it might not read as a chord. The stand-in harnesses read input a

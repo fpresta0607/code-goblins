@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"runtime"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/conpty"
 	"github.com/fpresta0607/code-goblins/internal/vtscreen"
 )
 
@@ -61,6 +63,68 @@ func TestHistoryKeepsSubmissionTurnEvidenceAcrossScreenReplacement(t *testing.T)
 				}
 			})
 		}
+	}
+}
+
+// A submission mark says the viewer's own keys are what the screen shows, and
+// stands only until another writer types into the terminal: a delivery typed
+// after the viewer's submission clears it, so a menu the harness draws then is
+// never read as the viewer's own human-triggered one. The viewer's own later
+// keys keep its mark, since choosing in the menu it opened is still its own
+// input. Both frames go through the host's own serve and serveDelivery, so the
+// wiring is what is checked, not typedFrom on its own.
+func TestAViewersSubmissionStandsUntilAnotherConnectionTypes(t *testing.T) {
+	// Arrange: a host in this process serves one real terminal.
+	console, err := conpty.Start(conpty.Spec{Args: []string{os.Args[0], "echo-child"}, Cols: 80, Rows: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer console.Close()
+	output := newTestHistory(t, 80, 20)
+	name, pipes := hostPipe(t)
+	closing := make(chan struct{}, 1)
+	go func() {
+		for {
+			connection, err := pipes.accept()
+			if err != nil {
+				return
+			}
+			go serve(connection, "token", console, output, closing, &sync.RWMutex{})
+		}
+	}()
+	record := Record{ID: "g1", Pipe: name, Token: "token", HostPID: os.Getpid()}
+	viewer, err := View(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer viewer.Close()
+	if err := viewer.MarkSubmission("menu", "claude"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act: the viewer's own keys keep its mark.
+	if err := viewer.Input([]byte("his words\r")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if _, submission, _, err := viewer.Screen(record, "menu"); err != nil || submission != "menu" {
+		t.Fatalf("submission = %q, %v, want the viewer's own input to keep its mark", submission, err)
+	}
+
+	// Act: a delivery that is nobody's own input types into the terminal.
+	delivery, err := DialDelivery(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer delivery.Close()
+	if err := delivery.Write([]byte("other words\r")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if _, submission, _, err := viewer.Screen(record, "menu"); err != nil || submission != "" {
+		t.Fatalf("submission = %q, %v, want another writer's input to clear the mark", submission, err)
 	}
 }
 
