@@ -202,9 +202,12 @@ A response's `--instructions` still reach no-mistakes on its command line, which
 An approval `--reason` reaches it the same way, and the driver refuses one that is not a single line of plain text.
 
 Commands operate in the recorded task worktree and use its frozen policy.
-A task that gates several branches from extra worktrees names one: `run`, `respond`, `recover` and `handback` take `--branch <branch>`, and `respond`, `recover` and `handback` take `--run <run-id>` instead.
-The command then acts in whichever of the task's recorded worktrees, its own or an extra one `cfo worktree add` made, has that branch checked out, because a native command answers the latest run of the branch checked out where it runs.
-A run must be its branch's latest run in the project, and a branch or run that none of the task's worktrees has checked out is refused before anything reaches the gate.
+A task that gates several branches from extra worktrees names one: `run`, `respond`, `recover`, `handback`, `validate-authored` and `validate-terminal` take `--branch <branch>`.
+`respond`, `recover` and `handback` take `--run <run-id>` instead; `terminal-preflight` requires `--run <predecessor>`.
+The command then acts in whichever of the task's recorded worktrees, its own or an extra one `cfo worktree add` made, has that branch checked out.
+For `respond`, `recover` and `handback`, a selected run must be its branch's latest run in the project.
+Preflight and admission bind the exact predecessor's project and branch; native owns latest-owner and replay checks for admission.
+A branch or run that none of the task's worktrees has checked out is refused before anything reaches the gate.
 The pane exports `CFO_HOME` and `CFO_STATE_OVERRIDE` and every gate step inherits both, so the `--intent` text must require any step that runs `cfo`, or a shell that resolves it, to clear them or point them at a temporary directory.
 `internal/home` refuses the inherited fleet home from a test binary, which covers `go test`, but the real `cfo` binary is not a test binary and no-mistakes has no per-repo step environment setting, so the intent is the only place left to state it.
 Commit work on a named feature branch before `run`.
@@ -231,6 +234,37 @@ Recover the migration explicitly with `cfo pipeline migrate <id>` before request
 It requires a native build supporting `axi handback --expect` and receipt-bound `--resume`, and refuses when that contract is unavailable.
 It never substitutes recovery, approval, a CI fixer or a fresh run.
 A refusal or elapsed hold is reported without automatic retry; inspect the native status and receipt before continuing.
+
+Terminal validation admission is separate from `run`, recovery and CI handback:
+
+```powershell
+cfo pipeline terminal-preflight <id> --run <predecessor>
+cfo pipeline validate-authored <id> --admission-file admission.json
+cfo pipeline validate-terminal <id> --branch fix/correction --admission-file admission.json
+```
+
+Only the registered primary CFO may submit either admission, including accepting the committed source and choosing a terminal successor's fresh harness selection.
+The registered primary CFO or the task's own authenticated goblin may inspect `terminal-preflight`, which delegates read-only observations to native without fetching, recovering custody, preparing an admission or starting validation.
+Gate agents cannot submit admission or inspect preflight, even with inherited CFO or goblin terminal proof.
+Keep that output private: it holds local paths, source observations and recovery anchors.
+The controller prepares one UTF-8 JSON object of at most 64 KiB under the native build's validation admission contract, using its original predecessor receipt, immutable snapshot digest, original launch nonce and validation generation, original intent digest and publication identity.
+Unknown fields and trailing input are refused.
+Its `controller_policy` must exactly match this task's frozen policy hash, class and review cycles, as a controller assertion rather than proof of native historical policy.
+`historical_source_completeness` stays `unknown`; a clean candidate certifies none of the predecessor's missing dirty or untracked files.
+An unchanged terminal candidate also requires the native terminal protocol's independent `terminal_generation`, explicit `accept_unknown_source: true`, current trusted launch assertion and exact `source_anchors`.
+The driver checks task, project, canonical recorded worktree, branch, predecessor repository and exact full candidate commit/tree before delegating, requiring a clean worktree including untracked files and submodules; native atomically checks the immutable history, latest owner, original launch and intent, publication target, anchors and successor proof.
+Completed ordinary predecessors remain native-ineligible.
+To prevent a replaced input file from changing checked bindings, native receives a temporary byte-identical snapshot, deleted when the call ends.
+No ordinary `axi run`, policy migration, repair, skip or automatic retry is substituted on refusal.
+Every stage runs fresh with zero automatic and manual repair capacity, and native retains the predecessor and cumulative spending.
+Repeating identical admission observes the same child; only an untouched pending acceptance can explicitly start after native revalidation, and progressed or cancelled children are never restarted.
+Each native admission invocation's raw stdout, stderr, exit code and execution error, including refusals, receipts and cumulative spending, is retained in `state/tasktmp/<id>/validation-admissions.jsonl`, keyed by input digest, with an entry in the task status log.
+Local checks that refuse before native invocation create no admission record; preflight prints its private output without writing an admission record.
+A bounded hold returns unresolved work and directs the controller to inspect the receipt before explicitly replaying the identical admission.
+Pending or unreadable migration journals refuse all three operations without mutation; only explicit `migrate` may resolve them.
+These routes require native support for their exact `axi validate-authored --admission-file`, `axi validate-terminal --admission-file` and `axi terminal-preflight --predecessor` contracts.
+Authored admission support alone does not provide `terminal-preflight` or `validate-terminal`; both require the companion native terminal-continuation feature.
+This driver does not change the [install pin](#what-v6-needs); installing the required native build and this managed driver is separate from validation, and admission grants no live installation or adoption authority.
 
 `respond` requires durable evidence of one parked gate in this project's current branch.
 It refuses a gate already answered or still running and checks that the active review's persisted automatic limit is disabled or zero.
