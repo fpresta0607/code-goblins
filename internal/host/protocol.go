@@ -53,6 +53,10 @@ const (
 	frameUnread byte = 'u'
 	// frameSubmission arms turn evidence for this viewer before its input.
 	frameSubmission byte = 't'
+	// frameHis says the input that follows on its connection is the Overlord's
+	// own, so a screen his harness draws from it is his to answer. A host that
+	// knows it says so in its hello.
+	frameHis byte = 'y'
 	// frameLine carries one line of a stream session: to a viewer, a
 	// StreamLine as JSON, the kept ones first; from a writer, one JSON object
 	// for the host to write to the program, which it acknowledges as it does
@@ -99,8 +103,12 @@ type hello struct {
 	// host refuses a client that does not ask, a terminal host one that does,
 	// and a host from before stream sessions answers as to a viewer, without
 	// it, which the client refuses.
-	Stream bool   `json:"stream,omitempty"`
-	Error  string `json:"error,omitempty"`
+	Stream bool `json:"stream,omitempty"`
+	// His, from the host, says it knows frameHis: a connection can tell it
+	// that its input is the Overlord's own. A host from before it answers
+	// without it, and the client tells it nothing.
+	His   bool   `json:"his,omitempty"`
+	Error string `json:"error,omitempty"`
 }
 
 type submission struct {

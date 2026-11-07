@@ -102,7 +102,7 @@ The composer offers files, the session's permission mode, model and effort, plus
 Type `/` for harness commands or `@` for files.
 On a phone, **Clear message**, the trash button beside **Speech history**, clears the whole unsent typed or dictated draft without sending it, interrupting the session or touching queued messages; text already in the native Terminal's input is edited there.
 
-When a harness question or picker appears in Modern Chat, it shows above the box as a list to pick from; **Terminal** in the style menu of the session's picture shows the terminal itself, and **Modern chat** returns to the conversation.
+When a harness question or picker that something you typed or sent asked for appears in Modern Chat, it shows above the box as a list to pick from, and one a wake line or a notice opened stays in the terminal; **Terminal** in the style menu of the session's picture shows the terminal itself, and **Modern chat** returns to the conversation.
 The native terminal keeps the harness's own keyboard controls and prompts.
 **Open in Windows Terminal** offers another view of the same session on the PC.
 
@@ -114,9 +114,9 @@ The native terminal keeps the harness's own keyboard controls and prompts.
 
 To change direction, send a short follow-up to the relevant conversation.
 A message reads **Queued** at the end of the chat while the board holds it, as it holds one to the CEO for a short undo window and a command to a busy goblin until its turn ends: **Edit** takes it back into the composer and **Cancel** withdraws it.
-**Send now** is available according to the message's delivery state and harness; a request that cannot proceed explains why.
+**Send now** is available according to the message's delivery state and harness, and presses the harness's own send-now key once the message is in its queue, which interrupts a working turn; a request that cannot proceed explains why.
 Once typed into the session it reads **Sent**, with no Edit or Cancel, since the harness then owns it.
-Use the native Terminal for the harness's interruption controls; **Pause** and **Stop** in Task control the task's session.
+Use the native Terminal for the harness's other interruption controls; **Pause** and **Stop** in Task control the task's session.
 See [conversations, terminal navigation and controls](docs/native-board.md).
 
 ### Command Center

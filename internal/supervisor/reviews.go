@@ -1011,7 +1011,7 @@ func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error
 		result, err = s.Options.CFO.Send(ctx, r.Identity, fmt.Sprintf("Answer to your review item %s (%s): %s", r.ID, r.Title, a.Text))
 	} else {
 		text := fmt.Sprintf("The Overlord answered your review item %s (%s): %s", r.ID, r.Title, a.Text)
-		result, err = s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, text)
+		result, err = s.Options.CFO.SendGoblinHis(ctx, r.Task, r.Identity, text)
 		if errors.Is(err, ErrRejected) {
 			return s.answerReviewToCFO(ctx, r, a.Text)
 		}

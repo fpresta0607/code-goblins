@@ -21,6 +21,10 @@ var screenTimeout = 10 * time.Second
 // flight.
 var holdScreenRead = func() {}
 
+// hisSubmission is what a screen reports while the input it shows is the
+// Overlord's own, for a view that submitted nothing through the board.
+const hisSubmission = "his"
+
 // screen is a screen frame's payload: the rows of the terminal's window, or
 // why they could not be read.
 type screen struct {
@@ -119,6 +123,9 @@ func serveScreen(connection *os.File, console *conpty.Console, screens *sync.RWM
 				answer = screen{Rows: output.screen.Rows()}
 				if request.Submission == viewer.submission {
 					answer.Submission, answer.HasStarted = viewer.submission, viewer.hasStarted
+				}
+				if answer.Submission == "" && output.isHis {
+					answer.Submission = hisSubmission
 				}
 				break
 			}
