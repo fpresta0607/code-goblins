@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	goruntime "runtime"
 	"slices"
 	"strings"
 	"time"
@@ -107,7 +108,11 @@ func runGatePrepare(dir string, stdout, stderr io.Writer, runtime commandRuntime
 	}
 	start := time.Now()
 	fmt.Fprintln(stdout, "cfo gate prepare: npm ci in this worktree's frontend")
-	exit, err := runtime.gateRun([]string{"npm", "ci"}, filepath.Join(plan.Root, "frontend"), gatetest.Environment(os.Environ()), stdout, stderr)
+	command := []string{"npm", "ci"}
+	if goruntime.GOOS == "windows" {
+		command = []string{"cmd.exe", "/d", "/c", "npm", "ci"}
+	}
+	exit, err := runtime.gateRun(command, filepath.Join(plan.Root, "frontend"), gatetest.Environment(os.Environ()), stdout, stderr)
 	fmt.Fprintf(stdout, "cfo gate prepare: locked install finished in %s\n", time.Since(start).Round(time.Millisecond))
 	if err != nil || exit != 0 {
 		fmt.Fprintf(stderr, "cfo gate prepare: npm ci: exit %d: %v\n", exit, err)

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -14,6 +15,10 @@ import (
 )
 
 func TestGatePrepareConfiguredCommandReadiesFrontendBeforeTest(t *testing.T) {
+	wantCommand := []string{"npm", "ci"}
+	if runtime.GOOS == "windows" {
+		wantCommand = []string{"cmd.exe", "/d", "/c", "npm", "ci"}
+	}
 	// Arrange
 	data, err := os.ReadFile(filepath.Join(repoRootFromCmdCFO(t), ".no-mistakes.yaml"))
 	if err != nil {
@@ -37,7 +42,7 @@ func TestGatePrepareConfiguredCommandReadiesFrontendBeforeTest(t *testing.T) {
 	installs := 0
 	runtime.gateRun = func(command []string, where string, _ []string, _, _ io.Writer) (int, error) {
 		installs++
-		if !slices.Equal(command, []string{"npm", "ci"}) || where != filepath.Join(dir, "frontend") {
+		if !slices.Equal(command, wantCommand) || where != filepath.Join(dir, "frontend") {
 			t.Fatalf("installer = %q in %s", command, where)
 		}
 		return 0, os.MkdirAll(filepath.Join(where, "node_modules"), 0o755)
@@ -59,6 +64,10 @@ func TestGatePrepareConfiguredCommandReadiesFrontendBeforeTest(t *testing.T) {
 }
 
 func TestGatePrepareInstallsOnlyForFrontendChanges(t *testing.T) {
+	wantCommand := []string{"npm", "ci"}
+	if runtime.GOOS == "windows" {
+		wantCommand = []string{"cmd.exe", "/d", "/c", "npm", "ci"}
+	}
 	for _, test := range []struct {
 		name, file, content string
 		wantInstalls        int
@@ -87,7 +96,7 @@ func TestGatePrepareInstallsOnlyForFrontendChanges(t *testing.T) {
 			installs := 0
 			runtime.gateRun = func(command []string, where string, env []string, _, _ io.Writer) (int, error) {
 				installs++
-				if !slices.Equal(command, []string{"npm", "ci"}) || where != filepath.Join(dir, "frontend") {
+				if !slices.Equal(command, wantCommand) || where != filepath.Join(dir, "frontend") {
 					t.Fatalf("installer = %q in %s", command, where)
 				}
 				for _, value := range env {
@@ -115,6 +124,10 @@ func TestGatePrepareInstallsOnlyForFrontendChanges(t *testing.T) {
 }
 
 func TestGatePreparePropagatesLockedInstallerFailures(t *testing.T) {
+	wantCommand := []string{"npm", "ci"}
+	if runtime.GOOS == "windows" {
+		wantCommand = []string{"cmd.exe", "/d", "/c", "npm", "ci"}
+	}
 	for _, test := range []struct {
 		name string
 		exit int
@@ -136,7 +149,7 @@ func TestGatePreparePropagatesLockedInstallerFailures(t *testing.T) {
 			installs := 0
 			runtime.gateRun = func(command []string, _ string, _ []string, _, stderr io.Writer) (int, error) {
 				installs++
-				if !slices.Equal(command, []string{"npm", "ci"}) {
+				if !slices.Equal(command, wantCommand) {
 					t.Fatalf("unlocked install: %q", command)
 				}
 				io.WriteString(stderr, "locked install refused\n")
@@ -150,6 +163,53 @@ func TestGatePreparePropagatesLockedInstallerFailures(t *testing.T) {
 			// Assert
 			if exit == 0 || installs != 1 || !strings.Contains(stderr.String(), "locked install refused") {
 				t.Fatalf("exit=%d installs=%d stdout=%s stderr=%s", exit, installs, &stdout, &stderr)
+			}
+		})
+	}
+}
+
+func TestGatePrepareRunsWindowsNpmShim(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows npm.cmd launch regression")
+	}
+	for _, test := range []struct {
+		name          string
+		installerExit string
+		wantExit      int
+	}{
+		{"success", "0", 0},
+		{"installer failure", "7", 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := testStepModule(t, map[string]string{
+				".gitignore":                 "frontend/node_modules/\n",
+				"frontend/package.json":      `{"name":"board","version":"1.0.0"}`,
+				"frontend/package-lock.json": `{"name":"board","lockfileVersion":3,"packages":{}}`,
+			}, map[string]string{"frontend/board.ts": "changed\n"})
+			t.Chdir(dir)
+			installerDir := filepath.Join(t.TempDir(), "npm shim")
+			if err := os.MkdirAll(installerDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			installer := "@echo off\r\nif not \"%*\"==\"ci\" exit /b 91\r\nif not exist package-lock.json exit /b 92\r\nif defined CFO_HOME exit /b 93\r\nif defined CFO_STATE_OVERRIDE exit /b 94\r\nmkdir node_modules\r\necho locked installer ran\r\nexit /b " + test.installerExit + "\r\n"
+			if err := os.WriteFile(filepath.Join(installerDir, "npm.cmd"), []byte(installer), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", installerDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("CFO_HOME", filepath.Join(dir, "fleet"))
+			t.Setenv("CFO_STATE_OVERRIDE", filepath.Join(dir, "fleet", "state"))
+			var stdout, stderr bytes.Buffer
+
+			exit := runWithRuntime([]string{"gate", "prepare"}, &stdout, &stderr, defaultCommandRuntime())
+
+			if exit != test.wantExit || !strings.Contains(stdout.String(), "locked installer ran") {
+				t.Fatalf("exit=%d, want %d; stdout=%s stderr=%s", exit, test.wantExit, &stdout, &stderr)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "frontend", "node_modules")); err != nil {
+				t.Fatalf("own dependencies not prepared: %v", err)
+			}
+			if test.wantExit != 0 && !strings.Contains(stderr.String(), "exit 7") {
+				t.Fatalf("installer failure not propagated: %s", &stderr)
 			}
 		})
 	}
