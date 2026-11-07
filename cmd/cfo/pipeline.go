@@ -339,7 +339,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "pipeline custody: recovered run %s; local and gate head preserved at %s\n", result.RunID, result.Head)
+		fmt.Fprintf(out, "pipeline custody: recovered run %s; local head preserved at %s; gate branch at %s\n", result.RunID, result.Head, result.GateHead)
 		if result.WorktreeEdits != "" {
 			fmt.Fprintf(out, "pipeline worktree: run %s's unfinished edits are kept at %s under %s; restore them with git cherry-pick -n %s\n", result.RunID, result.WorktreeEdits, pipeline.WorktreeRef(result.RunID), result.WorktreeEdits)
 		}

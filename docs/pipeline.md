@@ -308,7 +308,27 @@ Other refusals return exit 1.
 This is a cooperative driver guard, not an operating-system sandbox around direct native commands.
 Agents must use the driver for managed tasks and must not invoke native mutation commands to bypass its budgets.
 
-`recover` returns custody after a failed or cancelled unpublished run when native recovery is blocked by a stale recorded head.
+`recover` returns source custody for eligible failed or cancelled runs without moving the contributor's branch.
+An authored validation child interrupted by restart that inherited its predecessor's publication has a separate recovery path from an unpublished run.
+Immutable admission provenance must bind the unchanged recorded and submitted candidate, original launch and intent to the initial child, and its inherited publication, PR identity and push generation to the predecessor snapshot.
+The registered caller must be clean at the recorded candidate; any remaining managed worktree must also be clean at that head in the registered gate repository.
+Native `terminal-preflight` must verify current history, latest ownership and the exact authored-admission and restart recovery anchors.
+The gate branch must still match the inherited publication or the predecessor's recorded or submitted head.
+Before custody is returned, native status must offer plain `axi sync --recover`, and its receipt must confirm recovered custody with unchanged source.
+The driver then verifies the durable custody stamp, admission, local head, retained gate branch and source anchors without controller-side database updates or gate alignment.
+The output reports the local head and gate branch head separately.
+A retry after custody returned requires native `local_ahead` / `blocked_local_ahead` with an `ahead` relation, which is expected when the candidate is ahead of the retained publication.
+An unpublished authored child can also retain its predecessor's older gate branch while its unchanged recorded and submitted candidate is already user-owned.
+That case requires the same immutable admission, clean source, verified history and exact authored-candidate anchor, with native `user_owned` state and safety and an `equal` relation.
+The driver reports the separately preserved local and gate heads without changing refs, history or the null custody stamp, since native has already released this source.
+Ordinary unpublished cancellations gain no authored-provenance exception.
+Ordinary published runs, children that published their own source, changed or missing provenance or anchors, stale generations, configured automatic repair or a spent repair round, active ownership and uncertain history remain refused.
+Recovery preserves failed stages, historical source uncertainty and cumulative automatic and manual spending; it renews no repair allowance or review cycles.
+It returns source custody only: a later authored correction still requires the source-bound validation admission described above and every required stage before publication.
+Default repository CI exercises these controller paths and refusals with real Git and SQLite fixtures, substituting only the external native transport.
+The separate native admission, restart, recovery and continuation journey keeps its prepared-executable/source binding and explicit native-fixture prerequisite.
+
+For an unpublished run, `recover` can repair a stale recorded head that blocks native recovery.
 It first preserves whatever the run's worktree still holds uncommitted, as described below, and names that commit in its output.
 For pipeline-owned recovery that keeps the submitted head, it requires a clean worktree whose head exactly matches both the submitted head and native gate branch.
 The stale recorded commit must be an ancestor of that preserved head, or the gate's own rebase of it.
@@ -333,12 +353,12 @@ A confirmed unchanged row permits rollback, a committed row continues forward, a
 Native status must confirm all three heads before success is reported.
 If a later status check triggers rollback, the gate moves back only after the database rollback succeeds, so a transient database failure preserves the forward-aligned retry state.
 The local branch and origin refs are never moved.
-The command never resets a branch or recovers a pushed run.
+The command never resets a branch.
 Pipeline-owned recorded-head repair requires strict ancestry or that proof of a pure gate rebase.
 After native has already returned clean user-owned custody, the registered identity, unpublished-run state, stale-head anchor, and compare-and-swap guards are the authorized boundary, so the driver does not reject legitimate rebases or follow-up commits by comparing them with the stale head.
 
 A gate's fixer works in the run's worktree, which no-mistakes removes with force once the run is over, so the driver keeps what the fixer left uncommitted before anything takes that worktree away.
-Before `cfo pipeline recover` runs any native command, and before a pause aborts a live run, every tracked and untracked change in the run's worktree is committed and pinned under `refs/no-mistakes/recovery/<run>/worktree` in the gate repository, and that commit's parent is the head the run ended at.
+Before unpublished recovery runs any native command, and before a pause aborts a live run, every tracked and untracked change in the run's worktree is committed and pinned under `refs/no-mistakes/recovery/<run>/worktree` in the gate repository, and that commit's parent is the head the run ended at.
 The commit is made from an index of the driver's own, so the goblin's staged and unstaged work is exactly as it left it, and a first capture stands rather than being replaced by a later one a goblin may already be restoring.
 The commit is named in the branch-sync evidence the recovery reads, in `cfo pipeline recover`'s output, and in the lifecycle record of a pause, so an interrupted fixer's repairs stay recoverable with `git cherry-pick -n <commit>` after the worktree is gone.
 On 2026-10-23 an allowance-interrupted review repair lost its frontend changes exactly this way: the step failed, custody returned at the submitted head, and native recovery swept the worktree before anything read it (issue 1416).
