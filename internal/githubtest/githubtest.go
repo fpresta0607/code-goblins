@@ -127,9 +127,23 @@ func PullRequestNode(pull map[string]any) map[string]any {
 				context[key] = value
 			}
 			delete(context, "workflowName")
-			context["checkSuite"] = map[string]any{"workflowRun": nil}
-			if workflow, _ := check["workflowName"].(string); workflow != "" {
-				context["checkSuite"] = map[string]any{"workflowRun": map[string]any{"workflow": map[string]any{"name": workflow}}}
+			if _, hasSuite := check["checkSuite"]; !hasSuite {
+				suite := map[string]any{
+					"id": check["checkSuiteNodeId"], "databaseId": check["checkSuiteId"],
+					"app":         map[string]any{"databaseId": check["appId"]},
+					"commit":      map[string]any{"oid": check["headSha"]},
+					"repository":  map[string]any{"nameWithOwner": check["repository"]},
+					"workflowRun": nil,
+				}
+				if workflow, _ := check["workflowName"].(string); workflow != "" {
+					suite["workflowRun"] = map[string]any{
+						"id": check["workflowRunNodeId"], "databaseId": check["workflowRunId"],
+						"runAttempt": check["runAttempt"], "event": check["event"],
+						"file":     map[string]any{"path": check["workflowPath"], "repositoryName": check["workflowRepository"]},
+						"workflow": map[string]any{"id": check["workflowNodeId"], "databaseId": check["workflowId"], "name": workflow},
+					}
+				}
+				context["checkSuite"] = suite
 			}
 			if check["__typename"] == "StatusContext" {
 				delete(context, "startedAt")
@@ -137,7 +151,7 @@ func PullRequestNode(pull map[string]any) map[string]any {
 			}
 			contexts = append(contexts, context)
 		}
-		rollup = map[string]any{"contexts": map[string]any{"nodes": append([]any{}, contexts...)}}
+		rollup = map[string]any{"contexts": map[string]any{"nodes": append([]any{}, contexts...), "pageInfo": map[string]any{"hasNextPage": pull["isCheckRollupIncomplete"] == true}}}
 	}
 	delete(node, "statusCheckRollup")
 	node["commits"] = map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"statusCheckRollup": rollup}}}}

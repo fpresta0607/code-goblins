@@ -1,0 +1,16 @@
+{
+  "id": 42236780731,
+  "node_id": "WFR_kwLOU85QQ88AAAAJ1YIguw",
+  "name": "PR #122 body compliance - opened - event 115 (run 42236780731)",
+  "display_title": "PR #122 body compliance - opened - event 115 (run 42236780731)",
+  "path": ".github/workflows/no-mistakes-required.yml",
+  "event": "pull_request",
+  "head_sha": "8231f968f54bc0386815bb24dd7e5a82099f1e99",
+  "workflow_id": 377882636,
+  "check_suite_id": 114442038361,
+  "check_suite_node_id": "CS_kwDOU85QQ88AAAAapUbsWQ",
+  "run_attempt": 1,
+  "repository": {
+    "full_name": "fpresta0607/no-mistakes"
+  }
+}
