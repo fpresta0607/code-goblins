@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1346,6 +1347,9 @@ func TestPipelineScopeDecisionUsesTheRegisteredCFOAndNativeEvidence(t *testing.T
 	if request.Dir != runner.worktree {
 		t.Fatalf("native request=%+v, want the scope response sent from the task worktree", request)
 	}
+	if got := requests.all(); len(got) != 1 || got[0].Method != "get_run" || got[0].RunID != "run" {
+		t.Fatalf("native evidence requests=%+v, want one get_run for the gated run", got)
+	}
 	var sent, want any
 	if err := json.Unmarshal(runner.scopeDecision, &sent); err != nil {
 		t.Fatalf("native scope decision file=%q, want the request's decoded decision: %v", runner.scopeDecision, err)
@@ -1358,14 +1362,6 @@ func TestPipelineScopeDecisionUsesTheRegisteredCFOAndNativeEvidence(t *testing.T
 	}
 	if runner.roundsReads != 2 {
 		t.Fatalf("native rounds reads=%d, want the pre-response evidence and its durable acknowledgement", runner.roundsReads)
-	}
-	select {
-	case got := <-requests:
-		if got.Method != "get_run" || got.RunID != "run" {
-			t.Fatalf("native evidence request=%+v, want get_run for the gated run", got)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("managed driver did not read native RunInfo")
 	}
 	journal, err := os.ReadFile(scopeJournalPath(meta))
 	if err != nil {
@@ -1453,9 +1449,7 @@ func TestPipelineScopeDecisionAllowsAnIdenticalReplay(t *testing.T) {
 	if len(runner.native) != 1 {
 		t.Fatalf("native calls=%+v, want the replay sent once more", runner.native)
 	}
-	select {
-	case <-requests:
-	case <-time.After(time.Second):
+	if len(requests.all()) == 0 {
 		t.Fatal("identical replay did not read native RunInfo")
 	}
 	journal, readErr := os.ReadFile(scopeJournalPath(meta))
@@ -1635,7 +1629,22 @@ type scopeRunRequest struct {
 	RunID  string
 }
 
-func serveScopeRun(t *testing.T, nativeRoot, run string) <-chan scopeRunRequest {
+// scopeRunLog is the RunInfo requests the stand-in native engine answered. It
+// records a request before replying to it, so a driver that finished its read
+// cannot have done so before the request it made is on the log: no clock is
+// needed to tell whether the managed driver asked native anything.
+type scopeRunLog struct {
+	mu       sync.Mutex
+	requests []scopeRunRequest
+}
+
+func (log *scopeRunLog) all() []scopeRunRequest {
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	return slices.Clone(log.requests)
+}
+
+func serveScopeRun(t *testing.T, nativeRoot, run string) *scopeRunLog {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -1646,7 +1655,7 @@ func serveScopeRun(t *testing.T, nativeRoot, run string) <-chan scopeRunRequest 
 	if err := os.WriteFile(filepath.Join(nativeRoot, "socket"), []byte(listener.Addr().String()+"\n"+token+"\n"+strconv.Itoa(os.Getpid())), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	requests := make(chan scopeRunRequest, 1)
+	requests := &scopeRunLog{}
 	go func() {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -1668,8 +1677,10 @@ func serveScopeRun(t *testing.T, nativeRoot, run string) <-chan scopeRunRequest 
 		if err := json.NewDecoder(reader).Decode(&request); err != nil {
 			return
 		}
+		requests.mu.Lock()
+		requests.requests = append(requests.requests, scopeRunRequest{Method: request.Method, RunID: request.Params.RunID})
+		requests.mu.Unlock()
 		_ = json.NewEncoder(conn).Encode(map[string]any{"jsonrpc": "2.0", "result": map[string]json.RawMessage{"run": json.RawMessage(run)}, "id": request.ID})
-		requests <- scopeRunRequest{Method: request.Method, RunID: request.Params.RunID}
 	}()
 	return requests
 }
