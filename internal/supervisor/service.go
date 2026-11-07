@@ -1781,6 +1781,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	if err != nil {
 		return out, err
 	}
+	// The sessions the ledger holds no start for, which the tasks below name
+	// from the conversations the board's own reads of the harnesses kept.
+	var keptSessions []Session
 	untitled := map[string]bool{}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".meta") {
@@ -1799,6 +1802,16 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// its Pi session, and its card read no evidence at all.
 		if linked && node.Generation != meta.SpawnGen {
 			node, linked = Session{}, false
+		}
+		// The session the board names for this goblin: its ledger's, else the
+		// conversation the board's own read of the running harness proved and
+		// kept. Without the second a pi goblin, whose start its ledger never
+		// took here, is named by no session at all, and Modern Chat, the
+		// family tree and its panel have nothing to attach to.
+		named, hasNamed := namedSession(d, s.Store.Home.State, meta)
+		if !linked && hasNamed {
+			named.Runtime = s.runtimeEvidence(meta, named, out.At)
+			keptSessions = append(keptSessions, named)
 		}
 		runtime := s.runtimeEvidence(meta, node, out.At)
 		if evaluation.Generation != meta.SpawnGen {
@@ -1898,7 +1911,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Runtime: runtime, Activity: activity, LastReport: lastReport, ClosedIssue: state.DoneClosed(lastReport), ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), isBackAtWork: isBackAtWork, Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: named.ID, Runtime: runtime, Activity: activity, LastReport: lastReport, ClosedIssue: state.DoneClosed(lastReport), ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), isBackAtWork: isBackAtWork, Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
@@ -2198,6 +2211,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	// its own in its generation, and no other: of the 512 the store keeps,
 	// sub-agents' and retired goblins' among them, it drew 24 on 2026-10-28,
 	// and the rest were 290 KB of every board's first snapshot (#1611).
+	// The sessions the ledger holds no start for, which the tasks above named
+	// from the conversations their own reads kept, are drawn as the ledger's
+	// are, in the same order.
+	out.Sessions = append(out.Sessions, keptSessions...)
+	slices.SortFunc(out.Sessions, func(one, other Session) int { return strings.Compare(one.ID, other.ID) })
 	out.Sessions = slices.DeleteFunc(out.Sessions, func(node Session) bool {
 		return node.Role != "cfo" && !slices.ContainsFunc(out.Tasks, func(task Task) bool { return task.Session == node.ID && task.Generation == node.Generation })
 	})
