@@ -10,6 +10,7 @@ import (
 )
 
 func TestNativePRAttestationFailureDoesNotFailCombinedSourceCI(t *testing.T) {
+	t.Parallel()
 	s, gh, engine, started, _ := nativeTrain(t)
 
 	// Act
@@ -80,6 +81,7 @@ func nativeRunResponse(check Check) map[string]any {
 }
 
 func TestNativeAttestationExceptionRetainsOtherCIAndExactProvenance(t *testing.T) {
+	t.Parallel()
 	_, gh, engine, started, _ := nativeTrain(t)
 	w := gh.workflowOf(started.Head)
 	original := w.extra[0]
@@ -118,8 +120,10 @@ func TestNativeAttestationExceptionRetainsOtherCIAndExactProvenance(t *testing.T
 }
 
 func TestNativeAttestationIsRecheckedBeforeLanding(t *testing.T) {
+	t.Parallel()
 	for _, change := range []string{"missing", "pending", "failed", "skipped", "changed", "ambiguous", "head", "held", "draft", "review", "base", "sibling failed", "sibling pending", "sibling foreign", "replacement", "legacy"} {
 		t.Run(change, func(t *testing.T) {
+			t.Parallel()
 			s, gh, engine, started, pulls := nativeTrain(t)
 			pr := gh.pulls[pulls[0].URL]
 			if change == "legacy" {
@@ -174,6 +178,7 @@ func TestNativeAttestationIsRecheckedBeforeLanding(t *testing.T) {
 }
 
 func TestNativeAttestationExceptionSurvivesRealCIRetryAndRecovery(t *testing.T) {
+	t.Parallel()
 	s, gh, engine, started, _ := nativeTrain(t)
 	gh.workflowOf(started.Head).isFlaky = true
 	retrying := s.step(engine, started.ID)
@@ -193,8 +198,10 @@ func TestNativeAttestationExceptionSurvivesRealCIRetryAndRecovery(t *testing.T) 
 }
 
 func TestNativeAttestationRecoveryRejectsChangedSavedChecks(t *testing.T) {
+	t.Parallel()
 	for _, change := range []string{"source", "PR-only", "rider"} {
 		t.Run(change, func(t *testing.T) {
+			t.Parallel()
 			s, gh, engine, started, pulls := nativeTrain(t)
 			gh.readiness = "BLOCKED"
 			held := s.step(engine, started.ID)
@@ -219,9 +226,11 @@ func TestNativeAttestationRecoveryRejectsChangedSavedChecks(t *testing.T) {
 }
 
 func TestNativeAttestationRecoveryReconcilesLifecycle(t *testing.T) {
+	t.Parallel()
 	for _, observation := range []string{"changed failure", "pending", "success", "missing", "ambiguous", "incomplete", "rider rerun"} {
 		for _, lifecycle := range []string{"closed", "base moved", "rider withdrawn", "base moved and rider withdrawn"} {
 			t.Run(observation+"/"+lifecycle, func(t *testing.T) {
+				t.Parallel()
 				s, gh, engine, started, pulls := nativeTrain(t)
 				gh.readiness = "BLOCKED"
 				held := s.step(engine, started.ID)
@@ -289,8 +298,10 @@ func TestNativeAttestationRecoveryReconcilesLifecycle(t *testing.T) {
 }
 
 func TestNativeAttestationUnprovenCIKeepsSavedProof(t *testing.T) {
+	t.Parallel()
 	for _, observation := range []string{"incomplete", "rider rerun", "unknown mergeability"} {
 		t.Run(observation, func(t *testing.T) {
+			t.Parallel()
 			s, gh, engine, started, pulls := nativeTrain(t)
 			gh.readiness = "BLOCKED"
 			held := s.step(engine, started.ID)
@@ -321,9 +332,11 @@ func TestNativeAttestationUnprovenCIKeepsSavedProof(t *testing.T) {
 }
 
 func TestNativeAttestationIncompleteRiderReconcilesLifecycle(t *testing.T) {
+	t.Parallel()
 	for _, incomplete := range []int{0, 1} {
 		for _, lifecycle := range []string{"unchanged", "held", "draft", "closed", "head", "base", "review", "conflict", "landed"} {
 			t.Run(fmt.Sprintf("rider %d/%s", incomplete, lifecycle), func(t *testing.T) {
+				t.Parallel()
 				s, gh, engine, started, pulls := nativeTrain(t)
 				gh.readiness = "BLOCKED"
 				held := s.step(engine, started.ID)
@@ -384,6 +397,7 @@ func TestNativeAttestationIncompleteRiderReconcilesLifecycle(t *testing.T) {
 }
 
 func TestNativeAttestationRecoveryKeepsStaleHeadProof(t *testing.T) {
+	t.Parallel()
 	s, gh, engine, started, pulls := nativeTrain(t)
 	gh.readiness = "BLOCKED"
 	held := s.step(engine, started.ID)

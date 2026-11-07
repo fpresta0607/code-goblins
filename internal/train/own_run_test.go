@@ -139,8 +139,10 @@ func TestALoneRiderWhoseOwnRunTestedTodaysMainLandsWithNoTrainRun(t *testing.T) 
 }
 
 func TestOwnRunIncompleteChecksReconcileLifecycle(t *testing.T) {
+	t.Parallel()
 	for _, lifecycle := range []string{"unchanged", "closed", "base moved", "held"} {
 		t.Run(lifecycle, func(t *testing.T) {
+			t.Parallel()
 			s := newScratch(t)
 			gh := newFakeGitHub(s)
 			pr := provenRider(s, gh, 5)
@@ -188,8 +190,10 @@ func TestOwnRunIncompleteChecksReconcileLifecycle(t *testing.T) {
 }
 
 func TestOwnRunKeepsInitialCheckCustodyBeforeItsFirstAdvance(t *testing.T) {
+	t.Parallel()
 	for _, observation := range []string{"read failures", "red checks", "pending checks", "changed green identity"} {
 		t.Run(observation, func(t *testing.T) {
+			t.Parallel()
 			s := newScratch(t)
 			github := newFakeGitHub(s)
 			pr := provenRider(s, github, 5)
@@ -238,9 +242,11 @@ func TestOwnRunKeepsInitialCheckCustodyBeforeItsFirstAdvance(t *testing.T) {
 }
 
 func TestOwnRunCheckChangesHoldThroughBothEligibilityPaths(t *testing.T) {
+	t.Parallel()
 	for _, observation := range []string{"failed", "pending"} {
 		for _, phase := range []string{"before polling", "during landing recheck"} {
 			t.Run(observation+"/"+phase, func(t *testing.T) {
+				t.Parallel()
 				s, github, held := newHeldTrain(t, true)
 				proof := slices.Clone(held.History[0].Passed)
 				failures := slices.Clone(held.History[0].MergeFailures)
@@ -284,8 +290,10 @@ func TestOwnRunCheckChangesHoldThroughBothEligibilityPaths(t *testing.T) {
 }
 
 func TestOwnRunProofStillHonorsActualRiderWithdrawal(t *testing.T) {
+	t.Parallel()
 	for _, change := range []string{"held", "closed", "draft", "moved", "conflicting", "review required", "changes requested", "different base", "cross repository"} {
 		t.Run(change, func(t *testing.T) {
+			t.Parallel()
 			s, github, held := newHeldTrain(t, true)
 			car := held.Cars[0]
 			github.ownRuns[car.URL].conclusion = "FAILURE"
