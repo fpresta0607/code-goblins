@@ -285,8 +285,6 @@ func TestAStreamSaysWhatTheSessionsTurnIs(t *testing.T) {
 	}
 }
 
-// TestAReadThatOnlyCarriesOnTheStreamIsNoRestatement keeps an ordinary read of
-// newer messages from being taken for a harness that rewrote its record.
 // TestATickThatCarriesInANewMessageKeepsTheConversation is the live path a
 // session's second turn takes: the read of the messages that began or changed
 // since the last tick carries the stream on instead of restating it to the
@@ -366,6 +364,8 @@ func TestATickThatCarriesInANewMessageKeepsTheConversation(t *testing.T) {
 	}
 }
 
+// TestAReadThatOnlyCarriesOnTheStreamIsNoRestatement keeps an ordinary read of
+// newer messages from being taken for a harness that rewrote its record.
 func TestAReadThatOnlyCarriesOnTheStreamIsNoRestatement(t *testing.T) {
 	held := []fleettree.Message{{ID: "u1", Seq: 0}, {ID: "a1", Seq: 1}}
 	for name, tc := range map[string]struct {

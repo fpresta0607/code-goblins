@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -383,14 +384,6 @@ func (a *Appender) load() error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrUnreadable, err)
 	}
-	// An entry a reader passes over as still being written, or as cut short,
-	// is trimmed here, so the next append never buries it mid-stream where
-	// every reader after would refuse the stream.
-	if whole := endedBytes(data); whole < len(data) {
-		if err := os.Truncate(a.path, int64(whole)); err != nil {
-			return err
-		}
-	}
 	for _, event := range events {
 		a.seen[event.ID] = true
 		if event.Seq >= a.seq {
@@ -399,15 +392,6 @@ func (a *Appender) load() error {
 	}
 	a.loaded = true
 	return nil
-}
-
-// endedBytes is the length of a stream's lines that ended, so everything after
-// it is the newest entry a writer is still appending or one a write cut short.
-func endedBytes(data []byte) int {
-	if len(data) == 0 || data[len(data)-1] == '\n' {
-		return len(data)
-	}
-	return bytes.LastIndexByte(data, '\n') + 1
 }
 
 // Write appends the events of the stream that are not written yet, in the
@@ -444,6 +428,10 @@ func (a *Appender) Write(events []Event) (written []Event, isCompacted bool, err
 		fresh[at].Seq = a.seq + at
 	}
 	if err := a.append(fresh); err != nil {
+		// A write cut short leaves entries whose place this appender no longer
+		// knows, so the next write reads the stream again instead of trusting
+		// what it last saw.
+		a.loaded = false
 		return nil, false, err
 	}
 	for _, event := range fresh {
@@ -454,20 +442,56 @@ func (a *Appender) Write(events []Event) (written []Event, isCompacted bool, err
 }
 
 // append adds the events to the end of the stream, making its folder on the
-// way.
+// way, and after the stream's last whole entry: an entry a write cut short,
+// or one another writer left behind, is trimmed first, so no append buries it
+// mid-stream where every reader after would refuse the stream.
 func (a *Appender) append(events []Event) error {
 	if err := os.MkdirAll(filepath.Dir(a.path), 0o700); err != nil {
 		return err
 	}
-	file, err := os.OpenFile(a.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	file, err := os.OpenFile(a.path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
-	if _, err := file.Write(Encode(events)); err != nil {
-		file.Close()
+	defer file.Close()
+	if err := trimTail(a.path, file); err != nil {
 		return err
 	}
-	return file.Close()
+	_, err = file.Write(Encode(events))
+	return err
+}
+
+// trimTail cuts a stream back to its last ended line, so an append always
+// begins at a whole entry.
+func trimTail(path string, file *os.File) error {
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	size := info.Size()
+	if size == 0 {
+		return nil
+	}
+	last := make([]byte, 1)
+	if _, err := file.ReadAt(last, size-1); err != nil {
+		return err
+	}
+	if last[0] == '\n' {
+		return nil
+	}
+	buffer := make([]byte, 64<<10)
+	for end := size - 1; end > 0; {
+		start := max(0, end-int64(len(buffer)))
+		count, err := file.ReadAt(buffer[:end-start], start)
+		if at := bytes.LastIndexByte(buffer[:count], '\n'); at >= 0 {
+			return os.Truncate(path, start+int64(at)+1)
+		}
+		if err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+		end = start
+	}
+	return os.Truncate(path, 0)
 }
 
 // compact rewrites the stream with the newest event of each thing the session

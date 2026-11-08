@@ -181,6 +181,52 @@ func TestAnAppendAfterAnEntryCutShortKeepsTheStreamReadable(t *testing.T) {
 	}
 }
 
+// TestAnAppendAfterAWriteCutShortKeepsTheStreamReadable keeps a torn entry that
+// appeared after the appender read its stream, as a write that failed leaves,
+// from being buried by the next append: the append begins at the last whole
+// entry whatever the file ends with.
+func TestAnAppendAfterAWriteCutShortKeepsTheStreamReadable(t *testing.T) {
+	// Arrange: an appender that already knows its stream, whose newest entry was
+	// cut short before its newline.
+	stateDir := t.TempDir()
+	appender, err := Open(stateDir, goblin())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := appender.Write([]Event{event(goblin(), KindPrompt, "m1", 0)}); err != nil {
+		t.Fatal(err)
+	}
+	path, err := goblin().Path(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString(`{"id":"half","kind":"text"`); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	written, _, err := appender.Write([]Event{event(goblin(), KindAssistant, "r1", 0)})
+
+	// Assert
+	if err != nil || len(written) != 1 {
+		t.Fatalf("append after a write cut short: %d, %v; want 1", len(written), err)
+	}
+	events, err := Read(stateDir, goblin())
+	if err != nil {
+		t.Fatalf("a stream appended after a write cut short: %v", err)
+	}
+	if len(events) != 2 || events[0].Message != "m1" || events[1].Message != "r1" || events[1].Seq != 1 {
+		t.Fatalf("stream: %+v", events)
+	}
+}
+
 func TestAStreamAtItsBoundKeepsWhatTheSessionIsNow(t *testing.T) {
 	// Arrange
 	stateDir := t.TempDir()
