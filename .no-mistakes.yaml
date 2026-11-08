@@ -30,14 +30,16 @@ disable_project_settings: true
 # machine and ran the slowest packages twice. An agent-chosen step ran the
 # whole suite here, where supervisor alone takes about 22 minutes, and hit
 # the 30-minute test agent limit with no failing test. It runs the installed
-# cfo, so it works once the CEO installs a build that has `cfo gate test`.
+# cfo, so activation needs an installed build with both `cfo gate test` and
+# `cfo gate prepare` after this configuration lands on the default branch.
 #
 # The lint step reuses the affected-check planner for go vet, without running
-# tests again. Unknown changes keep its full-tree fallback. CI's frontend job also runs `npm run
-# typecheck` and `npm run lint` in frontend, which need the node_modules a
-# gate's worktree does not have, so those two stay CI's, and the gate's ci
-# step waits for that run.
+# tests again. Unknown changes keep its full-tree fallback. Native preparation
+# installs the frontend lock in this validation worktree before Test only when
+# the scoped planner sees frontend changes. Go-only and documentation-only
+# changes install nothing. CI's frontend job retains its broader checks.
 commands:
+  prepare: "cfo gate prepare"
   test: "cfo gate test"
   test_focused: "cfo gate test --focused"
   lint: "cfo gate lint"
