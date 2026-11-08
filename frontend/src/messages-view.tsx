@@ -9,7 +9,7 @@ import { MessageDocumentScope } from "./message-document-scope";
 import { drawnSpans, ESTIMATED_ROW_PX, messageRowAt, messageWindow, OVERSCAN_PX } from "./message-window";
 import { Notice } from "./notice";
 import { ReplyWorking } from "./reply-working";
-import { changeMessages, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
+import { changeMessages, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseSession, parseUsage, storedMessageFont, storeMessageFont, turnEnds, viewStanding, type MessagePage, type SessionReport } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { object, parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
 import { useTerminalLink } from "./terminal-link";
@@ -22,9 +22,6 @@ import "./messages-view.css";
 
 // A stream that keeps dropping stops retrying and says why.
 const MAX_RETRIES = 5;
-// The supervisor says alive while a stream has nothing to send, at least
-// every five seconds, so a stream silent this long stalled.
-const SILENT_MS = 15_000;
 // He reads the newest messages again once he scrolls back this close to the
 // list's end.
 const AT_END_PX = 24;
@@ -43,7 +40,7 @@ const OLDER_TRIES = 3;
 // A row with no folds open, shared so its props stay the same.
 const NO_FOLDS: ReadonlySet<string> = new Set();
 const UNREAD = "The session's messages cannot be read";
-type PublishedMessages = MessagePage & { isWorking: boolean; said: string; isLive: boolean; task?: Task; sent: Action[]; pending: Action[]; sending: PendingSend[] };
+type PublishedMessages = MessagePage & { said: string; task?: Task; sent: Action[]; pending: Action[]; sending: PendingSend[] };
 // What the box under the conversation shows of the session: what it spent and
 // the words he sent it.
 type Composing = Pick<MessagePage, "usage"> & { history: string[] };
@@ -64,8 +61,8 @@ type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 // whose link reads what it is doing, sent is every message of his to the session the
 // board knows, pending those of them that still wait, and box is the message
 // box under the conversation.
-export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, isWorking, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
-  query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isWorking: boolean; isCompacting: boolean;
+export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
+  query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isCompacting: boolean;
   sent: Action[]; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
   shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode, onSend: () => void) => ReactNode;
@@ -77,7 +74,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const said = link?.screen?.isWorking && link.screen.doing || "";
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
-  const [held, setHeld] = useState<PublishedMessages>({ conversation: "", messages: [], more: false, isWorking, said, isLive: false, task, sent, pending, sending });
+  const [held, setHeld] = useState<PublishedMessages>({ conversation: "", messages: [], more: false, said, task, sent, pending, sending });
   const heldValue = useRef(held);
   // The stream keeps one latest version while the displayed history stays
   // where he reads. Returning to the end publishes it once, without replay.
@@ -86,6 +83,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // it follows the stream while the history he reads holds still.
   const [composing, setComposing] = useState<Composing>({ history: [] });
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
+  // What the fleet's stream says of the session's turn, which alone draws the
+  // working indicator: never the board's snapshot of the terminal, which can
+  // say a finished turn still works.
+  const [report, setReport] = useState<SessionReport | null>(null);
   const [isReconnecting, setReconnecting] = useState(false);
   const [closedWhy, setClosedWhy] = useState("");
   const [attempt, setAttempt] = useState(0);
@@ -209,21 +210,12 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     olderWaiting.current = null;
     const stream = new EventSource(address({ stream: "1" }));
     let failures = 0;
-    // A stream that stalled is opened again, which begins with the newest
-    // page, and says Reconnecting until it does: on 2026-10-29 the CFO's
-    // view showed a call Running at least 76 s after it ended, with no word
-    // that it was stale.
-    let silence: ReturnType<typeof setTimeout> | undefined;
-    const heard = () => {
-      clearTimeout(silence);
-      silence = setTimeout(() => {
-        stream.close();
-        setReconnecting(true);
-        setAttempt((prior) => prior + 1);
-      }, SILENT_MS);
-    };
+    // A stream that ends or drops is opened again, and says Reconnecting
+    // until it does. Nothing infers that the conversation is stale from how
+    // long the stream was quiet: the stream says itself what the session's
+    // turn is and where its head is, and a view that has drawn less than the
+    // head says it is behind.
     const close = (why: string) => {
-      clearTimeout(silence);
       stream.close();
       setReconnecting(false);
       setClosedWhy(why);
@@ -231,7 +223,6 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     };
     const take = (change: (prior: MessagePage) => MessagePage) => {
       failures = 0;
-      heard();
       const next = { ...latest.current, ...change(latest.current) };
       latest.current = next;
       const reading = readingOlder.current;
@@ -257,13 +248,23 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       reportToCfo(where, "Invalid messages stream");
     };
     stream.addEventListener("page", (event: MessageEvent<string>) => {
-      try { const page = parsePage(JSON.parse(event.data)); olderFailures.current = { count: 0, at: 0 }; take((prior) => pageMessages(prior, page)); } catch { invalid(); }
+      try {
+        const page = parsePage(JSON.parse(event.data));
+        olderFailures.current = { count: 0, at: 0 };
+        // A page begins the state the session reports from, so no word of the
+        // turn before it is drawn over it; its own session event follows.
+        setReport(null);
+        take((prior) => pageMessages(prior, page));
+      } catch { invalid(); }
     });
     stream.addEventListener("messages", (event: MessageEvent<string>) => {
       try { const data = object(JSON.parse(event.data)); const conversation = parseConversation(data.conversation); const changed = parseMessages(data.messages); take((prior) => { if (prior.conversation !== conversation) throw new Error("Invalid conversation"); return { ...prior, messages: changeMessages(prior.messages, changed) }; }); } catch { invalid(); }
     });
     stream.addEventListener("usage", (event: MessageEvent<string>) => {
       try { const data = object(JSON.parse(event.data)); const conversation = parseConversation(data.conversation); const usage = parseUsage(data.usage); take((prior) => { if (prior.conversation !== conversation) throw new Error("Invalid conversation"); return { ...prior, usage }; }); } catch { invalid(); }
+    });
+    stream.addEventListener("session", (event: MessageEvent<string>) => {
+      try { setReport(parseSession(JSON.parse(event.data))); } catch { invalid(); }
     });
     stream.addEventListener("unavailable", (event: MessageEvent<string>) => {
       let why = "";
@@ -276,10 +277,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       if (stream.readyState === EventSource.CLOSED || ++failures >= MAX_RETRIES) close(UNREAD);
       else setReconnecting(true);
     };
-    stream.addEventListener("alive", heard);
-    heard();
     return () => {
-      clearTimeout(silence);
       stream.close();
     };
   }, [address, visible, attempt, where]);
@@ -556,10 +554,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     // Each snapshot of the board draws the panel again with new lists of the
     // same messages, so the view publishes only what changed, or it would
     // draw itself a second time for every snapshot.
-    const known = latest.current, isLive = phase === "live";
-    if (known.isWorking === isWorking && known.said === said && known.isLive === isLive && known.task === task && known.sending === sending
+    const known = latest.current;
+    if (known.said === said && known.task === task && known.sending === sending
       && isSameList(known.sent, sent) && isSameList(known.pending, pending)) return;
-    latest.current = { ...known, isWorking, said, isLive, task, sent, pending, sending };
+    latest.current = { ...known, said, task, sent, pending, sending };
     reconcile.current();
     if (following.current) setHeld(latest.current);
     else setHeld((prior) => {
@@ -567,7 +565,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       const handedOff = sent.filter((action) => localIDs.has(action.id) && (action.status === "queued" || action.status === "running" || action.status === "succeeded") && !prior.pending.some((heldAction) => heldAction.id === action.id));
       return prior.sending === sending && !handedOff.length ? prior : { ...prior, sending, pending: [...prior.pending, ...handedOff] };
     });
-  }, [isWorking, said, phase, task, sent, pending, sending]);
+  }, [said, phase, task, sent, pending, sending]);
 
   // Each drawn row is measured as it lays out and again whenever it changes,
   // as a picture loads or a call unfolds; a row the hidden view lays out at
@@ -727,7 +725,11 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   }, []);
   const readings = usageReadings(harness, composing.usage, subscriptions, spend);
   const his = ownPrompts(held.messages);
-  const ends = turnEnds(held.messages, held.isWorking);
+  // Behind and working are the stream's own words, so a turn that ended draws
+  // no indicator, and a view the stream has run past says it is behind rather
+  // than showing a turn it has not caught up with.
+  const standing = viewStanding(report, held.messages);
+  const ends = turnEnds(held.messages, standing.isWorking);
   const reachesEnd = spans[spans.length - 1].end === held.messages.length;
   // Once the session's record shows his words, written since the board took
   // them, its row is his message, and the board's copy goes, so it shows once
@@ -757,7 +759,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     for (const row of items.current?.querySelectorAll<HTMLElement>(":scope > .reply-working, :scope > [data-queued]") ?? []) observer.observe(row);
     settle();
     return () => observer.disconnect();
-  }, [queuedIDs, held.isWorking, reachesEnd, phase, shown, settle]);
+  }, [queuedIDs, standing.isWorking, reachesEnd, phase, shown, settle]);
   return <MessageDocumentScope query={query} instance={instance}><section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     {/* Connecting is a plain line above the conversation, never a cover over
         the box he types into. */}
@@ -783,7 +785,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
-          {shown && held.isLive && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} />}
+          {shown && standing.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} />}
           {/* His messages not yet in the session's record, at the
               conversation's end in its one scroll (the Overlord, 2026-10-29:
               "the double scrolls and having its own little scroll for queued
@@ -805,6 +807,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
           terminal its box types through, which is not drawn here
           (2026-11-04). */}
       {phase !== "closed" && (isReconnecting || !visible || !!link?.isReconnecting) && <Notice tone="warning" className="terminal-corner">Reconnecting</Notice>}
+      {/* A view the stream has run past is behind, which is neither
+          disconnected nor ended, and no clock says it. */}
+      {phase === "live" && !isReconnecting && standing.isBehind && <Notice className="terminal-corner">Behind the session. Jump to latest catches up.</Notice>}
+      {(report?.stale || report?.problem) && <Notice tone="warning" className="terminal-corner">{report?.stale || report?.problem}</Notice>}
       {phase === "closed" && <Notice form="box" icon="comment" className="terminal-foot"
         actions={<button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button>}>{closedWhy}</Notice>}
     </div>

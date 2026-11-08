@@ -83,6 +83,35 @@ func piSessionID(path string) string {
 	return id
 }
 
+// HoldsTranscript reports whether the harness keeps the conversation session
+// in the folder dir's own conversations, which is where a session started in
+// that folder writes: Claude Code's folder for dir, or the folder pi wraps
+// dir's path in. It is how the board tells the session its own home is in
+// from one another process of the same harness wrote, and a harness that
+// records the folder in the conversation itself, as Codex does, answers true
+// for any session it names.
+func HoldsTranscript(home, harness, dir, session string) bool {
+	if home == "" || dir == "" || !sessionID.MatchString(session) {
+		return false
+	}
+	switch strings.ToLower(harness) {
+	case "claude":
+		own := filepath.Join(home, ".claude", "projects", claudeProjectFolder.ReplaceAllString(dir, "-"), session+".jsonl")
+		info, err := os.Stat(own)
+		return err == nil && info.Mode().IsRegular()
+	case "pi":
+		for _, path := range PiSessions(home, dir) {
+			if piSessionID(path) == session {
+				return true
+			}
+		}
+		return false
+	case "codex":
+		return true
+	}
+	return false
+}
+
 // newestFile is the path in paths whose file was written last.
 func newestFile(paths []string) string {
 	newest := ""

@@ -204,8 +204,10 @@ func TestPiUsageStreamsAgainAfterAnEmptyBranchReset(t *testing.T) {
 				current = name
 			}
 			if data, isData := strings.CutPrefix(scanner.Text(), "data: "); isData {
+				// A session event says what the fleet's stream says of the
+				// turn, which is not what these read.
 				if current != want {
-					t.Fatalf("got %s event, want %s", current, want)
+					continue
 				}
 				return data
 			}

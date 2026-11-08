@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -10,10 +11,10 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/sessionstream"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -127,55 +128,74 @@ func messagesHarness(harness string) bool {
 	return harness == "claude" || harness == "codex" || harness == "pi"
 }
 
-// messagesLocator finds the transcript of the session a request for messages
-// names, a task's goblin of the generation it names or the CFO in the
-// terminal it names, while that session runs in a native terminal: empty
-// while its harness has written none, and messagesRefused once the session no
-// longer runs or is one the board does not read. It reads no process and
-// parses no store file, since a view's stream asks again as often as a
-// terminal view's binding is checked.
-func (h *HTTP) messagesLocator(query url.Values) (func() (string, error), error) {
+// messagesSession is the session a request for messages names: the record its
+// harness keeps of the conversation, and the identity of the session stream
+// the fleet keeps for it, which the board renders.
+type messagesSession struct {
+	Path     string
+	Identity sessionstream.Identity
+	// Stale says why the conversation the board read is not the one the
+	// session writes now, and is empty when it is, so a record naming a
+	// conversation that stopped is reported rather than rendered as current.
+	Stale string
+}
+
+// messagesLocator finds the session a request for messages names, a task's
+// goblin of the generation it names or the CFO in the terminal it names,
+// while that session runs in a native terminal: no path while its harness has
+// written none, and messagesRefused once the session no longer runs or is one
+// the board does not read. It reads no process and parses no store file,
+// since a view's stream asks again as often as a terminal view's binding is
+// checked.
+func (h *HTTP) messagesLocator(ctx context.Context, query url.Values) (func() (messagesSession, error), error) {
 	stateDir, home := h.Service.Store.Home.State, h.Service.Options.Tree.Home
 	if want := query.Get("cfo"); want != "" {
-		return func() (string, error) {
+		return func() (messagesSession, error) {
 			cfo := readCFOState(stateDir)
 			switch {
 			case cfo.terminal == "":
-				return "", messagesRefused{404, "No CFO is running in a native terminal."}
+				return messagesSession{}, messagesRefused{404, "No CFO is running in a native terminal."}
 			case cfo.terminal != want:
-				return "", messagesRefused{409, "The CFO runs in another terminal now. Open the CFO again."}
+				return messagesSession{}, messagesRefused{409, "The CFO runs in another terminal now. Open the CFO again."}
 			case cfo.harness != "" && !messagesHarness(cfo.harness):
-				return "", noMessages
+				return messagesSession{}, noMessages
 			}
 			// A CFO still starting has registered no session yet.
-			_, session, _ := strings.Cut(cfo.session, "/")
 			harness := cfo.harness
 			if harness == "" {
 				harness = "claude"
 			}
+			// The conversation its harness is in now, which the record is
+			// brought up to date with, so a session that moved without
+			// registering again is never read from the one it left (#2172).
+			session, stale := h.cfoConversation(ctx, cfo)
 			// The CFO is started in the fleet's home.
-			return fleettree.HeldTranscript(home, harness, h.Service.Store.Home.Root, session), nil
+			return messagesSession{
+				Path:     fleettree.HeldTranscript(home, harness, h.Service.Store.Home.Root, session),
+				Identity: sessionstream.Identity{Harness: harness, Session: session},
+				Stale:    stale,
+			}, nil
 		}, nil
 	}
 	task, generation := query.Get("task"), query.Get("generation")
 	if state.ValidTaskID(task) != nil || generation == "" {
 		return nil, messagesRefused{400, "Select a task's current session or the CFO."}
 	}
-	return func() (string, error) {
+	return func() (messagesSession, error) {
 		meta, err := state.ReadTaskMeta(stateDir, task)
 		switch {
 		case err != nil:
-			return "", messagesRefused{404, "Task metadata unavailable"}
+			return messagesSession{}, messagesRefused{404, "Task metadata unavailable"}
 		case meta.SpawnGen != generation:
-			return "", messagesRefused{409, "This task restarted or was replaced. Select its current session."}
+			return messagesSession{}, messagesRefused{409, "This task restarted or was replaced. Select its current session."}
 		case meta.Backend != "native":
 			// The view is a native terminal's: its box types through that
 			// terminal, and its stream reads the record the terminal's
 			// harness writes. A pane of another kind names no such record
 			// to read, so it keeps its own terminal and task views alone.
-			return "", messagesRefused{404, "Messages are read from a session in a native terminal."}
+			return messagesSession{}, messagesRefused{404, "Messages are read from a session in a native terminal."}
 		case !messagesHarness(meta.Harness):
-			return "", noMessages
+			return messagesSession{}, noMessages
 		}
 		// The conversation the board recorded for the generation, else the
 		// one its read of the goblin's tree proved the running harness in
@@ -183,10 +203,15 @@ func (h *HTTP) messagesLocator(query url.Values) (func() (string, error), error)
 		session := h.Service.Store.recordedSession(meta)
 		if session == "" {
 			if session, err = fleettree.KeptSession(stateDir, meta); err != nil {
-				return "", err
+				return messagesSession{}, err
 			}
 		}
-		return fleettree.HeldTranscript(home, meta.Harness, meta.Worktree, session), nil
+		return messagesSession{
+			Path: fleettree.HeldTranscript(home, meta.Harness, meta.Worktree, session),
+			Identity: sessionstream.Identity{
+				Task: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Session: session,
+			},
+		}, nil
 	}, nil
 }
 
@@ -224,16 +249,17 @@ func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 503, "Messages cannot be read")
 		return
 	}
-	locate, err := h.messagesLocator(query)
+	locate, err := h.messagesLocator(r.Context(), query)
 	if err != nil {
 		messagesError(w, err)
 		return
 	}
-	path, err := locate()
+	session, err := locate()
 	if err != nil {
 		messagesError(w, err)
 		return
 	}
+	path := session.Path
 	switch {
 	case query.Has("picture"):
 		if query.Get("conversation") == "" {
@@ -248,7 +274,7 @@ func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", mediaType)
 		_, _ = w.Write(data)
 	case query.Get("stream") == "1":
-		h.streamMessages(w, r, locate, path)
+		h.streamMessages(w, r, locate, session)
 	default:
 		page, _, err := h.messagePage(path, before)
 		if err != nil {
@@ -258,6 +284,9 @@ func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 		if before >= 0 && page.Conversation != query.Get("conversation") {
 			apiError(w, http.StatusConflict, "Conversation changed")
 			return
+		}
+		if recorded, err := h.recordSession(session, page.Messages, before < 0); err == nil {
+			page = pageOfStream(page, recorded, before)
 		}
 		respond(w, 200, page)
 	}
@@ -272,6 +301,55 @@ func (h *HTTP) messagePage(path string, before int) (fleettree.MessagePage, flee
 		return fleettree.MessagePage{Conversation: cursor.Conversation(), Messages: []fleettree.Message{}}, cursor, nil
 	}
 	return h.Service.Options.Tree.MessagePage(path, before)
+}
+
+// pageOfStream is the page the board draws: the messages the fleet's stream
+// holds for the session, in place of the harness's own read of them, with the
+// conversation the view names and whether older messages come before it. A
+// page the stream does not hold, as an older one before a stream that began
+// after it, is answered from the harness's record instead, so a session
+// recorded before streams existed still renders as it did.
+func pageOfStream(page fleettree.MessagePage, projection []fleettree.Message, before int) fleettree.MessagePage {
+	if len(projection) == 0 {
+		return page
+	}
+	kept := projection
+	if before >= 0 {
+		older := make([]fleettree.Message, 0, len(projection))
+		for _, message := range projection {
+			if message.Seq < before {
+				older = append(older, message)
+			}
+		}
+		kept = older
+	}
+	if len(kept) == 0 {
+		return page
+	}
+	more := page.More
+	if len(kept) > fleettree.MessagesPerPage {
+		kept = kept[len(kept)-fleettree.MessagesPerPage:]
+		more = true
+	}
+	return fleettree.MessagePage{Conversation: page.Conversation, Messages: kept, More: more, Usage: page.Usage}
+}
+
+// changedOfStream is the messages a view is told changed, as the fleet's
+// stream holds them now, so a view draws the same words the stream does.
+func changedOfStream(changed, projection []fleettree.Message) []fleettree.Message {
+	held := make(map[string]fleettree.Message, len(projection))
+	for _, message := range projection {
+		held[message.ID] = message
+	}
+	kept := make([]fleettree.Message, 0, len(changed))
+	for _, message := range changed {
+		if current, ok := held[message.ID]; ok {
+			kept = append(kept, current)
+			continue
+		}
+		kept = append(kept, message)
+	}
+	return kept
 }
 
 func messagesError(w http.ResponseWriter, err error) {
@@ -296,11 +374,14 @@ const unreadMessages = "The session's messages cannot be read"
 // view holds: the session moved to another conversation, or its conversation
 // was replaced. The session is located again as often as a terminal view's
 // binding is checked, and an unavailable event says why it no longer runs, or
-// cannot be read, before the stream ends. A stream that sent nothing for as
-// long sends an alive event, so a board that hears nothing for longer knows
-// the stream stalled: on 2026-10-29 the Overlord's view of the CFO showed a
-// call Running at least 76 s after it ended, with no word that it was stale.
-func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate func() (string, error), path string) {
+// cannot be read, before the stream ends.
+//
+// A session event says what the fleet's stream says of the session: its
+// newest turn, whether it is running, ended or not reported, and where the
+// stream's head is. A view that has drawn less than the head is behind, which
+// it says itself; nothing infers staleness from how long the stream was
+// silent. The same event keeps the connection alive.
+func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate func() (messagesSession, error), session messagesSession) {
 	select {
 	case h.messageSlots <- struct{}{}:
 		defer func() { <-h.messageSlots }()
@@ -331,10 +412,11 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 	}
 	var cursor fleettree.MessageCursor
 	var lastUsage *fleettree.Usage
+	var lastSession string
 	// usage tells the board what the session has spent, from what the last read
 	// already found, so the footer's stats keep up with its turns.
 	usage := func() bool {
-		if held := h.Service.Options.Tree.UsageAt(path, cursor); held != nil && (lastUsage == nil || *held != *lastUsage) {
+		if held := h.Service.Options.Tree.UsageAt(session.Path, cursor); held != nil && (lastUsage == nil || *held != *lastUsage) {
 			if !send("usage", struct {
 				Conversation string           `json:"conversation"`
 				Usage        *fleettree.Usage `json:"usage"`
@@ -345,18 +427,65 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 		}
 		return true
 	}
+	// turn says what the fleet's stream says of the session's turn, so a view
+	// knows from the stream itself whether a turn runs, ended, or was never
+	// reported, and where the head of the stream it draws is.
+	turn := func() bool {
+		// A session whose harness has written no conversation yet has no
+		// stream and no turn, and nothing to report of either.
+		if session.Identity.Check() != nil {
+			return true
+		}
+		_, recordErr := h.recordSession(session, nil, true)
+		held, err := h.Service.sessionStreamOf(session.Identity)
+		if err != nil {
+			return true
+		}
+		messages, events := held.conversation()
+		turnID, state, why := streamTurn(messages, events)
+		head := len(events) - 1
+		// -1 is a session whose stream holds no message, so a view holding
+		// none either is not behind it.
+		newest := -1
+		if len(messages) > 0 {
+			newest = messages[len(messages)-1].Seq
+		}
+		problem := ""
+		if recordErr != nil {
+			problem = "The board cannot write or read this session's conversation stream, so it draws the session's own record: " + recordErr.Error()
+		}
+		reported := struct {
+			Conversation string `json:"conversation"`
+			Turn         string `json:"turn"`
+			State        string `json:"state"`
+			Why          string `json:"why,omitempty"`
+			Newest       int    `json:"newest"`
+			Head         int    `json:"head"`
+			Stale        string `json:"stale,omitempty"`
+			Problem      string `json:"problem,omitempty"`
+		}{cursor.Conversation(), turnID, state, why, newest, head, session.Stale, problem}
+		data, err := json.Marshal(reported)
+		if err != nil || string(data) == lastSession {
+			return true
+		}
+		lastSession = string(data)
+		return send("session", reported)
+	}
 	page := func() bool {
-		messages, now, err := h.messagePage(path, -1)
+		messages, now, err := h.messagePage(session.Path, -1)
 		if err != nil {
 			send("unavailable", unreadMessages)
 			return false
 		}
 		cursor = now
+		if recorded, err := h.recordSession(session, messages.Messages, true); err == nil {
+			messages = pageOfStream(messages, recorded, -1)
+		}
 		if !send("page", messages) {
 			return false
 		}
 		lastUsage = nil
-		return usage()
+		return usage() && turn()
 	}
 	if !page() {
 		return
@@ -384,20 +513,27 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 				send("unavailable", reason)
 				return
 			}
-			if located != path {
-				path = located
+			if located.Path != session.Path || located.Identity != session.Identity {
+				session = located
 				if !page() {
 					return
 				}
 			}
 		case <-tick.C:
+			// A stream that has nothing to send says it is still there, and
+			// what the session's turn is, so a board that hears nothing at
+			// all knows the stream itself stopped rather than the session
+			// being quiet.
 			if time.Since(sent) >= h.terminalTick && !send("alive", struct{}{}) {
 				return
 			}
-			if path == "" {
+			if !turn() {
+				return
+			}
+			if session.Path == "" {
 				continue
 			}
-			messages, now, isAnew, err := h.Service.Options.Tree.MessagesSince(path, cursor)
+			messages, now, isAnew, err := h.Service.Options.Tree.MessagesSince(session.Path, cursor)
 			switch {
 			case err != nil:
 				send("unavailable", unreadMessages)
@@ -408,13 +544,18 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 				}
 			default:
 				cursor = now
-				if len(messages) > 0 && !send("messages", struct {
-					Conversation string              `json:"conversation"`
-					Messages     []fleettree.Message `json:"messages"`
-				}{cursor.Conversation(), messages}) {
-					return
+				if len(messages) > 0 {
+					if recorded, err := h.recordSession(session, messages, true); err == nil {
+						messages = changedOfStream(messages, recorded)
+					}
+					if !send("messages", struct {
+						Conversation string              `json:"conversation"`
+						Messages     []fleettree.Message `json:"messages"`
+					}{cursor.Conversation(), messages}) {
+						return
+					}
 				}
-				if !usage() {
+				if !usage() || !turn() {
 					return
 				}
 			}

@@ -102,6 +102,40 @@ export function parseUsage(value: unknown): SessionUsage | undefined {
     cost_usd: number(each.cost_usd), context_tokens: number(each.context_tokens), context_window: number(each.context_window), model: string(each.model), effort: string(each.effort) };
 }
 
+// SessionReport is what the fleet's stream says of a session, as
+// /api/messages sends it in a session event: the newest turn, whether that
+// turn runs, ended, or was never reported by its harness, where the stream's
+// head is, and why the conversation the board reads is not the current one or
+// cannot be kept. It is the one thing the board draws a turn from, so a
+// finished turn never draws a working indicator whatever a snapshot says.
+export interface SessionReport {
+  turn: string; state: TurnState; why: string; newest: number; head: number; stale: string; problem: string;
+}
+export type TurnState = "running" | "ended" | "unknown" | "none";
+const TURN_STATES = ["running", "ended", "unknown", "none"] as const;
+
+export function parseSession(value: unknown): SessionReport {
+  const each = object(value);
+  return {
+    turn: string(each.turn), state: choice(each.state, TURN_STATES, "turn state"),
+    why: each.why == null ? "" : string(each.why), newest: number(each.newest), head: number(each.head),
+    stale: each.stale == null ? "" : string(each.stale), problem: each.problem == null ? "" : string(each.problem),
+  };
+}
+
+// How a view stands against the stream it draws. Behind means the stream holds
+// a message the view has not drawn, which is its own state: it is neither
+// disconnected nor ended, and no clock infers it. Working means the stream
+// says the newest turn runs and the view has drawn to the stream's head, so a
+// turn that ended never draws an indicator and a view that has not caught up
+// says it is behind instead.
+export function viewStanding(report: SessionReport | null, messages: SessionMessage[]): { isBehind: boolean; isWorking: boolean } {
+  if (!report) return { isBehind: false, isWorking: false };
+  const newest = messages.length ? messages[messages.length - 1].seq : -1;
+  const isBehind = report.newest > newest;
+  return { isBehind, isWorking: !isBehind && report.state === "running" };
+}
+
 export function parsePage(value: unknown): MessagePage {
   const page = object(value);
   return { conversation: parseConversation(page.conversation), messages: parseMessages(page.messages), more: boolean(page.more), usage: parseUsage(page.usage) };

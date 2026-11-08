@@ -1415,8 +1415,11 @@ A view takes a `messages` or `usage` event that names a conversation other than 
 A later `page` event of another `conversation` replaces everything a view holds: the session moved to another conversation, as `/clear` moves it, or the conversation was replaced; one of the same `conversation` keeps the older messages the view already read in before it, while the view still holds the page's first message.
 The session's conversation is found again as often as a terminal view's binding is checked, and once the session no longer runs an `unavailable` event says why and the stream ends.
 The board names a session for a task's generation from its own ledger, and where that names none, from the conversation its read of the running harness proved and kept (`namedSession` in `internal/supervisor/fleet_tree.go`), so a harness whose start the ledger never took, as pi's is on a home whose native hook it never ran, still reaches Modern Chat, the family tree and the goblin's panel, and a relaunch finds it again.
-A stream that sent nothing for as long sends an `alive` event, so the view, which hears from its stream at least every five seconds, takes one silent for 15 seconds as stalled: it says Reconnecting and opens the stream again, which begins with the newest page.
+A stream that sent nothing for as long sends an `alive` event, so the view hears from its stream at least every five seconds.
+A `session` event says what the fleet's stream says of the session: its newest turn, whether that turn runs, ended or was never reported by its harness, why not when it was never reported, the stream's head, and why the conversation the board reads is not the one the session writes or cannot be kept.
+The view draws a turn's working indicator from that event alone, never from a snapshot of the session's terminal, so a finished turn never draws one at any snapshot timing; a view the stream has run past says it is behind, a state of its own that is neither disconnected nor ended, and no timer infers it from elapsed time.
 On 2026-10-29 the Overlord's view of the CFO showed a call Running at least 76 seconds after it ended, with no word that it was stale.
+A stream that drops or ends is opened again, which begins with the newest page, and says Reconnecting until it does.
 A stream also ends after ten minutes, as a baby goblin's does, and at most 32 stream at once, a limit of their own.
 With `picture=ID` it answers a picture a message holds, read back from its entry by the id a read of the messages gave it, never by a path or an offset the browser names; a Claude Code picture's id names where it is in its conversation, so a read of the tail and a read of the whole name it alike, and it is answered only when a read found a picture there.
 It must come with the page's `conversation`, and is refused with 400 without one; a picture of a conversation the session no longer has, or whose file changed while it was read, is answered with 404 as one no read found.
@@ -1702,6 +1705,28 @@ Sizing on a switch of style follows [the message box's presentation lifecycle](#
 Every terminal spec whose terminal a fixture page draws, including `terminal-held`, runs a second time in a Messages view's place, in the board's own stage (the stepped-in project in `frontend/playwright.config.ts`), and the terminal specs that load the whole board run under Terminal on a Codex goblin and on a Claude Code one.
 A goblin whose terminal is gone, as one that did not come back after a restart, shows its messages, its box still taking a message, which starts it, and its terminal's own notice is behind them, while its task list names what brings it back.
 
+
+### The session event stream
+
+One append-only event stream per session is the fleet's one conversation record, so Modern Chat, the family tree and a goblin's panel render one projection of one thing, per harness, instead of three guesses at it.
+A session is one harness conversation of one goblin generation, or of the CEO, and its stream lives beside the identity record the fleet already kept for it: `state/conversations/<task>/<generation>/<session>.jsonl`, or `state/conversations/cfo/<session>.jsonl` for the CEO, since the CEO's conversation is its own generation.
+No daemon, database or dependency is added; the stream lives where the fleet's other records live.
+
+An event is one thing that happened, in the order it happened, with a stable id: a prompt, the assistant's text as the harness writes it, thinking, a tool call, the result that answers it, a notice, a compaction, an interrupt, the session's own report that a turn runs or ended, the end of a session, and the board's word where a harness cannot provide part of it.
+The newest report of a turn is the one the board draws, so a word that a session the board had not yet seen report anything is running supersedes the earlier one that said it could not tell.
+A harness that rewrites its own record behind the reader, as pi's branch reset drops an abandoned answer, has its record restated in the stream, so a stream that only appends never shows a message its harness has dropped.
+Its id is derived from the session, the message and block it belongs to and its own content, so a reader that derives the same events from the same harness record again writes nothing, and content that changed derives another event a reader folds over the one before.
+Every event of a turn names the prompt that began it.
+`internal/sessionstream` owns the shape and the file; `internal/fleettree` maps the messages a harness's own reader already normalized into those events, and back, so a new harness is one adapter and no reader of the stream changes with it, and Claude Code, Codex and pi produce the same events for a turn.
+The harnesses' own transcript readers are the adapters: a harness's record stays the evidence, and the stream is what the fleet agrees on.
+
+The supervisor is the only writer: it appends what its own read of the session produced, the turn's end from the session's own report of it (Claude Code's Stop, Codex's turn completion, pi's settle, which it already keeps as the session's phase), and the fact that a harness reports no turn where its hooks said nothing.
+`/api/messages` serves the page and the changes it sends from the stream, so the board renders the stream; a session with no stream yet, or an older page a stream began after, is answered from the harness's own record as it was before streams existed.
+A stream that cannot be read is reported in the session event rather than shown as an empty conversation, and the session's own record stands meanwhile.
+A stream reaches a bound of 20,000 events, and is then compacted to the newest event of each thing the session did, keeping whole messages.
+
+The CEO's conversation record, `state/cfo-conversation.json`, is written when its terminal registers and is refreshed whenever the session the harness proves it is in differs from the one recorded, at every read of its messages and once a recovery cycle (`internal/supervisor/cfo_session.go`); a record that names a conversation the session never wrote is reported as stale rather than rendered as current, and the board needs no reload (issue #2172).
+What proves the live conversation is the one the harness itself keeps for the fleet's home: Claude Code's record of its own process, Codex's rollout of that home written last, or the pi session of that folder written last, once written since pi started.
 
 ### Harness updates
 
