@@ -10,8 +10,9 @@
 #
 #   .\tests\acceptance\dictation.ps1 -Goblins <goblins.exe> -Cfo <cfo.exe> -CfoHome <CFO_HOME> -Summary <GITHUB_STEP_SUMMARY>
 #
-# -SelfTest runs the verdict and the summary over results made up here, so a
-# fixture proves each outcome without a runner.
+# -SelfTest runs the verdict, the summary and a failing setup's own output over
+# results and stand-in executables made up here, so a fixture proves each
+# outcome without a runner.
 param(
     [string]$Goblins = '',
     [string]$Cfo = '',
@@ -135,7 +136,15 @@ function Measure-Dictation {
         }
         $ErrorActionPreference = 'Continue'
         try {
-            $setupOutput = (& $Cfo dictation setup 2>&1 | Out-String)
+            # A native command's stderr reaches this shell as an error
+            # record whose formatting is a whole block of its own; the line
+            # the setup said is its message, which is the reason the
+            # summary carries, so it is read as text and never as that
+            # block's last line.
+            $setupOutput = (@(& $Cfo dictation setup 2>&1 | ForEach-Object {
+                if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message }
+                else { "$_" }
+            }) -join "`n")
             $setupExit = $LASTEXITCODE
         } finally {
             $ErrorActionPreference = $previous
@@ -245,6 +254,37 @@ if ($SelfTest -ne '') {
                 Assert-SelfTest ($summary.Contains('caches\voice holds')) 'the summary must carry the part count'
             } finally {
                 Remove-Item -Force -ErrorAction SilentlyContinue $path
+            }
+        }
+        'setup-reason-is-what-the-setup-said' {
+            # Measure-Dictation reads a failing setup's own line, so the
+            # summary and the warning carry the reason the setup printed. A
+            # native command's stderr arrives as an error record whose
+            # formatted block ends in "+ FullyQualifiedErrorId", which names
+            # no part; stand-in executables say what the real setup says.
+            $dir = Join-Path ([System.IO.Path]::GetTempPath()) "dictation-$([guid]::NewGuid())"
+            New-Item -ItemType Directory -Path (Join-Path (Join-Path $dir 'caches') 'voice') -Force | Out-Null
+            Set-Content -Path (Join-Path $dir 'goblins.ps1') -Value @'
+param([Parameter(ValueFromRemainingArguments = $true)]$Rest)
+Write-Output 'dictation: not set up: parakeet-tdt-0.6b-v2 int8-2025-08-16 missing, 460 MB'
+exit 0
+'@
+            Set-Content -Path (Join-Path $dir 'cfo.ps1') -Value @'
+param([Parameter(ValueFromRemainingArguments = $true)]$Rest)
+Write-Output 'downloading parakeet-tdt-0.6b-v2 int8-2025-08-16'
+Write-Error 'dictation: parakeet-tdt-0.6b-v2 int8-2025-08-16 could not be downloaded: Get "https://example.test/model.tar.bz2": dial tcp: connection reset'
+exit 1
+'@
+            try {
+                $measured = Measure-Dictation -Goblins (Join-Path $dir 'goblins.ps1') -Cfo (Join-Path $dir 'cfo.ps1') -CfoHome $dir
+                $verdict = Get-DictationVerdict $measured
+                Assert-SelfTest ($measured.SetupRan -and $measured.SetupExit -eq 1) "want the setup read as run once and exited 1, got ran=$($measured.SetupRan) exit=$($measured.SetupExit)"
+                Assert-SelfTest ($verdict.Outcome -eq 'environment') "want the environment outcome, got $($verdict.Outcome): $($verdict.Failures -join '; ')"
+                Assert-SelfTest ($verdict.Environment.Count -eq 1) "want one environment result, got: $($verdict.Environment -join '; ')"
+                Assert-SelfTest ($verdict.Environment[0] -like '*parakeet-tdt-0.6b-v2*') "the environment result must name the part the setup named: $($verdict.Environment[0])"
+                Assert-SelfTest ($verdict.Environment[0] -notlike '*FullyQualifiedErrorId*') "the reason must be the line the setup said, not the shell's formatted error block: $($verdict.Environment[0])"
+            } finally {
+                Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dir
             }
         }
         default { throw "Unknown dictation self-test $SelfTest." }

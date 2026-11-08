@@ -16,10 +16,12 @@ import (
 // environment result that must not fail the job), a checksum mismatch (a
 // product failure that must name the part), doctor ready with the wrong
 // number of verified parts, a setup that ended zero without a ready doctor,
-// and the summary that must tell the three outcomes apart. The hosted-runner
-// proof itself runs where the install workflow calls the script. Every
-// self-test asserts what its name says and throws otherwise, so a case that
-// prints its passed line exited zero having checked its results.
+// the summary that must tell the three outcomes apart, and the reason the
+// summary carries for a failing setup: its own last line, not the shell's
+// formatted error block. The hosted-runner proof itself runs where the
+// install workflow calls the script. Every self-test asserts what its name
+// says and throws otherwise, so a case that prints its passed line exited
+// zero having checked its results.
 func TestDictationAcceptanceScriptSelfTests(t *testing.T) {
 	// Arrange
 	script := filepath.Join("tests", "acceptance", "dictation.ps1")
@@ -31,6 +33,7 @@ func TestDictationAcceptanceScriptSelfTests(t *testing.T) {
 		"ready-wrong-parts",
 		"setup-exit-zero-but-not-ready",
 		"summary-distinguishes",
+		"setup-reason-is-what-the-setup-said",
 	} {
 		t.Run(name, func(t *testing.T) {
 			command := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-SelfTest", name)
