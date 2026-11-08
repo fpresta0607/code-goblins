@@ -146,6 +146,41 @@ func TestAnEntryStillBeingWrittenIsPassedOver(t *testing.T) {
 	}
 }
 
+func TestAnAppendAfterAnEntryCutShortKeepsTheStreamReadable(t *testing.T) {
+	// Arrange: a write was cut short after a whole entry.
+	stateDir := t.TempDir()
+	path, err := goblin().Path(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	complete := Encode([]Event{event(goblin(), KindPrompt, "m1", 0)})
+	if err := os.WriteFile(path, append(complete, []byte(`{"id":"half","kind":"text"`)...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act: the next append must not bury the cut-short entry mid-stream, where
+	// every reader would refuse the stream for good.
+	appender, err := Open(stateDir, goblin())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := appender.Write([]Event{event(goblin(), KindAssistant, "r1", 0)}); err != nil {
+		t.Fatalf("append after an entry cut short: %v", err)
+	}
+
+	// Assert
+	events, err := Read(stateDir, goblin())
+	if err != nil {
+		t.Fatalf("a stream appended after an entry cut short: %v", err)
+	}
+	if len(events) != 2 || events[0].Message != "m1" || events[1].Message != "r1" || events[1].Seq != 1 {
+		t.Fatalf("stream: %+v", events)
+	}
+}
+
 func TestAStreamAtItsBoundKeepsWhatTheSessionIsNow(t *testing.T) {
 	// Arrange
 	stateDir := t.TempDir()

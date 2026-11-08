@@ -285,7 +285,7 @@ func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 			apiError(w, http.StatusConflict, "Conversation changed")
 			return
 		}
-		if recorded, err := h.recordSession(session, page.Messages, before < 0); err == nil {
+		if recorded, err := h.recordSession(session, page.Messages, before < 0, before < 0); err == nil {
 			page = pageOfStream(page, recorded, before)
 		}
 		respond(w, 200, page)
@@ -436,7 +436,7 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 		if session.Identity.Check() != nil {
 			return true
 		}
-		_, recordErr := h.recordSession(session, nil, true)
+		_, recordErr := h.recordSession(session, nil, true, false)
 		held, err := h.Service.sessionStreamOf(session.Identity)
 		if err != nil {
 			return true
@@ -478,7 +478,7 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 			return false
 		}
 		cursor = now
-		if recorded, err := h.recordSession(session, messages.Messages, true); err == nil {
+		if recorded, err := h.recordSession(session, messages.Messages, true, true); err == nil {
 			messages = pageOfStream(messages, recorded, -1)
 		}
 		if !send("page", messages) {
@@ -545,7 +545,7 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 			default:
 				cursor = now
 				if len(messages) > 0 {
-					if recorded, err := h.recordSession(session, messages, true); err == nil {
+					if recorded, err := h.recordSession(session, messages, true, false); err == nil {
 						messages = changedOfStream(messages, recorded)
 					}
 					if !send("messages", struct {

@@ -348,11 +348,12 @@ func (event Event) key() string {
 // written, read from the stream the first time it appends, so a reader that
 // derives a session's events again and again writes only what is new.
 type Appender struct {
-	mu   sync.Mutex
-	id   Identity
-	path string
-	seen map[string]bool
-	seq  int
+	mu     sync.Mutex
+	id     Identity
+	path   string
+	seen   map[string]bool
+	seq    int
+	loaded bool
 }
 
 // Open returns the appender for id's stream under stateDir.
@@ -364,13 +365,15 @@ func Open(stateDir string, id Identity) (*Appender, error) {
 	return &Appender{id: id, path: path, seen: map[string]bool{}}, nil
 }
 
-// load reads what the stream already holds, once.
+// load reads what the stream already holds, once: what it holds after that is
+// what this appender wrote, which a compaction reads again itself.
 func (a *Appender) load() error {
-	if a.seen == nil {
-		a.seen = map[string]bool{}
+	if a.loaded {
+		return nil
 	}
 	data, err := fsx.ReadFile(a.path)
 	if errors.Is(err, os.ErrNotExist) {
+		a.loaded = true
 		return nil
 	}
 	if err != nil {
@@ -380,13 +383,31 @@ func (a *Appender) load() error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrUnreadable, err)
 	}
+	// An entry a reader passes over as still being written, or as cut short,
+	// is trimmed here, so the next append never buries it mid-stream where
+	// every reader after would refuse the stream.
+	if whole := endedBytes(data); whole < len(data) {
+		if err := os.Truncate(a.path, int64(whole)); err != nil {
+			return err
+		}
+	}
 	for _, event := range events {
 		a.seen[event.ID] = true
 		if event.Seq >= a.seq {
 			a.seq = event.Seq + 1
 		}
 	}
+	a.loaded = true
 	return nil
+}
+
+// endedBytes is the length of a stream's lines that ended, so everything after
+// it is the newest entry a writer is still appending or one a write cut short.
+func endedBytes(data []byte) int {
+	if len(data) == 0 || data[len(data)-1] == '\n' {
+		return len(data)
+	}
+	return bytes.LastIndexByte(data, '\n') + 1
 }
 
 // Write appends the events of the stream that are not written yet, in the
@@ -492,6 +513,7 @@ func (a *Appender) compact(fresh []Event) error {
 		a.seen[event.ID] = true
 	}
 	a.seq = len(kept)
+	a.loaded = true
 	return nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -286,6 +287,85 @@ func TestAStreamSaysWhatTheSessionsTurnIs(t *testing.T) {
 
 // TestAReadThatOnlyCarriesOnTheStreamIsNoRestatement keeps an ordinary read of
 // newer messages from being taken for a harness that rewrote its record.
+// TestATickThatCarriesInANewMessageKeepsTheConversation is the live path a
+// session's second turn takes: the read of the messages that began or changed
+// since the last tick carries the stream on instead of restating it to the
+// handful that read held, so the turn before it is still drawn.
+func TestATickThatCarriesInANewMessageKeepsTheConversation(t *testing.T) {
+	// Arrange: the stream holds a goblin's first turn, and its harness writes a
+	// second while a view watches.
+	stamp := time.Now().UTC().Format(time.RFC3339Nano)
+	store, h := testStore(t)
+	userHome := t.TempDir()
+	meta := treeGoblin(t, h.State, userHome, "talker", true)
+	conversation := filepath.Join(userHome, ".claude", "projects", "C--work-talker", "talker-conversation.jsonl")
+	appendEntries(t, conversation, messageEntries(stamp)...)
+	service := &Service{Store: store, Instance: "board-token", Options: Options{Tree: &fleettree.Reader{Home: userHome}}}
+	service.readTrees(t.Context())
+	handler := NewHTTP(service, "127.0.0.1:50000", nil)
+	handler.terminalTick = 50 * time.Millisecond
+	server := httptest.NewUnstartedServer(handler)
+	handler.Host = server.Listener.Addr().String()
+	server.Start()
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/messages?task="+meta.ID+"&generation="+meta.SpawnGen+"&token=board-token&stream=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	scanner := bufio.NewScanner(response.Body)
+	scanner.Buffer(nil, 1<<20)
+	read := func(event, want string) {
+		t.Helper()
+		current := ""
+		for scanner.Scan() {
+			line := scanner.Text()
+			if name, isEvent := strings.CutPrefix(line, "event: "); isEvent {
+				current = name
+			}
+			if current == event && strings.HasPrefix(line, "data: ") && strings.Contains(line, want) {
+				return
+			}
+		}
+		t.Fatalf("the stream sent no %s event with %q: %v", event, want, scanner.Err())
+	}
+
+	// Act
+	read("page", `"id":"u1"`)
+	appendEntries(t, conversation,
+		`{"type":"user","uuid":"u2","timestamp":"`+stamp+`","message":{"role":"user","content":"And now?"}}`,
+		`{"type":"assistant","uuid":"a2","timestamp":"`+stamp+`","message":{"id":"msg_2","model":"claude-opus-5-5","role":"assistant","content":[{"type":"text","text":"Rerunning it."}]}}`)
+	read("messages", `"id":"u2"`)
+	locate, err := handler.messagesLocator(ctx, url.Values{"task": {meta.ID}, "generation": {meta.SpawnGen}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := locate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := sessionstream.Read(store.Home.State, session.Identity)
+
+	// Assert: the conversation the stream holds is both turns, so the board
+	// draws the session rather than the message that just arrived.
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, message := range fleettree.MessagesOf(events) {
+		ids = append(ids, message.ID)
+	}
+	if !slices.Contains(ids, "u1") || !slices.Contains(ids, "u2") {
+		t.Fatalf("the stream holds %v; want both turns", ids)
+	}
+}
+
 func TestAReadThatOnlyCarriesOnTheStreamIsNoRestatement(t *testing.T) {
 	held := []fleettree.Message{{ID: "u1", Seq: 0}, {ID: "a1", Seq: 1}}
 	for name, tc := range map[string]struct {

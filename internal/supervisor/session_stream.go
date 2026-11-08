@@ -187,11 +187,14 @@ func streamTurn(messages []fleettree.Message, events []sessionstream.Event) (tur
 }
 
 // recordSession writes what the supervisor just read of a session into the
-// fleet's stream for it, and answers the conversation the stream holds. A
-// read of the newest messages also writes what the session's own report says
-// of its turn, so the end of a turn is ordered with the messages it ended; a
-// read further back leaves the turn alone.
-func (h *HTTP) recordSession(session messagesSession, messages []fleettree.Message, isNewest bool) ([]fleettree.Message, error) {
+// fleet's stream for it, and answers the conversation the stream holds. Only a
+// read of the whole newest page can show that the harness rewrote its record,
+// which the stream restates; a read of messages that began or changed only
+// carries the stream on, since it never holds the conversation. A read of the
+// newest messages also writes what the session's own report says of its turn,
+// so the end of a turn is ordered with the messages it ended; a read further
+// back leaves the turn alone.
+func (h *HTTP) recordSession(session messagesSession, messages []fleettree.Message, isNewest, isWhole bool) ([]fleettree.Message, error) {
 	if err := session.Identity.Check(); err != nil {
 		return nil, err
 	}
@@ -201,10 +204,11 @@ func (h *HTTP) recordSession(session messagesSession, messages []fleettree.Messa
 	}
 	heldMessages, _ := held.conversation()
 	events := fleettree.StreamEvents(session.Identity, messages)
-	// Only a read of the newest messages can show that the record was
-	// rewritten: a page read further back is older than what the stream holds
-	// even when the harness dropped nothing.
-	if isNewest && streamDiverges(heldMessages, messages) {
+	// Only a read of the newest page can show that the record was rewritten:
+	// a page read further back is older than what the stream holds even when
+	// the harness dropped nothing, and a read of what changed is not the
+	// conversation at all.
+	if isWhole && streamDiverges(heldMessages, messages) {
 		// The harness rewrote its own record behind the reader, so the stream
 		// restates what it holds rather than showing a message it dropped.
 		events = []sessionstream.Event{fleettree.RestatedEvent(session.Identity, messages)}

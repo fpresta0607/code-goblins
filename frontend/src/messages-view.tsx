@@ -220,6 +220,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       setReconnecting(false);
       setClosedWhy(why);
       setPhase("closed");
+      // The stream has ended, so nothing it last said of the turn is drawn: a
+      // closed view offers the Reconnect, never an indicator for a turn that
+      // is not running.
+      setReport(null);
     };
     const take = (change: (prior: MessagePage) => MessagePage) => {
       failures = 0;
