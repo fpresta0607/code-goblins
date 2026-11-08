@@ -9,12 +9,14 @@ import (
 )
 
 // TestNoVisibleWindowsScriptSelfTests runs the acceptance script's own fixture
-// harness over rows it never measured: an early-ending base row and a
-// window-showing branch row. The desktop proof itself runs only on the hosted
-// runner of .github/workflows/windows.yml, where CFO_WINDOW_PROOF names the
-// default terminal. Every self-test asserts what its name says and throws
-// otherwise, so a case that prints its passed line exited zero having checked
-// its rows.
+// harness over rows it never measured: a base row that ends early or shows no
+// window, a branch row that shows a window or leaves its command unrun, a
+// detached row that shows windows, leaves its command unrun or leaves a log
+// line that does not say how it ended, and the summary that holds every row.
+// The desktop proof itself runs only on the hosted runner of
+// .github/workflows/windows.yml, where CFO_WINDOW_PROOF names the default
+// terminal. Every self-test asserts what its name says and throws otherwise,
+// so a case that prints its passed line exited zero having checked its rows.
 func TestNoVisibleWindowsScriptSelfTests(t *testing.T) {
 	// Arrange
 	script := filepath.Join("tests", "acceptance", "no_visible_windows.ps1")
