@@ -134,7 +134,7 @@ function Write-Summary {
     param(
         [Parameter(Mandatory = $true)][object[]]$Results,
         [Parameter(Mandatory = $true)][string]$Terminal,
-        [Parameter(Mandatory = $true)][string]$DetachedEnd,
+        [string]$DetachedEnd = '',
         [Parameter(Mandatory = $true)]$Verdict,
         [Parameter(Mandatory = $true)][string]$Path
     )
@@ -249,6 +249,25 @@ if ($SelfTest -ne '') {
             $verdict = Get-Verdict -Results $rows -WatchFor $watchFor -DetachedEnd $ended
             Assert-SelfTest ($verdict.Failures.Count -eq 1) "one failure, but found: $($verdict.Failures -join '; ')"
             Assert-SelfTest ($verdict.Failures[0] -like '*ran its command until -1 ms*') "the failure names the unrun command: $($verdict.Failures[0])"
+        }
+        'detached-log-mismatch' {
+            $rows = $mainGood + $branchGood + (Row 'this branch' $detached 0 -1 3000)
+            $detachedEnd = (Get-Content (Join-Path ([System.IO.Path]::GetTempPath()) "no_visible_windows-$([guid]::NewGuid()).log") -ErrorAction SilentlyContinue | Select-Object -Last 1)
+            $verdict = Get-Verdict -Results $rows -WatchFor $watchFor -DetachedEnd $detachedEnd
+            Assert-SelfTest ($verdict.Environment.Count -eq 0) "no environment result, but found: $($verdict.Environment -join '; ')"
+            Assert-SelfTest ($verdict.Failures.Count -eq 1) "one failure, but found: $($verdict.Failures -join '; ')"
+            Assert-SelfTest ($verdict.Failures[0] -like "*the detached run's log ends with ''*") "the failure names the missing log line: $($verdict.Failures[0])"
+            $path = Join-Path ([System.IO.Path]::GetTempPath()) "no_visible_windows-$([guid]::NewGuid()).md"
+            try {
+                Write-Summary -Results $rows -Terminal 'a fixture' -DetachedEnd $detachedEnd -Verdict $verdict -Path $path
+                $summary = Get-Content -Raw -Path $path
+                foreach ($row in $rows) {
+                    Assert-SelfTest ($summary.Contains("| $($row.Build) | $($row.Start) |")) "the summary holds the row $($row.Build) / $($row.Start)"
+                }
+                Assert-SelfTest ($summary.Contains("Detached run's last line:")) 'the summary holds the detached run line'
+            } finally {
+                Remove-Item -Force -ErrorAction SilentlyContinue $path
+            }
         }
         'summary-holds-every-row' {
             $rows = $mainGood + $branchGood + $detachedGood

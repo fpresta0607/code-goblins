@@ -26,6 +26,7 @@ func TestNoVisibleWindowsScriptSelfTests(t *testing.T) {
 		"branch-command-unrun",
 		"detached-shows-window",
 		"detached-command-unrun",
+		"detached-log-mismatch",
 		"summary-holds-every-row",
 	} {
 		t.Run(name, func(t *testing.T) {
