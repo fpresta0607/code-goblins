@@ -197,6 +197,26 @@ if ($SelfTest -ne '') {
             Assert-SelfTest ($verdict.Environment[0] -like '*Start-Process at the normal window style*') "the environment result names the row: $($verdict.Environment[0])"
             Assert-SelfTest ($verdict.Environment[0] -like '*(last seen: 4000 ms)*') "the environment result carries the numbers: $($verdict.Environment[0])"
         }
+        'base-window-ends-early' {
+            $mainRow = Row 'main' 'Start-Process at the normal window style' 1 4000 $full
+            $rows = @($mainRow) + $branchGood + $detachedGood
+            $verdict = Get-Verdict -Results $rows -WatchFor $watchFor -DetachedEnd $ended
+            Assert-SelfTest ($verdict.Failures.Count -eq 0) "no failure, but found: $($verdict.Failures -join '; ')"
+            Assert-SelfTest ($verdict.Environment.Count -eq 1) "one environment result, but found: $($verdict.Environment -join '; ')"
+            Assert-SelfTest ($verdict.Environment[0] -like '*Start-Process at the normal window style*') "the environment result names the row: $($verdict.Environment[0])"
+            Assert-SelfTest ($verdict.Environment[0] -like '*did not show a window through the 10000 ms watch*') "the environment result names the closing window: $($verdict.Environment[0])"
+            Assert-SelfTest ($verdict.Environment[0] -like '*(last seen: 4000 ms)*') "the environment result carries the numbers: $($verdict.Environment[0])"
+            $path = Join-Path ([System.IO.Path]::GetTempPath()) "no_visible_windows-$([guid]::NewGuid()).md"
+            try {
+                Write-Summary -Results $rows -Terminal 'a fixture' -DetachedEnd $ended -Verdict $verdict -Path $path
+                $summary = Get-Content -Raw -Path $path
+                Assert-SelfTest ($summary.Contains('Environment result')) 'the summary carries the environment heading'
+                Assert-SelfTest ($summary.Contains($verdict.Environment[0])) 'the summary carries the environment result'
+                Assert-SelfTest ($summary.Contains('| main | Start-Process at the normal window style | 1 | 4000 ms | 4000 ms | 10000 ms |')) "the summary still holds the row's numbers: $summary"
+            } finally {
+                Remove-Item -Force -ErrorAction SilentlyContinue $path
+            }
+        }
         'base-no-window' {
             $rows = @((Row 'main' 'Start-Process at the normal window style' 0 -1 $full)) + $branchGood + $detachedGood
             $verdict = Get-Verdict -Results $rows -WatchFor $watchFor -DetachedEnd $ended

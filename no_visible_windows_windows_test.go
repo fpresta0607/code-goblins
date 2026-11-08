@@ -20,6 +20,7 @@ func TestNoVisibleWindowsScriptSelfTests(t *testing.T) {
 	script := filepath.Join("tests", "acceptance", "no_visible_windows.ps1")
 	for _, name := range []string{
 		"base-command-ends-early",
+		"base-window-ends-early",
 		"base-no-window",
 		"branch-shows-window",
 		"branch-command-unrun",
