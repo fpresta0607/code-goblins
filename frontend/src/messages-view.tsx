@@ -40,7 +40,7 @@ const OLDER_TRIES = 3;
 // A row with no folds open, shared so its props stay the same.
 const NO_FOLDS: ReadonlySet<string> = new Set();
 const UNREAD = "The session's messages cannot be read";
-type PublishedMessages = MessagePage & { said: string; task?: Task; sent: Action[]; pending: Action[]; sending: PendingSend[] };
+type PublishedMessages = MessagePage & { isWorking: boolean; said: string; task?: Task; sent: Action[]; pending: Action[]; sending: PendingSend[] };
 // What the box under the conversation shows of the session: what it spent and
 // the words he sent it.
 type Composing = Pick<MessagePage, "usage"> & { history: string[] };
@@ -74,7 +74,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const said = link?.screen?.isWorking && link.screen.doing || "";
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
-  const [held, setHeld] = useState<PublishedMessages>({ conversation: "", messages: [], more: false, said, task, sent, pending, sending });
+  const [held, setHeld] = useState<PublishedMessages>({ conversation: "", messages: [], more: false, isWorking: false, said, task, sent, pending, sending });
   const heldValue = useRef(held);
   // The stream keeps one latest version while the displayed history stays
   // where he reads. Returning to the end publishes it once, without replay.
@@ -87,6 +87,11 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // working indicator: never the board's snapshot of the terminal, which can
   // say a finished turn still works.
   const [report, setReport] = useState<SessionReport | null>(null);
+  // Behind and working are the stream's own words, and a compaction is the
+  // session's own state rather than a turn: both draw the one indicator, and
+  // both are published with the messages so what he reads up keeps still.
+  const standing = viewStanding(report, held.messages);
+  const isAtWork = standing.isWorking || isCompacting;
   const [isReconnecting, setReconnecting] = useState(false);
   const [closedWhy, setClosedWhy] = useState("");
   const [attempt, setAttempt] = useState(0);
@@ -559,9 +564,9 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     // same messages, so the view publishes only what changed, or it would
     // draw itself a second time for every snapshot.
     const known = latest.current;
-    if (known.said === said && known.task === task && known.sending === sending
+    if (known.isWorking === isAtWork && known.said === said && known.task === task && known.sending === sending
       && isSameList(known.sent, sent) && isSameList(known.pending, pending)) return;
-    latest.current = { ...known, said, task, sent, pending, sending };
+    latest.current = { ...known, isWorking: isAtWork, said, task, sent, pending, sending };
     reconcile.current();
     if (following.current) setHeld(latest.current);
     else setHeld((prior) => {
@@ -569,7 +574,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       const handedOff = sent.filter((action) => localIDs.has(action.id) && (action.status === "queued" || action.status === "running" || action.status === "succeeded") && !prior.pending.some((heldAction) => heldAction.id === action.id));
       return prior.sending === sending && !handedOff.length ? prior : { ...prior, sending, pending: [...prior.pending, ...handedOff] };
     });
-  }, [said, phase, task, sent, pending, sending]);
+  }, [isAtWork, said, phase, task, sent, pending, sending]);
 
   // Each drawn row is measured as it lays out and again whenever it changes,
   // as a picture loads or a call unfolds; a row the hidden view lays out at
@@ -729,11 +734,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   }, []);
   const readings = usageReadings(harness, composing.usage, subscriptions, spend);
   const his = ownPrompts(held.messages);
-  // Behind and working are the stream's own words, so a turn that ended draws
-  // no indicator, and a view the stream has run past says it is behind rather
-  // than showing a turn it has not caught up with.
-  const standing = viewStanding(report, held.messages);
-  const ends = turnEnds(held.messages, standing.isWorking);
+  const ends = turnEnds(held.messages, held.isWorking);
   const reachesEnd = spans[spans.length - 1].end === held.messages.length;
   // Once the session's record shows his words, written since the board took
   // them, its row is his message, and the board's copy goes, so it shows once
@@ -763,7 +764,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     for (const row of items.current?.querySelectorAll<HTMLElement>(":scope > .reply-working, :scope > [data-queued]") ?? []) observer.observe(row);
     settle();
     return () => observer.disconnect();
-  }, [queuedIDs, standing.isWorking, reachesEnd, phase, shown, settle]);
+  }, [queuedIDs, held.isWorking, reachesEnd, phase, shown, settle]);
   return <MessageDocumentScope query={query} instance={instance}><section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     {/* Connecting is a plain line above the conversation, never a cover over
         the box he types into. */}
@@ -789,7 +790,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
-          {shown && standing.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} />}
+          {shown && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} />}
           {/* His messages not yet in the session's record, at the
               conversation's end in its one scroll (the Overlord, 2026-10-29:
               "the double scrolls and having its own little scroll for queued

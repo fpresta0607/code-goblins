@@ -54,24 +54,82 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
   await page.addInitScript(({ data, messages }) => {
     // The board's snapshot stream, which a test sends a later snapshot down,
     // and each session's message stream.
+    //
+    // A message stream also says what the fleet's stream says of the session,
+    // as the supervisor does: its newest turn runs while this fixture's
+    // session works, and ends when it stops. The session works while the
+    // terminal's screen says its harness does, or failing that while the
+    // board's snapshot says the task or session does.
+    const isBusy = (phase: unknown) => phase === "working" || phase === "busy" || phase === "active";
+    const works = (snapshot: unknown, owner: string): boolean => {
+      const board = snapshot as { tasks?: { id?: string; phase?: string }[]; sessions?: { id?: string; role?: string; task_id?: string; phase?: string }[]; cfo_session?: string };
+      if (!owner) return isBusy(board.sessions?.find((each) => each.id === board.cfo_session || each.role === "cfo")?.phase);
+      if (isBusy(board.tasks?.find((each) => each.id === owner)?.phase)) return true;
+      return isBusy(board.sessions?.find((each) => each.task_id === owner)?.phase);
+    };
+    const newestOf = (page: unknown): number => {
+      const held = page as { messages?: { seq?: number }[] };
+      return (held.messages ?? []).reduce((newest, message) => Math.max(newest, message.seq ?? 0), 0);
+    };
     class Stream extends EventTarget {
       static CONNECTING = 0; static OPEN = 1; static CLOSED = 2;
       onerror: (() => void) | null = null;
       readyState = 1;
       private publish = (event: Event) => { if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(event.detail) })); };
-      private update = (event: Event) => { if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent(event.detail.type, { data: JSON.stringify(event.detail.data) })); };
       alive: ReturnType<typeof setInterval> | undefined;
+      // The conversation this stream last served and the newest message in
+      // it, the session event's head, and the owner the session event is for.
+      private held = messages as { conversation?: string };
+      private newest = 0;
+      private owner = "";
+      private snapshot: unknown = data;
+      // What the terminal's screen last said of its harness, which decides
+      // the turn over what the snapshot says once it has said anything.
+      private isScreenWorking: boolean | undefined;
+      private update = (event: Event) => {
+        if (!(event instanceof CustomEvent)) return;
+        const { type, data: sent } = event.detail as { type: string; data: unknown };
+        this.dispatchEvent(new MessageEvent(type, { data: JSON.stringify(sent) }));
+        if (type !== "page" && type !== "messages") return;
+        if (type === "page") this.held = sent as { conversation?: string };
+        this.newest = Math.max(this.newest, newestOf(sent));
+        this.saySession();
+      };
+      private heard = (event: Event) => {
+        if (!(event instanceof CustomEvent)) return;
+        if ("isWorking" in event.detail) this.isScreenWorking = Boolean(event.detail.isWorking);
+        else this.snapshot = event.detail;
+        this.saySession();
+      };
+      // saySession sends what the fleet's stream says of the session: the
+      // conversation it serves, whether its newest turn runs or ended, and the
+      // newest message the stream holds, which a view that has drawn less than
+      // is behind.
+      private saySession() {
+        // Either the screen or the snapshot may say the session works, as the
+        // board's own reading of a session does, and either alone is enough.
+        const state = this.isScreenWorking || works(this.snapshot, this.owner) ? "running" : "ended";
+        this.dispatchEvent(new MessageEvent("session", { data: JSON.stringify({ conversation: this.held.conversation, turn: "", state, why: "", newest: this.newest, head: this.newest }) }));
+      }
       constructor(address: string | URL) {
         super();
         const url = new URL(address, location.href);
         if (url.pathname === "/api/messages") {
+          this.owner = url.searchParams.get("task") ?? "";
           window.addEventListener("fixture-messages", this.update);
+          window.addEventListener("fixture-session", this.heard);
+          window.addEventListener("fixture-snapshot", this.heard);
           // A message stream says alive every five seconds, as the
           // supervisor's does while it has nothing to send.
           this.alive = setInterval(() => this.dispatchEvent(new MessageEvent("alive", { data: "{}" })), 5000);
           // A test that holds the session's messages back (holdMessages)
           // lets them through with a fixture-release-messages event.
-          const first = () => this.dispatchEvent(new MessageEvent("page", { data: JSON.stringify(messages) }));
+          const first = () => {
+            this.held = messages as { conversation?: string };
+            this.newest = newestOf(messages);
+            this.dispatchEvent(new MessageEvent("page", { data: JSON.stringify(messages) }));
+            this.saySession();
+          };
           if ((window as { fixtureHoldsMessages?: boolean }).fixtureHoldsMessages) window.addEventListener("fixture-release-messages", first, { once: true });
           else setTimeout(first);
           return;
@@ -79,7 +137,14 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
         window.addEventListener("fixture-snapshot", this.publish);
         setTimeout(() => this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(data) })));
       }
-      close() { this.readyState = 2; window.removeEventListener("fixture-snapshot", this.publish); window.removeEventListener("fixture-messages", this.update); clearInterval(this.alive); }
+      close() {
+        this.readyState = 2;
+        window.removeEventListener("fixture-snapshot", this.publish);
+        window.removeEventListener("fixture-snapshot", this.heard);
+        window.removeEventListener("fixture-session", this.heard);
+        window.removeEventListener("fixture-messages", this.update);
+        clearInterval(this.alive);
+      }
     }
     Object.defineProperty(window, "EventSource", { value: Stream });
   }, { data: first, messages });
@@ -105,6 +170,11 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
     const spoke = {
       say: (message: object) => {
         if ("type" in message && message.type === "held") holds.set(socket.url(), message);
+        // The screen says whether the harness works, which the fake session
+        // stream reports as the turn's state, as the supervisor does.
+        if ("type" in message && message.type === "screen" && "working" in message) {
+          void page.evaluate((isWorking) => window.dispatchEvent(new CustomEvent("fixture-session", { detail: { isWorking } })), (message as { working: boolean }).working);
+        }
         socket.send(JSON.stringify("type" in message && message.type === "screen" ? { submission, ...message } : message));
       },
       drop: () => socket.close({ code: 1001 }),

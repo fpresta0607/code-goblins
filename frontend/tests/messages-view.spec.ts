@@ -94,13 +94,38 @@ async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<B
       onerror: (() => void) | null = null;
       readyState = 1;
       alive: ReturnType<typeof setInterval> | undefined;
+      // The conversation this stream last served and the newest message it
+      // holds, which the session event reports the head of, as the supervisor
+      // does. A test that wants a turn to run says so with a session event.
+      private held: { conversation?: string; messages?: { seq?: number }[] } = {};
+      private newest = 0;
+      private saySession = () => {
+        this.dispatchEvent(new MessageEvent("session", { data: JSON.stringify({ conversation: this.held.conversation, turn: "", state: "ended", why: "", newest: this.newest, head: this.newest }) }));
+      };
+      private say = (type: string, data: unknown) => {
+        this.dispatchEvent(new MessageEvent(type, { data: typeof data === "string" ? data : JSON.stringify(data) }));
+        if (type !== "page" && type !== "messages") return;
+        if (type === "page") this.held = data as { conversation?: string };
+        const held = data as { messages?: { seq?: number }[] };
+        this.newest = Math.max(this.newest, (held.messages ?? []).reduce((newest, message) => Math.max(newest, message.seq ?? 0), 0));
+        this.saySession();
+      };
       constructor(address: string | URL) {
         super();
         const url = new URL(address, location.href);
         const send = (type: string, data: unknown) => setTimeout(() => this.dispatchEvent(new MessageEvent(type, { data: typeof data === "string" ? data : JSON.stringify(data) })));
         if (url.pathname === "/api/messages") {
           streams.push({ url, source: this });
-          send("page", url.searchParams.get("cfo") ? fixture.fixtureCfoPage ?? pages.cfo : pages.goblin);
+          window.addEventListener("fixture-messages", (event) => {
+            if (!(event instanceof CustomEvent)) return;
+            const { type, data } = event.detail as { type: string; data: unknown };
+            this.say(type, data);
+          });
+          const page = url.searchParams.get("cfo") ? fixture.fixtureCfoPage ?? pages.cfo : pages.goblin;
+          this.held = page as { conversation?: string };
+          this.newest = ((page as { messages?: { seq?: number }[] }).messages ?? []).reduce((newest, message) => Math.max(newest, message.seq ?? 0), 0);
+          send("page", page);
+          setTimeout(this.saySession);
           this.alive = setInterval(() => { if (!fixture.fixtureSilent) this.dispatchEvent(new MessageEvent("alive", { data: "{}" })); }, 5000);
         } else if (url.pathname.endsWith("/agent")) send("output", { entries: [{ kind: "prompt", text: "Find the touch handlers" }, { kind: "reply", text: "Found them in terminal-touch.ts" }] });
         else { boards.push(this); send("snapshot", withKept); }
@@ -594,41 +619,35 @@ test("a stream the supervisor ends says why, and Reconnect reads the messages ag
 
 // The Overlord, 2026-10-29: "why is the modern chat lagging ... it seems like
 // it stopped". His CFO's chat showed a call Running at least 76 s after its
-// result was written, with no notice: its stream had fallen silent, and the
-// board could not tell a silent stream from a quiet one. The supervisor says
-// alive while it has nothing to send, so a stream silent for 15 s stalled.
-test("a message stream that falls silent says Reconnecting and opens again with the newest messages", async ({ page }) => {
-  // Arrange: the CFO's chat reads Answer 99, and the conversation goes on to
-  // Answer 101 while its stream is silent. Reconnecting shows only until the
-  // stream opened again sends its page, which the clock can fire in the same
-  // run, so a watch on the view records it.
-  await page.clock.install();
+// result was written. The board no longer infers staleness from how long the
+// stream was quiet: the fleet's stream says what the session's turn is and
+// where its head is, and a view that has drawn less than the head says it is
+// behind, a state of its own that is neither disconnected nor ended, until it
+// catches up.
+test("a view the stream has run past says it is behind and draws no indicator for the turn it has not drawn", async ({ page }) => {
+  // Arrange: the CFO's chat reads Answer 99, and the stream's head has moved
+  // on with a turn that runs.
   await open(page);
   await openCfo(page);
   const talk = list(page, "CFO");
   await expect(talk).toContainText("Answer 99");
-  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
-  await page.evaluate((newest) => {
-    Object.assign(window, { fixtureSilent: true, fixtureCfoPage: newest });
-    const view = document.querySelector(".messages-view:not([hidden])")!;
-    const watch = new MutationObserver(() => {
-      if (view.querySelector(".terminal-corner")?.textContent !== "Reconnecting") return;
-      Object.assign(window, { saidReconnecting: true });
-      watch.disconnect();
-    });
-    watch.observe(view, { subtree: true, childList: true, characterData: true });
-  }, { messages: range(52, 102), conversation: "fixture-conversation", more: true });
 
-  // Act: 15 s pass with no word from the stream, and the stream opened again
-  // sends its page.
-  await page.clock.runFor(15_000);
-  await expect.poll(() => streams(page)).toBe(2);
-  await page.clock.runFor(100);
+  // Act: the stream says a turn runs, and its head is two messages past what
+  // the view holds.
+  await send(page, "session", { conversation: "fixture-conversation", turn: "q102", state: "running", newest: 104, head: 104 });
 
-  // Assert
-  await expect(talk.locator("[data-message]").last()).toContainText("Answer 101");
-  await expect(page.locator(".messages-view").getByRole("status").filter({ hasText: "Reconnecting" })).toHaveCount(0);
-  expect(await page.evaluate(() => "saidReconnecting" in window), "it said Reconnecting while it opened the stream again").toBe(true);
+  // Assert: behind is said, and no indicator is drawn for a turn the view has
+  // not caught up with.
+  await expect(page.getByText("Behind the session. Jump to latest catches up.")).toBeVisible();
+  await expect(talk.locator(".reply-working")).toHaveCount(0);
+
+  // Act: the messages arrive and the view draws to the stream's head.
+  await send(page, "messages", { conversation: "fixture-conversation", messages: range(52, 106) });
+  await send(page, "session", { conversation: "fixture-conversation", turn: "q102", state: "running", newest: 105, head: 105 });
+
+  // Assert: behind is gone, and the running turn draws its indicator.
+  await expect(page.getByText("Behind the session. Jump to latest catches up.")).toHaveCount(0);
+  await expect(talk.locator(".reply-working")).toHaveCount(1);
 });
 
 test("a message stream that says it is alive stays open while nothing happens", async ({ page }) => {
