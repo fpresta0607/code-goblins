@@ -36,14 +36,23 @@ func servicesAmong(running []ServiceProcess, members []Entry) map[int]Service {
 }
 
 // ProcessTree lists pid and every process under it, pid first, with the
-// machine service each is or runs under. A recorded parent counts only when
-// it started before the process, since Windows gives an ended parent's ID to
+// machine service each is or runs under, judged only by a service among the
+// tree's own processes, as a job's are. A service above the tree is none of
+// its processes': the Scrawl server above a cfo reap --force must not keep
+// the tree it was asked to end. A recorded parent counts only when it
+// started before the process, since Windows gives an ended parent's ID to
 // the next process.
 func ProcessTree(pid int) ([]ServiceProcess, map[int]Service, error) {
 	running, err := runningProcesses()
 	if err != nil {
 		return nil, nil, err
 	}
+	return treeOf(running, pid)
+}
+
+// treeOf is ProcessTree over running, the machine's processes as they were
+// read.
+func treeOf(running []ServiceProcess, pid int) ([]ServiceProcess, map[int]Service, error) {
 	byPID := map[int]ServiceProcess{}
 	children := map[int][]ServiceProcess{}
 	for _, process := range running {
@@ -68,7 +77,11 @@ func ProcessTree(pid int) ([]ServiceProcess, map[int]Service, error) {
 			}
 		}
 	}
-	return tree, ServicesOf(running), nil
+	members := make([]Entry, 0, len(tree))
+	for _, process := range tree {
+		members = append(members, Entry{PID: process.PID, Start: process.Start})
+	}
+	return tree, servicesAmong(running, members), nil
 }
 
 // runningProcesses reads every running process this one may open. Only
