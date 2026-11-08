@@ -159,14 +159,13 @@ Everything in the user rows above still loads for a goblin; spawn adds the follo
 
 **Why this repository has a `.no-mistakes.yaml`.**
 It is this repository's own settings file for the no-mistakes gate, the local pipeline (review, test, document, lint, push, pull request, CI) every change passes before it merges.
-It does three things.
+Three of its settings shape how a gate agent runs.
 It sets `disable_project_settings: true`, so the gate's reviewers and fixers never load this repository's `AGENTS.md` or `CLAUDE.md` as project instructions and keep their assigned gate phase separate from the project's operating contract.
 It sets how many automatic fix rounds each step may take.
 It carries the review instruction that asks whether a change is reached by its tests through the real caller, as `review.path_instructions` scoped to the Go, TypeScript and TSX files a change touches.
 That instruction is adapted, in this repository's own words, from the ECC library at [`affaan-m/ecc`](https://github.com/affaan-m/ecc) commit `d2ef2680594f9a17526a6e1a2e18b3d242c5d17b`: the test-analysis idea in its `agents/pr-test-analyzer.md`, and its `skills/ai-regression-testing/SKILL.md` and `rules/common/code-review.md` where they bear on the same question.
 Nothing from that repository is installed, copied or executed here.
-`review.path_instructions` is honoured only from the default branch, so a pushed branch can neither add nor weaken the review rules that review it.
-The gate reads this file from the default branch, and `cfo pipeline run` refuses to start a run in a repository without it.
+The gate trusts this file from the default branch, so a pushed branch can neither add nor weaken the review rules that review it, and `cfo pipeline run` refuses to start a run in a repository without it.
 
 **What a gate agent reads.**
 
