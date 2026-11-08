@@ -4,9 +4,10 @@ name: install
 # runner is by construction: the one-line install, with this commit's own
 # build served as the release and installed exactly as `irm ... | iex` would,
 # the setup program's install of that same release, and `.\install.cmd -Dev`
-# from this checkout. Each ends with dictation ready. It also proves the
-# update a person who installed a published release makes to this commit's
-# build with goblins update.
+# from this checkout. Each ends with the installed home's dictation proven
+# ready, or, where the runner could not download the model, recorded as an
+# environment result. It also proves the update a person who installed a
+# published release makes to this commit's build with goblins update.
 on:
   # A draft runs nothing but the draft job, and marking it ready runs both
   # installs on its head, as the go workflow does.
@@ -609,7 +610,8 @@ jobs:
   # build of it whose board exits as it starts: the update to that one rolls
   # back, the update to this commit installs it, and each keeps the home, the
   # running terminals, the person's settings, project, credential and work,
-  # and dictation ready.
+  # and dictation ready, or the update's own download recorded as the same
+  # environment result.
   update:
     name: update from ${{ matrix.from }}
     needs: [draft, reuse]

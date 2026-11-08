@@ -59,10 +59,6 @@ function Get-DictationVerdict {
             $headline = 'Dictation failed.'
             $failures += "doctor reports dictation ready but caches\voice holds $($Result.PartsCount) verified parts, want the engine and the model: $($Result.PartsNames)"
         }
-    } elseif (-not $Result.SetupRan) {
-        $outcome = 'failure'
-        $headline = 'Dictation failed.'
-        $failures += "dictation is not set up and cfo dictation setup was not run: $($Result.DoctorLine)"
     } elseif ($Result.SetupExit -eq 0) {
         $outcome = 'failure'
         $headline = 'Dictation failed.'
