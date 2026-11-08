@@ -1,7 +1,7 @@
 // Package sessionstream is the fleet's one conversation record: an
-// append-only event stream per session, which every harness's own transcript
-// reader feeds and which the board, the family tree, a goblin's panel and the
-// resume path all read.
+// append-only event stream per session, which the fleet's adapter derives
+// from what each harness's own transcript reader already normalized, and
+// which the board reads back as the conversation it renders.
 //
 // A session is one harness conversation of one goblin generation, or of the
 // CEO. Its stream lives beside the identity record the fleet already kept for

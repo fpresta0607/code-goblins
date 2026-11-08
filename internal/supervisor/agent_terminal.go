@@ -144,9 +144,11 @@ type messagesSession struct {
 // goblin of the generation it names or the CFO in the terminal it names,
 // while that session runs in a native terminal: no path while its harness has
 // written none, and messagesRefused once the session no longer runs or is one
-// the board does not read. It reads no process and parses no store file,
-// since a view's stream asks again as often as a terminal view's binding is
-// checked.
+// the board does not read. A goblin's locating reads no process and parses no
+// store file, since a view's stream asks again as often as a terminal view's
+// binding is checked; the CFO's proves the live conversation its harness is
+// in, which it records when the record named another, so a stale record is
+// reported rather than rendered as current.
 func (h *HTTP) messagesLocator(ctx context.Context, query url.Values) (func() (messagesSession, error), error) {
 	stateDir, home := h.Service.Store.Home.State, h.Service.Options.Tree.Home
 	if want := query.Get("cfo"); want != "" {
