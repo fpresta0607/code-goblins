@@ -449,21 +449,29 @@ func (a *Appender) append(events []Event) error {
 	if err := os.MkdirAll(filepath.Dir(a.path), 0o700); err != nil {
 		return err
 	}
-	file, err := os.OpenFile(a.path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o600)
+	if err := trimTail(a.path); err != nil {
+		return err
+	}
+	file, err := fsx.OpenAppend(a.path, 0o600)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
-	if err := trimTail(a.path, file); err != nil {
-		return err
-	}
 	_, err = file.Write(Encode(events))
 	return err
 }
 
 // trimTail cuts a stream back to its last ended line, so an append always
 // begins at a whole entry.
-func trimTail(path string, file *os.File) error {
+func trimTail(path string) error {
+	file, err := fsx.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer file.Close()
 	info, err := file.Stat()
 	if err != nil {
 		return err
