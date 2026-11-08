@@ -6,7 +6,10 @@
 # person's settings, project record, stored credential and the goblin's work
 # are as fleet_at_work.ps1 found them, and dictation is ready: its files as
 # they were, or, where the release pins a newer model, that model fetched in
-# their place by the board the update started. When the runner could not make
+# their place by the board the update started. A rollback restores the build
+# from before, whose pinned asset upstream may have re-uploaded since this
+# checkout pinned it: it keeps every verified part it had and reads as not
+# ready, an expected difference and not a loss. When the runner could not make
 # that download, the installed check runs `cfo dictation setup` once and
 # records it as an environment result, never a failure of the change.
 #
@@ -95,7 +98,22 @@ if ($Want -eq "installed" -and -not $dictationReady) {
         $dictationReady = $true
     }
 } elseif ($Want -eq "rolled-back" -and -not $dictationReady) {
-    $problems += "dictation is not ready after the rollback: $dictation"
+    # A rollback restores the build from before, whose pinned asset upstream
+    # may have re-uploaded since this checkout pinned it: the cache then
+    # reads as missing, an expected difference and not a loss. Only a
+    # verified part the rollback dropped is the failure.
+    $beforeParts = ([regex]::Matches([string]$before.dictation, [regex]::Escape("verified.json"))).Count
+    $left = @(Get-ChildItem -LiteralPath (Join-Path $env:CFO_HOME "caches\voice") -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "verified.json") })
+    if ($left.Count -lt $beforeParts) {
+        $problems += "the rollback lost a verified part: caches\voice holds $($left.Count) verified parts, want $beforeParts as before: $($left.Name -join ', ')"
+    } else {
+        $cacheSums = @($left | ForEach-Object {
+                $record = Get-Content -Raw -LiteralPath (Join-Path $_.FullName "verified.json") | ConvertFrom-Json
+                "$($_.Name) $($record.sha256)"
+            }) -join ", "
+        $pin = (Get-Content -Raw config\voice.json | ConvertFrom-Json).model
+        Write-Host "dictation is not ready after the rollback because the build it restores pins a different asset than this checkout pins, an expected difference: caches\voice holds $cacheSums; config\voice.json pins $($pin.name) $($pin.version) $($pin.sha256)"
+    }
 }
 if ($replaced -and -not $environment) {
     $left = @(Get-ChildItem -LiteralPath (Join-Path $env:CFO_HOME "caches\voice") -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "verified.json") })
