@@ -3,46 +3,21 @@
 # with this commit's, and that cfo gate turn --detach shows none at all. The
 # default terminal is whatever the runner is set to: the workflow runs it
 # once with the console host and once with Windows Terminal.
+#
+# main's careless starts are the proof's own premise: it must show a window
+# and run its command for the whole watch, or no row measures anything. A
+# runner where that premise does not hold is an environment result, never a
+# failure of the change. This commit's rows stay strict. -SelfTest runs the
+# verdict and the summary over rows made up here, so a fixture proves those
+# rules without a desktop.
 param(
-    [Parameter(Mandatory = $true)][string]$BaseCfo,
-    [Parameter(Mandatory = $true)][string]$Cfo,
-    [Parameter(Mandatory = $true)][string]$Terminal,
-    [Parameter(Mandatory = $true)][string]$Work
+    [string]$BaseCfo = '',
+    [string]$Cfo = '',
+    [string]$Terminal = '',
+    [string]$Work = '',
+    [string]$SelfTest = ''
 )
 $ErrorActionPreference = 'Stop'
-New-Item -ItemType Directory -Force $Work | Out-Null
-
-Add-Type -TypeDefinition @'
-using System;
-using System.Collections.Generic;
-using System.Runtime.InteropServices;
-public static class Desktop {
-    public delegate bool EnumProc(IntPtr window, IntPtr parameter);
-    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc callback, IntPtr parameter);
-    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
-    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
-    // The visible top-level windows, each as its handle and whether it is
-    // minimized.
-    public static Dictionary<long, bool> Shown() {
-        var shown = new Dictionary<long, bool>();
-        EnumWindows((window, parameter) => {
-            if (IsWindowVisible(window)) shown[window.ToInt64()] = IsIconic(window);
-            return true;
-        }, IntPtr.Zero);
-        return shown;
-    }
-}
-'@
-
-# The runs share a scratch home and their own line, never a person's.
-$env:CFO_HOME = Join-Path $Work 'home'
-$env:CFO_STATE_OVERRIDE = Join-Path $Work 'home\state'
-$env:CFO_PROJECTS_ROOT = Join-Path $Work 'projects'
-New-Item -ItemType Directory -Force $env:CFO_HOME, $env:CFO_STATE_OVERRIDE, $env:CFO_PROJECTS_ROOT | Out-Null
-
-$watchFor = 10
-$bash = 'C:\Program Files\Git\bin\bash.exe'
-$turn = 'gate turn -- ping -n 30 127.0.0.1'
 
 # Start-Exactly starts program with exactly the command line arguments,
 # which Windows PowerShell would otherwise rewrite: it drops a bare -- it
@@ -104,6 +79,217 @@ function Watch-Start([string]$Name, [string]$Build, [scriptblock]$Start) {
     [pscustomobject]@{ Terminal = $Terminal; Build = $Build; Start = $Name; Windows = $opened.Count; InFrontUntilMs = $front; ShownUntilMs = $any; CommandUntilMs = $command }
 }
 
+# When-Of renders the time a row was last seen, as the summary's table does.
+function When-Of([int]$Milliseconds) {
+    if ($Milliseconds -lt 0) { return 'never' }
+    return "$Milliseconds ms"
+}
+
+# Get-Verdict reads the measured rows and says what each means: a failure of
+# the change, or an environment result where the runner cannot host the
+# proof's premise. main's careless start must show a window and run its
+# command for the whole watch; a row that does not is the environment's and
+# not the change's. This commit's careless start must run its command and
+# show no window beyond a moment, and the detached run must show none and
+# start its command, which stay failures.
+function Get-Verdict {
+    param(
+        [Parameter(Mandatory = $true)][object[]]$Results,
+        [Parameter(Mandatory = $true)][int]$WatchFor,
+        [string]$DetachedEnd = ''
+    )
+    $short = $WatchFor * 1000 - 1000
+    $failures = @()
+    $environment = @()
+    foreach ($row in $Results) {
+        $isCareless = $row.Start -ne 'cfo gate turn --detach'
+        if ($row.Build -eq 'main') {
+            if ($row.CommandUntilMs -lt $short) {
+                $environment += "main's $($row.Start) did not run its command through the $($WatchFor * 1000) ms watch (last seen: $(When-Of $row.CommandUntilMs)), so this runner cannot host the proof: the row measures no real run"
+            }
+            if ($row.ShownUntilMs -lt $short) {
+                $environment += "main's $($row.Start) did not show a window through the $($WatchFor * 1000) ms watch (last seen: $(When-Of $row.ShownUntilMs)), so this desktop does not show what the proof needs"
+            }
+        } elseif ($isCareless) {
+            if ($row.CommandUntilMs -lt $short) {
+                $failures += "this branch's $($row.Start) did not run its command through the $($WatchFor * 1000) ms watch (last seen: $(When-Of $row.CommandUntilMs)), so it measures no real run"
+            }
+            if ($row.ShownUntilMs -gt 1000) {
+                $failures += "this branch's $($row.Start) still showed a window $($row.ShownUntilMs) ms after it started"
+            }
+        } elseif ($row.Windows -ne 0 -or $row.CommandUntilMs -lt 0) {
+            $failures += "cfo gate turn --detach showed $($row.Windows) windows and ran its command until $($row.CommandUntilMs) ms"
+        }
+    }
+    if ($DetachedEnd -notlike 'cfo gate turn: the detached run ended with exit 0 after *') {
+        $failures += "the detached run's log ends with '$DetachedEnd', not how it ended"
+    }
+    return [pscustomobject]@{ Failures = $failures; Environment = $environment }
+}
+
+# Write-Summary appends the run's summary: the full table of every row, the
+# detached run's last line, and, when the runner could not host the proof,
+# the environment result with exactly which premise failed and what it means.
+function Write-Summary {
+    param(
+        [Parameter(Mandatory = $true)][object[]]$Results,
+        [Parameter(Mandatory = $true)][string]$Terminal,
+        [Parameter(Mandatory = $true)][string]$DetachedEnd,
+        [Parameter(Mandatory = $true)]$Verdict,
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+    $summary = @("### $Terminal as the default terminal", '', '| Build | Start | New windows | In front until | Shown until | Its command ran until |', '|---|---|---|---|---|---|')
+    foreach ($row in $Results) {
+        $front = When-Of $row.InFrontUntilMs
+        $shown = When-Of $row.ShownUntilMs
+        $ran = When-Of $row.CommandUntilMs
+        $summary += "| $($row.Build) | $($row.Start) | $($row.Windows) | $front | $shown | $ran |"
+    }
+    $summary += '', "Detached run's last line: ``$DetachedEnd``", ''
+    if ($Verdict.Environment.Count -gt 0) {
+        $summary += '**Environment result: this runner cannot host the proof, so the rows for main are no verdict on the change.**', ''
+        foreach ($line in $Verdict.Environment) { $summary += "- $line" }
+        $summary += ''
+    }
+    $summary | Add-Content -Path $Path
+}
+
+# A self-test is the fixture the acceptance criteria ask for: rows made up
+# here, never measured, through the same verdict and summary the run uses.
+if ($SelfTest -ne '') {
+    $watchFor = 10
+    $full = $watchFor * 1000
+    $detached = 'cfo gate turn --detach'
+    $ended = 'cfo gate turn: the detached run ended with exit 0 after 3s'
+
+    function Row([string]$Build, [string]$Start, [int]$Windows, [int]$ShownUntilMs, [int]$CommandUntilMs) {
+        [pscustomobject]@{
+            Terminal       = 'a fixture'
+            Build          = $Build
+            Start          = $Start
+            Windows        = $Windows
+            InFrontUntilMs = $ShownUntilMs
+            ShownUntilMs   = $ShownUntilMs
+            CommandUntilMs = $CommandUntilMs
+        }
+    }
+
+    function Assert-SelfTest([bool]$Condition, [string]$Message) {
+        if (-not $Condition) { throw "no_visible_windows self-test ${SelfTest}: $Message" }
+    }
+
+    $mainGood = @(
+        (Row 'main' 'Start-Process at the normal window style' 1 $full $full)
+        (Row 'main' 'cmd /c start' 1 $full $full)
+    )
+    $branchGood = @(
+        (Row 'this branch' 'Start-Process at the normal window style' 0 -1 $full)
+        (Row 'this branch' 'cmd /c start' 0 -1 $full)
+    )
+    $detachedGood = (Row 'this branch' $detached 0 -1 3000)
+
+    switch ($SelfTest) {
+        'base-command-ends-early' {
+            $rows = @((Row 'main' 'Start-Process at the normal window style' 1 $full 4000)) + $branchGood + $detachedGood
+            $verdict = Get-Verdict -Results $rows -WatchFor $watchFor -DetachedEnd $ended
+            Assert-SelfTest ($verdict.Failures.Count -eq 0) "no failure, but found: $($verdict.Failures -join '; ')"
+            Assert-SelfTest ($verdict.Environment.Count -eq 1) "one environment result, but found: $($verdict.Environment -join '; ')"
+            Assert-SelfTest ($verdict.Environment[0] -like '*Start-Process at the normal window style*') "the environment result names the row: $($verdict.Environment[0])"
+            Assert-SelfTest ($verdict.Environment[0] -like '*(last seen: 4000 ms)*') "the environment result carries the numbers: $($verdict.Environment[0])"
+        }
+        'base-no-window' {
+            $rows = @((Row 'main' 'Start-Process at the normal window style' 0 -1 $full)) + $branchGood + $detachedGood
+            $verdict = Get-Verdict -Results $rows -WatchFor $watchFor -DetachedEnd $ended
+            Assert-SelfTest ($verdict.Failures.Count -eq 0) "no failure, but found: $($verdict.Failures -join '; ')"
+            Assert-SelfTest ($verdict.Environment.Count -eq 1) "one environment result, but found: $($verdict.Environment -join '; ')"
+            Assert-SelfTest ($verdict.Environment[0] -like '*did not show a window through the 10000 ms watch*') "the environment result names the missing window: $($verdict.Environment[0])"
+        }
+        'branch-shows-window' {
+            $rows = $mainGood + @((Row 'this branch' 'Start-Process at the normal window style' 1 4000 $full)) + $detachedGood
+            $verdict = Get-Verdict -Results $rows -WatchFor $watchFor -DetachedEnd $ended
+            Assert-SelfTest ($verdict.Environment.Count -eq 0) "no environment result, but found: $($verdict.Environment -join '; ')"
+            Assert-SelfTest ($verdict.Failures.Count -eq 1) "one failure, but found: $($verdict.Failures -join '; ')"
+            Assert-SelfTest ($verdict.Failures[0] -like "*this branch's Start-Process at the normal window style still showed a window 4000 ms*") "the failure names the start and how long: $($verdict.Failures[0])"
+        }
+        'branch-command-unrun' {
+            $rows = $mainGood + @((Row 'this branch' 'Start-Process at the normal window style' 0 -1 -1)) + $detachedGood
+            $verdict = Get-Verdict -Results $rows -WatchFor $watchFor -DetachedEnd $ended
+            Assert-SelfTest ($verdict.Environment.Count -eq 0) "no environment result, but found: $($verdict.Environment -join '; ')"
+            Assert-SelfTest ($verdict.Failures.Count -eq 1) "one failure, but found: $($verdict.Failures -join '; ')"
+            Assert-SelfTest ($verdict.Failures[0] -like '*did not run its command through*') "the failure names the unrun command: $($verdict.Failures[0])"
+        }
+        'detached-shows-window' {
+            $rows = $mainGood + $branchGood + (Row 'this branch' $detached 2 -1 3000)
+            $verdict = Get-Verdict -Results $rows -WatchFor $watchFor -DetachedEnd $ended
+            Assert-SelfTest ($verdict.Failures.Count -eq 1) "one failure, but found: $($verdict.Failures -join '; ')"
+            Assert-SelfTest ($verdict.Failures[0] -like '*showed 2 windows*') "the failure names the detached run's windows: $($verdict.Failures[0])"
+        }
+        'detached-command-unrun' {
+            $rows = $mainGood + $branchGood + (Row 'this branch' $detached 0 -1 -1)
+            $verdict = Get-Verdict -Results $rows -WatchFor $watchFor -DetachedEnd $ended
+            Assert-SelfTest ($verdict.Failures.Count -eq 1) "one failure, but found: $($verdict.Failures -join '; ')"
+            Assert-SelfTest ($verdict.Failures[0] -like '*ran its command until -1 ms*') "the failure names the unrun command: $($verdict.Failures[0])"
+        }
+        'summary-holds-every-row' {
+            $rows = $mainGood + $branchGood + $detachedGood
+            $verdict = Get-Verdict -Results $rows -WatchFor $watchFor -DetachedEnd $ended
+            $path = Join-Path ([System.IO.Path]::GetTempPath()) "no_visible_windows-$([guid]::NewGuid()).md"
+            try {
+                Write-Summary -Results $rows -Terminal 'a fixture' -DetachedEnd $ended -Verdict $verdict -Path $path
+                $summary = Get-Content -Raw -Path $path
+                foreach ($row in $rows) {
+                    Assert-SelfTest ($summary.Contains("| $($row.Build) | $($row.Start) |")) "the summary holds the row $($row.Build) / $($row.Start)"
+                }
+                Assert-SelfTest ($summary.Contains("Detached run's last line:")) 'the summary holds the detached run line'
+            } finally {
+                Remove-Item -Force -ErrorAction SilentlyContinue $path
+            }
+        }
+        default { throw "Unknown no_visible_windows self-test $SelfTest." }
+    }
+    Write-Output "no_visible_windows self-test $SelfTest passed."
+    exit 0
+}
+
+if (-not $BaseCfo -or -not $Cfo -or -not $Terminal -or -not $Work) {
+    throw 'no_visible_windows.ps1 needs -BaseCfo, -Cfo, -Terminal and -Work.'
+}
+New-Item -ItemType Directory -Force $Work | Out-Null
+
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+public static class Desktop {
+    public delegate bool EnumProc(IntPtr window, IntPtr parameter);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc callback, IntPtr parameter);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
+    // The visible top-level windows, each as its handle and whether it is
+    // minimized.
+    public static Dictionary<long, bool> Shown() {
+        var shown = new Dictionary<long, bool>();
+        EnumWindows((window, parameter) => {
+            if (IsWindowVisible(window)) shown[window.ToInt64()] = IsIconic(window);
+            return true;
+        }, IntPtr.Zero);
+        return shown;
+    }
+}
+'@
+
+# The runs share a scratch home and their own line, never a person's.
+$env:CFO_HOME = Join-Path $Work 'home'
+$env:CFO_STATE_OVERRIDE = Join-Path $Work 'home\state'
+$env:CFO_PROJECTS_ROOT = Join-Path $Work 'projects'
+New-Item -ItemType Directory -Force $env:CFO_HOME, $env:CFO_STATE_OVERRIDE, $env:CFO_PROJECTS_ROOT | Out-Null
+
+$watchFor = 10
+$bash = 'C:\Program Files\Git\bin\bash.exe'
+# The command runs far past the watch, so every row that sees it run measures
+# the watch itself, never how long this command happened to live.
+$turn = 'gate turn -- ping -n 600 127.0.0.1'
+
 $results = @()
 foreach ($build in @(@{ Name = 'main'; Cfo = $BaseCfo }, @{ Name = 'this branch'; Cfo = $Cfo })) {
     $program = $build.Cfo
@@ -135,42 +321,20 @@ $detachedEnd = (Get-Content $log -ErrorAction SilentlyContinue | Select-Object -
 $results | Format-Table -AutoSize | Out-String -Width 200
 "detached run's last line: $detachedEnd"
 
+$verdict = Get-Verdict -Results $results -WatchFor $watchFor -DetachedEnd $detachedEnd
 if ($env:GITHUB_STEP_SUMMARY) {
-    $summary = @("### $Terminal as the default terminal", '', '| Build | Start | New windows | In front until | Shown until | Its command ran until |', '|---|---|---|---|---|---|')
-    foreach ($row in $results) {
-        $front = if ($row.InFrontUntilMs -lt 0) { 'never' } else { "$($row.InFrontUntilMs) ms" }
-        $shown = if ($row.ShownUntilMs -lt 0) { 'never' } else { "$($row.ShownUntilMs) ms" }
-        $ran = if ($row.CommandUntilMs -lt 0) { 'never' } else { "$($row.CommandUntilMs) ms" }
-        $summary += "| $($row.Build) | $($row.Start) | $($row.Windows) | $front | $shown | $ran |"
-    }
-    $summary += '', "Detached run's last line: ``$detachedEnd``", ''
-    $summary | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+    Write-Summary -Results $results -Terminal $Terminal -DetachedEnd $detachedEnd -Verdict $verdict -Path $env:GITHUB_STEP_SUMMARY
 }
-
-# Every careless start reached its command and ran it to the end of the
-# watch, so each measures a real run. main's showed a window for the whole
-# watch, the premise without which this proof would prove nothing. The
-# branch's show nothing beyond a moment, and its detached run nothing at all.
-$failures = @()
-foreach ($row in $results) {
-    $isCareless = $row.Start -ne 'cfo gate turn --detach'
-    if ($isCareless -and $row.CommandUntilMs -lt ($watchFor * 1000 - 1000)) {
-        $failures += "$($row.Build)'s $($row.Start) did not keep its command running for the watch, so it measures no real run"
-    }
-    if ($row.Build -eq 'main' -and $row.ShownUntilMs -lt ($watchFor * 1000 - 1000)) {
-        $failures += "main's $($row.Start) showed no window for the whole watch, so this desktop does not show what the proof needs"
-    }
-    if ($row.Build -eq 'this branch' -and $isCareless -and $row.ShownUntilMs -gt 1000) {
-        $failures += "this branch's $($row.Start) still showed a window $($row.ShownUntilMs) ms after it started"
-    }
-    if (-not $isCareless -and ($row.Windows -ne 0 -or $row.CommandUntilMs -lt 0)) {
-        $failures += "cfo gate turn --detach showed $($row.Windows) windows and ran its command until $($row.CommandUntilMs) ms"
-    }
+# An environment result is loud and green: the summary names it, and a
+# warning annotation carries the same words onto the run. The change's own
+# rows still fail.
+foreach ($line in $verdict.Environment) {
+    Write-Output "::warning title=Environment result::$line"
 }
-if ($detachedEnd -notlike 'cfo gate turn: the detached run ended with exit 0 after *') {
-    $failures += "the detached run's log ends with '$detachedEnd', not how it ended"
-}
-if ($failures.Count -gt 0) {
-    $failures | ForEach-Object { Write-Error $_ -ErrorAction Continue }
+if ($verdict.Failures.Count -gt 0) {
+    $verdict.Failures | ForEach-Object { Write-Error $_ -ErrorAction Continue }
     exit 1
+}
+if ($verdict.Environment.Count -gt 0) {
+    Write-Output 'no_visible_windows: this runner cannot host the proof, so the rows for main are an environment result, not a failure of the change.'
 }
