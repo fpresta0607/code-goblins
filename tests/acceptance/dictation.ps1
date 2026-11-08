@@ -1,5 +1,5 @@
 # Proves the install workflow's dictation check on a hosted runner, where the
-# 482 MB speech model download is the runner's to make and not the product's.
+# speech model's download is the runner's to make and not the product's.
 # It reads goblins doctor, and when dictation is not set up it runs
 # `cfo dictation setup` once. A runner that cannot download the model is an
 # environment result, never a failure of the change, in the shape
@@ -9,6 +9,9 @@
 # transport error. The step summary names which outcome happened.
 #
 #   .\tests\acceptance\dictation.ps1 -Goblins <goblins.exe> -Cfo <cfo.exe> -CfoHome <CFO_HOME> -Summary <GITHUB_STEP_SUMMARY>
+#
+# -ResultFile writes the verdict as JSON for a caller that reads the outcome
+# itself, as tests/update/update_and_check.ps1 does.
 #
 # -SelfTest runs the verdict, the summary and a failing setup's own output over
 # results and stand-in executables made up here, so a fixture proves each

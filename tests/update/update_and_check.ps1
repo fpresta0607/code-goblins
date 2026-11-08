@@ -69,7 +69,7 @@ if ($after.claudeSetting -ne "kept") { $problems += "the person's own Claude Cod
 # in place of the earlier, once it serves. When the runner could not make
 # that download, tests/acceptance/dictation.ps1 runs `cfo dictation setup`
 # once and records the runner's failure as an environment result, never a
-# product failure; only a real mismatch fails.
+# product failure; any other outcome fails, as that script decides it.
 $model = (Get-Content -Raw config\voice.json | ConvertFrom-Json).model.name
 $replaced = $Want -eq "installed" -and $before.dictation -notmatch [regex]::Escape($model)
 if (-not $replaced -and $after.dictation -ne $before.dictation) { $problems += "dictation's engine and model changed on disk: '$($before.dictation)' became '$($after.dictation)'" }
