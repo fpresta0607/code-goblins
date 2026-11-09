@@ -314,6 +314,24 @@ for (const who of ["CFO", "goblin"] as const) {
         await expect(field(page, name)).toHaveValue(DRAFT);
         await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
       });
+      test("a local login dialog shows its instructions and result, and Continue sends Enter without touching the draft", async ({ page }) => {
+        const relay = await open(page);
+        const name = who === "CFO" ? "CFO" : NAME;
+        await openConnected(page, relay, who);
+        await field(page, name).fill(DRAFT);
+        const before = typed(relay);
+        const panel = box(page, name).getByRole("group", { name: name + " asks" });
+        relay.say({ type: "screen", asking: false, open: true, working: false, submission: "login-1", panel: { rows: ["Sign in", "Paste your code below"], choices: [], hints: ["Press Enter to submit · Esc to cancel"] } });
+        await expect(panel).toContainText("Paste your code below");
+        relay.say({ type: "screen", asking: false, open: true, working: false, submission: "login-1", panel: { rows: ["Login successful"], choices: [], hints: ["Press Enter to continue"] } });
+        await expect(panel).toContainText("Login successful");
+        await expect(panel).toContainText("Press Enter to continue");
+        await panel.getByRole("button", { name: "Continue", exact: true }).click();
+        await expect.poll(() => typed(relay).slice(before.length)).toBe("\r");
+        relay.say({ type: "screen", asking: false, open: false, working: false, submission: "" });
+        await expect(panel).toHaveCount(0);
+        await expect(field(page, name)).toHaveValue(DRAFT);
+      });
 
       test("a menu the harness drew for something other than his own input is not shown and takes no keys", async ({ page }) => {
         // Arrange

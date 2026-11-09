@@ -231,7 +231,7 @@ func TestAPiReadAnswersOnlyWhatChangedAndAnewAfterATreeSwitch(t *testing.T) {
 	}
 
 	// Act: nothing written since the page.
-	whileNothing, now, isAnew, err := reader.MessagesSince(path, cursor)
+	whileNothing, _, now, isAnew, err := reader.MessagesSince(path, cursor)
 	// Assert
 	if err != nil {
 		t.Fatal(err)
@@ -242,7 +242,7 @@ func TestAPiReadAnswersOnlyWhatChangedAndAnewAfterATreeSwitch(t *testing.T) {
 
 	// Act: a new prompt under the leaf.
 	appendLines(t, path, piMessageEntry("u3", "u2", "user", object{"content": "And one more"}))
-	changed, _, isAnew, err := reader.MessagesSince(path, now)
+	changed, _, _, isAnew, err := reader.MessagesSince(path, now)
 	// Assert
 	if err != nil {
 		t.Fatal(err)
@@ -256,7 +256,7 @@ func TestAPiReadAnswersOnlyWhatChangedAndAnewAfterATreeSwitch(t *testing.T) {
 
 	// Act: the tree moves back to the abandoned answer.
 	appendLines(t, path, piMessageEntry("u4", "a3", "user", object{"content": "Back to it"}))
-	switched, _, isAnew, err := reader.MessagesSince(path, now)
+	switched, _, _, isAnew, err := reader.MessagesSince(path, now)
 	// Assert
 	if err != nil {
 		t.Fatal(err)
@@ -412,7 +412,7 @@ func TestAPiUnchangedPollsParseNothingAndRebuildNothing(t *testing.T) {
 		if _, _, err := reader.MessagePage(path, -1); err != nil {
 			t.Fatal(err)
 		}
-		_, _, isAnew, err := reader.MessagesSince(path, MessageCursor{epoch, revision, log.incarnation})
+		_, _, _, isAnew, err := reader.MessagesSince(path, MessageCursor{epoch, revision, log.incarnation})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -546,7 +546,7 @@ func TestAPiCursorAfterIdleEvictionIsNotAnsweredFromTheNewLog(t *testing.T) {
 	if _, _, err := reader.MessagePage(path, -1); err != nil {
 		t.Fatal(err)
 	}
-	changed, now, isAnew, err := reader.MessagesSince(path, cursor)
+	changed, _, now, isAnew, err := reader.MessagesSince(path, cursor)
 
 	// Assert
 	if err != nil {

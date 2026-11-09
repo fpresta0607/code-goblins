@@ -47,7 +47,7 @@ import { MessagesView } from "./messages-view";
 import { Composer } from "./composer";
 import { useTerminalLink } from "./terminal-link";
 import { cfoEffort, liveCfoSession } from "./workflow";
-import { messagesQuery } from "./session-messages";
+import { messagesQuery, type MessagePage } from "./session-messages";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { CHAT_STYLE_CHANGED, useChatStyle, type ChatStyle } from "./chat-style";
 import { goblinName } from "./task-words";
@@ -132,6 +132,7 @@ export function App() {
   // The session whose Messages view, or the box it holds, was last shown,
   // which stays mounted. A Classic terminal that shows neither loads none.
   const [messagesOpened, setMessagesOpened] = useState("");
+  const [messagePages] = useState(() => new Map<string, MessagePage>());
   const [switchFocus, setSwitchFocus] = useState(0);
   // A count each hand of the keyboard to a Messages view's box adds to.
   const [boxFocus, setBoxFocus] = useState(0);
@@ -580,7 +581,7 @@ export function App() {
         <div className="panel-body" hidden={!terminalShown && !messagesShown}>
         <div className="panel-main">
         <div className="panel-stage" hidden={!terminalShown && !messagesShown}>
-          {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={messagesSource} query={messagesSource} instance={snapshot.instance}
+          {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={snapshot.instance + messagesSource} query={messagesSource} instance={snapshot.instance} pages={messagePages}
             name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} terminal={terminalKey} harness={panelHarness} model={panelModel} effort={panelEffort}
             isCompacting={isCompacting} sent={panelSent} pending={panelPending}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} shown={messagesShown} visible={connected}

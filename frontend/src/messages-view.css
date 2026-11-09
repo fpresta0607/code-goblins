@@ -29,7 +29,7 @@
 .message-prompt { align-self: flex-end; justify-items: end; max-width: min(80%, 40em); }
 .message-prompt > .message-copy { position: absolute; top: 0; right: 100%; margin-right: .25em; z-index: 1; }
 .message-bubble { min-width: 0; max-width: 100%; padding: .55em .95em; border-radius: 1.125em; background: #15232b; overflow-wrap: anywhere; }
-.message-prompt.cfo .message-bubble { background: #101b21; box-shadow: 0 0 0 1px var(--glass-border) inset; }
+.message-prompt.cfo .message-bubble, .queued-message.cfo .message-bubble { background: #101b21; box-shadow: 0 0 0 1px var(--glass-border) inset; }
 .message-prompt.slash .message-bubble > code, .message-prompt.shell .message-bubble > code { font: .9375em/1.5 var(--font-mono); white-space: pre-wrap; }
 .message-origin, .queued-state { justify-self: end; margin: 0; color: var(--muted); font-size: .75em; }
 /* What a command printed scrolls a long line sideways inside its own box. */

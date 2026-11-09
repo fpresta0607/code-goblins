@@ -1,6 +1,74 @@
 import { expect, test, type Locator, type Page } from "./site";
-import { at, GOBLIN, NAME, open, openGoblin, snapshot } from "./session-board";
+import { at, field, GOBLIN, NAME, open, openGoblin, pickStyle, snapshot } from "./session-board";
 import { delayedScroll, flingsOverHeldReplies, landsOverHeldRepliesAfterShortRows, leaveEndWhileStreaming, moved, readOlderPastLostRelease, readUpUnderHeldFinger, readUpWhileStreaming, rowGrowsAboveHim } from "./conversation-scroll-race";
+
+for (const width of [1440, 390]) {
+  test(`switching long conversations at ${width} px paints the latest response without walking history`, async ({ page }, testInfo) => {
+    await page.addInitScript(() => {
+      const getContext = HTMLCanvasElement.prototype.getContext as (this: HTMLCanvasElement, kind: string, options?: unknown) => RenderingContext | null;
+      Object.defineProperty(HTMLCanvasElement.prototype, "getContext", { value(this: HTMLCanvasElement, kind: string, options?: unknown) { return kind === "webgl2" ? null : getContext.call(this, kind, options); } });
+    });
+    await page.setViewportSize({ width, height: 900 });
+    const messages = Array.from({ length: 3000 }, (_, seq) => ({ id: "m" + seq, seq, at, kind: "reply", blocks: [{ kind: "text", text: `Answer ${seq}\n\n` + "A paragraph in the session's history.\n\n".repeat(1 + seq % 8) }] }));
+    await open(page, snapshot(), "", { conversation: "fixture-conversation", messages, more: false }, Array.from({ length: 3000 }, (_, line) => `Terminal history ${line}\r\n`).join("") + "Latest terminal response\r\n> ready");
+    const samples: { elapsed: number; end: number; drawn: number; latest: boolean }[][] = [];
+    for (const name of [NAME, "Ivy - Window Painter", NAME, "Ivy - Window Painter", NAME]) {
+      samples.push(await page.evaluate(async (name) => {
+        const started = performance.now();
+        [...document.querySelectorAll<HTMLElement>(".task-board .task-card-shell")].find((card) => card.textContent?.includes(name))!.querySelector<HTMLElement>(".task-card")!.click();
+        const frames = [];
+        for (let frame = 0; frame < 12; frame++) {
+          await new Promise(requestAnimationFrame);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          const box = document.querySelector<HTMLElement>(".messages-view:not([hidden]) .conversation");
+          if (!box?.querySelector("[data-message]")) continue;
+          const newest = box.querySelector('[data-message="m2999"]');
+          frames.push({ elapsed: performance.now() - started, end: box.scrollHeight - box.scrollTop - box.clientHeight, drawn: box.querySelectorAll("[data-message]").length,
+            latest: !!newest && newest.getBoundingClientRect().bottom > box.getBoundingClientRect().top && newest.getBoundingClientRect().bottom <= box.getBoundingClientRect().bottom });
+        }
+        return frames;
+      }, name));
+      await expect(field(page, name)).toBeVisible();
+      await field(page, name).fill("Draft for " + name);
+    }
+    await testInfo.attach("switch-to-latest.json", { body: JSON.stringify(samples), contentType: "application/json" });
+    for (const frames of samples) {
+      expect(frames.length).toBeGreaterThan(0);
+      expect(frames[0].elapsed).toBeLessThan(750);
+      expect(frames.every((frame) => frame.latest && frame.end <= 1 && frame.drawn < 80)).toBe(true);
+    }
+    await expect(field(page)).toHaveValue("Draft for " + NAME);
+    await page.evaluate(() => { (window as { fixtureHoldsMessages?: boolean }).fixtureHoldsMessages = true; });
+    await page.keyboard.press("Control+Alt+3");
+    const ivy = page.getByRole("log", { name: "Messages of Ivy - Window Painter" });
+    await ivy.evaluate(async () => { for (let frame = 0; frame < 2; frame++) await new Promise(requestAnimationFrame); });
+    await expect(ivy.locator('[data-message="m2999"]'), "a visited session paints its latest known page while the new stream waits").toBeInViewport({ timeout: 300 });
+    await expect(field(page, "Ivy - Window Painter")).toHaveValue("Draft for Ivy - Window Painter");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("fixture-release-messages")));
+    const streamed = (seq: number) => ({ id: "m" + seq, seq, at, kind: "reply", blocks: [{ kind: "text", text: "Streaming answer " + seq }] });
+    await page.evaluate((message) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages: [message] } } })), streamed(3000));
+    await expect(ivy.locator('[data-message="m3000"]')).toBeInViewport();
+    const before = await ivy.evaluate(async (element) => {
+      element.scrollTop -= 200;
+      for (let frame = 0; frame < 4; frame++) await new Promise(requestAnimationFrame);
+      return element.scrollTop;
+    });
+    await page.evaluate((message) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages: [message] } } })), streamed(3001));
+    expect(await ivy.evaluate((element) => element.scrollTop)).toBe(before);
+    await expect(ivy.locator('[data-message="m3001"]')).toHaveCount(0);
+    await page.keyboard.press("Control+Alt+2");
+    await expect(page.getByRole("log").locator('[data-message="m3000"]')).toHaveCount(0);
+    await page.keyboard.press("Control+Alt+3");
+    await expect(ivy.locator('[data-message="m3001"]')).toBeInViewport();
+    await expect(field(page, "Ivy - Window Painter")).toHaveValue("Draft for Ivy - Window Painter");
+    await pickStyle(page, "Terminal");
+    for (const key of ["Control+Alt+2", "Control+Alt+3", "Control+Alt+2"]) {
+      await page.keyboard.press(key);
+      await expect(page.locator(".terminal-view:not(.staged) .xterm-screen")).toContainText("Latest terminal response");
+      await expect(page.getByRole("button", { name: "Jump to bottom" })).toHaveCount(0);
+    }
+  });
+}
 
 for (const owner of ["CFO", "goblin"] as const) {
   for (const movement of ["keyboard", "wheel"] as const) {

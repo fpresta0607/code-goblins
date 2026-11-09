@@ -34,7 +34,7 @@ export function WorkingWord({ said, isAlone = false }: { said: string; isAlone?:
   const words = useMemo(() => [said || "Working", ...isAlone ? [] : WORKING_WORDS.filter((word) => word !== said)].map((word) => /(…|\.\.\.)$/.test(word) ? word : word + "…"), [said, isAlone]);
   useEffect(() => {
     const room = doing.current;
-    if (!room || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (!room || isAlone || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const [frames, texts, lights, lits] = [".working-word", ".working-word > span", ".working-shine", ".working-shine > span"].map((selector) => [...room.querySelectorAll<HTMLElement>(":scope > " + selector)]);
     const cycle = words.length * WORD_MS;
     const turning: KeyframeAnimationOptions = { id: "working-word", duration: cycle, iterations: Infinity };
@@ -78,8 +78,8 @@ export function WorkingWord({ said, isAlone = false }: { said: string; isAlone?:
       resized.disconnect();
       running.forEach((animation) => animation.cancel());
     };
-  }, [words]);
-  return <span className="reply-doing" aria-hidden="true" ref={doing}>
+  }, [words, isAlone]);
+  return <span className={"reply-doing" + (isAlone ? " is-alone" : "")} aria-hidden="true" ref={doing}>
     {words.map((word) => <Fragment key={word}>
       <span className="working-word"><span>{word}</span></span>
       <span className="working-shine"><span data-word={word} /></span>

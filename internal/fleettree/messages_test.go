@@ -127,7 +127,7 @@ func TestPictureReadLetsItsSessionStreamOn(t *testing.T) {
 				if err != nil {
 					return nil, err
 				}
-				opened = &pictureStreamFile{messageReadFile: file, stream: func() { _, _, _, streamErr = reader.MessagesSince(path, cursor) }}
+				opened = &pictureStreamFile{messageReadFile: file, stream: func() { _, _, _, _, streamErr = reader.MessagesSince(path, cursor) }}
 				return opened, nil
 			}
 
@@ -427,7 +427,7 @@ func TestMessageUpdateRejectsRewriteDuringIncrementalRead(t *testing.T) {
 			if !changed || strings.Contains(string(got), "first") || !strings.Contains(string(got), "other") || !strings.Contains(string(got), "else") {
 				t.Fatalf("update published mixed generation: %s (rewrite %t)", got, changed)
 			}
-			_, cursorAfter, isAnew, err := reader.MessagesSince(path, cursorBefore)
+			_, _, cursorAfter, isAnew, err := reader.MessagesSince(path, cursorBefore)
 			if err != nil || !isAnew || (cursorAfter.epoch == cursorBefore.epoch && cursorAfter.incarnation == cursorBefore.incarnation) {
 				t.Fatalf("replacement did not change cursor: before %+v after %+v anew %t error %v", cursorBefore, cursorAfter, isAnew, err)
 			}
@@ -550,7 +550,7 @@ func TestMessageUpdateRejectsRewriteDuringIncrementalRead(t *testing.T) {
 			if !statAppended || statOpens != 1 || statEpochs != 0 || !strings.Contains(string(statMessages), "more") || strings.Contains(string(statMessages), "else") {
 				t.Fatalf("append after stat reset or crossed extent: %s (append %t opens %d epochs %d)", statMessages, statAppended, statOpens, statEpochs)
 			}
-			later, laterCursor, isAnew, err := statReader.MessagesSince(statPath, cursor)
+			later, _, laterCursor, isAnew, err := statReader.MessagesSince(statPath, cursor)
 			if err != nil || isAnew || laterCursor.epoch != cursor.epoch || laterCursor.incarnation != cursor.incarnation {
 				t.Fatalf("append after stat changed conversation: %+v %t %v", laterCursor, isAnew, err)
 			}
@@ -845,7 +845,7 @@ func TestConversationIdentitySurvivesIdleEviction(t *testing.T) {
 				if older := page(path, 1); older.Conversation != reconnected.Conversation {
 					t.Fatalf("older page identity %q differs from %q", older.Conversation, reconnected.Conversation)
 				}
-				if changes, _, isAnew, err := reader.MessagesSince(path, oldCursor); err != nil || !isAnew || len(changes) != 0 {
+				if changes, _, _, isAnew, err := reader.MessagesSince(path, oldCursor); err != nil || !isAnew || len(changes) != 0 {
 					t.Fatalf("evicted cursor returned changes %+v, anew %t, error %v", changes, isAnew, err)
 				}
 			})
@@ -1045,7 +1045,7 @@ func TestALongConversationReadsTheSameOnceReadWhole(t *testing.T) {
 
 	// Act
 	older, _, olderErr := reader.MessagePage(path, newest.Messages[0].Seq)
-	changed, _, isAnew, sinceErr := reader.MessagesSince(path, cursor)
+	changed, _, _, isAnew, sinceErr := reader.MessagesSince(path, cursor)
 	again, _, againErr := reader.MessagePage(path, -1)
 
 	// Assert
@@ -1106,7 +1106,7 @@ func TestAMessageWrittenWhileTheWholeIsReadComesAsAChange(t *testing.T) {
 
 	// Act
 	_, _, olderErr := reader.MessagePage(path, newest.Messages[0].Seq)
-	changed, _, isAnew, sinceErr := reader.MessagesSince(path, cursor)
+	changed, _, _, isAnew, sinceErr := reader.MessagesSince(path, cursor)
 
 	// Assert
 	if olderErr != nil || sinceErr != nil || isAnew || len(changed) != 1 || changed[0].ID != "u-new" {
@@ -1127,7 +1127,7 @@ func TestALongConversationWhoseTailHoldsNoMessageIsPagedAnew(t *testing.T) {
 
 	// Act
 	_, _, beforeErr := reader.MessagePage(path, 0)
-	_, _, isAnew, sinceErr := reader.MessagesSince(path, cursor)
+	_, _, _, isAnew, sinceErr := reader.MessagesSince(path, cursor)
 	whole, _, wholeErr := reader.MessagePage(path, -1)
 
 	// Assert
@@ -1460,7 +1460,7 @@ func TestMessagesLeaveAHalfWrittenLastLineForTheNextRead(t *testing.T) {
 
 	// Act
 	appendText(t, path, whole[40:]+"\n")
-	messages, _, isAnew, err := reader.MessagesSince(path, cursor)
+	messages, _, _, isAnew, err := reader.MessagesSince(path, cursor)
 
 	// Assert
 	if err != nil || isAnew || !reflect.DeepEqual(numbered(t, path, messages), []Message{prompt(1, "u2", FromOverlord, "second")}) {
@@ -1497,8 +1497,8 @@ func TestMessagesSinceAreTheMessagesThatBeganOrChanged(t *testing.T) {
 	appendLines(t, path, answered("u2", "toolu_1", "ok", object{"stdout": "ok"}, nil), prompted("u3", "thanks"))
 
 	// Act
-	messages, next, isAnew, err := reader.MessagesSince(path, cursor)
-	again, _, _, againErr := reader.MessagesSince(path, next)
+	messages, _, next, isAnew, err := reader.MessagesSince(path, cursor)
+	again, _, _, _, againErr := reader.MessagesSince(path, next)
 
 	// Assert
 	want := []Message{
@@ -1527,7 +1527,7 @@ func TestMessagesOfAReplacedConversationAreReadAnew(t *testing.T) {
 	conversation(t, home, prompted("v1", "new"))
 
 	// Act
-	messages, _, isAnew, err := reader.MessagesSince(path, cursor)
+	messages, _, _, isAnew, err := reader.MessagesSince(path, cursor)
 	page, _, pageErr := reader.MessagePage(path, -1)
 
 	// Assert
@@ -1686,7 +1686,7 @@ func TestAConversationNoViewAsksForIsLetGo(t *testing.T) {
 			now = now.Add(tc.elapsed)
 			tc.letsGo(&reader, other)
 			_, _, pictureErr := reader.MessagePicture(path, cursor.Conversation(), "0.0")
-			_, _, isAnew, err := reader.MessagesSince(path, cursor)
+			_, _, _, isAnew, err := reader.MessagesSince(path, cursor)
 
 			// Assert
 			if errors.Is(pictureErr, ErrNoRecord) != tc.isAnew || err != nil || isAnew != tc.isAnew {

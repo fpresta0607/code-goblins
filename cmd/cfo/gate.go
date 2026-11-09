@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
+	goruntime "runtime"
 	"slices"
 	"strings"
 	"time"
@@ -48,14 +50,17 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 		return 2
 	}
 	takesFlags := len(args) > 0 && (args[0] == "test" || args[0] == "lint" || args[0] == "prepush")
-	if len(args) == 0 || !slices.Contains([]string{"tests-kept", "test", "lint", "prepush", "turns"}, args[0]) || (!takesFlags && len(args) != 1) {
-		fmt.Fprintln(stderr, "cfo gate: the checks are tests-kept, test [--level fast|affected|full | --focused] [--plan], lint [--plan], prepush [--plan] [--limit <duration>], turn [--as <name>] -- <program> [<argument>...] and turns [--json]")
+	if len(args) == 0 || !slices.Contains([]string{"tests-kept", "prepare", "test", "lint", "prepush", "turns"}, args[0]) || (!takesFlags && len(args) != 1) {
+		fmt.Fprintln(stderr, "cfo gate: the checks are tests-kept, prepare, test [--level fast|affected|full | --focused] [--plan], lint [--plan], prepush [--plan] [--limit <duration>], turn [--as <name>] -- <program> [<argument>...] and turns [--json]")
 		return 2
 	}
 	dir, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
+	}
+	if args[0] == "prepare" {
+		return runGatePrepare(dir, stdout, stderr, runtime)
 	}
 	if args[0] == "test" || args[0] == "lint" {
 		return runGateChecks(args[0], args[1:], dir, stdout, stderr, runtime)
@@ -87,6 +92,33 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 		fmt.Fprintln(stdout, "- "+removal.String())
 	}
 	return 1
+}
+
+func runGatePrepare(dir string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	ctx, cancel := context.WithTimeout(context.Background(), runtime.gatePlanLimit)
+	defer cancel()
+	plan, err := gatetest.Read(ctx, execx.OSRunner{}, dir, gatetest.Fast)
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo gate prepare: %v\n", err)
+		return 2
+	}
+	if !slices.ContainsFunc(plan.Changed, func(file string) bool { return strings.HasPrefix(file, "frontend/") }) {
+		fmt.Fprintln(stdout, "cfo gate prepare: no frontend change; no dependencies installed")
+		return 0
+	}
+	start := time.Now()
+	fmt.Fprintln(stdout, "cfo gate prepare: npm ci in this worktree's frontend")
+	command := []string{"npm", "ci"}
+	if goruntime.GOOS == "windows" {
+		command = []string{"cmd.exe", "/d", "/c", "npm", "ci"}
+	}
+	exit, err := runtime.gateRun(command, filepath.Join(plan.Root, "frontend"), gatetest.Environment(os.Environ()), stdout, stderr)
+	fmt.Fprintf(stdout, "cfo gate prepare: locked install finished in %s\n", time.Since(start).Round(time.Millisecond))
+	if err != nil || exit != 0 {
+		fmt.Fprintf(stderr, "cfo gate prepare: npm ci: exit %d: %v\n", exit, err)
+		return 1
+	}
+	return 0
 }
 
 // approvedHeads are the heads of earlier tests-kept parks a person approved
