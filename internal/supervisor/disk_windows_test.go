@@ -76,3 +76,41 @@ func TestMachineDiskKeepsAnUnreadableDevDrivesLine(t *testing.T) {
 		t.Errorf("drives = %+v (floor %d), want %v with the Dev Drive an error line beside the floor", reading.Drives, reading.Floor, want)
 	}
 }
+
+// A home or Dev Drive folder that cannot be read stops every start, so its
+// drive is an error line even when other folders on that drive, the gate home
+// among them, read: the board shows why nothing starts.
+func TestMachineDiskShowsAnUnreadableHomeOrDevDriveFolderOnASharedDriveAsAnErrorLine(t *testing.T) {
+	cases := []struct {
+		name     string
+		root     string
+		devDrive string
+	}{
+		{name: "a missing Dev Drive folder", root: "home", devDrive: `missing\CodeGoblins`},
+		{name: "a missing home", root: `missing\home`, devDrive: "CodeGoblins"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: the home, the Dev Drive and the gate home share one drive,
+			// and only the folders under missing are not there.
+			base := t.TempDir()
+			t.Setenv("NM_HOME", base)
+			for _, folder := range []string{"home", "CodeGoblins"} {
+				if err := os.MkdirAll(filepath.Join(base, folder), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			reading, err := MachineDisk(home.Home{Root: filepath.Join(base, test.root), DevDrive: filepath.Join(base, test.devDrive)})
+
+			// Assert
+			if err == nil {
+				t.Fatal("a folder that cannot be read gave a reading, so a start would land on a folder that is not there")
+			}
+			if len(reading.Drives) != 1 || reading.Drives[0].Drive != filepath.VolumeName(base) || !reading.Drives[0].IsDevDrive || reading.Drives[0].Error == "" || reading.Drives[0].Free != 0 {
+				t.Errorf("drives = %+v, want the one shared drive, named the Dev Drive, as an error line with no free space", reading.Drives)
+			}
+		})
+	}
+}
