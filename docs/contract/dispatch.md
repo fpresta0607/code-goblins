@@ -214,7 +214,8 @@ Otherwise the supervisor checks the prerequisite and every piece of evidence onc
 So repeated readings, a replayed signal and a supervisor restart pause the goblin at most once, and the pause keeps its worktree, branch, session and handoff as any dependency pause does.
 The scheduler resumes it once its task delivers or its pull request merges, under the operation `resume-<pause operation>`, with one call that is never retried past the spawn lock.
 A prepared pause or resume that fails or ends with no matching completed lifecycle record reads `failed` and wakes you to inspect it, and neither the scheduler nor recovery after a restart retries it by itself; the Overlord's own message still brings back a goblin whose prepared pause failed.
-A transition still running under its controller's lifecycle lock is left to finish, and a lifecycle record that cannot be read keeps the admission for the next reading.
+A transition the supervisor is still dispatching, or one still running under its controller's lifecycle lock, is left to finish, and a lifecycle record that cannot be read keeps the admission for the next reading.
+A prepared pause that another lifecycle operation took over, such as the Overlord's own Resume or a new pause, reads `invalid` with a `check` wake naming that operation, never `failed`, so it holds back no recovery.
 Validation identity checks and policy handling on Resume follow the [pipeline resume contract](../pipeline.md#resuming-a-paused-task).
 Answers given while paused ride the resume prompt.
 For a free slot, the oldest cleared pause comes before the Overlord's queue order; unresolved pauses do not block new work.

@@ -22,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 type preparedGit struct{ head, branch, dirty string }
@@ -1095,4 +1096,124 @@ func TestPreparedAdmittedTransitionSurvivesUnreadableOutcome(t *testing.T) {
 			t.Fatalf("unreadable outcome retried the resume: %v", calls)
 		}
 	})
+}
+
+func assertNoPreparedFailureWake(t *testing.T, directory string) {
+	t.Helper()
+	pending, err := wake.Pending(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range pending {
+		if strings.Contains(record.Detail, "inspect before retrying") {
+			t.Fatalf("false prepared failure woke the CEO: %+v", record)
+		}
+	}
+}
+
+// A scan between the scheduler's resume admission and the lifecycle record
+// the resume controller writes sees the pause still in place, and must leave
+// the admission to the controller rather than call it failed.
+func TestPreparedResumeBeforeItsLifecycleRecordIsLeftInFlight(t *testing.T) {
+	t.Run("supervisor still dispatching", func(t *testing.T) {
+		fixture := preparedPackage(t)
+		fixture.reconcile(t)
+		fixture.deliver(t)
+		admit := fixture.spawner.during
+		var during state.PreparedWait
+		var duringErr error
+		fixture.spawner.during = func(args []string) {
+			if args[0] == "resume" {
+				duringErr = fixture.service.reconcilePreparedWaits(context.Background(), &fleetWakes{}, fixture.now)
+				during, _ = state.ReadPreparedWait(fixture.home.State, fixture.meta.ID)
+			}
+			admit(args)
+		}
+
+		if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte}, ""); err != nil {
+			t.Fatal(err)
+		}
+		calls := awaitDispatch(t, fixture.service, fixture.spawner, 2)
+
+		if duringErr != nil || during.Phase != "resume-requested" || during.Problem != "" {
+			t.Fatalf("dispatching resume was not left in flight: %+v, %v", during, duringErr)
+		}
+		if record, err := state.ReadPreparedWait(fixture.home.State, fixture.meta.ID); err != nil || record.Phase != "cleared" || record.Problem != "" {
+			t.Fatalf("completed resume was not recognized: %+v, %v", record, err)
+		}
+		if len(calls) != 2 || calls[1][0] != "resume" {
+			t.Fatalf("resume was not dispatched once: %v", calls)
+		}
+		assertNoPreparedFailureWake(t, fixture.home.State)
+	})
+
+	t.Run("controller holds the lifecycle lock after a restart", func(t *testing.T) {
+		fixture := preparedPackage(t)
+		fixture.reconcile(t)
+		paused, err := state.ReadLifecycle(fixture.home.State, fixture.meta.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, isAdmitted, err := fixture.service.admitPreparedResume(paused); err != nil || !isAdmitted {
+			t.Fatalf("admitted=%t, error=%v", isAdmitted, err)
+		}
+		name := state.LifecycleLockName(fixture.meta.ID)
+		if _, err := lock.AcquireExclusiveNamed(fixture.home.State, name); err != nil {
+			t.Fatal(err)
+		}
+
+		fixture.reopen(t)
+		got := fixture.reconcile(t)
+
+		if got.Phase != "resume-requested" || got.Problem != "" {
+			t.Fatalf("resume its controller still runs was called failed: %+v", got)
+		}
+		assertNoPreparedFailureWake(t, fixture.home.State)
+		if err := lock.ReleaseExclusiveNamed(fixture.home.State, name); err != nil {
+			t.Fatal(err)
+		}
+		fixture.reopen(t)
+		if got := fixture.reconcile(t); got.Phase != "failed" || !strings.Contains(got.Problem, "no completed matching transition") {
+			t.Fatalf("cut-short resume is not durable: %+v", got)
+		}
+		if calls := fixture.spawner.recorded(); len(calls) != 1 {
+			t.Fatalf("cut-short resume was retried: %v", calls)
+		}
+	})
+}
+
+// The operator's own Resume of a prepared-paused goblin runs it under another
+// lifecycle operation; the prepared signal then governs nothing and must not
+// read as a failed admission that blocks recovery.
+func TestPreparedPauseSupersededByAnotherLifecycleOperationIsNotFailed(t *testing.T) {
+	fixture := preparedPackage(t)
+	fixture.reconcile(t)
+	fixture.spawner.during([]string{"resume", fixture.meta.ID, "--generation", fixture.meta.SpawnGen, "--operation", "operator-resume", "--reason", "Requested by the operator"})
+	if current, err := state.ReadLifecycle(fixture.home.State, fixture.meta.ID); err != nil || current.Operation != "operator-resume" || current.Phase != "running" {
+		t.Fatalf("operator resume did not run: %+v, %v", current, err)
+	}
+
+	for range 2 {
+		fixture.reopen(t)
+		got := fixture.reconcile(t)
+		if got.Phase != "invalid" || !strings.Contains(got.Problem, "operator-resume") {
+			t.Fatalf("superseded prepared pause: %+v", got)
+		}
+	}
+
+	fixture.deliver(t)
+	if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if calls := fixture.spawner.recorded(); len(calls) != 1 || calls[0][0] != "pause" {
+		t.Fatalf("superseded prepared pause dispatched again: %v", calls)
+	}
+	meta, err := state.ReadTaskMeta(fixture.home.State, fixture.meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.CheckPreparedComeback(fixture.home.State, meta); err != nil {
+		t.Fatalf("superseded prepared pause blocks recovery: %v", err)
+	}
+	assertNoPreparedFailureWake(t, fixture.home.State)
 }

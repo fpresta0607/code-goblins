@@ -392,6 +392,9 @@ func (s *Service) reconcilePreparedWait(ctx context.Context, watched *fleetWakes
 		return s.preparedProblem(&record, record.Phase, err)
 	}
 	if record.Phase != "prepared" {
+		s.starts.Lock()
+		_, isChanging := s.changing[id]
+		s.starts.Unlock()
 		switch {
 		case record.Phase != "resume-requested" && lifecycle.Operation == record.Operation && lifecycle.Generation == record.Generation && lifecycle.Phase == "paused":
 			record.Phase, record.Problem = "paused", ""
@@ -399,10 +402,14 @@ func (s *Service) reconcilePreparedWait(ctx context.Context, watched *fleetWakes
 		case lifecycle.Operation == "resume-"+record.Operation && lifecycle.Phase == "running":
 			record.Phase, record.Problem = "cleared", ""
 			return state.WritePreparedWait(s.Store.Home.State, record)
-		case preparedTransitionInFlight(s.Store.Home.State, record, lifecycle):
-			// The admitted controller still runs, so a transition a restart
-			// found in flight publishes its completed record instead of being
-			// called failed before it can.
+		case record.Phase == "paused" && lifecycle.Operation != "" && lifecycle.Operation != record.Operation && lifecycle.Operation != "resume-"+record.Operation:
+			// Another lifecycle operation, such as the operator's own Resume or
+			// a new pause, took the goblin over, so this signal governs nothing.
+			return s.preparedProblem(&record, "invalid", fmt.Errorf("prepared pause superseded by lifecycle operation %s", lifecycle.Operation))
+		case isChanging || preparedTransitionInFlight(s.Store.Home.State, record):
+			// The supervisor is still dispatching the admitted transition, or
+			// its controller still runs, so its completed record is still to
+			// come instead of being called failed before it can.
 			return nil
 		default:
 			return s.preparedProblem(&record, "failed", errors.New("prepared lifecycle admission has no completed matching transition; inspect before retrying"))
@@ -488,20 +495,12 @@ func (s *Service) reconcilePreparedWait(ctx context.Context, watched *fleetWakes
 	return state.WritePreparedWait(s.Store.Home.State, record)
 }
 
-// preparedTransitionInFlight reports whether lifecycle is the transition this
-// prepared admission asked for and the controller running it still holds the
-// task's lifecycle lock, so its completed record is still to come.
-func preparedTransitionInFlight(directory string, record state.PreparedWait, lifecycle state.Lifecycle) bool {
-	switch record.Phase {
-	case "pause-requested":
-		if lifecycle.Operation != record.Operation || lifecycle.Phase != "pausing" {
-			return false
-		}
-	case "resume-requested":
-		if lifecycle.Operation != "resume-"+record.Operation || lifecycle.Phase != "resuming" {
-			return false
-		}
-	default:
+// preparedTransitionInFlight reports whether a transition this prepared
+// admission asked for may still be running: a live controller holds the
+// task's lifecycle lock, which it takes before it records pausing or
+// resuming, so the lifecycle may still read the state it is changing.
+func preparedTransitionInFlight(directory string, record state.PreparedWait) bool {
+	if record.Phase != "pause-requested" && record.Phase != "resume-requested" {
 		return false
 	}
 	controller, err := lock.ReadNamed(directory, state.LifecycleLockName(record.ID))
