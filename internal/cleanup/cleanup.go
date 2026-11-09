@@ -50,7 +50,8 @@ type Service struct {
 	// from under the record. It archives the task record and leaves the
 	// worktree exactly as found, so it can never discard work, though the
 	// task's Go temporary directory is retired with the record. It still
-	// refuses a pane that has a live agent.
+	// refuses a pane that has a live agent and, while the worktree is there, a
+	// gate run that is open or cannot be read.
 	ForceArchive bool
 	// LeaveRunningTerminals refuses a native task whose terminal still runs,
 	// even one idle at its composer, so nothing is closed: a caller that must
@@ -494,8 +495,10 @@ func (s Service) returnWorktree(ctx context.Context, git worktree.Git, project, 
 // path for a worktree that will not validate - the Utah stub sat in the fleet
 // for days as "Under Way" because its empty directory was pinned by a handle
 // no process would give up, and the normal path refuses anything it cannot
-// prove. The one check that stays is the live-agent refusal: a task is
-// retired, never abandoned mid-run. The tab close is best-effort because the
+// prove. The checks that stay are the live-agent refusal and, while the
+// worktree is there to name the task's branch, the open gate run refusal: a
+// task is retired, never abandoned mid-run. A worktree already gone names no
+// branch, so its run is not read. The tab close is best-effort because the
 // pane is usually already gone, and no worktree return is attempted, so the
 // worktree is left for the operator (or a reboot). A native terminal's close
 // is not best-effort: it is what ends an idle harness, so a failed one refuses.
@@ -503,6 +506,11 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	idle, err := s.requireInactive(ctx, meta)
 	if err != nil {
 		return Result{}, err
+	}
+	if _, err := os.Stat(worktreePath); !errors.Is(err, fs.ErrNotExist) {
+		if err := s.requireGateRunEnded(ctx, meta); err != nil {
+			return Result{}, err
+		}
 	}
 	handedOver, err := s.handOver(meta)
 	if err != nil {

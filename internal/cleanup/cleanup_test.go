@@ -448,25 +448,41 @@ func TestCleanupRefusals(t *testing.T) {
 // run. Either refusal comes before anything changes, a harness worktree left
 // in the task's checkout included, and names what to do; a task whose run
 // has ended, or that has none, is cleaned up as before (issue #2089).
+// --force-archive refuses the same way while the task's worktree is there to
+// name its branch, and only a worktree already gone retires its task without
+// its run being read, as the kill's own retirement of a task whose project
+// went and the sweep's of a record whose worktree went need.
 func TestCleanupRefusesATaskWhoseGateRunIsStillOpen(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		run     string
-		readErr error
-		want    []string
+		name                           string
+		run                            string
+		readErr                        error
+		isForceArchive, isWorktreeGone bool
+		want                           []string
 	}{
 		{name: "a run still open", run: "run-1", want: []string{"run-1", "still open", "cfo kill g1"}},
 		{name: "a gate that cannot be read", readErr: errors.New("state query failed"), want: []string{"cannot be read", "state query failed"}},
 		{name: "a run that ended, or none"},
+		{name: "a force archive of a run still open", run: "run-1", isForceArchive: true, want: []string{"run-1", "still open", "cfo kill g1"}},
+		{name: "a force archive of a gate that cannot be read", readErr: errors.New("state query failed"), isForceArchive: true, want: []string{"cannot be read", "state query failed"}},
+		{name: "a force archive of a run that ended, or none", isForceArchive: true},
+		{name: "a force archive of a task whose worktree is gone", readErr: errors.New("read the task branch before identifying its gate"), isForceArchive: true, isWorktreeGone: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
 			fixture := newCleanupFixture(t)
-			nested := filepath.Join(fixture.worktree, ".claude", "worktrees", "probe")
-			if err := os.MkdirAll(nested, 0o755); err != nil {
-				t.Fatal(err)
+			fixture.service.ForceArchive = tc.isForceArchive
+			if tc.isWorktreeGone {
+				if err := os.RemoveAll(fixture.worktree); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				nested := filepath.Join(fixture.worktree, ".claude", "worktrees", "probe")
+				if err := os.MkdirAll(nested, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				fixture.runner.registered = "worktree " + nested + "\nworktree " + fixture.worktree + "\n"
 			}
-			fixture.runner.registered = "worktree " + nested + "\nworktree " + fixture.worktree + "\n"
 			var read []state.TaskMeta
 			fixture.service.OpenGateRun = func(_ context.Context, meta state.TaskMeta) (string, error) {
 				read = append(read, meta)
@@ -477,12 +493,22 @@ func TestCleanupRefusesATaskWhoseGateRunIsStillOpen(t *testing.T) {
 			result, err := fixture.service.Cleanup(t.Context(), "g1")
 
 			// Assert
-			if len(read) != 1 || read[0].Worktree != fixture.worktree || read[0].Project != fixture.project {
+			switch {
+			case tc.isWorktreeGone && len(read) != 0:
+				t.Fatalf("read the gate run of %+v, want none read for a worktree that is gone", read)
+			case !tc.isWorktreeGone && (len(read) != 1 || read[0].Worktree != fixture.worktree || read[0].Project != fixture.project):
 				t.Fatalf("read the gate run of %+v, want the task's once", read)
 			}
 			if tc.want == nil {
-				if err != nil || !strings.Contains(result.Output, "cleaned g1 worktree=") {
+				retired := "cleaned g1 worktree="
+				if tc.isForceArchive {
+					retired = "force-archived g1"
+				}
+				if err != nil || !strings.Contains(result.Output, retired) {
 					t.Fatalf("Cleanup = %q, %v; want the task retired", result.Output, err)
+				}
+				if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("task record after the cleanup: %v, want it retired", err)
 				}
 				return
 			}

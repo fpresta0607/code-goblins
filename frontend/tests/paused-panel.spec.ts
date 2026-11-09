@@ -221,3 +221,25 @@ test("a screen reader hears Stopped resources as a closed disclosure that opens"
   // Assert
   await expect.poll(() => announced(page, selector)).toEqual({ role: "DisclosureTriangle", name: "Stopped resources (1)", expanded: true });
 });
+
+// The Overlord, 2026-11-09: a paused goblin's lifecycle reads "Its validation
+// run is kept, and Resume carries on from it." when its pause kept a gate run,
+// since a pause of any reason leaves the run running, and says nothing of one
+// when it kept none (issue #2089).
+test("a paused goblin whose validation run is kept says Resume carries on from it, and one whose pause kept none says nothing of it", async ({ page }) => {
+  // Arrange: Bernie's pause kept his validation run; Mabel's kept her
+  // session and branch but no run.
+  const mabel = paused("Mabel", { reason: "memory" });
+  await open(page, [BERNIE, { ...mabel, lifecycle: { ...mabel.lifecycle, kept: ["task session and branch"] } }], "Bernie");
+  const lifecycle = panel(page).getByRole("region", { name: "Task lifecycle" });
+
+  // Assert
+  await expect(lifecycle.locator(".preservation-notice")).toHaveText("Its validation run is kept, and Resume carries on from it.");
+
+  // Act
+  await select(page, "Mabel");
+
+  // Assert: her lifecycle names what it kept and no validation run.
+  await expect(lifecycle).toContainText("Task session and branch");
+  await expect(lifecycle.locator(".preservation-notice")).toHaveCount(0);
+});

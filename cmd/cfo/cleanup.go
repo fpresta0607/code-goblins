@@ -30,8 +30,9 @@ anything, while one of those is in flight.
 --force-archive retires a task whose worktree can no longer be validated (a
 directory pinned by a dead handle, or already gone). It archives the task
 record and leaves the directory untouched - nothing on disk is deleted - and
-still refuses a pane with a live agent. It reads no gate run, which only a
-worktree it can validate names.
+still refuses a pane with a live agent and, while the worktree is there, a
+gate run that is still open or cannot be read, as cleanup does. Only a
+worktree already gone names no branch to read the run by.
 `
 
 // runCleanup returns one validated task's worktree through the guarded

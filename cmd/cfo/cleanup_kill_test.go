@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -186,6 +189,96 @@ func TestKillStillArchivesThroughItsOwnCleanup(t *testing.T) {
 	for _, name := range []string{state.LifecycleLockName(meta.ID), state.MetadataLockName(meta.ID), state.CleanupLockName(meta.ID)} {
 		if _, err := lock.ReadNamed(h.State, name); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("%s is still held after the kill: %v", name, err)
+		}
+	}
+}
+
+// A pause leaves its goblin's gate run running, so cfo cleanup, and the
+// sweep's cleanup of a task it found, read the task branch's latest run from
+// the gate before they change anything. A run that completed or was
+// cancelled, as a landed or killed task's is, lets the task retire, while one
+// still running, or a gate whose run cannot be verified, refuses with the task
+// as it was (issue #2089). --force-archive reads it as well while the worktree
+// is there, and a worktree already gone retires its task unread.
+func TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt(t *testing.T) {
+	if _, err := exec.LookPath("sqlite3"); err != nil {
+		t.Fatal("sqlite3 is needed for the gate fixture")
+	}
+	callers := []struct {
+		name  string
+		clean func(ctx context.Context, h home.Home, id string, forceArchive bool) (string, error)
+	}{
+		{name: "cfo cleanup", clean: defaultCleanup},
+		{name: "cfo reap", clean: func(ctx context.Context, h home.Home, id string, forceArchive bool) (string, error) {
+			return reapCleanup(ctx, h, &herdr.Client{Commands: execx.OSRunner{}, Session: herdrSession()}, id, forceArchive)
+		}},
+	}
+	for _, caller := range callers {
+		for _, tc := range []struct {
+			name, status, head, want       string
+			isForceArchive, isWorktreeGone bool
+		}{
+			{name: "a completed run", status: "completed"},
+			{name: "a cancelled run", status: "cancelled"},
+			{name: "a run still open", status: "running", want: "cfo kill g1"},
+			{name: "a gate whose run cannot be verified", status: "running", head: "not-a-commit", want: "cannot be read"},
+			{name: "a force archive of a completed run", status: "completed", isForceArchive: true},
+			{name: "a force archive of a run still open", status: "running", isForceArchive: true, want: "cfo kill g1"},
+			{name: "a force archive of a gate whose run cannot be verified", status: "running", head: "not-a-commit", isForceArchive: true, want: "cannot be read"},
+			{name: "a force archive of a task whose worktree is gone", status: "running", isForceArchive: true, isWorktreeGone: true},
+		} {
+			t.Run(caller.name+" of "+tc.name, func(t *testing.T) {
+				// Arrange: the task's worktree on its own branch, whose
+				// latest run the scratch gate's database holds.
+				h, meta := killedTask(t)
+				git := func(args ...string) string {
+					t.Helper()
+					command := exec.Command("git", args...)
+					command.Dir = meta.Worktree
+					output, err := command.Output()
+					if err != nil {
+						t.Fatalf("git %v: %v", args, err)
+					}
+					return strings.TrimSpace(string(output))
+				}
+				git("switch", "-q", "-c", "fix/g1")
+				head := tc.head
+				if head == "" {
+					head = git("rev-parse", "HEAD")
+				}
+				gateRoot := t.TempDir()
+				t.Setenv("NM_HOME", gateRoot)
+				schema := fmt.Sprintf(`CREATE TABLE repos(id TEXT,working_path TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,last_pushed_sha TEXT,intent TEXT,worktree_dir TEXT,created_at INTEGER);
+INSERT INTO repos VALUES('repo-1','%s');
+INSERT INTO runs VALUES('run-1','repo-1','fix/g1','%s','%s','','','',1);`, strings.ReplaceAll(filepath.ToSlash(meta.Project), "'", "''"), tc.status, head)
+				if output, err := exec.Command("sqlite3", filepath.Join(gateRoot, "state.sqlite"), schema).CombinedOutput(); err != nil {
+					t.Fatalf("create gate fixture: %v %s", err, output)
+				}
+				if tc.isWorktreeGone {
+					if err := os.RemoveAll(meta.Worktree); err != nil {
+						t.Fatal(err)
+					}
+				}
+
+				// Act
+				output, err := caller.clean(t.Context(), h, meta.ID, tc.isForceArchive)
+
+				// Assert
+				_, metaErr := state.ReadTaskMeta(h.State, meta.ID)
+				if tc.want == "" {
+					if err != nil || !errors.Is(metaErr, os.ErrNotExist) {
+						t.Fatalf("cleanup = %q, %v, task record %v; want the task retired", output, err, metaErr)
+					}
+					return
+				}
+				if err == nil || !strings.Contains(err.Error(), tc.want) || metaErr != nil {
+					t.Fatalf("cleanup = %q, %v, task record %v; want it refused saying %q with the task kept", output, err, metaErr, tc.want)
+				}
+				if _, err := os.Stat(meta.Worktree); err != nil {
+					t.Fatalf("worktree after a refused cleanup: %v, want it kept", err)
+				}
+			})
 		}
 	}
 }

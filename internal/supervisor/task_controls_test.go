@@ -165,6 +165,28 @@ func TestPausedTaskSurvivesSnapshotRestartWithoutAnUnavailableState(t *testing.T
 		}
 		handler.Service.Store = store
 	}
+	// The board reads the card's notice from the served snapshot's
+	// validation_kept, the key frontend/src/types.ts parses.
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local/api/snapshot", nil))
+	var served struct {
+		Tasks []struct {
+			ID        string                     `json:"id"`
+			Lifecycle map[string]json.RawMessage `json:"lifecycle"`
+		} `json:"tasks"`
+	}
+	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &served) != nil {
+		t.Fatalf("snapshot = %d %s", response.Code, response.Body)
+	}
+	kept := ""
+	for _, task := range served.Tasks {
+		if task.ID == meta.ID {
+			kept = string(task.Lifecycle["validation_kept"])
+		}
+	}
+	if kept != "true" {
+		t.Fatalf("served snapshot = %s, want the paused card's lifecycle to carry \"validation_kept\":true", response.Body)
+	}
 }
 
 func TestSuccessfulCLIActionClearsAnEarlierBoardFailure(t *testing.T) {
