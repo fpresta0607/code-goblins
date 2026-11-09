@@ -21,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/cirunner"
+	"github.com/fpresta0607/code-goblins/internal/cutover"
 	"github.com/fpresta0607/code-goblins/internal/defender"
 	"github.com/fpresta0607/code-goblins/internal/devdrive"
 	"github.com/fpresta0607/code-goblins/internal/digest"
@@ -35,6 +36,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
 	"github.com/fpresta0607/code-goblins/internal/openrouter"
@@ -671,7 +673,9 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	case "home":
 		return runHome(args[1:], stdout, stderr)
 	case "cutover":
-		return runCutover(args[1:], stdout, stderr, cutoverMachine)
+		return runCutover(args[1:], stdout, stderr, func() (cutover.Machine, error) {
+			return cutoverMachine(installbase.NewEnvStore(execx.OSRunner{}))
+		})
 	case "pipeline":
 		return runPipeline(args[1:], stdout, stderr, runtime)
 	case "drain":

@@ -336,39 +336,30 @@ func TestCutoverProceedsWhenTheRecordedSupervisorDoesNotAnswer(t *testing.T) {
 // home as this build does, and the terminal's own environment names none.
 func TestCutoverUndoFromATerminalOpenedBeforeItGuardsTheHomeTheSettingsName(t *testing.T) {
 	// Arrange
-	machine, root := cutoverHome(t)
-	folder := appliedCutover(t, machine)
+	_, root := cutoverHome(t)
 	t.Setenv(installbase.HomeVariable, "")
 	t.Setenv("LOCALAPPDATA", t.TempDir())
-	found, _, err := cutoverSettings(cutoverEnv{installbase.HomeVariable: root})
-	if err != nil {
-		t.Fatal(err)
-	}
-	machine.Root = found
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"pid":%d}`, fakeBoardPID)
 	}))
 	defer server.Close()
 	recordSupervisor(t, root, server.URL)
+	before := homeFiles(t, root)
+	// The folder holds no undo record, so a cutover that looked at another
+	// home fails on reading it instead of undoing anything on this machine.
+	folder := filepath.Join(root, "state", "backups", "cutover-20261109-120000")
+	var stdout, stderr bytes.Buffer
 
 	// Act
-	refusedCode, _, refused := runCutoverOn(machine, "--undo", folder)
-	if err := os.Remove(filepath.Join(root, "state", "board.json")); err != nil {
-		t.Fatal(err)
-	}
-	undoneCode, _, undoneErr := runCutoverOn(machine, "--undo", folder)
+	code := runCutover([]string{"--undo", folder}, &stdout, &stderr, func() (cutover.Machine, error) {
+		return cutoverMachine(cutoverEnv{installbase.HomeVariable: root})
+	})
 
 	// Assert
-	if found != root {
-		t.Fatalf("the cutover found the home %s; want %s, which the settings name", found, root)
+	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "a supervisor serves this home") {
+		t.Fatalf("exit %d, %q, %q; want the refusal for the home the settings name and exit 1", code, stdout.String(), stderr.String())
 	}
-	if refusedCode != 1 || !strings.Contains(refused, "a supervisor serves this home") {
-		t.Fatalf("undo under the supervisor: exit %d, %q; want the refusal", refusedCode, refused)
-	}
-	if undoneCode != 0 {
-		t.Fatalf("undo: exit %d, %q", undoneCode, undoneErr)
-	}
-	if content, err := os.ReadFile(filepath.Join(root, "bin", "goblins.exe")); err != nil || string(content) != "the old build" {
-		t.Fatalf("after the undo bin\\goblins.exe is %q, %v; want the old build", content, err)
+	if after := homeFiles(t, root); !maps.Equal(before, after) {
+		t.Fatalf("the refused undo changed the home:\nbefore %v\nafter  %v", before, after)
 	}
 }

@@ -134,42 +134,32 @@ func supervisorServing(state string) string {
 	return ""
 }
 
-// cutoverSettings are the home and the projects root the user's settings
-// name: the old build's, then this build's, which a terminal opened before a
-// cutover set them does not hold, and only then the home this build resolves.
-func cutoverSettings(env installbase.EnvStore) (root, projects string, err error) {
-	root, projects, err = cutover.OldSettings(env)
+// cutoverMachine is this machine as the cutover reads it, around the home
+// the user's settings in env name: the old build's, then this build's, which
+// a terminal opened before a cutover set them does not hold, and only then
+// the home this build resolves.
+func cutoverMachine(env installbase.EnvStore) (cutover.Machine, error) {
+	commands := execx.OSRunner{}
+	root, projects, err := cutover.OldSettings(env)
 	if err != nil {
-		return "", "", err
+		return cutover.Machine{}, err
 	}
 	if root == "" {
 		if root, _, err = env.Get(installbase.HomeVariable); err != nil {
-			return "", "", err
+			return cutover.Machine{}, err
 		}
 	}
 	if root == "" {
 		h, err := home.Resolve()
 		if err != nil {
-			return "", "", err
+			return cutover.Machine{}, err
 		}
 		root = h.Root
 	}
 	if projects == "" {
 		if projects, _, err = env.Get(install.ProjectsRootVariable); err != nil {
-			return "", "", err
+			return cutover.Machine{}, err
 		}
-	}
-	return root, projects, nil
-}
-
-// cutoverMachine is this machine as the cutover reads it, around the home
-// the user's settings name.
-func cutoverMachine() (cutover.Machine, error) {
-	commands := execx.OSRunner{}
-	env := installbase.NewEnvStore(commands)
-	root, projects, err := cutoverSettings(env)
-	if err != nil {
-		return cutover.Machine{}, err
 	}
 	userHome, err := os.UserHomeDir()
 	if err != nil {

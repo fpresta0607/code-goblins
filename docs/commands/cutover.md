@@ -5,7 +5,7 @@
 Move an installed home from the command's old name to `ceo`, once, after the build that renamed it is merged.
 The CEO runs it as the new build with the fleet paused: it refuses while a supervisor serves the home.
 Each of its forms also refuses, before it changes anything, while any program runs from the home's `bin` folder, judged by the full path of the program each running process was started from, and names each with its pid, such as `bin\goblins-window.exe (pid 1234) runs from this home; close it first`, since Windows does not let a running program be replaced or removed.
-The home is the one the old build's user setting for it names, or the home this build resolves.
+The home is the one the old build's user setting for it names, else this build's `CEO_HOME` user setting, which a terminal opened before the cutover does not hold, else the home this build resolves.
 
 `--dry-run` changes nothing.
 It lists every change, grouped by kind, and ends with the plan's digest, `plan: <digest>`:
