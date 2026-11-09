@@ -21,12 +21,13 @@ var notTheCFO = supervisor.NotTheCFO
 // work (pr, merge-local, deploy), acknowledging the wake queue (a drain that
 // acknowledges), setting the weekly allowance floor every goblin pauses at
 // (an allowance-floor that names one), accepting a Python start hook a
-// goblin's seal stopped (start-hook) and authorizing a task to spend paid
+// goblin's seal stopped (start-hook), deciding a lesson a done report
+// proposed for memory (memory lesson) and authorizing a task to spend paid
 // Codex credits (an auth grant --codex-credits). Reading the fleet is anyone's:
 // fleet-view, peek, runtime, tickets, a drain that only prints, a reap that
-// only reports, an allowance-floor that only says the floors, and
-// process-plan, which says what the process sweeps would end and ends
-// nothing, writes nothing into the home and acknowledges nothing.
+// only reports, an allowance-floor that only says the floors, the rest of
+// memory, and process-plan, which says what the process sweeps would end and
+// ends nothing, writes nothing into the home and acknowledges nothing.
 //
 // The commands bound to the registered CFO by its process (answer, question,
 // run-request, a review cleared, AFK mode at his ask) need no entry: only the
@@ -49,6 +50,8 @@ func actsAsCFO(args []string) bool {
 		return hasFlag("apply", "force")
 	case "allowance-floor":
 		return len(args) > 1
+	case "memory":
+		return len(args) > 1 && args[1] == "lesson"
 	case "auth":
 		return len(args) > 1 && args[1] == "grant" && hasFlag("codex-credits")
 	}
@@ -77,5 +80,5 @@ func refuseAnotherAgentsSession(args []string, resolveHome func() (home.Home, er
 	if why == nil {
 		return ""
 	}
-	return fmt.Sprintf("cfo %s: %s. Dispatching, steering, stopping and landing a goblin's work, acknowledging the fleet's wakes, setting its allowance floor, accepting a Python start hook and authorizing paid Codex credits are the CFO's alone, so nothing was done. Ask the CFO, or run goblins in a terminal to start it or show it.", args[0], why)
+	return fmt.Sprintf("cfo %s: %s. Dispatching, steering, stopping and landing a goblin's work, acknowledging the fleet's wakes, setting its allowance floor, accepting a Python start hook, deciding a lesson for memory and authorizing paid Codex credits are the CFO's alone, so nothing was done. Ask the CFO, or run goblins in a terminal to start it or show it.", args[0], why)
 }

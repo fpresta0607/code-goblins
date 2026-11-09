@@ -125,6 +125,39 @@ func TestBuildPackLeavesOutFactsScopedToAnotherRoleOrTask(t *testing.T) {
 	}
 }
 
+func TestBuildPackCarriesALessonAcceptedForItsProjectWhateverTheBriefSays(t *testing.T) {
+	dataDir, stateDir := writeIndexFixture(t)
+	// No word of the lesson, its task or its cited line is in the brief.
+	resolved, err := ResolveLessons([]Lesson{{Text: "Zebra crossings need fresh paint.", Cites: []string{"painted"}}}, []string{"2026-11-09T10:00:00Z working: painted the crossing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := ProposeLessons(stateDir, LessonCandidate{Task: "zebra-paint", Project: "harbor", ProposedAt: indexDate}, resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name, err := AcceptLesson(dataDir, stateDir, ids[0], Acceptance{Now: indexDate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, err := BuildIndex(dataDir, stateDir, indexDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	northwind := harborPackInput()
+	northwind.Task, northwind.Project = "northwind-cache", "northwind"
+
+	harbor, harborErr := index.BuildPack(harborPackInput())
+	other, otherErr := index.BuildPack(northwind)
+
+	if harborErr != nil || otherErr != nil || !strings.Contains(harbor.Text, "- 2026-11-09 "+name+" (") || !strings.Contains(harbor.Text, "Zebra crossings need fresh paint.") {
+		t.Fatalf("%v %v\n%s", harborErr, otherErr, harbor.Text)
+	}
+	if strings.Contains(other.Text, name) {
+		t.Fatalf("another project's pack carries the lesson:\n%s", other.Text)
+	}
+}
+
 func TestBuildPackForAResumedConversationShowsOnlyWhatChanged(t *testing.T) {
 	index := buildFixtureIndex(t)
 	input := harborPackInput()
