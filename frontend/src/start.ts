@@ -113,23 +113,26 @@ export function poolMarks(memory: Memory): string {
   return `Paged ${held(memory.paged_pool)} GB, nonpaged ${held(memory.nonpaged_pool)} GB. Red mark: ${held(memory.pool_line)} GB, past which free memory cannot hold the fleet and the CFO's panel offers Restart PC.` + (growth ? ` Grew most since sign-in: ${growth}.` : "");
 }
 
+// One drive's free space and size beside the floor and the mark.
+export type DiskReading = Pick<Disk, "free" | "total" | "floor" | "wake">;
+
 // The disk meter under the memory meter: under the floor no goblin or gate
 // test run starts, and under the lower mark the CFO is woken.
-export function diskState(disk: Disk): { tone: "ready" | "waiting" | "under"; text: string } {
+export function diskState(disk: DiskReading): { tone: "ready" | "waiting" | "under"; text: string } {
   if (disk.free < disk.wake) return { tone: "under", text: `Under the ${gigabytes(disk.wake)} GB mark: the CFO is woken, and nothing starts until disk frees.` };
   if (disk.free < disk.floor) return { tone: "waiting", text: `Under the ${gigabytes(disk.floor)} GB floor: no goblin or gate test run starts until disk frees.` };
   return { tone: "ready", text: "Enough disk for the next start." };
 }
 
 // What the disk bar's two marks mean, for its tip.
-export function diskMarks(disk: Disk): string {
+export function diskMarks(disk: DiskReading): string {
   return `Red mark: ${gigabytes(disk.wake)} GB, where the CFO is woken. White mark: the ${gigabytes(disk.floor)} GB floor. No goblin or gate test run starts under it.`;
 }
 
 // The disk bar spans twice the floor, or the whole drive if that is less, so
 // both marks sit well inside it: the fill and both marks as percents of the
 // bar.
-export function diskScale(disk: Disk): { fill: number; wake: number; floor: number } {
+export function diskScale(disk: DiskReading): { fill: number; wake: number; floor: number } {
   const span = Math.min(disk.total || 2 * disk.floor, 2 * disk.floor) || 1;
   const percent = (bytes: number) => Math.min(100, Math.max(0, bytes / span * 100));
   return { fill: percent(disk.free), wake: percent(disk.wake), floor: percent(disk.floor) };
@@ -187,9 +190,9 @@ export function gpuMarks(gpu: Gpu): string {
 }
 
 // What a start or a resume needs while the disk is under the floor, or empty
-// when it is not.
+// when it is not or when free disk cannot be read, which no wait frees.
 export function diskBlock(disk: Disk | null): string {
-  return disk && disk.free < disk.floor ? `${gigabytes(disk.floor)} GB of free disk (${freeGigabytes(disk.free)} GB free)` : "";
+  return disk && disk.total > 0 && disk.free < disk.floor ? `${gigabytes(disk.floor)} GB of free disk (${freeGigabytes(disk.free)} GB free)` : "";
 }
 
 // Why a queued task's Start does nothing now, or empty when it starts it:
