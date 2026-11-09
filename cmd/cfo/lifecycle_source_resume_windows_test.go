@@ -650,11 +650,11 @@ func TestPublicResumeRestoresSourceWithoutReplacingValidation(t *testing.T) {
 				steps += "\nINSERT INTO step_results VALUES('original-run','test','running',1,1);"
 			}
 			schema := fmt.Sprintf(`CREATE TABLE repos(id TEXT,working_path TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,last_pushed_sha TEXT,intent TEXT,worktree_dir TEXT,created_at INTEGER);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,last_pushed_sha TEXT,intent TEXT,worktree_dir TEXT,created_at INTEGER,submitted_head_sha TEXT,custody_returned_at INTEGER,review_approved_head_sha TEXT,pr_url TEXT,pr_state TEXT,ci_ready_at INTEGER,terminal_head_verified_at INTEGER);
 CREATE TABLE step_results(run_id TEXT,step_name TEXT,status TEXT,round INTEGER,spent INTEGER);
 CREATE TABLE findings(run_id TEXT,id TEXT,resolution TEXT);
 INSERT INTO repos VALUES('repo-1','%s');
-INSERT INTO runs VALUES('original-run','repo-1','fix/source-resume','%s','%s','%s','retain validation history','',1);
+INSERT INTO runs(id,repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,created_at) VALUES('original-run','repo-1','fix/source-resume','%s','%s','%s','retain validation history','',1);
 %s
 INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.ReplaceAll(filepath.ToSlash(h.Root), "'", "''"), test.status, head, head, steps)
 			result, err := commands.Run(t.Context(), execx.Request{Name: "sqlite3", Args: []string{database, schema}})
@@ -750,7 +750,7 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 				return
 			}
 			if test.isForeign || test.finalStatus != "" {
-				update := "INSERT INTO runs SELECT 'foreign-run',repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,2 FROM runs WHERE id='original-run';"
+				update := "INSERT INTO runs(id,repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,created_at) SELECT 'foreign-run',repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,2 FROM runs WHERE id='original-run';"
 				if test.finalStatus != "" {
 					// The run ends on its own, as a daemon restart ends a run
 					// whose step was executing, and its spending stays as it was.
