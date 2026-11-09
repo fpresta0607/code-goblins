@@ -2,6 +2,8 @@ package fleettree
 
 import (
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -174,10 +176,11 @@ func TestWhatNeverReachesTheModelBeginsNoTurn(t *testing.T) {
 		kind   string
 		turn   string
 	}{
-		"a notice":                        {prompt(2, "n1", FromNotice, "A background task ended"), sessionstream.KindNotice, "p1"},
-		"a ! command":                     {prompt(2, "c1", FromShell, "git status"), sessionstream.KindPrompt, "p1"},
-		"a slash command the harness ran": {Message{ID: "c1", Seq: 2, Kind: MessagePrompt, At: at, Source: FromSlash, Text: "/model opus", Output: "Set model to opus"}, sessionstream.KindPrompt, "p1"},
-		"a slash command that prompts":    {prompt(2, "c1", FromSlash, "/review"), sessionstream.KindPrompt, "c1"},
+		"a notice":                            {prompt(2, "n1", FromNotice, "A background task ended"), sessionstream.KindNotice, "p1"},
+		"a ! command":                         {prompt(2, "c1", FromShell, "git status"), sessionstream.KindPrompt, "p1"},
+		"a slash command the harness ran":     {Message{ID: "c1", Seq: 2, Kind: MessagePrompt, At: at, Source: FromSlash, Text: "/model opus", Output: "Set model to opus"}, sessionstream.KindPrompt, "p1"},
+		"a slash command the harness refused": {Message{ID: "c1", Seq: 2, Kind: MessagePrompt, At: at, Source: FromSlash, Text: "/model nonsense", Errors: "Model 'nonsense' not found"}, sessionstream.KindPrompt, "p1"},
+		"a slash command that prompts":        {prompt(2, "c1", FromSlash, "/review"), sessionstream.KindPrompt, "c1"},
 	} {
 		// Arrange
 		messages := []Message{
@@ -263,6 +266,65 @@ func TestAHarnessThatRewroteItsWordsReplacesThem(t *testing.T) {
 func TestAnEmptySessionKeepsNoTurn(t *testing.T) {
 	if turn := TurnPrompt([]Message{prompt(0, "n1", FromNotice, "hello")}).ID; turn != "" {
 		t.Fatalf("turn of a session with no prompt: %q", turn)
+	}
+}
+
+// TestACompactionKeepsAMessageWrittenWholeAfterARestatement is a reply its
+// harness rewrote with fewer blocks, written whole again after a restatement
+// that does not hold it, in a stream a compaction halves between the two: what
+// the harness first wrote of the reply falls before the half the stream keeps,
+// and the reply as the restatement left it is still drawn whole after it.
+func TestACompactionKeepsAMessageWrittenWholeAfterARestatement(t *testing.T) {
+	// Arrange: a stream of exactly its bound, the reply's first writing at its
+	// start and its rewriting after a restatement at its end, so the next
+	// write's compaction folds the rewritten blocks over the first and halves
+	// the stream between the first writing's last block and the restatement.
+	stateDir := t.TempDir()
+	id := sessionstream.Identity{Task: "cg-session-event-stream", Generation: "1201-1", Harness: "pi", Session: "session-1"}
+	appender, err := sessionstream.Open(stateDir, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := reply(1, "m", Block{Kind: BlockText, Text: "one"}, Block{Kind: BlockText, Text: "two"}, Block{Kind: BlockText, Text: "three"})
+	rewritten := reply(1, "m", Block{Kind: BlockText, Text: "one"}, Block{Kind: BlockText, Text: "two, again"})
+	fillers := make([]sessionstream.Event, 0, sessionstream.MaxEvents)
+	for at := len(first.Blocks); at < sessionstream.MaxEvents-1-len(rewritten.Blocks); at++ {
+		n := strconv.Itoa(at)
+		fillers = append(fillers, sessionstream.Event{ID: "filler-" + n, Kind: sessionstream.KindAssistant, Place: 100 + at, Message: "f" + n, Text: n})
+	}
+	for _, events := range [][]sessionstream.Event{
+		StreamEvents(id, []Message{first}),
+		fillers,
+		{RestatedEvent(id, []Message{prompt(90, "u9", FromOverlord, "Later")})},
+		StreamEvents(id, []Message{rewritten}),
+	} {
+		if _, _, err := appender.Write(events); err != nil {
+			t.Fatal(err)
+		}
+	}
+	newest := make([]sessionstream.Event, 0, 3)
+	for _, n := range []string{"n1", "n2", "n3"} {
+		newest = append(newest, sessionstream.Event{ID: n, Kind: sessionstream.KindAssistant, Place: 200000, Message: n, Text: n})
+	}
+
+	// Act
+	_, isCompacted, err := appender.Write(newest)
+
+	// Assert
+	if err != nil || !isCompacted {
+		t.Fatalf("write past the bound: compacted %v, %v", isCompacted, err)
+	}
+	kept, err := sessionstream.Read(stateDir, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(kept) > sessionstream.MaxEvents/2 {
+		t.Fatalf("the compaction kept %d events; want no more than half its bound, %d", len(kept), sessionstream.MaxEvents/2)
+	}
+	projected := MessagesOf(kept)
+	at := slices.IndexFunc(projected, func(message Message) bool { return message.ID == "m" })
+	if at < 0 || !reflect.DeepEqual(projected[at], rewritten) {
+		t.Fatalf("the compacted stream draws %+v; want the rewritten reply whole: %+v", projected, rewritten)
 	}
 }
 

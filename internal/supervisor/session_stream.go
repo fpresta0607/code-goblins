@@ -177,17 +177,19 @@ func (held *heldStream) conversation() ([]fleettree.Message, []sessionstream.Eve
 // streamTurn is what the stream says of a session's newest turn, in the words
 // the board draws: running while the turn the newest prompt began has not
 // ended, ended once the session's own report ended it, and unknown where the
-// harness has reported nothing, with the reason it gives. A session with no
-// turn yet says none.
+// harness has reported nothing, with the reason it gives. A turn whose prompt
+// the stream does not hold, as one that began more than a page back does, is
+// the unnamed turn, read from the session's own report all the same. A session
+// with no turn yet says none.
 func streamTurn(messages []fleettree.Message, events []sessionstream.Event) (turn, state, why string) {
 	turn = fleettree.TurnPrompt(messages).ID
-	if turn == "" {
+	word := turnWord(events, turn)
+	switch {
+	case turn == "" && (len(messages) == 0 || word.Kind == ""):
 		return "", "none", ""
-	}
-	switch word := turnWord(events, turn); word.Kind {
-	case sessionstream.KindTurnEnd:
+	case word.Kind == sessionstream.KindTurnEnd:
 		return turn, "ended", ""
-	case sessionstream.KindMissing:
+	case word.Kind == sessionstream.KindMissing:
 		return turn, "unknown", word.Missing
 	}
 	return turn, "running", ""
@@ -292,14 +294,13 @@ func leads(held, read []fleettree.Message) bool {
 // written where it changes the newest word the stream holds of the turn, and
 // only there, so the board draws every change however often one turn makes
 // it, as a turn a notice set working again after it ended does, and a report
-// read again writes nothing.
+// read again writes nothing. A turn whose prompt the stream does not hold is
+// reported under no name rather than left unreported.
 func turnEvents(id sessionstream.Identity, messages []fleettree.Message, events []sessionstream.Event, turn sessionTurn) []sessionstream.Event {
 	prompt := fleettree.TurnPrompt(messages).ID
 	kind := sessionstream.KindMissing
 	switch {
 	case !turn.Known:
-	case prompt == "":
-		return nil
 	case turn.Ended:
 		kind = sessionstream.KindTurnEnd
 	default:

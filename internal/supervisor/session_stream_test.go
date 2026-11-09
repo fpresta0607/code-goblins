@@ -145,30 +145,28 @@ func TestWhatASessionsOwnReportSaysOfItsTurn(t *testing.T) {
 
 func TestWhatTheStreamSaysOfATurn(t *testing.T) {
 	prompts := []fleettree.Message{{ID: "p1", Seq: 0, Kind: fleettree.MessagePrompt, Text: "go"}, {ID: "r1", Seq: 1, Kind: fleettree.MessageReply}}
+	// The replies of a turn that began more than a page back.
+	replies := []fleettree.Message{{ID: "r9", Seq: 9, Kind: fleettree.MessageReply}, {ID: "r10", Seq: 10, Kind: fleettree.MessageReply}}
 	for name, tc := range map[string]struct {
 		messages []fleettree.Message
 		events   []sessionstream.Event
+		turn     string
 		state    string
 	}{
-		"a turn still running":       {prompts, nil, "running"},
-		"a turn that ended":          {prompts, []sessionstream.Event{{Kind: "turn_end", Turn: "p1"}}, "ended"},
-		"a turn never reported":      {prompts, []sessionstream.Event{{Kind: "missing", Turn: "p1", Missing: "no hooks"}}, "unknown"},
-		"a report that says it runs": {prompts, []sessionstream.Event{{Kind: "missing", Turn: "p1", Missing: "no hooks"}, {Kind: "turn_state", Turn: "p1"}}, "running"},
-		"a session with no turn":     {nil, nil, "none"},
-		"an earlier turn's end":      {prompts, []sessionstream.Event{{Kind: "turn_end", Turn: "p0"}}, "running"},
+		"a turn still running":                 {prompts, nil, "p1", "running"},
+		"a turn that ended":                    {prompts, []sessionstream.Event{{Kind: "turn_end", Turn: "p1"}}, "p1", "ended"},
+		"a turn never reported":                {prompts, []sessionstream.Event{{Kind: "missing", Turn: "p1", Missing: "no hooks"}}, "p1", "unknown"},
+		"a report that says it runs":           {prompts, []sessionstream.Event{{Kind: "missing", Turn: "p1", Missing: "no hooks"}, {Kind: "turn_state", Turn: "p1"}}, "p1", "running"},
+		"a session with no turn":               {nil, nil, "", "none"},
+		"a session that holds no message":      {nil, []sessionstream.Event{{Kind: "turn_state"}}, "", "none"},
+		"an earlier turn's end":                {prompts, []sessionstream.Event{{Kind: "turn_end", Turn: "p0"}}, "p1", "running"},
+		"a turn begun off the page that runs":  {replies, []sessionstream.Event{{Kind: "turn_state"}}, "", "running"},
+		"a turn begun off the page that ended": {replies, []sessionstream.Event{{Kind: "turn_state"}, {Kind: "turn_end"}}, "", "ended"},
+		"a turn begun off the page unreported": {replies, nil, "", "none"},
 	} {
 		turn, got, why := streamTurn(tc.messages, tc.events)
-		if got != tc.state {
-			t.Fatalf("%s: %q; want %q", name, got, tc.state)
-		}
-		if tc.messages == nil {
-			if turn != "" {
-				t.Fatalf("%s names turn %q", name, turn)
-			}
-			continue
-		}
-		if turn != "p1" {
-			t.Fatalf("%s names turn %q; want p1", name, turn)
+		if got != tc.state || turn != tc.turn {
+			t.Fatalf("%s: turn %q is %q; want turn %q %q", name, turn, got, tc.turn, tc.state)
 		}
 		if got == "unknown" && why == "" {
 			t.Fatalf("%s says nothing of why the turn is unknown", name)
@@ -654,6 +652,44 @@ func TestACommandOrAnInterruptLeavesNoTurnRunning(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestATurnBegunMoreThanAPageBackIsStillTold is a goblin opened part way
+// through its brief: the newest page holds only the replies after the prompt
+// that began its turn, so the stream holds no prompt to name the turn by, and
+// the board is told all the same that the turn runs, and once the session
+// stops that it ended.
+func TestATurnBegunMoreThanAPageBackIsStillTold(t *testing.T) {
+	// Arrange: the brief, then more replies than a page holds.
+	stamp := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339Nano)
+	entries := []string{`{"type":"user","uuid":"u1","timestamp":"` + stamp + `","message":{"role":"user","content":"Read the brief"}}`}
+	for at := range fleettree.MessagesPerPage + 10 {
+		n := strconv.Itoa(at)
+		entries = append(entries, `{"type":"assistant","uuid":"a`+n+`","timestamp":"`+stamp+`","message":{"id":"msg_`+n+`","model":"claude-opus-5-5","role":"assistant","content":[{"type":"text","text":"Step `+n+`"}]}}`)
+	}
+	_, meta, service := messagesBoard(t, entries...)
+	report := func(phase string) {
+		t.Helper()
+		service.Store.mu.Lock()
+		defer service.Store.mu.Unlock()
+		service.Store.db.Sessions["claude/talker-conversation"] = Session{
+			ID: "claude/talker-conversation", NativeID: "talker-conversation", Harness: "claude", Role: "goblin",
+			TaskID: meta.ID, Generation: meta.SpawnGen, Phase: phase, UpdatedAt: time.Now().UTC(),
+		}
+		if err := service.Store.save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report("active")
+	next := openMessagesStream(t, service, meta)
+	if page := next("page", `"id":"msg_`+strconv.Itoa(fleettree.MessagesPerPage+9)+`"`); strings.Contains(page, `"id":"u1"`) {
+		t.Fatalf("the newest page holds the turn's prompt, so it proves nothing of a turn begun before it: %s", page)
+	}
+
+	// Act and Assert
+	next("session", `"state":"running"`)
+	report("settled")
+	next("session", `"state":"ended"`)
 }
 
 // TestAViewIsToldOfARunningSubAgentFromTheStream is a sub-agent call told to
