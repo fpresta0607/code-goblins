@@ -94,7 +94,9 @@ for (const { label, viewport, isTouch } of [
 
       // Act
       await pastePicture(page);
+      await expect(chips(page).getByRole("listitem")).toHaveCount(1);
       const isDropTaken = await dropFile(page, "notes.md");
+      await expect(chips(page).getByRole("listitem")).toHaveCount(2);
       await pickFile(page, "plan.txt");
 
       // Assert: each is kept for the goblin that asked and shows above his
@@ -187,6 +189,34 @@ for (const { label, viewport, isTouch } of [
       await expect(chips(page).getByRole("img", { name: "Picture 1" })).toBeVisible();
       expect(kept.uploads).toEqual([{ name: "pasted.png", task: null }]);
       await expect(page.getByRole("dialog").getByRole("button", { name: "Paste a picture", exact: true })).toHaveCount(0);
+    });
+
+    if (isTouch) test("a press outside the Add files menu closes it, and Add files toggles it", async ({ page }) => {
+      // Arrange
+      await page.goto("/tests/fixtures/question-input.html");
+      await openItem(page, "How should we handle the history?");
+      const add = page.getByRole("dialog").getByRole("button", { name: "Add files", exact: true });
+      const pastePictureButton = page.getByRole("dialog").getByRole("button", { name: "Paste a picture", exact: true });
+
+      // Act
+      await add.tap();
+
+      // Assert
+      await expect(pastePictureButton).toBeVisible();
+
+      // Act
+      await page.getByRole("dialog").getByText("How should we handle the history?", { exact: true }).tap();
+
+      // Assert
+      await expect(pastePictureButton).toHaveCount(0);
+
+      // Act
+      await add.tap();
+      await expect(pastePictureButton).toBeVisible();
+      await add.tap();
+
+      // Assert
+      await expect(pastePictureButton).toHaveCount(0);
     });
   });
 }
