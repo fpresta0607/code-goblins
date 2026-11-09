@@ -56,7 +56,7 @@ var overlordsWords = []struct{ day, words string }{
 	{"2026-10-17", "keep the same terminal header structure that we have for the CFO, even for goblins: the goblin image, then the name and title, and then the status of what it's doing. I do like the way the working status looks for in-progress goblins."},
 	{"2026-10-18", "the header shows the restart button in terminal cfo for safe pc restart"},
 	{"2026-10-20", "There's some buttons that aren't necessary on mobile, like the open terminal on the CFO header."},
-	{"2026-10-26", "chat and task doesn't need to be full width, it can fit inline with cfo and afk and just be the icons"},
+	{"2026-10-28", "chat and task doesn't need to be full width, it can fit inline with cfo and afk and just be the icons"},
 	{"2026-10-26", "you dont need to ahve cfo and You above each of our messages either"},
 	{"2026-10-28", "remove the redundant claude or codex or pi icons in cfo banner in top left of board, only need usage"},
 	{"2026-10-28", "place send button in line with message cfo height in chat input"},
@@ -65,7 +65,7 @@ var overlordsWords = []struct{ day, words string }{
 	{"2026-11-03", "when you click on cfo avatar the dropdown with both options"},
 	{"2026-11-04", "Modern shat goblins that are not the CFO. Never pick up their cube message when I send them."},
 	{"2026-11-04", "Scroll up on mobile in cfo chat jitters worse!"},
-	{"2026-11-04", "afk commands dont have proper multiple choice answers like normal command cfo prompts please fix so its options arent always done / later"},
+	{"2026-10-28", "afk commands dont have proper multiple choice answers like normal command cfo prompts please fix so its options arent always done / later"},
 }
 
 var oldRoleNamePattern = regexp.MustCompile(`(?i)` + oldRoleName)
