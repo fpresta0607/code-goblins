@@ -151,6 +151,36 @@ func TestANativeGoblinTakesASlashCommandOnceAndReportsItUnconfirmed(t *testing.T
 	}
 }
 
+// A slash command an idle harness runs itself starts no turn, so it is
+// delivered once it leaves the harness's input line, and typed once (#2193).
+func TestAnIdleNativeGoblinTakesASlashCommandOnceItLeavesTheInputLine(t *testing.T) {
+	// Arrange
+	f := newNativeFixture(t, harness.Codex, "turns")
+	if _, err := f.service.Spawn(t.Context(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitComposer(t, f)
+
+	// Act
+	err = f.service.SendNative(t.Context(), meta, "/status")
+
+	// Assert
+	if err != nil {
+		t.Errorf("SendNative /status = %v, want it delivered", err)
+	}
+	var submitted []string
+	for _, event := range named(f.events(t), "submitted") {
+		submitted = append(submitted, event.Text)
+	}
+	if want := []string{spawnPointer(t, f.fixture), "/status"}; !slices.Equal(submitted, want) {
+		t.Errorf("submitted = %q, want the instruction, then /status once", submitted)
+	}
+}
+
 // A native task whose terminal has ended takes nothing, and says which task.
 // Text sent to it says nothing was typed, so a sender may send it again once
 // the terminal is back, as for a goblin paused or between sessions.

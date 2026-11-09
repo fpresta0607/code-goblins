@@ -236,8 +236,10 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			} else {
 				record("accepted " + composer())
 			}
+			// A slash command the harness runs itself starts no turn.
+			isCommand := strings.HasPrefix(composer(), "/")
 			line, paste, readAsPaste, typedBefore = "", "", "", ""
-			draw(true)
+			draw(!isCommand)
 		default:
 			if offer && composer() == "" {
 				record("typed-under-dialog")

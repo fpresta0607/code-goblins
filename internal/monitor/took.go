@@ -84,13 +84,18 @@ func (h *HostProgress) conversationFiles(ctx context.Context, c Conversation) []
 // its model on the user's behalf, and when. Claude Code records a prompt
 // that starts a turn as a user message and text it took into a running turn
 // as a queued_command attachment; Codex records either as a user message
-// item; pi as a user message. A tool's result, a subagent's entries and
-// whatever the agent itself wrote are none.
+// item; pi as a user message. A slash command Claude Code runs itself is
+// its words: its tags in a user message, or a system local_command record,
+// or for /remote-control only a bridge_status record that opens with it. A
+// tool's result, a subagent's entries and whatever the agent itself wrote
+// are none.
 func handedText(harness string, entry []byte) ([]string, time.Time, bool) {
 	var line struct {
-		Type        string    `json:"type"`
-		Timestamp   time.Time `json:"timestamp"`
-		IsSidechain bool      `json:"isSidechain"`
+		Type        string          `json:"type"`
+		Subtype     string          `json:"subtype"`
+		Content     json.RawMessage `json:"content"`
+		Timestamp   time.Time       `json:"timestamp"`
+		IsSidechain bool            `json:"isSidechain"`
 		Attachment  struct {
 			Type   string `json:"type"`
 			Prompt string `json:"prompt"`
@@ -120,8 +125,22 @@ func handedText(harness string, entry []byte) ([]string, time.Time, bool) {
 			texts, ok := promptTexts(line.Message.Content)
 			for i := range texts {
 				texts[i] = unpasted(texts[i])
+				if command, isCommand := fleettree.TypedCommand(texts[i]); isCommand && strings.HasPrefix(texts[i], "<command-") {
+					texts[i] = command
+				}
 			}
 			return texts, line.Timestamp, ok
+		}
+		var text string
+		if line.Type == "system" && json.Unmarshal(line.Content, &text) == nil {
+			switch line.Subtype {
+			case "local_command":
+				command, ok := fleettree.TypedCommand(text)
+				return []string{command}, line.Timestamp, ok
+			case "bridge_status":
+				command, ok := fleettree.StatusCommand(text)
+				return []string{command}, line.Timestamp, ok
+			}
 		}
 	case "codex":
 		if line.Type == "response_item" && line.Payload.Type == "message" && line.Payload.Role == "user" {

@@ -617,6 +617,12 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string, s
 		return Evaluation{Reason: "The CFO's input is not empty and ready. Your answer is queued; nothing was sent."}, ErrDeferred
 	}
 	instruction := oneLine(line)
+	// Claude Code queues a command typed during a turn and records it once
+	// it runs. Codex and pi record none, and can drop one typed into a turn
+	// with nothing to show it, so it waits for the turn to end (#2193).
+	if busy && isHarnessCommand(instruction) && harness.Kind(primary.Agent) != harness.Claude {
+		return Evaluation{Reason: "Queued until the CFO's turn ends. " + commandWaits}, ErrDeferred
+	}
 	typed := screens.Submittable(instruction)
 	// A "?" typed at an empty prompt line opens Claude Code's and Codex's
 	// shortcut help rather than writing itself, as the live CFO's Claude Code
@@ -726,6 +732,9 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string, s
 		_, dialog := screens.Dialog(screen)
 		if !dialog && screens.IsWorking(screen) && screens.ComposerEmpty(screen) {
 			return Evaluation{Reason: "Taken by the CFO in its native terminal, which started working on your answer."}, nil
+		}
+		if isHarnessCommand(instruction) && screens.TookCommand(screen, instruction) {
+			return Evaluation{Reason: "Taken by the CFO in its native terminal, which ran your command."}, nil
 		}
 		if taken.Err() != nil {
 			if dialog || !screens.IsWorking(screen) && !screens.ComposerEmpty(screen) {
