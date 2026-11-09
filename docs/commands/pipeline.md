@@ -32,7 +32,7 @@ Reattachment after a bounded hold or an accepted CI handback follows the [reatta
 Mode eligibility follows [Task classes](../pipeline.md#task-classes).
 Validation admission is the registered primary CEO's decision: `validate-authored` submits a declared authored correction, while `validate-terminal` explicitly accepts an unchanged terminal candidate and selects its successor's fresh profile.
 From policy version 7 the one exception is the task's own goblin's one-commit correction of a Test or Lint failure its gate handed back: `validate-authored <id> --run <run> --findings <ids>` names that run and exactly its open findings, and the driver admits it to the run's own validation family, as [The goblin fixes its own failures](../pipeline.md#the-goblin-fixes-its-own-failures) describes.
-Under version 7 `respond --action fix` on a Test, Lint or CI step is refused, and a goblin's `handback --resume` is held to its CI failure's scope.
+Under version 7 `respond --action fix` on a Test, Lint or CI step is refused, except a Test rerun of nothing but `test-command-no-turn`, which asks no repair agent, and a goblin's `handback --resume` is held to its CI failure's scope.
 `terminal-preflight` is read-only and available to the registered primary CEO or that task's own goblin; its private observations grant no execution or completion authority.
 See [terminal validation admission](../pipeline.md#driving-a-task) for the controller JSON requirements, source and policy checks, native feature dependencies, replay rules and private result records.
 Never auto-approves and never skips a step; exit 3 means unresolved work, and its refusal names who decides it.

@@ -431,7 +431,10 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 				return fmt.Errorf("pipeline: a goblin accepts its run's open review findings only once its %d review repair cycles are spent, and run %s's review is in round %d with %d left: fix its auto-fix findings with --action fix --findings <ids>, and ask the CFO about its ask-user ones with cfo notify %s --blocked \"<question>\"", selection.ReviewCycles, gate.RunID, gate.Round, selection.ReviewCycles-gate.Round+1, id)
 			}
 		}
-		if response.Action == "fix" && selection.Policy.HandsBack(gate.Step) {
+		// A fix of nothing but a test command that was given no turn runs
+		// that command again and asks no repair agent, so it stays the retry
+		// of a repaired environment.
+		if response.Action == "fix" && selection.Policy.HandsBack(gate.Step) && !(gate.Step == "test" && response.Findings == "test-command-no-turn") {
 			return fmt.Errorf("pipeline: under policy version %d the gate repairs no %s failure, so no fix round starts: run %s's findings are task %s's own to fix in one commit, which it submits with cfo pipeline validate-authored %s --run %s --findings <ids>, or for CI with cfo pipeline handback %s --run %s", selection.Policy.Version, gate.Step, gate.RunID, id, id, gate.RunID, id, gate.RunID)
 		}
 		nativeArgs, err = pipeline.ResponseArgs(selection, gate, response)

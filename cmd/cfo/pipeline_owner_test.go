@@ -39,6 +39,41 @@ func ownerPolicy(t *testing.T, version int) pipeline.Policy {
 	return policy
 }
 
+// atVersionSix freezes task id's policy, and the native config rendered from
+// it, at the repository's version 6: its gate still repairs a Test, Lint or CI
+// failure, and any caller may resume a CI correction.
+func atVersionSix(t *testing.T, h home.Home, nm, id string) {
+	t.Helper()
+	policy, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy.Version = 6
+	policy.AutoFix = pipeline.AutoFix{Review: 0, Test: 1, Lint: 1, Rebase: 1, CI: 1}
+	meta, err := state.ReadTaskMeta(h.State, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := policy.Select(meta.PipelineClass)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := selection.Save(filepath.Join(meta.TaskTmp, "pipeline.json")); err != nil {
+		t.Fatal(err)
+	}
+	meta.PipelineHash = selection.Hash
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	config, _, err := pipeline.Render([]byte("{}"), policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // ownerCommit writes each file into dir and commits them all.
 func ownerCommit(t *testing.T, dir string, files map[string]string) string {
 	t.Helper()
@@ -388,17 +423,24 @@ func TestOwnerCIResumeAdmitsTheGoblinsCorrectionInScope(t *testing.T) {
 
 // Under version 7 a gate that parks at a Test, Lint or CI failure starts no
 // fix round: the CFO's or the goblin's --action fix is refused, naming the
-// owner's correction.
+// owner's correction. Only a Test rerun of a command given no turn, which asks
+// no repair agent, is left to start.
 func TestPipelineRespondStartsNoFixRoundForAHandedBackStep(t *testing.T) {
-	for _, step := range []string{"test", "lint", "ci"} {
-		t.Run(step, func(t *testing.T) {
+	for _, test := range []struct{ name, step, findings string }{
+		{"test", "test", "test-failure"},
+		{"lint", "lint", "lint-failure"},
+		{"ci", "ci", "ci-failure"},
+		{"a test rerun with a repair beside it", "test", "test-command-no-turn,test-failure"},
+		{"a rerun of a lint failure", "lint", "test-command-no-turn"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			h, nm, _, _, native := ownerStage(t, step, 7)
+			h, nm, _, _, native := ownerStage(t, test.step, 7)
 			inGoblinTerminal(t, h.State, "task")
-			runner := &handbackRespondRunner{ownerNative: native, gate: pipeline.Gate{RunID: ownerRun, StepID: "step", Step: step, Status: "awaiting_approval", Findings: fmt.Sprintf(`{"findings":[{"id":"%s-failure","action":"auto-fix"}]}`, step)}}
+			runner := &handbackRespondRunner{ownerNative: native, gate: pipeline.Gate{RunID: ownerRun, StepID: "step", Step: test.step, Status: "awaiting_approval", Findings: fmt.Sprintf(`{"findings":[{"id":"%s-failure","action":"auto-fix"},{"id":"test-command-no-turn","action":"ask-user"}]}`, test.step)}}
 
 			// Act
-			err := pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "fix", "--findings", step + "-failure"}, &bytes.Buffer{})
+			err := pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "fix", "--findings", test.findings}, &bytes.Buffer{})
 
 			// Assert
 			if err == nil || !strings.Contains(err.Error(), "no fix round starts") {

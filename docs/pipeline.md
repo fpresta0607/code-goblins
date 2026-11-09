@@ -120,6 +120,7 @@ It also appends a `working:` line naming the run, step and findings to the task'
 For a Test or Lint failure it moves the task's branch to the run's head when the branch still holds the head the run was submitted from, and keeps that head at `refs/heads/archive/handback-<run>-<head>` in the gate's repository, so the correction carries every commit the run validated.
 A branch the goblin has moved since is left as it is, and the driver says to make the correction on the run's head.
 `respond --action fix` on such a step is refused, since the gate repairs none of it.
+The one fix left is a Test rerun of nothing but `test-command-no-turn`, which asks no repair agent, so a test command refused its turn, as by a missing required environment, still runs again once that is repaired.
 
 The goblin commits one correction of exactly those findings on the run's head and submits it itself:
 
