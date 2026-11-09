@@ -82,6 +82,13 @@ for (const [name, reply] of [["with call ids", JOINS_RIGHT], ["without call ids"
     await expect(joined.locator(".disclosure-content details.message-call")).toHaveCount(2);
     const opened = joined.locator(".disclosure-content details.message-call", { hasText: "git status" });
     await expect(opened.locator(".disclosure-content")).toContainText("ok");
+    await joined.locator("> summary").click();
+    await expect(joined.locator(".disclosure-content")).toHaveCount(0);
+    await joined.locator("> summary").click();
+    await expect(joined.locator(".disclosure-content details.message-call")).toHaveCount(2);
+    await expect(opened.locator(".disclosure-content")).toHaveCount(0);
+    await opened.locator("> summary").click();
+    await expect(opened.locator(".disclosure-content")).toContainText("ok");
     await opened.locator("> summary").click();
     await expect(opened.locator(".disclosure-content")).toHaveCount(0);
     await expect(joined.locator(".disclosure-content details.message-call")).toHaveCount(2);
