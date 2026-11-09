@@ -66,14 +66,15 @@ type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 // open, absent for the CFO, terminal is the key of the session's terminal,
 // whose link reads what it is doing, sent is every message of his to the session the
 // board knows, pending those of them that still wait, and box is the message
-// box under the conversation.
-export function MessagesView({ query, instance, pages, name, task, terminal, harness, model, effort, isWorking, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
+// box under the conversation. onAskSlot takes the conversation's last row,
+// where the box draws what the harness's own screen asks (#2223).
+export function MessagesView({ query, instance, pages, name, task, terminal, harness, model, effort, isWorking, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, onAskSlot, box }: {
   query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isWorking: boolean; isCompacting: boolean;
   pages: Map<string, MessagePage>;
   sent: Action[]; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
   shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode, onSend: () => void) => ReactNode;
-  onComposerDock?: (node: HTMLDivElement | null) => void;
+  onComposerDock?: (node: HTMLDivElement | null) => void; onAskSlot?: (node: HTMLDivElement | null) => void;
 }) {
   // What he sent that the board has not shown yet, drawn at once on its way.
   const sending = usePendingSends();
@@ -776,7 +777,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   const queuedIDs = [...held.waiting, ...queued].map((each) => each.id).join("\0");
   useLayoutEffect(() => {
     const observer = new ResizeObserver(settle);
-    for (const row of items.current?.querySelectorAll<HTMLElement>(":scope > .reply-working, :scope > [data-queued]") ?? []) observer.observe(row);
+    for (const row of items.current?.querySelectorAll<HTMLElement>(":scope > .reply-working, :scope > [data-queued], :scope > .conversation-ask") ?? []) observer.observe(row);
     settle();
     return () => observer.disconnect();
   }, [queuedIDs, held.isWorking, reachesEnd, phase, shown, settle]);
@@ -823,6 +824,10 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
               </div>;
           })}
           {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />)}
+          {/* What the harness's own screen asks, a question, a permission prompt
+              or a picker, is the conversation's last message, right above the
+              box that answers it, and never a popup over the box (#2223). */}
+          {onAskSlot && <div ref={onAskSlot} className="conversation-ask" />}
         </div>
       </div>
       {phase === "live" && !conversation.length && !queued.length && !held.waiting.length && <p className="messages-empty" role="status">No messages yet</p>}

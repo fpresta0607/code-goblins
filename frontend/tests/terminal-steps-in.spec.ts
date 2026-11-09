@@ -14,7 +14,7 @@ import { at, box, card, field, NAME, open, openGoblin, pasted, pickStyle, type R
 
 const terminal = (page: Page) => page.getByRole("textbox", { name: "Terminal input", exact: true });
 const messages = (page: Page) => page.getByRole("region", { name: "Messages", exact: true });
-const list = (page: Page) => box(page).getByRole("group", { name: NAME + " asks" });
+const list = (page: Page) => page.getByRole("group", { name: NAME + " asks", exact: true });
 const choice = (page: Page, text: string) => list(page).getByRole("button", { name: text, exact: true });
 const UP = "\x1b[A", DOWN = "\x1b[B";
 
@@ -202,7 +202,7 @@ test.describe("on a phone", () => {
     await shows({ open: true, panel: {} });
 
     // Assert: nothing drawn above the box, his message held, never typed.
-    await expect(box(page).locator(".harness-panel")).toHaveCount(0);
+    await expect(page.locator(".harness-panel")).toHaveCount(0);
     expect(await page.evaluate(() => document.body.dataset.terminalBox)).toBeUndefined();
     expect(typed(relay)).toBe("");
     await expect(page.locator(".messages-view:not([hidden]) [role=log] .queued-message")).toContainText("after the screen");

@@ -155,6 +155,8 @@ export const box = (page: Page, name = NAME) => page.getByRole("region", { name:
 export const field = (page: Page, name = NAME) => box(page, name).getByRole("textbox", { name: "Message " + name });
 export const send = (page: Page, name = NAME) => box(page, name).getByRole("button", { name: "Send", exact: true });
 export const typed = (relay: Relay) => relay.typed.join("");
+// asks is what the harness's own screen asks, drawn in the conversation (#2223).
+export const asks = (page: Page, name = NAME) => page.getByRole("group", { name: name + " asks", exact: true });
 // pressRow presses a control of the panel's header row: its icon button,
 // named label, while the row has room for it, or its item, named name, in the
 // row's More once it has not.
