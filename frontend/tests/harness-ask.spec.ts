@@ -10,6 +10,7 @@ const PROMPT = {
     "│ This command needs approval because it │", "│ reads the network.                     │", "╰────────────────────────────────────────╯", "Do you want to proceed?"],
   choices: [{ text: "Yes", number: 1, focused: true }, { text: "Yes, and don't ask again for gh pr checks", number: 2 }, { text: "No", number: 3 }],
   hints: ["Esc to cancel"],
+  cols: 42,
 };
 // Claude Code's question after a switch of model, a screen of its own after
 // the one before.

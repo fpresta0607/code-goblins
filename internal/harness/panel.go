@@ -10,11 +10,13 @@ import (
 // Panel is what a harness draws in its input line's place while something of
 // its own is open, a question, a permission prompt, a picker or a panel, read
 // so the board can offer it as a list he picks from: the rows that ask or
-// show, the choices it lists, and the keys its footer names.
+// show, the choices it lists, and the keys its footer names. Cols is the
+// terminal's width in cells as its screen was read, where its words wrapped.
 type Panel struct {
 	Rows    []string `json:"rows,omitempty"`
 	Choices []Choice `json:"choices,omitempty"`
 	Hints   []string `json:"hints,omitempty"`
+	Cols    int      `json:"cols,omitempty"`
 }
 
 // Choice is one choice a panel lists: its words, its number when the harness

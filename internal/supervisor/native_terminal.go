@@ -179,7 +179,8 @@ func (h *HTTP) announce(key string, cols, rows int) {
 // panel or that question, and working while a turn runs. While something is
 // open the report carries it as a panel: its rows, its choices with the one in
 // focus, and the keys its footer names (harness.ReadPanel), so the board offers
-// it as a list he picks from.
+// it as a list he picks from, and the terminal's columns as its screen was
+// read, where its words wrapped.
 // custodyProbeBudget is how long a custody check has. no-mistakes'
 // sync --check reads the whole branch state and takes several seconds, and a
 // probe shorter than it reports every check as a failure of the check rather
@@ -301,6 +302,9 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		state := screenState{Asking: screens.IsAsking(rows), Open: screens.IsOpen(rows), Working: screens.IsWorking(rows), Submission: observed, HasStarted: hasStarted}
 		if state.Open {
 			panel := harness.ReadPanel(rows)
+			for _, row := range rows {
+				panel.Cols = max(panel.Cols, utf8.RuneCountInString(row))
+			}
 			state.Panel = &panel
 		}
 		state.Mode = screens.Mode(rows)

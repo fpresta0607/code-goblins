@@ -1056,7 +1056,7 @@ func TestANativeViewIsToldWhileItsHarnessAsksAtItsOwnScreen(t *testing.T) {
 	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"his","mode":"bypass permissions"}`)
 
 	v.send(t, websocket.MessageBinary, "permission\r")
-	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"his","panel":{"rows":["Do you want to create nine.txt?"],"choices":[{"text":"Yes","number":1,"focused":true},{"text":"No","number":2}]}}`)
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"his","panel":{"rows":["Do you want to create nine.txt?"],"choices":[{"text":"Yes","number":1,"focused":true},{"text":"No","number":2}],"cols":80}}`)
 	v.send(t, websocket.MessageBinary, "harness\r")
 
 	asking, back := `{"type":"screen","asking":true,"open":true,"working":false,"submission":"his",`, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"his","mode":"bypass permissions"}`
@@ -1093,7 +1093,7 @@ func TestANativeViewIsToldWhileAPanelOfItsHarnessIsOpen(t *testing.T) {
 	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"his","mode":"bypass permissions"}`)
 
 	v.send(t, websocket.MessageBinary, "panel\r")
-	v.waitFor(t, `{"type":"screen","asking":false,"open":true,"working":false,"submission":"his","panel":{"rows":["Permissions:  Allow   Ask   Deny"],"choices":[{"text":"Add a new rule…","focused":true},{"text":"Bash(go test:*)"}],"hints":["Press ↑↓ to navigate · Esc to cancel"]}}`)
+	v.waitFor(t, `{"type":"screen","asking":false,"open":true,"working":false,"submission":"his","panel":{"rows":["Permissions:  Allow   Ask   Deny"],"choices":[{"text":"Add a new rule…","focused":true},{"text":"Bash(go test:*)"}],"hints":["Press ↑↓ to navigate · Esc to cancel"],"cols":80}}`)
 	v.send(t, websocket.MessageBinary, "harness\r")
 
 	open, back := `{"type":"screen","asking":false,"open":true,"working":false,"submission":"his",`, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"his","mode":"bypass permissions"}`
@@ -1292,7 +1292,7 @@ func TestANativeViewIsToldItsHarnessNoLongerAsksWhileTheTurnItsAnswerStartedDraw
 	v := openNativeView(t, server, viewQuery)
 	v.waitFor(t, "program ready")
 	v.send(t, websocket.MessageBinary, "permission\r")
-	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"his","panel":{"rows":["Do you want to create nine.txt?"],"choices":[{"text":"Yes","number":1,"focused":true},{"text":"No","number":2}]}}`)
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"his","panel":{"rows":["Do you want to create nine.txt?"],"choices":[{"text":"Yes","number":1,"focused":true},{"text":"No","number":2}],"cols":80}}`)
 
 	v.send(t, websocket.MessageBinary, "turn for 20s\r")
 

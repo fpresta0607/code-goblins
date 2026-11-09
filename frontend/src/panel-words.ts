@@ -10,6 +10,9 @@ const GUTTER = /^[│┃║▌▍▎▏╎╏┆┇┊┋]\s?|\s?[│┃║▌�
 const EDGE = /^\s*[─╌━═╭╮╰╯┌┐└┘▔▁][─╌━═╭╮╰╯┌┐└┘▔▁\s]*$/;
 // A rule of dashes alone, as a harness draws above and below a preview.
 const RULE = /^\s*[─╌━═]+\s*$/;
+// A pane's top or bottom edge, a corner at each end, as wide as the pane: its
+// words wrap at that width less its corners and the space inside each bar.
+const PANE_EDGE = /^[╭┌╰└][─━═]+[╮┐╯┘]$/;
 
 const indentOf = (row: string) => row.length - row.trimStart().length;
 
@@ -20,10 +23,12 @@ const indentOf = (row: string) => row.length - row.trimStart().length;
 // rows above a lone closing rule, a preview the relay cut at its top, are code
 // kept line for line; the first row is the title, alone; and a row joins the
 // row above it only where the terminal wrapped it, its first word too long
-// for the room the row above left at the panel's width, the longest row's.
-export function panelParts(rows: readonly string[]): PanelPart[] {
+// for the room the row above left at the width its words wrap at: a pane's
+// own, else cols, the terminal's. With neither known no row joins.
+export function panelParts(rows: readonly string[], cols?: number): PanelPart[] {
   const plain = rows.map((row) => row.replace(GUTTER, "").trimEnd());
-  const width = Math.max(0, ...plain.filter((row) => !EDGE.test(row)).map((row) => row.length));
+  const edge = rows.map((row) => row.trim()).find((row) => PANE_EDGE.test(row));
+  const width = edge ? edge.length - 4 : cols;
   const rules = plain.flatMap((row, at) => RULE.test(row) ? [at] : []);
   const isCut = rules.length % 2 === 1 && rules[0] > 0;
   const cutFrom = isCut ? plain.findIndex((row) => indentOf(row) > 0) : -1;
@@ -59,7 +64,7 @@ export function panelParts(rows: readonly string[]): PanelPart[] {
       const words = row.trim();
       if (!parts.length) parts.push({ kind: "title", text: words });
       else {
-        if (prose.length && plain[at - 1].length + 1 + words.split(" ")[0].length <= width) close();
+        if (prose.length && (width === undefined || plain[at - 1].length + 1 + words.split(" ")[0].length <= width)) close();
         prose.push(words);
       }
     }

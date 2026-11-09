@@ -48,7 +48,7 @@ export function HarnessPanel({ panel, name, isInChat = false, onKeys }: {
     setPressed(screen);
     onKeys(keys);
   };
-  const parts = panelParts(panel.rows);
+  const parts = panelParts(panel.rows, panel.cols);
   return <section className={isInChat ? "harness-panel in-chat message message-reply" : "harness-panel"} role="group" aria-label={name + " asks"}>
     {parts.length > 0 && <div className={isInChat ? "harness-panel-rows message-words" : "harness-panel-rows"}>
       {parts.map((part, at) => part.kind === "break" ? <hr key={at} />
