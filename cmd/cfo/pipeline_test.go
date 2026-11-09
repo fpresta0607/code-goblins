@@ -62,6 +62,8 @@ type pipelineStartRunner struct {
 	previous []byte
 	// head is the commit the task branch holds.
 	head string
+	// repoConfig, when set, is the .no-mistakes.yaml the task branch holds.
+	repoConfig string
 }
 
 func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Result, error) {
@@ -93,6 +95,9 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 		case "status --porcelain --untracked-files=all":
 			return execx.Result{}, nil
 		case "show HEAD:.no-mistakes.yaml":
+			if r.repoConfig != "" {
+				return execx.Result{Stdout: []byte(r.repoConfig)}, nil
+			}
 			return execx.Result{Stdout: []byte("auto_fix: {review: 0, rebase: 1, ci: 0}\n")}, nil
 		case "ls-remote --symref origin HEAD":
 			head := trusted
