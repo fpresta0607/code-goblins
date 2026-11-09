@@ -9,7 +9,7 @@ for (const width of [390, 1440]) {
     const call = { kind: "call", call_id: "call-1", tool: "exec", subject: "exec", input, state: "running" };
     const reply = { id: "reply-1", seq: 1, at, kind: "reply", blocks: [call, { kind: "text", text: prose }] };
     await open(page, snapshot({ cfo_harness: "codex" }), undefined, { conversation: "fixture-conversation", more: false, messages: [{ id: "user-1", seq: 0, at, kind: "prompt", source: "overlord", text: prose }, reply] });
-    await page.getByRole("button", { name: CFO_DOOR, exact: true }).click();
+    await page.getByRole("button", { name: CFO_DOOR }).first().click();
     const messages = page.getByRole("log", { name: "Messages of CFO" });
     const detail = messages.locator("details.message-call");
     await expect(detail).toHaveCount(1);
