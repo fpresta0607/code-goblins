@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/gatehome"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
@@ -20,8 +21,14 @@ const (
 	StepAttach Step = "attach"
 	// StepTrust trusts a Dev Drive Windows does not trust.
 	StepTrust Step = "trust"
-	// StepMove moves the home's heavy folders onto it.
+	// StepMove moves the home's heavy folders onto it, and the gate's home
+	// with them.
 	StepMove Step = "move"
+	// StepGate moves the gate's home onto the Dev Drive the home's heavy
+	// folders are on, when it did not move with them: gate runs were in
+	// flight all the while the move waited, or the heavy folders moved before
+	// the move carried the gate's home.
+	StepGate Step = "gate"
 )
 
 // Plan is the next step for a home and what it runs: Script for a step that
@@ -37,10 +44,12 @@ type Plan struct {
 }
 
 // Next is the step h needs next on machine m, or false when it needs none:
-// its heavy folders are on a Dev Drive Windows does not distrust, or this
-// machine can have no Dev Drive Code Goblins would use. config is the home's
-// config\dev-drive.json, which names the file a create step made.
-func Next(m Machine, h home.Home, config home.DevDriveConfig) (Plan, bool) {
+// its heavy folders and the gate's home are on a Dev Drive Windows does not
+// distrust, or this machine can have no Dev Drive Code Goblins would use.
+// config is the home's config\dev-drive.json, which names the file a create
+// step made, and gate is where the gate's home is against h's Dev Drive
+// folder, empty when it is not known.
+func Next(m Machine, h home.Home, config home.DevDriveConfig, gate gatehome.Place) (Plan, bool) {
 	if m.Unavailable() != "" {
 		return Plan{}, false
 	}
@@ -51,6 +60,8 @@ func Next(m Machine, h home.Home, config home.DevDriveConfig) (Plan, bool) {
 			return attach(config.VHD, filepath.VolumeName(h.DevDrive)), true
 		case found && v.Dev && v.Trust == Untrusted:
 			return trust(v), true
+		case found && (gate == gatehome.PlaceSystem || gate == gatehome.PlaceLinked):
+			return Plan{Step: StepGate, Folder: h.DevDrive, Title: fmt.Sprintf("Move the gate's home to %s on the Dev Drive %s: once no gate run is in flight it stops the gate's daemon, copies the home and checks every file, names it with NM_HOME, starts the daemon there and then removes the old home; a step that fails puts everything back", gatehome.Target(h.DevDrive), v.Letter())}, true
 		}
 		return Plan{}, false
 	}
@@ -59,7 +70,7 @@ func Next(m Machine, h home.Home, config home.DevDriveConfig) (Plan, bool) {
 			return trust(v), true
 		}
 		folder := Folder(v)
-		return Plan{Step: StepMove, Folder: folder, Title: fmt.Sprintf("Move Code Goblins' worktrees, scratch and package caches to %s on the Dev Drive %s: new goblins build there, goblins already started keep their folders, and nothing is copied or deleted now", folder, v.Letter())}, true
+		return Plan{Step: StepMove, Folder: folder, Title: fmt.Sprintf("Move Code Goblins' worktrees, scratch and package caches to %s on the Dev Drive %s: new goblins build there, goblins already started keep their folders, and the gate's home moves to %s once no gate run is in flight, copied, checked and named by NM_HOME", folder, v.Letter(), gatehome.Target(folder))}, true
 	}
 	if m.CannotCreate() != "" {
 		return Plan{}, false

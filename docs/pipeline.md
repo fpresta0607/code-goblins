@@ -127,7 +127,7 @@ An interrupted CI monitor is not a passed gate and requires no cancellation or d
 It takes the native daemon singleton lock throughout the database check, backup and replacement, preventing a concurrent daemon startup.
 It does not stop or restart anything, cancel a run, or repair stale state.
 The command currently supports Windows, using the native singleton lock contract retained by v1.75.1.
-Use `NM_HOME` to select the same native home as no-mistakes, otherwise both use `~/.no-mistakes`.
+Use `NM_HOME` to select the same native home as no-mistakes; without it in the process both use the user's `NM_HOME`, which `cfo dev-drive move` sets when it moves the gate's home onto the Dev Drive, and otherwise `~/.no-mistakes`.
 
 Before replacement, the original YAML is backed up beside the configuration with a unique timestamped name.
 The backup and staged replacement receive the credential store's owner-only file protection because unrelated settings may contain credentials.

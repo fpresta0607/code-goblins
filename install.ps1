@@ -470,6 +470,13 @@
     # cfo install set both at user scope; this session needs them now.
     $env:CFO_HOME = $InstallDir
     $env:Path = "$(Join-Path $InstallDir "bin");$env:Path"
+    # cfo install names the gate's home at user scope when it put it on the
+    # home's Dev Drive, and every no-mistakes this install runs gates there.
+    # One this session names already wins, as it does for cfo.
+    $gateHome = Get-UserEnvironment "NM_HOME"
+    if ($gateHome -and -not $env:NM_HOME) {
+        $env:NM_HOME = $gateHome
+    }
     # What follows runs the build the home now holds.
     $dest = Join-Path $InstallDir "bin\cfo.exe"
 

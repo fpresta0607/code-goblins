@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/devdrive"
+	"github.com/fpresta0607/code-goblins/internal/gatehome"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
@@ -23,6 +24,9 @@ import (
 type DevDrive struct {
 	// Read reads what this machine says about Dev Drives.
 	Read func(context.Context) (devdrive.Machine, error)
+	// GateHome is where the gate's home is now (gatehome.Root); without it
+	// the board offers no step for the gate's home.
+	GateHome func() (string, error)
 }
 
 // DevDriveView is the Dev Drive as the board's Workspace panel shows it.
@@ -144,7 +148,15 @@ func (s *Service) devDriveStep(ctx context.Context) (*DevDriveView, bool, error)
 		view.Waiting = waiting
 		return view, true, nil
 	}
-	plan, needed := devdrive.Next(m, h, config)
+	var gate gatehome.Place
+	if s.Options.DevDrive.GateHome != nil {
+		gateRoot, err := s.Options.DevDrive.GateHome()
+		if err != nil {
+			return nil, false, err
+		}
+		gate = gatehome.Read(gateRoot, config.Root).Place
+	}
+	plan, needed := devdrive.Next(m, h, config, gate)
 	if !needed {
 		return view, false, nil
 	}
@@ -193,8 +205,8 @@ func (s *Service) devDriveWaiting() string {
 }
 
 // offerDevDriveStep makes plan's Command Center item: the create, trust and
-// attach steps run their script as administrator, and the move runs this
-// build's cfo dev-drive move in the home.
+// attach steps run their script as administrator, and the move and the gate
+// step run this build's cfo dev-drive move in the home.
 func (s *Service) offerDevDriveStep(plan devdrive.Plan, now time.Time) error {
 	var nonce [8]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
@@ -203,7 +215,7 @@ func (s *Service) offerDevDriveStep(plan devdrive.Plan, now time.Time) error {
 	id := "dev-drive-" + string(plan.Step) + "-" + hex.EncodeToString(nonce[:])
 	identity := sha256.Sum256([]byte("dev-drive\n" + id + "\n" + strconv.FormatInt(now.UnixNano(), 10)))
 	command := plan.Script
-	if plan.Step == devdrive.StepMove {
+	if plan.Step == devdrive.StepMove || plan.Step == devdrive.StepGate {
 		executable, err := os.Executable()
 		if err != nil {
 			return err
