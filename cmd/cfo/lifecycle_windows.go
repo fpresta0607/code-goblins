@@ -69,7 +69,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			return stopped, err
 		},
 		Checkpoint: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) error {
-			if resources.Gate.ID == "" || resources.Gate.IsTerminal() || record.Action == "pause" && record.Pause != nil && record.Pause.Reason == "memory" {
+			if resources.Gate.ID == "" || resources.Gate.IsTerminal() || record.Action == "pause" {
 				return nil
 			}
 			preserved, err := gate.Interrupt(ctx, meta.Project, meta.Worktree, resources.Gate.Branch, resources.Gate.ID)

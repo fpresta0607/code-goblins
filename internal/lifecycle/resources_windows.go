@@ -234,19 +234,21 @@ const stopBound = 10 * time.Second
 // UnfinishedStop. Each process still finishing its Windows teardown is kept
 // in record.
 //
-// A memory pause leaves the task's open gate run alone: the run is no part
-// of what it ends, so nothing sweeps the run's worktree or aborts it. Its
-// identity is still saved for the resume check. A run holds an hour or more
-// of review and tests, the pause is taken for the
-// goblin's own memory, and on a machine short of memory the abort itself
-// fails: on 2026-10-09 Murray's memory pause could not abort his live run,
-// and no resume could bring him back.
+// A pause, whatever its reason, leaves the task's open gate run alone: the
+// run is no part of what it ends, so nothing sweeps the run's worktree or
+// aborts it, and the resumed goblin carries on from it. Its identity is still
+// saved for the resume check. Only a stop ends the run. A run holds an hour or
+// more of review and tests that an aborted run spends again from its first
+// step: on 2026-10-09 Murray's memory pause could not abort his live run, and
+// no resume could bring him back, and while only memory pauses kept their
+// runs, pauses for every other reason ended 29 of 147 runs in three days
+// (issue 2089).
 func StopTask(ctx context.Context, h home.Home, meta state.TaskMeta, gate pipeline.Reader, record *state.Lifecycle) (Resources, []string, error) {
 	bounded, cancel := context.WithTimeout(ctx, stopBound)
 	defer cancel()
 	var resources Resources
 	var err error
-	if record.Action == "pause" && record.Pause != nil && record.Pause.Reason == "memory" {
+	if record.Action == "pause" {
 		resources, err = heldResources(bounded, h, meta, gate.Commands)
 		if err == nil {
 			resources.Gate, err = TaskGate(bounded, meta, gate)
