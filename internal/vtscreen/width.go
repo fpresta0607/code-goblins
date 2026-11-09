@@ -36,6 +36,16 @@ var wideRanges = [][2]rune{
 	{0x20000, 0x2FFFD}, {0x30000, 0x3FFFD},
 }
 
+// Width is how many cells text takes on a screen, as a row of Screen.Rows
+// measures: its wide characters two each and its marks none.
+func Width(text string) int {
+	cells := 0
+	for _, r := range text {
+		cells += runeWidth(r)
+	}
+	return cells
+}
+
 // runeWidth is how many cells r takes: 0 for a mark drawn over the
 // character before it, 2 for a wide character, and 1 for the rest.
 func runeWidth(r rune) int {

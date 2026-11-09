@@ -109,6 +109,8 @@ test("the relay says what an open screen asks, its choices with the focused one,
   // Assert
   assert.deepEqual(screen?.panel, { rows: ["Do you want to create nine.txt?"], choices: [{ text: "Yes", number: 1, isFocused: true }, { text: "No", number: 2, isFocused: false }], hints: ["Esc to cancel"] });
   assert.deepEqual(parseScreen(JSON.stringify({ type: "screen", asking: false, open: true, working: false, submission: "", panel: {} }))?.panel, { rows: [], choices: [], hints: [] });
+  assert.deepEqual(parseScreen(JSON.stringify({ type: "screen", asking: false, open: true, working: false, submission: "", panel: { cols: 80 } }))?.panel, { rows: [], choices: [], hints: [], cols: 80 });
+  for (const cols of [0, -1, "80", null]) assert.deepEqual(parseScreen(JSON.stringify({ type: "screen", asking: false, open: true, working: false, submission: "", panel: { cols } }))?.panel, { rows: [], choices: [], hints: [] }, JSON.stringify(cols));
   for (const each of malformed) assert.equal(parseScreen(JSON.stringify({ type: "screen", asking: false, open: true, working: false, submission: "", panel: each })), null, JSON.stringify(each));
 });
 

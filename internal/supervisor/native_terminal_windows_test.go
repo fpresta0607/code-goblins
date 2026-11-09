@@ -182,6 +182,11 @@ func TestNativeTerminalProgram(t *testing.T) {
 		case line == "permission":
 			// Claude Code's permission prompt, drawn in its composer's place.
 			fmt.Print("\x1b[2J\x1b[H" + strings.Join([]string{"● Write(nine.txt)", " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. No"}, "\r\n") + "\r\n")
+		case line == "approval":
+			// A permission prompt whose question the terminal wrapped, under
+			// a reply that ends in a picture drawn with a variation selector,
+			// a mark of no width.
+			fmt.Print("\x1b[2J\x1b[H" + strings.Join([]string{"● Saved it ❤\uFE0F", " This command needs approval because", " it reads the network.", " ❯ 1. Yes", "   2. No"}, "\r\n") + "\r\n")
 		case line == "quick question":
 			fmt.Print("\x1b[2J\x1b[H✽ Pondering… (esc to interrupt)\r\n\x1b[2J\x1b[HDo you want to create nine.txt?\r\n ❯ 1. Yes\r\n   2. No\r\n")
 		case line == "quick completion":
@@ -1056,7 +1061,7 @@ func TestANativeViewIsToldWhileItsHarnessAsksAtItsOwnScreen(t *testing.T) {
 	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"his","mode":"bypass permissions"}`)
 
 	v.send(t, websocket.MessageBinary, "permission\r")
-	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"his","panel":{"rows":["Do you want to create nine.txt?"],"choices":[{"text":"Yes","number":1,"focused":true},{"text":"No","number":2}]}}`)
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"his","panel":{"rows":["Do you want to create nine.txt?"],"choices":[{"text":"Yes","number":1,"focused":true},{"text":"No","number":2}],"cols":79}}`)
 	v.send(t, websocket.MessageBinary, "harness\r")
 
 	asking, back := `{"type":"screen","asking":true,"open":true,"working":false,"submission":"his",`, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"his","mode":"bypass permissions"}`
@@ -1093,7 +1098,7 @@ func TestANativeViewIsToldWhileAPanelOfItsHarnessIsOpen(t *testing.T) {
 	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"his","mode":"bypass permissions"}`)
 
 	v.send(t, websocket.MessageBinary, "panel\r")
-	v.waitFor(t, `{"type":"screen","asking":false,"open":true,"working":false,"submission":"his","panel":{"rows":["Permissions:  Allow   Ask   Deny"],"choices":[{"text":"Add a new rule…","focused":true},{"text":"Bash(go test:*)"}],"hints":["Press ↑↓ to navigate · Esc to cancel"]}}`)
+	v.waitFor(t, `{"type":"screen","asking":false,"open":true,"working":false,"submission":"his","panel":{"rows":["Permissions:  Allow   Ask   Deny"],"choices":[{"text":"Add a new rule…","focused":true},{"text":"Bash(go test:*)"}],"hints":["Press ↑↓ to navigate · Esc to cancel"],"cols":79}}`)
 	v.send(t, websocket.MessageBinary, "harness\r")
 
 	open, back := `{"type":"screen","asking":false,"open":true,"working":false,"submission":"his",`, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"his","mode":"bypass permissions"}`
@@ -1108,6 +1113,33 @@ func TestANativeViewIsToldWhileAPanelOfItsHarnessIsOpen(t *testing.T) {
 			t.Fatal("the view was never told the panel closed and the harness was back at its composer")
 		}
 	}
+}
+
+// A panel carries the width in cells its rows wrapped at: the terminal's, as
+// its screen was read, less the indent the rows shared and lost, and never
+// widened by a mark of no width on a row above it (#2223).
+func TestANativeViewsPanelCarriesTheWidthItsRowsWrapAt(t *testing.T) {
+	// Arrange
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\r")
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"his","mode":"bypass permissions"}`)
+
+	// Act
+	v.send(t, websocket.MessageBinary, "approval\r")
+
+	// Assert: 80 columns less the one the rows shared.
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"his","panel":{"rows":["This command needs approval because","it reads the network."],"choices":[{"text":"Yes","number":1,"focused":true},{"text":"No","number":2}],"cols":79}}`)
 }
 
 func TestANativeViewDistinguishesBackgroundWorkFromAHarnessTurn(t *testing.T) {
@@ -1292,7 +1324,7 @@ func TestANativeViewIsToldItsHarnessNoLongerAsksWhileTheTurnItsAnswerStartedDraw
 	v := openNativeView(t, server, viewQuery)
 	v.waitFor(t, "program ready")
 	v.send(t, websocket.MessageBinary, "permission\r")
-	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"his","panel":{"rows":["Do you want to create nine.txt?"],"choices":[{"text":"Yes","number":1,"focused":true},{"text":"No","number":2}]}}`)
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"his","panel":{"rows":["Do you want to create nine.txt?"],"choices":[{"text":"Yes","number":1,"focused":true},{"text":"No","number":2}],"cols":79}}`)
 
 	v.send(t, websocket.MessageBinary, "turn for 20s\r")
 
