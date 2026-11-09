@@ -18,12 +18,12 @@ export function comebackLine(comeback: Comeback | undefined): ComebackLine | nul
   const isWaiting = cfo?.state === "waiting" || comeback.goblins.some((entry) => entry.state === "waiting");
   if (isWaiting) {
     const parts = [];
-    if (cfo) parts.push(cfo.state === "back" ? "the CFO is back" : cfo.state === "waiting" ? "the CFO comes back first" : "the CFO did not come back");
+    if (cfo) parts.push(cfo.state === "back" ? "the CEO is back" : cfo.state === "waiting" ? "the CEO comes back first" : "the CEO did not come back");
     if (total > 0) parts.push(back + " of " + goblins(total) + (back === 1 || total === 1 ? " is back" : " are back"));
     return { text: "Coming back after a restart: " + parts.join(", ") + ".", isDone: false };
   }
   const resumed = [];
-  if (cfo?.state === "back") resumed.push("the CFO");
+  if (cfo?.state === "back") resumed.push("the CEO");
   if (total > 0) resumed.push(back === total ? goblins(total) : back + " of " + goblins(total));
   return { text: resumed.length ? "Resumed " + resumed.join(" and ") + " after a restart." : "Nothing came back after a restart.", isDone: true };
 }

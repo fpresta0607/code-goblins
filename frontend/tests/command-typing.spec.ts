@@ -7,7 +7,7 @@ import { expect, test } from "./site";
 test("a new question waits under the badge while he types and never takes his input", async ({ page }) => {
   // Arrange
   await page.goto("/tests/fixtures/command-typing.html");
-  const comment = page.getByRole("textbox", { name: "Comment to the CFO" });
+  const comment = page.getByRole("textbox", { name: "Comment to the CEO" });
   await comment.click();
   await page.keyboard.type("Half a sent");
 

@@ -329,7 +329,7 @@ test("an empty or refused earlier dictation releases later words without typing 
       else if (gap === "refused") first.onerror?.({ error: "supervisor", message: refusal });
       else first.silence();
       assert.deepEqual(heard, ["and merge it"]);
-      assert.deepEqual(problems.filter(Boolean), [], "a refusal goes to the CFO, and a silence he has dictated past is not told over the words that followed it");
+      assert.deepEqual(problems.filter(Boolean), [], "a refusal goes to the CEO, and a silence he has dictated past is not told over the words that followed it");
       assert.deepEqual(failures, gap === "refused" ? [refusal] : []);
       first.answer("late first words");
       second.answer("duplicate later words");
@@ -368,7 +368,7 @@ test("a recognition deadline aborts the stalled dictation and releases later wor
     assert.equal(second.abortCount, 0, "a finished later reply is retained while it waits");
     assert.deepEqual(heard, ["then merge it"]);
     assert.equal(failures.at(-1), timeout);
-    assert.deepEqual(problems.filter(Boolean), [], "a dictation that timed out goes to the CFO, never onto the board");
+    assert.deepEqual(problems.filter(Boolean), [], "a dictation that timed out goes to the CEO, never onto the board");
     assert.equal(listening.at(-1), true, "an earlier timeout never closes the current capture");
     first.answer("too late");
     second.answer("duplicate");

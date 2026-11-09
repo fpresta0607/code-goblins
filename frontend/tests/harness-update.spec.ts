@@ -44,7 +44,7 @@ async function openGoblinPanel(page: Page) {
 
 async function openCfoPanel(page: Page) {
   await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
-  await expect(header(page).locator("#panel-title")).toHaveText("CFO");
+  await expect(header(page).locator("#panel-title")).toHaveText("CEO");
 }
 
 for (const [width, height] of [[1280, 800], [390, 844]]) {

@@ -745,7 +745,7 @@ export function decisionText(detail: string): string {
     }
     return `${file} · ${side} ${first === last ? "line " + first : "lines " + first + "–" + last}\n${text}`;
   } catch {
-    return "Review request metadata is invalid. Inspect the durable CFO queue.";
+    return "Review request metadata is invalid. Inspect the durable CEO queue.";
   }
 }
 

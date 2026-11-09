@@ -46,7 +46,7 @@ test("the CFO's box shows the effort its engine was started at", async ({ page }
   await page.keyboard.press("Control+Alt+1");
 
   // Assert
-  await expect(box(page, "CFO").getByRole("button", { name: "Change model", exact: true }).locator(".effort-level")).toHaveText("high");
+  await expect(box(page, "CEO").getByRole("button", { name: "Change model", exact: true }).locator(".effort-level")).toHaveText("high");
 });
 
 // The server keeps a saved engine it did not apply, with pending false: one
@@ -54,7 +54,7 @@ test("the CFO's box shows the effort its engine was started at", async ({ page }
 // (internal/supervisor/cfo_engine.go). The CFO does not run its effort.
 const UNAPPLIED = [
   { why: "names another harness", cfo_harness: "codex", model: "gpt-6-astra", shown: "GPT-6 Astra", engine: { harness: "claude", pending: false, problem: "" } },
-  { why: "could not be applied", cfo_harness: "claude", model: "claude-opus-5-5", shown: "Opus 5.5", engine: { harness: "claude", pending: false, problem: "The selection could not be applied: the CFO is busy" } },
+  { why: "could not be applied", cfo_harness: "claude", model: "claude-opus-5-5", shown: "Opus 5.5", engine: { harness: "claude", pending: false, problem: "The selection could not be applied: the CEO is busy" } },
   { why: "is still pending", cfo_harness: "claude", model: "claude-opus-5-5", shown: "Opus 5.5", engine: { harness: "claude", pending: true, problem: "" } },
 ] as const;
 for (const unapplied of UNAPPLIED) {
@@ -67,7 +67,7 @@ for (const unapplied of UNAPPLIED) {
 
     // Assert: the session's record has arrived, and the model's button shows
     // no effort, not the saved engine's.
-    const model = box(page, "CFO").getByRole("button", { name: "Change model", exact: true });
+    const model = box(page, "CEO").getByRole("button", { name: "Change model", exact: true });
     await expect(model.locator(".engine-control-model")).toHaveText(unapplied.shown);
     await expect(model.locator(".effort-level")).toHaveCount(0);
   });

@@ -234,7 +234,7 @@ for (const [size, viewport, isShown] of [["a phone", { width: 390, height: 844 }
     await page.getByRole("button", { name: CFO_DOOR }).first().click();
 
     // Assert: its Terminal view, which shows a Claude Code CFO's messages.
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
     await expect(page.getByRole("button", { name: "Open in Windows Terminal", exact: true })).toHaveCount(isShown ? 1 : 0);
   });
 }

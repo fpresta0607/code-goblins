@@ -307,12 +307,12 @@ for (const where of ["pencil", "text"] as const) {
 // under it. Its title shows once, on the line that edits it.
 test("a queued task with no goblin named yet shows its title once, on its task line, and is headed by its id", async ({ page }) => {
   // Arrange
-  const title = "Tailscale remote access toggle in the CFO task panel with a very long title that wraps past two lines";
+  const title = "Tailscale remote access toggle in the CEO task panel with a very long title that wraps past two lines";
   await open(page, [], [task("queued-unnamed", "queued", { generation: "", brief: true, queue_revision: "q1", title }), WORKING]);
 
   // Act
   await page.locator(".task-board .task-card-shell").filter({ hasText: title }).locator(".task-card").click();
-  await expect(page.locator("#panel-title")).not.toHaveText("CFO");
+  await expect(page.locator("#panel-title")).not.toHaveText("CEO");
   await openTaskList(page);
 
   // Assert

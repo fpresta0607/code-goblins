@@ -16,7 +16,7 @@ export function HistoryStoredCard({ request, asker, to, connected, instance }: {
   const [isSending, setIsSending] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
   // A card whose goblin has ended goes to the CFO, named by its task.
-  const recipient = to ? asker : "the CFO";
+  const recipient = to ? asker : "the CEO";
   // One ID for each note, kept across a retry of the same words, so the
   // board queues it once.
   const sent = useRef({ text: "", id: "" });

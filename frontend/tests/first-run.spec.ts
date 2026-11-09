@@ -7,7 +7,7 @@ import { expect, test, type Page } from "./site";
 // "shouldn't it be a tab or a drop-down switch or icon selection for the
 // harness?" The page asks for no project, shows as done what the quick start
 // already knows, and offers the agents as one row of icon tabs.
-const missing = "Install pi to start the CFO";
+const missing = "Install pi to start the CEO";
 const setup = (changes: Record<string, unknown> = {}) => ({
   home: "C:\\Users\\franco\\AppData\\Local\\CodeGoblins",
   agent: "claude",
@@ -57,7 +57,7 @@ test("the folder picker uses the typed path and fills and checks the selected fo
   await expect(page.getByLabel("Projects folder")).toHaveValue(selected);
   await expect(page.getByText("Goblins find 1 project here by name: gamma.")).toBeVisible();
   expect(requests).toEqual([{ root: "C:\\Typed projects" }]);
-  await page.getByRole("button", { name: "Start the CFO" }).click();
+  await page.getByRole("button", { name: "Start the CEO" }).click();
   expect(starts).toEqual([{ root: selected, agent: "claude" }]);
 });
 
@@ -92,7 +92,7 @@ test("the folder picker disables another selection until the open dialog closes"
 
   await expect(button).toBeDisabled();
   await expect(page.getByLabel("Projects folder")).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Start the CFO" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Start the CEO" })).toBeDisabled();
   finishSelection();
   await expect(button).toBeEnabled();
   await expect(page.getByLabel("Projects folder")).toBeEnabled();
@@ -104,7 +104,7 @@ test("the page asks for no project, shows what the quick start knows as done, an
   const done = page.getByRole("list", { name: "Already set up" });
 
   // Assert: nothing offers a project to start in.
-  await expect(page.getByText("Project the CFO starts in")).toHaveCount(0);
+  await expect(page.getByText("Project the CEO starts in")).toHaveCount(0);
   await expect(page.getByRole("combobox")).toHaveCount(0);
   await expect(page.getByRole("radio")).toHaveCount(0);
   await expect(done.getByText("C:\\Users\\franco\\AppData\\Local\\CodeGoblins")).toBeVisible();
@@ -113,10 +113,10 @@ test("the page asks for no project, shows what the quick start knows as done, an
   await page.screenshot({ path: testInfo.outputPath("first-run.png") });
 
   // Act
-  await page.getByRole("button", { name: "Start the CFO" }).click();
+  await page.getByRole("button", { name: "Start the CEO" }).click();
 
   // Assert: the folder he never looked at is not sent, and no project is.
-  await expect(page.getByRole("status", { name: "Outcome" })).toHaveText("The CFO's terminal opens");
+  await expect(page.getByRole("status", { name: "Outcome" })).toHaveText("The CEO's terminal opens");
   expect(starts).toEqual([{ root: "", agent: "claude" }]);
 });
 
@@ -157,7 +157,7 @@ test("the agents are one row of icon tabs moved with Left and Right", async ({ p
   const tabs = page.getByRole("tablist", { name: "Agent" });
   const claude = tabs.getByRole("tab", { name: /Claude Code/ });
   const codex = tabs.getByRole("tab", { name: "Codex" });
-  const start = page.getByRole("button", { name: "Start the CFO" });
+  const start = page.getByRole("button", { name: "Start the CEO" });
 
   // Assert: three tabs, each with its mark, Claude Code recommended and
   // marked when the quick start remembered none, and nothing said to be
@@ -197,7 +197,7 @@ test("the agents are one row of icon tabs moved with Left and Right", async ({ p
 test("an agent the quick start remembered is shown as chosen and starts as it is, and another is one click away", async ({ page }) => {
   // Arrange
   const starts = await open(page, setup({ agent: "codex" }));
-  const start = page.getByRole("button", { name: "Start the CFO" });
+  const start = page.getByRole("button", { name: "Start the CEO" });
 
   // Assert
   await expect(page.getByRole("tab", { name: "Codex" })).toHaveAttribute("aria-selected", "true");
@@ -208,14 +208,14 @@ test("an agent the quick start remembered is shown as chosen and starts as it is
   await start.click();
 
   // Assert
-  await expect(page.getByRole("status", { name: "Outcome" })).toHaveText("The CFO's terminal opens");
+  await expect(page.getByRole("status", { name: "Outcome" })).toHaveText("The CEO's terminal opens");
   expect(starts).toEqual([{ root: "", agent: "codex" }]);
 });
 
 test("an agent this machine lacks says why and holds Start back until another is picked", async ({ page }) => {
   // Arrange
   const starts = await open(page, setup({ agent: "pi" }));
-  const start = page.getByRole("button", { name: "Start the CFO" });
+  const start = page.getByRole("button", { name: "Start the CEO" });
 
   // Assert
   await expect(page.getByRole("tab", { name: "pi", exact: true })).toHaveAttribute("aria-selected", "true");
@@ -227,7 +227,7 @@ test("an agent this machine lacks says why and holds Start back until another is
   await start.click();
 
   // Assert
-  await expect(page.getByRole("status", { name: "Outcome" })).toHaveText("The CFO's terminal opens");
+  await expect(page.getByRole("status", { name: "Outcome" })).toHaveText("The CEO's terminal opens");
   expect(starts).toEqual([{ root: "", agent: "claude" }]);
 });
 
@@ -238,7 +238,7 @@ test("the projects folder is optional: one he looked at is sent, and one with no
     ? setup({ projects_root: root, checkouts: ["gamma"] })
     : setup({ projects_root: root, checkouts: [], problem: noCheckout }));
   const folder = page.getByLabel("Projects folder");
-  const start = page.getByRole("button", { name: "Start the CFO" });
+  const start = page.getByRole("button", { name: "Start the CEO" });
   await expect(start).toBeEnabled();
 
   // Act: a folder with no checkout.
@@ -256,7 +256,7 @@ test("the projects folder is optional: one he looked at is sent, and one with no
   await start.click();
 
   // Assert
-  await expect(page.getByRole("status", { name: "Outcome" })).toHaveText("The CFO's terminal opens");
+  await expect(page.getByRole("status", { name: "Outcome" })).toHaveText("The CEO's terminal opens");
   expect(starts).toEqual([{ root: "C:\\work", agent: "claude" }]);
 });
 
@@ -265,7 +265,7 @@ for (const [name, entered] of [["an empty field", ""], ["only spaces", "   "]]) 
     // Arrange
     const unreadable = "This folder cannot be read: the folder was moved.";
     const starts = await open(page, setup({ projects_root: "C:\\gone", checkouts: [], problem: unreadable }));
-    const start = page.getByRole("button", { name: "Start the CFO" });
+    const start = page.getByRole("button", { name: "Start the CEO" });
     await expect(start).toBeEnabled();
 
     // Act
@@ -276,7 +276,7 @@ for (const [name, entered] of [["an empty field", ""], ["only spaces", "   "]]) 
     await expect(page.locator(".first-run-step .notice")).toHaveText(unreadable);
     await expect(start).toBeEnabled();
     await start.click();
-    await expect(page.getByRole("status", { name: "Outcome" })).toHaveText("The CFO's terminal opens");
+    await expect(page.getByRole("status", { name: "Outcome" })).toHaveText("The CEO's terminal opens");
     expect(starts).toEqual([{ root: "", agent: "claude" }]);
   });
 }
@@ -299,7 +299,7 @@ test.describe("at the desktop window's size", () => {
     }));
 
     // Assert
-    await expect(page.getByRole("button", { name: "Start the CFO" })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole("button", { name: "Start the CEO" })).toBeInViewport({ ratio: 1 });
     expect(overflows).toEqual({ sideways: false, down: false });
     await page.screenshot({ path: testInfo.outputPath("first-run-window.png") });
   });
@@ -314,8 +314,8 @@ test.describe("at the desktop window's size", () => {
     // Assert
     await expect(page.getByRole("tab", { name: "Codex" })).toHaveAttribute("aria-selected", "true");
     await expect(page.getByRole("tabpanel")).toContainText("woken by a typed line; no digest or guards");
-    await expect(page.getByRole("button", { name: "Start the CFO" })).toBeEnabled();
-    await expect(page.getByRole("button", { name: "Start the CFO" })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole("button", { name: "Start the CEO" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Start the CEO" })).toBeInViewport({ ratio: 1 });
     expect(sideways).toBe(false);
     await page.screenshot({ path: testInfo.outputPath("first-run-window-codex.png") });
   });

@@ -548,7 +548,7 @@ test.describe("Actions spend panel", () => {
         expect(panelRequests).toHaveLength(0);
         await page.evaluate(() => document.fonts.ready);
         const slug = month.name.replaceAll(" ", "-");
-        await page.getByRole("group", { name: "CFO", exact: true }).screenshot({ path: testInfo.outputPath(`actions-header-${slug}-${width}.png`) });
+        await page.getByRole("group", { name: "CEO", exact: true }).screenshot({ path: testInfo.outputPath(`actions-header-${slug}-${width}.png`) });
         await button.click();
         const panel = page.getByRole("dialog", { name: "GitHub Actions" });
         await expect(panel).toBeVisible();

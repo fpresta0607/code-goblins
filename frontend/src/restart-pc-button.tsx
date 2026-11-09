@@ -24,7 +24,7 @@ export function RestartPcButton({ snapshot }: { snapshot: Snapshot }) {
   const memory = snapshot.memory;
   const restart = snapshot.pc_restart;
   const stoppedShort = restart?.state === "stopped" ? restart.at : "";
-  useEffect(() => { if (stoppedShort) showFeedback("The PC did not restart, and the CFO knows why."); }, [stoppedShort, showFeedback]);
+  useEffect(() => { if (stoppedShort) showFeedback("The PC did not restart, and the CEO knows why."); }, [stoppedShort, showFeedback]);
   if (!onThisMachine(window.location.hostname)) return null;
   if (restart?.state === "stopping" || restart?.state === "restarting") return <button className="harness-update pc-restart" disabled aria-busy="true"><span className="card-start-spinner" aria-hidden="true" />Restarting the PC…</button>;
   if (!memory || !isPastPoolLine(memory)) return <ClickFeedback text={feedback} />;

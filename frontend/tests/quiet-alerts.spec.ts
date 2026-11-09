@@ -183,7 +183,7 @@ test.describe("on the board, in a browser tab", () => {
     await testInfo.attach("goblins' news on the board", { body: await page.screenshot(), contentType: "image/png" });
 
     // Assert
-    await expect(bar(page)).toContainText("1 question waits for the CFO (10 min).");
+    await expect(bar(page)).toContainText("1 question waits for the CEO (10 min).");
     expect(await notes(page)).toEqual([]);
     expect(asked).toEqual([]);
     await expect(page.locator(".toasts")).toHaveCount(0);

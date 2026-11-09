@@ -29,8 +29,8 @@ test("a goblin blocked, failed or done raises no alert, and neither does the CFO
     ["a goblin done with its pull request", working, snapshot({ tasks: [task("a", "done", { pr: PR })] })],
     ["a goblin reporting done with its pull request", working, snapshot({ tasks: [task("a", "review", { report: "done", pr: PR })] })],
     ["a goblin restarted and blocked again", snapshot({ tasks: [task("a", "blocked")] }), snapshot({ tasks: [task("a", "blocked", { generation: "a-2" })] })],
-    ["the CFO leaving a goblin's question unanswered for ten minutes", { ...left, at: "2026-10-13T13:52:01Z" }, left],
-    ["the CFO leaving a goblin's question unanswered, on the first snapshot", null, left],
+    ["the CEO leaving a goblin's question unanswered for ten minutes", { ...left, at: "2026-10-13T13:52:01Z" }, left],
+    ["the CEO leaving a goblin's question unanswered, on the first snapshot", null, left],
   ];
   for (const [name, before, next] of cases) assert.deepEqual(boardAlerts(before, next), [], name);
 });
@@ -60,7 +60,7 @@ test("a retired goblin's pause that did not finish raises no alert", () => {
 test("a new Command Center item that asks him something raises one alert that opens it there", () => {
   const before = snapshot({});
   const cases: [string, Snapshot, { key: string; item: string; text: string }][] = [
-    ["a new question", snapshot({ questions: [question("q1")] }), { key: "question:q1@2026-09-27T01:00:00Z", item: "question:q1", text: "The CFO asks: Which option?" }],
+    ["a new question", snapshot({ questions: [question("q1")] }), { key: "question:q1@2026-09-27T01:00:00Z", item: "question:q1", text: "The CEO asks: Which option?" }],
     ["a new review card", snapshot({ reviews: [review("r1")] }), { key: "review:r1@2026-09-27T01:00:00Z", item: "review:r1", text: "Goblin a wants your review: Review the plan" }],
     ["a new run card", snapshot({ runs: [run("c1")] }), { key: "run:c1@2026-09-27T01:00:00Z", item: "run:c1", text: "A command waits for you to run it: Restart the board" }],
   ];
@@ -134,7 +134,7 @@ test("an item alerts once however often a snapshot or a reconnect brings it back
     seen = sighting.seen;
     return sighting.fresh.map((alert) => alert.text);
   };
-  assert.deepEqual(shown(working, asking), ["The CFO asks: Which option?"]);
+  assert.deepEqual(shown(working, asking), ["The CEO asks: Which option?"]);
   assert.deepEqual(shown(asking, restarting), [], "the supervisor restarting");
   assert.deepEqual(shown(restarting, asking), [], "the same question in the restarted supervisor's snapshot");
   assert.deepEqual(shown(working, waiting), ["Goblin a is waiting on you: Look at the card"]);
@@ -157,7 +157,7 @@ test("an ID published again after its item closed alerts and is announced as a n
   const sighting = unseen(alerts, seen, 10 * 24 * 60 * MINUTE);
 
   // Assert
-  assert.deepEqual(sighting.fresh.map((alert) => alert.text), ["The CFO asks: May I merge the next release train?"]);
+  assert.deepEqual(sighting.fresh.map((alert) => alert.text), ["The CEO asks: May I merge the next release train?"]);
   assert.notEqual(announceKey(sighting.fresh[0]), announceKey(shown[0]), "each publication is announced under its own name");
   assert.equal(outlived(shown[0], snapshot({ questions: [again] })), true, "the earlier publication's alert has nothing left to open");
   assert.equal(outlived(sighting.fresh[0], snapshot({ questions: [again] })), false);
@@ -200,7 +200,7 @@ test("an alert is announced under its item's key and publishing, whole", () => {
 test("an alert's key names the Command Center item it opens", () => {
   const alerts = boardAlerts(snapshot({}), snapshot({ questions: [question("q1")], reviews: [review("waiting-a-3")], runs: [run("c1")] }));
   assert.deepEqual(alerts.map((alert) => alertItem(alert.key)), alerts.map((alert) => alert.item));
-  assert.deepEqual(alerts.map((alert) => alert.item), ["question:q1", "run:c1", "review:waiting-a-3"], "the CFO's items first, then each goblin's");
+  assert.deepEqual(alerts.map((alert) => alert.item), ["question:q1", "run:c1", "review:waiting-a-3"], "the CEO's items first, then each goblin's");
   assert.equal(alertItem("question:q1"), "question:q1", "a key without its publishing is the item's own");
 });
 
@@ -246,8 +246,8 @@ test("each alert names who asks by its goblin's title, as its card does, and say
     ["a goblin named with its harness", snapshot({ tasks: [task("a", "working", { title: "Fix the gate; Claude Code" })], reviews: [review("r1")] }), { speaker: "Fix the gate", text: "Fix the gate wants your review: Review the plan" }],
     ["a goblin whose title is a whole sentence", snapshot({ tasks: [task("a", "working", { title: LONG_TITLE })], reviews: [review("r1")] }),
       { speaker: LONG_TITLE, text: "Answers given in a review page's editor are never lost (a d… wants your review: Review the plan" }],
-    ["the CFO's question", snapshot({ questions: [cfoQuestion] }), { speaker: "CFO", text: "The CFO asks: Merge the release now?" }],
-    ["a command to run", snapshot({ runs: [run("c1")] }), { speaker: "CFO", text: "A command waits for you to run it: Restart the board" }],
+    ["the CEO's question", snapshot({ questions: [cfoQuestion] }), { speaker: "CEO", text: "The CEO asks: Merge the release now?" }],
+    ["a command to run", snapshot({ runs: [run("c1")] }), { speaker: "CEO", text: "A command waits for you to run it: Restart the board" }],
     ["a goblin's command to run", snapshot({ runs: [{ ...run("c2"), task: "a", title: "Sign in to GitHub" }] }), { speaker: "Goblin a", text: "Goblin a asks you to run a command: Sign in to GitHub" }],
   ];
   for (const [name, next, want] of cases) {
@@ -258,15 +258,15 @@ test("each alert names who asks by its goblin's title, as its card does, and say
 
 test("a question that opens with a table of values alerts with its first words, not the table", () => {
   const [alert] = boardAlerts(snapshot({}), snapshot({ questions: [question("q1", { text: "| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |\nMay I add these records?" })] }));
-  assert.equal(alert.text, "The CFO asks: May I add these records?");
+  assert.equal(alert.text, "The CEO asks: May I add these records?");
 });
 
 test("an alert names who asks and what, in a few words", () => {
   const [alert] = boardAlerts(snapshot({}), snapshot({ questions: [question("q1", { text: "Ship **now**? " + "x".repeat(300) + "\n\nThe details." })] }));
-  assert.equal(alert.speaker, "CFO");
-  assert.ok(alert.text.startsWith("The CFO asks: Ship now?") && alert.text.length <= 160 && !alert.text.includes("details"), alert.text);
+  assert.equal(alert.speaker, "CEO");
+  assert.ok(alert.text.startsWith("The CEO asks: Ship now?") && alert.text.length <= 160 && !alert.text.includes("details"), alert.text);
   const [short] = boardAlerts(snapshot({}), snapshot({ questions: [question("q2")] }));
-  assert.equal(short.text, "The CFO asks: Which option?");
+  assert.equal(short.text, "The CEO asks: Which option?");
 });
 
 // The Overlord, 2026-10-02: system notifications are only for when the app

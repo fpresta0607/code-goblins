@@ -56,7 +56,7 @@ async function open(page: Page, snapshot: Record<string, unknown> = running, kep
 const board = (page: Page) => page.getByRole("main", { name: "Board" });
 const panel = (page: Page) => page.getByRole("complementary", { name: "Task review" });
 const terminalInput = (page: Page) => page.getByRole("textbox", { name: "Terminal input", exact: true });
-const cfoBox = (page: Page) => page.getByRole("textbox", { name: "Message CFO", exact: true });
+const cfoBox = (page: Page) => page.getByRole("textbox", { name: "Message CEO", exact: true });
 const columns = (page: Page) => page.locator(".task-board").evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length);
 
 test("a failed first Start keeps its error and selection while configuration snapshots change", async ({ page }, testInfo) => {
@@ -92,27 +92,27 @@ test("a failed first Start keeps its error and selection while configuration sna
   await page.getByRole("textbox", { name: "Projects folder" }).fill("C:\\chosen-projects");
 
   // Act
-  await page.getByRole("button", { name: "Start the CFO" }).click();
+  await page.getByRole("button", { name: "Start the CEO" }).click();
   await page.evaluate((snapshot) => window.dispatchEvent(new CustomEvent("setup-snapshot", { detail: snapshot })), { ...initial, cfo_configured: true, revision: 2 });
 
   // Assert
-  await expect(page.getByRole("button", { name: "Starting the CFO…" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Starting the CEO…" })).toBeDisabled();
   const rejected = page.waitForResponse("**/api/setup/start");
   release();
   await rejected;
-  await expect(page.locator(".first-run-actions .notice")).toHaveText("The chosen CFO could not start.");
+  await expect(page.locator(".first-run-actions .notice")).toHaveText("The chosen CEO could not start.");
   await page.evaluate((snapshot) => window.dispatchEvent(new CustomEvent("setup-snapshot", { detail: snapshot })), { ...initial, revision: 3 });
-  await expect(page.locator(".first-run-actions .notice")).toHaveText("The chosen CFO could not start.");
+  await expect(page.locator(".first-run-actions .notice")).toHaveText("The chosen CEO could not start.");
   await expect(page.getByRole("tab", { name: "Codex", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("textbox", { name: "Projects folder" })).toHaveValue("C:\\chosen-projects");
-  await expect(page.getByRole("button", { name: "Start the CFO" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Start the CEO" })).toBeEnabled();
   await page.locator(".first-run").screenshot({ path: testInfo.outputPath("first-start-failed.png") });
 
   await page.route("**/api/setup/start", async (route) => {
     expect(route.request().postDataJSON()).toEqual({ root: "", agent: "codex" });
     await route.fulfill({ json: { started: true } });
   });
-  await page.getByRole("button", { name: "Start the CFO" }).click();
+  await page.getByRole("button", { name: "Start the CEO" }).click();
   await expect(board(page)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Start Code Goblins" })).toHaveCount(0);
 });
@@ -132,15 +132,15 @@ test("reopening a configured home with no registered CFO stays on the board and 
 
   // Act
   await expect(board(page)).toBeVisible();
-  await page.getByRole("button", { name: "Reopen the CFO" }).click();
+  await page.getByRole("button", { name: "Reopen the CEO" }).click();
 
   // Assert
-  await expect(page.locator(".cfo-pin .notice")).toHaveText("The CFO could not be reopened.");
-  await expect(page.getByRole("button", { name: "Reopen the CFO" })).toBeEnabled();
+  await expect(page.locator(".cfo-pin .notice")).toHaveText("The CEO could not be reopened.");
+  await expect(page.getByRole("button", { name: "Reopen the CEO" })).toBeEnabled();
   expect(reopenRequests).toEqual([{ token: "fixture", body: "{}" }]);
   await page.reload();
   await expect(board(page)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Reopen the CFO" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Reopen the CEO" })).toBeEnabled();
   await expect(page.getByRole("heading", { name: "Start Code Goblins" })).toHaveCount(0);
   expect(setupRequests).toEqual([]);
 });
@@ -161,7 +161,7 @@ test("reopening with the saved CFO running keeps the board and its Restart contr
   // Assert
   await expect(board(page)).toBeVisible();
   await page.locator(".panel-content > .disclosure.harness > summary").click();
-  await expect(page.locator(".panel-content > .disclosure.harness").getByRole("button", { name: "Restart the CFO" })).toBeEnabled();
+  await expect(page.locator(".panel-content > .disclosure.harness").getByRole("button", { name: "Restart the CEO" })).toBeEnabled();
   await expect(page.getByRole("heading", { name: "Start Code Goblins" })).toHaveCount(0);
   expect(setupRequests).toEqual([]);
 });
@@ -172,7 +172,7 @@ test("reopening with the saved CFO running keeps the board and its Restart contr
 // asked for (issue 1597).
 async function besideTheBoard(page: Page) {
   await expect(page.getByRole("group", { name: "Workspace view" }).getByRole("button", { name: "Board" })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("#panel-title")).toHaveText("CFO");
+  await expect(page.locator("#panel-title")).toHaveText("CEO");
   await expect(page.getByRole("button", { name: "Maximize the panel" })).toBeVisible();
   await expect(board(page)).toBeVisible();
   await expect(cfoBox(page)).toBeVisible();
@@ -273,12 +273,12 @@ test.describe("in the desktop window", () => {
     await expect(page.getByRole("heading", { name: "Start Code Goblins" })).toBeVisible();
 
     // Act
-    await page.getByRole("button", { name: "Start the CFO" }).click();
+    await page.getByRole("button", { name: "Start the CEO" }).click();
 
     // Assert: the CFO's panel on its Terminal view beside the board; the
     // snapshot here never shows the CFO running, so its terminal has no
     // screen yet.
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
     await expect(page.getByRole("group", { name: "Workspace view" }).getByRole("button", { name: "Board" })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("button", { name: "Maximize the panel" })).toBeVisible();
     await expect(board(page)).toBeVisible();

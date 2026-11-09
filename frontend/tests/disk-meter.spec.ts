@@ -77,7 +77,7 @@ test.describe("in the Overlord's window, 1707 px wide with the CFO's panel open"
       const meter = column.getByRole("group", { name: "Disk" });
       await expect(meter.locator(".memory-line")).toHaveText(`Disk free (C:)${(disk.free / GB).toFixed(1)} GB`);
       await expect(meter.locator(".memory-fill")).toHaveClass(new RegExp(state === "roomy" ? "ready" : state === "floor" ? "waiting" : "under"));
-      await expect(meter.locator(".memory-bar")).toHaveAttribute("data-tip", "Red mark: 10 GB, where the CFO is woken. White mark: the 15 GB floor. No goblin or gate test run starts under it.");
+      await expect(meter.locator(".memory-bar")).toHaveAttribute("data-tip", "Red mark: 10 GB, where the CEO is woken. White mark: the 15 GB floor. No goblin or gate test run starts under it.");
     });
   }
 

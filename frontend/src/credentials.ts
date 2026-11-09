@@ -8,7 +8,7 @@ export const listNames = (names: string[]) => names.length < 2 ? names.join("") 
 export function credentialSettled(request: CredentialRequest): string {
   if (request.state === "granted") return "Granted " + request.grant_service + " to " + request.task + (request.reason ? ". " + request.reason : "");
   if (request.state === "dismissed" && request.grant_service) return "Denied " + request.grant_service + " for " + request.task;
-  const sent = request.received.length ? "sent " + listNames(request.received) + " to " + (request.task || "the CFO") : "";
+  const sent = request.received.length ? "sent " + listNames(request.received) + " to " + (request.task || "the CEO") : "";
   if (request.state === "saved" && request.saved.length) return "Saved " + listNames(request.saved) + " for " + request.project + (sent ? " and " + sent : "");
   if (request.state === "saved") return sent.charAt(0).toUpperCase() + sent.slice(1);
   if (request.state === "done") return "Done";

@@ -182,7 +182,7 @@ for (const [title, parts] of [
   ["Wilhelmina", ["browser", "title", "status", "project", "clock"]],
   ["Cornelius", ["browser", "title", "status", "project", "clock", "session"]],
   ["Bartholomew", ["title", "status", "project", "clock", "session"]],
-  ["CFO", ["title", "status", "dial", "AFK"]],
+  ["CEO", ["title", "status", "dial", "AFK"]],
 ] as const) {
   test(`${title}'s card paints none of its text beyond its border`, async ({ page }) => {
     // Arrange
@@ -394,7 +394,7 @@ for (const { view, width, height } of [
 test("the CFO's canvas card opens its terminal and shows the usage dial", async ({ page }) => {
   // Arrange
   await open(page);
-  const cfo = card(page, "CFO");
+  const cfo = card(page, "CEO");
 
   // Act
   await cfo.getByRole("button", { name: CFO_DOOR }).click();

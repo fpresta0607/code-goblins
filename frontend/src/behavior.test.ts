@@ -27,7 +27,7 @@ test("board completion and semantic personas require the corresponding evidence"
   assert.equal(nativeStatus("busy"), "Working");
   assert.equal(nativeStatus("done"), "Turn finished");
   assert.equal(nodeStatus({id:"t",title:"",task,relation:""}), "Done, verifying");
-  assert.equal(nodeStatus({id:"t",title:"",task:{...task,phase:"blocked"},relation:""}), "Waiting on the CFO");
+  assert.equal(nodeStatus({id:"t",title:"",task:{...task,phase:"blocked"},relation:""}), "Waiting on the CEO");
   assert.equal(statusText("failed"), "Failed");
 });
 
@@ -38,7 +38,7 @@ test("arrangement preserves five-level lineage and a cyclic report links no pare
     sessions:[{id:"cfo",role:"cfo"}, ...goblins.map((id) => ({id, role:"goblin", task_id:id, generation:"g1", parent:parents[id]}))],
     tasks:goblins.map((id) => ({id, phase:"working", session:id, generation:"g1", verified:false}))});
   const nodes=workflowNodes(snapshot), positions=arrange(nodes, CANVAS);
-  assert.deepEqual([nodes.find(node=>node.id==="session:orphan")?.parent, nodes.find(node=>node.id==="session:orphan")?.relation], ["session:cfo", "Dispatched by the CFO"]);
+  assert.deepEqual([nodes.find(node=>node.id==="session:orphan")?.parent, nodes.find(node=>node.id==="session:orphan")?.relation], ["session:cfo", "Dispatched by the CEO"]);
   assert.equal(Object.keys(positions).length,8);
   assert.ok(positions["session:deep"].y>positions["session:nested"].y);
   assert.equal(nodes.find(node=>node.id==="session:deep")?.parent,"session:nested");
@@ -224,13 +224,13 @@ test("a live card whose gate saw its pull request merge wears the merge icon", (
 });
 
 test("the board keeps the CFO registration state the supervisor reports", () => {
-  const stale = "The CFO is not registered; run cfo register in the CFO session";
+  const stale = "The CEO is not registered; run cfo register in the CEO session";
   assert.equal(parseSnapshot({healthy:true, registration:stale}).registration, stale);
   assert.equal(parseSnapshot({healthy:true}).registration, "");
 });
 
 test("the board keeps the conversation the CFO could not resume, as the supervisor reports it", () => {
-  const left = "The CFO's conversation a1b2c3d4-session could not be resumed when it came back at 2026-10-03 01:47 UTC, so it started on a new one. That conversation is kept: claude --resume a1b2c3d4-session in the CFO's home opens it by hand.";
+  const left = "The CEO's conversation a1b2c3d4-session could not be resumed when it came back at 2026-10-03 01:47 UTC, so it started on a new one. That conversation is kept: claude --resume a1b2c3d4-session in the CEO's home opens it by hand.";
   assert.equal(parseSnapshot({healthy:true, cfo_conversation_left:left}).cfo_conversation_left, left);
   assert.equal(parseSnapshot({healthy:true}).cfo_conversation_left, "");
 });
@@ -244,13 +244,13 @@ test("completed history and fleet statuses read the way the fleet reports them",
   ]}).tasks;
   assert.equal(live.activity, "working: gate test step");
   assert.equal(taskColumn(live), "In progress");
-  assert.equal(nodeStatus({id:"w", title:"work", task:live, relation:""}), "Waiting on the CFO");
+  assert.equal(nodeStatus({id:"w", title:"work", task:live, relation:""}), "Waiting on the CEO");
   assert.equal(taskColumn(finished), "Completed");
   assert.equal(nodeStatus({id:"f", title:"old", task:finished, relation:""}), "Finished");
   assert.equal(taskColumn(merged), "Completed");
   assert.equal(nodeStatus({id:"m", title:"x", task:merged, relation:""}), "Merged");
   assert.equal(taskColumn(queued), "Tasks");
-  for (const [phase, label] of [["merged", "Merged, verifying"], ["blocked", "Waiting on the CFO"], ["ready", "Checks passed"]]) {
+  for (const [phase, label] of [["merged", "Merged, verifying"], ["blocked", "Waiting on the CEO"], ["ready", "Checks passed"]]) {
     const landed = {...live, phase, merged:true};
     assert.equal(taskColumn(landed), "In progress");
     assert.equal(nodeStatus({id:"l", title:"work", task:landed, relation:""}), label);
@@ -286,16 +286,16 @@ test("only a GitHub pull request wears the GitHub mark and its bare number", () 
 test("dispatched goblins hang under the CFO, and only live work is in the tree", () => {
   const live = ["a", "b", "c", "d", "e", "f"].map((id) => ({id, phase:"working", verified:false}));
   const history = [{id:"finished:x", phase:"done", verified:false, archived:true}, {id:"brief", phase:"queued", verified:false}];
-  const drawn = workflowNodes(parseSnapshot({healthy:true, registration:"The CFO is not registered; run cfo register in the CFO session", tasks:[...live, ...history]}));
+  const drawn = workflowNodes(parseSnapshot({healthy:true, registration:"The CEO is not registered; run cfo register in the CEO session", tasks:[...live, ...history]}));
   const root = drawn.find((node) => node.id === CFO_ROOT);
   assert.ok(root?.cfo);
   assert.equal(nodeStatus(root!), "Registration stale");
-  assert.deepEqual(drawn.filter((node) => node.task).map((node) => [node.task!.id, node.parent, node.relation]), live.map((task) => [task.id, CFO_ROOT, "Dispatched by the CFO"]));
+  assert.deepEqual(drawn.filter((node) => node.task).map((node) => [node.task!.id, node.parent, node.relation]), live.map((task) => [task.id, CFO_ROOT, "Dispatched by the CEO"]));
 
   const reported = workflowNodes(parseSnapshot({healthy:true, sessions:[{id:"cfo", role:"cfo"}, {id:"lost", role:"goblin", task_id:"b", generation:"g1", parent:"missing"}], tasks:[{id:"a", phase:"working", verified:false}, {id:"b", phase:"working", session:"lost", generation:"g1", verified:false}]}));
   assert.equal(reported.find((node) => node.id === CFO_ROOT), undefined);
   assert.equal(reported.find((node) => node.id === "task:a")?.parent, "session:cfo");
-  assert.deepEqual([reported.find((node) => node.id === "session:lost")?.parent, reported.find((node) => node.id === "session:lost")?.relation], ["session:cfo", "Dispatched by the CFO"]);
+  assert.deepEqual([reported.find((node) => node.id === "session:lost")?.parent, reported.find((node) => node.id === "session:lost")?.relation], ["session:cfo", "Dispatched by the CEO"]);
   assert.equal(workflowNodes(parseSnapshot({healthy:true, tasks:history})).length, 0);
 });
 
@@ -307,9 +307,9 @@ test("dispatched goblins hang under the CFO, and only live work is in the tree",
 // kept.
 test("a live goblin session with no parent in the tree hangs under the CFO, whoever started it", () => {
   const cases: [string, Record<string, string>[], string][] = [
-    ["a Claude Code CFO's spawn, with no CFO session reported", [{ id: "claude-spawned", native_id: "claude-spawned", harness: "pi", role: "goblin", task_id: "a", generation: "g1" }], CFO_ROOT],
+    ["a Claude Code CEO's spawn, with no CEO session reported", [{ id: "claude-spawned", native_id: "claude-spawned", harness: "pi", role: "goblin", task_id: "a", generation: "g1" }], CFO_ROOT],
     ["a supervisor resume", [{ id: "cfo", native_id: "cfo", harness: "claude", role: "cfo", phase: "active" }, { id: "resumed", native_id: "resumed", harness: "codex", role: "goblin", task_id: "a", generation: "g1", phase: "active" }], "cfo"],
-    ["a pi goblin under a pi CFO", [{ id: "pi-cfo", native_id: "pi-cfo", harness: "pi", role: "cfo", phase: "active" }, { id: "pi-goblin", native_id: "pi-goblin", harness: "pi", role: "goblin", task_id: "a", generation: "g1" }], "pi-cfo"],
+    ["a pi goblin under a pi CEO", [{ id: "pi-cfo", native_id: "pi-cfo", harness: "pi", role: "cfo", phase: "active" }, { id: "pi-goblin", native_id: "pi-goblin", harness: "pi", role: "goblin", task_id: "a", generation: "g1" }], "pi-cfo"],
     ["a goblin whose reported parent left the tree", [{ id: "orphan", native_id: "orphan", harness: "claude", role: "goblin", task_id: "a", generation: "g1", parent: "gone" }], CFO_ROOT],
   ];
   for (const [name, sessions, cfo] of cases) {
@@ -323,7 +323,7 @@ test("a live goblin session with no parent in the tree hangs under the CFO, whoe
 
     // Assert
     const card = nodes.find((node) => node.id === "session:" + goblin.id);
-    assert.deepEqual([card?.parent, card?.relation], [cfo === CFO_ROOT ? CFO_ROOT : "session:" + cfo, "Dispatched by the CFO"], name);
+    assert.deepEqual([card?.parent, card?.relation], [cfo === CFO_ROOT ? CFO_ROOT : "session:" + cfo, "Dispatched by the CEO"], name);
     assert.equal(lineage.sessions.find((node) => node.id === goblin.id)?.parent, cfo, name);
     assert.deepEqual(lineageRoots(lineage.sessions).map((node) => node.id), [cfo], name);
   }
@@ -625,7 +625,7 @@ test("a family of goblins wraps into the rows that show it largest in the canvas
   };
   assert.equal(rows({ width: 3200, height: 700 }), 1, "a wide canvas");
   assert.equal(rows(CANVAS), 2, "the board's usual canvas");
-  assert.ok(rows({ width: 836, height: 956 }) > 2, "his canvas with the CFO panel open: " + rows({ width: 836, height: 956 }) + " rows");
+  assert.ok(rows({ width: 836, height: 956 }) > 2, "his canvas with the CEO panel open: " + rows({ width: 836, height: 956 }) + " rows");
   assert.equal(rows({ width: 0, height: 0 }), 1, "a canvas not yet measured keeps one row");
 });
 
@@ -738,28 +738,28 @@ test("a goblin waiting on a question says who it is waiting on", () => {
     {id:"cfo-question", identity:"c", task:"", status:"pending", options:["A"]},
   ]});
   const [asks, cfo, stuck] = snapshot.tasks;
-  assert.equal(asksOverlord(snapshot, "asks"), false, "a goblin's question is the CFO's to answer");
+  assert.equal(asksOverlord(snapshot, "asks"), false, "a goblin's question is the CEO's to answer");
   assert.equal(asksOverlord(snapshot, "stuck"), false, "an answered question no longer waits on the Overlord");
-  assert.equal(asksOverlord(snapshot, ""), false, "the CFO's own question belongs to no goblin");
-  assert.equal(nodeStatus({id:"a", title:"", task:asks, relation:""}), "Waiting on the CFO", "a goblin's question reaches the Overlord through the CFO");
-  assert.equal(nodeStatus({id:"c", title:"", task:cfo, relation:""}), "Waiting on the CFO");
+  assert.equal(asksOverlord(snapshot, ""), false, "the CEO's own question belongs to no goblin");
+  assert.equal(nodeStatus({id:"a", title:"", task:asks, relation:""}), "Waiting on the CEO", "a goblin's question reaches the Overlord through the CEO");
+  assert.equal(nodeStatus({id:"c", title:"", task:cfo, relation:""}), "Waiting on the CEO");
   assert.equal(nodeStatus({id:"s", title:"", task:stuck, relation:""}), "Failed");
 });
 
 test("delivery reads as a mark, and only trouble spells itself out", () => {
   const mark = (status: string, kind: string) => deliveryMark(parseAction({ id: "a", kind, status }));
-  assert.deepEqual(mark("succeeded", "review"), { icon: "check-double", label: "CFO received", trouble: false });
-  assert.deepEqual(mark("succeeded", "cfo_answer"), { icon: "check-double", label: "CFO received", trouble: false });
+  assert.deepEqual(mark("succeeded", "review"), { icon: "check-double", label: "CEO received", trouble: false });
+  assert.deepEqual(mark("succeeded", "cfo_answer"), { icon: "check-double", label: "CEO received", trouble: false });
   assert.deepEqual(mark("succeeded", "goblin_answer"), { icon: "check-double", label: "Delivered to the goblin", trouble: false });
   assert.deepEqual(deliveryMark(parseAction({ id: "a", kind: "goblin_answer", status: "succeeded" }), "pd-cad-lineage"), { icon: "check-double", label: "Delivered to pd-cad-lineage", trouble: false });
   assert.deepEqual(mark("succeeded", "evaluate"), { icon: "check-double", label: "Done", trouble: false });
   // A review answer's action succeeds whether it reached the goblin or was
   // handed to the CFO, so only the review item's delivered flag earns two checks.
-  assert.deepEqual(mark("succeeded", "review_answer"), { icon: "check", label: "Sent to the goblin or the CFO", trouble: false });
+  assert.deepEqual(mark("succeeded", "review_answer"), { icon: "check", label: "Sent to the goblin or the CEO", trouble: false });
   assert.deepEqual(mark("running", "review"), { icon: "check", label: "Sending", trouble: false });
   assert.deepEqual(mark("queued", "review"), { icon: "check", label: "Queued", trouble: false });
   assert.deepEqual(mark("failed", "review"), { icon: "close", label: "Could not deliver", trouble: true });
-  assert.deepEqual(mark("uncertain", "review"), { icon: "warning", label: "Not confirmed. Check the CFO's terminal before sending it again.", trouble: true });
+  assert.deepEqual(mark("uncertain", "review"), { icon: "warning", label: "Not confirmed. Check the CEO's terminal before sending it again.", trouble: true });
   assert.deepEqual(mark("uncertain", "feedback"), { icon: "warning", label: "Not confirmed. Check the goblin's terminal before sending it again.", trouble: true });
   assert.deepEqual(mark("", "review"), { icon: "check", label: "Sending", trouble: false });
   assert.deepEqual(mark("succeeded", "review_clear"), { icon: "check", label: "Cleared", trouble: false });
@@ -769,8 +769,8 @@ test("delivery reads as a mark, and only trouble spells itself out", () => {
 // unconfirmed ... I get these command center blips and errors, fix".
 test("an answer typed for a busy CFO reads sent, then delivered, and warns only in words that say what to do", () => {
   // Arrange
-  const sent = "Sent. The CFO takes it at its next tool call, or as its current turn ends.";
-  const advice = "Your answer was typed for the CFO, which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to the CFO.";
+  const sent = "Sent. The CEO takes it at its next tool call, or as its current turn ends.";
+  const advice = "Your answer was typed for the CEO, which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to the CEO.";
   const answer = (fields: Record<string, unknown>) => deliveryMark(parseAction({ id: "a", kind: "cfo_answer", ...fields }));
 
   // Act
@@ -780,7 +780,7 @@ test("an answer typed for a busy CFO reads sent, then delivered, and warns only 
 
   // Assert
   assert.deepEqual(waiting, { icon: "check", label: sent, trouble: false });
-  assert.deepEqual(delivered, { icon: "check-double", label: "CFO received", trouble: false });
+  assert.deepEqual(delivered, { icon: "check-double", label: "CEO received", trouble: false });
   assert.deepEqual(lost, { icon: "warning", label: advice, trouble: true });
 });
 
@@ -867,12 +867,12 @@ test("a waiting goblin says what it waits on, and only a wait on the Overlord re
     { id: "older", phase: "working", verified: false, waiting_on: undefined },
   ] });
   const status = (id: string) => taskStatus(snapshot.tasks.find((candidate) => candidate.id === id)!, snapshot).text;
-  const cases: [string, string][] = [["billing", "Waiting on board-ui"], ["ship", "Waiting on CI"], ["release", "Waiting on its deploy"], ["deploy", "Waiting on its deploy"], ["heavy", "In line for the machine"], ["ask", "Waiting on the CFO"],
+  const cases: [string, string][] = [["billing", "Waiting on board-ui"], ["ship", "Waiting on CI"], ["release", "Waiting on its deploy"], ["deploy", "Waiting on its deploy"], ["heavy", "In line for the machine"], ["ask", "Waiting on the CEO"],
     ["gone", "Waiting on retired-task"], ["gate", "In review gate: tests"], ["gate-ci", "In review gate: CI"],
     ["gate-review", "In review gate: code review"], ["gate-lint", "In review gate: lint"], ["gate-push", "In review gate: push"], ["gate-new", "In review gate"], ["gate-unknown", "In review gate"], ["older", "Working"]];
   for (const [id, label] of cases) assert.equal(status(id), label, id);
   const ask = snapshot.tasks.find((task) => task.id === "ask")!;
-  assert.equal(nodeStatus({ id: "ask", title: "", task: ask, relation: "" }), "Waiting on the CFO", "a wait on the Overlord goes through the CFO even when no caller says it asks");
+  assert.equal(nodeStatus({ id: "ask", title: "", task: ask, relation: "" }), "Waiting on the CEO", "a wait on the Overlord goes through the CEO even when no caller says it asks");
   assert.equal(asksOverlord(snapshot, "ask"), true);
   for (const id of ["billing", "ship", "release", "deploy", "gone"]) assert.equal(asksOverlord(snapshot, id), false, id);
   assert.equal(waitingTarget(snapshot, snapshot.tasks[0])?.id, "board-ui");
@@ -891,7 +891,7 @@ test("a goblin's command the goblin moved past reads withdrawn, without naming t
   const labels = (snapshot.runs ?? []).map((run) => runMark(run).label);
 
   // Assert
-  assert.deepEqual(labels, ["Withdrawn", "Withdrawn by the CFO"]);
+  assert.deepEqual(labels, ["Withdrawn", "Withdrawn by the CEO"]);
   assert.deepEqual((snapshot.runs ?? []).map((run) => [run.task, run.terminal]), [["billing", false], ["", false]]);
 });
 
@@ -913,10 +913,10 @@ test("a failed run item says in one line why it failed and who takes the next st
 
   // Assert
   assert.deepEqual(lines, [
-    "$(subexpression) is missing the closing ')'. The CFO has its output and takes the next step.",
-    "It exited with code 1. The CFO has its output and takes the next step.",
+    "$(subexpression) is missing the closing ')'. The CEO has its output and takes the next step.",
+    "It exited with code 1. The CEO has its output and takes the next step.",
     "Windows did not start it elevated: The operation was canceled by the user. The goblin that asked has its output and takes the next step.",
-    "gh: not found. The CFO may not have its output yet: telling it failed.",
+    "gh: not found. The CEO may not have its output yet: telling it failed.",
     "",
   ]);
 });
@@ -943,7 +943,7 @@ test("a run item states its progress in plain words, never its exit code", () =>
   assert.equal(runs[0].terminal, true);
   const cases: [string, string, boolean][] = [["Ready to run", "play", false], ["Running", "clock", false], ["Complete", "check", false],
     ["Failed: gh: release v0.5.2 already exists", "warning", true], ["Failed: Windows did not start it elevated: The operation was canceled by the user.", "warning", true],
-    ["Expired", "close", false], ["Withdrawn by the CFO", "close", false], ["Failed: it exited with code 1", "warning", true], ["Stopped", "stop-circle", false]];
+    ["Expired", "close", false], ["Withdrawn by the CEO", "close", false], ["Failed: it exited with code 1", "warning", true], ["Stopped", "stop-circle", false]];
   cases.forEach(([label, icon, trouble], index) => assert.deepEqual(runMark(runs[index]), { icon, label, trouble }, runs[index].id));
 });
 

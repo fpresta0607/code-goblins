@@ -28,7 +28,7 @@ const gretaReview = { id: "cg-canvas-live-only-before-after", identity: "g".repe
 // The CFO's own review, as cfo review --lavish without --task publishes it.
 const cfoReview = { ...gretaReview, id: "itascaunity-mockup-20261017", identity: "c".repeat(64), task: "", title: "Oona's mockup of the Russo and Presta one-page site, desktop and phone" };
 // What the supervisor's poll of the page makes of his Send and End there.
-const answeredOnPage = (review: typeof gretaReview, words: string) => ({ ...review, state: "answered", answered_by: "overlord", answered_in: "page", reason: "You answered on its page; " + (review.task ? "the goblin" : "the CFO") + " has it.", answer: words, updated_at: "2026-10-17T18:14:31Z" });
+const answeredOnPage = (review: typeof gretaReview, words: string) => ({ ...review, state: "answered", answered_by: "overlord", answered_in: "page", reason: "You answered on its page; " + (review.task ? "the goblin" : "the CEO") + " has it.", answer: words, updated_at: "2026-10-17T18:14:31Z" });
 
 // Every board the test opens gets its snapshots from the test, through a
 // stand-in event stream, one event at a time.
@@ -91,7 +91,7 @@ for (const way of [
   });
 }
 
-for (const who of [{ name: "a goblin's", review: gretaReview }, { name: "the CFO's", review: cfoReview }]) {
+for (const who of [{ name: "a goblin's", review: gretaReview }, { name: "the CEO's", review: cfoReview }]) {
   test(`Send and End on ${who.name} Scrawl page closes its open card at once and it moves to History with what he sent`, async ({ page, context }) => {
     // Arrange
     await standInStream(context);
@@ -147,7 +147,7 @@ for (const ended of [
 
 for (const shown of [
   { name: "a goblin's review its page answers", review: gretaReview, row: TITLE },
-  { name: "the CFO's review given only its Scrawl link", review: { ...cfoReview, lavish_page: "" }, row: cfoReview.title },
+  { name: "the CEO's review given only its Scrawl link", review: { ...cfoReview, lavish_page: "" }, row: cfoReview.title },
   { name: "a goblin's wait on a Scrawl page", review: { ...gretaReview, id: "waiting-cg-canvas-live-only-12", title: "Waiting on you: " + TITLE + " (page " + PAGE + ")" }, row: TITLE },
 ]) {
   test(`${shown.name} has no box for words, only Skip and the button that opens its page`, async ({ page, context }) => {
@@ -175,8 +175,8 @@ for (const shown of [
 // answering the decision clears both, whichever kind it is.
 const followUp = { id: "waiting-pd-mcp-only-1008309", identity: "w".repeat(64), task: wanda.id, title: "Waiting on you: Waiting for the Overlord's answer on the parity tool sizing. Both cuts are live, nothing is in flight, and I start nothing new meanwhile.", state: "open", created_at: "2026-10-17T18:16:11Z", updated_at: "2026-10-17T18:16:11Z" };
 for (const decision of [
-  { name: "the CFO's question for the goblin", kind: "cfo_answer", question: { id: "pd-connector-parity-20261017", identity: "c".repeat(64), task: "", for_task: wanda.id, status: "pending", created_at: "2026-10-17T18:16:04Z", text: "Build connector tools for the 63 parity routes?", options: ["Build all but the site plan editor", "Build all of them", "End her task here"], recommended: "Build all but the site plan editor" } },
-  { name: "the goblin's own question the CFO left to him", kind: "goblin_answer", question: { id: "notify-pd-mcp-only-1008308", identity: "w".repeat(64), task: wanda.id, generation: "g1", status: "pending", created_at: "2026-10-17T18:15:30Z", text: "Do I build connector tools for the 63 parity routes now, or does the task end here?", options: ["Build all but the site plan editor", "Build all of them", "End the task here"], recommended: "Build all but the site plan editor" } },
+  { name: "the CEO's question for the goblin", kind: "cfo_answer", question: { id: "pd-connector-parity-20261017", identity: "c".repeat(64), task: "", for_task: wanda.id, status: "pending", created_at: "2026-10-17T18:16:04Z", text: "Build connector tools for the 63 parity routes?", options: ["Build all but the site plan editor", "Build all of them", "End her task here"], recommended: "Build all but the site plan editor" } },
+  { name: "the goblin's own question the CEO left to him", kind: "goblin_answer", question: { id: "notify-pd-mcp-only-1008308", identity: "w".repeat(64), task: wanda.id, generation: "g1", status: "pending", created_at: "2026-10-17T18:15:30Z", text: "Do I build connector tools for the 63 parity routes now, or does the task end here?", options: ["Build all but the site plan editor", "Build all of them", "End the task here"], recommended: "Build all but the site plan editor" } },
 ]) {
   test(`a goblin's wait beside ${decision.name} shows only the decision, and answering it clears both`, async ({ page, context }) => {
     // Arrange

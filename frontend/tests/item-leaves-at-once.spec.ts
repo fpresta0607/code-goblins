@@ -128,7 +128,7 @@ test("an answer waiting for the Codex composer reads Queued with its reason", as
   // Arrange
   await standInStream(context);
   await announcer(context);
-  const reason = "The CFO is typing. Your answer will wait.";
+  const reason = "The CEO is typing. Your answer will wait.";
   await context.route("**/api/actions", (route) => route.fulfill({ status: 202, json: { ...route.request().postDataJSON(), status: "queued", message: reason } }));
   await boardAsked(page, { questions: [question] }, ASKS);
   await send(page, "snapshot", { ...asking({ questions: [question] }), cfo_harness: "codex", revision: 3 });
@@ -143,7 +143,7 @@ test("an answer waiting for the Codex composer reads Queued with its reason", as
   await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Queued/));
   const shown = await doneCards(page);
   for (const queued of shown.filter((text) => text.startsWith("Queued"))) expect(queued).toContain(reason);
-  expect(shown.filter((text) => text.includes("CFO received"))).toEqual([]);
+  expect(shown.filter((text) => text.includes("CEO received"))).toEqual([]);
 });
 
 for (const way of WAYS) {
@@ -184,7 +184,7 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     await page.goto("/");
     await send(page, "snapshot", quiet);
     await bar(page).getByRole("button", { name: CFO_DOOR }).first().click();
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
 
     // Act: the goblin asks the CFO, then the CFO asks the Overlord.
     await send(page, "snapshot", asking({ questions: [{ ...question, task: "cg-probe" }] }));
@@ -197,18 +197,18 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
     await expect(toasts(page)).toHaveCount(0);
     await expect(card(page)).toBeHidden();
-    await testInfo.attach("one quiet item with the CFO's terminal open", { body: await page.screenshot(), contentType: "image/png" });
+    await testInfo.attach("one quiet item with the CEO's terminal open", { body: await page.screenshot(), contentType: "image/png" });
     await page.getByRole("button", { name: "Close panel", exact: true }).click();
     const left = [660, 630, 600].map((age, i) => ({ ...question, id: "left-" + i, task: "cg-probe", created_at: new Date(Date.parse("2026-10-02T12:21:00Z") - age * 1000).toISOString() }));
     await send(page, "snapshot", { ...quiet, revision: 4, at: "2026-10-02T12:21:00Z", questions: left });
-    await expect(bar(page)).toContainText("3 questions wait for the CFO (11 min). 1 goblin at work.");
+    await expect(bar(page)).toContainText("3 questions wait for the CEO (11 min). 1 goblin at work.");
     await expect(badge(page)).toHaveAccessibleName("Command Center, 3 waiting on you");
     await page.waitForTimeout(500);
     await expect(toasts(page)).toHaveCount(0);
     await bar(page).getByRole("button", { name: CFO_DOOR }).first().click();
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
     // The CFO's panel opens on its Messages view, with the keyboard in its box.
-    await expect(page.getByRole("textbox", { name: "Message CFO" })).toBeFocused();
+    await expect(page.getByRole("textbox", { name: "Message CEO" })).toBeFocused();
   });
 
   test("a question he answers leaves the count and the CFO's bar in the frame he acts", async ({ page, context }, testInfo) => {
@@ -223,7 +223,7 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     await page.goto("/");
     await send(page, "snapshot", quiet);
     await bar(page).getByRole("button", { name: CFO_DOOR }).first().click();
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
     await expect(page.locator(".canvas-region")).toBeVisible();
     await send(page, "snapshot", asking({ questions: [question] }));
     await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
@@ -418,12 +418,12 @@ test("a send the board refuses puts the item back, with a few words of why", asy
   await expectGone(page, ASKS);
 
   // Act
-  supervisor.refuse("the primary CFO changed; refresh before sending");
+  supervisor.refuse("the primary CEO changed; refresh before sending");
 
   // Assert
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
   await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
-  await expect(card(page).locator(".notice")).toHaveText("The primary CFO changed. Refresh before sending.");
+  await expect(card(page).locator(".notice")).toHaveText("The primary CEO changed. Refresh before sending.");
   await expect(card(page).getByRole("alert")).toHaveCount(0);
 });
 
@@ -516,7 +516,7 @@ test("the CFO's bar names only a goblin's question his Command Center shows him,
   await send(page, "snapshot", { ...quiet, revision: 2, at: "2026-10-13T14:03:01Z", tasks, questions: [olive] });
 
   // Assert
-  await expect(bar(page)).toContainText("1 question waits for the CFO (20 min). 9 goblins at work.");
+  await expect(bar(page)).toContainText("1 question waits for the CEO (20 min). 9 goblins at work.");
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
   await expect(toasts(page)).toHaveCount(0);
   await testInfo.attach("the bar and the question it names", { body: await page.screenshot(), contentType: "image/png" });

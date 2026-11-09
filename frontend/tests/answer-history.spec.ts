@@ -50,13 +50,13 @@ for (const width of [1707, 390]) {
     // Assert
     await expect(rows).toHaveCount(4);
     const [gate, merge, accent, tenants] = [rows.nth(0), rows.nth(1), rows.nth(2), rows.nth(3)];
-    await expect(gate.getByRole("img", { name: "The CFO answered", exact: true })).toBeVisible();
+    await expect(gate.getByRole("img", { name: "The CEO answered", exact: true })).toBeVisible();
     await expect(gate.locator(".answer-reason")).toHaveText("Reason: the running test step ends in 4 minutes");
     await expect(merge.getByRole("img", { name: "You answered" })).toBeVisible();
-    await expect(accent.getByRole("img", { name: "The CFO answered while you were away" })).toBeVisible();
-    await expect(tenants.getByRole("img", { name: "The CFO answered while you were away" })).toBeVisible();
+    await expect(accent.getByRole("img", { name: "The CEO answered while you were away" })).toBeVisible();
+    await expect(tenants.getByRole("img", { name: "The CEO answered while you were away" })).toBeVisible();
     await expect(rows.getByRole("button", { name: /^Change the answer to / })).toHaveCount(4);
-    await expect(merge.getByRole("button", { name: "Change the answer to The CFO: Merge PocketPiggies 125? CI is green on current main." })).toBeVisible();
+    await expect(merge.getByRole("button", { name: "Change the answer to The CEO: Merge PocketPiggies 125? CI is green on current main." })).toBeVisible();
     const overflow = await page.locator(".command-center-updates").evaluate((element) => element.scrollWidth - element.clientWidth);
     expect(overflow).toBe(0);
     await page.locator(".command-center-updates").screenshot({ path: testInfo.outputPath(`history-${width}.png`) });
@@ -66,8 +66,8 @@ for (const width of [1707, 390]) {
 test("an answered question reopens with its answer checked, and who chose it and when", async ({ page }, testInfo) => {
   for (const [asker, chosen, who] of [
     [/^Change the answer to The CFO:/, "Merge it", "You chose this · 40m ago"],
-    [/^Change the answer to Bernie - Gate Keeper:/, "Wait for the running test step to end", "The CFO chose this · 2m ago"],
-    [/^Change the answer to Lucy - Pixel Polisher:/, "Mint", "The CFO chose this while you were away · 3h ago"],
+    [/^Change the answer to Bernie - Gate Keeper:/, "Wait for the running test step to end", "The CEO chose this · 2m ago"],
+    [/^Change the answer to Lucy - Pixel Polisher:/, "Mint", "The CEO chose this while you were away · 3h ago"],
   ] as const) {
     // Arrange
     const dialog = await reopen(page, asker);

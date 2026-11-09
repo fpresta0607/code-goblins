@@ -105,7 +105,7 @@ test("+ gives the task the connector through the board's API and the card shows 
 
 test("a press the supervisor refuses puts the card back and says why beside it", async ({ page }) => {
   // Arrange
-  const supervisor: Supervisor = { grants: [], tokens: [], entries: ENTRIES, checking: false, refuses: "Change it in the Code Goblins window, or ask the CFO." };
+  const supervisor: Supervisor = { grants: [], tokens: [], entries: ENTRIES, checking: false, refuses: "Change it in the Code Goblins window, or ask the CEO." };
   const panel = await open(page, supervisor);
   const context7 = card(panel, "context7");
 
@@ -113,7 +113,7 @@ test("a press the supervisor refuses puts the card back and says why beside it",
   await context7.getByRole("button", { name: "Give context7" }).click();
 
   // Assert
-  await expect(panel.locator(".notice")).toHaveText("Change it in the Code Goblins window, or ask the CFO.");
+  await expect(panel.locator(".notice")).toHaveText("Change it in the Code Goblins window, or ask the CEO.");
   await expect(context7.getByRole("button", { name: "Give context7" })).toBeVisible();
 });
 

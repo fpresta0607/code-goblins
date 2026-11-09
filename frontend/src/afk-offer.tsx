@@ -37,8 +37,8 @@ export function AfkOffer({ afk, occasion, now, pending, problem, onTurnOff, onSt
   const turnOff = <button className={asked ? undefined : "primary"} disabled={pending} aria-busy={pending} onClick={onTurnOff}>{pending ? <><span className="card-start-spinner" aria-hidden="true" />Turning AFK off…</> : "Turn AFK off"}</button>;
   return <dialog ref={dialog} tabIndex={-1} className="stop-task-dialog afk-dialog" aria-labelledby={title} aria-describedby={description} onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onStay(); }}>
     <Avatar persona="cfo" />
-    <h2 id={title}>{asked ? "The CFO turned AFK on" : "Welcome back"}</h2>
-    <p id={description}>{since}{afk.decided > 0 && " The CFO decided " + afk.decided + "."}</p>
+    <h2 id={title}>{asked ? "The CEO turned AFK on" : "Welcome back"}</h2>
+    <p id={description}>{since}{afk.decided > 0 && " The CEO decided " + afk.decided + "."}</p>
     <AfkRefusal on={false} problem={problem} />
     <div className="stop-task-choices">
       {asked ? <><button className="primary" onClick={onStay}>Got it</button>{turnOff}</> : <>{turnOff}<button onClick={onStay}>Stay AFK</button></>}

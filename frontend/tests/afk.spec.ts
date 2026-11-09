@@ -115,7 +115,7 @@ const look = (row: Locator) => row.evaluate((element) => {
 // The CFO's panel, which the CFO's bar opens.
 async function openCfoPanel(page: Page) {
   await bar(page).getByRole("button", { name: CFO_DOOR }).last().click();
-  await expect(header(page).locator("#panel-title")).toHaveText("CFO");
+  await expect(header(page).locator("#panel-title")).toHaveText("CEO");
 }
 
 test("the CFO's bar carries the one AFK toggle: off at rest, on asks first, and nothing turns on until he says so", async ({ page }) => {
@@ -226,7 +226,7 @@ async function refuseLater(page: Page) {
 // The forms the bar changes to under him: its lantern box as something starts
 // waiting on him, and the closed bar as the CFO closes.
 const LANTERN = { fields: { questions: [QUESTIONS[0]] }, shown: (page: Page) => expect(bar(page).locator(".cfo-command")).toBeVisible() };
-const CLOSED = { fields: { cfo_runs: false, cfo_closed: true }, shown: (page: Page) => expect(bar(page)).toContainText("The CFO is closed.") };
+const CLOSED = { fields: { cfo_runs: false, cfo_closed: true }, shown: (page: Page) => expect(bar(page)).toContainText("The CEO is closed.") };
 
 // The bar changing form answers nothing he asked: the question he opened, the
 // press he made and its refusal all carry over to the form that replaces it.
@@ -433,7 +433,7 @@ test("Turn AFK off says it is working until the supervisor answers", async ({ pa
   await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
   // The CFO decided nothing in this stretch, so the offer counts nothing.
   await expect(offer(page)).toContainText("AFK has been on since");
-  await expect(offer(page)).not.toContainText("The CFO decided");
+  await expect(offer(page)).not.toContainText("The CEO decided");
   await offer(page).getByRole("button", { name: "Turn AFK off" }).click();
   const working = offer(page).getByRole("button", { name: "Turning AFK off…" });
   await expect(working).toBeDisabled();
@@ -542,7 +542,7 @@ test("with AFK on, a new item raises no alert and opens nothing, even when the s
   // remembers, as it always has: the item that is new since is notified, and
   // the one that arrived while he was away never is.
   await push(page, snapshot({ questions: QUESTIONS }));
-  await expect.poll(notes).toEqual(["The CFO asks: Migration 0042 drops the legacy_invoices table. Apply it?"]);
+  await expect.poll(notes).toEqual(["The CEO asks: Migration 0042 drops the legacy_invoices table. Apply it?"]);
   await expect(page.locator("dialog.question-modal")).not.toBeVisible();
 });
 
@@ -552,7 +552,7 @@ test("his first click after he has been gone still does what he meant and offers
   // Nothing opens by itself while he is away.
   await expect(offer(page)).toHaveCount(0);
   await page.locator(".task-card").filter({ hasText: "nw-search-index" }).first().click();
-  await expect(offer(page)).toContainText("The CFO decided 7.");
+  await expect(offer(page)).toContainText("The CEO decided 7.");
   await expect(offer(page)).toContainText("turned on from your board.");
   // What he was typing when it opened presses neither button.
   await expect(offer(page)).toBeFocused();
@@ -828,7 +828,7 @@ test("a stretch the CFO turned on at his ask says so on the bar, and the offer q
   await open(page, snapshot({ afk: on({ ...byTheCFO, decided: 1 }, 8 * HOURS) }));
   await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+, turned on by the CFO at your ask\. 1 decided\.$/);
   await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
-  await expect(offer(page)).toContainText("turned on by the CFO at your ask: “I'm stepping away, turn AFK on”. The CFO decided 1.");
+  await expect(offer(page)).toContainText("turned on by the CEO at your ask: “I'm stepping away, turn AFK on”. The CEO decided 1.");
   await offer(page).getByRole("button", { name: "Stay AFK" }).click();
   await expect(offer(page)).toHaveCount(0);
 });
@@ -842,7 +842,7 @@ test("his first click or key after the CFO turned AFK on at his ask says so in o
   await page.clock.install();
   const byTheCFO = { from: "the CFO at his ask (claude pid 4242)", asked: "AFK did not turn on. AFK mode is the Supreme Overlord's switch, and the supervisor could not follow its parents to the desktop ... fix this issue i should alwyas be abel to turn on afk no issues" };
   const supervisor = await open(page, snapshot({ afk: on(byTheCFO) }));
-  const switched = page.locator("dialog.afk-dialog").filter({ hasText: "The CFO turned AFK on" });
+  const switched = page.locator("dialog.afk-dialog").filter({ hasText: "The CEO turned AFK on" });
   // Nothing opens by itself after the switch.
   await expect(switched).toHaveCount(0);
 
@@ -850,7 +850,7 @@ test("his first click or key after the CFO turned AFK on at his ask says so in o
   await expect(switched.locator("p").first()).toHaveText(/^It did so at your ask, at \d{1,2}:\d{2}\s?[AP]M\.$/);
   // His words stay with his page of the stretch, and nothing was decided yet.
   await expect(switched).not.toContainText("fix this issue");
-  await expect(switched).not.toContainText("The CFO decided");
+  await expect(switched).not.toContainText("The CEO decided");
   await expect(switched).not.toContainText("Turning it off puts your page of the stretch");
   await expect(offer(page)).toHaveCount(0);
   await expect(switched).toBeFocused();
@@ -875,7 +875,7 @@ test("his first click or key after the CFO turned AFK on at his ask says so in o
 test("after the CFO turned AFK on at his ask, the lesser Turn AFK off turns it off, and a refusal is one short sentence", async ({ page }) => {
   const byTheCFO = { from: "the CFO at his ask (claude pid 4242)", asked: "turn AFK on" };
   const supervisor = await open(page, snapshot({ afk: on({ ...byTheCFO, decided: 2 }) }), { asked: [], refuses: true, announces: true });
-  const switched = page.locator("dialog.afk-dialog").filter({ hasText: "The CFO turned AFK on" });
+  const switched = page.locator("dialog.afk-dialog").filter({ hasText: "The CEO turned AFK on" });
   await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
   // Once the CFO decided something the line counts it.
   await expect(switched.locator("p").first()).toHaveText(/^It did so at your ask, at .+\. The CFO decided 2\.$/);
@@ -969,9 +969,9 @@ for (const waiting of [0, 2]) {
     // Arrange
     await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
     await open(page, snapshot({ cfo_terminal: "cfo", questions: QUESTIONS.slice(0, waiting) }));
-    const opens = bar(page).locator(".cfo-pin-end").getByRole("button", { name: "Open the CFO's chat" });
-    await expect(opens).toHaveAttribute("data-tip", "Open the CFO's chat");
-    await expect(bar(page).getByRole("button", { name: "Open the CFO's terminal" })).toHaveCount(0);
+    const opens = bar(page).locator(".cfo-pin-end").getByRole("button", { name: "Open the CEO's chat" });
+    await expect(opens).toHaveAttribute("data-tip", "Open the CEO's chat");
+    await expect(bar(page).getByRole("button", { name: "Open the CEO's terminal" })).toHaveCount(0);
     const drawn = await opens.locator("svg").innerHTML();
 
     // Act
@@ -988,8 +988,8 @@ for (const [saved, fields] of [["classic", { cfo_terminal: "cfo" }], ["modern", 
     // Arrange
     await page.addInitScript((style) => localStorage.setItem("cfo-chat-style", style), saved);
     await open(page, snapshot(fields));
-    const opens = bar(page).locator(".cfo-pin-end").getByRole("button", { name: "Open the CFO's terminal" });
-    await expect(opens).toHaveAttribute("data-tip", "Open the CFO's terminal");
+    const opens = bar(page).locator(".cfo-pin-end").getByRole("button", { name: "Open the CEO's terminal" });
+    await expect(opens).toHaveAttribute("data-tip", "Open the CEO's terminal");
 
     // Act
     await opens.click();
@@ -1034,7 +1034,7 @@ for (const [state, count] of [["off", 0], ["on", 1], ["unreadable", 1]] as const
     await open(page, snapshot({ cfo_runs: false, cfo_closed: true, afk: state === "on" ? on() : { state } }));
 
     // Assert
-    await expect(bar(page).getByRole("button", { name: "Reopen the CFO" })).toBeVisible();
+    await expect(bar(page).getByRole("button", { name: "Reopen the CEO" })).toBeVisible();
     await expect(toggle(page)).toHaveCount(count);
   });
 
@@ -1047,7 +1047,7 @@ for (const [state, count] of [["off", 0], ["on", 1], ["unreadable", 1]] as const
     await page.getByRole("button", { name: "Board", exact: true }).click();
 
     // Assert
-    await expect(bar(page)).toContainText("No CFO is running.");
+    await expect(bar(page)).toContainText("No CEO is running.");
     await expect(toggle(page)).toHaveCount(count);
   });
 }

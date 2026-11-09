@@ -84,7 +84,7 @@ test("the pencil on a question changes its answer", async ({ page }) => {
   // Assert
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("radio", { name: "Yes" })).toBeChecked();
-  await expect(dialog.locator(".answered-by")).toContainText("The CFO chose this");
+  await expect(dialog.locator(".answered-by")).toContainText("The CEO chose this");
   expect(posted).toHaveLength(0);
 });
 
@@ -248,14 +248,14 @@ test("Something else? on a stored card whose goblin has ended sends his words to
   // Act
   await button.click();
   const note = page.getByRole("dialog", { name: "Something else?" });
-  await expect(note).toContainText("It goes to the CFO as your word.");
+  await expect(note).toContainText("It goes to the CEO as your word.");
   await note.getByRole("textbox").fill("File the key ID again under the team account");
   await note.getByRole("button", { name: "Send" }).click();
 
   // Assert
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0]).toMatchObject({ kind: "message", task_id: "", generation: "", text: "About the card cred-7777777777777777 of task cg-push-retired (The key ID for the gateways), whose values are stored: File the key ID again under the team account" });
-  await expect(row.locator(".history-stored .notice")).toHaveText("Sent to the CFO.");
+  await expect(row.locator(".history-stored .notice")).toHaveText("Sent to the CEO.");
 });
 
 test("Something else? resent after a lost answer keeps its ID only for the same words", async ({ page }) => {

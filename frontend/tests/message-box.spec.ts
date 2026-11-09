@@ -360,11 +360,11 @@ for (const { state, first, says } of [
   test(`his message to the CFO reads Starting until it goes in while ${state}`, async ({ page }) => {
     // Arrange: Orchestration opens on the CFO's terminal.
     const { posted, publish } = await open(page, first);
-    if (!first.cfo_closed) await page.getByRole("button", { name: "Open the board without a CFO" }).click();
+    if (!first.cfo_closed) await page.getByRole("button", { name: "Open the board without a CEO" }).click();
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
     const deck = page.locator(".terminal-deck");
-    const box = deck.getByRole("region", { name: "Messages to CFO" });
-    const draft = box.getByRole("textbox", { name: "Message CFO" });
+    const box = deck.getByRole("region", { name: "Messages to CEO" });
+    const draft = box.getByRole("textbox", { name: "Message CEO" });
     await expect(deck).toContainText(says);
 
     // Act

@@ -115,7 +115,7 @@ test("what says a queued task already finished reads as one plain sentence, with
     ["its last report", refusal("its last report was done (2026-10-06 11:59Z: done: PR https://github.com/fpresta0607/code-goblins/pull/9)"), "Its last report was done (2026-10-06 11:59Z: done: PR #9)."],
     ["its pull request", refusal("its pull request merged (https://github.com/fpresta0607/code-goblins/pull/31)"), "Its pull request merged (PR #31)."],
     ["its branch's pull request", refusal("its branch fix/panel-clarity's pull request merged (https://github.com/fpresta0607/code-goblins/pull/31)"), "Its branch fix/panel-clarity's pull request merged (PR #31)."],
-    ["a retirement", refusal("the CFO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since"), "The CFO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since."],
+    ["a retirement", refusal("the CEO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since"), "The CEO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since."],
     ["other words are kept whole", "Finished under another id", "Finished under another id."],
     ["nothing says so", "", ""],
   ];
@@ -172,7 +172,7 @@ test("Working, a pause that did not finish and a failure have no line under them
     ["working, already plain", task({ activity: "working: Writing the tests." }), "Working", { sentence: "", details: ["Writing the tests."], isFailure: false }],
     ["working with nothing to say", task({ activity: "" }), "Working", { sentence: "", details: [], isFailure: false }],
     ["a pause that did not finish", failed, "Working", { sentence: "", details: ["The pause did not finish, so the goblin is not paused. Its work is kept. Try Pause again.", "context deadline exceeded"], isFailure: false }],
-    ["a question to him keeps its line", task({ activity: raw }), "Waiting on the CFO", { sentence: "PRs 324 and 326 are green on main. Ready to pause.", details: [raw], isFailure: false }],
+    ["a question to him keeps its line", task({ activity: raw }), "Waiting on the CEO", { sentence: "PRs 324 and 326 are green on main. Ready to pause.", details: [raw], isFailure: false }],
     ["a failure", task({ phase: "failed", report: "failed", activity: "failed: go test timed out" }), "Failed", { sentence: "", details: ["Go test timed out."], isFailure: true }],
   ];
   for (const [name, item, status, said] of cases) assert.deepEqual(taskSummary(item, [item], status), said, name);

@@ -7,11 +7,11 @@ test.use({
   launchOptions: { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"] },
 });
 
-for (const who of ["CFO", "goblin"] as const) {
+for (const who of ["CEO", "goblin"] as const) {
   test(`phone Clear message removes the ${who} multiline draft and keeps queued messages and Speech history`, async ({ page }, testInfo) => {
     // Arrange
-    const name = who === "CFO" ? "CFO" : NAME;
-    const task = who === "CFO" ? "" : GOBLIN.id;
+    const name = who === "CEO" ? "CEO" : NAME;
+    const task = who === "CEO" ? "" : GOBLIN.id;
     const actions: object[] = [];
     const relay = await open(page, snapshot({ actions: [{ id: "q1", kind: "message", task_id: task, text: "Already queued", status: "queued" }] }));
     await page.route("**/api/actions", async (route) => { actions.push(route.request().postDataJSON()); await route.fulfill({ json: {} }); });
@@ -63,8 +63,8 @@ for (const who of ["CFO", "goblin"] as const) {
 
   for (const activity of ["recording", "failed send"] as const) {
     test(`phone Classic Clear message keeps the ${who} replacement field after ${activity}`, async ({ page }) => {
-      const name = who === "CFO" ? "CFO" : NAME;
-      const task = who === "CFO" ? "" : GOBLIN.id;
+      const name = who === "CEO" ? "CEO" : NAME;
+      const task = who === "CEO" ? "" : GOBLIN.id;
       const actions: object[] = [];
       await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
       const relay = await open(page, snapshot({ actions: [{ id: "q1", kind: "message", task_id: task, text: "Already queued", status: "queued" }] }));
@@ -143,7 +143,7 @@ for (const who of ["CFO", "goblin"] as const) {
   for (const place of ["a tap on the conversation text", "a click on the board edge"] as const) {
     test(`phone Classic chosen after Clear message and ${place} of the ${who} hands the keyboard to the terminal`, async ({ page }) => {
       // Arrange
-      const name = who === "CFO" ? "CFO" : NAME;
+      const name = who === "CEO" ? "CEO" : NAME;
       const relay = await open(page);
       if (who === "goblin") await openGoblin(page);
       else await page.keyboard.press("Control+Alt+1");
@@ -177,8 +177,8 @@ for (const who of ["CFO", "goblin"] as const) {
     const outcome = control === "Cancel" ? "Cancel removes itself" : "Send now waits unanswered";
     test(`phone Classic Clear message keeps the ${who} box after a queued message ${outcome}`, async ({ page }) => {
       // Arrange
-      const name = who === "CFO" ? "CFO" : NAME;
-      const task = who === "CFO" ? "" : GOBLIN.id;
+      const name = who === "CEO" ? "CEO" : NAME;
+      const task = who === "CEO" ? "" : GOBLIN.id;
       const actions: object[] = [];
       const relay = await open(page, snapshot({ actions: [{ id: "q1", kind: "message", task_id: task, text: "Already queued", status: "queued", can_send_now: true }] }));
       await page.route("**/api/actions", async (route) => {
