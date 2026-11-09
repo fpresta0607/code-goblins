@@ -51,6 +51,28 @@ test("each choice is the answer itself with no letter; the recommendation moves 
   assert.equal(questionAnswer(q, "option:Isolate", "")?.text, "Isolate");
 });
 
+const KEPT = ["C:\\state\\tasktmp\\gb-x\\composer-files\\pasted-1.png", "C:\\state\\tasktmp\\gb-x\\composer-files\\pasted-2.md"];
+for (const { written, attached, text } of [
+  { written: "Use this layout", attached: KEPT, text: "Use this layout\n" + KEPT.join("\n") },
+  { written: "  ", attached: KEPT.slice(0, 1), text: KEPT[0] },
+  { written: "   Keep the history", attached: [], text: "   Keep the history" },
+  { written: "", attached: [], text: null },
+]) {
+  test(`a written answer with ${attached.length} attached files names each kept path on its own line after the words: ${JSON.stringify(written)}`, () => {
+    // Arrange
+    const question = parseSnapshot({ healthy: true, questions: [{ id: "notify-gb-x-7", identity: "goblin-1", task: "gb-x", options: ["Postgres"] }] }).questions![0];
+
+    // Act
+    const other = questionAnswer(question, "other", written, attached);
+    const chosen = questionAnswer(question, "option:Postgres", written, attached);
+
+    // Assert
+    assert.equal(other?.text ?? null, text);
+    if (text) assert.deepEqual(other, { kind: "goblin_answer", question_id: "notify-gb-x-7", generation: "goblin-1", answer_kind: "other", text });
+    assert.equal(chosen?.text, "Postgres");
+  });
+}
+
 test("each choice keeps the image the goblin attached to it after the recommendation moves first", () => {
   const q = parseSnapshot({ healthy:true, questions: [{id:"notify-gb-x-7", identity:"goblin-1", task:"gb-x", options:["Postgres", "SQLite", "MySQL"], recommended:"SQLite", image_count:3}] }).questions![0];
   assert.deepEqual(questionChoices(q).map(c=>[c.value,c.image]), [["SQLite","/api/questions/notify-gb-x-7/images/1"],["Postgres","/api/questions/notify-gb-x-7/images/0"],["MySQL","/api/questions/notify-gb-x-7/images/2"]]);
