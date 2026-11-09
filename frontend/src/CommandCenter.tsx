@@ -270,7 +270,12 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
     <span className="stack-count">{index + 1} of {stack.length}</span>
     <button type="button" disabled={index === stack.length - 1} onClick={() => move(1)}>Next</button>
   </div> : null;
-  const update = (key: string, changes: Partial<Draft>) => setDrafts((prior) => ({ ...prior, [key]: { ...(prior[key] || EMPTY_DRAFT), ...changes } }));
+  // A change given as a function reads the draft as it stands when it lands,
+  // as a file kept after its upload ends must.
+  const update = (key: string, changes: Partial<Draft> | ((draft: Draft) => Partial<Draft>)) => setDrafts((prior) => {
+    const draft = prior[key] || EMPTY_DRAFT;
+    return { ...prior, [key]: { ...draft, ...typeof changes === "function" ? changes(draft) : changes } };
+  });
   // An unchanged payload keeps its request ID, so a retry after an ambiguous
   // failure can never deliver twice.
   const post = async (key: string, payload: Record<string, unknown>) => {
@@ -297,7 +302,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
     if (!isOpen(target)) return;
     if (target.kind === "question") {
       const chosen = questionSelection(target.question, draft);
-      const payload = questionAnswer(target.question, chosen.selection, chosen.written);
+      const payload = questionAnswer(target.question, chosen.selection, chosen.written, draft.attached);
       if (payload) void post(target.key, payload);
     } else if (target.kind === "review" && draft.written.trim()) void post(target.key, { kind: "review_answer", review_id: target.review.id, generation: target.review.identity, text: draft.written });
   };

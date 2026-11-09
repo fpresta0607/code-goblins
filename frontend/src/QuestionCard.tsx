@@ -12,24 +12,27 @@ import { QuestionText } from "./question-text";
 import { personaFor } from "./workflow";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
-import { DictatedAnswer } from "./dictated-answer";
+import { DictatedAnswer, type AnswerFiles } from "./dictated-answer";
 import { CardMail } from "./card-mail";
 import { pathLinks } from "./path-link";
 
 // sentAt is when he sent the draft's change of an answer, and unsent says a
 // dropped connection kept the supervisor from taking it, so it goes again
-// under the same request ID.
-export interface Draft { selection: string; written: string; submission: Submission | null; sending: boolean; error: string; receipt?: Action; sentAt?: string; unsent?: boolean }
+// under the same request ID. attached holds the paths of the files his
+// written answer carries, and adding counts those the board is still keeping.
+export interface Draft { selection: string; written: string; submission: Submission | null; sending: boolean; error: string; receipt?: Action; sentAt?: string; unsent?: boolean; attached?: string[]; adding?: number }
 export const EMPTY_DRAFT: Draft = { selection: "", written: "", submission: null, sending: false, error: "" };
 
 // One question: who asks and how long they have waited, its text with each
 // local path it names a link that opens it, a message he sends himself with
 // Copy, the choices with the recommendation first, Other for a written
 // answer, its own Send, and Skip beside it for one he answered elsewhere or no
-// longer needs, which tells a goblin that asked to go on without it.
+// longer needs, which tells a goblin that asked to go on without it. Other's
+// box takes pictures and files, which the asker reads where the board kept
+// them.
 export function QuestionCard({ question, snapshot, connected, now, draft, review, onDraft, onSend, onDismiss, onImage, pager }: {
   question: Question; snapshot: Snapshot; connected: boolean; now: number; draft: Draft; review?: BoardActivity;
-  onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onDismiss: () => void; onImage: (index: number) => void; pager?: ReactNode;
+  onDraft: (changes: Partial<Draft> | ((draft: Draft) => Partial<Draft>)) => void; onSend: () => void; onDismiss: () => void; onImage: (index: number) => void; pager?: ReactNode;
 }) {
   const [feedback, showFeedback] = useClickFeedback();
   useEffect(() => { if (draft.error) showFeedback(draft.error); }, [draft.error, showFeedback]);
@@ -42,8 +45,13 @@ export function QuestionCard({ question, snapshot, connected, now, draft, review
   const displayed = questionSelection(question, draft, outcome);
   const task = snapshot.tasks.find((candidate) => candidate.id === question.task);
   const asker = question.task ? task ? goblinName(task) : question.task : "The CFO";
-  const payload = questionAnswer(question, displayed.selection, displayed.written);
-  const canSend = connected && !!payload && !draft.sending;
+  const payload = questionAnswer(question, displayed.selection, displayed.written, pending ? draft.attached : []);
+  const canSend = connected && !!payload && !draft.sending && !draft.adding;
+  const files: AnswerFiles | undefined = pending ? {
+    paths: draft.attached || [], adding: draft.adding || 0, task: question.task || undefined,
+    onChange: (change) => onDraft((current) => ({ attached: change(current.attached || []), error: "", receipt: undefined })),
+    onAdding: (step) => onDraft((current) => ({ adding: Math.max(0, (current.adding || 0) + step) })),
+  } : undefined;
   const choices = questionChoices(question);
   const images = choices.filter((choice) => choice.image);
   const mark = outcome ? deliveryMark(outcome, question.task || undefined) : undefined;
@@ -68,7 +76,7 @@ export function QuestionCard({ question, snapshot, connected, now, draft, review
       </label>)}
       {closed ? question.answer_kind === "other" && <label className="question-choice chosen"><span className="choice-mark"><Icon name="check" /></span><span className="question-option"><span>Other</span><small>{question.answer}</small></span></label>
         : <label className="question-choice"><input type="radio" name={"answer-" + question.id} checked={displayed.selection === "other"} onChange={() => onDraft({ selection: "other", error: "", receipt: undefined })} /><span className="question-option"><span>Other</span><small>Write your own answer.</small></span></label>}
-      {displayed.selection === "other" && <DictatedAnswer label="Your written answer" placeholder={"Tell " + (question.task ? asker : "the CFO") + " what you prefer..."} value={displayed.written} instance={snapshot.instance} onText={(written) => onDraft({ written, error: "", receipt: undefined })} onSubmit={() => { if (canSend) onSend(); }} />}
+      {displayed.selection === "other" && <DictatedAnswer label="Your written answer" placeholder={"Tell " + (question.task ? asker : "the CFO") + " what you prefer..."} value={displayed.written} instance={snapshot.instance} files={files} onText={(written) => onDraft({ written, error: "", receipt: undefined })} onSubmit={() => { if (canSend) onSend(); }} />}
     </fieldset>
     {mark ? <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>
       // An answer the board never saw marks no choice, so its line carries the check.
