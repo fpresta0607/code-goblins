@@ -203,6 +203,19 @@ A resume the scheduler started that the task's cleanup refused is no failure of 
 A relaunch also looks at its task once more after its wait for the spawn lock, and one whose task record or worktree went meanwhile stops there, with nothing written and no terminal started.
 A memory pause leaves the goblin's open gate run running.
 Any other pause aborts the run after keeping its commits.
+A goblin authorizes one dependency pause of its own with `cfo notify <id> --prepared-wait task:<id>|pr:<GitHub PR URL> --generation <generation> --handoff <handoff-file>` ([cfo notify](../commands/notify.md)) once its preparation is complete and no worker-owned work remains; a plain `--waiting-on` never authorizes one.
+At each fleet reading the supervisor reconciles that record and pauses the goblin only while every piece of evidence still matches the signal: the task's generation, project and worktree, its saved session, its newest report, no prompt since the signal and no message queued for it, its branch and clean head, the saved handoff's digest, no active or parked gate run and no gate custody held, a fresh ownership reading with no job, no wait, no unfinished or newer child and no helper, and a fresh idle reading of its terminal.
+The prerequisite must be readable too: an unknown target task, a cycle of prepared or dependency-paused waits, or a pull request that closed without merging or reads as unknown pauses nothing.
+Nothing of that is guessed: evidence that cannot be read or is stale, a message still queued for the goblin, or a terminal that does not read idle leaves the signal for the next reading.
+A changed generation, worktree, session, branch, head or handoff, a newer report, prompt or working activity, worker-owned work, or another lifecycle operation on the goblin invalidates the signal for good, so only a new signal authorizes a pause again.
+Each refusal wakes you once with a `check` wake that names its reason, and since a gate run that is active or parked refuses it, this pause never aborts a gate run.
+When the prerequisite has already cleared, the record reads `cleared`, the goblin keeps running, and one `check` wake says so.
+Otherwise the supervisor checks the prerequisite and every piece of evidence once more right before it calls the existing `cfo pause` with `--reason dependency`, the condition and the signal's stable operation id, and it records the admission before the call.
+So repeated readings, a replayed signal and a supervisor restart pause the goblin at most once, and the pause keeps its worktree, branch, session and handoff as any dependency pause does.
+The scheduler resumes it once its task delivers or its pull request merges, under the operation `resume-<pause operation>`, with one call that is never retried past the spawn lock.
+A prepared pause or resume that fails or ends with no matching completed lifecycle record reads `failed` and wakes you to inspect it, and neither the scheduler nor recovery after a restart retries it by itself; the Overlord's own message still brings back a goblin whose prepared pause failed.
+A transition the supervisor is still dispatching, or one still running under its controller's lifecycle lock, is left to finish, and a lifecycle record that cannot be read keeps the admission for the next reading.
+A prepared pause that another lifecycle operation took over, such as the Overlord's own Resume or a new pause, reads `invalid` with a `check` wake naming that operation, never `failed`, so it holds back no recovery.
 Validation identity checks and policy handling on Resume follow the [pipeline resume contract](../pipeline.md#resuming-a-paused-task).
 Answers given while paused ride the resume prompt.
 For a free slot, the oldest cleared pause comes before the Overlord's queue order; unresolved pauses do not block new work.
