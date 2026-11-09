@@ -335,3 +335,11 @@ test("reply text breaks a run of calls, and a blank text between calls does not"
 
   assert.deepEqual(runs, [["fold 0+2"], ["text"], ["fold 0+3"]]);
 });
+
+test("a call keeps the id the supervisor served, and one served without an id has none", () => {
+  const blocks = reply([call("Bash", "done", { call_id: "toolu_9" }), call("Read")]);
+
+  const ids = blocks.map((block) => block.call_id);
+
+  assert.deepEqual(ids, ["toolu_9", ""]);
+});

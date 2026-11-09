@@ -25,3 +25,14 @@ export const FAILED = { id: "reply-3", seq: 3, at, kind: "reply", blocks: [
   { kind: "text", text: "One test fails." },
 ] };
 export const CONVERSATION = { conversation: "fixture-conversation", more: false, messages: [{ id: "prompt-0", seq: 0, at, kind: "prompt", source: "overlord", text: "Check the branch" }, FIVE_COMMANDS, RUNNING, FAILED] };
+
+// Replies whose running call finishes and joins the finished calls beside it:
+// one on the right of a command that passed, and one on the left of two
+// files read, as parallel calls settle each on its own.
+const PROMPT = { id: "prompt-0", seq: 0, at, kind: "prompt", source: "overlord", text: "Check the branch" };
+export const conversationOf = (reply: object) => ({ conversation: "fixture-conversation", more: false, messages: [PROMPT, reply] });
+export const JOINS_RIGHT = { id: "reply-4", seq: 1, at, kind: "reply", blocks: [call("bash-14", "Bash", "git status"), call("bash-15", "Bash", "npm test", "running")] };
+export const JOINS_RIGHT_WITHOUT_IDS = { ...JOINS_RIGHT, blocks: JOINS_RIGHT.blocks.map((block) => ({ ...block, call_id: undefined })) };
+export const JOINS_LEFT = { id: "reply-5", seq: 1, at, kind: "reply", blocks: [
+  call("bash-16", "Bash", "npm run build", "running"), call("read-2", "Read", "frontend/src/message-calls.tsx"), call("read-3", "Read", "frontend/src/Disclosure.tsx"),
+] };

@@ -10,11 +10,11 @@ import { MAX_FONT_SIZE, MIN_FONT_SIZE } from "./terminalStream.ts";
 export interface MessagePicture { id: string; media_type: string; bytes: number }
 
 // A block of a reply: its text, thinking Claude Code recorded the words of,
-// or a tool call with its outcome, what came back, an edit's counts and diff,
+// or a tool call with its id, its outcome, what came back, an edit's counts and diff,
 // the sub-agent it started and the plan it wrote.
 export interface MessageBlock {
   kind: "text" | "thinking" | "call";
-  text: string; tool: string; subject: string; input: string; state: CallState; result: string; spilled: number;
+  text: string; call_id: string; tool: string; subject: string; input: string; state: CallState; result: string; spilled: number;
   pictures: MessagePicture[]; edit: { added: number; removed: number; diff: string[] } | null; agent: { node: string; type: string } | null;
   plan: PlanStep[];
 }
@@ -52,7 +52,7 @@ function block(value: unknown): MessageBlock {
   const edit = each.edit == null ? null : object(each.edit);
   const agent = each.agent == null ? null : object(each.agent);
   return {
-    kind: choice(each.kind, BLOCK_KINDS, "message block"), text: string(each.text), tool: string(each.tool), subject: string(each.subject), input: string(each.input),
+    kind: choice(each.kind, BLOCK_KINDS, "message block"), text: string(each.text), call_id: string(each.call_id), tool: string(each.tool), subject: string(each.subject), input: string(each.input),
     state: each.state == null ? "" : choice(each.state, STATES, "call state"), result: string(each.result), spilled: number(each.spilled), pictures: pictures(each.pictures),
     edit: edit && { added: number(edit.added), removed: number(edit.removed), diff: array(edit.diff).map(string) },
     agent: agent && { node: string(agent.node), type: string(agent.type) },
