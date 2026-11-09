@@ -210,6 +210,11 @@ type Service struct {
 	Started   time.Time
 	mu        sync.Mutex
 	lastError string
+	// sessionStreams holds each session's conversation stream as this
+	// supervisor has read it, so a board view renders what the fleet agrees
+	// on rather than reading the harness again for itself.
+	sessionStreamsMu sync.Mutex
+	sessionStreams   map[string]*heldStream
 	// boardErrors keeps an error the board would have shown the Overlord
 	// from waking the CEO more than once an hour (board_errors.go).
 	boardErrors          boardErrors
@@ -414,8 +419,10 @@ type Service struct {
 	// reads is what the snapshot remembers of the fleet's files, and
 	// historyReads what the Completed column's rebuild remembers of each
 	// finished task's, kept apart so neither crowds the other past keptLimit.
-	reads                keptReads
-	historyReads         keptReads
+	reads        keptReads
+	historyReads keptReads
+	// memory is the keyword index of the memory files that recall reads.
+	memory               memoryIndex
 	subscriptionReadings map[string]quota.WeeklyReading
 	// quotaReadAt is when the supervisor last began a quota-axi read.
 	quotaReadAt time.Time
@@ -601,6 +608,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepHistory(ctx, historyRefresh, historyWatch)
 	}()
 	defer func() { s.cancel(); <-historyDone }()
+	memoryDone := make(chan struct{})
+	go func() {
+		defer close(memoryDone)
+		s.keepMemoryIndex(ctx)
+	}()
+	defer func() { s.cancel(); <-memoryDone }()
 	usageDone := make(chan struct{})
 	go func() {
 		defer close(usageDone)
@@ -870,6 +883,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		s.mu.Lock()
 		s.reconciled = time.Now().UTC()
 		s.mu.Unlock()
+		reconcileErr = errors.Join(reconcileErr, s.refreshCEOConversation(ctx))
 		reconcileErr = errors.Join(reconcileErr, finishTakenResumes(s.Store.Home.State))
 		reconcileErr = errors.Join(reconcileErr, handOverReplacedResumes(s.Store.Home.State))
 		reconcileErr = errors.Join(reconcileErr, s.reconcileTasks(time.Now()))

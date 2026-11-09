@@ -64,7 +64,7 @@ Run as goblins with no command, from any folder, it is the quick start: one Ente
 
 commands:
   help      [<command> [<subcommand>] | contract <topic>]: read only the requested embedded command or procedure contract; with no topic, list available references
-  memory    retrieve [--project <name>] [--task <id>] [--topic <topic>] [--search <words> --limit <n>] [--seen <file>] | retrieve --id <id> | routes | budget [--packages <file>] | migration-plan | retention-plan --manifest <file>; exact source-backed memory and read-only recovery planning
+  memory    retrieve [--project <name>] [--task <id>] [--topic <topic>] [--search <words> --limit <n>] [--seen <file>] | retrieve --id <id> | recall "<question>" [--project <name>] [--repo <name>] [--history] [--limit <n>] | recall --eval <file> | routes | budget [--packages <file>] | migration-plan | retention-plan --manifest <file>; exact source-backed memory and read-only recovery planning
   version   print the ceo version
   serve     run the persistent native supervisor and embedded browser board on loopback
   remote    on|status|off: private phone access to the board and CEO terminal over your Tailscale account
@@ -374,6 +374,7 @@ func defaultCommandRuntime() commandRuntime {
 				Commands:     commands,
 				HomeRoot:     h.Root,
 				StateDir:     h.State,
+				DataDir:      h.Data,
 				Board:        hookBoard(h.State),
 				ProjectsRoot: os.Getenv(install.ProjectsRootVariable),
 				ScratchRoot:  h.Scratch(),
@@ -409,6 +410,7 @@ func defaultCommandRuntime() commandRuntime {
 				Commands:     commands,
 				HomeRoot:     h.Root,
 				StateDir:     h.State,
+				DataDir:      h.Data,
 				Board:        hookBoard(h.State),
 				ProjectsRoot: os.Getenv(install.ProjectsRootVariable),
 				ScratchRoot:  h.Scratch(),
