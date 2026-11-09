@@ -486,6 +486,19 @@ func (s Screens) ComposerEmpty(screen []string) bool {
 	return true
 }
 
+// TookCommand reports whether screen shows the harness took typed, a slash
+// command submitted while no turn ran, off its input line: nothing it does
+// not know asks, typed no longer shows, and its composer is empty or a panel
+// of its own is open over it, as a command it runs itself leaves it. Such a
+// command starts no turn, and Codex and pi record none, so this is the only
+// sign of it taken (#2193).
+func (s Screens) TookCommand(screen []string, typed string) bool {
+	if _, hasDialog := s.Dialog(screen); hasDialog {
+		return false
+	}
+	return !s.Shows(screen, typed) && (s.ComposerEmpty(screen) || s.IsOpen(screen))
+}
+
 // ComposerHoldsText reports whether screen proves the harness's composer
 // holds text somebody left there unsent, so text typed now would land on top
 // of it. A screen showing a dialog, or one whose composer cannot be read,

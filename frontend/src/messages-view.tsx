@@ -17,6 +17,7 @@ import { usageReadings } from "./session-usage";
 import { UsageBar } from "./usage-bar";
 import { harnessInk } from "./harness-ink";
 import { QueuedMessage } from "./queued-message";
+import { sameWords, withTakenCommands } from "./messages";
 import { usePendingSends, type PendingSend } from "./pending-sends";
 import "./messages-view.css";
 
@@ -437,12 +438,15 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
 
   // The rows drawn: those within reach of where he reads, or of the end while
   // he follows it, each row not measured yet taken at an estimate.
-  const rowIndices = useMemo(() => new Map(held.messages.map((message, index) => [message.id, index])), [held.messages]);
+  // The rows are the session's messages and the commands the board saw its
+  // harness take that the harness keeps no row of.
+  const conversation = useMemo(() => withTakenCommands(held.messages, held.sent, harness), [held.messages, held.sent, harness]);
+  const rowIndices = useMemo(() => new Map(conversation.map((message, index) => [message.id, index])), [conversation]);
   const offsets = useMemo(() => {
     const offsets = [0];
-    for (const message of held.messages) offsets.push(offsets[offsets.length - 1] + (rowHeights.get(message.id) ?? ESTIMATED_ROW_PX));
+    for (const message of conversation) offsets.push(offsets[offsets.length - 1] + (rowHeights.get(message.id) ?? ESTIMATED_ROW_PX));
     return offsets;
-  }, [held.messages, rowHeights]);
+  }, [conversation, rowHeights]);
   const windowAt = (place: typeof view, isEnd: boolean) => {
     const anchorAt = rowIndices.get(place.anchor);
     const readTop = anchorAt === undefined ? place.top : offsets[anchorAt] - place.offset;
@@ -490,8 +494,8 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     // at the top is read from the rows' heights, where the window places
     // each row.
     const at = (items.current?.getBoundingClientRect().top ?? top) - top + roomShift.current;
-    const index = Math.min(held.messages.length - 1, messageRowAt(offsets, -at));
-    const message = held.messages[index];
+    const index = Math.min(conversation.length - 1, messageRowAt(offsets, -at));
+    const message = conversation[index];
     return message ? { id: message.id, offset: at + offsets[index] } : null;
   };
   const placeOf = (box: HTMLElement, kept: { id: string; offset: number } | null) => ({ top: box.scrollTop, height: box.clientHeight, anchor: kept?.id ?? "", offset: kept?.offset ?? 0 });
@@ -602,7 +606,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     const observer = new ResizeObserver(measure);
     for (const row of rows) observer.observe(row);
     return () => observer.disconnect();
-  }, [held.messages, drawn.start, drawn.end, selected, openFolds, font, shown]);
+  }, [conversation, drawn.start, drawn.end, selected, openFolds, font, shown]);
 
   useLayoutEffect(() => {
     heldValue.current = held;
@@ -735,9 +739,9 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     return () => document.removeEventListener("pointerdown", away);
   }, []);
   const readings = usageReadings(harness, composing.usage, subscriptions, spend);
-  const his = ownPrompts(held.messages);
-  const ends = turnEnds(held.messages, held.isWorking);
-  const reachesEnd = spans[spans.length - 1].end === held.messages.length;
+  const his = ownPrompts(conversation);
+  const ends = turnEnds(conversation, held.isWorking);
+  const reachesEnd = spans[spans.length - 1].end === conversation.length;
   // Once the session's record shows his words, written since the board took
   // them, its row is his message, and the board's copy goes, so it shows once
   // whichever of the two arrives first. Each row of his is one message, the
@@ -792,11 +796,11 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
               page, its DOM and any selection in it as the window moves. */}
           {spans.flatMap((span, at) => [
             ...at > 0 ? [<div key="room-between" className="conversation-room" style={{ height: heightOf(spans[at - 1].end, span.start) }} />] : [],
-            ...held.messages.slice(span.start, span.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
+            ...conversation.slice(span.start, span.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
               harness={harness} isTurnEnd={ends.has(message.id)}
               task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? held.task : undefined} picture={picture} keptPicture={keptPicture} onChild={openChild} />),
           ])}
-          <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, held.messages.length) }} />
+          <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, conversation.length) }} />
           {/* While the view connects it shows nothing that waits on the
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
@@ -821,7 +825,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
           {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />)}
         </div>
       </div>
-      {phase === "live" && !held.messages.length && !queued.length && !held.waiting.length && <p className="messages-empty" role="status">No messages yet</p>}
+      {phase === "live" && !conversation.length && !queued.length && !held.waiting.length && <p className="messages-empty" role="status">No messages yet</p>}
       {/* A touch that stops the conversation gliding after a flick is one
           the browser gives no click, and the button shows the moment he
           leaves the end, while it glides, so a touch's lift takes him there
@@ -864,10 +868,4 @@ function composerOf(prior: Composing, page: MessagePage): Composing {
 // isSameList says two lists hold the same items in the same order.
 function isSameList<T>(one: readonly T[], other: readonly T[]): boolean {
   return one.length === other.length && one.every((item, index) => item === other[index]);
-}
-
-// sameWords says two texts hold the same words, however a harness wrapped or
-// trimmed them.
-function sameWords(one: string, other: string): boolean {
-  return one.trim().split(/\s+/).join(" ") === other.trim().split(/\s+/).join(" ");
 }

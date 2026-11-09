@@ -332,8 +332,9 @@ func fakeHarness() {
 					return
 				}
 				// Unmoved, codex takes the line, which leaves its composer as a
-				// submitted line does, and never shows it working.
-				if mode == "unmoved" {
+				// submitted line does, and never shows it working, as it runs
+				// a slash command itself with no turn.
+				if mode == "unmoved" || strings.HasPrefix(line.String(), "/") {
 					composer("Ask Codex to do anything")
 				} else {
 					draw("", "› "+line.String(), "", "• Working (0s • esc to interrupt)")

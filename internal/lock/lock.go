@@ -103,7 +103,16 @@ func ownerInfo(pid int, session string) (*Info, processStatus) {
 // The record is written whole beside path and renamed into place, so no
 // reader finds it part written, and a writer ended while it writes leaves no
 // empty record that every later acquisition refuses as unreadable (#1665).
+//
+// A record already there costs no file of its own. Staging one is the slow
+// part of a write, and a look at a held lock that paid for it could spend its
+// whole wait on it before it saw who holds the lock (#1878). This check needs
+// no deadline and no open of the record, so neither a look that starts late
+// nor a scan holding the record keeps it from finding the record there.
 func writeInfo(ctx context.Context, path string, info *Info) error {
+	if _, err := os.Lstat(path); err == nil {
+		return os.ErrExist
+	}
 	data, err := json.Marshal(info)
 	if err != nil {
 		return err
@@ -145,7 +154,7 @@ func acquireNamedOwnerContext(ctx context.Context, dir, name string, ownerPID in
 // AcquireNamedOwnerWithin is AcquireNamedOwner waiting out a live holder for
 // up to wait, for a lock whose holder only reads and writes a file: a loaded
 // machine can slow that for seconds. Past wait it returns the holder's
-// ErrHeld.
+// ErrHeld, which names the holder unless its record could not be read in time.
 //
 // Its callers queue. Each lines up beside the lock first (lineUp) and takes
 // the lock's record only at the head of the line, where it stays until
@@ -194,10 +203,10 @@ func AcquireNamedOwnerWithin(dir, name string, ownerPID int, session string, wai
 		// the deadline, or slow it across the deadline, and the look then ends
 		// with the deadline, not with the holder: the holder the last look
 		// found is the answer (#1393).
-		if errors.Is(err, ErrHeld) {
-			held = err
-		} else if held != nil && errors.Is(err, context.DeadlineExceeded) {
+		if held != nil && errors.Is(err, context.DeadlineExceeded) {
 			err = held
+		} else if errors.Is(err, ErrHeld) {
+			held = err
 		}
 		if !errors.Is(err, ErrHeld) || waiting.Left() < pause {
 			leaveLine(place)
@@ -356,6 +365,14 @@ func acquireReading(ctx context.Context, dir, name string, self *Info, allowReac
 					continue
 				}
 				return nil, herr
+			}
+			// The deadline ended the read, which says nothing about the
+			// record it never read: the record is there, so the lock is held,
+			// and it must not count towards the orphan below. It stays a
+			// deadline error too, so a holder an earlier look named stays the
+			// answer.
+			if errors.Is(herr, context.DeadlineExceeded) {
+				return nil, fmt.Errorf("%w: its record %s went unread: %w", ErrHeld, path, herr)
 			}
 			// File is unreadable, corrupt, or zero-byte (holder mid-write).
 			// Treat as transient: sleep and retry, but only after seeing
