@@ -392,7 +392,6 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .flow-node.has-task .task-card { touch-action: none; cursor: grab; }
 .flow-session-details { margin: 6px 0 0; color: var(--muted); font-size: .9375rem; line-height: 1.3; }
 .workflow-node.has-task { container-type: inline-size; }
-.card-icons > button.card-harness { min-height: 30px; padding: 0; border: 0; background: none; box-shadow: none; }
 .node-disclosure { position: absolute; left: 50%; bottom: -18px; transform: translateX(-50%); display: grid; place-items: center; width: 36px; height: 36px; min-height: 36px; padding: 0; border-color: var(--glass-border); border-radius: 50%; background: var(--glass-bg), var(--hero-surface); color: #bed2d9; }
 .node-disclosure svg { display: block; width: 18px; height: 18px; }
 /* On the canvas a goblin's chevron folds its branches too, so it hangs low

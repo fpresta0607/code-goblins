@@ -61,7 +61,7 @@ for (const width of [390, 1440]) {
     await expect(row.locator(".card-ticket")).toHaveAttribute("href", REPO + "/issues/1013");
     await expect(row.locator(".card-pr")).toHaveAttribute("href", REPO + "/pull/1031");
     await expect(row.locator("button button, button a")).toHaveCount(0);
-    await row.getByRole("button", { name: "Open Benny - AFK Ace harness details" }).focus();
+    await row.locator(".task-card").focus();
     await page.keyboard.press("Enter");
     await expect(page.locator("#panel-title")).toHaveText("Benny - AFK Ace");
   });
