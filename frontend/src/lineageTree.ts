@@ -22,8 +22,8 @@ export function ownsTaskSession(node?: Session, task?: Task): boolean {
 }
 
 export function taskSessionDetails(task: Task): string {
-  return task.backend === "native" && ["busy", "active", "idle", "parked"].includes(task.runtime.state)
-    ? "Native terminal running; session details unavailable"
+  return task.backend === "native" && ["busy", "active", "idle", "parked"].includes(task.runtime?.state ?? "")
+    ? "Native terminal running, session details unavailable"
     : "Session details unavailable";
 }
 

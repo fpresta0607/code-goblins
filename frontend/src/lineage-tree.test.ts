@@ -12,7 +12,7 @@ test("a session with another task's identity cannot own a matching generation", 
 for (const state of ["busy", "active", "idle", "parked", "unknown", "unavailable", "stale"]) {
   test(`session details preserve ${state} terminal evidence`, () => {
     const task = parseSnapshot({ healthy: true, tasks: [{ id: "native", backend: "native", runtime: { state }, verified: false }] }).tasks[0];
-    const expected = ["unknown", "unavailable", "stale"].includes(state) ? "Session details unavailable" : "Native terminal running; session details unavailable";
+    const expected = ["unknown", "unavailable", "stale"].includes(state) ? "Session details unavailable" : "Native terminal running, session details unavailable";
     assert.equal(taskSessionDetails(task), expected);
   });
 }

@@ -37,7 +37,7 @@ for (const [phase, step, reason, runtime, text] of [
 
     assert.deepEqual(status, { text, phase });
     assert.equal(task.reason, reason);
-    assert.equal(task.runtime.state, runtime);
+    assert.equal(task.runtime?.state, runtime);
     assert.equal(task.report, "working");
   });
 }

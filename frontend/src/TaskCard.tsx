@@ -57,8 +57,9 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
   const tip = isNamed ? { "data-tip": taskName(task) } : clipped ? { "data-tip": name } : {};
   const icon = pullRequestIcon(task);
   const repositoryLink = repository ? safeGitHubLink("https://github.com/" + repository) : "";
+  const terminal = task.runtime?.state ?? "";
   const activity = task.gate_step && ["blocked", "review"].includes(task.phase)
-    ? [(TERMINAL_ACTIVITY[task.runtime.state] || (task.runtime.state ? "Terminal: " + task.runtime.state : "Terminal state unreported")), task.report && "Last report: " + task.report].filter(Boolean).join(" · ") : "";
+    ? [(TERMINAL_ACTIVITY[terminal] || (terminal ? "Terminal: " + terminal : "Terminal state unreported")), task.report && "Last report: " + task.report].filter(Boolean).join(" · ") : "";
   const content = <>
     <Avatar persona={personaFor(task)} />
     <span className="card-copy"><span className="card-head">{isPresenting && <span className="browser-indicator">Browser active</span>}{nextText && <span className={"next-chip" + (nextTone ? " " + nextTone : "")}>{nextText}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>
