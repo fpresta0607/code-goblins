@@ -125,6 +125,28 @@ test("Shift+Enter starts a new line, and the lines go as one paste", async ({ pa
   await expect.poll(() => typed(relay)).toContain(pasted("first line\rsecond line") + "\r");
 });
 
+test("a message that starts with ! wears the danger edge while it does, and Send hands it to the board rather than the terminal", async ({ page }) => {
+  const relay = await open(page);
+  await openGoblin(page);
+  const actions: object[] = [];
+  await page.route("**/api/actions", (route) => { actions.push(route.request().postDataJSON()); return route.fulfill({ status: 202, json: {} }); });
+  const edge = box(page).locator(".composer-input");
+  const plain = await edge.evaluate((element) => getComputedStyle(element).borderTopColor);
+
+  await field(page).fill("  ! Get-ChildItem -Name");
+  await expect(edge).toHaveCSS("border-top-color", "rgb(239, 142, 131)");
+  await field(page).fill("Get-ChildItem ! -Name");
+  await expect(edge).toHaveCSS("border-top-color", plain);
+  await field(page).fill("! Get-ChildItem -Name");
+  await send(page).click();
+
+  await expect.poll(() => actions.length).toBe(1);
+  expect(actions[0]).toMatchObject({ kind: "message", task_id: GOBLIN.id, text: "! Get-ChildItem -Name" });
+  expect(typed(relay)).not.toContain("Get-ChildItem");
+  await expect(field(page)).toHaveValue("");
+  await expect(edge).toHaveCSS("border-top-color", plain);
+});
+
 test("busy, held and reconnecting sessions save messages in the durable queue", async ({ page }) => {
   const relay = await open(page);
   await openGoblin(page);

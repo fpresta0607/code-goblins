@@ -237,6 +237,23 @@ export function textParts(text: string): TextPart[] {
   return parts;
 }
 
+// isPowerShellBlock says whether a reply's code block is a PowerShell command
+// its Run runs (#2051): its fence names powershell, pwsh or ps1, or, untagged,
+// it starts with powershell or pwsh, after an optional "! ", the harness's
+// shell-mode marker. The server reads the block back from the session and
+// decides the same way (powerShellCommand in internal/supervisor/code_run.go).
+export function isPowerShellBlock(language: string, text: string): boolean {
+  const command = text.replace(/^[ \t]*/, "").replace(/^! /, "");
+  const isTagged = ["powershell", "pwsh", "ps1"].includes(language.toLowerCase());
+  return !!command.trim() && (isTagged || !language && /^(powershell|pwsh)(\.exe)?(\s|$)/i.test(command));
+}
+
+// isWrittenReply says whether a reply's words are all written, so its code
+// blocks may run: any reply but the newest message while the session works.
+export function isWrittenReply(message: SessionMessage, messages: SessionMessage[], isWorking: boolean): boolean {
+  return message.kind === "reply" && (!isWorking || message !== messages.at(-1));
+}
+
 // copyText is what the Copy of a message that is not a reply copies: its
 // words as written, and a command with what it printed. Each text of a reply
 // has a Copy of its own.

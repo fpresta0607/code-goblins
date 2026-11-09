@@ -59,6 +59,14 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	if s.Options.CFO == nil {
 		return Evaluation{}, fmt.Errorf("%w: message transport is unavailable", ErrRejected)
 	}
+	// A message in shell mode goes as the line that runs its command in
+	// Windows PowerShell, wherever it is delivered; the action keeps what he
+	// typed.
+	if line, isShell, err := shellMessageLine(s.Store.Home.State, a.ID, a.TaskID, a.Text); err != nil {
+		return Evaluation{}, err
+	} else if isShell {
+		a.Text = line
+	}
 	if a.TaskID == "" {
 		s.starts.Lock()
 		isComingBack := s.isCFOComingBack
