@@ -584,7 +584,7 @@ export function App() {
         <div className="panel-stage" hidden={!terminalShown && !messagesShown}>
           {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={snapshot.instance + messagesSource} query={messagesSource} instance={snapshot.instance} pages={messagePages}
             name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} terminal={terminalKey} harness={panelHarness} model={panelModel} effort={panelEffort}
-            isWorking={isWorking} isCompacting={isCompacting} sent={panelSent} pending={panelPending}
+            isCompacting={isCompacting} sent={panelSent} pending={panelPending}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock} onAskSlot={setAskSlot}
             box={(model, history, effort, usage, onSend) => createPortal(<Composer isWorking={isWorking} isCompacting={isCompacting} history={history} usage={usage} onSend={onSend} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} askSlot={askSlot} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}

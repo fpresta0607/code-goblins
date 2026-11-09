@@ -18,6 +18,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/memory"
 )
 
 var (
@@ -184,6 +185,15 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 		case "reported":
 			// A look takes no item, so it waits behind nobody's request.
 			err = s.lookNow(ctx)
+		case "recall":
+			// A question of the memory index reads only the index, so any
+			// process of this home may ask it and nobody's request waits.
+			var result memory.RecallResult
+			if req.Recall == nil {
+				err = errors.New("a recall request names no question")
+			} else if result, err = s.memory.recall(*req.Recall); err == nil {
+				reply.Recall = &result
+			}
 		case "browser":
 			// The broker takes its own requests one at a time, and a
 			// browser's start waits behind nobody's item.
@@ -244,7 +254,7 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 		switch {
 		case err != nil:
 			reply.Error = err.Error()
-		case req.Kind != "reported" && req.Kind != "browser":
+		case req.Kind != "reported" && req.Kind != "browser" && req.Kind != "recall":
 			s.publish(nil)
 		}
 	}

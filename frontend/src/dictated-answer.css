@@ -3,3 +3,11 @@
 .dictated-box { position: relative; display: grid; }
 .dictated-box textarea { padding-bottom: 56px; }
 .dictated-box > .voice-bubble { position: absolute; right: 22px; bottom: 10px; }
+/* Add files, inside the box at its bottom left corner, and on a phone its
+   menu above it, as the composer's. */
+.dictated-box > .answer-add { position: absolute; left: 10px; bottom: 10px; display: grid; place-items: center; width: 40px; height: 40px; min-height: 40px; padding: 0; border: 0; border-radius: 6px; background: transparent; box-shadow: none; color: var(--muted); }
+.dictated-box > .answer-add:hover { color: var(--bone); background: transparent; }
+.dictated-box > .answer-add .icon { width: 18px; height: 18px; }
+.answer-add-menu { position: absolute; left: 10px; bottom: 56px; z-index: 3; display: grid; gap: 4px; min-width: 13rem; padding: 6px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
+.answer-add-menu button { display: flex; align-items: center; gap: 10px; justify-content: flex-start; text-align: left; border-color: transparent; background: transparent; border-radius: 8px; padding: 8px 10px; }
+.answer-add-menu button .icon { width: 16px; height: 16px; color: var(--muted); }
