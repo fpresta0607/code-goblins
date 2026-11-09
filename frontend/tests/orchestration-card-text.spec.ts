@@ -19,7 +19,7 @@ const PARTS: [string, string][] = [
   [".tree-child-model", "model"],
   [".card-status-text, .card-copy > .plain-status", "status"], [".tree-child-runs", "runs"], [".state-chip", "state"], [".tree-memory", "memory"],
   [".card-clock", "clock"], [".card-pr", "pull request"], [".subscription-dial", "dial"], ["strong", "title"], [".browser-indicator", "browser"],
-  [".project-label", "project"], ["small", "relation"], [".node-role", "role"], [".node-task", "task"], [".node-status", "status"],
+  [".project-label, .card-repo", "project"], ["small", "relation"], [".node-role", "role"], [".node-task", "task"], [".node-status", "status"], [".flow-session-details", "session"],
   [".tree-tally", "tally"], [".tree-count-words", "count"], [".tree-count-memory", "memory"], [".afk-toggle-label", "AFK"], [".afk-header > .muted", "AFK words"],
 ];
 
@@ -151,7 +151,7 @@ test("a goblin's card holds its whole title, project and status, as in the Overl
   const seen = await card(page, "Woody").evaluate(fit, PARTS);
 
   // Assert
-  expect(describe(seen)).toEqual(["title: Woody - Tour Guide", "project: code-goblins", "status: Waiting on Jules", "clock: 1h 35m"]);
+  expect(describe(seen)).toEqual(["title: Woody - Tour Guide", "status: Waiting on Jules", "project: code-goblins", "clock: 1h 35m", "session: Session details unavailable"]);
   expect(seen.spills).toEqual([]);
   expect(seen.cut).toEqual([]);
   expect(seen.truncated).toEqual([]);
@@ -179,9 +179,9 @@ test("a baby goblin's card holds its whole name, what it runs, its state and its
 // Text a card cannot hold may end in an ellipsis, but none of it is painted
 // beyond the card, whatever it says, and no part of it goes unseen.
 for (const [title, parts] of [
-  ["Wilhelmina", ["title", "browser", "project", "status", "clock"]],
-  ["Cornelius", ["title", "browser", "project", "status", "clock"]],
-  ["Bartholomew", ["title", "project", "status", "clock", "pull request"]],
+  ["Wilhelmina", ["browser", "title", "status", "project", "clock"]],
+  ["Cornelius", ["browser", "title", "status", "project", "clock", "session"]],
+  ["Bartholomew", ["title", "status", "project", "clock", "session"]],
   ["CFO", ["title", "status", "dial", "AFK"]],
 ] as const) {
   test(`${title}'s card paints none of its text beyond its border`, async ({ page }) => {
@@ -273,6 +273,44 @@ function facts(card: Element, selectors: Record<string, string>): Record<string,
     const element = card.querySelector(selector);
     return [fact, !element ? "" : fact === "harness" ? element.getAttribute("aria-label") || "" : fact === "pull request" ? element.getAttribute("href") || "" : text(element)];
   }));
+}
+
+// A goblin whose task names no session says beside its card whether its
+// native terminal is running, and never calls an unknown terminal running.
+for (const [view, width, line] of [["canvas", 1440, ".flow-session-details"], ["lineage", 390, ".node-relation"]] as const) {
+  for (const [state, text] of [["busy", "Native terminal running, session details unavailable"], ["parked", "Native terminal running, session details unavailable"], ["unknown", "Session details unavailable"]]) {
+    test(`${view} at ${width}px says a ${state} terminal's session details are unavailable`, async ({ page }) => {
+      // Arrange
+      await page.setViewportSize({ width, height: 900 });
+
+      // Act
+      await page.goto("/tests/fixtures/orchestration-card-text.html?terminal=" + state + (view === "canvas" ? "" : "&view=" + view));
+
+      // Assert
+      const task = page.locator(view === "canvas" ? ".flow-node" : ".node-group").filter({ has: page.locator(".task-card", { hasText: "Olive - Billing Baron" }) });
+      await expect(task.locator(line)).toHaveText(text);
+    });
+  }
+}
+
+for (const [view, width] of [["canvas", 1440], ["lineage", 320]] as const) {
+  test(`${view} reuses the board task card and its controls at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const selectors = { title: ".card-title", status: ".card-status-text", clock: ".card-clock", repository: ".card-repo", "pull request": ".card-pr", harness: ".card-harness .mark" };
+    await open(page, "board");
+    const board = await page.locator(".task-card-shell").filter({ hasText: "Olive - Billing Baron" }).evaluate(facts, selectors);
+
+    await open(page, view);
+
+    const task = page.locator(view === "canvas" ? ".flow-node" : ".workflow-node").filter({ hasText: "Olive - Billing Baron" });
+    await expect(task.locator(".task-card-shell")).toHaveCount(1);
+    expect(await task.evaluate(facts, selectors)).toEqual(board);
+    await expect(task.locator("button button, button a, a button")).toHaveCount(0);
+    await task.locator(".task-card").focus();
+    await expect(task.locator(".task-card")).toBeFocused();
+    expect(await task.locator(".goblin-avatar").evaluate((face) => (face as HTMLElement).offsetWidth)).toBe(44);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
 }
 
 // The Overlord, 2026-10-12: a card on the canvas shows the same facts as

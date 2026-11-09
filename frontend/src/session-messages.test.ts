@@ -8,6 +8,24 @@ const served = (seq: number, fields: Record<string, unknown> = {}) => ({ id: "m"
 const held = (...seqs: number[]): SessionMessage[] => parseMessages(seqs.map((seq) => served(seq)));
 const seqs = (messages: SessionMessage[]) => messages.map((message) => message.seq);
 
+test("structured tool updates retain full input and ordinary wrapper prose", () => {
+  const prose = "The expression text(await ...) is JavaScript.";
+  const input = 'text(await tools.exec_command({cmd:"git status"}));\ntext("second line");';
+  const call = { kind: "call", tool: "exec", subject: "exec", input, state: "running" };
+  const before = parseMessages([served(0, { text: prose }), served(1, { kind: "reply", blocks: [call, { kind: "text", text: prose }] })]);
+
+  const after = changeMessages(before, parseMessages([served(1, { kind: "reply", blocks: [{ ...call, state: "failed", result: "Script failed" }, { kind: "text", text: prose }] })]));
+
+  assert.deepEqual(after.map((message) => [message.id, message.seq]), [["m0", 0], ["m1", 1]]);
+  assert.equal(after[0].text, prose);
+  assert.deepEqual(after[1].blocks.map((block) => block.kind), ["call", "text"]);
+  assert.equal(after[1].blocks[0].input, input);
+  assert.equal(after[1].blocks[0].subject, "exec");
+  assert.equal(after[1].blocks[0].state, "failed");
+  assert.equal(after[1].blocks[0].result, "Script failed");
+  assert.equal(after[1].blocks[1].text, prose);
+});
+
 test("a reply's blocks keep their text, thinking and calls, with an edit's counts and a sub-agent's node", () => {
   const [reply] = parseMessages([served(3, { kind: "reply", source: undefined, text: undefined, blocks: [
     { kind: "thinking", text: "Look at the reader first" },

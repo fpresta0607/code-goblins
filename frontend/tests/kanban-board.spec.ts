@@ -55,7 +55,7 @@ for (const width of [390, 1707]) {
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
     for (const { id, status } of waits) {
       const node = page.locator(width === 390 ? ".workflow-node" : ".flow-node").filter({ has: page.locator("strong").getByText(id, { exact: true }) });
-      await expect(node.locator(width === 390 ? ".node-status" : ".card-status-text")).toHaveText(status);
+      await expect(node.locator(".card-status-text")).toHaveText(status);
     }
   });
 }
