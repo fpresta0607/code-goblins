@@ -78,12 +78,14 @@ type Service struct {
 	// as a record it could not read or what it met after handing them on, is
 	// a warning in the output. Nil hands nothing on.
 	HandOver func(meta state.TaskMeta) (bool, error)
-	// OpenGateRun names the task's gate run, read by its worktree's branch,
-	// while that run is still open, and nothing once it has ended or the task
-	// has none. A pause leaves the run running and only cfo kill aborts it,
-	// so a cleanup of a task whose run is open, or whose gate cannot be read,
-	// is refused before anything changes: retired, the task would leave its
-	// run going on for nobody. Nil reads none.
+	// OpenGateRun names the task's gate run while that run is still open, and
+	// nothing once it has ended or the task has none, and it decides which
+	// evidence names the run: the run a pause saved, or the worktree's branch
+	// while the folder is still a Git worktree. A pause leaves the run running
+	// and only cfo kill aborts it, so every retirement, a force archive and an
+	// empty folder's included, asks it first, and one whose run is open, or
+	// whose gate cannot be read, is refused before anything changes: retired,
+	// the task would leave its run going on for nobody. Nil reads none.
 	OpenGateRun func(ctx context.Context, meta state.TaskMeta) (string, error)
 }
 
@@ -495,22 +497,20 @@ func (s Service) returnWorktree(ctx context.Context, git worktree.Git, project, 
 // path for a worktree that will not validate - the Utah stub sat in the fleet
 // for days as "Under Way" because its empty directory was pinned by a handle
 // no process would give up, and the normal path refuses anything it cannot
-// prove. The checks that stay are the live-agent refusal and, while the
-// worktree is there to name the task's branch, the open gate run refusal: a
-// task is retired, never abandoned mid-run. A worktree already gone names no
-// branch, so its run is not read. The tab close is best-effort because the
-// pane is usually already gone, and no worktree return is attempted, so the
-// worktree is left for the operator (or a reboot). A native terminal's close
-// is not best-effort: it is what ends an idle harness, so a failed one refuses.
+// prove. The checks that stay are the live-agent refusal and the open gate
+// run refusal, whose hook reads the run a pause saved whatever state the
+// worktree is in: a task is retired, never abandoned mid-run. The tab close
+// is best-effort because the pane is usually already gone, and no worktree
+// return is attempted, so the worktree is left for the operator (or a
+// reboot). A native terminal's close is not best-effort: it is what ends an
+// idle harness, so a failed one refuses.
 func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, worktreePath string) (Result, error) {
 	idle, err := s.requireInactive(ctx, meta)
 	if err != nil {
 		return Result{}, err
 	}
-	if _, err := os.Stat(worktreePath); !errors.Is(err, fs.ErrNotExist) {
-		if err := s.requireGateRunEnded(ctx, meta); err != nil {
-			return Result{}, err
-		}
+	if err := s.requireGateRunEnded(ctx, meta); err != nil {
+		return Result{}, err
 	}
 	handedOver, err := s.handOver(meta)
 	if err != nil {
@@ -570,6 +570,9 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id, project, folder string) (Result, error) {
 	idle, err := s.requireInactive(ctx, meta)
 	if err != nil {
+		return Result{}, err
+	}
+	if err := s.requireGateRunEnded(ctx, meta); err != nil {
 		return Result{}, err
 	}
 	handedOver, err := s.handOver(meta)

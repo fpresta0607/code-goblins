@@ -213,7 +213,7 @@ func reapCleanup(ctx context.Context, h home.Home, client *herdr.Client, id stri
 		HandOver: func(meta state.TaskMeta) (bool, error) {
 			return supervisor.HandOverRetiredNote(h.State, meta)
 		},
-		OpenGateRun: openGateRun,
+		OpenGateRun: openGateRun(h),
 	}.Cleanup(ctx, id)
 	return result.Output, err
 }

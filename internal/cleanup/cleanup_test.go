@@ -447,18 +447,18 @@ func TestCleanupRefusals(t *testing.T) {
 // nobody. A gate that cannot be read refuses too, never taken for one with no
 // run. Either refusal comes before anything changes, a harness worktree left
 // in the task's checkout included, and names what to do; a task whose run
-// has ended, or that has none, is cleaned up as before (issue #2089).
-// --force-archive refuses the same way while the task's worktree is there to
-// name its branch, and only a worktree already gone retires its task without
-// its run being read, as the kill's own retirement of a task whose project
-// went and the sweep's of a record whose worktree went need.
+// has ended, or that has none, is cleaned up as before (issue #2089). Every
+// retirement asks, --force-archive and an empty folder's included, whatever
+// state the worktree is in, since the run a pause saved names it without the
+// worktree's branch: only the hook decides that a worktree gone, or a folder
+// no longer a Git worktree, names no run.
 func TestCleanupRefusesATaskWhoseGateRunIsStillOpen(t *testing.T) {
 	for _, tc := range []struct {
-		name                           string
-		run                            string
-		readErr                        error
-		isForceArchive, isWorktreeGone bool
-		want                           []string
+		name                                          string
+		run                                           string
+		readErr                                       error
+		isForceArchive, isWorktreeGone, isEmptyFolder bool
+		want                                          []string
 	}{
 		{name: "a run still open", run: "run-1", want: []string{"run-1", "still open", "cfo kill g1"}},
 		{name: "a gate that cannot be read", readErr: errors.New("state query failed"), want: []string{"cannot be read", "state query failed"}},
@@ -466,17 +466,24 @@ func TestCleanupRefusesATaskWhoseGateRunIsStillOpen(t *testing.T) {
 		{name: "a force archive of a run still open", run: "run-1", isForceArchive: true, want: []string{"run-1", "still open", "cfo kill g1"}},
 		{name: "a force archive of a gate that cannot be read", readErr: errors.New("state query failed"), isForceArchive: true, want: []string{"cannot be read", "state query failed"}},
 		{name: "a force archive of a run that ended, or none", isForceArchive: true},
-		{name: "a force archive of a task whose worktree is gone", readErr: errors.New("read the task branch before identifying its gate"), isForceArchive: true, isWorktreeGone: true},
+		{name: "a force archive of a task whose worktree is gone", isForceArchive: true, isWorktreeGone: true},
+		{name: "a force archive of a task whose worktree is gone and whose saved run is open", run: "run-1", isForceArchive: true, isWorktreeGone: true, want: []string{"run-1", "still open", "cfo kill g1"}},
+		{name: "a cleanup of an empty folder", isEmptyFolder: true},
+		{name: "a cleanup of an empty folder whose saved run is open", run: "run-1", isEmptyFolder: true, want: []string{"run-1", "still open", "cfo kill g1"}},
+		{name: "a cleanup of an empty folder whose gate cannot be read", readErr: errors.New("state query failed"), isEmptyFolder: true, want: []string{"cannot be read", "state query failed"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
 			fixture := newCleanupFixture(t)
 			fixture.service.ForceArchive = tc.isForceArchive
-			if tc.isWorktreeGone {
+			switch {
+			case tc.isWorktreeGone:
 				if err := os.RemoveAll(fixture.worktree); err != nil {
 					t.Fatal(err)
 				}
-			} else {
+			case tc.isEmptyFolder:
+				fixture.git.top = fixture.project
+			default:
 				nested := filepath.Join(fixture.worktree, ".claude", "worktrees", "probe")
 				if err := os.MkdirAll(nested, 0o755); err != nil {
 					t.Fatal(err)
@@ -493,16 +500,16 @@ func TestCleanupRefusesATaskWhoseGateRunIsStillOpen(t *testing.T) {
 			result, err := fixture.service.Cleanup(t.Context(), "g1")
 
 			// Assert
-			switch {
-			case tc.isWorktreeGone && len(read) != 0:
-				t.Fatalf("read the gate run of %+v, want none read for a worktree that is gone", read)
-			case !tc.isWorktreeGone && (len(read) != 1 || read[0].Worktree != fixture.worktree || read[0].Project != fixture.project):
+			if len(read) != 1 || read[0].Worktree != fixture.worktree || read[0].Project != fixture.project {
 				t.Fatalf("read the gate run of %+v, want the task's once", read)
 			}
 			if tc.want == nil {
 				retired := "cleaned g1 worktree="
-				if tc.isForceArchive {
+				switch {
+				case tc.isForceArchive:
 					retired = "force-archived g1"
+				case tc.isEmptyFolder:
+					retired = "removed the empty folder"
 				}
 				if err != nil || !strings.Contains(result.Output, retired) {
 					t.Fatalf("Cleanup = %q, %v; want the task retired", result.Output, err)
@@ -518,6 +525,11 @@ func TestCleanupRefusesATaskWhoseGateRunIsStillOpen(t *testing.T) {
 				}
 			}
 			fixture.assertMetadataPreserved(t)
+			if tc.isEmptyFolder {
+				if _, err := os.Stat(fixture.worktree); err != nil {
+					t.Fatalf("empty folder after a refused cleanup: %v, want it kept", err)
+				}
+			}
 		})
 	}
 }

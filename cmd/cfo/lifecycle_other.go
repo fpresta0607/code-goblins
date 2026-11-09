@@ -19,6 +19,8 @@ func endLeftProcesses(context.Context, home.Home, state.TaskMeta) ([]string, err
 	return nil, nil
 }
 
-func openGateRun(context.Context, state.TaskMeta) (string, error) {
-	return "", errors.New("a task's gate run is read on Windows")
+func openGateRun(home.Home) func(context.Context, state.TaskMeta) (string, error) {
+	return func(context.Context, state.TaskMeta) (string, error) {
+		return "", errors.New("a task's gate run is read on Windows")
+	}
 }

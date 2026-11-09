@@ -30,9 +30,11 @@ anything, while one of those is in flight.
 --force-archive retires a task whose worktree can no longer be validated (a
 directory pinned by a dead handle, or already gone). It archives the task
 record and leaves the directory untouched - nothing on disk is deleted - and
-still refuses a pane with a live agent and, while the worktree is there, a
-gate run that is still open or cannot be read, as cleanup does. Only a
-worktree already gone names no branch to read the run by.
+still refuses a pane with a live agent and a gate run that is still open or
+cannot be read, as cleanup does. A paused task's run is the one its pause
+saved, read whatever state the worktree is in; any other task's run is read
+by the worktree's branch while the folder is still a Git worktree, so a
+worktree gone, or a folder no longer a Git worktree, names no run.
 `
 
 // runCleanup returns one validated task's worktree through the guarded
@@ -108,7 +110,7 @@ func defaultCleanup(ctx context.Context, h home.Home, id string, forceArchive bo
 		HandOver: func(meta state.TaskMeta) (bool, error) {
 			return supervisor.HandOverRetiredNote(h.State, meta)
 		},
-		OpenGateRun: openGateRun,
+		OpenGateRun: openGateRun(h),
 	}
 	result, err := service.Cleanup(ctx, id)
 	if err != nil {

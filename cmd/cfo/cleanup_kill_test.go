@@ -194,12 +194,15 @@ func TestKillStillArchivesThroughItsOwnCleanup(t *testing.T) {
 }
 
 // A pause leaves its goblin's gate run running, so cfo cleanup, and the
-// sweep's cleanup of a task it found, read the task branch's latest run from
-// the gate before they change anything. A run that completed or was
-// cancelled, as a landed or killed task's is, lets the task retire, while one
-// still running, or a gate whose run cannot be verified, refuses with the task
-// as it was (issue #2089). --force-archive reads it as well while the worktree
-// is there, and a worktree already gone retires its task unread.
+// sweep's cleanup of a task it found, read the task's gate run before they
+// change anything. A run that completed or was cancelled, as a landed or
+// killed task's is, lets the task retire, while one still running, or a gate
+// whose run cannot be verified, refuses with the task as it was (issue
+// #2089). A paused task's run is the one its pause saved, read by its id
+// whatever state the worktree is in, --force-archive and an empty folder's
+// cleanup included. With no saved run, the run is read by the worktree's
+// branch only while the folder is still a Git worktree, so a worktree gone,
+// or a folder no longer a Git worktree, retires its task unread.
 func TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt(t *testing.T) {
 	if _, err := exec.LookPath("sqlite3"); err != nil {
 		t.Fatal("sqlite3 is needed for the gate fixture")
@@ -215,8 +218,8 @@ func TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt(t *testing.T) {
 	}
 	for _, caller := range callers {
 		for _, tc := range []struct {
-			name, status, head, want       string
-			isForceArchive, isWorktreeGone bool
+			name, status, head, want                                                   string
+			isForceArchive, isWorktreeGone, isNotAWorktree, isPaused, isGateUnreadable bool
 		}{
 			{name: "a completed run", status: "completed"},
 			{name: "a cancelled run", status: "cancelled"},
@@ -226,10 +229,20 @@ func TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt(t *testing.T) {
 			{name: "a force archive of a run still open", status: "running", isForceArchive: true, want: "cfo kill g1"},
 			{name: "a force archive of a gate whose run cannot be verified", status: "running", head: "not-a-commit", isForceArchive: true, want: "cannot be read"},
 			{name: "a force archive of a task whose worktree is gone", status: "running", isForceArchive: true, isWorktreeGone: true},
+			{name: "a force archive of a folder no longer a Git worktree", status: "running", isForceArchive: true, isNotAWorktree: true},
+			{name: "an empty folder no longer a Git worktree", status: "running", isNotAWorktree: true},
+			{name: "a paused task whose saved run completed", status: "completed", isPaused: true},
+			{name: "a paused task whose saved run is still open", status: "running", isPaused: true, want: "cfo kill g1"},
+			{name: "a force archive of a paused task whose worktree is gone and whose saved run is open", status: "running", isForceArchive: true, isWorktreeGone: true, isPaused: true, want: "cfo kill g1"},
+			{name: "a force archive of a paused task whose worktree is gone and whose saved run completed", status: "completed", isForceArchive: true, isWorktreeGone: true, isPaused: true},
+			{name: "a force archive of a paused task whose folder is no longer a Git worktree", status: "running", isForceArchive: true, isNotAWorktree: true, isPaused: true, want: "cfo kill g1"},
+			{name: "a paused task whose empty folder is no longer a Git worktree", status: "running", isNotAWorktree: true, isPaused: true, want: "cfo kill g1"},
+			{name: "a force archive of a paused task whose worktree is gone and whose gate cannot be read", isForceArchive: true, isWorktreeGone: true, isPaused: true, isGateUnreadable: true, want: "cannot be read"},
 		} {
 			t.Run(caller.name+" of "+tc.name, func(t *testing.T) {
 				// Arrange: the task's worktree on its own branch, whose
-				// latest run the scratch gate's database holds.
+				// latest run the scratch gate's database holds, and for a
+				// paused task the run its pause saved.
 				h, meta := killedTask(t)
 				git := func(args ...string) string {
 					t.Helper()
@@ -248,15 +261,34 @@ func TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt(t *testing.T) {
 				}
 				gateRoot := t.TempDir()
 				t.Setenv("NM_HOME", gateRoot)
-				schema := fmt.Sprintf(`CREATE TABLE repos(id TEXT,working_path TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,last_pushed_sha TEXT,intent TEXT,worktree_dir TEXT,created_at INTEGER);
+				gateDatabase := filepath.Join(gateRoot, "state.sqlite")
+				if tc.isGateUnreadable {
+					if err := os.WriteFile(gateDatabase, []byte("not a database"), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					schema := fmt.Sprintf(`CREATE TABLE repos(id TEXT,working_path TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,last_pushed_sha TEXT,intent TEXT,worktree_dir TEXT,created_at INTEGER,submitted_head_sha TEXT,custody_returned_at INTEGER,review_approved_head_sha TEXT,pr_url TEXT,pr_state TEXT,ci_ready_at INTEGER,terminal_head_verified_at INTEGER);
 INSERT INTO repos VALUES('repo-1','%s');
-INSERT INTO runs VALUES('run-1','repo-1','fix/g1','%s','%s','','','',1);`, strings.ReplaceAll(filepath.ToSlash(meta.Project), "'", "''"), tc.status, head)
-				if output, err := exec.Command("sqlite3", filepath.Join(gateRoot, "state.sqlite"), schema).CombinedOutput(); err != nil {
-					t.Fatalf("create gate fixture: %v %s", err, output)
+INSERT INTO runs(id,repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,created_at) VALUES('run-1','repo-1','fix/g1','%s','%s','','','',1);`, strings.ReplaceAll(filepath.ToSlash(meta.Project), "'", "''"), tc.status, head)
+					if output, err := exec.Command("sqlite3", gateDatabase, schema).CombinedOutput(); err != nil {
+						t.Fatalf("create gate fixture: %v %s", err, output)
+					}
 				}
-				if tc.isWorktreeGone {
+				if tc.isPaused {
+					if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", GateRun: "run-1", NoticeSent: true}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				switch {
+				case tc.isWorktreeGone:
 					if err := os.RemoveAll(meta.Worktree); err != nil {
+						t.Fatal(err)
+					}
+				case tc.isNotAWorktree:
+					// The seed commit is empty, so the worktree holds only
+					// its .git link, and without it the folder is empty.
+					if err := os.Remove(filepath.Join(meta.Worktree, ".git")); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -275,7 +307,7 @@ INSERT INTO runs VALUES('run-1','repo-1','fix/g1','%s','%s','','','',1);`, strin
 				if err == nil || !strings.Contains(err.Error(), tc.want) || metaErr != nil {
 					t.Fatalf("cleanup = %q, %v, task record %v; want it refused saying %q with the task kept", output, err, metaErr, tc.want)
 				}
-				if _, err := os.Stat(meta.Worktree); err != nil {
+				if _, err := os.Stat(meta.Worktree); !tc.isWorktreeGone && err != nil {
 					t.Fatalf("worktree after a refused cleanup: %v, want it kept", err)
 				}
 			})
