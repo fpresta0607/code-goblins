@@ -64,6 +64,7 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 	// has a record that names none and a terminal that holds everything, so
 	// every service is its own.
 	carried, withheld := manifest, map[string]string{}
+	unresolved := map[string][]string{}
 	if meta.HasCredentials {
 		carried = manifest.Only(meta.Credentials)
 		for _, service := range manifest.Services {
@@ -96,6 +97,9 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 					entry := serviceEntry(carried.Services[index], status)
 					entry.CheckedAt = time.Now().UTC()
 					result.Entries = append(result.Entries, entry)
+					if status.Resolution != nil {
+						unresolved[status.Service] = status.Missing
+					}
 				}
 			}
 		}
@@ -143,19 +147,22 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 	}
 	for index := range result.Entries {
 		entry := &result.Entries[index]
-		if entry.Kind != "service" {
+		if entry.Kind != "service" || !meta.HasCredentials {
 			continue
 		}
 		serviceIndex := slices.IndexFunc(manifest.Services, func(service auth.Service) bool { return service.Name == entry.Name })
 		service := manifest.Services[serviceIndex]
 		isLoaded := slices.ContainsFunc(service.Env, func(name string) bool { return values[strings.ToUpper(name)] != "" })
-		hasMissing := slices.ContainsFunc(service.Env, func(name string) bool { return values[strings.ToUpper(name)] == "" })
+		missing, isResolved := unresolved[entry.Name]
+		hasLoadable := isResolved && slices.ContainsFunc(service.Env, func(name string) bool {
+			return values[strings.ToUpper(name)] == "" && !slices.Contains(missing, name)
+		})
 		hasRevokedLoaded := slices.ContainsFunc(service.Env, func(name string) bool {
 			return values[strings.ToUpper(name)] != "" && !slices.Contains(carried.EnvNames(), name)
 		})
-		isGranted := !meta.HasCredentials || slices.Contains(meta.Credentials, entry.Name)
+		isGranted := slices.Contains(meta.Credentials, entry.Name)
 		switch {
-		case isGranted && hasMissing:
+		case isGranted && hasLoadable:
 			entry.RestartRequired, entry.RestartReason = true, "Granted, but declared credentials are missing from the running process. Restart to load available credentials."
 		case !isGranted && hasRevokedLoaded:
 			entry.RestartRequired, entry.RestartReason = true, "Revoked, but credentials remain in the running process. Restart to remove them; rewriting auth scripts does not remove loaded credentials."
@@ -223,23 +230,6 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 			entry.Detail = "Sign in from your own harness session, or ask the CFO for token access."
 		}
 		entry.Grant = grantOffered(*entry, meta)
-		if entry.Kind == "mcp" && meta.Harness == "codex" {
-			setting := ""
-			for argumentIndex, argument := range args {
-				if argument != "-c" || argumentIndex+1 >= len(args) {
-					continue
-				}
-				if args[argumentIndex+1] == "mcp_servers."+entry.Name+".enabled=false" || args[argumentIndex+1] == "mcp_servers."+entry.Name+".enabled=true" {
-					setting = args[argumentIndex+1]
-				}
-			}
-			isGranted := slices.Contains(meta.MCPServers, entry.Name)
-			if isGranted && setting == "mcp_servers."+entry.Name+".enabled=false" {
-				entry.RestartRequired, entry.RestartReason = true, "Granted, but disabled in this process's launch settings. Restart to load it."
-			} else if !isGranted && setting == "mcp_servers."+entry.Name+".enabled=true" {
-				entry.RestartRequired, entry.RestartReason = true, "Revoked, but enabled in this process's launch settings. Restart to apply the revocation."
-			}
-		}
 	}
 	after, runtimeErr := i.Runtime(ctx, i.StateDir, meta)
 	if runtimeErr != nil || observed.Identity != after.Identity || ctx.Err() != nil {

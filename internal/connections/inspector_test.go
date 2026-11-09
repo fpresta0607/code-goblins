@@ -67,6 +67,17 @@ func writeConnectionFixture(t *testing.T, path, content string) {
 	}
 }
 
+func storeConnectionCredential(t *testing.T, inspector *Inspector, meta state.TaskMeta, name string) {
+	t.Helper()
+	store, err := inspector.OpenStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set(auth.Scoped(meta.Project, name), "synthetic-stored-value"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSuccessfulSeparateCodexProbeDoesNotVerifyLiveSession(t *testing.T) {
 	inspector, meta := inspectorFixture(t)
 	meta.Harness = "codex"
@@ -183,58 +194,6 @@ func TestInspectorKeepsSameProviderWorkersEvidenceSeparate(t *testing.T) {
 	}
 }
 
-func TestInspectorExplainsMCPGrantDifferencesOnlyWithLaunchEvidence(t *testing.T) {
-	for _, test := range []struct {
-		name, setting          string
-		isGranted, wantRestart bool
-	}{
-		{"granted disabled", "false", true, true},
-		{"revoked enabled", "true", false, true},
-		{"granted enabled", "true", true, false},
-		{"revoked disabled", "false", false, false},
-		{"unknown launch", "", true, false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			inspector, meta := inspectorFixture(t)
-			meta.Harness = "codex"
-			executable := "codex"
-			if runtime.GOOS == "windows" {
-				executable += ".exe"
-			}
-			directory := t.TempDir()
-			writeConnectionFixture(t, filepath.Join(directory, executable), "")
-			if err := os.Chmod(filepath.Join(directory, executable), 0700); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
-			inspector.Runner = checkRunner(func(context.Context, execx.Request) (execx.Result, error) {
-				return execx.Result{Stdout: []byte(`[{"name":"tools","enabled":true}]`)}, nil
-			})
-			inspector.Codex = func(context.Context, string, []string, []string) ([]Entry, error) {
-				return []Entry{{ID: "mcp:tools", Name: "tools", Kind: "mcp", Status: "connected"}}, nil
-			}
-			if test.isGranted {
-				meta.MCPServers = []string{"tools"}
-			}
-			readRuntime := inspector.Runtime
-			inspector.Runtime = func(ctx context.Context, directory string, task state.TaskMeta) (RuntimeObservation, error) {
-				observed, err := readRuntime(ctx, directory, task)
-				if test.setting != "" {
-					observed.Args = append(observed.Args, "-c", "mcp_servers.tools.enabled="+test.setting)
-				}
-				return observed, err
-			}
-
-			result := inspector.Check(context.Background(), meta)
-
-			index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == "mcp:tools" })
-			if index < 0 || result.Entries[index].RestartRequired != test.wantRestart {
-				t.Fatalf("invented MCP load evidence: %+v", result)
-			}
-		})
-	}
-}
-
 func TestFailedSeparateProbeCannotRetainPartialSuccess(t *testing.T) {
 	inspector, meta := inspectorFixture(t)
 	inspector.Claude = func(context.Context, string, []string, []string) ([]Entry, error) {
@@ -256,20 +215,24 @@ func TestFailedSeparateProbeCannotRetainPartialSuccess(t *testing.T) {
 
 func TestInspectorExplainsCredentialGrantDifferencesFromObservedProcess(t *testing.T) {
 	for _, test := range []struct {
-		name                string
-		isGranted, isLoaded bool
-		wantReason          string
+		name                          string
+		isGranted, isLoaded, isStored bool
+		wantReason                    string
 	}{
-		{"granted absent", true, false, "Restart to load"},
-		{"revoked present", false, true, "Restart to remove"},
-		{"granted present", true, true, ""},
-		{"revoked absent", false, false, ""},
+		{"granted absent", true, false, true, "Restart to load"},
+		{"granted absent unstored", true, false, false, ""},
+		{"revoked present", false, true, true, "Restart to remove"},
+		{"granted present", true, true, true, ""},
+		{"revoked absent", false, false, true, ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			inspector, meta := inspectorFixture(t)
 			meta.HasCredentials = true
 			if test.isGranted {
 				meta.Credentials = []string{"repo"}
+			}
+			if test.isStored {
+				storeConnectionCredential(t, inspector, meta, "FIXTURE_SECRET")
 			}
 			writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"repo","method":"env","env":["FIXTURE_SECRET"]}]}`)
 			readRuntime := inspector.Runtime
@@ -309,6 +272,7 @@ func TestSharedAndPartiallyLoadedCredentialsHaveAccurateRestartExplanations(t *t
 		t.Run(test.name, func(t *testing.T) {
 			inspector, meta := inspectorFixture(t)
 			meta.HasCredentials, meta.Credentials = true, test.grants
+			storeConnectionCredential(t, inspector, meta, "MISSING_TOKEN")
 			writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"repo","method":"env","env":["FIXTURE_SECRET","MISSING_TOKEN"]},{"name":"other","method":"env","env":["FIXTURE_SECRET"]}]}`)
 
 			result := inspector.Check(context.Background(), meta)

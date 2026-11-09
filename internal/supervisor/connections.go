@@ -54,7 +54,7 @@ func (s *Service) connections() (*connections.Cache, *connections.Inspector) {
 			result := inspector.Check(ctx, meta)
 			current, err := s.connectionTask(task, generation)
 			if err != nil || !reflect.DeepEqual(current, meta) {
-				return connections.Snapshot{Generation: generation, Error: "Task or grants changed during the check. Refresh connections.", Entries: []connections.Entry{}}
+				return connections.Snapshot{Error: "Task or grants changed during the check. Refresh connections.", Entries: []connections.Entry{}}
 			}
 			return result
 		})

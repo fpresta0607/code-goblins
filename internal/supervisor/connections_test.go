@@ -68,7 +68,9 @@ func TestConnectionAPIRejectsTaskChangesDuringAsynchronousInspection(t *testing.
 				if result.Error == "" || len(result.Entries) != 0 || result.Runtime != nil {
 					t.Fatalf("published changed task: %+v", result)
 				}
-				return
+				if change == "generation" {
+					return
+				}
 			}
 			handler := NewHTTP(service, "board.local", nil)
 			response := httptest.NewRecorder()
@@ -76,6 +78,12 @@ func TestConnectionAPIRejectsTaskChangesDuringAsynchronousInspection(t *testing.
 			var snapshot connections.Snapshot
 			if err := json.Unmarshal(response.Body.Bytes(), &snapshot); err != nil {
 				t.Fatal(err)
+			}
+			if change != "none" {
+				if response.Code != 200 || snapshot.Generation != "g1" || snapshot.Error == "" || len(snapshot.Entries) != 0 {
+					t.Fatalf("error response lost its generation: %s", response.Body)
+				}
+				return
 			}
 			if response.Code != 200 || snapshot.Generation != "g1" || snapshot.Runtime == nil || snapshot.Runtime.Workspace != meta.Worktree {
 				t.Fatalf("lost runtime provenance: %s", response.Body)
