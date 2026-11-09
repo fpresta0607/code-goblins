@@ -14,7 +14,28 @@ const cases: { name: string; rows: string[]; parts: PanelPart[] }[] = [
   {
     name: "a pane's gutter bars and edges go, and what lies between two rules of dashes is code",
     rows: ["╭" + DASHES + "╮", "│ Create file                              │", "│ nine.txt                                 │", DASHES, " 1 nine", " 2 ten", DASHES, "Do you want to create nine.txt?", "╰" + DASHES + "╯"],
-    parts: [{ kind: "title", text: "Create file nine.txt" }, { kind: "code", text: "1 nine\n2 ten" }, { kind: "prose", text: "Do you want to create nine.txt?" }],
+    parts: [{ kind: "title", text: "Create file" }, { kind: "prose", text: "nine.txt" }, { kind: "code", text: "1 nine\n2 ten" }, { kind: "prose", text: "Do you want to create nine.txt?" }],
+  },
+  {
+    name: "a preview the relay cut at its top, above a lone closing rule, is code and no title",
+    rows: [" 27 line", " 28 line", " 29 line", "╌╌╌", "Do you want to create big.txt?"],
+    parts: [{ kind: "code", text: "27 line\n28 line\n29 line" }, { kind: "prose", text: "Do you want to create big.txt?" }],
+  },
+  {
+    name: "the model picker's first row is the title alone and the row under it its own paragraph",
+    rows: ["Select model", "Switch between Claude models."],
+    parts: [{ kind: "title", text: "Select model" }, { kind: "prose", text: "Switch between Claude models." }],
+  },
+  {
+    name: "the cost panel keeps its two lines",
+    rows: ["Total cost: $0.12", "Total duration: 3m 4s"],
+    parts: [{ kind: "title", text: "Total cost: $0.12" }, { kind: "prose", text: "Total duration: 3m 4s" }],
+  },
+  {
+    name: "a row the terminal wrapped joins the row above, and a row that would have fit stays its own",
+    rows: ["Switch model?", "Your next response will be slower and use more tokens", "", "This conversation is cached for the current model. Switching to", "Haiku 5.5 means the full history gets re-read."],
+    parts: [{ kind: "title", text: "Switch model?" }, { kind: "prose", text: "Your next response will be slower and use more tokens" },
+      { kind: "prose", text: "This conversation is cached for the current model. Switching to Haiku 5.5 means the full history gets re-read." }],
   },
   {
     name: "a Codex command after $ is code",

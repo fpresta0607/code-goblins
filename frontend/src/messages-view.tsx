@@ -698,6 +698,16 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   useLayoutEffect(() => {
     if (boxSends && list.current && !following.current) toEnd(list.current);
   }, [boxSends, toEnd]);
+  // A screen of the harness's own that opens or changes in the conversation's
+  // last row takes the list to its end, where it shows, so a key the empty box
+  // hands the screen never answers a prompt he cannot see (#2223).
+  useLayoutEffect(() => {
+    const slot = items.current?.querySelector(":scope > .conversation-ask");
+    if (!slot) return;
+    const observer = new MutationObserver(() => { if (slot.childElementCount && list.current && !following.current) toEnd(list.current); });
+    observer.observe(slot, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, [onAskSlot, toEnd]);
   const keys = (event: KeyboardEvent<HTMLElement>) => {
     // Shift+Escape leaves the messages for the panel's first control, as it
     // leaves a terminal.

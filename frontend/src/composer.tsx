@@ -784,11 +784,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // which presses Escape in its terminal as the terminal's own Esc does.
   const canStop = isWorking && !outgoing && !isSending && live?.phase === "live" && !isHeld;
   const isTouch = matchMedia(TOUCH_SCREEN).matches;
-  // What the harness's own screen asks, which a box with a conversation draws
-  // as the conversation's last message (#2223), and any other box above
-  // itself.
-  const isAskInChat = hasConversation && !!askSlot;
-  const asking = panel && !isHeld && !isTerminalShown && !isDriving ? <HarnessPanel panel={panel} name={name} isInChat={isAskInChat}
+  // What the harness's own screen asks, which a box given the conversation's
+  // ask slot draws as the conversation's last message (#2223), and any other
+  // box above itself.
+  const asking = panel && !isHeld && !isTerminalShown && !isDriving ? <HarnessPanel panel={panel} name={name} isInChat={!!askSlot}
     onKeys={(keys) => { if (!live?.control(keys)) setUnsent(unsentWhy); field.current?.focus(); }} /> : null;
   // data-queues says a Send now goes to the board's queue rather than into the
   // terminal, which no note tells him (queueNote).
@@ -797,7 +796,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
         words change, and a refusal from its banner at once. */}
     <p className="sr-only" role="status">{note}</p>
     <ComposerBanner key={notice.count} text={notice.text} isRefusal={notice.from === "box" || notice.from === "queued"} />
-    {asking && askSlot && isAskInChat ? createPortal(asking, askSlot) : asking}
+    {asking && askSlot ? createPortal(asking, askSlot) : asking}
     {queueRows.length + kept.length > 0 && <ol className="composer-sent">
       {queueRows.map((action) => <li key={action.id}><QueuedMessage action={action} instance={snapshot.instance} name={name} variant="queue" /></li>)}
       {kept.map((text, index) => {

@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { asks, box, field, NAME, open, openGoblin, typed } from "./session-board";
+import { asks, at, box, field, NAME, open, openGoblin, snapshot, typed } from "./session-board";
 
 // Claude Code's permission prompt for a command, as the relay reads it off the
 // terminal: a pane with gutter bars down its sides, the command it quotes
@@ -11,7 +11,21 @@ const PROMPT = {
   choices: [{ text: "Yes", number: 1, focused: true }, { text: "Yes, and don't ask again for gh pr checks", number: 2 }, { text: "No", number: 3 }],
   hints: ["Esc to cancel"],
 };
+// Claude Code's question after a switch of model, a screen of its own after
+// the one before.
+const SWITCH = {
+  rows: ["Switch model?", "Your next response will be slower and use more tokens"],
+  choices: [{ text: "Yes, switch to Haiku 5.5", number: 1, focused: true }, { text: "No, go back", number: 2 }],
+  hints: [],
+};
 const GUTTER = /[│┃║▌▍▎▏╎╏┆┇┊┋╭╮╰╯]/;
+// A conversation long enough to read up in.
+const LONG = {
+  messages: Array.from({ length: 60 }, (_, seq) => seq % 2
+    ? { id: "m" + seq, seq, at, kind: "reply", blocks: [{ kind: "text", text: `Answer ${seq}\n\nIt runs over a few lines\nso the page has height to read up in.` }] }
+    : { id: "m" + seq, seq, at, kind: "prompt", source: "overlord", text: "Question " + seq }),
+  conversation: "fixture-conversation", more: false,
+};
 
 for (const width of [390, 1440]) {
   test.describe(`a goblin waiting on its harness's own prompt at ${width}px`, () => {
@@ -66,6 +80,45 @@ for (const width of [390, 1440]) {
       // Assert
       await expect.poll(() => typed(relay)).toBe("3");
       await expect(field(page)).toHaveValue("");
+    });
+
+    test("a prompt that opens while he reads up comes into view", async ({ page }) => {
+      // Arrange
+      const relay = await open(page, snapshot(), "rebase onto main", LONG);
+      await openGoblin(page);
+      const conversation = page.getByRole("log", { name: "Messages of " + NAME });
+      await expect(conversation).toContainText("Answer 59");
+      await conversation.evaluate((log) => { log.scrollTop = 0; });
+      await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+
+      // Act
+      relay.say({ type: "screen", asking: true, open: true, working: false, submission: "his", panel: PROMPT });
+
+      // Assert
+      await expect(asks(page)).toBeVisible();
+      await expect.poll(async () => {
+        const [promptBox, logBox] = [await asks(page).boundingBox(), await conversation.boundingBox()];
+        return !!promptBox && !!logBox && promptBox.y >= logBox.y && promptBox.y + promptBox.height <= logBox.y + logBox.height + 1;
+      }, { message: "the prompt is within the conversation's visible box" }).toBe(true);
+      await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
+    });
+
+    test("the next screen's choices take a press at once after a press on the one before", async ({ page }) => {
+      // Arrange
+      const relay = await open(page);
+      await openGoblin(page);
+      relay.say({ type: "screen", asking: true, open: true, working: false, submission: "his", panel: PROMPT });
+      await asks(page).getByRole("button", { name: "Yes", exact: true }).click();
+      await expect.poll(() => typed(relay)).toBe("1");
+
+      // Act
+      relay.say({ type: "screen", asking: true, open: true, working: false, submission: "his", panel: SWITCH });
+      const goBack = asks(page).getByRole("button", { name: "No, go back", exact: true });
+      await expect(goBack).toBeEnabled({ timeout: 1000 });
+      await goBack.click();
+
+      // Assert
+      await expect.poll(() => typed(relay), { timeout: 1000 }).toBe("12");
     });
   });
 }
