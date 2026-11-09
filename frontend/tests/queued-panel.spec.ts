@@ -11,8 +11,8 @@ const task = (id: string, phase: string, fields: Record<string, unknown> = {}) =
 const QUEUED = task("queued-one", "queued", { generation: "", brief: true, queue_revision: "q1", detail: "Its detail." });
 const BLOCKED = task("queued-blocked", "queued", { generation: "", brief: true, queue_revision: "q1", waits: [{ kind: "task", target: "queued-one" }], reason: "after queued-one" });
 const WORKING = task("working-one", "working", { harness: "codex" });
-const PAUSED = task("paused-one", "paused", { lifecycle: { phase: "paused", action: "pause", at: since, kept: ["worktree", "session"], stopped: [], problems: [], handoff_saved: true, validation_restarts: false } });
-const REMOVED = task("finished:queued-one", "stopped", { title: "queued-one", generation: "", archived: true, at: since, lifecycle: { phase: "stopped", action: "stop", at: since, kept: ["task brief"], stopped: [], problems: [], handoff_saved: false, validation_restarts: false } });
+const PAUSED = task("paused-one", "paused", { lifecycle: { phase: "paused", action: "pause", at: since, kept: ["worktree", "session"], stopped: [], problems: [], handoff_saved: true, validation_kept: false } });
+const REMOVED = task("finished:queued-one", "stopped", { title: "queued-one", generation: "", archived: true, at: since, lifecycle: { phase: "stopped", action: "stop", at: since, kept: ["task brief"], stopped: [], problems: [], handoff_saved: false, validation_kept: false } });
 // A delivered goblin whose session is still up, in Completed.
 const DELIVERED = task("delivered-one", "done", { verified: true, merged: true, pr: "https://github.com/o/r/pull/9" });
 const BOARD = [QUEUED, BLOCKED, WORKING, PAUSED];

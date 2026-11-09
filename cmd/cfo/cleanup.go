@@ -19,16 +19,19 @@ const cleanupUsage = `usage: cfo cleanup <id> [--force-archive]
 
 Close the task tab and return one clean, proven-inactive task worktree,
 removing the worktree and pruning its Git administrative entry.
-Refuses dirty worktrees, active agents, ambiguous identity, and the primary
-checkout. It holds the task against every other command while it runs, so a
-pause, a resume, a kill or a switch of the task that starts meanwhile is
-refused, and it is refused itself, before it removes anything, while one of
-those is in flight.
+Refuses dirty worktrees, active agents, ambiguous identity, the primary
+checkout, and a task whose gate run, which a pause leaves running, is still
+open or cannot be read: cfo kill <id> aborts that run after keeping its
+commits and retires the task. It holds the task against every other command
+while it runs, so a pause, a resume, a kill or a switch of the task that
+starts meanwhile is refused, and it is refused itself, before it removes
+anything, while one of those is in flight.
 
 --force-archive retires a task whose worktree can no longer be validated (a
 directory pinned by a dead handle, or already gone). It archives the task
 record and leaves the directory untouched - nothing on disk is deleted - and
-still refuses a pane with a live agent.
+still refuses a pane with a live agent. It reads no gate run, which only a
+worktree it can validate names.
 `
 
 // runCleanup returns one validated task's worktree through the guarded
@@ -104,6 +107,7 @@ func defaultCleanup(ctx context.Context, h home.Home, id string, forceArchive bo
 		HandOver: func(meta state.TaskMeta) (bool, error) {
 			return supervisor.HandOverRetiredNote(h.State, meta)
 		},
+		OpenGateRun: openGateRun,
 	}
 	result, err := service.Cleanup(ctx, id)
 	if err != nil {

@@ -18,3 +18,7 @@ func defaultTaskLifecycle(context.Context, home.Home, lifecycle.Request, string)
 func endLeftProcesses(context.Context, home.Home, state.TaskMeta) ([]string, error) {
 	return nil, nil
 }
+
+func openGateRun(context.Context, state.TaskMeta) (string, error) {
+	return "", errors.New("a task's gate run is read on Windows")
+}

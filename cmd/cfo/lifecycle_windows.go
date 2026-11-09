@@ -257,3 +257,17 @@ func pauseWithdrawal(runtime commandRuntime, h home.Home) func(context.Context, 
 func endLeftProcesses(ctx context.Context, h home.Home, meta state.TaskMeta) ([]string, error) {
 	return lifecycle.EndLeft(ctx, h, meta)
 }
+
+// openGateRun names the task's gate run while it is still open, for the
+// cleanup that refuses to retire a task around it.
+func openGateRun(ctx context.Context, meta state.TaskMeta) (string, error) {
+	root, err := pipeline.DefaultRoot()
+	if err != nil {
+		return "", err
+	}
+	run, err := lifecycle.TaskGate(ctx, meta, pipeline.Reader{Root: root, Commands: gatedb.Runner{Next: execx.OSRunner{}}})
+	if err != nil || run.ID == "" || run.IsTerminal() {
+		return "", err
+	}
+	return run.ID, nil
+}

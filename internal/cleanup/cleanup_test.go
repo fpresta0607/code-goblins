@@ -441,6 +441,61 @@ func TestCleanupRefusals(t *testing.T) {
 	}
 }
 
+// A pause leaves its goblin's gate run running and only cfo kill aborts it,
+// so a cleanup retires no task whose run is still open: retired, the task
+// would leave the run going on through review, tests and a pull request for
+// nobody. A gate that cannot be read refuses too, never taken for one with no
+// run. Either refusal comes before anything changes, a harness worktree left
+// in the task's checkout included, and names what to do; a task whose run
+// has ended, or that has none, is cleaned up as before (issue #2089).
+func TestCleanupRefusesATaskWhoseGateRunIsStillOpen(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		run     string
+		readErr error
+		want    []string
+	}{
+		{name: "a run still open", run: "run-1", want: []string{"run-1", "still open", "cfo kill g1"}},
+		{name: "a gate that cannot be read", readErr: errors.New("state query failed"), want: []string{"cannot be read", "state query failed"}},
+		{name: "a run that ended, or none"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			fixture := newCleanupFixture(t)
+			nested := filepath.Join(fixture.worktree, ".claude", "worktrees", "probe")
+			if err := os.MkdirAll(nested, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			fixture.runner.registered = "worktree " + nested + "\nworktree " + fixture.worktree + "\n"
+			var read []state.TaskMeta
+			fixture.service.OpenGateRun = func(_ context.Context, meta state.TaskMeta) (string, error) {
+				read = append(read, meta)
+				return tc.run, tc.readErr
+			}
+
+			// Act
+			result, err := fixture.service.Cleanup(t.Context(), "g1")
+
+			// Assert
+			if len(read) != 1 || read[0].Worktree != fixture.worktree || read[0].Project != fixture.project {
+				t.Fatalf("read the gate run of %+v, want the task's once", read)
+			}
+			if tc.want == nil {
+				if err != nil || !strings.Contains(result.Output, "cleaned g1 worktree=") {
+					t.Fatalf("Cleanup = %q, %v; want the task retired", result.Output, err)
+				}
+				return
+			}
+			for _, want := range tc.want {
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Fatalf("Cleanup = %q, %v; want it refused saying %q", result.Output, err, want)
+				}
+			}
+			fixture.assertMetadataPreserved(t)
+		})
+	}
+}
+
 func TestCleanupPreservesMetadataWhenReturnFails(t *testing.T) {
 	fixture := newCleanupFixture(t)
 	fixture.git.returnErr = errors.New("worktree: ambiguous return refused")

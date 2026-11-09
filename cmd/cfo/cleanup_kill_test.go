@@ -18,9 +18,11 @@ import (
 )
 
 // killedTask is a native task in a home of the test's own whose terminal has
-// ended: a project cloned from a bare origin and the task's worktree of it.
+// ended: a project cloned from a bare origin and the task's worktree of it,
+// beside a gate root of its own that holds no runs.
 func killedTask(t *testing.T) (home.Home, state.TaskMeta) {
 	t.Helper()
+	t.Setenv("NM_HOME", t.TempDir())
 	root := t.TempDir()
 	git := func(dir string, args ...string) {
 		t.Helper()

@@ -151,7 +151,7 @@ func TestPausedTaskSurvivesSnapshotRestartWithoutAnUnavailableState(t *testing.T
 		for _, task := range snapshot.Tasks {
 			if task.ID == meta.ID {
 				found = true
-				if task.Phase != "paused" || task.Lifecycle == nil || !task.Lifecycle.ValidationRestarts || task.Activity != "Requested from the board" {
+				if task.Phase != "paused" || task.Lifecycle == nil || !task.Lifecycle.ValidationKept || task.Activity != "Requested from the board" {
 					t.Fatalf("task=%+v", task)
 				}
 			}
@@ -521,7 +521,7 @@ func TestRequeuedTaskRegainsQueueControlsAfterAnEarlierQueuedStop(t *testing.T) 
 	}
 }
 
-func TestStoppedCardNeverPromisesAValidationRestart(t *testing.T) {
+func TestStoppedCardNeverSaysItsValidationRunIsKept(t *testing.T) {
 	handler, h := orderBoard(t)
 	meta := state.TaskMeta{ID: "task", Title: "Gated task", SpawnGen: "generation-1", Project: h.Root, Worktree: h.Root, TaskTmp: filepath.Join(h.State, "tasktmp", "task"), Backend: "native"}
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
@@ -529,12 +529,11 @@ func TestStoppedCardNeverPromisesAValidationRestart(t *testing.T) {
 	}
 	service := lifecycle.Service{StateDir: h.State, PauseWait: 10 * time.Millisecond, Operations: lifecycle.Operations{
 		Prepare: func(context.Context, state.TaskMeta, string) error { return nil },
-		Stop:    func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) { return nil, nil },
-		Checkpoint: func(_ context.Context, _ state.TaskMeta, record *state.Lifecycle) error {
+		Stop: func(_ context.Context, _ state.TaskMeta, record *state.Lifecycle) ([]string, error) {
 			if record.Action == "pause" {
 				record.GateRun, record.GateIntent, record.GateHead = "run-1", "saved intent", strings.Repeat("a", 40)
 			}
-			return nil
+			return nil, nil
 		},
 		Archive: func(context.Context, state.TaskMeta, *state.Lifecycle) (lifecycle.Preservation, error) {
 			return lifecycle.Preservation{Kept: []string{"branch gb-task"}}, nil
@@ -556,27 +555,27 @@ func TestStoppedCardNeverPromisesAValidationRestart(t *testing.T) {
 	if _, err := service.Run(t.Context(), lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"}); err != nil {
 		t.Fatal(err)
 	}
-	if !lifecycleCard(meta.ID).ValidationRestarts {
-		t.Fatal("paused card with an interrupted gate does not say validation restarts")
+	if !lifecycleCard(meta.ID).ValidationKept {
+		t.Fatal("paused card with an open gate run does not say its validation run is kept")
 	}
 	stopped, err := service.Run(t.Context(), lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "stop-1", Action: "stop"})
 	if err != nil || stopped.GateRun != "run-1" {
 		t.Fatalf("stop lost gate custody: %+v %v", stopped, err)
 	}
-	if lifecycleCard(meta.ID).ValidationRestarts {
-		t.Fatal("stopped card promises a validation restart")
+	if lifecycleCard(meta.ID).ValidationKept {
+		t.Fatal("stopped card says its aborted validation run is kept")
 	}
 	if err := os.Remove(filepath.Join(h.State, meta.ID+".meta")); err != nil {
 		t.Fatal(err)
 	}
 	history := finishedTasks(h, &keptReads{}, time.Now())
 	index := slices.IndexFunc(history, func(task Task) bool { return task.ID == "finished:"+meta.ID })
-	if index < 0 || history[index].Lifecycle == nil || history[index].Lifecycle.ValidationRestarts {
-		t.Fatalf("archived stopped card promises a validation restart: %+v", history)
+	if index < 0 || history[index].Lifecycle == nil || history[index].Lifecycle.ValidationKept {
+		t.Fatalf("archived stopped card says its aborted validation run is kept: %+v", history)
 	}
 }
 
-func TestValidationRestartIsPromisedOnlyWhenResumeCanFollow(t *testing.T) {
+func TestValidationRunIsKeptOnlyWhenResumeCanFollow(t *testing.T) {
 	for _, test := range []struct {
 		action, phase string
 		want          bool
@@ -598,10 +597,9 @@ func TestValidationRestartIsPromisedOnlyWhenResumeCanFollow(t *testing.T) {
 			if test.action == "pause" && test.phase == "failed" {
 				service := lifecycle.Service{StateDir: h.State, PauseWait: 10 * time.Millisecond, Operations: lifecycle.Operations{
 					Prepare: func(context.Context, state.TaskMeta, string) error { return nil },
-					Stop:    func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) { return nil, nil },
-					Checkpoint: func(_ context.Context, _ state.TaskMeta, record *state.Lifecycle) error {
+					Stop: func(_ context.Context, _ state.TaskMeta, record *state.Lifecycle) ([]string, error) {
 						record.GateRun, record.GateIntent, record.GateHead = "run-1", "saved intent", strings.Repeat("a", 40)
-						return errors.New("gate commits are pinned locally but could not merge into the task branch")
+						return nil, errors.New("the task's processes could not be read")
 					},
 					Notify: func(state.Lifecycle) error { return nil },
 				}}
@@ -620,8 +618,8 @@ func TestValidationRestartIsPromisedOnlyWhenResumeCanFollow(t *testing.T) {
 			if index < 0 || snapshot.Tasks[index].Lifecycle == nil {
 				t.Fatalf("no lifecycle card: %+v", snapshot.Tasks)
 			}
-			if got := snapshot.Tasks[index].Lifecycle.ValidationRestarts; got != test.want {
-				t.Fatalf("validation restarts=%v, want %v", got, test.want)
+			if got := snapshot.Tasks[index].Lifecycle.ValidationKept; got != test.want {
+				t.Fatalf("validation kept=%v, want %v", got, test.want)
 			}
 		})
 	}

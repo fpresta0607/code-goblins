@@ -77,6 +77,13 @@ type Service struct {
 	// as a record it could not read or what it met after handing them on, is
 	// a warning in the output. Nil hands nothing on.
 	HandOver func(meta state.TaskMeta) (bool, error)
+	// OpenGateRun names the task's gate run, read by its worktree's branch,
+	// while that run is still open, and nothing once it has ended or the task
+	// has none. A pause leaves the run running and only cfo kill aborts it,
+	// so a cleanup of a task whose run is open, or whose gate cannot be read,
+	// is refused before anything changes: retired, the task would leave its
+	// run going on for nobody. Nil reads none.
+	OpenGateRun func(ctx context.Context, meta state.TaskMeta) (string, error)
 }
 
 // Result reports the exact returned task identity.
@@ -178,6 +185,9 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	// touched: a harness at work is using the folders below.
 	idle, err := s.requireInactive(ctx, meta)
 	if err != nil {
+		return Result{}, err
+	}
+	if err := s.requireGateRunEnded(ctx, meta); err != nil {
 		return Result{}, err
 	}
 	// A harness's own tooling leaves worktrees of its own, in the task's
@@ -357,6 +367,22 @@ func (s Service) handOver(meta state.TaskMeta) (string, error) {
 		return "\nwarning: " + err.Error(), nil
 	}
 	return "", nil
+}
+
+// requireGateRunEnded refuses a task whose gate run is still open, or whose
+// gate cannot be read, before anything changes.
+func (s Service) requireGateRunEnded(ctx context.Context, meta state.TaskMeta) error {
+	if s.OpenGateRun == nil {
+		return nil
+	}
+	run, err := s.OpenGateRun(ctx, meta)
+	if err != nil {
+		return fmt.Errorf("cleanup: the gate run of %s cannot be read, so nothing was removed, and the cleanup can run again once it can: %w", meta.ID, err)
+	}
+	if run != "" {
+		return fmt.Errorf("cleanup: the gate run %s of %s is still open, so nothing was removed; cfo kill %s aborts the run after keeping its commits and retires the task", run, meta.ID, meta.ID)
+	}
+	return nil
 }
 
 // endLeft ends what the task's terminal left running and says what it ended.

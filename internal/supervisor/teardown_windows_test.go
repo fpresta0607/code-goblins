@@ -47,8 +47,8 @@ func TestBoardKeepsWindowsTeardownAfterResumeAndRestart(t *testing.T) {
 				if index < 0 || snapshot.Tasks[index].Lifecycle == nil || len(snapshot.Tasks[index].Teardown) != 1 {
 					t.Fatalf("board hid teardown in %s: %+v", phase, snapshot.Tasks)
 				}
-				if phase == "running" && snapshot.Tasks[index].Lifecycle.ValidationRestarts {
-					t.Fatal("resumed card promises a validation restart")
+				if phase == "running" && snapshot.Tasks[index].Lifecycle.ValidationKept {
+					t.Fatal("resumed card still says its validation run is kept for Resume")
 				}
 				store, err := Open(h)
 				if err != nil {

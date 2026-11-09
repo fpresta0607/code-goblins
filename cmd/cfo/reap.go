@@ -197,6 +197,7 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 				HandOver: func(meta state.TaskMeta) (bool, error) {
 					return supervisor.HandOverRetiredNote(h.State, meta)
 				},
+				OpenGateRun: openGateRun,
 			}.Cleanup(ctx, id)
 			return result.Output, err
 		},

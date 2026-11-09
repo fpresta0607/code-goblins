@@ -551,8 +551,8 @@ func TestPublicResumeRestoresSourceWithoutReplacingValidation(t *testing.T) {
 	standin.RemoveAtCleanup(t, bin)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	for _, test := range []struct {
-		name, status, reason, until, liveStep, refusal, finalStatus                string
-		isForeign, isUnreadable, isLowMemory, isAllowanceDenied, isProviderRefused bool
+		name, status, reason, until, liveStep, refusal, finalStatus                          string
+		isForeign, isUnreadable, isLowMemory, isAllowanceDenied, isProviderRefused, isKilled bool
 	}{
 		{name: "cancelled", status: "cancelled"},
 		{name: "failed", status: "failed"},
@@ -560,6 +560,7 @@ func TestPublicResumeRestoresSourceWithoutReplacingValidation(t *testing.T) {
 		{name: "interrupted CI monitor", status: "ci_monitor_interrupted"},
 		{name: "live original paused for memory", status: "running", reason: "memory"},
 		{name: "live original", status: "running"},
+		{name: "live original killed while paused", status: "running", isKilled: true},
 		{name: "pending original", status: "pending"},
 		{name: "live original in Review paused for a dependency", status: "running", reason: "dependency", until: "date:2099-01-01T00:00:00Z", liveStep: "review"},
 		{name: "live original in Test paused for a dependency", status: "running", reason: "dependency", until: "date:2099-01-01T00:00:00Z", liveStep: "test"},
@@ -666,7 +667,7 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 			}
 			launches := 0
 			var resumed spawn.SwitchRequest
-			runtime := commandRuntime{resolveHome: func() (home.Home, error) { return h, nil }, switchTask: func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+			runtime := commandRuntime{resolveHome: func() (home.Home, error) { return h, nil }, cleanup: defaultCleanup, switchTask: func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
 				if test.isProviderRefused {
 					return spawn.SwitchResult{}, errors.New("provider refused this session")
 				}
@@ -693,7 +694,7 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 				Notify: func(state.Lifecycle) error { return nil },
 			}}
 			runtime.taskLifecycle = func(ctx context.Context, _ home.Home, request lifecycle.Request, _ string) (state.Lifecycle, error) {
-				if request.Action == "pause" {
+				if request.Action == "pause" || request.Action == "stop" {
 					request.IsWatched = true
 					return defaultTaskLifecycle(ctx, h, request, "")
 				}
@@ -722,6 +723,31 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 			// aborts it nor fails trying (issue 2089).
 			if calls, err := os.ReadFile(nativeRecord); err != nil && !errors.Is(err, os.ErrNotExist) || strings.Contains(string(calls), "no-mistakes") || slices.ContainsFunc(paused.Problems, func(problem string) bool { return strings.Contains(problem, "gate") }) || slices.ContainsFunc(paused.Stopped, func(stopped string) bool { return strings.Contains(stopped, "original-run") }) {
 				t.Fatalf("a %s pause reached into the validation run: native calls %q, problems %q, stopped %q, %v", reason, calls, paused.Problems, paused.Stopped, err)
+			}
+			if test.isKilled {
+				// A cleanup retires no task around the run its pause left
+				// running: it is refused with nothing changed, naming the kill
+				// that ends the run.
+				if code := runWithRuntime([]string{"cleanup", meta.ID}, &output, &failure, runtime); code != 1 || !strings.Contains(failure.String(), "cfo kill "+meta.ID) {
+					t.Fatalf("cleanup of a goblin paused with an open run exit %d: %s", code, &failure)
+				}
+				current, err := state.ReadLifecycle(h.State, meta.ID)
+				if _, metaErr := state.ReadTaskMeta(h.State, meta.ID); metaErr != nil || err != nil || !reflect.DeepEqual(current, paused) {
+					t.Fatalf("refused cleanup changed the task: %+v, %v, %v", current, err, metaErr)
+				}
+				if content, err := os.ReadFile(unfinished); err != nil || string(content) != "author repair in progress" {
+					t.Fatalf("refused cleanup touched the unfinished repair: %q, %v", content, err)
+				}
+				// A stop is what aborts the run, and the stop reports the
+				// abort's refusal.
+				failure.Reset()
+				if code := runWithRuntime([]string{"kill", meta.ID, "--operation", "kill-source"}, &output, &failure, runtime); code != 1 || !strings.Contains(failure.String(), "validation must be requested explicitly") {
+					t.Fatalf("kill of a goblin paused with an open run exit %d: %s", code, &failure)
+				}
+				if calls, err := os.ReadFile(nativeRecord); err != nil || !strings.Contains(string(calls), "no-mistakes axi abort --run original-run") {
+					t.Fatalf("the kill did not abort the validation run: native calls %q, %v", calls, err)
+				}
+				return
 			}
 			if test.isForeign || test.finalStatus != "" {
 				update := "INSERT INTO runs SELECT 'foreign-run',repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,2 FROM runs WHERE id='original-run';"
@@ -760,7 +786,7 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 			}
 
 			// Assert
-			if calls, err := os.ReadFile(nativeRecord); err != nil && !errors.Is(err, os.ErrNotExist) || strings.Contains(string(calls), "no-mistakes.exe") {
+			if calls, err := os.ReadFile(nativeRecord); err != nil && !errors.Is(err, os.ErrNotExist) || strings.Contains(string(calls), "no-mistakes") {
 				t.Fatalf("production pause invoked native mutation: %s, %v", calls, err)
 			}
 			after, err := os.ReadFile(database)
