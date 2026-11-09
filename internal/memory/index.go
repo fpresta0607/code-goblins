@@ -57,6 +57,9 @@ type Item struct {
 	// IsIncident marks a fact that records something that happened, which
 	// fades with age; a done report is always one.
 	IsIncident bool `json:"incident,omitempty"`
+	// Lesson is the id of the lesson a fact was accepted from, empty for a
+	// fact written any other way.
+	Lesson string `json:"lesson,omitempty"`
 }
 
 type posting struct {
@@ -300,6 +303,9 @@ func (index *Index) addFacts(directory string) error {
 		item.Roles = stringsOf(front.Metadata["roles"])
 		item.Supersedes = stringsOf(front.Metadata["supersedes"])
 		item.IsIncident = front.Metadata["incident"] == true
+		if lessons := stringsOf(front.Metadata["lesson"]); len(lessons) > 0 {
+			item.Lesson = lessons[0]
+		}
 		if tasks := stringsOf(front.Metadata["task"]); len(tasks) > 0 {
 			item.Task = tasks[0]
 		}

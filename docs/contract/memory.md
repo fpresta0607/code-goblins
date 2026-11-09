@@ -70,7 +70,7 @@ No command here moves or deletes history.
 The optional keyword discovery, ranked recall, task context packs, caller-declared delivery fingerprints and local retention proposals are defined in [the memory command reference](../commands/memory.md).
 They preserve this approval boundary, never promote a search match to authority and never establish task custody from a proposal.
 The recall index is disposable and rebuilt from these files; it is never a second owner of any fact.
-A lesson from a done report reaches memory only once the CEO accepts it, as a new fact file, listed as one warm fact in the catalog when the home has one; a fact it supersedes stays as it is, and a ruling is never superseded this way.
+A lesson from a done report reaches memory only once the CEO accepts it, as a new fact file, listed in the catalog, when the home has one, as one cold fact routed to its repository; a fact it supersedes stays as it is, and a ruling is never superseded this way.
 
 Tier markers in source text are interpreted by the shared `stow` skill, the single owner of their spellings, clocks and curation procedure; the [load map](../load-map.md) owns its discovery across harnesses.
 Only trailing annotations carry tier metadata; literal examples in prose and code remain source content.

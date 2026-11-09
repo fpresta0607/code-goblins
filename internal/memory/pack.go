@@ -37,9 +37,9 @@ type PackInput struct {
 // another role stays out of it.
 const RoleGoblin = "goblin"
 
-// scopedFactsLead is how many of the newest facts scoped to a pack's project
-// lead its facts.
-const scopedFactsLead = 5
+// lessonsLead is how many of the newest lessons accepted for a pack's
+// project lead its facts.
+const lessonsLead = 10
 
 // LiveTask is another task working in the same repository right now, with
 // the last pull request its reports name.
@@ -129,17 +129,22 @@ func (index *Index) packCandidates(input PackInput) (map[string][]packEntry, err
 	for _, kind := range []string{KindRuling, KindFact} {
 		taken := map[string]bool{}
 		if kind == KindFact {
-			// The newest facts scoped to this project lead, whatever the
-			// brief says, so a lesson accepted for it is in its next pack.
-			var scopedFacts []Item
+			// The newest lessons accepted for this project lead, whatever
+			// the brief says, so an accepted lesson is in its next pack.
+			var lessons []Item
 			for _, item := range index.Items {
-				if item.Kind == KindFact && !index.superseded[item.ID] && slices.ContainsFunc(item.Projects, func(project string) bool { return strings.EqualFold(project, input.Project) }) &&
+				if item.Lesson != "" && !index.superseded[item.ID] && slices.ContainsFunc(item.Projects, func(project string) bool { return strings.EqualFold(project, input.Project) }) &&
 					scoped(item.Roles, RoleGoblin) && (item.Task == "" || strings.EqualFold(item.Task, input.Task)) {
-					scopedFacts = append(scopedFacts, item)
+					lessons = append(lessons, item)
 				}
 			}
-			slices.SortFunc(scopedFacts, func(left, right Item) int { return right.Date.Compare(left.Date) })
-			for _, item := range scopedFacts[:min(scopedFactsLead, len(scopedFacts))] {
+			slices.SortFunc(lessons, func(left, right Item) int {
+				if compared := right.Date.Compare(left.Date); compared != 0 {
+					return compared
+				}
+				return strings.Compare(left.ID, right.ID)
+			})
+			for _, item := range lessons[:min(lessonsLead, len(lessons))] {
 				taken[item.ID] = true
 				factLine(item, excerpt(item))
 			}

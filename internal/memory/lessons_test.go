@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -159,10 +160,13 @@ func TestAcceptLessonWritesANewScopedFactAndLeavesWhatItSupersedes(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"lesson: " + ids[0], "source: done report of harbor-saves, https://github.com/acme/harbor/pull/12", "Cited status lines of harbor-saves:\n- 2026-11-09T10:00:00Z working: the cache test needs the port free; fixed\n"} {
+	for _, want := range []string{"lesson: " + ids[0], "source: done report of harbor-saves, https://github.com/acme/harbor/pull/12"} {
 		if !strings.Contains(string(content), want) {
 			t.Fatalf("the fact lacks %q:\n%s", want, content)
 		}
+	}
+	if want := "\n\nCited status lines of harbor-saves:\n\n```\n- 2026-11-09T10:00:00Z working: the cache test needs the port free; fixed\n```\n\n<!--a:2026-11-09-->\n"; !strings.HasSuffix(string(content), want) {
+		t.Fatalf("the fact does not end with its cited lines in a code block and the aging marker of its acceptance day:\n%s", content)
 	}
 	decided, err := ReadLesson(stateDir, ids[0])
 	if err != nil || decided.Decision != LessonAccepted || decided.Fact != name || !decided.DecidedAt.Equal(accepted) {
@@ -241,32 +245,129 @@ func TestAcceptLessonCatalogsItsFactSoTheStartupCatalogStillLoads(t *testing.T) 
 		t.Fatalf("the catalog no longer loads: %v", err)
 	}
 	startup, err := catalog.Retrieve(Query{})
-	if err != nil || !strings.Contains(startup, "The harbor cache test needs its port free.") || !strings.Contains(startup, "The release needs approval.") {
-		t.Fatalf("startup memory %q: %v", startup, err)
+	if err != nil || strings.Contains(startup, "The harbor cache test needs its port free.") || !strings.Contains(startup, "The release needs approval.") {
+		t.Fatalf("a CEO session's startup memory must hold its rulings and leave the lesson out: %q %v", startup, err)
+	}
+	harbor, err := catalog.Retrieve(Query{Project: "harbor"})
+	if err != nil || !strings.Contains(harbor, "The harbor cache test needs its port free.") || strings.Contains(harbor, "legacy=true") {
+		t.Fatalf("harbor's memory must carry the lesson as no legacy fact: %q %v", harbor, err)
 	}
 	added := catalog.Sources[len(catalog.Sources)-1]
-	if added.Path != "memory/"+name+".md" || len(added.Entries) != 1 || added.Entries[0].ID != ids[0] || added.Entries[0].Authority != "fact" || added.Entries[0].Location != "warm" || strings.Join(added.Entries[0].Projects, ",") != "harbor" {
+	if added.Path != "memory/"+name+".md" || len(added.Entries) != 1 || added.Entries[0].ID != ids[0] || added.Entries[0].Authority != "fact" || added.Entries[0].Location != "cold" || added.Entries[0].Trigger != "The harbor cache test needs its port free." || strings.Join(added.Entries[0].Projects, ",") != "harbor" {
 		t.Fatalf("the lesson was cataloged as %+v", added)
 	}
 }
 
-func TestAcceptLessonLeavesAStartupCatalogAsItFindsItWhenItCannotJoinIt(t *testing.T) {
-	status := append(slices.Clone(harborStatus), "2026-11-09T12:00:00Z working: the cache stays warm <!--a:2099-01-01-->")
+func TestAcceptLessonNeverTakesTheFactsTierFromACitedLine(t *testing.T) {
+	for _, marker := range []string{"<!--P-->", "<!--a:2099-01-01-->", "<!--t:capture-->", "<!--g-->"} {
+		t.Run(marker, func(t *testing.T) {
+			dataDir, _ := catalogFixture(t)
+			stateDir := t.TempDir()
+			status := append(slices.Clone(harborStatus), "2026-11-09T12:00:00Z working: the cache stays warm "+marker)
+			resolved, err := ResolveLessons([]Lesson{{Text: "The harbor cache test needs its port free.", Cites: []string{"stays warm"}}}, status)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids, err := ProposeLessons(stateDir, harborCandidate(), resolved)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = AcceptLesson(dataDir, stateDir, ids[0], Acceptance{Now: referenceDate})
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			catalog, err := Load(dataDir, referenceDate)
+			if err != nil {
+				t.Fatalf("the catalog no longer loads: %v", err)
+			}
+			lesson, err := catalog.Retrieve(Query{ID: ids[0]})
+			if err != nil || !strings.Contains(lesson, " authority=fact tier=aging ") || strings.Contains(lesson, "STOW REQUIRED") || !strings.Contains(lesson, "the cache stays warm "+marker) {
+				t.Fatalf("a goblin's cited line set the lesson's tier: %q %v", lesson, err)
+			}
+		})
+	}
+}
+
+func TestAcceptLessonsAtOnceTakeTurnsSoTheCatalogLoadsWithEachFact(t *testing.T) {
 	for name, test := range map[string]struct {
-		cite   string
-		breaks func(t *testing.T, dataDir string)
-		want   string
+		texts     []string
+		accepts   []int
+		wantFacts int
 	}{
-		"a catalog that does not load": {"port free", func(t *testing.T, dataDir string) {
-			writeMemoryFile(t, dataDir, "memory/current.md", []byte("Use the remote cache.\n"))
-		}, "the memory catalog does not load"},
-		"a fact ending in a marker the catalog refuses": {"stays warm", func(*testing.T, string) {}, "would leave the memory catalog unreadable"},
+		"two lessons":      {[]string{"The harbor cache test needs its port free.", "Free the port before the gate."}, []int{0, 1}, 2},
+		"one lesson twice": {[]string{"The harbor cache test needs its port free."}, []int{0, 0}, 1},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dataDir, _ := catalogFixture(t)
-			test.breaks(t, dataDir)
 			stateDir := t.TempDir()
-			resolved, err := ResolveLessons([]Lesson{{Text: "The harbor cache test needs its port free.", Cites: []string{test.cite}}}, status)
+			ids := proposeHarborLessons(t, stateDir, test.texts...)
+			files, err := GovernedFiles(dataDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			names, errs := make([]string, len(test.accepts)), make([]error, len(test.accepts))
+			var accepting sync.WaitGroup
+
+			for position, lesson := range test.accepts {
+				accepting.Go(func() {
+					names[position], errs[position] = AcceptLesson(dataDir, stateDir, ids[lesson], Acceptance{Now: referenceDate})
+				})
+			}
+			accepting.Wait()
+
+			catalog, err := Load(dataDir, referenceDate)
+			if err != nil {
+				t.Fatalf("the catalog no longer loads: %v", err)
+			}
+			filesAfter, err := GovernedFiles(dataDir)
+			if err != nil || len(filesAfter)-len(files) != test.wantFacts {
+				t.Fatalf("memory files %v then %v, want %d more: %v", files, filesAfter, test.wantFacts, err)
+			}
+			accepted := 0
+			for position, err := range errs {
+				if err != nil {
+					if !strings.Contains(err.Error(), "was already accepted") {
+						t.Fatalf("accept %d: %v", position, err)
+					}
+					continue
+				}
+				accepted++
+				if !slices.ContainsFunc(catalog.Sources, func(source Source) bool { return source.Path == "memory/"+names[position]+".md" }) {
+					t.Fatalf("fact %s is not in the catalog", names[position])
+				}
+			}
+			if accepted != test.wantFacts {
+				t.Fatalf("%d accepts succeeded, want %d: %v", accepted, test.wantFacts, errs)
+			}
+		})
+	}
+}
+
+func TestAcceptLessonLeavesAStartupCatalogAsItFindsItWhenItCannotJoinIt(t *testing.T) {
+	const text = "The harbor cache test needs its port free."
+	for name, test := range map[string]struct {
+		breaks func(t *testing.T, dataDir string, catalog Catalog)
+		want   string
+	}{
+		"a catalog that does not load": {func(t *testing.T, dataDir string, _ Catalog) {
+			writeMemoryFile(t, dataDir, "memory/current.md", []byte("Use the remote cache.\n"))
+		}, "the memory catalog does not load"},
+		"a catalog that already holds the lesson's id": {func(t *testing.T, dataDir string, catalog Catalog) {
+			notes := []byte("The quay floods at spring tide. <!--a:2026-10-30-->\n")
+			writeMemoryFile(t, dataDir, "memory/quay.md", notes)
+			catalog.Sources = append(catalog.Sources, Source{Path: "memory/quay.md", SHA256: Hash(notes), Entries: []Entry{{
+				ID: LessonID(harborCandidate().Task, text), End: len(notes), SHA256: Hash(notes), Authority: "fact", Location: "warm",
+			}}})
+			writeCatalog(t, dataDir, catalog)
+		}, "would leave the memory catalog unreadable"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dataDir, catalog := catalogFixture(t)
+			test.breaks(t, dataDir, catalog)
+			stateDir := t.TempDir()
+			resolved, err := ResolveLessons([]Lesson{{Text: text, Cites: []string{"port free"}}}, harborStatus)
 			if err != nil {
 				t.Fatal(err)
 			}

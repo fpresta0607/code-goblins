@@ -12,12 +12,15 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // MaxLessons is how many lessons one done report may carry.
@@ -30,6 +33,19 @@ const (
 )
 
 const lessonsDir = "lessons"
+
+// lessonLockName is the lock in the home's state that one decision on a
+// lesson holds across its read, its check and its writes, the memory
+// catalog's included, so two decisions at once take turns.
+const lessonLockName = ".lessons.lock"
+
+// lessonLockWait is how long a decision waits for another, which reads and
+// writes a few memory files; it outlasts a paused machine.
+const lessonLockWait = 30 * time.Second
+
+// deciding serializes decisions within one process, which the named lock
+// lets in again.
+var deciding sync.Mutex
 
 // Lesson is what a goblin learned on its task, with the status lines it
 // stands on: each cite is a line's stamp or words that line holds.
@@ -106,11 +122,15 @@ func citedLine(cite string, statusLines []string) (CitedLine, error) {
 	if cite == "" {
 		return CitedLine{}, errors.New("a cite is empty")
 	}
-	_, stampErr := time.Parse(time.RFC3339, cite)
+	citedAt, stampErr := time.Parse(time.RFC3339, cite)
 	isStamp := stampErr == nil
 	for index := len(statusLines) - 1; index >= 0; index-- {
-		stamp, event, _ := strings.Cut(strings.TrimSpace(statusLines[index]), " ")
-		if isStamp && stamp == cite || !isStamp && strings.Contains(strings.ToLower(event), strings.ToLower(cite)) {
+		recorded, event := state.SplitStatus(statusLines[index])
+		if isStamp && recorded.Equal(citedAt) || !isStamp && strings.Contains(strings.ToLower(event), strings.ToLower(cite)) {
+			stamp := ""
+			if !recorded.IsZero() {
+				stamp = recorded.Format(time.RFC3339)
+			}
 			return CitedLine{Stamp: stamp, Line: event}, nil
 		}
 	}
@@ -131,10 +151,15 @@ func lessonPath(stateDir, id string) string {
 	return filepath.Join(stateDir, lessonsDir, id+".json")
 }
 
-// ProposeLessons records each lesson as a candidate for the CEO. A lesson
-// already proposed, or already decided, is left as it is.
-func ProposeLessons(stateDir string, candidate LessonCandidate, lessons []ProposedLesson) ([]string, error) {
-	var ids []string
+// ProposeLessons records each lesson as a candidate for the CEO, under the
+// lessons' lock. A lesson already proposed, or already decided, is left as
+// it is.
+func ProposeLessons(stateDir string, candidate LessonCandidate, lessons []ProposedLesson) (ids []string, err error) {
+	unlock, err := lockLessons(stateDir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
 	for _, lesson := range lessons {
 		proposed := candidate
 		proposed.ID, proposed.Text, proposed.Cites = LessonID(candidate.Task, lesson.Text), lesson.Text, lesson.Cites
@@ -235,10 +260,32 @@ type lessonFrontmatter struct {
 	Metadata    lessonMetadata `yaml:"metadata"`
 }
 
+// lockLessons takes the lessons' lock, waiting out another decision, and
+// returns what gives it back.
+func lockLessons(stateDir string) (func() error, error) {
+	deciding.Lock()
+	if _, err := lock.AcquireNamedOwnerWithin(stateDir, lessonLockName, os.Getpid(), "lessons", lessonLockWait); err != nil {
+		deciding.Unlock()
+		return nil, fmt.Errorf("another decision on a lesson is still under way, so nothing was decided: %w", err)
+	}
+	return func() error {
+		defer deciding.Unlock()
+		return lock.ReleaseNamed(stateDir, lessonLockName)
+	}, nil
+}
+
 // AcceptLesson writes the lesson as a new fact file in the memory folder,
 // scoped to its project, lists it in the startup catalog when the home has
-// one, and records the decision. A fact it supersedes stays as it is.
-func AcceptLesson(dataDir, stateDir, id string, acceptance Acceptance) (string, error) {
+// one, and records the decision, all under the lessons' lock. The cited
+// status lines, a goblin's words, stand in a code block and the file ends
+// with an aging marker for the day it was accepted, so nothing a goblin
+// wrote is read as the fact's tier. A fact it supersedes stays as it is.
+func AcceptLesson(dataDir, stateDir, id string, acceptance Acceptance) (name string, err error) {
+	unlock, err := lockLessons(stateDir)
+	if err != nil {
+		return "", err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
 	candidate, err := undecided(stateDir, id)
 	if err != nil {
 		return "", err
@@ -278,7 +325,7 @@ func AcceptLesson(dataDir, stateDir, id string, acceptance Acceptance) (string, 
 	}
 	base := lessonSlug(candidate.Text)
 	for attempt := 1; ; attempt++ {
-		name := base
+		name = base
 		if attempt > 1 {
 			name = fmt.Sprintf("%s-%d", base, attempt)
 		}
@@ -290,10 +337,11 @@ func AcceptLesson(dataDir, stateDir, id string, acceptance Acceptance) (string, 
 			return "", err
 		}
 		var body strings.Builder
-		fmt.Fprintf(&body, "---\n%s---\n\n%s\n\nCited status lines of %s:\n", header, candidate.Text, candidate.Task)
+		fmt.Fprintf(&body, "---\n%s---\n\n%s\n\nCited status lines of %s:\n\n```\n", header, candidate.Text, candidate.Task)
 		for _, cite := range candidate.Cites {
 			fmt.Fprintf(&body, "- %s %s\n", cite.Stamp, cite.Line)
 		}
+		fmt.Fprintf(&body, "```\n\n<!--a:%s-->\n", acceptance.Now.UTC().Format(time.DateOnly))
 		path := filepath.Join(directory, name+".md")
 		file, err := fsx.CreateNew(path, 0o644)
 		if errors.Is(err, fs.ErrExist) {
@@ -323,15 +371,17 @@ func AcceptLesson(dataDir, stateDir, id string, acceptance Acceptance) (string, 
 }
 
 // catalogLesson lists a lesson's new fact in the startup catalog, which must
-// cover every memory file, as one warm fact scoped to its repository; stow
-// may move it cold later. A catalog that would not load is put back.
+// cover every memory file, as one cold fact routed to its repository and
+// triggered by the lesson's words, so a CEO session's startup memory leaves
+// it out and a retrieval for that repository carries it. A catalog that
+// would not load is put back.
 func catalogLesson(dataDir string, before []byte, name string, candidate LessonCandidate, content []byte, now time.Time) error {
 	var catalog Catalog
 	if err := Decode(before, &catalog); err != nil {
 		return err
 	}
 	catalog.Sources = append(catalog.Sources, Source{Path: "memory/" + name + ".md", SHA256: Hash(content), Entries: []Entry{{
-		ID: candidate.ID, End: len(content), SHA256: Hash(content), Authority: "fact", Location: "warm", Projects: []string{candidate.Project},
+		ID: candidate.ID, End: len(content), SHA256: Hash(content), Authority: "fact", Location: "cold", Trigger: candidate.Text, Projects: []string{candidate.Project},
 	}}})
 	var encoded bytes.Buffer
 	encoder := json.NewEncoder(&encoded)
@@ -350,9 +400,14 @@ func catalogLesson(dataDir string, before []byte, name string, candidate LessonC
 	return nil
 }
 
-// RejectLesson records the CEO's rejection and its reason; nothing reaches
-// memory.
-func RejectLesson(stateDir, id, reason string, now time.Time) error {
+// RejectLesson records the CEO's rejection and its reason, under the
+// lessons' lock; nothing reaches memory.
+func RejectLesson(stateDir, id, reason string, now time.Time) (err error) {
+	unlock, err := lockLessons(stateDir)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
 	candidate, err := undecided(stateDir, id)
 	if err != nil {
 		return err
