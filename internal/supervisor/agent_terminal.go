@@ -171,9 +171,15 @@ func (h *HTTP) messagesLocator(ctx context.Context, query url.Values) (func() (m
 			// brought up to date with, so a session that moved without
 			// registering again is never read from the one it left (#2172).
 			session, stale := h.cfoConversation(ctx, cfo)
-			// The CFO is started in the fleet's home.
+			// The CFO is started in the fleet's home, so its conversation is one
+			// that home's folder holds, and another folder's is never read as
+			// the CFO's.
+			path := ""
+			if fleettree.HoldsTranscript(home, harness, h.Service.Store.Home.Root, session) {
+				path = fleettree.HeldTranscript(home, harness, h.Service.Store.Home.Root, session)
+			}
 			return messagesSession{
-				Path:     fleettree.HeldTranscript(home, harness, h.Service.Store.Home.Root, session),
+				Path:     path,
 				Identity: sessionstream.Identity{Harness: harness, Session: session},
 				Stale:    stale,
 			}, nil
@@ -515,11 +521,12 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 				send("unavailable", reason)
 				return
 			}
-			if located.Path != session.Path || located.Identity != session.Identity {
-				session = located
-				if !page() {
-					return
-				}
+			// A record that goes stale, or stops being stale, while the session
+			// itself stands is told by the next turn's report.
+			isSame := located.Path == session.Path && located.Identity == session.Identity
+			session = located
+			if !isSame && !page() {
+				return
 			}
 		case <-tick.C:
 			// A stream that has nothing to send says it is still there, and

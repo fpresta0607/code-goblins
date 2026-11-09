@@ -1396,7 +1396,7 @@ Environment values, full process environments, dotenv, auth scripts, MCP command
 
 The supervisor reads a Claude Code, Codex or pi session as one list of messages, which the board's [Messages view](#the-messages-view) shows.
 `GET /api/messages?task=ID&generation=GEN&token=TOKEN` reads a task's goblin of that generation, from the conversation the board recorded for the generation, or else the one the board's read of the goblin's tree proved its running harness in and kept, as `fleettree.OwnedSession` reads them, and `?cfo=TERMINAL&token=TOKEN` reads the CEO registered in that native terminal, from the conversation its harness proves it is in, which the board records when the record named another ([The session event stream](#the-session-event-stream)).
-Finding a goblin's reads no process and parses no store file, so its conversation shows once a read of its tree, every fifteen seconds, has kept it; the CEO's read proves its live conversation from the harness every time, and a record that names a conversation the session never wrote is reported as stale rather than rendered as current.
+Finding a goblin's reads no process and parses no store file, so its conversation shows once a read of its tree, every fifteen seconds, has kept it; the CEO's read proves its live conversation from the harness every time, and a record that names a conversation another folder keeps, or one never written, is reported as stale rather than rendered as current.
 It reads the harness's conversation records without requiring hook events or changing hook trust.
 Codex contributes recorded replies, public reasoning summaries, tool output, diffs, embedded pictures and usage; encrypted reasoning and arbitrary image paths are not read.
 The board's token comes in the query, as a terminal view's does, since a browser's event stream cannot send a header, and a request without it is refused with 403.
@@ -1723,10 +1723,11 @@ The harnesses' own transcript readers are the adapters: a harness's record stays
 The supervisor is the only writer: it appends what its own read of the session produced, the turn's end from the session's own report of it (Claude Code's Stop, Codex's turn completion, pi's settle, which it already keeps as the session's phase), and the fact that a harness reports no turn where its hooks said nothing.
 `/api/messages` serves the page and the changes it sends from the stream, so the board renders the stream; a session with no stream yet, or an older page a stream began after, is answered from the harness's own record as it was before streams existed.
 A stream that cannot be read is reported in the session event rather than shown as an empty conversation, and the session's own record stands meanwhile.
-A stream reaches a bound of 20,000 events, and is then compacted to the newest event of each thing the session did, keeping whole messages.
+A stream reaches a bound of 20,000 events, and is then compacted to the newest event of each thing the session did, keeping whole messages; a tool call and the result that answered it are two things, so the call keeps what it was called on and its plan.
 
 The CEO's conversation record, `state/cfo-conversation.json`, is written when its terminal registers and is refreshed whenever the session the harness proves it is in differs from the one recorded, at every read of its messages and once a recovery cycle (`internal/supervisor/cfo_session.go`); a record that names a conversation the session never wrote is reported as stale rather than rendered as current, and the board needs no reload (issue #2172).
 What proves the live conversation is the one the harness itself keeps for the fleet's home: Claude Code's record of its own process, Codex's rollout of that home written last, or the pi session of that folder written last, once written since pi started.
+With nothing to prove it, the record stands only while the home's own folder holds its conversation, as `fleettree.HoldsTranscript` reads it, and Codex's rollout exists: a record naming a conversation another folder keeps, or one never written, is reported as stale, and the board reads no other folder's conversation as the CEO's.
 
 ### Harness updates
 

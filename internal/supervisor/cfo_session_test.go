@@ -1,8 +1,11 @@
 package supervisor
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -50,6 +53,45 @@ func runningCFOHarness(t *testing.T, stateDir, userHome, fleetHome string) strin
 	writeFile(t, filepath.Join(userHome, ".claude", "sessions", strconv.Itoa(os.Getpid())+".json"),
 		`{"pid":`+strconv.Itoa(os.Getpid())+`,"sessionId":"live-session","procStart":"`+strconv.FormatInt(self.Created, 10)+`"}`)
 	return cfoConversationFile(userHome, fleetHome)
+}
+
+// cfoMessageStream opens the CFO's messages as the board streams them, and
+// answers a reader of the data of the next event of a name.
+func cfoMessageStream(t *testing.T, service *Service) func(event string) string {
+	t.Helper()
+	handler := NewHTTP(service, "127.0.0.1:50000", nil)
+	handler.terminalTick = 100 * time.Millisecond
+	server := httptest.NewUnstartedServer(handler)
+	handler.Host = server.Listener.Addr().String()
+	server.Start()
+	t.Cleanup(server.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	t.Cleanup(cancel)
+	request, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/messages?cfo=cfo&token=board-token&stream=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { response.Body.Close() })
+	scanner := bufio.NewScanner(response.Body)
+	scanner.Buffer(nil, 1<<20)
+	return func(event string) string {
+		t.Helper()
+		current := ""
+		for scanner.Scan() {
+			if name, isEvent := strings.CutPrefix(scanner.Text(), "event: "); isEvent {
+				current = name
+			}
+			if data, isData := strings.CutPrefix(scanner.Text(), "data: "); isData && current == event {
+				return data
+			}
+		}
+		t.Fatalf("the CFO's stream sent no %s event: %v", event, scanner.Err())
+		return ""
+	}
 }
 
 // TestTheCFOsConversationRecordFollowsTheLiveSession is issue #2172: the
@@ -116,6 +158,136 @@ func TestACFOsRecordThatNamesAConversationItNeverWroteIsReported(t *testing.T) {
 	}
 	if located.Stale == "" {
 		t.Fatalf("a record naming a conversation this session never wrote is rendered as current: %+v", located)
+	}
+}
+
+// TestACFORecordItsHomeDoesNotHoldIsStaleAndUnread keeps the CFO's board on
+// its home's own conversation when nothing proves a live one: a record naming
+// a conversation another folder keeps, or one never written, is reported
+// stale, and nothing of it is read as the CFO's.
+func TestACFORecordItsHomeDoesNotHoldIsStaleAndUnread(t *testing.T) {
+	for name, tc := range map[string]struct {
+		harness    string
+		transcript string
+	}{
+		"claude in another folder": {"claude", filepath.Join(".claude", "projects", "C--work-other", "other-session.jsonl")},
+		"pi in another folder":     {"pi", filepath.Join(".pi", "agent", "sessions", "--C--work-other--", "2026-11-09T09-00-00-000Z_other-session.jsonl")},
+		"codex never written":      {"codex", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			userHome := t.TempDir()
+			registerNativeCFO(t, h.State, tc.harness, "other-session")
+			if tc.transcript != "" {
+				writeFile(t, filepath.Join(userHome, tc.transcript), "{}\n")
+			}
+			service := &Service{Store: store, Instance: "board-token", Options: Options{Tree: &fleettree.Reader{Home: userHome}}}
+			locate, err := NewHTTP(service, "127.0.0.1:50000", nil).messagesLocator(context.Background(), map[string][]string{"cfo": {"cfo"}, "token": {"board-token"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			located, err := locate()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(located.Stale, "other-session") || located.Path != "" {
+				t.Fatalf("a record its home does not hold: %+v; want it named stale and no conversation read", located)
+			}
+		})
+	}
+}
+
+// TestABoardHearsWhyItsCFORecordIsStale is the reason reaching the board over
+// the stream, not only the locator's own return: a record naming another
+// folder's conversation is said to be stale, and the page draws none of it.
+func TestABoardHearsWhyItsCFORecordIsStale(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	userHome := t.TempDir()
+	registerNativeCFO(t, h.State, "claude", "other-folder-session")
+	stamp := time.Now().UTC().Format(time.RFC3339Nano)
+	writeFile(t, filepath.Join(userHome, ".claude", "projects", "C--work-other", "other-folder-session.jsonl"),
+		`{"type":"user","uuid":"o1","timestamp":"`+stamp+`","message":{"role":"user","content":"Another project's question"}}`+"\n")
+	service := &Service{Store: store, Instance: "board-token", Options: Options{Tree: &fleettree.Reader{Home: userHome}}}
+
+	// Act
+	read := cfoMessageStream(t, service)
+	page, session := read("page"), read("session")
+
+	// Assert
+	if strings.Contains(page, "Another project") {
+		t.Fatalf("the CFO's page drew another folder's conversation: %s", page)
+	}
+	if !strings.Contains(session, "other-folder-session") || !strings.Contains(session, "stale") {
+		t.Fatalf("the session event of a stale record: %s", session)
+	}
+}
+
+// TestABoardHearsACFORecordGoStaleWhileItsSessionStands keeps an open view on
+// what the record is now: a CFO whose harness moved to a conversation the
+// board could not record goes stale while the conversation the view reads
+// stands, and the view is told so without another page.
+func TestABoardHearsACFORecordGoStaleWhileItsSessionStands(t *testing.T) {
+	// Arrange: a record the home holds, which nothing proves stale yet.
+	store, h := testStore(t)
+	userHome := t.TempDir()
+	registerNativeCFO(t, h.State, "claude", "recorded-session")
+	folder := cfoConversationFile(userHome, h.Root)
+	stamp := time.Now().UTC().Format(time.RFC3339Nano)
+	for _, session := range []string{"recorded-session", "live-session"} {
+		writeFile(t, filepath.Join(folder, session+".jsonl"),
+			`{"type":"user","uuid":"`+session+`","timestamp":"`+stamp+`","message":{"role":"user","content":"`+session+`"}}`+"\n")
+	}
+	service := &Service{Store: store, Instance: "board-token", Options: Options{Tree: &fleettree.Reader{Home: userHome}}}
+	read := cfoMessageStream(t, service)
+	if page := read("page"); !strings.Contains(page, "recorded-session") {
+		t.Fatalf("the CFO's page before it moved: %s", page)
+	}
+	if session := read("session"); strings.Contains(session, `"stale"`) {
+		t.Fatalf("a record its home holds is stale: %s", session)
+	}
+
+	// Act: the harness proves another conversation, and a folder where the
+	// record belongs keeps the board from writing it.
+	if err := os.MkdirAll(cfoConversationPath(h.State), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runningCFOHarness(t, h.State, userHome, h.Root)
+
+	// Assert
+	if session := read("session"); !strings.Contains(session, "could not record") {
+		t.Fatalf("the session event after the CFO moved: %s", session)
+	}
+}
+
+// TestARecoveryCycleKeepsTheCFOOnTheLiveConversation is the caller that keeps
+// the record right without a board read: a cycle with a live CFO rewrites a
+// record that names a conversation its home has stopped writing.
+func TestARecoveryCycleKeepsTheCFOOnTheLiveConversation(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	userHome := t.TempDir()
+	service.Options.Tree = &fleettree.Reader{Home: userHome}
+	registerNativeCFO(t, h.State, "claude", "stale-session")
+	folder := runningCFOHarness(t, h.State, userHome, h.Root)
+	stamp := time.Now().UTC().Format(time.RFC3339Nano)
+	for _, session := range []string{"stale-session", "live-session"} {
+		writeFile(t, filepath.Join(folder, session+".jsonl"),
+			`{"type":"user","uuid":"`+session+`","timestamp":"`+stamp+`","message":{"role":"user","content":"`+session+`"}}`+"\n")
+	}
+
+	// Act
+	service.cycle(context.Background(), true)
+
+	// Assert
+	recorded, err := ReadCFOConversation(h.State)
+	if err != nil || recorded.Session != "live-session" {
+		t.Fatalf("the conversation record after a cycle: %+v, %v; want the live session", recorded, err)
 	}
 }
 

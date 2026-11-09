@@ -388,3 +388,120 @@ func TestAReadThatOnlyCarriesOnTheStreamIsNoRestatement(t *testing.T) {
 		}
 	}
 }
+
+// TestASessionsReportIsReadAgainstTheNewestPrompt is a session's own report
+// of its turn read through the board: a settled phase older than the newest
+// prompt is about the turn before it, so the stream holds the prompt's turn as
+// running, and one newer than the prompt ended it.
+func TestASessionsReportIsReadAgainstTheNewestPrompt(t *testing.T) {
+	for name, tc := range map[string]struct {
+		reported time.Duration
+		want     string
+	}{
+		"a report older than the newest prompt": {-time.Minute, sessionstream.KindTurnState},
+		"a report newer than the newest prompt": {time.Minute, sessionstream.KindTurnEnd},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			stamp := time.Now().UTC().Format(time.RFC3339Nano)
+			get, meta, service := messagesBoard(t, messageEntries(stamp)...)
+			service.Store.db.Sessions["claude/talker-conversation"] = Session{
+				ID: "claude/talker-conversation", NativeID: "talker-conversation", Harness: "claude", Role: "goblin",
+				TaskID: meta.ID, Generation: meta.SpawnGen, Phase: "settled", UpdatedAt: time.Now().UTC().Add(tc.reported),
+			}
+			if err := service.Store.save(); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			response := get("task=" + meta.ID + "&generation=" + meta.SpawnGen + "&token=board-token")
+
+			// Assert
+			if response.Code != 200 {
+				t.Fatalf("page: %d %s", response.Code, response.Body)
+			}
+			events, err := sessionstream.Read(service.Store.Home.State, sessionstream.Identity{Task: meta.ID, Generation: meta.SpawnGen, Harness: "claude", Session: "talker-conversation"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			turn := ""
+			for _, event := range events {
+				switch event.Kind {
+				case sessionstream.KindTurnState, sessionstream.KindTurnEnd, sessionstream.KindMissing:
+					turn = event.Kind
+				}
+			}
+			if turn != tc.want {
+				t.Fatalf("the turn the stream holds: %q; want %q", turn, tc.want)
+			}
+		})
+	}
+}
+
+// TestAViewIsToldOfACallFromTheStream is the wiring of the board's changes to
+// the fleet's stream: a call that finished is told to the view as the stream
+// holds it, and the stream holds the call's own event, what it was called on.
+func TestAViewIsToldOfACallFromTheStream(t *testing.T) {
+	// Arrange
+	stamp := time.Now().UTC().Format(time.RFC3339Nano)
+	_, meta, service := messagesBoard(t, messageEntries(stamp)...)
+	handler := NewHTTP(service, "127.0.0.1:50000", nil)
+	handler.terminalTick = 100 * time.Millisecond
+	server := httptest.NewUnstartedServer(handler)
+	handler.Host = server.Listener.Addr().String()
+	server.Start()
+	defer server.Close()
+	conversation := fleettree.SessionTranscript(service.Options.Tree.Home, "claude", "talker-conversation")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/messages?task="+meta.ID+"&generation="+meta.SpawnGen+"&token=board-token&stream=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	scanner := bufio.NewScanner(response.Body)
+	scanner.Buffer(nil, 1<<20)
+	read := func(want string) string {
+		t.Helper()
+		current := ""
+		for scanner.Scan() {
+			if name, isEvent := strings.CutPrefix(scanner.Text(), "event: "); isEvent {
+				current = name
+			}
+			if data, isData := strings.CutPrefix(scanner.Text(), "data: "); isData && current == want {
+				return data
+			}
+		}
+		t.Fatalf("no %s event: %v", want, scanner.Err())
+		return ""
+	}
+	read("page")
+
+	// Act: the call runs and its result lands.
+	appendEntries(t, conversation,
+		`{"type":"assistant","uuid":"a2","timestamp":"`+stamp+`","message":{"id":"msg_2","model":"claude-opus-5-5","role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"b.go"}}]}}`,
+		`{"type":"user","uuid":"a3","timestamp":"`+stamp+`","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"package b"}]},"toolUseResult":{}}`)
+	said := read("messages")
+
+	// Assert: the view is told the call ended, with what came back.
+	if !strings.Contains(said, `"state":"done"`) || !strings.Contains(said, "package b") {
+		t.Fatalf("the change a view is told: %s", said)
+	}
+	events, err := sessionstream.Read(service.Store.Home.State, sessionstream.Identity{Task: meta.ID, Generation: meta.SpawnGen, Harness: "claude", Session: "talker-conversation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	for _, event := range events {
+		if event.Kind == sessionstream.KindToolCall && event.Subject == "b.go" {
+			calls++
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("the stream holds %d events of the call; want the call with what it was called on", calls)
+	}
+}

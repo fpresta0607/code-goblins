@@ -1,6 +1,7 @@
 package sessionstream
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -281,5 +282,108 @@ func TestTheSameEventDerivedAgainHasTheSameID(t *testing.T) {
 		if other == one {
 			t.Fatalf("%s: %q names the same event", name, other)
 		}
+	}
+}
+
+// TestACompactionKeepsACallAndItsResultApart keeps what a call was called on
+// and the plan it wrote when a stream reaches its bound: the result that
+// answers it never folds the call away.
+func TestACompactionKeepsACallAndItsResultApart(t *testing.T) {
+	// Arrange: a call and its result already in the stream, then one reply
+	// written again and again until the stream reaches its bound, so the
+	// compaction the next write makes folds what it can of the stream.
+	stateDir := t.TempDir()
+	appender, err := Open(stateDir, goblin())
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := Event{ID: "call", Kind: KindToolCall, Message: "r-call", CallID: "c1", Tool: "Read", Subject: "b.go", State: "running", Plan: []PlanStep{{Text: "read it", Status: "in_progress"}}}
+	result := Event{ID: "result", Kind: KindToolResult, Message: "r-call", CallID: "c1", State: "done", Result: "package b"}
+	if _, _, err := appender.Write([]Event{call, result}); err != nil {
+		t.Fatal(err)
+	}
+	rewrites := make([]Event, 0, MaxEvents-2)
+	for at := 0; at < MaxEvents-2; at++ {
+		rewrites = append(rewrites, Event{ID: "reply-" + strconv.Itoa(at), Kind: KindAssistant, Message: "r-reply", Text: strconv.Itoa(at)})
+	}
+	if _, _, err := appender.Write(rewrites); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, isCompacted, err := appender.Write([]Event{event(goblin(), KindAssistant, "newest", 0)})
+
+	// Assert: the call stands beside its result, with what it was called on
+	// and the plan it wrote.
+	if err != nil || !isCompacted {
+		t.Fatalf("write at the bound: compacted %v, %v", isCompacted, err)
+	}
+	kept, err := Read(stateDir, goblin())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keptCall, keptResult *Event
+	for at := range kept {
+		switch kept[at].ID {
+		case "call":
+			keptCall = &kept[at]
+		case "result":
+			keptResult = &kept[at]
+		}
+	}
+	if keptCall == nil || keptResult == nil {
+		t.Fatalf("a compacted stream kept the call %v and its result %v; want both", keptCall != nil, keptResult != nil)
+	}
+	if keptCall.Subject != "b.go" || len(keptCall.Plan) != 1 {
+		t.Fatalf("the call a compaction kept: %+v; want its subject and its plan", *keptCall)
+	}
+}
+
+// TestAFailedAppendLeavesTheStreamAsItWas keeps a write that fails after part
+// of it reached the file from leaving any of it behind: not a torn entry, and
+// not a whole one of the events it reported unwritten. The stream is cut back
+// to the entry it ended at, and the next write appends after it.
+func TestAFailedAppendLeavesTheStreamAsItWas(t *testing.T) {
+	// Arrange: a stream of one prompt, and a disk that fills up after the
+	// first entry of the next append and part of its second.
+	stateDir := t.TempDir()
+	appender, err := Open(stateDir, goblin())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := appender.Write([]Event{event(goblin(), KindPrompt, "m1", 0)}); err != nil {
+		t.Fatal(err)
+	}
+	appender.mu.Lock()
+	appender.write = func(file *os.File, data []byte) error {
+		first := bytes.IndexByte(data, '\n') + 1
+		if _, err := file.Write(data[:first+(len(data)-first)/2]); err != nil {
+			return err
+		}
+		return errors.New("the disk filled up")
+	}
+	appender.mu.Unlock()
+	reply := []Event{event(goblin(), KindAssistant, "r1", 0), event(goblin(), KindAssistant, "r2", 0)}
+
+	// Act
+	_, _, err = appender.Write(reply)
+
+	// Assert: the append failed, and the stream holds exactly what it held.
+	if err == nil {
+		t.Fatal("a failed append reported success")
+	}
+	kept, err := Read(stateDir, goblin())
+	if err != nil || len(kept) != 1 || kept[0].Message != "m1" {
+		t.Fatalf("a failed append left the stream %+v, %v", kept, err)
+	}
+	appender.mu.Lock()
+	appender.write = writeFile
+	appender.mu.Unlock()
+	if _, _, err := appender.Write(reply); err != nil {
+		t.Fatalf("the write after a failed one: %v", err)
+	}
+	kept, err = Read(stateDir, goblin())
+	if err != nil || len(kept) != 3 || kept[1].Message != "r1" || kept[2].Message != "r2" {
+		t.Fatalf("the stream after a failed append and one more: %+v, %v", kept, err)
 	}
 }

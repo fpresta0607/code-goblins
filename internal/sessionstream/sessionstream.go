@@ -338,8 +338,13 @@ func (event Event) key() string {
 	switch event.Kind {
 	case KindTurnState, KindTurnEnd, KindSession, KindSessionEnd, KindMissing, KindRestated:
 		return ""
-	case KindToolCall, KindToolResult:
-		return event.Message + "\x00call\x00" + event.CallID
+	case KindToolCall:
+		// A call keeps its own words, what it was called on and the plan it
+		// wrote, and the result that answered it keeps what came back, so a
+		// compaction never folds one away and leaves the other.
+		return event.Message + "\x00call\x00" + event.CallID + "\x00call"
+	case KindToolResult:
+		return event.Message + "\x00call\x00" + event.CallID + "\x00result"
 	default:
 		return event.Message + "\x00" + fmt.Sprint(event.Block)
 	}
@@ -355,6 +360,9 @@ type Appender struct {
 	seen   map[string]bool
 	seq    int
 	loaded bool
+	// write is how the events reach the end of the stream, and a test
+	// replaces it to fail an append after part of it was written.
+	write func(*os.File, []byte) error
 }
 
 // Open returns the appender for id's stream under stateDir.
@@ -363,7 +371,7 @@ func Open(stateDir string, id Identity) (*Appender, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Appender{id: id, path: path, seen: map[string]bool{}}, nil
+	return &Appender{id: id, path: path, seen: map[string]bool{}, write: writeFile}, nil
 }
 
 // load reads what the stream already holds, once: what it holds after that is
@@ -449,57 +457,76 @@ func (a *Appender) append(events []Event) error {
 	if err := os.MkdirAll(filepath.Dir(a.path), 0o700); err != nil {
 		return err
 	}
-	if err := trimTail(a.path); err != nil {
+	whole, err := trimTail(a.path)
+	if err != nil {
 		return err
 	}
 	file, err := fsx.OpenAppend(a.path, 0o600)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	_, err = file.Write(Encode(events))
+	if err := errors.Join(a.write(file, Encode(events)), file.Close()); err != nil {
+		return errors.Join(err, cutBack(a.path, whole))
+	}
+	return nil
+}
+
+// writeFile writes data at the end of file.
+func writeFile(file *os.File, data []byte) error {
+	_, err := file.Write(data)
 	return err
 }
 
+// cutBack returns the stream at path to length whole, the end of its last whole
+// entry, so an append that failed, or whose file would not close, leaves
+// nothing of what it wrote.
+func cutBack(path string, whole int64) error {
+	if err := os.Truncate(path, whole); err != nil {
+		return fmt.Errorf("cut a failed append back: %w", err)
+	}
+	return nil
+}
+
 // trimTail cuts a stream back to its last ended line, so an append always
-// begins at a whole entry.
-func trimTail(path string) error {
+// begins at a whole entry, and answers the length it ends at.
+func trimTail(path string) (int64, error) {
 	file, err := fsx.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return 0, nil
 	}
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	size := info.Size()
 	if size == 0 {
-		return nil
+		return 0, nil
 	}
 	last := make([]byte, 1)
 	if _, err := file.ReadAt(last, size-1); err != nil {
-		return err
+		return 0, err
 	}
 	if last[0] == '\n' {
-		return nil
+		return size, nil
 	}
 	buffer := make([]byte, 64<<10)
 	for end := size - 1; end > 0; {
 		start := max(0, end-int64(len(buffer)))
 		count, err := file.ReadAt(buffer[:end-start], start)
 		if at := bytes.LastIndexByte(buffer[:count], '\n'); at >= 0 {
-			return os.Truncate(path, start+int64(at)+1)
+			whole := start + int64(at) + 1
+			return whole, os.Truncate(path, whole)
 		}
 		if err != nil && !errors.Is(err, io.EOF) {
-			return err
+			return 0, err
 		}
 		end = start
 	}
-	return os.Truncate(path, 0)
+	return 0, os.Truncate(path, 0)
 }
 
 // compact rewrites the stream with the newest event of each thing the session

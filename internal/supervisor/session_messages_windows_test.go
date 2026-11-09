@@ -51,9 +51,9 @@ func TestMessagesServeASessionsConversation(t *testing.T) {
 		`{"type":"assistant","uuid":"a1","timestamp":"`+stamp+`","message":{"id":"msg_1","model":"claude-opus-5-5","role":"assistant","content":[{"type":"text","text":"Its gate failed."}]}}`)
 	quiet := treeGoblin(t, h.State, userHome, "quiet", false)
 	registerNativeCFO(t, h.State, "claude", "cfo-conversation")
-	writeFile(t, filepath.Join(userHome, ".claude", "projects", "C--work", "cfo-conversation.jsonl"),
+	writeFile(t, filepath.Join(cfoConversationFile(userHome, h.Root), "cfo-conversation.jsonl"),
 		`{"type":"user","uuid":"c1","timestamp":"`+stamp+`","message":{"role":"user","content":"User answer to CFO question q-1. Question: Ship it? Answer: Yes"}}`+"\n")
-	writeFile(t, filepath.Join(userHome, ".claude", "projects", "C--work", "cfo-cleared.jsonl"),
+	writeFile(t, filepath.Join(cfoConversationFile(userHome, h.Root), "cfo-cleared.jsonl"),
 		`{"type":"user","uuid":"c2","timestamp":"`+stamp+`","message":{"role":"user","content":"Start over on the board"}}`+"\n")
 	service := &Service{Store: store, Instance: "board-token", Options: Options{Tree: &fleettree.Reader{Home: userHome}}}
 	// The board's read of the goblin's tree keeps the conversation its

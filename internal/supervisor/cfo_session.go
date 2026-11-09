@@ -79,11 +79,13 @@ func (h *HTTP) cfoConversation(ctx context.Context, recorded cfoState) (session,
 		}
 		return proved, ""
 	}
-	// Nothing proves a live conversation, so the record stands unless the
-	// harness shows it names one this session never wrote.
-	recordedPath := fleettree.SessionTranscript(h.Service.Options.Tree.Home, primary.Agent, session)
-	if recordedPath == "" {
-		return session, "The board's record names a conversation this session has written nothing to, so it cannot be read."
+	// Nothing proves a live conversation, so the record stands only while this
+	// home's own folder holds it. A record naming a conversation another
+	// folder keeps, or one never written, is reported stale: Codex keeps no
+	// folder of its own, so its record also needs the rollout to exist.
+	transcripts, folder := h.Service.Options.Tree.Home, h.Service.Store.Home.Root
+	if !fleettree.HoldsTranscript(transcripts, primary.Agent, folder, session) || fleettree.HeldTranscript(transcripts, primary.Agent, folder, session) == "" {
+		return session, fmt.Sprintf("The board's record names conversation %s, which the fleet home's own folder does not hold, so it is reported stale rather than drawn as the current one.", session)
 	}
 	return session, ""
 }

@@ -134,6 +134,10 @@ func (held *heldStream) record(events []sessionstream.Event) ([]fleettree.Messag
 	}
 	written, isCompacted, err := held.appender.Write(events)
 	if err != nil {
+		// A stream this supervisor could not write is read again from its file
+		// before the board draws it, so what the board draws is never older
+		// than what the stream holds.
+		held.isRead = false
 		return nil, err
 	}
 	switch {
