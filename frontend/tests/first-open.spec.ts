@@ -1,4 +1,4 @@
-import { expect, holdStream, openTaskList, type Page, test } from "./site";
+import { CFO_DOOR, expect, holdStream, openTaskList, type Page, test } from "./site";
 
 // The DOM renderer makes terminal output observable in headless screenshots.
 test.use({ launchOptions: { args: ["--disable-webgl"] } });
@@ -155,7 +155,7 @@ test("reopening with the saved CFO running keeps the board and its Restart contr
 
   // Act
   await page.reload();
-  await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
   await openTaskList(page);
 
   // Assert
@@ -228,7 +228,7 @@ test.describe("in the desktop window", () => {
     await expect(terminalInput(page)).toHaveCount(0);
 
     // Act
-    await page.getByRole("button", { name: "Open the CFO's terminal" }).first().click();
+    await page.getByRole("button", { name: CFO_DOOR }).first().click();
 
     // Assert
     await besideTheBoard(page);
@@ -245,7 +245,7 @@ test.describe("in the desktop window", () => {
     expect(Math.round((await panel(page).boundingBox())!.width)).toBe(520);
 
     // Act
-    await page.getByRole("button", { name: "Open the CFO's terminal" }).first().click();
+    await page.getByRole("button", { name: CFO_DOOR }).first().click();
 
     // Assert: maximized, as he left it.
     await expect(page.getByRole("button", { name: "Restore the panel" })).toBeVisible();
@@ -303,7 +303,7 @@ test.describe("in a narrow window", () => {
     await expect(board(page)).toBeInViewport();
     await expect(page.locator("#panel-title")).toHaveCount(0);
     await expect(terminalInput(page)).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Open the CFO's terminal" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: CFO_DOOR }).first()).toBeVisible();
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await page.screenshot({ path: testInfo.outputPath("first-open-narrow.png") });
   });

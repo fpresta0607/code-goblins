@@ -3,7 +3,9 @@ name: cfo-authentication
 description: Use when preflighting project authentication, requesting, storing, granting, revoking or refreshing credentials or MCP access, or handling a browser sign-in or key-fetch step.
 ---
 
-# CFO authentication
+<a id="cfo-authentication"></a>
+
+# CEO authentication
 
 In a source checkout, read `docs/contract/authentication.md` at the repository root before acting at this trigger.
 In an installed home, run `cfo help contract authentication` to retrieve this build's complete procedure from the same policy source.

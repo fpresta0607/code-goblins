@@ -147,6 +147,30 @@ test("clicking two other baby goblins shows each one's own output under its name
   }
 });
 
+// The Overlord, 2026-11-04: "I hit one and one of the chats is hit open and
+// the page is like blank." A child whose stream holds nothing said nothing at
+// all, an empty terminal under its name.
+for (const [name, output] of [["transcript", { entries: [] }], ["output", { lines: [] }]] as const) {
+  test(`a baby goblin with an empty ${name} says so, never a blank page, until it has some`, async ({ page }) => {
+    // Arrange
+    await open(page);
+    await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+    await baby(page, "Grub III - Test Runner").click();
+    const terminal = page.getByRole("log", { name: "Terminal of Grub III - Test Runner" });
+    await expect(terminal).toContainText(OUTPUTS["subagent:tests"].at(-1)!);
+    const stream = (next: object) => page.evaluate((detail) => window.dispatchEvent(new CustomEvent("child-output", { detail })), { node: "subagent:tests", output: next });
+
+    // Act
+    await stream(output);
+    await expect(terminal).toContainText("No output yet");
+    await stream({ lines: ["The affected tests run"] });
+
+    // Assert
+    await expect(terminal).toContainText("The affected tests run");
+    await expect(terminal).not.toContainText("No output yet");
+  });
+}
+
 test("hovering a baby goblin shows its task at once", async ({ page }) => {
   await page.clock.install();
   await open(page);

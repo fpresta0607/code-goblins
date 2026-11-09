@@ -175,7 +175,7 @@ func mcpInstruction(held []string) string {
 		return ""
 	}
 	return " These MCP servers of the project were withheld from you, since their entry holds a value: " + strings.Join(held, ", ") + "." +
-		" When your task needs one, say so in a blocked report that names the server and why: the CFO grants a server by name, and it reaches you at your next restart."
+		" When your task needs one, say so in a blocked report that names the server and why: the CEO grants a server by name, and it reaches you at your next restart."
 }
 
 // recordedServices is what a task's record names after a preflight: the

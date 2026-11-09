@@ -1,5 +1,5 @@
 import { devices, expect, holdStream, servePages, test } from "./site";
-import { RUNS, stepIn } from "./step-in";
+import { RUNS } from "./terminal-runs";
 
 // The Overlord, 2026-10-18 about 12:40Z: "terminal windows in mobile via vpn
 // are completely blank black screens". On his iPhone the board is WebKit,
@@ -26,7 +26,7 @@ test.use({ ...devices["iPhone 15"], browserName: "webkit" });
 
 for (const run of RUNS) {
   test(`on an iPhone over the private board a goblin's terminal draws and takes typing, ${run.name}`, async ({ page }) => {
-    await page.addInitScript((steppedIn) => localStorage.setItem("cfo-chat-style", steppedIn ? "modern" : "classic"), run.isSteppedIn);
+    await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
     // Arrange: Safari's gaps, and a stand-in Web Audio whose recorder never
     // starts, so dictation's preparation runs and fails quietly as it would
     // anywhere. The terminal's host, played by its socket, repaints after each
@@ -53,10 +53,8 @@ for (const run of RUNS) {
     const typed: string[] = [];
     await holdStream(page, snapshot(run.harness));
     await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
-    let say: (message: object) => void = () => {};
     await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
       sockets.push(new URL(socket.url()).protocol);
-      say = (message) => socket.send(JSON.stringify(message));
       socket.send(JSON.stringify({ type: "history", bytes: 0 }));
       socket.send(Buffer.from(SCREEN));
       socket.onMessage((data) => {
@@ -77,7 +75,6 @@ for (const run of RUNS) {
     // Act
     await card.focus();
     await page.keyboard.press("Enter");
-    if (run.isSteppedIn) await stepIn(page, (message) => say(message));
     const terminal = page.getByRole("region", { name: "Goblin terminal" });
     await expect(terminal.locator(".xterm-rows")).toContainText("Exporting invoices");
     await terminal.locator(".xterm").click();

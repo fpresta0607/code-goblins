@@ -1,5 +1,5 @@
-import { expect, test } from "./site";
-import { box, field, GOBLIN, NAME, open, openGoblin, PAGE, pasted, pickStyle, pressRow, snapshot, typed } from "./session-board";
+import { expect, test, type Locator, type Page } from "./site";
+import { box, field, GOBLIN, NAME, open, openGoblin, PAGE, pasted, pickStyle, pressRow, snapshot, typed, type Relay } from "./session-board";
 
 // A fake microphone, so the box can dictate.
 test.use({ permissions: ["microphone"], launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"], args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"] } });
@@ -127,7 +127,9 @@ const WEEK = { provider: "claude", status: "available", percent_remaining: 12, r
 // a goblin's, on a phone, a narrow desktop and a wide one: the usage pies,
 // the recording control and every button whole, where the model's name, and
 // on the smallest phone its effort after it, may give way with an ellipsis
-// (#1987).
+// (#1987). On a phone the usage pies give their room to the recording until
+// he stops, while desktop keeps them (the Overlord's mobile corrections,
+// 2026-11-04).
 test.describe("while he dictates", () => {
   for (const [label, width, height, isTouch] of [["a wide desktop", 1920, 1080, false], ["the desktop side panel", 1440, 960, false], ["a narrow desktop", 1024, 768, false], ["a phone", 390, 844, true], ["a small phone", 360, 640, true]] as const) {
     test.describe(`on ${label}`, () => {
@@ -173,7 +175,7 @@ test.describe("while he dictates", () => {
           // end in an ellipsis.
           await expect.poll(async () => (await row()).outside, "every control, pie and bar inside the box's border").toEqual([]);
           const shown = await row();
-          expect(shown.names).toEqual(["Add files", "Speech history", ...isTouch ? ["Clear message"] : [], "Change model", isTouch ? "Stop dictating" : "Listening", "Usage"]);
+          expect(shown.names).toEqual(["Add files", "Speech history", ...isTouch ? ["Clear message", "Change model", "Stop dictating"] : ["Change model", "Listening", "Usage"]]);
           expect(shown.cut, "no control's words cut").toEqual([]);
           expect(shown.rows, "one row").toBe(1);
           expect(shown.isRowScrolled, "the row never scrolls sideways").toBe(false);
@@ -183,11 +185,156 @@ test.describe("while he dictates", () => {
           if (isTouch) await recording.tap();
           else await page.mouse.up();
 
-          // Assert: the microphone is back, and the row with it.
+          // Assert: the microphone is back, and the row with it, its usage
+          // pies included.
           await expect(composer.getByRole("button", { name: isTouch ? "Dictate" : "Hold to dictate", exact: true })).toBeVisible();
+          await expect(composer.locator(".usage-pie").first()).toBeVisible();
           await expect.poll(async () => (await row()).outside).toEqual([]);
         });
       }
+
+      // The Overlord's mobile corrections, 2026-11-04: a second or later
+      // dictated insert keeps its caret and newest passage in view, with the
+      // phone's keyboard down while he speaks.
+      if (isTouch) test("each dictated insert into a draft taller than the box keeps the caret and the newest words in view", async ({ page }) => {
+        // Arrange: a draft past the box's cap, its keyboard put away.
+        await open(page, snapshot(), "rebase onto main");
+        await openGoblin(page);
+        const composer = box(page);
+        const draft = Array.from({ length: 12 }, (_, at) => "line " + (at + 1)).join("\n");
+        await field(page).fill(draft);
+        await field(page).blur();
+        const end = () => field(page).evaluate((textarea: HTMLTextAreaElement) => ({ value: textarea.value, caret: textarea.selectionStart, hidden: textarea.scrollHeight - textarea.clientHeight - textarea.scrollTop }));
+        expect((await end()).hidden, "the box is past its cap and shows its end").toBeLessThanOrEqual(1);
+
+        for (const times of [1, 2, 3]) {
+          // Act: a dictation.
+          await composer.getByRole("button", { name: "Dictate", exact: true }).tap();
+          const stop = composer.getByRole("button", { name: "Stop dictating", exact: true });
+          await expect(stop.locator(".voice-bars")).toBeVisible();
+          await page.waitForTimeout(1200);
+          await stop.tap();
+
+          // Assert: the words land at the end, after the caret, in view.
+          await expect(field(page)).toHaveValue(draft + " rebase onto main".repeat(times));
+          const shown = await end();
+          expect(shown.caret, "the caret after the newest words").toBe(shown.value.length);
+          expect(shown.hidden, "the newest words in view after insert " + times).toBeLessThanOrEqual(1);
+        }
+      });
     });
   }
 });
+
+// The Overlord, 2026-11-04: "Cancel button doesn't work in the modals". Every
+// way out of a Modern chat popover, its close, its Cancel, a press
+// outside it, its own control pressed again and Escape where there is a
+// keyboard, closes it with nothing changed: the draft and the chat style stay
+// as they were, nothing is typed into the terminal, nothing is sent and no
+// file chooser opens, for the CFO and a goblin, on a phone and on the desktop.
+type Way = "its close" | "a press outside" | "its control again" | "Escape";
+const POPOVERS = [
+  { what: "Speech history", control: "Speech history", shown: (page: Page, name: string) => box(page, name).getByRole("dialog", { name: "Speech history" }), ways: ["its close", "a press outside", "Escape"] as Way[], isTouchOnly: false },
+  { what: "the add menu", control: "Add files", shown: (page: Page, name: string) => box(page, name).locator(".composer-add-popover"), ways: ["a press outside", "its control again"] as Way[], isTouchOnly: true },
+  { what: "the model menu", control: "Change model", shown: (page: Page, name: string) => box(page, name).getByRole("menu", { name: "Model" }), ways: ["a press outside", "its control again", "Escape"] as Way[], isTouchOnly: false },
+  { what: "the chat style menu", control: "Chat style", shown: (page: Page) => page.locator(".context-pane .panel-header").getByRole("menu", { name: "Chat style" }), ways: ["a press outside", "its control again", "Escape"] as Way[], isTouchOnly: false },
+] as const;
+const DRAFT = "keep this draft";
+// A session's pane once its terminal has connected, so what the relay says
+// reaches it.
+async function openConnected(page: Page, relay: Relay, who: "CFO" | "goblin") {
+  const views = relay.views;
+  if (who === "CFO") await page.keyboard.press("Control+Alt+1");
+  else await openGoblin(page);
+  await expect.poll(() => relay.views).toBeGreaterThan(views);
+}
+for (const who of ["CFO", "goblin"] as const) {
+  for (const width of [1440, 390]) {
+    test.describe(`the ${who}'s Modern chat at ${width}px`, () => {
+      const isTouch = width === 390;
+      test.use({ viewport: { width, height: 900 }, hasTouch: isTouch, isMobile: isTouch });
+      for (const popover of POPOVERS.filter((each) => isTouch || !each.isTouchOnly)) {
+        for (const way of popover.ways.filter((each) => !isTouch || each !== "Escape")) {
+          test(`${way} closes ${popover.what} with nothing changed`, async ({ page }) => {
+            // Arrange
+            const relay = await open(page);
+            const name = who === "CFO" ? "CFO" : NAME;
+            await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [] } }));
+            await page.route("**/api/engines", (route) => route.fulfill({ json: { harnesses: [] } }));
+            const sent: string[] = [];
+            page.on("request", (request) => { if (request.method() !== "GET") sent.push(request.method() + " " + new URL(request.url()).pathname); });
+            let isChooserOpened = false;
+            page.on("filechooser", () => { isChooserOpened = true; });
+            await openConnected(page, relay, who);
+            relay.say({ type: "screen", asking: false, open: false, working: false, submission: "" });
+            await field(page, name).fill(DRAFT);
+            const before = { typed: typed(relay), style: await page.evaluate(() => localStorage.getItem("cfo-chat-style")), sent: sent.length };
+            const press = (target: Locator) => isTouch ? target.tap() : target.click();
+            const control = popover.control === "Chat style" ? page.locator(".context-pane .panel-header").getByRole("button", { name: "Chat style", exact: true }) : box(page, name).getByRole("button", { name: popover.control, exact: true });
+            await press(control);
+            await expect(popover.shown(page, name)).toBeVisible();
+
+            // Act
+            if (way === "its close") await press(popover.shown(page, name).getByRole("button", { name: "Close speech history", exact: true }));
+            else if (way === "a press outside") await press(page.getByRole("region", { name: "Messages", exact: true }).getByRole("log"));
+            else if (way === "its control again") await press(control);
+            else await page.keyboard.press("Escape");
+
+            // Assert
+            await expect(popover.shown(page, name)).toHaveCount(0);
+            await expect(field(page, name)).toHaveValue(DRAFT);
+            await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
+            await page.waitForTimeout(300);
+            expect(typed(relay), "nothing is typed into the terminal").toBe(before.typed);
+            expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style")), "the chat style stays").toBe(before.style);
+            expect(sent.slice(before.sent), "nothing is sent").toEqual([]);
+            expect(isChooserOpened, "no file chooser opens").toBe(false);
+          });
+        }
+      }
+
+      test("the list of the harness's own screen sends its Escape alone on Cancel, keeps the draft, and goes once the screen closes", async ({ page }) => {
+        // Arrange
+        const relay = await open(page);
+        const name = who === "CFO" ? "CFO" : NAME;
+        await openConnected(page, relay, who);
+        await field(page, name).fill(DRAFT);
+        relay.say({ type: "screen", asking: true, open: true, working: false, submission: "menu-1", panel: { rows: ["Select model"], choices: [{ text: "Default", number: 1, focused: true }, { text: "Opus", number: 2 }], hints: ["Enter to confirm · Esc to exit"] } });
+        const list = box(page, name).getByRole("group", { name: name + " asks" });
+        await expect(list).toBeVisible();
+        const before = typed(relay);
+
+        // Act
+        await (isTouch ? list.getByRole("button", { name: "Cancel", exact: true }).tap() : list.getByRole("button", { name: "Cancel", exact: true }).click());
+
+        // Assert
+        await expect.poll(() => typed(relay).slice(before.length)).toBe("\x1b");
+        relay.say({ type: "screen", asking: false, open: false, working: false, submission: "" });
+        await expect(list).toHaveCount(0);
+        await expect(field(page, name)).toHaveValue(DRAFT);
+        await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
+      });
+
+      test("a menu the harness drew for something other than his own input is not shown and takes no keys", async ({ page }) => {
+        // Arrange
+        const relay = await open(page);
+        const name = who === "CFO" ? "CFO" : NAME;
+        await openConnected(page, relay, who);
+        const list = box(page, name).getByRole("group", { name: name + " asks" });
+        const before = typed(relay);
+
+        // Act: the screen is bound to no input he submitted, as one a
+        // watcher's wake line or a board delivery drew is not.
+        relay.say({ type: "screen", asking: true, open: true, working: false, submission: "", panel: { rows: ["Select model"], choices: [{ text: "Default", number: 1, focused: true }, { text: "Opus", number: 2 }], hints: ["Enter to confirm · Esc to exit"] } });
+        await page.waitForTimeout(300);
+
+        // Assert: nothing of that screen shows, and its keys stay his.
+        await expect(list).toHaveCount(0);
+        await field(page, name).press("ArrowDown");
+        await field(page, name).press("Enter");
+        await page.waitForTimeout(300);
+        expect(typed(relay), "no key of the screen reaches the terminal").toBe(before);
+      });
+    });
+  }
+}

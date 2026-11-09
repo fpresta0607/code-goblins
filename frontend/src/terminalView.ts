@@ -522,7 +522,7 @@ export class TerminalView {
     }
     if (event.shiftKey && event.key === "Escape") {
       event.preventDefault();
-      if (down) this.element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-top button:not(:disabled, .panel-leading *)")?.focus();
+      if (down) this.element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-top button:not(:disabled)")?.focus();
       return false;
     }
     if (down && event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "v") {

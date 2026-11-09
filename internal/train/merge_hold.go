@@ -71,14 +71,19 @@ func (e Engine) notifyMergeHold(ctx context.Context, t *Train) error {
 
 func (e Engine) mayMerge(ctx context.Context, t *Train, readiness string) (bool, error) {
 	run := t.openRun()
-	isReady := readiness == "CLEAN" || readiness == "HAS_HOOKS"
+	// ci revalidates the single excluded native failure and the green source
+	// proof before land rechecks every rider. That PR-only failure can keep
+	// GitHub's aggregate UNSTABLE even though the tested source may land.
+	isNativeUnstable := readiness == "UNSTABLE" && run.OwnRun == "" && len(run.PRChecks) == 1
+	isReady := readiness == "CLEAN" || readiness == "HAS_HOOKS" || isNativeUnstable
 	if run.MergeHold != "" {
 		previous := run.MergeReadiness
 		run.MergeReadiness = readiness
 		if err := e.save(t); err != nil {
 			return false, err
 		}
-		return isReady && previous != readiness, nil
+		isUnattemptedNativeHold := isNativeUnstable && run.MergeAttempts == 0 && run.MergeHold == "GitHub reports merge readiness UNSTABLE"
+		return isReady && (previous != readiness || isUnattemptedNativeHold), nil
 	}
 	if !isReady || run.MergeAttempts >= maxErrors {
 		return false, e.holdMerge(ctx, t, "GitHub reports merge readiness "+readiness, readiness)

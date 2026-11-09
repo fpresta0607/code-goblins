@@ -19,13 +19,13 @@ import (
 
 const afkUsage = `usage: cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report | log --kind <kind> --what "<what>" --evidence "<evidence>" [--link <url>] [--option "<choice>"]... [--recommend "<choice>"] [--run <command.ps1|command.sh> [--admin]] | strike --at <when> --reason "<why>" | settle --at <when> --how "<what became of it>"
 
-  on      turn AFK mode on: the Supreme Overlord's switch, made from a terminal of his own; the registered CFO makes it only at his ask, with --asked and his words quoted exactly, and a goblin never
+  on      turn AFK mode on: the Supreme Overlord's switch, made from a terminal of his own; the registered CEO makes it only at his ask, with --asked and his words quoted exactly, and a goblin never
   off     turn it off and print the report of the stretch; the same switch, made the same way
   status  whether it is on, since when and from where, what was decided so far and what is held for him
   report  print the report of the last stretch that ended
-  log     the registered CFO logs a decision it made under the authority, with its evidence. Kind is one of left, his, merge, deploy, migration, install, answer, other. A left line is a decision you would have asked him, answered yourself with your recommendation and acted on: it takes --answer "<your choice>", --diagnosis "<what is wrong, found to its cause>", --tried "<what you already tried>" and two or more --option "<choice>", with an optional --recommend "<choice>", and is settled in his History with your answer once he is back, where he can change it. A his line is a step only he can take, such as his own sign-in, a step a tool refuses or a decision of his: one card in his Command Center when he is back, the same card cfo question or cfo run-request makes. A command he runs names its file with --run <command.ps1|command.sh>, with --admin when it runs as administrator after Windows asks him, and is a run item he runs with one click; every other his line gives two or more --option "<choice>" and --recommend "<choice>", one of them, which its card offers with Other, and his answer reaches you as an answer to cfo question does
-  strike  the registered CFO strikes through a line it logged by mistake, named by its at in state/afk.audit, with its reason. The line stays, and the report shows it struck
-  settle  the registered CFO settles a his line it saw to later in the stretch that is on, named by its at in state/afk.audit, with what became of it. The line stays, and his page of the stretch shows what became of it`
+  log     the registered CEO logs a decision it made under the authority, with its evidence. Kind is one of left, his, merge, deploy, migration, install, answer, other. A left line is a decision you would have asked him, answered yourself with your recommendation and acted on: it takes --answer "<your choice>", --diagnosis "<what is wrong, found to its cause>", --tried "<what you already tried>" and two or more --option "<choice>", with an optional --recommend "<choice>", and is settled in his History with your answer once he is back, where he can change it. A his line is a step only he can take, such as his own sign-in, a step a tool refuses or a decision of his: one card in his Command Center when he is back, the same card cfo question or cfo run-request makes. A command he runs names its file with --run <command.ps1|command.sh>, with --admin when it runs as administrator after Windows asks him, and is a run item he runs with one click; every other his line gives two or more --option "<choice>" and --recommend "<choice>", one of them, which its card offers with Other, and his answer reaches you as an answer to cfo question does
+  strike  the registered CEO strikes through a line it logged by mistake, named by its at in state/afk.audit, with its reason. The line stays, and the report shows it struck
+  settle  the registered CEO settles a his line it saw to later in the stretch that is on, named by its at in state/afk.audit, with what became of it. The line stays, and his page of the stretch shows what became of it`
 
 // runAFK is cfo afk: the Overlord's switch for running the fleet while he is
 // away, what was decided and held under it, and the report it ends with. The
@@ -115,7 +115,7 @@ func runAFK(args []string, stdout, stderr io.Writer, runtime commandRuntime) int
 func hisAsk(name string, args []string, stderr io.Writer) (string, bool) {
 	fs := flag.NewFlagSet("afk "+name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	asked := fs.String("asked", "", "the Overlord's own words asking for the switch, quoted exactly; the registered CFO passes them when it makes the switch at his ask")
+	asked := fs.String("asked", "", "the Overlord's own words asking for the switch, quoted exactly; the registered CEO passes them when it makes the switch at his ask")
 	if err := fs.Parse(args); err != nil {
 		return "", false
 	}

@@ -13,6 +13,28 @@ import (
 	"time"
 )
 
+func TestEventsRequireNamedFailuresToFinishWithoutSkipping(t *testing.T) {
+	// Arrange
+	events := NewEvents(io.Discard, io.Discard)
+	_, err := events.Write([]byte(mixedRun))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := events.End(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	for _, test := range []struct {
+		name string
+		want bool
+	}{{"TestPasses", true}, {"TestFails", true}, {"TestSkips", false}, {"TestMissing", false}} {
+		if got := events.Tested("example.com/lab/a", test.name); got != test.want {
+			t.Errorf("Tested(%s)=%t; want %t", test.name, got, test.want)
+		}
+	}
+}
+
 // mixedRun is what go test -json wrote for four packages: c does not compile,
 // d has no test files, a has a failing test with a failing subtest beside a
 // passing and a skipped one, and b passes.

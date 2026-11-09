@@ -16,6 +16,7 @@ import { CfoCardFacts } from "./cfo-card-facts";
 import { ConnectorEffect } from "./connector-effect";
 import { withDepartures } from "./tree-traffic";
 import { travel, useGlide, useTreeMotion, type Point as Place } from "./use-tree-motion";
+import type { AfkToggleState } from "./useAfkToggle";
 
 // The phases a goblin is at work in, whose card glows.
 const WORKING = new Set(["working", "busy", "active", "started"]);
@@ -54,7 +55,7 @@ function readLayout(): { positions: Record<string, Point> } {
   } catch { return { positions: {} }; }
 }
 
-export function Orchestration({ snapshot, selected, connected, effects, onSelect, onChild, onOpenCfo, presentations, now, freshNow }: {
+export function Orchestration({ snapshot, selected, connected, effects, onSelect, onChild, onOpenCfo, afkToggle, presentations, now, freshNow }: {
   presentations:BoardActivity[];
   snapshot: Snapshot; selected: string; connected: boolean; effects: ActivityEffect[]; now: number; freshNow: number;
   onSelect: (node: WorkflowNode, source: HTMLElement) => void;
@@ -62,6 +63,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   onChild: (task: Task, child: TreeNode, source: HTMLElement) => void;
   // onOpenCfo opens the CFO's terminal, from its card's button.
   onOpenCfo: (source: HTMLElement) => void;
+  afkToggle: AfkToggleState;
 }) {
   const nodes = useMemo(() => workflowNodes(snapshot), [snapshot]);
   const awaited = useMemo(() => waitingOn(snapshot, nodes), [snapshot, nodes]);
@@ -401,7 +403,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
                 isPresenting={presentations.some((presentation) => presentationShownOn(presentation, node.session, node.task))} />
             </button>
             {owner && node.task && <div className="flow-node-foot"><NodeFacts task={node.task} now={now} /></div>}
-            {hasCfoFacts && <div className="flow-node-foot"><CfoCardFacts snapshot={snapshot} now={freshNow} onOpenCfo={onOpenCfo} /></div>}
+            {hasCfoFacts && <div className="flow-node-foot"><CfoCardFacts snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpenCfo={onOpenCfo} /></div>}
             {children && <button className="node-disclosure" aria-label={(collapsed.has(node.id) ? "Expand" : "Collapse") + " descendants of " + node.title} aria-expanded={!collapsed.has(node.id)} onClick={() => toggle(node.id)}><Chevron collapsed={collapsed.has(node.id)} /></button>}
           </article>;
         })}

@@ -295,7 +295,7 @@ func (s *Service) afterCredentialClose(request CredentialRequest, by string) {
 			told = "; the goblin was told"
 			if s.Options.CFO == nil {
 				told = "; the goblin could not be told: message transport is unavailable"
-			} else if _, err := s.Options.CFO.SendGoblin(context.Background(), request.Task, request.Identity, "The Overlord answered your card "+request.ID+" ("+request.Why+") instead of taking its step: "+request.Reason); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+			} else if _, err := s.Options.CFO.SendGoblinHis(context.Background(), request.Task, request.Identity, "The Overlord answered your card "+request.ID+" ("+request.Why+") instead of taking its step: "+request.Reason); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 				told = "; the goblin could not be told: " + bounded(err.Error(), 300)
 			}
 		}

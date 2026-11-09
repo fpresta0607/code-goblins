@@ -1,10 +1,10 @@
 import { expect, test, type Locator, type Page } from "./site";
 import { open } from "./session-board";
 
-// The board's header at a phone's widths and on a desktop: the connection's
-// Live pill sits right before the Command Center's button, and every part of
-// the header and every menu it opens lies inside the screen. The supervisor
-// is played by tests/session-board.ts.
+// The board's header at a phone's widths and on a desktop: a live board shows
+// no Live pill, a connection problem's words sit right before the Command
+// Center's button, and every part of the header and every menu it opens lies
+// inside the screen. The supervisor is played by tests/session-board.ts.
 
 const live = (page: Page) => page.locator(".topbar-controls > .notice");
 const commandCenter = (page: Page) => page.locator(".command-center-menu");
@@ -16,29 +16,35 @@ async function expectInsideTheScreen(page: Page, part: Locator, name: string) {
 }
 
 // The Overlord, 2026-10-28: "dont need live status pill in top right corner
-// of desktop".
-test("the desktop window shows no Live pill while the board is live", async ({ page }) => {
-  // Arrange: WebView2 puts chrome.webview in the desktop window's page.
-  await page.addInitScript(() => { (window as unknown as { chrome: Record<string, unknown> }).chrome = { ...(window as unknown as { chrome?: Record<string, unknown> }).chrome, webview: {} }; });
-
-  // Act
-  await open(page);
-
-  // Assert
-  await expect(commandCenter(page).locator("summary")).toBeVisible();
-  await expect(page.locator(".topbar-controls .notice")).toHaveCount(0);
-});
-
-for (const width of [360, 393, 430, 1440]) {
-  test(`at ${width}px the Live pill sits right before the Command Center's button, on its row`, async ({ page }) => {
-    // Arrange
-    await page.setViewportSize({ width, height: 844 });
+// of desktop", and in his mobile corrections of 2026-11-04, the browser's
+// header loses it too.
+for (const where of ["the desktop window", "a browser"] as const) {
+  test(`${where} shows no Live pill while the board is live`, async ({ page }) => {
+    // Arrange: WebView2 puts chrome.webview in the desktop window's page.
+    if (where === "the desktop window") await page.addInitScript(() => { (window as unknown as { chrome: Record<string, unknown> }).chrome = { ...(window as unknown as { chrome?: Record<string, unknown> }).chrome, webview: {} }; });
 
     // Act
     await open(page);
 
     // Assert
-    await expect(live(page)).toHaveText("Live");
+    await expect(commandCenter(page).locator("summary")).toBeVisible();
+    await expect(page.locator(".topbar-controls .notice")).toHaveCount(0);
+    await expect(page.locator(".topbar")).not.toContainText("Live");
+  });
+}
+
+for (const width of [360, 393, 430, 1440]) {
+  test(`at ${width}px a connection problem's words sit right before the Command Center's button, on its row`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width, height: 844 });
+    await open(page);
+    await expect(live(page)).toHaveCount(0);
+
+    // Act: the board's stream sends what is no snapshot.
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: 42 })));
+
+    // Assert
+    await expect(live(page)).toHaveText("Invalid stream");
     expect(await commandCenter(page).evaluate((menu) => menu.previousElementSibling?.classList.contains("notice"))).toBe(true);
     const pill = (await live(page).boundingBox())!;
     const button = (await commandCenter(page).locator("summary").boundingBox())!;
@@ -50,7 +56,6 @@ for (const width of [360, 393, 430, 1440]) {
     // Arrange
     await page.setViewportSize({ width, height: 844 });
     await open(page);
-    await expectInsideTheScreen(page, live(page), "the Live pill");
     await expectInsideTheScreen(page, page.getByRole("group", { name: "Workspace view", exact: true }), "the view switch");
 
     // Act

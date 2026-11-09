@@ -31,6 +31,19 @@ func (s *Service) launching() string {
 	return ""
 }
 
+// markChanging says action of task is under way. It makes s.changing and
+// s.changeErrors together, since whatever ends a change writes its failure to
+// s.changeErrors. The caller holds s.starts.
+func (s *Service) markChanging(task, action string) {
+	if s.changing == nil {
+		s.changing = map[string]string{}
+	}
+	if s.changeErrors == nil {
+		s.changeErrors = map[string]taskChangeError{}
+	}
+	s.changing[task] = action
+}
+
 // isAsked says a Start or Resume the Overlord clicked on task waits its turn.
 // The caller holds s.starts.
 func (s *Service) isAsked(task string) bool {

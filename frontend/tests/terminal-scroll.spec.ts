@@ -42,10 +42,15 @@ const screenRows = (page: Page) => page.locator(".terminal-view > .xterm .xterm-
 const pin = (page: Page) => page.locator(".terminal-pin");
 const jump = (page: Page) => page.getByRole("button", { name: "Jump to bottom" });
 
+// The font arrives after the first size and refits the grid, and xterm brings
+// its viewport up to a resize only on its next frame, so a turn of the wheel on
+// that frame is lost and the view stays at the live end. The turn goes again.
 async function readHistory(page: Page) {
   await page.locator(".terminal-view > .xterm .xterm-screen").hover();
-  await page.mouse.wheel(0, -2400);
-  await expect(pin(page)).toBeVisible();
+  await expect(async () => {
+    await page.mouse.wheel(0, -2400);
+    await expect(pin(page)).toBeVisible({ timeout: 1000 });
+  }).toPass();
 }
 
 test("reading the history keeps the line he types on pinned at the bottom, and new output leaves him where he reads", async ({ page }) => {

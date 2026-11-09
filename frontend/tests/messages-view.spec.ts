@@ -1,8 +1,9 @@
 import { expect, test, type Locator, type Page } from "./site";
+import { pickStyle } from "./session-board";
 
 // The panel shows a Claude Code session's conversation as the supervisor
-// reads it (GET /api/messages), in the box the terminal fills, so stepping
-// the terminal in and out never resizes it. The
+// reads it (GET /api/messages), in the box the terminal fills, so a switch
+// to the terminal and back never resizes it. The
 // supervisor is played here: the board's snapshot and each session's message
 // stream on held streams, older pages and pictures from routes, and the
 // terminal's relay, which counts the sizes the board asks for. Every
@@ -438,12 +439,8 @@ test("Shift with Page Up and Page Down scrolls the messages, Shift+Escape goes t
   await expect.poll(async () => (await scroll(talk)).top).toBeLessThan(top - 200);
   await page.keyboard.press("Shift+PageDown");
   await expect.poll(async () => (await scroll(talk)).top).toBeGreaterThan(top - 50);
-  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, afk: { state: "on", since: new Date().toISOString(), from: "his own board", decided: 0, held: [] } });
-  const afk = page.locator(".context-pane").getByRole("switch", { name: "AFK mode" });
-  await expect(afk).toHaveAttribute("aria-checked", "true");
   await talk.focus();
   await page.keyboard.press("Shift+Escape");
-  await expect(afk).not.toBeFocused();
   // The row's first control, Open in Windows Terminal, which the row holds
   // beside the box since #1987.
   await expect(page.locator(".context-pane").getByRole("button", { name: "Open in Windows Terminal", exact: true })).toBeFocused();
@@ -511,12 +508,13 @@ test.describe("on a phone's touch screen", () => {
       message(13, { kind: "interrupt", text: "[Request interrupted by user]" }),
     ]);
 
-    // Only the turn's last reply carries Copy (the Overlord, 2026-10-28: "why
-    // the stray copy button in our chat?").
+    // Every text carries its own Copy, while its turn runs too (#2048, which
+    // supersedes the Overlord's 2026-10-28 "why the stray copy button in our
+    // chat?").
     const words = talk.locator('[data-message="m11"]');
     const called = talk.locator('[data-message="m12"]');
     await expect(called).toBeVisible();
-    for (const row of [talk.locator('[data-message="m10"]'), words]) await expect(row.getByRole("button", { name: "Copy" })).toHaveCount(0);
+    for (const row of [talk.locator('[data-message="m10"]'), words]) await expect(row.getByRole("button", { name: "Copy" })).toHaveCount(1);
     const copyButton = called.getByRole("button", { name: "Copy" });
     await expect(copyButton).toHaveCSS("opacity", "1");
     await expect(words.locator(".message-from")).toHaveCount(0);
@@ -660,10 +658,10 @@ test("Back from a goblin's panel returns to the CFO's messages", async ({ page }
 });
 
 // The first request for a terminal sizes it to the conversation's box;
-// subsequent switches in that box keep the size, for the CFO and a goblin,
+// subsequent switches of style in that box keep the size, for the CFO and a goblin,
 // with the relay answering at once and late, as on a loaded machine (#1614).
 for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as const) for (const resizeLatency of [0, 1000]) {
-  test(`stepping ${who}'s terminal in and out keeps its requested size, beside the board and maximized${resizeLatency ? ", with the relay answering late" : ""}`, async ({ page }) => {
+  test(`switching ${who}'s pane to Terminal and back keeps its requested size, beside the board and maximized${resizeLatency ? ", with the relay answering late" : ""}`, async ({ page }) => {
     const board = await open(page, resizeLatency);
     await choose(page);
     await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
@@ -675,28 +673,24 @@ for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as 
       if (isMaximized) await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
       const deck = await page.locator(".terminal-deck").boundingBox();
       const before = board.resizes.length;
-      board.say({ type: "screen", asking: true, open: true, working: false, submission: "", panel: { rows: ["Resume a conversation"], choices: [{ text: "Fix the board", number: 1, focused: true }] } });
-      await page.getByRole("button", { name: "Show the terminal" }).click();
-      await expect(page.getByRole("button", { name: "Back to messages" })).toBeVisible();
+      await pickStyle(page, "Terminal");
       await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
       await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeHidden();
       const asked = await settled(board, before);
       expect(await page.locator(".terminal-deck").boundingBox()).toEqual(deck);
-      board.say({ type: "screen", asking: false, open: false, working: false, submission: "" });
+      await pickStyle(page, "Modern chat");
       await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Back to messages" })).toHaveCount(0);
       await expect(page.locator(".xterm")).toHaveCount(0);
       await page.waitForTimeout(300);
       expect(await page.locator(".messages-view").boundingBox(), "the messages take the terminal's box").toEqual(deck);
 
       expect(board.resizes.slice(asked), `${isMaximized ? "maximized" : "beside the board"}, the switches sent no resize`).toEqual([]);
       expect(await page.locator(".terminal-deck").boundingBox()).toEqual(deck);
-      board.say({ type: "screen", asking: true, open: true, working: false, submission: "", panel: { rows: ["Resume a conversation"], choices: [{ text: "Fix the board", number: 1, focused: true }] } });
-      await page.getByRole("button", { name: "Show the terminal" }).click();
+      await pickStyle(page, "Terminal");
       await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
       await page.waitForTimeout(300);
       expect(board.resizes.slice(asked), "showing the requested terminal again sends no resize").toEqual([]);
-      board.say({ type: "screen", asking: false, open: false, working: false, submission: "" });
+      await pickStyle(page, "Modern chat");
       await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
     }
   });
@@ -841,7 +835,9 @@ test("a held goblin keeps its queued message past a picker, and what he types at
   // Act: the hold clears and the harness opens a picker of its own, and he
   // types at it.
   await board.sayTo("cg-pi", { type: "held", reason: "" });
-  await board.sayTo("cg-pi", { type: "screen", asking: true, open: true, working: false, submission: "", panel: { rows: ["Select model"], choices: [{ text: "z-ai/glm-5.3-flash", focused: true }, { text: "deepseek-v4.1-flash" }] } });
+  // The picker is bound to his own input, as the relay marks every key he
+  // types in that terminal, so it is drawn and takes his keys here.
+  await board.sayTo("cg-pi", { type: "screen", asking: true, open: true, working: false, submission: "his", panel: { rows: ["Select model"], choices: [{ text: "z-ai/glm-5.3-flash", focused: true }, { text: "deepseek-v4.1-flash" }] } });
   await expect(messageBox(page, who).getByRole("group", { name: who + " asks" })).toBeVisible();
   await boxField(page, who).fill("typed at a picker");
 

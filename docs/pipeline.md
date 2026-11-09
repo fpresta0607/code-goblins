@@ -1,6 +1,6 @@
 # Pipeline policy
 
-`config/pipeline.json` is the checked-in CFO policy for no-mistakes v1.75.1.
+`config/pipeline.json` is the checked-in CEO policy for no-mistakes v1.75.1.
 The [delivery contract](contract/delivery.md#delivery) assigns validation ownership; no pipeline steps are reimplemented here.
 The binary still owns review, fixes, tests, lint, documentation, push, PR creation and CI.
 
@@ -38,8 +38,8 @@ It needs no-mistakes b05697a or later, which passes a repository's own `project_
 An earlier no-mistakes refuses to start any gate of such a repository when a raw argument pins the value, so v5 reaches a machine only together with that build.
 No-mistakes v1.75.1 resolves test, document, and lint from the primary agent.
 Its effective repository `agent` normally comes from the trusted default branch, but a trusted `allow_repo_commands` setting delegates that field to the submitted branch.
-Before a CFO-managed run starts, the driver therefore requires the effective field to be absent, which inherits the global chain, or to select only Codex explicitly, which runs that repository's gates without the fallback.
-The driver does not rewrite repository configuration, and non-CFO no-mistakes use retains its native repository policy.
+Before a CEO-managed run starts, the driver therefore requires the effective field to be absent, which inherits the global chain, or to select only Codex explicitly, which runs that repository's gates without the fallback.
+The driver does not rewrite repository configuration, and non-CEO no-mistakes use retains its native repository policy.
 
 ## A gate on its task's own harness
 
@@ -138,7 +138,7 @@ An operator can restore the printed backup in another idle window; restoration i
 
 Owned machine fields under v6 are v5's without the chain and the Codex profile: `agent_args_override.codex` and `agent_args_override.claude` as below, the absence of `review_agents`, the absence of `agent_path_override.codex`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
 v6 does not own `agent` or `agent_config`.
-The `agent` list is the operator's, and it serves only runs started outside `cfo pipeline run`, since every run the CFO drives carries its own agents.
+The `agent` list is the operator's, and it serves only runs started outside `cfo pipeline run`, since every run the CEO drives carries its own agents.
 `agent_config` holds the operator's default model and effort for a task that names none.
 So a machine whose operator set `agent: [claude]` by hand, as on 2026-10-09, reaches v6 with `cfo pipeline config-apply` writing the two argument lists and nothing else, and one config serves every harness and every fallback.
 Owned machine fields under v5 are `agent: [codex, claude]`, `agent_config.codex: {model: gpt-6.1-sol, effort: xhigh}`, the absence of `review_agents`, `agent_args_override.codex: [-c, 'service_tier="default"', --ignore-user-config, --disable, plugins, --disable, apps, -c, 'personality="pragmatic"', -c, 'model_auto_compact_token_limit_scope="total"', -c, features.multi_agent=true, -c, project_doc_max_bytes=65536]`, `agent_args_override.claude: [--strict-mcp-config]`, the absence of `agent_path_override.codex`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
@@ -146,7 +146,7 @@ Under v4 `agent_args_override.codex` is `[-c, 'service_tier="default"']` and the
 Under v2 and v3 `agent` is `[codex]` and both global `review_agents` roles carry the version's Codex profile.
 The raw Codex argument override forces standard service for every managed role, so a user-level fast or priority preference cannot leak into a gate, while `agent_config` owns model and reasoning effort.
 Removing the Codex executable override makes no-mistakes resolve the native `codex` command from `PATH`; executable overrides for other harnesses remain operator-owned.
-Up to v4 the exact legacy CFO-owned Claude model and effort vector is removed during apply, and a differing operator-owned Claude vector is preserved.
+Up to v4 the exact legacy CEO-owned Claude model and effort vector is removed during apply, and a differing operator-owned Claude vector is preserved.
 From v5 the policy owns Claude's arguments as well, since Claude is a gate agent of its chain, and under v6 the agent of every Claude Code goblin's gate.
 Document follow-ups and other native settings retain their existing values.
 Spawn never rewrites shared YAML.
@@ -189,6 +189,7 @@ cfo pipeline respond <id> --action approve --accept ask-1,bug-2 --reason "the on
 cfo pipeline respond <id> --branch fix/connections --action approve
 cfo pipeline recover <id>
 cfo pipeline handback <id> --run <run-id>
+cfo pipeline handback <id> --run <run-id> --revalidate-publication
 cfo pipeline handback <id> --run <run-id> --resume --receipt <native-receipt-id>
 cfo pipeline migrate <id>
 ```
@@ -202,9 +203,12 @@ A response's `--instructions` still reach no-mistakes on its command line, which
 An approval `--reason` reaches it the same way, and the driver refuses one that is not a single line of plain text.
 
 Commands operate in the recorded task worktree and use its frozen policy.
-A task that gates several branches from extra worktrees names one: `run`, `respond`, `recover` and `handback` take `--branch <branch>`, and `respond`, `recover` and `handback` take `--run <run-id>` instead.
-The command then acts in whichever of the task's recorded worktrees, its own or an extra one `cfo worktree add` made, has that branch checked out, because a native command answers the latest run of the branch checked out where it runs.
-A run must be its branch's latest run in the project, and a branch or run that none of the task's worktrees has checked out is refused before anything reaches the gate.
+A task that gates several branches from extra worktrees names one: `run`, `respond`, `recover`, `handback`, `validate-authored` and `validate-terminal` take `--branch <branch>`.
+`respond`, `recover` and `handback` take `--run <run-id>` instead; `terminal-preflight` requires `--run <predecessor>`.
+The command then acts in whichever of the task's recorded worktrees, its own or an extra one `cfo worktree add` made, has that branch checked out.
+For `respond`, `recover` and `handback`, a selected run must be its branch's latest run in the project.
+Preflight and admission bind the exact predecessor's project and branch; native owns latest-owner and replay checks for admission.
+A branch or run that none of the task's worktrees has checked out is refused before anything reaches the gate.
 The pane exports `CFO_HOME` and `CFO_STATE_OVERRIDE` and every gate step inherits both, so the `--intent` text must require any step that runs `cfo`, or a shell that resolves it, to clear them or point them at a temporary directory.
 `internal/home` refuses the inherited fleet home from a test binary, which covers `go test`, but the real `cfo` binary is not a test binary and no-mistakes has no per-repo step environment setting, so the intent is the only place left to state it.
 Commit work on a named feature branch before `run`.
@@ -226,39 +230,107 @@ For eligible published CI failures with automatic CI repair disabled, `handback`
 It prints the native receipt and next action while retaining the same task, run, pull request, unresolved findings, commits and spent repair allowance.
 Follow the native source-preservation instructions, commit the authored correction, then submit it with `handback --resume --receipt <native-receipt-id>` for full validation in that same run before publication.
 The wrapper binds each request to the exact recorded repository, run, branch, caller, heads and push generation; continuation also binds the native release receipt.
+When Document or Lint advances the publication beyond its recorded Review or Test head, the registered primary CEO may explicitly select `--revalidate-publication` to request native publication revalidation.
+Goblins and gate agents cannot select this new source authority, even with inherited primary credentials or ancestry.
+Without the flag the existing native eligibility checks apply unchanged.
+The selection preserves historical evidence and spending; it does not certify the published descendant, and receipt-bound `--resume` requires fresh proof of the final source in the same run and pull request.
+Continuation uses the receipt's recorded selection without requiring the flag again.
+Native still verifies source ancestry and publication identity, and a refusal, including one after a native rebase, remains unresolved rather than being relaxed by the wrapper.
 Both handback modes refuse a pending or unreadable policy migration journal without changing the journal, frozen policy, task metadata or audit log.
 Recover the migration explicitly with `cfo pipeline migrate <id>` before requesting handback.
-It requires a native build supporting `axi handback --expect` and receipt-bound `--resume`, and refuses when that contract is unavailable.
+It requires a native build supporting `axi handback --expect` and receipt-bound `--resume`, plus `--revalidate-publication` when explicitly selected, and refuses when that contract is unavailable.
 It never substitutes recovery, approval, a CI fixer or a fresh run.
 A refusal or elapsed hold is reported without automatic retry; inspect the native status and receipt before continuing.
+
+Terminal validation admission is separate from `run`, recovery and CI handback:
+
+```powershell
+cfo pipeline terminal-preflight <id> --run <predecessor>
+cfo pipeline validate-authored <id> --admission-file admission.json
+cfo pipeline validate-terminal <id> --branch fix/correction --admission-file admission.json
+```
+
+Only the registered primary CEO may submit either admission, including accepting the committed source and choosing a terminal successor's fresh harness selection.
+The registered primary CEO or the task's own authenticated goblin may inspect `terminal-preflight`, which delegates read-only observations to native without fetching, recovering custody, preparing an admission or starting validation.
+Gate agents cannot submit admission or inspect preflight, even with inherited CEO or goblin terminal proof.
+Keep that output private: it holds local paths, source observations and recovery anchors.
+The controller prepares one UTF-8 JSON object of at most 64 KiB under the native build's validation admission contract, using its original predecessor receipt, immutable snapshot digest, original launch nonce and validation generation, original intent digest and publication identity.
+Unknown fields and trailing input are refused.
+Its `controller_policy` must exactly match this task's frozen policy hash, class and review cycles, as a controller assertion rather than proof of native historical policy.
+`historical_source_completeness` stays `unknown`; a clean candidate certifies none of the predecessor's missing dirty or untracked files.
+An unchanged terminal candidate also requires the native terminal protocol's independent `terminal_generation`, explicit `accept_unknown_source: true`, current trusted launch assertion and exact `source_anchors`.
+The driver checks task, project, canonical recorded worktree, branch, predecessor repository and exact full candidate commit/tree before delegating, requiring a clean worktree including untracked files and submodules; native atomically checks the immutable history, latest owner, original launch and intent, publication target, anchors and successor proof.
+Completed ordinary predecessors remain native-ineligible.
+To prevent a replaced input file from changing checked bindings, native receives a temporary byte-identical snapshot, deleted when the call ends.
+No ordinary `axi run`, policy migration, repair, skip or automatic retry is substituted on refusal.
+Every stage runs fresh with zero automatic and manual repair capacity, and native retains the predecessor and cumulative spending.
+Repeating identical admission observes the same child; only an untouched pending acceptance can explicitly start after native revalidation, and progressed or cancelled children are never restarted.
+Each native admission invocation's raw stdout, stderr, exit code and execution error, including refusals, receipts and cumulative spending, is retained in `state/tasktmp/<id>/validation-admissions.jsonl`, keyed by input digest, with an entry in the task status log.
+Local checks that refuse before native invocation create no admission record; preflight prints its private output without writing an admission record.
+A bounded hold returns unresolved work and directs the controller to inspect the receipt before explicitly replaying the identical admission.
+Pending or unreadable migration journals refuse all three operations without mutation; only explicit `migrate` may resolve them.
+These routes require native support for their exact `axi validate-authored --admission-file`, `axi validate-terminal --admission-file` and `axi terminal-preflight --predecessor` contracts.
+Authored admission support alone does not provide `terminal-preflight` or `validate-terminal`; both require the companion native terminal-continuation feature.
+This driver does not change the [install pin](#what-v6-needs); installing the required native build and this managed driver is separate from validation, and admission grants no live installation or adoption authority.
 
 `respond` requires durable evidence of one parked gate in this project's current branch.
 It refuses a gate already answered or still running and checks that the active review's persisted automatic limit is disabled or zero.
 An explicitly selected finding with an empty action is actionable only when the active gate is not review and its persisted automatic-fix limit is positive.
 Review remains fail-closed for empty or unknown actions.
 Fix responses name concrete actionable finding IDs; selecting an `ask-user` finding is an explicit decision, never automatic consent.
+When a selected fix has verified `no-op` IDs to ignore, the driver forwards them from the current parked gate through native `--ignore` and binds the recorded run and step with `--run` and `--step`.
+An ID that also names an actionable row is never ignored, and duplicated or malformed ignored IDs are refused.
+There is no arbitrary managed `--ignore` input: unknown or actionable findings cannot be declined through this translation.
+Native refusal, including an earlier round's applied fix that cannot be declined, stays a refusal without a retry or replacement run.
+The native ordinary-fix API binds run and step but exposes no expected-round assertion; this translation uses the durable current gate and does not claim an atomic round assertion at native dispatch.
 Approval is accepted only when every finding is explicitly `no-op`, or the findings list is empty.
-The one exception is the CFO's own decision: `respond <id> --action approve --accept <ids>` takes the open findings as they stand, except a recorded required test environment refusal, which only a successful Test retry clears, as [the binding](#any-command-in-the-line) says.
-It is honoured from the registered primary CFO process, proven as `cfo question` proves it.
+The one exception is the CEO's own decision: `respond <id> --action approve --accept <ids>` takes the open findings as they stand, except a recorded required test environment refusal, which only a successful Test retry clears, as [the binding](#any-command-in-the-line) says.
+It is honoured from the registered primary CEO process, proven as `cfo question` proves it.
 It is honoured too from the task's own goblin, on its run's review step once that run has spent its review repair cycles (issue 2049).
 The goblin is proven by its terminal: the process names the task's own terminal and carries a proof that terminal was given, and an agent a gate started is refused, since it carries the environment of whichever goblin started the shared gate daemon.
 A goblin's accept on any other step, the Test step included, before the cycles are spent, on another task's run or with `--reason` is refused with why before anything is recorded.
-The IDs must be exactly the gate's open `ask-user` and `auto-fix` findings, no more and no fewer; a finding with an empty action still needs its fix.
+The IDs must be exactly the gate's open `ask-user` and `auto-fix` findings plus any configured Test command failures accepted under the following exception, no more and no fewer.
+A configured Test command failure with an empty action can also be explicitly accepted by the primary CEO with a nonblank `--reason` and every open finding ID in `--accept`, including that failure.
+This exception recognizes only the native `test-command` category, `error` severity and configured-command failure description with a nonzero exit code; unrelated empty actions still need their fix.
+The response names the recorded native run with `--run`, preserves the failed command, findings, evidence and spent budgets, and records a Test exception rather than a successful command.
+Native refusal remains a refusal, including when the installed engine does not support the run binding.
 The task's status log records `pipeline-findings-accepted` with the step, run, round, IDs and who accepted (`by=cfo`, or `by=<task>` for its goblin) before approve reaches the gate.
-A goblin's accept also reaches the CFO's wake queue as a notify with the same words, which asks nothing, so nothing waits on it; one that cannot be queued sends no approve.
+A goblin's accept also reaches the CEO's wake queue as a notify with the same words, which asks nothing, so nothing waits on it; one that cannot be queued sends no approve.
 The goblin accepts as they stand only findings that are not correctness, security or regression defects, and a real defect among them goes in one follow-up commit on the same pull request after its first CI, named in its done report.
 An approved Test exception likewise keeps the operator's reason: `respond <id> --action approve --reason "<why>"` hands it to the native `--reason`, which no-mistakes records as the Test step's approval reason, and the task's status log records `pipeline-approval-reason` with the step, run, round and reason before approve reaches the gate.
-It is the registered primary CFO's reason alone, so a goblin is refused before anything is recorded.
+It is the registered primary CEO's reason alone, so a goblin is refused before anything is recorded.
 The native engine keeps a reason only for an approve of the Test step, so the driver refuses one for any other gate and for `fix`, and it refuses a blank reason or one that is not a single line of plain text: the engine would store a blank as none and the run would read as a Test exception nobody explained (issue 1422).
 An empty `--reason`, as `--reason "$WHY"` gives with `WHY` unset, is a reason given and refused like any blank one, never read as no reason (issue 1585).
 A reason never approves anything, so open findings still need the exact `--accept` and a clean gate still needs its own approve.
 Unsupported or malformed evidence fails closed.
-The command returns exit 3 for unresolved work requiring a CFO decision, or on a spent review its own goblin's accept, which the refusal names, without advancing the gate.
+The command returns exit 3 for unresolved work requiring a CEO decision, or on a spent review its own goblin's accept, which the refusal names, without advancing the gate.
 Other refusals return exit 1.
 This is a cooperative driver guard, not an operating-system sandbox around direct native commands.
 Agents must use the driver for managed tasks and must not invoke native mutation commands to bypass its budgets.
 
-`recover` returns custody after a failed or cancelled unpublished run when native recovery is blocked by a stale recorded head.
+`recover` returns source custody for eligible failed or cancelled runs without moving the contributor's branch.
+An authored validation child interrupted by restart that inherited its predecessor's publication has a separate recovery path from an unpublished run.
+Immutable admission provenance must bind the unchanged recorded and submitted candidate, original launch and intent to the initial child, and its inherited publication, PR identity and push generation to the predecessor snapshot.
+The registered caller must be clean at the recorded candidate; any remaining managed worktree must also be clean at that head in the registered gate repository.
+Native `terminal-preflight` must verify current history, latest ownership and the exact authored-admission and restart recovery anchors.
+The gate branch must still match the inherited publication or the predecessor's recorded or submitted head.
+Before custody is returned, native status must offer plain `axi sync --recover`, and its receipt must confirm recovered custody with unchanged source.
+The driver then verifies the durable custody stamp, admission, local head, retained gate branch and source anchors without controller-side database updates or gate alignment.
+The output reports the local head and gate branch head separately.
+A retry after custody returned requires native `local_ahead` / `blocked_local_ahead` with an `ahead` relation, which is expected when the candidate is ahead of the retained publication.
+An unpublished authored child can also retain its predecessor's older gate branch while its unchanged recorded and submitted candidate is already user-owned.
+That case requires the same immutable admission, clean source, verified history and exact authored-candidate anchor, with native `user_owned` state and safety and an `equal` relation.
+The driver reports the separately preserved local and gate heads without changing refs, history or the null custody stamp, since native has already released this source.
+Ordinary unpublished cancellations gain no authored-provenance exception.
+A step whose status is still running, fixing, awaiting_approval or fix_review keeps refusing, as does one whose recorded agent process is still alive, or whose recorded pid's liveness cannot be read, since an unanswered pid read is never permission (issue 2166).
+A pid left on a failed or cancelled step by a daemon crash is evidence of past ownership, not present ownership, so it does not block recovery once no process holds it.
+Ordinary published runs, children that published their own source, changed or missing provenance or anchors, stale generations, configured automatic repair or a spent repair round and uncertain history remain refused.
+Recovery preserves failed stages, historical source uncertainty and cumulative automatic and manual spending; it renews no repair allowance or review cycles.
+It returns source custody only: a later authored correction still requires the source-bound validation admission described above and every required stage before publication.
+Default repository CI exercises these controller paths and refusals with real Git and SQLite fixtures, substituting only the external native transport.
+The separate native admission, restart, recovery and continuation journey keeps its prepared-executable/source binding and explicit native-fixture prerequisite.
+
+For an unpublished run, `recover` can repair a stale recorded head that blocks native recovery.
 It first preserves whatever the run's worktree still holds uncommitted, as described below, and names that commit in its output.
 For pipeline-owned recovery that keeps the submitted head, it requires a clean worktree whose head exactly matches both the submitted head and native gate branch.
 The stale recorded commit must be an ancestor of that preserved head, or the gate's own rebase of it.
@@ -273,9 +345,9 @@ With the clean task branch at the recorded head, native status offers plain `syn
 It also requires the engine to have verified the recorded head when the run ended, as its crash recovery does, since native recovery first checks an unverified head against the gate branch and the head it then takes can move the task branch.
 The `custody_returned` alignment below then moves the gate branch and both database heads to the recorded head, since native recovery leaves the gate branch at the submitted head, which a rebased head never descends from, and the next run's push to the gate would be refused as a non-fast-forward.
 When native already reports clean user-owned custody, the registered task worktree and branch may contain rebases and follow-up fixes made after custody returned.
-Before a CFO-managed alignment, the driver stores the stale gate head under the immutable `refs/no-mistakes/recovery/<run>/gate` ref and verifies it again before moving the gate or database heads.
-That ref is durable CFO-swap evidence, so every `custody_returned` retry that finds it requires the stale commit and the native recovery anchor before accepting an aligned state.
-With no CFO-swap evidence, a native `custody_returned` state is accepted only when its native anchor equals the fully aligned local, gate, recorded, and submitted head.
+Before a CEO-managed alignment, the driver stores the stale gate head under the immutable `refs/no-mistakes/recovery/<run>/gate` ref and verifies it again before moving the gate or database heads.
+That ref is durable CEO-swap evidence, so every `custody_returned` retry that finds it requires the stale commit and the native recovery anchor before accepting an aligned state.
+With no CEO-swap evidence, a native `custody_returned` state is accepted only when its native anchor equals the fully aligned local, gate, recorded, and submitted head.
 The driver imports the local commit into the internal repository without writing a fetch ref, and compare-and-swaps the internal gate ref and both database heads to the local head.
 If the process exits after the gate compare-and-swap, the stale gate anchor lets the next recovery recognize that exact half-state and finish the database compare-and-swap.
 After a reported database compare-and-swap failure, the driver reads the exact run row before deciding whether the advanced gate can roll back.
@@ -283,12 +355,12 @@ A confirmed unchanged row permits rollback, a committed row continues forward, a
 Native status must confirm all three heads before success is reported.
 If a later status check triggers rollback, the gate moves back only after the database rollback succeeds, so a transient database failure preserves the forward-aligned retry state.
 The local branch and origin refs are never moved.
-The command never resets a branch or recovers a pushed run.
+The command never resets a branch.
 Pipeline-owned recorded-head repair requires strict ancestry or that proof of a pure gate rebase.
 After native has already returned clean user-owned custody, the registered identity, unpublished-run state, stale-head anchor, and compare-and-swap guards are the authorized boundary, so the driver does not reject legitimate rebases or follow-up commits by comparing them with the stale head.
 
 A gate's fixer works in the run's worktree, which no-mistakes removes with force once the run is over, so the driver keeps what the fixer left uncommitted before anything takes that worktree away.
-Before `cfo pipeline recover` runs any native command, and before a pause aborts a live run, every tracked and untracked change in the run's worktree is committed and pinned under `refs/no-mistakes/recovery/<run>/worktree` in the gate repository, and that commit's parent is the head the run ended at.
+Before unpublished recovery runs any native command, and before a pause aborts a live run, every tracked and untracked change in the run's worktree is committed and pinned under `refs/no-mistakes/recovery/<run>/worktree` in the gate repository, and that commit's parent is the head the run ended at.
 The commit is made from an index of the driver's own, so the goblin's staged and unstaged work is exactly as it left it, and a first capture stands rather than being replaced by a later one a goblin may already be restoring.
 The commit is named in the branch-sync evidence the recovery reads, in `cfo pipeline recover`'s output, and in the lifecycle record of a pause, so an interrupted fixer's repairs stay recoverable with `git cherry-pick -n <commit>` after the worktree is gone.
 On 2026-10-23 an allowance-interrupted review repair lost its frontend changes exactly this way: the step failed, custody returned at the submitted head, and native recovery swept the worktree before anything read it (issue 1416).
@@ -306,6 +378,8 @@ cfo gate test                     # fast, the default
 cfo gate test --level affected    # every package the change reaches, which CI's run also covers
 cfo gate test --level full        # every package
 cfo gate test --plan              # print the plan and run nothing
+cfo gate test --focused           # repair failures and paths from NO_MISTAKES_TEST_FOCUS
+cfo gate lint                    # required vet scope, without running tests
 ```
 
 | Level | `go vet` | `go test` |
@@ -314,14 +388,19 @@ cfo gate test --plan              # print the plan and run nothing
 | `affected` | the packages the change reaches | the same packages |
 | `full` | every package | every package |
 
+See [the test and lint command contract](commands/gate/test.md) for focused repair inputs, named-failure requirements, fallback scope and vet-only lint behavior.
+The Test step reuses the repository environment and existing fixtures described in CONTRIBUTING.md.
+Unavailable browser or live-harness prerequisites leave their scenarios untested with the missing prerequisite named, without building another full application.
+
 At every level, `cfo gate test` also selects the trusted policy's `guards`, even when no Go package changed.
 A guard runs separately before vet and package tests, with their `go test` arguments and `-timeout 45m`, only when those package tests do not already cover its whole package, including packages scheduled alone.
 A guard with named `tests` runs exactly those tests, so selecting it does not run unrelated slow tests; without `tests`, it runs its whole package.
 An optional `goos` restricts the guard to that operating system; other platforms list it as deferred with the required and current platforms, never as executed, and its platform's CI remains required.
 `cfo gate prepush` uses the same guard declarations and platform rules, omitting a separate guard run when its selected whole-package tests already cover it.
 
-A change reaches the packages that own a changed file, the packages that import one of those directly or transitively, and the packages a contract of the policy names for a changed file.
-A package owns the Go files in its directory, the files under its `testdata` folder and the files its `//go:embed` patterns cover, so a doc the binary embeds selects the package that embeds it and a doc nothing embeds selects none.
+A change reaches the packages that own a changed file, the packages that import one of those directly or transitively from their code or tests, and the packages a contract of the policy names for a changed file.
+A package owns Go build inputs (`.go`, `.s`, `.c`, `.h` or `.syso`) directly in its directory, the files under its `testdata` folder and the files its embed patterns cover, even deleted files, so a doc the binary embeds selects the package that embeds it and a doc nothing embeds selects none.
+A changed Go build input in a directory with no package names a deleted or moved package, which is not tested, but every package that still imports it directly or transitively is.
 
 A change requires `affected` before it merges, and `full` once `go.mod` or `go.sum` changed, the policy cannot be read, or a changed file is one the policy does not account for.
 CI tests the level a change requires on the pull request's own run, reading what the change reaches as `cfo gate test --plan` does, and every package in the merge train's run that lands it.
@@ -379,7 +458,7 @@ A build ignores a field it does not know, so the build a gate has installed keep
 A file that does not parse, or a version the build does not know, makes the change require `full`.
 A repository with no policy file has no slow packages.
 
-Every run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\cfo\verify\reports\<project>\`, and its verdict line names the report.
+Every `cfo gate test` run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\cfo\verify\reports\<project>\`, and its verdict line names the report.
 A run at a level narrower than the change requires ends with one more line naming the level the change requires, which CI's run checks.
 `CFO_VERIFY_DIR` names a folder to use in place of `<user cache folder>\cfo\verify`, so they go under its `reports\<project>\`.
 The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, `over_budget` when a check passed but ran past its budget, or `not_run` when admission or an earlier command failed.
@@ -757,13 +836,23 @@ So this repository's own `cfo gate test` runs behind `cfo gate turn` under a gat
 A repository whose `.no-mistakes.yaml` names no `commands.test` gives the fork nothing to wrap: its test step logs `no test command configured` and asks the test agent to run the tests, which it does outside the line.
 So every gated repository names its suite there, on its default branch.
 The string runs as `cmd.exe /c <string>`, so it is in `cmd.exe` syntax, with `&&` between commands.
-A gate's worktree holds tracked files only, so `commands.prepare` installs what the suite needs, outside the line:
+A gate's worktree holds tracked files only, so `commands.prepare` installs what the suite needs, outside the line, before the baseline and first Test agent invocation.
+This repository configures:
 
 ```yaml
 commands:
-  prepare: "pnpm install --frozen-lockfile"
-  test: "pnpm run build && pnpm test"
+  prepare: "cfo gate prepare"
+  test: "cfo gate test"
 ```
+
+`cfo gate prepare` reads the existing scoped change plan and runs `npm ci` in the validation worktree's own `frontend` directory only when the plan contains a path under `frontend/`, including source and lockfile changes.
+Go-only and documentation-only changes install nothing.
+An existing `node_modules` directory does not authorize reuse: every frontend-affected preparation runs the locked install, without sharing materialized dependencies between worktrees or adding a receipt or cache.
+On Windows it invokes npm through `cmd.exe /d /c npm ci`, so standard `npm.cmd` installations work.
+An unreadable plan fails preparation before an installer starts; missing tooling and installer failures also fail preparation, with no fallback to an unlocked install.
+Missing or invalid lockfiles are rejected by `npm ci`, not independently validated by this command.
+The command reports the locked install's elapsed time; its isolated regression fixtures are in `cmd/cfo/gate_prepare_test.go`.
+Activation requires this configuration on the default branch, from which the gate trusts it, and a reviewed installed CFO build supporting both `cfo gate prepare` and `cfo gate test`.
 
 An existing verified Python environment can be required by the project's machine-local `data/projects/<checkout folder>/project.json`:
 
@@ -794,9 +883,9 @@ An unavailable, invalid or mismatched required binding refuses execution with ex
 Repair and verify the existing environment or its project setting, then request the same Test command again through `cfo pipeline respond <task> --action fix --findings test-command-no-turn`.
 `cfo pipeline respond` refuses approval of a recorded required-environment refusal, even with `--accept` or `--reason` and after the project setting changes; a successful Test retry is required.
 Projects with no `test_environment` keep their existing runner environment: the wrapper reads only their project and recorded checkout from the native run and checks no checkout provenance, so a changed local origin never stops their Test or costs it its place in line.
-The machine must have the `test_command_wrapper` configuration above pointing at the reviewed CFO build, including both native identity arguments; the managed preflight refuses a required binding when either is absent or uses another placeholder.
+The machine must have the `test_command_wrapper` configuration above pointing at the reviewed CEO build, including both native identity arguments; the managed preflight refuses a required binding when either is absent or uses another placeholder.
 The native build must support the `{test_comparison_sha}` contract delivered by [native pull request 46](https://github.com/fpresta0607/no-mistakes/pull/46).
-The CFO activates that native build and the reviewed wrapper setting together through its normal idle configuration window.
+The CEO activates that native build and the reviewed wrapper setting together through its normal idle configuration window.
 The isolated real-daemon acceptance fixture is `tests/acceptance/test_environment.py`.
 It consumes source-bound native and consumer artifact receipts and an unused private proof root, uses an existing Python 3.12.10 interpreter and fake command sentinels, and retains its complete native history and proof.
 
@@ -932,7 +1021,7 @@ A run in which nothing failed exits 0 and says how many of the picked checks ran
 A pick that holds nothing this machine can run, such as a change to the board where the board is not installed, exits 0 and says that no check ran here and how many it left to CI.
 A run the machine gave no turn says that nothing ran and exits 1.
 
-`cfo verify <task>` runs this as the project's fast tier, by `verification.fast` in `data/projects/code-goblins/project.json`, so a goblin and the CFO run the same check by the same command.
+`cfo verify <task>` runs this as the project's fast tier, by `verification.fast` in `data/projects/code-goblins/project.json`, so a goblin and the CEO run the same check by the same command.
 A tier that fails prints its failed check's last line and the file that holds the rest.
 
 ### What the replay showed

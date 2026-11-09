@@ -50,9 +50,9 @@ The goblin proposes evidence; an independent reviewer verifies it. Delivery refu
 **Implementation:**
 
 - Add `depends_on`, `touches`, and `integration_group` fields to task metadata.
-- CFO constructs a DAG before dispatch when work is decomposed.
+- CEO constructs a DAG before dispatch when work is decomposed.
 - Workers remain isolated and never merge sibling work themselves.
-- Add an integration worktree owned by the CFO, not a goblin.
+- Add an integration worktree owned by the CEO, not a goblin.
 - Candidate branches enter a deterministic queue.
 - Rebase/merge candidate N onto the latest integration head, rerun affected validation, then advance the integration head.
 - On conflict or regression, return only the failed candidate to a repair goblin with the integration diff and failure evidence.
@@ -69,7 +69,7 @@ Code Goblins already has wake events and harness switching. Extend that into a t
 ```text
 working
   -> blocked_auth       -> human
-  -> blocked_question   -> CFO decision / human if ambiguous
+  -> blocked_question   -> CEO decision / human if ambiguous
   -> harness_erroring   -> switch according to routing policy
   -> validation_failed  -> repair attempt <= budget
   -> ci_failed          -> repair attempt <= budget
@@ -78,7 +78,7 @@ working
   -> exhausted          -> human with evidence bundle
 ```
 
-Every automatic transition gets a bounded attempt count and durable episode ID. Restarts must not reset budgets. The CFO should wake the human only for `blocked_auth`, genuinely ambiguous product decisions, exhausted budgets, or policy-defined high-risk delivery.
+Every automatic transition gets a bounded attempt count and durable episode ID. Restarts must not reset budgets. The CEO should wake the human only for `blocked_auth`, genuinely ambiguous product decisions, exhausted budgets, or policy-defined high-risk delivery.
 
 ## P1 — Risk-scoped autonomy instead of global YOLO
 
@@ -109,13 +109,13 @@ Every automatic transition gets a bounded attempt count and durable episode ID. 
 }
 ```
 
-Capabilities should be enforced by the CFO command boundary and credential availability, not merely written into prompts. Production credentials should not be injected into implementation workers unless the policy explicitly requires them.
+Capabilities should be enforced by the CEO command boundary and credential availability, not merely written into prompts. Production credentials should not be injected into implementation workers unless the policy explicitly requires them.
 
 ## P2 — Project brain with provenance
 
 **Pattern worth adopting:** Agent Orchestrator's persistent project-level coordination context.
 
-Do not add a generic vector database first. Store compact structured project memory in the repository or CFO home:
+Do not add a generic vector database first. Store compact structured project memory in the repository or CEO home:
 
 - architecture decisions and invariants;
 - known validation commands;
@@ -124,7 +124,7 @@ Do not add a generic vector database first. Store compact structured project mem
 - component/file ownership hints;
 - task outcomes and evidence manifests.
 
-Every learned fact carries provenance (`commit`, `task`, `file`, or human decision) and a freshness boundary. The CFO retrieves this context when briefing workers. Workers do not silently rewrite canonical project rules.
+Every learned fact carries provenance (`commit`, `task`, `file`, or human decision) and a freshness boundary. The CEO retrieves this context when briefing workers. Workers do not silently rewrite canonical project rules.
 
 ## P2 — Fleet evaluation harness
 

@@ -1,4 +1,4 @@
-import { expect, servePages, test, type Page } from "./site";
+import { CFO_DOOR, expect, servePages, test, type Page } from "./site";
 
 // The Overlord, 2026-10-18, after the kernel's pools held 11 GB four days into
 // a boot: "the header shows the restart button in terminal cfo for safe pc
@@ -42,7 +42,7 @@ async function open(page: Page, memory: object, { origin = "", refusal = "" } = 
     await servePages(page.context(), origin);
     await page.goto(origin + "/");
   } else await page.goto("/");
-  await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
   await expect(page.locator(".panel-header #panel-title")).toHaveText("CFO");
   const push = (snapshot: object) => page.evaluate((data) => (window as unknown as { pushSnapshot: (data: string) => void }).pushSnapshot(data), JSON.stringify({ ...BOARD, revision: 2, ...snapshot }));
   return { sent, push, header: page.locator(".panel-header"), line: page.locator(".cfo-header-line") };
@@ -65,7 +65,6 @@ for (const [width, height] of [[1280, 800], [390, 844]]) {
       expect(button.y).toBeGreaterThanOrEqual(row.y + row.height - 0.5);
       expect(button.y - (row.y + row.height)).toBeLessThan(12);
       expect(Math.abs(button.x + button.width - (corner.x + corner.width))).toBeLessThanOrEqual(1);
-      await expect(header.getByRole("switch", { name: "AFK mode" })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
 
       // Act: he presses it, reads the question, and says yes.
@@ -113,7 +112,7 @@ test("under the line there is no Restart PC", async ({ page }) => {
   const { header, line } = await open(page, UNDER);
 
   // Assert: and the line under the header's row takes no room.
-  await expect(header.getByRole("switch", { name: "AFK mode" })).toBeVisible();
+  await expect(header.locator("#panel-title")).toHaveText("CFO");
   await expect(line.getByRole("button", { name: "Restart the PC" })).toHaveCount(0);
   await expect(line).toBeHidden();
 });
@@ -126,7 +125,7 @@ test("his private board never offers Restart PC", async ({ page }) => {
   await push({ memory: PAST, pc_restart: { state: "stopped", problem: "not every working goblin paused: second-goblin (failed)", at: "2026-10-18T22:30:00Z" } });
 
   // Assert
-  await expect(header.getByRole("switch", { name: "AFK mode" })).toBeVisible();
+  await expect(header.locator("#panel-title")).toHaveText("CFO");
   await expect(line.getByRole("button", { name: /Restart the PC|Restarting/ })).toHaveCount(0);
   await expect(line.getByText(/The PC did not restart/)).toHaveCount(0);
 });

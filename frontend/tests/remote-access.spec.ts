@@ -1,4 +1,4 @@
-import { expect, openTaskList, type Page, servePages, test } from "./site";
+import { CFO_DOOR, expect, openTaskList, type Page, servePages, test } from "./site";
 
 const URL = "https://my-desktop.example.ts.net:4311";
 const SERVE = "tailscale serve --bg --https=4311 http://127.0.0.1:4310";
@@ -68,7 +68,7 @@ async function open(page: Page, first: Status, { fail = false, origin = "", slow
     await servePages(page.context(), origin);
     await page.goto(origin + "/");
   } else await page.goto("/");
-  await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
   await openTaskList(page);
   await page.locator(".disclosure.remote-access > summary").click();
   const push = (snapshot: Status) => page.evaluate((data) => (window as unknown as { pushSnapshot: (data: string) => void }).pushSnapshot(data), JSON.stringify({ ...BOARD, ...snapshot }));
@@ -313,6 +313,8 @@ test("a phone on the private board turns AFK on and off", async ({ page }) => {
     asked.push(body);
     return route.fulfill({ json: { state: body.on ? "on" : "off" } });
   });
+  // The switch is on the CFO's bar, under the panel a phone fills.
+  await page.getByRole("button", { name: /^Back to / }).click();
   const afk = page.getByRole("switch", { name: "AFK mode" });
   await expect(afk).toHaveAttribute("aria-checked", "false");
   await expect(afk).toBeEnabled();

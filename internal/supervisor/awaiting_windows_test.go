@@ -262,9 +262,9 @@ func TestAGoblinsDeliveryInItsTurnAwaitsItsRecord(t *testing.T) {
 	}
 }
 
-// A goblin's message reaches its turn only by Send now, whose delivery presses
-// its harness's send-now key itself, so what was typed into a Claude Code
-// goblin's turn offers no Send now of its own.
+// What was typed into a Claude Code goblin's turn is its harness's to take, so
+// it offers no Send now of its own; a message that waits behind a held command
+// has Send now, whose delivery presses the harness's send-now key itself.
 func TestAGoblinsDeliveryInItsTurnOffersNoSendNow(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)

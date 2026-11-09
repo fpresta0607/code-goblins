@@ -20,8 +20,8 @@ This skill is the part a command cannot do: prove the project's commands by runn
 - No env file is opened to read it.
   `cfo project check` reads env files and reports names and reasons, which is all a report needs.
 - Nothing is written under the home's `data/projects`.
-  A record there steers routing and verification for live spawns, so a draft goes to the task folder and the CFO places it.
-- No live board, supervisor, CFO or goblin is stopped, restarted or attached to.
+  A record there steers routing and verification for live spawns, so a draft goes to the task folder and the CEO places it.
+- No live board, supervisor, CEO or goblin is stopped, restarted or attached to.
 
 ## The pass
 
@@ -111,7 +111,7 @@ This skill is the part a command cannot do: prove the project's commands by runn
    After the findings keep the `ok` lines that say what was examined, since a check that examined nothing is not a pass.
    End with the proofs from step 3 and the verdict line.
 7. **Route the fixes.**
-   - A fix in the home's files for the project, which are `auth.json`, `worktree.json`, `services.json` and `project.json`, is the CFO's to place.
+   - A fix in the home's files for the project, which are `auth.json`, `worktree.json`, `services.json` and `project.json`, is the CEO's to place.
      Write the proposed text in the report.
    - A fix inside the project's repository, such as its gate file, its instruction files, its ignore file or its test setup, is never made in this pass.
      Write the finding and the proposed text for a follow-up task, which ships through that repository's own gate.

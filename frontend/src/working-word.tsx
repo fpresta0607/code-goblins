@@ -15,7 +15,8 @@ const HELD = "steps(1, end)";
 // WorkingWord says what a turn does beside its helix: said, the harness's own
 // words, or Working when it names nothing, then each of WORKING_WORDS in turn
 // (the Overlord, 2026-10-30: "make twitsting and teh verbs rotate in a type
-// writere hroiztonal shimmer"). Each word types itself out left to right, a
+// writere hroiztonal shimmer"), each ending in one ellipsis, as Tinkering…
+// does (2026-11-04). Each word types itself out left to right, a
 // letter at a time, then a shimmer crosses it. Every word is in the page from
 // the start, laid unseen in the one place, and shows in its turn by its own
 // animations, which come round again for as long as the turn runs, so the
@@ -26,10 +27,11 @@ const HELD = "steps(1, end)";
 // lit copy of the word, so it lights the letters and never the ground about
 // them. The room the words take is their widest's as drawn, so nothing after
 // them moves, and a word wider than the row ends in an ellipsis. Under
-// reduced motion it shows said, or Working, whole and still.
-export function WorkingWord({ said }: { said: string }) {
+// reduced motion it shows said, or Working, whole and still. isAlone keeps
+// said alone, with no whimsical verb after it.
+export function WorkingWord({ said, isAlone = false }: { said: string; isAlone?: boolean }) {
   const doing = useRef<HTMLSpanElement>(null);
-  const words = useMemo(() => [said || "Working", ...WORKING_WORDS.filter((word) => word !== said)], [said]);
+  const words = useMemo(() => [said || "Working", ...isAlone ? [] : WORKING_WORDS.filter((word) => word !== said)].map((word) => /(…|\.\.\.)$/.test(word) ? word : word + "…"), [said, isAlone]);
   useEffect(() => {
     const room = doing.current;
     if (!room || matchMedia("(prefers-reduced-motion: reduce)").matches) return;

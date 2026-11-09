@@ -152,9 +152,9 @@ func Install(c InstallConfig) (string, error) {
 func Events(harness string) []string {
 	events := []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop"}
 	if harness == "codex" {
-		events = append(events, "Interrupt", "PreCompact", "PostCompact")
+		events = append(events, "Interrupt")
 	}
-	return events
+	return append(events, "PreCompact", "PostCompact")
 }
 
 func writeOwned(path, content string) error {

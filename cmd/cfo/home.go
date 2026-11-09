@@ -21,7 +21,7 @@ import (
 const homeUsage = `usage: cfo home migrate [--apply --plan <digest>] [--memory-from <dir>]
 
 Lay out a home whose data folder predates the layout AGENTS.md describes
-under "The CFO home": create the layout's folders, file every finished task
+under "The CEO home": create the layout's folders, file every finished task
 folder into data\archive\finished and every stale brief into
 data\archive\parked exactly as the watcher does, give the backlog its Parked
 section, import a harness memory folder into data\memory, and mark the data

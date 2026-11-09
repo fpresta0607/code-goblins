@@ -309,11 +309,7 @@ func (s *Service) resumeAutomatically(record state.Lifecycle) error {
 	if current.Phase != "paused" || current.Operation != record.Operation || current.Generation != record.Generation {
 		return nil
 	}
-	if s.changing == nil {
-		s.changing = map[string]string{}
-		s.changeErrors = map[string]taskChangeError{}
-	}
-	s.changing[record.ID] = "resume"
+	s.markChanging(record.ID, "resume")
 	delete(s.changeErrors, record.ID)
 	operation := fmt.Sprintf("auto-resume-%d", time.Now().UnixNano())
 	go func() {

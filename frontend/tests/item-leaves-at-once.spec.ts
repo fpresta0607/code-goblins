@@ -1,4 +1,4 @@
-import { doneCards, expect, openItem, recordDoneCards, test, type BrowserContext, type Page } from "./site";
+import { CFO_DOOR, doneCards, expect, openItem, recordDoneCards, test, type BrowserContext, type Page } from "./site";
 
 // The Overlord, 2026-10-02: "when I close a Command Center question or the CFO
 // answers it, the alert hangs around for a stale second or two in the goblin
@@ -183,7 +183,7 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     });
     await page.goto("/");
     await send(page, "snapshot", quiet);
-    await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).first().click();
+    await bar(page).getByRole("button", { name: CFO_DOOR }).first().click();
     await expect(page.locator("#panel-title")).toHaveText("CFO");
 
     // Act: the goblin asks the CFO, then the CFO asks the Overlord.
@@ -205,7 +205,7 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     await expect(badge(page)).toHaveAccessibleName("Command Center, 3 waiting on you");
     await page.waitForTimeout(500);
     await expect(toasts(page)).toHaveCount(0);
-    await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).first().click();
+    await bar(page).getByRole("button", { name: CFO_DOOR }).first().click();
     await expect(page.locator("#panel-title")).toHaveText("CFO");
     // The CFO's panel opens on its Messages view, with the keyboard in its box.
     await expect(page.getByRole("textbox", { name: "Message CFO" })).toBeFocused();
@@ -222,7 +222,7 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     });
     await page.goto("/");
     await send(page, "snapshot", quiet);
-    await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).first().click();
+    await bar(page).getByRole("button", { name: CFO_DOOR }).first().click();
     await expect(page.locator("#panel-title")).toHaveText("CFO");
     await expect(page.locator(".canvas-region")).toBeVisible();
     await send(page, "snapshot", asking({ questions: [question] }));

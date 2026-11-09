@@ -382,7 +382,7 @@ func TestTierMarkerExamplesInCodeStayLiteralAcrossMemoryConsumers(t *testing.T) 
 					t.Errorf("startup hid the authority diagnostic: %s", startup)
 				}
 			} else {
-				if retrieveCode != 0 || !strings.Contains(retrieved, " tier="+test.tier+"\n") || !strings.Contains(retrieved, test.text) {
+				if retrieveCode != 0 || !strings.Contains(retrieved, " tier="+test.tier+" delivery=") || !strings.Contains(retrieved, test.text) {
 					t.Errorf("retrieve classified the entry wrongly: exit=%d, %s%s", retrieveCode, retrieved, retrieveErrors)
 				}
 				if test.stow == "" && strings.Contains(retrieved, "STOW REQUIRED") || test.stow != "" && !strings.Contains(retrieved, test.stow) {

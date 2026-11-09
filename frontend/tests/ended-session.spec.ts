@@ -257,7 +257,7 @@ for (const backend of ["native", "herdr"] as const) {
   });
 }
 
-test("an ended summary never takes a live Herdr stream from three open terminals", async ({ page }) => {
+test("a Herdr terminal he left keeps no stream, and one he comes back to past an ended summary connects afresh", async ({ page }) => {
   const connections = await watchConnections(page, "herdr");
   await page.goto("/tests/fixtures/ended-session.html?phase=retired&crew");
   for (const id of ["alpha", "beta", "gamma"]) {
@@ -270,16 +270,17 @@ test("an ended summary never takes a live Herdr stream from three open terminals
   await page.evaluate(() => window.showTask("alpha"));
 
   await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
-  expect(await connections()).toEqual([
+  await expect.poll(connections).toEqual([
+    { task: "alpha", generation: "c1-7f3a", open: false },
+    { task: "beta", generation: "c2-7f3a", open: false },
+    { task: "gamma", generation: "c3-7f3a", open: false },
     { task: "alpha", generation: "c1-7f3a", open: true },
-    { task: "beta", generation: "c2-7f3a", open: true },
-    { task: "gamma", generation: "c3-7f3a", open: true },
   ]);
 });
 
 const open = async (connections: () => Promise<Pane[]>) => (await connections()).filter((pane) => pane.open);
 
-test("a paused fourth Herdr goblin resumed while shown keeps at most three live streams", async ({ page }) => {
+test("a paused Herdr goblin resumed while shown holds the only live stream", async ({ page }) => {
   const connections = await watchConnections(page, "herdr");
   await page.goto("/tests/fixtures/ended-session.html?phase=paused&backend=herdr&crew");
   for (const id of ["alpha", "beta", "gamma"]) {
@@ -294,15 +295,10 @@ test("a paused fourth Herdr goblin resumed while shown keeps at most three live 
   await page.evaluate(() => window.reportSession("working", "s2-9d41"));
 
   await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
-  await expect.poll(() => open(connections)).toEqual([
-    { task: "beta", generation: "c2-7f3a", open: true },
-    { task: "gamma", generation: "c3-7f3a", open: true },
-    { task: "input-proof", generation: "s2-9d41", open: true },
-  ]);
-  expect((await connections()).filter((connection) => connection.task === "alpha")).toEqual([{ task: "alpha", generation: "c1-7f3a", open: false }]);
+  await expect.poll(() => open(connections)).toEqual([{ task: "input-proof", generation: "s2-9d41", open: true }]);
 });
 
-test("a paused Herdr goblin resumed in the background stays within three live streams", async ({ page }) => {
+test("a paused Herdr goblin resumed in the background takes no stream until it is shown", async ({ page }) => {
   const connections = await watchConnections(page, "herdr");
   await page.goto("/tests/fixtures/ended-session.html?phase=paused&backend=herdr&crew");
   await expect(page.getByRole("heading", { name: "Session paused" })).toBeVisible();
@@ -316,11 +312,8 @@ test("a paused Herdr goblin resumed in the background stays within three live st
   await page.evaluate(() => window.showTask("beta"));
 
   await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
-  expect(await connections()).toEqual([
-    { task: "alpha", generation: "c1-7f3a", open: true },
-    { task: "beta", generation: "c2-7f3a", open: true },
-    { task: "gamma", generation: "c3-7f3a", open: true },
-  ]);
+  await expect.poll(() => open(connections)).toEqual([{ task: "beta", generation: "c2-7f3a", open: true }]);
+  expect((await connections()).filter((connection) => connection.task === "input-proof")).toEqual([]);
 });
 
 for (const backend of ["native", "herdr"] as const) {

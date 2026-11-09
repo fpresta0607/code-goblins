@@ -17,11 +17,11 @@ const DIVIDER = /^[─╌━═]+$/;
 // offers a way out, or where it lists nothing to pick. Every other key the
 // terminal takes is the box's own (panel-keys.ts), never a row of chips (the
 // CFO's review, 2026-10-27), and a press on a choice or on Cancel leaves the
-// keyboard in the box. onKeys sends keys to the terminal, and
-// onShowTerminal, when given, steps the terminal in for a screen the list does
-// not cover.
-export function HarnessPanel({ panel, name, onKeys, onShowTerminal }: {
-  panel: Panel; name: string; onKeys: (keys: string) => void; onShowTerminal?: () => void;
+// keyboard in the box. onKeys sends keys to the terminal. Nothing in it
+// shows the terminal: the style menu of the session's picture is the one
+// switch to Terminal (the Overlord, 2026-11-04).
+export function HarnessPanel({ panel, name, onKeys }: {
+  panel: Panel; name: string; onKeys: (keys: string) => void;
 }) {
   return <section className="harness-panel" role="group" aria-label={name + " asks"}>
     {panel.rows.length > 0 && <div className="harness-panel-rows">
@@ -39,7 +39,6 @@ export function HarnessPanel({ panel, name, onKeys, onShowTerminal }: {
     <div className="harness-panel-foot">
       <p className="harness-panel-hints">{panel.hints.join(" · ")}</p>
       {(!panel.choices.length || panel.hints.some((hint) => CANCELS.test(hint))) && <button type="button" className="labelled-button harness-cancel" onMouseDown={(event) => event.preventDefault()} onClick={() => onKeys(PANEL_KEYS.escape)}>Cancel</button>}
-      {onShowTerminal && <button type="button" className="icon-button harness-show-terminal" aria-label="Show the terminal" onClick={onShowTerminal}><Icon name="terminal" /></button>}
     </div>
   </section>;
 }

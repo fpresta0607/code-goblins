@@ -2,10 +2,10 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, openTaskList, ORIGIN, test, type Locator, type Page, type Route } from "./site";
+import { CFO_DOOR, expect, openTaskList, ORIGIN, test, type Locator, type Page, type Route } from "./site";
 
-// AFK mode on the board: the toggle in the CFO panel's header, what the CFO's
-// bar says while it is on, the offer when he is back and the link to his page
+// AFK mode on the board: the toggle on the CFO's bar, what that bar says while
+// it is on, the offer when he is back and the link to his page
 // of the last stretch once it turns off. The supervisor is played here: the board's stream
 // is held open and each snapshot is pushed to it, and what the board asks is
 // collected.
@@ -112,19 +112,18 @@ const look = (row: Locator) => row.evaluate((element) => {
   const face = element.querySelector(".goblin-avatar")!;
   return { row: { ...drawn(element), width: "" }, box: { ...drawn(element, "::before"), width: "" }, asker: [asker.color, asker.fontFamily, asker.fontWeight], answer: drawn(answer), answerBox: drawn(answer, "::before"), face: drawn(face).width };
 });
-// The toggle is in the header of the CFO's panel, which the CFO's bar opens.
+// The CFO's panel, which the CFO's bar opens.
 async function openCfoPanel(page: Page) {
-  await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  await bar(page).getByRole("button", { name: CFO_DOOR }).last().click();
   await expect(header(page).locator("#panel-title")).toHaveText("CFO");
 }
 
-test("the CFO panel's header carries the AFK toggle beside its status: off at rest, on asks first, and nothing turns on until he says so", async ({ page }) => {
+test("the CFO's bar carries the one AFK toggle: off at rest, on asks first, and nothing turns on until he says so", async ({ page }) => {
   const supervisor = await open(page, snapshot());
-  // The switch is not on the CFO's bar, which is as it was.
-  await expect(bar(page).getByRole("switch")).toHaveCount(0);
+  await expect(bar(page).getByRole("switch")).toHaveCount(1);
   await expect(bar(page).locator(".cfo-rest").getByRole("button")).toHaveCount(2);
   await openCfoPanel(page);
-  await expect(header(page).getByRole("switch")).toHaveCount(1);
+  await expect(header(page).getByRole("switch")).toHaveCount(0);
   await expect(toggle(page)).toHaveText("AFK");
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
   await expect(bar(page).locator(".cfo-rest")).toContainText("All quiet. 3 goblins at work.");
@@ -150,55 +149,48 @@ test("the CFO panel's header carries the AFK toggle beside its status: off at re
   await expect.poll(() => supervisor.asked.at(-1)).toEqual({ on: false, token: "fixture" });
 });
 
-test("the toggle is in the panel's header", async ({ page }) => {
-  await open(page, snapshot());
-  await openCfoPanel(page);
-  await expect(toggle(page)).toBeVisible();
-});
-
 // The Overlord, 2026-10-08: "this yellow text i hate. as an error". A refusal
 // of his own press is an error he can read: what did not happen, then the one
 // short sentence the supervisor has for him, in the question and under the
-// header, and it stays until he closes it. "No dialog ever shows a raw refusal
-// paragraph: one short sentence at most" (2026-10-09). Under the header it
-// lies over the conversation at the row's end, so the row keeps its height
-// and every control, and its own close button is in the panel.
-test("a refusal is one short sentence shown as an error, in the question and under the header, until he closes it, and the toggle stays as it was", async ({ page }) => {
+// switch, and it stays until he closes it. "No dialog ever shows a raw refusal
+// paragraph: one short sentence at most" (2026-10-09). Under the switch it
+// lies over the board, so the bar keeps its height and every control, and its
+// own close button is on the page, where a press reaches it.
+test("a refusal is one short sentence shown as an error, in the question and under the switch, until he closes it, and the toggle stays as it was", async ({ page }) => {
   await page.clock.install();
   const supervisor = await open(page, snapshot(), { asked: [], refuses: true, announces: true });
-  await openCfoPanel(page);
   await toggle(page).click();
   const asks = page.locator("dialog.afk-dialog");
   await asks.getByRole("button", { name: "Turn AFK on" }).click();
   await expect(asks.getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
   await asks.getByRole("button", { name: "Cancel" }).click();
-  await expect(header(page).getByRole("alert")).toHaveCount(0);
+  await expect(bar(page).getByRole("alert")).toHaveCount(0);
 
   await push(page, snapshot({ afk: on() }));
   await expect(toggle(page)).toHaveAttribute("aria-checked", "true");
-  const row = (await header(page).boundingBox())!;
+  const row = (await bar(page).boundingBox())!;
+  const pressed = (await toggle(page).boundingBox())!;
   await toggle(page).click();
-  const refusal = header(page).getByRole("alert");
+  const refusal = bar(page).getByRole("alert");
   await expect(refusal).toHaveText("AFK did not turn off" + REFUSAL);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "true");
-  expect(await header(page).boundingBox()).toEqual(row);
-  expect((await refusal.boundingBox())!.y).toBeGreaterThanOrEqual(row.y + row.height);
-  const pane = (await page.locator(".context-pane").boundingBox())!;
+  expect(await bar(page).boundingBox()).toEqual(row);
+  expect((await refusal.boundingBox())!.y).toBeGreaterThanOrEqual(pressed.y + pressed.height);
   const close = (await refusal.getByRole("button", { name: "Close the message" }).boundingBox())!;
-  expect(close.x).toBeGreaterThanOrEqual(pane.x);
-  expect(close.y).toBeGreaterThanOrEqual(pane.y);
-  expect(close.x + close.width).toBeLessThanOrEqual(pane.x + pane.width);
-  expect(close.y + close.height).toBeLessThanOrEqual(pane.y + pane.height);
+  const screen = page.viewportSize()!;
+  expect(close.x).toBeGreaterThanOrEqual(0);
+  expect(close.x + close.width).toBeLessThanOrEqual(screen.width);
+  expect(close.y + close.height).toBeLessThanOrEqual(screen.height);
   await page.clock.fastForward(60_000);
   await expect(refusal).toBeVisible();
   await refusal.getByRole("button", { name: "Close the message" }).click();
-  await expect(header(page).getByRole("alert")).toHaveCount(0);
+  await expect(bar(page).getByRole("alert")).toHaveCount(0);
   expect(supervisor.asked.map((ask) => ask.on)).toEqual([true, false]);
 });
 
 // A turn-on refused after he closed the question still says which way he
-// pressed: AFK did not turn on, under the header.
+// pressed: AFK did not turn on, under the switch.
 test("a refusal that arrives after he cancelled Go AFK says AFK did not turn on", async ({ page }) => {
   await open(page, snapshot());
   let answer = () => {};
@@ -208,7 +200,6 @@ test("a refusal that arrives after he cancelled Go AFK says AFK did not turn on"
     await answered;
     await route.fulfill({ status: 403, json: { error: REFUSAL } });
   });
-  await openCfoPanel(page);
   await toggle(page).click();
   const asks = page.locator("dialog.afk-dialog");
   await asks.getByRole("button", { name: "Turn AFK on" }).click();
@@ -216,8 +207,215 @@ test("a refusal that arrives after he cancelled Go AFK says AFK did not turn on"
   await asks.getByRole("button", { name: "Cancel" }).click();
   await expect(asks).toHaveCount(0);
   answer();
-  await expect(header(page).getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL);
+  await expect(bar(page).getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
+});
+
+// refuseLater holds the supervisor's refusal of his press on the switch until
+// the function it returns is called.
+async function refuseLater(page: Page) {
+  let answer = () => {};
+  const answered = new Promise<void>((resolve) => { answer = resolve; });
+  await page.route("**/api/afk", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    await answered;
+    await route.fulfill({ status: 403, json: { error: REFUSAL } });
+  });
+  return answer;
+}
+// The forms the bar changes to under him: its lantern box as something starts
+// waiting on him, and the closed bar as the CFO closes.
+const LANTERN = { fields: { questions: [QUESTIONS[0]] }, shown: (page: Page) => expect(bar(page).locator(".cfo-command")).toBeVisible() };
+const CLOSED = { fields: { cfo_runs: false, cfo_closed: true }, shown: (page: Page) => expect(bar(page)).toContainText("The CFO is closed.") };
+
+// The bar changing form answers nothing he asked: the question he opened, the
+// press he made and its refusal all carry over to the form that replaces it.
+for (const [name, form] of [["lantern box", LANTERN], ["closed bar", CLOSED]] as const) {
+  test(`Go AFK? stays open with Cancel focused when the bar becomes its ${name}`, async ({ page }) => {
+    // Arrange
+    const supervisor = await open(page, snapshot());
+    await toggle(page).click();
+    const asks = page.locator("dialog.afk-dialog");
+    await expect(asks.getByRole("button", { name: "Cancel" })).toBeFocused();
+
+    // Act
+    await push(page, snapshot(form.fields));
+
+    // Assert
+    await form.shown(page);
+    await expect(asks.getByRole("heading", { name: "Go AFK?" })).toBeVisible();
+    await expect(asks.getByRole("button", { name: "Cancel" })).toBeFocused();
+    expect(supervisor.asked).toEqual([]);
+  });
+
+  test(`Turn AFK on keeps its spinner and its refusal when the bar becomes its ${name}`, async ({ page }) => {
+    // Arrange
+    await open(page, snapshot());
+    const refuse = await refuseLater(page);
+    await toggle(page).click();
+    const asks = page.locator("dialog.afk-dialog");
+    await asks.getByRole("button", { name: "Turn AFK on" }).click();
+    const working = asks.getByRole("button", { name: "Turning AFK on…" });
+    await expect(working).toBeDisabled();
+
+    // Act
+    await push(page, snapshot(form.fields));
+
+    // Assert
+    await form.shown(page);
+    await expect(working).toBeDisabled();
+    await expect(working.locator(".card-start-spinner")).toBeVisible();
+
+    // Act
+    refuse();
+
+    // Assert
+    await expect(asks.getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL);
+  });
+}
+
+test("a press on the switch keeps its spinner and its refusal when the bar changes form", async ({ page }) => {
+  // Arrange: a switch that cannot be read turns off at a press, unasked.
+  const afk = { state: "unreadable" };
+  await open(page, snapshot({ afk }));
+  const refuse = await refuseLater(page);
+  await toggle(page).click();
+  await expect(toggle(page)).toHaveAttribute("aria-busy", "true");
+
+  // Act
+  await push(page, snapshot({ afk, ...LANTERN.fields }));
+
+  // Assert
+  await LANTERN.shown(page);
+  await expect(toggle(page)).toHaveAttribute("aria-busy", "true");
+  await expect(toggle(page).locator(".card-start-spinner")).toBeVisible();
+
+  // Act
+  refuse();
+
+  // Assert
+  await expect(bar(page).getByRole("alert")).toHaveText("AFK did not turn off" + REFUSAL);
+  await expect(toggle(page)).toHaveAttribute("aria-busy", "false");
+});
+
+// The bar and the card come and go with the view and with the CFO, and neither
+// answers the switch: his press and its question belong to the board, so they
+// carry over to whichever switch is drawn, or stay open with none drawn.
+const card = (page: Page) => page.locator(".flow-node");
+const showView = (page: Page, view: string) => page.getByRole("button", { name: view, exact: true }).click();
+for (const [from, to] of [["Board", "Orchestration"], ["Orchestration", "Board"]] as const) {
+  test(`a press made on ${from} keeps its spinner and its refusal on ${to}`, async ({ page }) => {
+    // Arrange
+    await open(page, snapshot({ afk: on() }));
+    const refuse = await refuseLater(page);
+    await showView(page, from);
+    await toggle(page).click();
+    await expect(toggle(page)).toHaveAttribute("aria-busy", "true");
+
+    // Act
+    await showView(page, to);
+
+    // Assert
+    const shown = to === "Board" ? bar(page) : card(page);
+    await expect(shown.getByRole("switch", { name: "AFK mode" })).toHaveAttribute("aria-busy", "true");
+    await expect(shown.locator(".afk-toggle .card-start-spinner")).toBeVisible();
+
+    // Act
+    refuse();
+
+    // Assert
+    await expect(shown.getByRole("alert")).toHaveText("AFK did not turn off" + REFUSAL);
+  });
+}
+
+test("Go AFK? opened from the CFO's card stays open, and keeps its press, when the CFO stops", async ({ page }) => {
+  // Arrange
+  await open(page, snapshot());
+  const refuse = await refuseLater(page);
+  await showView(page, "Orchestration");
+  await card(page).getByRole("switch", { name: "AFK mode" }).click();
+  const asks = page.locator("dialog.afk-dialog");
+  await expect(asks.getByRole("button", { name: "Cancel" })).toBeFocused();
+
+  // Act
+  await push(page, snapshot(CLOSED.fields));
+
+  // Assert
+  await expect(toggle(page)).toHaveCount(0);
+  await expect(asks.getByRole("heading", { name: "Go AFK?" })).toBeVisible();
+  await expect(asks.getByRole("button", { name: "Cancel" })).toBeFocused();
+
+  // Act
+  await asks.getByRole("button", { name: "Turn AFK on" }).click();
+  await expect(asks.getByRole("button", { name: "Turning AFK on…" })).toBeDisabled();
+  refuse();
+
+  // Assert
+  await expect(asks.getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL);
+});
+
+// A refusal on the CFO's card hangs over the cards around it, whole on the
+// screen, and its close button answers the pointer, though a card lifts under
+// the pointer as it arrives.
+for (const [width, view] of [[1440, "canvas"], [390, "list"]] as const) {
+  test(`a refusal on the CFO's card on the ${view} reads whole and closes`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width, height: 844 });
+    await open(page, snapshot({ afk: on() }));
+    await showView(page, "Orchestration");
+    const place = view === "canvas" ? card(page) : page.locator(".workflow-node.role-cfo");
+    const refuse = await refuseLater(page);
+    await place.getByRole("switch", { name: "AFK mode" }).click();
+    await page.mouse.move(2, 2);
+
+    // Act
+    refuse();
+
+    // Assert
+    const refusal = place.getByRole("alert");
+    await expect(refusal).toHaveText("AFK did not turn off" + REFUSAL);
+    const box = (await refusal.boundingBox())!;
+    expect(box.x, "on the screen").toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width, "on the screen").toBeLessThanOrEqual(width);
+
+    // Act
+    await refusal.getByRole("button", { name: "Close the message" }).click();
+
+    // Assert
+    await expect(refusal).toHaveCount(0);
+  });
+}
+
+// A closed bar draws the switch only while AFK is not off, and a press he
+// walked away from still has its answer to show there.
+test("a closed bar keeps the switch until the refusal of a press he cancelled is read", async ({ page }) => {
+  // Arrange
+  await open(page, snapshot());
+  const refuse = await refuseLater(page);
+  await toggle(page).click();
+  const asks = page.locator("dialog.afk-dialog");
+  await asks.getByRole("button", { name: "Turn AFK on" }).click();
+  await asks.getByRole("button", { name: "Cancel" }).click();
+
+  // Act
+  await push(page, snapshot(CLOSED.fields));
+
+  // Assert
+  await CLOSED.shown(page);
+  await expect(toggle(page)).toHaveAttribute("aria-busy", "true");
+
+  // Act
+  refuse();
+
+  // Assert
+  const refusal = bar(page).getByRole("alert");
+  await expect(refusal).toHaveText("AFK did not turn on" + REFUSAL);
+
+  // Act
+  await refusal.getByRole("button", { name: "Close the message" }).click();
+
+  // Assert
+  await expect(toggle(page)).toHaveCount(0);
 });
 
 // The Overlord, 2026-10-08: "hate that loading message doesnt happen on button
@@ -462,7 +660,6 @@ test.describe("AFK report layout", () => {
     await page.route("**" + PAGE, (route) => route.fulfill({ contentType: "text/html", body: html }));
     await page.route("**/api/afk/report/afk-fixture/*.{png,webp}", (route) => route.fulfill({ path: join("public/assets", new URL(route.request().url()).pathname.split("/").at(-1)!) }));
     await page.route("**/pictures/*.png", (route) => route.fulfill({ path: "public/assets/goblin-workshop.webp" }));
-    await openCfoPanel(page);
     await toggle(page).click();
     await push(page, snapshot({ afk: KEPT, questions: QUESTIONS }));
     const report = page.getByRole("dialog", { name: "Your AFK report" });
@@ -693,20 +890,11 @@ test("after the CFO turned AFK on at his ask, the lesser Turn AFK off turns it o
   expect(supervisor.asked.map((ask) => ask.on)).toEqual([false, false]);
 });
 
-// The words take the line under the header's row, so the row keeps its
-// controls and Close.
-test("a switch that cannot be read is shown off, says under it in muted words how to reset it, and what waits on him still leads", async ({ page }) => {
+test("a switch that cannot be read is shown off, says beside it in muted words how to reset it, and what waits on him still leads", async ({ page }) => {
   const supervisor = await open(page, snapshot({ questions: [QUESTIONS[0]], afk: { state: "unreadable" } }));
   await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
-  await openCfoPanel(page);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
-  const words = page.locator(".cfo-header-line").getByText("Unreadable: a press resets it", { exact: true });
-  await expect(words).toHaveClass("muted");
-  const row = (await header(page).boundingBox())!;
-  expect((await words.boundingBox())!.y).toBeGreaterThanOrEqual(row.y + row.height);
-  const pane = (await page.locator(".context-pane").boundingBox())!;
-  const close = (await header(page).getByRole("button", { name: "Close panel", exact: true }).boundingBox())!;
-  expect(close.x + close.width).toBeLessThanOrEqual(pane.x + pane.width);
+  await expect(bar(page).getByText("Unreadable: a press resets it", { exact: true })).toHaveClass("muted");
   // His press resets it: it asks for off, and asks nothing first.
   await toggle(page).click();
   await expect.poll(() => supervisor.asked).toEqual([{ on: false, token: "fixture" }]);
@@ -718,53 +906,162 @@ const within = (page: Page, selector: string) => page.locator(selector).evaluate
   const box = element.getBoundingClientRect();
   return [...element.children].every((child) => { const part = child.getBoundingClientRect(); return part.width === 0 || part.left >= box.left - 0.5 && part.right <= box.right + 0.5 && part.top >= box.top - 0.5 && part.bottom <= box.bottom + 0.5; });
 });
-const smallest = (page: Page) => bar(page).evaluate((pin) => Math.min(...[...pin.querySelectorAll("p, span, strong, small, time, button, summary")].filter((element) => (element.textContent || "").trim() !== "").map((element) => parseFloat(getComputedStyle(element).fontSize))));
+const smallest = (page: Page) => bar(page).evaluate((pin) => Math.min(...[...pin.querySelectorAll("p, span, strong, small, time, button, summary")].filter((element) => (element.textContent || "").trim() !== "" && !element.closest(".subscription-dial, .actions-spend-header")).map((element) => parseFloat(getComputedStyle(element).fontSize))));
 const fits = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
-test("on a phone the bar keeps its line, its terminal and Open Command Center inside it, and the toggle stays in the CFO panel's header, with nothing wider than the page", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
-  await expect(bar(page).getByRole("button", { name: "Open Command Center: 2 waiting on you" })).toBeVisible();
-  expect(await within(page, ".cfo-rest")).toBe(true);
-  expect(await smallest(page)).toBeGreaterThanOrEqual(15);
-  await openCfoPanel(page);
-  await expect(toggle(page)).toBeVisible();
-  expect(await within(page, ".panel-header")).toBe(true);
-  expect(await toggle(page).evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(15);
-  expect(await fits(page)).toBe(true);
-});
+// What the bar draws beside the toggle on a real board: the weekly dials and
+// the Actions bill.
+const readAt = new Date().toISOString();
+const METERS = {
+  subscriptions: ["claude", "codex"].map((provider) => ({ provider, status: "available", source: "oauth", percent_remaining: 75, read_at: readAt, resets_at: new Date(Date.now() + 86_400_000).toISOString(), floor_percent: 20 })),
+  actions_spend: { status: "available", month: readAt.slice(0, 7), total: { minutes: 700, used_usd: 12, billed_usd: 8.5 }, repositories: [], read_at: readAt, checked_at: readAt, detail: "" },
+};
+
+// The Overlord, 2026-11-05: "Put afk toggle in main header next to terminal
+// button". It stands right beside that button at the row's own gap, on the
+// bar's resting row and its lantern box, and nothing leaves the bar or the
+// page, on and off, with items waiting and none, beside all the bar can hold.
+for (const width of [1440, 390]) {
+  for (const state of ["off", "on", "unreadable"] as const) {
+    for (const waiting of [0, 2]) {
+      test(`at ${width} px, AFK ${state} with ${waiting} waiting, the toggle stands beside the button that opens the CFO`, async ({ page }, testInfo) => {
+        // Arrange
+        await page.setViewportSize({ width, height: 844 });
+
+        // Act
+        await open(page, snapshot({ ...METERS, cfo_terminal: "cfo", questions: QUESTIONS.slice(0, waiting), afk: state === "on" ? on({ decided: 4, held: HELD.slice(0, waiting) }) : { state } }));
+
+        // Assert
+        await expect(bar(page).getByRole("button", { name: /billed this month/ })).toBeVisible();
+        await expect(toggle(page)).toHaveAttribute("aria-checked", String(state === "on"));
+        const opens = bar(page).locator(".cfo-pin-end").getByRole("button", { name: CFO_DOOR });
+        const left = (await toggle(page).boundingBox())!, right = (await opens.boundingBox())!;
+        const gap = await bar(page).locator(".cfo-pin-end").evaluate((element) => parseFloat(getComputedStyle(element).columnGap));
+        expect(Math.round(right.x - (left.x + left.width)), "at the row's own gap").toBe(gap);
+        expect(Math.abs(left.y + left.height / 2 - (right.y + right.height / 2)), "on one line").toBeLessThanOrEqual(1);
+        const held = (await bar(page).boundingBox())!;
+        for (const control of await bar(page).locator("button:visible").all()) {
+          const each = (await control.boundingBox())!;
+          expect(each.x, "inside the bar").toBeGreaterThanOrEqual(held.x);
+          expect(each.x + each.width, "inside the bar").toBeLessThanOrEqual(held.x + held.width);
+          expect(each.y + each.height, "inside the bar").toBeLessThanOrEqual(held.y + held.height);
+        }
+        if (state === "unreadable") {
+          const words = (await bar(page).getByText("Unreadable: a press resets it", { exact: true }).boundingBox())!;
+          expect(words.x, "inside the bar").toBeGreaterThanOrEqual(held.x);
+          expect(words.x + words.width, "inside the bar").toBeLessThanOrEqual(held.x + held.width);
+          expect(words.y + words.height, "inside the bar").toBeLessThanOrEqual(held.y + held.height);
+        }
+        expect(await smallest(page)).toBeGreaterThanOrEqual(15);
+        expect(await fits(page)).toBe(true);
+        await bar(page).screenshot({ path: testInfo.outputPath(`cfo-bar-${width}-${state}-${waiting}.png`) });
+      });
+    }
+  }
+}
+
+// The button says and shows what it opens: the message icon of the panel's
+// Chat view with Modern chat saved and messages to show, and the terminal
+// otherwise (the Overlord, 2026-11-05: "Make the terminal button the chat icon
+// as well with the modern chat being used").
+for (const waiting of [0, 2]) {
+  test(`with Modern chat saved and ${waiting} waiting the bar's button says chat and draws the Chat view's icon`, async ({ page }) => {
+    // Arrange
+    await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
+    await open(page, snapshot({ cfo_terminal: "cfo", questions: QUESTIONS.slice(0, waiting) }));
+    const opens = bar(page).locator(".cfo-pin-end").getByRole("button", { name: "Open the CFO's chat" });
+    await expect(opens).toHaveAttribute("data-tip", "Open the CFO's chat");
+    await expect(bar(page).getByRole("button", { name: "Open the CFO's terminal" })).toHaveCount(0);
+    const drawn = await opens.locator("svg").innerHTML();
+
+    // Act
+    await opens.click();
+
+    // Assert
+    await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
+    expect(await header(page).getByRole("button", { name: "Chat", exact: true }).locator("svg").innerHTML()).toBe(drawn);
+  });
+}
+
+for (const [saved, fields] of [["classic", { cfo_terminal: "cfo" }], ["modern", {}]] as const) {
+  test(`with ${saved} saved and ${"cfo_terminal" in fields ? "messages" : "no messages"} to show the bar's button says terminal and opens it`, async ({ page }) => {
+    // Arrange
+    await page.addInitScript((style) => localStorage.setItem("cfo-chat-style", style), saved);
+    await open(page, snapshot(fields));
+    const opens = bar(page).locator(".cfo-pin-end").getByRole("button", { name: "Open the CFO's terminal" });
+    await expect(opens).toHaveAttribute("data-tip", "Open the CFO's terminal");
+
+    // Act
+    await opens.click();
+
+    // Assert
+    await expect(page.locator(".context-pane").locator(".terminal-surface, .xterm").first()).toBeAttached();
+    await expect(page.getByRole("region", { name: "Messages", exact: true })).toHaveCount(0);
+  });
+}
+
+// While his press waits on the supervisor the switch spins in its track and
+// keeps the width the bar was fitted to.
+for (const width of [1440, 390]) {
+  test(`at ${width} px the bar's AFK switch keeps its width while his press waits`, async ({ page }) => {
+    // Arrange: AFK on, and the supervisor's answer to his press held.
+    await page.setViewportSize({ width, height: 900 });
+    await open(page, snapshot({ afk: on() }));
+    let answer = () => {};
+    const answered = new Promise<void>((resolve) => { answer = resolve; });
+    await page.route("**/api/afk", async (route) => {
+      await answered;
+      await route.fulfill({ json: { state: "off" } });
+    });
+    const resting = (await toggle(page).boundingBox())!;
+
+    // Act
+    await toggle(page).click();
+
+    // Assert
+    await expect(toggle(page)).toHaveAttribute("aria-busy", "true");
+    expect((await toggle(page).boundingBox())!.width).toBe(resting.width);
+    answer();
+  });
+}
+
+// A bar with no CFO running keeps its one way to start one, and no panel is
+// left to turn AFK off from, so the switch stays there only while AFK is not
+// off.
+for (const [state, count] of [["off", 0], ["on", 1], ["unreadable", 1]] as const) {
+  test(`a closed CFO's bar with AFK ${state} shows the switch ${count} times`, async ({ page }) => {
+    // Act
+    await open(page, snapshot({ cfo_runs: false, cfo_closed: true, afk: state === "on" ? on() : { state } }));
+
+    // Assert
+    await expect(bar(page).getByRole("button", { name: "Reopen the CFO" })).toBeVisible();
+    await expect(toggle(page)).toHaveCount(count);
+  });
+
+  test(`with no CFO running and AFK ${state} the bar shows the switch ${count} times`, async ({ page }) => {
+    // Arrange
+    await open(page, snapshot());
+    await push(page, snapshot({ cfo_runs: false, afk: state === "on" ? on() : { state } }));
+
+    // Act
+    await page.getByRole("button", { name: "Board", exact: true }).click();
+
+    // Assert
+    await expect(bar(page)).toContainText("No CFO is running.");
+    await expect(toggle(page)).toHaveCount(count);
+  });
+}
 
 // His window: maximized on a 2560 by 1600 screen at 150 percent.
 test.describe("in the desktop window", () => {
   test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
 
-  test("the toggle sits on the header's first row", async ({ page }) => {
+  test("the bar keeps the toggle, Open Command Center and its button inside it", async ({ page }) => {
     await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
     await expect(bar(page).getByRole("button", { name: "Open Command Center: 2 waiting on you" })).toBeVisible();
-    await openCfoPanel(page);
-    const rows = await header(page).evaluate((element) => [".goblin-avatar", ".afk-toggle"].map((selector) => { const box = element.querySelector(selector)!.getBoundingClientRect(); return [Math.round(box.top), Math.round(box.bottom)]; }));
-    // The toggle is beside the CFO's portrait and name, not under them.
-    expect(rows[1][0], "the panel").toBeLessThan(rows[0][1]);
-    expect(rows[1][1], "the panel").toBeGreaterThan(rows[0][0]);
-    expect(await within(page, ".panel-header"), "the panel").toBe(true);
+    await expect(toggle(page)).toBeVisible();
     expect(await within(page, ".cfo-rest")).toBe(true);
     expect(await fits(page)).toBe(true);
-  });
-
-  // The panel dragged to its narrowest, 360 pixels: the header's one row cuts
-  // the name short rather than hide or cover the toggle.
-  test("on a panel at its narrowest the toggle is still there and inside the header", async ({ page }) => {
-    await page.addInitScript(() => localStorage.setItem("cfo-pane-width", "360"));
-    await open(page, snapshot({ afk: on() }));
-    await openCfoPanel(page);
-    expect(Math.round((await page.locator(".context-pane").boundingBox())!.width), "the panel").toBe(360);
-    await expect(toggle(page)).toBeVisible();
-    expect(await within(page, ".panel-header"), "the panel").toBe(true);
-    const overlap = await header(page).evaluate((element) => {
-      const name = element.querySelector("#panel-title")!.getBoundingClientRect(), switched = element.querySelector(".afk-toggle")!.getBoundingClientRect();
-      return name.right > switched.left && name.left < switched.right && name.bottom > switched.top && name.top < switched.bottom;
-    });
-    expect(overlap, "the name and the toggle overlap").toBe(false);
   });
 });
 
@@ -797,7 +1094,7 @@ test.describe("a board left open across an update", () => {
     return loads;
   }
   const loadedBuild = (page: Page) => page.locator('meta[name="cfo-build"]').getAttribute("content");
-  const openTerminal = (page: Page) => bar(page).getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  const openTerminal = (page: Page) => bar(page).getByRole("button", { name: CFO_DOOR }).last().click();
 
   test("opening a terminal reloads it once onto the new build, where the terminals open", async ({ page }) => {
     // Arrange

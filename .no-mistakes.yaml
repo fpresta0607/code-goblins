@@ -1,11 +1,12 @@
 # This repository's settings for the no-mistakes gate, the local pipeline
 # (review, test, document, lint, push, PR, CI) every change here passes
 # through before it merges. The gate reads this file from the default branch.
-# It exists for two reasons: gate agents must never load AGENTS.md or
-# CLAUDE.md, and automatic fix rounds stay bounded. docs/load-map.md places
-# it among everything else the gate's agents read.
+# It exists for three reasons: gate agents must never load AGENTS.md or
+# CLAUDE.md, automatic fix rounds stay bounded, and the review step asks
+# whether a change is reached by its tests through the real caller.
+# docs/load-map.md places it among everything else the gate's agents read.
 
-# AGENTS.md installs a CFO identity. Disable project-level agent settings and
+# AGENTS.md installs a CEO identity. Disable project-level agent settings and
 # instructions for gate agents so a no-mistakes review/fix/document/test/lint
 # agent never adopts that identity or drives the fleet.
 disable_project_settings: true
@@ -30,18 +31,81 @@ disable_project_settings: true
 # machine and ran the slowest packages twice. An agent-chosen step ran the
 # whole suite here, where supervisor alone takes about 22 minutes, and hit
 # the 30-minute test agent limit with no failing test. It runs the installed
-# cfo, so it works once the CFO installs a build that has `cfo gate test`.
+# cfo, so activation needs an installed build with both `cfo gate test` and
+# `cfo gate prepare` after this configuration lands on the default branch.
 #
-# The lint step's command is the Go check CI runs, `go vet ./...`, in the
-# go (rest) job of .github/workflows/go.yml, where it took 44 seconds on
-# 2026-10-10. With no command named an agent worked out what to lint, in the
-# same pass that edits the docs. CI's frontend job also runs `npm run
-# typecheck` and `npm run lint` in frontend, which need the node_modules a
-# gate's worktree does not have, so those two stay CI's, and the gate's ci
-# step waits for that run.
+# The lint step reuses the affected-check planner for go vet, without running
+# tests again. Unknown changes keep its full-tree fallback. Native preparation
+# installs the frontend lock in this validation worktree before Test only when
+# the scoped planner sees frontend changes. Go-only and documentation-only
+# changes install nothing. CI's frontend job retains its broader checks.
 commands:
+  prepare: "cfo gate prepare"
   test: "cfo gate test"
-  lint: "go vet ./..."
+  test_focused: "cfo gate test --focused"
+  lint: "cfo gate lint"
+
+test:
+  instructions: |
+    Use the repository environment and existing fixtures for the changed surface.
+    CONTRIBUTING.md describes the existing Go, frontend and acceptance-test prerequisites.
+    Exercise changed behavior with the existing package fixtures and fake runners; these do not require a board build or live harness sessions.
+    Keep required guards inside commands.test and run its baseline once; commands.test_focused reads NO_MISTAKES_TEST_FOCUS as a UTF-8 filename containing data, never shell code.
+    A repair checks every named failure and the packages affected by its repaired paths, including transitive dependents.
+    Live terminal and browser journeys require their existing executable, input and environment fixtures.
+    When a prerequisite is unavailable, record the scenario as untested and name the missing prerequisite, without inventing or building a disposable full application.
+    CI owns the broader package coverage and platform checks that the local plan explicitly defers.
+
+# The review step asks the one question about a change's tests that this
+# repository keeps answering too late: whether they reach the changed code
+# through its real caller. Adapted, in this repository's own words, from the
+# ECC library's test-analysis idea at affaan-m/ecc commit
+# d2ef2680594f9a17526a6e1a2e18b3d242c5d17b: agents/pr-test-analyzer.md, and
+# skills/ai-regression-testing/SKILL.md with the review material beside it,
+# rules/common/code-review.md. No ECC script, hook or workflow runs here.
+#
+# The rule fires only for the paths a change actually touches, and adds to the
+# reviewer's own requirements instead of replacing them. On 2026-11-07 the same
+# class of finding arrived in the last review round, after the repair budget
+# was spent, twice: typedFrom-wiring-untested on cg-chat-menus-and-send-now,
+# and the three unix-guard findings on root-no-mistakes-143.
+#
+# Like test.instructions above and review.conversation, path_instructions is
+# honoured only from the default branch, so this block steers a review once it
+# is merged there; a pushed branch cannot add or weaken the rules that review
+# it.
+#
+# The gate matches one glob per entry and no brace expansion, so the same text
+# is stated once per source extension; change all three together.
+review:
+  path_instructions:
+    - path: "*.go"
+      instructions: |
+        Check that new and changed code paths are reached by a test through their real caller.
+        For every function, guard, branch, value or field the change adds, moves or narrows, name the production code that reaches it and the test that enters there, and open both.
+        A test that calls the changed function directly proves the function, not the wiring: it passes unchanged with the call site deleted, wired to the wrong value or made unreachable.
+        A removed or narrowed guard must still fail something: name the test that fails without it, and report a guard whose removal leaves every test passing.
+        Both times a change here slipped through with untested wiring, it was this seam: a typed value handed to one component and tested at another, and a unix guard that selected the wrong shell while its own test asserted the selection.
+        A unit test of a decision helper is evidence for the helper alone; the seam to prove is the gate step, board view or command that calls it, and the assertion must differ observably on each side of that path.
+        Report the untested path as the finding, naming the caller and the assertion the missing test needs.
+    - path: "*.ts"
+      instructions: |
+        Check that new and changed code paths are reached by a test through their real caller.
+        For every function, guard, branch, value or field the change adds, moves or narrows, name the production code that reaches it and the test that enters there, and open both.
+        A test that calls the changed function directly proves the function, not the wiring: it passes unchanged with the call site deleted, wired to the wrong value or made unreachable.
+        A removed or narrowed guard must still fail something: name the test that fails without it, and report a guard whose removal leaves every test passing.
+        Both times a change here slipped through with untested wiring, it was this seam: a typed value handed to one component and tested at another, and a unix guard that selected the wrong shell while its own test asserted the selection.
+        A unit test of a decision helper is evidence for the helper alone; the seam to prove is the gate step, board view or command that calls it, and the assertion must differ observably on each side of that path.
+        Report the untested path as the finding, naming the caller and the assertion the missing test needs.
+    - path: "*.tsx"
+      instructions: |
+        Check that new and changed code paths are reached by a test through their real caller.
+        For every function, guard, branch, value or field the change adds, moves or narrows, name the production code that reaches it and the test that enters there, and open both.
+        A test that calls the changed function directly proves the function, not the wiring: it passes unchanged with the call site deleted, wired to the wrong value or made unreachable.
+        A removed or narrowed guard must still fail something: name the test that fails without it, and report a guard whose removal leaves every test passing.
+        Both times a change here slipped through with untested wiring, it was this seam: a typed value handed to one component and tested at another, and a unix guard that selected the wrong shell while its own test asserted the selection.
+        A unit test of a decision helper is evidence for the helper alone; the seam to prove is the gate step, board view or command that calls it, and the assertion must differ observably on each side of that path.
+        Report the untested path as the finding, naming the caller and the assertion the missing test needs.
 
 # This repository does not override the primary pipeline agent.
 # Under pipeline policy version 5 every gate role runs the owned global chain,
@@ -75,7 +139,7 @@ auto_fix:
 # person approved or skipped, read from the gate's database, is left out on
 # any branch carrying it; one the rebase step rewrote after the approval is a
 # new commit and parks once more. It runs the installed cfo, the trusted
-# binary, so it works once the CFO installs a build that has `cfo gate`.
+# binary, so it works once the CEO installs a build that has `cfo gate`.
 gates:
   - name: tests-kept
     after: lint

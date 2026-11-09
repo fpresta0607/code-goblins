@@ -3,7 +3,9 @@ name: cfo-delivery
 description: Use when selecting delivery at intake, starting or supervising validation, deciding a gate finding, preparing publication, assessing CI, completing a scout, landing work or considering cleanup.
 ---
 
-# CFO delivery
+<a id="cfo-delivery"></a>
+
+# CEO delivery
 
 In a source checkout, read `docs/contract/delivery.md` at the repository root before acting at this trigger.
 In an installed home, run `cfo help contract delivery` to retrieve this build's complete procedure from the same policy source.

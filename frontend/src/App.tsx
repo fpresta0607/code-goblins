@@ -19,14 +19,12 @@ import { Notice } from "./notice";
 import { Avatar } from "./Avatar";
 import { GoblinPanel, type PanelView } from "./GoblinPanel";
 import { PaneDivider } from "./PaneDivider";
-import { PanelStage } from "./panel-stage";
 import { PANEL_IMPORTANCE, PanelRow, type PanelControl } from "./panel-row";
-import { CFO_KEY, MAXIMIZED_KEYS, firstOpen, maximizedFor, maximizedView, paneTrack, switchOrder } from "./terminalOrder";
+import { CFO_KEY, MAXIMIZED_KEYS, cfoView, firstOpen, maximizedFor, maximizedView, paneTrack, switchOrder } from "./terminalOrder";
 import { useSwitchKeys } from "./useSwitchKeys";
 import { missingPageAction, unsentComment, updateAction } from "./boardUpdate";
 import { boardPage, usePageMissing } from "./board-page";
 import { useWindowMove } from "./useWindowMove";
-import { inDesktopApp } from "./dictation";
 import { useAppBadgeRenewal } from "./use-app-badge-renewal";
 import { updateSucceededRecently } from "./update-progress";
 import { windowTarget } from "./terminalWindow";
@@ -53,6 +51,8 @@ import { messagesQuery } from "./session-messages";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { CHAT_STYLE_CHANGED, useChatStyle, type ChatStyle } from "./chat-style";
 import { goblinName } from "./task-words";
+import { AfkOnDialog } from "./afk-on-dialog";
+import { useAfkToggle } from "./useAfkToggle";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = boardPage(() => import("./TerminalDeck").then((module) => module.TerminalDeck), "terminals");
@@ -110,6 +110,7 @@ export function App() {
   const { snapshot: held, sent } = useItemState(received);
   const clicks = useTaskClicks();
   const snapshot = useMemo(() => held && withClicks(held, clicks), [held, clicks]);
+  const afkToggle = useAfkToggle(snapshot?.instance ?? "");
   const [view, setView] = useState<"Board" | "Orchestration">("Board");
   const [boardLayout, setBoardLayout] = useState<BoardLayout>(() => stored(BOARD_LAYOUT_KEY) === "stacked" ? "stacked" : "kanban");
   const nextLayout: BoardLayout = boardLayout === "kanban" ? "stacked" : "kanban";
@@ -134,8 +135,6 @@ export function App() {
   const [switchFocus, setSwitchFocus] = useState(0);
   // A count each hand of the keyboard to a Messages view's box adds to.
   const [boxFocus, setBoxFocus] = useState(0);
-  // The session whose terminal stepped into its messages' place.
-  const [steppedIn, setSteppedIn] = useState("");
   const [compact, setCompact] = useState(() => matchMedia(SMALL_SCREEN).matches);
   const [firstRunChoice, setFirstRunChoice] = useState<FirstRunChoice>("");
   // startingShown is whether this page already opened the terminal of a CFO
@@ -272,14 +271,11 @@ export function App() {
   const isBoxWorking = composerActivity.terminal === terminalKey && composerActivity.isActive && composerTerminal === terminalKey;
   // A choice of style, from the session's picture in the panel's header or
   // the Workspace setting, redraws the open panel in that style at once. It
-  // ends a step out of Classic to read back and a step of the terminal into
-  // Modern, either of which outlasted the choice and kept the view as it was
-  // (the Overlord, 2026-10-28: "speech bubble doesnt chagne the screen").
+  // ends a step out of Classic to read back, which outlasted the choice and
+  // kept the view as it was (the Overlord, 2026-10-28: "speech bubble doesnt
+  // chagne the screen").
   useEffect(() => {
-    const follow = () => {
-      setClassicOut("");
-      setSteppedIn("");
-    };
+    const follow = () => setClassicOut("");
     window.addEventListener(CHAT_STYLE_CHANGED, follow);
     return () => window.removeEventListener(CHAT_STYLE_CHANGED, follow);
   }, []);
@@ -293,8 +289,7 @@ export function App() {
     const hasMessages = !!snapshot && !!messagesQuery(snapshot, target);
     const takes = !!target && takesMessages(target);
     const isClassicHere = chatStyle === "classic" && classicOut !== key && !takes;
-    const isTerminalHere = steppedIn === key || isClassicHere;
-    const showsBox = hasMessages && !isTerminalHere || takes && !isTerminalHere || (isTerminalHere || !hasMessages) && key === terminalKey && (isClassicHere ? isBoxWorking : shouldKeepComposer);
+    const showsBox = hasMessages && !isClassicHere || takes && !isClassicHere || (isClassicHere || !hasMessages) && key === terminalKey && (isClassicHere ? isBoxWorking : shouldKeepComposer);
     if (showsBox) setBoxFocus((prior) => prior + 1);
     else setSwitchFocus((prior) => prior + 1);
   };
@@ -370,7 +365,10 @@ export function App() {
   // harness works, which the box's working line shows, and that terminal's
   // link, which says what it was last told of the harness's screen.
   const cfoSession = snapshot && liveCfoSession(snapshot);
-  const isWorking = !!live?.screen?.isWorking || ["busy", "working", "active"].includes((cfoShown ? cfoSession?.runtime?.state || cfoSession?.phase : task?.phase) || "");
+  // A compaction its session's own hooks report is work, whatever its screen
+  // shows.
+  const isCompacting = !!(cfoShown ? cfoSession : selectedSession)?.is_compacting;
+  const isWorking = isCompacting || !!live?.screen?.isWorking || ["busy", "working", "active"].includes((cfoShown ? cfoSession?.runtime?.state || cfoSession?.phase : task?.phase) || "");
   // What the conversation's stats read: the session's harness, the model and
   // effort the board recorded for it, and the memory its processes hold.
   const panelHarness = cfoShown || !task ? (snapshot && snapshot.cfo_harness) || "" : task.harness;
@@ -381,53 +379,39 @@ export function App() {
   const panelSent = snapshot && (cfoShown || task) ? messagesTo(snapshot, cfoShown ? "" : task?.id || "") : [];
   const panelPending = panelSent.filter(isPendingMessage);
   // A session the board reads as messages shows them and types through its
-  // terminal's input link. The terminal steps into their place, with the keyboard,
-  // when what the box sent opens a screen of the harness's own before a turn
-  // starts, a picker, a panel or a question, and steps out by itself once the
-  // harness's input line is back, the keyboard going back to the box. The
-  // messages stay mounted from their first showing while the panel shows the
-  // session, so a switch back reads nothing again and finds the place he read.
-  const isSteppedIn = !!messagesSource && !!terminalKey && steppedIn === terminalKey;
-  // Classic draws the harness's own terminal in the conversation's place and
-  // Modern draws the conversation, from one saved choice. The conversation
-  // stays mounted under the terminal either way, so a change of style keeps
-  // the session, its history, an unsent draft and the place he read.
+  // terminal's input link. The messages stay mounted from their first showing
+  // while the panel shows the session, so a switch back reads nothing again
+  // and finds the place he read.
   // Classic keeps the harness's own terminal in the conversation's place
   // until he reads back out of it for this session, and Modern shows the
-  // conversation, a screen of the harness's own drawn in it as a list, until
-  // Show the terminal steps the terminal in. The saved
-  // choice is the only thing that decides it, so a change of style carries
-  // the session, its history, an unsent draft and the place he read.
+  // conversation, a screen of the harness's own drawn in it as a list. The
+  // saved choice, made in the style menu of the session's picture, is the
+  // only thing that decides it and the only switch between them (the
+  // Overlord, 2026-11-04), so a change of style carries the session, its
+  // history, an unsent draft and the place he read.
   // Classic draws the terminal alone, as the board drew it before Modern
-  // Chat: no box under it, held, busy or reconnecting, and no Back to
-  // messages over it, with Modern one press away in the panel's row (the
-  // Overlord, 2026-10-28: "I shouldn't have to add these extra controls to
-  // the terminal. The terminal was working great before"). A box with work
-  // of its own when he chooses Classic, a recording, an upload, a Send
-  // landing or a failed Send to retry, stays until that work ends.
+  // Chat: no box under it, held, busy or reconnecting, with Modern one press
+  // away in the panel's row (the Overlord, 2026-10-28: "I shouldn't have to
+  // add these extra controls to the terminal. The terminal was working great
+  // before"). A box with work of its own when he chooses Classic, a recording,
+  // an upload, a Send landing or a failed Send to retry, stays until that work
+  // ends.
   const takesTyping = !!task && takesMessages(task);
   const classicInPlace = chatStyle === "classic" && !!terminalKey && classicOut !== terminalKey && !takesTyping;
-  const terminalInPlace = isSteppedIn || classicInPlace;
-  if (isSteppedIn && live?.screen && !live.screen.isOpen) { setSteppedIn(""); setBoxFocus((prior) => prior + 1); }
-  const stepIn = () => { if (chatStyle === "classic") setClassicOut(""); setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); };
   // Reading back in a terminal that cannot take input opens its recorded
   // conversation in the terminal's place and leaves the saved style alone. The
   // conversation stays mounted under the terminal, so the session, its
   // history, an unsent draft and the place he read are kept.
-  const readHistory = () => { if (chatStyle === "classic") setClassicOut(terminalKey); setSteppedIn(""); setBoxFocus((prior) => prior + 1); };
-  // Back to messages is the one step out that also chooses Modern: a board he
-  // steps out of the harness's terminal on is a board he wants drawn as the
-  // conversation from then on (the Overlord, 2026-10-27: "Back to messages
-  // doesn't flip task setting to modern either"), and only it does (#1584).
-  const stepOut = () => { readHistory(); chooseStyle("modern"); };
+  const readHistory = () => { if (chatStyle === "classic") setClassicOut(terminalKey); setBoxFocus((prior) => prior + 1); };
   // Once offered, the composer stays reachable as input becomes ready so an
   // upload, a Send still landing, a failed Send to retry or its own recording
   // keeps its controls and result.
-  const terminalShown = showsPanel && !train && shownView === "terminal" && (!messagesSource || terminalInPlace);
-  const messagesShown = showsPanel && !train && shownView === "terminal" && !!messagesSource && !terminalInPlace;
+  const terminalShown = showsPanel && !train && shownView === "terminal" && (!messagesSource || classicInPlace);
+  const messagesShown = showsPanel && !train && shownView === "terminal" && !!messagesSource && !classicInPlace;
   // The conversation portals its one mounted composer to the shared footer.
-  // The deck owns the box for a paused goblin without a conversation.
-  const deckOwnsBox = !!task && !messagesSource && takesMessages(task);
+  // The deck owns the box for a paused goblin without a conversation, and for
+  // a CFO with no terminal, which a message starts.
+  const deckOwnsBox = !messagesSource && (cfoShown ? !!snapshot && cfoView(snapshot).kind === "empty" : !!task && takesMessages(task));
   const queuedBox = terminalShown && !messagesShown && !deckOwnsBox && (classicInPlace ? isBoxWorking : shouldKeepComposer);
   const boxOnScreen = messagesShown || queuedBox;
   if (boxOnScreen && composerTerminal !== terminalKey) setComposerTerminal(terminalKey);
@@ -556,11 +540,12 @@ export function App() {
           ? <button className="icon-button" aria-disabled="true" aria-label="Layout: stacked, the board is too narrow for columns side by side. Close or narrow the panel, or widen the window."><Icon name="stacked" /></button>
           : <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"}
             onClick={() => { setBoardLayout(nextLayout); store(BOARD_LAYOUT_KEY, nextLayout); }}><Icon name={boardLayout} /></button>)}
-        {/* The connection's pill sits right before the Command Center's
-            button, so the two read as one group. The desktop window shows it
-            only while the board is not live (the Overlord, 2026-10-28: "dont
-            need live status pill in top right corner of desktop"). */}
-        {!(connected && inDesktopApp()) && <Notice tone={connected ? "info" : "warning"}>{connection}</Notice>}
+        {/* The connection's words sit right before the Command Center's
+            button, so the two read as one group, and only while the board is
+            not live, in the desktop window and in a browser alike (the
+            Overlord, 2026-10-28: "dont need live status pill in top right
+            corner of desktop", and his mobile corrections of 2026-11-04). */}
+        {!connected && <Notice tone="warning">{connection}</Notice>}
         {snapshot && <CommandCenterMenu snapshot={snapshot} connected={connected} presentations={presentations} now={freshNow} focus={commandFocus} onUnsent={setHasUnsentAnswers} onSent={sent} />}
         {!paneOpen && !compact && <button onClick={() => setPaneOpen(true)}>Open {selected ? "details" : "CFO"}</button>}
       </div>
@@ -573,9 +558,9 @@ export function App() {
     </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (view === "Board" && boardLayout === "kanban" ? " kanban" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
       <main ref={canvas} className="canvas-region" aria-label={view} hidden={panelWide || fillsPhone}>
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
-          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} selectedTrain={train?.id} now={now} freshNow={freshNow} onSelect={selectTask} onSelectTrain={(train, source) => select({ train: train.id }, source)} onOpenCfo={openCfo} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} />
-            : <Suspense fallback={<p className="loading" role="status">Loading Orchestration…</p>}>{compact ? <Lineage onOpenCfo={openCfo} presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} project="" selected={!child && selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
-              : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} connected={connected}
+          : view === "Board" ? <Board afkToggle={afkToggle} presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} selectedTrain={train?.id} now={now} freshNow={freshNow} onSelect={selectTask} onSelectTrain={(train, source) => select({ train: train.id }, source)} onOpenCfo={openCfo} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} />
+            : <Suspense fallback={<p className="loading" role="status">Loading Orchestration…</p>}>{compact ? <Lineage onOpenCfo={openCfo} afkToggle={afkToggle} presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} project="" selected={!child && selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
+              : <Orchestration afkToggle={afkToggle} presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} connected={connected}
                 selected={child ? "child:" + child.id : selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)}
                 onChild={(task, baby, source) => select(childSelection(task, baby), source)} onOpenCfo={openCfo} />}</Suspense>}
@@ -594,29 +579,28 @@ export function App() {
             beside the column the panel's task list is drawn into. */}
         <div className="panel-body" hidden={!terminalShown && !messagesShown}>
         <div className="panel-main">
-        {/* A terminal Modern stepped in has its Back bar, the way back to
-            the conversation and its box; Classic's terminal has none. */}
-        <PanelStage hidden={!terminalShown && !messagesShown} isSteppedIn={isSteppedIn && !classicInPlace} onBack={stepOut}>
+        <div className="panel-stage" hidden={!terminalShown && !messagesShown}>
           {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={messagesSource} query={messagesSource} instance={snapshot.instance}
             name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} terminal={terminalKey} harness={panelHarness} model={panelModel} effort={panelEffort}
-            isWorking={isWorking} sent={panelSent} pending={panelPending}
+            isWorking={isWorking} isCompacting={isCompacting} sent={panelSent} pending={panelPending}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock}
-            box={(model, history, effort, usage, onSend) => createPortal(<Composer isWorking={isWorking} history={history} usage={usage} onSend={onSend} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
-              focus={boxOnScreen ? boxFocus : 0} onShowTerminal={stepIn} />, composerTarget)} />}
-          {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
+            box={(model, history, effort, usage, onSend) => createPortal(<Composer isWorking={isWorking} isCompacting={isCompacting} history={history} usage={usage} onSend={onSend} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
+              focus={boxOnScreen ? boxFocus : 0} />, composerTarget)} />}
+          {snapshot && showsPanel && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
             <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} hasComposer={boxOnScreen} connected={connected} focus={switchFocus} onHistory={messagesSource ? readHistory : undefined}
               onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
           </Suspense>}
-        </PanelStage>
+        </div>
         <div ref={setClassicDock} className="classic-queue" hidden={!queuedBox} />
         {snapshot && !messagesSource && !deckOwnsBox && createPortal(<Composer key={terminalKey} isWorking={isWorking} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} onActive={reportComposerActivity} isShown={boxOnScreen} isTerminalShown={terminalShown}
-          focus={boxOnScreen ? boxFocus : 0} onShowTerminal={stepIn} />, composerTarget)}
+          focus={boxOnScreen ? boxFocus : 0} />, composerTarget)}
         </div>
         {panelWide && !child && <div ref={setSide} className="panel-side" />}
         </div>
       </aside>
     </div>}
     {touring && <QuickTourDialog onEnd={endTour} />}
+    {afkToggle.isAsking && <AfkOnDialog pending={afkToggle.pending} problem={afkToggle.problem} onTurnOn={afkToggle.turnOn} onClose={afkToggle.closeQuestion} />}
   </div></AfkBoard>;
 }

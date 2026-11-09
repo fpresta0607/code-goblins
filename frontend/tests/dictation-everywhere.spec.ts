@@ -1,4 +1,4 @@
-import { expect, openItem, servePages, test, type Browser, type Page } from "./site";
+import { CFO_DOOR, expect, openItem, servePages, test, type Browser, type Page } from "./site";
 
 // The Overlord, 2026-10-15 about 00:10Z: "dictation in command center never
 // pasted nor did it save to recent messgaes in main dictaiton they hsould all
@@ -90,7 +90,7 @@ async function shortcut(page: Page) {
 // cfoTerminal opens the CFO's terminal, where the main dictation lists the
 // recent dictations.
 async function cfoTerminal(page: Page) {
-  await page.getByRole("button", { name: "Open the CFO's terminal" }).first().click();
+  await page.getByRole("button", { name: CFO_DOOR }).first().click();
   const terminal = page.getByRole("textbox", { name: "Terminal input" });
   await expect(terminal).toHaveCount(1);
   return terminal;

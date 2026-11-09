@@ -963,7 +963,7 @@ func TestAGoblinIsToldToPutAHeavyRunBehindTheLine(t *testing.T) {
 				"start it in the background as " + exe + " gate turn --detach <log-file> -- <command>",
 				"never with a process start of your own, such as Win32_Process Create, Start-Process or start, which opens a window on the Overlord's desktop",
 				"A test you run by name needs no turn.",
-				"A WSL or Docker run, and a load or stress run, still need the CFO's word first, since no turn covers them.",
+				"A WSL or Docker run, and a load or stress run, still need the CEO's word first, since no turn covers them.",
 			} {
 				if !strings.Contains(instruction, want) {
 					t.Errorf("instruction = %q, want %q", instruction, want)
@@ -995,7 +995,7 @@ func TestAGoblinIsToldWhatItStartsIsItsOwnToEnd(t *testing.T) {
 				"In tests run browsers headless and programs with their windows hidden, unless a picture needs a window.",
 				"end it by that pid, never by its name, once you no longer need it and before you report done.",
 				"Give every retry and every polling loop a cap.",
-				"The supervisor tells the CFO of a window you show on the Overlord's screen, a command you start again and again, and anything you leave running.",
+				"The supervisor tells the CEO of a window you show on the Overlord's screen, a command you start again and again, and anything you leave running.",
 			} {
 				if !strings.Contains(instruction, want) {
 					t.Errorf("instruction = %q, want %q", instruction, want)
@@ -1026,10 +1026,10 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 		"mark with **two asterisks** only the verdict or the blocking item",
 		"those lines say in plain words what you recommend and why and what each choice does, and run IDs, finding codes, paths and other evidence go after a line that reads only Details:, which the board folds away",
 		"the Overlord personally (his sign-in, his click, his page)",
-		"a wait on the Overlord becomes a card in his Command Center only with what he acts on, --lavish <html-file>, --run <command.ps1> or --link <https-url>, and one with none reaches the CFO alone",
-		"a choice the CFO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options",
-		"the CFO answers it, and his answer arrives here as a message",
-		"Never wait on the CFO for a choice you can undo: take the better option, say which with --working, and keep going; a choice you cannot undo or make yourself is a question for --blocked, never one asked in your reply.",
+		"a wait on the Overlord becomes a card in his Command Center only with what he acts on, --lavish <html-file>, --run <command.ps1> or --link <https-url>, and one with none reaches the CEO alone",
+		"a choice the CEO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options",
+		"the CEO answers it, and his answer arrives here as a message",
+		"Never wait on the CEO for a choice you can undo: take the better option, say which with --working, and keep going; a choice you cannot undo or make yourself is a question for --blocked, never one asked in your reply.",
 	} {
 		if !strings.Contains(instruction, want) {
 			t.Errorf("instruction = %q, want %q", instruction, want)

@@ -1,0 +1,449 @@
+{
+  "baseRefName": "main",
+  "headRefName": "fix/authored-admission-safety-59",
+  "headRefOid": "8231f968f54bc0386815bb24dd7e5a82099f1e99",
+  "isCrossRepository": false,
+  "isDraft": false,
+  "mergeable": "MERGEABLE",
+  "number": 122,
+  "reviewDecision": "",
+  "state": "OPEN",
+  "url": "https://github.com/fpresta0607/no-mistakes/pull/122",
+  "author": {
+    "login": "fpresta0607"
+  },
+  "labels": {
+    "nodes": []
+  },
+  "commits": {
+    "nodes": [
+      {
+        "commit": {
+          "statusCheckRollup": {
+            "contexts": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": [
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:46:21Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956344501",
+                  "name": "check",
+                  "startedAt": "2026-11-06T14:45:36Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:45:44Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780806/job/127956342667",
+                  "name": "Generated files must not be hand-edited",
+                  "startedAt": "2026-11-06T14:45:36Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "Guard generated files"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:45:44Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780731/job/127956358474",
+                  "name": "PR must be raised via no-mistakes",
+                  "startedAt": "2026-11-06T14:45:39Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "id": "CS_kwDOU85QQ88AAAAapUbsWQ",
+                    "databaseId": 114442038361,
+                    "app": {
+                      "databaseId": 15368
+                    },
+                    "commit": {
+                      "oid": "8231f968f54bc0386815bb24dd7e5a82099f1e99"
+                    },
+                    "repository": {
+                      "nameWithOwner": "fpresta0607/no-mistakes"
+                    },
+                    "workflowRun": {
+                      "id": "WFR_kwLOU85QQ88AAAAJ1YIguw",
+                      "databaseId": 42236780731,
+                      "runAttempt": 1,
+                      "event": "pull_request",
+                      "file": {
+                        "path": ".github/workflows/no-mistakes-required.yml",
+                        "repositoryName": "fpresta0607/no-mistakes"
+                      },
+                      "workflow": {
+                        "id": "W_kwDOU85QQ84WhggM",
+                        "databaseId": 377882636,
+                        "name": "Require no-mistakes"
+                      }
+                    }
+                  },
+                  "id": "CR_kwDOU85QQ88AAAAdyssVSg",
+                  "databaseId": 127956358474
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:48:06Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42237139244/job/127957595172",
+                  "name": "PR must be raised via no-mistakes",
+                  "startedAt": "2026-11-06T14:48:01Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "id": "CS_kwDOU85QQ88AAAAapVYAyw",
+                    "databaseId": 114443026635,
+                    "app": {
+                      "databaseId": 15368
+                    },
+                    "commit": {
+                      "oid": "8231f968f54bc0386815bb24dd7e5a82099f1e99"
+                    },
+                    "repository": {
+                      "nameWithOwner": "fpresta0607/no-mistakes"
+                    },
+                    "workflowRun": {
+                      "id": "WFR_kwLOU85QQ88AAAAJ1YeZLA",
+                      "databaseId": 42237139244,
+                      "runAttempt": 1,
+                      "event": "pull_request",
+                      "file": {
+                        "path": ".github/workflows/no-mistakes-required.yml",
+                        "repositoryName": "fpresta0607/no-mistakes"
+                      },
+                      "workflow": {
+                        "id": "W_kwDOU85QQ84WhggM",
+                        "databaseId": 377882636,
+                        "name": "Require no-mistakes"
+                      }
+                    }
+                  },
+                  "id": "CR_kwDOU85QQ88AAAAdyt30JA",
+                  "databaseId": 127957595172
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:59:48Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345447",
+                  "name": "test (ubuntu-latest)",
+                  "startedAt": "2026-11-06T14:45:36Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T15:16:05Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345452",
+                  "name": "test (macos-latest)",
+                  "startedAt": "2026-11-06T14:45:37Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:57:36Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345728",
+                  "name": "test (windows-core)",
+                  "startedAt": "2026-11-06T14:45:36Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:51:39Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345578",
+                  "name": "test (windows-git)",
+                  "startedAt": "2026-11-06T14:45:37Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T15:08:16Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345639",
+                  "name": "test (windows-steps-1)",
+                  "startedAt": "2026-11-06T14:45:36Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:58:45Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345515",
+                  "name": "test (windows-steps-2)",
+                  "startedAt": "2026-11-06T14:45:37Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:58:06Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345751",
+                  "name": "test (windows-steps-3)",
+                  "startedAt": "2026-11-06T14:45:37Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T15:01:17Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345602",
+                  "name": "test (windows-daemon-1)",
+                  "startedAt": "2026-11-06T14:45:37Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:50:03Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345013",
+                  "name": "test (windows-daemon-2)",
+                  "startedAt": "2026-11-06T14:45:36Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:50:29Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345808",
+                  "name": "test (windows-daemon-3)",
+                  "startedAt": "2026-11-06T14:45:37Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:51:19Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345559",
+                  "name": "test (windows-daemon-4)",
+                  "startedAt": "2026-11-06T14:45:37Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:50:02Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345665",
+                  "name": "test (windows-gate-1)",
+                  "startedAt": "2026-11-06T14:45:37Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:50:21Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345642",
+                  "name": "test (windows-gate-2)",
+                  "startedAt": "2026-11-06T14:45:36Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:50:37Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345744",
+                  "name": "test (windows-gate-3)",
+                  "startedAt": "2026-11-06T14:45:37Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:57:31Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345505",
+                  "name": "test (windows-branchsync-1)",
+                  "startedAt": "2026-11-06T14:45:36Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:52:25Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345561",
+                  "name": "test (windows-branchsync-2)",
+                  "startedAt": "2026-11-06T14:45:37Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:55:39Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345576",
+                  "name": "test (windows-cli-1)",
+                  "startedAt": "2026-11-06T14:45:36Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:53:37Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345707",
+                  "name": "test (windows-cli-2)",
+                  "startedAt": "2026-11-06T14:45:36Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                },
+                {
+                  "__typename": "CheckRun",
+                  "completedAt": "2026-11-06T14:58:23Z",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/fpresta0607/no-mistakes/actions/runs/42236780873/job/127956345055",
+                  "name": "e2e",
+                  "startedAt": "2026-11-06T14:45:36Z",
+                  "status": "COMPLETED",
+                  "checkSuite": {
+                    "workflowRun": {
+                      "workflow": {
+                        "name": "CI"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

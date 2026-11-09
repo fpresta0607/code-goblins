@@ -5,6 +5,7 @@ import { Board } from "../../src/Board";
 import { watchTips } from "../../src/tips";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
+import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 
 // A goblin with a helper at work under it, and another goblin's helper whose
 // parent has no tree yet, so none holds the helper. ?view picks the canvas
@@ -18,7 +19,7 @@ const tree = (task: string, children: Record<string, unknown>[]) => ({ task_id: 
 const task = (fields: Record<string, unknown>) => ({ harness: "claude", model: "claude-opus-5-5", effort: "xhigh", route_lane: "strong-claude", route_reason: "strong cross-harness fallback", verified: false, generation: "g1", since: ago(90), project: "code-goblins", ...fields });
 const view = new URLSearchParams(location.search).get("view") || "canvas";
 const snapshot = parseSnapshot({
-  healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude",
+  healthy: true, instance: "fixture", cfo_runs: true, afk: { state: "off" }, cfo_harness: "claude",
   tasks: [
     task({ id: "cg-helpers", title: "Let goblins start helpers", phase: "working",
       tree: tree("cg-helpers", [child({ id: "helper:cg-helpers-h1", kind: "helper", label: "Accounts migration", detail: "Helper goblin cg-helpers-h1", model: "gpt-6-luna", state: "working", started: ago(4), last_activity: ago(0.5), memory: megabytes(512) })]) }),
@@ -29,10 +30,10 @@ const snapshot = parseSnapshot({
 });
 
 function Fixture() {
-  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} /></main>;
-  if (view === "cards") return <Board snapshot={snapshot} layout="stacked" now={now} freshNow={now} presentations={[]} onSelect={() => {}} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
+  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} /></main>;
+  if (view === "cards") return <Board afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} layout="stacked" now={now} freshNow={now} presentations={[]} onSelect={() => {}} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
   return <main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-    <Orchestration onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
+    <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
   </main>;
 }
 watchTips();

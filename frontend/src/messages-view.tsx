@@ -64,8 +64,8 @@ type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 // whose link reads what it is doing, sent is every message of his to the session the
 // board knows, pending those of them that still wait, and box is the message
 // box under the conversation.
-export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, isWorking, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
-  query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isWorking: boolean;
+export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, isWorking, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
+  query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isWorking: boolean; isCompacting: boolean;
   sent: Action[]; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
   shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode, onSend: () => void) => ReactNode;
@@ -188,7 +188,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // row and when the last did: his next approach to the top asks again once
   // OLDER_RETRY_MS have passed, until OLDER_TRIES have failed, which leaves
   // the rest unread until the stream's next page, the first a reconnect sends.
-  const readingOlder = useRef(false);
+  const readingOlder = useRef<{ conversation: string; id: string; seq: number } | null>(null);
   const olderFailures = useRef({ count: 0, at: 0 });
   // An older page that arrives while he scrolls waits for his scroll to rest:
   // read in above him then, it would move the list by a scroll position his
@@ -205,7 +205,8 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
 
   useEffect(() => {
     if (!visible) return;
-    readingOlder.current = false;
+    readingOlder.current = null;
+    olderWaiting.current = null;
     const stream = new EventSource(address({ stream: "1" }));
     let failures = 0;
     // A stream that stalled is opened again, which begins with the newest
@@ -233,6 +234,11 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       heard();
       const next = { ...latest.current, ...change(latest.current) };
       latest.current = next;
+      const reading = readingOlder.current;
+      if (reading && (reading.conversation !== next.conversation || reading.id !== next.messages[0]?.id || reading.seq !== next.messages[0]?.seq)) {
+        readingOlder.current = null;
+        olderWaiting.current = null;
+      }
       reconcile.current();
       isTaking.current = true;
       try {
@@ -393,12 +399,15 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     const failed = olderFailures.current;
     const conversation = heldValue.current.conversation;
     if (readingOlder.current || !conversation || conversation !== latest.current.conversation || !heldValue.current.more || !first || latest.current.messages[0]?.id !== first.id || latest.current.messages[0]?.seq !== first.seq || failed.count >= OLDER_TRIES || Date.now() - failed.at < OLDER_RETRY_MS) return;
-    readingOlder.current = true;
+    const reading = { conversation, id: first.id, seq: first.seq };
+    readingOlder.current = reading;
     request(address({ before: String(first.seq), conversation })).then((value) => {
+      if (readingOlder.current !== reading) return;
       const page = parsePage(value);
       olderFailures.current = { count: 0, at: 0 };
       const readIn = () => {
-        readingOlder.current = false;
+        if (readingOlder.current !== reading) return;
+        readingOlder.current = null;
         // A page of a conversation the view no longer shows is dropped.
         if (page.conversation !== conversation || heldValue.current.conversation !== conversation || latest.current.conversation !== conversation || heldValue.current.messages[0]?.id !== first.id || heldValue.current.messages[0]?.seq !== first.seq || latest.current.messages[0]?.id !== first.id || latest.current.messages[0]?.seq !== first.seq) return;
         reconcile.current();
@@ -410,7 +419,8 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       if (isScrolling.current) olderWaiting.current = readIn;
       else readIn();
     }).catch((error: unknown) => {
-      readingOlder.current = false;
+      if (readingOlder.current !== reading) return;
+      readingOlder.current = null;
       olderFailures.current = { count: olderFailures.current.count + 1, at: Date.now() };
       reportToCfo(where, errorText(error));
     });
@@ -676,11 +686,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   }, [boxSends, toEnd]);
   const keys = (event: KeyboardEvent<HTMLElement>) => {
     // Shift+Escape leaves the messages for the panel's first control, as it
-    // leaves a terminal, never for what leads the controls, the CFO's AFK
-    // switch.
+    // leaves a terminal.
     if (event.shiftKey && event.key === "Escape") {
       event.preventDefault();
-      event.currentTarget.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-top button:not(:disabled, .panel-leading *)")?.focus();
+      event.currentTarget.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-top button:not(:disabled)")?.focus();
       return;
     }
     const box = list.current;
@@ -774,7 +783,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
-          {shown && held.isLive && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} />}
+          {shown && held.isLive && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} />}
           {/* His messages not yet in the session's record, at the
               conversation's end in its one scroll (the Overlord, 2026-10-29:
               "the double scrolls and having its own little scroll for queued
@@ -792,7 +801,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
           latest button mobile doesn't work"). */}
       {!isAtEnd && <button type="button" className="message-jump" onClick={jump} onPointerUp={(event) => { if (event.pointerType === "touch") jump(); }}><Icon name="arrow-down" />Jump to latest</button>}
       {isCopied && <Notice className="terminal-corner">Copied</Notice>}
-      {phase !== "closed" && (isReconnecting || !visible) && <Notice tone="warning" className="terminal-corner">Reconnecting</Notice>}
+      {/* The one Reconnecting of the pane, for its stream and for the
+          terminal its box types through, which is not drawn here
+          (2026-11-04). */}
+      {phase !== "closed" && (isReconnecting || !visible || !!link?.isReconnecting) && <Notice tone="warning" className="terminal-corner">Reconnecting</Notice>}
       {phase === "closed" && <Notice form="box" icon="comment" className="terminal-foot"
         actions={<button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button>}>{closedWhy}</Notice>}
     </div>

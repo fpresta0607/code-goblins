@@ -141,7 +141,6 @@ for (const harness of ["codex", "claude", "pi"] as const) {
       await expect(pane.getByRole("menuitemradio", { checked: true })).toHaveCount(1);
       await expect(efforts.getByRole("menuitemradio", { checked: true })).toHaveCount(1);
       expect(typed(relay), "opening the pane types nothing").toBe("");
-      await expect(page.getByRole("button", { name: "Back to messages", exact: true })).toHaveCount(0);
       const choice = (setting === "model" ? pane : efforts).getByRole("menuitemradio", { name: option, exact: typeof option === "string" });
       // A tap on another model brings out its efforts, and a second takes it.
       if (width === 390 && setting === "model") await choice.tap();
@@ -163,7 +162,6 @@ for (const harness of ["codex", "claude", "pi"] as const) {
         const command = setting === "model" ? "/model " : harness === "claude" ? "/effort " : "/thinking ";
         await expect.poll(() => typed(relay)).toBe(pasted(command + value) + "\r");
       }
-      await expect(page.getByRole("button", { name: "Back to messages", exact: true })).toHaveCount(0);
       await expect(field(page, name)).toHaveValue("my unsent words");
       await expect(control).toContainText(shown);
       // The session's own record then says what it runs, which both views read.
@@ -245,7 +243,6 @@ test("typing /effort or /model in the box opens the board's pane and types nothi
   await field(page).fill("/effort high");
   await field(page).press("Enter");
   await expect.poll(() => typed(relay)).toBe(pasted("/effort high") + "\r");
-  await expect(page.getByRole("button", { name: "Back to messages", exact: true })).toHaveCount(0);
 });
 
 test("each effort level wears its own colour, dull at the least, a gradient at max", async ({ page }) => {

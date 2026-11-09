@@ -20,9 +20,7 @@
 .harness-panel-foot { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .harness-panel-hints { flex: 1; min-width: 0; margin: 0; color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
 .harness-cancel { flex: none; min-height: 32px; padding: 4px 12px; }
-.harness-show-terminal { flex: none; width: 32px; height: 32px; min-height: 32px; border: 0; background: transparent; color: var(--muted); }
-.harness-show-terminal .icon { width: 18px; height: 18px; }
 @media (pointer: coarse) {
   .harness-choice { min-height: 44px; }
-  .harness-cancel, .harness-show-terminal { min-height: 44px; min-width: 44px; }
+  .harness-cancel { min-height: 44px; min-width: 44px; }
 }

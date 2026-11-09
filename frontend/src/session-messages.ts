@@ -190,10 +190,10 @@ export function textParts(text: string): TextPart[] {
   return parts;
 }
 
-// copyText is what a message's Copy copies: its words as written, a reply's
-// text blocks one after another, and a command with what it printed.
+// copyText is what the Copy of a message that is not a reply copies: its
+// words as written, and a command with what it printed. Each text of a reply
+// has a Copy of its own.
 export function copyText(message: SessionMessage): string {
-  if (message.kind === "reply") return message.blocks.filter((each) => each.kind === "text").map((each) => each.text).join("\n\n");
   return [message.text, message.output, message.errors].filter(Boolean).join("\n\n");
 }
 
@@ -207,7 +207,11 @@ export function replyParts(blocks: MessageBlock[]): ReplyPart[] {
   blocks.forEach((block, at) => {
     const last = parts.at(-1);
     if (block.kind !== "call") {
-      if (block.text) parts.push({ kind: block.kind, at, text: block.text });
+      // A block whose words are only whitespace, as pi writes "\n\n"
+      // between the steps of a turn, is drawn as nothing: no prose row and no
+      // Copy under it (the Overlord, 2026-11-07: "no copy button without
+      // content").
+      if (block.text.trim()) parts.push({ kind: block.kind, at, text: block.text });
     } else if (last?.kind === "calls") last.calls.push(block);
     else parts.push({ kind: "calls", at, calls: [block] });
   });

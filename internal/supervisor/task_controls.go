@@ -187,13 +187,7 @@ func (s *Service) changeTask(input lifecycleRequest) error {
 		s.starts.Unlock()
 		return taskRefusal{reason: launching + " is starting or resuming", isPassing: true}
 	}
-	if s.changing == nil {
-		s.changing = map[string]string{}
-	}
-	if s.changeErrors == nil {
-		s.changeErrors = map[string]taskChangeError{}
-	}
-	s.changing[input.Task] = input.Action
+	s.markChanging(input.Task, input.Action)
 	s.starts.Unlock()
 	isDispatched := false
 	defer func() {
@@ -307,10 +301,7 @@ func (h *HTTP) adjustTask(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 409, "This task is starting or stopping")
 		return
 	}
-	if s.changing == nil {
-		s.changing = map[string]string{}
-	}
-	s.changing[input.Task] = input.Action
+	s.markChanging(input.Task, input.Action)
 	s.starts.Unlock()
 	defer func() {
 		s.starts.Lock()

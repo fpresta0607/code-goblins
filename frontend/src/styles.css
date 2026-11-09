@@ -162,11 +162,12 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 /* The CFO pinned above the columns is a plain bar, a card like the columns
    under it, with its terminal on its icon and portrait; what it shows while
    something waits on the Overlord is in cfo-pin.css. Hovered or focused, it
-   rises over the columns so its tooltips show in full. */
+   rises over the columns so its tooltips show in full, and so does a bar
+   holding a refusal, whose close button would otherwise lie under them. */
 .task-board:has(> .cfo-pin) { grid-template-rows: auto 1fr; }
 .task-board.stacked:has(> .cfo-pin) { grid-template-rows: auto; }
 .cfo-pin { position: relative; grid-column: 1 / -1; min-width: 0; }
-.cfo-pin:hover, .cfo-pin:focus-within { z-index: 3; }
+.cfo-pin:hover, .cfo-pin:focus-within, .cfo-pin:has(.afk-header > .notice) { z-index: 3; }
 .cfo-rest { display: flex; align-items: center; gap: 14px; min-width: 0; padding: 12px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); backdrop-filter: blur(16px); }
 .cfo-rest p { flex: 1; min-width: 0; margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
 .cfo-rest-portrait { display: grid; place-items: center; width: 56px; height: 56px; min-height: 56px; padding: 0; flex: none; border: 1px solid var(--glass-border); border-radius: 12px; background: var(--glass-bg), var(--hero-surface); }
@@ -362,7 +363,9 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .flow-node-foot .card-pr { display: block; min-width: 0; font-size: .9375rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flow-node-foot .card-pr .icon { display: inline-block; width: 16px; height: 16px; margin-right: 5px; vertical-align: -3px; }
 .flow-node-foot .card-harness, .flow-node-foot .icon-button { margin-left: auto; }
-.flow-node-foot .icon-button + .card-harness { margin-left: 0; }
+.flow-node-foot .cfo-pin-end { margin-left: auto; }
+.flow-node-foot .cfo-pin-end + .card-harness { margin-left: 0; }
+.flow-node-foot .afk-toggle { min-height: 28px; padding-block: 0; }
 .flow-node-foot .mark, .flow-node-foot .icon-button { width: 28px; height: 28px; min-height: 28px; }
 .flow-node-foot .mark svg, .flow-node-foot .mark .icon, .flow-node-foot .icon-button svg { width: 16px; height: 16px; }
 .flow-node-foot:has(.subscription-dials) { height: auto; }
@@ -492,7 +495,7 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
    below, so it never widens the row or pushes the conversation down. In a
    panel it is no wider than the panel's room, so the panel's edge never
    cuts it. */
-.window-feedback, .panel-leading > .notice, .cfo-header-line > .notice { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw, calc(100cqi - 16px)); }
+.window-feedback, .afk-header > .notice, .cfo-header-line > .notice { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw, calc(100cqi - 16px)); }
 .dev-drive-setting { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .dev-drive-setting > button { flex: none; white-space: nowrap; }
 .dev-drive-setting > p, .dev-drive-setting > .notice { flex: 1 0 100%; margin: 0; }
@@ -993,7 +996,6 @@ button.dialogue-portrait:hover::before { background: #12202a; }
 .voice-dock-hint { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; margin: 0 8px 0 0; color: var(--bone-dim); font-size: .875rem; contain: inline-size; }
 .voice-dock-hint > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .voice-dock-hint strong { color: var(--bone); font-weight: 700; }
-.voice-dock-listening { flex: 1; min-width: 0; margin: 0 8px 0 0; color: var(--muted); font-size: .875rem; text-align: right; overflow-wrap: anywhere; }
 .voice-dock-hint .icon-button { flex: none; width: 32px; height: 32px; min-height: 32px; border: 0; background: transparent; color: var(--muted); }
 .voice-meta { grid-column: 1; color: var(--bone-dim); font-size: .9375rem; }
 .voice-text { grid-column: 1; color: var(--bone); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
@@ -1415,13 +1417,14 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .goblin-panel.showing-terminal { flex: 0 1 auto; min-height: 0; }
 /* The session panel's header is one short row (the Overlord, 2026-10-29:
    "Minimize height and maximize the space"): its small picture and its name,
-   cut short only when the row is narrow, then the selector, then the panel's
+   which wraps onto more lines where the row is narrow, the row growing taller
+   rather than cutting it (2026-11-04), then the selector, then the panel's
    controls. The identity, the picture with it, and the controls share the
    room either side of the selector equally, so it sits in the middle while
    both fit. Past that the controls keep what they show (see PanelRow), and
    give a control to More only once the name is down to its first letters,
-   and never what always shows: the AFK switch, More and Close or Back. The
-   identity never narrows past its picture, and cuts the name at its own
+   and never what always shows: More and Close or Back. The
+   identity never narrows past its picture, and wraps the name at its own
    edge, so it is never drawn under the selector. */
 .panel-header.one-row { position: relative; display: flex; align-items: center; gap: 6px; min-height: 52px; padding: 4px 8px; border-bottom: 1px solid var(--glass-border); }
 .panel-header.one-row .panel-identity > .goblin-avatar, .panel-header.one-row .panel-style-button > .goblin-avatar { flex: none; width: 32px; height: 32px; }
@@ -1436,20 +1439,22 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .panel-style-menu .labelled-button[aria-checked="true"] { color: var(--mint); border-color: var(--accent-green); background: var(--glass-bg); }
 .one-row > .panel-identity { display: flex; flex: 1 1 0; align-items: center; gap: 6px; min-width: 32px; overflow: hidden; }
 .one-row > .panel-identity:has(> .panel-style) { min-width: 44px; }
-.one-row h2 { flex: 0 1 auto; min-width: 0; font-size: 1.25rem; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.one-row h2 { flex: 0 1 auto; min-width: 0; padding-block: 4px; font-size: 1.25rem; line-height: 1.2; overflow-wrap: break-word; }
+/* The CFO's name is one short word, with nothing to wrap at. */
+.one-row.is-cfo h2 { white-space: nowrap; }
 .one-row > .panel-top { flex: 1 1 0; padding: 0; }
-.one-row .panel-leading { display: flex; flex: none; }
-/* In a narrow panel the CFO's AFK switch is one 44 px target, its word over
-   its track, so the row keeps room for the name beside Open in Windows
-   Terminal, which a phone's row holds while the box shows (#1987). */
+/* In a narrow panel a goblin's name takes the row's spare room before the
+   controls do, so it wraps at its spaces rather than inside a word, and the
+   switch stands a control's gap from them. The CFO's short name needs none of
+   it, so its switch stays in the middle. */
 @container goblin-panel (max-width: 36rem) {
-  .one-row .afk-toggle { flex-direction: column; justify-content: center; gap: 2px; width: 44px; min-height: 44px; padding: 0; }
-  .one-row .afk-toggle-label { font-size: .625rem; line-height: 1; }
+  .one-row:not(.is-cfo) > .panel-identity { flex: 1 1 auto; }
+  .panel-header.one-row:not(.is-cfo) { gap: 8px; }
 }
 .fills-phone .panel-header.one-row { padding: 4px 6px; }
-/* The CFO's rare states, Restart PC, Update and the words for a switch that
-   cannot be read, take a line of their own under its header's row, at the
-   row's end, and the line takes no room while none of them shows. */
+/* The CFO's rare states, Restart PC and Update, take a line of their own under
+   its header's row, at the row's end, and the line takes no room while
+   neither shows. */
 .cfo-header-line { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0 8px; }
 .cfo-header-line:has(> :is(button, .muted)) { padding-block: 6px; }
 .fills-phone .cfo-header-line { margin-inline: 6px; }
@@ -1468,9 +1473,9 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .panel-view-switch .icon { width: 17px; height: 17px; }
 .panel-view-switch > button:hover { color: #edf4f3; }
 .panel-view-switch > button[aria-pressed="true"] { color: #f4fbff; background: var(--glass-bg-hover) padding-box, linear-gradient(var(--hero-surface), var(--hero-surface)) padding-box, var(--electric-ring) border-box; box-shadow: var(--electric-glow); }
-/* The stage gives the Messages view and terminal deck the same panel box.
-   PanelStage owns the floating Back to messages bar; terminal presentation
-   and sizing are handled by TerminalView when its surface is shown. */
+/* The stage gives the Messages view and terminal deck the same panel box;
+   terminal presentation and sizing are handled by TerminalView when its
+   surface is shown. */
 .panel-stage { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
 /* The stage takes what the panel's own header leaves, so nothing shrinks
    under the conversation's own box. */
@@ -1485,8 +1490,6 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .panel-header-details:empty { display: none; }
 .panel-header-details:empty + .panel-content > .workspace-details:first-child { border-top: 0; }
 .panel-stage > .messages-view { position: absolute; inset: 0; z-index: 1; }
-.stepped-in-bar { position: absolute; top: 6px; left: 50%; z-index: 2; transform: translateX(-50%); pointer-events: none; }
-.stepped-in-bar > button { pointer-events: auto; }
 .terminal-deck { display: flex; flex: 1; min-height: 0; background: #071015; }
 .terminal-deck.behind { visibility: hidden; }
 .deck-stage { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }

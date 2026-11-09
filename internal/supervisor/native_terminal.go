@@ -257,6 +257,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer terminal.Close()
+	_ = terminal.MarkHis()
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()

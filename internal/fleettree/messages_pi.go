@@ -549,9 +549,18 @@ func (l *piMessageLog) retain(entry piSessionEntry, offset int64) piRetained {
 		for index, block := range piBlocks(said.Content) {
 			switch block.Type {
 			case "text":
-				kept.blocks = append(kept.blocks, Block{Kind: BlockText, Text: piTruncate(block.Text, messageTextLimit)})
+				// A text block pi wrote with no words, as it writes "\n\n"
+				// between the steps of a turn, is no text: the board draws a
+				// text block as prose with its own Copy under it, which
+				// would leave that control with nothing behind it (the
+				// Overlord, 2026-11-07: "no copy button without content").
+				if strings.TrimSpace(block.Text) != "" {
+					kept.blocks = append(kept.blocks, Block{Kind: BlockText, Text: piTruncate(block.Text, messageTextLimit)})
+				}
 			case "thinking":
-				kept.blocks = append(kept.blocks, Block{Kind: BlockThinking, Text: piTruncate(block.Thinking, messageTextLimit)})
+				if strings.TrimSpace(block.Thinking) != "" {
+					kept.blocks = append(kept.blocks, Block{Kind: BlockThinking, Text: piTruncate(block.Thinking, messageTextLimit)})
+				}
 			case "toolCall":
 				kept.blocks = append(kept.blocks, Block{Kind: BlockCall, CallID: block.ID, Tool: block.Name, Subject: piSubject(block.Arguments), State: "running"})
 			}

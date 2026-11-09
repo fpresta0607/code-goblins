@@ -44,12 +44,11 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
   const total = reading?.status === "available" || reading?.status === "stale" ? reading.total : null;
   const isOld = reading?.status === "stale";
   const billed = total ? DOLLARS.format(total.billed_usd) : "Unavailable";
-  const used = total && DOLLARS.format(total.used_usd) + " used";
-  const label = total ? `${billed} billed, ${used} this month` + (isOld ? " (old)" : "") : "unavailable";
+  const label = total ? `${billed} billed this month` + (isOld ? " (old)" : "") : "unavailable";
   return <>
     <button className="actions-spend-header" aria-label={"GitHub Actions spend: " + label} aria-haspopup="dialog" aria-expanded={isOpen} onClick={() => setIsOpen(true)}>
       <svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg>
-      <span className={total ? "actions-spend-billed" : undefined}>{billed}</span>{used && <span className="actions-spend-used">{used}</span>}{isOld && <span className="actions-spend-old">Old</span>}
+      <span className={total ? "actions-spend-billed" : undefined}>{billed}</span>{isOld && <span className="actions-spend-old">Old</span>}
     </button>
     {isOpen && createPortal(<Suspense fallback={<p role="status" className="actions-spend-loading">Opening Actions spend...</p>}>
       <ActionsSpendPanel usage={reading} month={month} onClose={() => setIsOpen(false)} />

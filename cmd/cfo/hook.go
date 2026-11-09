@@ -212,7 +212,7 @@ func hookPretoolSubagent(stdin io.Reader, stdout, stderr io.Writer) int {
 		return 0
 	}
 	message := fmt.Sprintf(
-		"[subagent-dispatch] the CFO primary dispatches through the fleet, not the harness's own delegation tools: work started that way has no durable fleet record and dies with this session. Use the fleet dispatch path once Plan 3 lands it (blocked tool: %s, delegation-shaped on %q). Launch the session with CFO_ALLOW_SUBAGENT=1 for a deliberate exception.",
+		"[subagent-dispatch] the CEO primary dispatches through the fleet, not the harness's own delegation tools: work started that way has no durable fleet record and dies with this session. Use the fleet dispatch path once Plan 3 lands it (blocked tool: %s, delegation-shaped on %q). Launch the session with CFO_ALLOW_SUBAGENT=1 for a deliberate exception.",
 		payload.ToolName, stem,
 	)
 	return claudehook.DenyPreTool(stderr, message)
@@ -220,7 +220,7 @@ func hookPretoolSubagent(stdin io.Reader, stdout, stderr io.Writer) int {
 
 // nativePromptRefusal is what the registered CFO reads when it reaches for a
 // native question, naming the two commands that ask without blocking.
-const nativePromptRefusal = "[native-prompt] the registered primary CFO never asks through a native selector (blocked tool: %s): it holds this whole turn, shows only in this terminal and never reaches the Command Center, so supervision stops while it waits. Publish the question with cfo question --id <stable-id> --text \"<question>\" --option \"<choice>\" --recommend \"<choice>\", or a command only the Overlord can run with cfo run-request --id <stable-id> --title \"<why>\" --shell powershell --command-file <path>. His answer arrives here as a message, so keep supervising while it is out."
+const nativePromptRefusal = "[native-prompt] the registered primary CEO never asks through a native selector (blocked tool: %s): it holds this whole turn, shows only in this terminal and never reaches the Command Center, so supervision stops while it waits. Publish the question with cfo question --id <stable-id> --text \"<question>\" --option \"<choice>\" --recommend \"<choice>\", or a command only the Overlord can run with cfo run-request --id <stable-id> --title \"<why>\" --shell powershell --command-file <path>. His answer arrives here as a message, so keep supervising while it is out."
 
 // gateAgentVariable is set by no-mistakes on every agent it starts for a
 // gate step.

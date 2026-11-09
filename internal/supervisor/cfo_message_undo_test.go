@@ -22,7 +22,7 @@ func pastUndoWindow(t *testing.T, store *Store) {
 // The CFO, 2026-11-02: his message to the CFO waits on the board for a short
 // undo window, where Edit and Cancel work, and is then typed into the turn;
 // Send now skips the window, and a command acts at once. A goblin's message
-// waits on its own goblin's turn instead.
+// has no window and goes into its goblin's turn at once.
 func TestHisMessageToTheCFOWaitsOutItsUndoWindowOnTheBoard(t *testing.T) {
 	now := time.Now().UTC()
 	for _, test := range []struct {

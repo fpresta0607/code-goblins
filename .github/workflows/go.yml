@@ -297,7 +297,7 @@ jobs:
       # Every job runs to its end, so one run names every failure.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v5

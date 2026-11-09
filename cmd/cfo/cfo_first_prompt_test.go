@@ -134,7 +134,7 @@ func TestACFOStartedAgainIsToldWhyAndToTakeUpItsWork(t *testing.T) {
 			prompt := cfoBackPrompt(test.harness, "its terminal ended with exit code 1", "You start on a new conversation. Its last conversation holds 802K tokens of context, past the 400K a CFO resumes.", false)
 
 			// Assert
-			for _, want := range []string{"You are the CFO of this Code Goblins home, started again because its terminal ended with exit code 1.", "Its last conversation holds 802K tokens of context", "not from the Overlord", "Run cfo drain", "carry on with the fleet without waiting for the Overlord"} {
+			for _, want := range []string{"You are the CEO of this Code Goblins home, started again because its terminal ended with exit code 1.", "Its last conversation holds 802K tokens of context", "not from the Overlord", "Run cfo drain", "carry on with the fleet without waiting for the Overlord"} {
 				if !strings.Contains(prompt, want) {
 					t.Errorf("cfoBackPrompt(%s) = %q, want it to say %q", test.harness, prompt, want)
 				}

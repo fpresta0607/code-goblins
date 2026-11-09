@@ -206,8 +206,10 @@ func (s *scratch) goblinTold(task string) []string {
 // merge commit and, as GitHub does, marks a pull request merged once main
 // holds its head, however that head got there.
 type fakeGitHub struct {
-	s     *scratch
-	pulls map[string]*pull
+	s               *scratch
+	pulls           map[string]*pull
+	nativeRuns      map[string]map[string]any
+	nativeWorkflows map[string]map[string]any
 	// breaks are heads whose presence on a train's head turns its CI red, on
 	// every try.
 	breaks []string
@@ -306,15 +308,18 @@ type fakeGitHub struct {
 // workflow is one workflow run of the train's CI: the head it tests, how
 // often it was tried, and whether its first try fails by chance.
 type workflow struct {
-	id, tries  int
-	head       string
-	isFlaky    bool
-	conclusion string
-	extra      []Check
+	id, tries               int
+	head                    string
+	isFlaky                 bool
+	isCheckRollupIncomplete bool
+	conclusion              string
+	extra                   []Check
 }
 
 // pull is a pull request as the fake GitHub holds it.
 type pull struct {
+	checks                    []Check
+	isCheckRollupIncomplete   bool
 	number                    int
 	branch                    string
 	isDraft, isHeld, isClosed bool
@@ -423,11 +428,22 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.calls = append(f.calls, []string{r.Method, path, r.URL.RawQuery})
 		found := actionsRead.FindStringSubmatch(path)
 		switch {
+		case strings.HasPrefix(path, "repos/o/r/actions/workflows/"):
+			workflow := f.nativeWorkflows[strings.TrimPrefix(path, "repos/o/r/actions/workflows/")]
+			if workflow == nil {
+				githubtest.Refuse(w, http.StatusNotFound, "unknown native workflow")
+				return
+			}
+			_ = json.NewEncoder(w).Encode(workflow)
 		case found != nil && found[1] == "":
 			f.serve(w, "run list", func() (execx.Result, error) {
 				return execx.Result{Stdout: []byte(`{"workflow_runs":` + f.mainRuns + `}`)}, nil
 			})
 		case found != nil:
+			if run := f.nativeRuns[found[1]]; run != nil {
+				_ = json.NewEncoder(w).Encode(run)
+				return
+			}
 			f.serve(w, "run view", func() (execx.Result, error) { return f.runView(found[1]) })
 		default:
 			f.serve(w, path, func() (execx.Result, error) { return f.actionsAPI(r.URL.RequestURI()[1:]) })
@@ -631,9 +647,12 @@ func (f *fakeGitHub) list() (execx.Result, error) {
 		if p.isMerged {
 			p.late--
 		}
-		pr := PullRequest{URL: url, Number: p.number, HeadRefOid: f.s.git(f.s.remote, "rev-parse", "refs/heads/"+p.branch), BaseRefName: cmp.Or(p.baseRefName, "main"), IsDraft: p.isDraft, IsCrossRepository: p.isCrossRepository, Mergeable: cmp.Or(p.mergeable, "MERGEABLE"), ReviewDecision: p.reviewDecision, Checks: []Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}}
+		pr := PullRequest{URL: url, Number: p.number, HeadRefOid: f.s.git(f.s.remote, "rev-parse", "refs/heads/"+p.branch), BaseRefName: cmp.Or(p.baseRefName, "main"), IsDraft: p.isDraft, IsCrossRepository: p.isCrossRepository, Mergeable: cmp.Or(p.mergeable, "MERGEABLE"), ReviewDecision: p.reviewDecision, IsCheckRollupIncomplete: p.isCheckRollupIncomplete, Checks: []Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}}
 		if f.ownRuns[url] != nil {
 			pr.Checks = f.riderChecks(url)
+		}
+		if p.checks != nil {
+			pr.Checks = p.checks
 		}
 		if p.isHeld {
 			pr.Labels = []Label{{Name: HoldLabel}}
@@ -679,7 +698,7 @@ func (f *fakeGitHub) view() (execx.Result, error) {
 	if f.noChecks {
 		checks = []Check{}
 	}
-	data, err := json.Marshal(map[string]any{"state": f.state[f.trainURL], "headRefOid": head, "statusCheckRollup": checks, "mergeStateStatus": cmp.Or(f.readiness, "CLEAN")})
+	data, err := json.Marshal(map[string]any{"state": f.state[f.trainURL], "headRefOid": head, "statusCheckRollup": checks, "mergeStateStatus": cmp.Or(f.readiness, "CLEAN"), "isCheckRollupIncomplete": w.isCheckRollupIncomplete})
 	return execx.Result{Stdout: data}, err
 }
 

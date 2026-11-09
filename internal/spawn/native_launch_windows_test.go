@@ -1463,7 +1463,7 @@ func typedBrief(t *testing.T, f *fixture, id string) (string, string) {
 func delivered(t *testing.T, line string) string {
 	t.Helper()
 	path, found := strings.CutPrefix(line, "Read ")
-	path, pointed := strings.CutSuffix(path, " and follow it exactly: it is your instruction from the CFO.")
+	path, pointed := strings.CutSuffix(path, " and follow it exactly: it is your instruction from the CEO.")
 	if !found || !pointed {
 		return line
 	}

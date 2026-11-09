@@ -125,7 +125,7 @@ func TestTheCheckpointHoldsTheFleetHoldsQuestionsAndWhatIsOwed(t *testing.T) {
 		t.Errorf("HOLDS AND FREEZES lists a pause of an earlier generation:\n%s", holds)
 	}
 	questions := section(t, checkpoint, "== OPEN QUESTIONS ==")
-	for _, want := range []string{"question drop-legacy-invoices (the CFO): Drop the legacy invoices table?", "review copy-review (cg-wakes): Look at the new copy", "cg-wakes blocked: Which key do I use?"} {
+	for _, want := range []string{"question drop-legacy-invoices (the CEO): Drop the legacy invoices table?", "review copy-review (cg-wakes): Look at the new copy", "cg-wakes blocked: Which key do I use?"} {
 		if !strings.Contains(questions, want) {
 			t.Errorf("OPEN QUESTIONS lacks %q:\n%s", want, questions)
 		}
@@ -157,7 +157,7 @@ func TestACheckpointOfAnEmptyHomeSaysWhatIsEmpty(t *testing.T) {
 		"== FLEET ==":              "(no goblins in flight)",
 		"== HOLDS AND FREEZES ==":  "AFK mode is off.\nNo goblin is paused or stopped.",
 		"== OPEN QUESTIONS ==":     "Nothing waits on the Overlord in the Command Center.\nNo goblin waits on your answer.",
-		"== WAITING ON THE CFO ==": "No goblin waits on the CFO.",
+		"== WAITING ON THE CEO ==": "No goblin waits on the CEO.",
 		"== OWED ==":               "No wake waits to be acknowledged.",
 		"== READ THIS NEXT ==":     "no cfo-handoff-*.md",
 	} {

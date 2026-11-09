@@ -18,7 +18,10 @@ import "./agent-terminal.css"
 // as Claude Code draws a conversation (claude-transcript.ts), with Claude
 // Code's working line under it while the baby goblin works; any other child's
 // lines are written as they came. It follows new output while it shows the
-// last lines, and keeps its place while he reads further up.
+// last lines, and keeps its place while he reads further up. One with no
+// output yet says so, as an empty conversation does, so its panel is never a
+// blank page (the Overlord, 2026-11-04: "I hit one and one of the chats is hit
+// open and the page is like blank.").
 export function AgentTerminal({ task, child, visible }: { task: Task; child: TreeNode; visible: boolean }) {
   const surface = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState("Connecting to the terminal")
@@ -120,7 +123,7 @@ export function AgentTerminal({ task, child, visible }: { task: Task; child: Tre
           previous = text
         }
         failures = 0
-        setStatus("")
+        setStatus((output.entries !== undefined ? body.length : previous.length) ? "" : "No output yet")
         setClosed(false)
       } catch {
         stream.close()

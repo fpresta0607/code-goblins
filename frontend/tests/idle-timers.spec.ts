@@ -31,7 +31,7 @@ test("a connected, idle board starts no interval timer but a one-second clock", 
   // Act
   await page.goto("/");
   await expect(page.getByRole("region", { name: "Tasks", exact: true }).getByRole("group", { name: "Memory" })).toBeVisible();
-  await expect(page.locator(".topbar").getByText("Live", { exact: true })).toBeVisible();
+  await expect(page.locator(".topbar-controls > .notice"), "the board is live").toHaveCount(0);
 
   // Assert
   expect(await page.evaluate(() => window.intervals.filter((delay) => delay !== 1000))).toEqual([]);

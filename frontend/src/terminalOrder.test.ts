@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CFO_KEY, MAXIMIZED_KEYS, cfoView, firstOpen, goblinView, idleView, keepLive, maximizedFor, maximizedView, paneTrack, paneWidth, switchKey, switchOrder, switchTarget, type DeckView } from "./terminalOrder.ts";
+import { CFO_KEY, MAXIMIZED_KEYS, cfoView, firstOpen, goblinView, idleView, maximizedFor, maximizedView, paneTrack, paneWidth, switchKey, switchOrder, switchTarget, type DeckView } from "./terminalOrder.ts";
 import type { Session, Task } from "./types.ts";
 import { parseSnapshot } from "./types.ts";
 
@@ -96,14 +96,6 @@ test("cycling wraps around and a jump past the list goes nowhere", () => {
   assert.equal(switchTarget(order, "gone", { step: 1 })?.key, CFO_KEY);
   assert.equal(switchTarget(order, CFO_KEY, { index: 2 })?.key, "beta");
   assert.equal(switchTarget(order, CFO_KEY, { index: 5 }), undefined);
-});
-
-test("every native terminal opened stays live, and Herdr views only within Herdr's stream limit", () => {
-  const herdr = (key: string) => key.startsWith("h");
-  let open: string[] = [];
-  for (const next of ["n1", "h1", "h2", "n2", "h3", "h4", "n1"]) open = keepLive(open, next, herdr);
-  assert.deepEqual(open, ["n1", "h4", "h3", "n2", "h2"]);
-  assert.deepEqual(keepLive(["a", "b"], "b", herdr), ["b", "a"]);
 });
 
 test("the divider keeps both the board and the panel usable", () => {

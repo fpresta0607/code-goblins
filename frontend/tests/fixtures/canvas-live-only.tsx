@@ -3,6 +3,7 @@ import { Lineage } from "../../src/Lineage";
 import { Orchestration } from "../../src/Orchestration";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
+import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 
 // The canvas the Overlord showed on 2026-10-17, in small. Wanda and Kip work
 // under the CFO, Kip's helper Pip works for him and Wendell waits on CI.
@@ -15,7 +16,7 @@ import "../../src/styles.css";
 const session = (id: string, task: string, phase: string, generation = "g1") => ({ id: "claude/" + id, native_id: id, harness: "claude", role: "goblin", task_id: task, generation, phase });
 const goblin = (id: string, name: string, title: string, phase: string, more: object = {}) => ({ id, title: id, goblin_name: name, goblin_title: title, project: "code-goblins", phase, generation: "g1", verified: false, ...more });
 const snapshot = parseSnapshot({
-  healthy: true, instance: "fixture", cfo_runs: true, cfo_session: "claude/cfo",
+  healthy: true, instance: "fixture", cfo_runs: true, afk: { state: "off" }, cfo_session: "claude/cfo",
   sessions: [
     session("model-routing", "cg-model-routing", "settled"),
     session("lavish-server-cwd", "lavish-server-cwd", "settled"),
@@ -44,6 +45,6 @@ const isList = new URLSearchParams(location.search).has("list");
 
 createRoot(document.getElementById("root")!).render(<main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
   {isList
-    ? <Lineage onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} />
-    : <Orchestration onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />}
+    ? <Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} />
+    : <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />}
 </main>);

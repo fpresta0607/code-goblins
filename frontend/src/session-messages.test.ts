@@ -122,9 +122,9 @@ test("a reply draws each run of calls as one stack between its words, and leaves
   // Arrange
   const [reply] = parseMessages([served(0, { kind: "reply", blocks: [
     { kind: "thinking", text: "Plan it" }, { kind: "text", text: "Reading." }, { kind: "call", tool: "Read", state: "done" }, { kind: "call", tool: "Grep", state: "done" },
-    { kind: "thinking", text: "" }, { kind: "text", text: "Found it." }, { kind: "call", tool: "Edit", state: "running" },
+    { kind: "thinking", text: "" }, { kind: "text", text: "\n\n" }, { kind: "text", text: "Found it." }, { kind: "call", tool: "Edit", state: "running" },
   ] })]);
-  const [read, grep, , , edit] = reply.blocks.slice(2);
+  const [read, grep, , , , edit] = reply.blocks.slice(2);
 
   // Act
   const parts = replyParts(reply.blocks);
@@ -132,18 +132,16 @@ test("a reply draws each run of calls as one stack between its words, and leaves
   // Assert
   assert.deepEqual(parts, [
     { kind: "thinking", at: 0, text: "Plan it" }, { kind: "text", at: 1, text: "Reading." }, { kind: "calls", at: 2, calls: [read, grep] },
-    { kind: "text", at: 5, text: "Found it." }, { kind: "calls", at: 6, calls: [edit] },
+    { kind: "text", at: 6, text: "Found it." }, { kind: "calls", at: 7, calls: [edit] },
   ]);
   assert.deepEqual(replyParts([]), []);
 });
 
-test("Copy copies a reply's text blocks, and a command with what it printed", () => {
-  const [reply, command, compaction] = parseMessages([
-    served(0, { kind: "reply", blocks: [{ kind: "text", text: "One" }, { kind: "call", tool: "Bash", state: "done" }, { kind: "thinking", text: "hidden" }, { kind: "text", text: "Two" }] }),
+test("Copy copies a command with what it printed, and a compaction its summary", () => {
+  const [command, compaction] = parseMessages([
     served(1, { source: "shell", text: "git status", output: "clean", errors: "warning" }),
     served(2, { kind: "compaction", source: undefined, text: "The summary", trigger: "auto" }),
   ]);
-  assert.equal(copyText(reply), "One\n\nTwo");
   assert.equal(copyText(command), "git status\n\nclean\n\nwarning");
   assert.equal(copyText(compaction), "The summary");
 });

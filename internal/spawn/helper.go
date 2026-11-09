@@ -58,7 +58,7 @@ func (s Service) helperStart(ctx context.Context, req Request, project string) (
 // merges its branch and opens the pull request, never to the CFO.
 func helperInstruction(exe string, meta state.TaskMeta) string {
 	id, parent := meta.ID, meta.Parent
-	return " You are a helper goblin of " + parent + ": your worktree is on a branch of your own, cut from " + parent + "'s last commit, and you report to " + parent + ", not to the CFO." +
+	return " You are a helper goblin of " + parent + ": your worktree is on a branch of your own, cut from " + parent + "'s last commit, and you report to " + parent + ", not to the CEO." +
 		" Commit your work on your branch, but never push it and never open a pull request: " + parent + " merges your branch into its own and opens the pull request." +
 		" When your work is committed and ready for " + parent + " to merge, run: " + exe + " notify " + id + " --done." +
 		" When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\", one short sentence that is the question with the details on lines of their own that start with \"- \"; " + parent + " answers it, and its answer arrives here as a message. Never wait for a choice you can undo: take the better option, say which with --working, and keep going." +
