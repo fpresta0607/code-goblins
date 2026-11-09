@@ -157,6 +157,10 @@ for (const style of ["modern"]) {
         relay.accept();
         const reconnect = page.locator(".terminal-foot.box").getByRole("button", { name: "Reconnect", exact: true });
         if (await reconnect.count()) await reconnect.click();
+        // The box is disabled while a send is on its way, and focus, unlike
+        // typing, does not wait for it, so a slow answer to the last send
+        // left the focus nowhere.
+        await expect(field(page)).toBeEnabled();
         await field(page).focus();
         await expect(page.locator(".terminal-corner.warning:visible")).toHaveCount(0);
         await expect(field(page)).toBeFocused();
