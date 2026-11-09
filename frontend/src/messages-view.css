@@ -97,6 +97,8 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .call-added { color: rgb(78, 186, 101); font-weight: 800; }
 .call-removed { color: rgb(255, 107, 128); font-weight: 800; }
 .disclosure.message-call > .disclosure-content { display: grid; gap: .5em; padding: .25em .5em .6em calc(.5em + 2.2em + 1.2em); }
+/* A folded run of calls opens to their own rows, set in under its icon. */
+.disclosure.message-call-group > .disclosure-content { gap: 1px; padding: 0 0 .25em 1.1em; font-size: 1.0667em; }
 .message-diff { max-height: 24em; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: #071015; color: #8fa3ad; font: .8125em/1.5 var(--font-mono); }
 .message-diff > div { min-width: max-content; padding: 0 .75em; white-space: pre; }
 .message-diff > .line-added { background: rgba(78, 186, 101, 0.12); color: #bfe9c9; }
@@ -150,6 +152,7 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
   .conversation { padding: 12px 12px 10px; }
   .message-prompt, .queued-message.pane { max-width: 88%; }
   .disclosure.message-call > .disclosure-content { padding-left: .5em; }
+  .disclosure.message-call-group > .disclosure-content { padding-left: .6em; }
 }
 
 /* The input floats above the conversation, centred under its column, with

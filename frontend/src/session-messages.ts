@@ -249,6 +249,32 @@ export function copyText(message: SessionMessage): string {
 // after another as one stack. at is the first block's place in the reply.
 export type ReplyPart = { kind: "text" | "thinking"; at: number; text: string } | { kind: "calls"; at: number; calls: MessageBlock[] };
 
+// A run of a reply's calls as it shows: each call that finished as asked,
+// two or more in a row, folded into one row that opens to them (#2191), and
+// every other call its own row. A call still running, one that failed, was
+// denied or was interrupted, a question, one with pictures, a plan and a baby
+// goblin are never folded. at is where each starts in the run.
+export type CallRun = { kind: "fold"; at: number; calls: MessageBlock[] } | { kind: "call"; at: number; call: MessageBlock };
+const QUESTIONS = new Set(["askuserquestion", "request_user_input"]);
+const isFoldable = (call: MessageBlock) => (call.state === "done" || call.state === "") && !call.agent && !call.plan.length && !call.pictures.length && !QUESTIONS.has(call.tool.toLowerCase());
+
+export function callRuns(calls: MessageBlock[]): CallRun[] {
+  const runs: CallRun[] = [];
+  let start = 0;
+  while (start < calls.length) {
+    let end = start;
+    while (end < calls.length && isFoldable(calls[end])) end++;
+    if (end - start >= 2) {
+      runs.push({ kind: "fold", at: start, calls: calls.slice(start, end) });
+      start = end;
+      continue;
+    }
+    runs.push({ kind: "call", at: start, call: calls[start] });
+    start++;
+  }
+  return runs;
+}
+
 export function replyParts(blocks: MessageBlock[]): ReplyPart[] {
   const parts: ReplyPart[] = [];
   blocks.forEach((block, at) => {

@@ -4,7 +4,7 @@ import { HarnessMark } from "./harness-mark";
 import { Icon } from "./Icon";
 import { keptPictures } from "./kept-files";
 import { LongText } from "./long-text";
-import { MessageCall } from "./message-call";
+import { MessageCalls } from "./message-calls";
 import { MessageCopy } from "./message-copy";
 import { MessagePictures } from "./message-pictures";
 import { MessageText } from "./message-text";
@@ -27,7 +27,8 @@ function sentAt(at: string): string {
 // One message of a session as the Messages view draws it: a prompt in a
 // quiet bubble on the right, a slash or ! command as typed with what it
 // printed; a reply as plain prose with its thinking folded to one line that
-// opens, and each run of its calls as one quiet stack of rows; a compaction
+// opens, and each run of its calls as one quiet stack of rows, those that
+// finished folded into one row (MessageCalls); a compaction
 // folded to its summary; an interrupt as a plain Interrupted row. What says who spoke is the side and the bubble, never a
 // speaker line (the Overlord, 2026-10-26).
 // A long message of his, and a long print of a command, shows its first
@@ -81,7 +82,7 @@ export const MessageRow = memo(function MessageRow({ message, task, harness, pic
     const lastText = last?.kind === "text" ? last.text : "";
     return <article className="message message-reply" data-message={message.id}>
       {parts.map((part) => part.kind === "calls"
-        ? <div key={part.at} className="message-steps">{part.calls.map((call, at) => <MessageCall key={at} call={call} task={task} picture={picture} onChild={onChild} {...fold("call:" + part.at + ":" + at)} />)}</div>
+        ? <MessageCalls key={part.at} calls={part.calls} at={part.at} task={task} picture={picture} onChild={onChild} fold={fold} />
         : part.kind === "text" ? <Fragment key={part.at}>
           <MessageText text={part.text} />
           {(part !== last || !isTurnEnd) && <div className="message-reply-actions"><MessageCopy text={part.text} /></div>}
