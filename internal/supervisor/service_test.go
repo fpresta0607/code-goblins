@@ -890,6 +890,70 @@ func TestEvaluationNamesTheGateStep(t *testing.T) {
 	}
 }
 
+// From policy version 7 a parked Test, Lint or CI failure is the goblin's to
+// fix, so the task reads as working on it, while a review decision, and any
+// failure under version 6, still waits on the CFO.
+func TestEvaluationLeavesAHandedBackFailureWithItsGoblin(t *testing.T) {
+	classes := pipeline.Classes{Ordinary: pipeline.Class{ReviewCycles: 2}, HighRisk: pipeline.Class{ReviewCycles: 3}, Mechanical: pipeline.Class{ReviewCycles: 2}}
+	versionSix := pipeline.Policy{Version: 6, AutoFix: pipeline.AutoFix{Test: 1, Lint: 1, Rebase: 1, CI: 1}, Classes: classes}
+	versionSeven := pipeline.Policy{Version: 7, AutoFix: pipeline.AutoFix{Rebase: 1}, Classes: classes}
+	for _, c := range []struct {
+		name, step string
+		policy     pipeline.Policy
+		isSaved    bool
+		want       string
+	}{
+		{"a version 7 test failure", "test", versionSeven, true, "working"},
+		{"a version 7 lint failure", "lint", versionSeven, true, "working"},
+		{"a version 7 ci failure", "ci", versionSeven, true, "working"},
+		{"a version 7 review decision", "review", versionSeven, true, "blocked"},
+		{"a version 6 test failure", "test", versionSix, true, "blocked"},
+		{"a test failure with no frozen policy", "test", versionSeven, false, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, err := state.ReadTaskMeta(h.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.TaskTmp = filepath.Join(h.State, "tasktmp", meta.ID)
+			if err := os.MkdirAll(meta.TaskTmp, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if c.isSaved {
+				selection, err := c.policy.Select("ordinary")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := selection.Save(filepath.Join(meta.TaskTmp, "pipeline.json")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			gitFixture(t, meta.Worktree)
+			parked := pipeline.Progress{Status: "running", Steps: []pipeline.ProgressStep{{Name: "intent", Status: "completed"}, {Name: c.step, Status: "awaiting_approval"}}}
+			s := &Service{Store: store, Options: Options{Gate: fakeProgress{value: parked}}}
+
+			// Act
+			got, err := s.execute(context.Background(), Action{Kind: "evaluate", TaskID: meta.ID, Generation: meta.SpawnGen})
+
+			// Assert
+			if c.want == "" {
+				if err == nil {
+					t.Fatalf("evaluation = %+v, want an error naming the unreadable policy", got)
+				}
+				return
+			}
+			if err != nil || got.Phase != c.want || got.GateStep != c.step {
+				t.Fatalf("evaluation = %+v (%v), want phase %s at %s", got, err, c.want, c.step)
+			}
+		})
+	}
+}
+
 // #1611: the snapshot carried every session the store keeps, up to 512, though
 // the board draws only the CFO's and each task's own, so sub-agents' and
 // retired goblins' sessions were 290 KB of every board's first snapshot.

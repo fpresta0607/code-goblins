@@ -142,6 +142,13 @@ func ValidClass(class string) bool {
 	return class == "ordinary" || class == "high-risk" || class == "mechanical"
 }
 
+// HandsBack reports whether a failure of step goes back to the goblin that
+// owns the branch, which is so from version 7 for Test, Lint and CI, whose
+// gate repairs none.
+func (p Policy) HandsBack(step string) bool {
+	return p.Version >= 7 && (step == "test" || step == "lint" || step == "ci")
+}
+
 func (p Policy) Select(class string) (Selection, error) {
 	if err := p.Validate(); err != nil {
 		return Selection{}, err
@@ -245,6 +252,9 @@ func (s Selection) Instruction(id, path string) string {
 		roles = fmt.Sprintf("Every gate role runs Codex %s %s first and Claude next. A CFO gate requires the trusted repository primary to inherit that chain or select Codex explicitly.", s.Policy.Primary.Model, s.Policy.Primary.Effort)
 	case s.Policy.Version > 1:
 		roles = fmt.Sprintf("Global primary, reviewer and review-fixer profiles are Codex %s %s; a CFO gate requires the trusted repository primary to inherit that profile or select Codex explicitly.", s.Policy.Primary.Model, s.Policy.Primary.Effort)
+	}
+	if s.Policy.Version >= 7 {
+		roles += fmt.Sprintf(" The gate repairs no Test, Lint or CI failure: one comes back to you with its findings and log. Fix exactly those findings in one commit, then submit it with cfo pipeline validate-authored %s --run <run> --findings <ids>, or for CI with cfo pipeline handback %s --run <run>.", id, id)
 	}
 	return fmt.Sprintf(" Pipeline policy: read %s. Class %s permits %d review repair cycles, then unresolved. Write the run's intent to a file and use cfo pipeline run %s --intent-file <file>, never the intent on a command line, and cfo pipeline respond %s for gate decisions. Never use --yes, skip a gate, or bypass an exhausted budget with native AXI. %s Shared config changes require an explicit idle config-apply; spawn never changes it.", path, s.Class, s.ReviewCycles, id, id, roles)
 }

@@ -108,11 +108,37 @@ no-mistakes proves Codex, Claude Code and pi selections only, so a goblin on any
 Policy v7 is v6 whose gate repairs no Test, Lint or CI failure: `auto_fix` is 0 for test, lint and CI, review stays 0 and rebase stays 1.
 It follows the Supreme Overlord's decision of 2026-11-09, "Gate checks only, the goblin fixes its own failures".
 From 2026-11-07 13:12Z to 2026-11-09 13:20Z each automatic Test repair round took 80 to 131 minutes in the gate's database, and three rounds of one branch took 382 minutes together, while a gate repair agent rebuilds the context the goblin that owns the branch already holds.
-Under v7 a failed Test, Lint or CI step starts no repair agent and parks with its findings.
-A published CI failure goes back to its goblin through [handback](#driving-a-task), as it already does in a repository that sets `auto_fix.ci: 0`.
+Under v7 a failed Test, Lint or CI step starts no repair agent and parks with its findings, and the goblin that owns the branch fixes them, as [The goblin fixes its own failures](#the-goblin-fixes-its-own-failures) describes.
 A repository's committed `auto_fix` counts are ceilings under the frozen policy, so under v7 a repository whose `.no-mistakes.yaml` names a test, lint or CI count above 0 is refused at `cfo pipeline run`.
 This repository names no test or lint count, so its machine config's governs each, and it names CI at 0.
 A home moves to v7 as it moves to any version: its operator writes v7 into the home's `config/pipeline.json`, runs `cfo pipeline config-apply` in an idle window, and migrates each task frozen at an earlier version, as [Explicit machine configuration](#explicit-machine-configuration) describes.
+
+### The goblin fixes its own failures
+
+When `cfo pipeline run` or `respond` returns at a Test, Lint or CI failure that v7 hands back, it prints the step, each open finding with its severity and description, and the step's log, which is `logs/<run>/<step>.log` under the gate's home.
+It also appends a `working:` line naming the run, step and findings to the task's status log, and the supervisor shows the task working on them, not waiting on the CEO.
+For a Test or Lint failure it moves the task's branch to the run's head when the branch still holds the head the run was submitted from, and keeps that head at `refs/heads/archive/handback-<run>-<head>` in the gate's repository, so the correction carries every commit the run validated.
+A branch the goblin has moved since is left as it is, and the driver says to make the correction on the run's head.
+`respond --action fix` on such a step is refused, since the gate repairs none of it.
+
+The goblin commits one correction of exactly those findings on the run's head and submits it itself:
+
+```powershell
+cfo pipeline validate-authored <id> --run <run> --findings <ids>
+```
+
+That is the owner path of validation admission, and it needs no CEO admission.
+It is taken only from the task's own goblin terminal, only for a run whose policy hands its failure back, and only when `--findings` names exactly the step's open findings.
+The worktree must be clean, its HEAD must be one commit on the run's head, and every file that commit changes must be one the branch already changes from origin's default branch or one the step's log or findings name.
+A correction outside that scope, or one from another terminal, is refused before anything is sent, and the refusal names the CEO's `--admission-file` path.
+The driver then stops the parked run with native `axi abort`, reads its native terminal preflight, and writes the admission itself, beside the task's frozen policy, as `owner-admission-<run>.json`.
+That admission carries the run's own launch nonce, validation generation, intent and launch selection with today's trusted commit, and the task's frozen policy, so the correction is validated in the run's own validation family and every allowance the run spent stays spent.
+It goes through the same native `axi validate-authored --admission-file` and journal as the CEO's admission, and the task's status log records a `pipeline-owner-correction:` line with the run, step, findings and task.
+Anything wider, and every `validate-terminal`, stays the CEO's admission.
+
+A published CI failure goes back to its goblin through [handback](#driving-a-task), as it already does in a repository that sets `auto_fix.ci: 0`.
+Under v7 the goblin's `handback --resume` is held to the same scope: it comes from the task's own goblin terminal, and its one commit on the published head changes only files the branch changes or the CI failure names.
+The CEO resumes any other.
 
 A cycle means one repair followed by another review, after the initial review.
 The driver counts completed rounds from the native database, so the budget is durable within a native run and restarting the CLI mid-run does not reset it.

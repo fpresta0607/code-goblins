@@ -65,6 +65,9 @@ type pipelineStartRunner struct {
 	head string
 	// repoConfig, when set, is the .no-mistakes.yaml the task branch holds.
 	repoConfig string
+	// handedBack, when set, is the steps of the branch's latest run that the
+	// gate parked or stopped at, as a handed-back failure is read.
+	handedBack []byte
 }
 
 func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Result, error) {
@@ -72,6 +75,9 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 	switch q.Name {
 	case "sqlite3":
 		sql := q.Args[len(q.Args)-1]
+		if len(r.handedBack) != 0 && strings.Contains(sql, "AS step_status") {
+			return execx.Result{Stdout: r.handedBack}, nil
+		}
 		if strings.Contains(sql, "JOIN ci_handbacks") {
 			if len(r.handback) == 0 {
 				return execx.Result{Stdout: []byte(`[]`)}, nil
