@@ -16,7 +16,7 @@ function localTime(time: string) {
 export function ActionsSpendPanel({ usage, month, onClose, onRepair, isRepairing, repairError }: { usage?: ActionsSpend; month: string; onClose: () => void; onRepair: (action: string) => void; isRepairing: boolean; repairError: string }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const title = useId();
-  const [isGuidanceShown, setIsGuidanceShown] = useState(false);
+  const [guidanceAction, setGuidanceAction] = useState("");
   useEffect(() => {
     const element = dialog.current;
     const source = document.activeElement;
@@ -54,8 +54,8 @@ export function ActionsSpendPanel({ usage, month, onClose, onRepair, isRepairing
     {problem && <section className="actions-spend-recovery" aria-label="Billing recovery" aria-busy={isRepairing}>
       {problem.account && <p>Account: <strong>{problem.account}</strong></p>}
       {problem.action === "allow" && <p>Billing requires GitHub’s <code>user</code> scope. Review and allow access in the native GitHub consent flow on this PC.</p>}
-      {actionLabel && <button type="button" className="primary" disabled={isRepairing || isPending} onClick={() => problem.action === "update" || problem.action === "renew" ? setIsGuidanceShown(true) : onRepair(problem.action)}>{isRepairing ? "Checking billing..." : actionLabel}</button>}
-      {isGuidanceShown && <><p role="status">{problem.action === "renew"
+      {actionLabel && <button type="button" className="primary" disabled={isRepairing || isPending} onClick={() => problem.action === "update" || problem.action === "renew" ? setGuidanceAction(problem.action) : onRepair(problem.action)}>{isRepairing ? "Checking billing..." : actionLabel}</button>}
+      {guidanceAction === problem.action && <><p role="status">{problem.action === "renew"
         ? <>Sign in again with <code>gh auth login</code> in a terminal on this PC{problem.account ? <> as <strong>{problem.account}</strong></> : null}, then Retry. The login stays in the GitHub CLI's own credential store.</>
         : <>Update {problem.credential} for {problem.account || "the selected account"} in the environment that starts Code Goblins. This credential takes precedence over the CLI login. Keep its value on this PC. A running process retains its inherited environment until its launcher supplies the updated value.</>}</p><button type="button" disabled={isRepairing} onClick={() => onRepair("retry")}>Retry</button></>}
       {(isRepairing || recoveryDetail) && <p role="status">{isRepairing ? "Reading GitHub billing..." : recoveryDetail}</p>}

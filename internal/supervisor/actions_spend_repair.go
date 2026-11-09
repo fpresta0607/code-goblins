@@ -95,15 +95,10 @@ func (s *Service) prepareBillingRepair(month string, problem actionsbilling.Prob
 	identity := sha256.Sum256([]byte(s.Instance + "\nbilling"))
 	now := time.Now().UTC()
 	command := "$ErrorActionPreference = 'Stop'\nif ($env:GH_TOKEN -or $env:GITHUB_TOKEN) { throw 'An environment credential takes precedence. Update it instead of refreshing the CLI login.' }\n"
-	title := "Renew the selected GitHub CLI login"
-	if problem.Action == "allow" {
-		title = "Allow billing access for " + problem.Account + " (GitHub user scope)"
-		command += "$billingAccount = & gh api --hostname github.com user --jq .login\nif ($LASTEXITCODE -ne 0 -or $billingAccount -ne '" + problem.Account + "') { throw 'The selected GitHub account changed. Recheck billing before granting access.' }\n"
-		command += "& gh auth refresh --hostname github.com --scopes user\n"
-	} else {
-		command += "& gh auth refresh --hostname github.com\n"
-	}
+	command += "$billingAccount = & gh api --hostname github.com user --jq .login\nif ($LASTEXITCODE -ne 0 -or $billingAccount -ne '" + problem.Account + "') { throw 'The selected GitHub account changed. Recheck billing before granting access.' }\n"
+	command += "& gh auth refresh --hostname github.com --scopes user\n"
 	command += "exit $LASTEXITCODE\n"
+	title := "Allow billing access for " + problem.Account + " (GitHub user scope)"
 	_, err := s.recordBoardRun(Run{ID: "actions-billing-" + hex.EncodeToString(nonce[:]), Identity: hex.EncodeToString(identity[:]), Title: title, Shell: "powershell", Command: command, Cwd: s.Store.Home.Root, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime), Billing: &BillingRepair{Month: month, Account: problem.Account}})
 	return err
 }

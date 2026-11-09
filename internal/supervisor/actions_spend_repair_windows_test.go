@@ -449,3 +449,78 @@ func TestBillingEnvironmentCredentialIsNeverReplacedByCLIConsent(t *testing.T) {
 		}
 	}
 }
+
+// The board's streamed reading names the pending consent it is waiting on,
+// and drops it once that consent is gone.
+func TestBillingSnapshotNamesThePendingConsent(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	service := boardService(store)
+	service.Options.ActionsSpend = func(context.Context, time.Time, string) actionsbilling.Reading {
+		t.Fatal("a snapshot read GitHub")
+		return actionsbilling.Reading{}
+	}
+	month := time.Now().UTC().Format("2006-01")
+	service.actionsSpendReadings = map[string]*actionsSpendEntry{month: {started: time.Now(), reading: actionsbilling.Reading{Month: month, Status: "unavailable", Problem: &actionsbilling.Problem{Kind: "permission", Action: "allow", Account: "example-user", Credential: "gh"}}}}
+	store.db.Runs = []Run{{ID: "actions-billing-pending", State: "ready", Billing: &BillingRepair{Month: month, Account: "example-user"}}}
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	pending, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.db.Runs = nil
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
+	ended, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if pending.ActionsSpend == nil || pending.ActionsSpend.Recovery == nil || pending.ActionsSpend.Recovery.RunID != "actions-billing-pending" {
+		t.Fatalf("snapshot with a pending consent = %+v", pending.ActionsSpend)
+	}
+	if ended.ActionsSpend == nil || ended.ActionsSpend.Recovery != nil {
+		t.Fatalf("snapshot without a consent = %+v", ended.ActionsSpend)
+	}
+}
+
+// Successful consent makes every cached month stale, not only the consent's
+// own, so another month shown on a device is read again with the new access.
+func TestBillingConsentRereadsEveryCachedMonth(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	service := boardService(store)
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	service.lifetime = ended
+	service.Options.GitHub = githubapi.New(nil)
+	service.Options.GitHub.Getenv = func(string) string { return "" }
+	reads := map[string]int{}
+	service.Options.ActionsSpend = func(_ context.Context, now time.Time, month string) actionsbilling.Reading {
+		reads[month]++
+		return actionsbilling.Reading{Status: "available", Month: month, ReadAt: now, CheckedAt: now, Total: &actionsbilling.Usage{}}
+	}
+	now := time.Date(2026, 10, 31, 20, 0, 0, 0, time.UTC)
+	permission := &actionsbilling.Problem{Kind: "permission", Action: "allow", Account: "example-user", Credential: "gh"}
+	service.actionsSpendReadings = map[string]*actionsSpendEntry{
+		"2026-10": {started: now, reading: actionsbilling.Reading{Month: "2026-10", Status: "unavailable", Problem: permission}},
+		"2026-11": {started: now, done: make(chan struct{}), reading: actionsbilling.Reading{Month: "2026-11", Status: "unavailable", Problem: permission}},
+	}
+	run := Run{ID: "actions-billing-1", State: "succeeded", Billing: &BillingRepair{Month: "2026-11", Account: "example-user"}}
+
+	// Act
+	service.finishBillingRepair(run, "succeeded")
+	service.credentialWork.Wait()
+	reading := service.readActionsSpendMonth(context.Background(), context.Background(), now, "2026-10")
+
+	// Assert
+	if reads["2026-10"] != 1 || reading.Status != "available" || reading.Problem != nil {
+		t.Fatalf("reads %v; other month %+v", reads, reading)
+	}
+}

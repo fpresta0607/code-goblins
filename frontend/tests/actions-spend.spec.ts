@@ -98,6 +98,25 @@ test("a missing CLI login offers sign-in guidance and Retry, never a consent run
   expect(actions).toEqual([{ month: "2026-10", action: "retry" }]);
 });
 
+test("sign-in guidance leaves once a retried reading needs billing access instead", async ({ page }) => {
+  await page.clock.install({ time: new Date(NOW) });
+  await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+    actions_spend: reading({ status: "unavailable", total: null, repositories: [], detail: "The GitHub CLI login on this PC is missing or was refused.", problem: { kind: "authentication", action: "renew", account: "", credential: "gh" } }) });
+  await page.route("**/api/actions-spend/repair", (route) => route.fulfill({ json: reading({ status: "unavailable", total: null, repositories: [], detail: "Billing permission is missing.", checked_at: "2026-10-15T12:00:01Z",
+    problem: { kind: "permission", action: "allow", account: "example-user", credential: "gh" } }) }));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Board", exact: true }).click();
+  await page.getByRole("button", { name: "GitHub Actions spend: unavailable", exact: true }).click();
+  const panel = page.getByRole("dialog", { name: "GitHub Actions" });
+  await panel.getByRole("button", { name: "Renew GitHub login", exact: true }).click();
+  await expect(panel.getByRole("status")).toContainText("gh auth login");
+  await panel.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(panel.getByRole("button", { name: "Allow billing access", exact: true })).toBeEnabled();
+  await expect(panel).not.toContainText("gh auth login");
+  await expect(panel).not.toContainText("environment that starts Code Goblins");
+  await expect(panel.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0);
+});
+
 test("billing repair shows loading and a recoverable owner refusal", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 1000 });
   await page.clock.install({ time: new Date(NOW) });
