@@ -81,7 +81,7 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 		case "status --porcelain --untracked-files=all":
 			return execx.Result{}, nil
 		case "show HEAD:.no-mistakes.yaml":
-			return execx.Result{Stdout: []byte("auto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}\n")}, nil
+			return execx.Result{Stdout: []byte("auto_fix: {review: 0, rebase: 1, ci: 0}\n")}, nil
 		case "ls-remote --symref origin HEAD":
 			head := trusted
 			if r.advance && r.remoteRead > 1 {
@@ -296,12 +296,16 @@ func TestPipelineMigrateReplacesOnlyFrozenPolicyAndAudits(t *testing.T) {
 		activeRuns     int
 		isVersionTwo   bool
 		isVersionThree bool
+		isVersionSix   bool
 	}{
 		{name: "active-legacy", activeRuns: 1},
 		{name: "idle"},
 		{name: "active-v2", activeRuns: 1, isVersionTwo: true},
 		{name: "idle-v2", isVersionTwo: true},
 		{name: "active-v3", activeRuns: 2, isVersionThree: true},
+		// A home that kept version 6 moves its tasks to the checked-in
+		// version 7, whose gate repairs no Test, Lint or CI failure.
+		{name: "active-v6", activeRuns: 1, isVersionSix: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -339,6 +343,17 @@ func TestPipelineMigrateReplacesOnlyFrozenPolicyAndAudits(t *testing.T) {
 				old, err = previous.Select(old.Class)
 				if err != nil {
 					t.Fatal(err)
+				}
+			}
+			if test.isVersionSix {
+				previous := old.Policy
+				previous.Version, previous.Reviewer = 6, pipeline.Reviewer{}
+				old, err = previous.Select(old.Class)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if policy.Version != 7 || old.Policy.AutoFix == policy.AutoFix {
+					t.Fatalf("the checked-in policy is %+v, want version 7 with other follow-ups than version 6's", policy)
 				}
 			}
 			snapshot := filepath.Join(tmp, "pipeline.json")
@@ -1254,7 +1269,7 @@ func TestPipelineRunLaunchesNativeAfterCheckStart(t *testing.T) {
 	if err := selection.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
 		t.Fatal(err)
 	}
-	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash, Harness: "codex", Model: "gpt-6.1-sol", Effort: "xhigh"}
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
 		t.Fatal(err)
 	}
@@ -1276,7 +1291,7 @@ func TestPipelineRunLaunchesNativeAfterCheckStart(t *testing.T) {
 		t.Fatalf("native launches=%+v, want one", runner.native)
 	}
 	request := runner.native[0]
-	if request.Name != "no-mistakes" || strings.Join(request.Args, " ") != "axi run --intent ship safely" {
+	if request.Name != "no-mistakes" || !strings.HasPrefix(strings.Join(request.Args, " "), "axi run --intent ship safely --launch-nonce cfo-") {
 		t.Fatalf("native launch argv: %+v", request)
 	}
 	if request.Dir != wt {
@@ -1411,7 +1426,7 @@ func extraWorktreeTask(t *testing.T) (home.Home, string, map[string]string) {
 	if err := selection.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
 		t.Fatal(err)
 	}
-	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: own, Extras: []string{extra}, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: own, Extras: []string{extra}, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash, Harness: "codex", Model: "gpt-6.1-sol", Effort: "xhigh"}
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
 		t.Fatal(err)
 	}
@@ -1512,7 +1527,7 @@ func TestPipelineRunAndRecoverActInTheWorktreeOfTheNamedBranch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("run --branch: %v", err)
 		}
-		if len(start.native) != 1 || !strings.HasSuffix(start.native[0].Dir, "task-connections") || strings.Join(start.native[0].Args, " ") != "axi run --intent ship safely" {
+		if len(start.native) != 1 || !strings.HasSuffix(start.native[0].Dir, "task-connections") || !strings.HasPrefix(strings.Join(start.native[0].Args, " "), "axi run --intent ship safely --launch-nonce cfo-") {
 			t.Fatalf("native launches = %+v, want one run in the extra worktree", start.native)
 		}
 	})

@@ -76,11 +76,12 @@ func (r *gateStartRunner) Run(ctx context.Context, q execx.Request) (execx.Resul
 // with the fallback the operator named, if any.
 func versionSixPolicy(t *testing.T, fallback pipeline.Reviewer) pipeline.Policy {
 	t.Helper()
-	policy, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
-	if err != nil {
-		t.Fatal(err)
+	policy := pipeline.Policy{
+		Version:  6,
+		Fallback: fallback,
+		AutoFix:  pipeline.AutoFix{Review: 0, Test: 1, Lint: 1, Rebase: 1, CI: 1},
+		Classes:  pipeline.Classes{Ordinary: pipeline.Class{ReviewCycles: 2}, HighRisk: pipeline.Class{ReviewCycles: 3}, Mechanical: pipeline.Class{ReviewCycles: 2}},
 	}
-	policy.Version, policy.Primary, policy.Reviewer, policy.Fixer, policy.Fallback = 6, pipeline.Reviewer{}, pipeline.Reviewer{}, pipeline.Reviewer{}, fallback
 	if err := policy.Validate(); err != nil {
 		t.Fatal(err)
 	}
