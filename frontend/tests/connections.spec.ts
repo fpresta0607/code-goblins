@@ -32,7 +32,7 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
         checks++;
         await route.fulfill({ json: { instance: "connections-proof", generation: "first", runtime: { process_id: 42, started_at: "2026-09-29T14:00:00Z", workspace: "C:/scratch/work" }, checking: false, checked_at: checkedAt, entries: entries.map((entry) => entry.name === "Context7" && isFixed ? { ...entry, status: "connected", detail: "", actions: [] } : entry) } });
       } else if (url.pathname === "/api/connections/fix") {
-        expect(route.request().headers()["x-cfo-token"]).toBe("connections-proof");
+        expect(route.request().headers()["x-ceo-token"]).toBe("connections-proof");
         expect(route.request().postDataJSON()).toEqual({ task: "connection-proof", generation: "first", connection: "mcp:context7", action: "login" });
         isFixed = true;
         await route.fulfill({ json: { message: "Login card is ready in the Command Center.", run_id: "connections-login-fixture" } });
@@ -190,15 +190,15 @@ test("returning from sign-in rechecks once per sign-in attempt", async ({ page, 
   expect(forcedChecks).toBe(2);
 });
 
-// The connections that could not be read are named to the CFO by goblin and
+// The connections that could not be read are named to the CEO by goblin and
 // task: "a goblin's connections" told it nothing it could act on.
-test("connections that cannot be read are named to the CFO by goblin and task", async ({ page }) => {
+test("connections that cannot be read are named to the CEO by goblin and task", async ({ page }) => {
   // Arrange
   const reports: { where: string; text: string }[] = [];
   await page.route("**/api/**", (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/engines") return route.fulfill({ json: engines });
-    if (path === "/api/cfo/report") { reports.push(route.request().postDataJSON() as { where: string; text: string }); return route.fulfill({ status: 202, json: { reported: true } }); }
+    if (path === "/api/ceo/report") { reports.push(route.request().postDataJSON() as { where: string; text: string }); return route.fulfill({ status: 202, json: { reported: true } }); }
     if (path === "/api/connections") return route.fulfill({ status: 503, json: { error: "Connections cannot be checked now." } });
     return route.fulfill({ status: 404, json: { error: "Unknown fixture request" } });
   });

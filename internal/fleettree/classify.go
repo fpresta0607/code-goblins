@@ -21,7 +21,7 @@ var shells = []string{"bash", "sh", "cmd", "powershell", "pwsh", "conhost", "tim
 // a script of the goblin's own starts it: @playwright/test/cli.js test,
 // npm/bin/npm-cli.js test, pnpm.cjs test (#1617).
 var (
-	testCommands  = regexp.MustCompile(`(?i)(\bgo(\.exe)?"?\s+test\b|\bgo(\.exe)?"?\s+vet\b|\bvitest\b|\bjest\b|\bplaywright(\.cmd|([\\/]test)?[\\/]cli\.js)?"?\s+test\b|\bpytest\b|\b(npm|pnpm|yarn)(\.cmd|-cli\.js|\.c?js)?"?\s+(run\s+)?test\b|\bcargo\s+test\b|\bdotnet\s+test\b|\bcfo(\.exe)?"?\s+gate\s+test\b)`)
+	testCommands  = regexp.MustCompile(`(?i)(\bgo(\.exe)?"?\s+test\b|\bgo(\.exe)?"?\s+vet\b|\bvitest\b|\bjest\b|\bplaywright(\.cmd|([\\/]test)?[\\/]cli\.js)?"?\s+test\b|\bpytest\b|\b(npm|pnpm|yarn)(\.cmd|-cli\.js|\.c?js)?"?\s+(run\s+)?test\b|\bcargo\s+test\b|\bdotnet\s+test\b|\bceo(\.exe)?"?\s+gate\s+test\b)`)
 	buildCommands = regexp.MustCompile(`(?i)(\bgo(\.exe)?"?\s+build\b|\b(npm|pnpm|yarn)(\.cmd)?"?\s+(run\s+)?build\b|\bvite(\.cmd)?"?\s+build\b|\btsc(\.cmd)?"?(\s|$)|\bcargo\s+build\b|\bdotnet\s+build\b|\bmsbuild\b|\bwebpack\b)`)
 )
 
@@ -80,7 +80,7 @@ func classify(j job, facts jobFacts) (Group, string, string) {
 // heavyLineRun is a run in the machine's heavy line, which waits there for
 // its turn, holds it while its command runs, and tells its goblin how it
 // ended.
-var heavyLineRun = regexp.MustCompile(`(?i)\b(cfo|goblins)(\.exe)?"?\s+gate\s+turn\b`)
+var heavyLineRun = regexp.MustCompile(`(?i)\b(ceo|goblins)(\.exe)?"?\s+gate\s+turn\b`)
 
 // isHeavyRun says a job is or runs a run in the machine's heavy line, by its
 // processes' command lines.
@@ -234,9 +234,9 @@ func linkOpened(commandLine string) bool {
 	return slices.ContainsFunc(arguments, func(argument string) bool { return argument == "--single-argument" || argument == "-osint" })
 }
 
-// supervisors are the programs the fleet's supervisor runs as: cfo or
+// supervisors are the programs the fleet's supervisor runs as: ceo or
 // goblins, or an update's verified copy of either.
-var supervisors = []string{"cfo", "goblins", "previous-cfo", "previous-goblins"}
+var supervisors = []string{"ceo", "goblins", "previous-ceo", "previous-goblins"}
 
 // isSupervisor says a process is the fleet's supervisor, by its program and
 // its command line, which runs serve.
@@ -251,11 +251,11 @@ func isSupervisor(process Process, commandLine string) bool {
 //
 // Each browser a link opened is left with everything under it, its tabs and
 // the native messaging hosts it starts among them: on 2026-10-16 a sign-in
-// link the CFO's harness opened started the Overlord's browser under its
+// link the CEO's harness opened started the Overlord's browser under its
 // terminal, and the start watch blamed it on the terminal (#1007).
 //
 // The supervisor is left with everything it runs, as the fleet's own
-// service: on 2026-10-25 a supervisor that an update in the CFO's terminal
+// service: on 2026-10-25 a supervisor that an update in the CEO's terminal
 // had started read as that terminal's, by the mark its console host was
 // given as it started, and the start watch blamed its own gate-status reads
 // on the terminal (#1499).

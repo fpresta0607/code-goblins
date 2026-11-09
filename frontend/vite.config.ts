@@ -8,7 +8,7 @@ const supervisor = process.env.BOARD_SUPERVISOR || "http://127.0.0.1:4310";
 
 export default defineConfig({
   build: {
-    // cfo.exe embeds the board from here; git ignores it.
+    // ceo.exe embeds the board from here; git ignores it.
     outDir: "../internal/boardweb/dist/board",
     emptyOutDir: true,
     sourcemap: false,

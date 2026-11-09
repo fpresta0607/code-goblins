@@ -28,7 +28,7 @@ const (
 	// reach the supervisor in two polls: 757 ms apart on 2026-10-09, when his
 	// pick was first read as a revision and his approval as a second answer.
 	pageAnswerSettle = 2 * time.Second
-	// pagePollAttempts is how many polls in a row may fail before the CFO is
+	// pagePollAttempts is how many polls in a row may fail before the CEO is
 	// told the page cannot be watched.
 	pagePollAttempts = 3
 	// pageFeedbackInline bounds feedback carried in a wake when it cannot be
@@ -63,7 +63,7 @@ type pageAnswer struct {
 
 // watchPages keeps one poller for each page the supervisor watches: the
 // Lavish page of any item, open or closed, until the review on it settles,
-// while the item is the CFO's own or its goblin's task stands. What becomes
+// while the item is the CEO's own or its goblin's task stands. What becomes
 // of the item, such as the goblin's withdraw of its card, never ends the
 // watch, so nothing the Overlord sends on the page goes unread. lavish-axi
 // hands a page's feedback to whichever poll takes it, so a page has one
@@ -108,7 +108,7 @@ func (s *Service) watchPages(ctx context.Context) {
 }
 
 // watchPage polls one page until the review on it settles, then gives the
-// CFO what happened and closes the page's open items, or until the page is no
+// CEO what happened and closes the page's open items, or until the page is no
 // longer watched because its goblin's task was retired, which leaves it to
 // the sweep. Between polls it takes the item that now stands for the page;
 // each poll and collected answer stay bound to that version. A closed
@@ -127,9 +127,9 @@ func (s *Service) watchPages(ctx context.Context) {
 // on. What he sends on a page whose item has closed is a note its goblin gets
 // all the same. An agent's end of the review is never his: what he sent
 // before it is passed on as it stands, and the next poll hands the agent's
-// end to the CFO. A poll that fails while the rest of his answer may be on
+// end to the CEO. A poll that fails while the rest of his answer may be on
 // its way is asked once more at once, before what he sent is passed on
-// without it. What the goblin and the CFO are told goes in order beside the
+// without it. What the goblin and the CEO are told goes in order beside the
 // poll, so the next poll never waits on a goblin's terminal, where a goblin
 // in a turn takes typed text only at its next tool call, after up to 5 s.
 func (s *Service) watchPage(ctx context.Context, key string) {
@@ -177,7 +177,7 @@ func (s *Service) watchPage(ctx context.Context, key string) {
 		polled = r
 		poll, err := s.Options.PollPage(ctx, r.LavishPage, reply, timeout)
 		// A question that stands for the page is no item, so it is read as
-		// it stands for the page now: one the CFO answered during the poll
+		// it stands for the page now: one the CEO answered during the poll
 		// takes what he sent as a note.
 		if now, ok := s.Store.review(r.ID); ok && samePageVersion(now, r) {
 			r = now
@@ -241,7 +241,7 @@ func (s *Service) watchPage(ctx context.Context, key string) {
 			}
 			if err == nil && (poll.Status == "ended" || poll.Ended) && poll.EndedBy == "agent" {
 				poll.Status = "ended"
-				s.handPageToCFO(ctx, r, poll, nil)
+				s.handPageToCEO(ctx, r, poll, nil)
 				if now, ok := s.Store.watchedPages()[key]; ok && !samePageVersion(now, r) {
 					continue
 				}
@@ -275,7 +275,7 @@ func (s *Service) watchPage(ctx context.Context, key string) {
 				continue
 			}
 		}
-		s.handPageToCFO(ctx, r, poll, err)
+		s.handPageToCEO(ctx, r, poll, err)
 		if now, ok := s.Store.watchedPages()[key]; !ok || samePageVersion(now, r) {
 			return
 		}
@@ -313,7 +313,7 @@ func (s *Service) answeredOnPage(answer pageAnswer) {
 
 // answerPageQuestion records his answer on a page AFK mode asked as a
 // goblin's question as that question's answer, since the question is the
-// page: its card leaves Waiting on you at once, the CFO's notify reads
+// page: its card leaves Waiting on you at once, the CEO's notify reads
 // answered, and the goblin gets what he wrote through the page, as from any
 // page. A pick of an option the question offers is that option.
 func (s *Service) answerPageQuestion(answer pageAnswer) {
@@ -323,7 +323,7 @@ func (s *Service) answerPageQuestion(answer pageAnswer) {
 	}
 	unlock, err := answerLock(s.Store.Home.State, q.Seq)
 	if err != nil {
-		// The CFO is answering it with cfo answer; what he wrote reaches the
+		// The CEO is answering it with ceo answer; what he wrote reaches the
 		// goblin all the same.
 		s.publish(err)
 		return
@@ -335,7 +335,7 @@ func (s *Service) answerPageQuestion(answer pageAnswer) {
 		return
 	}
 	if i := slices.IndexFunc(pending, func(r wake.Record) bool { return r.Seq == q.Seq }); i >= 0 && pending[i].Answered != "" {
-		// The CFO answered it first; what he wrote reaches the goblin all
+		// The CEO answered it first; what he wrote reaches the goblin all
 		// the same.
 		return
 	}
@@ -391,7 +391,7 @@ func (s *Service) passOnAnswer(ctx context.Context, answer pageAnswer) (reply st
 		return "", true
 	}
 	if r.State == "open" && !answer.IsAnswer {
-		maker := "The CFO makes"
+		maker := "The CEO makes"
 		if r.Task != "" {
 			maker = r.Task + " makes"
 		}
@@ -400,15 +400,15 @@ func (s *Service) passOnAnswer(ctx context.Context, answer pageAnswer) (reply st
 	return "Received.", true
 }
 
-// handPageToCFO wakes the CFO with what became of an item's page when its
+// handPageToCEO wakes the CEO with what became of an item's page when its
 // review ended with no answer on it, or the page cannot be polled, settles the
 // page and closes every open item naming it, so the board never shows the
-// page as waiting on him once its review has ended. The CFO's own page has no
+// page as waiting on him once its review has ended. The CEO's own page has no
 // goblin, so its wake is keyed by the item. An item he ended on its page
 // closes as his clear; only an item that closed without his word is
 // withdrawn. A page whose items had all closed already settles with no wake:
 // whatever he sent on it was passed on as it came.
-func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll, pollErr error) {
+func (s *Service) handPageToCEO(ctx context.Context, r Review, poll axi.PagePoll, pollErr error) {
 	if r.State != "open" {
 		if err := s.Store.settlePage(r, Review{}); err != nil {
 			s.publish(err)
@@ -420,16 +420,16 @@ func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll
 	switch {
 	case pollErr != nil:
 		detail = fmt.Sprintf("the supervisor cannot poll the page %s (%v); the Overlord's answer on it reaches nobody, so ask him in text", r.LavishPage, pollErr)
-		closed.Reason = "The page could not be polled; the CFO was told."
+		closed.Reason = "The page could not be polled; the CEO was told."
 	case poll.Status == "ended" && poll.EndedBy == "agent":
 		detail = "an agent, not the Overlord, ended the review of " + r.LavishPage + " before he answered on it"
-		closed.Reason = "An agent ended the review on its page; the CFO was told."
+		closed.Reason = "An agent ended the review on its page; the CEO was told."
 	case poll.Status == "ended":
 		detail = "the Overlord ended the review of " + r.LavishPage + " with no more feedback"
 		closed = Review{State: "cleared", Reason: "You ended the review on its page."}
 	default:
 		detail = "lavish-axi reported " + poll.Status + " for the page " + r.LavishPage
-		closed.Reason = "The page's session changed; the CFO was told."
+		closed.Reason = "The page's session changed; the CEO was told."
 	}
 	answer := pageAnswer{ID: rand.Text(), Item: r, Poll: poll, Status: "collecting", Detail: detail, IsPageEnd: true, Closed: closed}
 	if !s.keepAnswer(ctx, answer) {
@@ -454,7 +454,7 @@ func pageVersionIncludes(item, r Review) bool {
 }
 
 // watchesPage reports whether the supervisor watches item r's page: the
-// review on it has not settled, and the item is the CFO's own or its goblin's
+// review on it has not settled, and the item is the CEO's own or its goblin's
 // task stands. A retired goblin's page is the sweep's to end.
 func (s *Store) watchesPage(r Review) bool {
 	return r.LavishPage != "" && r.PageSettled == nil && (r.Task == "" || s.taskStands(r.Task))
@@ -683,7 +683,7 @@ func (s *Store) settlePage(item Review, closed Review) error {
 		}
 	}
 	// The reporter's questions on the page up to this one are watched no
-	// more, as its older cards are; one still pending stays the CFO's to
+	// more, as its older cards are; one still pending stays the CEO's to
 	// answer.
 	for i := range s.db.Questions {
 		if q := &s.db.Questions[i]; q.AsksPageFile != "" && q.PageSettled == nil && q.Task == item.Task && q.Identity == item.Identity && pageKey(q.AsksPageFile) == pageKey(item.LavishPage) && !q.CreatedAt.After(item.CreatedAt) {

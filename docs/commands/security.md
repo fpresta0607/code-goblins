@@ -1,5 +1,5 @@
-# cfo security
+# ceo security
 
-`cfo security <task-id> [--deep]`
+`ceo security <task-id> [--deep]`
 
 Read the [applicable delivery procedure](../contract/delivery.md) before acting.

@@ -16,11 +16,11 @@ import (
 // the goblin filed.
 const answeredDir = ".wake-answered"
 
-// AnsweredByOverlord and AnsweredByCFO name who answered a blocking notify:
-// the Overlord on the board or the CFO with cfo answer.
+// AnsweredByOverlord and AnsweredByCEO name who answered a blocking notify:
+// the Overlord on the board or the CEO with ceo answer.
 const (
 	AnsweredByOverlord = "overlord"
-	AnsweredByCFO      = "cfo"
+	AnsweredByCEO      = "ceo"
 )
 
 type answeredMarker struct {
@@ -30,8 +30,8 @@ type answeredMarker struct {
 
 // MarkAnswered records that by answered the blocking notify at seq. The
 // goblin already has the answer, so the fleet stops treating the record as a
-// question still owed one: the monitor no longer re-asks it and cfo drain
-// acks it without --ack-blocking. Retiring the record is still the CFO's
+// question still owed one: the monitor no longer re-asks it and ceo drain
+// acks it without --ack-blocking. Retiring the record is still the CEO's
 // ordinary ack.
 func MarkAnswered(dir string, seq int, by, answer string) error {
 	if err := os.MkdirAll(filepath.Join(dir, answeredDir), 0o755); err != nil {

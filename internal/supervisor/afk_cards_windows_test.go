@@ -15,10 +15,10 @@ import (
 )
 
 // The 13:18Z report of 2026-10-14 left eight steps only the Overlord can take,
-// and none became a card: the CFO filed each by hand. When AFK mode turns off,
+// and none became a card: the CEO filed each by hand. When AFK mode turns off,
 // each step still open becomes one Command Center card: a run item when the
 // step is a command he runs, otherwise a question with its plain steps, its
-// link and the choices the CFO gave it, as cfo question makes.
+// link and the choices the CEO gave it, as ceo question makes.
 
 func hisPlainStep() afk.Entry {
 	return afk.Entry{Kind: afk.KindHis, What: "Sign in to pocketpiggies.app and check that your dashboard loads", Link: "https://pocketpiggies.app/assistant", Evidence: "PR 140 is live and only his own session can check it. Backlog row 2026-10-13", Options: []string{"It loads", "It does not load"}, Recommendation: "It loads"}
@@ -30,7 +30,7 @@ func hisCommandStep() afk.Entry {
 
 // hisDecisionStep is a step only he can take that is a decision of his, as
 // the Georgetown repair of 2026-10-28 was: he answers it with a choice the
-// CFO then acts on.
+// CEO then acts on.
 func hisDecisionStep() afk.Entry {
 	return afk.Entry{Kind: afk.KindHis, What: "Approve Odie's one-time production repair of PrecisionDocs project Georgetown", Link: "https://github.com/fpresta0607/PrecisionDocs-AI/issues/2012", Evidence: "a production repair is his to approve. Backlog row 2026-10-28", Options: []string{"Approve the repair", "Dry-run it again first", "Leave Georgetown as it is"}, Recommendation: "Dry-run it again first"}
 }
@@ -51,7 +51,7 @@ func cardsOf(s *Service) (questions []Question, runs []Run) {
 
 func TestEachOpenStepOnlyHeCanTakeBecomesOneCommandCenterCardWhenAFKTurnsOff(t *testing.T) {
 	// Arrange
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	plain, command := hisPlainStep(), hisCommandStep()
 
 	// Act
@@ -64,13 +64,13 @@ func TestEachOpenStepOnlyHeCanTakeBecomesOneCommandCenterCardWhenAFKTurnsOff(t *
 	}
 	q := questions[0]
 	if q.ID != afk.HisCardID(logged[0]) || q.Status != "pending" || q.Task != "" || !slices.Equal(q.Options, plain.Options) || q.Recommended != plain.Recommendation {
-		t.Errorf("question = %+v, want the CFO's own pending card with the step's choices and recommendation", q)
+		t.Errorf("question = %+v, want the CEO's own pending card with the step's choices and recommendation", q)
 	}
 	if !strings.HasPrefix(q.Text, plain.What+"\n") || !strings.Contains(q.Text, "`"+plain.Link+"`") {
 		t.Errorf("question text = %q, want the step in plain words and its link", q.Text)
 	}
 	r := runs[0]
-	if r.ID != afk.HisCardID(logged[1]) || r.State != "ready" || r.Title != command.What || r.Command != command.Command || r.Shell != "powershell" || r.By != "cfo" || r.Admin {
+	if r.ID != afk.HisCardID(logged[1]) || r.State != "ready" || r.Title != command.What || r.Command != command.Command || r.Shell != "powershell" || r.By != "ceo" || r.Admin {
 		t.Errorf("run = %+v, want the command as a ready run item titled with the step", r)
 	}
 	report, found, err := ReadAFKReport(h)
@@ -97,11 +97,11 @@ func TestEachOpenStepOnlyHeCanTakeBecomesOneCommandCenterCardWhenAFKTurnsOff(t *
 // The Dell TechHub card of 2026-10-29 held a script that requires an
 // administrator, and failed with exit 1 on his click. A step logged with
 // --run --admin becomes a run item marked admin, which runs elevated after
-// Windows asks him, as a cfo run-request --admin item does. No elevated
+// Windows asks him, as a ceo run-request --admin item does. No elevated
 // command runs here: the item's record proves the path.
 func TestAStepHeRunsAsAdministratorBecomesARunItemMarkedAdmin(t *testing.T) {
 	// Arrange
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	elevated := afk.Entry{Kind: afk.KindHis, What: "Update the Dell drivers with TechHub", Evidence: "the script requires an administrator", Command: "#Requires -RunAsAdministrator\nWrite-Output updated\n", Shell: "powershell", Admin: true}
 
 	// Act
@@ -112,14 +112,14 @@ func TestAStepHeRunsAsAdministratorBecomesARunItemMarkedAdmin(t *testing.T) {
 	if len(questions) != 0 || len(runs) != 1 {
 		t.Fatalf("cards = %d questions and %d runs, want one run item", len(questions), len(runs))
 	}
-	if r := runs[0]; r.ID != afk.HisCardID(logged[0]) || !r.Admin || r.State != "ready" || r.Command != elevated.Command || r.By != "cfo" {
-		t.Errorf("run = %+v, want a ready run item of the CFO's marked admin", r)
+	if r := runs[0]; r.ID != afk.HisCardID(logged[0]) || !r.Admin || r.State != "ready" || r.Command != elevated.Command || r.By != "ceo" {
+		t.Errorf("run = %+v, want a ready run item of the CEO's marked admin", r)
 	}
 }
 
 func TestAStepIsOneCardHoweverOftenAFKTurnsOffOverIt(t *testing.T) {
 	// Arrange
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	awayAndBack(t, s, h, hisPlainStep(), hisCommandStep())
 	switched, err := afk.Read(h.State)
 	if err != nil {
@@ -138,7 +138,7 @@ func TestAStepIsOneCardHoweverOftenAFKTurnsOffOverIt(t *testing.T) {
 
 func TestAStepThatWasSettledOrStruckBecomesNoCard(t *testing.T) {
 	// Arrange
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
 		t.Fatal(err)
 	}
@@ -171,14 +171,14 @@ func TestAStepThatWasSettledOrStruckBecomesNoCard(t *testing.T) {
 
 func TestACardTheOverlordClosesSettlesItsStepInTheLogOnce(t *testing.T) {
 	// Arrange
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	_, identity, err := readPrimary(h.State)
 	if err != nil {
 		t.Fatal(err)
 	}
 	logged := awayAndBack(t, s, h, hisPlainStep())
 	card := afk.HisCardID(logged[0])
-	if _, err := s.Store.Queue(Action{ID: "board-answer", Kind: "cfo_answer", Generation: identity, QuestionID: card, Text: "It loads", AnswerKind: "option"}); err != nil {
+	if _, err := s.Store.Queue(Action{ID: "board-answer", Kind: "ceo_answer", Generation: identity, QuestionID: card, Text: "It loads", AnswerKind: "option"}); err != nil {
 		t.Fatal(err)
 	}
 	runAll(t, s.Store, s)
@@ -212,7 +212,7 @@ func TestACardTheOverlordClosesSettlesItsStepInTheLogOnce(t *testing.T) {
 
 func TestACardStillWaitingSettlesNothing(t *testing.T) {
 	// Arrange
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	awayAndBack(t, s, h, hisPlainStep())
 
 	// Act
@@ -232,12 +232,12 @@ func TestACardStillWaitingSettlesNothing(t *testing.T) {
 
 // A step an older build logged with no command and no choices, as the install
 // steps of 2026-10-18 were, becomes no card when AFK mode turns off: it is
-// not a card cfo question or cfo run-request would make. The CFO is told
+// not a card ceo question or ceo run-request would make. The CEO is told
 // which step could not become a card and why, so it puts the step to him as
 // one that acts.
 func TestAStepItsCardCouldNotDoBecomesNoCard(t *testing.T) {
 	// Arrange
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
 		t.Fatal(err)
 	}
@@ -279,18 +279,18 @@ func TestAStepItsCardCouldNotDoBecomesNoCard(t *testing.T) {
 	if !slices.ContainsFunc(pending, func(r wake.Record) bool {
 		return strings.Contains(r.Detail, "could not become cards") && strings.Contains(r.Detail, install.What) && strings.Contains(r.Detail, "choices")
 	}) {
-		t.Errorf("wakes = %+v, want the CFO told the install step could not become a card, and why", pending)
+		t.Errorf("wakes = %+v, want the CEO told the install step could not become a card, and why", pending)
 	}
 }
 
 // The Overlord, 2026-10-28: "afk commands dont have proper multiple choice
 // answers like normal command cfo prompts please fix so its options arent
 // always done / later". A step logged with choices becomes a card with those
-// choices and its recommendation, as cfo question makes; the board adds Other
+// choices and its recommendation, as ceo question makes; the board adds Other
 // to every question.
 func TestAStepLoggedWithChoicesBecomesACardWithThoseChoicesAndItsRecommendation(t *testing.T) {
 	// Arrange
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	decision := hisDecisionStep()
 
 	// Act
@@ -303,24 +303,24 @@ func TestAStepLoggedWithChoicesBecomesACardWithThoseChoicesAndItsRecommendation(
 	}
 	q := questions[0]
 	if q.ID != afk.HisCardID(logged[0]) || q.Status != "pending" || !slices.Equal(q.Options, decision.Options) || q.Recommended != decision.Recommendation {
-		t.Errorf("question = %+v, want the CFO's own pending card with exactly the choices %q and %q recommended", q, decision.Options, decision.Recommendation)
+		t.Errorf("question = %+v, want the CEO's own pending card with exactly the choices %q and %q recommended", q, decision.Options, decision.Recommendation)
 	}
 	if !strings.HasPrefix(q.Text, decision.What+"\n") || !strings.Contains(q.Text, "`"+decision.Link+"`") {
 		t.Errorf("question text = %q, want the decision in plain words and its link", q.Text)
 	}
 }
 
-// His answer to a card with choices reaches the CFO as an answer to any of
+// His answer to a card with choices reaches the CEO as an answer to any of
 // its questions does, with the text of the choice he picked, and settles the
 // step in the log with it.
-func TestHisAnswerToACardWithChoicesReachesTheCFOWithTheChosenChoice(t *testing.T) {
+func TestHisAnswerToACardWithChoicesReachesTheCEOWithTheChosenChoice(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
-	_, identity, cfo, connection := primaryFixture(t, store)
-	for _, name := range []string{"CFO_ROLE", "NO_MISTAKES_GATE"} {
+	_, identity, ceo, connection := primaryFixture(t, store)
+	for _, name := range []string{"CEO_ROLE", "NO_MISTAKES_GATE"} {
 		t.Setenv(name, "")
 	}
-	s := &Service{Store: store, Options: Options{CFO: connection}}
+	s := &Service{Store: store, Options: Options{CEO: connection}}
 	runPipe(t, s)
 	decision := hisDecisionStep()
 	logged := awayAndBack(t, s, h, decision)
@@ -328,18 +328,18 @@ func TestHisAnswerToACardWithChoicesReachesTheCFOWithTheChosenChoice(t *testing.
 	chosen := decision.Options[0]
 
 	// Act
-	if _, err := store.Queue(Action{ID: "board-answer", Kind: "cfo_answer", Generation: identity, QuestionID: card, Text: chosen, AnswerKind: "option"}); err != nil {
+	if _, err := store.Queue(Action{ID: "board-answer", Kind: "ceo_answer", Generation: identity, QuestionID: card, Text: chosen, AnswerKind: "option"}); err != nil {
 		t.Fatal(err)
 	}
 	runAll(t, store, s)
-	told := cfo.waitForLines(t, 1)
+	told := ceo.waitForLines(t, 1)
 	settleErr := s.settleHisCards(time.Now().UTC())
 	report, found, err := ReadAFKReport(h)
 
 	// Assert
-	want := "User answer to CFO question " + card + ". Question: " + decision.What + "\n- Link: `" + decision.Link + "` Answer: " + chosen
+	want := "User answer to CEO question " + card + ". Question: " + decision.What + "\n- Link: `" + decision.Link + "` Answer: " + chosen
 	if !slices.ContainsFunc(told, func(line string) bool { return strings.Contains(line, oneLine(want)) }) {
-		t.Errorf("the CFO received %q, want its card's answer %q", told, oneLine(want))
+		t.Errorf("the CEO received %q, want its card's answer %q", told, oneLine(want))
 	}
 	if settleErr != nil || err != nil || !found || len(report.Held) != 1 || report.Held[0].Waiting || !strings.Contains(report.Held[0].Now, chosen) {
 		t.Errorf("settle = %v, report = %v %v, held = %+v, want the card closed with his choice %q", settleErr, found, err, report.Held, chosen)

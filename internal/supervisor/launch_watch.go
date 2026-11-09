@@ -11,7 +11,7 @@ import (
 const launchWatchEvery = 250 * time.Millisecond
 
 // watchLaunch publishes a change to task id's record or its terminal host
-// while its start or resume runs, until done closes. cfo writes both while it
+// while its start or resume runs, until done closes. ceo writes both while it
 // runs, and nothing else tells the board: it saw a started goblin's session,
 // and opened its terminal, only at the next change of anything else or at
 // the 15 second refresh, 4 to 6 seconds after its terminal ran on

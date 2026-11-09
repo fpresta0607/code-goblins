@@ -1,5 +1,5 @@
 // Package afk holds AFK mode, the Supreme Overlord's switch for running the
-// fleet while he is away: the switch itself, the log of every decision the CFO
+// fleet while he is away: the switch itself, the log of every decision the CEO
 // makes under it and of every item held for him, and the report the switch
 // ends with. It only reads and writes its own files in a home's state
 // directory; the supervisor decides who may switch and who may log.
@@ -46,8 +46,8 @@ type State struct {
 	Session string    `json:"session,omitempty"`
 	Since   time.Time `json:"since,omitzero"`
 	// From is where the Overlord turned it on, and EndedFrom where he turned
-	// it off. A switch the CFO made at his ask names the CFO there, and Asked
-	// or EndedAsked holds his words as the CFO quoted them; both are empty
+	// it off. A switch the CEO made at his ask names the CEO there, and Asked
+	// or EndedAsked holds his words as the CEO quoted them; both are empty
 	// for a switch he made himself.
 	From       string    `json:"from,omitempty"`
 	Asked      string    `json:"asked,omitempty"`
@@ -80,7 +80,7 @@ type Allowance struct {
 }
 
 // The kinds of line the log holds: the switch, an item held for the Overlord,
-// a goblin the supervisor paused at a floor, and the decisions the CFO makes
+// a goblin the supervisor paused at a floor, and the decisions the CEO makes
 // under the authority, with each step only he can take among them.
 const (
 	KindOn        = "on"
@@ -93,21 +93,21 @@ const (
 	KindMigration = "migration"
 	KindInstall   = "install"
 	KindOther     = "other"
-	// KindLeft is a decision the CFO would have asked the Overlord, answered
+	// KindLeft is a decision the CEO would have asked the Overlord, answered
 	// in his place with its recommendation and acted on, and KindHis a step
 	// only he can take, such as his own sign-in or a step a tool refuses: when
 	// AFK mode turns off it becomes one card in his Command Center.
 	KindLeft = "left"
 	KindHis  = "his"
-	// KindStrike strikes through a line the CFO wrote by mistake. It is a
+	// KindStrike strikes through a line the CEO wrote by mistake. It is a
 	// line of its own: the log never loses the line it strikes.
 	KindStrike = "strike"
-	// KindSettle settles a step only the Overlord could take that the CFO saw
+	// KindSettle settles a step only the Overlord could take that the CEO saw
 	// to later in the stretch, with what became of it, the same way.
 	KindSettle = "settle"
 )
 
-// minLeftOptions is how many choices a decision the CFO answered in the
+// minLeftOptions is how many choices a decision the CEO answered in the
 // Overlord's place offers at least, as its question in his History.
 const minLeftOptions = 2
 
@@ -122,7 +122,7 @@ type Entry struct {
 	// What is what was decided or held: a pull request, a question, a deploy.
 	What string `json:"what,omitempty"`
 	Link string `json:"link,omitempty"`
-	// Evidence is what the decision stands on, in the CFO's words and the
+	// Evidence is what the decision stands on, in the CEO's words and the
 	// facts the deciding command read.
 	Evidence string `json:"evidence,omitempty"`
 	// Outcome is how a decision that had to be logged before it was carried
@@ -135,33 +135,33 @@ type Entry struct {
 	Task string `json:"task,omitempty"`
 	Item string `json:"item,omitempty"`
 	// Recommendation is the choice recommended for a held question by whoever
-	// asked it: the CFO for its own, or the goblin whose question it is, and
-	// for a decision the CFO answered in the Overlord's place the one of its
+	// asked it: the CEO for its own, or the goblin whose question it is, and
+	// for a decision the CEO answered in the Overlord's place the one of its
 	// Options it recommends.
 	Recommendation string `json:"recommendation,omitempty"`
-	// Diagnosis and Tried are what a decision the CFO answered in the
+	// Diagnosis and Tried are what a decision the CEO answered in the
 	// Overlord's place carries beside what it stands on: what is wrong, found
-	// to its cause, and what the CFO already tried. Options are the choices
-	// its question in his History offers, and Answer the one the CFO chose
+	// to its cause, and what the CEO already tried. Options are the choices
+	// its question in his History offers, and Answer the one the CEO chose
 	// and acted on. Once AFK mode turns off it is settled there with the
-	// CFO's answer, where he can change it, and never asked of him.
+	// CEO's answer, where he can change it, and never asked of him.
 	Diagnosis string   `json:"diagnosis,omitempty"`
 	Tried     string   `json:"tried,omitempty"`
 	Options   []string `json:"options,omitempty"`
 	Answer    string   `json:"answer,omitempty"`
-	// Struck is the CFO's reason for striking a decision through, and Settled
-	// what became of a step only the Overlord could take that the CFO saw to
+	// Struck is the CEO's reason for striking a decision through, and Settled
+	// what became of a step only the Overlord could take that the CEO saw to
 	// later, each set on the decision as the report folds the log, and never
 	// written to the log.
 	Struck  string `json:"struck,omitempty"`
 	Settled string `json:"settled,omitempty"`
-	// Noted is what the CFO wrote of a merge in lines of its own, set on the
+	// Noted is what the CEO wrote of a merge in lines of its own, set on the
 	// merge it names as the report folds it in, and never written to the log.
 	Noted string `json:"noted,omitempty"`
 	// Command and Shell are the command a step only he can take asks him to
 	// run, with the shell that runs it: when AFK mode turns off the step is a
 	// run item on his Command Center, in place of a question. Admin runs it
-	// as administrator, after Windows asks him, as cfo run-request --admin
+	// as administrator, after Windows asks him, as ceo run-request --admin
 	// does.
 	Command string `json:"command,omitempty"`
 	Shell   string `json:"shell,omitempty"`
@@ -186,7 +186,7 @@ func Read(stateDir string) (State, error) {
 		err = decoder.Decode(&state)
 	}
 	if err != nil {
-		return State{}, fmt.Errorf("AFK mode's switch (state/%s) cannot be read: %w; only the Overlord resets it, with cfo afk off from a terminal of his own", stateFile, err)
+		return State{}, fmt.Errorf("AFK mode's switch (state/%s) cannot be read: %w; only the Overlord resets it, with ceo afk off from a terminal of his own", stateFile, err)
 	}
 	return state, nil
 }
@@ -199,20 +199,20 @@ func write(stateDir string, state State) error {
 	return fsx.AtomicWriteFile(filepath.Join(stateDir, stateFile), append(data, '\n'))
 }
 
-// HisWords are the Overlord's words asking for a switch, as the CFO quotes
+// HisWords are the Overlord's words asking for a switch, as the CEO quotes
 // them, on one line. A switch made at his ask carries them, so none, or more
 // than their bound, is refused.
 func HisWords(asked string) (string, error) {
 	asked = strings.Join(strings.Fields(asked), " ")
 	if asked == "" || utf8.RuneCountInString(asked) > maxAsked {
-		return "", fmt.Errorf("a switch the CFO makes at the Overlord's ask carries his words, in at most %d characters", maxAsked)
+		return "", fmt.Errorf("a switch the CEO makes at the Overlord's ask carries his words, in at most %d characters", maxAsked)
 	}
 	return asked, nil
 }
 
 // SwitchedBy says who made a switch, to follow "turned on" or "off": the
-// Overlord, from where he did it, or the CFO at his ask, with the words of
-// his the CFO quoted.
+// Overlord, from where he did it, or the CEO at his ask, with the words of
+// his the CEO quoted.
 func SwitchedBy(from, asked string) string {
 	if asked == "" {
 		return "from " + from
@@ -221,7 +221,7 @@ func SwitchedBy(from, asked string) string {
 }
 
 // asEvidence is what a switch's line in the log stands on: his words when the
-// CFO made it at his ask, and nothing when he made it himself.
+// CEO made it at his ask, and nothing when he made it himself.
 func asEvidence(asked string) string {
 	if asked == "" {
 		return ""
@@ -238,8 +238,8 @@ func TurnOn(stateDir, from string, allowance []Allowance, now time.Time) (State,
 	return turnOn(stateDir, from, "", allowance, now)
 }
 
-// TurnOnAtHisAsk is TurnOn for a switch the CFO made at the Overlord's ask:
-// by names the CFO, and asked is his words as the CFO quoted them, which the
+// TurnOnAtHisAsk is TurnOn for a switch the CEO made at the Overlord's ask:
+// by names the CEO, and asked is his words as the CEO quoted them, which the
 // switch and the log keep.
 func TurnOnAtHisAsk(stateDir, by, asked string, allowance []Allowance, now time.Time) (State, bool, error) {
 	asked, err := HisWords(asked)
@@ -289,8 +289,8 @@ func TurnOff(stateDir, from string, now time.Time) (State, error) {
 	return turnOff(stateDir, from, "", now)
 }
 
-// TurnOffAtHisAsk is TurnOff for a switch the CFO made at the Overlord's ask,
-// with his words as the CFO quoted them.
+// TurnOffAtHisAsk is TurnOff for a switch the CEO made at the Overlord's ask,
+// with his words as the CEO quoted them.
 func TurnOffAtHisAsk(stateDir, by, asked string, now time.Time) (State, error) {
 	asked, err := HisWords(asked)
 	if err != nil {
@@ -328,7 +328,7 @@ func Reset(stateDir, from string, unread error, now time.Time) error {
 	return write(stateDir, State{})
 }
 
-// Log records a decision the CFO made under the authority, in the stretch
+// Log records a decision the CEO made under the authority, in the stretch
 // that is on, and returns the line it wrote. A decision names what was
 // decided and the evidence it stands on.
 func Log(stateDir string, entry Entry, now time.Time) (Entry, error) {
@@ -355,7 +355,7 @@ func Log(stateDir string, entry Entry, now time.Time) (Entry, error) {
 }
 
 // CheckStep refuses a step only he can take whose card would not be one the
-// CFO's own cfo run-request or cfo question makes: a command he runs with one
+// CEO's own ceo run-request or ceo question makes: a command he runs with one
 // click, as administrator or not, or a decision of his with its own choices,
 // one of them recommended. On 2026-10-29 he cleared two cards whose only
 // choices said he had done the step or would later, and neither had happened.
@@ -378,13 +378,13 @@ func CheckStep(step Entry) error {
 	return nil
 }
 
-// ErrUnanswered refuses a decision logged for the Overlord without the CFO's
+// ErrUnanswered refuses a decision logged for the Overlord without the CEO's
 // answer: under AFK mode nothing is left for him as a question.
 var ErrUnanswered = errors.New("under AFK mode nothing is left for him as a question: answer it yourself with your recommendation, act on it, and log it with --answer. A step only he can take, such as his own sign-in or a step a tool refuses, is a --kind his line")
 
 // validLeft refuses a decision answered in the Overlord's place that would
-// reach his History unanswered or undiagnosed: it carries the CFO's answer,
-// says what is wrong and what the CFO already tried, and offers real choices,
+// reach his History unanswered or undiagnosed: it carries the CEO's answer,
+// says what is wrong and what the CEO already tried, and offers real choices,
 // the answer among them, one of them recommended or none.
 func validLeft(entry Entry) error {
 	switch {
@@ -399,7 +399,7 @@ func validLeft(entry Entry) error {
 		return err
 	}
 	if !slices.Contains(entry.Options, entry.Answer) {
-		return errors.New("the CFO's answer to a decision answered in his place is one of its choices, exactly")
+		return errors.New("the CEO's answer to a decision answered in his place is one of its choices, exactly")
 	}
 	return nil
 }
@@ -439,8 +439,8 @@ func validCommand(entry Entry) error {
 	return nil
 }
 
-// Strike strikes through the decision logged at at, a line the CFO wrote by
-// mistake, with the CFO's reason. The line stays in the log as it was
+// Strike strikes through the decision logged at at, a line the CEO wrote by
+// mistake, with the CEO's reason. The line stays in the log as it was
 // written, and the strike is a line of its own after it, which names the
 // line by when it was logged. The strike belongs to the stretch that is on,
 // or to the last one that ended, whose report is kept: the report the
@@ -448,7 +448,7 @@ func validCommand(entry Entry) error {
 func Strike(stateDir string, at time.Time, reason string, now time.Time) (Entry, error) {
 	reason = strings.TrimSpace(reason)
 	if reason == "" || len(reason) > maxEvidence {
-		return Entry{}, fmt.Errorf("a strike carries the CFO's reason, in at most %d characters", maxEvidence)
+		return Entry{}, fmt.Errorf("a strike carries the CEO's reason, in at most %d characters", maxEvidence)
 	}
 	state, err := Read(stateDir)
 	if err != nil {
@@ -472,15 +472,15 @@ func Strike(stateDir string, at time.Time, reason string, now time.Time) (Entry,
 		}
 	}
 	if target == nil {
-		return Entry{}, fmt.Errorf("the log holds no decision of the CFO's logged at %s; name the line by its at, as state/afk.audit has it", stamp)
+		return Entry{}, fmt.Errorf("the log holds no decision of the CEO's logged at %s; name the line by its at, as state/afk.audit has it", stamp)
 	}
 	strike := Entry{At: now.UTC(), Session: state.Session, Kind: KindStrike, What: target.What, Task: target.Task, Item: stamp, Evidence: reason}
 	return strike, appendEntry(stateDir, strike)
 }
 
 // Settle settles the step only the Overlord could take logged at at, which
-// the CFO saw to later in the stretch that is on, with what became of it: its
-// backlog row done, its task finished, or a later decision of the CFO's. The
+// the CEO saw to later in the stretch that is on, with what became of it: its
+// backlog row done, its task finished, or a later decision of the CEO's. The
 // line stays in the log as it was written, and the settle is a line of its
 // own after it, which names the line by when it was logged. A settled line no
 // longer needs him: the report shows what became of it. Once AFK mode turns
@@ -562,7 +562,7 @@ func HisCardItem(step Entry) string {
 	return "question:" + HisCardID(step)
 }
 
-// LeftQuestionID is the ID of the question a decision the CFO answered in the
+// LeftQuestionID is the ID of the question a decision the CEO answered in the
 // Overlord's place is settled in his History as.
 func LeftQuestionID(left Entry) string {
 	return "afk-left-" + left.At.UTC().Format("20060102T150405.000000000Z")
@@ -580,7 +580,7 @@ func Hold(stateDir string, entry Entry, now time.Time) error {
 
 // Pause records a goblin the supervisor paused at a floor, in the stretch
 // that is on: first with the readings the pause stood on, then with how it
-// went. It is the supervisor's safety rail, not a decision of the CFO's.
+// went. It is the supervisor's safety rail, not a decision of the CEO's.
 func Pause(stateDir string, entry Entry, now time.Time) error {
 	if strings.TrimSpace(entry.Task) == "" {
 		return errors.New("a paused line names its goblin")

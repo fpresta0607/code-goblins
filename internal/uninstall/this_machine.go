@@ -15,7 +15,7 @@ import (
 )
 
 // ThisMachine is this machine, with the home an install wires in: the one
-// CFO_HOME names where a fleet lives there, and otherwise the per-user home.
+// CEO_HOME names where a fleet lives there, and otherwise the per-user home.
 // goblins uninstall and the window Installed apps opens both uninstall it.
 func ThisMachine() (Machine, error) {
 	local := os.Getenv("LOCALAPPDATA")
@@ -56,7 +56,7 @@ func ThisMachine() (Machine, error) {
 		UserSettings: settings,
 		Env:          env,
 		Checkout:     target.Checkout,
-		// The board's native hooks go where `cfo hooks install` puts them.
+		// The board's native hooks go where `ceo hooks install` puts them.
 		HarnessDirs: map[string]string{
 			"claude": filepath.Join(profile, ".claude"),
 			"codex":  filepath.Join(profile, ".codex"),

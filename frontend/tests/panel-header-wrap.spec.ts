@@ -32,11 +32,11 @@ const PHONE_BUTTONS = BUTTONS.slice(2);
 // Opens Bernie's panel at a panel width, or maximized for the full width.
 async function open(page: Page, pane: number | "maximized", goblin = BERNIE) {
   await page.addInitScript((width) => {
-    localStorage.setItem("cfo-pane-width", String(width === "maximized" ? 800 : width));
-    localStorage.setItem("cfo-terminal-maximized", String(width === "maximized"));
-    localStorage.setItem("cfo-pane-maximized", String(width === "maximized"));
+    localStorage.setItem("ceo-pane-width", String(width === "maximized" ? 800 : width));
+    localStorage.setItem("ceo-terminal-maximized", String(width === "maximized"));
+    localStorage.setItem("ceo-pane-maximized", String(width === "maximized"));
   }, pane);
-  await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], tasks: [goblin] });
+  await holdStream(page, { healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [], tasks: [goblin] });
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.goto("/");
   await page.locator(".task-card").filter({ hasText: "Bernie" }).click();
@@ -80,7 +80,7 @@ function headerReport() {
   const isCut = (element: HTMLElement) => element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1;
   const isEllipsis = (element: HTMLElement) => getComputedStyle(element).textOverflow === "ellipsis";
   // The picture's button, the selector's buttons and the row's controls, each
-  // a target of its own, but the CFO's AFK switch, a labelled pill whose size
+  // a target of its own, but the CEO's AFK switch, a labelled pill whose size
   // #1987 leaves as it was.
   const targets = [...header.querySelectorAll<HTMLElement>(".panel-style-button, .panel-view-switch button, .panel-top button")].filter((target) => target.checkVisibility());
   const label = (target: HTMLElement) => target.getAttribute("aria-label") || target.textContent!.trim();
@@ -185,7 +185,7 @@ for (const width of [390, 1440]) {
     test(`at ${width} px ${what} wraps whole in a taller header beside its controls`, async ({ page }) => {
       // Arrange
       await page.setViewportSize({ width, height: 900 });
-      await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], tasks: [{ ...BERNIE, ...fields }] });
+      await holdStream(page, { healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [], tasks: [{ ...BERNIE, ...fields }] });
       await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
       await page.goto("/");
 
@@ -248,7 +248,7 @@ async function styleOffers(page: Page): Promise<{ modern: string; terminal: stri
   return offers;
 }
 
-// The CFO and two goblins in both styles, on a phone, a narrow panel and a
+// The CEO and two goblins in both styles, on a phone, a narrow panel and a
 // wide one (#1987): the name keeps the header's one row, every control there
 // is a named 44 px target with no tip, the picture offers both styles with
 // the one shown checked, Open in Windows Terminal is in the row or its More,
@@ -259,13 +259,13 @@ for (const style of ["modern", "classic"] as const) {
   test.describe(`in ${style}`, () => {
     test.use({ chatStyle: style });
     for (const [where, viewport, pane] of LAYOUTS) {
-      test(`in ${where} the CFO and both goblins keep their name on the header's one row, with both styles on the picture and Open in Windows Terminal at hand`, async ({ page }) => {
+      test(`in ${where} the CEO and both goblins keep their name on the header's one row, with both styles on the picture and Open in Windows Terminal at hand`, async ({ page }) => {
         // Arrange
         await page.setViewportSize(viewport);
-        if (pane) await page.addInitScript((width) => localStorage.setItem("cfo-pane-width", String(width)), pane);
+        if (pane) await page.addInitScript((width) => localStorage.setItem("ceo-pane-width", String(width)), pane);
         await openBoard(page);
 
-        for (const [key, name] of [["1", "CFO"], ["2", NAME], ["3", IVY], ["1", "CFO"]] as const) {
+        for (const [key, name] of [["1", "CEO"], ["2", NAME], ["3", IVY], ["1", "CEO"]] as const) {
           // Act
           await page.keyboard.press("Control+Alt+" + key);
           await expect(page.locator("#panel-title")).toHaveText(name);
@@ -279,7 +279,7 @@ for (const style of ["modern", "classic"] as const) {
           const chatIcon = await page.locator(".panel-header").getByRole("button", { name: "Chat", exact: true }).locator("path").first().getAttribute("d");
 
           // Assert
-          if (name === "CFO") expect(report.nameLines, name).toBe(1);
+          if (name === "CEO") expect(report.nameLines, name).toBe(1);
           expect(report.broken, name).toEqual([]);
           expect(report.isOneRow, name).toBe(true);
           expect(report.cut, name).toEqual([]);

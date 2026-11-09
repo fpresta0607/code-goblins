@@ -193,8 +193,8 @@ const (
 	// FromOverlord is a prompt typed into the session that names no other
 	// source.
 	FromOverlord = "overlord"
-	// FromCFO is the CFO's brief or a line the CFO sent.
-	FromCFO = "cfo"
+	// FromCEO is the CEO's brief or a line the CEO sent.
+	FromCEO = "ceo"
 	// FromAnswer is the Overlord's answer from the Command Center, and
 	// FromPage is one he gave on a session's Scrawl page.
 	FromAnswer = "answer"
@@ -202,7 +202,7 @@ const (
 	// FromNotice is the fleet's own word to a session rather than the
 	// Overlord's: Claude Code's notice that a background task or sub-agent
 	// ended or a monitor reported, and the wake line the supervisor types
-	// into a Codex or pi CFO's terminal.
+	// into a Codex or pi CEO's terminal.
 	FromNotice = "notice"
 	FromSlash  = "slash"
 	FromShell  = "shell"
@@ -224,7 +224,7 @@ const (
 	// pictureEntryReach bounds the entry a picture is read back from.
 	pictureEntryReach = 64 << 20
 	// messageTailReach is how much of the end of a conversation is read
-	// before its newest page is served: a CFO's conversation runs to a
+	// before its newest page is served: a CEO's conversation runs to a
 	// hundred megabytes, which take seconds to read whole.
 	messageTailReach = 8 << 20
 )
@@ -1010,18 +1010,18 @@ var (
 	effortSet = regexp.MustCompile(`(?i)^(?:set effort level to|effort level set to) (low|medium|high|xhigh|max|auto)\b`)
 	// boardAnswer begins the words the board types for the Overlord's answer
 	// from the Command Center (internal/supervisor/questions.go and the
-	// items beside it), to a goblin after the CFO's stamp.
-	boardAnswer = regexp.MustCompile(`^(?:The Overlord answered |The Overlord changed the answer |User answer to CFO question |\d+ user answers to CFO questions)`)
+	// items beside it), to a goblin after the CEO's stamp.
+	boardAnswer = regexp.MustCompile(`^(?:The Overlord answered |The Overlord changed the answer |User answer to CEO question |\d+ user answers to CEO questions)`)
 	// These are the complete shapes emitted by gate_run_end.go and notify.go,
-	// after fleet.Stamp, rather than arbitrary sentences beginning with CFO.
+	// after fleet.Stamp, rather than arbitrary sentences beginning with CEO.
 	runEndedNotice = regexp.MustCompile(`^Your run .+ ended with exit -?\d+ after [^;]+; read its output and carry on from it\.$`)
-	helperNotice   = regexp.MustCompile(`(?s)^Your helper [A-Za-z0-9_-]+ (?:is done: its work is committed on its branch, .+\. Merge it into your branch with: cfo helper merge [A-Za-z0-9_-]+|asks: .+ Answer it with: cfo send [A-Za-z0-9_-]+ "<answer>"|failed: .+\. Tell it what to do with: cfo send [A-Za-z0-9_-]+ "<what>", or stop it with: cfo kill [A-Za-z0-9_-]+ --reason "<why>")$`)
+	helperNotice   = regexp.MustCompile(`(?s)^Your helper [A-Za-z0-9_-]+ (?:is done: its work is committed on its branch, .+\. Merge it into your branch with: ceo helper merge [A-Za-z0-9_-]+|asks: .+ Answer it with: ceo send [A-Za-z0-9_-]+ "<answer>"|failed: .+\. Tell it what to do with: ceo send [A-Za-z0-9_-]+ "<what>", or stop it with: ceo kill [A-Za-z0-9_-]+ --reason "<why>")$`)
 	wakeDigest     = regexp.MustCompile(`^WAKE QUEUE: (?:\d+ pending\n|empty$)`)
 )
 
-// cfoBrief ends the line a goblin starts on, which names its brief
+// ceoBrief ends the line a goblin starts on, which names its brief
 // (internal/spawn/native_launch.go).
-const cfoBrief = ": it is your instruction from the CFO."
+const ceoBrief = ": it is your instruction from the CEO."
 
 func (l *messageLog) prompt(message Message, text string) {
 	message.Kind = MessagePrompt
@@ -1039,14 +1039,14 @@ func promptOf(text string) (string, string) {
 }
 
 // WakePrefix begins the wake line the supervisor types into a Codex or pi
-// CFO's native terminal (internal/supervisor/cfo_wake.go's wakeLine builds its
+// CEO's native terminal (internal/supervisor/ceo_wake.go's wakeLine builds its
 // line from here), so the board reads that line as the fleet's own and the two
 // can never drift apart.
-const WakePrefix = "cfo watcher wake: "
+const WakePrefix = "ceo watcher wake: "
 
 // promptSource is where a prompt of text came from and the words it shows:
 // a task notice's summary, the fleet's own typed wake line, a command as it
-// was typed, the CFO's words without the stamp the CFO's lines carry, and his
+// was typed, the CEO's words without the stamp the CEO's lines carry, and his
 // own words where the board typed them into a goblin behind both stamps.
 func promptSource(text string) (string, string) {
 	if strings.HasPrefix(text, "<task-notification>") {
@@ -1054,7 +1054,7 @@ func promptSource(text string) (string, string) {
 	}
 	// The supervisor's wake line is the fleet speaking, not the Overlord: he
 	// never typed it, and it is never copied as his words. Only this exact
-	// opening is the fleet's, so anything else he types, "cfo" included,
+	// opening is the fleet's, so anything else he types, "ceo" included,
 	// stays his own message.
 	isAFKDrain := strings.HasPrefix(text, "AFK MODE IS ON: ") && strings.Contains(text, "\nIt is complete autopilot: no Command Center prompt opens for him while it is on, and nothing is asked of him or held for him.\n") && strings.Contains(text, "\nWAKE QUEUE: ")
 	if strings.HasPrefix(text, WakePrefix) || strings.HasPrefix(text, "== SESSION LOCK ==\n") || wakeDigest.MatchString(text) || isAFKDrain {
@@ -1094,8 +1094,8 @@ func promptSource(text string) (string, string) {
 			return FromPage, words
 		}
 		return FromAnswer, words
-	case isStamped, strings.HasPrefix(text, "Read ") && strings.HasSuffix(text, cfoBrief):
-		return FromCFO, words
+	case isStamped, strings.HasPrefix(text, "Read ") && strings.HasSuffix(text, ceoBrief):
+		return FromCEO, words
 	}
 	return FromOverlord, text
 }

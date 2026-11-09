@@ -2,7 +2,7 @@
    and its choices as rows with the harness's focus marked. It is never
    taller than the chat leaves room for once the conversation keeps a few
    lines and the box keeps its controls, and scrolls inside itself beyond
-   that, so nothing overlaps at any width (the CFO's review, 2026-10-27). */
+   that, so nothing overlaps at any width (the CEO's review, 2026-10-27). */
 .messages-view { container-type: size; }
 .harness-panel { display: grid; gap: 8px; max-height: min(24rem, max(6rem, 100cqh - 18rem)); overflow: auto; padding: 10px 12px; border: 1px solid var(--glass-border-hover); border-radius: 14px; background: #0b171cf2; overscroll-behavior: contain; }
 .harness-panel-rows { display: grid; gap: 2px; min-width: 0; color: #d8e9e2; }

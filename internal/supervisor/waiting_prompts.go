@@ -16,7 +16,7 @@ import (
 // snapshot and the session's messages reach a view in. A prompt typed in the
 // terminal, or one recorded before the board took the message, names none,
 // so a separate message of the same words keeps its own row. task is the
-// goblin's task, or empty for the CFO, whose messages name no task.
+// goblin's task, or empty for the CEO, whose messages name no task.
 func (s *Store) namedWaiting(task string, waiting []fleettree.WaitingPrompt) []fleettree.WaitingPrompt {
 	if len(waiting) == 0 {
 		return waiting

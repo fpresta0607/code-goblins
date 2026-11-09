@@ -12,16 +12,16 @@ const keySpend = (changes: Record<string, unknown> = {}) => ({
 });
 
 // open gives the page a Pi home with one OpenRouter key reading and opens the
-// board, which holds the CFO's bar and the canvas.
+// board, which holds the CEO's bar and the canvas.
 async function open(page: Page, spend: unknown = keySpend(), tasks: unknown[] = []) {
   await page.clock.install({ time: new Date(NOW) });
   const keySpendList = Array.isArray(spend) ? spend : [spend];
-  await holdStream(page, { instance: "key-spend-fixture", revision: 1, healthy: true, example: true, cfo_runs: true, cfo_harness: "pi", memory, subscriptions: [], key_spend: keySpendList, tasks });
+  await holdStream(page, { instance: "key-spend-fixture", revision: 1, healthy: true, example: true, ceo_runs: true, ceo_harness: "pi", memory, subscriptions: [], key_spend: keySpendList, tasks });
   await page.goto("/");
   await page.getByRole("button", { name: "Board", exact: true }).click();
   await expect(page.getByRole("region", { name: "Tasks", exact: true }).getByRole("group", { name: "Memory" })).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
-  return page.getByRole("group", { name: "CFO", exact: true });
+  return page.getByRole("group", { name: "CEO", exact: true });
 }
 
 // Dollars are the dial's value, with the limit and the window they count
@@ -29,7 +29,7 @@ async function open(page: Page, spend: unknown = keySpend(), tasks: unknown[] = 
 // person's widths and in both colour schemes.
 for (const width of [1440, 390, 320]) {
   for (const colorScheme of ["dark", "light"] as const) {
-    test(`the OpenRouter key's spend reads on the CFO's bar at ${width}px with ${colorScheme} preference`, async ({ page }, testInfo) => {
+    test(`the OpenRouter key's spend reads on the CEO's bar at ${width}px with ${colorScheme} preference`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 1100 });
       await page.emulateMedia({ colorScheme });
       const bar = await open(page);
@@ -67,12 +67,12 @@ for (const width of [1440, 390, 320]) {
   }
 }
 
-// The canvas carries the same dial on the CFO's card, where a phone shows the
+// The canvas carries the same dial on the CEO's card, where a phone shows the
 // canvas as a reported workflow list. The card is drawn once a goblin hangs
-// under the CFO.
+// under the CEO.
 const liveGoblin = { id: "cg-pi-key-usage", title: "Show the OpenRouter key's spend", project: "code-goblins", phase: "working", verified: false, generation: "g1", since: NOW, harness: "pi", backend: "native" };
 for (const width of [1440, 390]) {
-  test(`the CFO's card on the canvas carries the key's spend at ${width}px`, async ({ page }, testInfo) => {
+  test(`the CEO's card on the canvas carries the key's spend at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 1100 });
     await open(page, keySpend(), [liveGoblin]);
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();

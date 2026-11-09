@@ -26,7 +26,7 @@ func TestACardedStepIsToldByItsCardAndNotAsALineOfItsOwn(t *testing.T) {
 	}
 }
 
-func TestACardedStepTheCardSettledIsNotUnderSettledByTheCFO(t *testing.T) {
+func TestACardedStepTheCardSettledIsNotUnderSettledByTheCEO(t *testing.T) {
 	// Arrange
 	carded := stepAt(1, "Sign in to Vercel")
 	carded.Settled = "You answered I signed in on its card"
@@ -117,12 +117,12 @@ func TestACommandIsLoggedOnlyOnAStepOnlyHeCanTake(t *testing.T) {
 	}
 }
 
-// A step only he can take is logged only as the card cfo run-request or cfo
+// A step only he can take is logged only as the card ceo run-request or ceo
 // question makes: a command he runs, as administrator or not, or real choices
 // with one of them recommended. On 2026-10-29 the Overlord cleared two cards
 // whose only choices said he had done the step or would later, and neither
 // had happened, so a step with neither is refused, whatever page it names.
-func TestAStepOnlyHeCanTakeIsLoggedOnlyAsTheCardTheCFOWouldMake(t *testing.T) {
+func TestAStepOnlyHeCanTakeIsLoggedOnlyAsTheCardTheCEOWouldMake(t *testing.T) {
 	choices := []string{"Approve the repair", "Dry-run it again first", "Leave it as it is"}
 	for name, tc := range map[string]struct {
 		entry   Entry

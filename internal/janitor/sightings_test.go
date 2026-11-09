@@ -26,7 +26,7 @@ func (listed) SelfAncestry() []int { return nil }
 // whose it is, and must give one answer: on 2026-10-10 the process plan gave
 // every process of a goblin's spawn test to that goblin's terminal while the
 // orphan sweep, which knew a harness by its name and its lack of a pane,
-// woke the CFO for three of them as orphans. What the orphan sweep gives a
+// woke the CEO for three of them as orphans. What the orphan sweep gives a
 // running terminal is exactly what the process sweep would end as that
 // terminal's own were the terminal gone, and the orphan sweep's findings are
 // the harnesses the process sweep gives no running terminal.
@@ -51,7 +51,7 @@ func TestTheOrphanSweepAndTheProcessSweepGiveAProcessTheSameOwner(t *testing.T) 
 	}
 	processes := []Process{
 		// Terminal g1, its goblin and a shell of the goblin's.
-		process(20, 1, "cfo.exe", at(0), lifecycle.Process{Arguments: []string{"cfo.exe", "host", "--id", "g1"}}),
+		process(20, 1, "ceo.exe", at(0), lifecycle.Process{Arguments: []string{"ceo.exe", "host", "--id", "g1"}}),
 		process(21, 20, "claude.exe", at(1), lifecycle.Process{Directory: worktree, Arguments: []string{"claude", "--dangerously-skip-permissions"}, Mark: mark("g1")}),
 		process(22, 21, "bash.exe", at(2), lifecycle.Process{Directory: worktree, Mark: mark("g1")}),
 		// The goblin's go test, started by a Git Bash process that has exited.
@@ -67,12 +67,12 @@ func TestTheOrphanSweepAndTheProcessSweepGiveAProcessTheSameOwner(t *testing.T) 
 		process(40, 901, "codex.exe", at(8), lifecycle.Process{Directory: elsewhere, Arguments: []string{"codex", "--dangerously-bypass-approvals-and-sandbox"}, Mark: mark("g2")}),
 		// A harness nothing ties to any terminal.
 		process(50, 902, "claude.exe", at(9), lifecycle.Process{Directory: elsewhere, Arguments: []string{"claude", "--dangerously-skip-permissions"}}),
-		// The CFO's terminal and its harness.
-		process(60, 1, "cfo.exe", at(0), lifecycle.Process{Arguments: []string{"cfo.exe", "host", "--id", "cfo"}}),
-		process(61, 60, "claude.exe", at(1), lifecycle.Process{Directory: root, Arguments: []string{"claude"}, Mark: mark("cfo")}),
+		// The CEO's terminal and its harness.
+		process(60, 1, "ceo.exe", at(0), lifecycle.Process{Arguments: []string{"ceo.exe", "host", "--id", "ceo"}}),
+		process(61, 60, "claude.exe", at(1), lifecycle.Process{Directory: root, Arguments: []string{"claude"}, Mark: mark("ceo")}),
 	}
 	owners := []Owner{
-		{ID: "cfo", Marks: []lifecycle.Mark{mark("cfo")}, HostPID: 60},
+		{ID: "ceo", Marks: []lifecycle.Mark{mark("ceo")}, HostPID: 60},
 		{ID: "g1", Marks: []lifecycle.Mark{mark("g1")}, Directories: []string{worktree, scratch}, HostPID: 20},
 		{ID: "g2", Marks: []lifecycle.Mark{mark("g2")}},
 	}
@@ -124,7 +124,7 @@ func TestTheOrphanSweepAndTheProcessSweepGiveAProcessTheSameOwner(t *testing.T) 
 	}
 
 	// Assert
-	for _, owner := range []string{"cfo", "g1"} {
+	for _, owner := range []string{"ceo", "g1"} {
 		slices.Sort(swept[owner])
 		slices.Sort(planned[owner])
 		if !slices.Equal(swept[owner], planned[owner]) {

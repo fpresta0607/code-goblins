@@ -1,6 +1,6 @@
-# cfo pause
+# ceo pause
 
-`cfo pause <id> | resume <id> | kill <id>`
+`ceo pause <id> | resume <id> | kill <id>`
 
 pause, resume or stop a task while preserving its work
 

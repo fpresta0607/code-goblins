@@ -40,7 +40,7 @@ export function ReviewCard({ review, snapshot, connected, now, draft, onDraft, o
   const outcome = draft.submission ? snapshot.actions.find((action) => action.id === draft.submission?.id) || draft.receipt : undefined;
   const pending = review.state === "open" && !outcome;
   const task = snapshot.tasks.find((candidate) => candidate.id === review.task);
-  const asker = review.task ? task ? goblinName(task) : review.task : "The CFO";
+  const asker = review.task ? task ? goblinName(task) : review.task : "The CEO";
   const images = reviewImages(review);
   const mark = outcome ? deliveryMark(outcome) : undefined;
   const item: Item = { kind: "review", key: "review:" + review.id, review };
@@ -61,7 +61,7 @@ export function ReviewCard({ review, snapshot, connected, now, draft, onDraft, o
   // Each local path its words name opens in File Explorer.
   const paths = pathLinks({ kind: "review", id: review.id, instance: snapshot.instance });
   return <form className="question-card" aria-labelledby={"review-" + review.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
-    <p className="asker"><Avatar persona={review.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> {status ? "is waiting on you" : "asks"} · waiting {age(review.created_at, now).replace(/ ago$/, "")}</span></p>
+    <p className="asker"><Avatar persona={review.task ? personaFor(task) : "ceo"} small /><span><strong>{asker}</strong> {status ? "is waiting on you" : "asks"} · waiting {age(review.created_at, now).replace(/ ago$/, "")}</span></p>
     {!lead ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(rest, copyValues, paths)}</div>
       : <h3 id={"review-" + review.id} tabIndex={-1}>{inlineElements(lead, copyValues, paths)}</h3>}
     {lead && rest && <div className="question-body">{messageElements(rest, copyValues, paths)}</div>}
@@ -71,14 +71,14 @@ export function ReviewCard({ review, snapshot, connected, now, draft, onDraft, o
         {missing.has(src) ? <span className="image-missing"><Icon name="images" /></span> : <img src={src} alt="" onError={() => setMissing((prior) => new Set([...prior, src]))} />}<span>{index + 1}</span>
       </button>)}
     </div>}
-    {answersHere && <DictatedAnswer label="Your answer" placeholder={"Tell " + (review.task ? asker : "the CFO") + " what you think..."} value={draft.written} instance={snapshot.instance} disabled={draft.sending} onText={(written) => onDraft({ written, error: "", receipt: undefined })} onSubmit={() => { if (canSend) onSend(); }} />}
+    {answersHere && <DictatedAnswer label="Your answer" placeholder={"Tell " + (review.task ? asker : "the CEO") + " what you think..."} value={draft.written} instance={snapshot.instance} disabled={draft.sending} onText={(written) => onDraft({ written, error: "", receipt: undefined })} onSubmit={() => { if (canSend) onSend(); }} />}
     {review.state !== "open" ? <p className={"question-outcome delivery " + settled.tone} role="status"><Icon name={settled.icon} />{settledLabel(item, snapshot.actions)}</p>
       : mark && <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>}
     <div className="card-actions">
       <ClickFeedback text={feedback} />
       {pager}
       {pending && !hasPencil && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Skip this card" onClick={onClear}><Icon name="close" /></button>}
-      {pending && hasPencil && <SkipWithNote asker={review.task ? asker : "the CFO"} task={review.task} instance={snapshot.instance} disabled={!connected || draft.sending} onSkip={onClear} onAnswer={onAnswer} />}
+      {pending && hasPencil && <SkipWithNote asker={review.task ? asker : "the CEO"} task={review.task} instance={snapshot.instance} disabled={!connected || draft.sending} onSkip={onClear} onAnswer={onAnswer} />}
       {pending && target?.kind === "item" && <button type="button" className="primary wait-open" onClick={() => onOpen(target.key)}><Icon name="next" />{target.label}</button>}
       {pending && target?.kind === "page" && <a className="primary button-link wait-open" href={scrawlLink(target.url)} target="_blank" rel="noreferrer"><Icon name="external" />{target.label}</a>}
       {review.lavish && !status && <a className="primary button-link open-page" href={scrawlLink(review.lavish)} target="_blank" rel="noreferrer" aria-label={"Open review: " + reviewLine(review)}><Icon name="external" />Open review</a>}

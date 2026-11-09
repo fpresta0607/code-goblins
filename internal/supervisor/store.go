@@ -107,7 +107,7 @@ type Action struct {
 	// Target is, on a delete of a queued message, that message's own action id,
 	// so two messages with the same words are told apart.
 	Target      string    `json:"target,omitempty"`
-	CFOIdentity string    `json:"cfo_identity,omitempty"`
+	CEOIdentity string    `json:"ceo_identity,omitempty"`
 	Status      string    `json:"status"`
 	Message     string    `json:"message,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -119,7 +119,7 @@ type Action struct {
 	// and SendNowWhy says why not, in plain words.
 	CanSendNow bool   `json:"can_send_now,omitempty"`
 	SendNowWhy string `json:"send_now_why,omitempty"`
-	// IsSentNow says he asked for a queued message now: one to the CFO skips
+	// IsSentNow says he asked for a queued message now: one to the CEO skips
 	// its undo window, and one to a goblin is typed even into a turn, for the
 	// harness to take at once where it has a send-now key, and otherwise at
 	// its next tool call.
@@ -128,13 +128,13 @@ type Action struct {
 	// arrived, in his words; the board shows it as written.
 	Advice string `json:"advice,omitempty"`
 	// Dismissed names the questions a clear dismissed while they still waited
-	// on the Overlord, which the CFO hears of when the action runs.
+	// on the Overlord, which the CEO hears of when the action runs.
 	Dismissed []string `json:"dismissed,omitempty"`
 	// Replaces is, on his change of an answer, the answer it replaces, as it
 	// stood when he made the change; the supervisor sets it.
 	Replaces string `json:"replaces,omitempty"`
-	// With is, only on an answer to the CFO as it is handed to its run, the
-	// answers that go to the CFO in the same message after it, in the order
+	// With is, only on an answer to the CEO as it is handed to its run, the
+	// answers that go to the CEO in the same message after it, in the order
 	// he gave them. It is never stored.
 	With []Action `json:"-"`
 }
@@ -154,10 +154,10 @@ type Database struct {
 	Activity      []BoardActivity       `json:"activity"`
 	Reviews       []Review              `json:"reviews,omitempty"`
 	Runs          []Run                 `json:"runs,omitempty"`
-	// CFOAnswers are answers the CFO gave over the pipe whose question could
+	// CEOAnswers are answers the CEO gave over the pipe whose question could
 	// not take them yet: still arriving, or held by the Overlord's own board
 	// answer on its way. Only the pipe adds to them, so each is proven.
-	CFOAnswers []cfoAnswer `json:"cfo_answers,omitempty"`
+	CEOAnswers []ceoAnswer `json:"ceo_answers,omitempty"`
 	// Credentials are requests for credential values, by name only.
 	Credentials    []CredentialRequest `json:"credentials,omitempty"`
 	BrowserSignIns []BrowserSignIn     `json:"browser_signins,omitempty"`
@@ -185,7 +185,7 @@ type Store struct {
 	// name, so an unchanged event deferred again is not read and parsed
 	// again; inboxFillingWake is the identity of the wake for an inbox near
 	// its bound, fixed as it passes inboxFilling, and isInboxFilling says
-	// the CFO was woken with it; both hold until the inbox drains to half.
+	// the CEO was woken with it; both hold until the inbox drains to half.
 	inboxRead        map[string]inboxEvent
 	inboxFillingWake string
 	isInboxFilling   bool
@@ -329,7 +329,7 @@ func cloneDatabase(d Database) Database {
 	d.QueuedSends = slices.Clone(d.QueuedSends)
 	d.Reviews = slices.Clone(d.Reviews)
 	d.Runs = slices.Clone(d.Runs)
-	d.CFOAnswers = slices.Clone(d.CFOAnswers)
+	d.CEOAnswers = slices.Clone(d.CEOAnswers)
 	d.Credentials = slices.Clone(d.Credentials)
 	d.BrowserSignIns = slices.Clone(d.BrowserSignIns)
 	for i := range d.BrowserSignIns {
@@ -568,13 +568,13 @@ func (s *Store) queuedMessage(id, task string) (*Action, error) {
 // noLongerHeld says in plain words where message id to task went once the
 // board no longer holds it, for a Send now, Edit or Cancel that came after it
 // left, so he reads at once what became of it rather than that nothing was
-// done (the Overlord, 2026-11-02, of a Cancel on a message the CFO had taken:
+// done (the Overlord, 2026-11-02, of a Cancel on a message the CEO had taken:
 // "this question mark is stuck and lost"). One running with nothing awaited
 // is being tried: typed into its session, or put back to wait a moment later
 // when its session cannot take it, as a goblin in a turn has it every second.
 // The caller holds s.mu.
 func (s *Store) noLongerHeld(id, task string) error {
-	who, subject := "the CFO", "The CFO"
+	who, subject := "the CEO", "The CEO"
 	if task != "" {
 		who, subject = task, task
 	}
@@ -658,21 +658,21 @@ func (s *Store) queueUnlessEvaluating(a Action, now time.Time) error {
 	return s.save()
 }
 
-// QueueReview admits a review only for a CFO the verifier proves live, and
+// QueueReview admits a review only for a CEO the verifier proves live, and
 // pins that registration as its recipient. An identical retry answers from
 // its durable record before any probe, so a replacement registration can
 // never adopt it. The registration stays open, which denies its replacement,
 // until the pinned review is durable. The probe runs outside the store lock
 // and never sends.
-func (s *Store) QueueReview(a Action, cfo *CFOConnection) (Action, error) {
+func (s *Store) QueueReview(a Action, ceo *CEOConnection) (Action, error) {
 	s.mu.Lock()
 	existing, found, err := s.lookup(a)
 	s.mu.Unlock()
 	if err != nil || found {
 		return existing, err
 	}
-	if cfo == nil {
-		return Action{}, errors.New("CFO transport is unavailable. No review was queued.")
+	if ceo == nil {
+		return Action{}, errors.New("CEO transport is unavailable. No review was queued.")
 	}
 	file, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
 	if err != nil {
@@ -683,10 +683,10 @@ func (s *Store) QueueReview(a Action, cfo *CFOConnection) (Action, error) {
 	if err != nil {
 		return Action{}, err
 	}
-	if err := cfo.verify(primary); err != nil {
+	if err := ceo.verify(primary); err != nil {
 		return Action{}, fmt.Errorf("%v. No review was queued.", err)
 	}
-	a.CFOIdentity = identity
+	a.CEOIdentity = identity
 	return s.Queue(a)
 }
 
@@ -726,7 +726,7 @@ func (s *Store) queue(a Action) (Action, error) {
 	if existing, found, err := s.lookup(a); err != nil || found {
 		return existing, err
 	}
-	answer := a.Kind == "cfo_answer" || a.Kind == "goblin_answer"
+	answer := a.Kind == "ceo_answer" || a.Kind == "goblin_answer"
 	change := a.Kind == "answer_change"
 	item := a.Kind == "review_answer" || a.Kind == "review_clear" || a.Kind == "question_clear" || a.Kind == "run" || a.Kind == "run_stop" || a.Kind == "run_skip" || a.Kind == "run_answer"
 	message := a.Kind == "message"
@@ -762,10 +762,10 @@ func (s *Store) queue(a Action) (Action, error) {
 			return Action{}, errors.New("invalid user question context")
 		}
 	} else if message && a.TaskID == "" {
-		// A message to the CFO goes to whichever CFO runs when it is
+		// A message to the CEO goes to whichever CEO runs when it is
 		// delivered, so it names none.
 		if a.Generation != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || a.QuestionID != "" || a.ReviewID != "" {
-			return Action{}, errors.New("a message to the CFO carries only its text")
+			return Action{}, errors.New("a message to the CEO carries only its text")
 		}
 	} else if message {
 		// A message goes to its task's goblin whichever session runs when it
@@ -805,10 +805,10 @@ func (s *Store) queue(a Action) (Action, error) {
 		}
 		a.Replaces, isSame = replaces, isChosen
 	}
-	if a.Kind == "review" && a.CFOIdentity == "" {
-		return Action{}, errors.New("A review needs a verified CFO recipient. No review was queued.")
+	if a.Kind == "review" && a.CEOIdentity == "" {
+		return Action{}, errors.New("A review needs a verified CEO recipient. No review was queued.")
 	}
-	if a.Kind == "cfo_answer" {
+	if a.Kind == "ceo_answer" {
 		file, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
 		if err != nil {
 			return Action{}, errNotRegistered
@@ -816,7 +816,7 @@ func (s *Store) queue(a Action) (Action, error) {
 		_, identity, err := decodePrimary(file)
 		_ = file.Close()
 		if err != nil || identity != a.Generation {
-			return Action{}, errors.New("the primary CFO changed; refresh before sending")
+			return Action{}, errors.New("the primary CEO changed; refresh before sending")
 		}
 	}
 	if len(s.db.Actions) >= maxActions {
@@ -830,7 +830,7 @@ func (s *Store) queue(a Action) (Action, error) {
 	a.Status = "queued"
 	a.CreatedAt = time.Now().UTC()
 	a.UpdatedAt = a.CreatedAt
-	// His words to the CFO wait out their undo window on the board, which
+	// His words to the CEO wait out their undo window on the board, which
 	// Send now skips.
 	a.CanSendNow = message && a.TaskID == "" && !isHarnessCommand(a.Text)
 	// The answer already chosen sends nothing, but is kept, so a retry of the
@@ -913,15 +913,15 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 		case run < 0:
 			return Action{}, errors.New("that run item is not on the board; refresh the board")
 		case s.db.Runs[run].State == "expired" || s.db.Runs[run].State == "ready" && s.db.Runs[run].Update == nil && !time.Now().Before(s.db.Runs[run].ExpiresAt):
-			return Action{}, errors.New("that run item expired; running it again needs a new item from the CFO")
-		case s.db.Runs[run].CFOUnwoken != 0:
-			return Action{}, errors.New("that item restarts the CFO with Restart the CFO; it runs no command")
-		case s.db.Runs[run].CFOStopped:
-			return Action{}, errors.New("that item reopens the CFO with Reopen the CFO; it runs no command")
+			return Action{}, errors.New("that run item expired; running it again needs a new item from the CEO")
+		case s.db.Runs[run].CEOUnwoken != 0:
+			return Action{}, errors.New("that item restarts the CEO with Restart the CEO; it runs no command")
+		case s.db.Runs[run].CEOStopped:
+			return Action{}, errors.New("that item reopens the CEO with Reopen the CEO; it runs no command")
 		case s.db.Runs[run].State == "withdrawn":
-			return Action{}, errors.New("the CFO withdrew that run item: " + s.db.Runs[run].Reason)
+			return Action{}, errors.New("the CEO withdrew that run item: " + s.db.Runs[run].Reason)
 		case s.db.Runs[run].State != "ready":
-			return Action{}, errors.New("that run item already ran; running it again needs a new item from the CFO")
+			return Action{}, errors.New("that run item already ran; running it again needs a new item from the CEO")
 		}
 	}
 	// Skip and Other close a ready command nobody ran, here under the store
@@ -933,7 +933,7 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 		switch {
 		case declined < 0:
 			return Action{}, errors.New("that run item is not on the board; refresh the board")
-		case s.db.Runs[declined].Update != nil || s.db.Runs[declined].CFOUnwoken != 0 || s.db.Runs[declined].CFOStopped || s.db.Runs[declined].CredentialRequest != "" || s.db.Runs[declined].ConnectionTask != "" || s.db.Runs[declined].RemoteFix != "" || s.db.Runs[declined].Billing != nil:
+		case s.db.Runs[declined].Update != nil || s.db.Runs[declined].CEOUnwoken != 0 || s.db.Runs[declined].CEOStopped || s.db.Runs[declined].CredentialRequest != "" || s.db.Runs[declined].ConnectionTask != "" || s.db.Runs[declined].RemoteFix != "" || s.db.Runs[declined].Billing != nil:
 			return Action{}, errors.New("that item is the board's own, not a command someone asked you to run")
 		case s.db.Runs[declined].State != "ready" || !time.Now().Before(s.db.Runs[declined].ExpiresAt):
 			return Action{}, errors.New("that run item is no longer waiting on you; refresh the board")
@@ -979,9 +979,9 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 // ProcessOne commits intent before executing it. Only read-only evaluation is
 // safe to replay after a crash; external deliveries have uncertain outcomes.
 func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Action) (Evaluation, error)) error {
-	// The follow and the pick share one read of the CFO, so a delivery that
+	// The follow and the pick share one read of the CEO, so a delivery that
 	// waited for it is never sent addressed to the registration before.
-	identity, live := s.liveCFO()
+	identity, live := s.liveCEO()
 	s.mu.Lock()
 	if live {
 		if err := s.follow(identity); err != nil {
@@ -1002,7 +1002,7 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 		s.mu.Unlock()
 		return err
 	}
-	// The answers to the CFO's questions that wait with this one go with it,
+	// The answers to the CEO's questions that wait with this one go with it,
 	// as one message in the order he gave them, whatever kept each queued.
 	// They are typed once, so they share one outcome.
 	together := []int{i}
@@ -1104,7 +1104,7 @@ func (s *Store) updateQuestionOutcomes() {
 		}
 		q := &s.db.Questions[i]
 		for _, a := range s.db.Actions {
-			if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && a.ID == q.AnswerID {
+			if (a.Kind == "ceo_answer" || a.Kind == "goblin_answer") && a.ID == q.AnswerID {
 				q.Status = a.Status
 				// A change he made since is the answer, whenever the first one
 				// arrives.
@@ -1113,7 +1113,7 @@ func (s *Store) updateQuestionOutcomes() {
 				}
 				q.Message = a.Message
 				if a.Status == "succeeded" {
-					// A board answer is the Overlord's; an answer the CFO gave over
+					// A board answer is the Overlord's; an answer the CEO gave over
 					// the pipe records its own attribution, which stays.
 					if q.AnsweredBy == "" {
 						at := a.UpdatedAt
@@ -1163,7 +1163,7 @@ var errUnknownTask = errors.New("the fleet never knew its task")
 // pass finds that line to update rather than add another.
 const setAsideIssue = " native events that waited for evidence that does not come, the latest because "
 
-// inboxFilling is how many events in the native inbox wake the CFO, a
+// inboxFilling is how many events in the native inbox wake the CEO, a
 // quarter short of the bound at which every goblin's hook fails.
 const inboxFilling = nativehook.MaxQueuedEvents * 3 / 4
 
@@ -1217,7 +1217,7 @@ func (s *Store) Ingest() ([]nativehook.Event, error) {
 		} else {
 			data, readErr := fsx.ReadFile(r.path)
 			if errors.Is(readErr, os.ErrNotExist) {
-				// It left the inbox after the listing, as the CFO moved the
+				// It left the inbox after the listing, as the CEO moved the
 				// inbox's events to a quarantine folder while an intake read
 				// them (#1625): it is no longer the intake's to take.
 				continue
@@ -1316,7 +1316,7 @@ func (s *Store) Ingest() ([]nativehook.Event, error) {
 	return accepted, stopErr
 }
 
-// wakeForAFillingInbox wakes the CFO once as the native inbox the last
+// wakeForAFillingInbox wakes the CEO once as the native inbox the last
 // intake read passes inboxFilling, naming the tasks whose events fill it
 // most, before every goblin's hook finds it full; it wakes again only after
 // the inbox has drained to half.
@@ -1339,7 +1339,7 @@ func (s *Store) wakeForAFillingInbox() error {
 		if read.err != nil {
 			byTask["unreadable events"]++
 		} else {
-			byTask[cmp.Or(read.event.TaskID, "the CFO's sessions")]++
+			byTask[cmp.Or(read.event.TaskID, "the CEO's sessions")]++
 		}
 	}
 	tasks := slices.SortedFunc(maps.Keys(byTask), func(a, b string) int { return cmp.Or(byTask[b]-byTask[a], strings.Compare(a, b)) })

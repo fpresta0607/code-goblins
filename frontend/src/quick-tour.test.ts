@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { cardPlace, type Side } from "./quick-tour.ts";
 
-// The desktop window at 1707 by 960 CSS pixels, with the CFO's panel beside
+// The desktop window at 1707 by 960 CSS pixels, with the CEO's panel beside
 // the board as the first open arranges it, and a 460 by 190 card.
 const VIEW = { width: 1707, height: 960 };
 const CARD = { width: 460, height: 190 };
@@ -12,7 +12,7 @@ const COMMAND = { left: 1430, top: 14, width: 44, height: 44 };
 
 test("the card sits on its step's side of the part when it fits there", () => {
   const cases: [string, typeof PANEL, Side, { left: number; top: number }][] = [
-    ["left of the CFO's panel, centered on it", PANEL, "left", { left: 915 - 16 - 460, top: 90 + 855 / 2 - 190 / 2 }],
+    ["left of the CEO's panel, centered on it", PANEL, "left", { left: 915 - 16 - 460, top: 90 + 855 / 2 - 190 / 2 }],
     ["right of the board, centered on it", BOARD, "right", { left: 10 + 893 + 16, top: 90 + 855 / 2 - 190 / 2 }],
     ["under the Command Center, centered on it", COMMAND, "under", { left: 1430 + 22 - 230, top: 14 + 44 + 16 }],
   ];

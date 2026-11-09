@@ -18,27 +18,27 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// The CFO files a request over the supervisor's pipe, proven by its own
+// The CEO files a request over the supervisor's pipe, proven by its own
 // process, and a goblin files one for its own task from inside its terminal,
-// as cfo notify proves it. Both reach the board as names, labelled with who
+// as ceo notify proves it. Both reach the board as names, labelled with who
 // asked.
-func TestTheCFOAndAGoblinFileCredentialRequestsProvenByTheirOwnProcess(t *testing.T) {
+func TestTheCEOAndAGoblinFileCredentialRequestsProvenByTheirOwnProcess(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	t.Setenv(auth.StoreDirEnv, t.TempDir())
-	_, identity, _, cfo := primaryFixture(t, store)
-	service := &Service{Store: store, Options: Options{CFO: cfo, Credentials: auth.OpenStore}}
+	_, identity, _, ceo := primaryFixture(t, store)
+	service := &Service{Store: store, Options: Options{CEO: ceo, Credentials: auth.OpenStore}}
 	runPipe(t, service)
 	meta, _, _, _ := goblinFixture(t, store)
 
 	// Act
-	byCFO, cfoErr := FileCredentialRequest(h, CredentialRequest{Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Charge test cards", Link: "https://dashboard.stripe.com/apikeys"})
+	byCEO, ceoErr := FileCredentialRequest(h, CredentialRequest{Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Charge test cards", Link: "https://dashboard.stripe.com/apikeys"})
 	byGoblin, goblinErr := FileCredentialRequest(h, CredentialRequest{Task: meta.ID, Project: "throwaway", Names: []string{"RESEND_API_KEY"}, Why: "Send the receipt email"})
 	ingestErr := service.ingestCredentialRequests()
 
 	// Assert
-	if cfoErr != nil || goblinErr != nil || ingestErr != nil {
-		t.Fatalf("filing = %v, %v, %v", cfoErr, goblinErr, ingestErr)
+	if ceoErr != nil || goblinErr != nil || ingestErr != nil {
+		t.Fatalf("filing = %v, %v, %v", ceoErr, goblinErr, ingestErr)
 	}
 	requests := store.Snapshot().Credentials
 	find := func(id string) CredentialRequest {
@@ -49,8 +49,8 @@ func TestTheCFOAndAGoblinFileCredentialRequestsProvenByTheirOwnProcess(t *testin
 		}
 		return requests[i]
 	}
-	if got := find(byCFO.ID); got.By != "cfo" || got.Identity != identity || got.State != "open" || !slices.Equal(got.Names, []string{"STRIPE_SECRET_KEY"}) {
-		t.Fatalf("the CFO's request = %+v", got)
+	if got := find(byCEO.ID); got.By != "ceo" || got.Identity != identity || got.State != "open" || !slices.Equal(got.Names, []string{"STRIPE_SECRET_KEY"}) {
+		t.Fatalf("the CEO's request = %+v", got)
 	}
 	if got := find(byGoblin.ID); got.By != "goblin" || got.Task != meta.ID || got.Identity != goblinIdentity(meta) || !slices.Equal(got.Names, []string{"RESEND_API_KEY"}) {
 		t.Fatalf("the goblin's request = %+v", got)
@@ -83,7 +83,7 @@ func (b *credentialBoard) credentialRun() Run {
 	return Run{}
 }
 
-// The card's Run opens a terminal on the card that runs cfo auth store for
+// The card's Run opens a terminal on the card that runs ceo auth store for
 // each name the request still needs, which reads each value hidden, so no
 // value is kept on the board. Once the terminal finishes, the rows
 // it stored are checked, and the request closes when every name is stored.
@@ -142,7 +142,7 @@ func TestCredentialTerminalStoresEachValueHiddenAndChecksItsRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(pending) != 1 || !strings.Contains(pending[0].Detail, "STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET stored for throwaway") || !strings.Contains(pending[0].Detail, "terminal") {
-		t.Fatalf("wakes = %+v, want one telling the CFO the names typed in the terminal", pending)
+		t.Fatalf("wakes = %+v, want one telling the CEO the names typed in the terminal", pending)
 	}
 	for _, value := range canaries {
 		if found := filesHolding(t, b.home.Root, value); len(found) != 0 {
@@ -217,42 +217,42 @@ func TestCredentialTerminalTakesTheBoardsChecksAndChecksOnlyWhatItStored(t *test
 }
 
 // Any process of this Windows user can write the inbox and speak to the pipe.
-// A request written into the inbox in the CFO's name, or in a goblin's name
+// A request written into the inbox in the CEO's name, or in a goblin's name
 // with an identity that is not its live generation's, and one sent over the
-// pipe by a process outside the CFO's tree, never reach the board.
+// pipe by a process outside the CEO's tree, never reach the board.
 func TestForgedCredentialRequestsNeverReachTheBoard(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	t.Setenv(auth.StoreDirEnv, t.TempDir())
-	// The registered CFO is the program of native terminal cfo, which is
+	// The registered CEO is the program of native terminal ceo, which is
 	// another process than this test.
-	cfo := hostTerminal(t, h.State, "cfo")
-	cfo.typeLine(t, "register")
-	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+	ceo := hostTerminal(t, h.State, "ceo")
+	ceo.typeLine(t, "register")
+	if lines := ceo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
 		t.Fatalf("the program recorded %q, want its registration", lines)
 	}
-	connection := &CFOConnection{State: h.State}
-	service := &Service{Store: store, Options: Options{CFO: connection, Credentials: auth.OpenStore}}
+	connection := &CEOConnection{State: h.State}
+	service := &Service{Store: store, Options: Options{CEO: connection, Credentials: auth.OpenStore}}
 	runPipe(t, service)
 	identity := forgedIdentity(t, h.State)
 	now := time.Now().UTC()
 	inbox := filepath.Join(h.State, credentialInbox)
 	hashed := func(id string) string { sum := sha256.Sum256([]byte(id)); return hex.EncodeToString(sum[:]) + ".json" }
-	plant(t, inbox, hashed("cred-1111111111111111"), CredentialRequest{ID: "cred-1111111111111111", Identity: identity, By: "cfo", Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Forged as the CFO", CreatedAt: now})
+	plant(t, inbox, hashed("cred-1111111111111111"), CredentialRequest{ID: "cred-1111111111111111", Identity: identity, By: "ceo", Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Forged as the CEO", CreatedAt: now})
 	plant(t, inbox, hashed("cred-2222222222222222"), CredentialRequest{ID: "cred-2222222222222222", Identity: strings.Repeat("f", 64), By: "goblin", Task: "task-1", Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Forged as a goblin", CreatedAt: now})
 
 	// Act
 	ingestErr := service.ingestCredentialRequests()
-	_, filedErr := FileCredentialRequest(h, CredentialRequest{Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Asked from outside the CFO"})
-	forged := CredentialRequest{ID: "cred-3333333333333333", Identity: identity, By: "cfo", Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Sent straight to the pipe"}
+	_, filedErr := FileCredentialRequest(h, CredentialRequest{Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Asked from outside the CEO"})
+	forged := CredentialRequest{ID: "cred-3333333333333333", Identity: identity, By: "ceo", Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Sent straight to the pipe"}
 	pipeErr := sendPipeRequest(h.State, runPipeRequest{Kind: "credential", Credential: &forged})
 
 	// Assert
 	if ingestErr != nil {
 		t.Fatal(ingestErr)
 	}
-	if filedErr == nil || pipeErr == nil || !strings.Contains(pipeErr.Error(), "does not run under the registered CFO") {
-		t.Fatalf("filing from outside the CFO = %v, straight to the pipe = %v; want both refused", filedErr, pipeErr)
+	if filedErr == nil || pipeErr == nil || !strings.Contains(pipeErr.Error(), "does not run under the registered CEO") {
+		t.Fatalf("filing from outside the CEO = %v, straight to the pipe = %v; want both refused", filedErr, pipeErr)
 	}
 	if requests := store.Snapshot().Credentials; len(requests) != 0 {
 		t.Fatalf("forged requests reached the board: %+v", requests)
@@ -280,7 +280,7 @@ func (b *credentialBoard) openTerminal(replace ...string) Run {
 }
 
 // typeValue stores a canary for name in the request's scope, as the
-// terminal's cfo auth store does.
+// terminal's ceo auth store does.
 func (b *credentialBoard) typeValue(name string) {
 	b.t.Helper()
 	store, err := auth.OpenStore()
@@ -300,7 +300,7 @@ func (b *credentialBoard) endTerminal(code int) {
 	}
 }
 
-// pendingDetails are the details of the CFO's pending wakes, in order.
+// pendingDetails are the details of the CEO's pending wakes, in order.
 func (b *credentialBoard) pendingDetails() []string {
 	b.t.Helper()
 	pending, err := wake.Pending(b.home.State)
@@ -408,7 +408,7 @@ func TestCredentialTerminalHoldsOffTheSaveAndExpiryUntilItEnds(t *testing.T) {
 }
 
 // A card save after a terminal stored one name and failed adds its name to
-// the one the terminal stored, and the CFO hears the name the save stored.
+// the one the terminal stored, and the CEO hears the name the save stored.
 func TestCredentialSaveAfterAFailedTerminalAddsToWhatItStored(t *testing.T) {
 	// Arrange
 	b := newCredentialBoard(t, "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET")
@@ -444,7 +444,7 @@ func TestGoblinCredentialRequestWaitsInTheInboxWhileTheBoardIsFull(t *testing.T)
 	service := &Service{Store: store, Options: Options{Credentials: auth.OpenStore}}
 	meta, _, _, _ := goblinFixture(t, store)
 	for i := range maxCredentialRequests {
-		if _, err := service.acceptCredentialRequest(CredentialRequest{ID: fmt.Sprintf("cred-%016x", i), Identity: strings.Repeat("c", 64), By: "cfo", Project: "throwaway", Names: []string{fmt.Sprintf("NAME_%d", i)}, Why: "Fill the board"}); err != nil {
+		if _, err := service.acceptCredentialRequest(CredentialRequest{ID: fmt.Sprintf("cred-%016x", i), Identity: strings.Repeat("c", 64), By: "ceo", Project: "throwaway", Names: []string{fmt.Sprintf("NAME_%d", i)}, Why: "Fill the board"}); err != nil {
 			t.Fatal(err)
 		}
 	}

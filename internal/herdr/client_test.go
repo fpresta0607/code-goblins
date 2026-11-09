@@ -182,7 +182,7 @@ func TestEnsureContainerUsesFlatLabelAndExplicitSession(t *testing.T) {
 	}
 	assertRequests(t, runner.Requests(), []execx.Request{
 		command("herdr", "workspace", "list", "--session", "fleet"),
-		command("herdr", "workspace", "create", "--cwd", `C:\repo`, "--label", "cfo", "--no-focus", "--session", "fleet"),
+		command("herdr", "workspace", "create", "--cwd", `C:\repo`, "--label", "ceo", "--no-focus", "--session", "fleet"),
 	})
 }
 
@@ -195,17 +195,17 @@ func TestEnsureContainerAdoptsOnlyOneMatchingWorkspace(t *testing.T) {
 	}{
 		{
 			name: "one matching workspace is adopted",
-			body: `{"result":{"workspaces":[{"workspace_id":"ws-other","label":"other"},{"workspace_id":"ws-1","label":"cfo"}]}}`,
+			body: `{"result":{"workspaces":[{"workspace_id":"ws-other","label":"other"},{"workspace_id":"ws-1","label":"ceo"}]}}`,
 			want: Container{Session: "fleet", WorkspaceID: "ws-1"},
 		},
 		{
 			name:    "matching workspaces are ambiguous",
-			body:    `{"result":{"workspaces":[{"workspace_id":"ws-1","label":"cfo"},{"workspace_id":"ws-2","label":"cfo"}]}}`,
+			body:    `{"result":{"workspaces":[{"workspace_id":"ws-1","label":"ceo"},{"workspace_id":"ws-2","label":"ceo"}]}}`,
 			wantErr: true,
 		},
 		{
 			name:    "missing workspace id is rejected",
-			body:    `{"result":{"workspaces":[{"label":"cfo"}]}}`,
+			body:    `{"result":{"workspaces":[{"label":"ceo"}]}}`,
 			wantErr: true,
 		},
 	}
@@ -250,15 +250,15 @@ func TestEnsureContainerAdoptsFactoryWorkspace(t *testing.T) {
 	assertRequests(t, runner.Requests(), []execx.Request{
 		command("herdr", "workspace", "list", "--session", "fleet"),
 		command("herdr", "tab", "list", "--workspace", "ws-factory", "--session", "fleet"),
-		command("herdr", "tab", "rename", "tab-1", "cfo", "--session", "fleet"),
-		command("herdr", "workspace", "rename", "ws-factory", "cfo", "--session", "fleet"),
+		command("herdr", "tab", "rename", "tab-1", "ceo", "--session", "fleet"),
+		command("herdr", "workspace", "rename", "ws-factory", "ceo", "--session", "fleet"),
 	})
 }
 
 func TestEnsureContainerAdoptsFactoryWorkspaceAfterTabRename(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{
 		jsonReply(`{"result":{"workspaces":[{"workspace_id":"ws-factory","label":"~"}]}}`),
-		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-1","label":"cfo"}]}}`),
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-1","label":"ceo"}]}}`),
 		jsonReply(`{"result":{"type":"ok"}}`),
 	}}
 	var sleeps []time.Duration
@@ -274,7 +274,7 @@ func TestEnsureContainerAdoptsFactoryWorkspaceAfterTabRename(t *testing.T) {
 	assertRequests(t, runner.Requests(), []execx.Request{
 		command("herdr", "workspace", "list", "--session", "fleet"),
 		command("herdr", "tab", "list", "--workspace", "ws-factory", "--session", "fleet"),
-		command("herdr", "workspace", "rename", "ws-factory", "cfo", "--session", "fleet"),
+		command("herdr", "workspace", "rename", "ws-factory", "ceo", "--session", "fleet"),
 	})
 }
 
@@ -571,9 +571,9 @@ func TestReportAgentCarriesHarnessSessionAndState(t *testing.T) {
 		t.Fatalf("ReportAgent without session identity: %v", err)
 	}
 	assertRequests(t, runner.Requests(), []execx.Request{
-		command("herdr", "pane", "report-agent", "w1:p2", "--source", "cfo", "--agent", "pi", "--state", "working",
+		command("herdr", "pane", "report-agent", "w1:p2", "--source", "ceo", "--agent", "pi", "--state", "working",
 			"--agent-session-id", "gb-task-7", "--agent-session-path", `C:\dev\wt\gb-task-7`, "--session", "fleet"),
-		command("herdr", "pane", "report-agent", "w1:p2", "--source", "cfo", "--agent", "opencode", "--state", "blocked", "--session", "fleet"),
+		command("herdr", "pane", "report-agent", "w1:p2", "--source", "ceo", "--agent", "opencode", "--state", "blocked", "--session", "fleet"),
 	})
 }
 
@@ -954,7 +954,7 @@ func TestCommandFailuresPreserveOperationTargetAndStderr(t *testing.T) {
 	}
 }
 
-// The interrupt `cfo switch` sends when a harness ignores its stop command is
+// The interrupt `ceo switch` sends when a harness ignores its stop command is
 // spelled `Ctrl-C`. Herdr rejects an unsupported key name, so a spelling the
 // normaliser misses aborts the switch instead of interrupting the harness.
 func TestSendKeyNormalisesEveryModifierSpellingTheFleetSends(t *testing.T) {

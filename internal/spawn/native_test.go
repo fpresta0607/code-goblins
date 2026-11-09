@@ -25,38 +25,38 @@ func TestATasksTerminalNamesItsOwnBrowserSession(t *testing.T) {
 	}
 }
 
-// A goblin records the registered CFO's session as its parent, so the board
-// hangs it under the CFO whoever started it, and with no CFO registered the
+// A goblin records the registered CEO's session as its parent, so the board
+// hangs it under the CEO whoever started it, and with no CEO registered the
 // session its start runs in. Tests on 2026-10-16: three live goblins floated
-// on the canvas marked Parent unreported, one spawned by a CFO in Claude
+// on the canvas marked Parent unreported, one spawned by a CEO in Claude
 // Code, whose session variable no start read, and two the supervisor brought
-// back after a memory pause, which carry no session of a CFO at all.
-func TestAGoblinsParentIsTheRegisteredCFOElseTheSessionItsStartRunsIn(t *testing.T) {
-	registered := func() (string, string) { return "registered-cfo", "pi" }
+// back after a memory pause, which carry no session of a CEO at all.
+func TestAGoblinsParentIsTheRegisteredCEOElseTheSessionItsStartRunsIn(t *testing.T) {
+	registered := func() (string, string) { return "registered-ceo", "pi" }
 	none := func() (string, string) { return "", "" }
 	tests := []struct {
 		name                    string
 		env                     map[string]string
-		cfo                     func() (string, string)
+		ceo                     func() (string, string)
 		helperOf                string
 		wantParent, wantHarness string
 	}{
-		{"an unregistered CFO in Claude Code", map[string]string{"CLAUDE_CODE_SESSION_ID": "claude-session"}, none, "", "claude-session", "claude"},
-		{"an unregistered CFO in Codex", map[string]string{"CODEX_THREAD_ID": "codex-thread"}, none, "", "codex-thread", "codex"},
-		{"an unregistered CFO in pi", map[string]string{"PI_SESSION_ID": "pi-session"}, none, "", "pi-session", "pi"},
-		{"the registered CFO wins over a harness variable its start inherited", map[string]string{"CODEX_THREAD_ID": "codex-thread", "PI_SESSION_ID": "pi-session"}, registered, "", "registered-cfo", "pi"},
-		{"a registered CFO in a harness a board cannot hold leaves the caller's session", map[string]string{"CLAUDE_CODE_SESSION_ID": "claude-session"}, func() (string, string) { return "gemini-session", "gemini" }, "", "claude-session", "claude"},
-		{"the explicit convention wins over a harness variable", map[string]string{"CFO_SESSION_ID": "the-cfo", "CFO_SESSION_HARNESS": "codex", "CLAUDE_CODE_SESSION_ID": "claude-session"}, registered, "", "the-cfo", "codex"},
-		{"a supervisor start, resume or switch", map[string]string{}, registered, "", "registered-cfo", "pi"},
-		{"a supervisor start with no CFO registered", map[string]string{}, none, "", "", ""},
+		{"an unregistered CEO in Claude Code", map[string]string{"CLAUDE_CODE_SESSION_ID": "claude-session"}, none, "", "claude-session", "claude"},
+		{"an unregistered CEO in Codex", map[string]string{"CODEX_THREAD_ID": "codex-thread"}, none, "", "codex-thread", "codex"},
+		{"an unregistered CEO in pi", map[string]string{"PI_SESSION_ID": "pi-session"}, none, "", "pi-session", "pi"},
+		{"the registered CEO wins over a harness variable its start inherited", map[string]string{"CODEX_THREAD_ID": "codex-thread", "PI_SESSION_ID": "pi-session"}, registered, "", "registered-ceo", "pi"},
+		{"a registered CEO in a harness a board cannot hold leaves the caller's session", map[string]string{"CLAUDE_CODE_SESSION_ID": "claude-session"}, func() (string, string) { return "gemini-session", "gemini" }, "", "claude-session", "claude"},
+		{"the explicit convention wins over a harness variable", map[string]string{"CEO_SESSION_ID": "the-ceo", "CEO_SESSION_HARNESS": "codex", "CLAUDE_CODE_SESSION_ID": "claude-session"}, registered, "", "the-ceo", "codex"},
+		{"a supervisor start, resume or switch", map[string]string{}, registered, "", "registered-ceo", "pi"},
+		{"a supervisor start with no CEO registered", map[string]string{}, none, "", "", ""},
 		{"a helper the supervisor starts keeps to its goblin", map[string]string{}, registered, "cg-parent-goblin", "", ""},
-		{"an explicit session with no harness is no parent", map[string]string{"CFO_SESSION_ID": "the-cfo"}, nil, "", "", ""},
+		{"an explicit session with no harness is no parent", map[string]string{"CEO_SESSION_ID": "the-ceo"}, nil, "", "", ""},
 		{"a session id with a line break is no parent", map[string]string{"CLAUDE_CODE_SESSION_ID": "one\ntwo"}, nil, "", "", ""},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			for _, name := range []string{"CFO_SESSION_ID", "CFO_SESSION_HARNESS", "CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "PI_SESSION_ID"} {
+			for _, name := range []string{"CEO_SESSION_ID", "CEO_SESSION_HARNESS", "CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "PI_SESSION_ID"} {
 				t.Setenv(name, "")
 			}
 			for name, value := range test.env {
@@ -65,11 +65,11 @@ func TestAGoblinsParentIsTheRegisteredCFOElseTheSessionItsStartRunsIn(t *testing
 			env := map[string]string{}
 
 			// Act
-			Service{CFOSession: test.cfo}.nativeEnvironment(env, state.TaskMeta{ID: "cg-parent", SpawnGen: "s1", Parent: test.helperOf})
+			Service{CEOSession: test.ceo}.nativeEnvironment(env, state.TaskMeta{ID: "cg-parent", SpawnGen: "s1", Parent: test.helperOf})
 
 			// Assert
-			if env["CFO_PARENT_SESSION_ID"] != test.wantParent || env["CFO_PARENT_HARNESS"] != test.wantHarness {
-				t.Fatalf("parent = %q/%q, want %q/%q", env["CFO_PARENT_SESSION_ID"], env["CFO_PARENT_HARNESS"], test.wantParent, test.wantHarness)
+			if env["CEO_PARENT_SESSION_ID"] != test.wantParent || env["CEO_PARENT_HARNESS"] != test.wantHarness {
+				t.Fatalf("parent = %q/%q, want %q/%q", env["CEO_PARENT_SESSION_ID"], env["CEO_PARENT_HARNESS"], test.wantParent, test.wantHarness)
 			}
 		})
 	}

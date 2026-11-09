@@ -47,7 +47,7 @@ func (service Service) outcome(ctx context.Context, meta state.TaskMeta, reason 
 	}
 	// A local-only task opens no pull request: a done line of its that names
 	// the report the home keeps for it, data/<id>/report.md, by its full path
-	// or its path in the home, delivers it once that report is there. cfo
+	// or its path in the home, delivers it once that report is there. ceo
 	// spawn records every task as a ship task, so a scout spawned local-only
 	// delivers this way.
 	report := ""

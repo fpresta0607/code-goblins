@@ -30,10 +30,10 @@ func appendAdopterHook(t *testing.T, path, event, command string) {
 	}
 }
 
-// mergeCFOHooks adds the CFO's hooks to the settings file at path, each group
-// after the ones its event holds, as cfo install merged them into the user's
+// mergeCEOHooks adds the CEO's hooks to the settings file at path, each group
+// after the ones its event holds, as ceo install merged them into the user's
 // settings until 2026-10.
-func mergeCFOHooks(t *testing.T, path, root string) {
+func mergeCEOHooks(t *testing.T, path, root string) {
 	t.Helper()
 	var document map[string]any
 	if err := json.Unmarshal([]byte(readFile(t, path)), &document); err != nil {
@@ -61,25 +61,25 @@ func mergeCFOHooks(t *testing.T, path, root string) {
 	}
 }
 
-// cfoCommands is every command line in the settings file at path that runs a
-// CFO hook.
-func cfoCommands(t *testing.T, path string) []string {
+// ceoCommands is every command line in the settings file at path that runs a
+// CEO hook.
+func ceoCommands(t *testing.T, path string) []string {
 	t.Helper()
 	var commands []string
 	for _, command := range hookCommands(t, path) {
-		if isCFOCommand(command) {
+		if isCEOCommand(command) {
 			commands = append(commands, command)
 		}
 	}
 	return commands
 }
 
-// Until 2026-10 cfo install merged the CFO's hooks into the user's settings,
+// Until 2026-10 ceo install merged the CEO's hooks into the user's settings,
 // where every Claude Code session of the user ran them: each Bash call, turn
-// end and start, in his own sessions and in every goblin's, started cfo.exe,
-// about 0.1 s each, for a hook that left on its environment. The CFO's
+// end and start, in his own sessions and in every goblin's, started ceo.exe,
+// about 0.1 s each, for a hook that left on its environment. The CEO's
 // terminal starts with its hooks, so an install writes none there.
-func TestInstallWritesNoCFOHookIntoTheUsersSettings(t *testing.T) {
+func TestInstallWritesNoCEOHookIntoTheUsersSettings(t *testing.T) {
 	// Arrange
 	f := newFixture(t, adopterSettings, nil)
 
@@ -87,28 +87,28 @@ func TestInstallWritesNoCFOHookIntoTheUsersSettings(t *testing.T) {
 	f.install()
 
 	// Assert
-	if commands := cfoCommands(t, f.user); len(commands) != 0 {
-		t.Errorf("the install wrote %d CFO hook(s) into the user's settings, which every session of the user runs:\n%s", len(commands), strings.Join(commands, "\n"))
+	if commands := ceoCommands(t, f.user); len(commands) != 0 {
+		t.Errorf("the install wrote %d CEO hook(s) into the user's settings, which every session of the user runs:\n%s", len(commands), strings.Join(commands, "\n"))
 	}
 }
 
-// A machine a build before 2026-10 installed holds the CFO's hooks in the
+// A machine a build before 2026-10 installed holds the CEO's hooks in the
 // user's settings. An install takes them out, keeps every hook that is not
-// the CFO's, and a second install changes nothing.
-func TestInstallTakesTheCFOsHooksOutOfTheUsersSettings(t *testing.T) {
+// the CEO's, and a second install changes nothing.
+func TestInstallTakesTheCEOsHooksOutOfTheUsersSettings(t *testing.T) {
 	// Arrange
 	f := newFixture(t, adopterSettings, nil)
-	mergeCFOHooks(t, f.user, f.root)
-	if held := cfoCommands(t, f.user); len(held) != len(Hooks(f.root)) {
-		t.Fatalf("the settings hold %d CFO hook(s) before the install, want the %d an older build wrote", len(held), len(Hooks(f.root)))
+	mergeCEOHooks(t, f.user, f.root)
+	if held := ceoCommands(t, f.user); len(held) != len(Hooks(f.root)) {
+		t.Fatalf("the settings hold %d CEO hook(s) before the install, want the %d an older build wrote", len(held), len(Hooks(f.root)))
 	}
 
 	// Act
 	output := f.install()
 
 	// Assert
-	if commands := cfoCommands(t, f.user); len(commands) != 0 {
-		t.Errorf("the install left %d CFO hook(s) in the user's settings:\n%s", len(commands), strings.Join(commands, "\n"))
+	if commands := ceoCommands(t, f.user); len(commands) != 0 {
+		t.Errorf("the install left %d CEO hook(s) in the user's settings:\n%s", len(commands), strings.Join(commands, "\n"))
 	}
 	commands := hookCommands(t, f.user)
 	for _, foreign := range foreignCommands {
@@ -116,7 +116,7 @@ func TestInstallTakesTheCFOsHooksOutOfTheUsersSettings(t *testing.T) {
 			t.Errorf("the adopter's hook %q appears %d times, want 1", foreign, count(commands, foreign))
 		}
 	}
-	if !strings.Contains(output, "removed the CFO hooks") {
+	if !strings.Contains(output, "removed the CEO hooks") {
 		t.Errorf("the output does not say the hooks were taken out:\n%s", output)
 	}
 	before := readFile(t, f.user)
@@ -126,7 +126,7 @@ func TestInstallTakesTheCFOsHooksOutOfTheUsersSettings(t *testing.T) {
 	}
 }
 
-// cfo install and cfo hooks install claude write the same settings.json. Each
+// ceo install and ceo hooks install claude write the same settings.json. Each
 // puts its own hooks back where they stand, so once both have run, running
 // either again rewrites nothing. Each used to move its entries to the end of
 // the shared lists, behind the other's, so every rerun of either rewrote the
@@ -140,7 +140,7 @@ func TestReinstallingBothHookWritersRewritesNothing(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t, settings, nil)
 			claude := filepath.Dir(f.user)
-			native := nativehook.InstallConfig{Harness: "claude", ConfigDir: claude, Executable: filepath.Join(claude, "cfo.exe"), Home: f.root, State: filepath.Join(f.root, "state")}
+			native := nativehook.InstallConfig{Harness: "claude", ConfigDir: claude, Executable: filepath.Join(claude, "ceo.exe"), Home: f.root, State: filepath.Join(f.root, "state")}
 			f.install()
 			if _, err := nativehook.Install(native); err != nil {
 				t.Fatal(err)
@@ -155,10 +155,10 @@ func TestReinstallingBothHookWritersRewritesNothing(t *testing.T) {
 			afterNative := readFile(t, f.user)
 
 			if afterInstall != settled {
-				t.Errorf("rerunning cfo install rewrote the shared settings\nbefore: %s\nafter: %s", settled, afterInstall)
+				t.Errorf("rerunning ceo install rewrote the shared settings\nbefore: %s\nafter: %s", settled, afterInstall)
 			}
 			if afterNative != settled {
-				t.Errorf("rerunning cfo hooks install claude rewrote the shared settings\nbefore: %s\nafter: %s", settled, afterNative)
+				t.Errorf("rerunning ceo hooks install claude rewrote the shared settings\nbefore: %s\nafter: %s", settled, afterNative)
 			}
 		})
 	}

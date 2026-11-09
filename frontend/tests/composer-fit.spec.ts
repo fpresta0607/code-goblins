@@ -186,7 +186,7 @@ test("a long message keeps its last lines in view while dictation adds to it", a
 });
 
 // The box's controls sit in one row inside its border, as the Claude desktop
-// app draws its box (the CFO's review of step 3, 2026-10-27: "No loose rows
+// app draws its box (the CEO's review of step 3, 2026-10-27: "No loose rows
 // under it. Model short (Opus 5.5), never cut at 360 px. Every icon gets a
 // hover label. Test against the box border."), on his desktop's side panel
 // and on a phone's touch screen. The hover labels went with item 42, which

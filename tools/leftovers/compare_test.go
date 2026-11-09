@@ -125,9 +125,9 @@ func TestCompareNamesWhatTheUninstallLeftTookOrChanged(t *testing.T) {
 		{
 			name:   "a rule for one change passes over no other",
 			before: map[string]map[string]string{kindProcess: {}},
-			after:  map[string]map[string]string{kindProcess: {`C:\x\cfo.exe`: ""}},
+			after:  map[string]map[string]string{kindProcess: {`C:\x\ceo.exe`: ""}},
 			rules:  []rule{{kind: kindProcess, change: changeGone, pattern: regexp.MustCompile(`.`), why: "ended"}},
-			want:   []string{`left process C:\x\cfo.exe`},
+			want:   []string{`left process C:\x\ceo.exe`},
 		},
 		{
 			name:   "no rule passes over a thing that names Code Goblins",
@@ -207,8 +207,8 @@ func TestNoiseNeverPassesOverCodeGoblins(t *testing.T) {
 		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Temp\CodeGoblinsSetup`},
 		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Temp\code-goblins-1234`},
 		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Microsoft\Windows\Explorer\goblins-window.png`},
-		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Temp\jiti\extensions-cfo-native.291f97c5.mjs`},
-		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\cfo\conpty\OpenConsole.exe`},
+		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Temp\jiti\extensions-ceo-native.291f97c5.mjs`},
+		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\ceo\conpty\OpenConsole.exe`},
 		{Change: changeLeft, Kind: kindProcess, Identity: `C:\Windows\goblins.exe`},
 	}
 
@@ -253,7 +253,7 @@ func TestNoisePassesOverWhatWindowsProvisionsForItsPackagedApps(t *testing.T) {
 		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\CLSID\{0123}`},
 		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\PushNotifications\Backup\Windows.Defender.MpUxDlp.CodeGoblins`},
 		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\PushNotifications\Backup\CodeGoblins.Notifier`},
-		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\PushNotifications\Backup\cfo`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\PushNotifications\Backup\ceo`},
 		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Microsoft\Windows\WindowsAppsX\x.exe`},
 	}
 
@@ -425,7 +425,7 @@ func TestNoisePassesOverWhatTheRunnersGuestAgentLeavesButNotOurs(t *testing.T) {
 // profile by themselves, at a time of their own: in run 38978481733 four of
 // five jobs' runners held WindowsLive:target=virtualapp/didlogical before the
 // install began, and the fifth came to hold it during its job, which named it
-// left by the install. Code Goblins writes only credentials named cfo:, so
+// left by the install. Code Goblins writes only credentials named ceo:, so
 // that one is passed over and ours, one beside it and one the uninstall took
 // are still named.
 func TestNoisePassesOverWindowsOwnLiveCredentialButNeverOurs(t *testing.T) {
@@ -435,8 +435,8 @@ func TestNoisePassesOverWindowsOwnLiveCredentialButNeverOurs(t *testing.T) {
 		isNamed    bool
 	}{
 		{"Windows' own Live credential, come during the run", difference{Change: changeLeft, Kind: kindCredential, Identity: `WindowsLive:target=virtualapp/didlogical`}, false},
-		{"our credential", difference{Change: changeLeft, Kind: kindCredential, Identity: `LegacyGeneric:target=cfo:DEMO_TOKEN`}, true},
-		{"a Live credential naming cfo", difference{Change: changeLeft, Kind: kindCredential, Identity: `WindowsLive:target=virtualapp/cfo`}, true},
+		{"our credential", difference{Change: changeLeft, Kind: kindCredential, Identity: `LegacyGeneric:target=ceo:DEMO_TOKEN`}, true},
+		{"a Live credential naming ceo", difference{Change: changeLeft, Kind: kindCredential, Identity: `WindowsLive:target=virtualapp/ceo`}, true},
 		{"another program's credential", difference{Change: changeLeft, Kind: kindCredential, Identity: `LegacyGeneric:target=git:https://github.com`}, true},
 		{"Windows' own Live credential, taken by the uninstall", difference{Change: changeGone, Kind: kindCredential, Identity: `WindowsLive:target=virtualapp/didlogical`}, true},
 	} {
@@ -469,7 +469,7 @@ func TestNoisePassesOverWindowsOwnLiveCredentialButNeverOurs(t *testing.T) {
 // over. Code Goblins registers nothing there but its notification
 // registration and its click handlers, so everything in AppUserModelId and
 // CLSID is compared. A key or value whose name, or what it held or holds,
-// names Code Goblins, goblins, cfo.exe or goblins-window is named wherever it
+// names Code Goblins, goblins, ceo.exe or goblins-window is named wherever it
 // sits under Classes, even once it went.
 func TestNoisePassesOverWindowsClassesButNeverOurs(t *testing.T) {
 	cases := []struct {
@@ -483,7 +483,7 @@ func TestNoisePassesOverWindowsClassesButNeverOurs(t *testing.T) {
 		{"a value Windows changed", difference{Change: changeChanged, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\.txt\OpenWithProgids\AppXb5yxv86nkhp530y0y50yxe69c1qwad1x`, Before: "", After: "x"}, false},
 		{"a key named for Code Goblins", difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\CodeGoblins.Brief`}, true},
 		{"a link that runs the window", difference{Change: changeLeft, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\brief\shell\open\command\`, After: `"C:\Users\a\AppData\Local\CodeGoblins\bin\goblins-window.exe" "%1"`}, true},
-		{"a link that runs cfo.exe", difference{Change: changeLeft, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\brief\shell\open\command\`, After: `C:\tools\cfo.exe open "%1"`}, true},
+		{"a link that runs ceo.exe", difference{Change: changeLeft, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\brief\shell\open\command\`, After: `C:\tools\ceo.exe open "%1"`}, true},
 		{"a value changed to name the goblins", difference{Change: changeChanged, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\.txt\shell\open\command\`, Before: "notepad.exe %1", After: `goblins.exe %1`}, true},
 		{"a class", difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\CLSID\{675d0139-5ced-40b2-8c52-7ff0dca6fc9d}`}, true},
 		{"a class's value", difference{Change: changeLeft, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\CLSID\{675d0139-5ced-40b2-8c52-7ff0dca6fc9d}\LocalServer32\`, After: "x"}, true},

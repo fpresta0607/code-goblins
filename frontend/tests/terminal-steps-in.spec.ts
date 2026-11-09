@@ -256,7 +256,7 @@ test("Classic chosen in the maximized panel's Workspace after a switch back to M
 test("Modern chat in Classic's header saves Modern, so the conversation stays after the switch", async ({ page }) => {
   // Arrange: this browser draws its conversations as Classic, so the panel
   // opens on the harness's terminal alone.
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "classic"));
   const relay = await open(page);
   await card(page, NAME).click();
   await expect(page.locator("#panel-title")).toHaveText(NAME);
@@ -270,7 +270,7 @@ test("Modern chat in Classic's header saves Modern, so the conversation stays af
   await expect(messages(page)).toBeVisible();
   await expect(field(page)).toBeFocused();
   await expect(page.getByText("On it.", { exact: true })).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style")), "Modern chat chose Modern").toBe("modern");
+  expect(await page.evaluate(() => localStorage.getItem("ceo-chat-style")), "Modern chat chose Modern").toBe("modern");
   expect(relay.views, "the session is the one the terminal already kept").toBe(1);
 });
 

@@ -135,7 +135,7 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// The composer's footer names the session's permission mode
 			// while it waits, as in "⏵⏵ auto mode on (shift+tab to
 			// cycle)" or "⏸ manual mode on": a goblin runs with permission
-			// checks bypassed, and a CFO in whichever mode its session
+			// checks bypassed, and a CEO in whichever mode its session
 			// chose. The modes are Claude Code 2.1.302's.
 			Ready: claudeModes,
 			Modes: claudeModes,

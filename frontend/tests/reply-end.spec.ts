@@ -407,7 +407,7 @@ test("the harness's words type out a letter at a time, a shimmer crosses them, a
   await expect(working(page).getByRole("status", { name: "Twisting" })).toBeVisible();
 });
 
-// The CFO, 2026-10-30, of a conversation that changed in the page every
+// The CEO, 2026-10-30, of a conversation that changed in the page every
 // time a verb came: "nothing moves when nothing runs". The words rotate by
 // their own animations, so as the next verb shows nothing in the page
 // changes.

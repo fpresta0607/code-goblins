@@ -263,10 +263,10 @@ func TestRunUsesNoLegacyBeatMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Setenv("CFO_POLL", "2")
-	t.Setenv("CFO_HEARTBEAT", "3600")
-	t.Setenv("CFO_HEARTBEAT_MAX", "3600")
-	t.Setenv("CFO_SIGNAL_GRACE", "1")
+	t.Setenv("CEO_POLL", "2")
+	t.Setenv("CEO_HEARTBEAT", "3600")
+	t.Setenv("CEO_HEARTBEAT_MAX", "3600")
+	t.Setenv("CEO_SIGNAL_GRACE", "1")
 
 	cfg := ConfigFromEnv(home.Home{State: stateDir})
 	if cfg.WaitEvent == nil {

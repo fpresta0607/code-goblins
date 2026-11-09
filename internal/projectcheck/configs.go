@@ -59,7 +59,7 @@ func (c *checker) homeConfigs() {
 	case errors.Is(err, fs.ErrNotExist):
 	case err != nil:
 		c.add(AreaConfigs, "services-invalid", High,
-			"the loader refuses the project's services manifest, so cfo services up cannot start its stack",
+			"the loader refuses the project's services manifest, so ceo services up cannot start its stack",
 			err.Error(), "correct what the loader names in "+file)
 	default:
 		taken = append(taken, file)
@@ -270,14 +270,14 @@ func (c *checker) servicesManifest(ctx context.Context) {
 		return
 	case err != nil:
 		c.add(AreaConfigs, "services-invalid", High,
-			"the loader refuses the project's services manifest, so cfo services up cannot start its stack",
+			"the loader refuses the project's services manifest, so ceo services up cannot start its stack",
 			err.Error(), "correct what the loader names in "+file)
 		return
 	}
 	compose, where, ok := c.folderFile(ctx, manifest.Compose)
 	if !ok {
 		c.add(AreaConfigs, "services-compose-missing", High,
-			"the services manifest names a compose file the project does not have, so cfo services up cannot start its stack",
+			"the services manifest names a compose file the project does not have, so ceo services up cannot start its stack",
 			fmt.Sprintf("%s names %s, which is neither in %s nor tracked at %s", file, manifest.Compose, c.Checkout, c.repo.at()),
 			"name the project's real compose file in "+file)
 		return
@@ -301,7 +301,7 @@ func (c *checker) servicesManifest(ctx context.Context) {
 		if len(unknown) > 0 {
 			clean = false
 			c.add(AreaConfigs, "services-not-in-compose", High,
-				"the services manifest names a service its compose file does not have, so cfo services up fails",
+				"the services manifest names a service its compose file does not have, so ceo services up fails",
 				fmt.Sprintf("%s is not a service of %s (%s), which has %s", strings.Join(unknown, ", "), manifest.Compose, where, strings.Join(sortedKeys(declared.Services), ", ")),
 				"name services the compose file has in "+file)
 		}

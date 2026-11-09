@@ -37,7 +37,7 @@ func TestPublishingChild(t *testing.T) {
 }
 
 // A run that is ended while it writes its holder record, as a test's cleanup
-// and cfo kill end a run waiting in line, left the record created and empty.
+// and ceo kill end a run waiting in line, left the record created and empty.
 // Every later strict acquisition refused it as an unreadable holder record,
 // so no custody change could happen in that line again (#1665). A record
 // being written is not there for a reader, and a writer ended part way

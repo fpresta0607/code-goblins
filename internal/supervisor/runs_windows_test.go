@@ -53,10 +53,10 @@ func liveStart(t *testing.T) RunStarted {
 	return RunStarted{PID: os.Getpid(), Start: entries[0].Start}
 }
 
-// readyRun records a run item the way cfo run-request does, its script on disk.
+// readyRun records a run item the way ceo run-request does, its script on disk.
 func readyRun(t *testing.T, store *Store, identity, id, shell string, admin bool, created time.Time) Run {
 	t.Helper()
-	r := Run{ID: id, Identity: identity, By: "cfo", Title: "Run " + id, Shell: shell, Admin: admin, Command: "Write-Output ready\n", Cwd: store.Home.Root, CreatedAt: created}
+	r := Run{ID: id, Identity: identity, By: "ceo", Title: "Run " + id, Shell: shell, Admin: admin, Command: "Write-Output ready\n", Cwd: store.Home.Root, CreatedAt: created}
 	name, script := runScript(r)
 	dir := runDir(store.Home.State, r)
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -91,15 +91,15 @@ func commandFile(t *testing.T, command string) string {
 	return path
 }
 
-// Only the registered primary CFO creates a run item; any other process is
+// Only the registered primary CEO creates a run item; any other process is
 // refused before anything is written.
-func TestRunRequestRefusesAProcessThatIsNotTheCFO(t *testing.T) {
+func TestRunRequestRefusesAProcessThatIsNotTheCEO(t *testing.T) {
 	store, h := testStore(t)
-	runPipe(t, &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}})
+	runPipe(t, &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}}})
 	file := commandFile(t, "Write-Output hello\n")
 	err := PublishRun(h, RunRequest{ID: "install-tool", Title: "Install the tool", Shell: "powershell", CommandFile: file})
 	if err == nil || !strings.Contains(err.Error(), "not registered") {
-		t.Fatalf("a run request from a process that is not the CFO = %v, want it refused", err)
+		t.Fatalf("a run request from a process that is not the CEO = %v, want it refused", err)
 	}
 	if entries, _ := os.ReadDir(filepath.Join(h.State, "runs")); len(entries) != 0 || len(store.Snapshot().Runs) != 0 {
 		t.Fatalf("a refused request left %d script folders and runs %+v, want none", len(entries), store.Snapshot().Runs)
@@ -108,7 +108,7 @@ func TestRunRequestRefusesAProcessThatIsNotTheCFO(t *testing.T) {
 
 // The command file is read once and stored byte for byte as the script Run
 // executes, so no quoting can change it and a later edit of the file changes
-// nothing; the item runs in the CFO home unless it names a folder.
+// nothing; the item runs in the CEO home unless it names a folder.
 func TestRunRequestStoresTheCommandAsTheScriptItRuns(t *testing.T) {
 	// Each shell's command quotes, substitutes, carries UTF-8 and a CRLF, and
 	// parses in that shell, which checks it before it is published.
@@ -128,7 +128,7 @@ func TestRunRequestStoresTheCommandAsTheScriptItRuns(t *testing.T) {
 			command := test.command
 			store, h := testStore(t)
 			_, identity, _, connection := primaryFixture(t, store)
-			runPipe(t, &Service{Store: store, Options: Options{CFO: connection}})
+			runPipe(t, &Service{Store: store, Options: Options{CEO: connection}})
 			file := commandFile(t, command)
 			req := RunRequest{ID: "fix-path-" + test.shell, Title: "Put Go on PATH", Shell: test.shell, CommandFile: file}
 			if err := PublishRun(h, req); err != nil {
@@ -143,7 +143,7 @@ func TestRunRequestStoresTheCommandAsTheScriptItRuns(t *testing.T) {
 			}
 			r := runs[0]
 			if r.Command != command || r.Cwd != h.Root || r.State != "ready" || r.Identity != identity || r.Admin || !r.ExpiresAt.Equal(r.CreatedAt.Add(24*time.Hour)) {
-				t.Fatalf("run = %+v, want the exact command, ready in the CFO home for 24 hours", r)
+				t.Fatalf("run = %+v, want the exact command, ready in the CEO home for 24 hours", r)
 			}
 			want := []byte(command)
 			if test.bom {
@@ -166,7 +166,7 @@ func TestRunRequestExecutesACommandFileWithOrWithoutAUtf8BOM(t *testing.T) {
 			// Arrange
 			store, h := testStore(t)
 			_, _, _, connection := primaryFixture(t, store)
-			runPipe(t, &Service{Store: store, Options: Options{CFO: connection}})
+			runPipe(t, &Service{Store: store, Options: Options{CEO: connection}})
 			file := commandFile(t, prefix+"Write-Output 'scratch-run-result-7421'\r\n")
 
 			// Act
@@ -211,7 +211,7 @@ func TestRunActionIsRefusedWithoutTheTokenOrFromAnotherOrigin(t *testing.T) {
 		if origin != "" {
 			req.Header.Set("Origin", origin)
 		}
-		req.Header.Set("X-CFO-Token", token)
+		req.Header.Set("X-CEO-Token", token)
 		response, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -285,17 +285,17 @@ func TestExpiredRunItemIsRefused(t *testing.T) {
 	}
 }
 
-// The registered CFO withdraws a run item nobody ran, with its reason: the
+// The registered CEO withdraws a run item nobody ran, with its reason: the
 // item leaves the Command Center, state/runs.audit records the withdrawal
 // like a run, and Run on it is refused with nothing launched. On 2026-10-01
-// the CFO could only disable install-main-66714dea by renaming the binary it
-// named, because cfo review --clear does not reach a run item.
-func TestTheCFOWithdrawsARunItemNobodyRan(t *testing.T) {
+// the CEO could only disable install-main-66714dea by renaming the binary it
+// named, because ceo review --clear does not reach a run item.
+func TestTheCEOWithdrawsARunItemNobodyRan(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	_, _, _, connection := primaryFixture(t, store)
 	launcher := &fakeRunLauncher{started: liveStart(t)}
-	s := &Service{Store: store, Options: Options{CFO: connection, Runs: launcher}}
+	s := &Service{Store: store, Options: Options{CEO: connection, Runs: launcher}}
 	runPipe(t, s)
 	if err := PublishRun(h, RunRequest{ID: "install-main-66714dea", Title: "Install main", Shell: "powershell", CommandFile: commandFile(t, "Write-Output install\n")}); err != nil {
 		t.Fatal(err)
@@ -310,7 +310,7 @@ func TestTheCFOWithdrawsARunItemNobodyRan(t *testing.T) {
 	}
 	r := store.Snapshot().Runs[0]
 	if r.State != "withdrawn" || r.Reason != "the candidate binary is gone" || r.FinishedAt == nil {
-		t.Fatalf("run = %+v, want it withdrawn with the CFO's reason", r)
+		t.Fatalf("run = %+v, want it withdrawn with the CEO's reason", r)
 	}
 	audit, err := os.ReadFile(filepath.Join(h.State, "runs.audit"))
 	if fields := strings.Fields(string(audit)); err != nil || len(fields) != 9 || fields[1] != r.ID || fields[2] != r.ScriptSum || fields[3] != "withdrawn" || strings.Join(fields[4:], " ") != "the candidate binary is gone" {
@@ -324,7 +324,7 @@ func TestTheCFOWithdrawsARunItemNobodyRan(t *testing.T) {
 	}
 }
 
-// Only the registered CFO withdraws a run item, only one of its own that
+// Only the registered CEO withdraws a run item, only one of its own that
 // nobody ran yet, and only with a reason; a refused withdrawal changes nothing.
 func TestARunWithdrawalIsRefusedWhenItCannotHold(t *testing.T) {
 	for _, c := range []struct {
@@ -338,7 +338,7 @@ func TestARunWithdrawalIsRefusedWhenItCannotHold(t *testing.T) {
 		ran               bool
 		refusal           string
 	}{
-		{name: "a process that is not the CFO", id: "install-tool", reason: "not needed", refusal: "not registered"},
+		{name: "a process that is not the CEO", id: "install-tool", reason: "not needed", refusal: "not registered"},
 		{name: "an item that is not on the board", isRegistered: true, id: "no-such-item", reason: "not needed", refusal: "no run item with that ID"},
 		{name: "an item that already ran", isRegistered: true, id: "install-tool", reason: "not needed", ran: true, refusal: "already running"},
 		{name: "an item past its lifetime", isRegistered: true, id: "install-tool", reason: "not needed", age: 25 * time.Hour, refusal: "expired"},
@@ -351,7 +351,7 @@ func TestARunWithdrawalIsRefusedWhenItCannotHold(t *testing.T) {
 			// Arrange
 			store, h := testStore(t)
 			_, identity, _, connection := primaryFixture(t, store)
-			s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
+			s := &Service{Store: store, Options: Options{CEO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
 			var r Run
 			if c.connectionTask == "" && c.credentialRequest == "" && c.remoteFix == "" {
 				r = readyRun(t, store, identity, "install-tool", "powershell", false, time.Now().UTC().Add(-c.age))
@@ -399,9 +399,9 @@ func TestARunWithdrawalIsRefusedWhenItCannotHold(t *testing.T) {
 }
 
 // When the command finishes, its output and exit code are on the item, an
-// audit line records the digest of exactly the script that ran, and the CFO
+// audit line records the digest of exactly the script that ran, and the CEO
 // gets the result as its answer, once.
-func TestRunResultReachesTheCFOAndTheAudit(t *testing.T) {
+func TestRunResultReachesTheCEOAndTheAudit(t *testing.T) {
 	for _, test := range []struct {
 		code  int
 		state string
@@ -409,7 +409,7 @@ func TestRunResultReachesTheCFOAndTheAudit(t *testing.T) {
 		t.Run(test.state, func(t *testing.T) {
 			store, h := testStore(t)
 			_, identity, terminal, connection := primaryFixture(t, store)
-			s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
+			s := &Service{Store: store, Options: Options{CEO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
 			r := readyRun(t, store, identity, "migrate-db", "powershell", false, time.Now().UTC())
 			pressRun(t, s, r, "press-migrate")
 			dir := runDir(h.State, r)
@@ -429,7 +429,7 @@ func TestRunResultReachesTheCFOAndTheAudit(t *testing.T) {
 				t.Fatalf("run = %+v, want %s with exit code %d and its output", got, test.state, test.code)
 			}
 			if typed := terminal.lines(t); len(typed) != 1 || !strings.Contains(typed[0], fmt.Sprintf("finished with exit code %d", test.code)) || !strings.Contains(typed[0], "migration 42 applied") {
-				t.Fatalf("the CFO got %q, want the exit code and the output's end once", typed)
+				t.Fatalf("the CEO got %q, want the exit code and the output's end once", typed)
 			}
 			audit, err := os.ReadFile(filepath.Join(h.State, "runs.audit"))
 			fields := strings.Fields(string(audit))
@@ -446,7 +446,7 @@ func TestRunOutputShowsWhatARunningCommandPrinted(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	_, identity, _, connection := primaryFixture(t, store)
-	s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
+	s := &Service{Store: store, Options: Options{CEO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
 	r := readyRun(t, store, identity, "migrate-db", "powershell", false, time.Now().UTC())
 	pressRun(t, s, r, "press-migrate")
 	dir := runDir(h.State, r)
@@ -497,7 +497,7 @@ func TestRunOutputShowsWhatARunningCommandPrinted(t *testing.T) {
 
 // A run whose terminal closes before its command finishes, or whose elevation
 // Windows does not start, ends failed with that reason and no exit code, and
-// the CFO is told it did not finish.
+// the CEO is told it did not finish.
 func TestRunThatDoesNotFinishEndsWithItsReason(t *testing.T) {
 	for _, test := range []struct {
 		name     string
@@ -521,7 +521,7 @@ func TestRunThatDoesNotFinishEndsWithItsReason(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store, h := testStore(t)
 			_, identity, terminal, connection := primaryFixture(t, store)
-			s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: test.started(t)}}}
+			s := &Service{Store: store, Options: Options{CEO: connection, Runs: &fakeRunLauncher{started: test.started(t)}}}
 			r := readyRun(t, store, identity, "install-driver", "powershell", true, time.Now().UTC())
 			pressRun(t, s, r, "press-driver")
 			if test.declined != "" {
@@ -537,7 +537,7 @@ func TestRunThatDoesNotFinishEndsWithItsReason(t *testing.T) {
 				t.Fatalf("run = %+v, want failed with %q and no exit code", got, test.reason)
 			}
 			if typed := terminal.lines(t); len(typed) != 1 || !strings.Contains(typed[0], "did not finish") {
-				t.Fatalf("the CFO got %q, want to hear it did not finish", typed)
+				t.Fatalf("the CEO got %q, want to hear it did not finish", typed)
 			}
 			if audit, err := os.ReadFile(filepath.Join(h.State, "runs.audit")); err != nil || !strings.HasSuffix(strings.TrimSpace(string(audit)), r.ScriptSum+" none") {
 				t.Fatalf("audit = %q %v, want the run recorded with no exit code", audit, err)
@@ -577,7 +577,7 @@ func TestRunWhoseStartWasInterruptedEnds(t *testing.T) {
 }
 
 // A launch that fails, such as a shell that is not installed, and a script
-// changed after the CFO published it, both end the item with the reason and
+// changed after the CEO published it, both end the item with the reason and
 // run nothing.
 func TestRunThatCannotStartEndsTheItem(t *testing.T) {
 	for _, test := range []struct {
@@ -640,7 +640,7 @@ func TestRunRequestRefusesTheIDOfAnItemThatEnded(t *testing.T) {
 		t.Run(test.state, func(t *testing.T) {
 			store, h := testStore(t)
 			_, _, _, connection := primaryFixture(t, store)
-			s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
+			s := &Service{Store: store, Options: Options{CEO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
 			runPipe(t, s)
 			req := RunRequest{ID: "install-tool", Title: "Install the tool", Shell: "powershell", CommandFile: commandFile(t, "Write-Output hello\n")}
 			if err := PublishRun(h, req); err != nil {

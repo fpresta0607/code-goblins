@@ -1,5 +1,5 @@
-# cfo route
+# ceo route
 
-`cfo route [--project <project>] <brief>`
+`ceo route [--project <project>] <brief>`
 
 Read the [applicable dispatch procedure](../contract/dispatch.md) before acting.

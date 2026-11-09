@@ -13,7 +13,7 @@ import (
 
 // paneCacheEnvironment is this process's environment as a goblin's pane
 // carries it: the cache redirects under root, and no npm or pnpm setting of
-// the shell running the test, which may itself be a pane an older cfo set up.
+// the shell running the test, which may itself be a pane an older ceo set up.
 func paneCacheEnvironment(t *testing.T, root string) []string {
 	t.Helper()
 	for _, cache := range cacheVars {

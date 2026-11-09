@@ -126,9 +126,9 @@ func TestMessagesServeAPiSessionsConversation(t *testing.T) {
 	}
 }
 
-// A pi session pf the CFO's is read from the terminal it names, and a session
-// of another harness the CFO runs is refused.
-func TestMessagesReadAPiCFOAndRefuseAnotherHarness(t *testing.T) {
+// A pi session pf the CEO's is read from the terminal it names, and a session
+// of another harness the CEO runs is refused.
+func TestMessagesReadAPiCEOAndRefuseAnotherHarness(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	userHome := t.TempDir()
@@ -136,11 +136,11 @@ func TestMessagesReadAPiCFOAndRefuseAnotherHarness(t *testing.T) {
 	if err := os.MkdirAll(folder, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(folder, "20261006_213000_cfo-session.jsonl"), strings.Join([]string{
-		`{"type":"session","version":3,"id":"cfo-session","timestamp":"` + stampNow() + `","cwd":"C:\\work"}`,
+	writeFile(t, filepath.Join(folder, "20261006_213000_ceo-session.jsonl"), strings.Join([]string{
+		`{"type":"session","version":3,"id":"ceo-session","timestamp":"` + stampNow() + `","cwd":"C:\\work"}`,
 		`{"type":"message","id":"u1","parentId":null,"timestamp":"` + stampNow() + `","message":{"role":"user","content":"Ship it?"}}`,
 	}, "\n")+"\n")
-	registerNativeCFO(t, h.State, "pi", "cfo-session")
+	registerNativeCEO(t, h.State, "pi", "ceo-session")
 	service := &Service{Store: store, Instance: "board-token", Options: Options{Tree: &fleettree.Reader{Home: userHome}}}
 	handler := NewHTTP(service, "127.0.0.1:50000", nil)
 	get := func(query string) *httptest.ResponseRecorder {
@@ -152,18 +152,18 @@ func TestMessagesReadAPiCFOAndRefuseAnotherHarness(t *testing.T) {
 	}
 
 	// Act
-	response := get("cfo=" + NativeCFOTerminal + "&token=board-token")
+	response := get("ceo=" + NativeCEOTerminal + "&token=board-token")
 
 	// Assert
 	if response.Code != 200 {
-		t.Fatalf("the CFO's page answered %d: %s", response.Code, response.Body)
+		t.Fatalf("the CEO's page answered %d: %s", response.Code, response.Body)
 	}
 	var page fleettree.MessagePage
 	if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil {
 		t.Fatal(err)
 	}
 	if len(page.Messages) != 1 || page.Messages[0].Text != "Ship it?" {
-		t.Fatalf("the CFO's page reads %+v", page.Messages)
+		t.Fatalf("the CEO's page reads %+v", page.Messages)
 	}
 }
 

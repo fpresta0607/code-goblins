@@ -169,7 +169,7 @@ func TestSwitchWritesAHandoffAndPointsTheNewHarnessAtIt(t *testing.T) {
 		t.Fatalf("submitted = %q, want the new harness's instruction", submitted)
 	}
 	instruction := delivered(t, submitted[0])
-	if !strings.Contains(instruction, result.Handoff) || !strings.Contains(instruction, "ask it again with cfo notify --blocked") {
+	if !strings.Contains(instruction, result.Handoff) || !strings.Contains(instruction, "ask it again with ceo notify --blocked") {
 		t.Errorf("instruction = %q, want it pointed at the handoff and told to ask a cancelled question again", instruction)
 	}
 }
@@ -220,7 +220,7 @@ func TestAResumeInPlaceTellsTheGoblinItsNote(t *testing.T) {
 
 // A goblin relaunched on another harness, by a handoff to a fresh session or
 // on its own session, is told again to follow its frozen delivery selection
-// and to leave its ask-user findings to the CFO.
+// and to leave its ask-user findings to the CEO.
 func TestARelaunchKeepsTheFrozenDeliveryRule(t *testing.T) {
 	for _, test := range []struct {
 		name      string
@@ -564,7 +564,7 @@ func assertEmptyTerminalRecorded(t *testing.T, f *switchFixture, err error, more
 	if err == nil {
 		t.Fatal("Switch = nil, want the failure surfaced")
 	}
-	for _, want := range append([]string{"native terminal now has no harness", "is untouched", "cfo switch " + f.meta.ID}, more...) {
+	for _, want := range append([]string{"native terminal now has no harness", "is untouched", "ceo switch " + f.meta.ID}, more...) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want it to mention %q", err, want)
 		}
@@ -582,7 +582,7 @@ func assertEmptyTerminalRecorded(t *testing.T, f *switchFixture, err error, more
 }
 
 // A failure after the new harness is up must not claim the terminal is empty:
-// that sends the operator to `cfo switch` again, which stops a running goblin
+// that sends the operator to `ceo switch` again, which stops a running goblin
 // and loses its context.
 func TestSwitchReportsALiveTerminalInsteadOfClaimingItIsEmpty(t *testing.T) {
 	previous := nativeStartup
@@ -596,7 +596,7 @@ func TestSwitchReportsALiveTerminalInsteadOfClaimingItIsEmpty(t *testing.T) {
 	if err == nil {
 		t.Fatal("Switch = nil, want the launch failure surfaced")
 	}
-	for _, want := range []string{"still holds a live", "is untouched", "cfo peek " + f.meta.ID, "do NOT rerun `cfo switch`"} {
+	for _, want := range []string{"still holds a live", "is untouched", "ceo peek " + f.meta.ID, "do NOT rerun `ceo switch`"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want it to mention %q", err, want)
 		}
@@ -611,7 +611,7 @@ func TestSwitchReportsALiveTerminalInsteadOfClaimingItIsEmpty(t *testing.T) {
 // had to be given an invented suffix.
 func TestSpawnAllowsAnIDWhoseOnlyRemainIsAFinishedTasksStatusLog(t *testing.T) {
 	f := newNativeFixture(t, harness.Codex, "")
-	if err := state.AppendStatus(f.stateDir, f.request.ID, "done: returned worktree via cfo cleanup"); err != nil {
+	if err := state.AppendStatus(f.stateDir, f.request.ID, "done: returned worktree via ceo cleanup"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -769,7 +769,7 @@ func TestSwitchReappliesTheProjectEnvironmentRedirects(t *testing.T) {
 			"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
 			"GOTMPDIR":                 `C:\hijacked`,
 			"gotmpdir":                 `C:\hijacked-lower`,
-			"cfo_state_override":       `C:\hijacked-state`,
+			"ceo_state_override":       `C:\hijacked-state`,
 		},
 	})
 
@@ -781,7 +781,7 @@ func TestSwitchReappliesTheProjectEnvironmentRedirects(t *testing.T) {
 	for name, want := range map[string]string{
 		"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
 		"GOTMPDIR":                 goTmpDir(t, f.stateDir, f.meta.ID),
-		"CFO_STATE_OVERRIDE":       f.stateDir,
+		"CEO_STATE_OVERRIDE":       f.stateDir,
 	} {
 		if got := started[name]; got == nil || *got != want {
 			t.Errorf("the new harness started with %s = %v, want %q", name, got, want)

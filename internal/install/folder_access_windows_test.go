@@ -48,7 +48,7 @@ func TestInstallKeepsTheHomeAndItsDevDriveFolderToTheOwnerSystemAndAdministrator
 			t.Errorf("%s allows %v, protected %v; want only %v, taking nothing from its parent", path, sids, isProtected, want)
 		}
 	}
-	for _, path := range []string{work, cache, filepath.Join(f.bin, "cfo.exe")} {
+	for _, path := range []string{work, cache, filepath.Join(f.bin, "ceo.exe")} {
 		if sids, _ := accesstest.Allowed(t, path); !slices.Equal(sids, want) {
 			t.Errorf("%s allows %v, want only %v", path, sids, want)
 		}

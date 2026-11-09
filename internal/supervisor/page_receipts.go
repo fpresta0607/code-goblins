@@ -180,7 +180,7 @@ var errPageAnswerWaits = errors.New("the page's next answer waits for its goblin
 
 // pageAwaitLimit is how long an answer typed into a goblin's terminal is
 // waited on for the goblin's record to show it taken, which a goblin in one
-// long tool call does only when the call ends, before the CFO is told to
+// long tool call does only when the call ends, before the CEO is told to
 // look and the page's next answer goes.
 const pageAwaitLimit = 10 * time.Minute
 
@@ -191,7 +191,7 @@ const pageAwaitLimit = 10 * time.Minute
 // whose delivery the screen did not confirm or the supervisor stopped in the
 // middle of, is never typed again: it waits until the goblin's record shows
 // it taken. Only one that record never shows within pageAwaitLimit reaches
-// the CFO with what to check. A supervisor that is stopping leaves each
+// the CEO with what to check. A supervisor that is stopping leaves each
 // answer still to tell as the journal holds it, for its next start.
 func (s *Service) tellAnswer(ctx context.Context, answer pageAnswer) error {
 	r := answer.Item
@@ -202,7 +202,7 @@ func (s *Service) tellAnswer(ctx context.Context, answer pageAnswer) error {
 		if !answer.IsPageEnd {
 			text, detail, delivered, reason, deliveredReason, queued := s.pageMessage(answer)
 			meta, metaErr := state.ReadTaskMeta(s.Store.Home.State, r.Task)
-			isLive := r.Task != "" && metaErr == nil && s.Options.CFO != nil
+			isLive := r.Task != "" && metaErr == nil && s.Options.CEO != nil
 			queuedReason := ""
 			if answer.IsAnswer {
 				queuedReason = "You answered on its page; your answer is queued for the goblin's next tool call."
@@ -225,7 +225,7 @@ func (s *Service) tellAnswer(ctx context.Context, answer pageAnswer) error {
 				if !answer.SentAt.IsZero() {
 					at = " at " + answer.SentAt.Format(time.RFC3339)
 				}
-				detail += fmt.Sprintf("; it was typed into %s's terminal%s and the goblin's record has not shown it taken: check with cfo peek %s whether it waits there before relaying it", r.Task, at, r.Task)
+				detail += fmt.Sprintf("; it was typed into %s's terminal%s and the goblin's record has not shown it taken: check with ceo peek %s whether it waits there before relaying it", r.Task, at, r.Task)
 			case isLive:
 				// A terminal changing hands takes no note, as it takes no board
 				// message: a resume types its own instruction into it, and a
@@ -242,14 +242,14 @@ func (s *Service) tellAnswer(ctx context.Context, answer pageAnswer) error {
 				if isChanging || isRelaunched {
 					return errPageAnswerWaits
 				}
-				if terminal, err := host.ReadRecord(s.Options.CFO.State, r.Task); (err != nil || !host.Running(terminal)) && meta.Backend == "native" {
+				if terminal, err := host.ReadRecord(s.Options.CEO.State, r.Task); (err != nil || !host.Running(terminal)) && meta.Backend == "native" {
 					return errPageAnswerWaits
 				}
 				answer.Status, answer.SentAt = "sending", time.Now().UTC()
 				if err := s.Store.keepPageAnswer(answer); err != nil {
 					return err
 				}
-				_, err = s.Options.CFO.SendGoblinHis(ctx, r.Task, r.Identity, text)
+				_, err = s.Options.CEO.SendGoblinHis(ctx, r.Task, r.Identity, text)
 				// A task that reuses the id began after the note was written,
 				// by the generation it was first spawned on, which a relaunch
 				// does not move; a task an older build spawned records none.
@@ -258,7 +258,7 @@ func (s *Service) tellAnswer(ctx context.Context, answer pageAnswer) error {
 					// Its goblin came back in a new session, as a pause's
 					// resume brings it, and the page is still its own. A
 					// refusal typed nothing, so it is sent again.
-					_, err = s.Options.CFO.SendGoblinHis(ctx, r.Task, current, text)
+					_, err = s.Options.CEO.SendGoblinHis(ctx, r.Task, current, text)
 				}
 				switch {
 				case err == nil:
@@ -356,7 +356,7 @@ func (s *Service) pageMessage(answer pageAnswer) (text, detail, delivered, reaso
 	queued = "the Overlord's feedback on the page " + r.LavishPage + " is queued for " + r.Task + "'s next tool call; " + feedback
 	switch {
 	case r.State != "open":
-		text = fmt.Sprintf("The Overlord wrote on your review page %s: %s\nTo show him a next version, change the same file and run cfo notify %s --waiting-on overlord \"<why>\" --lavish %s.", r.LavishPage, asked, r.Task, r.LavishPage)
+		text = fmt.Sprintf("The Overlord wrote on your review page %s: %s\nTo show him a next version, change the same file and run ceo notify %s --waiting-on overlord \"<why>\" --lavish %s.", r.LavishPage, asked, r.Task, r.LavishPage)
 		detail = "the Overlord wrote on your page " + r.LavishPage + "; " + feedback + ", act on it"
 		if r.Task != "" {
 			detail = "the Overlord wrote on the page " + r.LavishPage + "; " + feedback + ", relay it to " + r.Task
@@ -372,10 +372,10 @@ func (s *Service) pageMessage(answer pageAnswer) (text, detail, delivered, reaso
 		}
 		text = "The Overlord answered on your review page " + r.LavishPage + ": " + asked
 		detail = on + "; " + feedback + ", relay it to the goblin"
-		reason = "You answered on its page; the CFO relays it to the goblin."
+		reason = "You answered on its page; the CEO relays it to the goblin."
 		if r.Task == "" {
 			detail = on + "; " + feedback + ", act on it"
-			reason = "You answered on its page; the CFO has it."
+			reason = "You answered on its page; the CEO has it."
 		}
 		delivered = on + "; " + feedback + ", the goblin has it: " + pageWords(poll)
 		if err != nil {
@@ -387,7 +387,7 @@ func (s *Service) pageMessage(answer pageAnswer) (text, detail, delivered, reaso
 		}
 		deliveredReason = "You answered on its page; the goblin has it."
 	default:
-		text = fmt.Sprintf("The Overlord asked for a revision on your review page %s: %s\nMake the next version in the same file, then run cfo notify %s --waiting-on overlord \"<why>\" --lavish %s again: it replaces the page in the same review.", r.LavishPage, asked, r.Task, r.LavishPage)
+		text = fmt.Sprintf("The Overlord asked for a revision on your review page %s: %s\nMake the next version in the same file, then run ceo notify %s --waiting-on overlord \"<why>\" --lavish %s again: it replaces the page in the same review.", r.LavishPage, asked, r.Task, r.LavishPage)
 		detail = "the Overlord asked for a revision on the page " + r.LavishPage + "; " + feedback + ", act on it"
 		if r.Task != "" {
 			detail = "the Overlord asked for a revision on the page " + r.LavishPage + "; " + feedback + ", relay it to the goblin"

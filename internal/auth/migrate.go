@@ -24,7 +24,7 @@ import (
 // A bare value is only claimed when it can be attributed. `DATABASE_URL` is
 // declared by more than one project, and a bare one cannot say whose database
 // it names, so it is left where it is and the resolution report already prints
-// the `cfo auth copy` command that would claim it deliberately. Guessing there
+// the `ceo auth copy` command that would claim it deliberately. Guessing there
 // is exactly the failure this package's namespacing was built to end. For the
 // same reason it claims nothing at all while any manifest in the data
 // directory fails to load: a sibling that cannot be read cannot be shown not

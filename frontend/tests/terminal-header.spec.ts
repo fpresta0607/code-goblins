@@ -1,7 +1,7 @@
 import { expect, holdStream, openTaskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-17, of Frank's terminal header (his task's long
-// description, Waiting on the CFO, and VS Code and folder on a row of their
+// description, Waiting on the CEO, and VS Code and folder on a row of their
 // own) beside Wanda's working one: "keep the same terminal header structure
 // that we have for the CFO, even for goblins: the goblin image, then the name
 // and title, and then the status of what it's doing. I do like the way the
@@ -30,7 +30,7 @@ const pause = { phase: "paused", action: "pause", at, kept: [], stopped: [], pro
 const STATES: [string, Record<string, unknown>, string, string][] = [
   ["working", {}, "Working", "working"],
   ["waiting on CI", { phase: "waiting", waiting_on: "ci" }, "Waiting on CI", "waiting"],
-  ["waiting on the CFO", { phase: "waiting", waiting_on: "overlord" }, "Waiting on the CFO", "waiting"],
+  ["waiting on the CEO", { phase: "waiting", waiting_on: "overlord" }, "Waiting on the CEO", "waiting"],
   ["waiting on another goblin", { phase: "waiting", waiting_on: WANDA.id }, "Waiting on Wanda", "waiting"],
   ["paused", { phase: "paused", at, lifecycle: pause }, "Paused until you resume it", "paused"],
   ["resuming", { phase: "resuming" }, "Resuming", "resuming"],
@@ -38,7 +38,7 @@ const STATES: [string, Record<string, unknown>, string, string][] = [
 ];
 
 async function openTerminal(page: Page, goblin: Record<string, unknown>) {
-  await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], tasks: [goblin, WANDA] });
+  await holdStream(page, { healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [], tasks: [goblin, WANDA] });
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.goto("/");
   await page.locator(".task-card").filter({ hasText: "Frank" }).click();
@@ -108,7 +108,7 @@ test("the task list names the goblin and its task id, its harness, model and eff
 for (const width of [390, 1000]) {
   test(`the task list at ${width} px links to the goblin being awaited`, async ({ page }) => {
     await page.setViewportSize({ width: width === 390 ? 390 : 1707, height: 1067 });
-    await page.addInitScript((width) => localStorage.setItem("cfo-pane-width", String(width)), width);
+    await page.addInitScript((width) => localStorage.setItem("ceo-pane-width", String(width)), width);
     await openTerminal(page, { ...FRANK, phase: "waiting", waiting_on: WANDA.id });
 
     const header = await openTaskList(page);

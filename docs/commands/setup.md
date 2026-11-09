@@ -1,4 +1,4 @@
-# cfo setup
+# ceo setup
 
 `goblins setup`
 

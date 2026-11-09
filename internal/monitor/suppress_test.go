@@ -37,11 +37,11 @@ func readTally(t *testing.T, service Service) Tally {
 	return tally
 }
 
-// On 2026-09-30 the CFO was woken with "busy_turn_over_age ... no progress
+// On 2026-09-30 the CEO was woken with "busy_turn_over_age ... no progress
 // evidence" for goblins whose panes showed a tool running. A pane showing a
 // running tool is evidence the goblin is working, so no progress-based stale
 // wake fires past the budget while it shows, and each held-back wake is
-// counted once for cfo doctor.
+// counted once for ceo doctor.
 func TestARunningToolOnThePaneHoldsBackBusyTurnOverAge(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	service, probe, _, _ := progressService(t, &now)
@@ -49,7 +49,7 @@ func TestARunningToolOnThePaneHoldsBackBusyTurnOverAge(t *testing.T) {
 	scanPane(t, service, probe, herdr.AgentWorking, runningToolPane, &now, 0)
 	for range 15 {
 		if r := scanPane(t, service, probe, herdr.AgentWorking, runningToolPane, &now, time.Minute); r.Event != nil {
-			t.Fatalf("a goblin whose pane shows a running tool woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)
+			t.Fatalf("a goblin whose pane shows a running tool woke the CEO at %s: %+v", now.Format(time.Kitchen), r.Event)
 		}
 	}
 
@@ -115,7 +115,7 @@ func TestABackgroundShellOnThePaneHoldsBackAwaitingAnswerWhileItMoves(t *testing
 	for range 15 {
 		r := scanPane(t, service, probe, herdr.AgentDone, backgroundShellPane, &now, time.Minute)
 		if r.Event != nil {
-			t.Fatalf("a goblin waiting on its background shell woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)
+			t.Fatalf("a goblin waiting on its background shell woke the CEO at %s: %+v", now.Format(time.Kitchen), r.Event)
 		}
 		if r.Observations[0].Health != HealthBusy {
 			t.Fatalf("health = %s, want busy while its background shell runs", r.Observations[0].Health)
@@ -268,7 +268,7 @@ func TestAnEndedJobsProcessorUseHoldsNoIdleWake(t *testing.T) {
 			t.Fatal(err)
 		}
 		if result.Event != nil {
-			t.Fatalf("a job using the processor woke the CFO: %+v", result.Event)
+			t.Fatalf("a job using the processor woke the CEO: %+v", result.Event)
 		}
 	}
 
@@ -316,7 +316,7 @@ func TestAnOlderMonitorsDigestIsNotOutputBetweenTurns(t *testing.T) {
 	}
 }
 
-// "screen reader failed" woke the CFO over and over on 2026-09-30 for
+// "screen reader failed" woke the CEO over and over on 2026-09-30 for
 // goblins that were working. One failed read is read again on the next scan
 // before it can wake, a read that works in between clears it, and a screen
 // that stays unreadable wakes once for the episode rather than every scan.
@@ -347,7 +347,7 @@ func TestAFailedScreenReadIsReadAgainBeforeAnEndpointUnknownWake(t *testing.T) {
 			t.Fatalf("round %d: one failed read = %+v, want no wake and the last reading kept", round, r)
 		}
 		if r := scan(working); r.Event != nil {
-			t.Fatalf("round %d: a read that worked again woke the CFO: %+v", round, r.Event)
+			t.Fatalf("round %d: a read that worked again woke the CEO: %+v", round, r.Event)
 		}
 	}
 	if counted := readTally(t, service).Reasons[EndpointUnknown]; counted == nil || counted.Suppressed != 3 || !strings.Contains(counted.LastWhy, "screen reader failed") {
@@ -359,11 +359,11 @@ func TestAFailedScreenReadIsReadAgainBeforeAnEndpointUnknownWake(t *testing.T) {
 	if second.Event == nil || second.Observations[0].Reason != EndpointUnknown || !strings.Contains(second.Event.Detail, "screen reader failed") {
 		t.Fatalf("second failed read in a row = %+v, want an endpoint_unknown wake", second)
 	}
-	// The heartbeat keeps an unknown endpoint in front of the CFO on its own
+	// The heartbeat keeps an unknown endpoint in front of the CEO on its own
 	// cadence; the goblin's own stale wake is not raised again.
 	for range 5 {
 		if r := scan(unreadable); r.Event != nil && r.Event.Kind == "stale" {
-			t.Fatalf("a screen that stayed unreadable woke the CFO again: %+v", r.Event)
+			t.Fatalf("a screen that stayed unreadable woke the CEO again: %+v", r.Event)
 		}
 	}
 }
@@ -402,7 +402,7 @@ func TestAProbeThatGaveNoAnswerIsAskedAgainBeforeAnEndpointUnknownWake(t *testin
 			t.Fatalf("round %d: one probe timeout = %+v, want no wake and the last reading kept", round, r)
 		}
 		if r := scan(working, nil); r.Event != nil {
-			t.Fatalf("round %d: a probe that answered again woke the CFO: %+v", round, r.Event)
+			t.Fatalf("round %d: a probe that answered again woke the CEO: %+v", round, r.Event)
 		}
 	}
 	if counted := readTally(t, service).Reasons[EndpointUnknown]; counted == nil || counted.Suppressed != 3 || !strings.Contains(counted.LastWhy, "context deadline exceeded") {

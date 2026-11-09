@@ -1,5 +1,5 @@
-# cfo supersede
+# ceo supersede
 
-`cfo supersede <task-id> --reason <text>`
+`ceo supersede <task-id> --reason <text>`
 
 Read the [applicable dispatch procedure](../contract/dispatch.md) before acting.

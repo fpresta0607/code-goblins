@@ -231,7 +231,7 @@ func TestMachineProfileIsTheOperatorsDefaultForAHarness(t *testing.T) {
 	}
 }
 
-// handEditedMachineConfig is the shared config as the CFO left it at 23:00Z on
+// handEditedMachineConfig is the shared config as the CEO left it at 23:00Z on
 // 2026-10-09: Claude only by hand, over the version 4 shape of 2026-10-08.
 const handEditedMachineConfig = `# Machine gate configuration.
 agent: [claude]

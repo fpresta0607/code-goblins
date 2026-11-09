@@ -20,7 +20,7 @@ func TestInstallPreservesOtherHooksAndIsIdempotent(t *testing.T) {
 			if err := os.WriteFile(path, original, 0600); err != nil {
 				t.Fatal(err)
 			}
-			cfg := InstallConfig{Harness: name, ConfigDir: dir, Executable: filepath.Join(dir, "cfo.exe"), Home: dir, State: filepath.Join(dir, "state")}
+			cfg := InstallConfig{Harness: name, ConfigDir: dir, Executable: filepath.Join(dir, "ceo.exe"), Home: dir, State: filepath.Join(dir, "state")}
 			if _, err := Install(cfg); err != nil {
 				t.Fatal(err)
 			}
@@ -49,7 +49,7 @@ func TestInstallPreservesOtherHooksAndIsIdempotent(t *testing.T) {
 			if (name == "codex") != (len(doc.Hooks["Interrupt"]) == 1) {
 				t.Fatal("Interrupt must be installed only for the verified Codex contract")
 			}
-			backup, _ := os.ReadFile(path + ".cfo-native.backup")
+			backup, _ := os.ReadFile(path + ".ceo-native.backup")
 			if string(backup) != string(original) {
 				t.Fatal("original backup not preserved")
 			}
@@ -74,7 +74,7 @@ func TestUnsupportedCapabilitiesAndBrokenSettingsAreRefused(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"hooks":42}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Install(InstallConfig{Harness: "codex", ConfigDir: dir, Executable: filepath.Join(dir, "cfo.exe"), Home: dir, State: filepath.Join(dir, "state")})
+	_, err := Install(InstallConfig{Harness: "codex", ConfigDir: dir, Executable: filepath.Join(dir, "ceo.exe"), Home: dir, State: filepath.Join(dir, "state")})
 	if err == nil {
 		t.Fatal("accepted malformed hooks")
 	}

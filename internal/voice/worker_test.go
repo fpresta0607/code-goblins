@@ -485,7 +485,7 @@ func TestAnIdleEndADictationOvertookEndsNothing(t *testing.T) {
 }
 
 func TestTheEngineGetsNoTokenOrSettingOfTheFleet(t *testing.T) {
-	for _, name := range []string{"CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_ROLE", "NO_MISTAKES_GATE", "GITHUB_TOKEN", "OPENAI_API_KEY"} {
+	for _, name := range []string{"CEO_HOME", "CEO_STATE_OVERRIDE", "CEO_ROLE", "NO_MISTAKES_GATE", "GITHUB_TOKEN", "OPENAI_API_KEY"} {
 		t.Setenv(name, "secret")
 	}
 	voice, record := engine(t, "hears", 8<<30)

@@ -243,14 +243,14 @@ func TestCodexMessageEndpointServesRecordedPicturesAndUsage(t *testing.T) {
 	}
 }
 
-func TestCodexCFOConversationNeedsNoHookRecordsOrTrust(t *testing.T) {
+func TestCodexCEOConversationNeedsNoHookRecordsOrTrust(t *testing.T) {
 	store, taskHome := testStore(t)
 	profile := t.TempDir()
 	codexGoblin(t, taskHome.State, profile, "codgester", "s1")
-	registerNativeCFO(t, taskHome.State, "codex", "codgester-session")
+	registerNativeCEO(t, taskHome.State, "codex", "codgester-session")
 	handler := NewHTTP(&Service{Store: store, Instance: "board-token", Options: Options{Tree: &fleettree.Reader{Home: profile}}}, "127.0.0.1:50000", nil)
 	response := httptest.NewRecorder()
-	request := httptest.NewRequest("GET", "http://"+handler.Host+"/api/messages?cfo="+NativeCFOTerminal+"&token=board-token", nil)
+	request := httptest.NewRequest("GET", "http://"+handler.Host+"/api/messages?ceo="+NativeCEOTerminal+"&token=board-token", nil)
 	request.RemoteAddr = "127.0.0.1:50001"
 
 	handler.ServeHTTP(response, request)
@@ -260,21 +260,21 @@ func TestCodexCFOConversationNeedsNoHookRecordsOrTrust(t *testing.T) {
 		t.Fatalf("page: %d %s", response.Code, response.Body)
 	}
 	if len(page.Messages) != 2 || len(page.Messages[1].Blocks) != 2 || page.Messages[1].Blocks[1].Text != "Its gate failed." {
-		t.Fatalf("CFO conversation: %+v", page.Messages)
+		t.Fatalf("CEO conversation: %+v", page.Messages)
 	}
 }
 
 func TestCodexUsageStreamsAfterTheLastMessage(t *testing.T) {
-	for _, subject := range []string{"goblin", "CFO"} {
+	for _, subject := range []string{"goblin", "CEO"} {
 		t.Run(subject, func(t *testing.T) {
 			// Arrange
 			store, taskHome := testStore(t)
 			profile := t.TempDir()
 			meta := codexGoblin(t, taskHome.State, profile, "codgester", "s1")
 			query := "task=" + meta.ID + "&generation=" + meta.SpawnGen
-			if subject == "CFO" {
-				registerNativeCFO(t, taskHome.State, "codex", "codgester-session")
-				query = "cfo=" + NativeCFOTerminal
+			if subject == "CEO" {
+				registerNativeCEO(t, taskHome.State, "codex", "codgester-session")
+				query = "ceo=" + NativeCEOTerminal
 			}
 			handler := NewHTTP(&Service{Store: store, Instance: "board-token", Options: Options{Tree: &fleettree.Reader{Home: profile}}}, "", nil)
 			server := httptest.NewUnstartedServer(handler)

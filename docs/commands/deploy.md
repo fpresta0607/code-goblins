@@ -1,5 +1,5 @@
-# cfo deploy
+# ceo deploy
 
-`cfo deploy <task-id> [--target <name>]`
+`ceo deploy <task-id> [--target <name>]`
 
 Read the [applicable delivery procedure](../contract/delivery.md) before acting.

@@ -65,8 +65,8 @@ func readFleet(t *testing.T, s *Service, now time.Time, minutes ...int) {
 	}
 }
 
-// awaitRecorded waits until cfo has been run count times, a run still under
-// way included: the floor's pause runs cfo from a goroutine of its own.
+// awaitRecorded waits until ceo has been run count times, a run still under
+// way included: the floor's pause runs ceo from a goroutine of its own.
 func awaitRecorded(t *testing.T, spawner *spawnRecorder, count int) [][]string {
 	t.Helper()
 	// stall-accepted: its callers wait for a run that must not come, so a stall only makes the wait longer.
@@ -276,12 +276,12 @@ func TestAPauseAtTheAllowanceFloorIsLoggedWhileAFKModeIsOn(t *testing.T) {
 // cannot be read is no sign of either.
 func TestAGoblinPushingOrMergingIsToldByWhatRunsUnderItsHost(t *testing.T) {
 	processes := []proc.Entry{
-		{PID: 10, ParentPID: 1, ExeBase: "cfo.exe"},
+		{PID: 10, ParentPID: 1, ExeBase: "ceo.exe"},
 		{PID: 11, ParentPID: 10, ExeBase: "claude.exe"},
 		{PID: 12, ParentPID: 11, ExeBase: "git.exe"},
-		{PID: 20, ParentPID: 1, ExeBase: "cfo.exe"},
+		{PID: 20, ParentPID: 1, ExeBase: "ceo.exe"},
 		{PID: 21, ParentPID: 20, ExeBase: "git.exe"},
-		{PID: 30, ParentPID: 1, ExeBase: "cfo.exe"},
+		{PID: 30, ParentPID: 1, ExeBase: "ceo.exe"},
 		{PID: 31, ParentPID: 30, ExeBase: "gh.exe"},
 	}
 	for name, test := range map[string]struct {

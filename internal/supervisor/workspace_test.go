@@ -58,14 +58,14 @@ func TestWorkspaceMetadataReportsNamesAndModelEvidenceWithoutSecrets(t *testing.
 }
 
 // A goblin's Workspace names the local services it holds, who it shares them
-// with and the memory they take, and the CFO's names every stack held, so
+// with and the memory they take, and the CEO's names every stack held, so
 // the board shows what a full-stack check costs while it runs.
 func TestWorkspaceNamesTheLocalServicesHeldAndTheirMemory(t *testing.T) {
 	s, h := testStore(t)
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")
 	gitFixture(t, meta.Worktree)
 	record := services.Record{
-		Engine: services.Engine{StartedByCFO: true},
+		Engine: services.Engine{StartedByCEO: true},
 		Stacks: map[string]services.Stack{
 			"PrecisionDocs-AI": {Project: "PrecisionDocs-AI", Owned: true, Holders: []services.Hold{{Task: "task-1"}, {Task: "task-2"}}, Cost: services.Cost{Bytes: 2560 << 20}},
 			"siqsermon":        {Project: "siqsermon", Holders: []services.Hold{{Task: "task-2"}}},
@@ -93,10 +93,10 @@ func TestWorkspaceNamesTheLocalServicesHeldAndTheirMemory(t *testing.T) {
 	want = []string{
 		"PrecisionDocs-AI's local services are up for task-1 and task-2, which take 2.5 GB of memory.",
 		"siqsermon's local services are up for task-2, whose memory is not measured yet.",
-		"cfo started the Docker engine for them and stops it once none of them runs.",
+		"ceo started the Docker engine for them and stops it once none of them runs.",
 	}
 	if !slices.Equal(details.Notes, want) {
-		t.Errorf("CFO notes = %q, want %q", details.Notes, want)
+		t.Errorf("CEO notes = %q, want %q", details.Notes, want)
 	}
 }
 
@@ -111,7 +111,7 @@ func TestWorkspaceSaysWhenTheLocalServicesCannotBeRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(details.Notes, []string{"The local services cfo holds could not be read."}) {
+	if !slices.Equal(details.Notes, []string{"The local services ceo holds could not be read."}) {
 		t.Errorf("notes = %q, want the unreadable record named", details.Notes)
 	}
 }

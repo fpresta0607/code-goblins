@@ -75,7 +75,7 @@ func recordTerminalStarted(t *testing.T, stateDir, id string, childStart, starte
 	}
 }
 
-// updateBoard is a board whose CFO runs Claude Code in native terminal cfo,
+// updateBoard is a board whose CEO runs Claude Code in native terminal ceo,
 // stood in for by this test process, whose restarts the first-run machine
 // counts, and whose terminals show screen.
 func updateBoard(t *testing.T) (*HTTP, *firstRunMachine, *standInScreen) {
@@ -92,82 +92,82 @@ func updateBoard(t *testing.T) (*HTTP, *firstRunMachine, *standInScreen) {
 		return `C:\Tools\claude.exe`, time.Now().Add(-48 * time.Hour), nil
 	}
 	nativePrimary(t, h.State)
-	recordTerminal(t, h.State, NativeCFOTerminal, time.Now().Add(-time.Hour))
+	recordTerminal(t, h.State, NativeCEOTerminal, time.Now().Add(-time.Hour))
 	return handler, machine, screen
 }
 
-// A selection saved while the CFO's terminal holds nothing registered in it
-// waits for that terminal's CFO to start and register, rather than being read
+// A selection saved while the CEO's terminal holds nothing registered in it
+// waits for that terminal's CEO to start and register, rather than being read
 // as one a session it never replaced left behind.
-func TestASelectionSavedForAStartingTerminalWaitsForItsCFO(t *testing.T) {
-	// Arrange: a native terminal that runs with no CFO registered in it yet,
-	// which is what a Codex or pi CFO is until its first prompt registers it.
+func TestASelectionSavedForAStartingTerminalWaitsForItsCEO(t *testing.T) {
+	// Arrange: a native terminal that runs with no CEO registered in it yet,
+	// which is what a Codex or pi CEO is until its first prompt registers it.
 	handler, h := startBoard(t, 5*gigabyte, &spawnRecorder{})
 	machine := newFirstRunMachine(t)
 	machine.runs = true
 	s := handler.Service
 	s.Options.FirstRun = machine.run
-	s.Options.CFOJobActivity = func(host.Record) (string, error) { return "", nil }
-	hostTerminal(t, h.State, NativeCFOTerminal)
-	if cfo := readCFOState(h.State); !cfo.starting || cfo.registered {
-		t.Fatalf("cfo state = %+v, want a starting terminal with nothing registered", cfo)
+	s.Options.CEOJobActivity = func(host.Record) (string, error) { return "", nil }
+	hostTerminal(t, h.State, NativeCEOTerminal)
+	if ceo := readCEOState(h.State); !ceo.starting || ceo.registered {
+		t.Fatalf("ceo state = %+v, want a starting terminal with nothing registered", ceo)
 	}
-	if err := os.WriteFile(filepath.Join(h.State, "cfo-engine.json"), []byte(`{"harness":"codex","model":"selected-model","effort":"high","pending":true,"since":"2026-10-26T20:00:00Z"}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(h.State, "ceo-engine.json"), []byte(`{"harness":"codex","model":"selected-model","effort":"high","pending":true,"since":"2026-10-26T20:00:00Z"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	// Act
-	s.applyCFOEngine(t.Context())
+	s.applyCEOEngine(t.Context())
 
 	// Assert
-	choice, err := ReadCFOEngine(h.State)
+	choice, err := ReadCEOEngine(h.State)
 	if err != nil || !choice.Pending || choice.Problem != "" || !strings.Contains(choice.Waiting, "terminal to start") || machine.restarted != 0 {
 		t.Fatalf("choice=%+v err=%v restarted=%d, want the selection still pending on a starting terminal", choice, err, machine.restarted)
 	}
 }
 
-func pressCFOUpdate(handler *HTTP, body string) *httptest.ResponseRecorder {
-	request := httptest.NewRequest("POST", "http://board.local/api/cfo/update", strings.NewReader(body))
+func pressCEOUpdate(handler *HTTP, body string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest("POST", "http://board.local/api/ceo/update", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", "http://board.local")
-	request.Header.Set("X-CFO-Token", orderToken)
+	request.Header.Set("X-CEO-Token", orderToken)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response
 }
 
-func cfoUpdateOf(t *testing.T, s *Service) *CFOUpdate {
+func ceoUpdateOf(t *testing.T, s *Service) *CEOUpdate {
 	t.Helper()
 	snapshot, err := s.Snapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return snapshot.CFOUpdate
+	return snapshot.CEOUpdate
 }
 
-func TestCFOEngineSelectionWaitsForIdleAndAnEmptyComposer(t *testing.T) {
+func TestCEOEngineSelectionWaitsForIdleAndAnEmptyComposer(t *testing.T) {
 	handler, machine, screen := updateBoard(t)
 	if err := os.WriteFile(filepath.Join(machine.home, ".codex", "models_cache.json"), []byte(`{"models":[{"slug":"selected-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	screen.show(append([]string{"✻ Working… (12s · esc to interrupt)"}, claudeAtPrompt("")...))
-	response := taskControlRequest(handler, "/api/cfo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
+	response := taskControlRequest(handler, "/api/ceo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
 	if response.Code != http.StatusOK {
 		t.Fatalf("selection = %d %s", response.Code, response.Body)
 	}
-	handler.Service.applyCFOEngine(t.Context())
+	handler.Service.applyCEOEngine(t.Context())
 	if machine.restarted != 0 {
 		t.Fatal("selection interrupted the active turn")
 	}
 	screen.show(claudeAtPrompt("unsent draft"))
-	handler.Service.applyCFOEngine(t.Context())
+	handler.Service.applyCEOEngine(t.Context())
 	if machine.restarted != 0 {
 		t.Fatal("selection discarded a draft")
 	}
 	isGateRunning := true
-	handler.Service.Options.CFOJobActivity = func(host.Record) (string, error) {
+	handler.Service.Options.CEOJobActivity = func(host.Record) (string, error) {
 		if isGateRunning {
-			return "Waiting for the CFO's gate command to finish", nil
+			return "Waiting for the CEO's gate command to finish", nil
 		}
 		return "", nil
 	}
@@ -176,64 +176,64 @@ func TestCFOEngineSelectionWaitsForIdleAndAnEmptyComposer(t *testing.T) {
 		t.Fatal(err)
 	}
 	screen.show(claudeAtPrompt(""))
-	handler.Service.applyCFOEngine(t.Context())
+	handler.Service.applyCEOEngine(t.Context())
 	if machine.restarted != 0 {
 		t.Fatal("selection interrupted an active gate")
 	}
-	choice, err := ReadCFOEngine(handler.Service.Store.Home.State)
+	choice, err := ReadCEOEngine(handler.Service.Store.Home.State)
 	if err != nil || !strings.Contains(choice.Waiting, "gate command") {
 		t.Fatalf("pending choice = %+v, %v; want an actionable gate reason", choice, err)
 	}
 	isGateRunning = false
-	handler.Service.applyCFOEngine(t.Context())
-	handler.Service.applyCFOEngine(t.Context())
+	handler.Service.applyCEOEngine(t.Context())
+	handler.Service.applyCEOEngine(t.Context())
 	if machine.restarted != 1 {
 		t.Fatalf("restarted %d times, want once at the safe boundary", machine.restarted)
 	}
 }
 
-// The restart that changed the CFO's session applied the saved selection on
+// The restart that changed the CEO's session applied the saved selection on
 // the harness it names, so the board is left with it applied and nothing
 // pending.
-func TestCFOEngineSelectionTheCFOAlreadyRunsLeavesNothingPending(t *testing.T) {
+func TestCEOEngineSelectionTheCEOAlreadyRunsLeavesNothingPending(t *testing.T) {
 	// Arrange
 	handler, machine, _ := updateBoard(t)
 	stateDir := handler.Service.Store.Home.State
 	if err := os.WriteFile(filepath.Join(machine.home, ".codex", "models_cache.json"), []byte(`{"models":[{"slug":"selected-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	response := taskControlRequest(handler, "/api/cfo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
+	response := taskControlRequest(handler, "/api/ceo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
 	if response.Code != http.StatusOK {
 		t.Fatalf("selection = %d %s", response.Code, response.Body)
 	}
-	saved, err := ReadCFOEngine(stateDir)
+	saved, err := ReadCEOEngine(stateDir)
 	if err != nil || !saved.Pending {
 		t.Fatalf("saved choice = %+v, %v; want it pending", saved, err)
 	}
 
-	// Act: the CFO comes back as codex in a session that began after the save.
+	// Act: the CEO comes back as codex in a session that began after the save.
 	nativePrimaryAs(t, stateDir, "codex")
-	recordTerminal(t, stateDir, NativeCFOTerminal, time.Now().Add(-time.Minute))
-	handler.Service.applyCFOEngine(t.Context())
+	recordTerminal(t, stateDir, NativeCEOTerminal, time.Now().Add(-time.Minute))
+	handler.Service.applyCEOEngine(t.Context())
 
 	// Assert
-	choice, err := ReadCFOEngine(stateDir)
+	choice, err := ReadCEOEngine(stateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if choice.Pending || choice.Problem != "" {
-		t.Fatalf("choice = %+v, want the selection the CFO now runs, with nothing pending", choice)
+		t.Fatalf("choice = %+v, want the selection the CEO now runs, with nothing pending", choice)
 	}
 	if choice.Model != "selected-model" || choice.Effort != "high" || machine.restarted != 0 {
 		t.Fatalf("choice = %+v restarted = %d; want the same engine kept and nothing restarted", choice, machine.restarted)
 	}
 }
 
-// A selection saved while the CFO's native terminal runs and nothing has
-// registered in it yet belongs to the CFO's next start, so it is saved
+// A selection saved while the CEO's native terminal runs and nothing has
+// registered in it yet belongs to the CEO's next start, so it is saved
 // pending with no session of its own and waits there, never reading as the
 // engine a running session already runs.
-func TestCFOEngineSelectionSavedWhileTheCFOStartsStaysPending(t *testing.T) {
+func TestCEOEngineSelectionSavedWhileTheCEOStartsStaysPending(t *testing.T) {
 	// Arrange
 	spawner := &spawnRecorder{}
 	handler, h := startBoard(t, 5*gigabyte, spawner)
@@ -243,50 +243,50 @@ func TestCFOEngineSelectionSavedWhileTheCFOStartsStaysPending(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(machine.home, ".codex", "models_cache.json"), []byte(`{"models":[{"slug":"selected-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	hostTerminal(t, h.State, NativeCFOTerminal).standIn(t)
+	hostTerminal(t, h.State, NativeCEOTerminal).standIn(t)
 
 	// Act
-	response := taskControlRequest(handler, "/api/cfo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
+	response := taskControlRequest(handler, "/api/ceo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
 
 	// Assert
 	if response.Code != http.StatusOK {
 		t.Fatalf("selection = %d %s", response.Code, response.Body)
 	}
-	var saved CFOEngine
+	var saved CEOEngine
 	if err := json.Unmarshal(response.Body.Bytes(), &saved); err != nil {
 		t.Fatal(err)
 	}
 	if !saved.Pending || !saved.Since.IsZero() {
 		t.Fatalf("saved = %+v, want a pending selection with no session to replace", saved)
 	}
-	handler.Service.applyCFOEngine(t.Context())
-	choice, err := ReadCFOEngine(h.State)
+	handler.Service.applyCEOEngine(t.Context())
+	choice, err := ReadCEOEngine(h.State)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !choice.Pending || choice.Problem != "" || choice.Waiting == "" || machine.restarted != 0 {
-		t.Fatalf("choice = %+v restarted = %d; want it pending and waiting for the CFO's next start", choice, machine.restarted)
+		t.Fatalf("choice = %+v restarted = %d; want it pending and waiting for the CEO's next start", choice, machine.restarted)
 	}
 }
 
-// A pending selection saved before the CFO's session was known adopts the
+// A pending selection saved before the CEO's session was known adopts the
 // session it finds as the one to replace, keeping its wait, and the restart
 // that replaces that session clears it.
-func TestCFOEngineSelectionWithoutASessionAdoptsItAndWaits(t *testing.T) {
+func TestCEOEngineSelectionWithoutASessionAdoptsItAndWaits(t *testing.T) {
 	// Arrange
 	handler, machine, screen := updateBoard(t)
 	stateDir := handler.Service.Store.Home.State
-	if err := writeCFOEngine(stateDir, CFOEngine{Harness: "codex", Model: "selected-model", Effort: "high", Pending: true}); err != nil {
+	if err := writeCEOEngine(stateDir, CEOEngine{Harness: "codex", Model: "selected-model", Effort: "high", Pending: true}); err != nil {
 		t.Fatal(err)
 	}
-	running := readCFOState(stateDir).since
+	running := readCEOState(stateDir).since
 	screen.show(append([]string{"✻ Reticulating… (12s · esc to interrupt)"}, claudeAtPrompt("")...))
 
 	// Act
-	handler.Service.applyCFOEngine(t.Context())
+	handler.Service.applyCEOEngine(t.Context())
 
 	// Assert
-	choice, err := ReadCFOEngine(stateDir)
+	choice, err := ReadCEOEngine(stateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,13 +297,13 @@ func TestCFOEngineSelectionWithoutASessionAdoptsItAndWaits(t *testing.T) {
 		t.Fatalf("choice = %+v restarted = %d; want it pending and waiting, never read as applied", choice, machine.restarted)
 	}
 
-	// Act: the CFO comes back as codex in a session that began after that one.
+	// Act: the CEO comes back as codex in a session that began after that one.
 	nativePrimaryAs(t, stateDir, "codex")
-	recordTerminalStarted(t, stateDir, NativeCFOTerminal, time.Now().Add(-time.Minute), running.Add(time.Minute))
-	handler.Service.applyCFOEngine(t.Context())
+	recordTerminalStarted(t, stateDir, NativeCEOTerminal, time.Now().Add(-time.Minute), running.Add(time.Minute))
+	handler.Service.applyCEOEngine(t.Context())
 
 	// Assert
-	choice, err = ReadCFOEngine(stateDir)
+	choice, err = ReadCEOEngine(stateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,8 +314,8 @@ func TestCFOEngineSelectionWithoutASessionAdoptsItAndWaits(t *testing.T) {
 
 // A session change that did not consume the saved selection, a restart as
 // another harness or a session that began before it was saved, leaves it
-// saved for the CFO's next start and says so.
-func TestCFOEngineSelectionAnotherSessionKeepsItForTheNextStart(t *testing.T) {
+// saved for the CEO's next start and says so.
+func TestCEOEngineSelectionAnotherSessionKeepsItForTheNextStart(t *testing.T) {
 	for name, test := range map[string]struct {
 		harness string
 		started func(time.Time) time.Time
@@ -330,22 +330,22 @@ func TestCFOEngineSelectionAnotherSessionKeepsItForTheNextStart(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(machine.home, ".codex", "models_cache.json"), []byte(`{"models":[{"slug":"selected-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			response := taskControlRequest(handler, "/api/cfo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
+			response := taskControlRequest(handler, "/api/ceo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
 			if response.Code != http.StatusOK {
 				t.Fatalf("selection = %d %s", response.Code, response.Body)
 			}
-			saved, err := ReadCFOEngine(stateDir)
+			saved, err := ReadCEOEngine(stateDir)
 			if err != nil || !saved.Pending {
 				t.Fatalf("saved choice = %+v, %v; want it pending", saved, err)
 			}
 
 			// Act
 			nativePrimaryAs(t, stateDir, test.harness)
-			recordTerminalStarted(t, stateDir, NativeCFOTerminal, time.Now().Add(-time.Minute), test.started(saved.Since))
-			handler.Service.applyCFOEngine(t.Context())
+			recordTerminalStarted(t, stateDir, NativeCEOTerminal, time.Now().Add(-time.Minute), test.started(saved.Since))
+			handler.Service.applyCEOEngine(t.Context())
 
 			// Assert
-			choice, err := ReadCFOEngine(stateDir)
+			choice, err := ReadCEOEngine(stateDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -357,12 +357,12 @@ func TestCFOEngineSelectionAnotherSessionKeepsItForTheNextStart(t *testing.T) {
 }
 
 // A selection the installed catalog no longer offers at the safe boundary
-// says it stays saved for the CFO's next start, and it does.
-func TestCFOEngineSelectionThatFailsAtApplyStaysSavedForTheNextStart(t *testing.T) {
+// says it stays saved for the CEO's next start, and it does.
+func TestCEOEngineSelectionThatFailsAtApplyStaysSavedForTheNextStart(t *testing.T) {
 	// Arrange
 	handler, machine, screen := updateBoard(t)
 	stateDir := handler.Service.Store.Home.State
-	handler.Service.Options.CFOJobActivity = func(host.Record) (string, error) { return "", nil }
+	handler.Service.Options.CEOJobActivity = func(host.Record) (string, error) { return "", nil }
 	catalog := func(models string) {
 		t.Helper()
 		if err := os.WriteFile(filepath.Join(machine.home, ".codex", "models_cache.json"), []byte(models), 0o600); err != nil {
@@ -371,17 +371,17 @@ func TestCFOEngineSelectionThatFailsAtApplyStaysSavedForTheNextStart(t *testing.
 	}
 	catalog(`{"models":[{"slug":"selected-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`)
 	screen.show(claudeAtPrompt(""))
-	response := taskControlRequest(handler, "/api/cfo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
+	response := taskControlRequest(handler, "/api/ceo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
 	if response.Code != http.StatusOK {
 		t.Fatalf("selection = %d %s", response.Code, response.Body)
 	}
 
-	// Act: the model leaves the installed catalog before the CFO's turn ends.
+	// Act: the model leaves the installed catalog before the CEO's turn ends.
 	catalog(`{"models":[{"slug":"another-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`)
-	handler.Service.applyCFOEngine(t.Context())
+	handler.Service.applyCEOEngine(t.Context())
 
 	// Assert
-	choice, err := ReadCFOEngine(stateDir)
+	choice, err := ReadCEOEngine(stateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,15 +394,15 @@ func TestCFOEngineSelectionThatFailsAtApplyStaysSavedForTheNextStart(t *testing.
 		}
 	}
 	if choice.Model != "selected-model" || choice.Effort != "high" {
-		t.Fatalf("choice = %+v; want the selection kept for the CFO's next start", choice)
+		t.Fatalf("choice = %+v; want the selection kept for the CEO's next start", choice)
 	}
 }
 
-func TestCFOEngineSelectionIgnoresUnrelatedTaskGateRecords(t *testing.T) {
+func TestCEOEngineSelectionIgnoresUnrelatedTaskGateRecords(t *testing.T) {
 	for _, kind := range []string{"absent", "paused", "detached", "stale", "slow"} {
 		t.Run(kind, func(t *testing.T) {
 			handler, machine, screen := updateBoard(t)
-			handler.Service.Options.CFOJobActivity = func(host.Record) (string, error) { return "", nil }
+			handler.Service.Options.CEOJobActivity = func(host.Record) (string, error) { return "", nil }
 			gate := &unrelatedGate{}
 			handler.Service.Options.Gate = gate
 			if err := os.WriteFile(filepath.Join(machine.home, ".codex", "models_cache.json"), []byte(`{"models":[{"slug":"selected-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`), 0o600); err != nil {
@@ -428,11 +428,11 @@ func TestCFOEngineSelectionIgnoresUnrelatedTaskGateRecords(t *testing.T) {
 				}
 			}
 			screen.show(claudeAtPrompt(""))
-			response := taskControlRequest(handler, "/api/cfo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
+			response := taskControlRequest(handler, "/api/ceo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
 			if response.Code != http.StatusOK {
 				t.Fatalf("selection = %d %s", response.Code, response.Body)
 			}
-			handler.Service.applyCFOEngine(t.Context())
+			handler.Service.applyCEOEngine(t.Context())
 			if machine.restarted != 1 || gate.calls != 0 {
 				t.Fatalf("unrelated %s record: restarted=%d gate reads=%d", kind, machine.restarted, gate.calls)
 			}
@@ -440,30 +440,30 @@ func TestCFOEngineSelectionIgnoresUnrelatedTaskGateRecords(t *testing.T) {
 	}
 }
 
-func TestCFOEngineSelectionReportsUnverifiableTerminalCustody(t *testing.T) {
+func TestCEOEngineSelectionReportsUnverifiableTerminalCustody(t *testing.T) {
 	handler, machine, screen := updateBoard(t)
-	handler.Service.Options.CFOJobActivity = func(host.Record) (string, error) { return "", errors.New("access denied") }
+	handler.Service.Options.CEOJobActivity = func(host.Record) (string, error) { return "", errors.New("access denied") }
 	if err := os.WriteFile(filepath.Join(machine.home, ".codex", "models_cache.json"), []byte(`{"models":[{"slug":"selected-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	screen.show(claudeAtPrompt(""))
-	response := taskControlRequest(handler, "/api/cfo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
+	response := taskControlRequest(handler, "/api/ceo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
 	if response.Code != http.StatusOK {
 		t.Fatalf("selection = %d %s", response.Code, response.Body)
 	}
-	handler.Service.applyCFOEngine(t.Context())
-	choice, err := ReadCFOEngine(handler.Service.Store.Home.State)
+	handler.Service.applyCEOEngine(t.Context())
+	choice, err := ReadCEOEngine(handler.Service.Store.Home.State)
 	if err != nil || !choice.Pending || !strings.Contains(choice.Waiting, "access denied") || machine.restarted != 0 {
 		t.Fatalf("choice=%+v err=%v restarted=%d", choice, err, machine.restarted)
 	}
 }
 
-// Claude Code's "Update installed · Restart to update" in the CFO's footer
-// puts Update on the CFO's header and restarts nothing by itself. His press
-// waits while the CFO is in a turn, then restarts the CFO once, on its
-// conversation, through the board's Restart CFO path, as soon as its turn has
+// Claude Code's "Update installed · Restart to update" in the CEO's footer
+// puts Update on the CEO's header and restarts nothing by itself. His press
+// waits while the CEO is in a turn, then restarts the CEO once, on its
+// conversation, through the board's Restart CEO path, as soon as its turn has
 // ended; the press is then spent.
-func TestTheCFOsUpdateRestartsItOnlyAtHisPressAndOnlyOnceItsTurnHasEnded(t *testing.T) {
+func TestTheCEOsUpdateRestartsItOnlyAtHisPressAndOnlyOnceItsTurnHasEnded(t *testing.T) {
 	// Arrange
 	handler, machine, screen := updateBoard(t)
 	s := handler.Service
@@ -474,63 +474,63 @@ func TestTheCFOsUpdateRestartsItOnlyAtHisPressAndOnlyOnceItsTurnHasEnded(t *test
 
 	// Act: an update waits, and nobody pressed it.
 	s.lookForHarnessUpdates()
-	s.applyCFOUpdate(t.Context())
+	s.applyCEOUpdate(t.Context())
 
 	// Assert
-	update := cfoUpdateOf(t, s)
+	update := ceoUpdateOf(t, s)
 	if update == nil || update.Line != "✓ Update installed · Restart to update" || update.Pending || machine.restarted != 0 {
 		t.Fatalf("before the press: update %+v, restarted %d; want Update offered and nothing restarted", update, machine.restarted)
 	}
 
-	// Act: he presses Update while the CFO is in a turn.
+	// Act: he presses Update while the CEO is in a turn.
 	screen.show(turn)
-	response := pressCFOUpdate(handler, "{}")
-	s.applyCFOUpdate(t.Context())
+	response := pressCEOUpdate(handler, "{}")
+	s.applyCEOUpdate(t.Context())
 
 	// Assert
 	if response.Code != http.StatusAccepted || machine.restarted != 0 {
 		t.Fatalf("press mid-turn = %d %s, restarted %d; want it accepted and waiting", response.Code, response.Body, machine.restarted)
 	}
-	if update := cfoUpdateOf(t, s); update == nil || !update.Pending {
+	if update := ceoUpdateOf(t, s); update == nil || !update.Pending {
 		t.Fatalf("after the press: update %+v, want it pending", update)
 	}
 
 	// Act: its turn ends.
 	screen.show(idle)
-	s.applyCFOUpdate(t.Context())
-	s.applyCFOUpdate(t.Context())
+	s.applyCEOUpdate(t.Context())
+	s.applyCEOUpdate(t.Context())
 
 	// Assert
 	if machine.restarted != 1 {
 		t.Fatalf("restarted %d times at the end of its turn, want once", machine.restarted)
 	}
-	if update := cfoUpdateOf(t, s); update != nil && (update.Pending || update.Updating || update.Problem != "") {
+	if update := ceoUpdateOf(t, s); update != nil && (update.Pending || update.Updating || update.Problem != "") {
 		t.Errorf("after the restart: update %+v, want the press spent", update)
 	}
 }
 
-// A press is for the CFO it was made for: once that CFO's terminal was
-// replaced, by a restart of its own or a new CFO, the press is dropped and
+// A press is for the CEO it was made for: once that CEO's terminal was
+// replaced, by a restart of its own or a new CEO, the press is dropped and
 // restarts nothing. With no update waiting, Update is refused, and a press
 // taken back restarts nothing either.
-func TestTheCFOsUpdatePressNeverOutlivesTheCFOItWasFor(t *testing.T) {
+func TestTheCEOsUpdatePressNeverOutlivesTheCEOItWasFor(t *testing.T) {
 	t.Run("a terminal started again", func(t *testing.T) {
 		// Arrange
 		handler, machine, screen := updateBoard(t)
 		s := handler.Service
 		screen.show(claudeAtPrompt("", "  ✓ Update installed · Restart to update"))
 		s.lookForHarnessUpdates()
-		if response := pressCFOUpdate(handler, "{}"); response.Code != http.StatusAccepted {
+		if response := pressCEOUpdate(handler, "{}"); response.Code != http.StatusAccepted {
 			t.Fatalf("press = %d %s", response.Code, response.Body)
 		}
-		recordTerminal(t, s.Store.Home.State, NativeCFOTerminal, time.Now())
+		recordTerminal(t, s.Store.Home.State, NativeCEOTerminal, time.Now())
 
 		// Act
 		s.lookForHarnessUpdates()
-		s.applyCFOUpdate(t.Context())
+		s.applyCEOUpdate(t.Context())
 
 		// Assert
-		if _, err := os.Stat(filepath.Join(s.Store.Home.State, cfoUpdateFile)); !os.IsNotExist(err) || machine.restarted != 0 {
+		if _, err := os.Stat(filepath.Join(s.Store.Home.State, ceoUpdateFile)); !os.IsNotExist(err) || machine.restarted != 0 {
 			t.Errorf("press file: %v, restarted %d; want the press dropped and nothing restarted", err, machine.restarted)
 		}
 	})
@@ -541,10 +541,10 @@ func TestTheCFOsUpdatePressNeverOutlivesTheCFOItWasFor(t *testing.T) {
 		handler.Service.lookForHarnessUpdates()
 
 		// Act
-		response := pressCFOUpdate(handler, "{}")
+		response := pressCEOUpdate(handler, "{}")
 
 		// Assert
-		if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "No harness update waits for the CFO") || machine.restarted != 0 {
+		if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "No harness update waits for the CEO") || machine.restarted != 0 {
 			t.Errorf("press = %d %s, restarted %d; want it refused", response.Code, response.Body, machine.restarted)
 		}
 	})
@@ -554,17 +554,17 @@ func TestTheCFOsUpdatePressNeverOutlivesTheCFOItWasFor(t *testing.T) {
 		s := handler.Service
 		screen.show(claudeAtPrompt("", "  ✓ Update installed · Restart to update"))
 		s.lookForHarnessUpdates()
-		pressCFOUpdate(handler, "{}")
+		pressCEOUpdate(handler, "{}")
 
 		// Act
-		response := pressCFOUpdate(handler, `{"cancel":true}`)
-		s.applyCFOUpdate(t.Context())
+		response := pressCEOUpdate(handler, `{"cancel":true}`)
+		s.applyCEOUpdate(t.Context())
 
 		// Assert
 		if response.Code != http.StatusOK || machine.restarted != 0 {
 			t.Errorf("cancel = %d %s, restarted %d; want nothing restarted", response.Code, response.Body, machine.restarted)
 		}
-		if update := cfoUpdateOf(t, s); update == nil || update.Pending {
+		if update := ceoUpdateOf(t, s); update == nil || update.Pending {
 			t.Errorf("after the cancel: update %+v, want Update offered again", update)
 		}
 	})
@@ -574,7 +574,7 @@ func TestTheCFOsUpdatePressNeverOutlivesTheCFOItWasFor(t *testing.T) {
 // its card. His press waits for the end of its turn, with no gate step,
 // background shell, monitor or sub-agent of its own running, and then
 // restarts it in place with its own harness, model and effort, on its own
-// conversation, through cfo switch --restart, once.
+// conversation, through ceo switch --restart, once.
 func TestAGoblinsUpdateRestartsItInPlaceOnlyAtTheEndOfItsTurn(t *testing.T) {
 	// Arrange
 	spawner := &spawnRecorder{}
@@ -653,7 +653,7 @@ func TestAGoblinsUpdateRestartsItInPlaceOnlyAtTheEndOfItsTurn(t *testing.T) {
 	}
 }
 
-// Nothing restarts by itself: with updates waiting for the CFO and a goblin
+// Nothing restarts by itself: with updates waiting for the CEO and a goblin
 // and AFK mode on, every pass of the supervisor that could restart one, and
 // AFK mode's own, restarts neither.
 func TestNothingRestartsOntoAnUpdateByItselfEvenInAFKMode(t *testing.T) {
@@ -679,7 +679,7 @@ func TestNothingRestartsOntoAnUpdateByItselfEvenInAFKMode(t *testing.T) {
 	now := time.Now().UTC()
 	for elapsed := range 4 {
 		s.lookForHarnessUpdates()
-		s.applyCFOUpdate(t.Context())
+		s.applyCEOUpdate(t.Context())
 		if err := s.applyEngineChoices(t.Context(), now.Add(time.Duration(elapsed)*2*time.Second)); err != nil {
 			t.Fatal(err)
 		}
@@ -694,11 +694,11 @@ func TestNothingRestartsOntoAnUpdateByItselfEvenInAFKMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	card := engineCard(t, s, meta.ID)
-	if snapshot.CFOUpdate == nil || card.HarnessUpdate == nil {
-		t.Fatalf("CFO update %+v, goblin update %+v; want both offered", snapshot.CFOUpdate, card.HarnessUpdate)
+	if snapshot.CEOUpdate == nil || card.HarnessUpdate == nil {
+		t.Fatalf("CEO update %+v, goblin update %+v; want both offered", snapshot.CEOUpdate, card.HarnessUpdate)
 	}
-	if machine.restarted != 0 || len(spawner.recorded()) != 0 || card.PendingEngine != nil || snapshot.CFOUpdate.Pending {
-		t.Errorf("restarted %d, calls %+v, pending %+v / %v; want nothing pressed and nothing restarted", machine.restarted, spawner.recorded(), card.PendingEngine, snapshot.CFOUpdate.Pending)
+	if machine.restarted != 0 || len(spawner.recorded()) != 0 || card.PendingEngine != nil || snapshot.CEOUpdate.Pending {
+		t.Errorf("restarted %d, calls %+v, pending %+v / %v; want nothing pressed and nothing restarted", machine.restarted, spawner.recorded(), card.PendingEngine, snapshot.CEOUpdate.Pending)
 	}
 }
 
@@ -721,11 +721,11 @@ func screenShows(t *testing.T, stateDir, id, text string, working bool) {
 	}
 }
 
-// The same through a real terminal: a stand-in Claude Code CFO in native
-// terminal cfo draws its footer's update line, which the supervisor reads
+// The same through a real terminal: a stand-in Claude Code CEO in native
+// terminal ceo draws its footer's update line, which the supervisor reads
 // through the terminal's host, and his press waits out the turn the stand-in
-// draws before the CFO is restarted, once.
-func TestTheCFOsUpdateIsReadFromItsTerminalAndWaitsOutItsTurn(t *testing.T) {
+// draws before the CEO is restarted, once.
+func TestTheCEOsUpdateIsReadFromItsTerminalAndWaitsOutItsTurn(t *testing.T) {
 	// Arrange
 	spawner := &spawnRecorder{}
 	handler, h := startBoard(t, 5*gigabyte, spawner)
@@ -736,28 +736,28 @@ func TestTheCFOsUpdateIsReadFromItsTerminalAndWaitsOutItsTurn(t *testing.T) {
 	s.Options.ProgramInstalled = func(harness.Kind) (string, time.Time, error) {
 		return `C:\Tools\claude.exe`, time.Now().Add(-48 * time.Hour), nil
 	}
-	cfo := hostTerminal(t, h.State, NativeCFOTerminal)
-	cfo.standIn(t)
+	ceo := hostTerminal(t, h.State, NativeCEOTerminal)
+	ceo.standIn(t)
 	nativePrimary(t, h.State)
-	cfo.typeLine(t, "update installed")
-	screenShows(t, h.State, NativeCFOTerminal, "✓ Update installed · Restart to update", false)
+	ceo.typeLine(t, "update installed")
+	screenShows(t, h.State, NativeCEOTerminal, "✓ Update installed · Restart to update", false)
 
 	// Act
 	s.lookForHarnessUpdates()
-	response := pressCFOUpdate(handler, "{}")
-	cfo.typeLine(t, "turn")
-	screenShows(t, h.State, NativeCFOTerminal, "Pondering", true)
-	s.applyCFOUpdate(t.Context())
+	response := pressCEOUpdate(handler, "{}")
+	ceo.typeLine(t, "turn")
+	screenShows(t, h.State, NativeCEOTerminal, "Pondering", true)
+	s.applyCEOUpdate(t.Context())
 
 	// Assert
-	if update := cfoUpdateOf(t, s); response.Code != http.StatusAccepted || update == nil || update.Line != "✓ Update installed · Restart to update" || !update.Pending || machine.restarted != 0 {
+	if update := ceoUpdateOf(t, s); response.Code != http.StatusAccepted || update == nil || update.Line != "✓ Update installed · Restart to update" || !update.Pending || machine.restarted != 0 {
 		t.Fatalf("press = %d %s, update %+v, restarted %d; want the press waiting out the turn", response.Code, response.Body, update, machine.restarted)
 	}
 
 	// Act
-	cfo.typeLine(t, "update installed")
-	screenShows(t, h.State, NativeCFOTerminal, "✓ Update installed · Restart to update", false)
-	s.applyCFOUpdate(t.Context())
+	ceo.typeLine(t, "update installed")
+	screenShows(t, h.State, NativeCEOTerminal, "✓ Update installed · Restart to update", false)
+	s.applyCEOUpdate(t.Context())
 
 	// Assert
 	if machine.restarted != 1 {
@@ -851,9 +851,9 @@ func TestACodexOrPiUpdateIsSeenFromItsPackageWhateverInstalledIt(t *testing.T) {
 	}
 }
 
-// A Codex CFO is read the same way, so its header offers Update on an install
+// A Codex CEO is read the same way, so its header offers Update on an install
 // written since its terminal started and on nothing else.
-func TestACodexCFOGetsUpdateWhenItsPackageWasInstalledSinceItStarted(t *testing.T) {
+func TestACodexCEOGetsUpdateWhenItsPackageWasInstalledSinceItStarted(t *testing.T) {
 	// Arrange
 	handler, h := startBoard(t, 5*gigabyte, &spawnRecorder{})
 	s := handler.Service
@@ -863,14 +863,14 @@ func TestACodexCFOGetsUpdateWhenItsPackageWasInstalledSinceItStarted(t *testing.
 	npmInstalled(t, directory, harness.Codex, "@openai/codex", started.Add(30*time.Minute), started.Add(-time.Hour))
 	npmOnPath(t, directory)
 	nativePrimaryAs(t, h.State, "codex")
-	recordTerminal(t, h.State, NativeCFOTerminal, started)
+	recordTerminal(t, h.State, NativeCEOTerminal, started)
 
 	// Act: npm linked the shim again since it started, and the package is older.
 	s.lookForHarnessUpdates()
 
 	// Assert
-	if update := cfoUpdateOf(t, s); update != nil {
-		t.Fatalf("CFO update = %+v, want none: only the shim was written since it started", update)
+	if update := ceoUpdateOf(t, s); update != nil {
+		t.Fatalf("CEO update = %+v, want none: only the shim was written since it started", update)
 	}
 
 	// Act: its own updater writes the package.
@@ -881,8 +881,8 @@ func TestACodexCFOGetsUpdateWhenItsPackageWasInstalledSinceItStarted(t *testing.
 	s.lookForHarnessUpdates()
 
 	// Assert
-	if update := cfoUpdateOf(t, s); update == nil || update.Harness != "codex" || !update.Installed.Equal(updated) {
-		t.Fatalf("CFO update = %+v, want the codex install at %s", update, updated)
+	if update := ceoUpdateOf(t, s); update == nil || update.Harness != "codex" || !update.Installed.Equal(updated) {
+		t.Fatalf("CEO update = %+v, want the codex install at %s", update, updated)
 	}
 }
 

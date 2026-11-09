@@ -1,9 +1,9 @@
-import { CFO_DOOR, expect, holdStream, type Locator, openChat, openTaskList, type Page, test } from "./site";
+import { CEO_DOOR, expect, holdStream, type Locator, openChat, openTaskList, type Page, test } from "./site";
 
-// The Overlord, 2026-10-08 about 21:55Z, of Restart the CFO in the body of
-// the CFO's panel: "what does restart the cfo do.. i want it in header of
+// The Overlord, 2026-10-08 about 21:55Z, of Restart the CEO in the body of
+// the CEO's panel: "what does restart the cfo do.. i want it in header of
 // task panel please right below goblin". On 2026-10-13 every harness control
-// moved into a category of its own named Harness, the CFO's Restart with it.
+// moved into a category of its own named Harness, the CEO's Restart with it.
 // The supervisor is played here: one snapshot on a held stream.
 const NOTE = "An optional drive that Defender scans in performance mode, so files open faster.";
 const EXPLAIN = "A Dev Drive is a drive Windows 11 formats for developer work: Microsoft Defender keeps scanning it, in performance mode, so opening a file no longer waits for the scan. It is not a Defender exclusion.";
@@ -11,7 +11,7 @@ const LINE = "absent: this machine can have one (A Dev Drive is a drive Windows 
 const drive = (fields: Record<string, unknown> = {}) => ({ state: "absent", line: LINE, explain: EXPLAIN, note: NOTE, action: "set-up", ...fields });
 const snapshot = (fields: Record<string, unknown> = {}) => ({
   healthy: true, instance: "fixture", revision: 1, attention: [], tasks: [], afk: { state: "off" },
-  cfo_runs: true, cfo_harness: "claude", cfo_terminal: "cfo", cfo_terminal_since: "2026-10-08T09:00:00Z", sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }],
+  ceo_runs: true, ceo_harness: "claude", ceo_terminal: "ceo", ceo_terminal_since: "2026-10-08T09:00:00Z", sessions: [{ id: "ceo-1", harness: "claude", role: "ceo", model: "claude-opus-5-5" }],
   start_at_login: { on: true, unavailable: "" }, dev_drive: drive(), ...fields,
 });
 
@@ -22,8 +22,8 @@ async function open(page: Page, first: object) {
     return route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   await page.goto("/");
-  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
-  await expect(page.locator("#panel-title")).toHaveText("CFO");
+  await page.locator(".ceo-pin").getByRole("button", { name: CEO_DOOR }).last().click();
+  await expect(page.locator("#panel-title")).toHaveText("CEO");
   await openTaskList(page);
   await page.evaluate(() => document.fonts.ready);
 }
@@ -42,13 +42,13 @@ const lines = (locator: Locator) => locator.evaluate((element) => {
 });
 const pageScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
-test("the CFO task panel omits runtime status with or without its registered session", async ({ page }) => {
-  const endedPi = { id: "pi/old-cfo", native_id: "old-cfo", harness: "pi", role: "cfo", phase: "ended", model: "openrouter/deepseek/deepseek-v4.1-flash" };
-  const live = { id: "claude/live-cfo", native_id: "live-cfo", harness: "claude", role: "cfo", phase: "active", model: "claude-opus-5-5" };
+test("the CEO task panel omits runtime status with or without its registered session", async ({ page }) => {
+  const endedPi = { id: "pi/old-ceo", native_id: "old-ceo", harness: "pi", role: "ceo", phase: "ended", model: "openrouter/deepseek/deepseek-v4.1-flash" };
+  const live = { id: "claude/live-ceo", native_id: "live-ceo", harness: "claude", role: "ceo", phase: "active", model: "claude-opus-5-5" };
   for (const sessions of [[endedPi, live], [endedPi]] as const) {
-    await open(page, snapshot({ cfo_session: "claude/live-cfo", sessions }));
+    await open(page, snapshot({ ceo_session: "claude/live-ceo", sessions }));
     await expect(page.locator(".panel-header-details .panel-status")).toHaveCount(0);
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
   }
 });
 
@@ -56,24 +56,24 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
   test.describe(`at ${size} width`, () => {
     test.use({ viewport });
 
-    test("the CFO task view opens with its harness alone, with no finished strip or empty Dev Drive reserving space", async ({ page }, testInfo) => {
+    test("the CEO task view opens with its harness alone, with no finished strip or empty Dev Drive reserving space", async ({ page }, testInfo) => {
       // Arrange
       await open(page, snapshot({
-        cfo_session: "cfo-1",
-        sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", phase: "settled", runtime: { state: "settled" } }],
+        ceo_session: "ceo-1",
+        sessions: [{ id: "ceo-1", harness: "claude", role: "ceo", phase: "settled", runtime: { state: "settled" } }],
         dev_drive: drive({ state: "on", line: "on: the home's worktrees, scratch and caches are on D:\\CodeGoblins", note: "The worktrees and caches are on D:\\CodeGoblins.", action: "", waiting: "" }),
       }));
       const panel = page.locator(".goblin-panel");
       const details = panel.locator(".panel-header-details");
       const workspace = panel.locator(".workspace-details");
       const summary = workspace.locator("> summary");
-      await panel.screenshot({ path: testInfo.outputPath(`cfo-task-collapsed-${size}.png`) });
+      await panel.screenshot({ path: testInfo.outputPath(`ceo-task-collapsed-${size}.png`) });
 
       // Act
       await summary.focus();
       await page.keyboard.press("Enter");
-      await expect(workspace.getByText("CFO project root", { exact: true })).toBeVisible();
-      await panel.screenshot({ path: testInfo.outputPath(`cfo-task-workspace-${size}.png`) });
+      await expect(workspace.getByText("CEO project root", { exact: true })).toBeVisible();
+      await panel.screenshot({ path: testInfo.outputPath(`ceo-task-workspace-${size}.png`) });
 
       // Assert
       await expect.soft(details.locator(".panel-status")).toHaveCount(0, { timeout: 1000 });
@@ -84,7 +84,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       const detailsBox = await box(details);
       const workspaceBox = await box(workspace);
       const workspaceGap = workspaceBox.y - (detailsBox.y + detailsBox.height);
-      await testInfo.attach(`cfo-task-layout-${size}`, { body: JSON.stringify({ detailsTopGap: detailsBox.y - taskBox.y, workspaceGap, workspaceHeight: workspaceBox.height, statusRows: await details.locator(".panel-status").count(), devDriveRows: await workspace.locator(".dev-drive-setting").count() }), contentType: "application/json" });
+      await testInfo.attach(`ceo-task-layout-${size}`, { body: JSON.stringify({ detailsTopGap: detailsBox.y - taskBox.y, workspaceGap, workspaceHeight: workspaceBox.height, statusRows: await details.locator(".panel-status").count(), devDriveRows: await workspace.locator(".dev-drive-setting").count() }), contentType: "application/json" });
       expect.soft(detailsBox.y - taskBox.y).toBeLessThanOrEqual(1);
       expect.soft(workspaceGap).toBeLessThanOrEqual(1);
       await expect.soft(workspace.getByText("Dev Drive", { exact: true })).toHaveCount(0, { timeout: 1000 });
@@ -99,15 +99,15 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       await expect(remote).toBeFocused();
       await page.keyboard.press("Enter");
       await expect(panel.locator(".remote-access")).toHaveAttribute("open", "");
-      await expect(panel.getByRole("heading", { name: "CFO", exact: true })).toBeVisible();
+      await expect(panel.getByRole("heading", { name: "CEO", exact: true })).toBeVisible();
     });
 
-    test("the CFO task view keeps its AFK report and pending update notice", async ({ page }) => {
+    test("the CEO task view keeps its AFK report and pending update notice", async ({ page }) => {
       // Arrange
-      await open(page, snapshot({ afk: { state: "off", page: "/fixture-report" }, cfo_update: { harness: "claude", pending: true } }));
+      await open(page, snapshot({ afk: { state: "off", page: "/fixture-report" }, ceo_update: { harness: "claude", pending: true } }));
       const details = page.locator(".panel-header-details");
       const asked: unknown[] = [];
-      await page.route("**/api/cfo/update", (route) => { asked.push(route.request().postDataJSON()); return route.fulfill({ json: {} }); });
+      await page.route("**/api/ceo/update", (route) => { asked.push(route.request().postDataJSON()); return route.fulfill({ json: {} }); });
 
       // Act
       await page.getByRole("button", { name: "Cancel the Claude Code update" }).click();
@@ -119,16 +119,16 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       await expect.poll(() => asked).toEqual([{ cancel: true }]);
     });
 
-    test("Restart the CFO sits under Harness in the CFO's task panel, on one line with its harness, and the header has none", async ({ page }, testInfo) => {
+    test("Restart the CEO sits under Harness in the CEO's task panel, on one line with its harness, and the header has none", async ({ page }, testInfo) => {
       // Arrange
       await open(page, snapshot());
       const section = page.locator(".panel-content > .disclosure.harness");
-      const restart = section.getByRole("button", { name: "Restart the CFO" });
+      const restart = section.getByRole("button", { name: "Restart the CEO" });
       const selector = section.getByRole("button", { name: "Harness: Claude Code" });
 
       // Act
       await section.locator("> summary").click();
-      await page.locator(".goblin-panel").screenshot({ path: testInfo.outputPath(`cfo-harness-${size}.png`) });
+      await page.locator(".goblin-panel").screenshot({ path: testInfo.outputPath(`ceo-harness-${size}.png`) });
 
       // Assert
       await expect(restart).toBeVisible();
@@ -149,7 +149,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       // Arrange
       const asked: { method: string; body: string | null }[] = [];
       await open(page, snapshot());
-      await page.route("**/api/cfo/restart", (route) => { asked.push({ method: route.request().method(), body: route.request().postData() }); return route.fulfill({ json: {} }); });
+      await page.route("**/api/ceo/restart", (route) => { asked.push({ method: route.request().method(), body: route.request().postData() }); return route.fulfill({ json: {} }); });
       const section = page.locator(".panel-content > .disclosure.harness");
       await section.locator("> summary").click();
       const selector = section.getByRole("button", { name: "Harness: Claude Code" });
@@ -161,12 +161,12 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       // Assert
       await expect(page.getByRole("menu", { name: "Harness" })).toHaveCount(0);
       await expect(selector).toBeFocused();
-      await expect(page.locator("#panel-title")).toHaveText("CFO");
+      await expect(page.locator("#panel-title")).toHaveText("CEO");
       expect(asked).toEqual([]);
       await selector.click();
       await page.getByRole("menuitemradio", { name: "Codex", exact: true }).click();
       expect(asked).toEqual([]);
-      await section.getByRole("button", { name: "Restart the CFO" }).click();
+      await section.getByRole("button", { name: "Restart the CEO" }).click();
       await expect.poll(() => asked).toEqual([{ method: "POST", body: JSON.stringify({ harness: "codex" }) }]);
       await expect(page.getByRole("dialog")).toHaveCount(0);
     });
@@ -180,11 +180,11 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
 
       // Assert
       await expect(page.locator(".panel-header")).toHaveClass(/one-row/);
-      await expect(page.getByRole("button", { name: "Restart the CFO" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Restart the CEO" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: /^Harness:/ })).toHaveCount(0);
     });
 
-    test("the CFO task panel omits the prompt and explanation while keeping Dev Drive actions", async ({ page }, testInfo) => {
+    test("the CEO task panel omits the prompt and explanation while keeping Dev Drive actions", async ({ page }, testInfo) => {
       // Arrange
       const settingsRequests: string[] = [];
       page.on("request", (request) => {
@@ -197,7 +197,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       await page.locator(".panel-content > .disclosure.harness > summary").click();
 
       // Assert
-      await expect(page.getByText("CFO project root", { exact: true })).toBeVisible();
+      await expect(page.getByText("CEO project root", { exact: true })).toBeVisible();
       await expect(page.locator(".panel-content > .disclosure.harness").getByRole("button", { name: "Harness: Claude Code" })).toBeVisible();
       await expect(page.locator(".panel-content > .disclosure.connections")).toHaveCount(0);
       await expect(page.getByText("Choose a goblin to check its connections.", { exact: true })).toHaveCount(0);
@@ -208,7 +208,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       await expect(page.getByText("Start at login", { exact: true })).toHaveCount(0);
       expect(settingsRequests).toEqual([]);
       expect(await pageScroll(page)).toBe(0);
-      await page.locator(".goblin-panel").screenshot({ path: testInfo.outputPath(`cfo-panel-trimmed-${size}.png`) });
+      await page.locator(".goblin-panel").screenshot({ path: testInfo.outputPath(`ceo-panel-trimmed-${size}.png`) });
     });
 
     for (const [action, label] of [["set-up", "Set up"], ["try-again", "Try again"], ["attach", "Attach"]] as const) {
@@ -216,7 +216,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
         const requests: { token: string | null; body: string | null }[] = [];
         await open(page, snapshot({ dev_drive: drive({ action }) }));
         await page.route("**/api/dev-drive", async (route) => {
-          requests.push({ token: await route.request().headerValue("X-CFO-Token"), body: route.request().postData() });
+          requests.push({ token: await route.request().headerValue("X-CEO-Token"), body: route.request().postData() });
           await route.fulfill({ json: { wanted: true } });
         });
         await page.locator(".panel-content > .disclosure.workspace-details > summary").click();

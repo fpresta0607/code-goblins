@@ -1,5 +1,5 @@
-# cfo version
+# ceo version
 
-`cfo version`
+`ceo version`
 
 Print the version

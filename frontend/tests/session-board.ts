@@ -1,7 +1,7 @@
 import { expect, type Page } from "./site";
 
 // A board with two Claude Code goblins, Zeke and Ivy, each in a native
-// terminal, and a CFO, for the specs of a session's messages and its box. The
+// terminal, and a CEO, for the specs of a session's messages and its box. The
 // supervisor is played here: the board's snapshot and each session's messages
 // on held streams, the speech model, and the terminal's relay, which records
 // what reached the terminal, counts the sizes the board asks for and tells
@@ -13,7 +13,7 @@ export const GOBLIN = {
 };
 export const OTHER = { ...GOBLIN, id: "cg-other", title: "Another goblin; Claude Code", goblin_name: "Ivy", goblin_title: "Window Painter", generation: "cg-other-1" };
 export const snapshot = (fields: Record<string, unknown> = {}, goblin: Record<string, unknown> = {}) => ({
-  healthy: true, instance: "fixture", revision: 1, attention: [], cfo_runs: true, cfo_terminal: "cfo-term", cfo_harness: "claude", afk: { state: "off" }, tasks: [{ ...GOBLIN, ...goblin }, OTHER], ...fields,
+  healthy: true, instance: "fixture", revision: 1, attention: [], ceo_runs: true, ceo_terminal: "ceo-term", ceo_harness: "claude", afk: { state: "off" }, tasks: [{ ...GOBLIN, ...goblin }, OTHER], ...fields,
 });
 export const PAGE = { messages: [{ id: "m0", seq: 0, at, kind: "prompt", source: "overlord", text: "Read the brief" }, { id: "m1", seq: 1, at, kind: "reply", blocks: [{ kind: "text", text: "On it." }] }], conversation: "fixture-conversation", more: false };
 export const NAME = "Zeke - Touch Wrangler";
@@ -48,8 +48,8 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
   let isRefused = false;
   let goblinSpoke = false;
   await page.addInitScript(() => {
-    if (!localStorage.getItem("cfo-first-open")) localStorage.setItem("cfo-first-open", "shown");
-    localStorage.setItem("cfo-voice-hint-v1", "dismissed");
+    if (!localStorage.getItem("ceo-first-open")) localStorage.setItem("ceo-first-open", "shown");
+    localStorage.setItem("ceo-voice-hint-v1", "dismissed");
   });
   await page.addInitScript(({ data, messages }) => {
     // The board's snapshot stream, which a test sends a later snapshot down,

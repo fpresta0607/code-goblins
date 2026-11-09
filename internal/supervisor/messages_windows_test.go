@@ -68,7 +68,7 @@ func TestAMessageToAWorkingGoblinIsTypedIntoItsTerminalOnce(t *testing.T) {
 			// has to be a repository, and a gate with no run of the branch holds none.
 			gitWorktree(t, meta.Worktree)
 			goblin := goblinTerminal(t, h.State, meta.ID)
-			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 			messageTo(t, store, meta, "message-1", "use the staging database")
 
 			// Act
@@ -94,7 +94,7 @@ func TestAMessageRefusedBeforeTypingStaysQueuedUntilTheComposerReturns(t *testin
 	meta := makeNative(t, h.State, "task-1")
 	gitWorktree(t, meta.Worktree)
 	goblinTerminal(t, h.State, meta.ID)
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 	messageTo(t, store, meta, "message-1", "keep this through the picker")
 	previous := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = previous })
@@ -125,7 +125,7 @@ func TestAMessageToAPausedGoblinIsKeptForItsResume(t *testing.T) {
 	store, h := testStore(t)
 	meta := makeNative(t, h.State, "task-1")
 	atPhase(t, h.State, meta, "pause", "paused")
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}}}
 	messageTo(t, store, meta, "message-1", "check the flaky test first")
 	messageTo(t, store, meta, "message-2", "then rebase")
 
@@ -161,7 +161,7 @@ func TestHisMessageToAPausedGoblinResumesItOnceWithTheMessageInItsNote(t *testin
 	spawner := &spawnRecorder{release: make(chan struct{})}
 	handler, h := startBoard(t, 16*gigabyte, spawner)
 	service, store := handler.Service, handler.Service.Store
-	service.Options.CFO = &CFOConnection{State: h.State}
+	service.Options.CEO = &CEOConnection{State: h.State}
 	meta := makeNative(t, h.State, "task-1")
 	atPhase(t, h.State, meta, "pause", "paused")
 	messageTo(t, store, meta, "message-1", "check the flaky test first")
@@ -185,7 +185,7 @@ func TestHisMessageToAPausedGoblinResumesItOnceWithTheMessageInItsNote(t *testin
 		t.Errorf("record = %+v, want both messages in the note its resume carries", record)
 	}
 	if len(calls) != 1 || calls[0][0] != "resume" || calls[0][1] != meta.ID {
-		t.Errorf("cfo ran %v, want one resume of %s", calls, meta.ID)
+		t.Errorf("ceo ran %v, want one resume of %s", calls, meta.ID)
 	}
 }
 
@@ -198,7 +198,7 @@ func TestAMessageToAResumingGoblinWaitsAndIsTypedOnceItRuns(t *testing.T) {
 	// has to be a repository, and a gate with no run of the branch holds none.
 	gitWorktree(t, meta.Worktree)
 	goblin := goblinTerminal(t, h.State, meta.ID)
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 	messageTo(t, store, meta, "message-1", "skip the docs")
 
 	// Act
@@ -221,7 +221,7 @@ func TestAMessageToAResumingGoblinWaitsAndIsTypedOnceItRuns(t *testing.T) {
 
 // A message is kept only for a resume that can run: a failed resume of its
 // goblin's own session, or the task's interrupted resume, which a Resume
-// takes up again. A resume whose session a later start replaced, as a cfo
+// takes up again. A resume whose session a later start replaced, as a ceo
 // switch run to rescue the goblin does, is neither, and decides nothing of
 // where the message goes, so it is typed into the goblin's running terminal
 // (issue #1221).
@@ -253,7 +253,7 @@ func TestAMessageIsKeptOnlyForAResumeThatCanRun(t *testing.T) {
 			// about, so its worktree has to be a repository.
 			gitWorktree(t, meta.Worktree)
 			goblin := goblinTerminal(t, h.State, meta.ID)
-			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 			messageTo(t, store, meta, "message-1", "use the staging database")
 
 			// Act
@@ -285,7 +285,7 @@ func TestAMessageIsKeptOnlyForAResumeThatCanRun(t *testing.T) {
 	}
 }
 
-// switchSession publishes a new session for meta's task as a cfo switch does
+// switchSession publishes a new session for meta's task as a ceo switch does
 // once it has stopped the old harness: a new generation, and no resume.
 func switchSession(t *testing.T, stateDir string, meta state.TaskMeta) {
 	t.Helper()
@@ -295,8 +295,8 @@ func switchSession(t *testing.T, stateDir string, meta state.TaskMeta) {
 	}
 }
 
-// toldCFO is what task's notify wakes tell the CFO.
-func toldCFO(t *testing.T, stateDir, task string) []string {
+// toldCEO is what task's notify wakes tell the CEO.
+func toldCEO(t *testing.T, stateDir, task string) []string {
 	t.Helper()
 	pending, err := wake.Pending(stateDir)
 	if err != nil {
@@ -311,15 +311,15 @@ func toldCFO(t *testing.T, stateDir, task string) []string {
 	return told
 }
 
-// A message kept for a resume goes to the CFO with its words once a later
-// start, such as a cfo switch run to rescue the goblin, replaces the session
+// A message kept for a resume goes to the CEO with its words once a later
+// start, such as a ceo switch run to rescue the goblin, replaces the session
 // that resume was for, since no resume of that record runs again: one kept
 // before the switch, and one kept while it runs, holding the task's metadata
 // lock but not its lifecycle lock until it publishes the new session. The
 // supervisor's next recovery reading hands each on once, and an answer given
 // while paused stays in the note. A message kept for a resume of the current
 // session stays kept (issue #1280).
-func TestAMessageKeptForAResumeGoesToTheCFOOnceALaterStartReplacesItsSession(t *testing.T) {
+func TestAMessageKeptForAResumeGoesToTheCEOOnceALaterStartReplacesItsSession(t *testing.T) {
 	started := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	paused := state.Lifecycle{ID: "task-1", Generation: "g1", RequestGeneration: "g1", Operation: "pause-1", Action: "pause", Phase: "paused", Started: started, Updated: started}
 	failed := state.Lifecycle{ID: "task-1", Generation: "g1", RequestGeneration: "g1", Operation: "resume-1", Action: "resume", Phase: "failed", Started: started, Updated: started.Add(3 * time.Minute)}
@@ -347,7 +347,7 @@ func TestAMessageKeptForAResumeGoesToTheCFOOnceALaterStartReplacesItsSession(t *
 			if err := state.WriteLifecycle(h.State, record); err != nil {
 				t.Fatal(err)
 			}
-			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}}}
 
 			// Act
 			switch tc.when {
@@ -371,19 +371,19 @@ func TestAMessageKeptForAResumeGoesToTheCFOOnceALaterStartReplacesItsSession(t *
 			service.cycle(context.Background(), true)
 
 			// Assert
-			told := toldCFO(t, h.State, meta.ID)
+			told := toldCEO(t, h.State, meta.ID)
 			after, err := state.ReadLifecycle(h.State, meta.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if tc.when == "never" {
 				if len(told) != 0 || after.ResumeNote != fromOverlord("use the staging database") {
-					t.Fatalf("the CFO was told %q and the resume note is %q, want the message still kept for its resume", told, after.ResumeNote)
+					t.Fatalf("the CEO was told %q and the resume note is %q, want the message still kept for its resume", told, after.ResumeNote)
 				}
 				return
 			}
 			if len(told) != 1 || !strings.HasPrefix(told[0], "message not delivered: task-1's session was replaced by a later start") || !strings.Contains(told[0], tc.why) || !strings.HasSuffix(told[0], "The Overlord wrote: use the staging database") {
-				t.Fatalf("the CFO was told %q, want the message once with its words and %q", told, tc.why)
+				t.Fatalf("the CEO was told %q, want the message once with its words and %q", told, tc.why)
 			}
 			if after.ResumeNote != tc.answered || after.Phase != tc.record.Phase || after.Generation != "g1" {
 				t.Fatalf("record = %+v, want it as it was with only the message taken out of its note", after)
@@ -412,7 +412,7 @@ func TestAMessageKeptForAReplacedResumeHeldByALifecycleOperationIsLeftToIt(t *te
 	// Act
 	held := handOverReplacedResumes(h.State)
 	heldRecord, heldErr := state.ReadLifecycle(h.State, meta.ID)
-	heldTold := toldCFO(t, h.State, meta.ID)
+	heldTold := toldCEO(t, h.State, meta.ID)
 	if err := lock.ReleaseExclusiveNamed(h.State, name); err != nil {
 		t.Fatal(err)
 	}
@@ -420,20 +420,20 @@ func TestAMessageKeptForAReplacedResumeHeldByALifecycleOperationIsLeftToIt(t *te
 
 	// Assert
 	if held != nil || heldErr != nil || heldRecord.ResumeNote != fromOverlord("use the staging database") || len(heldTold) != 0 {
-		t.Errorf("under the lock: %v, record %+v, %v, the CFO told %q; want the message left kept", held, heldRecord, heldErr, heldTold)
+		t.Errorf("under the lock: %v, record %+v, %v, the CEO told %q; want the message left kept", held, heldRecord, heldErr, heldTold)
 	}
 	record, err := state.ReadLifecycle(h.State, meta.ID)
-	if told := toldCFO(t, h.State, meta.ID); freed != nil || err != nil || record.ResumeNote != "" || len(told) != 1 {
-		t.Errorf("once the lock is free: %v, record %+v, %v, the CFO told %q; want the message handed on once", freed, record, err, told)
+	if told := toldCEO(t, h.State, meta.ID); freed != nil || err != nil || record.ResumeNote != "" || len(told) != 1 {
+		t.Errorf("once the lock is free: %v, record %+v, %v, the CEO told %q; want the message handed on once", freed, record, err, told)
 	}
 }
 
 // A pause or stop of the later session hands on what a replaced session's
 // record keeps through HandOverReplacedNote before it writes its own record
-// over it: the CFO is told each board message once, with its words, and the
+// over it: the CEO is told each board message once, with its words, and the
 // record is left for the caller to overwrite. The current session's record
-// keeps its messages for its own resume, so the CFO is told nothing.
-func TestHandingOnAReplacedSessionsNoteTellsTheCFOEachMessageOnce(t *testing.T) {
+// keeps its messages for its own resume, so the CEO is told nothing.
+func TestHandingOnAReplacedSessionsNoteTellsTheCEOEachMessageOnce(t *testing.T) {
 	kept := []string{"use the staging database", "and skip the migration"}
 	for _, tc := range []struct {
 		name       string
@@ -465,13 +465,13 @@ func TestHandingOnAReplacedSessionsNoteTellsTheCFOEachMessageOnce(t *testing.T) 
 			isHanded, err := HandOverReplacedNote(h.State, current, record)
 
 			// Assert
-			told := toldCFO(t, h.State, meta.ID)
+			told := toldCEO(t, h.State, meta.ID)
 			if !isHanded || err != nil || len(told) != len(tc.want) {
-				t.Fatalf("hand-off = %v, %v, the CFO was told %q, want each of %q once", isHanded, err, told, tc.want)
+				t.Fatalf("hand-off = %v, %v, the CEO was told %q, want each of %q once", isHanded, err, told, tc.want)
 			}
 			for i, words := range tc.want {
 				if !strings.HasPrefix(told[i], "message not delivered: task-1's session was replaced by a later start while it was paused") || !strings.HasSuffix(told[i], "The Overlord wrote: "+words) {
-					t.Fatalf("the CFO was told %q, want %q with why it was not delivered", told[i], words)
+					t.Fatalf("the CEO was told %q, want %q with why it was not delivered", told[i], words)
 				}
 			}
 			after, err := state.ReadLifecycle(h.State, meta.ID)
@@ -483,11 +483,11 @@ func TestHandingOnAReplacedSessionsNoteTellsTheCFOEachMessageOnce(t *testing.T) 
 }
 
 // A wake episode that fails to publish once the messages a replaced session's
-// record keeps are on the CFO's notify wake is said, but the messages leave
-// the note all the same, so the next pass tells the CFO nothing more: before,
-// each pass told the CFO the same messages again until a publish went
+// record keeps are on the CEO's notify wake is said, but the messages leave
+// the note all the same, so the next pass tells the CEO nothing more: before,
+// each pass told the CEO the same messages again until a publish went
 // through.
-func TestAReplacedSessionsMessagesGoToTheCFOOnceWhenTheirWakeFailsToPublish(t *testing.T) {
+func TestAReplacedSessionsMessagesGoToTheCEOOnceWhenTheirWakeFailsToPublish(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	meta := makeNative(t, h.State, "task-1")
@@ -507,20 +507,20 @@ func TestAReplacedSessionsMessagesGoToTheCFOOnceWhenTheirWakeFailsToPublish(t *t
 	if first == nil || readErr != nil || record.ResumeNote != "" {
 		t.Fatalf("first pass = %v, record %+v, %v; want the failed publish said and the messages out of the note", first, record, readErr)
 	}
-	told := toldCFO(t, h.State, meta.ID)
+	told := toldCEO(t, h.State, meta.ID)
 	if second != nil || len(told) != 2 || !strings.HasSuffix(told[0], "The Overlord wrote: use the staging database") || !strings.HasSuffix(told[1], "The Overlord wrote: and skip the migration") {
-		t.Fatalf("second pass = %v, the CFO was told %q, want each message once", second, told)
+		t.Fatalf("second pass = %v, the CEO was told %q, want each message once", second, told)
 	}
 }
 
 // A Resume of a failed resume whose relaunched terminal is already up
 // relaunches nothing, so it hands each board message kept for that resume to
-// the CFO, with its words and that resume's start, before it finishes the
+// the CEO, with its words and that resume's start, before it finishes the
 // task as running. Before, the messages rode into the running record's note,
-// which nothing reads again, so neither the goblin nor the CFO had them (issue
+// which nothing reads again, so neither the goblin nor the CEO had them (issue
 // #1281). A Resume that relaunches carries them in its instruction, so the
-// CFO is told nothing.
-func TestAResumeOfAFailedResumeAlreadyUpHandsItsKeptMessagesToTheCFO(t *testing.T) {
+// CEO is told nothing.
+func TestAResumeOfAFailedResumeAlreadyUpHandsItsKeptMessagesToTheCEO(t *testing.T) {
 	started := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	kept := []string{"use the staging database", "and skip the migration"}
 	for _, tc := range []struct {
@@ -568,13 +568,13 @@ func TestAResumeOfAFailedResumeAlreadyUpHandsItsKeptMessagesToTheCFO(t *testing.
 			if err != nil || record.Phase != "running" || !slices.Equal(carried, tc.wantCarried) {
 				t.Fatalf("resume = %+v, %v, relaunch carried %q; want it running with %q carried", record, err, carried, tc.wantCarried)
 			}
-			told := toldCFO(t, h.State, meta.ID)
+			told := toldCEO(t, h.State, meta.ID)
 			if len(told) != len(tc.wantTold) {
-				t.Fatalf("the CFO was told %q, want each of %q once", told, tc.wantTold)
+				t.Fatalf("the CEO was told %q, want each of %q once", told, tc.wantTold)
 			}
 			for i, words := range tc.wantTold {
 				if !strings.HasPrefix(told[i], "message not delivered: task-1's failed resume was finished as running because a Resume found the terminal it started already up") || !strings.Contains(told[i], "a message kept before that resume began at "+started.Format(time.RFC3339)) || !strings.HasSuffix(told[i], "The Overlord wrote: "+words) {
-					t.Fatalf("the CFO was told %q, want %q with why it was not delivered and the resume's start", told[i], words)
+					t.Fatalf("the CEO was told %q, want %q with why it was not delivered and the resume's start", told[i], words)
 				}
 			}
 		})
@@ -582,12 +582,12 @@ func TestAResumeOfAFailedResumeAlreadyUpHandsItsKeptMessagesToTheCFO(t *testing.
 }
 
 // A stop of a paused goblin, or of one whose resume failed, ends it before the
-// resume its record keeps board messages for, so each goes to the CFO with its
+// resume its record keeps board messages for, so each goes to the CEO with its
 // words and why before the stop writes its own record, which keeps no note,
 // over the one that kept them; a failed resume's also names that resume's
 // start. Before, the stop's record dropped them, and they reached neither the
-// goblin nor the CFO (issue #1317).
-func TestAStopOfAPausedGoblinHandsItsKeptMessagesToTheCFO(t *testing.T) {
+// goblin nor the CEO (issue #1317).
+func TestAStopOfAPausedGoblinHandsItsKeptMessagesToTheCEO(t *testing.T) {
 	started := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	kept := []string{"use the staging database", "and skip the migration"}
 	for _, tc := range []struct {
@@ -628,13 +628,13 @@ func TestAStopOfAPausedGoblinHandsItsKeptMessagesToTheCFO(t *testing.T) {
 			if err != nil || record.Phase != "stopped" {
 				t.Fatalf("stop = %+v, %v; want it stopped", record, err)
 			}
-			told := toldCFO(t, h.State, meta.ID)
+			told := toldCEO(t, h.State, meta.ID)
 			if len(told) != len(kept) {
-				t.Fatalf("the CFO was told %q, want each of %q once", told, kept)
+				t.Fatalf("the CEO was told %q, want each of %q once", told, kept)
 			}
 			for i, words := range kept {
 				if !strings.HasPrefix(told[i], tc.why) || !strings.HasSuffix(told[i], "The Overlord wrote: "+words) {
-					t.Fatalf("the CFO was told %q, want %q with why it was not delivered: %q", told[i], words, tc.why)
+					t.Fatalf("the CEO was told %q, want %q with why it was not delivered: %q", told[i], words, tc.why)
 				}
 			}
 		})
@@ -643,10 +643,10 @@ func TestAStopOfAPausedGoblinHandsItsKeptMessagesToTheCFO(t *testing.T) {
 
 // A pause of a goblin whose resume failed writes its own record over the failed
 // resume's, so that resume never runs again: each board message kept for it
-// goes to the CFO with its words, why and that resume's start before the
+// goes to the CEO with its words, why and that resume's start before the
 // pause's record replaces it. Before, the pause's record kept no note and its
 // later resume told the goblin nothing of them (issue #1382).
-func TestAPauseOfAGoblinWhoseResumeFailedHandsItsKeptMessagesToTheCFO(t *testing.T) {
+func TestAPauseOfAGoblinWhoseResumeFailedHandsItsKeptMessagesToTheCEO(t *testing.T) {
 	// Arrange
 	started := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	kept := []string{"use the staging database", "and skip the migration"}
@@ -679,26 +679,26 @@ func TestAPauseOfAGoblinWhoseResumeFailedHandsItsKeptMessagesToTheCFO(t *testing
 	if err != nil || record.Phase != "paused" {
 		t.Fatalf("pause = %+v, %v; want it paused", record, err)
 	}
-	told := toldCFO(t, h.State, meta.ID)
+	told := toldCEO(t, h.State, meta.ID)
 	if len(told) != len(kept) {
-		t.Fatalf("the CFO was told %q, want each of %q once", told, kept)
+		t.Fatalf("the CEO was told %q, want each of %q once", told, kept)
 	}
 	why := "message not delivered: task-1 was paused after its resume failed, so that resume never runs again; a message kept before it began at " + started.Format(time.RFC3339) + " went with it, and one kept after it failed did not"
 	for i, words := range kept {
 		if !strings.HasPrefix(told[i], why) || !strings.HasSuffix(told[i], "The Overlord wrote: "+words) {
-			t.Fatalf("the CFO was told %q, want %q with why it was not delivered: %q", told[i], words, why)
+			t.Fatalf("the CEO was told %q, want %q with why it was not delivered: %q", told[i], words, why)
 		}
 	}
 }
 
 // A cleanup that retires a goblin before the resume its record keeps board
-// messages for hands each to the CFO with its words and why, and takes it out
+// messages for hands each to the CEO with its words and why, and takes it out
 // of the note, so it is handed on once and what the note held before it, such
 // as an answer given while paused, stays: a paused goblin's, a failed
 // resume's, which also names that resume's start, and a record whose session a
 // later start replaced, as that is handed on. Before, the messages stayed in a
 // record no reading looks at once the task is retired (issue #1317).
-func TestRetiringAGoblinHandsTheMessagesKeptForItsResumeToTheCFO(t *testing.T) {
+func TestRetiringAGoblinHandsTheMessagesKeptForItsResumeToTheCEO(t *testing.T) {
 	started := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	kept := []string{"use the staging database", "and skip the migration"}
 	answer := "Answered while paused: ship it."
@@ -737,13 +737,13 @@ func TestRetiringAGoblinHandsTheMessagesKeptForItsResumeToTheCFO(t *testing.T) {
 			if !isHanded || err != nil || !again || againErr != nil {
 				t.Fatalf("hand-offs = %v, %v and %v, %v; want both to hand on with nothing met", isHanded, err, again, againErr)
 			}
-			told := toldCFO(t, h.State, meta.ID)
+			told := toldCEO(t, h.State, meta.ID)
 			if len(told) != len(kept) {
-				t.Fatalf("the CFO was told %q, want each of %q once", told, kept)
+				t.Fatalf("the CEO was told %q, want each of %q once", told, kept)
 			}
 			for i, words := range kept {
 				if !strings.HasPrefix(told[i], tc.why) || !strings.HasSuffix(told[i], "The Overlord wrote: "+words) {
-					t.Fatalf("the CFO was told %q, want %q with why it was not delivered: %q", told[i], words, tc.why)
+					t.Fatalf("the CEO was told %q, want %q with why it was not delivered: %q", told[i], words, tc.why)
 				}
 			}
 			after, err := state.ReadLifecycle(h.State, meta.ID)
@@ -756,7 +756,7 @@ func TestRetiringAGoblinHandsTheMessagesKeptForItsResumeToTheCFO(t *testing.T) {
 
 // A cleanup retires a goblin whose lifecycle record cannot be read, a force
 // archive's above all, with a warning that no message kept for its resume was
-// handed to the CFO, and leaves the record as it was. Before, such a record
+// handed to the CEO, and leaves the record as it was. Before, such a record
 // refused every cleanup, so the task could not be retired without editing its
 // state by hand.
 func TestRetiringAGoblinWhoseRecordCannotBeReadGoesOnWithAWarning(t *testing.T) {
@@ -784,12 +784,12 @@ func TestRetiringAGoblinWhoseRecordCannotBeReadGoesOnWithAWarning(t *testing.T) 
 			isRetirable, err := HandOverRetiredNote(h.State, meta)
 
 			// Assert
-			warning := "the lifecycle record of task-1 cannot be read, so no message kept for its resume was handed to the CFO: "
+			warning := "the lifecycle record of task-1 cannot be read, so no message kept for its resume was handed to the CEO: "
 			if !isRetirable || err == nil || !strings.HasPrefix(err.Error(), warning) {
 				t.Fatalf("hand-off = %v, %v; want the cleanup to go on with a warning that starts %q", isRetirable, err, warning)
 			}
-			if told := toldCFO(t, h.State, meta.ID); len(told) != 0 {
-				t.Fatalf("the CFO was told %q, want nothing", told)
+			if told := toldCEO(t, h.State, meta.ID); len(told) != 0 {
+				t.Fatalf("the CEO was told %q, want nothing", told)
 			}
 			if after, err := os.ReadFile(path); err != nil || string(after) != tc.record {
 				t.Fatalf("record = %q, %v; want it as it was, %q", after, err, tc.record)
@@ -799,9 +799,9 @@ func TestRetiringAGoblinWhoseRecordCannotBeReadGoesOnWithAWarning(t *testing.T) 
 }
 
 // A cleanup goes on once the messages a retired goblin's record keeps are on
-// the CFO's notify wake, though their wake episode then fails to publish, with
-// a warning that says they went to the CFO and what the publish met.
-func TestRetiringAGoblinSaysItsKeptMessagesWentToTheCFOWhenTheirWakeFailsToPublish(t *testing.T) {
+// the CEO's notify wake, though their wake episode then fails to publish, with
+// a warning that says they went to the CEO and what the publish met.
+func TestRetiringAGoblinSaysItsKeptMessagesWentToTheCEOWhenTheirWakeFailsToPublish(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	meta := makeNative(t, h.State, "task-1")
@@ -815,12 +815,12 @@ func TestRetiringAGoblinSaysItsKeptMessagesWentToTheCFOWhenTheirWakeFailsToPubli
 	isRetirable, err := HandOverRetiredNote(h.State, meta)
 
 	// Assert
-	warning := "the messages kept for its resume went to the CFO, but "
+	warning := "the messages kept for its resume went to the CEO, but "
 	if !isRetirable || err == nil || !strings.HasPrefix(err.Error(), warning) {
 		t.Fatalf("hand-off = %v, %v; want the cleanup to go on with a warning that starts %q", isRetirable, err, warning)
 	}
-	if told := toldCFO(t, h.State, meta.ID); len(told) != 1 || !strings.HasSuffix(told[0], "The Overlord wrote: use the staging database") {
-		t.Fatalf("the CFO was told %q, want the message once", told)
+	if told := toldCEO(t, h.State, meta.ID); len(told) != 1 || !strings.HasSuffix(told[0], "The Overlord wrote: use the staging database") {
+		t.Fatalf("the CEO was told %q, want the message once", told)
 	}
 }
 
@@ -828,7 +828,7 @@ func TestRetiringAGoblinSaysItsKeptMessagesWentToTheCFOWhenTheirWakeFailsToPubli
 // paused goblin for its resume, in order.
 func keptForResume(t *testing.T, store *Store, meta state.TaskMeta, texts ...string) {
 	t.Helper()
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: store.Home.State}}}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: store.Home.State}}}
 	for _, text := range texts {
 		id := fmt.Sprintf("message-%d", len(store.Snapshot().Actions)+1)
 		messageTo(t, store, meta, id, text)
@@ -943,7 +943,7 @@ func TestDeletingAMessageIsRefusedOnceItWasDeliveredOrNeverKept(t *testing.T) {
 			messageTo(t, store, meta, "message-1", "use the staging database")
 			// A gate that answers clear, as a live supervisor's does: custody
 			// nobody can read queues the message instead of typing it.
-			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: store.Home.State}, Gate: &gateFake{}}}
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: store.Home.State}, Gate: &gateFake{}}}
 			if err := store.ProcessOne(context.Background(), service.execute); err != nil {
 				t.Fatal(err)
 			}
@@ -994,24 +994,24 @@ func TestDeletingAMessageIsRefusedOnceItWasDeliveredOrNeverKept(t *testing.T) {
 	}
 }
 
-func TestAMessageToTheCFOWaitsWhileNoCFORuns(t *testing.T) {
-	// Arrange: a board with nothing that could start a CFO.
+func TestAMessageToTheCEOWaitsWhileNoCEORuns(t *testing.T) {
+	// Arrange: a board with nothing that could start a CEO.
 	store, h := testStore(t)
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}}}
 	queued, err := store.Queue(Action{ID: "message-1", Kind: "message", Text: "hello"})
 	if err != nil || queued.Status != "queued" {
 		t.Fatalf("message = %+v, %v, want it taken", queued, err)
 	}
 	store.mu.Lock()
-	store.db.Actions[len(store.db.Actions)-1].CreatedAt = time.Now().Add(-cfoMessageUndo)
+	store.db.Actions[len(store.db.Actions)-1].CreatedAt = time.Now().Add(-ceoMessageUndo)
 	store.mu.Unlock()
 
 	// Act
 	delivery := store.ProcessOne(t.Context(), service.execute)
 
 	// Assert
-	if waiting := actionOf(store, "message-1"); !errors.Is(delivery, ErrDeferred) || waiting.Status != "queued" || waiting.Message != "Waits for the CFO." || waiting.SendNowWhy != "No CFO is running." {
-		t.Fatalf("delivery = %v, message = %+v; want it waiting for a CFO", delivery, waiting)
+	if waiting := actionOf(store, "message-1"); !errors.Is(delivery, ErrDeferred) || waiting.Status != "queued" || waiting.Message != "Waits for the CEO." || waiting.SendNowWhy != "No CEO is running." {
+		t.Fatalf("delivery = %v, message = %+v; want it waiting for a CEO", delivery, waiting)
 	}
 }
 
@@ -1067,19 +1067,19 @@ func gatedGoblin(t *testing.T, h home.Home) state.TaskMeta {
 
 // A message for a goblin whose gate owns its branch is queued only once that
 // custody was actually read and refused, and it then reaches neither the gate
-// nor the CFO. Once the gate lets go it is no longer queued for the gate, and
+// nor the CEO. Once the gate lets go it is no longer queued for the gate, and
 // the queue holds the one message throughout.
 func TestAGateHeldMessageIsQueuedAfterCustodyIsReadAndDeliveredAfterRelease(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	meta := gatedGoblin(t, h)
 	gate := &gateFake{err: pipeline.ErrCustodyHeld}
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: gate}}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: gate}}
 	action := Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "take this after the gate", Status: "queued", CreatedAt: time.Now().Add(-2 * messageWait)}
 	store.db.Actions = append(store.db.Actions, action)
 
 	// Act: while the gate holds it, with a message older than the ordinary
-	// wait, which would otherwise be the CFO's.
+	// wait, which would otherwise be the CEO's.
 	held, err := service.deliverMessage(context.Background(), action)
 
 	// Assert
@@ -1089,8 +1089,8 @@ func TestAGateHeldMessageIsQueuedAfterCustodyIsReadAndDeliveredAfterRelease(t *t
 	if !errors.Is(err, ErrDeferred) || !strings.Contains(held.Reason, "Queued for "+meta.ID) {
 		t.Fatalf("a gate-held message came back as %v %v", held, err)
 	}
-	if strings.Contains(held.Reason, "CFO") {
-		t.Fatalf("a gate-held message was handed to the CFO: %q", held.Reason)
+	if strings.Contains(held.Reason, "CEO") {
+		t.Fatalf("a gate-held message was handed to the CEO: %q", held.Reason)
 	}
 
 	// Act: the gate lets go, and the same queued action is tried again.
@@ -1102,7 +1102,7 @@ func TestAGateHeldMessageIsQueuedAfterCustodyIsReadAndDeliveredAfterRelease(t *t
 
 	// Assert: it is no longer queued for the gate and gone to nobody for its
 	// age, and the queue still holds exactly the one message.
-	if strings.Contains(released.Reason, "Queued for "+meta.ID) || strings.Contains(released.Reason, "CFO") {
+	if strings.Contains(released.Reason, "Queued for "+meta.ID) || strings.Contains(released.Reason, "CEO") {
 		t.Fatalf("a released message reads %q %v, want it waiting for its goblin", released.Reason, err)
 	}
 	waiting := 0
@@ -1130,7 +1130,7 @@ func TestACustodyThatCannotBeReadQueuesAndTypesNothing(t *testing.T) {
 			// Arrange
 			store, h := testStore(t)
 			meta := gatedGoblin(t, h)
-			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: test.gate}}
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: test.gate}}
 			action := Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "take this", Status: "queued", CreatedAt: time.Now()}
 
 			// Act
@@ -1178,20 +1178,20 @@ func TestAQueuedMessageForAGateHeldGoblinIsWithdrawn(t *testing.T) {
 }
 
 // A goblin whose gate holds nothing keeps the ordinary handoff: a message its
-// terminal cannot take goes to the CFO once the ordinary wait passes, which is
+// terminal cannot take goes to the CEO once the ordinary wait passes, which is
 // what a queue that never expired had stopped doing.
 func TestAClearCustodyWithoutATerminalKeepsTheOrdinaryHandoff(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	meta := gatedGoblin(t, h)
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: &gateFake{}}}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: &gateFake{}}}
 	action := Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "too late", Status: "queued", CreatedAt: time.Now().Add(-2 * messageWait)}
 
 	// Act
 	evaluation, err := service.deliverMessage(context.Background(), action)
 
 	// Assert
-	if !strings.Contains(evaluation.Reason, "CFO") && err == nil {
+	if !strings.Contains(evaluation.Reason, "CEO") && err == nil {
 		t.Fatalf("a message past the ordinary wait for a goblin with no terminal reads %q, want the ordinary handoff", evaluation.Reason)
 	}
 }
@@ -1210,7 +1210,7 @@ func TestHisMessageToAGoblinWhoseTerminalIsNotRunningStartsItOnceAndGoesIn(t *te
 	gitWorktree(t, meta.Worktree)
 	started, release := make(chan string, 4), make(chan struct{})
 	service := &Service{Store: store, Options: Options{
-		CFO:  &CFOConnection{State: h.State},
+		CEO:  &CEOConnection{State: h.State},
 		Gate: fakeProgress{err: pipeline.ErrNoProgress},
 		Dispatch: &Dispatch{
 			Memory: func() (Memory, error) {
@@ -1268,7 +1268,7 @@ func TestOldMessagesWaitOutTheirGoblinsStartAndAreTypedOnce(t *testing.T) {
 	gitWorktree(t, meta.Worktree)
 	started, release := make(chan string, 4), make(chan struct{})
 	service := &Service{Store: store, Options: Options{
-		CFO:  &CFOConnection{State: h.State},
+		CEO:  &CEOConnection{State: h.State},
 		Gate: fakeProgress{err: pipeline.ErrNoProgress},
 		Dispatch: &Dispatch{
 			Memory: func() (Memory, error) {
@@ -1342,7 +1342,7 @@ func TestAMessageWaitsForAStartUnderWayWhileItsTerminalIsUp(t *testing.T) {
 			meta := makeNative(t, h.State, "task-1")
 			gitWorktree(t, meta.Worktree)
 			goblin := goblinTerminal(t, h.State, meta.ID)
-			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 			test.begin(service, meta.ID)
 			messageTo(t, store, meta, "message-1", "rebase on main first")
 
@@ -1368,14 +1368,14 @@ func TestAMessageWaitsForAStartUnderWayWhileItsTerminalIsUp(t *testing.T) {
 	}
 }
 
-// His message to the CFO while no CFO runs starts the CFO, once however often
+// His message to the CEO while no CEO runs starts the CEO, once however often
 // the board looks while it starts, telling it his message follows, says it is
-// starting meanwhile, and goes in once the CFO runs.
-func TestHisMessageToTheCFOWhileNoneRunsStartsItOnceAndGoesIn(t *testing.T) {
+// starting meanwhile, and goes in once the CEO runs.
+func TestHisMessageToTheCEOWhileNoneRunsStartsItOnceAndGoesIn(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	whys, release := make(chan string, 4), make(chan struct{})
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Comeback: &Comeback{CFOEnded: func(_ context.Context, why string) error {
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Comeback: &Comeback{CEOEnded: func(_ context.Context, why string) error {
 		whys <- why
 		<-release
 		return nil
@@ -1385,27 +1385,27 @@ func TestHisMessageToTheCFOWhileNoneRunsStartsItOnceAndGoesIn(t *testing.T) {
 	}
 
 	// Act: the board looks at the message at once, inside its undo window,
-	// again while the CFO starts, and once more after it registered with its
+	// again while the CEO starts, and once more after it registered with its
 	// start not yet returned.
 	first := store.ProcessOne(t.Context(), service.execute)
 	var why string
 	select {
 	case why = <-whys:
 	case <-time.After(30 * time.Second):
-		t.Fatalf("delivery = %v, action = %+v; want the CFO started for the message", first, actionOf(store, "message-1"))
+		t.Fatalf("delivery = %v, action = %+v; want the CEO started for the message", first, actionOf(store, "message-1"))
 	}
 	store.deferredUntil["message-1"] = time.Now().Add(-time.Second)
 	second := store.ProcessOne(t.Context(), service.execute)
 	waiting := actionOf(store, "message-1")
-	cfo := hostTerminal(t, h.State, NativeCFOTerminal)
-	cfo.typeLine(t, "register")
-	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+	ceo := hostTerminal(t, h.State, NativeCEOTerminal)
+	ceo.typeLine(t, "register")
+	if lines := ceo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
 		t.Fatalf("the program recorded %q, want its registration", lines)
 	}
-	cfo.typeLine(t, "harness")
-	cfo.showsComposer(t, "claude")
+	ceo.typeLine(t, "harness")
+	ceo.showsComposer(t, "claude")
 	store.mu.Lock()
-	store.db.Actions[len(store.db.Actions)-1].CreatedAt = time.Now().Add(-cfoMessageUndo)
+	store.db.Actions[len(store.db.Actions)-1].CreatedAt = time.Now().Add(-ceoMessageUndo)
 	store.mu.Unlock()
 	store.deferredUntil["message-1"] = time.Now().Add(-time.Second)
 	third := store.ProcessOne(t.Context(), service.execute)
@@ -1417,15 +1417,15 @@ func TestHisMessageToTheCFOWhileNoneRunsStartsItOnceAndGoesIn(t *testing.T) {
 
 	// Assert
 	if !strings.Contains(why, "message") || len(whys) != 0 {
-		t.Errorf("started because %q and then %d more times, want the CFO started once, told of his message", why, len(whys))
+		t.Errorf("started because %q and then %d more times, want the CEO started once, told of his message", why, len(whys))
 	}
-	if !errors.Is(first, ErrDeferred) || !errors.Is(second, ErrDeferred) || waiting.Status != "queued" || waiting.Message != "Starting the CFO. The message goes in once it runs." || waiting.SendNowWhy != "It is starting." {
+	if !errors.Is(first, ErrDeferred) || !errors.Is(second, ErrDeferred) || waiting.Status != "queued" || waiting.Message != "Starting the CEO. The message goes in once it runs." || waiting.SendNowWhy != "It is starting." {
 		t.Errorf("while it starts: deliveries %v and %v, action = %+v; want it queued, saying it is starting", first, second, waiting)
 	}
-	if !errors.Is(third, ErrDeferred) || registered.Status != "queued" || registered.Message != "Starting the CFO. The message goes in once it runs." {
+	if !errors.Is(third, ErrDeferred) || registered.Status != "queued" || registered.Message != "Starting the CEO. The message goes in once it runs." {
 		t.Errorf("once it registered: delivery = %v, action = %+v; want it still starting until its start returns", third, registered)
 	}
-	if typed := cfo.exit(t); delivered != nil || len(typed) != 2 || typed[1] != "check the train" || actionOf(store, "message-1").Status != "succeeded" {
+	if typed := ceo.exit(t); delivered != nil || len(typed) != 2 || typed[1] != "check the train" || actionOf(store, "message-1").Status != "succeeded" {
 		t.Errorf("once it runs: delivery = %v, typed %q, action = %+v; want his words typed once", delivered, typed, actionOf(store, "message-1"))
 	}
 }
@@ -1465,7 +1465,7 @@ func TestAHeldMessageKeepsWaitingWhileTheGoblinIsStarting(t *testing.T) {
 	store, h := testStore(t)
 	meta := gatedGoblin(t, h)
 	gate := &gateFake{err: pipeline.ErrCustodyHeld}
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: gate}, starting: meta.ID}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: gate}, starting: meta.ID}
 	action := Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "hold this", Status: "queued", CreatedAt: time.Now().Add(-2 * messageWait)}
 
 	// Act
@@ -1478,8 +1478,8 @@ func TestAHeldMessageKeepsWaitingWhileTheGoblinIsStarting(t *testing.T) {
 	if !errors.Is(err, ErrDeferred) {
 		t.Fatalf("a held message for a starting goblin came back as %v %v, want it still waiting", evaluation, err)
 	}
-	if strings.Contains(evaluation.Reason, "CFO") {
-		t.Fatalf("a held message for a starting goblin was handed to the CFO: %q", evaluation.Reason)
+	if strings.Contains(evaluation.Reason, "CEO") {
+		t.Fatalf("a held message for a starting goblin was handed to the CEO: %q", evaluation.Reason)
 	}
 }
 
@@ -1512,7 +1512,7 @@ func TestAHeldMessageSurvivesARestartAndIsDeliveredOnce(t *testing.T) {
 	// Act: the gate lets go, and the goblin's terminal takes it once.
 	gate := &gateFake{}
 	goblin := goblinTerminal(t, h.State, meta.ID)
-	service := &Service{Store: reopened, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: gate}}
+	service := &Service{Store: reopened, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: gate}}
 	first := reopened.ProcessOne(context.Background(), service.execute)
 	typedOnce := goblin.waitForLines(t, 1)
 	second := reopened.ProcessOne(context.Background(), service.execute)
@@ -1584,7 +1584,7 @@ func TestAnUnreadableCustodyKeepsItsMessageAcrossARestart(t *testing.T) {
 	if after := actionOf(reopened, queued.ID); !after.CreatedAt.Equal(store.Snapshot().Actions[0].CreatedAt) {
 		t.Fatalf("the reopened message reads %v, want its saved age", after.CreatedAt)
 	}
-	paused := &Service{Store: reopened, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: unreadable}}
+	paused := &Service{Store: reopened, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: unreadable}}
 	// A deferred message answers ErrDeferred, which is the queue working, not a
 	// failure of the pass.
 	if err := reopened.ProcessOne(context.Background(), paused.execute); err != nil && !errors.Is(err, ErrDeferred) {
@@ -1607,7 +1607,7 @@ func TestAnUnreadableCustodyKeepsItsMessageAcrossARestart(t *testing.T) {
 	goblin := goblinTerminal(t, h.State, meta.ID)
 	// The pause has ended, so the goblin's terminal takes typing again.
 	atPhase(t, h.State, meta, "resume", "running")
-	clear := &Service{Store: reopened, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: &gateFake{}}}
+	clear := &Service{Store: reopened, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: &gateFake{}}}
 	if err := reopened.ProcessOne(context.Background(), clear.execute); err != nil {
 		t.Fatal(err)
 	}
@@ -1652,7 +1652,7 @@ func TestAnUnreadableCustodyKeepsItsMessageAcrossARestart(t *testing.T) {
 
 // A message kept before a pause, resume or stop survives every one of those
 // transitions while the gate owns the branch or its custody cannot be read: it
-// stays queued past the ordinary wait and is never handed to the CFO, and it
+// stays queued past the ordinary wait and is never handed to the CEO, and it
 // keeps waiting once the transition has ended but custody still refuses.
 func TestAnOldQueuedMessageSurvivesEveryLifecycleTransitionWhileCustodyHolds(t *testing.T) {
 	for _, walk := range []struct{ action, phase string }{
@@ -1689,7 +1689,7 @@ func TestAnOldQueuedMessageSurvivesEveryLifecycleTransitionWhileCustodyHolds(t *
 					t.Fatal(err)
 				}
 				atPhase(t, h.State, meta, walk.action, walk.phase)
-				service := &Service{Store: reopened, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: held.gate}}
+				service := &Service{Store: reopened, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: held.gate}}
 
 				// Act: the transition's own attempt runs, then the transition
 				// ends while custody still refuses.
@@ -1699,13 +1699,13 @@ func TestAnOldQueuedMessageSurvivesEveryLifecycleTransitionWhileCustodyHolds(t *
 						t.Fatal(err)
 					}
 
-					// Assert: it waits rather than expiring to the CFO.
+					// Assert: it waits rather than expiring to the CEO.
 					waiting := actionOf(reopened, queued.ID)
 					if waiting.Status != "queued" {
 						t.Fatalf("at %s an old message reads %+v, want it still queued", phase, waiting)
 					}
-					if strings.Contains(waiting.Message, "the CFO has it") {
-						t.Fatalf("at %s an old message was handed to the CFO: %q", phase, waiting.Message)
+					if strings.Contains(waiting.Message, "the CEO has it") {
+						t.Fatalf("at %s an old message was handed to the CEO: %q", phase, waiting.Message)
 					}
 				}
 			})
@@ -1734,7 +1734,7 @@ func TestAMessageKeptThroughACustodyHoldIsDeliveredOnceAndAWithdrawnOneNever(t *
 	}
 	store.mu.Unlock()
 	atPhase(t, h.State, meta, "resume", "resuming")
-	heldService := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: &gateFake{err: pipeline.ErrCustodyHeld}}}
+	heldService := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: &gateFake{err: pipeline.ErrCustodyHeld}}}
 	if err := store.ProcessOne(context.Background(), heldService.execute); err != nil && !errors.Is(err, ErrDeferred) {
 		t.Fatal(err)
 	}
@@ -1744,7 +1744,7 @@ func TestAMessageKeptThroughACustodyHoldIsDeliveredOnceAndAWithdrawnOneNever(t *
 		t.Fatalf("the withdrawal was refused: %v", err)
 	}
 	atPhase(t, h.State, meta, "resume", "running")
-	clear := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: &gateFake{}}}
+	clear := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: &gateFake{}}}
 	for pass := 0; pass < 6 && len(goblin.lines(t)) == 0; pass++ {
 		if err := store.ProcessOne(context.Background(), clear.execute); err != nil && !errors.Is(err, ErrDeferred) {
 			t.Fatal(err)
@@ -1769,42 +1769,42 @@ func TestAMessageKeptThroughACustodyHoldIsDeliveredOnceAndAWithdrawnOneNever(t *
 }
 
 // The controls the hold must not weaken: a clear custody keeps the ordinary
-// expiry to the CFO during a transition, and a stopped goblin's message is the
-// CFO's at once.
+// expiry to the CEO during a transition, and a stopped goblin's message is the
+// CEO's at once.
 func TestATransitionWithClearCustodyKeepsTheOrdinaryExpiryAndAStoppedTaskHandsOver(t *testing.T) {
-	t.Run("an old message expires to the CFO during a transition with clear custody", func(t *testing.T) {
+	t.Run("an old message expires to the CEO during a transition with clear custody", func(t *testing.T) {
 		// Arrange
 		store, h := testStore(t)
 		meta := gatedGoblin(t, h)
 		action := Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "too late", Status: "queued", CreatedAt: time.Now().Add(-2 * messageWait)}
 		store.db.Actions = append(store.db.Actions, action)
 		atPhase(t, h.State, meta, "resume", "resuming")
-		service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: &gateFake{}}}
+		service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: &gateFake{}}}
 
 		// Act
 		evaluation, err := service.deliverMessage(context.Background(), action)
 
 		// Assert
-		if !errors.Is(err, ErrRejected) || !strings.Contains(err.Error(), "the CFO has it") {
-			t.Fatalf("a clear custody during a transition reads %v %v, want the ordinary expiry to the CFO", evaluation, err)
+		if !errors.Is(err, ErrRejected) || !strings.Contains(err.Error(), "the CEO has it") {
+			t.Fatalf("a clear custody during a transition reads %v %v, want the ordinary expiry to the CEO", evaluation, err)
 		}
 	})
 
-	t.Run("a stopped goblin's message is the CFO's at once", func(t *testing.T) {
+	t.Run("a stopped goblin's message is the CEO's at once", func(t *testing.T) {
 		// Arrange
 		store, h := testStore(t)
 		meta := gatedGoblin(t, h)
 		action := Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "nobody home", Status: "queued", CreatedAt: time.Now()}
 		store.db.Actions = append(store.db.Actions, action)
 		atPhase(t, h.State, meta, "stop", "stopped")
-		service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: &gateFake{err: pipeline.ErrCustodyHeld}}}
+		service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: &gateFake{err: pipeline.ErrCustodyHeld}}}
 
 		// Act
 		_, err := service.deliverMessage(context.Background(), action)
 
 		// Assert: stopped hands over even while the gate holds.
 		if err == nil || !strings.Contains(err.Error(), "was stopped before it could take it") {
-			t.Fatalf("a stopped goblin's message reads %v, want it handed to the CFO", err)
+			t.Fatalf("a stopped goblin's message reads %v, want it handed to the CEO", err)
 		}
 	})
 }
@@ -1943,7 +1943,7 @@ func TestAQueuedWithdrawalNamesTheActionItDeletesAndNothingElse(t *testing.T) {
 		meta := makeNative(t, h.State, "task-1")
 		goblin := goblinTerminal(t, h.State, meta.ID)
 		atPhase(t, h.State, meta, "pause", "paused")
-		service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+		service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}}}
 		messageTo(t, store, meta, "m1", "kept for resume")
 		if err := store.ProcessOne(context.Background(), service.execute); err != nil {
 			t.Fatal(err)
@@ -1981,7 +1981,7 @@ func TestACommandKeepsItsLeadingSlashOrBang(t *testing.T) {
 }
 
 // His message to a goblin in a turn goes into that turn at once, as his
-// message to the CFO does, for its harness to take at its next tool call. A
+// message to the CEO does, for its harness to take at its next tool call. A
 // message held for the turn's end reached a goblin that worked on only once
 // it stopped, and never while each turn ran into the next (the Overlord,
 // 2026-11-04: "Modern shat goblins that are not the CFO. Never pick up their
@@ -1993,7 +1993,7 @@ func TestHisMessageToAGoblinInATurnIsTypedIntoItAtOnce(t *testing.T) {
 	gitWorktree(t, meta.Worktree)
 	goblin := goblinTerminal(t, h.State, meta.ID)
 	goblin.startTurn(t)
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 	messageTo(t, store, meta, "message-1", "stop and rebase")
 
 	// Act
@@ -2041,7 +2041,7 @@ func TestACommandToAGoblinInATurnWaitsForTheTurnToEnd(t *testing.T) {
 	meta := makeNative(t, h.State, "task-1")
 	gitWorktree(t, meta.Worktree)
 	goblinTerminal(t, h.State, meta.ID)
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 	messageTo(t, store, meta, "message-1", "/compact")
 	isWorking := true
 	received, _ := inTurnGoblin(t, &isWorking)
@@ -2078,7 +2078,7 @@ func TestSendNowTypesAHeldMessageIntoTheGoblinsTurnToBeTakenAtOnce(t *testing.T)
 	meta := makeNative(t, h.State, "task-1")
 	gitWorktree(t, meta.Worktree)
 	goblinTerminal(t, h.State, meta.ID)
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 	messageTo(t, store, meta, "message-1", "!git status")
 	messageTo(t, store, meta, "message-2", "stop and rebase")
 	isWorking := true
@@ -2109,14 +2109,14 @@ func TestSendNowTypesAHeldMessageIntoTheGoblinsTurnToBeTakenAtOnce(t *testing.T)
 
 // Only a board message or answer he sent is delivered as the Overlord's own,
 // so only its screen can flash a picker into Modern Chat as his: a notice the
-// CFO or the supervisor writes clears the terminal's mark of him.
+// CEO or the supervisor writes clears the terminal's mark of him.
 func TestOnlyHisBoardMessageIsDeliveredAsHis(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	meta := makeNative(t, h.State, "task-1")
 	gitWorktree(t, meta.Worktree)
 	goblinTerminal(t, h.State, meta.ID)
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 	messageTo(t, store, meta, "message-1", "carry on")
 	previous := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = previous })
@@ -2134,7 +2134,7 @@ func TestOnlyHisBoardMessageIsDeliveredAsHis(t *testing.T) {
 	if err := store.ProcessOne(t.Context(), service.execute); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.Options.CFO.SendGoblin(t.Context(), meta.ID, goblinIdentity(meta), "credentials refreshed: re-source x"); err != nil {
+	if _, err := service.Options.CEO.SendGoblin(t.Context(), meta.ID, goblinIdentity(meta), "credentials refreshed: re-source x"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2174,7 +2174,7 @@ func TestAHeldGoblinMessageSaysWhatSendNowDoesForItsHarness(t *testing.T) {
 			}
 			gitWorktree(t, meta.Worktree)
 			goblinTerminal(t, h.State, meta.ID)
-			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 			messageTo(t, store, meta, "message-1", "!git status")
 			messageTo(t, store, meta, "message-2", "stop and rebase")
 			previous := typeIntoGoblin
@@ -2232,7 +2232,7 @@ func TestACommandForAGoblinInATurnOffersNoSendNow(t *testing.T) {
 			}
 			gitWorktree(t, meta.Worktree)
 			goblinTerminal(t, h.State, meta.ID)
-			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 			messageTo(t, store, meta, "message-1", test.text)
 			previous := typeIntoGoblin
 			t.Cleanup(func() { typeIntoGoblin = previous })
@@ -2270,7 +2270,7 @@ func TestALineStartingWithADollarGoesIntoATurnAtOnce(t *testing.T) {
 	}
 	gitWorktree(t, meta.Worktree)
 	goblinTerminal(t, h.State, meta.ID)
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 	messageTo(t, store, meta, "message-1", "$40k a month is too much, stop the migration")
 	isWorking := true
 	received, _ := inTurnGoblin(t, &isWorking)
@@ -2297,7 +2297,7 @@ func TestACommandTakesNoSendNowFromTheMessageItWaitsBehind(t *testing.T) {
 	}
 	gitWorktree(t, meta.Worktree)
 	goblinTerminal(t, h.State, meta.ID)
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 	isWorking := true
 	inTurnGoblin(t, &isWorking)
 	messageTo(t, store, meta, "message-1", "!git status")
@@ -2333,7 +2333,7 @@ func TestMessagesHeldForAGoblinsTurnAreDeliveredInTheOrderSent(t *testing.T) {
 	meta := makeNative(t, h.State, "task-1")
 	gitWorktree(t, meta.Worktree)
 	goblinTerminal(t, h.State, meta.ID)
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 	isWorking := true
 	received, _ := inTurnGoblin(t, &isWorking)
 	messageTo(t, store, meta, "message-1", "!git status")
@@ -2378,7 +2378,7 @@ func TestAMessageWaitsWhileItsGoblinsPromptLineHoldsUnsentWords(t *testing.T) {
 	gitWorktree(t, meta.Worktree)
 	goblin := goblinTerminal(t, h.State, meta.ID)
 	goblin.drawsDraft(t, meta.Harness, "half a thought")
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 	messageTo(t, store, meta, "message-1", "check the flaky test first")
 
 	// Act
@@ -2402,10 +2402,10 @@ func TestAMessageWaitsWhileItsGoblinsPromptLineHoldsUnsentWords(t *testing.T) {
 	}
 }
 
-// Cancel takes a message held for the CFO's turn back by its own identity, so
-// it never reaches the CFO; a cancel that names no message held for the CFO
+// Cancel takes a message held for the CEO's turn back by its own identity, so
+// it never reaches the CEO; a cancel that names no message held for the CEO
 // is refused and takes nothing.
-func TestCancelTakesBackAMessageHeldForTheCFO(t *testing.T) {
+func TestCancelTakesBackAMessageHeldForTheCEO(t *testing.T) {
 	queued := func(store *Store) []string {
 		store.mu.Lock()
 		defer store.mu.Unlock()

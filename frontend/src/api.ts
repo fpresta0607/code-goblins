@@ -31,25 +31,25 @@ export async function announce(instance: string, keys: string[]): Promise<string
   if (!keys.length) return [];
   if (document.hidden) await new Promise((resolve) => setTimeout(resolve, HIDDEN_TAB_WAIT_MS));
   try {
-    const { claimed } = object(await request("/api/announce", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ keys }) }));
+    const { claimed } = object(await request("/api/announce", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ keys }) }));
     return Array.isArray(claimed) ? claimed.filter((key): key is string => typeof key === "string") : null;
   } catch { return null; }
 }
 // The supervisor instance this board talks to, from its latest snapshot: a
-// report to the CFO carries it, as every board action does.
+// report to the CEO carries it, as every board action does.
 let instance = "";
 export function knowInstance(id: string): void { instance = id; }
 
-// reportToCfo gives the CFO a failure only this board saw, such as a read
+// reportToCeo gives the CEO a failure only this board saw, such as a read
 // that failed, a stream it could not parse or a card it could not draw, rather
 // than showing it to the Overlord: the Overlord, 2026-10-08, "everything error
 // wise goes to cfo and cfo decides what to tell me in command center". A
 // refusal of his own click is said beside it for a moment (ClickFeedback),
-// and the supervisor's own errors reach the CFO from the supervisor. A
+// and the supervisor's own errors reach the CEO from the supervisor. A
 // report that cannot be sent has nowhere else to go.
-export function reportToCfo(where: string, text: string): void {
+export function reportToCeo(where: string, text: string): void {
   if (!instance || !text.trim()) return;
-  fetch("/api/cfo/report", { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ where, text }) }).catch(() => undefined);
+  fetch("/api/ceo/report", { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ where, text }) }).catch(() => undefined);
 }
 
 export function message(error: unknown): string {
@@ -78,7 +78,7 @@ export function useResource<T>(
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
-        reportToCfo("reading " + path, message(error));
+        reportToCeo("reading " + path, message(error));
         setResult({ path, error: message(error) });
       });
     return () => controller.abort();

@@ -50,13 +50,13 @@ for (const width of [1707, 390]) {
     // Assert
     await expect(rows).toHaveCount(4);
     const [gate, merge, accent, tenants] = [rows.nth(0), rows.nth(1), rows.nth(2), rows.nth(3)];
-    await expect(gate.getByRole("img", { name: "The CFO answered", exact: true })).toBeVisible();
+    await expect(gate.getByRole("img", { name: "The CEO answered", exact: true })).toBeVisible();
     await expect(gate.locator(".answer-reason")).toHaveText("Reason: the running test step ends in 4 minutes");
     await expect(merge.getByRole("img", { name: "You answered" })).toBeVisible();
-    await expect(accent.getByRole("img", { name: "The CFO answered while you were away" })).toBeVisible();
-    await expect(tenants.getByRole("img", { name: "The CFO answered while you were away" })).toBeVisible();
+    await expect(accent.getByRole("img", { name: "The CEO answered while you were away" })).toBeVisible();
+    await expect(tenants.getByRole("img", { name: "The CEO answered while you were away" })).toBeVisible();
     await expect(rows.getByRole("button", { name: /^Change the answer to / })).toHaveCount(4);
-    await expect(merge.getByRole("button", { name: "Change the answer to The CFO: Merge PocketPiggies 125? CI is green on current main." })).toBeVisible();
+    await expect(merge.getByRole("button", { name: "Change the answer to The CEO: Merge PocketPiggies 125? CI is green on current main." })).toBeVisible();
     const overflow = await page.locator(".command-center-updates").evaluate((element) => element.scrollWidth - element.clientWidth);
     expect(overflow).toBe(0);
     await page.locator(".command-center-updates").screenshot({ path: testInfo.outputPath(`history-${width}.png`) });
@@ -65,9 +65,9 @@ for (const width of [1707, 390]) {
 
 test("an answered question reopens with its answer checked, and who chose it and when", async ({ page }, testInfo) => {
   for (const [asker, chosen, who] of [
-    [/^Change the answer to The CFO:/, "Merge it", "You chose this · 40m ago"],
-    [/^Change the answer to Bernie - Gate Keeper:/, "Wait for the running test step to end", "The CFO chose this · 2m ago"],
-    [/^Change the answer to Lucy - Pixel Polisher:/, "Mint", "The CFO chose this while you were away · 3h ago"],
+    [/^Change the answer to The CEO:/, "Merge it", "You chose this · 40m ago"],
+    [/^Change the answer to Bernie - Gate Keeper:/, "Wait for the running test step to end", "The CEO chose this · 2m ago"],
+    [/^Change the answer to Lucy - Pixel Polisher:/, "Mint", "The CEO chose this while you were away · 3h ago"],
   ] as const) {
     // Arrange
     const dialog = await reopen(page, asker);
@@ -88,7 +88,7 @@ test("an answered question reopens with its answer checked, and who chose it and
 test("he changes an answer and the card shows it on the frame he makes it, with no spinner and no error line", async ({ page }, testInfo) => {
   // Arrange
   const posted = await actions(page);
-  const dialog = await reopen(page, /^Change the answer to The CFO:/);
+  const dialog = await reopen(page, /^Change the answer to The CEO:/);
   await dialog.getByRole("radio", { name: "Keep it open" }).check();
 
   // Act
@@ -128,7 +128,7 @@ test("he writes his own answer in place of the one chosen", async ({ page }) => 
 test("choosing the answer already chosen sends nothing", async ({ page }) => {
   // Arrange
   const posted = await actions(page);
-  const dialog = await reopen(page, /^Change the answer to The CFO:/);
+  const dialog = await reopen(page, /^Change the answer to The CEO:/);
   await dialog.getByRole("radio", { name: "Keep it open" }).check();
   await dialog.getByRole("radio", { name: "Merge it" }).check();
 
@@ -146,7 +146,7 @@ test("a double click sends one change", async ({ page }) => {
   let release = () => {};
   const held = new Promise<void>((resolve) => { release = resolve; });
   const posted = await actions(page, async (route, body) => { await held; await route.fulfill({ status: 202, json: { ...body, status: "queued" } }); });
-  const dialog = await reopen(page, /^Change the answer to The CFO:/);
+  const dialog = await reopen(page, /^Change the answer to The CEO:/);
   await dialog.getByRole("radio", { name: "Keep it open" }).check();
 
   // Act
@@ -167,7 +167,7 @@ test("a change the dropped connection kept from the supervisor goes again under 
     if (++attempts === 1) return route.abort("connectionreset");
     await route.fulfill({ status: 202, json: { ...body, status: "queued" } });
   });
-  const dialog = await reopen(page, /^Change the answer to The CFO:/);
+  const dialog = await reopen(page, /^Change the answer to The CEO:/);
   await dialog.getByRole("radio", { name: "Keep it open" }).check();
 
   // Act
@@ -188,7 +188,7 @@ test("a change the dropped connection kept from the supervisor goes again under 
 test("a change the supervisor refuses puts the answer back as it stood and says why beside the button", async ({ page }) => {
   // Arrange
   await actions(page, (route) => route.fulfill({ status: 409, json: { error: "this question is no longer on the board; refresh the board" } }));
-  const dialog = await reopen(page, /^Change the answer to The CFO:/);
+  const dialog = await reopen(page, /^Change the answer to The CEO:/);
   await dialog.getByRole("radio", { name: "Keep it open" }).check();
 
   // Act
@@ -211,7 +211,7 @@ test("a merged goblin's question says in one line that the change goes as a new 
   // Assert
   await expect(dialog.locator(".change-warning")).toHaveText("Its pull request already merged. Your change goes as a new instruction.");
   await expect.poll(() => posted.length).toBe(1);
-  // The CFO's mark stays inside its line, over neither its words nor the line under it.
+  // The CEO's mark stays inside its line, over neither its words nor the line under it.
   const mark = await dialog.locator(".answered-by .answer-mark").boundingBox();
   const words = await dialog.locator(".answered-by").boundingBox();
   const warning = await dialog.locator(".change-warning").boundingBox();

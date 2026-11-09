@@ -3,7 +3,7 @@ import { Icon } from "./Icon";
 import { localChecksLook } from "./local-checks";
 import "./hosted-checks.css";
 
-// A task's newest cfo gate test run beside its pull request: how it ended in
+// A task's newest ceo gate test run beside its pull request: how it ended in
 // a word or two, in its tone, opening the end of the run's log, and once it
 // failed what failed, its level and its time in a few muted words beside it.
 export function LocalChecksLink({ checks, taskId, className }: { checks: LocalChecks; taskId: string; className: string }) {

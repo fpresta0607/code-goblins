@@ -21,7 +21,7 @@ export function missingPageAction({ hasReloaded, answering, connected }: { hasRe
 }
 
 // unsentComment says whether a code-review comment on a diff holds text the
-// Overlord typed and the CFO has not received: not cancelled, and still
+// Overlord typed and the CEO has not received: not cancelled, and still
 // sending, not sent at all, or sent and not delivered.
 export function unsentComment(draft: { hidden: boolean; text: string; sending: boolean }, outcome: Action | undefined): boolean {
   return !draft.hidden && !!draft.text.trim() && (draft.sending || !outcome || deliveryMark(outcome).trouble);

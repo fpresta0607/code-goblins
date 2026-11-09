@@ -1,12 +1,12 @@
 import { expect, test, type Page } from "./site";
 
-// One item, one signal, and only what the CFO has for him. On 2026-10-02 two
+// One item, one signal, and only what the CEO has for him. On 2026-10-02 two
 // goblins' questions reached the Overlord 19 seconds apart, each as a toast,
 // a Windows notification and the Command Center opening itself, and both of
-// his answers bounced because the CFO had answered first. His ruling: "The
+// his answers bounced because the CEO had answered first. His ruling: "The
 // Command Center should only give me questions that the CFO has for the
 // Overlord, for me", and one item is one signal.
-const CFO_ASKS = "The CFO asks: Merge pull request 240 now?";
+const CEO_ASKS = "The CEO asks: Merge pull request 240 now?";
 const AT_QUESTION = "opened the Command Center at question:merge-240";
 
 async function open(page: Page) {
@@ -14,7 +14,7 @@ async function open(page: Page) {
   await page.waitForFunction(() => "step" in window);
 }
 // Each step waits until the board has drawn its snapshot, so none is skipped.
-async function step(page: Page, name: "working" | "asked" | "cfoAsks" | "restarting" | "finished" | "shipped") {
+async function step(page: Page, name: "working" | "asked" | "ceoAsks" | "restarting" | "finished" | "shipped") {
   await page.evaluate((to) => (window as unknown as { step: (name: string) => void }).step(to), name);
   await expect(page.locator("main")).toHaveAttribute("data-step", name);
 }
@@ -41,31 +41,31 @@ async function recordNotifications(page: Page, hidden: boolean) {
 }
 const notes = (page: Page) => page.evaluate(() => (window as unknown as { notes: { options: { body: string }; closed: boolean }[] }).notes.map((note) => ({ body: note.options.body, closed: note.closed })));
 
-test("a goblin's question to the CFO, and its pull request after it, show him nothing: no toast, no card, no count, no notification", async ({ page }) => {
+test("a goblin's question to the CEO, and its pull request after it, show him nothing: no toast, no card, no count, no notification", async ({ page }) => {
   // Arrange: a board out of sight, where every alert would notify.
   await recordNotifications(page, true);
   await open(page);
 
-  // Act: the goblin asks, then finishes, and then the CFO asks him, whose
+  // Act: the goblin asks, then finishes, and then the CEO asks him, whose
   // notification proves the board took both snapshots in before it.
   await step(page, "asked");
   await step(page, "finished");
-  await step(page, "cfoAsks");
+  await step(page, "ceoAsks");
 
   // Assert
-  await expect.poll(() => notes(page)).toEqual([{ body: CFO_ASKS, closed: false }]);
+  await expect.poll(() => notes(page)).toEqual([{ body: CEO_ASKS, closed: false }]);
   await expect(toasts(page)).toHaveCount(0);
   await expect(dialog(page)).toBeHidden();
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
 });
 
-test("the CFO's question is one signal on the board: it waits under the count, with no toast, and nothing opens by itself", async ({ page }) => {
+test("the CEO's question is one signal on the board: it waits under the count, with no toast, and nothing opens by itself", async ({ page }) => {
   // Arrange
   await recordNotifications(page, false);
   await open(page);
 
   // Act
-  await step(page, "cfoAsks");
+  await step(page, "ceoAsks");
 
   // Assert
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
@@ -80,13 +80,13 @@ test("with the board out of sight an item raises a Windows notification, and cli
   await open(page);
 
   // Act
-  await step(page, "cfoAsks");
+  await step(page, "ceoAsks");
 
   // Assert: the notification is the signal; the board shows no toast.
-  await expect.poll(() => notes(page)).toEqual([{ body: CFO_ASKS, closed: false }]);
+  await expect.poll(() => notes(page)).toEqual([{ body: CEO_ASKS, closed: false }]);
   await expect(page.locator(".toasts")).toHaveCount(0);
   await page.evaluate(() => (window as unknown as { notes: { onclick: () => void }[] }).notes[0].onclick());
   await expect(page.locator("output")).toHaveText(AT_QUESTION);
   await expect(dialog(page)).toContainText("Merge pull request 240 now?");
-  expect(await notes(page)).toEqual([{ body: CFO_ASKS, closed: true }]);
+  expect(await notes(page)).toEqual([{ body: CEO_ASKS, closed: true }]);
 });

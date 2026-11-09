@@ -68,7 +68,7 @@ type Plan struct {
 // 10 to 65 seconds for this repository on a loaded machine.
 const listFields = "ImportPath,Dir,Imports,TestImports,XTestImports,EmbedPatterns,TestEmbedPatterns,XTestEmbedPatterns"
 
-// StepTestArgs start the go tests cfo gate test runs of a plan's Tests and
+// StepTestArgs start the go tests ceo gate test runs of a plan's Tests and
 // Guards. The step has no run limit of its own, so go test's ends a test
 // that hangs.
 var StepTestArgs = []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "45m"}

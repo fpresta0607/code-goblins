@@ -18,7 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-const Schema = "cfo-monitor.v1"
+const Schema = "ceo-monitor.v1"
 
 type ProbeVerdict string
 
@@ -84,7 +84,7 @@ const (
 	// agent has not registered yet: launch-in-progress, not harness death.
 	HealthLaunching Health = "launching"
 	// HealthParked is a goblin whose latest status verb parks it awaiting the
-	// CFO's decision (blocked, needs-decision, or checks-passed). The outcome
+	// CEO's decision (blocked, needs-decision, or checks-passed). The outcome
 	// was already delivered, so the monitor stays quiet instead of stalling.
 	HealthParked Health = "parked"
 )
@@ -104,18 +104,18 @@ const (
 	HarnessError Reason = "harness_error"
 	// AwaitingAnswer is a goblin whose agent turn ended (agent_status done) and
 	// is waiting on input - finished or blocked. It is the harness-agnostic
-	// "waiting for the CFO" signal that pane-text diffing was blind to.
+	// "waiting for the CEO" signal that pane-text diffing was blind to.
 	AwaitingAnswer Reason = "awaiting_answer"
 	// AwaitingDecision is a goblin parked on a status-verb decision
 	// (blocked, needs-decision, or checks-passed) whose wake was already
-	// delivered by the watcher's decision signal or cfo notify's own wake.
+	// delivered by the watcher's decision signal or ceo notify's own wake.
 	AwaitingDecision Reason = "awaiting_decision"
 	// GoblinIdle is a goblin that has sat at its prompt with nothing running,
 	// nothing asked and nothing reported for the idle window, read from its
 	// own screen and processes whatever harness it runs, hooks or none.
 	GoblinIdle Reason = "goblin_idle"
-	// GoblinAsks is a goblin at its prompt whose last reply asks the CFO
-	// something, or offers it a choice, in prose instead of with cfo notify
+	// GoblinAsks is a goblin at its prompt whose last reply asks the CEO
+	// something, or offers it a choice, in prose instead of with ceo notify
 	// --blocked, so it waits on an answer no question records.
 	GoblinAsks Reason = "goblin_asks"
 )
@@ -213,7 +213,7 @@ type Observation struct {
 	BusyWakeAt   *time.Time `json:"busy_wake_at,omitempty"`
 	// PromptSince is when the goblin was last seen settle at its prompt with
 	// nothing running, nothing asked and nothing reported, PromptStatus its
-	// status log's stamp then, and IdleWokeAt when it last woke the CFO as
+	// status log's stamp then, and IdleWokeAt when it last woke the CEO as
 	// goblin_idle.
 	PromptSince  *time.Time `json:"prompt_since,omitempty"`
 	PromptStatus string     `json:"prompt_status,omitempty"`

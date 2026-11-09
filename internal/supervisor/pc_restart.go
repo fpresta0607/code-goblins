@@ -23,12 +23,12 @@ import (
 // within minutes and the fleet ran one goblin at a time until he restarted
 // the PC.
 //
-// Past poolLine the CFO panel's header offers Restart PC, on a board on this
-// PC only, proven his as AFK mode's on is. His press tells the CFO first, has
+// Past poolLine the CEO panel's header offers Restart PC, on a board on this
+// PC only, proven his as AFK mode's on is. His press tells the CEO first, has
 // every working goblin write its handoff and pause until the PC has
-// restarted, ends the runs in the machine's heavy line, waits for the CFO's
+// restarted, ends the runs in the machine's heavy line, waits for the CEO's
 // turn to end, then restarts Windows. After he signs in, the comeback brings
-// the CFO back and the scheduler resumes each goblin paused for the restart,
+// the CEO back and the scheduler resumes each goblin paused for the restart,
 // one at a time as memory allows. A goblin that does not pause stops the
 // restart short, so nothing is lost: the goblins already paused for it stay
 // paused until the PC restarts.
@@ -46,10 +46,10 @@ import (
 const poolLine = 15 << 29
 
 // How long the restart waits for a start or a change under way to end, and
-// for the CFO's turn to end, and how often it looks.
+// for the CEO's turn to end, and how often it looks.
 const (
 	restartQuietWait = 2 * time.Minute
-	restartCFOWait   = 3 * time.Minute
+	restartCEOWait   = 3 * time.Minute
 	restartLook      = 2 * time.Second
 )
 
@@ -67,7 +67,7 @@ type PCRestart struct {
 // PC, his own among them, so it is his alone, from a board on it.
 var restartingBoard = boardAsker("Restarting the PC is the Supreme Overlord's alone", ": he presses Restart PC on a board of his own on this PC", "Press Restart PC in the Code Goblins window on this PC.", reopenTheWindow+"press Restart PC there.")
 
-// restartPCFromBoard serves POST /api/pc/restart, the CFO panel's Restart
+// restartPCFromBoard serves POST /api/pc/restart, the CEO panel's Restart
 // PC, whose body is an empty object. Only a board of the Overlord's own on
 // this PC restarts it, proven as AFK mode's on is, so a press through his
 // private board, through a proxy or from a browser an agent started is
@@ -139,15 +139,15 @@ func (s *Service) pcRestartView() *PCRestart {
 }
 
 // restartPC stops the fleet for the restart and restarts Windows, or says on
-// the board and to the CFO why it stopped short. memory is the reading the
+// the board and to the CEO why it stopped short. memory is the reading the
 // press was taken on, and signedIn when this sign-in began, which each
 // goblin's pause names.
 func (s *Service) restartPC(ctx context.Context, memory Memory, signedIn time.Time) {
 	stateDir := s.Store.Home.State
 	summary, problem := s.stopForRestart(ctx, memory, signedIn)
 	if problem == "" {
-		// What the restart did reaches the CFO when the comeback brings it
-		// back, and a CFO that cannot be told it holds up no restart.
+		// What the restart did reaches the CEO when the comeback brings it
+		// back, and a CEO that cannot be told it holds up no restart.
 		if err := raiseFleetWake(stateDir, "memory", "restart", "The PC restarts now. "+summary); err != nil {
 			s.publish(err)
 		}
@@ -171,17 +171,17 @@ func (s *Service) restartPC(ctx context.Context, memory Memory, signedIn time.Ti
 	}
 }
 
-// stopForRestart stops the fleet for the restart, in order: the CFO is told,
+// stopForRestart stops the fleet for the restart, in order: the CEO is told,
 // a start or change under way ends, every working goblin writes its handoff
 // and pauses until the PC has restarted, the runs in the machine's heavy line
-// end, and the CFO's turn ends. It says what it did, and why it stopped
+// end, and the CEO's turn ends. It says what it did, and why it stopped
 // short, empty when it did not.
 func (s *Service) stopForRestart(ctx context.Context, memory Memory, signedIn time.Time) (summary, problem string) {
 	stateDir := s.Store.Home.State
 	told := fmt.Sprintf("The Overlord pressed Restart PC on his board: the kernel's pools hold %.1f GB (%.1f GB paged, %.1f GB nonpaged), past the %.1f GB line past which free memory cannot hold the fleet. The supervisor now pauses every working goblin until the PC has restarted, each writing its handoff first, ends the runs in the machine's heavy line, waits for your turn to end, then restarts Windows. Start, resume and merge nothing meanwhile, and end your turn. After he signs in the comeback brings you back, and the scheduler resumes each goblin paused for the restart, one at a time as memory allows.",
 		gigabytes(memory.PagedPool+memory.NonpagedPool), gigabytes(memory.PagedPool), gigabytes(memory.NonpagedPool), gigabytes(poolLine))
 	if err := raiseFleetWake(stateDir, "memory", "restart", told); err != nil {
-		return "", "the CFO could not be told: " + err.Error()
+		return "", "the CEO could not be told: " + err.Error()
 	}
 	if busy := s.awaitQuiet(ctx); busy != "" {
 		return "", busy + " did not end within " + restartQuietWait.String()
@@ -204,8 +204,8 @@ func (s *Service) stopForRestart(ctx context.Context, memory Memory, signedIn ti
 			summary += " Ended in the machine's heavy line: " + strings.Join(ended, ", ") + "."
 		}
 	}
-	if !s.awaitCFOStoppingPoint(ctx) {
-		summary += " Your turn had not ended after " + restartCFOWait.String() + "."
+	if !s.awaitCEOStoppingPoint(ctx) {
+		summary += " Your turn had not ended after " + restartCEOWait.String() + "."
 	}
 	return summary, ""
 }
@@ -223,8 +223,8 @@ func (s *Service) awaitQuiet(ctx context.Context) string {
 		for id, action := range s.changing {
 			busy = changingVerbs[action] + " " + id
 		}
-		if s.isCFOComingBack {
-			busy = "the CFO's comeback"
+		if s.isCEOComingBack {
+			busy = "the CEO's comeback"
 		}
 		s.starts.Unlock()
 		if busy == "" || !time.Now().Before(deadline) {
@@ -277,7 +277,7 @@ func (s *Service) workingGoblins() ([]state.TaskMeta, error) {
 }
 
 // pauseForRestart pauses goblins until a sign-in after signedIn, all at
-// once, each through cfo pause, which asks it for its handoff before it
+// once, each through ceo pause, which asks it for its handoff before it
 // stops its terminal, and reads back that each is paused. It says which
 // paused and which saved no handoff, and names each that did not pause.
 func (s *Service) pauseForRestart(goblins []state.TaskMeta, signedIn time.Time) (summary, problem string) {
@@ -345,16 +345,16 @@ func (s *Service) pauseForRestart(goblins []state.TaskMeta, signedIn time.Time) 
 	return summary, ""
 }
 
-// awaitCFOStoppingPoint waits up to restartCFOWait for the registered CFO's
-// turn to end, and says whether it did; with no CFO in its native terminal
+// awaitCEOStoppingPoint waits up to restartCEOWait for the registered CEO's
+// turn to end, and says whether it did; with no CEO in its native terminal
 // there is no turn to wait for.
-func (s *Service) awaitCFOStoppingPoint(ctx context.Context) bool {
-	cfo := readCFOState(s.Store.Home.State)
-	if !cfo.registered || cfo.terminal != NativeCFOTerminal {
+func (s *Service) awaitCEOStoppingPoint(ctx context.Context) bool {
+	ceo := readCEOState(s.Store.Home.State)
+	if !ceo.registered || ceo.terminal != NativeCEOTerminal {
 		return true
 	}
-	deadline := time.Now().Add(restartCFOWait)
-	for !s.cfoAtStoppingPoint(ctx, cfo.harness) {
+	deadline := time.Now().Add(restartCEOWait)
+	for !s.ceoAtStoppingPoint(ctx, ceo.harness) {
 		if !time.Now().Before(deadline) {
 			return false
 		}

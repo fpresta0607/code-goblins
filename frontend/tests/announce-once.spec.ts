@@ -7,7 +7,7 @@ import { expect, servePages, test, type BrowserContext, type Page } from "./site
 // count and nothing else shows; out of sight it raises one Windows
 // notification, whichever tab is open, through a reload, a supervisor restart
 // and a browser that remembers nothing; and what he already acted on never
-// comes back. A goblin's question to the CFO is never announced at all.
+// comes back. A goblin's question to the CEO is never announced at all.
 const ASKS = "May the goblin finish the remaining heavy steps now, or stay paused?";
 const QUESTION = "question:finish-heavy-steps";
 // Its alert, and so its notification, stands for this one publishing of it.
@@ -85,7 +85,7 @@ test("on a board in sight a question waits under the count: no toast, no notific
   expect(await notes(page)).toEqual([]);
 });
 
-test("a goblin's question to the CFO is never announced: the board asks the supervisor nothing about it", async ({ page, context }) => {
+test("a goblin's question to the CEO is never announced: the board asks the supervisor nothing about it", async ({ page, context }) => {
   // Arrange
   await context.addInitScript(RECORD_NOTIFICATIONS);
   await context.addInitScript(OUT_OF_SIGHT);
@@ -93,7 +93,7 @@ test("a goblin's question to the CFO is never announced: the board asks the supe
   await record.serve(context);
   await open(page);
 
-  // Act: the goblin asks, and then the CFO asks the Overlord something, whose
+  // Act: the goblin asks, and then the CEO asks the Overlord something, whose
   // notification proves the board took the goblin's question in before it.
   await step(page, "goblinAsks");
   await step(page, "asked");

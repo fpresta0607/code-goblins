@@ -29,7 +29,7 @@ export type PanelView = "terminal" | "task";
 // left to switch to.
 // A queued task's panel has the same Start as its card, the board's one
 // Start (the Overlord, 2026-10-08: "why no run button when it says play in
-// panel"). The CFO's Task view also lists every queued task, as the Tasks column does,
+// panel"). The CEO's Task view also lists every queued task, as the Tasks column does,
 // and says which conversation it could not resume when it came back; its
 // Restart is in its header. isBoardShown says the board's Tasks column is on
 // screen beside the panel, which then holds the machine meters, so the list
@@ -68,9 +68,9 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
       <LifecycleDetails task={task} />
     </div>}
     {!task?.archived && owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} log={{ open: isLogOpen, onOpenChange: setLogOpen }} now={now} onRepair={onAnswer} /> : <div className="panel-content">
-      {!task && !node && snapshot.cfo_conversation_left && <p className="cfo-conversation-left">{snapshot.cfo_conversation_left}</p>}
+      {!task && !node && snapshot.ceo_conversation_left && <p className="ceo-conversation-left">{snapshot.ceo_conversation_left}</p>}
       <WorkspaceDetails task={task} node={node} runs={snapshot.runs} snapshot={snapshot} connected={connected} onRepair={onAnswer} />
-      {!task && !node && (!isBoardShown || queuedTasks(snapshot).length > 0) && <section className="cfo-queue" aria-label="Queued tasks">
+      {!task && !node && (!isBoardShown || queuedTasks(snapshot).length > 0) && <section className="ceo-queue" aria-label="Queued tasks">
         <QueuedTasks snapshot={snapshot} now={now} presentations={presentations} hasMeters={!isBoardShown} onSelect={onOpenTask} />
       </section>}
     </div>}

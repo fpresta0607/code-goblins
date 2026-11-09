@@ -59,7 +59,7 @@ func openCredentialManager() (Store, error) {
 	// Prove the vault answers before claiming it: a read of a name that does
 	// not exist must come back as "not found", not as a load failure.
 	store := credentialManagerStore{target: credentialTarget}
-	if _, _, err := store.Get(Shared("CFO_CREDENTIAL_STORE_PROBE")); err != nil {
+	if _, _, err := store.Get(Shared("CEO_CREDENTIAL_STORE_PROBE")); err != nil {
 		return nil, err
 	}
 	return store, nil
@@ -69,7 +69,7 @@ func (credentialManagerStore) Describe() string {
 	return "Windows Credential Manager"
 }
 
-// Seen keeps its records under cfo:.env-seen/, which the credential listing
+// Seen keeps its records under ceo:.env-seen/, which the credential listing
 // reads as a scope no project can have and skips.
 func (s credentialManagerStore) Seen() Store {
 	return credentialManagerStore{target: s.target + seenScope + "/"}
@@ -113,7 +113,7 @@ func (s credentialManagerStore) Set(key Key, value string) error {
 	if err != nil {
 		return err
 	}
-	user, err := syscall.UTF16PtrFromString("cfo")
+	user, err := syscall.UTF16PtrFromString("ceo")
 	if err != nil {
 		return err
 	}
@@ -178,7 +178,7 @@ func (s credentialManagerStore) Keys() ([]Key, error) {
 
 // parseVaultKey reads back the target form Set wrote. Anything that is not a
 // key this package could have written is skipped, so an enumeration never
-// reports another application's entry as a cfo credential.
+// reports another application's entry as a ceo credential.
 func parseVaultKey(scoped string) (Key, bool) {
 	project, name, found := strings.Cut(scoped, "/")
 	if !found {
@@ -223,7 +223,7 @@ func restrictToOwner(path string) error {
 // VaultTargets lists every Windows Credential Manager entry Code Goblins
 // stored: each credential and each fingerprint of what a .env last offered.
 // An entry counts only as this package writes it, a generic credential for
-// the user cfo whose target is a key this package could have written, so an
+// the user ceo whose target is a key this package could have written, so an
 // uninstall that removes them never reaches another program's entry.
 func VaultTargets() ([]string, error) {
 	filter, err := syscall.UTF16PtrFromString(credentialTarget + "*")
@@ -245,7 +245,7 @@ func VaultTargets() ([]string, error) {
 		if credential == nil || credential.TargetName == nil || credential.UserName == nil || credential.Type != credTypeGeneric {
 			continue
 		}
-		if syscall.UTF16ToString(unsafe.Slice(credential.UserName, targetNameLen(credential.UserName))) != "cfo" {
+		if syscall.UTF16ToString(unsafe.Slice(credential.UserName, targetNameLen(credential.UserName))) != "ceo" {
 			continue
 		}
 		target := syscall.UTF16ToString(unsafe.Slice(credential.TargetName, targetNameLen(credential.TargetName)))

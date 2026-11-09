@@ -116,5 +116,5 @@ func CheckTestEnvironmentWrapper(root string) error {
 			return nil
 		}
 	}
-	return errors.New("pipeline: required test environment: configure test_command_wrapper.command with the reviewed cfo binary, gate turn, --gate-run {run}, --test-comparison-sha {test_comparison_sha}, then --; the daemon must support the resolved Test comparison contract and bind both head and base commands before a run starts")
+	return errors.New("pipeline: required test environment: configure test_command_wrapper.command with the reviewed ceo binary, gate turn, --gate-run {run}, --test-comparison-sha {test_comparison_sha}, then --; the daemon must support the resolved Test comparison contract and bind both head and base commands before a run starts")
 }

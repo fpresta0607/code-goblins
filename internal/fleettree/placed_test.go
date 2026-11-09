@@ -10,7 +10,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// The start watch reads every few seconds what each goblin and the CFO's
+// The start watch reads every few seconds what each goblin and the CEO's
 // terminal started, placed as the family tree places a goblin's processes:
 // each job its harness started after launching, with what runs under it,
 // and each detached tree that is its own. Never its harness, its MCP
@@ -27,7 +27,7 @@ func TestPlacedPlacesWhatEachOwnerStarted(t *testing.T) {
 		Process{PID: 230, ParentPID: 903, Exe: "explorer.exe", Created: 25, Started: later(-600)},
 	)
 	commands := maps.Clone(goblinCommands)
-	commands[400], commands[601] = "no-mistakes.exe daemon", `bash -c "eval 'cfo drain'"`
+	commands[400], commands[601] = "no-mistakes.exe daemon", `bash -c "eval 'ceo drain'"`
 	reads := map[int]int{}
 	reader := Reader{
 		Processes:   func() ([]Process, error) { return processes, nil },
@@ -36,7 +36,7 @@ func TestPlacedPlacesWhatEachOwnerStarted(t *testing.T) {
 	}
 	owners := []Goblin{
 		{Meta: state.TaskMeta{ID: "tree"}, HarnessPID: 100},
-		{Meta: state.TaskMeta{ID: "cfo"}, HarnessPID: 600},
+		{Meta: state.TaskMeta{ID: "ceo"}, HarnessPID: 600},
 		{Meta: state.TaskMeta{ID: "gone"}, HarnessPID: 700},
 	}
 
@@ -65,7 +65,7 @@ func TestPlacedPlacesWhatEachOwnerStarted(t *testing.T) {
 		102: {"tree", false, false, true, true}, 103: {"tree", false, false, false, true}, 104: {"tree", false, false, false, true},
 		105: {"tree", false, false, true, false}, 106: {"tree", false, false, false, false}, 107: {"tree", false, false, true, false},
 		400: {"tree", true, true, false, false}, 401: {"tree", true, true, false, false},
-		601: {"cfo", false, false, true, false},
+		601: {"ceo", false, false, true, false},
 	}
 	if !maps.Equal(got, want) {
 		t.Errorf("placed = %v, want %v", got, want)
@@ -78,7 +78,7 @@ func TestPlacedPlacesWhatEachOwnerStarted(t *testing.T) {
 // A test run in the machine's heavy line starts stand-ins such as
 // cmd /c "ping -n 30 127.0.0.1 >NUL" and ends the cmd, which leaves the
 // ping running with no parent: on 2026-10-14 ten such pings in 45 seconds
-// woke the CFO as one goblin's loop. Without its parent nothing says what
+// woke the CEO as one goblin's loop. Without its parent nothing says what
 // started it but the turn its environment names (verify.TurnVariable), which
 // every process of the run inherits, so a process that names one is in a
 // run. A detached process that names none is not.
@@ -123,11 +123,11 @@ func TestPlacedPutsWhatAHeavyLineRunLeftWithoutAParentInTheRun(t *testing.T) {
 	}
 }
 
-// A link the CFO's harness opens, such as a sign-in's, starts the
-// Overlord's default browser under the CFO's terminal when none runs, and
+// A link the CEO's harness opens, such as a sign-in's, starts the
+// Overlord's default browser under the CEO's terminal when none runs, and
 // that browser is his from then on, with every tab and native messaging host
 // it starts. On 2026-10-16 the start watch blamed four of its windows on the
-// CFO's terminal and advised ending them by pid (#1007). A browser a goblin
+// CEO's terminal and advised ending them by pid (#1007). A browser a goblin
 // runs for its work is still the goblin's.
 func TestPlacedLeavesABrowserALinkOpenedToTheOverlord(t *testing.T) {
 	// Arrange
@@ -154,11 +154,11 @@ func TestPlacedLeavesABrowserALinkOpenedToTheOverlord(t *testing.T) {
 	reader := Reader{
 		Processes:   func() ([]Process, error) { return processes, nil },
 		CommandLine: func(pid int) (string, error) { return commands[pid], nil },
-		Owner:       func(pid int) string { return map[int]string{620: "cfo", 621: "cfo"}[pid] },
+		Owner:       func(pid int) string { return map[int]string{620: "ceo", 621: "ceo"}[pid] },
 	}
 	owners := []Goblin{
 		{Meta: state.TaskMeta{ID: "tree"}, HarnessPID: 100},
-		{Meta: state.TaskMeta{ID: "cfo"}, HarnessPID: 600},
+		{Meta: state.TaskMeta{ID: "ceo"}, HarnessPID: 600},
 	}
 
 	// Act
@@ -177,25 +177,25 @@ func TestPlacedLeavesABrowserALinkOpenedToTheOverlord(t *testing.T) {
 			t.Errorf("process %d (%s) placed as %s's, want the Overlord's browser left to him", pid, commands[pid], mine)
 		}
 	}
-	if owner[601] != "cfo" || owner[107] != "tree" {
-		t.Errorf("placed = %v, want the CFO's tool call and the goblin's own browser still placed", owner)
+	if owner[601] != "ceo" || owner[107] != "tree" {
+		t.Errorf("placed = %v, want the CEO's tool call and the goblin's own browser still placed", owner)
 	}
 }
 
 // The supervisor is the fleet's own service, and nothing it runs is an
-// owner's start. On 2026-10-25 the start watch woke the CFO for its
+// owner's start. On 2026-10-25 the start watch woke the CEO for its
 // terminal's loop of no-mistakes axi sync --check: the supervisor's own
-// gate-status reads, under a supervisor an update the CFO's terminal ran had
+// gate-status reads, under a supervisor an update the CEO's terminal ran had
 // started. Its console host still carried that terminal's mark, and a read
 // in a goblin's worktree is that goblin's by its place, so whichever of them
 // answers first took the supervisor's whole tree (#1499). A supervisor that a
-// tool call of the CFO's still runs above is no work of the call's either.
+// tool call of the CEO's still runs above is no work of the call's either.
 func TestPlacedPlacesNothingTheSupervisorRuns(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		owners map[int]string
 	}{
-		{"its console carries the CFO terminal's mark", map[int]string{801: "cfo", 802: "tree", 812: "tree"}},
+		{"its console carries the CEO terminal's mark", map[int]string{801: "ceo", 802: "tree", 812: "tree"}},
 		{"its console carries no mark", map[int]string{802: "tree", 812: "tree"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -210,7 +210,7 @@ func TestPlacedPlacesNothingTheSupervisorRuns(t *testing.T) {
 				Process{PID: 801, ParentPID: 800, Exe: "conhost.exe", Created: 81, Started: later(40)},
 				Process{PID: 802, ParentPID: 800, Exe: "no-mistakes.exe", Created: 82, Started: later(50)},
 				Process{PID: 803, ParentPID: 802, Exe: "no-mistakes.exe", Created: 83, Started: later(50)},
-				// An update the CFO's tool call still runs, and the supervisor it
+				// An update the CEO's tool call still runs, and the supervisor it
 				// started reading the same.
 				Process{PID: 610, ParentPID: 600, Exe: "bash.exe", Created: 61, Started: later(45)},
 				Process{PID: 611, ParentPID: 610, Exe: "goblins.exe", Created: 62, Started: later(45)},
@@ -233,7 +233,7 @@ func TestPlacedPlacesNothingTheSupervisorRuns(t *testing.T) {
 			}
 			owners := []Goblin{
 				{Meta: state.TaskMeta{ID: "tree"}, HarnessPID: 100},
-				{Meta: state.TaskMeta{ID: "cfo"}, HarnessPID: 600},
+				{Meta: state.TaskMeta{ID: "ceo"}, HarnessPID: 600},
 			}
 
 			// Act
@@ -252,8 +252,8 @@ func TestPlacedPlacesNothingTheSupervisorRuns(t *testing.T) {
 					t.Errorf("process %d (%s) placed as %s's, want the supervisor's own work placed as nobody's", pid, commands[pid], mine)
 				}
 			}
-			if owner[610] != "cfo" || owner[611] != "cfo" || owner[107] != "tree" {
-				t.Errorf("placed = %v, want the CFO's update call and the goblin's own work still placed", owner)
+			if owner[610] != "ceo" || owner[611] != "ceo" || owner[107] != "tree" {
+				t.Errorf("placed = %v, want the CEO's update call and the goblin's own work still placed", owner)
 			}
 		})
 	}

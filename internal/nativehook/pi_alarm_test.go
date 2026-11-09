@@ -68,7 +68,7 @@ func TestPiExtensionTransportsOnlyGoblinToolResultsOverStdin(t *testing.T) {
 	if err != nil {
 		t.Skip("Pi requires Node")
 	}
-	for _, role := range []string{"goblin", "cfo"} {
+	for _, role := range []string{"goblin", "ceo"} {
 		t.Run(role, func(t *testing.T) {
 			directory := t.TempDir()
 			configuration := InstallConfig{Harness: "pi", ConfigDir: directory, Executable: filepath.Join(directory, "hook.exe"), Home: directory, State: filepath.Join(directory, "state")}
@@ -96,7 +96,7 @@ process.stdout.write(JSON.stringify(calls));
 `), 0600); err != nil {
 				t.Fatal(err)
 			}
-			t.Setenv("CFO_ROLE", role)
+			t.Setenv("CEO_ROLE", role)
 
 			output, diagnostics, err := runPiDriver(piDriverBound, node, driver, extension)
 
@@ -169,7 +169,7 @@ process.stdout.write(String(calls));
 `), 0600); err != nil {
 				t.Fatal(err)
 			}
-			t.Setenv("CFO_ROLE", "goblin")
+			t.Setenv("CEO_ROLE", "goblin")
 
 			output, diagnostics, err := runPiDriver(piDriverBound, node, driver, extension, failure)
 
@@ -243,7 +243,7 @@ handlers.agent_settled({}, ctx);
 `), 0600); err != nil {
 				t.Fatal(err)
 			}
-			t.Setenv("CFO_ROLE", "goblin")
+			t.Setenv("CEO_ROLE", "goblin")
 
 			// Act
 			_, reported, err := runPiDriver(piDriverBound, node, driver, extension, c.failure)

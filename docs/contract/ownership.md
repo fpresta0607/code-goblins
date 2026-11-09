@@ -61,72 +61,72 @@ The extraction preserves the existing obligations, including gate budgets, merge
 
 | Previous command | Targeted owner |
 | --- | --- |
-| `cfo remote on\|status\|off` | [cfo help remote](../commands/remote.md) |
-| `cfo install [--projects-root <dir>] [--dev-drive on\|off] [--uninstall]` | [cfo help install](../commands/install.md) |
-| `cfo uninstall [--dry-run [--json]] [--yes] [--remove-work] [--remove-tools]` | [cfo help uninstall](../commands/uninstall.md) |
-| `cfo home migrate [--apply --plan <digest>] [--memory-from <dir>]` | [cfo help home migrate](../commands/home/migrate.md) |
-| `cfo dev-drive [setup \| move --to <folder>]` | [cfo help dev-drive](../commands/dev-drive.md) |
-| `cfo defender [--since <time\|day\|length>] [--json]` | [cfo help defender](../commands/defender.md) |
-| `cfo home move [--to <dir>] [--apply --plan <digest>]` | [cfo help home move](../commands/home/move.md) |
-| `cfo doctor [--fix]` | [cfo help doctor](../commands/doctor.md) |
-| `cfo dictation setup` | [cfo help dictation setup](../commands/dictation/setup.md) |
-| `cfo crawler setup` | [cfo help crawler setup](../commands/crawler/setup.md) |
-| `cfo auth <project> [--check\|--fix] [--env]` | [cfo help auth](../commands/auth.md) |
-| `cfo auth store [--project <p>] <NAME> [value]` | [cfo help auth store](../commands/auth/store.md) |
-| `cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] [--step "<text>"]... [--message-file <file>] [--env-file <file>] [--plain NAME]... [--label NAME="<words>"]... [--window] [--wait] [NAME...]`, `cfo auth request --wait-on\|--done <card> [--task <id>]`, `cfo auth request --withdraw <card> [--task <id>] --reason "<why>"` | [cfo help auth request](../commands/auth/request.md) |
-| `cfo auth browser <provider> --task <id> [--release \| --sign-in]` | [cfo help auth browser](../commands/auth/browser.md) |
-| `cfo auth fetch <request> --task <id>` | [cfo help auth fetch](../commands/auth/fetch.md) |
-| `cfo auth list [--project <p>]` | [cfo help auth list](../commands/auth/list.md) |
-| `cfo auth copy <NAME> --to <project> [--from <project>]` | [cfo help auth copy](../commands/auth/copy.md) |
-| `cfo auth grant <task-id> <service> [<service>...]` | [cfo help auth grant](../commands/auth/grant.md) |
-| `cfo auth grant <task-id> --mcp <server> [<server>...]` | [cfo help auth grant](../commands/auth/grant.md) |
-| `cfo auth grant <task-id> --codex-credits` | [cfo help auth grant](../commands/auth/grant.md) |
-| `cfo auth revoke <task-id> --codex-credits` | [cfo help auth revoke](../commands/auth/revoke.md) |
-| `cfo auth revoke <task-id> <service> [<service>...]` | [cfo help auth revoke](../commands/auth/revoke.md) |
-| `cfo auth revoke <task-id> --mcp <server> [<server>...]` | [cfo help auth revoke](../commands/auth/revoke.md) |
-| `cfo auth refresh <task-id>` | [cfo help auth refresh](../commands/auth/refresh.md) |
-| `cfo project check <project> [--area <area>] [--json] [--draft <file>]` \| `check --unfiled [--json]` \| `show <project>` \| `init <project>` | [cfo help project](../commands/project.md) |
-| `cfo spawn <id> --project <p> --brief <b> [--harness <h>] [--mode <m>] [--delivery-exception "<authority and reason>"] [--model <m>] [--effort <e>] [--class <c>] [--title "<short title>"] [--yolo] [--overlap-ok "<why>"]` | [cfo help spawn](../commands/spawn.md) |
-| `cfo title <id> "<short title>"` | [cfo help title](../commands/title.md) |
-| `cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart]` | [cfo help switch](../commands/switch.md) |
-| `cfo pipeline` | [cfo help pipeline](../commands/pipeline.md) |
-| `cfo gate tests-kept` | [cfo help gate tests-kept](../commands/gate/tests-kept.md) |
-| `cfo gate test [--level fast\|affected\|full \| --focused] [--plan]`, `cfo gate lint [--plan]` | [cfo help gate test](../commands/gate/test.md) |
-| `cfo gate prepush [--plan] [--limit <duration>]` | [cfo help gate prepush](../commands/gate/prepush.md) |
-| `cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]` | [cfo help gate turn](../commands/gate/turn.md) |
-| `cfo gate turns [--json]` | [cfo help gate turns](../commands/gate/turns.md) |
-| `cfo ci-runner job \| status \| parity --repo <owner/name>` | [cfo help ci-runner](../commands/ci-runner.md) |
-| `cfo send <target> <text>` | [cfo help send](../commands/send.md) |
-| `cfo send <target> --key <key>` | [cfo help send](../commands/send.md) |
-| `cfo peek <target> [lines]` | [cfo help peek](../commands/peek.md) |
-| `cfo fleet-view [--json]` | [cfo help fleet-view](../commands/fleet-view.md) |
-| `cfo runtime [--json]` | [cfo help runtime](../commands/runtime.md) |
-| `cfo services up <project> --task <id> [--wait <duration>]` \| `down <project> --task <id>` | [cfo help services](../commands/services.md) |
-| `cfo tickets <project> [--brief <file>] [--files <paths>] [--json]` | [cfo help tickets](../commands/tickets.md) |
-| `cfo tickets <project> --allow-public-tickets` | [cfo help tickets](../commands/tickets.md) |
-| `cfo issue file --project <p> --title <t> [--body-file <f>] [--evidence <text>]... [--root <key>]` | [cfo help issue file](../commands/issue/file.md) |
-| `cfo brief <id> --project <p> [--kind <kind>] [--mode <m>] [--surface <s>] [--risk <r>] [--reason "<assessment>"] [--delivery-exception "<authority and reason>"]` | [cfo help brief](../commands/brief.md) |
-| `cfo pr check <id> <url>` | [cfo help pr check](../commands/pr/check.md) |
-| `cfo pr merge <url> [--method <m>] [--delete-branch] [--verified "<what verified it>"]` | [cfo help pr merge](../commands/pr/merge.md) |
-| `cfo pr train <project>` | [cfo help pr train](../commands/pr/train.md) |
-| `cfo afk on [--asked "<his words>"] \| off [--asked "<his words>"] \| status \| report \| log --kind <kind> --what "<what>" --evidence "<evidence>" [--link <url>] [--option "<choice>"]... [--recommend "<choice>"] [--run <command.ps1\|command.sh> [--admin]] \| strike --at <when> --reason "<why>" \| settle --at <when> --how "<what became of it>"` | [cfo help afk](../commands/afk.md) |
-| `cfo allowance-floor [<claude\|codex> <percent>]` | [cfo help allowance-floor](../commands/allowance-floor.md) |
-| `cfo start-hook accept <task-id> <file> [--fleet]` | [cfo help start-hook accept](../commands/start-hook/accept.md) |
-| `cfo merge-local <id>` | [cfo help merge-local](../commands/merge-local.md) |
-| `cfo cleanup <id>` | [cfo help cleanup](../commands/cleanup.md) |
-| `cfo worktree add <id> <name> [--ref <commit>]` \| `remove <id> <name>` | [cfo help worktree](../commands/worktree.md) |
-| `cfo reap [--dry-run] [--apply] [--force <pid\|task-id>]` | [cfo help reap](../commands/reap.md) |
-| `cfo register` | [cfo help register](../commands/register.md) |
-| `cfo process-plan` | [cfo help process-plan](../commands/process-plan.md) |
-| `cfo notify <id>` with every report form it takes | [cfo help notify](../commands/notify.md) |
-| `cfo helper start <parent-id> --brief <file> [--title "<short title>"]` \| `merge <parent-id>` | [cfo help helper](../commands/helper.md) |
-| `cfo drain` | [cfo help drain](../commands/drain.md) |
-| `cfo session-start` | [cfo help session-start](../commands/session-start.md) |
-| `cfo memory` | [cfo help memory](../commands/memory.md) and [memory contract](memory.md) |
-| `cfo hook <name>` | [cfo help hook](../commands/hook.md) |
-| `<candidate> update [--recover]` | [cfo help update](../commands/update.md) |
-| `goblins update [--check] [--to <tag> [--run <item>]]` | [cfo help update](../commands/update.md) |
-| `cfo version` | [cfo help version](../commands/version.md) |
+| `ceo remote on\|status\|off` | [ceo help remote](../commands/remote.md) |
+| `ceo install [--projects-root <dir>] [--dev-drive on\|off] [--uninstall]` | [ceo help install](../commands/install.md) |
+| `ceo uninstall [--dry-run [--json]] [--yes] [--remove-work] [--remove-tools]` | [ceo help uninstall](../commands/uninstall.md) |
+| `ceo home migrate [--apply --plan <digest>] [--memory-from <dir>]` | [ceo help home migrate](../commands/home/migrate.md) |
+| `ceo dev-drive [setup \| move --to <folder>]` | [ceo help dev-drive](../commands/dev-drive.md) |
+| `ceo defender [--since <time\|day\|length>] [--json]` | [ceo help defender](../commands/defender.md) |
+| `ceo home move [--to <dir>] [--apply --plan <digest>]` | [ceo help home move](../commands/home/move.md) |
+| `ceo doctor [--fix]` | [ceo help doctor](../commands/doctor.md) |
+| `ceo dictation setup` | [ceo help dictation setup](../commands/dictation/setup.md) |
+| `ceo crawler setup` | [ceo help crawler setup](../commands/crawler/setup.md) |
+| `ceo auth <project> [--check\|--fix] [--env]` | [ceo help auth](../commands/auth.md) |
+| `ceo auth store [--project <p>] <NAME> [value]` | [ceo help auth store](../commands/auth/store.md) |
+| `ceo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] [--step "<text>"]... [--message-file <file>] [--env-file <file>] [--plain NAME]... [--label NAME="<words>"]... [--window] [--wait] [NAME...]`, `ceo auth request --wait-on\|--done <card> [--task <id>]`, `ceo auth request --withdraw <card> [--task <id>] --reason "<why>"` | [ceo help auth request](../commands/auth/request.md) |
+| `ceo auth browser <provider> --task <id> [--release \| --sign-in]` | [ceo help auth browser](../commands/auth/browser.md) |
+| `ceo auth fetch <request> --task <id>` | [ceo help auth fetch](../commands/auth/fetch.md) |
+| `ceo auth list [--project <p>]` | [ceo help auth list](../commands/auth/list.md) |
+| `ceo auth copy <NAME> --to <project> [--from <project>]` | [ceo help auth copy](../commands/auth/copy.md) |
+| `ceo auth grant <task-id> <service> [<service>...]` | [ceo help auth grant](../commands/auth/grant.md) |
+| `ceo auth grant <task-id> --mcp <server> [<server>...]` | [ceo help auth grant](../commands/auth/grant.md) |
+| `ceo auth grant <task-id> --codex-credits` | [ceo help auth grant](../commands/auth/grant.md) |
+| `ceo auth revoke <task-id> --codex-credits` | [ceo help auth revoke](../commands/auth/revoke.md) |
+| `ceo auth revoke <task-id> <service> [<service>...]` | [ceo help auth revoke](../commands/auth/revoke.md) |
+| `ceo auth revoke <task-id> --mcp <server> [<server>...]` | [ceo help auth revoke](../commands/auth/revoke.md) |
+| `ceo auth refresh <task-id>` | [ceo help auth refresh](../commands/auth/refresh.md) |
+| `ceo project check <project> [--area <area>] [--json] [--draft <file>]` \| `check --unfiled [--json]` \| `show <project>` \| `init <project>` | [ceo help project](../commands/project.md) |
+| `ceo spawn <id> --project <p> --brief <b> [--harness <h>] [--mode <m>] [--delivery-exception "<authority and reason>"] [--model <m>] [--effort <e>] [--class <c>] [--title "<short title>"] [--yolo] [--overlap-ok "<why>"]` | [ceo help spawn](../commands/spawn.md) |
+| `ceo title <id> "<short title>"` | [ceo help title](../commands/title.md) |
+| `ceo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart]` | [ceo help switch](../commands/switch.md) |
+| `ceo pipeline` | [ceo help pipeline](../commands/pipeline.md) |
+| `ceo gate tests-kept` | [ceo help gate tests-kept](../commands/gate/tests-kept.md) |
+| `ceo gate test [--level fast\|affected\|full \| --focused] [--plan]`, `ceo gate lint [--plan]` | [ceo help gate test](../commands/gate/test.md) |
+| `ceo gate prepush [--plan] [--limit <duration>]` | [ceo help gate prepush](../commands/gate/prepush.md) |
+| `ceo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]` | [ceo help gate turn](../commands/gate/turn.md) |
+| `ceo gate turns [--json]` | [ceo help gate turns](../commands/gate/turns.md) |
+| `ceo ci-runner job \| status \| parity --repo <owner/name>` | [ceo help ci-runner](../commands/ci-runner.md) |
+| `ceo send <target> <text>` | [ceo help send](../commands/send.md) |
+| `ceo send <target> --key <key>` | [ceo help send](../commands/send.md) |
+| `ceo peek <target> [lines]` | [ceo help peek](../commands/peek.md) |
+| `ceo fleet-view [--json]` | [ceo help fleet-view](../commands/fleet-view.md) |
+| `ceo runtime [--json]` | [ceo help runtime](../commands/runtime.md) |
+| `ceo services up <project> --task <id> [--wait <duration>]` \| `down <project> --task <id>` | [ceo help services](../commands/services.md) |
+| `ceo tickets <project> [--brief <file>] [--files <paths>] [--json]` | [ceo help tickets](../commands/tickets.md) |
+| `ceo tickets <project> --allow-public-tickets` | [ceo help tickets](../commands/tickets.md) |
+| `ceo issue file --project <p> --title <t> [--body-file <f>] [--evidence <text>]... [--root <key>]` | [ceo help issue file](../commands/issue/file.md) |
+| `ceo brief <id> --project <p> [--kind <kind>] [--mode <m>] [--surface <s>] [--risk <r>] [--reason "<assessment>"] [--delivery-exception "<authority and reason>"]` | [ceo help brief](../commands/brief.md) |
+| `ceo pr check <id> <url>` | [ceo help pr check](../commands/pr/check.md) |
+| `ceo pr merge <url> [--method <m>] [--delete-branch] [--verified "<what verified it>"]` | [ceo help pr merge](../commands/pr/merge.md) |
+| `ceo pr train <project>` | [ceo help pr train](../commands/pr/train.md) |
+| `ceo afk on [--asked "<his words>"] \| off [--asked "<his words>"] \| status \| report \| log --kind <kind> --what "<what>" --evidence "<evidence>" [--link <url>] [--option "<choice>"]... [--recommend "<choice>"] [--run <command.ps1\|command.sh> [--admin]] \| strike --at <when> --reason "<why>" \| settle --at <when> --how "<what became of it>"` | [ceo help afk](../commands/afk.md) |
+| `ceo allowance-floor [<claude\|codex> <percent>]` | [ceo help allowance-floor](../commands/allowance-floor.md) |
+| `ceo start-hook accept <task-id> <file> [--fleet]` | [ceo help start-hook accept](../commands/start-hook/accept.md) |
+| `ceo merge-local <id>` | [ceo help merge-local](../commands/merge-local.md) |
+| `ceo cleanup <id>` | [ceo help cleanup](../commands/cleanup.md) |
+| `ceo worktree add <id> <name> [--ref <commit>]` \| `remove <id> <name>` | [ceo help worktree](../commands/worktree.md) |
+| `ceo reap [--dry-run] [--apply] [--force <pid\|task-id>]` | [ceo help reap](../commands/reap.md) |
+| `ceo register` | [ceo help register](../commands/register.md) |
+| `ceo process-plan` | [ceo help process-plan](../commands/process-plan.md) |
+| `ceo notify <id>` with every report form it takes | [ceo help notify](../commands/notify.md) |
+| `ceo helper start <parent-id> --brief <file> [--title "<short title>"]` \| `merge <parent-id>` | [ceo help helper](../commands/helper.md) |
+| `ceo drain` | [ceo help drain](../commands/drain.md) |
+| `ceo session-start` | [ceo help session-start](../commands/session-start.md) |
+| `ceo memory` | [ceo help memory](../commands/memory.md) and [memory contract](memory.md) |
+| `ceo hook <name>` | [ceo help hook](../commands/hook.md) |
+| `<candidate> update [--recover]` | [ceo help update](../commands/update.md) |
+| `goblins update [--check] [--to <tag> [--run <item>]]` | [ceo help update](../commands/update.md) |
+| `ceo version` | [ceo help version](../commands/version.md) |
 
 ## First Mate trigger map
 
@@ -138,14 +138,14 @@ No upstream runtime, Relay, secondmate or terminal-backend behavior is activated
 | Upstream contract or trigger | Code Goblins owner and status |
 | --- | --- |
 | Shared identity, worker-role exception, authority and custody | Shared core, dispatch and supervision references; existing behavior preserved. |
-| Skill trigger index and on-demand procedures | Core links, cfo-* skill descriptions and cfo help contract topics; active in this extraction. |
-| Session start, complete digest and recovery interpretation | cfo-supervision and cfo session-start/native hooks retain custody and hook trust; [memory](memory.md) owns warm composition and bounded state. |
-| Warm retrieved context, cold archive and authoritative memory tiers | [Memory](memory.md) and cfo memory own source coverage, selective retrieval, budgets and lossless dry runs; active for a verified catalog, with no automatic legacy migration. |
+| Skill trigger index and on-demand procedures | Core links, ceo-* skill descriptions and ceo help contract topics; active in this extraction. |
+| Session start, complete digest and recovery interpretation | ceo-supervision and ceo session-start/native hooks retain custody and hook trust; [memory](memory.md) owns warm composition and bounded state. |
+| Warm retrieved context, cold archive and authoritative memory tiers | [Memory](memory.md) and ceo memory own source coverage, selective retrieval, budgets and lossless dry runs; active for a verified catalog, with no automatic legacy migration. |
 | Required Stow pass and capture receipts | The shared `stow` skill owns tier clocks, independent evidence, pending capture, open records and individually approved pinned offload; [memory](memory.md) owns its data interfaces. |
-| Validation supervision and ask-user findings | [Delivery](delivery.md), `cfo-delivery` and docs/pipeline.md own adaptive verification with preserved frozen policy, run custody and CEO decisions; active. |
-| Project intake and verification selection | [Delivery](delivery.md), `cfo-delivery`, project-check, project records and cfo verify own selection at task intake and scout completion; routing and delivery selection are active for newly spawned tasks. |
-| Landing and cleanup | cfo-delivery and cfo-worktrees preserve merge authority and unlanded-work custody. |
-| Away supervision and user decisions | cfo-afk, cfo-decisions and step-card preserve the native board and explicit switch authority. |
+| Validation supervision and ask-user findings | [Delivery](delivery.md), `ceo-delivery` and docs/pipeline.md own adaptive verification with preserved frozen policy, run custody and CEO decisions; active. |
+| Project intake and verification selection | [Delivery](delivery.md), `ceo-delivery`, project-check, project records and ceo verify own selection at task intake and scout completion; routing and delivery selection are active for newly spawned tasks. |
+| Landing and cleanup | ceo-delivery and ceo-worktrees preserve merge authority and unlanded-work custody. |
+| Away supervision and user decisions | ceo-afk, ceo-decisions and step-card preserve the native board and explicit switch authority. |
 
 ## Loading and installation
 
@@ -153,7 +153,7 @@ The binary embeds the core, every contract and command reference and each condit
 A fresh installed home receives the core and references from that embedded contract.
 An update replaces the installed contract files and the one shared skill source; existing policy files remain the operator's, and [tracked checkout homes keep their own contract](#legacy-checkout-activation).
 Codex and Pi discover the shared skills directly; Claude Code follows its junctions to the same files.
-Skill entry points read the repository's reference in a source checkout and retrieve the binary's embedded reference with cfo help in an installed home; neither route depends on a relative link from the shared skill directory.
+Skill entry points read the repository's reference in a source checkout and retrieve the binary's embedded reference with ceo help in an installed home; neither route depends on a relative link from the shared skill directory.
 CLAUDE.md points to the same AGENTS.md; no harness gets a policy fork.
 Missing files, broken local links, unlisted ownership and failed help reads are verification failures.
 See [the load map](../load-map.md) for the harness-specific adapters and constraints.
@@ -162,7 +162,7 @@ See [the load map](../load-map.md) for the harness-specific adapters and constra
 
 A home that is also a tracked checkout keeps its own AGENTS.md, CLAUDE.md and tracked references when installed or updated.
 The next CEO still starts in that home and reads its on-disk contract, even when the new binary contains a newer core.
-The new binary's cfo help returns its embedded reference independently of that stale checkout.
+The new binary's ceo help returns its embedded reference independently of that stale checkout.
 Shared skills can update without replacing tracked checkout instructions; their presence alone does not activate the new core.
 Workers start in isolated project worktrees, read their launch instruction and brief, and load that worktree's project instructions where their harness supports them.
 A worker on this repository receives the contract at the commit its worktree starts from, rather than a dirty contract from the primary checkout.

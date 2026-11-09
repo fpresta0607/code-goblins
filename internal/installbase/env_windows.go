@@ -109,12 +109,12 @@ func (s registryEnvStore) Unset(name string) error {
 // and every already-running shell, Explorer included, keeps handing out the
 // old environment until the next sign-in.
 func (s registryEnvStore) Broadcast() error {
-	const script = `Add-Type -Namespace CfoInstall -Name Win32 -MemberDefinition @'
+	const script = `Add-Type -Namespace CeoInstall -Name Win32 -MemberDefinition @'
 [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
 public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
 '@
 $result = [UIntPtr]::Zero
-[void][CfoInstall.Win32]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)`
+[void][CeoInstall.Win32]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)`
 	result, err := s.run(script)
 	if err != nil {
 		return err

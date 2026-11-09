@@ -7,7 +7,7 @@ argument-hint: <project name or checkout path>
 # project-check
 
 One project in, one report out: what the home knows about the project, whether each fact is still true, the evidence, and the fix.
-The checks themselves live in `cfo project check`, so every agent gets the same answer whatever it runs in.
+The checks themselves live in `ceo project check`, so every agent gets the same answer whatever it runs in.
 This skill is the part a command cannot do: prove the project's commands by running them safely, judge what the lines mean, and write the result where it belongs.
 
 ## What never happens
@@ -18,7 +18,7 @@ This skill is the part a command cannot do: prove the project's commands by runn
 - No secret value is printed, copied or stored.
   A variable is named and its value is not.
 - No env file is opened to read it.
-  `cfo project check` reads env files and reports names and reasons, which is all a report needs.
+  `ceo project check` reads env files and reports names and reasons, which is all a report needs.
 - Nothing is written under the home's `data/projects`.
   A record there steers routing and verification for live spawns, so a draft goes to the task folder and the CEO places it.
 - No live board, supervisor, CEO or goblin is stopped, restarted or attached to.
@@ -26,7 +26,7 @@ This skill is the part a command cannot do: prove the project's commands by runn
 ## The pass
 
 1. **Assess.**
-   Run `cfo project check <project>` and keep its output.
+   Run `ceo project check <project>` and keep its output.
    Each line is a severity, an area and a check, what was found, the evidence, and the fix.
    The last line is the verdict for each area.
    Read the `checkout` lines first.
@@ -36,7 +36,7 @@ This skill is the part a command cannot do: prove the project's commands by runn
    The command exits 1 when an area fails, which is a result and not an error.
    `--json` prints the same report as data, with the drafted record in it.
 2. **Ask the services.**
-   Run `cfo auth <project> --check`.
+   Run `ceo auth <project> --check`.
    It prints one line for each declared service and ends with one sign-in request, which names what only the Supreme Overlord can supply.
    Copy the names into the report.
    Never run `--fix` in this pass, since it stores credentials.
@@ -54,7 +54,7 @@ This skill is the part a command cannot do: prove the project's commands by runn
      That line names what loads the env file, and those are the commands that would read production through it.
      A test the line says does not load the file may be run.
    - Run no test while the report holds a `terminal-reaches-production` line that names a credential your own terminal carries.
-     Your terminal carries the services your task's record names, which are the ones your brief's `credentials:` line named at spawn plus any a `cfo auth grant` has added since; `cfo help contract authentication` has the rest.
+     Your terminal carries the services your task's record names, which are the ones your brief's `credentials:` line named at spawn plus any a `ceo auth grant` has added since; `ceo help contract authentication` has the rest.
      Record the command as not run and say why.
    - Never run a command from the line `instruction-deploy-never-run`.
      Confirm only that its program is there.
@@ -86,10 +86,10 @@ This skill is the part a command cannot do: prove the project's commands by runn
    - `connectors-examined` names the services kept on a note alone, which the command cannot verify.
      Read each note and say whether it still holds.
    - `gate-ci-differs` and `gate-ci-unknown`: read the gate's test command beside the workflow files and say what each runs.
-   - `gate-file-missing`, `gate-file-refused` and `gate-agent-refused`: each means `cfo pipeline run` refuses every gate run of the project at its start, and the line quotes the pipeline's own answer.
+   - `gate-file-missing`, `gate-file-refused` and `gate-agent-refused`: each means `ceo pipeline run` refuses every gate run of the project at its start, and the line quotes the pipeline's own answer.
      Say so near the top of the report, since no gated change can ship there until the gate file is fixed in the repository.
 5. **Draft the record.**
-   Run `cfo project check <project> --draft <task folder>/drafts/<project>/project.json`.
+   Run `ceo project check <project> --draft <task folder>/drafts/<project>/project.json`.
    The draft starts from the record that is there and fills what it leaves empty with the declared services the command counts as used and a fast tier.
    The `draft tier:` line says where the fast tier came from: the gate's test command, or for a record with no verification command the test commands the workflows run, or else those the instruction files name.
    The command ran none of them, so prove each as in step 3 and take out one you could not prove.
@@ -102,7 +102,7 @@ This skill is the part a command cannot do: prove the project's commands by runn
    - Never a credential's value.
 
    Then prove the draft in a scratch home, never the live one.
-   Set `CFO_HOME` to an empty folder, clear `CFO_STATE_OVERRIDE` and `CFO_PROJECTS_ROOT`, copy the draft to `data/projects/<project>/project.json` under that folder, and run `cfo project check <checkout path> --area record` there.
+   Set `CEO_HOME` to an empty folder, clear `CEO_STATE_OVERRIDE` and `CEO_PROJECTS_ROOT`, copy the draft to `data/projects/<project>/project.json` under that folder, and run `ceo project check <checkout path> --area record` there.
    It must exit 0.
 6. **Report.**
    Write `report.md` in the task folder.
@@ -127,7 +127,7 @@ The two that matter most to a report:
 - It does not read the user's own environment.
   A task's terminal starts from it, less the variables of services the task does not carry, so a credential set there reaches every terminal and no line names it.
 
-Once for a home, not once for each project, run `cfo project check --unfiled`.
+Once for a home, not once for each project, run `ceo project check --unfiled`.
 It names the checkouts under the projects root that the home holds no folder for, and what a spawn there would be given.
 
 ## Reading the severities

@@ -58,7 +58,7 @@ function posted(body: Buffer, headers: Record<string, string>): Posted {
     if (Math.sqrt(sum / frame) >= .01) loud += .01;
   }
   return {
-    token: headers["x-cfo-token"] || "", type: headers["content-type"] || "",
+    token: headers["x-ceo-token"] || "", type: headers["content-type"] || "",
     tags: [0, 8, 12, 36].map((at) => body.toString("latin1", at, at + 4)).join(" "),
     channels: body.readUInt16LE(22), rate, bits: body.readUInt16LE(34), samples: (body.length - 44) / 2, peak, lead, loud, at: Date.now(),
   };
@@ -92,8 +92,8 @@ async function openPane(page: Page, { hint = false, dictations = [] as { text: s
     return refusal ? route.fulfill({ status: 503, json: { error: refusal } }) : route.fulfill({ json: { text: words ? words(posts.length - 1) : "ship the voice bubble", engine: "test-model" } });
   });
   await page.addInitScript(({ hint, app, browser, is_held }) => {
-    if (!hint) localStorage.setItem("cfo-voice-hint-v1", "dismissed");
-    if (browser) localStorage.setItem("cfo-dictation-browser-v1", "on");
+    if (!hint) localStorage.setItem("ceo-voice-hint-v1", "dismissed");
+    if (browser) localStorage.setItem("ceo-dictation-browser-v1", "on");
     const probe = { captures: [] as MediaStreamTrack[], started: [] as unknown[], frames: 0, replies: 0, recognitions: [] as { hear: (words: string) => void; silence: () => void }[] };
     window.voiceProbe = probe;
     if (is_held) {
@@ -267,17 +267,17 @@ test("a set-up of the speech model that fails stays shown until the next dictati
   await expect.poll(() => page.locator("output").textContent()).toBe("now it types");
 });
 
-// The reports the board gave the CFO.
-async function cfoReports(page: Page): Promise<{ where: string; text: string }[]> {
+// The reports the board gave the CEO.
+async function ceoReports(page: Page): Promise<{ where: string; text: string }[]> {
   const reports: { where: string; text: string }[] = [];
-  await page.route("**/api/cfo/report", (route) => { reports.push(route.request().postDataJSON() as { where: string; text: string }); return route.fulfill({ status: 202, json: { reported: true } }); });
+  await page.route("**/api/ceo/report", (route) => { reports.push(route.request().postDataJSON() as { where: string; text: string }); return route.fulfill({ status: 202, json: { reported: true } }); });
   return reports;
 }
 
-test("a dictation refused for another reason is asked for again, then goes to the CFO, never onto the board, and asks nothing more of the speech model", async ({ page }) => {
+test("a dictation refused for another reason is asked for again, then goes to the CEO, never onto the board, and asks nothing more of the speech model", async ({ page }) => {
   const refusal = "Dictation needs 1 GB of free memory and 1 GB of free commit, and this PC has 0.5 GB and 3.0 GB.";
   let asks = 0;
-  const reports = await cfoReports(page);
+  const reports = await ceoReports(page);
   const { pane, posts } = await openPane(page, { app: true, refusal, status: () => { asks++; return { state: "ready" }; } });
   await dictate(page);
   await expect.poll(() => reports).toEqual([{ where: "dictation", text: refusal }]);
@@ -289,10 +289,10 @@ test("a dictation refused for another reason is asked for again, then goes to th
   expect(asks, "the page stops asking about the speech model").toBe(asked);
 });
 
-test("a stalled dictation is canceled without blocking later words, and goes to the CFO, never onto the board", async ({ page }) => {
+test("a stalled dictation is canceled without blocking later words, and goes to the CEO, never onto the board", async ({ page }) => {
   await page.clock.install({ time: new Date("2026-10-04T20:00:00Z") });
   const replies: Route[] = [], failed: Request[] = [];
-  const reports = await cfoReports(page);
+  const reports = await ceoReports(page);
   const { bubble, pane, posts } = await openPane(page, { app: true, replies });
   page.on("requestfailed", (request) => failed.push(request));
   await page.clock.pauseAt(new Date("2026-10-04T21:00:00Z"));
@@ -403,9 +403,9 @@ test("dictating asks nothing outside the board's own address, and the supervisor
     .toEqual(["POST " + ORIGIN + "/api/dictation/warm", "POST " + ORIGIN + "/api/dictation", "POST " + ORIGIN + "/api/dictations"]);
 });
 
-test("what the supervisor refuses with reaches the CFO as it wrote it, and nothing is typed or shown", async ({ page }) => {
+test("what the supervisor refuses with reaches the CEO as it wrote it, and nothing is typed or shown", async ({ page }) => {
   const refusal = "The dictation engine failed: EOF: the engine stopped.";
-  const reports = await cfoReports(page);
+  const reports = await ceoReports(page);
   const { pane, posts } = await openPane(page, { refusal });
   await dictate(page);
   await expect.poll(() => reports).toEqual([{ where: "dictation", text: refusal }]);
@@ -501,7 +501,7 @@ test("a hint dismissed in one pane stays dismissed in a pane already open", asyn
   await expect(page.getByRole("note")).toHaveCount(1);
   await page.getByRole("region", { name: "Goblin terminal" }).getByRole("button", { name: "Dismiss hint" }).click();
   await page.getByRole("button", { name: "Switch pane" }).click();
-  await expect(page.getByRole("region", { name: "CFO terminal" }).locator(".voice-bubble")).toBeVisible();
+  await expect(page.getByRole("region", { name: "CEO terminal" }).locator(".voice-bubble")).toBeVisible();
   await expect(page.getByRole("note")).toHaveCount(0);
 });
 

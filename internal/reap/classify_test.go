@@ -550,7 +550,7 @@ func TestClassifyProcessPopulations(t *testing.T) {
 // sweep held claude.exe 7812 and 19908 as unidentified orphans every pass
 // since the day before, and both were the Overlord's own Claude Code sessions
 // in Windows Terminal. A harness a terminal window or a shell he opened from
-// Explorer started is his, flags or not; the fleet's own cfo processes run
+// Explorer started is his, flags or not; the fleet's own ceo processes run
 // from such a terminal are still the fleet's, and so is what they start.
 func TestClassifyLeavesTheOverlordsOwnTerminalSessionsAlone(t *testing.T) {
 	const (
@@ -568,10 +568,10 @@ func TestClassifyLeavesTheOverlordsOwnTerminalSessionsAlone(t *testing.T) {
 		process(19908, 11572, "claude.exe", "claude --dangerously-skip-permissions", fixtureLatest),
 		process(5000, explorerPID, "powershell.exe", "powershell.exe", fixtureLater),
 		process(5001, 5000, "codex.exe", "codex --dangerously-bypass-approvals-and-sandbox", fixtureLatest),
-		// The fleet run from his terminal: a cfo host whose harness no live
-		// host record covers is the fleet's orphan, wherever cfo was typed.
-		process(6000, 23300, "cfo.exe", "cfo spawn --id g1", fixtureLater),
-		process(6001, 6000, "cfo.exe", "cfo host --state "+stateDir+" --id g1", fixtureLater),
+		// The fleet run from his terminal: a ceo host whose harness no live
+		// host record covers is the fleet's orphan, wherever ceo was typed.
+		process(6000, 23300, "ceo.exe", "ceo spawn --id g1", fixtureLater),
+		process(6001, 6000, "ceo.exe", "ceo host --state "+stateDir+" --id g1", fixtureLater),
 		process(6002, 6001, "claude.exe", "claude --dangerously-skip-permissions", fixtureLatest),
 		// And the Herdr orphan the sweep has always reported.
 		process(herdrPID, 1, "herdr.exe", "herdr server", fixtureStart),
@@ -594,7 +594,7 @@ func TestClassifyLeavesTheOverlordsOwnTerminalSessionsAlone(t *testing.T) {
 		}
 	}
 	for pid, population := range map[int]string{
-		6002:  "a fleet harness under a cfo host started from his terminal",
+		6002:  "a fleet harness under a ceo host started from his terminal",
 		31032: "a fleet harness under Herdr",
 	} {
 		if !reported[pid] {
@@ -737,7 +737,7 @@ func TestUnknownRegistrationIsAWorktreeNotARemovableDirectory(t *testing.T) {
 		t.Fatalf("an unconfirmable directory was offered up for removal: %+v", directories)
 	}
 	worktrees := classOf(findings, OrphanWorktree)
-	if len(worktrees) != 1 || worktrees[0].Action != "return the worktree through cfo cleanup" {
+	if len(worktrees) != 1 || worktrees[0].Action != "return the worktree through ceo cleanup" {
 		t.Fatalf("orphan_worktree findings = %+v, want one routed through cleanup", worktrees)
 	}
 	// The record must not be force-archived out from under a directory that

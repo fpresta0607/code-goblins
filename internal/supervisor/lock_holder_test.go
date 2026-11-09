@@ -23,11 +23,11 @@ import (
 // cycle down does and lets the lock go acknowledgedHold later; "slow-watcher"
 // runs a real watcher whose monitor scan cannot be cut short, each inspection
 // taking unheededInspection whatever its context says; "serve" takes the lock
-// as cfo serve does, over a watcher holding it, with a two-second handover
+// as ceo serve does, over a watcher holding it, with a two-second handover
 // wait; "idle" holds nothing, a bystander such as a terminal's host.
 const (
-	lockHolderVariable     = "CFO_TEST_LOCK_HOLDER_STATE"
-	lockHolderModeVariable = "CFO_TEST_LOCK_HOLDER_MODE"
+	lockHolderVariable     = "CEO_TEST_LOCK_HOLDER_STATE"
+	lockHolderModeVariable = "CEO_TEST_LOCK_HOLDER_MODE"
 )
 
 // holdWatcherLock is the stand-in's whole run, and its exit code.

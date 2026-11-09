@@ -22,11 +22,11 @@ import (
 // newer one extended.
 func TestParsePolicyReadsTheSlowPackagesAndIgnoresALaterBuildsField(t *testing.T) {
 	// Act
-	policy, err := ParsePolicy([]byte(`{"version": 1, "slow_packages": [".", "cmd/cfo"], "budgets": {"cmd/cfo": "30m"}}`))
+	policy, err := ParsePolicy([]byte(`{"version": 1, "slow_packages": [".", "cmd/ceo"], "budgets": {"cmd/ceo": "30m"}}`))
 
 	// Assert
-	if err != nil || policy.Version != 1 || !slices.Equal(policy.SlowPackages, []string{".", "cmd/cfo"}) {
-		t.Errorf("ParsePolicy = %+v, %v; want version 1 with . and cmd/cfo slow", policy, err)
+	if err != nil || policy.Version != 1 || !slices.Equal(policy.SlowPackages, []string{".", "cmd/ceo"}) {
+		t.Errorf("ParsePolicy = %+v, %v; want version 1 with . and cmd/ceo slow", policy, err)
 	}
 }
 
@@ -36,7 +36,7 @@ func TestParsePolicyReadsTheSlowPackagesAndIgnoresALaterBuildsField(t *testing.T
 func TestParsePolicyReadsContractsAndWhatIsOutsideTheGoChecks(t *testing.T) {
 	// Act
 	policy, err := ParsePolicy([]byte(`{"version": 1, "contracts": [{"paths": ["install.ps1", "install.cmd"], "packages": ["internal/installscript"], "why": "the install tests run these scripts"}], "outside": [{"paths": ["docs/**"], "why": "documentation no Go check reads"}]}`))
-	bare, bareErr := ParsePolicy([]byte(`{"version": 1, "slow_packages": ["cmd/cfo"]}`))
+	bare, bareErr := ParsePolicy([]byte(`{"version": 1, "slow_packages": ["cmd/ceo"]}`))
 	empty, emptyErr := ParsePolicy([]byte(`{"version": 1, "contracts": [], "outside": []}`))
 
 	// Assert
@@ -60,9 +60,9 @@ func TestParsePolicyReadsContractsAndWhatIsOutsideTheGoChecks(t *testing.T) {
 func TestParsePolicyRefusesWhatItCannotBeSureItUnderstands(t *testing.T) {
 	for name, text := range map[string]string{
 		"not JSON":            `version: 1`,
-		"no version":          `{"slow_packages": ["cmd/cfo"]}`,
-		"a later version":     `{"version": 2, "slow_packages": ["cmd/cfo"]}`,
-		"a mistyped field":    `{"version": 1, "slow_packages": "cmd/cfo"}`,
+		"no version":          `{"slow_packages": ["cmd/ceo"]}`,
+		"a later version":     `{"version": 2, "slow_packages": ["cmd/ceo"]}`,
+		"a mistyped field":    `{"version": 1, "slow_packages": "cmd/ceo"}`,
 		"more than one value": `{"version": 1} {"version": 1}`,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -105,7 +105,7 @@ func TestTheRepositoryPolicyNamesOnlyFieldsAndPackagesThatExist(t *testing.T) {
 			t.Errorf("%s lists %q %s, and that directory holds no Go file", PolicyPath, dir, as)
 		}
 		if strings.Contains(dir, `\`) || strings.HasPrefix(dir, "./") || strings.HasSuffix(dir, "/") {
-			t.Errorf("%s lists %q %s; a package is its directory from the repository root with forward slashes, such as cmd/cfo, or . for the root", PolicyPath, dir, as)
+			t.Errorf("%s lists %q %s; a package is its directory from the repository root with forward slashes, such as cmd/ceo, or . for the root", PolicyPath, dir, as)
 		}
 	}
 	for _, dir := range policy.SlowPackages {
@@ -187,14 +187,14 @@ func TestTheRepositoryPolicyNamesOnlyFieldsAndPackagesThatExist(t *testing.T) {
 // and why, and a guard with no test named means every test of its package.
 func TestParsePolicyReadsTheGuards(t *testing.T) {
 	// Act
-	policy, err := ParsePolicy([]byte(`{"version": 1, "guards": [{"package": ".", "why": "its tests read every link"}, {"package": "cmd/cfo", "tests": ["TestEveryCommand"], "why": "it reads every command"}]}`))
+	policy, err := ParsePolicy([]byte(`{"version": 1, "guards": [{"package": ".", "why": "its tests read every link"}, {"package": "cmd/ceo", "tests": ["TestEveryCommand"], "why": "it reads every command"}]}`))
 
 	// Assert
 	if err != nil || len(policy.Guards) != 2 {
 		t.Fatalf("ParsePolicy = %+v, %v; want two guards", policy, err)
 	}
-	if root, named := policy.Guards[0], policy.Guards[1]; root.Package != "." || len(root.Tests) != 0 || root.Why != "its tests read every link" || named.Package != "cmd/cfo" || !slices.Equal(named.Tests, []string{"TestEveryCommand"}) || named.Why != "it reads every command" {
-		t.Errorf("guards = %+v; want the root package whole and cmd/cfo's TestEveryCommand, each with why", policy.Guards)
+	if root, named := policy.Guards[0], policy.Guards[1]; root.Package != "." || len(root.Tests) != 0 || root.Why != "its tests read every link" || named.Package != "cmd/ceo" || !slices.Equal(named.Tests, []string{"TestEveryCommand"}) || named.Why != "it reads every command" {
+		t.Errorf("guards = %+v; want the root package whole and cmd/ceo's TestEveryCommand, each with why", policy.Guards)
 	}
 }
 

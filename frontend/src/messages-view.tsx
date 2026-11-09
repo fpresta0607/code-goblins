@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { message as errorText, reportToCfo, request } from "./api";
+import { message as errorText, reportToCeo, request } from "./api";
 import { copyText } from "./clipboard";
 import { Icon } from "./Icon";
 import { keptFileAddress } from "./kept-files";
@@ -63,7 +63,7 @@ type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 // text, kept in this browser.
 // query names the session as /api/messages takes it (messagesQuery), name is
 // whose replies they are, task is the goblin whose baby goblins its calls
-// open, absent for the CFO, terminal is the key of the session's terminal,
+// open, absent for the CEO, terminal is the key of the session's terminal,
 // whose link reads what it is doing, sent is every message of his to the session the
 // board knows, pending those of them that still wait, and box is the message
 // box under the conversation.
@@ -215,7 +215,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     const stream = new EventSource(address({ stream: "1" }));
     let failures = 0;
     // A stream that stalled is opened again, which begins with the newest
-    // page, and says Reconnecting until it does: on 2026-10-29 the CFO's
+    // page, and says Reconnecting until it does: on 2026-10-29 the CEO's
     // view showed a call Running at least 76 s after it ended, with no word
     // that it was stale.
     let silence: ReturnType<typeof setTimeout> | undefined;
@@ -264,7 +264,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     };
     const invalid = () => {
       close(UNREAD);
-      reportToCfo(where, "Invalid messages stream");
+      reportToCeo(where, "Invalid messages stream");
     };
     stream.addEventListener("page", (event: MessageEvent<string>) => {
       try { const page = parsePage(JSON.parse(event.data)); olderFailures.current = { count: 0, at: 0 }; take((prior) => pageMessages(prior, page)); } catch { invalid(); }
@@ -432,7 +432,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
       if (readingOlder.current !== reading) return;
       readingOlder.current = null;
       olderFailures.current = { count: olderFailures.current.count + 1, at: Date.now() };
-      reportToCfo(where, errorText(error));
+      reportToCeo(where, errorText(error));
     });
   }, [address, where]);
 
@@ -746,7 +746,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // them, its row is his message, and the board's copy goes, so it shows once
   // whichever of the two arrives first. Each row of his is one message, the
   // oldest the board took of the same words, settled or still waiting, so a
-  // second message of the same words waits for its own row; a row the CFO or
+  // second message of the same words waits for its own row; a row the CEO or
   // the fleet wrote is never his. One the board settled had its row before it
   // settled, as the board settles a message only once it has seen the harness
   // take it, so a later row is never an older message's whose own row is not

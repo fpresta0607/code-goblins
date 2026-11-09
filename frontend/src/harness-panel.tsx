@@ -16,7 +16,7 @@ const DIVIDER = /^[─╌━═]+$/;
 // with the harness's focus marked, and one plain Cancel where the harness
 // offers a way out, or where it lists nothing to pick. Every other key the
 // terminal takes is the box's own (panel-keys.ts), never a row of chips (the
-// CFO's review, 2026-10-27), and a press on a choice or on Cancel leaves the
+// CEO's review, 2026-10-27), and a press on a choice or on Cancel leaves the
 // keyboard in the box. onKeys sends keys to the terminal. Nothing in it
 // shows the terminal: the style menu of the session's picture is the one
 // switch to Terminal (the Overlord, 2026-11-04).

@@ -7,7 +7,7 @@ import (
 )
 
 // Once conhost has read one key event written as Windows sends it, in
-// win32-input-mode (ESC [ Vk;Sc;Uc;Kd;Cs;Rc _), as cfo attach writes every key
+// win32-input-mode (ESC [ Vk;Sc;Uc;Kd;Cs;Rc _), as ceo attach writes every key
 // it is given, it reads an input that ends in Escape, or in Escape and a
 // character that starts a longer sequence, as the start of a sequence still
 // arriving: it holds it until the next key, then reads the two together, so

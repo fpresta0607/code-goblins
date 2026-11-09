@@ -134,7 +134,7 @@ func TestHelperBriefAdmissionFollowsTheHelperContract(t *testing.T) {
 				return
 			}
 			if !errors.Is(err, ErrBriefNotReady) || !strings.Contains(err.Error(), "helper contract") || strings.Contains(err.Error(), "brief ready") {
-				t.Fatalf("refusal = %v, want a helper-contract reason that never suggests cfo brief ready", err)
+				t.Fatalf("refusal = %v, want a helper-contract reason that never suggests ceo brief ready", err)
 			}
 		})
 	}

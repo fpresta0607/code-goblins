@@ -128,7 +128,7 @@ func messagesHarness(harness string) bool {
 }
 
 // messagesLocator finds the transcript of the session a request for messages
-// names, a task's goblin of the generation it names or the CFO in the
+// names, a task's goblin of the generation it names or the CEO in the
 // terminal it names, while that session runs in a native terminal: empty
 // while its harness has written none, and messagesRefused once the session no
 // longer runs or is one the board does not read. It reads no process and
@@ -136,30 +136,30 @@ func messagesHarness(harness string) bool {
 // terminal view's binding is checked.
 func (h *HTTP) messagesLocator(query url.Values) (func() (string, error), error) {
 	stateDir, home := h.Service.Store.Home.State, h.Service.Options.Tree.Home
-	if want := query.Get("cfo"); want != "" {
+	if want := query.Get("ceo"); want != "" {
 		return func() (string, error) {
-			cfo := readCFOState(stateDir)
+			ceo := readCEOState(stateDir)
 			switch {
-			case cfo.terminal == "":
-				return "", messagesRefused{404, "No CFO is running in a native terminal."}
-			case cfo.terminal != want:
-				return "", messagesRefused{409, "The CFO runs in another terminal now. Open the CFO again."}
-			case cfo.harness != "" && !messagesHarness(cfo.harness):
+			case ceo.terminal == "":
+				return "", messagesRefused{404, "No CEO is running in a native terminal."}
+			case ceo.terminal != want:
+				return "", messagesRefused{409, "The CEO runs in another terminal now. Open the CEO again."}
+			case ceo.harness != "" && !messagesHarness(ceo.harness):
 				return "", noMessages
 			}
-			// A CFO still starting has registered no session yet.
-			_, session, _ := strings.Cut(cfo.session, "/")
-			harness := cfo.harness
+			// A CEO still starting has registered no session yet.
+			_, session, _ := strings.Cut(ceo.session, "/")
+			harness := ceo.harness
 			if harness == "" {
 				harness = "claude"
 			}
-			// The CFO is started in the fleet's home.
+			// The CEO is started in the fleet's home.
 			return fleettree.HeldTranscript(home, harness, h.Service.Store.Home.Root, session), nil
 		}, nil
 	}
 	task, generation := query.Get("task"), query.Get("generation")
 	if state.ValidTaskID(task) != nil || generation == "" {
-		return nil, messagesRefused{400, "Select a task's current session or the CFO."}
+		return nil, messagesRefused{400, "Select a task's current session or the CEO."}
 	}
 	return func() (string, error) {
 		meta, err := state.ReadTaskMeta(stateDir, task)
@@ -300,7 +300,7 @@ const unreadMessages = "The session's messages cannot be read"
 // binding is checked, and an unavailable event says why it no longer runs, or
 // cannot be read, before the stream ends. A stream that sent nothing for as
 // long sends an alive event, so a board that hears nothing for longer knows
-// the stream stalled: on 2026-10-29 the Overlord's view of the CFO showed a
+// the stream stalled: on 2026-10-29 the Overlord's view of the CEO showed a
 // call Running at least 76 s after it ended, with no word that it was stale.
 func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate func() (string, error), path, task string) {
 	select {

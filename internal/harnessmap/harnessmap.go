@@ -1,6 +1,6 @@
 // Package harnessmap finds where each agent harness keeps its configuration
 // and skills on this machine, the same way on every machine, and records it in
-// one file in the CFO home that the CFO and goblins read. It also installs the
+// one file in the CEO home that the CEO and goblins read. It also installs the
 // skills Code Goblins ships the way the Overlord keeps his own: one real copy
 // in the shared skills folder, which Codex and Pi read themselves, and a
 // junction to it in Claude Code's skills folder, which does not. Nothing in a

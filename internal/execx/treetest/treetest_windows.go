@@ -2,7 +2,7 @@
 // run: the run's own process, as go test's is, a child it starts that runs
 // on, as a test binary does, a relay the child starts and waits for, and a
 // helper the relay starts and outlives, as a test's helper outlived the test
-// process that started it under cfo gate prepush on 2026-10-12. Each writes
+// process that started it under ceo gate prepush on 2026-10-12. Each writes
 // its pid to a file named for it in the tree's folder, the helper only once
 // its relay has exited, and none lives past a minute.
 package treetest

@@ -1,5 +1,5 @@
-# cfo merge-local
+# ceo merge-local
 
-`cfo merge-local <id>`
+`ceo merge-local <id>`
 
 Fast-forward a project's main to a goblin's landed branch

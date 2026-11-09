@@ -35,7 +35,7 @@ func run() error {
 	if err := json.Unmarshal(data, &c); err != nil {
 		return err
 	}
-	if !strings.HasPrefix(c.Session, "cfo-board-test-") || !strings.HasPrefix(filepath.Base(c.Root), "cfo-board-windows-") {
+	if !strings.HasPrefix(c.Session, "ceo-board-test-") || !strings.HasPrefix(filepath.Base(c.Root), "ceo-board-windows-") {
 		return fmt.Errorf("refusing a non-fixture home or session")
 	}
 	if c.Role == "" {
@@ -47,19 +47,19 @@ func run() error {
 	if c.ParentHarness == "" {
 		c.ParentHarness = "claude"
 	}
-	if c.Role != "cfo" && c.Role != "goblin" {
+	if c.Role != "ceo" && c.Role != "goblin" {
 		return fmt.Errorf("unsupported example role")
 	}
-	if c.NativeID != "board-worker" && c.NativeID != "board-cfo" {
+	if c.NativeID != "board-worker" && c.NativeID != "board-ceo" {
 		return fmt.Errorf("unsupported example session")
 	}
-	for key, value := range map[string]string{"CFO_HOME": c.Home, "CFO_STATE_OVERRIDE": filepath.Join(c.Home, "state"), "CFO_ROLE": c.Role, "CFO_TASK_ID": "board-fixture", "CFO_SPAWN_GEN": "fixture-1", "CFO_PARENT_SESSION_ID": "board-cfo", "CFO_PARENT_HARNESS": c.ParentHarness, "CFO_ROOT_SESSION_ID": "board-cfo"} {
+	for key, value := range map[string]string{"CEO_HOME": c.Home, "CEO_STATE_OVERRIDE": filepath.Join(c.Home, "state"), "CEO_ROLE": c.Role, "CEO_TASK_ID": "board-fixture", "CEO_SPAWN_GEN": "fixture-1", "CEO_PARENT_SESSION_ID": "board-ceo", "CEO_PARENT_HARNESS": c.ParentHarness, "CEO_ROOT_SESSION_ID": "board-ceo"} {
 		if err := os.Setenv(key, value); err != nil {
 			return err
 		}
 	}
-	if c.Role == "cfo" {
-		for _, key := range []string{"CFO_TASK_ID", "CFO_SPAWN_GEN", "CFO_PARENT_SESSION_ID", "CFO_PARENT_HARNESS", "CFO_ROOT_SESSION_ID"} {
+	if c.Role == "ceo" {
+		for _, key := range []string{"CEO_TASK_ID", "CEO_SPAWN_GEN", "CEO_PARENT_SESSION_ID", "CEO_PARENT_HARNESS", "CEO_ROOT_SESSION_ID"} {
 			_ = os.Unsetenv(key)
 		}
 	}
@@ -75,7 +75,7 @@ func run() error {
 	sequence := 0
 	report := func(state string) error {
 		sequence++
-		return invoke("herdr", nil, "--session", c.Session, "pane", "report-agent", c.Pane, "--source", "cfo-board-fixture", "--agent", "codex", "--state", state, "--seq", strconv.Itoa(sequence), "--agent-session-id", c.NativeID)
+		return invoke("herdr", nil, "--session", c.Session, "pane", "report-agent", c.Pane, "--source", "ceo-board-fixture", "--agent", "codex", "--state", state, "--seq", strconv.Itoa(sequence), "--agent-session-id", c.NativeID)
 	}
 	hook := func(name string, turn int) error {
 		payload, err := json.Marshal(map[string]string{"hook_event_name": name, "session_id": c.NativeID, "cwd": c.Project, "turn_id": strconv.Itoa(turn), "model": "example (no model calls)"})
@@ -85,8 +85,8 @@ func run() error {
 		return invoke("powershell.exe", payload, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", c.Hook)
 	}
 	pidFile, receiptFile := "harness.pid", "receipts.jsonl"
-	if c.Role == "cfo" {
-		pidFile, receiptFile = "cfo-harness.pid", "cfo-receipts.jsonl"
+	if c.Role == "ceo" {
+		pidFile, receiptFile = "ceo-harness.pid", "ceo-receipts.jsonl"
 	}
 	if err := os.WriteFile(filepath.Join(c.Root, pidFile), []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
 		return err
@@ -146,7 +146,7 @@ func run() error {
 			return err
 		}
 		fmt.Printf("Accepted message %d in the %s process:\n%s\n", turn, c.Role, text)
-		// A goblin asks the way a real one does: cfo notify from inside its
+		// A goblin asks the way a real one does: ceo notify from inside its
 		// own pane, so the board's pane proof sees this process as the asker.
 		// Each " --image <path>" after the question attaches a review image,
 		// and a typed \n is a line break, since a typed line cannot hold one.
@@ -157,13 +157,13 @@ func run() error {
 				args = append(args, "--image", image)
 			}
 			output, err := exec.Command(c.Binary, args...).CombinedOutput()
-			fmt.Printf("cfo notify: %s (error: %v)\n", strings.TrimSpace(string(output)), err)
+			fmt.Printf("ceo notify: %s (error: %v)\n", strings.TrimSpace(string(output)), err)
 		}
 		// It reports a review page the same way, from its own pane.
 		if _, presentation, ok := strings.Cut(text, "fixture:present "); ok && c.Role == "goblin" {
 			id, link, _ := strings.Cut(presentation, " ")
 			output, err := exec.Command(c.Binary, "present", "--id", id, "--task", "board-fixture", "--kind", "review", "--url", link).CombinedOutput()
-			fmt.Printf("cfo present: %s (error: %v)\n", strings.TrimSpace(string(output)), err)
+			fmt.Printf("ceo present: %s (error: %v)\n", strings.TrimSpace(string(output)), err)
 		}
 		if strings.Contains(text, "fixture:crash-ready") {
 			continue

@@ -37,7 +37,7 @@ func TestAWindowAGoblinsProcessShowsIsToldOnce(t *testing.T) {
 	helper := started("cg-a", 301, "msedge.exe", `msedge.exe --type=renderer`)
 	helper.ParentPID, helper.Shown = 300, "a window of its own"
 	hidden := started("cg-a", 302, "node.exe", "node server.js")
-	reading := Reading{At: at, CFO: "cfo", Processes: []Process{browser, helper, hidden}}
+	reading := Reading{At: at, CEO: "ceo", Processes: []Process{browser, helper, hidden}}
 	var watch Watch
 
 	// Act
@@ -73,13 +73,13 @@ func TestAConsoleWindowTheSupervisorHidIsToldAsHidden(t *testing.T) {
 	var watch Watch
 
 	// Act
-	findings := watch.Read(Reading{At: at, CFO: "cfo", Processes: []Process{waiter}})
+	findings := watch.Read(Reading{At: at, CEO: "ceo", Processes: []Process{waiter}})
 
 	// Assert
 	if len(findings) != 1 {
 		t.Fatalf("findings = %q, want the waiter once", details(findings))
 	}
-	for _, want := range []string{"window_shown: cg-a's goblins.exe (pid 400)", "showed a console window on the Overlord's screen, which the supervisor hid: ", "gate turn -- go test ./...", "Next: tell cg-a to start a heavy run with cfo gate turn --detach <log-file> -- <command>, and nothing else that opens a console"} {
+	for _, want := range []string{"window_shown: cg-a's goblins.exe (pid 400)", "showed a console window on the Overlord's screen, which the supervisor hid: ", "gate turn -- go test ./...", "Next: tell cg-a to start a heavy run with ceo gate turn --detach <log-file> -- <command>, and nothing else that opens a console"} {
 		if !strings.Contains(findings[0].Detail, want) {
 			t.Errorf("detail = %q, want %q", findings[0].Detail, want)
 		}
@@ -106,7 +106,7 @@ func TestACommandStartedAgainAndAgainIsALoopToldOnce(t *testing.T) {
 		other := started("cg-b", pid+1, "node.exe", "node server.js --port 3000")
 		shell := started("cg-a", pid+2, "bash.exe", "bash tools/run.sh")
 		wait := started("cg-a", pid+3, "sleep.exe", "sleep 5")
-		hook := started("cg-a", pid+4, "cfo.exe", "cfo.exe native claude")
+		hook := started("cg-a", pid+4, "ceo.exe", "ceo.exe native claude")
 		hook.ByHarness = true
 		agent := started("cg-a", pid+5, "claude.exe", "claude.exe -p")
 		agent.Service = true
@@ -116,7 +116,7 @@ func TestACommandStartedAgainAndAgainIsALoopToldOnce(t *testing.T) {
 		if reading%2 == 0 {
 			processes = append(processes, other)
 		}
-		findings = append(findings, watch.Read(Reading{At: at.Add(time.Duration(reading) * 5 * time.Second), CFO: "cfo", Generations: map[string]string{"cg-a": "s1", "cg-b": "s2"}, Processes: processes})...)
+		findings = append(findings, watch.Read(Reading{At: at.Add(time.Duration(reading) * 5 * time.Second), CEO: "ceo", Generations: map[string]string{"cg-a": "s1", "cg-b": "s2"}, Processes: processes})...)
 	}
 
 	// Assert
@@ -135,7 +135,7 @@ func TestACommandStartedAgainAndAgainIsALoopToldOnce(t *testing.T) {
 
 // One tool call that runs short git commands, such as a status read that
 // walks refs, has a dozen of them running at one reading and none at the
-// next: on 2026-10-15 three goblins doing ordinary work each woke the CFO as
+// next: on 2026-10-15 three goblins doing ordinary work each woke the CEO as
 // a git loop "12 times in the last 0s" (#926). A burst is one reading, and
 // bursts a minute apart are a few, so neither is a loop, while a command
 // new at every reading for a minute still is.
@@ -156,7 +156,7 @@ func TestABurstOfShortCommandsIsNoLoopAndASustainedOneStillIs(t *testing.T) {
 			}
 		}
 		processes = append(processes, started("cg-b", pid+50, "git.exe", "git status --porcelain"))
-		findings = append(findings, watch.Read(Reading{At: at.Add(time.Duration(reading) * 5 * time.Second), CFO: "cfo", Generations: map[string]string{"cg-a": "s1", "cg-b": "s2"}, Processes: processes})...)
+		findings = append(findings, watch.Read(Reading{At: at.Add(time.Duration(reading) * 5 * time.Second), CEO: "ceo", Generations: map[string]string{"cg-a": "s1", "cg-b": "s2"}, Processes: processes})...)
 	}
 
 	// Assert
@@ -195,7 +195,7 @@ func TestAGoblinThatRestsWithAProcessLeftRunningIsToldOnceAReport(t *testing.T) 
 	rest := Rest{Report: "done: PR https://github.com/o/r/pull/9", ReportedAt: at}
 	var watch Watch
 	read := func(offset time.Duration, rest Rest, processes ...Process) []Finding {
-		return watch.Read(Reading{At: at.Add(offset), CFO: "cfo", Processes: processes, Resting: map[string]Rest{"cg-a": rest}})
+		return watch.Read(Reading{At: at.Add(offset), CEO: "ceo", Processes: processes, Resting: map[string]Rest{"cg-a": rest}})
 	}
 
 	// Act
@@ -243,7 +243,7 @@ func TestNamedNamesEachTreeOnce(t *testing.T) {
 
 // A filter in a pipeline only passes on what the program before it writes,
 // so the loop is that program: on 2026-10-14 a goblin decoding each private
-// repository's workflow file with gh api ... | base64 -d woke the CFO as a
+// repository's workflow file with gh api ... | base64 -d woke the CEO as a
 // base64 loop, ten times in under two minutes, though each gh api named
 // another repository. A poll that runs the same program each time is still
 // a loop, told by that program.
@@ -261,7 +261,7 @@ func TestAFilterInAPerRepositoryLoopIsNoLoopAndAPollStillIs(t *testing.T) {
 		count := started("cg-a", pid+2, "grep.exe", "grep -c draft")
 		poll := started("cg-b", pid+3, "gh.exe", "gh pr checks 9")
 		match := started("cg-b", pid+4, "grep.exe", "grep -c pass")
-		findings = append(findings, watch.Read(Reading{At: at.Add(time.Duration(reading) * 10 * time.Second), CFO: "cfo", Generations: map[string]string{"cg-a": "s1", "cg-b": "s2"}, Processes: []Process{fetch, decode, count, poll, match}})...)
+		findings = append(findings, watch.Read(Reading{At: at.Add(time.Duration(reading) * 10 * time.Second), CEO: "ceo", Generations: map[string]string{"cg-a": "s1", "cg-b": "s2"}, Processes: []Process{fetch, decode, count, poll, match}})...)
 	}
 
 	// Assert

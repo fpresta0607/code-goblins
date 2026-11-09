@@ -1,6 +1,6 @@
-# cfo dev-drive
+# ceo dev-drive
 
-`cfo dev-drive [setup \| move --to <folder>]`
+`ceo dev-drive [setup \| move --to <folder>]`
 
 Say whether the home's worktrees, scratch and package caches are on a Windows Dev Drive, whether this machine has one or can have one, and why not, with each fixed drive's file system and trust.
 For a Dev Drive that lives in a file, such as the `C:\DevDrives\CodeGoblins.vhdx` Code Goblins makes, a `file:` line under it names the file, which Windows tells any process through the drive's storage dependency, and how much of its drive the file takes, such as `file: C:\DevDrives\CodeGoblins.vhdx holds 14.2 GB of C:, and stays that size when goblins free space on D:`, since a dynamically expanding file grows as the drive fills and never shrinks by itself.
@@ -9,7 +9,7 @@ A Dev Drive is a drive Windows 11 formats for developer work: Microsoft Defender
 It is optional, and a machine that cannot have one (Windows older than 11 build 22621.2338, Defender's real-time protection off, or under 100 GB free on the system drive for a new one) keeps working exactly as it always has.
 `move --to <folder>` checks the folder is on a Dev Drive Windows does not distrust, makes `worktrees`, `scratch` and `caches` there, proves it can write, and records the folder and the time in the home's `config\dev-drive.json`: from then on new goblins' worktrees, scratch folders and cache variables point there, while `state`, `data`, `config` and `bin` stay in the home.
 Nothing is copied: a goblin already started keeps the folders its record names until it ends, and the janitor removes the home's old package caches once no goblin terminal started before the move runs.
-Run again with the same folder it changes nothing; a second move elsewhere is refused; a supervisor serving the home is restarted on the build it runs, as `cfo update` restarts it, so what it starts itself builds on the drive too, and every terminal keeps running.
-The setup window and the board's first page each offer it once, unticked, where this machine can have one (`cfo install --dev-drive on|off` keeps the setup's answer; the first page keeps its own), and say in one line why where it cannot.
+Run again with the same folder it changes nothing; a second move elsewhere is refused; a supervisor serving the home is restarted on the build it runs, as `ceo update` restarts it, so what it starts itself builds on the drive too, and every terminal keeps running.
+The setup window and the board's first page each offer it once, unticked, where this machine can have one (`ceo install --dev-drive on|off` keeps the setup's answer; the first page keeps its own), and say in one line why where it cannot.
 A person never types any of it: **Set up** under Dev Drive in the board's Workspace panel, or `setup` from a terminal, which the board notices within a minute, records `"choice": "wanted"` and the supervisor makes each step that needs him a Command Center item, one at a time, in order, each safe to run twice: create the drive (administrator: a dynamically expanding VHDX under `DevDrives` on the system drive, `Format-Volume -DevDrive`, and a startup task that attaches it at every boot), trust it only where Windows does not (administrator: `fsutil devdrv trust`, then `fsutil devdrv query`), and move (this command); an existing Dev Drive is used instead of a new one.
 A step's item is made once for each ask, so one that failed or expired waits for **Try again**; a drive that is missing gets an **Attach** item by itself, at most every 12 hours

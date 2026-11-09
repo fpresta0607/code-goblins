@@ -24,7 +24,7 @@ import (
 func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text string) error {
 	screens, ok := harness.NativeScreens(harness.Kind(meta.Harness))
 	if !ok {
-		return fmt.Errorf("send: native task %s runs %s, whose screens cfo cannot read", meta.ID, meta.Harness)
+		return fmt.Errorf("send: native task %s runs %s, whose screens ceo cannot read", meta.ID, meta.Harness)
 	}
 	record, err := host.ReadRecord(s.StateDir, meta.ID)
 	if err != nil {
@@ -49,7 +49,7 @@ func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text strin
 	if !isBusy && s.tookCommand(ctx, record, screens, text) {
 		return nil
 	}
-	return fmt.Errorf("send: %q was typed into native terminal %s and submitted once, but nothing on its screen confirms a command ran; check it with cfo peek %s rather than sending it again", text, meta.ID, meta.ID)
+	return fmt.Errorf("send: %q was typed into native terminal %s and submitted once, but nothing on its screen confirms a command ran; check it with ceo peek %s rather than sending it again", text, meta.ID, meta.ID)
 }
 
 // tookCommand reports whether the harness took command, submitted while no
@@ -74,7 +74,7 @@ func (s Service) tookCommand(ctx context.Context, record host.Record, screens ha
 	}
 }
 
-// nativeKeys are the keys cfo send --key names, as a console reads them.
+// nativeKeys are the keys ceo send --key names, as a console reads them.
 var nativeKeys = map[string]string{"Enter": "\r", "Escape": "\x1b", "Ctrl+C": "\x03", "Ctrl+U": "\x15"}
 
 // SendNativeKey sends one named key to a native task's terminal.

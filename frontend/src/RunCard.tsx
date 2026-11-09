@@ -17,7 +17,7 @@ import { inlineElements } from "./messageText";
 import { copyValues } from "./CopyValue";
 import { PathLink, pathLinks, type PathCard } from "./path-link";
 
-// A command the CFO, or a goblin, needs the Overlord to run: who asks when it
+// A command the CEO, or a goblin, needs the Overlord to run: who asks when it
 // is a goblin's own, why, the shell, the exact text that runs and where, each
 // local path it names a link that opens it, a message he sends himself with
 // Copy, and one Run button that says where it runs, with Skip and the
@@ -38,7 +38,7 @@ export function RunCard({ run, goblin, connected, now, instance, sending, error,
   const running = run.state === "running";
   const mark = runMark(run);
   const failure = runFailure(run);
-  const asker = run.task ? goblin ? goblinName(goblin) : run.task : "the CFO";
+  const asker = run.task ? goblin ? goblinName(goblin) : run.task : "the CEO";
   const copy = () => copyText(run.command).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => {});
   const card: PathCard = { kind: "run", id: run.id, instance };
   return <article className={"run-card" + (running && run.terminal ? " live" : "")} aria-labelledby={"run-" + run.id}>

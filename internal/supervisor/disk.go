@@ -11,7 +11,7 @@ import (
 // Disk is the free space of the drive the home is on, or of the Dev Drive its
 // heavy folders moved to when that has less, beside the fleet's disk floor,
 // under which no goblin and no gate test run starts, and the lower mark at
-// which the CFO is woken. The board shows it beside the memory meter.
+// which the CEO is woken. The board shows it beside the memory meter.
 type Disk struct {
 	disk.Reading
 	Floor uint64 `json:"floor"`
@@ -42,7 +42,7 @@ func (d Disk) Shortfall() string {
 
 // diskRefusal is the whole refusal a start under the floor gets.
 func diskRefusal(short string) string {
-	return short + "; a start needs the floor free: the janitor's sweep removes what the fleet left behind, and cfo runtime shows what holds the rest"
+	return short + "; a start needs the floor free: the janitor's sweep removes what the fleet left behind, and ceo runtime shows what holds the rest"
 }
 
 // machineDisk reads the disk through the dispatch's seam when it has one.

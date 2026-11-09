@@ -20,8 +20,8 @@ const defenderEvery = 10 * time.Minute
 const defenderOverlap = time.Hour
 
 // checkDefender reads what Microsoft Defender recorded under the fleet's
-// folders, every defenderEvery, and raises one wake to the CFO for each
-// detection and each sample sent to Microsoft that it has not told the CFO
+// folders, every defenderEvery, and raises one wake to the CEO for each
+// detection and each sample sent to Microsoft that it has not told the CEO
 // of: the file, and the test and task that made it. The Overlord otherwise
 // meets each as a Windows notice with nobody to say what the fleet did. It
 // only reads, and nothing of Defender's is changed. The first reading only
@@ -59,7 +59,7 @@ func (s *Service) checkDefender(ctx context.Context, w *fleetWakes, now time.Tim
 		if len(detection.Files) > 0 {
 			what = strings.Join(madeBy(detection.Files), ", ")
 		}
-		detail := fmt.Sprintf("defender_detection: Microsoft Defender detected %s at %s on %s. Nothing of Defender's is changed, and a quarantined file is never restored. Read it with cfo defender --since %s, find what the fleet did there and change that.", detection.Threat, detection.Time.UTC().Format(time.RFC3339), what, stamp)
+		detail := fmt.Sprintf("defender_detection: Microsoft Defender detected %s at %s on %s. Nothing of Defender's is changed, and a quarantined file is never restored. Read it with ceo defender --since %s, find what the fleet did there and change that.", detection.Threat, detection.Time.UTC().Format(time.RFC3339), what, stamp)
 		if err := raiseDefenderWake(h.State, "defender/detection/"+detection.ID, detail); err != nil {
 			return err
 		}
@@ -68,7 +68,7 @@ func (s *Service) checkDefender(ctx context.Context, w *fleetWakes, now time.Tim
 		if upload.Time.Before(w.DefenderSince) {
 			continue
 		}
-		detail := fmt.Sprintf("defender_upload: Microsoft Defender sent %s to Microsoft at %s, SHA-256 %s. It sends a program or a script nobody has seen, so each new unsigned build and each edited install script is one more. Read it with cfo defender --since %s.", madeBy([]string{upload.File})[0], upload.Time.UTC().Format(time.RFC3339), upload.SHA256[:min(12, len(upload.SHA256))], stamp)
+		detail := fmt.Sprintf("defender_upload: Microsoft Defender sent %s to Microsoft at %s, SHA-256 %s. It sends a program or a script nobody has seen, so each new unsigned build and each edited install script is one more. Read it with ceo defender --since %s.", madeBy([]string{upload.File})[0], upload.Time.UTC().Format(time.RFC3339), upload.SHA256[:min(12, len(upload.SHA256))], stamp)
 		if err := raiseDefenderWake(h.State, "defender/upload/"+upload.SHA256+"/"+upload.Time.UTC().Format(time.RFC3339), detail); err != nil {
 			return err
 		}
@@ -91,7 +91,7 @@ func madeBy(files []string) []string {
 	return said
 }
 
-// raiseDefenderWake wakes the CFO with detail once for identity, however
+// raiseDefenderWake wakes the CEO with detail once for identity, however
 // often the record behind it is read.
 func raiseDefenderWake(stateDir, identity, detail string) error {
 	_, isNew, err := wake.AppendFirst(stateDir, identity, "check", "defender", detail)

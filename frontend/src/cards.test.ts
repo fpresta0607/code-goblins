@@ -73,11 +73,11 @@ test("a description offers Show more only while it is cut off, and Show less onc
   assert.equal(showMoreLabel(false, false), "");
 });
 
-test("a queued task with no terminal has a Task view only; a started one and the CFO also have a Terminal", () => {
+test("a queued task with no terminal has a Task view only; a started one and the CEO also have a Terminal", () => {
   const task = (generation: string) => ({ id: "t", generation }) as Task;
   assert.deepEqual(panelViews(task(""), undefined), ["task"]);
   assert.deepEqual(panelViews(task("s1"), undefined), ["task", "terminal"]);
-  assert.deepEqual(panelViews(undefined, undefined), ["task", "terminal"], "the CFO");
+  assert.deepEqual(panelViews(undefined, undefined), ["task", "terminal"], "the CEO");
   assert.deepEqual(panelViews(task(""), { id: "child" } as Session), ["task", "terminal"], "a reported child session has its own terminal view");
 });
 

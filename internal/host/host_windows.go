@@ -37,13 +37,13 @@ var (
 
 // IDVariable tells the program in a host's terminal which terminal it runs
 // in, so it can register as reachable through that host.
-const IDVariable = "CFO_HOST_ID"
+const IDVariable = "CEO_HOST_ID"
 
 // ProofVariable carries a value the host makes for its terminal alone, which
 // every process in the terminal inherits and the host's record keeps only as
 // a digest, so a process can prove it runs in the terminal when its chain of
 // parents stops short of the program.
-const ProofVariable = "CFO_HOST_PROOF"
+const ProofVariable = "CEO_HOST_PROOF"
 
 // Spec is one terminal for a host to run.
 type Spec struct {
@@ -67,7 +67,7 @@ type Spec struct {
 // --rows, --leave-cores-for-apps and --stream, then -- and the command to run.
 func RunArgs(args []string) error {
 	flags := flag.NewFlagSet("host", flag.ContinueOnError)
-	stateDir := flags.String("state", "", "the CFO home's state directory, where the host records itself")
+	stateDir := flags.String("state", "", "the CEO home's state directory, where the host records itself")
 	var spec Spec
 	flags.StringVar(&spec.ID, "id", "", "the terminal's id")
 	flags.StringVar(&spec.Dir, "dir", "", "the directory the command starts in")
@@ -130,7 +130,7 @@ func Run(stateDir string, spec Spec) error {
 	if problem := conpty.ConsoleHostProblem(); problem != nil {
 		fmt.Fprintf(os.Stderr, "%s host: %v\n", time.Now().UTC().Format(time.RFC3339Nano), problem)
 		if err := reportConsoleHostProblem(stateDir, problem); err != nil {
-			fmt.Fprintf(os.Stderr, "%s host: tell the CFO the terminal runs on the system conhost: %v\n", time.Now().UTC().Format(time.RFC3339Nano), err)
+			fmt.Fprintf(os.Stderr, "%s host: tell the CEO the terminal runs on the system conhost: %v\n", time.Now().UTC().Format(time.RFC3339Nano), err)
 		}
 	}
 	record, pipe, err := announce(stateDir, spec.ID, console.PID(), hex.EncodeToString(proof[:]), false)

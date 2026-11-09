@@ -49,7 +49,7 @@ export function useReview(task: Task | undefined, snapshot: Snapshot | null) {
     change(key, { submission: attempt, sending: true, error: "", receipt: undefined });
     try {
       const receipt = parseAction(await request("/api/actions", undefined, {
-        method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance },
+        method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": snapshot.instance },
         body: JSON.stringify({ id: attempt.id, kind: "review", text: draft.text, ...draft.selection }),
       }));
       change(key, { receipt, sending: false });
@@ -90,9 +90,9 @@ export function ReviewComment({ diff, reviews, connected, floating }: { diff: Fi
       {mark.trouble && <p className="comment-trouble">{mark.label}</p>}
     </div>;
   }
-  return <section className={kind} aria-label={"Comment to the CFO on " + range + " of " + diff.path}>
+  return <section className={kind} aria-label={"Comment to the CEO on " + range + " of " + diff.path}>
     <header><strong>{range}</strong><span className="muted">{diff.path} · HEAD {selection.head.slice(0, 8)}{selection.revision && " · Commit " + selection.revision.slice(0, 8)}</span></header>
-    <textarea aria-label={"Comment to the CFO on " + range} rows={3} maxLength={16000} value={draft.text} disabled={draft.sending}
+    <textarea aria-label={"Comment to the CEO on " + range} rows={3} maxLength={16000} value={draft.text} disabled={draft.sending}
       placeholder="Describe the change you want. Enter sends." onChange={(event) => reviews.change(key, { text: event.target.value, error: "" })}
       onKeyDown={(event) => {
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancel(); }
@@ -101,7 +101,7 @@ export function ReviewComment({ diff, reviews, connected, floating }: { diff: Fi
     <footer>
       {why && <p className="muted comment-why">{why}</p>}
       <ClickFeedback text={feedback} />
-      <button className="icon-button send" disabled={blocked} aria-label="Send to the CFO" onClick={() => void reviews.send(diff)}><Icon name={draft.sending ? "clock" : "send"} /></button>
+      <button className="icon-button send" disabled={blocked} aria-label="Send to the CEO" onClick={() => void reviews.send(diff)}><Icon name={draft.sending ? "clock" : "send"} /></button>
       <button className="icon-button" disabled={draft.sending} aria-label="Cancel comment" onClick={cancel}><Icon name="close" /></button>
     </footer>
   </section>;

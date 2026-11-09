@@ -107,7 +107,7 @@ func TestStartCreatesAMissingBriefFromTheQueuedTask(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("CFO was not told a brief was created")
+		t.Fatal("CEO was not told a brief was created")
 	}
 }
 

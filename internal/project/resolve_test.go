@@ -134,7 +134,7 @@ func TestResolveNamesTheFixWhenTheRootIsUnset(t *testing.T) {
 		if !errors.Is(err, ErrRootUnset) {
 			t.Fatalf("%s: err = %v, want ErrRootUnset", label, err)
 		}
-		for _, want := range []string{"precisiondocs", "cfo install --projects-root"} {
+		for _, want := range []string{"precisiondocs", "ceo install --projects-root"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("%s: error does not name %q: %v", label, want, err)
 			}

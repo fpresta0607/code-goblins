@@ -1,4 +1,4 @@
-import { CFO_DOOR, expect, openTaskList, type Page, servePages, test } from "./site";
+import { CEO_DOOR, expect, openTaskList, type Page, servePages, test } from "./site";
 
 const URL = "https://my-desktop.example.ts.net:4311";
 const SERVE = "tailscale serve --bg --https=4311 http://127.0.0.1:4310";
@@ -13,9 +13,9 @@ const BYPASSED = { ...ON, scrawl_state: "bypassed", scrawl_issue: "Your own Tail
 
 type Status = Record<string, unknown>;
 
-const BOARD = { healthy: true, instance: "fixture", revision: 1, attention: [], tasks: [], afk: { state: "off" }, cfo_runs: true, cfo_harness: "claude", cfo_terminal: "cfo", cfo_terminal_since: "2026-10-08T09:00:00Z", sessions: [{ id: "cfo-1", harness: "claude", role: "cfo" }] };
+const BOARD = { healthy: true, instance: "fixture", revision: 1, attention: [], tasks: [], afk: { state: "off" }, ceo_runs: true, ceo_harness: "claude", ceo_terminal: "ceo", ceo_terminal_since: "2026-10-08T09:00:00Z", sessions: [{ id: "ceo-1", harness: "claude", role: "ceo" }] };
 
-// open shows the CFO's Task panel's Remote access section, as this PC sees
+// open shows the CEO's Task panel's Remote access section, as this PC sees
 // the board or, with origin, as a phone sees the private board. The
 // supervisor is played by one status that each press but a fix moves on, and
 // a press can be slowed, during which a read answers what it read before the
@@ -30,7 +30,7 @@ async function open(page: Page, first: Status, { fail = false, origin = "", slow
     class LiveStream extends EventTarget {
       onerror: (() => void) | null = null;
       // The board's own stream takes the snapshots; another, such as the
-      // CFO's message stream, is left without a word.
+      // CEO's message stream, is left without a word.
       constructor(url: string | URL) {
         super();
         if (new globalThis.URL(url, location.href).pathname !== "/api/events") return;
@@ -55,7 +55,7 @@ async function open(page: Page, first: Status, { fail = false, origin = "", slow
     }
     const body: { on?: boolean; scrawl?: boolean; fix?: string } = route.request().postDataJSON();
     actions.push(body);
-    expect(route.request().headers()["x-cfo-token"]).toBe("fixture");
+    expect(route.request().headers()["x-ceo-token"]).toBe("fixture");
     if (fail) return route.fulfill({ status: 409, json: { error: "Tailscale is not running on this PC; start Tailscale and sign in" } });
     if (body.fix !== undefined) return route.fulfill({ json: { ...status, run_id: "remote-fix-" + body.fix + "-1" } });
     before = slow ? status : null;
@@ -68,7 +68,7 @@ async function open(page: Page, first: Status, { fail = false, origin = "", slow
     await servePages(page.context(), origin);
     await page.goto(origin + "/");
   } else await page.goto("/");
-  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
+  await page.locator(".ceo-pin").getByRole("button", { name: CEO_DOOR }).last().click();
   await openTaskList(page);
   await page.locator(".disclosure.remote-access > summary").click();
   const push = (snapshot: Status) => page.evaluate((data) => (window as unknown as { pushSnapshot: (data: string) => void }).pushSnapshot(data), JSON.stringify({ ...BOARD, ...snapshot }));
@@ -251,13 +251,13 @@ for (const [where, origin, machines] of [
 
 test("settings that cannot be read leave the switch off with an amber mark that says so", async ({ page }) => {
   // Arrange and act
-  const { panel } = await open(page, { enabled: false, ready: false, scrawl: false, attention: "settings", issue: "remote access settings cannot be read; run cfo remote off to revoke access" });
+  const { panel } = await open(page, { enabled: false, ready: false, scrawl: false, attention: "settings", issue: "remote access settings cannot be read; run ceo remote off to revoke access" });
 
   // Assert
   const toggle = panel.getByRole("switch", { name: "Tailscale", exact: true });
   await expect(toggle).toBeDisabled();
   await expect(toggle).toHaveAccessibleDescription("Settings unreadable");
-  await expect(panel.getByRole("img", { name: "remote access settings cannot be read; run cfo remote off to revoke access", exact: true })).toBeVisible();
+  await expect(panel.getByRole("img", { name: "remote access settings cannot be read; run ceo remote off to revoke access", exact: true })).toBeVisible();
 });
 
 test("Scrawl reviews say what is wrong with an amber mark and a few words, and on this PC the command that mends it", async ({ page }) => {
@@ -313,7 +313,7 @@ test("a phone on the private board turns AFK on and off", async ({ page }) => {
     asked.push(body);
     return route.fulfill({ json: { state: body.on ? "on" : "off" } });
   });
-  // The switch is on the CFO's bar, under the panel a phone fills.
+  // The switch is on the CEO's bar, under the panel a phone fills.
   await page.getByRole("button", { name: /^Back to / }).click();
   const afk = page.getByRole("switch", { name: "AFK mode" });
   await expect(afk).toHaveAttribute("aria-checked", "false");
@@ -363,8 +363,8 @@ const STOPPED = { ...ON, ready: false, attention: "stopped", issue: "Tailscale i
 for (const [change, before, after, isOn, note] of [
   ["Tailscale stops on this PC", ON, STOPPED, "true", "Not running"],
   ["Tailscale starts again", STOPPED, ON, "true", ""],
-  ["cfo remote off", ON, OFF, "false", ""],
-  ["cfo remote on", OFF, ON, "true", ""],
+  ["ceo remote off", ON, OFF, "false", ""],
+  ["ceo remote on", OFF, ON, "true", ""],
   ["a restart brings the board back at another address", { ...ON, ready: false, attention: "board_moved", issue: "The board moved to another address and its private route could not follow. Turn remote access off and on again on this PC." }, ON, "true", ""],
 ] as const) {
   test(`${change} shows in the open setting within seconds`, async ({ page }, testInfo) => {
@@ -472,7 +472,7 @@ async function installedApp(page: Page, { answer = "granted", isSubscribed = fal
 
 const badgeCalls = (page: Page) => page.evaluate(() => (window as unknown as { badgeCalls: string[] }).badgeCalls);
 
-// CFO decision 1008918: the app's badge counts each new item while the app is
+// CEO decision 1008918: the app's badge counts each new item while the app is
 // closed, asking for notifications in the app's own words only when he turns
 // it on.
 test("in the Home Screen app, the App badge asks for notifications only when he turns it on, and subscribes the app until he turns it off", async ({ page }) => {
@@ -546,7 +546,7 @@ for (const [where, isInstalled, asks] of [["the Home Screen app", true, 0], ["a 
     const { push } = await open(page, ON, { origin: URL });
 
     // Act
-    await push({ revision: 2, questions: [{ id: "cfo-question-1", identity: "c".repeat(64), text: "Ship it?", status: "pending", created_at: new Date().toISOString() }] });
+    await push({ revision: 2, questions: [{ id: "ceo-question-1", identity: "c".repeat(64), text: "Ship it?", status: "pending", created_at: new Date().toISOString() }] });
 
     // Assert
     await expect(page.getByRole("group", { name: "Windows notifications" })).toHaveCount(asks);

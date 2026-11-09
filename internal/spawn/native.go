@@ -70,7 +70,7 @@ func (s *Service) codexHooks(kind harness.Kind) (hooks []string, notice string) 
 	if kind != harness.Codex {
 		return nil, ""
 	}
-	hooks, err := nativehook.CodexGoblinArguments(filepath.Join(s.HomeRoot, home.BinDir, "cfo.exe"), s.HomeRoot, s.StateDir)
+	hooks, err := nativehook.CodexGoblinArguments(filepath.Join(s.HomeRoot, home.BinDir, "ceo.exe"), s.HomeRoot, s.StateDir)
 	if err != nil {
 		return nil, "hooks: Codex starts without its native session hooks or its goblin seal, so the board reads it from its terminal and nothing checks its worktree's Python environments before its commands: " + err.Error()
 	}
@@ -84,11 +84,11 @@ func (s *Service) codexHooks(kind harness.Kind) (hooks []string, notice string) 
 const BrowserSessionVariable = "CHROME_DEVTOOLS_AXI_SESSION"
 
 // callerSessionVariables name the session a process runs in, in the order
-// they are read: the explicit CFO_SESSION_ID and CFO_SESSION_HARNESS pair,
+// they are read: the explicit CEO_SESSION_ID and CEO_SESSION_HARNESS pair,
 // then the variable each harness sets for the commands its agent runs, since
-// a CFO in Claude Code, Codex or pi names only its own.
+// a CEO in Claude Code, Codex or pi names only its own.
 var callerSessionVariables = []struct{ session, harness string }{
-	{"CFO_SESSION_ID", ""},
+	{"CEO_SESSION_ID", ""},
 	{"CODEX_THREAD_ID", "codex"},
 	{"CLAUDE_CODE_SESSION_ID", "claude"},
 	{"PI_SESSION_ID", "pi"},
@@ -96,14 +96,14 @@ var callerSessionVariables = []struct{ session, harness string }{
 
 // CallerSession is the session this process runs in, as its environment
 // names it, or empty strings when it names none a board can hold. A harness
-// variable can be inherited, as a pi CFO started inside a Codex session
+// variable can be inherited, as a pi CEO started inside a Codex session
 // carries that session's CODEX_THREAD_ID, so it is the caller only by
 // default.
 func CallerSession() (session, harness string) {
 	for _, variable := range callerSessionVariables {
 		session, harness = os.Getenv(variable.session), variable.harness
 		if harness == "" {
-			harness = os.Getenv("CFO_SESSION_HARNESS")
+			harness = os.Getenv("CEO_SESSION_HARNESS")
 		}
 		if session != "" {
 			break
@@ -123,10 +123,10 @@ func boardSession(session, harness string) (string, string) {
 }
 
 // IsCallerSessionVariable says name is one CallerSession reads, which a
-// process that runs in no session, such as cfo serve, forgets from whoever
+// process that runs in no session, such as ceo serve, forgets from whoever
 // started it.
 func IsCallerSessionVariable(name string) bool {
-	return strings.EqualFold(name, "CFO_SESSION_HARNESS") || slices.ContainsFunc(callerSessionVariables, func(variable struct{ session, harness string }) bool {
+	return strings.EqualFold(name, "CEO_SESSION_HARNESS") || slices.ContainsFunc(callerSessionVariables, func(variable struct{ session, harness string }) bool {
 		return strings.EqualFold(name, variable.session)
 	})
 }
@@ -137,25 +137,25 @@ func IsCallerSessionVariable(name string) bool {
 // dots, dashes and underscores. A task its brief did not leave the crawler
 // out of is given the home's crawler folder, which its terminal puts on PATH.
 func (s Service) nativeEnvironment(env map[string]string, meta state.TaskMeta) {
-	env["CFO_TASK_ID"], env["CFO_SPAWN_GEN"] = meta.ID, meta.SpawnGen
+	env["CEO_TASK_ID"], env["CEO_SPAWN_GEN"] = meta.ID, meta.SpawnGen
 	env[BrowserSessionVariable] = meta.ID
-	env["CFO_PARENT_SESSION_ID"], env["CFO_PARENT_HARNESS"] = s.parentSession(meta)
-	env["CFO_ROOT_SESSION_ID"] = os.Getenv("CFO_ROOT_SESSION_ID")
+	env["CEO_PARENT_SESSION_ID"], env["CEO_PARENT_HARNESS"] = s.parentSession(meta)
+	env["CEO_ROOT_SESSION_ID"] = os.Getenv("CEO_ROOT_SESSION_ID")
 	if !meta.IsCrawlerLeftOut {
 		env[crawler.PathVariable] = crawler.BinDir(s.HomeRoot)
 	}
 }
 
 // parentSession is the session a goblin records as its parent: the session
-// its start explicitly names, else the registered CFO's, else the session
-// its start runs in. Every goblin is dispatched by the CFO, so the CFO's
+// its start explicitly names, else the registered CEO's, else the session
+// its start runs in. Every goblin is dispatched by the CEO, so the CEO's
 // registration is surer than a harness variable its start may have
-// inherited, and it is the only CFO a start the supervisor runs by itself,
+// inherited, and it is the only CEO a start the supervisor runs by itself,
 // such as a resume after a memory pause, knows. A helper's parent is its
-// goblin, which its task record names, so a helper never takes the CFO.
+// goblin, which its task record names, so a helper never takes the CEO.
 func (s Service) parentSession(meta state.TaskMeta) (string, string) {
-	if os.Getenv("CFO_SESSION_ID") == "" && meta.Parent == "" && s.CFOSession != nil {
-		if session, harness := boardSession(s.CFOSession()); session != "" {
+	if os.Getenv("CEO_SESSION_ID") == "" && meta.Parent == "" && s.CEOSession != nil {
+		if session, harness := boardSession(s.CEOSession()); session != "" {
 			return session, harness
 		}
 	}

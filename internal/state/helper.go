@@ -76,7 +76,7 @@ func HelperParent(stateDir, parent string) (TaskMeta, error) {
 	}
 	if len(helpers) > 0 {
 		helper := helpers[0].ID
-		return TaskMeta{}, fmt.Errorf("%s already has a helper, %s, and a goblin has one helper at a time; ask again once you have merged it with cfo helper merge %s or stopped it with cfo kill %s", parent, helper, parent, helper)
+		return TaskMeta{}, fmt.Errorf("%s already has a helper, %s, and a goblin has one helper at a time; ask again once you have merged it with ceo helper merge %s or stopped it with ceo kill %s", parent, helper, parent, helper)
 	}
 	return meta, nil
 }

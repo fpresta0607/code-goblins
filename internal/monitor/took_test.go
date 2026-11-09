@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const steer = "CFO: stop the steps now and run no more of them. Reply with exactly the word STEER461700 and end your turn."
+const steer = "CEO: stop the steps now and run no more of them. Reply with exactly the word STEER461700 and end your turn."
 
 // The entries below are the shapes each harness wrote live on 2026-10-06,
 // when a steer typed during a tool call reached a goblin at its next one.
@@ -118,7 +118,7 @@ func TestASteerIsFoundInEveryRecordAndEveryTextHandedOver(t *testing.T) {
 	t.Run("several texts in one message", func(t *testing.T) {
 		home, worktree := t.TempDir(), t.TempDir()
 		opening := map[string]any{"type": "session_meta", "payload": map[string]any{"cwd": worktree}}
-		both := map[string]any{"timestamp": "2026-10-06T21:54:55Z", "type": "response_item", "payload": map[string]any{"type": "message", "role": "user", "content": []map[string]any{{"type": "input_text", "text": "CFO: main moved, merge it first."}, {"type": "input_text", "text": steer}}}}
+		both := map[string]any{"timestamp": "2026-10-06T21:54:55Z", "type": "response_item", "payload": map[string]any{"type": "message", "role": "user", "content": []map[string]any{{"type": "input_text", "text": "CEO: main moved, merge it first."}, {"type": "input_text", "text": steer}}}}
 		transcriptLines(t, filepath.Join(home, ".codex", "sessions", "2026", "10", "06", "rollout-2026-10-06T16-53-30.jsonl"), time.Now(), opening, both)
 
 		if !(&HostProgress{Home: home}).Took(context.Background(), Conversation{Harness: "codex", Dir: worktree}, TextDigest(steer), sent) {
@@ -133,7 +133,7 @@ func TestASteerIsFoundInEveryRecordAndEveryTextHandedOver(t *testing.T) {
 }
 
 // A machine keeps thousands of Codex rollouts, whose openings are read to
-// find a goblin's, and a fresh cfo send read them all for minutes: only the
+// find a goblin's, and a fresh ceo send read them all for minutes: only the
 // rollouts Codex filed since the day the goblin started are read.
 func TestOnlyRolloutsFiledSinceTheGoblinStartedAreRead(t *testing.T) {
 	sent := time.Date(2026, 10, 6, 21, 54, 52, 0, time.UTC)
@@ -158,9 +158,9 @@ func TestOnlyRolloutsFiledSinceTheGoblinStartedAreRead(t *testing.T) {
 	}
 }
 
-// The CFO's record is found by the session its registration names, in
+// The CEO's record is found by the session its registration names, in
 // whichever project folder holds it; a goblin's by the folder it works in.
-func TestTheCFOsRecordIsFoundByItsSession(t *testing.T) {
+func TestTheCEOsRecordIsFoundByItsSession(t *testing.T) {
 	// Arrange
 	home := t.TempDir()
 	sent := time.Date(2026, 10, 6, 21, 51, 45, 0, time.UTC)

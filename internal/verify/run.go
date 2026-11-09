@@ -63,7 +63,7 @@ type PackageResult struct {
 }
 
 // ExitNoResult is the exit code of a command that tested nothing and so says
-// nothing of what it would have tested, as cfo gate turn given no turn or cfo
+// nothing of what it would have tested, as ceo gate turn given no turn or ceo
 // gate test whose plan stalled. A caller asks no one to repair it.
 const ExitNoResult = 125
 

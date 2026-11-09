@@ -22,16 +22,16 @@ import (
 // the queue: the archived status logs, listed once on the first need, and the
 // fleet's history. A task whose outcome says it delivered is not queued at
 // all (fleet.ReadQueuedTask); this reads everything else that says so. On
-// 2026-10-07 the CFO had left 24 finished rows under Queued, each with its
+// 2026-10-07 the CEO had left 24 finished rows under Queued, each with its
 // brief on disk, which the scheduler would have started again.
 type finishedWork struct {
 	home     home.Home
 	history  []Task
 	isListed bool
 	archived []string
-	// retired are the rows this reading refused because the CFO retired
+	// retired are the rows this reading refused because the CEO retired
 	// their task after they were queued, each with the outcome that retired
-	// it, for the scheduler to tell the CFO about.
+	// it, for the scheduler to tell the CEO about.
 	retired map[string]state.Outcome
 }
 
@@ -69,8 +69,8 @@ func (work *finishedWork) refusal(id string) string {
 	return finishedRefusal(evidence)
 }
 
-// retiredEvidence says id's queued row is stale: the CFO retired its task,
-// with cfo cleanup or cfo kill, after the row was queued. A row has no time
+// retiredEvidence says id's queued row is stale: the CEO retired its task,
+// with ceo cleanup or ceo kill, after the row was queued. A row has no time
 // of its own, so its brief stands for it: only a brief written since the
 // retirement is new work for the id. A row with no brief is stale too, since
 // the start would write it one from the row and run the retired task again.
@@ -84,7 +84,7 @@ func retiredEvidence(h home.Home, id string, outcome state.Outcome) string {
 	if err == nil && brief.ModTime().After(outcome.At) {
 		return ""
 	}
-	return "the CFO retired it at " + outcome.At.UTC().Format("2006-01-02 15:04Z") + " (" + outcome.Phase + ": " + bounded(outcome.Reason, 200) + ") and no brief was written for it since"
+	return "the CEO retired it at " + outcome.At.UTC().Format("2006-01-02 15:04Z") + " (" + outcome.Phase + ": " + bounded(outcome.Reason, 200) + ") and no brief was written for it since"
 }
 
 // finishedRefusal is the refusal evidence makes, or empty without any.
@@ -164,8 +164,8 @@ func (s *Service) finishedCard(work *finishedWork, id string) string {
 	return finishedRefusal(evidence)
 }
 
-// tellRetiredRows tells the CFO, once for each retirement, of a row left
-// under ## Queued for a task the CFO retired after it was queued, which the
+// tellRetiredRows tells the CEO, once for each retirement, of a row left
+// under ## Queued for a task the CEO retired after it was queued, which the
 // scheduler does not start.
 func tellRetiredRows(stateDir string, retired map[string]state.Outcome) error {
 	var problems error

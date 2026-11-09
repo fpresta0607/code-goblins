@@ -1,16 +1,16 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type BrowserContext, type Page } from "./site";
 
-// The Overlord, 2026-10-07, with a toast about a goblin the CFO was retiring
-// ("... failed: Waiting on the CFO: Requested by the operator; worktree
+// The Overlord, 2026-10-07, with a toast about a goblin the CEO was retiring
+// ("... failed: Waiting on the CEO: Requested by the operator; worktree
 // C:\dev\PrecisionDocs-AI\.worktrees...") whose Open opened its task panel:
 // "these command center alerts where it takes to your task panel is
 // pointless", then "alerts should only be open command center questions".
 // So the board, and the desktop window around it, alert only for a new
 // Command Center item that asks him something, in its asker's words on one
 // plain line, and the alert opens that item. A goblin blocked, failed or done,
-// a pause the CFO asked for that did not finish, and the CFO falling behind
-// on its questions are said on the cards and the CFO's bar, never as an alert.
+// a pause the CEO asked for that did not finish, and the CEO falling behind
+// on its questions are said on the cards and the CEO's bar, never as an alert.
 test.use({ timezoneId: "UTC" });
 
 const RETIRED = "Unused admin route removed; macro-security test can fail (issues 1432, 1273)";
@@ -21,18 +21,18 @@ const RELEASE = question("release-train-20261007", ASKS, "2026-10-07T15:10:00Z")
 const task = (id: string, title: string, fields: Record<string, unknown> = {}) => ({ id, title, project: "code-goblins", phase: "working", generation: id + "-1", verified: false, ...fields });
 const working = [task("pd-small-cleanups", RETIRED, { project: "PrecisionDocs-AI", pr: "https://github.com/fpresta0607/PrecisionDocs-AI/pull/1507" }), task("cg-probe", "Probe the DNS"), task("cg-theme", "Board theme")];
 let revision = 0;
-const board = (fields: Record<string, unknown> = {}) => ({ healthy: true, instance: "board-1", cfo_runs: true, cfo_terminal: "cfo", cfo_harness: "claude", revision: ++revision, attention: [], tasks: working, questions: [], reviews: [], runs: [], credentials: [], actions: [], ...fields });
+const board = (fields: Record<string, unknown> = {}) => ({ healthy: true, instance: "board-1", ceo_runs: true, ceo_terminal: "ceo", ceo_harness: "claude", revision: ++revision, attention: [], tasks: working, questions: [], reviews: [], runs: [], credentials: [], actions: [], ...fields });
 // What reached the Overlord on 2026-10-07, and its kin: one goblin done, one
 // failed by its own report, one blocked at its gate, and the retired goblin's
 // pause that did not finish once its session had ended, which an older
-// supervisor served as the goblin failed and waiting on the CFO and this one
-// serves as paused; then a goblin's question the CFO has left for ten minutes,
+// supervisor served as the goblin failed and waiting on the CEO and this one
+// serves as paused; then a goblin's question the CEO has left for ten minutes,
 // which waits in the Command Center without an alert.
 const news = () => board({ at: "2026-10-07T15:09:11Z", questions: [{ ...question("theme-asks", "Which accent colour should the board use?", "2026-10-07T14:59:11Z"), task: "cg-theme" }], tasks: [
   task("pd-small-cleanups", RETIRED, { project: "PrecisionDocs-AI", phase: "paused", report: "", pr: "https://github.com/fpresta0607/PrecisionDocs-AI/pull/1507", reason: LIFECYCLE_SAID, activity: LIFECYCLE_SAID,
     lifecycle: { phase: "paused", action: "pause", at: "2026-10-07T14:49:11Z", kept: ["worktree C:\\dev\\PrecisionDocs-AI\\.worktrees\\gb-pd-small-cleanups"], stopped: [], problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"], handoff_saved: false, validation_restarts: false } }),
   task("cg-probe", "Probe the DNS", { phase: "failed", report: "failed", activity: "failed: go test timed out at 9f3c2a1e" }),
-  task("cg-theme", "Board theme", { phase: "blocked", reason: "Pipeline decision required at review; use cfo pipeline respond" }),
+  task("cg-theme", "Board theme", { phase: "blocked", reason: "Pipeline decision required at review; use ceo pipeline respond" }),
 ] });
 
 // Every board the test opens gets its snapshots from the test, through a
@@ -78,7 +78,7 @@ const OUT_OF_SIGHT = () => Object.defineProperty(document, "hidden", { configura
 // for and shown by this long after its snapshot.
 const ANNOUNCED_BY_MS = 2500;
 
-const bar = (page: Page) => page.locator(".cfo-pin");
+const bar = (page: Page) => page.locator(".ceo-pin");
 const card = (page: Page) => page.locator("dialog.question-modal");
 const goblin = (page: Page, title: string) => page.locator(".task-card").filter({ hasText: title }).first();
 
@@ -119,7 +119,7 @@ test.describe("on the board, in a browser tab", () => {
       expect(asked).toEqual([]);
       await expect(page.getByRole("button", { name: "Turn on", exact: true })).toHaveCount(permission === "default" ? 1 : 0);
       await send(allowed, board({ questions: [RELEASE] }));
-      await expect.poll(() => notes(allowed)).toEqual([{ title: "CFO", body: "The CFO asks: " + ASKS, tag: "question:" + RELEASE.id + "@" + RELEASE.created_at, closed: false }]);
+      await expect.poll(() => notes(allowed)).toEqual([{ title: "CEO", body: "The CEO asks: " + ASKS, tag: "question:" + RELEASE.id + "@" + RELEASE.created_at, closed: false }]);
       await send(allowed, board({ questions: [RELEASE] }));
       await send(allowed, board({ instance: "board-2" }));
       await send(allowed, board({ instance: "board-2", questions: [RELEASE] }));
@@ -168,7 +168,7 @@ test.describe("on the board, in a browser tab", () => {
     await expect(card(page)).toBeHidden();
   });
 
-  test("a goblin done, failed or blocked, a retired goblin's pause that did not finish, and the CFO falling behind raise no alert; their cards and the CFO's bar say them", async ({ page, context }, testInfo) => {
+  test("a goblin done, failed or blocked, a retired goblin's pause that did not finish, and the CEO falling behind raise no alert; their cards and the CEO's bar say them", async ({ page, context }, testInfo) => {
     // Arrange
     await context.addInitScript(RECORD_NOTIFICATIONS);
     await context.addInitScript(OUT_OF_SIGHT);
@@ -183,7 +183,7 @@ test.describe("on the board, in a browser tab", () => {
     await testInfo.attach("goblins' news on the board", { body: await page.screenshot(), contentType: "image/png" });
 
     // Assert
-    await expect(bar(page)).toContainText("1 question waits for the CFO (10 min).");
+    await expect(bar(page)).toContainText("1 question waits for the CEO (10 min).");
     expect(await notes(page)).toEqual([]);
     expect(asked).toEqual([]);
     await expect(page.locator(".toasts")).toHaveCount(0);
@@ -207,13 +207,13 @@ test.describe("on the board, in a browser tab", () => {
 
     // Assert
     const alert = "question:" + RELEASE.id + "@" + RELEASE.created_at;
-    await expect.poll(() => notes(page)).toEqual([{ title: "CFO", body: "The CFO asks: " + ASKS, tag: alert, closed: false }]);
+    await expect.poll(() => notes(page)).toEqual([{ title: "CEO", body: "The CEO asks: " + ASKS, tag: alert, closed: false }]);
     expect(asked).toEqual(["alert:" + alert]);
     await expect(card(page)).toBeHidden();
     await page.evaluate(() => (window as unknown as { notes: { onclick: () => void }[] }).notes[0].onclick());
     await expect(card(page)).toContainText(ASKS);
     await testInfo.attach("the notification opened its question", { body: await page.screenshot(), contentType: "image/png" });
-    expect(await notes(page)).toEqual([{ title: "CFO", body: "The CFO asks: " + ASKS, tag: alert, closed: true }]);
+    expect(await notes(page)).toEqual([{ title: "CEO", body: "The CEO asks: " + ASKS, tag: alert, closed: true }]);
   });
 });
 
@@ -254,7 +254,7 @@ window.addEventListener("DOMContentLoaded", () => { ${notesScript} });`;
     await announcer(context, ["alert:" + fromWindow]);
     await open(page);
 
-    // Act: the goblins' news, then the CFO's two questions.
+    // Act: the goblins' news, then the CEO's two questions.
     await send(page, news());
     await expect(goblin(page, "Board theme").locator(".plain-status")).toHaveClass(/phase-blocked/);
     await page.waitForTimeout(ANNOUNCED_BY_MS);
@@ -266,12 +266,12 @@ window.addEventListener("DOMContentLoaded", () => { ${notesScript} });`;
     // the page was handed reached it in its asker's words.
     expect(quiet).toEqual([]);
     const fromPage = "question:" + RELEASE.id + "@" + RELEASE.created_at;
-    await expect.poll(() => posted(page)).toEqual([{ id: fromPage, title: "CFO", body: "The CFO asks: " + ASKS }]);
+    await expect.poll(() => posted(page)).toEqual([{ id: fromPage, title: "CEO", body: "The CEO asks: " + ASKS }]);
     await send(page, { ...news(), questions: [RELEASE, second] });
     await send(page, board({ instance: "board-2" }));
     await send(page, board({ instance: "board-2", questions: [RELEASE, second] }));
     await page.waitForTimeout(ANNOUNCED_BY_MS);
-    expect(await posted(page)).toEqual([{ id: fromPage, title: "CFO", body: "The CFO asks: " + ASKS }]);
+    expect(await posted(page)).toEqual([{ id: fromPage, title: "CEO", body: "The CEO asks: " + ASKS }]);
     await testInfo.attach("one item posted to Windows, in the window's size", { body: await page.screenshot(), contentType: "image/png" });
     await clicked(page, fromPage);
     await expect(card(page)).toContainText(ASKS);

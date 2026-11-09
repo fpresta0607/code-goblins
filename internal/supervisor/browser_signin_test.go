@@ -175,7 +175,7 @@ func TestBrowserSignInOpenRefusesRemoteAndStaleCards(t *testing.T) {
 			request := httptest.NewRequest(http.MethodPost, "http://"+credentialBoardHost+"/api/browser-signins/open", strings.NewReader(`{"id":"signin-missing","generation":"old"}`))
 			request.RemoteAddr = test.peer
 			request.Header.Set("Origin", "http://"+credentialBoardHost)
-			request.Header.Set("X-CFO-Token", service.Instance)
+			request.Header.Set("X-CEO-Token", service.Instance)
 			request.Header.Set("Content-Type", "application/json")
 			response := httptest.NewRecorder()
 

@@ -18,7 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-// The engine runs in `cfo voice-worker`, a child of the process dictating: it
+// The engine runs in `ceo voice-worker`, a child of the process dictating: it
 // loads the engine's library and the model once, then reads one sound at a
 // time from its standard input and writes the words to its standard output,
 // each as a frame of a 4-byte little-endian length and that many bytes. A
@@ -83,7 +83,7 @@ func (l *workerLog) sinceAnswered() []byte {
 	return l.data
 }
 
-// worker is one running `cfo voice-worker`.
+// worker is one running `ceo voice-worker`.
 type worker struct {
 	command *exec.Cmd
 	end     context.CancelFunc

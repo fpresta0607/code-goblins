@@ -17,17 +17,17 @@ import (
 
 // A goblin's wait or question can carry a command for the Overlord to run
 // (the Overlord, 2026-10-02: "run in powershell button"). It reaches the board
-// as a run item, the card the CFO's own requests use, named for the goblin:
+// as a run item, the card the CEO's own requests use, named for the goblin:
 // he reads the exact command and runs it with one click, in a terminal on the
-// card, so a sign-in or cfo attach works there. The goblin
+// card, so a sign-in or ceo attach works there. The goblin
 // hears how it ended, and a command nobody ran leaves the board once the
 // goblin moves on.
 
 // goblinRunInbox is where a goblin's notify leaves its command for the
 // supervisor. A file there proves nothing about who wrote it, so what the
 // supervisor takes from it can only ever be a live goblin's own item. It is
-// not the folder the CFO's run requests once came through, which stays
-// unread: the CFO's reach the board only over the supervisor's pipe.
+// not the folder the CEO's run requests once came through, which stays
+// unread: the CEO's reach the board only over the supervisor's pipe.
 func goblinRunInbox(stateDir string) string { return filepath.Join(stateDir, "goblin-runs-inbox") }
 
 // goblinRunID is the ID of the command a goblin's notify seq carries.

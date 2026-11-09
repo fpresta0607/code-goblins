@@ -4,10 +4,10 @@ import { expect, test, type Page } from "./site";
 // why is it still being shown inside the orchestration? ... it should just be
 // for in-progress goblins to begin with". The fixture holds beside the
 // goblins in progress the records that read Turn finished, Working and
-// Session ended under the CFO that day: a retired goblin's session, an ended
+// Session ended under the CEO that day: a retired goblin's session, an ended
 // session, a live goblin's earlier generation, a sub-agent record with no
 // terminal of its own, paused goblins and a queued brief.
-const IN_PROGRESS = ["CFO", "Kip - Chart Captain", "Pip - Chart Helper", "Wanda - API Ace", "Wendell - Gate Whisperer"];
+const IN_PROGRESS = ["CEO", "Kip - Chart Captain", "Pip - Chart Helper", "Wanda - API Ace", "Wendell - Gate Whisperer"];
 
 // titles names each card the selector finds by its title, in order.
 const titles = (page: Page, cards: string) => page.locator(cards).evaluateAll((found) => found.map((card) => card.querySelector("strong")!.textContent!).sort());

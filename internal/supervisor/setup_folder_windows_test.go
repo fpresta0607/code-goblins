@@ -44,9 +44,9 @@ func TestProjectsFolderPickerSelectsAndCancelsOnAHiddenDesktop(t *testing.T) {
 				if err := os.Mkdir(root, 0700); err != nil {
 					t.Fatal(err)
 				}
-				t.Setenv("CFO_HOME", t.TempDir())
-				t.Setenv("CFO_STATE_OVERRIDE", t.TempDir())
-				t.Setenv("CFO_PROJECTS_ROOT", t.TempDir())
+				t.Setenv("CEO_HOME", t.TempDir())
+				t.Setenv("CEO_STATE_OVERRIDE", t.TempDir())
+				t.Setenv("CEO_PROJECTS_ROOT", t.TempDir())
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				type selection struct {
 					path string

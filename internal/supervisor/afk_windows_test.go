@@ -30,7 +30,7 @@ func asOverlordsTerminal(s *Service) {
 	s.inspectCaller = func(pid int) ([]proc.Entry, []string, error) {
 		started := time.Now().Add(-time.Hour)
 		return []proc.Entry{
-			{PID: pid, ParentPID: 4242, ExeBase: "cfo.exe", Start: started},
+			{PID: pid, ParentPID: 4242, ExeBase: "ceo.exe", Start: started},
 			{PID: 4242, ParentPID: 900, ExeBase: "powershell.exe", Start: started.Add(-time.Minute)},
 			{PID: 900, ExeBase: "WindowsTerminal.exe", Start: started.Add(-time.Hour)},
 		}, []string{"USERNAME=overlord"}, nil
@@ -43,7 +43,7 @@ func asGoblinsTerminal(s *Service) {
 	clean := s.inspectCaller
 	s.inspectCaller = func(pid int) ([]proc.Entry, []string, error) {
 		ancestry, env, err := clean(pid)
-		return ancestry, append(env, "CFO_ROLE=goblin"), err
+		return ancestry, append(env, "CEO_ROLE=goblin"), err
 	}
 }
 
@@ -52,7 +52,7 @@ func askToAnnounce(t *testing.T, s *Service, body string) []string {
 	request := httptest.NewRequest("POST", "http://board.local/api/announce", strings.NewReader(body))
 	request.Header.Set("Origin", "http://board.local")
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-CFO-Token", s.Instance)
+	request.Header.Set("X-CEO-Token", s.Instance)
 	response := httptest.NewRecorder()
 	NewHTTP(s, "board.local", nil).ServeHTTP(response, request)
 	var result struct {
@@ -75,21 +75,21 @@ func afkEntries(t *testing.T, stateDir string) []afk.Entry {
 
 // AFK mode is the Overlord's switch. The supervisor reads the process at the
 // other end of its pipe, and anything that marks it as an agent's refuses the
-// switch: a goblin's or the CFO's terminal, a gate agent, an agent harness
+// switch: a goblin's or the CEO's terminal, a gate agent, an agent harness
 // above it. A process it cannot read is refused too, never taken for his.
 func TestOnlyATerminalOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
 	primary, _, _, _ := primaryFixture(t, store)
-	cfo := proc.Entry{PID: primary.Process.PID, ExeBase: "supervisor.test.exe", Start: primary.Process.Start}
+	ceo := proc.Entry{PID: primary.Process.PID, ExeBase: "supervisor.test.exe", Start: primary.Process.Start}
 	shell := func(above ...proc.Entry) []proc.Entry {
 		return append([]proc.Entry{
-			{PID: 7001, ParentPID: 4242, ExeBase: "cfo.exe", Start: cfo.Start.Add(4 * time.Millisecond)},
-			{PID: 4242, ParentPID: 900, ExeBase: "powershell.exe", Start: cfo.Start.Add(2 * time.Millisecond)},
+			{PID: 7001, ParentPID: 4242, ExeBase: "ceo.exe", Start: ceo.Start.Add(4 * time.Millisecond)},
+			{PID: 4242, ParentPID: 900, ExeBase: "powershell.exe", Start: ceo.Start.Add(2 * time.Millisecond)},
 		}, above...)
 	}
 	above := func(exe string) proc.Entry {
-		return proc.Entry{PID: 900, ExeBase: exe, Start: cfo.Start.Add(-time.Hour)}
+		return proc.Entry{PID: 900, ExeBase: exe, Start: ceo.Start.Add(-time.Hour)}
 	}
 	late := shell(above("WindowsTerminal.exe"))
 	late[0].Start = time.Now().Add(time.Hour)
@@ -105,10 +105,10 @@ func TestOnlyATerminalOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 		hisToMeet bool
 	}{
 		{name: "his own shell", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"USERNAME=overlord"}, from: "his own terminal (powershell.exe pid 4242)"},
-		{name: "a goblin's terminal", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"CFO_ROLE=goblin"}, refusal: "a goblin's terminal"},
+		{name: "a goblin's terminal", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"CEO_ROLE=goblin"}, refusal: "a goblin's terminal"},
 		{name: "a gate agent", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"NO_MISTAKES_GATE=1"}, refusal: "a gate agent"},
-		{name: "the registered CFO", ancestry: shell(cfo), refusal: "under the registered CFO"},
-		{name: "a native terminal of the fleet", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"cfo_host_id=cfo"}, refusal: "native terminal cfo"},
+		{name: "the registered CEO", ancestry: shell(ceo), refusal: "under the registered CEO"},
+		{name: "a native terminal of the fleet", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"ceo_host_id=ceo"}, refusal: "native terminal ceo"},
 		{name: "a Herdr pane", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"HERDR_PANE_ID=w1:p2"}, refusal: "a Herdr pane"},
 		{name: "under Claude Code", ancestry: shell(above("claude.exe")), refusal: "an agent harness (claude.exe pid 900)"},
 		{name: "under a harness that runs on node", ancestry: shell(above("node.exe")), refusal: "an agent harness (node.exe pid 900)"},
@@ -123,8 +123,8 @@ func TestOnlyATerminalOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 		// stop short of the desktop prove nothing, and Git Bash cuts the
 		// Overlord's own the same way, so the refusal says what to do.
 		{name: "its parents cut off and nothing of a harness in its environment", ancestry: []proc.Entry{
-			{PID: 7001, ParentPID: 4242, ExeBase: "cfo.exe", Start: cfo.Start.Add(4 * time.Millisecond)},
-			{PID: 4242, ParentPID: 900, ExeBase: "env.exe", Start: cfo.Start.Add(2 * time.Millisecond)},
+			{PID: 7001, ParentPID: 4242, ExeBase: "ceo.exe", Start: ceo.Start.Add(4 * time.Millisecond)},
+			{PID: 4242, ParentPID: 900, ExeBase: "env.exe", Start: ceo.Start.Add(2 * time.Millisecond)},
 		}, env: []string{"USERNAME=overlord"}, refusal: "nothing says this terminal is the Overlord's own: run it in PowerShell or cmd, or switch it in the Code Goblins window", hisToMeet: true},
 		{name: "shells above it whose parents are cut off", ancestry: shell(above("bash.exe")), env: []string{"USERNAME=overlord"}, refusal: "nothing says this terminal is the Overlord's own", hisToMeet: true},
 		{name: "his own shell opened from the desktop", ancestry: shell(above("Explorer.EXE")), env: []string{"USERNAME=overlord"}, from: "his own terminal (powershell.exe pid 4242)"},
@@ -154,7 +154,7 @@ func TestOnlyATerminalOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 				assertOneShortSentence(t, err.Error())
 				return
 			}
-			if !strings.Contains(err.Error(), "he turns it on or off from a terminal or a board of his own, and the registered CFO only at his ask, with his words") {
+			if !strings.Contains(err.Error(), "he turns it on or off from a terminal or a board of his own, and the registered CEO only at his ask, with his words") {
 				t.Errorf("overlordsTerminal = %v, want an agent's refusal to say whose switch it is", err)
 			}
 		})
@@ -179,8 +179,8 @@ func assertOneShortSentence(t *testing.T, said string) {
 }
 
 // His switch over the pipe turns AFK mode on with who, when and the allowance
-// read then, and the CFO is told through its wake queue.
-func TestTheOverlordsSwitchTurnsAFKModeOnAndTheCFOIsToldInItsQueue(t *testing.T) {
+// read then, and the CEO is told through its wake queue.
+func TestTheOverlordsSwitchTurnsAFKModeOnAndTheCEOIsToldInItsQueue(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	s := &Service{Store: store}
@@ -201,32 +201,32 @@ func TestTheOverlordsSwitchTurnsAFKModeOnAndTheCFOIsToldInItsQueue(t *testing.T)
 	}
 	pending, err := wake.Pending(h.State)
 	if err != nil || len(pending) != 1 || pending[0].Kind != "review" || pending[0].Key != "afk" || !strings.Contains(pending[0].Detail, "turned AFK mode on") {
-		t.Errorf("the CFO's queue = %+v, %v, want one notice that the Overlord turned AFK mode on", pending, err)
+		t.Errorf("the CEO's queue = %+v, %v, want one notice that the Overlord turned AFK mode on", pending, err)
 	}
 	// AFK mode is complete autopilot: the notice holds nothing for him.
-	if len(pending) == 1 && (strings.Contains(pending[0].Detail, "held for him") || !strings.Contains(pending[0].Detail, "Answer every decision yourself with your recommendation") || !strings.Contains(pending[0].Detail, "backlog row") || !strings.Contains(pending[0].Detail, "cfo afk log --kind his")) {
-		t.Errorf("the notice = %q, want every decision answered by the CFO and a step only he can take as a line with a backlog row, never held for him", pending[0].Detail)
+	if len(pending) == 1 && (strings.Contains(pending[0].Detail, "held for him") || !strings.Contains(pending[0].Detail, "Answer every decision yourself with your recommendation") || !strings.Contains(pending[0].Detail, "backlog row") || !strings.Contains(pending[0].Detail, "ceo afk log --kind his")) {
+		t.Errorf("the notice = %q, want every decision answered by the CEO and a step only he can take as a line with a backlog row, never held for him", pending[0].Detail)
 	}
 	if entries := afkEntries(t, h.State); len(entries) != 1 || entries[0].Kind != afk.KindOn {
 		t.Errorf("the AFK log = %+v, want the line that turned it on", entries)
 	}
 }
 
-// A goblin's attempt and the CFO's are refused by the process each runs in,
+// A goblin's attempt and the CEO's are refused by the process each runs in,
 // read from the real process at the other end of the pipe, and change nothing.
-func TestAGoblinsOrTheCFOsAttemptToTurnAFKModeOnIsRefusedAndChangesNothing(t *testing.T) {
+func TestAGoblinsOrTheCEOsAttemptToTurnAFKModeOnIsRefusedAndChangesNothing(t *testing.T) {
 	for _, c := range []struct {
 		name    string
 		arrange func(t *testing.T, store *Store)
 		refusal string
 	}{
 		{name: "a goblin", refusal: "a goblin's terminal", arrange: func(t *testing.T, _ *Store) {
-			t.Setenv("CFO_ROLE", "goblin")
+			t.Setenv("CEO_ROLE", "goblin")
 		}},
-		{name: "the registered CFO", refusal: "under the registered CFO", arrange: func(t *testing.T, store *Store) {
-			// This test process is the registered CFO, and nothing else marks it.
+		{name: "the registered CEO", refusal: "under the registered CEO", arrange: func(t *testing.T, store *Store) {
+			// This test process is the registered CEO, and nothing else marks it.
 			primaryFixture(t, store)
-			for _, name := range []string{"CFO_ROLE", "NO_MISTAKES_GATE"} {
+			for _, name := range []string{"CEO_ROLE", "NO_MISTAKES_GATE"} {
 				t.Setenv(name, "")
 			}
 		}},
@@ -251,7 +251,7 @@ func TestAGoblinsOrTheCFOsAttemptToTurnAFKModeOnIsRefusedAndChangesNothing(t *te
 				t.Errorf("the AFK log = %+v, want nothing", entries)
 			}
 			if pending, _ := wake.Pending(h.State); len(pending) != 0 {
-				t.Errorf("the CFO's queue = %+v, want nothing", pending)
+				t.Errorf("the CEO's queue = %+v, want nothing", pending)
 			}
 		})
 	}
@@ -282,17 +282,17 @@ func TestOnlyTheOverlordTurnsAFKModeOff(t *testing.T) {
 	}
 }
 
-// The CFO logs what it decided under the authority over the pipe, where the
-// supervisor proves the sender is the registered CFO. Nobody else's line is
+// The CEO logs what it decided under the authority over the pipe, where the
+// supervisor proves the sender is the registered CEO. Nobody else's line is
 // written, and nothing is logged as decided while AFK mode is off.
-func TestOnlyTheRegisteredCFOsDecisionIsLoggedAndOnlyWhileAFKModeIsOn(t *testing.T) {
+func TestOnlyTheRegisteredCEOsDecisionIsLoggedAndOnlyWhileAFKModeIsOn(t *testing.T) {
 	deploy := afk.Entry{Kind: afk.KindDeploy, What: "acme production", Link: "https://acme.example/health", Evidence: "/health reads 200 with commit abc1234"}
 
-	t.Run("the registered CFO while it is on", func(t *testing.T) {
+	t.Run("the registered CEO while it is on", func(t *testing.T) {
 		// Arrange
 		store, h := testStore(t)
-		_, _, _, cfo := primaryFixture(t, store)
-		servePipe(t, store, cfo)
+		_, _, _, ceo := primaryFixture(t, store)
+		servePipe(t, store, ceo)
 		if _, _, err := afk.TurnOn(h.State, "the board", nil, time.Now()); err != nil {
 			t.Fatal(err)
 		}
@@ -307,11 +307,11 @@ func TestOnlyTheRegisteredCFOsDecisionIsLoggedAndOnlyWhileAFKModeIsOn(t *testing
 		}
 	})
 
-	t.Run("the registered CFO while it is off", func(t *testing.T) {
+	t.Run("the registered CEO while it is off", func(t *testing.T) {
 		// Arrange
 		store, h := testStore(t)
-		_, _, _, cfo := primaryFixture(t, store)
-		servePipe(t, store, cfo)
+		_, _, _, ceo := primaryFixture(t, store)
+		servePipe(t, store, ceo)
 
 		// Act
 		err := LogAFKDecision(h, deploy)
@@ -325,11 +325,11 @@ func TestOnlyTheRegisteredCFOsDecisionIsLoggedAndOnlyWhileAFKModeIsOn(t *testing
 		}
 	})
 
-	t.Run("a process that is not the registered CFO", func(t *testing.T) {
+	t.Run("a process that is not the registered CEO", func(t *testing.T) {
 		// Arrange
 		store, h := testStore(t)
-		_, _, _, cfo := primaryFixture(t, store)
-		servePipe(t, store, cfo)
+		_, _, _, ceo := primaryFixture(t, store)
+		servePipe(t, store, ceo)
 		if _, _, err := afk.TurnOn(h.State, "the board", nil, time.Now()); err != nil {
 			t.Fatal(err)
 		}
@@ -340,8 +340,8 @@ func TestOnlyTheRegisteredCFOsDecisionIsLoggedAndOnlyWhileAFKModeIsOn(t *testing
 		err := LogAFKDecision(h, deploy)
 
 		// Assert
-		if err == nil || !strings.Contains(err.Error(), "does not run under the registered CFO") {
-			t.Fatalf("LogAFKDecision from outside the CFO = %v, want it refused", err)
+		if err == nil || !strings.Contains(err.Error(), "does not run under the registered CEO") {
+			t.Fatalf("LogAFKDecision from outside the CEO = %v, want it refused", err)
 		}
 		if entries := afkEntries(t, h.State); len(entries) != 1 {
 			t.Errorf("the AFK log = %+v, want only the switch", entries)
@@ -471,7 +471,7 @@ func TestAnUnreadableSwitchHidesNothingAndIsReported(t *testing.T) {
 }
 
 // His off always works. A switch that cannot be read is put back to off from
-// a terminal of his own, the CFO is told there is no report of that stretch,
+// a terminal of his own, the CEO is told there is no report of that stretch,
 // and nothing else changes it: not an agent's off, and not his own on, which
 // would guess at what the switch held.
 func TestOnlyTheOverlordsOffResetsASwitchThatCannotBeRead(t *testing.T) {
@@ -506,7 +506,7 @@ func TestOnlyTheOverlordsOffResetsASwitchThatCannotBeRead(t *testing.T) {
 		}
 		pending, err := wake.Pending(h.State)
 		if err != nil || len(pending) != 1 || pending[0].Key != "afk" || !strings.Contains(pending[0].Detail, "could not be read") || !strings.Contains(pending[0].Detail, "no report") {
-			t.Errorf("the CFO's queue = %+v, %v, want it told the switch was reset to off and that there is no report", pending, err)
+			t.Errorf("the CEO's queue = %+v, %v, want it told the switch was reset to off and that there is no report", pending, err)
 		}
 		if _, found, err := afk.ReadReport(h.State); err != nil || found {
 			t.Errorf("ReadReport = %v, %v, want no report of a stretch nobody could read", found, err)
@@ -519,7 +519,7 @@ func TestOnlyTheOverlordsOffResetsASwitchThatCannotBeRead(t *testing.T) {
 		refusal string
 	}{
 		"a goblin's off is refused": {false, asGoblinsTerminal, "a goblin's terminal"},
-		"his on is refused":         {true, asOverlordsTerminal, "only the Overlord resets it, with cfo afk off"},
+		"his on is refused":         {true, asOverlordsTerminal, "only the Overlord resets it, with ceo afk off"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -590,7 +590,7 @@ func TestAnItemThatWaitsOnTheOverlordWhileAFKModeIsOnIsHeldOnceAndNotAnnounced(t
 		t.Fatalf("held = %+v, want the question, the wait and the run item, each once", held)
 	}
 	if held[0].Item != "question:drop-legacy-invoices" || held[0].What != "Migration 0042 drops legacy_invoices. Apply it?" || held[0].Task != "" || held[0].Recommendation != "Keep it held" {
-		t.Errorf("held question = %+v, want the CFO's question with its text and its recommendation", held[0])
+		t.Errorf("held question = %+v, want the CEO's question with its text and its recommendation", held[0])
 	}
 	if held[1].Item != "review:waiting-task-1-7" || held[1].What != "Waiting on you: sign in to Vercel" || held[1].Task != "task-1" || held[1].Recommendation != "" {
 		t.Errorf("held wait = %+v, want the goblin's wait with its reason and no recommendation", held[1])
@@ -600,11 +600,11 @@ func TestAnItemThatWaitsOnTheOverlordWhileAFKModeIsOnIsHeldOnceAndNotAnnounced(t
 	}
 }
 
-// A goblin's question is the CFO's to answer, never his, as the board's
+// A goblin's question is the CEO's to answer, never his, as the board's
 // Command Center has it: while AFK mode is on it is not held for him, and the
-// digest's list of what waits on him leaves it out. The CFO's own question,
+// digest's list of what waits on him leaves it out. The CEO's own question,
 // a goblin's wait and a command left for him still wait on him.
-func TestAGoblinsQuestionToTheCFOIsNotHeldForTheOverlord(t *testing.T) {
+func TestAGoblinsQuestionToTheCEOIsNotHeldForTheOverlord(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	s := &Service{Store: store}
@@ -636,7 +636,7 @@ func TestAGoblinsQuestionToTheCFOIsNotHeldForTheOverlord(t *testing.T) {
 	}
 	slices.Sort(held)
 	if want := []string{"question:drop-legacy-invoices", "review:waiting-task-1-7", "run:delete-merged-branches"}; !slices.Equal(held, want) {
-		t.Errorf("held = %q, want %q: the goblin's question is the CFO's to answer", held, want)
+		t.Errorf("held = %q, want %q: the goblin's question is the CEO's to answer", held, want)
 	}
 	if slices.ContainsFunc(open, func(item OpenItem) bool { return item.ID == "notify-task-1-7" }) || len(open) != 3 {
 		t.Errorf("open items = %+v, want what waits on him without the goblin's question", open)
@@ -714,10 +714,10 @@ func TestAHeldItemIsHeldOnceForEachStretchAcrossARestart(t *testing.T) {
 	}
 }
 
-// The CFO's items follow the home's CFO when it is closed and opened again,
+// The CEO's items follow the home's CEO when it is closed and opened again,
 // and keep the IDs they were held by: what was held for the Overlord in a
 // stretch is not held a second time once it has followed.
-func TestAHeldItemThatFollowsAReopenedCFOIsNotHeldAgain(t *testing.T) {
+func TestAHeldItemThatFollowsAReopenedCEOIsNotHeldAgain(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	s := &Service{Store: store}
@@ -732,7 +732,7 @@ func TestAHeldItemThatFollowsAReopenedCFOIsNotHeldAgain(t *testing.T) {
 
 	// Act
 	reopened := strings.Repeat("e", 64)
-	if err := store.followCFO(reopened); err != nil {
+	if err := store.followCEO(reopened); err != nil {
 		t.Fatal(err)
 	}
 	err := s.holdForOverlord(time.Now())
@@ -740,16 +740,16 @@ func TestAHeldItemThatFollowsAReopenedCFOIsNotHeldAgain(t *testing.T) {
 	// Assert
 	d := store.Snapshot()
 	if d.Questions[0].Identity != reopened || d.Runs[0].Identity != reopened {
-		t.Fatalf("the CFO's question and run item did not follow the reopened CFO (%s, %s), so this proves nothing", d.Questions[0].Identity, d.Runs[0].Identity)
+		t.Fatalf("the CEO's question and run item did not follow the reopened CEO (%s, %s), so this proves nothing", d.Questions[0].Identity, d.Runs[0].Identity)
 	}
 	if entries := afkEntries(t, h.State); err != nil || heldBefore != 4 || len(entries) != heldBefore {
 		t.Errorf("holdForOverlord = %v with %d lines in the log after the items followed and %d before, want 4 both times: the switch and each item once", err, len(entries), heldBefore)
 	}
 }
 
-// Turning AFK mode off produces the report of the stretch: what the CFO
+// Turning AFK mode off produces the report of the stretch: what the CEO
 // decided with its evidence, what each goblin finished, what is held for him
-// and what became of it, and what was spent. The CFO is told to write it into
+// and what became of it, and what was spent. The CEO is told to write it into
 // its terminal.
 func TestTurningAFKModeOffReportsTheStretch(t *testing.T) {
 	// Arrange
@@ -819,14 +819,14 @@ func TestTurningAFKModeOffReportsTheStretch(t *testing.T) {
 		t.Errorf("the switch = %+v, %v, want off, and the report of that stretch", switched, err)
 	}
 	pending, err := wake.Pending(h.State)
-	if err != nil || len(pending) != 2 || pending[1].Key != "afk" || !strings.Contains(pending[1].Detail, "turned AFK mode off") || !strings.Contains(pending[1].Detail, "cfo afk report") {
-		t.Errorf("the CFO's queue = %+v, %v, want it told AFK mode is off and to write the report", pending, err)
+	if err != nil || len(pending) != 2 || pending[1].Key != "afk" || !strings.Contains(pending[1].Detail, "turned AFK mode off") || !strings.Contains(pending[1].Detail, "ceo afk report") {
+		t.Errorf("the CEO's queue = %+v, %v, want it told AFK mode is off and to write the report", pending, err)
 	}
 }
 
-// A question the CFO answered while he was away is a decision in the log, not
+// A question the CEO answered while he was away is a decision in the log, not
 // something held for him.
-func TestAQuestionTheCFOAnsweredIsNotReportedAsHeld(t *testing.T) {
+func TestAQuestionTheCEOAnsweredIsNotReportedAsHeld(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	s := &Service{Store: store}
@@ -841,7 +841,7 @@ func TestAQuestionTheCFOAnsweredIsNotReportedAsHeld(t *testing.T) {
 	}
 	answered := time.Now().UTC()
 	store.mu.Lock()
-	store.db.Questions[0].Status, store.db.Questions[0].AnsweredBy, store.db.Questions[0].AnsweredAt = "succeeded", "cfo", &answered
+	store.db.Questions[0].Status, store.db.Questions[0].AnsweredBy, store.db.Questions[0].AnsweredAt = "succeeded", "ceo", &answered
 	err := store.save()
 	store.mu.Unlock()
 	if err != nil {
@@ -860,26 +860,26 @@ func TestAQuestionTheCFOAnsweredIsNotReportedAsHeld(t *testing.T) {
 		t.Fatal(err, readErr)
 	}
 	if slices.ContainsFunc(report.Held, func(held afk.Held) bool { return held.Item == "question:drop-legacy-invoices" }) || len(report.Held) != 2 {
-		t.Errorf("held = %+v, want the wait and the run item, and not the question the CFO answered", report.Held)
+		t.Errorf("held = %+v, want the wait and the run item, and not the question the CEO answered", report.Held)
 	}
 }
 
-// The board closes a goblin's question as the CFO's once the CFO acks its
+// The board closes a goblin's question as the CEO's once the CEO acks its
 // notify, whether or not it answered. A goblin's question is no longer held
 // for the Overlord, but a stretch that began before that may still hold one in
 // its log. Only a logged answer is a decision, so such a held question that
 // closed that way with nothing logged stays in the report as held, saying so.
-func TestAHeldQuestionClosedAsTheCFOsWithNoLoggedDecisionStaysInTheReport(t *testing.T) {
+func TestAHeldQuestionClosedAsTheCEOsWithNoLoggedDecisionStaysInTheReport(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
-	meta, record, _, cfo := goblinFixture(t, store)
+	meta, record, _, ceo := goblinFixture(t, store)
 	s := &Service{Store: store}
 	asOverlordsTerminal(s)
 	runPipe(t, s)
 	if err := SwitchAFK(h, true); err != nil {
 		t.Fatal(err)
 	}
-	asked := surfaced(t, store, meta, record, cfo)
+	asked := surfaced(t, store, meta, record, ceo)
 	if err := afk.Hold(h.State, afk.Entry{Item: "question:" + asked.ID, Task: meta.ID, What: asked.Text}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -889,8 +889,8 @@ func TestAHeldQuestionClosedAsTheCFOsWithNoLoggedDecisionStaysInTheReport(t *tes
 	if err := store.supersedeQuestions(); err != nil {
 		t.Fatal(err)
 	}
-	if closed := store.Snapshot().Questions[0]; closed.Status != "succeeded" || closed.AnsweredBy != "cfo" {
-		t.Fatalf("the question = %+v, want it closed as answered by the CFO", closed)
+	if closed := store.Snapshot().Questions[0]; closed.Status != "succeeded" || closed.AnsweredBy != "ceo" {
+		t.Fatalf("the question = %+v, want it closed as answered by the CEO", closed)
 	}
 
 	// Act
@@ -902,13 +902,13 @@ func TestAHeldQuestionClosedAsTheCFOsWithNoLoggedDecisionStaysInTheReport(t *tes
 		t.Fatal(err, readErr)
 	}
 	if len(report.Decisions) != 0 {
-		t.Errorf("decisions = %+v, want none: the CFO logged nothing", report.Decisions)
+		t.Errorf("decisions = %+v, want none: the CEO logged nothing", report.Decisions)
 	}
 	if len(report.Held) != 1 {
 		t.Fatalf("held = %+v, want the goblin's question", report.Held)
 	}
-	if held := report.Held[0]; held.Item != "question:"+asked.ID || held.Task != meta.ID || held.Waiting || !strings.Contains(held.Now, "closed as answered by the CFO") || !strings.Contains(held.Now, "no decision was logged for it") {
-		t.Errorf("held question = %+v, want it not waiting, closed as answered by the CFO with no decision logged", held)
+	if held := report.Held[0]; held.Item != "question:"+asked.ID || held.Task != meta.ID || held.Waiting || !strings.Contains(held.Now, "closed as answered by the CEO") || !strings.Contains(held.Now, "no decision was logged for it") {
+		t.Errorf("held question = %+v, want it not waiting, closed as answered by the CEO with no decision logged", held)
 	}
 }
 

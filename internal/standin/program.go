@@ -25,7 +25,7 @@ import (
 // one it has never met before it lets it start. A copy of a test binary is
 // such a program at every build: on the Overlord's PC its first start was
 // measured at 0.7 to 5 s on 2026-10-10, and at 39 s under load on 2026-10-07.
-// Worse, the install tests served a copy of their test binary as the cfo.exe
+// Worse, the install tests served a copy of their test binary as the ceo.exe
 // install.ps1 downloads, renames and runs, which is what a dropper does, and
 // Defender's verdict on those bytes (Trojan:Win32/Bearfoos.B!ml, 22 times in
 // three bursts between 2026-09-30 and 2026-10-07) then named every copy of
@@ -78,11 +78,11 @@ var program = sync.OnceValues(func() (string, error) {
 	if startCacheErr != nil {
 		return "", startCacheErr
 	}
-	return ensure(filepath.Join(startCache, "cfo", "standin"))
+	return ensure(filepath.Join(startCache, "ceo", "standin"))
 })
 
 // Program returns the stand-in program: internal/standin/program, built once
-// for each Go toolchain into one folder of the user's cache (cfo\standin) and
+// for each Go toolchain into one folder of the user's cache (ceo\standin) and
 // reused by every test run from every checkout. Do not write to it or start
 // it where it is: Put it where the test needs a program.
 func Program(t testing.TB) string {
@@ -143,12 +143,12 @@ type Rule struct {
 func Env(record string, rules ...Rule) []string {
 	env := []string{}
 	if record != "" {
-		env = append(env, "CFO_STANDIN_RECORD="+record)
+		env = append(env, "CEO_STANDIN_RECORD="+record)
 	}
 	if len(rules) > 0 {
 		// A Rule holds only strings, numbers and booleans, which always marshal.
 		text, _ := json.Marshal(rules)
-		env = append(env, "CFO_STANDIN_RULES="+string(text))
+		env = append(env, "CEO_STANDIN_RULES="+string(text))
 	}
 	return env
 }

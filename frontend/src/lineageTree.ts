@@ -36,13 +36,13 @@ export function sessionModel(node?: Session, task?: Task): string {
 
 export function sessionRole(node: Session): string {
   const roles: Record<string, string> = {
-    cfo: "Supervisor", goblin: "Goblin", worker: "Background worker", subagent: "Subagent",
+    ceo: "Supervisor", goblin: "Goblin", worker: "Background worker", subagent: "Subagent",
   };
   return roles[node.role] || "Agent session";
 }
 
 export function sessionTitle(node: Session, task?: Task): string {
-  if (node.role === "cfo") return "CFO";
+  if (node.role === "ceo") return "CEO";
   if (node.role === "goblin") return task ? goblinName(task) : node.task_id || node.native_id;
   return node.agent_type || node.native_id || sessionRole(node);
 }
@@ -57,7 +57,7 @@ export function projectSessions(sessions: Session[], tasks: Task[], project: str
   const taskIDs = new Set(tasks.filter((task) => task.project === project).map((task) => task.id));
   const included = new Set(sessions.filter((node) => taskIDs.has(node.task_id)).map((node) => node.id));
   // Include descendants of matching task sessions before adding their ancestors.
-  // Adding descendants of the CFO ancestor would pull in unrelated projects.
+  // Adding descendants of the CEO ancestor would pull in unrelated projects.
   for (let changed = true; changed;) {
     changed = false;
     for (const node of sessions) if (!included.has(node.id) && included.has(node.parent)) {

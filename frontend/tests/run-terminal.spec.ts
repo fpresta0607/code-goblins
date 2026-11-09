@@ -112,12 +112,12 @@ test("Stop ends the command from its card, and the card reads Stopped", async ({
   await expect.poll(() => doneCards(page)).toContainEqual(expect.stringContaining("Stopped"));
 });
 
-// A command's terminal that did not answer is named to the CFO by the
+// A command's terminal that did not answer is named to the CEO by the
 // command, never as "a goblin's terminal".
-test("a command's terminal that did not answer is named to the CFO by its command", async ({ page }) => {
+test("a command's terminal that did not answer is named to the CEO by its command", async ({ page }) => {
   // Arrange
   const reports: { where: string; text: string }[] = [];
-  await page.route("**/api/cfo/report", (route) => { reports.push(route.request().postDataJSON() as { where: string; text: string }); return route.fulfill({ status: 202, json: { reported: true } }); });
+  await page.route("**/api/ceo/report", (route) => { reports.push(route.request().postDataJSON() as { where: string; text: string }); return route.fulfill({ status: 202, json: { reported: true } }); });
   const wire = await openRunCard(page);
   const dialog = page.locator("dialog.question-modal");
   await dialog.getByRole("button", { name: "Run in PowerShell" }).click();
@@ -268,7 +268,7 @@ test.describe("dictating into a running command's terminal", () => {
 
   test("the key still dictates there, with the bars showing only while it is held", async ({ page }) => {
     // Arrange
-    await page.addInitScript(() => localStorage.setItem("cfo-voice-hint-v1", "dismissed"));
+    await page.addInitScript(() => localStorage.setItem("ceo-voice-hint-v1", "dismissed"));
     await page.route("**/api/dictation/warm", (route) => route.fulfill({ status: 202 }));
     await page.route("**/api/dictation", (route) => route.request().method() === "GET"
       ? route.fulfill({ json: { engine: "test-model", state: "ready" } })

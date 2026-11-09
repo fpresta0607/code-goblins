@@ -9,7 +9,7 @@ import { Icon, type IconName } from "./Icon";
 // so a screen reader reads what it chooses. The buttons are native, so the
 // keyboard reaches and presses them at every width. Each is an icon alone,
 // named for a screen reader, with no words and no tip, in the panel header's
-// own row beside the CFO's and AFK's controls, never a row of its own (the
+// own row beside the CEO's and AFK's controls, never a row of its own (the
 // Overlord, 2026-10-28: "chat and task doesn't need to be full width, it can
 // fit inline with cfo and afk and just be the icons"). Chat is the message
 // bubble, as Modern chat is in the header's style menu (the Overlord,

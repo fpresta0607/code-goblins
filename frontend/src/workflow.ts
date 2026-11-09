@@ -5,7 +5,7 @@ import { LINE_GAP } from "./fleet-tree.ts";
 import { awaitedTest, isAwaitingTest, landingStatus, pullRequestTest } from "./pull-request-test.ts";
 import { shortModel } from "./model-name.ts";
 
-export type Persona = "cfo" | "builder" | "reviewer" | "tester" | "planner" | "finisher" | "general"
+export type Persona = "ceo" | "builder" | "reviewer" | "tester" | "planner" | "finisher" | "general"
   | "debugger" | "security" | "database" | "designer" | "documentation" | "operations"
   | "researcher" | "performance" | "integrations" | "git" | "accessibility" | "releases";
 export type Point = { x: number; y: number };
@@ -72,13 +72,13 @@ export function completedCards(tasks: Task[]): Task[] {
 }
 
 // Every queued task, in the order the supervisor ranks them: the Tasks column
-// and the CFO's Task tab list the same queue.
+// and the CEO's Task tab list the same queue.
 export function queuedTasks(snapshot: Snapshot): Task[] {
   return snapshot.tasks.filter((task) => taskColumn(task) === "Tasks");
 }
 
 export function personaFor(task?: Task, node?: Session): Persona {
-  if (node?.role === "cfo") return "cfo";
+  if (node?.role === "ceo") return "ceo";
   if (task?.archived || task && ownsTaskSession(node, task) && taskColumn(task) === "Completed") return "finisher";
   const meaning = (node?.agent_type || task?.title || "").toLowerCase();
   const specialists: [RegExp, Persona][] = [
@@ -167,7 +167,7 @@ export function nativeStatus(phase: string): string {
 }
 
 // asksOverlord is whether a goblin explicitly waits on the Overlord.
-// A goblin's question is the CFO's to answer.
+// A goblin's question is the CEO's to answer.
 export function asksOverlord(snapshot: Snapshot, taskID: string): boolean {
   if (!taskID) return false;
   const task = snapshot.tasks.find((candidate) => candidate.id === taskID);
@@ -181,11 +181,11 @@ export function waitingTarget(snapshot: Snapshot, task: Task): Task | undefined 
   return snapshot.tasks.find((candidate) => candidate.id === task.waiting_on && candidate.id !== task.id);
 }
 
-// A goblin waiting on the Overlord waits through the CFO, which carries the
+// A goblin waiting on the Overlord waits through the CEO, which carries the
 // question to him, unless its wait is an item in his Command Center, which
 // says Waiting on you as that list does. A wait on memory is a turn in the
 // machine's heavy line, which says its place instead (isInLine).
-const WAITS: Record<string, string> = { overlord: "the CFO", ci: "CI", deploy: "its deploy" };
+const WAITS: Record<string, string> = { overlord: "the CEO", ci: "CI", deploy: "its deploy" };
 
 // The heading of the Command Center's list of what waits on the Overlord,
 // and what a goblin whose wait is in that list reads.
@@ -218,8 +218,8 @@ const GATE_STEPS: Record<string, string> = { review: "code review", lint: "lint"
 
 // A resume or stop that did not finish is the task's state until the next
 // one starts, whatever its goblin last reported, drawn as that action under
-// way: the CFO or the Overlord asked for a stop, so one that did not finish is
-// never the goblin failing (the Overlord, 2026-10-07), and the CFO hears of
+// way: the CEO or the Overlord asked for a stop, so one that did not finish is
+// never the goblin failing (the Overlord, 2026-10-07), and the CEO hears of
 // it. Only a goblin that did not start again has failed. A pause that did not
 // finish has no state of its own: the card says what the goblin does, and one
 // whose session ended the supervisor serves as paused (the Overlord,
@@ -231,7 +231,7 @@ const FAILED_ACTIONS: Record<string, { status: string; phase: string }> = {
 const actionFailed = (task: Task) => task.lifecycle?.phase === "failed" && !["pausing", "resuming", "stopping"].includes(task.phase) ? FAILED_ACTIONS[task.lifecycle.action] : undefined;
 
 // isStartFailed says a queued task's last start failed and no new one is
-// under way: it waits for Start, and the CFO was told why.
+// under way: it waits for Start, and the CEO was told why.
 const isStartFailed = (task: Task) => task.phase === "queued" && !!task.start_error && !task.starting;
 
 // isMergedUnverified says a live goblin whose done report is in, or that
@@ -258,7 +258,7 @@ export const ALREADY_FINISHED = "Already finished";
 
 // A live goblin's status says whether its session runs, what it waits for
 // and what brings it back, from a small set (#1924): Working; in line for
-// the machine; waiting on you, the CFO, its parent, CI, its deploy, its gate
+// the machine; waiting on you, the CEO, its parent, CI, its deploy, its gate
 // or another goblin, by its goblin name while tasks, the board's, hold it;
 // and Landing while its done report is in and its pull request, on a merge
 // train among trains, the board's, or in its own CI, rides a train or waits
@@ -292,13 +292,13 @@ export function nodeStatus(node: WorkflowNode, isWaitingOnYou = false, tasks: Ta
     if (isWaitingOnYou) return WAITING_ON_YOU;
     if (isInLine(node.task)) return inLineStatus(node.task.tree?.line_place || 0);
     if (isPastLine(node.task)) return statusText("working");
-    if (phase === "blocked" && node.task.gate_step && reason.startsWith("Pipeline decision required at ")) return "Waiting on the CFO: " + (GATE_STEPS[node.task.gate_step] || node.task.gate_step) + " gate";
-    if ((phase === "blocked" || phase === "failed") && reason.startsWith("Waiting on the CFO")) return "Waiting on the CFO";
+    if (phase === "blocked" && node.task.gate_step && reason.startsWith("Pipeline decision required at ")) return "Waiting on the CEO: " + (GATE_STEPS[node.task.gate_step] || node.task.gate_step) + " gate";
+    if ((phase === "blocked" || phase === "failed") && reason.startsWith("Waiting on the CEO")) return "Waiting on the CEO";
     // A question it asked or a session gone quiet waits on whoever answers
-    // it: a helper's parent, which its reports reach, else the CFO.
+    // it: a helper's parent, which its reports reach, else the CEO.
     if (phase === "blocked" || phase === "idle") {
       const helped = parent ? tasks.find((candidate) => candidate.id === parent) : undefined;
-      return "Waiting on " + (helped ? named(helped) : parent ? "its parent" : "the CFO");
+      return "Waiting on " + (helped ? named(helped) : parent ? "its parent" : "the CEO");
     }
     if (phase === "waiting" && target) {
       const awaited = tasks.find((candidate) => candidate.id === target);
@@ -318,31 +318,31 @@ export interface WorkflowNode {
   session?: Session;
   parent?: string;
   relation: string;
-  // cfo marks the supervisor root drawn when no native CFO session reported,
+  // ceo marks the supervisor root drawn when no native CEO session reported,
   // and status is its fixed label.
-  cfo?: boolean;
+  ceo?: boolean;
   status?: string;
 }
 
-export const CFO_ROOT = "cfo:primary";
+export const CEO_ROOT = "ceo:primary";
 
-// liveCfoSession is the session every surface reads the CFO's status from:
-// the registered CFO's own while it runs, and while no registration names
-// one, the newest CFO session still running. An ended CFO session, the
-// registered CFO's included, never stands in for the CFO (the Overlord,
+// liveCeoSession is the session every surface reads the CEO's status from:
+// the registered CEO's own while it runs, and while no registration names
+// one, the newest CEO session still running. An ended CEO session, the
+// registered CEO's included, never stands in for the CEO (the Overlord,
 // 2026-10-17, of the panel reading Session ended: "it says session ended when
 // it's truly working").
-export function liveCfoSession(snapshot: Pick<Snapshot, "sessions" | "cfo_session">): Session | undefined {
-  const running = snapshot.sessions.filter((session) => session.role === "cfo" && session.phase !== "ended");
-  return snapshot.cfo_session ? running.find((session) => session.id === snapshot.cfo_session) : running.at(-1);
+export function liveCeoSession(snapshot: Pick<Snapshot, "sessions" | "ceo_session">): Session | undefined {
+  const running = snapshot.sessions.filter((session) => session.role === "ceo" && session.phase !== "ended");
+  return snapshot.ceo_session ? running.find((session) => session.id === snapshot.ceo_session) : running.at(-1);
 }
 
-// cfoEffort is the effort the CFO runs: its saved engine's once that applied
-// to the CFO's own harness, with no change pending and no problem, and none
+// ceoEffort is the effort the CEO runs: its saved engine's once that applied
+// to the CEO's own harness, with no change pending and no problem, and none
 // otherwise.
-export function cfoEffort(snapshot: Pick<Snapshot, "cfo_engine" | "cfo_harness">): string {
-  const engine = snapshot.cfo_engine;
-  return engine && !engine.pending && !engine.problem && engine.harness === snapshot.cfo_harness ? engine.effort : "";
+export function ceoEffort(snapshot: Pick<Snapshot, "ceo_engine" | "ceo_harness">): string {
+  const engine = snapshot.ceo_engine;
+  return engine && !engine.pending && !engine.problem && engine.harness === snapshot.ceo_harness ? engine.effort : "";
 }
 
 // isInProgress says a task's goblin works or waits, as the board's In progress
@@ -355,18 +355,18 @@ export const isHelperHeld = (snapshot: Snapshot, id: string): boolean =>
   snapshot.tasks.some((task) => isInProgress(task) && (task.tree?.children || []).some((node) => node.kind === "helper" && node.id === "helper:" + id));
 
 export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
-  // The tree holds the CFO liveCfoSession reads and the goblins in progress,
+  // The tree holds the CEO liveCeoSession reads and the goblins in progress,
   // each drawn from its live task record and the session that record names
   // as its own, so a goblin is there from its start until it finishes,
   // pauses or retires. No other session is drawn: the supervisor keeps a
-  // session's record after its task retires, and one cfo cleanup ended still
+  // session's record after its task retires, and one ceo cleanup ended still
   // reads as it last reported, so on 2026-10-17 goblins retired the day
   // before, which the board's history of its newest 20 entries no longer
-  // named, were back under the CFO reading Turn finished. A sub-agent's or
+  // named, were back under the CEO reading Turn finished. A sub-agent's or
   // worker's record has no terminal of its own and the family tree draws its
   // goblin's live children, an earlier generation's session is over, and a
   // paused goblin waits on the board's Paused bench.
-  const live = liveCfoSession(snapshot);
+  const live = liveCeoSession(snapshot);
   const goblins = snapshot.tasks.filter((task) => isInProgress(task) && !isHelperHeld(snapshot, task.id));
   const sessions = snapshot.sessions.filter((session) => session.id === live?.id || goblins.some((task) => ownsTaskSession(session, task)));
   const ids = new Set(sessions.map((node) => node.id));
@@ -377,7 +377,7 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
         id: "session:" + session.id, title: sessionTitle(session, task), task, session,
         parent: session.parent && ids.has(session.parent) ? "session:" + session.parent : undefined,
         relation: session.parent && ids.has(session.parent) ? session.relation || "Reported child"
-          : session.role === "cfo" ? "Supervisor" : "Parent unreported",
+          : session.role === "ceo" ? "Supervisor" : "Parent unreported",
       };
     }),
     ...tasksWithoutSession(goblins, snapshot.sessions).map((task) => ({
@@ -386,28 +386,28 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
   ];
   // A helper no family tree holds hangs under its parent's card: its record
   // names its parent. One whose parent is paused, which keeps working for
-  // the goblin it waits on, hangs under the CFO as dispatched work.
+  // the goblin it waits on, hangs under the CEO as dispatched work.
   const owns = (node: WorkflowNode) => node.task !== undefined && ownsTaskSession(node.session, node.task);
   const helpers = new Set<WorkflowNode>();
   for (const node of nodes) {
     const parent = owns(node) && node.task?.parent ? nodes.find((other) => other.task?.id === node.task?.parent && owns(other)) : undefined;
     if (parent) { node.parent = parent.id; node.relation = "Helper goblin"; helpers.add(node); }
   }
-  // Every live task record was dispatched by the CFO through cfo spawn, so a
+  // Every live task record was dispatched by the CEO through ceo spawn, so a
   // task card and a goblin session that has no parent in the tree hang under
-  // the CFO, whoever started or resumed the goblin: under the CFO session
+  // the CEO, whoever started or resumed the goblin: under the CEO session
   // that reported, or the supervisor root drawn when none did. A parent a
   // session reported and the tree holds still wins, and a helper hangs under
   // its goblin as above.
   const dispatched = nodes.filter((node) => !helpers.has(node) && !node.parent &&
     (node.id.startsWith("task:") || node.session?.role === "goblin"));
   if (dispatched.length) {
-    let cfo = nodes.find((node) => node.session?.role === "cfo");
-    if (!cfo) {
-      cfo = { id: CFO_ROOT, title: "CFO", relation: "Supervisor", cfo: true, status: snapshot.registration ? "Registration stale" : "Supervising" };
-      nodes.unshift(cfo);
+    let ceo = nodes.find((node) => node.session?.role === "ceo");
+    if (!ceo) {
+      ceo = { id: CEO_ROOT, title: "CEO", relation: "Supervisor", ceo: true, status: snapshot.registration ? "Registration stale" : "Supervising" };
+      nodes.unshift(ceo);
     }
-    for (const node of dispatched) { node.parent = cfo.id; node.relation = "Dispatched by the CFO"; }
+    for (const node of dispatched) { node.parent = ceo.id; node.relation = "Dispatched by the CEO"; }
   }
   const byID = new Map(nodes.map((node) => [node.id, node]));
   const cyclic = new Set<string>();
@@ -421,27 +421,27 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
 }
 
 // LineageFamily is the canvas's family as the lineage list draws it: each
-// session with the parent the canvas gives it, as a session id or CFO_ROOT,
-// the CFO the canvas hangs dispatched work under, and the tasks with no
-// session that hang under that CFO.
+// session with the parent the canvas gives it, as a session id or CEO_ROOT,
+// the CEO the canvas hangs dispatched work under, and the tasks with no
+// session that hang under that CEO.
 export interface LineageFamily {
   sessions: Session[];
-  cfo?: WorkflowNode;
-  underCfo: Set<string>;
+  ceo?: WorkflowNode;
+  underCeo: Set<string>;
 }
 
 export function lineageFamily(snapshot: Snapshot, project: string): LineageFamily {
   const family = workflowNodes(snapshot);
-  const cfo = family.find((node) => node.cfo || node.session?.role === "cfo");
-  const parentOf = (parent?: string) => parent === CFO_ROOT ? CFO_ROOT : parent?.startsWith("session:") ? parent.slice("session:".length) : "";
-  const all = family.flatMap((node): Session[] => node.cfo
-    ? [{ id: CFO_ROOT, native_id: "", harness: "", role: "cfo", task_id: "", generation: "", parent: "", reported_root: "", relation: "", model: "", agent_type: "", phase: "", turn_id: "", host_id: "", last_event_id: "", updated_at: "" }]
+  const ceo = family.find((node) => node.ceo || node.session?.role === "ceo");
+  const parentOf = (parent?: string) => parent === CEO_ROOT ? CEO_ROOT : parent?.startsWith("session:") ? parent.slice("session:".length) : "";
+  const all = family.flatMap((node): Session[] => node.ceo
+    ? [{ id: CEO_ROOT, native_id: "", harness: "", role: "ceo", task_id: "", generation: "", parent: "", reported_root: "", relation: "", model: "", agent_type: "", phase: "", turn_id: "", host_id: "", last_event_id: "", updated_at: "" }]
     : node.session ? [{ ...node.session, parent: parentOf(node.parent), relation: node.relation }] : []);
-  const underCfo = new Set(family.flatMap((node) => !node.session && node.task && cfo && node.parent === cfo.id && (!project || node.task.project === project) ? [node.task.id] : []));
+  const underCeo = new Set(family.flatMap((node) => !node.session && node.task && ceo && node.parent === ceo.id && (!project || node.task.project === project) ? [node.task.id] : []));
   const sessions = projectSessions(all, snapshot.tasks, project);
-  const cfoSession = all.find((node) => node.id === (cfo?.cfo ? CFO_ROOT : cfo?.session?.id));
-  if (cfoSession && underCfo.size && !sessions.includes(cfoSession)) sessions.unshift(cfoSession);
-  return { sessions, cfo, underCfo };
+  const ceoSession = all.find((node) => node.id === (ceo?.ceo ? CEO_ROOT : ceo?.session?.id));
+  if (ceoSession && underCeo.size && !sessions.includes(ceoSession)) sessions.unshift(ceoSession);
+  return { sessions, ceo, underCeo };
 }
 
 // waitingOn maps the card of each goblin waiting on another goblin to the card
@@ -714,7 +714,7 @@ export function harnessTip(harness: string, model: string, effort: string): stri
 
 // fleetTraffic signs what each live task last reported, its status line and
 // the newest wake record it filed, and names the tasks whose signature moved
-// since the previous snapshot. Those are real reports reaching the CFO.
+// since the previous snapshot. Those are real reports reaching the CEO.
 export function fleetTraffic(previous: Map<string, string> | null, snapshot: Snapshot): { signatures: Map<string, string>; moved: string[] } {
   const newest = new Map<string, number>();
   for (const decision of snapshot.decisions) newest.set(decision.key, Math.max(newest.get(decision.key) || 0, decision.seq));

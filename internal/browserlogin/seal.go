@@ -14,7 +14,7 @@ import (
 
 // sealsDir holds one file for each task whose browser a key fetch reads in
 // now. While it lasts, the task's goblin's browser commands are refused
-// (cfo hook goblin-seal), so nothing the page shows reaches its transcript.
+// (ceo hook goblin-seal), so nothing the page shows reaches its transcript.
 const sealsDir = "browser-seals"
 
 // seal is a seal file's shape: when it lifts by itself, which bounds a seal

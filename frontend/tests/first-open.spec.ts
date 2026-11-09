@@ -1,4 +1,4 @@
-import { CFO_DOOR, expect, holdStream, openTaskList, type Page, test } from "./site";
+import { CEO_DOOR, expect, holdStream, openTaskList, type Page, test } from "./site";
 
 // The DOM renderer makes terminal output observable in headless screenshots.
 test.use({ launchOptions: { args: ["--disable-webgl"] } });
@@ -8,10 +8,10 @@ test.use({ launchOptions: { args: ["--disable-webgl"] } });
 // the Code Goblins app or UI for the first time, the default window is what
 // you're seeing now on my screen, which would be the CFO terminal open and
 // then the board on the left hand side." So the first time a browser shows the
-// board of a home whose CFO runs, it opens on the Board with the CFO's
+// board of a home whose CEO runs, it opens on the Board with the CEO's
 // panel beside it, not maximized, and the keyboard in it: since design A (the
-// Overlord's choice on 2026-10-22) a Claude Code CFO's panel opens on its
-// Messages view, whose box types into the CFO's terminal laid out behind it.
+// Overlord's choice on 2026-10-22) a Claude Code CEO's panel opens on its
+// Messages view, whose box types into the CEO's terminal laid out behind it.
 // What he arranges afterwards is kept, and a browser that already keeps a
 // layout has had its first open.
 const since = "2026-09-30T20:00:00Z";
@@ -21,7 +21,7 @@ const TASKS = [
   task("working-one", "working", { backend: "native" }),
   task("finished:done-one", "done", { archived: true, merged: true, verified: true, generation: "", branch: "fix/done-one" }),
 ];
-const running = { healthy: true, instance: "fixture", cfo_runs: true, cfo_terminal: "cfo", cfo_harness: "claude", revision: 1, attention: [], tasks: TASKS };
+const running = { healthy: true, instance: "fixture", ceo_runs: true, ceo_terminal: "ceo", ceo_harness: "claude", revision: 1, attention: [], tasks: TASKS };
 
 // open holds the supervisor's stream and answers each terminal's size claim
 // with a repaint. kept is what the browser already keeps, set before load.
@@ -33,7 +33,7 @@ async function open(page: Page, snapshot: Record<string, unknown> = running, kep
   await holdStream(page, snapshot);
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path === "/api/setup") await route.fulfill({ json: { home: "C:\\Users\\franco\\AppData\\Local\\CodeGoblins", agent: "claude", projects_root: "", checkouts: [], agents: [{ id: "claude", name: "Claude Code", recommended: true, note: "the best experience", installed: true, sign_in: "signed_in" }], cfo_runs: false } });
+    if (path === "/api/setup") await route.fulfill({ json: { home: "C:\\Users\\franco\\AppData\\Local\\CodeGoblins", agent: "claude", projects_root: "", checkouts: [], agents: [{ id: "claude", name: "Claude Code", recommended: true, note: "the best experience", installed: true, sign_in: "signed_in" }], ceo_runs: false } });
     else if (path === "/api/setup/start") await route.fulfill({ json: { started: true } });
     else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
@@ -56,12 +56,12 @@ async function open(page: Page, snapshot: Record<string, unknown> = running, kep
 const board = (page: Page) => page.getByRole("main", { name: "Board" });
 const panel = (page: Page) => page.getByRole("complementary", { name: "Task review" });
 const terminalInput = (page: Page) => page.getByRole("textbox", { name: "Terminal input", exact: true });
-const cfoBox = (page: Page) => page.getByRole("textbox", { name: "Message CFO", exact: true });
+const ceoBox = (page: Page) => page.getByRole("textbox", { name: "Message CEO", exact: true });
 const columns = (page: Page) => page.locator(".task-board").evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length);
 
 test("a failed first Start keeps its error and selection while configuration snapshots change", async ({ page }, testInfo) => {
   // Arrange
-  const initial = { ...running, cfo_runs: false, cfo_terminal: "", cfo_harness: "", cfo_configured: false };
+  const initial = { ...running, ceo_runs: false, ceo_terminal: "", ceo_harness: "", ceo_configured: false };
   await page.addInitScript((snapshot) => {
     class HeldStream extends EventTarget {
       onerror: unknown = null;
@@ -78,104 +78,104 @@ test("a failed first Start keeps its error and selection while configuration sna
   }, initial);
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.route("**/api/setup?*", (route) => route.fulfill({ json: {
-    home: "C:\\fixture", agent: "claude", projects_root: "", checkouts: [], cfo_runs: false,
+    home: "C:\\fixture", agent: "claude", projects_root: "", checkouts: [], ceo_runs: false,
     agents: [{ id: "claude", name: "Claude Code", recommended: true, installed: true, sign_in: "signed_in" }, { id: "codex", name: "Codex", recommended: false, installed: true, sign_in: "signed_in" }],
   } }));
   let release = () => {};
   const pending = new Promise<void>((resolve) => { release = resolve; });
   await page.route("**/api/setup/start", async (route) => {
     await pending;
-    await route.fulfill({ status: 500, json: { error: "The chosen CFO could not start" } });
+    await route.fulfill({ status: 500, json: { error: "The chosen CEO could not start" } });
   });
   await page.goto("/");
   await page.getByRole("tab", { name: "Codex", exact: true }).click();
   await page.getByRole("textbox", { name: "Projects folder" }).fill("C:\\chosen-projects");
 
   // Act
-  await page.getByRole("button", { name: "Start the CFO" }).click();
-  await page.evaluate((snapshot) => window.dispatchEvent(new CustomEvent("setup-snapshot", { detail: snapshot })), { ...initial, cfo_configured: true, revision: 2 });
+  await page.getByRole("button", { name: "Start the CEO" }).click();
+  await page.evaluate((snapshot) => window.dispatchEvent(new CustomEvent("setup-snapshot", { detail: snapshot })), { ...initial, ceo_configured: true, revision: 2 });
 
   // Assert
-  await expect(page.getByRole("button", { name: "Starting the CFO…" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Starting the CEO…" })).toBeDisabled();
   const rejected = page.waitForResponse("**/api/setup/start");
   release();
   await rejected;
-  await expect(page.locator(".first-run-actions .notice")).toHaveText("The chosen CFO could not start.");
+  await expect(page.locator(".first-run-actions .notice")).toHaveText("The chosen CEO could not start.");
   await page.evaluate((snapshot) => window.dispatchEvent(new CustomEvent("setup-snapshot", { detail: snapshot })), { ...initial, revision: 3 });
-  await expect(page.locator(".first-run-actions .notice")).toHaveText("The chosen CFO could not start.");
+  await expect(page.locator(".first-run-actions .notice")).toHaveText("The chosen CEO could not start.");
   await expect(page.getByRole("tab", { name: "Codex", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("textbox", { name: "Projects folder" })).toHaveValue("C:\\chosen-projects");
-  await expect(page.getByRole("button", { name: "Start the CFO" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Start the CEO" })).toBeEnabled();
   await page.locator(".first-run").screenshot({ path: testInfo.outputPath("first-start-failed.png") });
 
   await page.route("**/api/setup/start", async (route) => {
     expect(route.request().postDataJSON()).toEqual({ root: "", agent: "codex" });
     await route.fulfill({ json: { started: true } });
   });
-  await page.getByRole("button", { name: "Start the CFO" }).click();
+  await page.getByRole("button", { name: "Start the CEO" }).click();
   await expect(board(page)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Start Code Goblins" })).toHaveCount(0);
 });
 
-test("reopening a configured home with no registered CFO stays on the board and can retry", async ({ page }) => {
+test("reopening a configured home with no registered CEO stays on the board and can retry", async ({ page }) => {
   // Arrange
   const setupRequests: string[] = [];
   const reopenRequests: { token: string | null; body: string | null }[] = [];
   page.on("request", (request) => {
     if (new URL(request.url()).pathname.startsWith("/api/setup")) setupRequests.push(request.url());
   });
-  await open(page, { ...running, cfo_runs: false, cfo_terminal: "", cfo_harness: "", cfo_configured: true });
-  await page.route("**/api/cfo/reopen", async (route) => {
-    reopenRequests.push({ token: await route.request().headerValue("X-CFO-Token"), body: route.request().postData() });
-    return route.fulfill({ status: 500, json: { error: "The CFO could not be reopened" } });
+  await open(page, { ...running, ceo_runs: false, ceo_terminal: "", ceo_harness: "", ceo_configured: true });
+  await page.route("**/api/ceo/reopen", async (route) => {
+    reopenRequests.push({ token: await route.request().headerValue("X-CEO-Token"), body: route.request().postData() });
+    return route.fulfill({ status: 500, json: { error: "The CEO could not be reopened" } });
   });
 
   // Act
   await expect(board(page)).toBeVisible();
-  await page.getByRole("button", { name: "Reopen the CFO" }).click();
+  await page.getByRole("button", { name: "Reopen the CEO" }).click();
 
   // Assert
-  await expect(page.locator(".cfo-pin .notice")).toHaveText("The CFO could not be reopened.");
-  await expect(page.getByRole("button", { name: "Reopen the CFO" })).toBeEnabled();
+  await expect(page.locator(".ceo-pin .notice")).toHaveText("The CEO could not be reopened.");
+  await expect(page.getByRole("button", { name: "Reopen the CEO" })).toBeEnabled();
   expect(reopenRequests).toEqual([{ token: "fixture", body: "{}" }]);
   await page.reload();
   await expect(board(page)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Reopen the CFO" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Reopen the CEO" })).toBeEnabled();
   await expect(page.getByRole("heading", { name: "Start Code Goblins" })).toHaveCount(0);
   expect(setupRequests).toEqual([]);
 });
 
-test("reopening with the saved CFO running keeps the board and its Restart control", async ({ page }) => {
+test("reopening with the saved CEO running keeps the board and its Restart control", async ({ page }) => {
   // Arrange
   const setupRequests: string[] = [];
   page.on("request", (request) => {
     if (new URL(request.url()).pathname.startsWith("/api/setup")) setupRequests.push(request.url());
   });
-  await open(page, { ...running, cfo_configured: true }, { "cfo-first-open": "shown", "cfo-pane-width": "650" });
+  await open(page, { ...running, ceo_configured: true }, { "ceo-first-open": "shown", "ceo-pane-width": "650" });
 
   // Act
   await page.reload();
-  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
+  await page.locator(".ceo-pin").getByRole("button", { name: CEO_DOOR }).last().click();
   await openTaskList(page);
 
   // Assert
   await expect(board(page)).toBeVisible();
   await page.locator(".panel-content > .disclosure.harness > summary").click();
-  await expect(page.locator(".panel-content > .disclosure.harness").getByRole("button", { name: "Restart the CFO" })).toBeEnabled();
+  await expect(page.locator(".panel-content > .disclosure.harness").getByRole("button", { name: "Restart the CEO" })).toBeEnabled();
   await expect(page.getByRole("heading", { name: "Start Code Goblins" })).toHaveCount(0);
   expect(setupRequests).toEqual([]);
 });
 
-// besideTheBoard is the default view: the Board with the CFO's panel on its
+// besideTheBoard is the default view: the Board with the CEO's panel on its
 // Chat view, its messages, to the right of it, neither covering the other,
 // its terminal connected behind the messages with nothing drawn until it is
 // asked for (issue 1597).
 async function besideTheBoard(page: Page) {
   await expect(page.getByRole("group", { name: "Workspace view" }).getByRole("button", { name: "Board" })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("#panel-title")).toHaveText("CFO");
+  await expect(page.locator("#panel-title")).toHaveText("CEO");
   await expect(page.getByRole("button", { name: "Maximize the panel" })).toBeVisible();
   await expect(board(page)).toBeVisible();
-  await expect(cfoBox(page)).toBeVisible();
+  await expect(ceoBox(page)).toBeVisible();
   await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
   await expect(page.getByText("Connecting to the terminal", { exact: true })).toHaveCount(0);
   await expect(page.locator(".xterm")).toHaveCount(0);
@@ -196,13 +196,13 @@ for (const [name, viewport, scale, wantColumns] of [
   test.describe(`in ${name}`, () => {
     test.use({ viewport, deviceScaleFactor: scale });
 
-    test("the first open shows the board with the CFO's panel beside it and the keyboard in its box, which types into its terminal", async ({ page }, testInfo) => {
+    test("the first open shows the board with the CEO's panel beside it and the keyboard in its box, which types into its terminal", async ({ page }, testInfo) => {
       // Act
       const typed = await open(page);
 
       // Assert
       await besideTheBoard(page);
-      await expect(cfoBox(page)).toBeFocused();
+      await expect(ceoBox(page)).toBeFocused();
       await page.keyboard.type("help");
       await page.keyboard.press("Enter");
       await expect.poll(() => typed.join("")).toBe("help\r");
@@ -228,7 +228,7 @@ test.describe("in the desktop window", () => {
     await expect(terminalInput(page)).toHaveCount(0);
 
     // Act
-    await page.getByRole("button", { name: CFO_DOOR }).first().click();
+    await page.getByRole("button", { name: CEO_DOOR }).first().click();
 
     // Assert
     await besideTheBoard(page);
@@ -237,7 +237,7 @@ test.describe("in the desktop window", () => {
   test("a browser that keeps a layout keeps its own: nothing opens by itself, and its width and maximize choice hold", async ({ page }) => {
     // Arrange: a width he dragged and a terminal he maximized, kept before
     // any first open was recorded.
-    await open(page, running, { "cfo-pane-width": "520", "cfo-terminal-maximized": "true" });
+    await open(page, running, { "ceo-pane-width": "520", "ceo-terminal-maximized": "true" });
 
     // Assert
     await expect(page.getByRole("heading", { name: "Review the work" })).toBeVisible();
@@ -245,12 +245,12 @@ test.describe("in the desktop window", () => {
     expect(Math.round((await panel(page).boundingBox())!.width)).toBe(520);
 
     // Act
-    await page.getByRole("button", { name: CFO_DOOR }).first().click();
+    await page.getByRole("button", { name: CEO_DOOR }).first().click();
 
     // Assert: maximized, as he left it.
     await expect(page.getByRole("button", { name: "Restore the panel" })).toBeVisible();
     await expect(board(page)).toBeHidden();
-    expect(await page.evaluate(() => [localStorage.getItem("cfo-pane-width"), localStorage.getItem("cfo-terminal-maximized")])).toEqual(["520", "true"]);
+    expect(await page.evaluate(() => [localStorage.getItem("ceo-pane-width"), localStorage.getItem("ceo-terminal-maximized")])).toEqual(["520", "true"]);
   });
 
   test("a goblin's terminal he never sized opens beside the board too", async ({ page }) => {
@@ -267,18 +267,18 @@ test.describe("in the desktop window", () => {
     await expect(board(page)).toBeVisible();
   });
 
-  test("with no CFO the first-run page comes first, and Start lands on the board with the CFO's terminal beside it", async ({ page }) => {
+  test("with no CEO the first-run page comes first, and Start lands on the board with the CEO's terminal beside it", async ({ page }) => {
     // Arrange
-    await open(page, { ...running, cfo_runs: false, cfo_terminal: "", cfo_harness: "" });
+    await open(page, { ...running, ceo_runs: false, ceo_terminal: "", ceo_harness: "" });
     await expect(page.getByRole("heading", { name: "Start Code Goblins" })).toBeVisible();
 
     // Act
-    await page.getByRole("button", { name: "Start the CFO" }).click();
+    await page.getByRole("button", { name: "Start the CEO" }).click();
 
-    // Assert: the CFO's panel on its Terminal view beside the board; the
-    // snapshot here never shows the CFO running, so its terminal has no
+    // Assert: the CEO's panel on its Terminal view beside the board; the
+    // snapshot here never shows the CEO running, so its terminal has no
     // screen yet.
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
     await expect(page.getByRole("group", { name: "Workspace view" }).getByRole("button", { name: "Board" })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("button", { name: "Maximize the panel" })).toBeVisible();
     await expect(board(page)).toBeVisible();
@@ -289,12 +289,12 @@ test.describe("in the desktop window", () => {
 
 // A window too narrow for two columns, a phone's, shows the board or an open
 // panel across the whole screen, one at a time. The first open there shows
-// the board alone, with the CFO's terminal a tap away on its bar, and leaves
+// the board alone, with the CEO's terminal a tap away on its bar, and leaves
 // the keyboard and the scroll where they are.
 test.describe("in a narrow window", () => {
   test.use({ viewport: { width: 390, height: 800 } });
 
-  test("the first open shows the board alone, with the CFO's terminal a tap away and the keyboard left alone", async ({ page }, testInfo) => {
+  test("the first open shows the board alone, with the CEO's terminal a tap away and the keyboard left alone", async ({ page }, testInfo) => {
     // Act
     await open(page);
 
@@ -303,7 +303,7 @@ test.describe("in a narrow window", () => {
     await expect(board(page)).toBeInViewport();
     await expect(page.locator("#panel-title")).toHaveCount(0);
     await expect(terminalInput(page)).toHaveCount(0);
-    await expect(page.getByRole("button", { name: CFO_DOOR }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: CEO_DOOR }).first()).toBeVisible();
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await page.screenshot({ path: testInfo.outputPath("first-open-narrow.png") });
   });

@@ -14,13 +14,13 @@ import (
 
 // The Overlord, 2026-10-02, on a goblin's waiting card whose command sat in a
 // paragraph: "run in powershell button". A goblin's wait or question can carry
-// a command he runs with one click, shown as the run card the CFO's own
+// a command he runs with one click, shown as the run card the CEO's own
 // requests use, named for the goblin, in a terminal on its card.
 
 // waitWithACommand makes the fixture's goblin wait on the Overlord with a
-// command for him to run, as cfo notify --run does, and returns the goblin,
+// command for him to run, as ceo notify --run does, and returns the goblin,
 // its terminal and connection, and the run item on the board.
-func waitWithACommand(t *testing.T, store *Store, command string) (state.TaskMeta, hostedTerminal, *CFOConnection, Run) {
+func waitWithACommand(t *testing.T, store *Store, command string) (state.TaskMeta, hostedTerminal, *CEOConnection, Run) {
 	t.Helper()
 	meta, _, goblin, connection := goblinFixture(t, store)
 	if err := state.AppendStatus(store.Home.State, meta.ID, "waiting on overlord: Sign in to GitHub so I can push"); err != nil {
@@ -61,14 +61,14 @@ func TestAGoblinsCommandBecomesARunCardNamedForIt(t *testing.T) {
 }
 
 // A file in the inbox proves nothing about who wrote it, so it can only ever
-// be a live goblin's own command: never the CFO's, never elevated, never under
+// be a live goblin's own command: never the CEO's, never elevated, never under
 // an ID the goblin does not own.
 func TestARunFromTheInboxIsRefusedUnlessItIsALiveGoblinsOwn(t *testing.T) {
 	for _, c := range []struct {
 		name   string
 		change func(r *Run)
 	}{
-		{"it names no task, so it speaks for the CFO", func(r *Run) { r.Task = "" }},
+		{"it names no task, so it speaks for the CEO", func(r *Run) { r.Task = "" }},
 		{"its task has no live record", func(r *Run) { r.Task, r.ID = "task-gone", "run-task-gone-7" }},
 		{"it carries another generation's identity", func(r *Run) { r.Identity = strings.Repeat("b", 64) }},
 		{"it asks to run elevated", func(r *Run) { r.Admin = true }},
@@ -155,13 +155,13 @@ func TestAGoblinsUnrunCommandStaysWhileItWorksAndIsWithdrawnOnceItFinishes(t *te
 }
 
 // One click runs it in the goblin's worktree, never elevated, and the goblin,
-// not the CFO, hears how its command went.
+// not the CEO, hears how its command went.
 func TestAGoblinsCommandRunsAndTheGoblinIsTold(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
 	_, goblin, connection, r := waitWithACommand(t, store, "gh auth login\n")
 	launcher := &fakeRunLauncher{started: liveStart(t)}
-	s := &Service{Store: store, Options: Options{CFO: connection, Runs: launcher}}
+	s := &Service{Store: store, Options: Options{CEO: connection, Runs: launcher}}
 
 	// Act
 	pressRun(t, s, r, "run-action-1")

@@ -20,35 +20,35 @@ import (
 // The change reaches whoever acts on the answer once, as a change: what the
 // answer was, what it is now, and that he changed it.
 
-// cfoAnswered is the goblin fixture's question as the CFO answered it with
-// cfo answer, SQLite, before the goblin reported anything since. cfo is the
-// CFO's own terminal.
-func cfoAnswered(t *testing.T) (*Store, state.TaskMeta, hostedTerminal, hostedTerminal, *CFOConnection, Question) {
+// ceoAnswered is the goblin fixture's question as the CEO answered it with
+// ceo answer, SQLite, before the goblin reported anything since. ceo is the
+// CEO's own terminal.
+func ceoAnswered(t *testing.T) (*Store, state.TaskMeta, hostedTerminal, hostedTerminal, *CEOConnection, Question) {
 	t.Helper()
 	store, _ := testStore(t)
-	_, _, cfo, _ := primaryFixture(t, store)
+	_, _, ceo, _ := primaryFixture(t, store)
 	meta, record, goblin, connection := goblinFixture(t, store)
 	servePipe(t, store, connection)
 	q := surfaced(t, store, meta, record, connection)
 	if _, _, err := connection.AnswerGoblin(context.Background(), q.ID, "SQLite", "keep it local"); err != nil {
 		t.Fatal(err)
 	}
-	if got := store.Snapshot().Questions[0]; got.AnsweredBy != "cfo" || got.AnsweredOption != "SQLite" {
-		t.Fatalf("question = %+v, want it answered by the CFO", got)
+	if got := store.Snapshot().Questions[0]; got.AnsweredBy != "ceo" || got.AnsweredOption != "SQLite" {
+		t.Fatalf("question = %+v, want it answered by the CEO", got)
 	}
-	return store, meta, goblin, cfo, connection, store.Snapshot().Questions[0]
+	return store, meta, goblin, ceo, connection, store.Snapshot().Questions[0]
 }
 
 // overlordAnswered is the goblin fixture's question as he answered it himself
 // on the board, SQLite, delivered.
-func overlordAnswered(t *testing.T) (*Store, state.TaskMeta, hostedTerminal, hostedTerminal, *CFOConnection, Question) {
+func overlordAnswered(t *testing.T) (*Store, state.TaskMeta, hostedTerminal, hostedTerminal, *CEOConnection, Question) {
 	t.Helper()
 	store, _ := testStore(t)
-	_, _, cfo, _ := primaryFixture(t, store)
+	_, _, ceo, _ := primaryFixture(t, store)
 	meta, record, goblin, connection := goblinFixture(t, store)
 	servePipe(t, store, connection)
 	q := surfaced(t, store, meta, record, connection)
-	s := &Service{Store: store, Options: Options{CFO: connection}}
+	s := &Service{Store: store, Options: Options{CEO: connection}}
 	if _, err := store.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "SQLite", AnswerKind: "option"}); err != nil {
 		t.Fatal(err)
 	}
@@ -58,11 +58,11 @@ func overlordAnswered(t *testing.T) (*Store, state.TaskMeta, hostedTerminal, hos
 	if got := store.Snapshot().Questions[0]; got.AnsweredBy != "overlord" || got.AnsweredOption != "SQLite" || got.Status != "succeeded" {
 		t.Fatalf("question = %+v, want his answer delivered", got)
 	}
-	return store, meta, goblin, cfo, connection, store.Snapshot().Questions[0]
+	return store, meta, goblin, ceo, connection, store.Snapshot().Questions[0]
 }
 
 // reportLater writes a report into the goblin's status log stamped after the
-// first answer, as the goblin's next cfo notify would.
+// first answer, as the goblin's next ceo notify would.
 func reportLater(t *testing.T, store *Store, meta state.TaskMeta) {
 	t.Helper()
 	file, err := os.OpenFile(state.StatusPath(store.Home.State, meta.ID), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
@@ -122,27 +122,27 @@ func wantHisAnswer(t *testing.T, q Question, now, was string) {
 
 func TestHeChangesAGoblinsAnswerAtAnyTimeWhoeverGaveIt(t *testing.T) {
 	for name, test := range map[string]struct {
-		answered func(t *testing.T) (*Store, state.TaskMeta, hostedTerminal, hostedTerminal, *CFOConnection, Question)
+		answered func(t *testing.T) (*Store, state.TaskMeta, hostedTerminal, hostedTerminal, *CEOConnection, Question)
 		was      string
 		isBusy   bool
 		reported bool
 	}{
-		"the CFO's answer to an idle goblin":            {answered: cfoAnswered, was: "SQLite"},
-		"the CFO's answer to a goblin in a turn":        {answered: cfoAnswered, was: "SQLite", isBusy: true},
-		"the CFO's answer to a goblin that acted on it": {answered: cfoAnswered, was: "SQLite", reported: true},
+		"the CEO's answer to an idle goblin":            {answered: ceoAnswered, was: "SQLite"},
+		"the CEO's answer to a goblin in a turn":        {answered: ceoAnswered, was: "SQLite", isBusy: true},
+		"the CEO's answer to a goblin that acted on it": {answered: ceoAnswered, was: "SQLite", reported: true},
 		"his own answer": {answered: overlordAnswered, was: "SQLite"},
 		"his own answer to a goblin that acted on it": {answered: overlordAnswered, was: "SQLite", reported: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			store, meta, goblin, cfo, connection, q := test.answered(t)
+			store, meta, goblin, ceo, connection, q := test.answered(t)
 			if test.isBusy {
 				goblin.startTurn(t)
 			}
 			if test.reported {
 				reportLater(t, store, meta)
 			}
-			s := &Service{Store: store, Options: Options{CFO: connection}}
+			s := &Service{Store: store, Options: Options{CEO: connection}}
 
 			// Act
 			_, err := change(store, "change-1", q, "Postgres")
@@ -160,24 +160,24 @@ func TestHeChangesAGoblinsAnswerAtAnyTimeWhoeverGaveIt(t *testing.T) {
 			}
 			wantTheChange(t, typed[1], test.was, "Postgres")
 			wantHisAnswer(t, store.Snapshot().Questions[0], "Postgres", test.was)
-			if told := changeLines(cfo.lines(t)); len(told) != 0 {
-				t.Errorf("the CFO was told %q, want the change for the goblin that acts on it alone", told)
+			if told := changeLines(ceo.lines(t)); len(told) != 0 {
+				t.Errorf("the CEO was told %q, want the change for the goblin that acts on it alone", told)
 			}
 		})
 	}
 }
 
-// A goblin that restarted or ended cannot act on a change, so the CFO does:
+// A goblin that restarted or ended cannot act on a change, so the CEO does:
 // the change goes to it, naming the goblin, and the goblin's successor hears
 // nothing meant for its predecessor.
-func TestAChangeForAGoblinThatEndedGoesToTheCFO(t *testing.T) {
+func TestAChangeForAGoblinThatEndedGoesToTheCEO(t *testing.T) {
 	// Arrange
-	store, meta, goblin, cfo, connection, q := cfoAnswered(t)
+	store, meta, goblin, ceo, connection, q := ceoAnswered(t)
 	meta.SpawnGen = "g2"
 	if err := state.WriteTaskMeta(store.Home.State, meta); err != nil {
 		t.Fatal(err)
 	}
-	s := &Service{Store: store, Options: Options{CFO: connection}}
+	s := &Service{Store: store, Options: Options{CEO: connection}}
 
 	// Act
 	_, err := change(store, "change-1", q, "Postgres")
@@ -189,53 +189,53 @@ func TestAChangeForAGoblinThatEndedGoesToTheCFO(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	told := changeLines(cfo.waitForLines(t, 1))
+	told := changeLines(ceo.waitForLines(t, 1))
 	if len(told) != 1 || !strings.Contains(told[0], "task-1") || !strings.Contains(told[0], q.ID) {
-		t.Fatalf("the CFO was told %q, want one change naming task-1 and its question", told)
+		t.Fatalf("the CEO was told %q, want one change naming task-1 and its question", told)
 	}
 	wantTheChange(t, told[0], "SQLite", "Postgres")
 	if typed := goblin.lines(t); len(typed) != 1 {
-		t.Errorf("the goblin received %q, want only the CFO's answer", typed)
+		t.Errorf("the goblin received %q, want only the CEO's answer", typed)
 	}
 	wantHisAnswer(t, store.Snapshot().Questions[0], "Postgres", "SQLite")
 }
 
-// A change that goes to the CFO, for its own question or a goblin's whose task
-// restarted, waits while no CFO runs, which can be hours. A board that fills
+// A change that goes to the CEO, for its own question or a goblin's whose task
+// restarted, waits while no CEO runs, which can be hours. A board that fills
 // meanwhile makes room with another closed question, never with the one whose
-// change is still on its way, so the CFO that runs again gets the change.
-func TestAFullBoardKeepsAQuestionWhoseChangeWaitsForTheCFO(t *testing.T) {
+// change is still on its way, so the CEO that runs again gets the change.
+func TestAFullBoardKeepsAQuestionWhoseChangeWaitsForTheCEO(t *testing.T) {
 	for name, test := range map[string]struct {
-		answered func(t *testing.T) (*Store, hostedTerminal, *CFOConnection, Question)
+		answered func(t *testing.T) (*Store, hostedTerminal, *CEOConnection, Question)
 		was, now string
-		// lines is what the CFO's terminal holds once the change reaches it.
+		// lines is what the CEO's terminal holds once the change reaches it.
 		lines int
 	}{
-		"the CFO's own question": {was: "Merge it", now: "Keep it open", lines: 2, answered: func(t *testing.T) (*Store, hostedTerminal, *CFOConnection, Question) {
+		"the CEO's own question": {was: "Merge it", now: "Keep it open", lines: 2, answered: func(t *testing.T) (*Store, hostedTerminal, *CEOConnection, Question) {
 			store, _ := testStore(t)
-			_, identity, cfo, connection := primaryFixture(t, store)
+			_, identity, ceo, connection := primaryFixture(t, store)
 			if err := store.acceptQuestion(Question{ID: "pp-merge-125-20261010", Identity: identity, Text: "Merge PocketPiggies 125?", Options: []string{"Merge it", "Keep it open"}, CreatedAt: time.Now().UTC()}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := store.Queue(Action{ID: "answer-1", Kind: "cfo_answer", Generation: identity, QuestionID: "pp-merge-125-20261010", Text: "Merge it", AnswerKind: "option"}); err != nil {
+			if _, err := store.Queue(Action{ID: "answer-1", Kind: "ceo_answer", Generation: identity, QuestionID: "pp-merge-125-20261010", Text: "Merge it", AnswerKind: "option"}); err != nil {
 				t.Fatal(err)
 			}
-			runAll(t, store, &Service{Store: store, Options: Options{CFO: connection}})
-			return store, cfo, connection, store.Snapshot().Questions[0]
+			runAll(t, store, &Service{Store: store, Options: Options{CEO: connection}})
+			return store, ceo, connection, store.Snapshot().Questions[0]
 		}},
-		"a goblin's question whose task restarted": {was: "SQLite", now: "Postgres", lines: 1, answered: func(t *testing.T) (*Store, hostedTerminal, *CFOConnection, Question) {
-			store, meta, _, cfo, connection, q := cfoAnswered(t)
+		"a goblin's question whose task restarted": {was: "SQLite", now: "Postgres", lines: 1, answered: func(t *testing.T) (*Store, hostedTerminal, *CEOConnection, Question) {
+			store, meta, _, ceo, connection, q := ceoAnswered(t)
 			meta.SpawnGen = "g2"
 			if err := state.WriteTaskMeta(store.Home.State, meta); err != nil {
 				t.Fatal(err)
 			}
-			return store, cfo, connection, q
+			return store, ceo, connection, q
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			store, cfo, connection, q := test.answered(t)
-			s := &Service{Store: store, Options: Options{CFO: connection}}
+			store, ceo, connection, q := test.answered(t)
+			s := &Service{Store: store, Options: Options{CEO: connection}}
 			registration := filepath.Join(store.Home.State, "primary.json")
 			primary, err := os.ReadFile(registration)
 			if err != nil {
@@ -248,12 +248,12 @@ func TestAFullBoardKeepsAQuestionWhoseChangeWaitsForTheCFO(t *testing.T) {
 				t.Fatal(err)
 			}
 			if store.HasRunnable() {
-				t.Fatal("the change runs while no CFO runs, want it waiting for the CFO")
+				t.Fatal("the change runs while no CEO runs, want it waiting for the CEO")
 			}
 
 			// Act
 			for i := range maxQuestions {
-				if err := store.settleQuestion(Question{ID: fmt.Sprintf("history-%03d", i), Identity: strings.Repeat("c", 64), Text: "Answered while he was away", Options: []string{"Yes", "No"}, CreatedAt: time.Now().UTC(), Status: "succeeded", Message: "Answered by the CFO.", AnsweredBy: "cfo"}); err != nil {
+				if err := store.settleQuestion(Question{ID: fmt.Sprintf("history-%03d", i), Identity: strings.Repeat("c", 64), Text: "Answered while he was away", Options: []string{"Yes", "No"}, CreatedAt: time.Now().UTC(), Status: "succeeded", Message: "Answered by the CEO.", AnsweredBy: "ceo"}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -266,14 +266,14 @@ func TestAFullBoardKeepsAQuestionWhoseChangeWaitsForTheCFO(t *testing.T) {
 			snapshot := store.Snapshot()
 			i := slices.IndexFunc(snapshot.Questions, func(held Question) bool { return held.ID == q.ID })
 			if i < 0 {
-				t.Fatalf("the full board dropped question %s while its change waited for the CFO; the change reads %+v", q.ID, snapshot.Actions[slices.IndexFunc(snapshot.Actions, func(a Action) bool { return a.ID == "change-1" })])
+				t.Fatalf("the full board dropped question %s while its change waited for the CEO; the change reads %+v", q.ID, snapshot.Actions[slices.IndexFunc(snapshot.Actions, func(a Action) bool { return a.ID == "change-1" })])
 			}
 			if len(snapshot.Questions) != maxQuestions || slices.ContainsFunc(snapshot.Questions, func(held Question) bool { return held.ID == "history-000" }) {
 				t.Errorf("the board holds %d questions, want %d with the oldest other closed one, history-000, gone to make room", len(snapshot.Questions), maxQuestions)
 			}
-			told := changeLines(cfo.waitForLines(t, test.lines))
+			told := changeLines(ceo.waitForLines(t, test.lines))
 			if len(told) != 1 || !strings.Contains(told[0], q.ID) {
-				t.Fatalf("the CFO was told %q, want the change to question %s once", told, q.ID)
+				t.Fatalf("the CEO was told %q, want the change to question %s once", told, q.ID)
 			}
 			wantTheChange(t, told[0], test.was, test.now)
 			wantHisAnswer(t, snapshot.Questions[i], test.now, test.was)
@@ -281,17 +281,17 @@ func TestAFullBoardKeepsAQuestionWhoseChangeWaitsForTheCFO(t *testing.T) {
 	}
 }
 
-// The CFO's own question, answered by him, takes a new answer too: the CFO
-// acts on it, so the CFO is told.
-func TestHeChangesHisAnswerToTheCFOsOwnQuestion(t *testing.T) {
+// The CEO's own question, answered by him, takes a new answer too: the CEO
+// acts on it, so the CEO is told.
+func TestHeChangesHisAnswerToTheCEOsOwnQuestion(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	_, identity, cfo, connection := primaryFixture(t, store)
+	_, identity, ceo, connection := primaryFixture(t, store)
 	if err := store.acceptQuestion(Question{ID: "pp-merge-125-20261010", Identity: identity, Text: "Merge PocketPiggies 125?", Options: []string{"Merge it", "Keep it open"}, CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
-	s := &Service{Store: store, Options: Options{CFO: connection}}
-	if _, err := store.Queue(Action{ID: "answer-1", Kind: "cfo_answer", Generation: identity, QuestionID: "pp-merge-125-20261010", Text: "Merge it", AnswerKind: "option"}); err != nil {
+	s := &Service{Store: store, Options: Options{CEO: connection}}
+	if _, err := store.Queue(Action{ID: "answer-1", Kind: "ceo_answer", Generation: identity, QuestionID: "pp-merge-125-20261010", Text: "Merge it", AnswerKind: "option"}); err != nil {
 		t.Fatal(err)
 	}
 	runAll(t, store, s)
@@ -307,10 +307,10 @@ func TestHeChangesHisAnswerToTheCFOsOwnQuestion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	typed := cfo.waitForLines(t, 2)
+	typed := ceo.waitForLines(t, 2)
 	told := changeLines(typed)
 	if len(told) != 1 || !strings.Contains(told[0], "pp-merge-125-20261010") {
-		t.Fatalf("the CFO received %q, want his answer and then one change to it", typed)
+		t.Fatalf("the CEO received %q, want his answer and then one change to it", typed)
 	}
 	wantTheChange(t, told[0], "Merge it", "Keep it open")
 	wantHisAnswer(t, store.Snapshot().Questions[0], "Keep it open", "Merge it")
@@ -329,13 +329,13 @@ func TestChoosingTheAnswerAlreadyChosenSendsNothing(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			store, _, goblin, _, connection, q := cfoAnswered(t)
+			store, _, goblin, _, connection, q := ceoAnswered(t)
 			chosen := "SQLite"
 			if before != nil {
 				before(t, store, q)
 				chosen = "Postgres"
 			}
-			s := &Service{Store: store, Options: Options{CFO: connection}}
+			s := &Service{Store: store, Options: Options{CEO: connection}}
 
 			// Act
 			sent, err := change(store, "change-1", q, chosen)
@@ -370,7 +370,7 @@ func TestADoubleSubmitOrARetrySendsOneChange(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			store, _, goblin, _, connection, q := overlordAnswered(t)
-			s := &Service{Store: store, Options: Options{CFO: connection}}
+			s := &Service{Store: store, Options: Options{CEO: connection}}
 			first, err := change(store, "change-1", q, "Postgres")
 			if err != nil {
 				t.Fatal(err)
@@ -409,7 +409,7 @@ func TestAChangeWhileTheFirstAnswerIsOnItsWayFollowsIt(t *testing.T) {
 		meta, record, goblin, connection := goblinFixture(t, store)
 		servePipe(t, store, connection)
 		q := surfaced(t, store, meta, record, connection)
-		s := &Service{Store: store, Options: Options{CFO: connection}}
+		s := &Service{Store: store, Options: Options{CEO: connection}}
 		if _, err := store.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "SQLite", AnswerKind: "option"}); err != nil {
 			t.Fatal(err)
 		}
@@ -436,13 +436,13 @@ func TestAChangeWhileTheFirstAnswerIsOnItsWayFollowsIt(t *testing.T) {
 		wantTheChange(t, typed[1], "SQLite", "Postgres")
 		wantHisAnswer(t, store.Snapshot().Questions[0], "Postgres", "SQLite")
 	})
-	t.Run("his answer to the CFO, held back", func(t *testing.T) {
+	t.Run("his answer to the CEO, held back", func(t *testing.T) {
 		// Arrange
 		store, home := testStore(t)
-		terminal := nativeCFOComposer(t, home.State, "claude-ready")
+		terminal := nativeCEOComposer(t, home.State, "claude-ready")
 		identity := registrationIdentity(t, home.State)
-		s := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}, work: make(chan struct{}, 1)}
-		cfoAsks(t, store, identity, sitting[0])
+		s := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}, work: make(chan struct{}, 1)}
+		ceoAsks(t, store, identity, sitting[0])
 		heAnswers(t, store, identity, sitting[0])
 		holdBack(store, "answer-"+sitting[0].id, time.Hour)
 		q := store.Snapshot().Questions[0]
@@ -459,11 +459,11 @@ func TestAChangeWhileTheFirstAnswerIsOnItsWayFollowsIt(t *testing.T) {
 			t.Fatal(err)
 		}
 		if len(early) != 0 {
-			t.Errorf("the CFO received %q while his answer was held back, want nothing yet", early)
+			t.Errorf("the CEO received %q while his answer was held back, want nothing yet", early)
 		}
 		typed := overlordMessages(terminal.lines(t))
 		if len(typed) != 2 || typed[0] != "Overlord: "+sitting[0].line() {
-			t.Fatalf("the CFO received %q, want his answer and then the change", typed)
+			t.Fatalf("the CEO received %q, want his answer and then the change", typed)
 		}
 		wantTheChange(t, typed[1], sitting[0].answer, "Not now")
 	})
@@ -489,7 +489,7 @@ func TestAnAnswerChangeIsRefusedBeforeAnyoneHearsAnything(t *testing.T) {
 		refusal  string
 	}{
 		"a choice the question does not offer": {text: "Redis", refusal: "one of its choices", question: func(t *testing.T) (*Store, hostedTerminal, Question) {
-			store, _, goblin, _, _, q := cfoAnswered(t)
+			store, _, goblin, _, _, q := ceoAnswered(t)
 			return store, goblin, q
 		}},
 		"a question still waiting on an answer": {text: "Postgres", refusal: "has no answer yet", question: func(t *testing.T) (*Store, hostedTerminal, Question) {

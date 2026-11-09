@@ -19,11 +19,11 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
+func TestCEOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
 	store, _ := testStore(t)
-	primary, _, _, cfo := primaryFixture(t, store)
-	servePipe(t, store, cfo)
-	if err := cfo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree", "", nil); err != nil {
+	primary, _, _, ceo := primaryFixture(t, store)
+	servePipe(t, store, ceo)
+	if err := ceo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -32,10 +32,10 @@ func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
 	if len(store.Snapshot().Questions) != 1 {
 		t.Fatal("missing published question")
 	}
-	if err := cfo.PublishQuestion("question-1", "Changed text", []string{"Other"}, "", "", nil); err == nil {
+	if err := ceo.PublishQuestion("question-1", "Changed text", []string{"Other"}, "", "", nil); err == nil {
 		t.Fatal("conflicting durable ID published")
 	}
-	if err := cfo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree", "", nil); err != nil {
+	if err := ceo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	primary.Process.PID = 1
@@ -43,27 +43,27 @@ func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(store.Home.State, "primary.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := cfo.PublishQuestion("question-2", "Worker impersonation", nil, "", "", nil); err == nil {
-		t.Fatal("non-CFO published a user modal")
+	if err := ceo.PublishQuestion("question-2", "Worker impersonation", nil, "", "", nil); err == nil {
+		t.Fatal("non-CEO published a user modal")
 	}
 }
 
-// The CFO's question can name the goblin whose decision it puts to the
+// The CEO's question can name the goblin whose decision it puts to the
 // Overlord, as pd-mcp-only's parity sizing was on 2026-10-17, so a wait that
 // goblin raises while the question is open declares whether it follows it. A
 // task the fleet does not know is refused, and so is the same ID published
 // again for no goblin.
-func TestTheCFOsQuestionNamesTheGoblinItDecidesFor(t *testing.T) {
+func TestTheCEOsQuestionNamesTheGoblinItDecidesFor(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	_, _, _, cfo := primaryFixture(t, store)
-	servePipe(t, store, cfo)
+	_, _, _, ceo := primaryFixture(t, store)
+	servePipe(t, store, ceo)
 	meta := makeNative(t, store.Home.State, "task-1")
 
 	// Act
-	err := cfo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", meta.ID, nil)
-	unknown := cfo.PublishQuestion("other-parity", "Build them?", []string{"Yes", "No"}, "", "no-such-task", nil)
-	other := cfo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", "", nil)
+	err := ceo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", meta.ID, nil)
+	unknown := ceo.PublishQuestion("other-parity", "Build them?", []string{"Yes", "No"}, "", "no-such-task", nil)
+	other := ceo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", "", nil)
 
 	// Assert
 	if err != nil {
@@ -73,7 +73,7 @@ func TestTheCFOsQuestionNamesTheGoblinItDecidesFor(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := store.Snapshot().Questions; len(got) != 1 || got[0].ForTask != meta.ID || got[0].Task != "" {
-		t.Fatalf("questions = %+v, want the CFO's own question for %s", got, meta.ID)
+		t.Fatalf("questions = %+v, want the CEO's own question for %s", got, meta.ID)
 	}
 	if unknown == nil || !strings.Contains(unknown.Error(), "no-such-task") {
 		t.Errorf("a question for a task the fleet does not know = %v, want it refused", unknown)
@@ -87,16 +87,16 @@ func TestTheCFOsQuestionNamesTheGoblinItDecidesFor(t *testing.T) {
 // decision she waited for: "These follow-ups should not be notifications in
 // the Command Center ... But the initial one is critical". A goblin's wait on
 // him follows a decision only when the goblin declares it, by the question's
-// ID (cfo notify --follows), and nothing infers one: a wait that declares none
-// is its own card beside any decision open, the CFO's question for the goblin
+// ID (ceo notify --follows), and nothing infers one: a wait that declares none
+// is its own card beside any decision open, the CEO's question for the goblin
 // or the goblin's own with choices, since a need he never sees stalls the
 // goblin and an extra card does not. A wait declared to follow a decision
 // already answered closes as it is taken in, answered with it, and one whose
 // decision he dismissed is its own card, as is one beside a file its goblin
 // delivered, which opens that file.
 func TestAGoblinsWaitFollowsADecisionOnlyWhenItDeclaresIt(t *testing.T) {
-	answerByCFO := func(t *testing.T, store *Store, q Question) {
-		if err := store.recordCFOAnswer(cfoAnswer{QuestionID: q.ID, Option: q.Options[0], Answer: q.Options[0], At: time.Now().UTC()}); err != nil {
+	answerByCEO := func(t *testing.T, store *Store, q Question) {
+		if err := store.recordCEOAnswer(ceoAnswer{QuestionID: q.ID, Option: q.Options[0], Answer: q.Options[0], At: time.Now().UTC()}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -111,29 +111,29 @@ func TestAGoblinsWaitFollowsADecisionOnlyWhenItDeclaresIt(t *testing.T) {
 		}
 	}
 	for name, test := range map[string]struct {
-		isCFOsQuestion, isDeclared, hasDeliveredFile bool
+		isCEOsQuestion, isDeclared, hasDeliveredFile bool
 		closeFirst                                   func(*testing.T, *Store, Question)
 		wantState, wantReason                        string
 		isHeld                                       bool
 	}{
-		"declared to follow the CFO's question for the goblin":   {isCFOsQuestion: true, isDeclared: true, wantState: "open"},
+		"declared to follow the CEO's question for the goblin":   {isCEOsQuestion: true, isDeclared: true, wantState: "open"},
 		"declared to follow the goblin's own question":           {isDeclared: true, wantState: "open"},
-		"undeclared beside the CFO's question for the goblin":    {isCFOsQuestion: true, wantState: "open", isHeld: true},
+		"undeclared beside the CEO's question for the goblin":    {isCEOsQuestion: true, wantState: "open", isHeld: true},
 		"undeclared beside the goblin's own question":            {wantState: "open", isHeld: true},
-		"declared to follow a question the CFO already answered": {isDeclared: true, closeFirst: answerByCFO, wantState: "answered", wantReason: "The CFO answered the decision it waited on, "},
+		"declared to follow a question the CEO already answered": {isDeclared: true, closeFirst: answerByCEO, wantState: "answered", wantReason: "The CEO answered the decision it waited on, "},
 		"declared to follow a question he already answered":      {isDeclared: true, closeFirst: answerOnBoard, wantState: "answered", wantReason: "You answered the decision it waited on, "},
-		"declared to follow a question he dismissed without one": {isCFOsQuestion: true, isDeclared: true, closeFirst: dismiss, wantState: "open", isHeld: true},
-		"declared beside a file its goblin delivered":            {isCFOsQuestion: true, isDeclared: true, hasDeliveredFile: true, wantState: "open", isHeld: true},
+		"declared to follow a question he dismissed without one": {isCEOsQuestion: true, isDeclared: true, closeFirst: dismiss, wantState: "open", isHeld: true},
+		"declared beside a file its goblin delivered":            {isCEOsQuestion: true, isDeclared: true, hasDeliveredFile: true, wantState: "open", isHeld: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			store, h := testStore(t)
-			_, _, _, cfo := primaryFixture(t, store)
-			servePipe(t, store, cfo)
+			_, _, _, ceo := primaryFixture(t, store)
+			servePipe(t, store, ceo)
 			meta, record, _, connection := goblinFixture(t, store)
 			var q Question
-			if test.isCFOsQuestion {
-				if err := cfo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", meta.ID, nil); err != nil {
+			if test.isCEOsQuestion {
+				if err := ceo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", meta.ID, nil); err != nil {
 					t.Fatal(err)
 				}
 				if err := store.ingestQuestions(); err != nil {
@@ -193,23 +193,23 @@ func TestAGoblinsWaitFollowsADecisionOnlyWhenItDeclaresIt(t *testing.T) {
 
 // Answering the decision a goblin declared its wait to follow closes the wait
 // at once, in the same change that records the answer, whoever answers it:
-// his answer from the board, the CFO's, or the CFO's ack of the goblin's
+// his answer from the board, the CEO's, or the CEO's ack of the goblin's
 // question once it answered it another way. Nothing stays open behind an
 // answered decision for the board to hide, and a wait that follows nothing
 // stays open.
 func TestAnsweringTheDecisionClosesTheWaitsThatFollowIt(t *testing.T) {
-	for name, answer := range map[string]func(t *testing.T, store *Store, q Question, connection *CFOConnection, seq int){
-		"his answer from the board": func(t *testing.T, store *Store, q Question, _ *CFOConnection, _ int) {
+	for name, answer := range map[string]func(t *testing.T, store *Store, q Question, connection *CEOConnection, seq int){
+		"his answer from the board": func(t *testing.T, store *Store, q Question, _ *CEOConnection, _ int) {
 			if _, err := store.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "SQLite", AnswerKind: "option"}); err != nil {
 				t.Fatal(err)
 			}
 		},
-		"the CFO's answer": func(t *testing.T, store *Store, _ Question, connection *CFOConnection, seq int) {
+		"the CEO's answer": func(t *testing.T, store *Store, _ Question, connection *CEOConnection, seq int) {
 			if _, _, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(seq), "SQLite", ""); err != nil {
 				t.Fatal(err)
 			}
 		},
-		"the CFO's ack of the question": func(t *testing.T, store *Store, _ Question, _ *CFOConnection, seq int) {
+		"the CEO's ack of the question": func(t *testing.T, store *Store, _ Question, _ *CEOConnection, seq int) {
 			if err := wake.AckThrough(store.Home.State, seq); err != nil {
 				t.Fatal(err)
 			}
@@ -312,11 +312,11 @@ func TestQuestionPoisonCapacityAndReplacementCannotBlockHooks(t *testing.T) {
 	if err := store.supersedeQuestions(); err != nil {
 		t.Fatal(err)
 	}
-	// The CFO's questions follow the home's CFO across a new registration
-	// (followCFO), so a replacement supersedes none of them.
+	// The CEO's questions follow the home's CEO across a new registration
+	// (followCEO), so a replacement supersedes none of them.
 	for _, question := range store.Snapshot().Questions {
 		if question.Status != "pending" {
-			t.Fatalf("a replacement registration closed the CFO's question %s as %s", question.ID, question.Status)
+			t.Fatalf("a replacement registration closed the CEO's question %s as %s", question.ID, question.Status)
 		}
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -327,14 +327,14 @@ func TestQuestionPoisonCapacityAndReplacementCannotBlockHooks(t *testing.T) {
 	}
 }
 
-func TestQuestionAnswerDeliveredOnlyOnceToCFOAndCrashUncertain(t *testing.T) {
+func TestQuestionAnswerDeliveredOnlyOnceToCEOAndCrashUncertain(t *testing.T) {
 	store, h := testStore(t)
-	_, identity, terminal, cfo := primaryFixture(t, store)
+	_, identity, terminal, ceo := primaryFixture(t, store)
 	q := Question{ID: "question-1", Identity: identity, Text: "Choose", Options: []string{"One", "Two"}, CreatedAt: time.Now().UTC()}
 	if err := store.acceptQuestion(q); err != nil {
 		t.Fatal(err)
 	}
-	a := Action{ID: "answer-1", Kind: "cfo_answer", Generation: identity, QuestionID: q.ID, Text: "One"}
+	a := Action{ID: "answer-1", Kind: "ceo_answer", Generation: identity, QuestionID: q.ID, Text: "One"}
 	bad := a
 	bad.Text = "Invented"
 	if _, err := store.Queue(bad); err == nil {
@@ -346,12 +346,12 @@ func TestQuestionAnswerDeliveredOnlyOnceToCFOAndCrashUncertain(t *testing.T) {
 	if _, err := store.Queue(a); err != nil {
 		t.Fatal(err)
 	}
-	s := &Service{Store: store, Options: Options{CFO: cfo}}
+	s := &Service{Store: store, Options: Options{CEO: ceo}}
 	if err := store.ProcessOne(context.Background(), s.execute); err != nil {
 		t.Fatal(err)
 	}
 	if typed := terminal.lines(t); len(typed) != 1 || !strings.Contains(typed[0], "Answer: One") || store.Snapshot().Questions[0].Status != "succeeded" {
-		t.Fatalf("the CFO's terminal received %q, want the answer once on one line", typed)
+		t.Fatalf("the CEO's terminal received %q, want the answer once on one line", typed)
 	}
 	if _, err := store.Queue(a); err != nil {
 		t.Fatal(err)
@@ -360,7 +360,7 @@ func TestQuestionAnswerDeliveredOnlyOnceToCFOAndCrashUncertain(t *testing.T) {
 		t.Fatal(err)
 	}
 	if typed := terminal.lines(t); len(typed) != 1 {
-		t.Fatalf("the CFO's terminal received %q, want no duplicate answer replayed", typed)
+		t.Fatalf("the CEO's terminal received %q, want no duplicate answer replayed", typed)
 	}
 	store.db.Actions[0].Status = "running"
 	if err := store.save(); err != nil {
@@ -375,13 +375,13 @@ func TestQuestionAnswerDeliveredOnlyOnceToCFOAndCrashUncertain(t *testing.T) {
 	}
 }
 
-// An answer the board submits to a goblin or the CFO that is busy inside a
+// An answer the board submits to a goblin or the CEO that is busy inside a
 // long tool call waits for its next tool call, so it is sent, typed once and
 // awaiting its harness's record, never failed or unconfirmed: the
 // Overlord sees it on its way, and a goblin's notify reads answered so nobody
 // asks it again.
 func TestABoardAnswerToABusyAskerIsSentNotUnconfirmed(t *testing.T) {
-	for _, asker := range []string{"goblin", "cfo"} {
+	for _, asker := range []string{"goblin", "ceo"} {
 		t.Run(asker, func(t *testing.T) {
 			store, h := testStore(t)
 			var terminal hostedTerminal
@@ -390,16 +390,16 @@ func TestABoardAnswerToABusyAskerIsSentNotUnconfirmed(t *testing.T) {
 			if asker == "goblin" {
 				meta, record, goblin, connection := goblinFixture(t, store)
 				q := surfaced(t, store, meta, record, connection)
-				terminal, s = goblin, &Service{Store: store, Options: Options{CFO: connection}}
+				terminal, s = goblin, &Service{Store: store, Options: Options{CEO: connection}}
 				a = Action{ID: "answer-1", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "SQLite"}
 			} else {
-				_, identity, cfo, connection := primaryFixture(t, store)
+				_, identity, ceo, connection := primaryFixture(t, store)
 				q := Question{ID: "question-1", Identity: identity, Text: "Choose", Options: []string{"One", "Two"}, CreatedAt: time.Now().UTC()}
 				if err := store.acceptQuestion(q); err != nil {
 					t.Fatal(err)
 				}
-				terminal, s = cfo, &Service{Store: store, Options: Options{CFO: connection}}
-				a = Action{ID: "answer-1", Kind: "cfo_answer", Generation: identity, QuestionID: q.ID, Text: "One"}
+				terminal, s = ceo, &Service{Store: store, Options: Options{CEO: connection}}
+				a = Action{ID: "answer-1", Kind: "ceo_answer", Generation: identity, QuestionID: q.ID, Text: "One"}
 			}
 			terminal.startTurn(t)
 			if _, err := store.Queue(a); err != nil {
@@ -435,10 +435,10 @@ func TestABoardAnswerToABusyAskerIsSentNotUnconfirmed(t *testing.T) {
 
 // The senders say plainly that a delivery waits for a busy asker's next tool
 // call, and never call it delivered: a goblin's reports it as queued for that
-// tool call, which each caller then settles, and the CFO's as sent and
-// awaiting the CFO's record. Either way the text is typed once.
+// tool call, which each caller then settles, and the CEO's as sent and
+// awaiting the CEO's record. Either way the text is typed once.
 func TestASendToABusyAskerSaysItWaitsBehindItsTurn(t *testing.T) {
-	for _, asker := range []string{"goblin", "cfo"} {
+	for _, asker := range []string{"goblin", "ceo"} {
 		t.Run(asker, func(t *testing.T) {
 			// Arrange
 			store, _ := testStore(t)
@@ -452,8 +452,8 @@ func TestASendToABusyAskerSaysItWaitsBehindItsTurn(t *testing.T) {
 					return connection.SendGoblin(context.Background(), meta.ID, q.Identity, "SQLite")
 				}
 			} else {
-				_, identity, cfo, connection := primaryFixture(t, store)
-				terminal = cfo
+				_, identity, ceo, connection := primaryFixture(t, store)
+				terminal = ceo
 				send = func() (Evaluation, error) { return connection.Send(context.Background(), identity, "Run finished") }
 			}
 			terminal.startTurn(t)
@@ -465,8 +465,8 @@ func TestASendToABusyAskerSaysItWaitsBehindItsTurn(t *testing.T) {
 			if asker == "goblin" && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 				t.Fatalf("err = %v, want the busy goblin's delivery reported as queued for its next tool call", err)
 			}
-			if asker == "cfo" && (err != nil || result.Awaiting == nil || result.Reason != sentToCFO) {
-				t.Fatalf("result = %+v, %v; want the busy CFO's delivery sent and awaiting its report", result, err)
+			if asker == "ceo" && (err != nil || result.Awaiting == nil || result.Reason != sentToCEO) {
+				t.Fatalf("result = %+v, %v; want the busy CEO's delivery sent and awaiting its report", result, err)
 			}
 			if typed := terminal.waitForLines(t, 1); len(typed) != 1 {
 				t.Fatalf("the terminal received %q, want the text submitted once", typed)
@@ -494,7 +494,7 @@ func TestQuestionStorageFailurePreservesRetry(t *testing.T) {
 
 func TestQuestionRecommendationAndOtherAnswer(t *testing.T) {
 	store, h := testStore(t)
-	_, identity, terminal, cfo := primaryFixture(t, store)
+	_, identity, terminal, ceo := primaryFixture(t, store)
 	q := Question{ID: "question-other", Identity: identity, Text: "Where should we work?", Options: []string{"Current checkout", "Isolated worktree", "Wait"}, Recommended: "Isolated worktree", CreatedAt: time.Now().UTC()}
 	bad := q
 	bad.Recommended = "Invented choice"
@@ -509,7 +509,7 @@ func TestQuestionRecommendationAndOtherAnswer(t *testing.T) {
 	if err := store.acceptQuestion(bad); err == nil {
 		t.Fatal("same ID changed recommendation")
 	}
-	a := Action{ID: "other-answer-1", Kind: "cfo_answer", Generation: identity, QuestionID: q.ID, AnswerKind: "other", Text: "Use the folder with spaces:\nreview 日本語"}
+	a := Action{ID: "other-answer-1", Kind: "ceo_answer", Generation: identity, QuestionID: q.ID, AnswerKind: "other", Text: "Use the folder with spaces:\nreview 日本語"}
 	badAnswer := a
 	badAnswer.AnswerKind = "option"
 	if _, err := store.Queue(badAnswer); err == nil {
@@ -527,7 +527,7 @@ func TestQuestionRecommendationAndOtherAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Service{Store: reopened, Options: Options{CFO: cfo}}
+	s := &Service{Store: reopened, Options: Options{CEO: ceo}}
 	if err := reopened.ProcessOne(context.Background(), s.execute); err != nil {
 		t.Fatal(err)
 	}
@@ -538,7 +538,7 @@ func TestQuestionRecommendationAndOtherAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 	if typed := terminal.lines(t); len(typed) != 1 || !strings.Contains(typed[0], "Answer (Other): Use the folder with spaces: review 日本語") {
-		t.Fatalf("the CFO's terminal received %q, want the typed answer once on one line", typed)
+		t.Fatalf("the CEO's terminal received %q, want the typed answer once on one line", typed)
 	}
 	got := reopened.Snapshot().Questions[0]
 	if got.Answer != a.Text || got.AnswerKind != "other" || got.Status != "succeeded" || got.Recommended != q.Recommended {
@@ -623,7 +623,7 @@ func TestDeferredQuestionsSurviveHistoryRollover(t *testing.T) {
 // offers two choices. This test process stands in for the program of its
 // terminal, which shows Claude Code's composer and records what is typed
 // into it.
-func goblinFixture(t *testing.T, store *Store) (state.TaskMeta, wake.Record, hostedTerminal, *CFOConnection) {
+func goblinFixture(t *testing.T, store *Store) (state.TaskMeta, wake.Record, hostedTerminal, *CEOConnection) {
 	t.Helper()
 	meta := makeNative(t, store.Home.State, "task-1")
 	meta.Harness = "claude"
@@ -634,7 +634,7 @@ func goblinFixture(t *testing.T, store *Store) (state.TaskMeta, wake.Record, hos
 	if err != nil {
 		t.Fatal(err)
 	}
-	return meta, record, goblinTerminal(t, store.Home.State, meta.ID), &CFOConnection{State: store.Home.State}
+	return meta, record, goblinTerminal(t, store.Home.State, meta.ID), &CEOConnection{State: store.Home.State}
 }
 
 // goblinTerminal hosts native goblin id's terminal, showing its recorded
@@ -654,7 +654,7 @@ func goblinTerminal(t *testing.T, stateDir, id string) hostedTerminal {
 
 // surfaced publishes the fixture's notify on the board and returns the
 // question the supervisor ingested.
-func surfaced(t *testing.T, store *Store, meta state.TaskMeta, record wake.Record, connection *CFOConnection) Question {
+func surfaced(t *testing.T, store *Store, meta state.TaskMeta, record wake.Record, connection *CEOConnection) Question {
 	t.Helper()
 	if err := SurfaceNotify(store.Home.State, meta.ID, record, record.Detail, "", "", nil, nil); err != nil {
 		t.Fatal(err)
@@ -671,7 +671,7 @@ func surfaced(t *testing.T, store *Store, meta state.TaskMeta, record wake.Recor
 
 // A goblin's blocked notify with choices becomes a Command Center question
 // labelled with the goblin, and the Overlord's answer reaches that goblin's
-// own terminal exactly once. The CFO's notify then reads answered.
+// own terminal exactly once. The CEO's notify then reads answered.
 func TestGoblinQuestionAnsweredOnceInItsOwnTerminal(t *testing.T) {
 	store, h := testStore(t)
 	meta, record, goblin, connection := goblinFixture(t, store)
@@ -682,18 +682,18 @@ func TestGoblinQuestionAnsweredOnceInItsOwnTerminal(t *testing.T) {
 	if q.Task != meta.ID || q.Generation != meta.SpawnGen || q.Seq != record.Seq || q.Text != "Which store?" || !slices.Equal(q.Options, []string{"Postgres", "SQLite", "MySQL"}) || q.Recommended != "SQLite" {
 		t.Fatalf("surfaced question = %+v", q)
 	}
-	if _, err := store.Queue(Action{ID: "cfo-route", Kind: "cfo_answer", Generation: q.Identity, QuestionID: q.ID, Text: "SQLite"}); err == nil {
-		t.Fatal("a goblin's question accepted an answer routed to the CFO")
+	if _, err := store.Queue(Action{ID: "ceo-route", Kind: "ceo_answer", Generation: q.Identity, QuestionID: q.ID, Text: "SQLite"}); err == nil {
+		t.Fatal("a goblin's question accepted an answer routed to the CEO")
 	}
-	cfoQuestion := Question{ID: "question-cfo", Identity: strings.Repeat("c", 64), Text: "Ship it?", Options: []string{"Yes", "No"}, CreatedAt: time.Now().UTC()}
-	if err := store.acceptQuestion(cfoQuestion); err != nil {
+	ceoQuestion := Question{ID: "question-ceo", Identity: strings.Repeat("c", 64), Text: "Ship it?", Options: []string{"Yes", "No"}, CreatedAt: time.Now().UTC()}
+	if err := store.acceptQuestion(ceoQuestion); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Queue(Action{ID: "goblin-route", Kind: "goblin_answer", Generation: cfoQuestion.Identity, QuestionID: cfoQuestion.ID, Text: "Yes"}); err == nil {
-		t.Fatal("the CFO's question accepted an answer routed to a goblin")
+	if _, err := store.Queue(Action{ID: "goblin-route", Kind: "goblin_answer", Generation: ceoQuestion.Identity, QuestionID: ceoQuestion.ID, Text: "Yes"}); err == nil {
+		t.Fatal("the CEO's question accepted an answer routed to a goblin")
 	}
 	a := Action{ID: "answer-1", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "SQLite"}
-	s := &Service{Store: store, Options: Options{CFO: connection}}
+	s := &Service{Store: store, Options: Options{CEO: connection}}
 	for i := 0; i < 2; i++ {
 		if _, err := store.Queue(a); err != nil {
 			t.Fatal(err)
@@ -709,7 +709,7 @@ func TestGoblinQuestionAnsweredOnceInItsOwnTerminal(t *testing.T) {
 		t.Fatalf("question = %+v, want it answered on the board by the Overlord with SQLite", got)
 	}
 	if got := store.Snapshot().Questions[1]; got.Status != "pending" || got.AnswerID != "" {
-		t.Fatalf("the CFO's question = %+v, want it untouched", got)
+		t.Fatalf("the CEO's question = %+v, want it untouched", got)
 	}
 	pending, err := wake.Pending(h.State)
 	if err != nil {
@@ -727,7 +727,7 @@ func TestGoblinQuestionKeepsItsLinesOnTheBoardAndItsAnswerIsOneLine(t *testing.T
 	store, h := testStore(t)
 	meta, _, goblin, connection := goblinFixture(t, store)
 	asked := "blocked: Ship the report?\n- **Verdict:** not yet\n- one blocking defect options: Ship now | Hold (Recommended)"
-	// The queue holds the one-line form cfo notify records.
+	// The queue holds the one-line form ceo notify records.
 	record, err := wake.Append(h.State, "notify", meta.ID, state.NormalizeStatusDetail(asked))
 	if err != nil {
 		t.Fatal(err)
@@ -748,7 +748,7 @@ func TestGoblinQuestionKeepsItsLinesOnTheBoardAndItsAnswerIsOneLine(t *testing.T
 	if _, err := store.Queue(a); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.ProcessOne(context.Background(), (&Service{Store: store, Options: Options{CFO: connection}}).execute); err != nil {
+	if err := store.ProcessOne(context.Background(), (&Service{Store: store, Options: Options{CEO: connection}}).execute); err != nil {
 		t.Fatal(err)
 	}
 
@@ -800,8 +800,8 @@ func TestGoblinQuestionKeepsItsDetailsLineAndEvidenceOnTheBoard(t *testing.T) {
 }
 
 // An answer follows the goblin that asked, never its successor, and never
-// arrives after the CFO has already handled the question itself.
-func TestGoblinAnswerRefusedAfterRespawnOrCFOAck(t *testing.T) {
+// arrives after the CEO has already handled the question itself.
+func TestGoblinAnswerRefusedAfterRespawnOrCEOAck(t *testing.T) {
 	respawn := func(t *testing.T, h string, meta state.TaskMeta) {
 		meta.SpawnGen = "g2"
 		if err := state.WriteTaskMeta(h, meta); err != nil {
@@ -830,7 +830,7 @@ func TestGoblinAnswerRefusedAfterRespawnOrCFOAck(t *testing.T) {
 	})
 	for name, change := range map[string]func(*testing.T, string, state.TaskMeta, wake.Record){
 		"respawn while queued": func(t *testing.T, h string, meta state.TaskMeta, _ wake.Record) { respawn(t, h, meta) },
-		"CFO ack while queued": func(t *testing.T, h string, _ state.TaskMeta, record wake.Record) { ack(t, h, record) },
+		"CEO ack while queued": func(t *testing.T, h string, _ state.TaskMeta, record wake.Record) { ack(t, h, record) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			store, h := testStore(t)
@@ -840,7 +840,7 @@ func TestGoblinAnswerRefusedAfterRespawnOrCFOAck(t *testing.T) {
 				t.Fatal(err)
 			}
 			change(t, h.State, meta, record)
-			s := &Service{Store: store, Options: Options{CFO: connection}}
+			s := &Service{Store: store, Options: Options{CEO: connection}}
 			if err := store.ProcessOne(context.Background(), s.execute); err != nil {
 				t.Fatal(err)
 			}
@@ -849,7 +849,7 @@ func TestGoblinAnswerRefusedAfterRespawnOrCFOAck(t *testing.T) {
 			}
 		})
 	}
-	t.Run("CFO ack before the answer", func(t *testing.T) {
+	t.Run("CEO ack before the answer", func(t *testing.T) {
 		store, h := testStore(t)
 		meta, record, _, connection := goblinFixture(t, store)
 		surfaced(t, store, meta, record, connection)
@@ -857,10 +857,10 @@ func TestGoblinAnswerRefusedAfterRespawnOrCFOAck(t *testing.T) {
 		if err := store.supersedeQuestions(); err != nil {
 			t.Fatal(err)
 		}
-		// The CFO acks a question it answered, so the board closes it as
-		// answered by the CFO, never as withdrawn or superseded (item 0h).
-		if got := store.Snapshot().Questions[0]; got.Status != "succeeded" || got.AnsweredBy != "cfo" || got.AnsweredAt == nil || got.Answer != "" {
-			t.Fatalf("question = %+v, want it answered by the CFO with no choice recorded", got)
+		// The CEO acks a question it answered, so the board closes it as
+		// answered by the CEO, never as withdrawn or superseded (item 0h).
+		if got := store.Snapshot().Questions[0]; got.Status != "succeeded" || got.AnsweredBy != "ceo" || got.AnsweredAt == nil || got.Answer != "" {
+			t.Fatalf("question = %+v, want it answered by the CEO with no choice recorded", got)
 		}
 	})
 }
@@ -897,11 +897,11 @@ func TestSurfaceNotifyNeedsChoicesAndTheGoblinsOwnTerminal(t *testing.T) {
 	}
 }
 
-// The CFO answers a goblin's question with cfo answer: the choice reaches the
-// goblin once, the way cfo send types, its notify reads answered, and the
-// board records the choice, that the CFO gave it and when, even when the CFO
+// The CEO answers a goblin's question with ceo answer: the choice reaches the
+// goblin once, the way ceo send types, its notify reads answered, and the
+// board records the choice, that the CEO gave it and when, even when the CEO
 // drains the notify before the supervisor takes the answer.
-func TestCFOAnswerDeliversOnceAndTheBoardRecordsIt(t *testing.T) {
+func TestCEOAnswerDeliversOnceAndTheBoardRecordsIt(t *testing.T) {
 	store, h := testStore(t)
 	primaryFixture(t, store)
 	meta, record, goblin, connection := goblinFixture(t, store)
@@ -911,7 +911,7 @@ func TestCFOAnswerDeliversOnceAndTheBoardRecordsIt(t *testing.T) {
 	if err != nil || chosen != "SQLite" {
 		t.Fatalf("answer = %q, %v; want SQLite, chosen by its first word", chosen, err)
 	}
-	want := fmt.Sprintf("CFO: decision %d: SQLite. keep it local", record.Seq)
+	want := fmt.Sprintf("CEO: decision %d: SQLite. keep it local", record.Seq)
 	if typed := goblin.lines(t); len(typed) != 1 || typed[0] != want {
 		t.Fatalf("the goblin received %q, want %q once", typed, want)
 	}
@@ -919,7 +919,7 @@ func TestCFOAnswerDeliversOnceAndTheBoardRecordsIt(t *testing.T) {
 		t.Fatalf("a second answer = %v with the goblin holding %q, want refused and nothing sent", err, goblin.lines(t))
 	}
 	pending, err := wake.Pending(h.State)
-	if err != nil || len(pending) != 1 || pending[0].Answered != "SQLite. keep it local" || pending[0].AnsweredBy != wake.AnsweredByCFO {
+	if err != nil || len(pending) != 1 || pending[0].Answered != "SQLite. keep it local" || pending[0].AnsweredBy != wake.AnsweredByCEO {
 		t.Fatalf("notify = %+v (%v), want it marked answered", pending, err)
 	}
 	if err := wake.AckThrough(h.State, record.Seq); err != nil {
@@ -933,8 +933,8 @@ func TestCFOAnswerDeliversOnceAndTheBoardRecordsIt(t *testing.T) {
 	}
 	(&Service{Store: store, work: make(chan struct{}, 1)}).cycle(context.Background(), false)
 	got := store.Snapshot().Questions[0]
-	if got.Status != "succeeded" || got.Answer != "SQLite. keep it local" || got.AnsweredOption != "SQLite" || got.AnsweredBy != "cfo" || got.AnsweredAt == nil {
-		t.Fatalf("question = %+v, want it closed as answered by the CFO with SQLite", got)
+	if got.Status != "succeeded" || got.Answer != "SQLite. keep it local" || got.AnsweredOption != "SQLite" || got.AnsweredBy != "ceo" || got.AnsweredAt == nil {
+		t.Fatalf("question = %+v, want it closed as answered by the CEO with SQLite", got)
 	}
 	data, err := json.Marshal(got)
 	if err != nil {
@@ -944,16 +944,16 @@ func TestCFOAnswerDeliversOnceAndTheBoardRecordsIt(t *testing.T) {
 	if err := json.Unmarshal(data, &board); err != nil {
 		t.Fatal(err)
 	}
-	if board["answered_option"] != "SQLite" || board["answered_by"] != "cfo" || board["answered_at"] == nil {
+	if board["answered_option"] != "SQLite" || board["answered_by"] != "ceo" || board["answered_at"] == nil {
 		t.Fatalf("board question = %v, want answered_option, answered_by and answered_at", board)
 	}
 }
 
-// cfo answer refuses, sending nothing and leaving nothing for the board, a
-// caller that is not the registered CFO, a choice the question does not
+// ceo answer refuses, sending nothing and leaving nothing for the board, a
+// caller that is not the registered CEO, a choice the question does not
 // offer, a label that names two choices, a notify with no choices, one the
-// CFO already handled, and a goblin that restarted since it asked.
-func TestCFOAnswerRefusesBeforeSendingAnything(t *testing.T) {
+// CEO already handled, and a goblin that restarted since it asked.
+func TestCEOAnswerRefusesBeforeSendingAnything(t *testing.T) {
 	for _, c := range []struct {
 		name     string
 		register bool
@@ -962,11 +962,11 @@ func TestCFOAnswerRefusesBeforeSendingAnything(t *testing.T) {
 		before   func(t *testing.T, store *Store, meta state.TaskMeta, record wake.Record)
 		refusal  string
 	}{
-		{name: "a caller that is not the registered CFO", option: "SQLite", refusal: "not registered"},
+		{name: "a caller that is not the registered CEO", option: "SQLite", refusal: "not registered"},
 		{name: "a choice the question does not offer", register: true, option: "Redis", refusal: "is not one of the choices"},
 		{name: "a label that names two choices", register: true, notify: "blocked: Which plan? options: a keep it | a drop it", option: "a", refusal: "names more than one choice"},
-		{name: "a notify with no choices", register: true, notify: "blocked: What next?", option: "a", refusal: "answer it with cfo send"},
-		{name: "a notify the CFO already handled", register: true, option: "SQLite", refusal: "is not waiting", before: func(t *testing.T, store *Store, _ state.TaskMeta, record wake.Record) {
+		{name: "a notify with no choices", register: true, notify: "blocked: What next?", option: "a", refusal: "answer it with ceo send"},
+		{name: "a notify the CEO already handled", register: true, option: "SQLite", refusal: "is not waiting", before: func(t *testing.T, store *Store, _ state.TaskMeta, record wake.Record) {
 			if err := wake.AckThrough(store.Home.State, record.Seq); err != nil {
 				t.Fatal(err)
 			}
@@ -1013,14 +1013,14 @@ func TestCFOAnswerRefusesBeforeSendingAnything(t *testing.T) {
 	}
 }
 
-// A goblin's question can wait in the CFO's queue without ever reaching the
+// A goblin's question can wait in the CEO's queue without ever reaching the
 // board, when its notify could not show it there (cg-native-desktop's 3593 on
 // 2026-10-01, refused by the board's proof). Once the question has had its
-// moment to arrive, cfo answer delivers the choice to the goblin that asked
-// and marks the notify answered, instead of asking the CFO to try again for a
+// moment to arrive, ceo answer delivers the choice to the goblin that asked
+// and marks the notify answered, instead of asking the CEO to try again for a
 // question that never comes. One raised a moment ago may still be on its
 // way, and one asked before the goblin restarted reaches nobody.
-func TestCFOAnswersAQuestionThatNeverReachedTheBoard(t *testing.T) {
+func TestCEOAnswersAQuestionThatNeverReachedTheBoard(t *testing.T) {
 	for _, c := range []struct {
 		name      string
 		grace     time.Duration
@@ -1058,24 +1058,24 @@ func TestCFOAnswersAQuestionThatNeverReachedTheBoard(t *testing.T) {
 				}
 				return
 			}
-			want := fmt.Sprintf("CFO: decision %d: SQLite", record.Seq)
+			want := fmt.Sprintf("CEO: decision %d: SQLite", record.Seq)
 			if typed := goblin.lines(t); err != nil || chosen != "SQLite" || len(typed) != 1 || typed[0] != want {
 				t.Fatalf("answer = %q, %v with the goblin receiving %q; want SQLite delivered once as %q", chosen, err, typed, want)
 			}
 			pending, err := wake.Pending(h.State)
-			if err != nil || len(pending) != 1 || pending[0].Answered != "SQLite" || pending[0].AnsweredBy != wake.AnsweredByCFO {
-				t.Fatalf("notify = %+v (%v), want it marked answered by the CFO", pending, err)
+			if err != nil || len(pending) != 1 || pending[0].Answered != "SQLite" || pending[0].AnsweredBy != wake.AnsweredByCEO {
+				t.Fatalf("notify = %+v (%v), want it marked answered by the CEO", pending, err)
 			}
 		})
 	}
 }
 
-// The CFO answers first, and the supervisor records that answer as it takes
+// The CEO answers first, and the supervisor records that answer as it takes
 // it over the pipe, so the Overlord's board answer that comes after is
 // refused before anything is queued or sent. The question shows the choice
-// the goblin received from the CFO, never the refused one, and keeps it after
+// the goblin received from the CEO, never the refused one, and keeps it after
 // a reload.
-func TestCFOAnswerStandsWhenTheBoardAnswerIsRefused(t *testing.T) {
+func TestCEOAnswerStandsWhenTheBoardAnswerIsRefused(t *testing.T) {
 	store, h := testStore(t)
 	primaryFixture(t, store)
 	meta, record, goblin, connection := goblinFixture(t, store)
@@ -1088,10 +1088,10 @@ func TestCFOAnswerStandsWhenTheBoardAnswerIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "Postgres"}); err == nil {
-		t.Fatal("the board answer was queued after the CFO's answer was recorded, want it refused")
+		t.Fatal("the board answer was queued after the CEO's answer was recorded, want it refused")
 	}
 	if typed := goblin.lines(t); len(typed) != 1 {
-		t.Fatalf("the goblin received %q, want only the CFO's answer", typed)
+		t.Fatalf("the goblin received %q, want only the CEO's answer", typed)
 	}
 	(&Service{Store: store, work: make(chan struct{}, 1)}).cycle(context.Background(), false)
 	reopened, err := Open(h)
@@ -1099,22 +1099,22 @@ func TestCFOAnswerStandsWhenTheBoardAnswerIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, got := range map[string]Question{"after the pass": store.Snapshot().Questions[0], "after a reload": reopened.Snapshot().Questions[0]} {
-		if got.Status != "succeeded" || got.AnsweredBy != "cfo" || got.AnsweredOption != "SQLite" || got.Answer != "SQLite" || got.AnsweredAt == nil {
-			t.Fatalf("%s, question = %+v, want it answered by the CFO with SQLite", name, got)
+		if got.Status != "succeeded" || got.AnsweredBy != "ceo" || got.AnsweredOption != "SQLite" || got.Answer != "SQLite" || got.AnsweredAt == nil {
+			t.Fatalf("%s, question = %+v, want it answered by the CEO with SQLite", name, got)
 		}
 	}
 }
 
-// A board answer that reaches the goblin's terminal while cfo answer is still
-// delivering waits for it, then sees the CFO's answer and is refused with
+// A board answer that reaches the goblin's terminal while ceo answer is still
+// delivering waits for it, then sees the CEO's answer and is refused with
 // nothing sent, so the goblin receives one decision.
-func TestBoardAnswerWaitsForAnInFlightCFOAnswer(t *testing.T) {
+func TestBoardAnswerWaitsForAnInFlightCEOAnswer(t *testing.T) {
 	store, h := testStore(t)
 	primaryFixture(t, store)
 	meta, record, goblin, connection := goblinFixture(t, store)
 	servePipe(t, store, connection)
 	q := surfaced(t, store, meta, record, connection)
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}}}
 	done := make(chan error, 1)
 	whileDelivering(t, func() {
 		if _, err := store.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "Postgres"}); err != nil {
@@ -1130,18 +1130,18 @@ func TestBoardAnswerWaitsForAnInFlightCFOAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 	if typed := goblin.lines(t); len(typed) != 1 || !strings.Contains(typed[0], "SQLite") {
-		t.Fatalf("the goblin received %q; want only the CFO's decision", typed)
+		t.Fatalf("the goblin received %q; want only the CEO's decision", typed)
 	}
 	if action := store.Snapshot().Actions[len(store.Snapshot().Actions)-1]; action.Status != "failed" || !strings.Contains(action.Message, "nothing was sent") {
 		t.Fatalf("board answer = %+v, want refused with nothing sent", action)
 	}
 }
 
-// Answers to different goblins never wait on each other: while the CFO's
+// Answers to different goblins never wait on each other: while the CEO's
 // answer to goblin A is still being delivered, holding A's question, the
 // Overlord's board answer to goblin B goes straight through, and both goblins
 // receive their decision.
-func TestCFOAndBoardAnswersToDifferentGoblinsBothDeliver(t *testing.T) {
+func TestCEOAndBoardAnswersToDifferentGoblinsBothDeliver(t *testing.T) {
 	store, h := testStore(t)
 	primaryFixture(t, store)
 	metaA, recordA, goblinA, connectionA := goblinFixture(t, store)
@@ -1156,7 +1156,7 @@ func TestCFOAndBoardAnswersToDifferentGoblinsBothDeliver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	connectionB := &CFOConnection{State: h.State}
+	connectionB := &CEOConnection{State: h.State}
 	if err := SurfaceNotify(h.State, metaA.ID, recordA, recordA.Detail, "", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -1172,7 +1172,7 @@ func TestCFOAndBoardAnswersToDifferentGoblinsBothDeliver(t *testing.T) {
 	}
 	questionB := store.Snapshot().Questions[i]
 
-	service := &Service{Store: store, Options: Options{CFO: connectionB}}
+	service := &Service{Store: store, Options: Options{CEO: connectionB}}
 	var boardErr error
 	whileDelivering(t, func() {
 		if _, err := store.Queue(Action{ID: "board-b", Kind: "goblin_answer", Generation: questionB.Identity, QuestionID: questionB.ID, Text: "Redis"}); err != nil {
@@ -1188,7 +1188,7 @@ func TestCFOAndBoardAnswersToDifferentGoblinsBothDeliver(t *testing.T) {
 	}
 	i = slices.IndexFunc(store.Snapshot().Questions, func(q Question) bool { return q.ID == questionB.ID })
 	if got, typedA, typedB := store.Snapshot().Questions[i], goblinA.lines(t), goblinB.lines(t); got.Status != "succeeded" || len(typedA) != 1 || len(typedB) != 1 {
-		t.Fatalf("goblin B's board answer, given while the CFO's answer to goblin A was in flight, = %s (%s); goblin A got %q and goblin B %q, want one decision each", got.Status, got.Message, typedA, typedB)
+		t.Fatalf("goblin B's board answer, given while the CEO's answer to goblin A was in flight, = %s (%s); goblin A got %q and goblin B %q, want one decision each", got.Status, got.Message, typedA, typedB)
 	}
 }
 

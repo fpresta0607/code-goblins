@@ -1,5 +1,5 @@
-# cfo fleet-view
+# ceo fleet-view
 
-`cfo fleet-view [--json]`
+`ceo fleet-view [--json]`
 
 Typed fleet snapshot (under way / queued / done)

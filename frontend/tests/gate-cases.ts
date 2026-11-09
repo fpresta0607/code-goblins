@@ -1,7 +1,7 @@
 import { relative } from "node:path";
 import type { Reporter, TestCase } from "@playwright/test/reporter";
 
-// cfo gate prepush runs the browser specs a change picks with this reporter
+// ceo gate prepush runs the browser specs a change picks with this reporter
 // beside the list reporter, and reads its rows as the check runs, so a check
 // the time limit ends still names a case that failed before it
 // (internal/gatetest/browser.go). The list reporter marks a row by the raw
@@ -15,7 +15,7 @@ export default class GateCases implements Reporter {
     if (outcome !== "unexpected" && outcome !== "flaky") return;
     const [, project, , ...titles] = test.titlePath();
     const file = relative(process.cwd(), test.location.file).replaceAll("\\", "/");
-    process.stdout.write(`cfo gate case: ${outcome} [${project}] ${file}:${test.location.line}:${test.location.column} › ${titles.join(" › ")}\n`);
+    process.stdout.write(`ceo gate case: ${outcome} [${project}] ${file}:${test.location.line}:${test.location.column} › ${titles.join(" › ")}\n`);
   }
 
   printsToStdio() {

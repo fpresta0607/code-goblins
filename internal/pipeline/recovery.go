@@ -473,20 +473,20 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 	gateRef := "refs/heads/" + branch
 	anchor := "refs/no-mistakes/recovery/" + run.RunID + "/gate"
 	headsAligned := status.Local.Head == run.RecordedHead && status.Local.Head == run.SubmittedHead
-	var cfoGateHead string
-	var cfoSwap bool
+	var ceoGateHead string
+	var ceoSwap bool
 	if headsAligned {
 		var err error
-		cfoGateHead, cfoSwap, err = r.recoveryHead(ctx, bare, anchor, true)
+		ceoGateHead, ceoSwap, err = r.recoveryHead(ctx, bare, anchor, true)
 		if err != nil {
 			return RecoveryResult{}, err
 		}
-		if cfoSwap {
-			if cfoGateHead == status.Local.Head {
-				return RecoveryResult{}, errors.New("pipeline: CFO recovery gate anchor does not preserve a stale head")
+		if ceoSwap {
+			if ceoGateHead == status.Local.Head {
+				return RecoveryResult{}, errors.New("pipeline: CEO recovery gate anchor does not preserve a stale head")
 			}
-			if err := r.requireCommit(ctx, bare, cfoGateHead, true); err != nil {
-				return RecoveryResult{}, errors.New("pipeline: CFO recovery gate anchor commit is unavailable")
+			if err := r.requireCommit(ctx, bare, ceoGateHead, true); err != nil {
+				return RecoveryResult{}, errors.New("pipeline: CEO recovery gate anchor commit is unavailable")
 			}
 		}
 	}
@@ -497,7 +497,7 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 			if err != nil {
 				return RecoveryResult{}, fmt.Errorf("pipeline: returned pipeline head is not anchored: %w", err)
 			}
-			if !cfoSwap && nativeHead != run.RecordedHead {
+			if !ceoSwap && nativeHead != run.RecordedHead {
 				return RecoveryResult{}, errors.New("pipeline: native-aligned returned custody has conflicting recovery evidence")
 			}
 		} else if err := r.requireNativeRecoveryHead(ctx, worktree, bare, nativeAnchor, run.RecordedHead); err != nil {
@@ -556,7 +556,7 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 		return RecoveryResult{}, fmt.Errorf("pipeline: gate branch changed during recovery: %w", err)
 	}
 	if err := r.requireRecoveryHead(ctx, bare, anchor, run.SubmittedHead); err != nil {
-		return RecoveryResult{}, errors.New("pipeline: CFO recovery gate anchor changed before head alignment")
+		return RecoveryResult{}, errors.New("pipeline: CEO recovery gate anchor changed before head alignment")
 	}
 	movedGate := gateHead == run.SubmittedHead
 	if movedGate {
@@ -621,7 +621,7 @@ func (r Reader) requireReturnedCustody(ctx context.Context, worktree, bare strin
 	if _, exists, err := r.recoveryHead(ctx, bare, "refs/no-mistakes/recovery/"+run.RunID+"/gate", true); err != nil {
 		return err
 	} else if exists {
-		return errors.New("pipeline: native custody return conflicts with CFO swap evidence")
+		return errors.New("pipeline: native custody return conflicts with CEO swap evidence")
 	}
 	if err := r.requireNativeRecoveryHead(ctx, worktree, bare, "refs/no-mistakes/recover/"+run.RunID, current.RecordedHead); err != nil {
 		return fmt.Errorf("pipeline: returned pipeline head is not anchored: %w", err)

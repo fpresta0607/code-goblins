@@ -182,7 +182,7 @@ func TestAFailedChangeIsKeptHoweverTheFirstChangeBegan(t *testing.T) {
 		} {
 			t.Run(first.name+"/"+failing.name, func(t *testing.T) {
 				// Arrange
-				spawner := &spawnRecorder{output: "Error: the harness did not start\n", err: errors.New("cfo exited 1")}
+				spawner := &spawnRecorder{output: "Error: the harness did not start\n", err: errors.New("ceo exited 1")}
 				handler, h := startBoard(t, 8*gigabyte, spawner)
 				meta := pausedGoblin(t, h, id, "memory", "", time.Now().UTC().Add(-time.Hour))
 				record, err := state.ReadLifecycle(h.State, id)
@@ -659,10 +659,10 @@ func TestFailedAutomaticStartDoesNotHoldTheSlotOrRetryEveryReading(t *testing.T)
 // later reading clears by itself, as a gate policy older than the machine's
 // is, stays paused as it was. It waits for a Resume from then on, so it
 // neither holds the slot ahead of the queue nor is refused again at every
-// reading, and the CFO is told once. A resume that only waits for room is
+// reading, and the CEO is told once. A resume that only waits for room is
 // tried again at the next reading, ahead of the queue, as it always was.
 func TestARefusedAutomaticResumeWaitsForAResumeAndDoesNotHoldTheSlot(t *testing.T) {
-	const refusal = "resume refused, and the task is left as it was: validation did not restart: pipeline: the machine's gate config has moved on from the policy task paused-task is frozen at (agent). Run cfo pipeline migrate paused-task, then resume it"
+	const refusal = "resume refused, and the task is left as it was: validation did not restart: pipeline: the machine's gate config has moved on from the policy task paused-task is frozen at (agent). Run ceo pipeline migrate paused-task, then resume it"
 	tests := []struct {
 		name, output string
 		want         []string
@@ -705,12 +705,12 @@ func TestARefusedAutomaticResumeWaitsForAResumeAndDoesNotHoldTheSlot(t *testing.
 			}
 			told := 0
 			for _, report := range fleetWakeRecords(t, h, "notify") {
-				if report.Key == "paused-task" && strings.Contains(report.Detail, "cfo pipeline migrate paused-task") {
+				if report.Key == "paused-task" && strings.Contains(report.Detail, "ceo pipeline migrate paused-task") {
 					told++
 				}
 			}
 			if told != test.wantTold {
-				t.Errorf("the CFO was told of the refusal %d times, want %d", told, test.wantTold)
+				t.Errorf("the CEO was told of the refusal %d times, want %d", told, test.wantTold)
 			}
 		})
 	}

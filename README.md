@@ -55,8 +55,6 @@ Claude Code is recommended for the fullest CEO integration; the setup explains t
 Your harness uses its own account and model-provider configuration.
 See [installation, prerequisites and fresh-PC checks](docs/install.md).
 
-<a id="give-the-cfo-its-first-task"></a>
-
 ### Give the CEO its first task
 
 1. Open **Code Goblins** from the Start menu, or run `goblins --board`.
@@ -214,8 +212,8 @@ See [conversation recovery and fresh starts](docs/native-board.md#a-ceo-whose-te
 
 ### Core commands
 
-`cfo` and `goblins` name the same CLI.
-Use `cfo help` to list topics, then ask for one command, such as `cfo help auth request`.
+`ceo` and `goblins` name the same CLI.
+Use `ceo help` to list topics, then ask for one command, such as `ceo help auth request`.
 The [help reference](docs/commands/help.md), [operator contract](AGENTS.md) and [pipeline guide](docs/pipeline.md) cover fleet operation and verification levels.
 See the [update command reference](docs/commands/update.md) for installing a candidate build and recovering an update.
 See the [memory command reference](docs/commands/memory.md) for startup memory retrieval, budget reports and read-only migration and retention plans.
@@ -223,7 +221,7 @@ See the [memory command reference](docs/commands/memory.md) for startup memory r
 For persistent Command Center reviews:
 
 ```text
-cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file> [--reopen]]
+ceo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file> [--reopen]]
 ```
 
 Use `--reopen` only at the owner's request to revisit an ended review.
@@ -247,7 +245,7 @@ See [uninstall options and retention details](docs/commands/uninstall.md).
 
 ## Your data
 
-The CEO home is `%LOCALAPPDATA%\CodeGoblins` by default, or the folder selected through `CFO_HOME`.
+The CEO home is `%LOCALAPPDATA%\CodeGoblins` by default, or the folder selected through `CEO_HOME`.
 It holds fleet state, briefs, the backlog, project settings, credentials, memory, isolated worktrees and caches outside your repositories.
 Your directives live in `data/overlord.md`; durable shared knowledge lives in `data/memory/`, indexed by `MEMORY.md`.
 See the [CEO home contract](docs/contract/home.md#the-ceo-home) and [instruction and context load map](docs/load-map.md).
@@ -262,7 +260,7 @@ Existing checkout homes retain their [legacy checkout activation boundary](docs/
 - Merges require your authority, including any explicit `yolo` or AFK delegation; eligible green pull requests can also land through the documented merge-train policy.
 - Run cards execute only after you press **Run**; browser sign-ins and other owner steps remain yours.
 - The installer backs up and merges its narrow Command Center permission rules into Claude Code settings; [the installation guide](docs/install.md) explains those changes.
-  These rules cover filing cards; `cfo answer` and `cfo send` receive no added permission because their messages instruct workers.
+  These rules cover filing cards; `ceo answer` and `ceo send` receive no added permission because their messages instruct workers.
 
 Code Goblins coordinates delivery; it is not an operating-system sandbox.
 Keep branch protection and restrict production credentials for sensitive projects.
@@ -279,11 +277,11 @@ cd frontend
 npm ci
 npm run build
 cd ..
-go run ./cmd/cfo gate prepush
-go build ./cmd/cfo
+go run ./cmd/ceo gate prepush
+go build ./cmd/ceo
 ```
 
-`cfo gate prepush` selects checks for the change; CI and merge trains provide the required delivery evidence.
+`ceo gate prepush` selects checks for the change; CI and merge trains provide the required delivery evidence.
 Use [CONTRIBUTING.md](CONTRIBUTING.md) for development conventions and the [pipeline guide](docs/pipeline.md) for affected checks, reports and gate policy.
 For a development install, see [building and installing from source](docs/install.md).
 
@@ -291,7 +289,7 @@ For a development install, see [building and installing from source](docs/instal
 
 | Path | Purpose |
 | --- | --- |
-| `cmd/cfo/` | Windows CLI and launcher. |
+| `cmd/ceo/` | Windows CLI and launcher. |
 | `frontend/` | Board, conversations, task panels and Command Center. |
 | `internal/` | Native terminal hosting, dispatch, supervision, credentials and delivery. |
 | `.agents/skills/` | Repository-owned procedures and review-surface integration. |

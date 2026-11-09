@@ -23,7 +23,7 @@ func idleService(t *testing.T, now *time.Time) (Service, *fakeProber, *fakeProgr
 }
 
 // scanIdle scans once a minute for minutes, publishing each wake and acking
-// it as the CFO's drain does, and returns every wake raised.
+// it as the CEO's drain does, and returns every wake raised.
 func scanIdle(t *testing.T, service Service, probe *fakeProber, status, pane string, now *time.Time, minutes int) []Event {
 	t.Helper()
 	return scanIdleAcking(t, service, probe, status, pane, now, minutes, true)
@@ -52,7 +52,7 @@ func scanIdleAcking(t *testing.T, service Service, probe *fakeProber, status, pa
 }
 
 // A goblin sitting at its prompt with nothing running, nothing asked and
-// nothing reported wakes the CFO once after three minutes, with the end of its
+// nothing reported wakes the CEO once after three minutes, with the end of its
 // screen and what to do next, whatever held its awaiting_answer wake back.
 func TestAGoblinIdleAtItsPromptWakesOnceAfterThreeMinutes(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
@@ -67,7 +67,7 @@ func TestAGoblinIdleAtItsPromptWakesOnceAfterThreeMinutes(t *testing.T) {
 	if len(wakes) != 1 {
 		t.Fatalf("an idle goblin raised %d wakes over the next 17 minutes, past the busy budget, want exactly one: %+v", len(wakes), wakes)
 	}
-	for _, want := range []string{string(GoblinIdle) + ":", "next:", "cfo send g1", "Tests pass. Next I will open the pull request.", "pwsh.exe (pid 51)"} {
+	for _, want := range []string{string(GoblinIdle) + ":", "next:", "ceo send g1", "Tests pass. Next I will open the pull request.", "pwsh.exe (pid 51)"} {
 		if !strings.Contains(wakes[0].Detail, want) {
 			t.Errorf("wake detail %q lacks %q", wakes[0].Detail, want)
 		}
@@ -188,7 +188,7 @@ func TestASecondIdleEpisodeWaitsForTheGap(t *testing.T) {
 	}
 }
 
-// An idle wake is a question the CFO owes an answer to until it is acked, as
+// An idle wake is a question the CEO owes an answer to until it is acked, as
 // a turn that ended at its prompt is: the ledger re-asks it.
 func TestAnUnackedIdleWakeIsReAsked(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
@@ -207,7 +207,7 @@ func appendStatus(t *testing.T, stateDir, id, line string) {
 	}
 }
 
-// Whichever wake reports a goblin stopped at its prompt, the CFO reads what it
+// Whichever wake reports a goblin stopped at its prompt, the CEO reads what it
 // stopped on: the wake for a turn that ended carries the end of its screen too.
 func TestAnEndedTurnWakeCarriesTheEndOfItsScreen(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)

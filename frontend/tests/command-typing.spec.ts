@@ -7,7 +7,7 @@ import { expect, test } from "./site";
 test("a new question waits under the badge while he types and never takes his input", async ({ page }) => {
   // Arrange
   await page.goto("/tests/fixtures/command-typing.html");
-  const comment = page.getByRole("textbox", { name: "Comment to the CFO" });
+  const comment = page.getByRole("textbox", { name: "Comment to the CEO" });
   await comment.click();
   await page.keyboard.type("Half a sent");
 
@@ -38,7 +38,7 @@ test("a new question never opens the Command Center by itself, and opens from th
 
   // Act
   await page.getByLabel("Command Center, 1 waiting on you").click();
-  await page.getByRole("button", { name: /^Answer The CFO: / }).click();
+  await page.getByRole("button", { name: /^Answer The CEO: / }).click();
 
   // Assert
   await expect(page.getByRole("dialog").getByText("May I build the layout switch as drawn?")).toBeVisible();

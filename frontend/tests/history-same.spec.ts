@@ -26,7 +26,7 @@ async function reopens(page: Page, status = 200, body: Record<string, unknown> =
 }
 
 const MARKS: [string, RegExp][] = [
-  ["May I file the push key card now?", /^The CFO answered$/],
+  ["May I file the push key card now?", /^The CEO answered$/],
   ["Tick the App Group for the share extension", /^Done$/],
   ["Move the sign-in screen out of test mode", /^Closed\./],
   ["Turn on time sensitive notifications", /^You wrote: The box was already ticked$/],
@@ -37,13 +37,13 @@ const MARKS: [string, RegExp][] = [
   ["Merge the release pull request?", /^You answered$/],
   ["Add the DNS records for the docs site", /^You wrote: Added both records$/],
   ["Publish release v0.5.2", /exit 0/],
-  ["Which accent should the board use?", /^The CFO answered while you were away$/],
+  ["Which accent should the board use?", /^The CEO answered while you were away$/],
   ["Should the sign-in page keep its old link?", /^Superseded/],
   ["Sign in to Example for sample-app", /^Signed in to Example/],
 ];
 
 for (const [width, height] of [[1707, 1067], [390, 844]]) {
-  test(`every History row leads with the CFO's goblin, marked with how it ended, and has the pencil, at ${width}px`, async ({ page }, testInfo) => {
+  test(`every History row leads with the CEO's goblin, marked with how it ended, and has the pencil, at ${width}px`, async ({ page }, testInfo) => {
     // Arrange
     await page.setViewportSize({ width, height });
 
@@ -57,7 +57,7 @@ for (const [width, height] of [[1707, 1067], [390, 844]]) {
       const row = rows.filter({ hasText: text });
       const mark = row.locator(".history-mark");
       await expect(mark, text).toHaveCount(1);
-      await expect(mark.locator(".goblin-avatar.persona-cfo"), text).toBeVisible();
+      await expect(mark.locator(".goblin-avatar.persona-ceo"), text).toBeVisible();
       await expect(mark.locator(".mark-badge"), text).toBeVisible();
       await expect(mark, text).toHaveAttribute("role", "img");
       await expect(mark, text).toHaveAttribute("aria-label", label);
@@ -84,7 +84,7 @@ test("the pencil on a question changes its answer", async ({ page }) => {
   // Assert
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("radio", { name: "Yes" })).toBeChecked();
-  await expect(dialog.locator(".answered-by")).toContainText("The CFO chose this");
+  await expect(dialog.locator(".answered-by")).toContainText("The CEO chose this");
   expect(posted).toHaveLength(0);
 });
 
@@ -232,7 +232,7 @@ test("Something else? on a card whose values are stored sends his words to its a
   await expect(row.locator(".history-detail")).toBeVisible();
 });
 
-test("Something else? on a stored card whose goblin has ended sends his words to the CFO, naming its task", async ({ page }) => {
+test("Something else? on a stored card whose goblin has ended sends his words to the CEO, naming its task", async ({ page }) => {
   // Arrange
   const sent: Record<string, unknown>[] = [];
   await page.route("**/api/actions", async (route) => {
@@ -248,14 +248,14 @@ test("Something else? on a stored card whose goblin has ended sends his words to
   // Act
   await button.click();
   const note = page.getByRole("dialog", { name: "Something else?" });
-  await expect(note).toContainText("It goes to the CFO as your word.");
+  await expect(note).toContainText("It goes to the CEO as your word.");
   await note.getByRole("textbox").fill("File the key ID again under the team account");
   await note.getByRole("button", { name: "Send" }).click();
 
   // Assert
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0]).toMatchObject({ kind: "message", task_id: "", generation: "", text: "About the card cred-7777777777777777 of task cg-push-retired (The key ID for the gateways), whose values are stored: File the key ID again under the team account" });
-  await expect(row.locator(".history-stored .notice")).toHaveText("Sent to the CFO.");
+  await expect(row.locator(".history-stored .notice")).toHaveText("Sent to the CEO.");
 });
 
 test("Something else? resent after a lost answer keeps its ID only for the same words", async ({ page }) => {

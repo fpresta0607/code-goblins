@@ -15,15 +15,15 @@ import (
 // Chrome takes to start, to answer its first Storage.setCookies and to exit
 // once asked to close, so the CI job that runs the real-Chrome tests alone
 // shows Chrome's own tail where nothing competes with it. It runs only when
-// CFO_CHROME_TIMINGS names how many Chromes to time, adds each one's times to
-// the file CFO_CHROME_TIMINGS_FILE names, and fails only on an error, never
+// CEO_CHROME_TIMINGS names how many Chromes to time, adds each one's times to
+// the file CEO_CHROME_TIMINGS_FILE names, and fails only on an error, never
 // on a time.
 func TestChromeStartCookieAndExitTimes(t *testing.T) {
-	samples, _ := strconv.Atoi(os.Getenv("CFO_CHROME_TIMINGS"))
+	samples, _ := strconv.Atoi(os.Getenv("CEO_CHROME_TIMINGS"))
 	if samples <= 0 {
-		t.Skip("CFO_CHROME_TIMINGS names no number of Chromes to time")
+		t.Skip("CEO_CHROME_TIMINGS names no number of Chromes to time")
 	}
-	record, err := os.OpenFile(os.Getenv("CFO_CHROME_TIMINGS_FILE"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	record, err := os.OpenFile(os.Getenv("CEO_CHROME_TIMINGS_FILE"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}

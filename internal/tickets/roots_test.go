@@ -202,62 +202,62 @@ func TestFileRootMatchesFailedOnceSightingsToManualTestRoots(t *testing.T) {
 		{
 			name:         "a prose key with the repository relative package",
 			title:        "native host ends before it serves in TestNativeHost",
-			body:         "`TestNativeHost` in `cmd/cfo` fails before the host serves.",
+			body:         "`TestNativeHost` in `cmd/ceo` fails before the host serves.",
 			key:          "native host ends before it serves in testnativehost",
 			isRecurrence: true,
 		},
 		{
 			name:         "an unmarked issue with the full package",
 			title:        "TestNativeHost fails under load",
-			body:         "TestNativeHost in github.com/acme/widgets/cmd/cfo.",
+			body:         "TestNativeHost in github.com/acme/widgets/cmd/ceo.",
 			isRecurrence: true,
 		},
 		{
 			name:         "the package before the test",
-			title:        "cmd/cfo TestNativeHost fails under load",
+			title:        "cmd/ceo TestNativeHost fails under load",
 			isRecurrence: true,
 		},
 		{
 			name:         "the package in parentheses",
-			title:        "TestNativeHost (cmd/cfo) fails under load",
+			title:        "TestNativeHost (cmd/ceo) fails under load",
 			isRecurrence: true,
 		},
 		{
 			name:         "in also introduces prose that is not a package",
 			title:        "TestNativeHost in CI fails",
-			body:         "`TestNativeHost` in `cmd/cfo` fails before the host serves.",
+			body:         "`TestNativeHost` in `cmd/ceo` fails before the host serves.",
 			isRecurrence: true,
 		},
 		{
 			name:  "an incidental package mention cannot change the tests package",
 			title: "TestNativeHost in internal/other fails",
-			body:  "The failure started after cmd/cfo changed.",
+			body:  "The failure started after cmd/ceo changed.",
 		},
 		{
 			name:  "conflicting identities are ambiguous",
 			title: "TestNativeHost in internal/other fails",
-			body:  "Compare TestNativeHost in cmd/cfo, which passes.",
+			body:  "Compare TestNativeHost in cmd/ceo, which passes.",
 		},
 		{
 			name:  "an explicit test key wins over incidental mentions",
 			title: "TestNativeHost fails under load",
-			body:  "`TestNativeHost` in `cmd/cfo` also failed.",
+			body:  "`TestNativeHost` in `cmd/ceo` also failed.",
 			key:   "test:github.com/acme/widgets/internal/other testnativehost",
 		},
 		{
 			name:  "a longer test name is unrelated",
 			title: "TestNativeHostRestart fails under load",
-			body:  "The package is `cmd/cfo`.",
+			body:  "The package is `cmd/ceo`.",
 		},
 		{
 			name:  "a subtest is distinct",
 			title: "TestNativeHost/restart fails under load",
-			body:  "The package is `cmd/cfo`.",
+			body:  "The package is `cmd/ceo`.",
 		},
 		{
 			name:  "a longer package is unrelated",
 			title: "TestNativeHost fails under load",
-			body:  "The package is `cmd/cfo-extra`.",
+			body:  "The package is `cmd/ceo-extra`.",
 		},
 		{
 			name:  "the same name in a different package is unrelated",
@@ -267,7 +267,7 @@ func TestFileRootMatchesFailedOnceSightingsToManualTestRoots(t *testing.T) {
 		{
 			name:  "the same package suffix in another module is unrelated",
 			title: "TestNativeHost fails under load",
-			body:  "The package is `github.com/other/widgets/cmd/cfo`.",
+			body:  "The package is `github.com/other/widgets/cmd/ceo`.",
 		},
 		{
 			name:  "a name without a package is insufficient",
@@ -277,7 +277,7 @@ func TestFileRootMatchesFailedOnceSightingsToManualTestRoots(t *testing.T) {
 		{
 			name:  "a different root mentioning the test as evidence",
 			title: "TestOtherHost fails under load",
-			body:  "Unlike `TestNativeHost` in `cmd/cfo`, this test fails twice.",
+			body:  "Unlike `TestNativeHost` in `cmd/ceo`, this test fails twice.",
 		},
 	}
 	for _, tc := range cases {
@@ -288,7 +288,7 @@ func TestFileRootMatchesFailedOnceSightingsToManualTestRoots(t *testing.T) {
 				body += "\n\n<!-- ops-root: " + tc.key + " -->"
 			}
 			fake := &rootGitHub{open: []map[string]any{{"number": 7, "title": tc.title, "body": body, "html_url": "https://github.com/acme/widgets/issues/7"}}}
-			root := FailedOnceRoot("go (cmd-cfo): github.com/acme/widgets/cmd/cfo TestNativeHost", "run 9")
+			root := FailedOnceRoot("go (cmd-ceo): github.com/acme/widgets/cmd/ceo TestNativeHost", "run 9")
 
 			// Act
 			filed, err := GitHub{API: githubtest.Client(fake)}.FileRoot(context.Background(), rootRepository, rootRepository, root, rootNow)

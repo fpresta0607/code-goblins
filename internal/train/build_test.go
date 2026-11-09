@@ -54,7 +54,7 @@ func TestStartMergesTheRidersOntoMainInQueueOrderAndOpensTheTrainPullRequest(t *
 		t.Fatalf("cars = %v, want queue order 11, 12", numbers)
 	}
 	create := gh.calls[slices.IndexFunc(gh.calls, func(args []string) bool { return args[1] == "create" })]
-	if flagValue(create, "--base") != "main" || flagValue(create, "--repo") != "o/r" || flagValue(create, "--title") != "chore(cfo): merge train for PRs #11, #12" {
+	if flagValue(create, "--base") != "main" || flagValue(create, "--repo") != "o/r" || flagValue(create, "--title") != "chore(ceo): merge train for PRs #11, #12" {
 		t.Fatalf("gh pr create = %v", create)
 	}
 	body := flagValue(create, "--body")
@@ -91,8 +91,8 @@ func TestStartMergesTheRidersOntoMainInQueueOrderAndOpensTheTrainPullRequest(t *
 	if err != nil || saved.Head != started.Head || saved.State != StateTesting {
 		t.Fatalf("saved = %+v, %v", saved, err)
 	}
-	if len(s.cfo) != 1 || !strings.Contains(s.cfo[0], "merge_train: ") || !strings.Contains(s.cfo[0], "#11, #12") {
-		t.Fatalf("CFO told %q, want the start of the train", s.cfo)
+	if len(s.ceo) != 1 || !strings.Contains(s.ceo[0], "merge_train: ") || !strings.Contains(s.ceo[0], "#11, #12") {
+		t.Fatalf("CEO told %q, want the start of the train", s.ceo)
 	}
 }
 
@@ -278,8 +278,8 @@ func TestInterruptedPublicationKeepsItsRecordedRunAndExternalCommits(t *testing.
 				kept, _ = s.engine(github).Advance(context.Background(), held.ID)
 			}
 
-			if kept.IsFinished() || kept.Runs != 2 || kept.Head != saved.Head || hasExternalCommit && kept.Errors != saved.Errors+maxErrors+2 || !slices.Equal(kept.History[0].Passed, proof) || !slices.Equal(kept.History[0].MergeFailures, failures) || kept.History[0].MergeAttempts != 1 || len(github.pushes) != pushes || s.git(s.remote, "rev-parse", "refs/heads/"+held.Branch) != published || len(github.mergeCalls()) != 1 || len(github.rerunCalls()) != 0 || len(s.cfo) != 2 {
-				t.Fatalf("recovery duplicated validation or lost branch custody: %+v, pushes %d -> %d, notices %q", kept, pushes, len(github.pushes), s.cfo)
+			if kept.IsFinished() || kept.Runs != 2 || kept.Head != saved.Head || hasExternalCommit && kept.Errors != saved.Errors+maxErrors+2 || !slices.Equal(kept.History[0].Passed, proof) || !slices.Equal(kept.History[0].MergeFailures, failures) || kept.History[0].MergeAttempts != 1 || len(github.pushes) != pushes || s.git(s.remote, "rev-parse", "refs/heads/"+held.Branch) != published || len(github.mergeCalls()) != 1 || len(github.rerunCalls()) != 0 || len(s.ceo) != 2 {
+				t.Fatalf("recovery duplicated validation or lost branch custody: %+v, pushes %d -> %d, notices %q", kept, pushes, len(github.pushes), s.ceo)
 			}
 			if hasExternalCommit && s.fileOn(published, "external.txt") != "external\n" {
 				t.Fatal("externally added source was overwritten")
@@ -301,8 +301,8 @@ func TestUnknownBranchIdentityCannotExhaustIntoCleanup(t *testing.T) {
 			t.Fatal("want unknown branch identity reported without cleanup")
 		}
 	}
-	if kept.IsFinished() || kept.Head != held.Head || kept.Runs != 1 || kept.Errors != held.Errors+maxErrors+2 || !slices.Equal(kept.History[0].Passed, held.History[0].Passed) || len(github.pushes) != pushes || len(github.closed) != 0 || len(github.mergeCalls()) != 1 || len(s.cfo) != 2 || !s.hasBranch(held.Branch) {
-		t.Fatalf("unknown branch identity discarded custody: %+v, notices %q", kept, s.cfo)
+	if kept.IsFinished() || kept.Head != held.Head || kept.Runs != 1 || kept.Errors != held.Errors+maxErrors+2 || !slices.Equal(kept.History[0].Passed, held.History[0].Passed) || len(github.pushes) != pushes || len(github.closed) != 0 || len(github.mergeCalls()) != 1 || len(s.ceo) != 2 || !s.hasBranch(held.Branch) {
+		t.Fatalf("unknown branch identity discarded custody: %+v, notices %q", kept, s.ceo)
 	}
 }
 

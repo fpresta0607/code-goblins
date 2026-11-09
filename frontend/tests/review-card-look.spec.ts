@@ -45,7 +45,7 @@ test("a goblin's Scrawl card names the goblin, says its title once and shows the
   await page.getByRole("dialog").locator(".card-stage").screenshot({ path: testInfo.outputPath("tad-card.png") });
 });
 
-test("the CFO's delivered picture shows as its page with one button", async ({ page }) => {
+test("the CEO's delivered picture shows as its page with one button", async ({ page }) => {
   // Arrange
   await open(page, "picture");
   const card = page.getByRole("dialog").locator(".question-card");
@@ -55,7 +55,7 @@ test("the CFO's delivered picture shows as its page with one button", async ({ p
 
   // Assert
   await expect(heading).toBeVisible();
-  await expect(card.locator(".asker strong")).toHaveText("The CFO");
+  await expect(card.locator(".asker strong")).toHaveText("The CEO");
   await expect(card.locator(".page-preview iframe")).toHaveAttribute("src", "/api/reviews/board-card-text-fits-20261010/preview");
   await expect(card.getByRole("link", { name: /^Open review/ })).toHaveCount(1);
 });
@@ -76,7 +76,7 @@ test("the Command Center keeps its lantern box in SIQstack's card, mint and gree
       lantern: getComputedStyle(document.documentElement).getPropertyValue("--lantern").trim(),
       hide: getComputedStyle(document.documentElement).getPropertyValue("--hide").trim(),
       asker: color(".inbox-list.waiting li .inbox-text strong", "color"),
-      box: color(".cfo-command", "background-image", "::before"),
+      box: color(".ceo-command", "background-image", "::before"),
       card: color(".inbox-list.waiting li", "background-color", "::before"),
     };
   });

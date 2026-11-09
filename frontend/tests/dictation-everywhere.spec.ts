@@ -1,4 +1,4 @@
-import { CFO_DOOR, expect, openItem, servePages, test, type Browser, type Page } from "./site";
+import { CEO_DOOR, expect, openItem, servePages, test, type Browser, type Page } from "./site";
 
 // The Overlord, 2026-10-15 about 00:10Z: "dictation in command center never
 // pasted nor did it save to recent messgaes in main dictaiton they hsould all
@@ -10,11 +10,11 @@ const LAUNCH = { ignoreDefaultArgs: ["--hide-scrollbars"], args: ["--use-fake-de
 test.use({ timezoneId: "UTC", viewport: { width: 1440, height: 900 }, launchOptions: LAUNCH });
 
 const AT = "2026-10-15T00:10:00Z";
-// The CFO asks a question in the Command Center, and Bernie, paused, has the
+// The CEO asks a question in the Command Center, and Bernie, paused, has the
 // message box under his panel.
 const SNAPSHOT = {
-  healthy: true, instance: "everywhere", revision: 1, cfo_runs: true, actions: [],
-  questions: [{ id: "notify-cfo-1", identity: "a".repeat(64), task: "", text: "Which train goes first?", options: ["The board train", "The docs train"], recommended: "The board train", created_at: AT, status: "pending" }],
+  healthy: true, instance: "everywhere", revision: 1, ceo_runs: true, actions: [],
+  questions: [{ id: "notify-ceo-1", identity: "a".repeat(64), task: "", text: "Which train goes first?", options: ["The board train", "The docs train"], recommended: "The board train", created_at: AT, status: "pending" }],
   tasks: [{
     id: "bernie", title: "Land the merge train", goblin_name: "Bernie", goblin_title: "Merge Maestro", project: "code-goblins", backend: "native", harness: "claude",
     generation: "s1", session: "claude/bernie", phase: "paused", verified: false, at: AT, report: "working",
@@ -51,8 +51,8 @@ async function openWindow(browser: Browser, serve: (page: Page) => Promise<void>
   const page = await context.newPage();
   await serve(page);
   await page.addInitScript(({ snapshot, app }) => {
-    localStorage.setItem("cfo-first-open", "shown");
-    localStorage.setItem("cfo-voice-hint-v1", "dismissed");
+    localStorage.setItem("ceo-first-open", "shown");
+    localStorage.setItem("ceo-voice-hint-v1", "dismissed");
     if (app) (window as unknown as { chrome: object }).chrome = { webview: { postMessage: () => {} } };
     class SnapshotSource extends EventTarget {
       constructor() {
@@ -87,17 +87,17 @@ async function shortcut(page: Page) {
   await page.keyboard.up("Control");
 }
 
-// cfoTerminal opens the CFO's terminal, where the main dictation lists the
+// ceoTerminal opens the CEO's terminal, where the main dictation lists the
 // recent dictations.
-async function cfoTerminal(page: Page) {
-  await page.getByRole("button", { name: CFO_DOOR }).first().click();
+async function ceoTerminal(page: Page) {
+  await page.getByRole("button", { name: CEO_DOOR }).first().click();
   const terminal = page.getByRole("textbox", { name: "Terminal input" });
   await expect(terminal).toHaveCount(1);
   return terminal;
 }
 
 async function recentIn(page: Page) {
-  await cfoTerminal(page);
+  await ceoTerminal(page);
   await page.getByRole("button", { name: "Recent messages" }).click();
   return page.getByRole("dialog", { name: "Recent messages" }).locator(".voice-text");
 }
@@ -123,8 +123,8 @@ test("a dictation from each box in one window shows in the one recent list of ev
   await hold(tab, box.getByRole("button", { name: "Hold to dictate" }));
   await expect(box.getByRole("textbox", { name: "Message Bernie - Merge Maestro" })).toHaveValue(words[1]);
 
-  // Act: the CFO's terminal in the desktop window, by the shortcut.
-  await (await cfoTerminal(desktop)).focus();
+  // Act: the CEO's terminal in the desktop window, by the shortcut.
+  await (await ceoTerminal(desktop)).focus();
   await shortcut(desktop);
   await expect.poll(() => kept.length).toBe(3);
 

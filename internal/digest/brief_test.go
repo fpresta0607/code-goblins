@@ -56,7 +56,7 @@ func bigHome(t *testing.T, goblins, wakes int) home.Home {
 		}
 		var content strings.Builder
 		for line := 1; content.Len() < size; line++ {
-			fmt.Fprintf(&content, "- %s line %d: a standing fact the CFO keeps\n", filepath.Base(name), line)
+			fmt.Fprintf(&content, "- %s line %d: a standing fact the CEO keeps\n", filepath.Base(name), line)
 		}
 		if err := os.WriteFile(path, []byte(content.String()), 0o644); err != nil {
 			t.Fatal(err)
@@ -125,9 +125,9 @@ func composeBrief(t *testing.T, h home.Home) string {
 // Claude Code hands a session a hook's output whole only up to 10,000
 // characters (on 2.1.286 the largest passed whole was 9,293 and the smallest
 // replaced was 10,026); a longer one arrives as a 2 KB preview, which is how
-// a compacted CFO came to start with a session lock and a few wake lines.
+// a compacted CEO came to start with a session lock and a few wake lines.
 // The digest the hook prints stays under a budget below that limit however
-// large the home is, in the order a CFO needs it.
+// large the home is, in the order a CEO needs it.
 func TestTheBriefDigestFitsWhatClaudeCodePassesThroughWhole(t *testing.T) {
 	h := bigHome(t, 40, 300)
 
@@ -150,7 +150,7 @@ func TestTheBriefDigestFitsWhatClaudeCodePassesThroughWhole(t *testing.T) {
 	})
 }
 
-// A read-once contract tells the CFO not to read again what it was handed.
+// A read-once contract tells the CEO not to read again what it was handed.
 // It names only files whose every line reached the session: the brief prints
 // no file in full and says so, and the long digest it points to holds every
 // file its own contract names.
@@ -213,7 +213,7 @@ func TestTheBriefNamesTheFileThatHoldsTheLongDigest(t *testing.T) {
 
 // A session that resumed the conversation which read the long digest is
 // told where it is and not to read it again, and its read-once contract says
-// the files are in it rather than unread: on 2026-10-27 a CFO brought back
+// the files are in it rather than unread: on 2026-10-27 a CEO brought back
 // five times in 32 minutes on its own conversation read it again after one of
 // those comebacks. Where no long digest is written, the brief names none for
 // the conversation to have read.
@@ -273,7 +273,7 @@ func TestABriefForAResumedConversationDoesNotAskForTheLongDigestAgain(t *testing
 
 // The ack line retires every record at or below its sequence, so it is
 // printed only beside a listing of all of them: a queue too long to list
-// here keeps its first records and withholds the ack, pointing at cfo drain.
+// here keeps its first records and withholds the ack, pointing at ceo drain.
 func TestABriefThatCannotListTheWholeWakeQueueWithholdsItsAck(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -288,12 +288,12 @@ func TestABriefThatCannotListTheWholeWakeQueueWithholdsItsAck(t *testing.T) {
 
 			out := composeBrief(t, h)
 
-			hasAck := strings.Contains(out, "WAKE_ACK_REQUIRED: cfo drain --ack-through")
+			hasAck := strings.Contains(out, "WAKE_ACK_REQUIRED: ceo drain --ack-through")
 			if hasAck != test.isWhole {
 				t.Errorf("ack line printed = %v, want %v:\n%s", hasAck, test.isWhole, out)
 			}
-			if !test.isWhole && (!strings.Contains(out, "WAKE_ACK_WITHHELD") || !strings.Contains(out, "cfo drain")) {
-				t.Errorf("a partial listing does not withhold its ack and point at cfo drain:\n%s", out)
+			if !test.isWhole && (!strings.Contains(out, "WAKE_ACK_WITHHELD") || !strings.Contains(out, "ceo drain")) {
+				t.Errorf("a partial listing does not withhold its ack and point at ceo drain:\n%s", out)
 			}
 			if !strings.Contains(out, fmt.Sprintf("WAKE QUEUE: %d pending", test.wakes)) {
 				t.Errorf("the brief does not say how many wakes are pending:\n%s", out)
@@ -374,7 +374,7 @@ func TestABriefStaysWithinItsBudgetWhenTheWakeQueueIsUnreadable(t *testing.T) {
 	if !strings.Contains(out, "WAKE QUEUE: UNREADABLE (wake: corrupt queue line") {
 		t.Errorf("the brief does not say the wake queue is unreadable:\n%s", out)
 	}
-	if strings.Contains(out, "WAKE_ACK_REQUIRED: cfo drain --ack-through") {
+	if strings.Contains(out, "WAKE_ACK_REQUIRED: ceo drain --ack-through") {
 		t.Errorf("the brief offers an ack for a queue it could not read:\n%s", out)
 	}
 	fleet := out[strings.Index(out, "== FLEET =="):strings.Index(out, "== READ THIS NEXT ==")]
@@ -383,13 +383,13 @@ func TestABriefStaysWithinItsBudgetWhenTheWakeQueueIsUnreadable(t *testing.T) {
 	}
 }
 
-// The brief is the digest a hook prints, so it is the one a CFO session
+// The brief is the digest a hook prints, so it is the one a CEO session
 // starts from: while AFK mode is on it says so before the wake queue with
 // every line of the authority's terms, as the long digest does, and still
 // fits its budget beside a fleet and a wake queue too long to list. While AFK
 // mode is off it says nothing of it, and a switch that cannot be read is said
 // rather than left out, which would read as off.
-func TestTheBriefTellsTheCFOOfAFKModeWithinItsBudget(t *testing.T) {
+func TestTheBriefTellsTheCEOOfAFKModeWithinItsBudget(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		arrange func(t *testing.T, stateDir string)
@@ -468,7 +468,7 @@ func TestABriefForASessionThatDoesNotHoldTheHomeWritesNothing(t *testing.T) {
 	if _, ok := ReadCompleteMarker(h.State); ok {
 		t.Error("a read-only brief wrote the completion marker")
 	}
-	if !strings.Contains(out, "cfo session-start") || !strings.Contains(out, readOnlyBannerTitle) {
+	if !strings.Contains(out, "ceo session-start") || !strings.Contains(out, readOnlyBannerTitle) {
 		t.Errorf("a read-only brief does not say how to print the long digest:\n%s", out)
 	}
 }

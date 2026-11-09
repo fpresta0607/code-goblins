@@ -29,7 +29,7 @@ Go standard library and modules compiled into the commands under cmd/:
   modernc.org/memory v1.11.0: BSD-3-Clause [17]
   modernc.org/sqlite v1.48.1: BSD-3-Clause [18]
 
-Microsoft's console host, embedded into cfo.exe:
+Microsoft's console host, embedded into ceo.exe:
   Microsoft.Windows.Console.ConPTY 1.25.260930003 (conpty.dll and OpenConsole.exe): MIT [19]
 
 npm packages bundled into the board:

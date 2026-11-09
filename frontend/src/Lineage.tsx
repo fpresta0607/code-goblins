@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BoardActivity, Session, Snapshot, Task } from "./types";
 import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type ActivityEffect } from "./activity";
-import { CFO_ROOT, isHelperHeld, isInProgress, lineageFamily, nodeStatus } from "./workflow";
+import { CEO_ROOT, isHelperHeld, isInProgress, lineageFamily, nodeStatus } from "./workflow";
 import { Avatar } from "./Avatar";
 import { Chevron } from "./Chevron";
 import { personaFor } from "./workflow";
@@ -10,10 +10,10 @@ import { goblinName, withoutHarness } from "./task-words";
 import { hasRunningChildren } from "./fleet-tree";
 import { TreeUnder } from "./TreeUnder";
 import { cardFacts, TaskCard } from "./TaskCard";
-import { CfoCardFacts } from "./cfo-card-facts";
+import { CeoCardFacts } from "./ceo-card-facts";
 import type { AfkToggleState } from "./useAfkToggle";
 
-export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkToggle, effects, presentations, now, freshNow }: {
+export function Lineage({ snapshot, project, selected, onSelect, onOpenCeo, afkToggle, effects, presentations, now, freshNow }: {
   presentations:BoardActivity[];
   snapshot: Snapshot;
   now: number;
@@ -22,8 +22,8 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkT
   project: string;
   selected: Selection | null;
   onSelect: (selection: Selection, source: HTMLElement) => void;
-  // onOpenCfo opens the CFO's terminal, from its card's button.
-  onOpenCfo: (source: HTMLElement) => void;
+  // onOpenCeo opens the CEO's terminal, from its card's button.
+  onOpenCeo: (source: HTMLElement) => void;
   afkToggle: AfkToggleState;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -33,11 +33,11 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkT
   const latestSelect = useRef(onSelect);
   useEffect(() => { latestSelect.current = onSelect; });
   const selectTask = useCallback((task: Task, source: HTMLElement) => latestSelect.current({ task: task.id }, source), []);
-  // The list draws the canvas's family, so a goblin hangs under the CFO here
+  // The list draws the canvas's family, so a goblin hangs under the CEO here
   // whenever it does there.
   const family = lineageFamily(snapshot, project);
   const sessions = family.sessions;
-  const cfoID = family.cfo?.cfo ? CFO_ROOT : family.cfo?.session?.id;
+  const ceoID = family.ceo?.ceo ? CEO_ROOT : family.ceo?.session?.id;
   const tasks = snapshot.tasks.filter((task) => isInProgress(task) && (!project || task.project === project));
   const taskOnly = tasksWithoutSession(tasks.filter((task) => !isHelperHeld(snapshot, task.id)), snapshot.sessions);
   const taskOf = (node: Session) => snapshot.tasks.find((task) => task.id === node.task_id);
@@ -70,7 +70,7 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkT
     const task = snapshot.tasks.find((task) => task.id === node.task_id);
     const owner = ownsTaskSession(node, task);
     const descendants = [...(children.get(node.id) || []).map((child) => render(child, seen)), ...(owner && task ? helpersOf(task.id, seen) : []),
-      ...(node.id === cfoID ? taskOnly.filter((item) => family.underCfo.has(item.id)).map((item) => renderTask(item)) : [])];
+      ...(node.id === ceoID ? taskOnly.filter((item) => family.underCeo.has(item.id)).map((item) => renderTask(item)) : [])];
     const title = sessionTitle(node, task);
     const activity = activityDisplay(effects,node.id,node.parent);
     const glow = activity.received || activity.created;
@@ -79,7 +79,7 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkT
     const relation = isHelper ? "Helper goblin" : node.parent
       ? byID.has(node.parent) ? node.relation || "Reported child"
         : snapshot.retired.includes(node.parent) ? "Retired parent" : "Parent unreported"
-      : node.role === "cfo" ? "" : "Parent unknown / unlinked";
+      : node.role === "ceo" ? "" : "Parent unknown / unlinked";
     return <li key={node.id} className="workflow-branch">
       {activity.communication && <span key={activity.communication.id} ref={playFrom(activity.communication.expires - EFFECT_MS)} className="compact-communication-pulse" style={{ animationDuration: EFFECT_MS + "ms" }} aria-hidden="true" />}
       {activity.creation && <span key={activity.creation.id} ref={playFrom(activity.creation.expires - EFFECT_MS)} className="compact-creation-highlight" style={{ animationDuration: EFFECT_MS + "ms" }} aria-hidden="true" />}
@@ -89,13 +89,13 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkT
           {glow && <span key={glow.id} ref={playFrom(glow.expires - EFFECT_MS)} className="activity-glow" aria-hidden="true" />}
           {owner && task ? <TaskCard task={task} {...cardFacts(task, snapshot, presentations)} selected={selected?.session === node.id || selected?.task === task.id} now={now}
             onSelect={selectTask} /> : <button className="node-select" aria-pressed={selected?.session === node.id}
-            onClick={(event) => onSelect(node.id === CFO_ROOT ? {} : { session: node.id }, event.currentTarget)}>
+            onClick={(event) => onSelect(node.id === CEO_ROOT ? {} : { session: node.id }, event.currentTarget)}>
             <Avatar persona={personaFor(task, node)} small /><span className="node-role">{sessionRole(node)}</span>
             <strong>{title}</strong>{presentations.some(a=>presentationShownOn(a,node,task))&&<span className="browser-indicator">Browser active</span>}{task?.project && <span className="project-label">{task.project}</span>}
-            {(!owner || task?.goblin_name) && node.role !== "cfo" && task?.title && <span className="node-task">Task: {withoutHarness(task.title)}</span>}
-            <span className="node-status">{nodeStatus(node.id === CFO_ROOT && family.cfo ? family.cfo : { id: node.id, title, task, session: node, relation }, false, snapshot.tasks, snapshot.merge_trains)}</span>
+            {(!owner || task?.goblin_name) && node.role !== "ceo" && task?.title && <span className="node-task">Task: {withoutHarness(task.title)}</span>}
+            <span className="node-status">{nodeStatus(node.id === CEO_ROOT && family.ceo ? family.ceo : { id: node.id, title, task, session: node, relation }, false, snapshot.tasks, snapshot.merge_trains)}</span>
           </button>}
-          {node.role === "cfo" && snapshot.cfo_runs && !snapshot.cfo_closed && <div className="node-facts"><CfoCardFacts snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpenCfo={onOpenCfo} /></div>}
+          {node.role === "ceo" && snapshot.ceo_runs && !snapshot.ceo_closed && <div className="node-facts"><CeoCardFacts snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpenCeo={onOpenCeo} /></div>}
           {descendants.length > 0 && <button className="node-disclosure" aria-expanded={!isCollapsed}
             aria-label={(isCollapsed ? "Expand" : "Collapse") + " children of " + title} onClick={() => toggle(node.id)}>
             <Chevron collapsed={isCollapsed} />
@@ -128,7 +128,7 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkT
       <p>Tasks and native sessions will appear here as they report. Parent connections use reported evidence.</p>
     </div> : <ul className="workflow-roots">
       {lineageRoots(sessions).filter((node) => !helperSessions.includes(node)).map((node) => render(node, new Set()))}
-      {taskOnly.filter((task) => !helperTasks.includes(task) && !family.underCfo.has(task.id)).map((task) => renderTask(task))}
+      {taskOnly.filter((task) => !helperTasks.includes(task) && !family.underCeo.has(task.id)).map((task) => renderTask(task))}
     </ul>}
   </section>;
 }

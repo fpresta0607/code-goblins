@@ -19,7 +19,7 @@ func (m Machine) shortcuts(context.Context) ([]Item, error) {
 		return nil, err
 	}
 	if remote.Origin != "" {
-		items = append(items, Item{Action: Remove, Group: GroupShortcuts, What: "its private Tailscale routes", Where: remote.Origin, Fix: "run cfo remote off on this PC, then run the uninstall again", do: func(ctx context.Context) error {
+		items = append(items, Item{Action: Remove, Group: GroupShortcuts, What: "its private Tailscale routes", Where: remote.Origin, Fix: "run ceo remote off on this PC, then run the uninstall again", do: func(ctx context.Context) error {
 			manager := remoteaccess.Manager{State: m.Home.State, Target: remote.Target, Commands: m.Commands}
 			return manager.Disable(ctx)
 		}})

@@ -62,7 +62,7 @@ func TestWorktreeTaskNamesTheGoblinWhoseWorktreeHoldsADirectory(t *testing.T) {
 		`C:\dev\app\gb-task-1`:                                        "",
 		`C:\dev\app\.worktrees\gb-bad id`:                             "",
 		`C:\Users\op\AppData\Local\CodeGoblins`:                       "",
-		`C:\dev\code-goblins\.worktrees\gb-cfo-native-board\internal`: "cfo-native-board",
+		`C:\dev\code-goblins\.worktrees\gb-ceo-native-board\internal`: "ceo-native-board",
 		`C:\home\worktrees\app\task-3\web`:                            "task-3",
 		`C:\home\worktrees\app\task-3-proof`:                          "task-3",
 		`C:\home\worktrees\app\never-recorded`:                        "never-recorded",
@@ -133,7 +133,7 @@ func flaggedPolls(t *testing.T, stateDir string) []Poll {
 
 // The incident this exists for: a goblin blocked on its own lavish-axi poll
 // told nobody, and the Overlord's answers on its page reached no one else.
-// The CFO hears of the poll once, with what to tell the goblin, and hears of
+// The CEO hears of the poll once, with what to tell the goblin, and hears of
 // the goblin's next poll too.
 func TestScanFlagsAGoblinsOwnPollOnceForAsLongAsItRuns(t *testing.T) {
 	now := time.Date(2026, 9, 25, 3, 0, 0, 0, time.UTC)
@@ -146,7 +146,7 @@ func TestScanFlagsAGoblinsOwnPollOnceForAsLongAsItRuns(t *testing.T) {
 	if event == nil || event.Kind != "review" || event.Key != "g1" || event.TaskID != "g1" {
 		t.Fatalf("event = %+v, want a review event for g1", event)
 	}
-	for _, want := range []string{"goblin g1 is polling " + poll.Page + " itself", "pid 4242", "cfo notify g1 --waiting-on overlord <why> --lavish <page>"} {
+	for _, want := range []string{"goblin g1 is polling " + poll.Page + " itself", "pid 4242", "ceo notify g1 --waiting-on overlord <why> --lavish <page>"} {
 		if !strings.Contains(event.Detail, want) {
 			t.Errorf("detail = %q, want %q", event.Detail, want)
 		}
@@ -174,14 +174,14 @@ func TestScanFlagsAGoblinsOwnPollOnceForAsLongAsItRuns(t *testing.T) {
 	}
 }
 
-// A retired goblin's poll has nobody left to tell, so the CFO is told to
+// A retired goblin's poll has nobody left to tell, so the CEO is told to
 // collect the questions itself and stop the poll. That is the PocketPiggies
 // page that waited behind a poll whose goblin was already gone.
-func TestScanFlagsARetiredGoblinsPollForTheCFOToAnswerItself(t *testing.T) {
+func TestScanFlagsARetiredGoblinsPollForTheCEOToAnswerItself(t *testing.T) {
 	now := time.Date(2026, 9, 25, 3, 0, 0, 0, time.UTC)
 	polls := &fakePolls{polls: []Poll{{PID: 77, Start: now, Task: "old-1", Page: `C:\work\old-1\.lavish\mockups.html`}}}
 	service := pollScanService(t, &now, polls)
-	if err := state.AppendStatus(service.StateDir, "old-1", "done: returned worktree via cfo cleanup"); err != nil {
+	if err := state.AppendStatus(service.StateDir, "old-1", "done: returned worktree via ceo cleanup"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -198,7 +198,7 @@ func TestScanFlagsARetiredGoblinsPollForTheCFOToAnswerItself(t *testing.T) {
 }
 
 // A poll in a worktree whose goblin this home never had is somebody else's,
-// a test fixture's or another home's, and waking the CFO for it would be noise.
+// a test fixture's or another home's, and waking the CEO for it would be noise.
 func TestScanNeverFlagsAPollOfAGoblinThisHomeNeverHad(t *testing.T) {
 	now := time.Date(2026, 9, 25, 3, 0, 0, 0, time.UTC)
 	polls := &fakePolls{polls: []Poll{{PID: 88, Start: now, Task: "stranger", Page: `C:\elsewhere\.lavish\p.html`}}}
@@ -246,8 +246,8 @@ func TestScanFlagsOnePollAtATimeAndLosesNone(t *testing.T) {
 }
 
 // The poll's event and a stall of the same goblin are different events, so
-// publishing one must not clear the other; both reach the CFO, once each.
-func TestAPollFlagAndAStallOfTheSameGoblinBothReachTheCFO(t *testing.T) {
+// publishing one must not clear the other; both reach the CEO, once each.
+func TestAPollFlagAndAStallOfTheSameGoblinBothReachTheCEO(t *testing.T) {
 	now := time.Date(2026, 9, 25, 3, 0, 0, 0, time.UTC)
 	polls := &fakePolls{polls: []Poll{{PID: 300, Start: now, Task: "g1", Page: `C:\work\g1\a.html`}}}
 	service := pollScanService(t, &now, polls, "g1")
@@ -306,7 +306,7 @@ func TestScanKeepsItsFlagsWhilePollsCannotBeListed(t *testing.T) {
 	}
 }
 
-// An older cfo decodes the heartbeat and every observation strictly and knows
+// An older ceo decodes the heartbeat and every observation strictly and knows
 // no review event in either, so a poll's flag and its pending event live in
 // a record of their own that only this build reads.
 func TestAPendingPollFlagLeavesTheRecordsAnOlderBinaryReadsUntouched(t *testing.T) {

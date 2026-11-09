@@ -1,4 +1,4 @@
-import { CFO_DOOR, expect, test } from "./site";
+import { CEO_DOOR, expect, test } from "./site";
 import { at, open, snapshot } from "./session-board";
 
 for (const width of [390, 1440]) {
@@ -8,9 +8,9 @@ for (const width of [390, 1440]) {
     const input = 'text(await tools.exec_command({cmd:"git status"}));\ntext("second line");';
     const call = { kind: "call", call_id: "call-1", tool: "exec", subject: "exec", input, state: "running" };
     const reply = { id: "reply-1", seq: 1, at, kind: "reply", blocks: [call, { kind: "text", text: prose }] };
-    await open(page, snapshot({ cfo_harness: "codex" }), undefined, { conversation: "fixture-conversation", more: false, messages: [{ id: "user-1", seq: 0, at, kind: "prompt", source: "overlord", text: prose }, reply] });
-    await page.getByRole("button", { name: CFO_DOOR }).first().click();
-    const messages = page.getByRole("log", { name: "Messages of CFO" });
+    await open(page, snapshot({ ceo_harness: "codex" }), undefined, { conversation: "fixture-conversation", more: false, messages: [{ id: "user-1", seq: 0, at, kind: "prompt", source: "overlord", text: prose }, reply] });
+    await page.getByRole("button", { name: CEO_DOOR }).first().click();
+    const messages = page.getByRole("log", { name: "Messages of CEO" });
     const detail = messages.locator("details.message-call");
     await expect(detail).toHaveCount(1);
     await expect(detail.locator("summary")).not.toContainText("text(await");

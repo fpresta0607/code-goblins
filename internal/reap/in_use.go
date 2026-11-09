@@ -25,7 +25,7 @@ const activityGrace = time.Hour
 // repository that holds it, as a session does whose subagents each work in a
 // worktree made under the session's checkout; or its HEAD, its index, its HEAD's
 // reflog or a file git sees in it changed within activityGrace. What cannot be
-// read keeps it. A task's own worktree is returned through cfo cleanup, which
+// read keeps it. A task's own worktree is returned through ceo cleanup, which
 // first ends what the task left running there.
 func (c Collector) markWorktreesInUse(ctx context.Context, inv *Inventory) {
 	tasks := make(map[string]Task, len(inv.Tasks))

@@ -19,7 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var ErrUnresolved = errors.New("pipeline: unresolved; a CFO decision is required")
+var ErrUnresolved = errors.New("pipeline: unresolved; a CEO decision is required")
 
 // terminalRunStatus is the set of native run statuses that are finished. Idle
 // asks the database for the same set; CheckStart asks it about one run.
@@ -48,7 +48,7 @@ func DefaultRoot() (string, error) {
 // cannot hold a command forever. The fleet's runners answer a read in process
 // (gatedb), in tens of milliseconds; a runner that starts sqlite3 for it
 // instead can take tens of seconds on a loaded machine just to start the
-// program: a 5 s bound failed `cfo pipeline recover` twice on 2026-10-20 while
+// program: a 5 s bound failed `ceo pipeline recover` twice on 2026-10-20 while
 // sqlite3 was installed and the database readable (#1286).
 const stateQueryTimeout = time.Minute
 
@@ -153,7 +153,7 @@ func sqlString(value string) string { return "'" + strings.ReplaceAll(value, "'"
 
 // ErrGateFileRequired is what a gate's start answers for a repository with
 // no committed gate file at the task's branch or at origin's default branch.
-// `cfo project check` reports a repository with none in these words, so the
+// `ceo project check` reports a repository with none in these words, so the
 // two cannot disagree about whether a gate run starts.
 var ErrGateFileRequired = errors.New("pipeline: readable committed task and origin default-branch .no-mistakes.yaml required")
 
@@ -397,7 +397,7 @@ func (r Reader) branchHead(ctx context.Context, worktree string) (string, error)
 
 // CheckRepoAgent says whether a policy refuses the agent a repository's gate
 // file names, given the file as the task's branch and as the default branch
-// have it. It is what a gate's start asks and what `cfo project check`
+// have it. It is what a gate's start asks and what `ceo project check`
 // reads, so a pin is judged by the code that would refuse the run. From
 // version 6 the run's own launch selection replaces whatever agent the
 // repository names, so no repository agent is refused.
@@ -539,9 +539,9 @@ func (r Reader) RunBranch(ctx context.Context, project, run string) (string, err
 }
 
 // Response is one answer to a parked gate. Accept names the open ask-user and
-// auto-fix findings the CFO, or on a spent review the task's own goblin, takes
+// auto-fix findings the CEO, or on a spent review the task's own goblin, takes
 // as they stand, with approve only. A recognized blank configured Test failure
-// also needs Accept and the CFO's Reason, which the native exception keeps.
+// also needs Accept and the CEO's Reason, which the native exception keeps.
 type Response struct{ Action, Findings, Instructions, Accept, Reason string }
 type finding struct {
 	ID          string `json:"id"`
@@ -562,7 +562,7 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 	// and Gate only returns a step the engine has already started, so a null
 	// limit on a parked review gate means the step is not auto-fixing.
 	if gate.Step == "review" && gate.AutoFixLimit != nil && *gate.AutoFixLimit != 0 {
-		return nil, errors.New("pipeline: active review limit differs from policy; leave this gate unresolved for the CFO")
+		return nil, errors.New("pipeline: active review limit differs from policy; leave this gate unresolved for the CEO")
 	}
 	var report struct {
 		Findings *[]finding `json:"findings"`
@@ -633,7 +633,7 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 			}
 		}
 		if response.Accept != "" {
-			// The CFO takes the open findings as they stand only by naming
+			// The CEO takes the open findings as they stand only by naming
 			// every one of them; an unrecognized blank action needs its fix.
 			named := strings.Split(response.Accept, ",")
 			slices.Sort(named)

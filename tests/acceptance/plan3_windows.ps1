@@ -5,8 +5,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-if ($env:CFO_PLAN3_REAL -ne '1') {
-    throw 'Plan 3 Windows acceptance is opt-in. Set CFO_PLAN3_REAL=1 to run it in a disposable environment.'
+if ($env:CEO_PLAN3_REAL -ne '1') {
+    throw 'Plan 3 Windows acceptance is opt-in. Set CEO_PLAN3_REAL=1 to run it in a disposable environment.'
 }
 
 function Invoke-Checked {
@@ -239,68 +239,68 @@ function Assert-FleetProjectionParity {
     }
 }
 
-function Test-CfoCleanupAvailable {
-    param([Parameter(Mandatory = $true)][string]$Cfo)
+function Test-CeoCleanupAvailable {
+    param([Parameter(Mandatory = $true)][string]$Ceo)
 
-    if (-not (Test-Path -LiteralPath $Cfo -PathType Leaf)) {
+    if (-not (Test-Path -LiteralPath $Ceo -PathType Leaf)) {
         return $false
     }
-    $output = @(& $Cfo cleanup --help 2>&1)
+    $output = @(& $Ceo cleanup --help 2>&1)
     $text = $output -join [Environment]::NewLine
-    return $LASTEXITCODE -eq 0 -and $text -match '(?m)usage:\s+cfo cleanup'
+    return $LASTEXITCODE -eq 0 -and $text -match '(?m)usage:\s+ceo cleanup'
 }
 
 function New-MissingCleanupBlocker {
     param([Parameter(Mandatory = $true)][string]$Root)
-    return "ACCEPTANCE BLOCKER: this cfo build has no cleanup command. Leaving disposable fixture intact at $Root because no direct worktree deletion outside cfo cleanup is permitted."
+    return "ACCEPTANCE BLOCKER: this ceo build has no cleanup command. Leaving disposable fixture intact at $Root because no direct worktree deletion outside ceo cleanup is permitted."
 }
 
-function Assert-CfoCleanupReady {
+function Assert-CeoCleanupReady {
     param(
-        [Parameter(Mandatory = $true)][string]$Cfo,
+        [Parameter(Mandatory = $true)][string]$Ceo,
         [Parameter(Mandatory = $true)][string]$Root
     )
 
-    if (-not (Test-CfoCleanupAvailable -Cfo $Cfo)) {
+    if (-not (Test-CeoCleanupAvailable -Ceo $Ceo)) {
         throw (New-MissingCleanupBlocker -Root $Root)
     }
 }
 
-function Initialize-DisposablePrimaryCfoHome {
+function Initialize-DisposablePrimaryCeoHome {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
-        [Parameter(Mandatory = $true)][string]$CfoHome
+        [Parameter(Mandatory = $true)][string]$CeoHome
     )
 
-    Assert-ContainedPath -Root $Root -Path $CfoHome -Description 'disposable CFO home'
-    $state = Join-Path $CfoHome 'state'
-    Assert-ContainedPath -Root $Root -Path $state -Description 'disposable CFO state directory'
+    Assert-ContainedPath -Root $Root -Path $CeoHome -Description 'disposable CEO home'
+    $state = Join-Path $CeoHome 'state'
+    Assert-ContainedPath -Root $Root -Path $state -Description 'disposable CEO state directory'
     New-Item -ItemType Directory -Path $state -Force -ErrorAction Stop | Out-Null
-    Set-Content -LiteralPath (Join-Path $CfoHome 'AGENTS.md') -Value '# Disposable CFO acceptance home.' -NoNewline
-    Invoke-Checked -FilePath 'git' -Arguments @('init', '--initial-branch=main', $CfoHome) -Description 'initialize disposable primary CFO home' | Out-Null
-    Assert-DisposablePrimaryCfoHome -Root $Root -CfoHome $CfoHome
+    Set-Content -LiteralPath (Join-Path $CeoHome 'AGENTS.md') -Value '# Disposable CEO acceptance home.' -NoNewline
+    Invoke-Checked -FilePath 'git' -Arguments @('init', '--initial-branch=main', $CeoHome) -Description 'initialize disposable primary CEO home' | Out-Null
+    Assert-DisposablePrimaryCeoHome -Root $Root -CeoHome $CeoHome
 }
 
-function Assert-DisposablePrimaryCfoHome {
+function Assert-DisposablePrimaryCeoHome {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
-        [Parameter(Mandatory = $true)][string]$CfoHome
+        [Parameter(Mandatory = $true)][string]$CeoHome
     )
 
-    Assert-ContainedPath -Root $Root -Path $CfoHome -Description 'disposable CFO home'
-    $agents = Join-Path $CfoHome 'AGENTS.md'
-    $state = Join-Path $CfoHome 'state'
+    Assert-ContainedPath -Root $Root -Path $CeoHome -Description 'disposable CEO home'
+    $agents = Join-Path $CeoHome 'AGENTS.md'
+    $state = Join-Path $CeoHome 'state'
     if (-not (Test-Path -LiteralPath $agents -PathType Leaf) -or -not (Test-Path -LiteralPath $state -PathType Container)) {
-        throw "ACCEPTANCE BLOCKER: disposable CFO home is missing AGENTS.md or state directory."
+        throw "ACCEPTANCE BLOCKER: disposable CEO home is missing AGENTS.md or state directory."
     }
-    $paths = @(Invoke-Checked -FilePath 'git' -Arguments @('-C', $CfoHome, 'rev-parse', '--git-dir', '--git-common-dir') -Description 'inspect disposable primary CFO Git paths' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+    $paths = @(Invoke-Checked -FilePath 'git' -Arguments @('-C', $CeoHome, 'rev-parse', '--git-dir', '--git-common-dir') -Description 'inspect disposable primary CEO Git paths' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
     if ($paths.Count -ne 2) {
-        throw "ACCEPTANCE BLOCKER: disposable CFO home Git probe returned $($paths.Count) paths, want two."
+        throw "ACCEPTANCE BLOCKER: disposable CEO home Git probe returned $($paths.Count) paths, want two."
     }
-    $gitDir = Get-FullPath (Join-Path $CfoHome $paths[0])
-    $commonDir = Get-FullPath (Join-Path $CfoHome $paths[1])
+    $gitDir = Get-FullPath (Join-Path $CeoHome $paths[0])
+    $commonDir = Get-FullPath (Join-Path $CeoHome $paths[1])
     if (-not [string]::Equals($gitDir, $commonDir, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "ACCEPTANCE BLOCKER: disposable CFO home is a linked worktree instead of a primary checkout."
+        throw "ACCEPTANCE BLOCKER: disposable CEO home is a linked worktree instead of a primary checkout."
     }
 }
 
@@ -314,7 +314,7 @@ function Remove-FixtureRoot {
     $fullTempRoot = (Get-FullPath $TempRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
     $parent = Split-Path -Parent $fullRoot
     $name = Split-Path -Leaf $fullRoot
-    if (-not [string]::Equals($parent, $fullTempRoot, [System.StringComparison]::OrdinalIgnoreCase) -or -not $name.StartsWith('cfo-plan3-windows-', [System.StringComparison]::OrdinalIgnoreCase)) {
+    if (-not [string]::Equals($parent, $fullTempRoot, [System.StringComparison]::OrdinalIgnoreCase) -or -not $name.StartsWith('ceo-plan3-windows-', [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "Refusing to remove non-fixture path $fullRoot."
     }
     Remove-Item -LiteralPath $fullRoot -Recurse -Force
@@ -322,12 +322,12 @@ function Remove-FixtureRoot {
 
 $repoRoot = Get-FullPath (Join-Path $PSScriptRoot '..\..')
 $tempRoot = [System.IO.Path]::GetTempPath()
-$fixtureRoot = Join-Path $tempRoot ('cfo-plan3-windows-' + [Guid]::NewGuid().ToString('N'))
-$cfoHome = Join-Path $fixtureRoot 'home'
+$fixtureRoot = Join-Path $tempRoot ('ceo-plan3-windows-' + [Guid]::NewGuid().ToString('N'))
+$ceoHome = Join-Path $fixtureRoot 'home'
 $origin = Join-Path $fixtureRoot 'origin.git'
 $project = Join-Path $fixtureRoot 'project'
-$cfo = Join-Path $fixtureRoot 'cfo.exe'
-$session = 'cfo-plan3-' + [Guid]::NewGuid().ToString('N')
+$ceo = Join-Path $fixtureRoot 'ceo.exe'
+$session = 'ceo-plan3-' + [Guid]::NewGuid().ToString('N')
 $marker = 'plan3-acceptance-' + [Guid]::NewGuid().ToString('N')
 $workers = @()
 $herdrProcess = $null
@@ -335,20 +335,20 @@ $cleanupReady = $false
 $cleanupCompleted = $false
 $primaryFailure = $null
 $cleanupFailure = $null
-$previousCfoHome = $env:CFO_HOME
-$previousStateOverride = $env:CFO_STATE_OVERRIDE
+$previousCeoHome = $env:CEO_HOME
+$previousStateOverride = $env:CEO_STATE_OVERRIDE
 $previousHerdrSession = $env:HERDR_SESSION
-$previousSignalGrace = $env:CFO_SIGNAL_GRACE
+$previousSignalGrace = $env:CEO_SIGNAL_GRACE
 
 if ($SelfTest -eq 'missing-cleanup') {
-    $missingCfo = Join-Path $fixtureRoot 'missing-cfo.exe'
-    Assert-CfoCleanupReady -Cfo $missingCfo -Root $fixtureRoot
-    throw 'Acceptance self-test expected a missing cfo cleanup command.'
+    $missingCeo = Join-Path $fixtureRoot 'missing-ceo.exe'
+    Assert-CeoCleanupReady -Ceo $missingCeo -Root $fixtureRoot
+    throw 'Acceptance self-test expected a missing ceo cleanup command.'
 }
 if ($SelfTest -eq 'primary-home') {
     try {
         New-Item -ItemType Directory -Path $fixtureRoot -ErrorAction Stop | Out-Null
-        Initialize-DisposablePrimaryCfoHome -Root $fixtureRoot -CfoHome $cfoHome
+        Initialize-DisposablePrimaryCeoHome -Root $fixtureRoot -CeoHome $ceoHome
         Write-Output 'Plan 3 primary-home self-test passed.'
     }
     finally {
@@ -374,9 +374,9 @@ if ($SelfTest -eq 'fleet-parity') {
         backend = 'herdr'
         artifact = ''
         path = 'C:\fixture\worker'
-        actions = [pscustomobject]@{ peek = 'cfo peek gb-accept-claude' }
+        actions = [pscustomobject]@{ peek = 'ceo peek gb-accept-claude' }
     }
-    $markdown = '| accept-claude | working / status | stale | 2m1s | 2026-08-13T12:34:56Z | 2 | yes | task | C:\fixture\project | herdr | fixture:pane:claude (present) | - | C:\fixture\worker | cfo peek gb-accept-claude |'
+    $markdown = '| accept-claude | working / status | stale | 2m1s | 2026-08-13T12:34:56Z | 2 | yes | task | C:\fixture\project | herdr | fixture:pane:claude (present) | - | C:\fixture\worker | ceo peek gb-accept-claude |'
     Assert-FleetProjectionParity -Row $row -Worker $worker -Markdown $markdown
     try {
         Assert-FleetProjectionParity -Row $row -Worker $worker -Markdown ($markdown.Replace('present', 'absent'))
@@ -400,7 +400,7 @@ if ($SelfTest -eq 'fleet-parity') {
     return
 }
 if ($SelfTest -eq 'escaping-worker-path') {
-    $escapingWorker = Join-Path $tempRoot 'cfo-plan3-worker-outside-fixture'
+    $escapingWorker = Join-Path $tempRoot 'ceo-plan3-worker-outside-fixture'
     Assert-ContainedPath -Root $fixtureRoot -Path $escapingWorker -Description 'worker worktree'
     throw 'Acceptance self-test expected an escaping worker worktree to be refused.'
 }
@@ -408,27 +408,27 @@ if ($SelfTest -ne '') {
     throw "Unknown Plan 3 acceptance self-test $SelfTest."
 }
 
-$env:CFO_HOME = $cfoHome
-$env:CFO_STATE_OVERRIDE = Join-Path $cfoHome 'state'
+$env:CEO_HOME = $ceoHome
+$env:CEO_STATE_OVERRIDE = Join-Path $ceoHome 'state'
 
 try {
     New-Item -ItemType Directory -Path $fixtureRoot -ErrorAction Stop | Out-Null
-    Assert-ContainedPath -Root $fixtureRoot -Path $cfoHome -Description 'CFO home'
+    Assert-ContainedPath -Root $fixtureRoot -Path $ceoHome -Description 'CEO home'
     Assert-ContainedPath -Root $fixtureRoot -Path $origin -Description 'fixture Git origin'
     Assert-ContainedPath -Root $fixtureRoot -Path $project -Description 'fixture Git project'
-    Assert-ContainedPath -Root $fixtureRoot -Path $cfo -Description 'CFO binary'
-    Initialize-DisposablePrimaryCfoHome -Root $fixtureRoot -CfoHome $cfoHome
+    Assert-ContainedPath -Root $fixtureRoot -Path $ceo -Description 'CEO binary'
+    Initialize-DisposablePrimaryCeoHome -Root $fixtureRoot -CeoHome $ceoHome
 
     Push-Location $repoRoot
     try {
         Invoke-Checked -FilePath 'go' -Arguments @('vet', './...') -Description 'go vet ./...' | Out-Host
         Invoke-Checked -FilePath 'go' -Arguments @('test', './...', '-count=1') -Description 'go test ./... -count=1' | Out-Host
-        Invoke-Checked -FilePath 'go' -Arguments @('build', '-o', $cfo, './cmd/cfo') -Description 'go build cfo.exe' | Out-Host
+        Invoke-Checked -FilePath 'go' -Arguments @('build', '-o', $ceo, './cmd/ceo') -Description 'go build ceo.exe' | Out-Host
     }
     finally {
         Pop-Location
     }
-    Assert-CfoCleanupReady -Cfo $cfo -Root $fixtureRoot
+    Assert-CeoCleanupReady -Ceo $ceo -Root $fixtureRoot
     $cleanupReady = $true
 
     Invoke-Checked -FilePath 'git' -Arguments @('init', '--bare', '--initial-branch=main', $origin) -Description 'initialize disposable bare origin' | Out-Host
@@ -441,13 +441,13 @@ try {
     Invoke-Checked -FilePath 'git' -Arguments @('-C', $project, 'push', '-u', 'origin', 'main') -Description 'push disposable project seed' | Out-Host
 
     $env:HERDR_SESSION = $session
-    $env:CFO_SIGNAL_GRACE = '1'
+    $env:CEO_SIGNAL_GRACE = '1'
 
-    $doctor = @(& $cfo doctor 2>&1)
+    $doctor = @(& $ceo doctor 2>&1)
     $doctorText = $doctor -join [Environment]::NewLine
     foreach ($tool in @('git', 'herdr', 'claude', 'codex', 'pi')) {
         if ($doctorText -notmatch "(?m)^ok\s+$tool\s+") {
-            throw "ACCEPTANCE BLOCKER: cfo doctor did not report usable $tool for the real-session target.`n$doctorText"
+            throw "ACCEPTANCE BLOCKER: ceo doctor did not report usable $tool for the real-session target.`n$doctorText"
         }
     }
     foreach ($tool in @('tasks-axi', 'quota-axi')) {
@@ -477,7 +477,7 @@ try {
 
     foreach ($harness in @('claude', 'codex', 'pi')) {
         $id = 'accept-' + $harness
-        $brief = Invoke-Checked -FilePath $cfo -Arguments @('brief', $id, '--project', $project, '--mode', 'local-only') -Description "create $harness acceptance brief"
+        $brief = Invoke-Checked -FilePath $ceo -Arguments @('brief', $id, '--project', $project, '--mode', 'local-only') -Description "create $harness acceptance brief"
         Assert-ContainedPath -Root $fixtureRoot -Path $brief -Description "$harness brief"
         @(
             "# Brief $id",
@@ -509,13 +509,13 @@ try {
             'mode: local-only',
             'ready: false'
         ) | Set-Content -LiteralPath $brief
-        Invoke-Checked -FilePath $cfo -Arguments @('brief', 'ready', $id) -Description "finalize $harness acceptance brief" | Out-Host
+        Invoke-Checked -FilePath $ceo -Arguments @('brief', 'ready', $id) -Description "finalize $harness acceptance brief" | Out-Host
 
-        $spawn = Invoke-Checked -FilePath $cfo -Arguments @('spawn', $id, '--project', $project, '--brief', $brief, '--harness', $harness, '--mode', 'local-only') -Description "spawn $harness acceptance worker"
+        $spawn = Invoke-Checked -FilePath $ceo -Arguments @('spawn', $id, '--project', $project, '--brief', $brief, '--harness', $harness, '--mode', 'local-only') -Description "spawn $harness acceptance worker"
         $worker = [pscustomobject]@{ ID = $id; Worktree = $null; Meta = $null }
         $workers += $worker
         Write-Host ($spawn -join [Environment]::NewLine)
-        $metaPath = Join-Path $cfoHome (Join-Path 'state' ($id + '.meta'))
+        $metaPath = Join-Path $ceoHome (Join-Path 'state' ($id + '.meta'))
         $meta = Read-TaskMeta -Path $metaPath
         $worktree = Assert-MetaValue -Meta $meta -Name 'worktree' -Description $id
         Assert-ContainedPath -Root $fixtureRoot -Path $worktree -Description "$id worker worktree"
@@ -542,43 +542,43 @@ try {
             throw "ACCEPTANCE BLOCKER: $id workspace has $($taskTabs.Count) matching task tabs, want exactly one."
         }
 
-        $peek = @(& $cfo peek ('gb-' + $id) 200 2>&1)
+        $peek = @(& $ceo peek ('gb-' + $id) 200 2>&1)
         if ($LASTEXITCODE -ne 0) {
-            throw "ACCEPTANCE BLOCKER: cfo peek failed for $id.`n$($peek -join [Environment]::NewLine)"
+            throw "ACCEPTANCE BLOCKER: ceo peek failed for $id.`n$($peek -join [Environment]::NewLine)"
         }
         $peekText = $peek -join [Environment]::NewLine
         if ($peekText -notmatch [regex]::Escape($marker) -and $peekText -notmatch '(?i)starting|loading|working|initializ') {
-            throw "ACCEPTANCE BLOCKER: cfo peek for $id has neither the marker nor a documented startup-progress response.`n$peekText"
+            throw "ACCEPTANCE BLOCKER: ceo peek for $id has neither the marker nor a documented startup-progress response.`n$peekText"
         }
 
-        $send = Invoke-Checked -FilePath $cfo -Arguments @('send', ('gb-' + $id), "print the acceptance marker $marker and exit") -Description "send acceptance marker to $id"
+        $send = Invoke-Checked -FilePath $ceo -Arguments @('send', ('gb-' + $id), "print the acceptance marker $marker and exit") -Description "send acceptance marker to $id"
         if (($send -join [Environment]::NewLine) -notmatch ('sent gb-' + [regex]::Escape($id))) {
-            throw "ACCEPTANCE BLOCKER: cfo send did not confirm delivery for $id."
+            throw "ACCEPTANCE BLOCKER: ceo send did not confirm delivery for $id."
         }
     }
 
-    $watchStatus = Join-Path $cfoHome 'state\acceptance-watch.status'
+    $watchStatus = Join-Path $ceoHome 'state\acceptance-watch.status'
     Assert-ContainedPath -Root $fixtureRoot -Path $watchStatus -Description 'fixture watch trigger'
     Set-Content -LiteralPath $watchStatus -Value 'working: fixture monitor trigger' -NoNewline
-    & $cfo watch
+    & $ceo watch
     if ($LASTEXITCODE -ne 0) {
-        throw 'ACCEPTANCE BLOCKER: cfo watch failed before monitor inspection.'
+        throw 'ACCEPTANCE BLOCKER: ceo watch failed before monitor inspection.'
     }
     foreach ($worker in $workers) {
-        $observation = Join-Path $cfoHome (Join-Path 'state\monitor\tasks' ($worker.ID + '.json'))
+        $observation = Join-Path $ceoHome (Join-Path 'state\monitor\tasks' ($worker.ID + '.json'))
         if (-not (Test-Path -LiteralPath $observation -PathType Leaf)) {
-            throw "ACCEPTANCE BLOCKER: cfo watch did not persist a monitor observation for $($worker.ID). Plan 3 real-session monitoring cannot claim busy protection, stale escalation, deep inspection, unknown handling, or restart persistence."
+            throw "ACCEPTANCE BLOCKER: ceo watch did not persist a monitor observation for $($worker.ID). Plan 3 real-session monitoring cannot claim busy protection, stale escalation, deep inspection, unknown handling, or restart persistence."
         }
     }
 
-    $fleetJsonText = (@(& $cfo fleet-view --json 2>&1) -join [Environment]::NewLine)
+    $fleetJsonText = (@(& $ceo fleet-view --json 2>&1) -join [Environment]::NewLine)
     if ($LASTEXITCODE -ne 0) {
-        throw "ACCEPTANCE BLOCKER: cfo fleet-view --json failed.`n$fleetJsonText"
+        throw "ACCEPTANCE BLOCKER: ceo fleet-view --json failed.`n$fleetJsonText"
     }
     $fleetJson = $fleetJsonText | ConvertFrom-Json -ErrorAction Stop
-    $fleetMarkdown = (@(& $cfo fleet-view 2>&1) -join [Environment]::NewLine)
+    $fleetMarkdown = (@(& $ceo fleet-view 2>&1) -join [Environment]::NewLine)
     if ($LASTEXITCODE -ne 0) {
-        throw "ACCEPTANCE BLOCKER: cfo fleet-view failed.`n$fleetMarkdown"
+        throw "ACCEPTANCE BLOCKER: ceo fleet-view failed.`n$fleetMarkdown"
     }
     foreach ($worker in $workers) {
         $row = @($fleetJson.tasks | Where-Object { $_.id -eq $worker.ID })
@@ -606,21 +606,21 @@ finally {
     }
     else {
         foreach ($worker in $workers) {
-            $output = @(& $cfo cleanup $worker.ID 2>&1)
+            $output = @(& $ceo cleanup $worker.ID 2>&1)
             if ($LASTEXITCODE -ne 0) {
-                $cleanupFailure = "ACCEPTANCE BLOCKER: cfo cleanup failed for $($worker.ID). Leaving fixture intact.`n$($output -join [Environment]::NewLine)"
+                $cleanupFailure = "ACCEPTANCE BLOCKER: ceo cleanup failed for $($worker.ID). Leaving fixture intact.`n$($output -join [Environment]::NewLine)"
                 [Console]::Error.WriteLine($cleanupFailure)
                 $cleanupFailed = $true
                 break
             }
             if ([string]::IsNullOrWhiteSpace($worker.Worktree)) {
-                $cleanupFailure = "ACCEPTANCE BLOCKER: cfo cleanup succeeded for $($worker.ID), but its worker worktree was not recorded. Leaving fixture intact because cleanup cannot be proven."
+                $cleanupFailure = "ACCEPTANCE BLOCKER: ceo cleanup succeeded for $($worker.ID), but its worker worktree was not recorded. Leaving fixture intact because cleanup cannot be proven."
                 [Console]::Error.WriteLine($cleanupFailure)
                 $cleanupFailed = $true
                 break
             }
             if (Test-Path -LiteralPath $worker.Worktree) {
-                $cleanupFailure = "ACCEPTANCE BLOCKER: cfo cleanup returned success but left $($worker.Worktree). Leaving fixture intact."
+                $cleanupFailure = "ACCEPTANCE BLOCKER: ceo cleanup returned success but left $($worker.Worktree). Leaving fixture intact."
                 [Console]::Error.WriteLine($cleanupFailure)
                 $cleanupFailed = $true
                 break
@@ -651,10 +651,10 @@ finally {
     else {
         [Console]::Error.WriteLine("Disposable fixture preserved for manual recovery: $fixtureRoot")
     }
-    $env:CFO_HOME = $previousCfoHome
-    $env:CFO_STATE_OVERRIDE = $previousStateOverride
+    $env:CEO_HOME = $previousCeoHome
+    $env:CEO_STATE_OVERRIDE = $previousStateOverride
     $env:HERDR_SESSION = $previousHerdrSession
-    $env:CFO_SIGNAL_GRACE = $previousSignalGrace
+    $env:CEO_SIGNAL_GRACE = $previousSignalGrace
 }
 
 if ($null -ne $primaryFailure) {

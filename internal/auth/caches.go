@@ -43,7 +43,7 @@ var cacheVars = []struct {
 }
 
 // CacheEnv returns the shared cache redirects under caches, the home's
-// Caches(). A variable the CFO's own environment already sets is left alone
+// Caches(). A variable the CEO's own environment already sets is left alone
 // and reported as inherited: an operator who has already pointed an ecosystem
 // at a tuned location has made the decision this function exists to make, and
 // overriding it would strand whatever is already warm there.
@@ -82,9 +82,9 @@ const (
 	// over the shared caches, and the launch treats a name the project
 	// already set as taken.
 	CacheSourceProject = "project"
-	// CacheSourceCFO is the shared root under the CFO home, which is what
+	// CacheSourceCEO is the shared root under the CEO home, which is what
 	// CacheEnv sets for everything nothing else claimed.
-	CacheSourceCFO = "cfo"
+	CacheSourceCEO = "ceo"
 	// CacheSourceInherited is a location the operator's own environment
 	// already set, which CacheEnv leaves alone rather than overriding.
 	CacheSourceInherited = "inherited"
@@ -92,20 +92,20 @@ const (
 
 // CacheAudit lists every cache variable and where that ecosystem actually
 // builds, including the ones inherited or declared rather than set. It exists
-// because CacheEnv returns only what the CFO itself sets, and an audit that
+// because CacheEnv returns only what the CEO itself sets, and an audit that
 // showed only that would be silent about exactly the variables somebody
 // tuned: absent, inherited, and project-declared would all read the same.
 //
 // projectEnv is the project's own worktree manifest env block, which is why
-// this takes an argument the launch path does not. `cfo auth <project> --env`
+// this takes an argument the launch path does not. `ceo auth <project> --env`
 // answers "where does THIS project's goblin build", and a project that
 // declares a location overrides the shared root in both real consumers - the
 // dependency install and the pane - so an audit that reported the machine
 // value there would name a directory nothing uses.
 //
 // It is deliberately not what the launch path uses. CacheEnv still decides
-// what a pane inherits from the CFO, so nothing here can hand a pane back a
-// location the CFO never set.
+// what a pane inherits from the CEO, so nothing here can hand a pane back a
+// location the CEO never set.
 func CacheAudit(caches string, projectEnv map[string]string) []CacheRedirect {
 	if caches == "" {
 		return nil
@@ -118,7 +118,7 @@ func CacheAudit(caches string, projectEnv map[string]string) []CacheRedirect {
 			continue
 		}
 		if path, redirected := set[cache.name]; redirected {
-			audit = append(audit, CacheRedirect{Name: cache.name, Path: path, Source: CacheSourceCFO})
+			audit = append(audit, CacheRedirect{Name: cache.name, Path: path, Source: CacheSourceCEO})
 			continue
 		}
 		audit = append(audit, CacheRedirect{Name: cache.name, Path: os.Getenv(cache.name), Source: CacheSourceInherited})

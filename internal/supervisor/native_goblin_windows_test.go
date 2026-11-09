@@ -27,14 +27,14 @@ func writeNativeTask(t *testing.T, stateDir, id string) state.TaskMeta {
 
 // A harness that dies while it compacts never reports the end, so the board's
 // snapshot says a goblin compacts only while its terminal is up, whatever its
-// session's record last heard. The CFO's is read from its live session alone,
+// session's record last heard. The CEO's is read from its live session alone,
 // so the snapshot leaves it as it was heard.
 func TestACompactionReadsOnlyWhileItsGoblinsTerminalIsUp(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	meta := makeNative(t, h.State, "task-1")
 	goblin := goblinTerminal(t, h.State, meta.ID)
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}}}
 	now := time.Now().UTC()
 	for _, heard := range []nativehook.Event{event(t, h, "SessionStart", "goblin-session", "", now), event(t, h, "PreCompact", "goblin-session", "turn", now.Add(time.Millisecond))} {
 		if err := store.Accept(heard); err != nil {
@@ -42,7 +42,7 @@ func TestACompactionReadsOnlyWhileItsGoblinsTerminalIsUp(t *testing.T) {
 		}
 	}
 	store.mu.Lock()
-	store.db.Sessions["claude/cfo-session"] = Session{ID: "claude/cfo-session", Harness: "claude", Role: "cfo", IsCompacting: true}
+	store.db.Sessions["claude/ceo-session"] = Session{ID: "claude/ceo-session", Harness: "claude", Role: "ceo", IsCompacting: true}
 	err := store.save()
 	store.mu.Unlock()
 	if err != nil {
@@ -67,11 +67,11 @@ func TestACompactionReadsOnlyWhileItsGoblinsTerminalIsUp(t *testing.T) {
 	after := compacting()
 
 	// Assert
-	if !during["goblin"] || !during["cfo"] {
+	if !during["goblin"] || !during["ceo"] {
 		t.Errorf("with its terminal up = %v, want both compacting", during)
 	}
-	if after["goblin"] || !after["cfo"] {
-		t.Errorf("after its terminal ended = %v, want the goblin's compaction gone and the CFO's as it was", after)
+	if after["goblin"] || !after["ceo"] {
+		t.Errorf("after its terminal ended = %v, want the goblin's compaction gone and the CEO's as it was", after)
 	}
 }
 
@@ -111,7 +111,7 @@ func TestANativeGoblinAsksFromItsOwnTerminalOnly(t *testing.T) {
 }
 
 // Git Bash runs an MSYS program such as timeout by replacing its own Windows
-// process, so `timeout 60 cfo notify ...` has a parent that already exited and
+// process, so `timeout 60 ceo notify ...` has a parent that already exited and
 // its chain of parents never reaches the goblin's program: cg-board-polish's
 // page wait was refused that way on 2026-09-30. The proof value its
 // terminal's host put in the terminal's environment still proves where it
@@ -158,7 +158,7 @@ func TestTheOverlordsAnswerReachesANativeGoblinOnce(t *testing.T) {
 	goblin := hostTerminal(t, stateDir, "task-9")
 	goblin.typeLine(t, "harness")
 
-	result, err := (&CFOConnection{State: stateDir}).SendGoblin(context.Background(), "task-9", goblinIdentity(meta), "The Overlord answered your question on the board.\nAnswer: yes")
+	result, err := (&CEOConnection{State: stateDir}).SendGoblin(context.Background(), "task-9", goblinIdentity(meta), "The Overlord answered your question on the board.\nAnswer: yes")
 
 	if err != nil || !strings.Contains(result.Reason, "native terminal") {
 		t.Errorf("SendGoblin = %+v, %v; want it accepted in the native terminal", result, err)
@@ -182,7 +182,7 @@ func TestAnAnswerForARestartedNativeGoblinIsRefused(t *testing.T) {
 	goblin := hostTerminal(t, stateDir, "task-9")
 	goblin.typeLine(t, "harness")
 
-	_, err := (&CFOConnection{State: stateDir}).SendGoblin(context.Background(), "task-9", goblinIdentity(earlier), "Answer: yes")
+	_, err := (&CEOConnection{State: stateDir}).SendGoblin(context.Background(), "task-9", goblinIdentity(earlier), "Answer: yes")
 
 	if !errors.Is(err, ErrRejected) || !strings.Contains(err.Error(), "nothing was sent") {
 		t.Errorf("SendGoblin error = %v, want a refusal with nothing sent", err)
@@ -210,8 +210,8 @@ func TestANativeGoblinsSendToItsChildNamesItAsSender(t *testing.T) {
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CFO_SESSION_ID", "parent-1")
-	t.Setenv("CFO_SESSION_HARNESS", "claude")
+	t.Setenv("CEO_SESSION_ID", "parent-1")
+	t.Setenv("CEO_SESSION_HARNESS", "claude")
 	parent := hostTerminal(t, h.State, "task-9")
 
 	parent.typeLine(t, "send gb-task-1")

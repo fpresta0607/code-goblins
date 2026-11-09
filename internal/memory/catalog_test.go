@@ -108,7 +108,7 @@ func TestCatalogRejectsCorruptMissingOrUnapprovedAuthority(t *testing.T) {
 		{"not live", func(c *Catalog) { c.Sources[3].Entries[0].Approval.Destination = "a future skill" }},
 		{"unknown supersession", func(c *Catalog) { c.Sources[1].Entries[0].Supersedes = []string{"missing"} }},
 		{"layer conflict", func(c *Catalog) {
-			c.Layers = []Layer{{Name: "one", Classes: []string{"facts", "facts"}, Owner: "CFO", Capture: "owner", Correction: "owner"}}
+			c.Layers = []Layer{{Name: "one", Classes: []string{"facts", "facts"}, Owner: "CEO", Capture: "owner", Correction: "owner"}}
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

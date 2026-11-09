@@ -31,7 +31,7 @@ type queuedBlock struct {
 }
 
 // ReorderQueued rewrites data\backlog.md's Queued section so its rows run in
-// order, top first, which is the order the CFO dispatches in. A row moves
+// order, top first, which is the order the CEO dispatches in. A row moves
 // with its indented detail lines; notes, parked rows, the rows of tasks in
 // live, which are in progress rather than queued, and every other section
 // stay where they are. added holds the row to write for each task in order

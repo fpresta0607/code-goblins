@@ -15,12 +15,12 @@ import (
 )
 
 // RecordName is the services record in the home's state folder: every
-// project's stack, who holds it, and whether cfo started the engine.
+// project's stack, who holds it, and whether ceo started the engine.
 const RecordName = "services.json"
 
-// Record is what cfo knows of the stacks it started or shares.
+// Record is what ceo knows of the stacks it started or shares.
 type Record struct {
-	// Engine says whether cfo started the Docker engine, which it then
+	// Engine says whether ceo started the Docker engine, which it then
 	// stops once no stack it holds is left.
 	Engine Engine `json:"engine"`
 	// Stacks is each project's stack, by project name. A stack nobody holds
@@ -28,9 +28,9 @@ type Record struct {
 	Stacks map[string]Stack `json:"stacks,omitempty"`
 }
 
-// Engine is the Docker engine as cfo found it.
+// Engine is the Docker engine as ceo found it.
 type Engine struct {
-	StartedByCFO bool      `json:"started_by_cfo"`
+	StartedByCEO bool      `json:"started_by_ceo"`
 	Since        time.Time `json:"since,omitzero"`
 }
 
@@ -43,12 +43,12 @@ type Stack struct {
 	// Services are the services the holders asked for.
 	Services []string `json:"services,omitempty"`
 	// Holders are the tasks holding the stack. The stack is up while any
-	// does, and the last to release it stops what cfo started.
+	// does, and the last to release it stops what ceo started.
 	Holders []Hold `json:"holders,omitempty"`
-	// Owned says cfo started the stack from nothing, so the last release
+	// Owned says ceo started the stack from nothing, so the last release
 	// takes the whole compose project down.
 	Owned bool `json:"owned,omitempty"`
-	// Started are the services cfo started beside a stack that was already
+	// Started are the services ceo started beside a stack that was already
 	// running when it came, which the last release stops and nothing else.
 	Started []string `json:"started,omitempty"`
 	// Since is when the stack came up for its holders.
@@ -68,7 +68,7 @@ type Hold struct {
 }
 
 // Cost is the memory a stack takes from the machine, engine included when
-// cfo started the engine for it: the larger of the drop in available memory
+// ceo started the engine for it: the larger of the drop in available memory
 // while it started and the rise while it stopped, in its latest run.
 type Cost struct {
 	Bytes      uint64    `json:"bytes"`

@@ -73,8 +73,8 @@ func (r Reader) newestRun(ctx context.Context, where string) (Progress, error) {
 // different thing from a custody nobody could read: a caller that cannot read
 // custody must fail closed and say so, never claim a hold it did not see.
 var (
-	ErrCustodyHeld        = errors.New("pipeline owns this task; use cfo pipeline respond or inspect its delivery evidence")
-	ErrCustodyNotReturned = errors.New("pipeline custody has not been returned; use cfo pipeline recover")
+	ErrCustodyHeld        = errors.New("pipeline owns this task; use ceo pipeline respond or inspect its delivery evidence")
+	ErrCustodyNotReturned = errors.New("pipeline custody has not been returned; use ceo pipeline recover")
 )
 
 // CanSteer is a read-only custody check. A failed or cancelled unpublished

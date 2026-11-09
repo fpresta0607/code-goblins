@@ -8,8 +8,8 @@ import { watchEffects } from "./effect-watch";
 import "../../src/styles.css";
 import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 
-// A CFO with one goblin under it. Report makes the goblin report something
-// new: a status line (report), a message the CFO sent it (message) or its
+// A CEO with one goblin under it. Report makes the goblin report something
+// new: a status line (report), a message the CEO sent it (message) or its
 // native creation (created), in Orchestration or, with compact-, in the
 // narrow screen's nested list. Report and Watch start watching the effects
 // afresh; Follow up reports again and keeps the watch already running.
@@ -19,7 +19,7 @@ const FIXED_NOW = Date.parse("2026-10-01T12:00:00Z");
 const session = (id: string, role: string, parent: string, task: string) => ({ id, native_id: id, harness: "codex", role, task_id: task, generation: "1", parent, relation: parent ? "Spawned" : "", phase: "working" });
 const base = {
   healthy: true, instance: "fixture",
-  sessions: [session("cfo", "cfo", "", ""), session("goblin", "goblin", "cfo", "build")],
+  sessions: [session("ceo", "ceo", "", ""), session("goblin", "goblin", "ceo", "build")],
   tasks: [{ id: "build", title: "Build the parser", project: "code-goblins", phase: "working", generation: "1", session: "goblin", verified: false, activity: "working: step 0" }],
 };
 
@@ -36,7 +36,7 @@ function PulseEnd() {
     const kind = mode.replace("compact-", "");
     setSnapshot(parseSnapshot(kind === "report"
       ? { ...base, revision: count, tasks: [{ ...base.tasks[0], activity: "working: step " + count }] }
-      : { ...base, revision: count, activity: [{ id: "event-" + count, kind, task_id: "build", generation: "1", source: "cfo", target: "goblin", state: "accepted", at: new Date().toISOString() }] }));
+      : { ...base, revision: count, activity: [{ id: "event-" + count, kind, task_id: "build", generation: "1", source: "ceo", target: "goblin", state: "accepted", at: new Date().toISOString() }] }));
   };
   return <main>
     <button onClick={() => { watch(); send(); }}>Report</button>
@@ -44,8 +44,8 @@ function PulseEnd() {
     <button onClick={watch}>Watch</button>
     <div id="effects" style={{ height: 900, display: "flex", flexDirection: "column" }}>
       {mode.startsWith("compact-")
-        ? <Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={effects} presentations={[]} now={FIXED_NOW} freshNow={FIXED_NOW} onSelect={() => {}} />
-        : <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={effects} presentations={[]} now={FIXED_NOW} freshNow={FIXED_NOW} onSelect={() => {}} onChild={() => {}} />}
+        ? <Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} project="" selected={null} effects={effects} presentations={[]} now={FIXED_NOW} freshNow={FIXED_NOW} onSelect={() => {}} />
+        : <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} selected="" connected effects={effects} presentations={[]} now={FIXED_NOW} freshNow={FIXED_NOW} onSelect={() => {}} onChild={() => {}} />}
     </div>
   </main>;
 }

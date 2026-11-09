@@ -115,15 +115,15 @@ func TestMatchPrefersAHarnessRuleOverACatchAllWhicheverComesFirst(t *testing.T) 
 
 func TestCommandRendersTheSwitchTheRuleCallsFor(t *testing.T) {
 	rule := Rule{Switch: Switch{Harness: "claude", Model: "opus", Effort: "xhigh"}}
-	if got, want := rule.Command("qm-v4"), "cfo switch qm-v4 --harness claude --model opus --effort xhigh"; got != want {
+	if got, want := rule.Command("qm-v4"), "ceo switch qm-v4 --harness claude --model opus --effort xhigh"; got != want {
 		t.Errorf("Command = %q, want %q", got, want)
 	}
 	bare := Rule{Switch: Switch{Harness: "codex"}}
-	if got, want := bare.Command("g1"), "cfo switch g1 --harness codex"; got != want {
+	if got, want := bare.Command("g1"), "ceo switch g1 --harness codex"; got != want {
 		t.Errorf("Command = %q, want %q", got, want)
 	}
 	forced := Rule{Switch: Switch{Harness: "claude", Model: "opus", Effort: "xhigh"}, ForceDirty: true}
-	if got, want := forced.Command("qm-v4"), "cfo switch qm-v4 --harness claude --model opus --effort xhigh --force-dirty"; got != want {
+	if got, want := forced.Command("qm-v4"), "ceo switch qm-v4 --harness claude --model opus --effort xhigh --force-dirty"; got != want {
 		t.Errorf("Command = %q, want %q", got, want)
 	}
 }
@@ -135,12 +135,12 @@ func write(t *testing.T, dir, content string) {
 	}
 }
 
-func TestDetectDoesNotReadACFOsteerAsARateLimit(t *testing.T) {
-	// The real false positive: the CFO's own steer echoed into the composer
+func TestDetectDoesNotReadACEOsteerAsARateLimit(t *testing.T) {
+	// The real false positive: the CEO's own steer echoed into the composer
 	// contained the phrase "rate limit" in prose, with no error framing.
 	steer := "this is them, not you, and not a model rate limit, so no harness switch"
 	if fault, _, found := Detect(steer); found {
-		t.Errorf("Detect(%q) = %q, want no fault in conversational CFO text", steer, fault)
+		t.Errorf("Detect(%q) = %q, want no fault in conversational CEO text", steer, fault)
 	}
 }
 
@@ -237,7 +237,7 @@ func TestDetectNeedsTheShapeOfARefusalForARateLimit(t *testing.T) {
 		{"a goblin recounting the session limit", "the gate died when the account hit your session limit earlier", false},
 		// Claude Code's warning as a limit nears names the limit and its reset
 		// as the refusal does, while the harness works on: on 2026-10-08 it
-		// woke the CFO five times as a rate limit.
+		// woke the CEO five times as a rate limit.
 		{"Claude Code's weekly usage notice", "You've used 76% of your weekly limit · resets Oct 13, 10am", false},
 		{"the weekly usage notice with its time zone", "You've used 76% of your weekly limit · resets Oct 13, 10am (America/Chicago)", false},
 		{"the usage notice under a tool result", "  ⎿  You've used 90% of your session limit · resets 3:30pm (America/Chicago)", false},

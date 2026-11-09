@@ -73,15 +73,15 @@ func TestTheSweepEndsWhatAGoneTerminalLeftAndNeverWhatIsNotItsOwn(t *testing.T) 
 		// A gate's agent the daemon started with the goblin's environment.
 		process(40, 904, "no-mistakes.exe", at(6), lifecycle.Process{Arguments: []string{"no-mistakes", "daemon", "run"}, Mark: mark}),
 		process(41, 40, "codex.exe", at(7), lifecycle.Process{Directory: elsewhere, Mark: mark, IsGateAgent: true}),
-		// The CFO reading the paused goblin's worktree from its own terminal.
-		process(50, 0, "bash.exe", at(8), lifecycle.Process{Directory: elsewhere, Mark: lifecycle.Mark{Terminal: "cfo", ProofSum: "cfo-digest"}}),
+		// The CEO reading the paused goblin's worktree from its own terminal.
+		process(50, 0, "bash.exe", at(8), lifecycle.Process{Directory: elsewhere, Mark: lifecycle.Mark{Terminal: "ceo", ProofSum: "ceo-digest"}}),
 		process(51, 50, "git.exe", at(9), lifecycle.Process{Directory: scratch}),
 		// A program that is nobody's the sweep knows.
 		process(60, 905, "node.exe", at(10), lifecycle.Process{Directory: elsewhere}),
 	}
 	owners := []Owner{
 		{ID: "gb-task", Marks: []lifecycle.Mark{mark}, Directories: []string{scratch}},
-		{ID: "cfo", Marks: []lifecycle.Mark{{Terminal: "cfo", ProofSum: "cfo-digest"}}, HostPID: 50},
+		{ID: "ceo", Marks: []lifecycle.Mark{{Terminal: "ceo", ProofSum: "ceo-digest"}}, HostPID: 50},
 	}
 
 	// Act
@@ -112,7 +112,7 @@ func TestTheSweepEndsADetachedTreeOfARunningTerminalOnlyOnceItSatIdle(t *testing
 	}
 	tree := func(serverCPU, workerCPU time.Duration) []Process {
 		return []Process{
-			{Process: lifecycle.Process{PID: 1, Name: "cfo.exe", Started: started}},
+			{Process: lifecycle.Process{PID: 1, Name: "ceo.exe", Started: started}},
 			{Process: lifecycle.Process{PID: 2, ParentPID: 1, Name: "claude.exe", Started: started.Add(time.Second), Mark: mark}},
 			// What the harness started and still holds is never detached.
 			{Process: lifecycle.Process{PID: 3, ParentPID: 2, Name: "node.exe", Started: started.Add(2 * time.Second), Mark: mark}},
@@ -178,7 +178,7 @@ func TestTheSweepEndsARunningTerminalsBridgeOnceItsSessionSatUnused(t *testing.T
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			processes := []Process{
-				{Process: lifecycle.Process{PID: 1, Name: "cfo.exe", Started: started}},
+				{Process: lifecycle.Process{PID: 1, Name: "ceo.exe", Started: started}},
 				{Process: lifecycle.Process{PID: 10, ParentPID: 900, Name: "node.exe", Started: started.Add(time.Minute), Arguments: bridge, Mark: mark}, CPU: 40 * time.Minute, LastUsed: test.lastUsed},
 				{Process: lifecycle.Process{PID: 11, ParentPID: 10, Name: "chrome.exe", Started: started.Add(2 * time.Minute), Arguments: []string{"chrome.exe", "--headless"}, Mark: mark}, CPU: 50 * time.Minute},
 			}
@@ -214,7 +214,7 @@ func TestTheSweepLeavesATerminalThatIsChangingToItsOwnTeardown(t *testing.T) {
 	}
 }
 
-// What nothing proves the fleet's own is never ended. The CFO is told of it
+// What nothing proves the fleet's own is never ended. The CEO is told of it
 // once, with what it costs: a browser bridge with no mark, as the one that
 // held 2.5 GB on 2026-10-09 under the tool's unnamed session, and a gate
 // agent's process left behind by a gate that is gone.
@@ -243,7 +243,7 @@ func TestTheSweepNamesWhatItCannotProveAndEndsNoneOfIt(t *testing.T) {
 		t.Fatalf("the sweep means to end %v and watch %v, want neither", pidsOf(ending), watching)
 	}
 	if got := pidsOf(left); !reflect.DeepEqual(got, []int{10, 30}) {
-		t.Fatalf("left for the CFO = %v, want the parentless bridge and the gate agent's leftover", got)
+		t.Fatalf("left for the CEO = %v, want the parentless bridge and the gate agent's leftover", got)
 	}
 	if left[0].Memory != 2500<<20 || !strings.Contains(left[0].Command, "chrome-devtools-axi-bridge.js") {
 		t.Fatalf("the bridge is named as %+v, want its command and the memory of its whole tree", left[0])

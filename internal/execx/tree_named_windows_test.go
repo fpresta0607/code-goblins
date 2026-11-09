@@ -17,7 +17,7 @@ import (
 )
 
 func uniqueJobName() string {
-	return `Local\cfo-execx-test-` + rand.Text()
+	return `Local\ceo-execx-test-` + rand.Text()
 }
 
 func TestStartNamedTreeRefusesANameThatAlreadyExists(t *testing.T) {

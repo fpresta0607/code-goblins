@@ -152,8 +152,8 @@ func TestBuildAnswersWhichServersAreSafeToStop(t *testing.T) {
 	if got := verdicts[3300]; got.Stop != StopSafe || got.Directory != DirRetiredWorktree {
 		t.Errorf("port 3300 = %+v, want safe/retired worktree", got)
 	}
-	if !strings.Contains(verdicts[3300].StopReason(), "cfo reap") {
-		t.Errorf("reason = %q, want it to hand the decision to cfo reap", verdicts[3300].StopReason())
+	if !strings.Contains(verdicts[3300].StopReason(), "ceo reap") {
+		t.Errorf("reason = %q, want it to hand the decision to ceo reap", verdicts[3300].StopReason())
 	}
 	if got := verdicts[3200]; got.Stop != StopAsk || got.Directory != DirCheckout {
 		t.Errorf("port 3200 = %+v, want ask/main checkout", got)
@@ -350,7 +350,7 @@ func TestBuildNamesAVolumesProjectFromItsStackNameAlone(t *testing.T) {
 
 // Spawn and Start refuse under the disk floor config/fleet.json sets, and
 // refuse everything when that floor cannot be read, so the Dispatch line
-// cfo runtime prints must not read ready in either case.
+// ceo runtime prints must not read ready in either case.
 func TestMachineDispatchWaitsUnderTheDiskFloor(t *testing.T) {
 	roomy := Machine{MemoryAvailable: 16 << 30, CommitAvailable: 16 << 30, DiskName: "C:", DiskFree: 20 << 30, DiskFloor: 15 << 30}
 	tests := []struct {

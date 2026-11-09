@@ -2,10 +2,10 @@ import type { PanelView } from "./GoblinPanel";
 import type { Session, Snapshot, Task } from "./types.ts";
 import { sessionEnd } from "./session-end.ts";
 
-// The terminal deck's order: the switch keys go through the CFO first, then
+// The terminal deck's order: the switch keys go through the CEO first, then
 // each goblin that has a terminal.
 
-export const CFO_KEY = "cfo";
+export const CEO_KEY = "ceo";
 // The panel and the board each keep a usable width beside the divider.
 const MIN_PANE = 360;
 const MIN_BOARD = 280;
@@ -14,7 +14,7 @@ const DIVIDER = 10;
 export interface DeckEntry { key: string; task?: Task }
 
 export function switchOrder(tasks: Task[]): DeckEntry[] {
-  return [{ key: CFO_KEY }, ...tasks.filter((task) => !!task.generation && !task.archived && !sessionEnd(task)).map((task) => ({ key: task.id, task }))];
+  return [{ key: CEO_KEY }, ...tasks.filter((task) => !!task.generation && !task.archived && !sessionEnd(task)).map((task) => ({ key: task.id, task }))];
 }
 
 export type SwitchKey = { step: 1 | -1 } | { index: number };
@@ -42,13 +42,13 @@ export function switchTarget(order: DeckEntry[], current: string, key: SwitchKey
 // terminal still in Herdr, or an empty state that belongs to no backend.
 export type DeckView = { kind: "host"; query: string } | { kind: "herdr" } | { kind: "empty"; text: string };
 
-// A registered CFO with no native terminal is the live CFO still in Herdr.
-// A view of a native CFO names when its terminal's host started, so a host
+// A registered CEO with no native terminal is the live CEO still in Herdr.
+// A view of a native CEO names when its terminal's host started, so a host
 // that replaced it, as a restart does, is viewed afresh.
-export function cfoView(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_terminal_since" | "cfo_runs" | "cfo_closed">): DeckView {
-  if (snapshot.cfo_terminal) return { kind: "host", query: new URLSearchParams({ cfo: snapshot.cfo_terminal, ...(snapshot.cfo_terminal_since ? { since: snapshot.cfo_terminal_since } : {}) }).toString() };
-  if (snapshot.cfo_runs) return { kind: "herdr" };
-  return { kind: "empty", text: snapshot.cfo_closed ? "The CFO is closed." : "No CFO is running." };
+export function ceoView(snapshot: Pick<Snapshot, "ceo_terminal" | "ceo_terminal_since" | "ceo_runs" | "ceo_closed">): DeckView {
+  if (snapshot.ceo_terminal) return { kind: "host", query: new URLSearchParams({ ceo: snapshot.ceo_terminal, ...(snapshot.ceo_terminal_since ? { since: snapshot.ceo_terminal_since } : {}) }).toString() };
+  if (snapshot.ceo_runs) return { kind: "herdr" };
+  return { kind: "empty", text: snapshot.ceo_closed ? "The CEO is closed." : "No CEO is running." };
 }
 
 // A goblin the comeback after a restart could not bring back has no
@@ -74,7 +74,7 @@ export function idleView(task?: Task, node?: Session, status = ""): Extract<Deck
 // choice and a switch between the two never resizes the terminal.
 // Orchestration follows the task view's choice, so its graph, where goblins
 // are picked, stays beside the panel.
-export const MAXIMIZED_KEYS = { task: "cfo-pane-maximized", terminal: "cfo-terminal-maximized" } as const;
+export const MAXIMIZED_KEYS = { task: "ceo-pane-maximized", terminal: "ceo-terminal-maximized" } as const;
 
 export function maximizedView(workspace: "Board" | "Orchestration", panel: PanelView): "task" | "terminal" {
   return workspace === "Board" && panel !== "task" ? "terminal" : "task";

@@ -13,7 +13,7 @@ func TestApplyRetitlesAnIssueItOpenedWhenTheTasksTitleChanges(t *testing.T) {
 	// Arrange
 	gh := &issueGitHub{}
 	issue := "repos/" + northwind + "/issues/501"
-	from := openedRecord(InProgress, "cfo: in progress", "goblin: claude")
+	from := openedRecord(InProgress, "ceo: in progress", "goblin: claude")
 	from.Title = "nw-sync"
 	ticket := Ticket{TaskID: "nw-sync", Title: "Say why a billing sync fails", State: InProgress, Harness: "claude"}
 
@@ -42,9 +42,9 @@ func TestApplyNeverRetitlesAClaimedIssueOrWritesAnEmptyTitle(t *testing.T) {
 		from   *Record
 		ticket Ticket
 	}{
-		{name: "a claimed issue keeps its author's title", from: &Record{TaskID: "nw-sync", Repository: northwind, Number: 415, IsClaimed: true, CommentID: 9001, State: InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"cfo: in progress", "goblin: claude"}},
+		{name: "a claimed issue keeps its author's title", from: &Record{TaskID: "nw-sync", Repository: northwind, Number: 415, IsClaimed: true, CommentID: 9001, State: InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"ceo: in progress", "goblin: claude"}},
 			ticket: Ticket{TaskID: "nw-sync", Title: "Say why a billing sync fails", State: InProgress, Harness: "claude"}},
-		{name: "a task with no title leaves the issue's title alone", from: openedRecord(InProgress, "cfo: in progress", "goblin: claude"),
+		{name: "a task with no title leaves the issue's title alone", from: openedRecord(InProgress, "ceo: in progress", "goblin: claude"),
 			ticket: Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}},
 	}
 	for _, tc := range cases {

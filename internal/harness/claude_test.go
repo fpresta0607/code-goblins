@@ -21,7 +21,7 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 	assertLaunch(t, defaults, Launch{
 		Args: []string{"--dangerously-skip-permissions", "--strict-mcp-config"},
 		Env: map[string]string{
-			"CFO_ROLE": RoleGoblin,
+			"CEO_ROLE": RoleGoblin,
 			"CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP": "1",
 			"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION":       "false",
 			"GOTMPDIR":                                   `C:\gotmp\task`,
@@ -32,12 +32,12 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 		PromptFile: `C:\briefs\task.md`,
 	})
 
-	// A goblin draws as the CFO does, in the interface the operator's tui
+	// A goblin draws as the CEO does, in the interface the operator's tui
 	// setting names: the Overlord, 2026-10-07, on goblins' terminals lacking
-	// the CFO's jump to bottom and fixed input line, "it works in cfo but not
+	// the CEO's jump to bottom and fixed input line, "it works in cfo but not
 	// other goblins so make sure that you fix that".
 	if value, isSet := defaults.Env["CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN"]; isSet {
-		t.Errorf("Env sets CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=%q, which keeps a goblin out of the fullscreen interface the CFO runs in", value)
+		t.Errorf("Env sets CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=%q, which keeps a goblin out of the fullscreen interface the CEO runs in", value)
 	}
 
 	explicit, err := adapter.Build(LaunchSpec{
@@ -74,7 +74,7 @@ func TestClaudeValidateChecksExecutable(t *testing.T) {
 
 func TestOnlyAClaudeGoblinStartsWithTheGoblinHookSettings(t *testing.T) {
 	registry := DefaultRegistry()
-	spec := LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, Settings: `C:\cfo\state\goblin-claude-settings.json`}
+	spec := LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, Settings: `C:\ceo\state\goblin-claude-settings.json`}
 	for _, kind := range []Kind{Claude, Codex} {
 		t.Run(string(kind), func(t *testing.T) {
 			// Arrange

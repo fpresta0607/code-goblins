@@ -71,7 +71,7 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 			if slices.Contains(meta.Credentials, service.Name) {
 				continue
 			}
-			detail := "This task does not carry it. The CFO gives it with cfo auth grant " + meta.ID + " " + service.Name + "."
+			detail := "This task does not carry it. The CEO gives it with ceo auth grant " + meta.ID + " " + service.Name + "."
 			result.Entries = append(result.Entries, Entry{ID: "service:" + service.Name, Name: service.Name, Kind: "service", Status: "withheld", Source: "Repository", Detail: detail, CheckedAt: time.Now().UTC()})
 			for _, name := range service.Env {
 				if !slices.Contains(carried.EnvNames(), name) {
@@ -230,7 +230,7 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 			return isStore && (!slices.Contains(manifest.EnvNames(), credential) || auth.IsHarnessBillingKey(credential))
 		})
 		if entry.Kind == "mcp" && entry.Status == "unauthorized" && len(entry.Actions) == 0 {
-			entry.Detail = "Sign in from your own harness session, or ask the CFO for token access."
+			entry.Detail = "Sign in from your own harness session, or ask the CEO for token access."
 		}
 		entry.Grant = grantOffered(*entry, meta)
 	}
@@ -244,8 +244,8 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 	return result
 }
 
-// grantOffered is what an entry's connector card offers, as cfo auth grant
-// and cfo auth revoke would change it: grant for a service the task does not
+// grantOffered is what an entry's connector card offers, as ceo auth grant
+// and ceo auth revoke would change it: grant for a service the task does not
 // carry or a project MCP server its harness was not given, revoke for one the
 // task's record names, and nothing for a credential variable or an MCP server
 // from outside the project's .mcp.json.
@@ -268,7 +268,7 @@ func grantOffered(entry Entry, meta state.TaskMeta) string {
 // terminal finds it: provided when goblin-crawl is in a folder of path, its
 // PATH, disabled when its brief left it out, and missing otherwise, which is
 // a terminal that started before the home set the crawler up, or a home
-// where cfo crawler setup has not run.
+// where ceo crawler setup has not run.
 func (i *Inspector) crawlerEntry(meta state.TaskMeta, path string) Entry {
 	entry := Entry{ID: "connector:" + crawler.Name, Name: crawler.Name, Kind: "connector", Source: "Code Goblins", Scope: "launch_environment", CheckedAt: time.Now().UTC()}
 	switch {
@@ -279,7 +279,7 @@ func (i *Inspector) crawlerEntry(meta state.TaskMeta, path string) Entry {
 	case crawler.IsCommandIn(crawler.BinDir(i.HomeRoot)):
 		entry.Status, entry.Detail = "missing", crawler.Command+" is not on this goblin's PATH: its terminal started before the crawler was set up. A resume, switch or respawn starts one that carries it."
 	default:
-		entry.Status, entry.Detail = "missing", crawler.Command+" is not on this goblin's PATH. The CFO installs it with cfo crawler setup."
+		entry.Status, entry.Detail = "missing", crawler.Command+" is not on this goblin's PATH. The CEO installs it with ceo crawler setup."
 	}
 	return entry
 }

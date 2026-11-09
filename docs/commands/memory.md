@@ -1,13 +1,13 @@
-# cfo memory
+# ceo memory
 
-`cfo memory retrieve [--project <name>] [--task <id>] [--topic <topic>]`
+`ceo memory retrieve [--project <name>] [--task <id>] [--topic <topic>]`
 
 Print all exact warm ranges plus cold ranges matching any supplied project, task or topic key from the verified private catalog.
-`cfo memory retrieve --id <id>` prints one exact entry; it cannot be combined with scope flags.
+`ceo memory retrieve --id <id>` prints one exact entry; it cannot be combined with scope flags.
 Source provenance, checksums and stale or pending-capture diagnostics accompany the original bytes.
-`cfo memory routes` lists every cold trigger and routing key without loading its body into the response.
+`ceo memory routes` lists every cold trigger and routing key without loading its body into the response.
 
-`cfo memory retrieve --search "cache port" [--project <name>] [--task <id>] [--topic <topic>] [--limit 5] [--include-completed]`
+`ceo memory retrieve --search "cache port" [--project <name>] [--task <id>] [--topic <topic>] [--limit 5] [--include-completed]`
 
 Discover cold source ranges by case-insensitive whole-word keywords in their id, trigger, topics and exact body.
 Every search word must match; supplied scope keys restrict candidates together.
@@ -17,7 +17,7 @@ Exact routing without `--search` retains its existing union-of-keys behavior.
 Search is discovery, never a verdict on contradictory authority or automatic supersession.
 No match is explicit; use routing keys or `--id` when wording differs.
 
-`cfo memory retrieve [scope or search flags] --seen <file>`
+`ceo memory retrieve [scope or search flags] --seen <file>`
 
 The file is a JSON array of `delivery=` SHA256 fingerprints from ranges this conversation actually read and still holds.
 Do not construct it from a prior composition, a saved receipt, another conversation or a completion marker alone.
@@ -26,19 +26,19 @@ Catalog edits, source edits, renames and deletions invalidate the old snapshot; 
 The command checks current catalog and source hashes before and after rendering, stores no read marker and writes no receipt automatically.
 An exact `--id` always replays its original bytes, even with `--seen`.
 
-`cfo memory budget [--packages <file>]`
+`ceo memory budget [--packages <file>]`
 
 Report combined startup memory or the full supplied captures for Codex, Claude Code and Pi, including core and global rules, memory, skill discovery index, task brief and emitted digest.
 The [memory contract](../contract/memory.md#budgets-and-exceptions) defines package input format, allowances, estimates and explicit exceptions.
 An overrun is reported in JSON and never truncates authority.
 
-`cfo memory migration-plan`
+`ceo memory migration-plan`
 
 Write a repeatable JSON dry-run inventory to standard output with source and retained hashes, byte ranges, scope, proposed destinations and per-item approval requirements.
 It writes no memory files and exposes no apply operation.
 Keep any redirected inventory private because its source paths and provenance belong to the home.
 
-`cfo memory retention-plan --manifest <file> --data <directory>`
+`ceo memory retention-plan --manifest <file> --data <directory>`
 
 Read a JSON array of proposals with `path`, `destination`, `sha256`, `kind` (`summary`, `index`, `artifact` or `authority`), `task_state` (`active`, `held` or `completed`), `is_held`, `is_landed` and `is_capture_complete`.
 Source and destination paths are relative to the supplied private data directory, including subfolders; links outside it are refused.

@@ -91,7 +91,7 @@ func TestABuildElsewhereIsTheSameBytes(t *testing.T) {
 
 func TestAColdBuildUsesTheInitialCompilerAfterPATHChanges(t *testing.T) {
 	// Arrange
-	if expected := os.Getenv("CFO_STANDIN_COLD_BUILD"); expected != "" {
+	if expected := os.Getenv("CEO_STANDIN_COLD_BUILD"); expected != "" {
 		t.Setenv("PATH", "")
 		t.Setenv("GOROOT", t.TempDir())
 
@@ -135,7 +135,7 @@ func TestAColdBuildUsesTheInitialCompilerAfterPATHChanges(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Arrange
 			command := execx.Command(program, "-test.run=^TestAColdBuildUsesTheInitialCompilerAfterPATHChanges$", "-test.timeout=2m")
-			command.Env = append(append([]string{}, environment...), "PATH="+testCase.path, "CFO_STANDIN_COLD_BUILD="+testCase.expected)
+			command.Env = append(append([]string{}, environment...), "PATH="+testCase.path, "CEO_STANDIN_COLD_BUILD="+testCase.expected)
 			if testCase.root != "" {
 				command.Env = append(command.Env, "GOROOT="+testCase.root)
 			}
@@ -221,7 +221,7 @@ func TestAStandInDoesWhatItsRulesSay(t *testing.T) {
 	t.Run("a rule can match a command that goes on, and put the stand-in in a home", func(t *testing.T) {
 		home := filepath.Join(t.TempDir(), "CodeGoblins", "bin")
 		RemoveAtCleanup(t, filepath.Dir(home))
-		installed := filepath.Join(home, "cfo"+executableSuffix())
+		installed := filepath.Join(home, "ceo"+executableSuffix())
 		env := Env("", Rule{Args: "install", Prefix: true, CopyTo: []string{installed}})
 
 		_, _, exit := run(t, env, standIn, "install", "--window-built")
@@ -239,10 +239,10 @@ func TestAStandInDoesWhatItsRulesSay(t *testing.T) {
 	})
 
 	t.Run("rules it cannot read stop it", func(t *testing.T) {
-		_, stderr, exit := run(t, []string{"CFO_STANDIN_RULES=not rules"}, standIn, "install")
+		_, stderr, exit := run(t, []string{"CEO_STANDIN_RULES=not rules"}, standIn, "install")
 
-		if exit != 125 || !strings.Contains(stderr, "CFO_STANDIN_RULES") {
-			t.Errorf("the stand-in exited %d saying %q, want 125 and a line naming CFO_STANDIN_RULES", exit, stderr)
+		if exit != 125 || !strings.Contains(stderr, "CEO_STANDIN_RULES") {
+			t.Errorf("the stand-in exited %d saying %q, want 125 and a line naming CEO_STANDIN_RULES", exit, stderr)
 		}
 	})
 }
@@ -284,7 +284,7 @@ func TestAStandInToldToHoldKeepsRunning(t *testing.T) {
 // one antivirus has met.
 func TestPutWritesTheOneStandIn(t *testing.T) {
 	// Arrange
-	path := filepath.Join(t.TempDir(), "cfo"+executableSuffix())
+	path := filepath.Join(t.TempDir(), "ceo"+executableSuffix())
 
 	// Act
 	Put(t, path)
@@ -320,7 +320,7 @@ func TestNoStandInIsPutUnderAWindowsProgramsName(t *testing.T) {
 		"svchost.exe":     true,
 		"where.cmd":       true,
 		"more.com":        true,
-		"cfo.exe":         false,
+		"ceo.exe":         false,
 		"goblins.exe":     false,
 		"claude.exe":      false,
 		"codex.exe":       false,

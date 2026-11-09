@@ -10,7 +10,7 @@ const catalog = { harnesses: [
 const task = (phase: string) => ({ id: "engine-task", title: "Choose the task engine", project: "code-goblins", harness: "codex", model: "current-model", effort: "xhigh", phase, verified: false, backend: "native", generation: phase === "queued" ? "" : "s1", queue_revision: "q1", brief: true, archived: phase === "done" });
 
 async function open(page: Page, phase: string, posts: unknown[], error = "", values = {}) {
-  const snapshot = { instance: "fixture", cfo_runs: true, healthy: true, tasks: [{ ...task(phase), ...values }], revision: 1 };
+  const snapshot = { instance: "fixture", ceo_runs: true, healthy: true, tasks: [{ ...task(phase), ...values }], revision: 1 };
   await page.addInitScript((initial) => {
     class EngineStream extends EventTarget {
       onerror: (() => void) | null = null;
@@ -158,7 +158,7 @@ for (const width of [1440, 390]) {
       expect(posts[0]).toMatchObject({ when: "now", model: "next-model" });
       await expect(page.getByRole("dialog")).toHaveCount(0);
       await expect(engine.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("current-model");
-      await page.evaluate((live) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: { instance: "fixture", cfo_runs: true, healthy: true, revision: 3, tasks: [live] } })), { ...task("working"), generation: "s2", model: "next-model", effort: "low" });
+      await page.evaluate((live) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: { instance: "fixture", ceo_runs: true, healthy: true, revision: 3, tasks: [live] } })), { ...task("working"), generation: "s2", model: "next-model", effort: "low" });
       // A new generation remounts the panel, which folds its task list again, so
       // the header he reads the harness in is opened once more.
       await openTaskList(page);
@@ -195,7 +195,7 @@ test("pending turn-end choice can be cancelled", async ({ page }) => {
   const engine = page.getByRole("group", { name: "Task engine", exact: true });
   await engine.getByRole("button", { name: "Cancel pending", exact: true }).click();
   await expect.poll(() => posts).toEqual([{ task: "engine-task", generation: "s1", revision: "q1", harness: "codex", model: "current-model", effort: "xhigh", when: "cancel" }]);
-  await page.evaluate((live) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: { instance: "fixture", cfo_runs: true, healthy: true, revision: 2, tasks: [live] } })), task("working"));
+  await page.evaluate((live) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: { instance: "fixture", ceo_runs: true, healthy: true, revision: 2, tasks: [live] } })), task("working"));
   await expect(engine).not.toContainText("Pending:");
   await expect(engine.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("current-model");
 });

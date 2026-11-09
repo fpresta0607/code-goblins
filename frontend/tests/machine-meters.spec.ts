@@ -25,7 +25,7 @@ const tips = {
 };
 
 async function board(page: Page, machine: object) {
-  const snapshot = { instance: "machine-meters-fixture", revision: 1, healthy: true, cfo_runs: true, attention: [], memory, disk, ...machine, tasks };
+  const snapshot = { instance: "machine-meters-fixture", revision: 1, healthy: true, ceo_runs: true, attention: [], memory, disk, ...machine, tasks };
   await page.route("**/api/**", async (route) => {
     if (new URL(route.request().url()).pathname === "/api/events") {
       await route.fulfill({ contentType: "text/event-stream", body: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` });
@@ -76,7 +76,7 @@ test.describe("in the Overlord's window, 1707 px wide", () => {
   test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
 
   for (const [state, processors] of Object.entries(states)) {
-    for (const beside of ["as the board opens", "the CFO's Task view open beside the board"]) {
+    for (const beside of ["as the board opens", "the CEO's Task view open beside the board"]) {
       test(`CPU and GPU are rows under disk in the same box, ${state === "roomy" ? "with room" : "under the mark"}, ${beside}`, async ({ page }, testInfo) => {
         // Arrange
         const column = await board(page, { processors, gpu });

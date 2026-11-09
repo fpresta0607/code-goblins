@@ -55,7 +55,7 @@ func (s Service) helperStart(ctx context.Context, req Request, project string) (
 }
 
 // helperInstruction tells a helper how to report: to its parent, which
-// merges its branch and opens the pull request, never to the CFO.
+// merges its branch and opens the pull request, never to the CEO.
 func helperInstruction(exe string, meta state.TaskMeta) string {
 	id, parent := meta.ID, meta.Parent
 	return " You are a helper goblin of " + parent + ": your worktree is on a branch of your own, cut from " + parent + "'s last commit, and you report to " + parent + ", not to the CEO." +

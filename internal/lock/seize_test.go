@@ -56,7 +56,7 @@ func TestSeizeOwnerTakesTheLockFromALiveHolderAndAuditsIt(t *testing.T) {
 	}
 
 	// Act
-	info, replaced, err := SeizeOwner(dir, os.Getpid(), "cfo-session", "cfo hook session-start")
+	info, replaced, err := SeizeOwner(dir, os.Getpid(), "ceo-session", "ceo hook session-start")
 
 	// Assert
 	if err != nil {
@@ -73,7 +73,7 @@ func TestSeizeOwnerTakesTheLockFromALiveHolderAndAuditsIt(t *testing.T) {
 		t.Fatalf("the custody audit holds %d records, want 1: %+v", len(records), records)
 	}
 	record := records[0]
-	if record.Lock != ".lock" || record.From.PID != other || record.From.Session != "desktop-session" || !record.From.Acquired.Equal(held.Acquired) || record.To.PID != os.Getpid() || record.To.Session != "cfo-session" || record.Why != "cfo hook session-start" || record.At.IsZero() {
+	if record.Lock != ".lock" || record.From.PID != other || record.From.Session != "desktop-session" || !record.From.Acquired.Equal(held.Acquired) || record.To.PID != os.Getpid() || record.To.Session != "ceo-session" || record.Why != "ceo hook session-start" || record.At.IsZero() {
 		t.Errorf("the custody audit records %+v, want the takeover of .lock from pid %d to pid %d with its reason and time", record, other, os.Getpid())
 	}
 }
@@ -94,7 +94,7 @@ func TestSeizeOwnerAuditsNothingWhereItTakesTheLockFromNoLiveHolder(t *testing.T
 			arrange(t, dir)
 
 			// Act
-			info, replaced, err := SeizeOwner(dir, os.Getpid(), "cfo-session", "cfo register")
+			info, replaced, err := SeizeOwner(dir, os.Getpid(), "ceo-session", "ceo register")
 
 			// Assert
 			if err != nil || info.PID != os.Getpid() || !HeldBy(dir, os.Getpid()) {
@@ -123,7 +123,7 @@ func TestSeizeOwnerLeavesTheHolderWhenTheTakeoverCannotBeAudited(t *testing.T) {
 	}
 
 	// Act
-	_, replaced, err := SeizeOwner(dir, os.Getpid(), "cfo-session", "cfo register")
+	_, replaced, err := SeizeOwner(dir, os.Getpid(), "ceo-session", "ceo register")
 
 	// Assert
 	if err == nil || replaced != nil {
@@ -147,7 +147,7 @@ func TestSeizeOwnerRefusesADeadOwner(t *testing.T) {
 	}
 
 	// Act
-	_, _, err := SeizeOwner(dir, ended.ProcessState.Pid(), "cfo-session", "cfo register")
+	_, _, err := SeizeOwner(dir, ended.ProcessState.Pid(), "ceo-session", "ceo register")
 
 	// Assert
 	if !errors.Is(err, ErrOwnerDead) {
@@ -175,7 +175,7 @@ func TestSeizeNamedOwnerTakesOnlyFromAHolderTheCallerNames(t *testing.T) {
 			var asked *Info
 
 			// Act
-			_, replaced, err := SeizeNamedOwner(dir, ".autoarm.lock", os.Getpid(), "autoarm", "cfo hook stop-autoarm", func(holder *Info) bool {
+			_, replaced, err := SeizeNamedOwner(dir, ".autoarm.lock", os.Getpid(), "autoarm", "ceo hook stop-autoarm", func(holder *Info) bool {
 				asked = holder
 				return c.isReplaceable
 			})
@@ -222,7 +222,7 @@ func TestSeizeOwnerAtOnceForOneOwnerReplacesTheHolderOnce(t *testing.T) {
 	// Act
 	for range cap(results) {
 		go func() {
-			_, replaced, err := SeizeOwner(dir, os.Getpid(), "cfo-session", "cfo hook stop-autoarm")
+			_, replaced, err := SeizeOwner(dir, os.Getpid(), "ceo-session", "ceo hook stop-autoarm")
 			results <- result{replaced, err}
 		}()
 	}

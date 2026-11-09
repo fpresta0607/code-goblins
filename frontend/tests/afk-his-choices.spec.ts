@@ -3,10 +3,10 @@ import { expect, openItem, test, type Page } from "./site";
 // The Overlord, 2026-10-28, with a picture of a card in Modern Chat: "afk
 // commands dont have proper multiple choice answers like normal command cfo
 // prompts please fix so its options arent always done / later". A step only
-// he can take that the CFO logged with choices, under AFK mode, is the CFO's
+// he can take that the CEO logged with choices, under AFK mode, is the CEO's
 // own question once AFK mode turns off, with those choices and its
 // recommendation: its card lists them, recommended first, and Other, in the
-// Command Center over the board and over the CFO's Modern Chat alike. The
+// Command Center over the board and over the CEO's Modern Chat alike. The
 // supervisor is played here, and the card stands in for the Georgetown one.
 const DECISION = "Approve Odie's one-time production repair of PrecisionDocs project Georgetown";
 const CHOICES = ["Approve the repair", "Dry-run it again first", "Leave Georgetown as it is"];
@@ -16,7 +16,7 @@ const CARD = {
   text: DECISION + "\n- Link: `https://github.com/acme/app/issues/2012`", options: CHOICES, recommended: RECOMMENDED,
 };
 const SNAPSHOT = {
-  healthy: true, instance: "fixture", revision: 1, cfo_runs: true, cfo_terminal: "cfo-term", cfo_harness: "claude", afk: { state: "off" }, attention: [],
+  healthy: true, instance: "fixture", revision: 1, ceo_runs: true, ceo_terminal: "ceo-term", ceo_harness: "claude", afk: { state: "off" }, attention: [],
   tasks: [], questions: [CARD], reviews: [], runs: [], credentials: [], actions: [],
 };
 
@@ -24,8 +24,8 @@ const SNAPSHOT = {
 // conversation for every session the board reads as messages.
 async function open(page: Page) {
   await page.addInitScript((snapshot) => {
-    localStorage.setItem("cfo-first-open", "shown");
-    localStorage.setItem("cfo-notifications-asked", "true");
+    localStorage.setItem("ceo-first-open", "shown");
+    localStorage.setItem("ceo-notifications-asked", "true");
     class Stream extends EventTarget {
       onerror: (() => void) | null = null;
       readyState = 1;
@@ -73,12 +73,12 @@ test("a his step logged with choices offers them and Other in the Command Center
   await expectHisChoices(page);
 });
 
-test("the same card offers the same choices over the CFO's Modern Chat", async ({ page }) => {
+test("the same card offers the same choices over the CEO's Modern Chat", async ({ page }) => {
   // Arrange
   await open(page);
   await page.keyboard.press("Control+Alt+1");
-  await expect(page.locator("#panel-title")).toHaveText("CFO");
-  await expect(page.getByRole("log", { name: "Messages of CFO" })).toBeVisible();
+  await expect(page.locator("#panel-title")).toHaveText("CEO");
+  await expect(page.getByRole("log", { name: "Messages of CEO" })).toBeVisible();
 
   // Act
   await openItem(page, DECISION);

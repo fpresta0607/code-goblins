@@ -31,7 +31,7 @@ func TestMain(m *testing.M) {
 	if playStandIn() {
 		return
 	}
-	root, err := os.MkdirTemp("", "cfo-watch-projects-root-")
+	root, err := os.MkdirTemp("", "ceo-watch-projects-root-")
 	if err != nil {
 		panic(err)
 	}
@@ -655,7 +655,7 @@ func TestConfigFromEnvInstallsStructuralProber(t *testing.T) {
 		t.Errorf("monitor cadence = %v/%v, want the watcher's %v/%v", cfg.Monitor.Heartbeat, cfg.Monitor.HeartbeatMax, cfg.Heartbeat, cfg.HeartbeatMax)
 	}
 	if _, ok := cfg.Monitor.Polls.(monitor.ProcessPolls); !ok {
-		t.Errorf("ConfigFromEnv Polls = %T, want monitor.ProcessPolls so a goblin's private page poll reaches the CFO", cfg.Monitor.Polls)
+		t.Errorf("ConfigFromEnv Polls = %T, want monitor.ProcessPolls so a goblin's private page poll reaches the CEO", cfg.Monitor.Polls)
 	}
 }
 
@@ -707,7 +707,7 @@ func TestRouteHarnessErrorUsesTheCarriedFault(t *testing.T) {
 	}
 
 	got := routeHarnessError(cfg, event)
-	for _, want := range []string{"STANDING POLICY", "cfo switch g1 --harness claude --model opus --effort xhigh"} {
+	for _, want := range []string{"STANDING POLICY", "ceo switch g1 --harness claude --model opus --effort xhigh"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("routeHarnessError = %q, want it to contain %q", got, want)
 		}
@@ -750,7 +750,7 @@ func TestRunClearsPendingHarnessErrorAfterDecoratedPublish(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if !strings.Contains(reason, "cfo switch g1 --harness claude --model opus --effort xhigh") {
+	if !strings.Contains(reason, "ceo switch g1 --harness claude --model opus --effort xhigh") {
 		t.Errorf("Run reason = %q, want the rule's switch command", reason)
 	}
 
@@ -761,7 +761,7 @@ func TestRunClearsPendingHarnessErrorAfterDecoratedPublish(t *testing.T) {
 	if len(records) != 1 || records[0].Kind != "stale" {
 		t.Fatalf("wake queue = %+v, want one stale record", records)
 	}
-	if !strings.Contains(records[0].Detail, "cfo switch g1 --harness claude --model opus --effort xhigh") {
+	if !strings.Contains(records[0].Detail, "ceo switch g1 --harness claude --model opus --effort xhigh") {
 		t.Errorf("wake detail = %q, want the rule's switch command", records[0].Detail)
 	}
 
@@ -782,8 +782,8 @@ func TestRunClearsPendingHarnessErrorAfterDecoratedPublish(t *testing.T) {
 	}
 }
 
-// signalIsDecision must not re-wake on outcomes that cfo notify (or a
-// spawn/switch error) already delivered to the CFO; a second wake on those
+// signalIsDecision must not re-wake on outcomes that ceo notify (or a
+// spawn/switch error) already delivered to the CEO; a second wake on those
 // status lines would double-report one goblin report.
 func TestSignalIsDecisionOwnsOnlyGateAndMergeVerbs(t *testing.T) {
 	dir := t.TempDir()
@@ -852,7 +852,7 @@ func orphanFleet() reap.Inventory {
 }
 
 // TestRunWakesOnANewOrphan is the actual ask: an unsupervised harness reaches
-// the CFO on the fleet's existing timer, without a human asking.
+// the CEO on the fleet's existing timer, without a human asking.
 func TestRunWakesOnANewOrphan(t *testing.T) {
 	dir := t.TempDir()
 	reason, err := Run(reapConfig(dir, orphanFleet()))
@@ -882,7 +882,7 @@ func TestRunWakesOnANewOrphan(t *testing.T) {
 	}
 }
 
-// TestSweepOrphansDoesNotRewakeOnTheSameOrphan: a leak the CFO already saw and
+// TestSweepOrphansDoesNotRewakeOnTheSameOrphan: a leak the CEO already saw and
 // left alone must not re-wake it every cycle, or supervision becomes noise.
 func TestSweepOrphansDoesNotRewakeOnTheSameOrphan(t *testing.T) {
 	dir := t.TempDir()
@@ -930,9 +930,9 @@ func TestSweepOrphansDoesNotRewakeOnTheSameOrphan(t *testing.T) {
 }
 
 // TestSweepOrphansWakesOnlyForARunningFindingNotYetReported replays
-// 2026-10-07: one held claude.exe the CFO had already been told about, while
+// 2026-10-07: one held claude.exe the CEO had already been told about, while
 // retired tasks' status logs came and went and a sweep failed in between,
-// woke the CFO every few minutes with nothing new. Only a running finding it
+// woke the CEO every few minutes with nothing new. Only a running finding it
 // has not been told about may wake it.
 func TestSweepOrphansWakesOnlyForARunningFindingNotYetReported(t *testing.T) {
 	dir := t.TempDir()
@@ -1011,7 +1011,7 @@ func shortLivedCodex(run int) reap.Inventory {
 }
 
 // passTime moves the audit record, and everything it remembers telling the
-// CFO, back by a duration, as though that long had passed since.
+// CEO, back by a duration, as though that long had passed since.
 func passTime(t *testing.T, dir string, by time.Duration) {
 	t.Helper()
 	data, err := os.ReadFile(reap.RecordPath(dir))
@@ -1048,7 +1048,7 @@ func passTime(t *testing.T, dir string, by time.Duration) {
 
 // TestSweepOrphansWakesOnceForShortLivedHarnessesOfOneShape replays
 // 2026-10-09: a codex.exe that was never the fleet's came and went all day,
-// each one a new pid, and every sweep that caught one woke the CFO. Ten of
+// each one a new pid, and every sweep that caught one woke the CEO. Ten of
 // them are one finding, raised once.
 func TestSweepOrphansWakesOnceForShortLivedHarnessesOfOneShape(t *testing.T) {
 	// Arrange
@@ -1084,7 +1084,7 @@ func TestSweepOrphansWakesOnceForShortLivedHarnessesOfOneShape(t *testing.T) {
 	}
 }
 
-// TestSweepOrphansRemembersWhatItToldForADay: a finding the CFO was told about
+// TestSweepOrphansRemembersWhatItToldForADay: a finding the CEO was told about
 // stays told while it is away, and is forgotten only when a day passes without
 // a sweep seeing it.
 func TestSweepOrphansRemembersWhatItToldForADay(t *testing.T) {

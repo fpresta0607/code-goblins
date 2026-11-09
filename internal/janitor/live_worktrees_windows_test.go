@@ -100,7 +100,7 @@ func TestSweepKeepsACheckoutWorktreeALiveSessionUses(t *testing.T) {
 				t.Fatalf("kept = %+v, want the worktree kept with a reason naming what %s; notes %v", record.Kept, test.reason, notes)
 			}
 			if stray, ok := itemAt(record.Strays, worktree); ok {
-				t.Errorf("strays = %+v, want a live session's worktree left out of what the CFO is woken to remove", stray)
+				t.Errorf("strays = %+v, want a live session's worktree left out of what the CEO is woken to remove", stray)
 			}
 			for _, finding := range reap.Classify(inv) {
 				if finding.Class != reap.OrphanWorktree || !sameFolder(finding.Path, worktree) {
@@ -119,7 +119,7 @@ func TestSweepKeepsACheckoutWorktreeALiveSessionUses(t *testing.T) {
 // TestLiveSessionFixture stands in for a session working in a folder: it
 // only waits, in the directory it was started in, until the test ends it.
 func TestLiveSessionFixture(t *testing.T) {
-	if os.Getenv("CFO_LIVE_SESSION_FIXTURE") != "wait" {
+	if os.Getenv("CEO_LIVE_SESSION_FIXTURE") != "wait" {
 		return
 	}
 	time.Sleep(10 * time.Minute)
@@ -135,7 +135,7 @@ func startSession(t *testing.T, dir string) reap.Process {
 	}
 	session := exec.Command(program, "-test.run=^TestLiveSessionFixture$")
 	session.Dir = dir
-	session.Env = append(os.Environ(), "CFO_LIVE_SESSION_FIXTURE=wait")
+	session.Env = append(os.Environ(), "CEO_LIVE_SESSION_FIXTURE=wait")
 	session.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW, HideWindow: true}
 	if err := session.Start(); err != nil {
 		t.Fatal(err)

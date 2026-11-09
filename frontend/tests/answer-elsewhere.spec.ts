@@ -1,11 +1,11 @@
 import { doneCards, expect, openItem, recordDoneCards, test } from "./site";
 
 // The Overlord, 2026-09-29: "You can't close a command card if you answered
-// it". He answered the CFO's question in chat and its card stayed under
-// Waiting on you. The CFO's record of that answer finishes the open card as
+// it". He answered the CEO's question in chat and its card stayed under
+// Waiting on you. The CEO's record of that answer finishes the open card as
 // his answer in chat, and he can dismiss a question he answered elsewhere or
 // no longer needs from the card himself.
-test("a question he answered in chat finishes its open card, recorded by the CFO, and moves on", async ({ page }) => {
+test("a question he answered in chat finishes its open card, recorded by the CEO, and moves on", async ({ page }) => {
   // Arrange
   await page.goto("/tests/fixtures/answer-elsewhere.html");
   const dialog = page.getByRole("dialog");
@@ -19,7 +19,7 @@ test("a question he answered in chat finishes its open card, recorded by the CFO
 
   // Assert
   await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Answered/));
-  for (const answered of (await doneCards(page)).filter((text) => text.startsWith("Answered"))) expect(answered).toContain("You answered in chat · recorded by the CFO");
+  for (const answered of (await doneCards(page)).filter((text) => text.startsWith("Answered"))) expect(answered).toContain("You answered in chat · recorded by the CEO");
   await expect(dialog.getByText("May I build the layout switch as drawn?")).toBeVisible();
 });
 

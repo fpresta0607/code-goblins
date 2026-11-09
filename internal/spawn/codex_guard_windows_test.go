@@ -37,14 +37,14 @@ func TestAGoblinsTerminalFindsItsCodexGuardFirstOnPath(t *testing.T) {
 		wantPath  string
 		wantGuard string
 	}{
-		{name: "a goblin's terminal", launchEnv: map[string]string{harness.RoleVariable: harness.RoleGoblin, "CFO_TASK_ID": "g1"}, wantPath: own + ";" + userPath, wantGuard: own},
-		{name: "a goblin a guarded rig spawns", launchEnv: map[string]string{harness.RoleVariable: harness.RoleGoblin, "CFO_TASK_ID": "g1"}, inherited: rigs, wantPath: own + ";" + rigs + ";" + userPath, wantGuard: own + ";" + rigs},
-		{name: "a guard inherited twice is kept once", launchEnv: map[string]string{"CFO_TASK_ID": "g1"}, inherited: rigs + ";" + own, wantPath: own + ";" + rigs + ";" + userPath, wantGuard: own + ";" + rigs},
+		{name: "a goblin's terminal", launchEnv: map[string]string{harness.RoleVariable: harness.RoleGoblin, "CEO_TASK_ID": "g1"}, wantPath: own + ";" + userPath, wantGuard: own},
+		{name: "a goblin a guarded rig spawns", launchEnv: map[string]string{harness.RoleVariable: harness.RoleGoblin, "CEO_TASK_ID": "g1"}, inherited: rigs, wantPath: own + ";" + rigs + ";" + userPath, wantGuard: own + ";" + rigs},
+		{name: "a guard inherited twice is kept once", launchEnv: map[string]string{"CEO_TASK_ID": "g1"}, inherited: rigs + ";" + own, wantPath: own + ";" + rigs + ";" + userPath, wantGuard: own + ";" + rigs},
 		{name: "a launch that is no task's", launchEnv: map[string]string{harness.RoleVariable: harness.RoleGoblin}, wantPath: userPath},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			t.Setenv("CFO_CODEX_GUARD", test.inherited)
+			t.Setenv("CEO_CODEX_GUARD", test.inherited)
 			service := Service{StateDir: stateDir, HomeRoot: filepath.Dir(stateDir)}
 			userEnv := []string{"Path=" + userPath, "USERPROFILE=" + `C:\Users\someone`}
 
@@ -55,8 +55,8 @@ func TestAGoblinsTerminalFindsItsCodexGuardFirstOnPath(t *testing.T) {
 			if got := nativeVariable(env, "PATH"); got != test.wantPath {
 				t.Errorf("PATH = %q, want %q", got, test.wantPath)
 			}
-			if got := nativeVariable(env, "CFO_CODEX_GUARD"); got != test.wantGuard {
-				t.Errorf("CFO_CODEX_GUARD = %q, want %q", got, test.wantGuard)
+			if got := nativeVariable(env, "CEO_CODEX_GUARD"); got != test.wantGuard {
+				t.Errorf("CEO_CODEX_GUARD = %q, want %q", got, test.wantGuard)
 			}
 		})
 	}

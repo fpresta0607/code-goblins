@@ -440,7 +440,7 @@ func TestApplyReturnsACleanOrphanWorktree(t *testing.T) {
 		cleaned = append(cleaned, id)
 		return "", nil
 	}
-	// A meta beside the record is what routes the removal through cfo cleanup
+	// A meta beside the record is what routes the removal through ceo cleanup
 	// rather than through the bare worktree return.
 	if err := state.WriteTaskMeta(h.State, state.TaskMeta{
 		ID: "old", Backend: "herdr", Project: `C:\dev\pd`, Worktree: `C:\dev\pd\.worktrees\gb-old`,
@@ -457,7 +457,7 @@ func TestApplyReturnsACleanOrphanWorktree(t *testing.T) {
 		t.Fatalf("a clean, finished worktree was held: %q", finding.Hold())
 	}
 	if len(cleaned) != 1 || cleaned[0] != "old" {
-		t.Fatalf("cleaned = %v, want [old] through the cfo cleanup path", cleaned)
+		t.Fatalf("cleaned = %v, want [old] through the ceo cleanup path", cleaned)
 	}
 }
 
@@ -474,7 +474,7 @@ func TestApplyReportsRetiredTaskCleanupWarning(t *testing.T) {
 	inventory := Inventory{Tasks: []Task{{ID: meta.ID, Meta: meta, Verb: "done", Terminal: true}}}
 	runner := &gitRunner{}
 	service := newService(t, h, inventory, runner)
-	warning := "the messages kept for its resume went to the CFO, but the wake episode cannot be published"
+	warning := "the messages kept for its resume went to the CEO, but the wake episode cannot be published"
 	var cleanupOutput string
 	service.Clean = func(ctx context.Context, id string, forceArchive bool) (string, error) {
 		result, err := (cleanup.Service{
@@ -1006,7 +1006,7 @@ func TestForcedEmptyWorktreeIsPrunedRatherThanLeftRegistered(t *testing.T) {
 	if len(result.Applied) != 1 || !strings.Contains(result.Applied[0], "prune its registration") {
 		t.Fatalf("applied = %v, want the line to describe the removal and the prune that actually ran", result.Applied)
 	}
-	if strings.Contains(result.Applied[0], "through cfo cleanup") {
+	if strings.Contains(result.Applied[0], "through ceo cleanup") {
 		t.Fatalf("applied = %q, want no claim of a cleanup that never ran", result.Applied[0])
 	}
 
@@ -1331,7 +1331,7 @@ func TestOneTaskActedOnTwiceKeepsBothReapedLines(t *testing.T) {
 }
 
 // TestApplyNeverKillsWithoutANamedPID is the second half of the 19 September
-// 2026 incident. The CFO ran cfo reap --apply to retire a harmless status log
+// 2026 incident. The CEO ran ceo reap --apply to retire a harmless status log
 // and it also killed pid 35012, a goblin's vite server, because --apply acts on
 // every finding it is not holding and one flag covered both. The brief this
 // package was rewritten under said the sweep "must still refuse to kill

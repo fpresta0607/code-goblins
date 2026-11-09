@@ -8,7 +8,7 @@ import type { Snapshot } from "./types";
 
 // AFK mode over the whole board, whatever view it shows: the offer to turn it
 // off at the Overlord's first click or key after he has been gone, or after
-// the CFO turned it on at his ask. Nothing here opens by itself while he is
+// the CEO turned it on at his ask. Nothing here opens by itself while he is
 // away: the offer follows his own click or key. What the stretch came to is
 // a report modal once AFK mode turns off.
 // Until the first snapshot comes the board knows of no switch, which is off.

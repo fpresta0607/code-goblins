@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { message, reportToCfo, request } from "./api";
+import { message, reportToCeo, request } from "./api";
 import { BrowserLoginRow } from "./browser-login-row";
 import { parseBrowserLogins, type BrowserLogin } from "./browser-logins";
 import { ConnectorCard } from "./connector-card";
@@ -27,7 +27,7 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
   // finished check shows it.
   const [asked, setAsked] = useState<ReadonlyMap<string, boolean>>(new Map());
   const isSignInPending = useRef(false);
-  // Whose connections, as the CFO is told when they cannot be read.
+  // Whose connections, as the CEO is told when they cannot be read.
   const whose = goblinName(task) + " (" + task.id + ")";
   const whoseValue = useRef(whose);
   useEffect(() => { whoseValue.current = whose; }, [whose]);
@@ -47,7 +47,7 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
           if (!next.checking) setAsked((prior) => new Map([...prior].filter(([id, isCarried]) => next.entries.find((entry) => entry.id === id)?.grant !== (isCarried ? "revoke" : "grant"))));
         }
       } catch (error: unknown) {
-        if (!controller.signal.aborted) reportToCfo("reading the connections of " + whoseValue.current, message(error));
+        if (!controller.signal.aborted) reportToCeo("reading the connections of " + whoseValue.current, message(error));
       } finally {
         if (!controller.signal.aborted && isChecking) timer = setTimeout(() => void read(), 2000);
       }
@@ -56,7 +56,7 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
     return () => { controller.abort(); clearTimeout(timer); };
   }, [path, reads, repairFinishedAt]);
   const post = useCallback(async (endpoint: string, extra: Record<string, string> = {}) => {
-    return request(endpoint, undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": data?.instance || "" }, body: JSON.stringify({ task: task.id, generation: task.generation, ...extra }) });
+    return request(endpoint, undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": data?.instance || "" }, body: JSON.stringify({ task: task.id, generation: task.generation, ...extra }) });
   }, [data?.instance, task.id, task.generation]);
   const refresh = useCallback(async () => {
     setIsBusy(true);
@@ -97,8 +97,8 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
     finally { setIsBusy(false); }
   };
   const logins = data?.browserLogins || [];
-  // His + gives the task the connector and his check takes it back, as cfo
-  // auth grant and cfo auth revoke do; the card changes at once.
+  // His + gives the task the connector and his check takes it back, as ceo
+  // auth grant and ceo auth revoke do; the card changes at once.
   const toggle = async (entry: ConnectionEntry) => {
     const isGiving = !(asked.get(entry.id) ?? entry.grant === "revoke");
     setAsked((prior) => new Map(prior).set(entry.id, isGiving));

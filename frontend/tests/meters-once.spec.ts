@@ -1,11 +1,11 @@
-import { CFO_DOOR, expect, holdStream, openTaskList, type Page, test } from "./site";
+import { CEO_DOOR, expect, holdStream, openTaskList, type Page, test } from "./site";
 
 const GB = 2 ** 30;
 const since = "2026-10-05T12:00:00Z";
 // The board the UI audit opened (#1598): a queued task and every machine
 // meter, memory, kernel pools, disk, CPU and GPU.
 const snapshot = {
-  instance: "meters-once-fixture", revision: 1, healthy: true, cfo_runs: true, attention: [],
+  instance: "meters-once-fixture", revision: 1, healthy: true, ceo_runs: true, attention: [],
   tasks: [{ id: "polish-settings", title: "Polish settings", project: "example", phase: "queued", brief: true, verified: false, generation: "", since }],
   memory: { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 * GB, available: 6 * GB, commit_available: 20 * GB, paged_pool: 0.5 * GB, nonpaged_pool: 0.3 * GB },
   disk: { drive: "D:", total: 953 * GB, floor: 15 * GB, wake: 10 * GB, free: 130 * GB },
@@ -32,7 +32,7 @@ async function board(page: Page) {
   await expect(page.getByRole("region", { name: "Tasks", exact: true })).toBeVisible();
 }
 
-// The CFO's Task view lists the queue as the Tasks column does, and the
+// The CEO's Task view lists the queue as the Tasks column does, and the
 // machine meters are drawn once on screen: in the Tasks column while it
 // shows, and in the panel only where no column shows them, under no heading
 // of a column the panel does not hold.
@@ -40,7 +40,7 @@ const cases = [
   { name: "beside the board at 1440 px, in the Tasks column", viewport: { width: 1440, height: 900 }, metersIn: "Tasks column",
     open: async (page: Page) => { await page.keyboard.press("Control+Alt+1"); } },
   { name: "on a phone at 390 px, where the panel fills the screen, in the panel", viewport: { width: 390, height: 844 }, metersIn: "panel",
-    open: async (page: Page) => { await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click(); } },
+    open: async (page: Page) => { await page.locator(".ceo-pin").getByRole("button", { name: CEO_DOOR }).last().click(); } },
   { name: "in Orchestration at 1440 px, which has no Tasks column, in the panel", viewport: { width: 1440, height: 900 }, metersIn: "panel",
     open: async (page: Page) => { await page.getByRole("button", { name: "Orchestration", exact: true }).click(); } },
   { name: "maximized at 1440 px, which hides the board, in the panel", viewport: { width: 1440, height: 900 }, metersIn: "panel",
@@ -48,7 +48,7 @@ const cases = [
 ] as const;
 
 for (const { name, viewport, metersIn, open } of cases) {
-  test(`with the CFO's Task view open ${name}, the meters show once`, async ({ page }, testInfo) => {
+  test(`with the CEO's Task view open ${name}, the meters show once`, async ({ page }, testInfo) => {
     // Arrange
     await page.setViewportSize(viewport);
     await board(page);

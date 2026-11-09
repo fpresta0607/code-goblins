@@ -21,9 +21,9 @@ func TestExecGateProberReturnsWhenTheStatusCallLeavesAProcessHoldingItsOutput(t 
 	fixture.standIn("no-mistakes.exe")
 	pidFile := filepath.Join(fixture.root, "child.pid")
 	t.Setenv("PATH", fixture.bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("CFO_POLL_STANDIN", "gate")
-	t.Setenv("CFO_GATE_STATUS", wedgedStatus)
-	t.Setenv("CFO_GATE_CHILD_PID", pidFile)
+	t.Setenv("CEO_POLL_STANDIN", "gate")
+	t.Setenv("CEO_GATE_STATUS", wedgedStatus)
+	t.Setenv("CEO_GATE_CHILD_PID", pidFile)
 
 	start := time.Now()
 	sample, err := ExecGateProber{}.InspectGate(context.Background(), state.TaskMeta{Worktree: fixture.dir("work")})

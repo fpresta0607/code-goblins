@@ -34,7 +34,7 @@ func updatedOnce(t *testing.T, installed, first string) (root, stateDir string) 
 // candidateBuild is a candidate that holds content, in a folder of its own.
 func candidateBuild(t *testing.T, content string) string {
 	t.Helper()
-	candidate := filepath.Join(t.TempDir(), "cfo.exe")
+	candidate := filepath.Join(t.TempDir(), "ceo.exe")
 	if err := os.WriteFile(candidate, []byte(content), 0o755); err != nil {
 		t.Fatal(err)
 	}

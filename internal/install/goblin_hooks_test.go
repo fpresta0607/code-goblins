@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// A goblin's tool call started a cfo process for its hooks, and a shell call
+// A goblin's tool call started a ceo process for its hooks, and a shell call
 // two, the seal before it and the native hook with the key alarm after it:
 // 157 of the 940 processes one goblin started in 11 minutes on 2026-10-27
 // (#1610). Both post to the board now, which does their work in its own

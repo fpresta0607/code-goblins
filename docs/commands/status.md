@@ -1,6 +1,6 @@
-# cfo status
+# ceo status
 
-`cfo status`
+`ceo status`
 
 whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
 

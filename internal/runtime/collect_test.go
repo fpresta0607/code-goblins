@@ -40,7 +40,7 @@ func (s stubSystem) Machine(context.Context, string) (Machine, error) {
 	return s.machine, s.err
 }
 
-// collectorHome lays out a CFO home with one live task and one archived one.
+// collectorHome lays out a CEO home with one live task and one archived one.
 func collectorHome(t *testing.T) home.Home {
 	t.Helper()
 	root := t.TempDir()
@@ -236,7 +236,7 @@ func TestCollectChecksEveryWorkingDirectoryOnDisk(t *testing.T) {
 	}
 }
 
-// The stacks cfo services holds for tasks are read from the home's own
+// The stacks ceo services holds for tasks are read from the home's own
 // record, so the report names who holds each without asking Docker.
 func TestCollectReadsTheLocalServicesTheHomeHolds(t *testing.T) {
 	h := collectorHome(t)

@@ -99,7 +99,7 @@ func boardChecks(root string, changed []string) (steps []Step, left []Deferred) 
 		})
 	}
 	return steps, append(left, Deferred{
-		Check: "the board's build, the test that cfo embeds it and the licence check",
+		Check: "the board's build, the test that ceo embeds it and the licence check",
 		Why:   "CI's frontend job runs them",
 	})
 }

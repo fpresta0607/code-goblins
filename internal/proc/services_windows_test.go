@@ -7,7 +7,7 @@ import (
 )
 
 // A job's processes are judged a machine service's only by a service among
-// them. A gate agent under the no-mistakes daemon runs cfo gate prepush, and
+// them. A gate agent under the no-mistakes daemon runs ceo gate prepush, and
 // a check of it runs in a job of its own: the daemon above the check made
 // every process of the check read as the daemon's, so the end of the check
 // at its time limit spared it all. A daemon started in the job, as a goblin's
@@ -18,7 +18,7 @@ func TestServicesAmongAJobsProcessesCountsOnlyAServiceInTheJob(t *testing.T) {
 	later := func(seconds int) time.Time { return at.Add(time.Duration(seconds) * time.Second) }
 	running := []ServiceProcess{
 		{PID: 10, ParentPID: 1, ExeBase: "no-mistakes.exe", Arguments: []string{`C:\tools\no-mistakes.exe`, "daemon", "run"}, Start: later(0)},
-		{PID: 11, ParentPID: 10, ExeBase: "cfo.exe", Arguments: []string{"cfo.exe", "gate", "prepush"}, Start: later(1)},
+		{PID: 11, ParentPID: 10, ExeBase: "ceo.exe", Arguments: []string{"ceo.exe", "gate", "prepush"}, Start: later(1)},
 		{PID: 12, ParentPID: 11, ExeBase: "go.exe", Start: later(2)},
 		{PID: 13, ParentPID: 12, ExeBase: "supervisor.test.exe", Start: later(3)},
 		{PID: 20, ParentPID: 1, ExeBase: "claude.exe", Start: later(4)},
@@ -59,7 +59,7 @@ func TestServicesAmongAJobsProcessesCountsOnlyAServiceInTheJob(t *testing.T) {
 
 // A process tree is judged a machine service's only by a service among its
 // own processes, as a job's are. A tree read under the Scrawl server is not
-// the server's, so cfo reap --force still ends it, while a Docker Desktop
+// the server's, so ceo reap --force still ends it, while a Docker Desktop
 // started in the tree is spared there with what runs under it.
 func TestTreeOfCountsOnlyAServiceInTheTree(t *testing.T) {
 	// Arrange
@@ -67,10 +67,10 @@ func TestTreeOfCountsOnlyAServiceInTheTree(t *testing.T) {
 	later := func(seconds int) time.Time { return at.Add(time.Duration(seconds) * time.Second) }
 	running := []ServiceProcess{
 		{PID: 10, ParentPID: 1, ExeBase: "node.exe", Arguments: []string{`C:\tools\node.exe`, `C:\Users\o\AppData\Roaming\npm\node_modules\lavish-axi\dist\server.mjs`, "server"}, Start: later(0)},
-		{PID: 11, ParentPID: 10, ExeBase: "cfo.exe", Start: later(1)},
-		{PID: 12, ParentPID: 11, ExeBase: "cfo.test.exe", Start: later(2)},
+		{PID: 11, ParentPID: 10, ExeBase: "ceo.exe", Start: later(1)},
+		{PID: 12, ParentPID: 11, ExeBase: "ceo.test.exe", Start: later(2)},
 		{PID: 20, ParentPID: 11, ExeBase: "Docker Desktop.exe", Start: later(3)},
-		{PID: 21, ParentPID: 20, ExeBase: "cfo.test.exe", Start: later(4)},
+		{PID: 21, ParentPID: 20, ExeBase: "ceo.test.exe", Start: later(4)},
 	}
 	for _, c := range []struct {
 		name string

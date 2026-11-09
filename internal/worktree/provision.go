@@ -214,7 +214,7 @@ func copyReadOnly(source, destination string) error {
 	// A staged copy an interrupted run left is read-only, so it is removed
 	// before it is written again, and whatever this run leaves staged goes
 	// with its failure: an untracked file would make the worktree read dirty.
-	staged := destination + ".cfo-copy"
+	staged := destination + ".ceo-copy"
 	unstage := func() error {
 		if err := os.Remove(staged); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
@@ -358,7 +358,7 @@ func (s Service) installCommands(ctx context.Context, git RunnerGit, manifest Ma
 // in a worktree under the install strategy: the manifest's own commands, or
 // the one the lockfile at the worktree's root names. Has reports whether
 // the worktree holds a file at its root. It is what a spawn names and what
-// `cfo project check` reads, so the two cannot disagree about what a
+// `ceo project check` reads, so the two cannot disagree about what a
 // worktree will hold.
 //
 // Every command it names installs a lock with hashes and resolves no version
@@ -474,7 +474,7 @@ func detectInstallCommand(has func(name string) bool) string {
 
 // InstallOutputs names the directories a set of install commands
 // materializes, so they can be excluded when the project itself does not
-// ignore them, and so `cfo project check` knows what a worktree will hold.
+// ignore them, and so `ceo project check` knows what a worktree will hold.
 func InstallOutputs(commands []string) []string {
 	outputs := map[string]bool{}
 	for _, command := range commands {

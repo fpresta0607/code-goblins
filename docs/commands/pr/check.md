@@ -1,5 +1,5 @@
-# cfo pr check
+# ceo pr check
 
-`cfo pr check <id> <url>`
+`ceo pr check <id> <url>`
 
 Record an opened PR on the task

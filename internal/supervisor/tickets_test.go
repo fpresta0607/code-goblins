@@ -28,7 +28,7 @@ var ticketNow = time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
 
 func TestTicketForFollowsTheTaskLifecycle(t *testing.T) {
 	pull := tickets.PullRequestLink{Number: 412, URL: ticketPull}
-	worked := &tickets.Record{Labels: []string{"cfo: pr open", "goblin: codex"}}
+	worked := &tickets.Record{Labels: []string{"ceo: pr open", "goblin: codex"}}
 	cases := []struct {
 		name   string
 		task   Task
@@ -48,7 +48,7 @@ func TestTicketForFollowsTheTaskLifecycle(t *testing.T) {
 		{name: "finished and merged, harness from its record", task: Task{Archived: true, Merged: true, Evaluation: Evaluation{Phase: "done", PR: ticketPull}}, record: worked, want: tickets.Ticket{State: tickets.Merged, Harness: "codex", PullRequest: pull}, wantOK: true},
 		{name: "finished, its pull request still open", task: Task{Archived: true, Evaluation: Evaluation{Phase: "done", PR: ticketPull}}, record: worked, want: tickets.Ticket{State: tickets.PROpen, Harness: "codex", PullRequest: pull}, wantOK: true},
 		{name: "its pull request closed without merging", task: Task{Archived: true, Closed: true, Evaluation: Evaluation{Phase: "done", PR: ticketPull}}, record: worked, want: tickets.Ticket{State: tickets.Closed, Harness: "codex", PullRequest: pull, Reason: tickets.FinishedUnmerged}, wantOK: true},
-		{name: "stopped", task: Task{Archived: true, Evaluation: Evaluation{Phase: "stopped", Reason: "The Overlord stopped it to free memory"}}, record: worked, want: tickets.Ticket{State: tickets.Closed, Harness: "codex", Reason: tickets.StoppedByCFO}, wantOK: true},
+		{name: "stopped", task: Task{Archived: true, Evaluation: Evaluation{Phase: "stopped", Reason: "The Overlord stopped it to free memory"}}, record: worked, want: tickets.Ticket{State: tickets.Closed, Harness: "codex", Reason: tickets.StoppedByCEO}, wantOK: true},
 		{name: "merged with no pull request known", task: Task{Harness: "claude", Evaluation: Evaluation{Phase: "merged"}}},
 		{name: "stopping, not stopped yet", task: Task{Harness: "claude", Evaluation: Evaluation{Phase: "stopping"}}},
 		{name: "pausing, not paused yet", task: Task{Harness: "claude", Evaluation: Evaluation{Phase: "pausing"}}},
@@ -407,7 +407,7 @@ func TestKeeperReadsWhoWorksInARepositoryAgainAfterAnHour(t *testing.T) {
 	}
 }
 
-func TestKeeperHoldsTicketsInAPublicRepositoryUntilTheCFOAllowsThem(t *testing.T) {
+func TestKeeperHoldsTicketsInAPublicRepositoryUntilTheCEOAllowsThem(t *testing.T) {
 	// Arrange
 	h, checkout, github := ticketHome(t)
 	github.collaboration.IsPrivate = false
@@ -423,7 +423,7 @@ func TestKeeperHoldsTicketsInAPublicRepositoryUntilTheCFOAllowsThem(t *testing.T
 	keeper.reconcile(context.Background(), tasks, ticketNow.Add(time.Minute))
 
 	// Assert
-	if held != 0 || len(heldIssues) != 1 || !strings.Contains(heldIssues[0], ticketRepository) || !strings.Contains(heldIssues[0], "cfo tickets \""+checkout+"\" --allow-public-tickets") {
+	if held != 0 || len(heldIssues) != 1 || !strings.Contains(heldIssues[0], ticketRepository) || !strings.Contains(heldIssues[0], "ceo tickets \""+checkout+"\" --allow-public-tickets") {
 		t.Fatalf("applied %d, issues %v, want nothing opened and one line naming the repository and the command for the project as the task names it", held, heldIssues)
 	}
 	if len(github.applied) != 1 || len(keeper.Issues()) != 0 {
@@ -583,7 +583,7 @@ func TestKeeperClosesTheTicketOfAFinishedTaskFromItsRecord(t *testing.T) {
 	if err := state.RemoveTaskMeta(h.State, "nw-sync"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.PROpen, Status: "PR open: #412", Labels: []string{"cfo: pr open", "goblin: claude"}}); err != nil {
+	if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.PROpen, Status: "PR open: #412", Labels: []string{"ceo: pr open", "goblin: claude"}}); err != nil {
 		t.Fatal(err)
 	}
 	keeper := newTicketKeeper(h, github.writer(checkout))
@@ -739,7 +739,7 @@ func TestKeeperNamesThePeopleWhoWorkInTheProjectOfEachTaskStillOnTheBoard(t *tes
 				github.collaboration.People, github.collaboration.Active = []tickets.Actor{teammate}, []tickets.Actor{teammate}
 			}
 			if tc.hasTicket {
-				if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Labels: []string{"cfo: in progress", "goblin: claude"}}); err != nil {
+				if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Labels: []string{"ceo: in progress", "goblin: claude"}}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -963,9 +963,9 @@ func TestKeeperTitlesATicketFromTheBacklogOrTheTaskRecordNeverFromTheBoard(t *te
 
 func TestKeeperRetitlesATicketOpenedUnderTheTasksIdOnceTheTaskIsTitled(t *testing.T) {
 	// Arrange: the task was dispatched with no title, so its ticket was opened
-	// under its id; cfo title then writes the title into the task's record.
+	// under its id; ceo title then writes the title into the task's record.
 	h, checkout, github := ticketHome(t)
-	if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"cfo: in progress", "goblin: claude"}, Title: "nw-sync"}); err != nil {
+	if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"ceo: in progress", "goblin: claude"}, Title: "nw-sync"}); err != nil {
 		t.Fatal(err)
 	}
 	metaPath := filepath.Join(h.State, "nw-sync.meta")
@@ -995,7 +995,7 @@ func TestKeeperKeepsATicketsTitleWhenNothingTitlesTheTaskAnyMore(t *testing.T) {
 	if err := state.RemoveTaskMeta(h.State, "nw-sync"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.PROpen, Status: "PR open: #412", Labels: []string{"cfo: pr open", "goblin: claude"}, Title: "Say why a billing sync fails"}); err != nil {
+	if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.PROpen, Status: "PR open: #412", Labels: []string{"ceo: pr open", "goblin: claude"}, Title: "Say why a billing sync fails"}); err != nil {
 		t.Fatal(err)
 	}
 	keeper := newTicketKeeper(h, github.writer(checkout))
@@ -1010,9 +1010,9 @@ func TestKeeperKeepsATicketsTitleWhenNothingTitlesTheTaskAnyMore(t *testing.T) {
 }
 
 func orphanRecord(pull string) tickets.Record {
-	record := tickets.Record{TaskID: "nw-gone", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Status: "In progress: goblin nw-gone on claude", Labels: []string{"cfo: in progress", "goblin: claude"}, Title: "Old work", PullRequest: pull}
+	record := tickets.Record{TaskID: "nw-gone", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Status: "In progress: goblin nw-gone on claude", Labels: []string{"ceo: in progress", "goblin: claude"}, Title: "Old work", PullRequest: pull}
 	if pull != "" {
-		record.State, record.Status, record.Labels = tickets.PROpen, "PR open: #412", []string{"cfo: pr open", "goblin: claude"}
+		record.State, record.Status, record.Labels = tickets.PROpen, "PR open: #412", []string{"ceo: pr open", "goblin: claude"}
 	}
 	return record
 }
@@ -1141,7 +1141,7 @@ func TestKeeperNeverMovesATicketBackToQueuedFromAStaleBacklogRow(t *testing.T) {
 			}
 			writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- [ ] nw-sync - Say why a billing sync fails (repo: northwind-api)\n")
 			note := "The ticket for nw-sync: issue #415 was not claimed"
-			if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.PROpen, Status: "PR open: #412", Labels: []string{"cfo: pr open", "goblin: claude"}, Title: "Say why a billing sync fails", PullRequest: ticketPull, Note: note}); err != nil {
+			if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.PROpen, Status: "PR open: #412", Labels: []string{"ceo: pr open", "goblin: claude"}, Title: "Say why a billing sync fails", PullRequest: ticketPull, Note: note}); err != nil {
 				t.Fatal(err)
 			}
 			keeper := newTicketKeeper(h, github.writer(checkout))
@@ -1399,9 +1399,9 @@ func TestKeeperClosesTheTicketOfAFinishedTaskThatAgedOffTheBoardWithItsBriefStil
 	}
 }
 
-func TestKeeperPutsTheOverlapTheCFOAcceptedOnTheTicket(t *testing.T) {
-	// Arrange: cfo spawn started the task beside a teammate's pull request
-	// and kept the CFO's reason; only the supervisor writes tickets.
+func TestKeeperPutsTheOverlapTheCEOAcceptedOnTheTicket(t *testing.T) {
+	// Arrange: ceo spawn started the task beside a teammate's pull request
+	// and kept the CEO's reason; only the supervisor writes tickets.
 	h, checkout, github := ticketHome(t)
 	if err := tickets.WriteOverlapNote(h.State, "nw-sync", "PR #412: it only adds a log line"); err != nil {
 		t.Fatal(err)
@@ -1460,7 +1460,7 @@ func TestKeeperOpensATicketUnderAShortTitle(t *testing.T) {
 }
 
 func TestKeeperKeepsAnOpenIssuesTitleWhenItsRowIsRewritten(t *testing.T) {
-	// The CFO rewrites a row into a running note once its task moves on, and
+	// The CEO rewrites a row into a running note once its task moves on, and
 	// a respawn copies whatever the row says then.
 	note := "DONE 2026-10-06 12:29Z: PR 1493 merged (main 756c67205), goblin retired; deploy run 37462939864"
 	cases := []struct {
@@ -1485,7 +1485,7 @@ func TestKeeperKeepsAnOpenIssuesTitleWhenItsRowIsRewritten(t *testing.T) {
 			} else if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "nw-sync", Project: checkout, Worktree: checkout, Harness: "claude", SpawnGen: "s2", Title: tc.meta}); err != nil {
 				t.Fatal(err)
 			}
-			if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.PROpen, Status: "PR open: #412", Labels: []string{"cfo: pr open", "goblin: claude"}, Title: "Say why a billing sync fails", PullRequest: ticketPull}); err != nil {
+			if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.PROpen, Status: "PR open: #412", Labels: []string{"ceo: pr open", "goblin: claude"}, Title: "Say why a billing sync fails", PullRequest: ticketPull}); err != nil {
 				t.Fatal(err)
 			}
 			writeFile(t, filepath.Join(h.Data, "backlog.md"), tc.backlog)
@@ -1503,7 +1503,7 @@ func TestKeeperKeepsAnOpenIssuesTitleWhenItsRowIsRewritten(t *testing.T) {
 	}
 }
 
-func TestKeeperPutsTheTitleTheCFOGaveOnTheTicketEvenOnceItIsDone(t *testing.T) {
+func TestKeeperPutsTheTitleTheCEOGaveOnTheTicketEvenOnceItIsDone(t *testing.T) {
 	cases := []struct {
 		name   string
 		isDone bool
@@ -1514,9 +1514,9 @@ func TestKeeperPutsTheTitleTheCFOGaveOnTheTicketEvenOnceItIsDone(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Arrange: the issue carries a dispatch note; cfo title then names it.
+			// Arrange: the issue carries a dispatch note; ceo title then names it.
 			h, checkout, github := ticketHome(t)
-			record := tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"cfo: in progress", "goblin: claude"}, Title: "RESTARTED on Claude Code 2026-10-06 about 21:55Z"}
+			record := tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"ceo: in progress", "goblin: claude"}, Title: "RESTARTED on Claude Code 2026-10-06 about 21:55Z"}
 			if tc.isDone {
 				record.State, record.Status, record.Labels, record.IsDone, record.PullRequest = tickets.Merged, "Merged in #412", []string{"goblin: claude"}, true, ticketPull
 			}
@@ -1549,7 +1549,7 @@ func TestKeeperPutsTheTitleTheCFOGaveOnTheTicketEvenOnceItIsDone(t *testing.T) {
 func TestKeeperShortensTheTitleOfAnOpenIssueAndKeepsItsWords(t *testing.T) {
 	// Arrange: an issue opened before titles were short.
 	h, checkout, github := ticketHome(t)
-	if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"cfo: in progress", "goblin: claude"}, Title: "No pilots left in PrecisionDocs: no pilot email, access, payment link or admin control, and free to paid works; Claude Code"}); err != nil {
+	if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"ceo: in progress", "goblin: claude"}, Title: "No pilots left in PrecisionDocs: no pilot email, access, payment link or admin control, and free to paid works; Claude Code"}); err != nil {
 		t.Fatal(err)
 	}
 	keeper := newTicketKeeper(h, github.writer(checkout))
@@ -1646,7 +1646,7 @@ func TestKeeperAsksGitHubBeforeClosingATicketAsNotPlanned(t *testing.T) {
 		wantWrite  bool
 	}{
 		{name: "the second pull request merged after the board lost it", answers: map[string]string{ticketPull: "CLOSED", secondTicketPull: "MERGED"}, wantState: tickets.Merged, wantPull: 415, wantWrite: true},
-		{name: "no pull request merged", answers: map[string]string{ticketPull: "CLOSED", secondTicketPull: "CLOSED"}, wantState: tickets.Closed, wantReason: tickets.StoppedByCFO, wantWrite: true},
+		{name: "no pull request merged", answers: map[string]string{ticketPull: "CLOSED", secondTicketPull: "CLOSED"}, wantState: tickets.Closed, wantReason: tickets.StoppedByCEO, wantWrite: true},
 		{name: "GitHub does not answer", answers: map[string]string{ticketPull: "CLOSED"}},
 	}
 	for _, tc := range cases {
@@ -1655,7 +1655,7 @@ func TestKeeperAsksGitHubBeforeClosingATicketAsNotPlanned(t *testing.T) {
 			// the task stopped, with no pull request.
 			h, checkout, github := ticketHome(t)
 			github.pulls = tc.answers
-			if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.PROpen, Status: "PR open: #415", Labels: []string{"cfo: pr open", "goblin: claude"}, Title: "Say why a billing sync fails", PullRequest: secondTicketPull, PullRequests: []string{ticketPull, secondTicketPull}}); err != nil {
+			if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.PROpen, Status: "PR open: #415", Labels: []string{"ceo: pr open", "goblin: claude"}, Title: "Say why a billing sync fails", PullRequest: secondTicketPull, PullRequests: []string{ticketPull, secondTicketPull}}); err != nil {
 				t.Fatal(err)
 			}
 			keeper := newTicketKeeper(h, github.writer(checkout))
@@ -1695,7 +1695,7 @@ func TestKeeperRefusesAPullRequestFromAnotherRepository(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
 			h, checkout, github := ticketHome(t)
-			if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"cfo: in progress", "goblin: claude"}, Title: "Say why a billing sync fails"}); err != nil {
+			if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"ceo: in progress", "goblin: claude"}, Title: "Say why a billing sync fails"}); err != nil {
 				t.Fatal(err)
 			}
 			keeper := newTicketKeeper(h, github.writer(checkout))

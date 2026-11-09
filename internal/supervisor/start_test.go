@@ -25,8 +25,8 @@ import (
 
 const gigabyte = 1 << 30
 
-// spawnRecorder stands in for cfo spawn: it records each call, does what
-// during does, as cfo writes a task's record before it ends, and answers with
+// spawnRecorder stands in for ceo spawn: it records each call, does what
+// during does, as ceo writes a task's record before it ends, and answers with
 // the outcome the test gives it, after release when release is set.
 type spawnRecorder struct {
 	mu      sync.Mutex
@@ -112,7 +112,7 @@ func TestStartUnderTheDiskFloorWaitsItsTurnAndStartsAtTheFloor(t *testing.T) {
 				t.Fatalf("start=%d %s, want it accepted", response.Code, response.Body)
 			}
 			if calls := spawner.recorded(); test.isWaiting != (len(calls) == 0) || test.isWaiting && (!card.Asked || !card.Starting) {
-				t.Fatalf("cfo ran %v and the card shows %+v, want it waiting its turn %v", calls, card, test.isWaiting)
+				t.Fatalf("ceo ran %v and the card shows %+v, want it waiting its turn %v", calls, card, test.isWaiting)
 			}
 		})
 	}
@@ -126,7 +126,7 @@ func postStart(handler *HTTP, body, host, origin, token string) *httptest.Respon
 		request.Header.Set("Origin", origin)
 	}
 	if token != "" {
-		request.Header.Set("X-CFO-Token", token)
+		request.Header.Set("X-CEO-Token", token)
 	}
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -294,7 +294,7 @@ func TestStartRefusesARequestWithoutTheBoardsHostOriginAndToken(t *testing.T) {
 				t.Fatalf("start = %d %s, want 403", response.Code, response.Body)
 			}
 			if calls := spawner.recorded(); len(calls) != 0 {
-				t.Fatalf("a refused request ran cfo spawn %v", calls)
+				t.Fatalf("a refused request ran ceo spawn %v", calls)
 			}
 		})
 	}
@@ -315,7 +315,7 @@ func TestStartRefusesWithAClearReason(t *testing.T) {
 		{name: "a task that already runs", available: 16 * gigabyte, row: "- **next-task** - Ship it", brief: plainBrief, live: true, body: `{"task":"next-task"}`, want: "already runs"},
 		{name: "a task nothing queued", available: 16 * gigabyte, row: "- **other** - Other", body: `{"task":"next-task"}`, want: "is not queued"},
 		{name: "a brief that names no project", available: 16 * gigabyte, row: "- **next-task** - Ship it", brief: strings.ReplaceAll(plainBrief, "C:\\dev\\code-goblins", ""), body: `{"task":"next-task"}`, want: "names no project"},
-		{name: "a harness cfo spawn does not run", available: 16 * gigabyte, row: "- **next-task** - Ship it (harness: shell)", brief: plainBrief, body: `{"task":"next-task"}`, want: "harness shell"},
+		{name: "a harness ceo spawn does not run", available: 16 * gigabyte, row: "- **next-task** - Ship it (harness: shell)", brief: plainBrief, body: `{"task":"next-task"}`, want: "harness shell"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -341,7 +341,7 @@ func TestStartRefusesWithAClearReason(t *testing.T) {
 				t.Fatalf("start = %d %s, want 409 saying %q with passing %v", response.Code, response.Body, test.want, test.passing)
 			}
 			if calls := spawner.recorded(); len(calls) != 0 {
-				t.Fatalf("a refused start ran cfo spawn %v", calls)
+				t.Fatalf("a refused start ran ceo spawn %v", calls)
 			}
 		})
 	}
@@ -372,7 +372,7 @@ func TestAStartWaitsItsTurnForFiveGigabytesOfBothMemoryAndCommit(t *testing.T) {
 				t.Fatalf("start = %d %s, card = %+v, want it accepted and waiting its turn", response.Code, response.Body, card)
 			}
 			if calls := spawner.recorded(); len(calls) != 0 {
-				t.Fatalf("a start waiting for memory ran cfo spawn %v", calls)
+				t.Fatalf("a start waiting for memory ran ceo spawn %v", calls)
 			}
 		})
 	}
@@ -393,7 +393,7 @@ func TestStartRunsWithExactlyFiveGigabytesOfBothMemoryAndCommit(t *testing.T) {
 	}
 	waitStarted(t, handler, "next-task")
 	if calls := spawner.recorded(); len(calls) != 1 {
-		t.Fatalf("cfo spawn ran %d times, want once", len(calls))
+		t.Fatalf("ceo spawn ran %d times, want once", len(calls))
 	}
 }
 
@@ -411,7 +411,7 @@ func TestStartRefusesOnABoardThatCannotStartGoblins(t *testing.T) {
 	}
 }
 
-func TestStartDispatchesThroughCfoSpawnAndTellsTheCFO(t *testing.T) {
+func TestStartDispatchesThroughCeoSpawnAndTellsTheCEO(t *testing.T) {
 	tests := []struct {
 		name  string
 		row   string
@@ -481,13 +481,13 @@ func TestStartDispatchesThroughCfoSpawnAndTellsTheCFO(t *testing.T) {
 			}
 			calls := spawner.recorded()
 			if len(calls) != 1 {
-				t.Fatalf("cfo spawn ran %d times, want once", len(calls))
+				t.Fatalf("ceo spawn ran %d times, want once", len(calls))
 			}
 			brief := filepath.Join(h.Data, "next-task", "brief.md")
 			want := append(append([]string{}, test.want[:4]...), append([]string{"--brief", brief}, test.want[4:]...)...)
 			want = append(want, "--brief-revision", fmt.Sprintf("brief:%x", sha256.Sum256([]byte(test.brief))))
 			if !reflect.DeepEqual(calls[0], want) {
-				t.Fatalf("cfo %v, want cfo %v", calls[0], want)
+				t.Fatalf("ceo %v, want ceo %v", calls[0], want)
 			}
 			if order, _ := fleet.ReadAttention(h); !reflect.DeepEqual(order, []string{"next-task", "task-1"}) {
 				t.Fatalf("attention order = %v, want the started task on top", order)
@@ -497,7 +497,7 @@ func TestStartDispatchesThroughCfoSpawnAndTellsTheCFO(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(records) != 1 || records[0].Kind != "notify" || records[0].Key != "next-task" || !strings.HasPrefix(records[0].Detail, "started: the Overlord started this from the board") {
-				t.Fatalf("wake records = %+v, want one notify telling the CFO", records)
+				t.Fatalf("wake records = %+v, want one notify telling the CEO", records)
 			}
 		})
 	}
@@ -544,9 +544,9 @@ func TestAutomaticStartLeavesUnspecifiedEngineSettingsForRouting(t *testing.T) {
 	}
 }
 
-func TestStartShowsAFailedSpawnOnTheCardAndTellsTheCFO(t *testing.T) {
+func TestStartShowsAFailedSpawnOnTheCardAndTellsTheCEO(t *testing.T) {
 	// Arrange
-	spawner := &spawnRecorder{output: "preparing\ncfo spawn: project auth preflight refused: GITHUB_TOKEN is red\n", err: errors.New("exit status 1")}
+	spawner := &spawnRecorder{output: "preparing\nceo spawn: project auth preflight refused: GITHUB_TOKEN is red\n", err: errors.New("exit status 1")}
 	handler, h := startBoard(t, 5*gigabyte, spawner)
 	queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
 
@@ -563,7 +563,7 @@ func TestStartShowsAFailedSpawnOnTheCardAndTellsTheCFO(t *testing.T) {
 	}
 	records, _ := wake.Pending(h.State)
 	if len(records) != 1 || !strings.HasPrefix(records[0].Detail, "start failed: ") || !strings.Contains(records[0].Detail, "GITHUB_TOKEN is red") {
-		t.Fatalf("wake records = %+v, want the CFO told the start failed and why", records)
+		t.Fatalf("wake records = %+v, want the CEO told the start failed and why", records)
 	}
 	if _, blocking := wake.BlockingNotify(records[0]); blocking {
 		t.Fatal("a failed start reads as a goblin's blocking question")
@@ -572,7 +572,7 @@ func TestStartShowsAFailedSpawnOnTheCardAndTellsTheCFO(t *testing.T) {
 
 func TestStartRetryAnswersARevisionFromWhichTheOldFailureIsGone(t *testing.T) {
 	// Arrange
-	spawner := &spawnRecorder{output: "cfo spawn: project auth preflight refused: GITHUB_TOKEN is red\n", err: errors.New("exit status 1")}
+	spawner := &spawnRecorder{output: "ceo spawn: project auth preflight refused: GITHUB_TOKEN is red\n", err: errors.New("exit status 1")}
 	handler, h := startBoard(t, 5*gigabyte, spawner)
 	queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
 	postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
@@ -637,7 +637,7 @@ func TestSnapshotShowsATaskStartingUntilItsSpawnEndsEvenOnceItRuns(t *testing.T)
 	for _, task := range snapshot.Tasks {
 		if task.ID == "next-task" {
 			if task.Phase == "queued" || !task.Starting {
-				t.Fatalf("card = %+v, want it live and still starting while cfo spawn runs", task)
+				t.Fatalf("card = %+v, want it live and still starting while ceo spawn runs", task)
 			}
 			return
 		}
@@ -649,7 +649,7 @@ func TestSnapshotShowsATaskStartingUntilItsSpawnEndsEvenOnceItRuns(t *testing.T)
 // the supervisor had already started him. A start the supervisor commits,
 // its scheduler's included, reaches the board at once, as Starting and not
 // as a click waiting its turn, so the board takes it out of Tasks, before
-// cfo spawn writes anything and whatever the scheduler's line says.
+// ceo spawn writes anything and whatever the scheduler's line says.
 func TestAStartTheSupervisorCommitsReachesTheBoardAtOnceAsStarting(t *testing.T) {
 	// Arrange
 	spawner := &spawnRecorder{release: make(chan struct{})}
@@ -742,7 +742,7 @@ func TestSnapshotSaysWhyNothingStartsWhileTheHeavyLineKeepsTheMemory(t *testing.
 }
 
 func TestSnapshotNamesTheTopCommitHoldersOnlyWhileCommitIsTheTighter(t *testing.T) {
-	holders := []CommitHolder{{Name: "ChatGPT", Commit: 11 * gigabyte}, {Name: "cfo", Commit: 6 * gigabyte}}
+	holders := []CommitHolder{{Name: "ChatGPT", Commit: 11 * gigabyte}, {Name: "ceo", Commit: 6 * gigabyte}}
 	tests := []struct {
 		name              string
 		available, commit uint64

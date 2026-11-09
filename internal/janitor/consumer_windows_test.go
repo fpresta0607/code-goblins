@@ -85,13 +85,13 @@ func TestDetachedConsumerCustodySurvivesSupplierCleanup(t *testing.T) {
 			standin.RemoveAtCleanup(t, store)
 			standin.Put(t, filepath.Join(store, "held.exe"))
 			writeConsumerHeadroom(t, store, verify.Headroom{PhysicalAvailable: 32 << 30, CommitAvailable: 32 << 30})
-			t.Setenv("CFO_VERIFY_DIR", store)
+			t.Setenv("CEO_VERIFY_DIR", store)
 			t.Setenv(verify.TurnVariable, "")
-			t.Setenv("CFO_HOME", h.Root)
-			t.Setenv("CFO_STATE_OVERRIDE", h.State)
-			t.Setenv("CFO_CONSUMER_FIXTURE", "launcher")
-			t.Setenv("CFO_CONSUMER_PHASE", phase)
-			t.Setenv("CFO_CONSUMER_BINARY", borrowed)
+			t.Setenv("CEO_HOME", h.Root)
+			t.Setenv("CEO_STATE_OVERRIDE", h.State)
+			t.Setenv("CEO_CONSUMER_FIXTURE", "launcher")
+			t.Setenv("CEO_CONSUMER_PHASE", phase)
+			t.Setenv("CEO_CONSUMER_BINARY", borrowed)
 			t.Setenv(host.IDVariable, "consumer")
 			t.Setenv(host.ProofVariable, "consumer-proof")
 			t.Setenv("NO_MISTAKES_GATE", "")
@@ -209,11 +209,11 @@ func TestDetachedConsumerCustodySurvivesSupplierCleanup(t *testing.T) {
 		t.Run("failed-handoff/"+failure, func(t *testing.T) {
 			// Arrange: the launcher really starts and hands off an orphan.
 			store := t.TempDir()
-			t.Setenv("CFO_VERIFY_DIR", store)
+			t.Setenv("CEO_VERIFY_DIR", store)
 			t.Setenv(verify.TurnVariable, "")
-			t.Setenv("CFO_CONSUMER_FIXTURE", "launcher")
-			t.Setenv("CFO_CONSUMER_PHASE", "orphan")
-			t.Setenv("CFO_CONSUMER_BINARY", program)
+			t.Setenv("CEO_CONSUMER_FIXTURE", "launcher")
+			t.Setenv("CEO_CONSUMER_PHASE", "orphan")
+			t.Setenv("CEO_CONSUMER_BINARY", program)
 			readback := filepath.Join(store, "failed-readback.json")
 			if failure == "malformed" {
 				if err := os.WriteFile(readback, []byte("{"), 0600); err != nil {
@@ -258,11 +258,11 @@ func TestDetachedConsumerCustodySurvivesSupplierCleanup(t *testing.T) {
 			store := t.TempDir()
 			standin.RemoveAtCleanup(t, store)
 			standin.Put(t, filepath.Join(store, "held.exe"))
-			t.Setenv("CFO_VERIFY_DIR", store)
+			t.Setenv("CEO_VERIFY_DIR", store)
 			t.Setenv(verify.TurnVariable, "")
-			t.Setenv("CFO_CONSUMER_FIXTURE", "launcher")
-			t.Setenv("CFO_CONSUMER_PHASE", "admitted")
-			t.Setenv("CFO_CONSUMER_BINARY", program)
+			t.Setenv("CEO_CONSUMER_FIXTURE", "launcher")
+			t.Setenv("CEO_CONSUMER_PHASE", "admitted")
+			t.Setenv("CEO_CONSUMER_BINARY", program)
 			memory := verify.Headroom{PhysicalAvailable: 32 << 30, CommitAvailable: 32 << 30}
 			if constrained == "physical" {
 				memory.PhysicalAvailable = 3 << 30
@@ -382,11 +382,11 @@ func startDetachedConsumer(t *testing.T, store, readback string) (identity lifec
 }
 
 func TestDetachedConsumerFixture(t *testing.T) {
-	if os.Getenv("CFO_CONSUMER_FIXTURE") != "launcher" {
+	if os.Getenv("CEO_CONSUMER_FIXTURE") != "launcher" {
 		return
 	}
-	store := os.Getenv("CFO_VERIFY_DIR")
-	child := exec.Command(os.Getenv("CFO_CONSUMER_BINARY"))
+	store := os.Getenv("CEO_VERIFY_DIR")
+	child := exec.Command(os.Getenv("CEO_CONSUMER_BINARY"))
 	child.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP, HideWindow: true}
 	if err := child.Start(); err != nil {
 		t.Fatal(err)

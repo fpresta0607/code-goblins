@@ -20,7 +20,7 @@ const runSyntaxWait = 30 * time.Second
 // powershellParse parses the script the environment names with PowerShell's
 // own parser, runs none of it, and prints each error with its line, then each
 // parameter its param block makes mandatory.
-const powershellParse = `$errors = $null; $script = [System.Management.Automation.Language.Parser]::ParseFile($env:CFO_RUN_SYNTAX, [ref]$null, [ref]$errors); foreach ($e in $errors) { 'line ' + $e.Extent.StartLineNumber + ': ' + $e.Message }; if ($errors.Count) { exit 1 }; $mandatory = @(foreach ($p in @($script.ParamBlock.Parameters)) { foreach ($a in $p.Attributes) { foreach ($n in @($a.NamedArguments)) { if ($n.ArgumentName -eq 'Mandatory' -and ($n.ExpressionOmitted -or $n.Argument.Extent.Text -ne '$false')) { $p.Name.VariablePath.UserPath } } } }); if ($mandatory.Count) { 'mandatory ' + ($mandatory -join ', '); exit 3 }`
+const powershellParse = `$errors = $null; $script = [System.Management.Automation.Language.Parser]::ParseFile($env:CEO_RUN_SYNTAX, [ref]$null, [ref]$errors); foreach ($e in $errors) { 'line ' + $e.Extent.StartLineNumber + ': ' + $e.Message }; if ($errors.Count) { exit 1 }; $mandatory = @(foreach ($p in @($script.ParamBlock.Parameters)) { foreach ($a in $p.Attributes) { foreach ($n in @($a.NamedArguments)) { if ($n.ArgumentName -eq 'Mandatory' -and ($n.ExpressionOmitted -or $n.Argument.Extent.Text -ne '$false')) { $p.Name.VariablePath.UserPath } } } }); if ($mandatory.Count) { 'mandatory ' + ($mandatory -join ', '); exit 3 }`
 
 // CheckRunCommand refuses a command its shell cannot parse, with the lines
 // the shell names, before it is published for the Overlord to run: such a
@@ -42,7 +42,7 @@ func checkRunCommand(shell, command string, wait time.Duration) error {
 	if err != nil {
 		return err
 	}
-	dir, err := os.MkdirTemp("", "cfo-run-syntax-")
+	dir, err := os.MkdirTemp("", "ceo-run-syntax-")
 	if err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func checkRunCommand(shell, command string, wait time.Duration) error {
 		check = execx.CommandContext(ctx, program, "-n", path)
 	} else {
 		check = execx.CommandContext(ctx, program, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", powershellParse)
-		check.Env = append(os.Environ(), "CFO_RUN_SYNTAX="+path)
+		check.Env = append(os.Environ(), "CEO_RUN_SYNTAX="+path)
 	}
 	output, err := check.CombinedOutput()
 	var exit *exec.ExitError

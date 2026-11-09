@@ -129,7 +129,7 @@ type boardAnswer struct {
 	body string
 }
 
-// realBoard serves a supervisor's board on a real connection, as cfo serve
+// realBoard serves a supervisor's board on a real connection, as ceo serve
 // does. Each request waits for its opener to have exited before the board
 // sees it, and what the board answers is handed to the test.
 type realBoard struct {
@@ -190,7 +190,7 @@ func (board *realBoard) press(t *testing.T, program string, environment ...strin
 	exited := board.open()
 	opener := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"), "/c", "start", "", "/b", program,
 		"--silent", "--max-time", "60", "--request", "POST",
-		"--header", "Origin: http://"+board.address, "--header", "X-CFO-Token: "+board.s.Instance, "--header", "Content-Type: application/json",
+		"--header", "Origin: http://"+board.address, "--header", "X-CEO-Token: "+board.s.Instance, "--header", "Content-Type: application/json",
 		"--data-binary", "@"+body, "http://"+board.address+"/api/afk")
 	opener.Env = append([]string{"SystemRoot=" + os.Getenv("SystemRoot"), "PATH=" + filepath.Join(os.Getenv("SystemRoot"), "System32"), "USERNAME=overlord"}, environment...)
 	opener.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
@@ -236,7 +236,7 @@ func TestAProgramWindowsNamesAsTheHomesWindowIsHisOverARealConnectionAfterItsOpe
 	window := filepath.Join(h.Bin(), windowName)
 
 	// Act
-	goblins := board.press(t, window, "CFO_ROLE=goblin")
+	goblins := board.press(t, window, "CEO_ROLE=goblin")
 	lookalike := board.press(t, filepath.Join(elsewhere, windowName))
 	afterRefusals, readErr := afk.Read(h.State)
 	his := board.press(t, window)
@@ -256,9 +256,9 @@ func TestAProgramWindowsNamesAsTheHomesWindowIsHisOverARealConnectionAfterItsOpe
 	}
 	pending, err := wake.Pending(h.State)
 	if err != nil || len(pending) != 3 {
-		t.Fatalf("the CFO's queue = %+v, %v, want the two refusals and the switch", pending, err)
+		t.Fatalf("the CEO's queue = %+v, %v, want the two refusals and the switch", pending, err)
 	}
 	if !strings.Contains(pending[0].Detail, "runs in a goblin's terminal") || !strings.Contains(pending[1].Detail, "nothing proves the program that shows this board is his") || !strings.Contains(pending[2].Detail, "turned AFK mode on from his own board") {
-		t.Errorf("the CFO is told %q, then %q, then %q, want the goblin's refused, the lookalike refused and his switch", pending[0].Detail, pending[1].Detail, pending[2].Detail)
+		t.Errorf("the CEO is told %q, then %q, then %q, want the goblin's refused, the lookalike refused and his switch", pending[0].Detail, pending[1].Detail, pending[2].Detail)
 	}
 }

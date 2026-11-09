@@ -16,7 +16,7 @@ import (
 // and returns the environment that task's terminal should inherit.
 //
 // It deliberately does not run login commands or drive a browser. Those are
-// what `cfo auth <project> --fix` is for: a dispatch should not silently open
+// what `ceo auth <project> --fix` is for: a dispatch should not silently open
 // an OAuth window or re-authenticate a CLI as a side effect.
 type SpawnPreflight struct {
 	DataDir string
@@ -171,7 +171,7 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string, need Need
 // that did.
 //
 // Origins are file paths and tool names. No value appears here, and none ever
-// may: this line goes to the spawn output, which `cfo peek` reads back and
+// may: this line goes to the spawn output, which `ceo peek` reads back and
 // which lives in a pane's scrollback.
 func AdoptionLine(adopted []Adopted) string {
 	var refreshed, added, kept []string
@@ -199,7 +199,7 @@ func AdoptionLine(adopted []Adopted) string {
 }
 
 // WarningLine summarizes a preflight in one line for the spawn output, so a
-// red service reaches the CFO at dispatch rather than the goblin mid-task. A
+// red service reaches the CEO at dispatch rather than the goblin mid-task. A
 // clean preflight still reports what was injected, because silence would be
 // indistinguishable from "no manifest".
 func WarningLine(project string, report Report) string {

@@ -100,7 +100,7 @@ func TestARecordQueuedAfterAnAcknowledgementStagedItsFilesIsKept(t *testing.T) {
 		t.Errorf("the queue holds %+v, %v, want the record queued after the acknowledgement staged", pending, err)
 	}
 	for _, name := range stateEntries(t, dir) {
-		if strings.HasPrefix(name, ".cfo-tmp-") {
+		if strings.HasPrefix(name, ".ceo-tmp-") {
 			t.Errorf("the acknowledgement left the staged file %s behind", name)
 		}
 	}

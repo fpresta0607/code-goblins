@@ -27,7 +27,7 @@ type proven struct {
 }
 
 // verifies reports whether a record names a verification command. A record
-// with none leaves `cfo verify` nothing to run, so every tier fails.
+// with none leaves `ceo verify` nothing to run, so every tier fails.
 func verifies(manifest project.Manifest) bool {
 	for _, tier := range [][]project.Command{manifest.Verification.Fast, manifest.Verification.Full, manifest.Verification.Deep} {
 		for _, command := range tier {
@@ -48,7 +48,7 @@ func verifies(manifest project.Manifest) bool {
 // reports, it is otherwise the test commands the workflows run, or else
 // those the instruction files name. The check runs none of them, and the
 // sentence says so. Deployment is never drafted, since a wrong deploy
-// command is one `cfo deploy` would run.
+// command is one `ceo deploy` would run.
 func (c *checker) draft() (project.Manifest, string) {
 	manifest := project.Manifest{}
 	if c.proven.record != nil {
@@ -77,7 +77,7 @@ func (c *checker) draft() (project.Manifest, string) {
 		*fast = once(c.proven.instructionTests)
 		return manifest, "the gate names no test command a record can hold and no workflow runs one at the repository's root, so the draft's fast tier is the " + count(len(*fast), "test command") + " the instruction files name (" + strings.Join(c.proven.instructionFiles, ", ") + ")" + unproven
 	}
-	return manifest, "the draft names no verification command: the gate names no test command a record can hold, no workflow runs one at the repository's root and the instruction files name none that can run there. A record with none leaves cfo verify nothing to run, so every tier fails. Name the project's test command in " + gateFileName + " or write the record by hand"
+	return manifest, "the draft names no verification command: the gate names no test command a record can hold, no workflow runs one at the repository's root and the instruction files name none that can run there. A record with none leaves ceo verify nothing to run, so every tier fails. Name the project's test command in " + gateFileName + " or write the record by hand"
 }
 
 // once returns commands with each kept the first time it is named.

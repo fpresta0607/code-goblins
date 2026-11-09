@@ -81,7 +81,7 @@ type HTTP struct {
 	dictationWork     sync.WaitGroup
 	dictationSlot     chan struct{}
 	dictationPatience time.Duration
-	// refusals holds when each kind of refused board press last woke the CFO.
+	// refusals holds when each kind of refused board press last woke the CEO.
 	refusals map[string]time.Time
 	// fileListings keeps each session folder's file list for the composer's
 	// "@" list, and fileListingsMu lets one listing run at a time.
@@ -128,7 +128,7 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != "GET" && r.Method != "HEAD" {
-		if r.Header.Get("Origin") != "http://"+h.Host || r.Header.Get("X-CFO-Token") != h.Service.Instance {
+		if r.Header.Get("Origin") != "http://"+h.Host || r.Header.Get("X-CEO-Token") != h.Service.Instance {
 			apiError(w, 403, "Refresh the board before submitting an action")
 			return
 		}
@@ -282,16 +282,16 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		respond(w, 200, catalog)
 	case r.URL.Path == "/api/setup/start" && r.Method == "POST":
-		h.startCFO(w, r)
-	case r.URL.Path == "/api/cfo/reopen" && r.Method == "POST":
-		h.reopenCFO(w, r)
-	case r.URL.Path == "/api/cfo/restart" && r.Method == "POST":
-		h.restartCFO(w, r)
-	case r.URL.Path == "/api/cfo/engine" && r.Method == "POST":
-		h.selectCFOEngine(w, r)
-	case r.URL.Path == "/api/cfo/update" && r.Method == "POST":
-		h.updateCFO(w, r)
-	case r.URL.Path == "/api/cfo/report" && r.Method == "POST":
+		h.startCEO(w, r)
+	case r.URL.Path == "/api/ceo/reopen" && r.Method == "POST":
+		h.reopenCEO(w, r)
+	case r.URL.Path == "/api/ceo/restart" && r.Method == "POST":
+		h.restartCEO(w, r)
+	case r.URL.Path == "/api/ceo/engine" && r.Method == "POST":
+		h.selectCEOEngine(w, r)
+	case r.URL.Path == "/api/ceo/update" && r.Method == "POST":
+		h.updateCEO(w, r)
+	case r.URL.Path == "/api/ceo/report" && r.Method == "POST":
 		h.reportBoardError(w, r)
 	case r.URL.Path == "/api/start-at-login" && r.Method == "POST":
 		h.setStartAtLogin(w, r)
@@ -344,7 +344,7 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			if r.Method == "GET" {
 				h.grantHisBoard(w, r)
-				_, _ = io.WriteString(w, strings.Replace(string(data), "<head>", `<head><meta name="cfo-style-nonce" content="`+nonce+`"><meta name="cfo-build" content="`+h.build+`">`, 1))
+				_, _ = io.WriteString(w, strings.Replace(string(data), "<head>", `<head><meta name="ceo-style-nonce" content="`+nonce+`"><meta name="ceo-build" content="`+h.build+`">`, 1))
 			}
 			return
 		}
@@ -398,7 +398,7 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 	// A snapshot reads the fleet from disk, which can take seconds, so each
 	// is waited for away from this loop, one at a time, while the loop goes on
 	// sending the Command Center's items the moment the store changes: what
-	// the Overlord or the CFO answered leaves every board at once, whatever a
+	// the Overlord or the CEO answered leaves every board at once, whatever a
 	// build takes. Every stream shares the build (see SnapshotSince). stale
 	// says the fleet changed while this stream waited for one, so it asks for
 	// another. The service publishes at least every snapshotRefresh, so a
@@ -540,7 +540,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, "Only one action is accepted")
 		return
 	}
-	// A message goes to whichever CFO or goblin session runs when it is
+	// A message goes to whichever CEO or goblin session runs when it is
 	// delivered, and a delete names the message by its goblin and words, so
 	// neither needs a recipient identity.
 	if input.Generation == "" && input.Kind != "message" && input.Kind != "message_withdraw" && input.Kind != "message_now" {
@@ -580,7 +580,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 	}
 	var err error
 	if a.Kind == "review" {
-		a, err = h.Service.Store.QueueReview(a, h.Service.Options.CFO)
+		a, err = h.Service.Store.QueueReview(a, h.Service.Options.CEO)
 	} else {
 		a, err = h.Service.Store.Queue(a)
 	}
@@ -630,7 +630,7 @@ func (h *HTTP) task(w http.ResponseWriter, r *http.Request) {
 		case err != nil:
 			apiError(w, 503, err.Error())
 		case !found:
-			apiError(w, 404, "No cfo gate test run of this task is kept")
+			apiError(w, 404, "No ceo gate test run of this task is kept")
 		default:
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			w.Header().Set("X-Content-Type-Options", "nosniff")

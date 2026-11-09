@@ -112,7 +112,7 @@ func Resolve(ctx context.Context, stateDir, id string, endpoint Endpoint) (Curre
 	}
 	for i := len(lines) - 1; i >= 0; i-- {
 		verb, detail, ok := ParseStatusLine(lines[i])
-		if !ok || slices.Contains(cfoAuditVerbs, verb) {
+		if !ok || slices.Contains(ceoAuditVerbs, verb) {
 			continue
 		}
 		return Current{State: mapVerb(verb), Source: SourceStatus, Detail: detail}, nil
@@ -122,14 +122,14 @@ func Resolve(ctx context.Context, stateDir, id string, endpoint Endpoint) (Curre
 
 // LatestVerb scans status lines newest-first and returns the first parseable
 // verb the task reported itself, so a trailing unparseable or noise line or a
-// CFO audit record never hides the goblin's real state. The watcher and the
+// CEO audit record never hides the goblin's real state. The watcher and the
 // monitor must share this scan, or a decision line followed by a trailing
 // noise line would be committed silently by one and parked as delivered by
 // the other.
 func LatestVerb(lines []string) (string, bool) {
 	for i := len(lines) - 1; i >= 0; i-- {
 		verb, _, ok := ParseStatusLine(lines[i])
-		if !ok || slices.Contains(cfoAuditVerbs, verb) {
+		if !ok || slices.Contains(ceoAuditVerbs, verb) {
 			continue
 		}
 		return verb, true
@@ -137,21 +137,21 @@ func LatestVerb(lines []string) (string, bool) {
 	return "", false
 }
 
-// cfoAuditVerbs are the records the CFO itself writes into a task's status
+// ceoAuditVerbs are the records the CEO itself writes into a task's status
 // log, including the Pause, Resume and Stop controller's outcomes and the
-// reason cfo spawn started the task beside a teammate's work, and the
-// services whose credentials the CFO granted it or a relaunch narrowed it to.
-// They are the CFO's word, never the task's own report, so every scan for a
+// reason ceo spawn started the task beside a teammate's work, and the
+// services whose credentials the CEO granted it or a relaunch narrowed it to.
+// They are the CEO's word, never the task's own report, so every scan for a
 // task's latest report skips them. A goblin's own accept of its spent
-// review's findings is audited as the CFO's is, by=<task>, and is no report
+// review's findings is audited as the CEO's is, by=<task>, and is no report
 // either.
-var cfoAuditVerbs = []string{"pipeline-findings-accepted", "pipeline-approval-reason", "pipeline-policy-migrated", "lifecycle-paused", "lifecycle-running", "lifecycle-stopped", "lifecycle-failed", "lifecycle-refused", "overlap-accepted", "notify-handled", "credentials"}
+var ceoAuditVerbs = []string{"pipeline-findings-accepted", "pipeline-approval-reason", "pipeline-policy-migrated", "lifecycle-paused", "lifecycle-running", "lifecycle-stopped", "lifecycle-failed", "lifecycle-refused", "overlap-accepted", "notify-handled", "credentials"}
 
-// IsCFOAudit reports whether a status line is a CFO audit record rather than
+// IsCEOAudit reports whether a status line is a CEO audit record rather than
 // something the task reported.
-func IsCFOAudit(line string) bool {
+func IsCEOAudit(line string) bool {
 	verb, _, ok := ParseStatusLine(line)
-	return ok && slices.Contains(cfoAuditVerbs, verb)
+	return ok && slices.Contains(ceoAuditVerbs, verb)
 }
 
 // ParseStatusLine parses one colon-delimited status event, accepting the

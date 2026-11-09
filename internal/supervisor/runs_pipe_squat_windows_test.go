@@ -67,7 +67,7 @@ func TestRunPipeIsNotServedWhenAnotherProcessHoldsItsName(t *testing.T) {
 	}
 }
 
-// cfo run-request sends its command only to the process that holds this
+// ceo run-request sends its command only to the process that holds this
 // home's watch lock: a pipe of the same name served by anything else never
 // sees it.
 func TestRunRequestIsNotSentToAPipeTheSupervisorDoesNotServe(t *testing.T) {

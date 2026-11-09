@@ -17,7 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// A report spooling its board receipt, such as a cfo send, holds the activity
+// A report spooling its board receipt, such as a ceo send, holds the activity
 // lock for a moment. A cycle that meets it leaves the inbox to the next cycle
 // and reports nothing: each one reported the hold as its error, which the
 // supervisor met again and again and filed as #1505. A hold that outlasts
@@ -88,12 +88,12 @@ func TestACycleLeavesTheActivityInboxToAReportSpoolingItsReceipt(t *testing.T) {
 
 func TestPrimaryPresentationUsesVerifiedContextWithoutBorrowingTask(t *testing.T) {
 	store, h := testStore(t)
-	_, identity, terminal, cfo := primaryFixture(t, store)
+	_, identity, terminal, ceo := primaryFixture(t, store)
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CFO_SESSION_ID", "actual-primary")
-	t.Setenv("CFO_SESSION_HARNESS", "codex")
+	t.Setenv("CEO_SESSION_ID", "actual-primary")
+	t.Setenv("CEO_SESSION_HARNESS", "codex")
 	now := time.Now().UTC()
 	a := BoardActivity{ID: "primary-review", Kind: "review", State: "active", URL: "http://127.0.0.1:4387/session/review", At: now, Until: now.Add(time.Minute)}
 	if err := PublishPresentation(h, a); err != nil {
@@ -103,10 +103,10 @@ func TestPrimaryPresentationUsesVerifiedContextWithoutBorrowingTask(t *testing.T
 		t.Fatal(err)
 	}
 	got := store.Snapshot().Activity[0]
-	if got.TaskID != "" || got.CFOIdentity != identity || got.Target != "primary-cfo" {
+	if got.TaskID != "" || got.CEOIdentity != identity || got.Target != "primary-ceo" {
 		t.Fatal("primary borrowed or invented a task", got)
 	}
-	service := &Service{Store: store, Options: Options{CFO: cfo}}
+	service := &Service{Store: store, Options: Options{CEO: ceo}}
 	service.reconcilePresentations()
 	snap, err := service.Snapshot()
 	if err != nil {
@@ -115,7 +115,7 @@ func TestPrimaryPresentationUsesVerifiedContextWithoutBorrowingTask(t *testing.T
 	if !snap.Activity[0].Live {
 		t.Fatal("verified primary presentation not live")
 	}
-	// The CFO's terminal now runs another program.
+	// The CEO's terminal now runs another program.
 	terminal.runs(t, 4)
 	service.presentationChecked = time.Time{}
 	service.reconcilePresentations()
@@ -194,7 +194,7 @@ func TestAQueuedSendShowsItsReceiptOnlyOnceTheGoblinTookIt(t *testing.T) {
 				t.Fatal(err)
 			}
 			since := time.Now().UTC()
-			if err := PrepareSendActivity(h, "task-1").Queued("CFO: merge main first", since); err != nil {
+			if err := PrepareSendActivity(h, "task-1").Queued("CEO: merge main first", since); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestActivity(); err != nil {
@@ -223,7 +223,7 @@ func TestAQueuedSendShowsItsReceiptOnlyOnceTheGoblinTookIt(t *testing.T) {
 			if test.shown && (receipts[0].State != "accepted" || receipts[0].Digest != "" || !receipts[0].At.Equal(now) || receipts[0].Generation != meta.SpawnGen) {
 				t.Errorf("receipt = %+v, want it accepted, for the goblin's generation, at the look that saw it taken", receipts[0])
 			}
-			if len(asked) == 0 || asked[0].Digest != monitor.TextDigest("CFO: merge main first") || !asked[0].At.Equal(since) {
+			if len(asked) == 0 || asked[0].Digest != monitor.TextDigest("CEO: merge main first") || !asked[0].At.Equal(since) {
 				t.Errorf("the goblin's record was asked for %+v, want the text's digest since the send", asked)
 			}
 			if held := len(store.Snapshot().QueuedSends) == 1; held != test.held {
@@ -251,12 +251,12 @@ func TestSendReceiptNeverBorrowsSameHarnessParent(t *testing.T) {
 	node := store.db.Sessions[id]
 	node.Parent = "codex/old-primary"
 	store.db.Sessions[id] = node
-	store.db.Sessions[node.Parent] = Session{ID: node.Parent, NativeID: "old-primary", Harness: "codex", Role: "cfo", Phase: "ended"}
+	store.db.Sessions[node.Parent] = Session{ID: node.Parent, NativeID: "old-primary", Harness: "codex", Role: "ceo", Phase: "ended"}
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CFO_SESSION_ID", "actual-primary")
-	t.Setenv("CFO_SESSION_HARNESS", "codex")
+	t.Setenv("CEO_SESSION_ID", "actual-primary")
+	t.Setenv("CEO_SESSION_HARNESS", "codex")
 	if err := PrepareSendActivity(h, "task-1").Taken(); err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func TestSendReceiptNeverBorrowsSameHarnessParent(t *testing.T) {
 	// Explicit caller identity can prove the real reported parent.
 	node.Parent = "codex/actual-primary"
 	store.db.Sessions[id] = node
-	store.db.Sessions[node.Parent] = Session{ID: node.Parent, NativeID: "actual-primary", Harness: "codex", Role: "cfo", Phase: "active"}
+	store.db.Sessions[node.Parent] = Session{ID: node.Parent, NativeID: "actual-primary", Harness: "codex", Role: "ceo", Phase: "active"}
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +287,7 @@ func TestSendReceiptNeverBorrowsSameHarnessParent(t *testing.T) {
 }
 
 // The Overlord, 2026-10-17, of cg-canvas-live-only's Scrawl page, presented
-// with cfo present --kind review --watch: its row in the Command Center took
+// with ceo present --kind review --watch: its row in the Command Center took
 // him straight to the page, and once he sent and ended the review there "it
 // didn't react or update. It still shows I have a notification." A review he
 // is asked to watch is a review item, polled on the page lavish-axi serves at
@@ -363,8 +363,8 @@ func TestPrimaryPresentationLateSessionDiscoveryKeepsReportIdentity(t *testing.T
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CFO_SESSION_ID", "actual-primary")
-	t.Setenv("CFO_SESSION_HARNESS", "codex")
+	t.Setenv("CEO_SESSION_ID", "actual-primary")
+	t.Setenv("CEO_SESSION_HARNESS", "codex")
 	now := time.Now().UTC()
 	a := BoardActivity{ID: "late-primary-report", Kind: "review", State: "active", URL: "http://127.0.0.1:4387/session/review", At: now, Until: now.Add(time.Minute)}
 	if err := PublishPresentation(h, a); err != nil {
@@ -374,7 +374,7 @@ func TestPrimaryPresentationLateSessionDiscoveryKeepsReportIdentity(t *testing.T
 		t.Fatal(err)
 	}
 	start := event(t, h, "SessionStart", "actual-primary", "", now)
-	start.Harness, start.Role, start.TaskID, start.Generation = "codex", "cfo", "", ""
+	start.Harness, start.Role, start.TaskID, start.Generation = "codex", "ceo", "", ""
 	if err := store.Accept(start); err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +388,7 @@ func TestPrimaryPresentationLateSessionDiscoveryKeepsReportIdentity(t *testing.T
 			t.Fatal(err)
 		}
 		got := store.Snapshot().Activity[0]
-		if got.Target != "primary-cfo" || got.CFOIdentity != identity || got.State != status {
+		if got.Target != "primary-ceo" || got.CEOIdentity != identity || got.State != status {
 			t.Fatal("primary report changed identity", got)
 		}
 	}

@@ -80,7 +80,7 @@ func TestNoDevDriveItemIsMadeUntilThePersonAsks(t *testing.T) {
 }
 
 // A machine that could not be read is said in the panel's note in plain
-// words: the error is cfo doctor's to show, never the board's.
+// words: the error is ceo doctor's to show, never the board's.
 func TestAnUnreadableMachineIsOnePlainNote(t *testing.T) {
 	// Arrange
 	machine := devDriveMachine()
@@ -156,7 +156,7 @@ func TestSetUpMakesTheCreateItemThenTheMoveItem(t *testing.T) {
 	// Assert: the move, without administrator, runs this build in the home.
 	items = devDriveItems(s)
 	move := items[len(items)-1]
-	if len(items) != 2 || move.DevDrive != "move" || move.Admin || !strings.Contains(move.Command, "dev-drive move --to 'D:\\CodeGoblins'") || !strings.Contains(move.Command, "$env:CFO_HOME = '"+s.Store.Home.Root+"'") {
+	if len(items) != 2 || move.DevDrive != "move" || move.Admin || !strings.Contains(move.Command, "dev-drive move --to 'D:\\CodeGoblins'") || !strings.Contains(move.Command, "$env:CEO_HOME = '"+s.Store.Home.Root+"'") {
 		t.Fatalf("items = %+v, want the move item next", items)
 	}
 }
@@ -244,7 +244,7 @@ func TestTheBoardKeepsTheAnswerToTheDevDriveOffer(t *testing.T) {
 		request := httptest.NewRequest("POST", "http://board.local/api/dev-drive", strings.NewReader(body))
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Origin", "http://board.local")
-		request.Header.Set("X-CFO-Token", orderToken)
+		request.Header.Set("X-CEO-Token", orderToken)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		return response
@@ -272,7 +272,7 @@ func TestTheBoardKeepsTheAnswerToTheDevDriveOffer(t *testing.T) {
 	}
 }
 
-// An answer given outside the board, by cfo dev-drive setup or the install,
+// An answer given outside the board, by ceo dev-drive setup or the install,
 // reaches the watch at its next tick, not at its half-hourly look.
 func TestTheWatchNoticesAnAnswerGivenElsewhere(t *testing.T) {
 	// Arrange

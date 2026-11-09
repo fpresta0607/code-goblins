@@ -25,10 +25,10 @@ func (r *scriptedRunner) Run(_ context.Context, req execx.Request) (execx.Result
 }
 
 const oauthSnapshot = `page:
-  title: Authorize cfo
-uid=g1:2_0 RootWebArea "Authorize cfo"
+  title: Authorize ceo
+uid=g1:2_0 RootWebArea "Authorize ceo"
   uid=g1:2_3 link "Cancel"
-  uid=g1:2_7 button "Authorize cfo-fleet"
+  uid=g1:2_7 button "Authorize ceo-fleet"
 `
 
 func TestBrowserClicksTheApprovalControlAnExistingSessionPutOnScreen(t *testing.T) {
@@ -41,7 +41,7 @@ func TestBrowserClicksTheApprovalControlAnExistingSessionPutOnScreen(t *testing.
 	if err != nil {
 		t.Fatalf("Confirm: %v", err)
 	}
-	if !strings.Contains(note, "Authorize cfo-fleet") {
+	if !strings.Contains(note, "Authorize ceo-fleet") {
 		t.Errorf("note = %q, want it to name the control clicked", note)
 	}
 	if len(runner.calls) != 2 {

@@ -86,7 +86,7 @@ func TestRetentionAdmitsNewSessionsAndPreservesRetiredParent(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := event(t, h, "SessionStart", "new", "", time.Now())
-	start.Role, start.TaskID, start.Generation = "cfo", "", ""
+	start.Role, start.TaskID, start.Generation = "ceo", "", ""
 	if err := s.Accept(start); err != nil {
 		t.Fatal(err)
 	}
@@ -467,16 +467,16 @@ func TestInterruptedExternalActionIsNeverAutomaticallyResent(t *testing.T) {
 
 func TestObsoleteActionsAreRejectedWithoutReplayingHistoricalRecords(t *testing.T) {
 	s, h := testStore(t)
-	for _, kind := range []string{"feedback", "cfo_message"} {
+	for _, kind := range []string{"feedback", "ceo_message"} {
 		if _, err := s.Queue(Action{ID: "new-" + kind, Kind: kind, TaskID: "task-1", Text: "obsolete"}); err == nil {
 			t.Fatalf("new %s action was admitted", kind)
 		}
 	}
 	now := time.Now().UTC()
 	s.db.Actions = append(s.db.Actions,
-		Action{ID: "historical", Kind: "cfo_message", Text: "recorded", Status: "succeeded", Message: "recorded outcome", CreatedAt: now, UpdatedAt: now},
+		Action{ID: "historical", Kind: "ceo_message", Text: "recorded", Status: "succeeded", Message: "recorded outcome", CreatedAt: now, UpdatedAt: now},
 		Action{ID: "queued-feedback", Kind: "feedback", TaskID: "task-1", Generation: "g1", Text: "obsolete", Status: "queued", CreatedAt: now, UpdatedAt: now},
-		Action{ID: "queued-message", Kind: "cfo_message", Text: "obsolete", Status: "queued", CreatedAt: now, UpdatedAt: now},
+		Action{ID: "queued-message", Kind: "ceo_message", Text: "obsolete", Status: "queued", CreatedAt: now, UpdatedAt: now},
 	)
 	if err := s.save(); err != nil {
 		t.Fatal(err)
@@ -509,7 +509,7 @@ func TestHistoricalObsoleteActionRetriesReturnStoredOutcome(t *testing.T) {
 	historical := []Action{
 		{ID: "restarted-feedback", Kind: "feedback", TaskID: "task-1", Generation: "g1", Text: "recorded feedback", Status: "succeeded", Message: "feedback outcome", CreatedAt: now, UpdatedAt: now},
 		{ID: "removed-feedback", Kind: "feedback", TaskID: "task-1", Generation: "g1", Text: "removed recipient", Status: "failed", Message: "recorded failure", CreatedAt: now, UpdatedAt: now},
-		{ID: "historical-message", Kind: "cfo_message", Generation: "primary-old", Text: "recorded message", Status: "succeeded", Message: "message outcome", CreatedAt: now, UpdatedAt: now},
+		{ID: "historical-message", Kind: "ceo_message", Generation: "primary-old", Text: "recorded message", Status: "succeeded", Message: "message outcome", CreatedAt: now, UpdatedAt: now},
 	}
 	s.db.Actions = append(s.db.Actions, historical...)
 	if err := s.save(); err != nil {
@@ -534,11 +534,11 @@ func TestHistoricalObsoleteActionRetriesReturnStoredOutcome(t *testing.T) {
 	if err != nil || got.Message != "recorded failure" {
 		t.Fatalf("removed recipient retry lost its outcome: action=%+v err=%v", got, err)
 	}
-	got, err = s.Queue(Action{ID: "historical-message", Kind: "cfo_message", Generation: "primary-old", Text: "recorded message"})
+	got, err = s.Queue(Action{ID: "historical-message", Kind: "ceo_message", Generation: "primary-old", Text: "recorded message"})
 	if err != nil || got.Message != "message outcome" {
-		t.Fatalf("historical CFO retry lost its outcome: action=%+v err=%v", got, err)
+		t.Fatalf("historical CEO retry lost its outcome: action=%+v err=%v", got, err)
 	}
-	if _, err := s.Queue(Action{ID: "historical-message", Kind: "cfo_message", Generation: "primary-old", Text: "changed"}); err == nil {
+	if _, err := s.Queue(Action{ID: "historical-message", Kind: "ceo_message", Generation: "primary-old", Text: "changed"}); err == nil {
 		t.Fatal("conflicting historical retry was accepted")
 	}
 	if len(s.Snapshot().Actions) != len(historical) {
@@ -647,7 +647,7 @@ func TestAnEventThatWaitsForRoomStaysInTheInbox(t *testing.T) {
 	s.mu.Lock()
 	for i := range maxSessions {
 		id := fmt.Sprintf("codex/busy-%d", i)
-		s.db.Sessions[id] = Session{ID: id, NativeID: fmt.Sprintf("busy-%d", i), Harness: "codex", Role: "cfo", Phase: "active", UpdatedAt: time.Now()}
+		s.db.Sessions[id] = Session{ID: id, NativeID: fmt.Sprintf("busy-%d", i), Harness: "codex", Role: "ceo", Phase: "active", UpdatedAt: time.Now()}
 	}
 	err := s.save()
 	s.mu.Unlock()
@@ -731,10 +731,10 @@ func inboxFillingWakes(t *testing.T, h home.Home) []wake.Record {
 	})
 }
 
-// An inbox filling toward its bound wakes the CFO once, naming what fills
+// An inbox filling toward its bound wakes the CEO once, naming what fills
 // it, the task of each event it can read and the rest as unreadable, before
 // any goblin's hook finds it full.
-func TestAFillingInboxWakesTheCFOOnce(t *testing.T) {
+func TestAFillingInboxWakesTheCEOOnce(t *testing.T) {
 	for _, testCase := range []struct {
 		name       string
 		isReadable bool
@@ -1020,7 +1020,7 @@ func TestFullActionQueueDropsTheOldestUnconfirmedDelivery(t *testing.T) {
 		name   string
 		action Action
 	}{
-		{"a message to the CFO", Action{ID: "new-action", Kind: "message", Text: "Hold the merge until I say."}},
+		{"a message to the CEO", Action{ID: "new-action", Kind: "message", Text: "Hold the merge until I say."}},
 		{"a clear of a closed question", Action{ID: "new-action", Kind: "question_clear", QuestionID: "question-1", Generation: strings.Repeat("c", 64)}},
 		{"a delete of a kept message", Action{ID: "new-action", Kind: "message_withdraw", TaskID: "task-1", Text: "use the staging database"}},
 	} {
@@ -1034,9 +1034,9 @@ func TestFullActionQueueDropsTheOldestUnconfirmedDelivery(t *testing.T) {
 			store.mu.Lock()
 			store.db.Questions = append(store.db.Questions, Question{ID: "question-1", Identity: strings.Repeat("c", 64), Text: "Ship it?", Status: "failed", CreatedAt: start})
 			for i := range maxActions {
-				store.db.Actions = append(store.db.Actions, Action{ID: fmt.Sprintf("unconfirmed-%03d", i), Kind: "cfo_answer", Text: "Yes", Status: "uncertain", CreatedAt: start.Add(time.Duration(i) * time.Second)})
+				store.db.Actions = append(store.db.Actions, Action{ID: fmt.Sprintf("unconfirmed-%03d", i), Kind: "ceo_answer", Text: "Yes", Status: "uncertain", CreatedAt: start.Add(time.Duration(i) * time.Second)})
 			}
-			store.db.Actions[0].Awaiting = &Awaiting{Host: "cfo-host", Since: start, QuietSince: start}
+			store.db.Actions[0].Awaiting = &Awaiting{Host: "ceo-host", Since: start, QuietSince: start}
 			store.mu.Unlock()
 
 			// Act

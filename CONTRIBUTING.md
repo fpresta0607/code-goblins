@@ -12,7 +12,7 @@ Thanks for wanting to contribute to code-goblins.
 
 ## Checks
 
-A source build runs `npm ci` and `npm run build` in `frontend` before `go build`: `cfo.exe` embeds the board they build, and one built without it serves a page saying the board was not built.
+A source build runs `npm ci` and `npm run build` in `frontend` before `go build`: `ceo.exe` embeds the board they build, and one built without it serves a page saying the board was not built.
 See [Development](README.md#development) for the requirements before installing a source build.
 `go vet` and `go test` need Go alone.
 The build lands in `internal/boardweb/dist/board`, which git ignores: a board change commits its source, never its build.
@@ -22,11 +22,11 @@ cd frontend
 npm ci
 npm run build
 cd ..
-go run ./cmd/cfo gate prepush
-go build ./cmd/cfo
+go run ./cmd/ceo gate prepush
+go build ./cmd/ceo
 ```
 
-Before a direct push, run `cfo gate prepush`.
+Before a direct push, run `ceo gate prepush`.
 It picks what your change can break and runs it one check at a time: the imports of every package the change reaches, the tests that read the whole tree, the changed packages, for a change under `frontend` the type check, the lint, the unit tests and the browser specs the change touched or names, then `go vet` of what the change reaches and the packages that import it, nearest first.
 For fleet tasks, follow the [selected validation owner](docs/contract/delivery.md#delivery).
 It names each check with why before it runs any, and stops at the first failure with one line that names the check and the test.
@@ -35,7 +35,7 @@ A slow package runs without the tests this machine has timed at 2 seconds or lon
 Two kinds of slow test still run: every test in a test file your change touched, and the tests under 15 seconds in the test file named for a source it touched, as `spawn_test.go` is for `spawn.go`.
 It starts no check after its time limit, 15 minutes unless `--limit` says otherwise, and names everything it left to CI, which tests what your change reaches on the pull request's own run and every package and browser spec in the merge train's run that lands it: on a Windows machine the whole suite takes an hour or more, where CI's parallel jobs take about eight minutes.
 The tests that read the whole tree run here whatever you changed, because a pull request's own run starts only the jobs its change can alter, and a guard in a job it did not start would first fail in the merge train.
-`cfo gate test` is the gate's own test step, which runs less, and `go test ./...` still runs everything here when you want it.
+`ceo gate test` is the gate's own test step, which runs less, and `go test ./...` still runs everything here when you want it.
 See [Verification levels](docs/pipeline.md#verification-levels) for its required guards and platform rules.
 
 CI runs the same steps on `windows-latest` for every push to `main` and every pull request, as parallel jobs defined in [.github/workflows/go.yml](.github/workflows/go.yml).
@@ -47,8 +47,8 @@ A new job does: `JOBS` at the top of that file says what can change each job's r
 A browser spec or a unit test of the board that reads a file outside `frontend` must have that file listed under the job's paths in `JOBS`, which `frontend/src/outside-reads.test.ts` checks.
 A new browser spec needs none either: Playwright deals the spec files out among the browser jobs, and one more number in that job's `shard` list is one more job when they grow slower than the slowest Go job.
 
-`cmd/cfo/winres.json` is the Windows version resource and manifest every build of `cfo.exe` carries, through the `rsrc_windows_*.syso` files beside it.
-After changing it, regenerate them in `cmd/cfo` with `go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64,arm64` and commit them; CI fails when they differ, and a release stamps its own version into them.
+`cmd/ceo/winres.json` is the Windows version resource and manifest every build of `ceo.exe` carries, through the `rsrc_windows_*.syso` files beside it.
+After changing it, regenerate them in `cmd/ceo` with `go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64,arm64` and commit them; CI fails when they differ, and a release stamps its own version into them.
 Build release and deployment binaries with `-trimpath`, so a commit builds to the same file wherever it is built.
 
 ## Repo layout
@@ -62,9 +62,9 @@ The telemetry and pipeline database regressions are the exception - they build r
 A pipeline test reads its fixture through `fixtureCommands`, which runs `sqlite3` without the gate's one-minute bound on a state read, since a loaded machine has taken that whole minute only to start `sqlite3` and failed a test before its assertions ran.
 
 A test must never resolve the fleet home its shell exported.
-`internal/home.Resolve` refuses the `CFO_HOME` and `CFO_STATE_OVERRIDE` values the process was launched with whenever the caller is a test binary, so a test that needs a home points both at its own directory.
-That refusal cannot cover the real `cfo` binary, which is not a test binary, so a test that execs it - or a shell that resolves it - builds its environment through `cfoTestEnv` in `cmd/cfo`, and the exec helpers fail a test that would hand the child the inherited fleet.
-The machine's projects root is a second inherited value with no such refusal behind it, so a test package that builds a production `reap.Collector` or `watch.Config` pins `CFO_PROJECTS_ROOT` at an empty temporary directory in its own `TestMain`, as `cmd/cfo` and `internal/watch` do.
+`internal/home.Resolve` refuses the `CEO_HOME` and `CEO_STATE_OVERRIDE` values the process was launched with whenever the caller is a test binary, so a test that needs a home points both at its own directory.
+That refusal cannot cover the real `ceo` binary, which is not a test binary, so a test that execs it - or a shell that resolves it - builds its environment through `ceoTestEnv` in `cmd/ceo`, and the exec helpers fail a test that would hand the child the inherited fleet.
+The machine's projects root is a second inherited value with no such refusal behind it, so a test package that builds a production `reap.Collector` or `watch.Config` pins `CEO_PROJECTS_ROOT` at an empty temporary directory in its own `TestMain`, as `cmd/ceo` and `internal/watch` do.
 The process value answers before the user scope, so the pin keeps the package off this machine's registry and off whichever checkouts its operator keeps.
 
 ```sh
@@ -75,11 +75,11 @@ go test ./...
 
 A test that needs some program to start uses the one stand-in program, `internal/standin/program`: `standin.Put` writes it to a path and `standin.Bytes` gives its content to serve or pack.
 `standin.Env` says what it does for a command: record it, print something, exit with a code, keep running, or copy itself into a home as an install does.
-It is built once for each Go toolchain into `cfo\standin` in the user's cache folder and reused by every test run from every checkout, and two builds of it are the same bytes.
+It is built once for each Go toolchain into `ceo\standin` in the user's cache folder and reused by every test run from every checkout, and two builds of it are the same bytes.
 
 A test never serves or runs a copy of its own test binary where the stand-in would do.
 A test binary is a new unsigned program at every build, and Microsoft Defender asks its cloud about a program it has never met before it lets it start: 0.7 to 5 s on the Overlord's PC on 2026-10-10, and 39 s under load, which is past a launch deadline.
-The install tests used to serve such a copy as the `cfo.exe` that `install.ps1` downloads, renames and runs, which is what a dropper does, and Defender's verdict on those bytes then named the test binary itself, 22 times in two weeks.
+The install tests used to serve such a copy as the `ceo.exe` that `install.ps1` downloads, renames and runs, which is what a dropper does, and Defender's verdict on those bytes then named the test binary itself, 22 times in two weeks.
 No stand-in is named after a program Windows ships, such as `rundll32.exe`, since a file with such a name outside Windows' own folders is how malware hides.
 `internal/standin`'s tests fail on a new copy of a test binary and on such a name, and list the test files that still make a copy for a stand-in that runs their package's own code.
 A test that only needs bytes it never runs uses bytes that are no program.
@@ -93,17 +93,17 @@ A test that runs the pinned script pipes `pinned(...)` to `Invoke-Expression`, w
 The real-session acceptance suite needs real Herdr, Claude Code, Codex, and Pi, and is opt-in:
 
 ```powershell
-$env:CFO_PLAN3_REAL = '1'
+$env:CEO_PLAN3_REAL = '1'
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/acceptance/plan3_windows.ps1
 ```
 
 It creates a disposable project under a unique temporary root and refuses to run against a production checkout.
-Before it builds or runs anything it points `CFO_HOME` at the disposable home under that root and `CFO_STATE_OVERRIDE` at that home's `state` directory, so a shell that already exports a fleet home cannot hand the nested `go test` run or the real `cfo` binary the running fleet, and it restores both afterwards.
+Before it builds or runs anything it points `CEO_HOME` at the disposable home under that root and `CEO_STATE_OVERRIDE` at that home's `state` directory, so a shell that already exports a fleet home cannot hand the nested `go test` run or the real `ceo` binary the running fleet, and it restores both afterwards.
 
 ## Making a release
 
 A release is a tag: `vX.Y.Z` pushed on `main`.
-`release.yml` builds `cfo.exe`, `goblins-window.exe` and `CodeGoblinsSetup.exe` from it, scans them with Microsoft Defender, writes `SHA256SUMS`, pins `install.ps1` to the tag, and leaves a draft release; it never publishes by itself.
+`release.yml` builds `ceo.exe`, `goblins-window.exe` and `CodeGoblinsSetup.exe` from it, scans them with Microsoft Defender, writes `SHA256SUMS`, pins `install.ps1` to the tag, and leaves a draft release; it never publishes by itself.
 It signs the three programs when the `release` environment holds the whole signing identity, says in the draft's notes that the release is unsigned when it holds none, and stops when it holds only part of it.
 A signed release signs its pinned `install.ps1` too, with the same certificate, and stops when that signature does not verify: Microsoft Defender sends an unsigned script that downloads and runs programs to Microsoft from every PC that meets it.
 

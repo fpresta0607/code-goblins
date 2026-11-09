@@ -79,13 +79,13 @@ func (c *Client) EnsureServer(ctx context.Context) error {
 }
 
 // fleetSpaceLabel is the one Herdr workspace every goblin tab lives in: the
-// CFO space. One space holds the CFO session plus all running goblins; there
+// CEO space. One space holds the CEO session plus all running goblins; there
 // is no separate fleet workspace.
-const fleetSpaceLabel = "cfo"
+const fleetSpaceLabel = "ceo"
 
-// EnsureContainer returns the one flat cfo workspace: it adopts an existing
-// cfo-labeled workspace, adopts the factory-default workspace ("~" holding one
-// tab "1") by renaming both to cfo, or creates the workspace when neither
+// EnsureContainer returns the one flat ceo workspace: it adopts an existing
+// ceo-labeled workspace, adopts the factory-default workspace ("~" holding one
+// tab "1") by renaming both to ceo, or creates the workspace when neither
 // shape is present. Only the create path retains the exact default tab from
 // its response as the seeded default.
 func (c *Client) EnsureContainer(ctx context.Context, cwd string) (Container, error) {
@@ -99,7 +99,7 @@ func (c *Client) EnsureContainer(ctx context.Context, cwd string) (Container, er
 	for _, workspace := range workspaces {
 		if workspace.Label == fleetSpaceLabel {
 			if workspace.ID == "" {
-				return Container{}, errors.New("herdr: matching cfo workspace has no workspace_id")
+				return Container{}, errors.New("herdr: matching ceo workspace has no workspace_id")
 			}
 			matches = append(matches, workspace)
 		}
@@ -140,9 +140,9 @@ func (c *Client) EnsureContainer(ctx context.Context, cwd string) (Container, er
 
 // adoptFactoryWorkspace renames the factory-default Herdr workspace ("~"
 // holding one tab "1") to the fleet label and adopts it, so a brand-new
-// install opens into the cfo space instead of growing a parallel one. The
+// install opens into the ceo space instead of growing a parallel one. The
 // adopted tab is deliberately not retained as the seeded default: on a live
-// install that tab may carry the operator's own CFO session, and the seeded
+// install that tab may carry the operator's own CEO session, and the seeded
 // default is the one pane CreateTask is allowed to prune.
 func (c *Client) adoptFactoryWorkspace(ctx context.Context, session string, workspaces []workspaceRecord) (Container, bool, error) {
 	if len(workspaces) != 1 || workspaces[0].Label != "~" || workspaces[0].ID == "" {
@@ -288,9 +288,9 @@ func (c *Client) AgentPrompt(ctx context.Context, target Target, text string) er
 	return err
 }
 
-// ReportSource identifies CFO as the authority behind a reported agent, so a
-// pane CFO registered is distinguishable from one Herdr detected itself.
-const ReportSource = "cfo"
+// ReportSource identifies CEO as the authority behind a reported agent, so a
+// pane CEO registered is distinguishable from one Herdr detected itself.
+const ReportSource = "ceo"
 
 // ReportAgent tells Herdr which harness a pane is running, what that harness
 // is doing, and which goblin session it belongs to.
@@ -299,7 +299,7 @@ const ReportSource = "cfo"
 // per-harness detection manifest. A manifest that has not kept up with a
 // harness release matches nothing, and the pane then holds no agent at all:
 // no row in the agent list, no harness or status in the fleet view, and
-// nothing for the monitor to read. CFO started the harness, so it knows the
+// nothing for the monitor to read. CEO started the harness, so it knows the
 // kind, the session, and the state it just drove the pane into without
 // reading the screen, and reports them rather than hoping a manifest agrees.
 func (c *Client) ReportAgent(ctx context.Context, target Target, agent, state, sessionID, sessionPath string) error {
@@ -336,7 +336,7 @@ func reportableAgentState(state string) bool {
 }
 
 // HarnessRunning reports whether the pane is running something other than the
-// shell CFO prepared it with.
+// shell CEO prepared it with.
 //
 // This is the liveness evidence that does not depend on Herdr recognizing the
 // harness: Herdr reads the pane's foreground process group from the operating
@@ -1035,7 +1035,7 @@ func decodeArray(raw json.RawMessage, destination any, field string) error {
 // normalizeKey folds the modifier spellings the fleet actually types into the
 // names Herdr accepts. It canonicalises separator and case rather than listing
 // variants, because the hand-maintained list silently missed `Ctrl-C` - the one
-// spelling `cfo switch` sends to interrupt a harness that ignores its stop
+// spelling `ceo switch` sends to interrupt a harness that ignores its stop
 // command, so Herdr rejected it as an unsupported key and the switch aborted.
 // An unrecognised key is still passed through untouched for Herdr to judge.
 func normalizeKey(key string) string {

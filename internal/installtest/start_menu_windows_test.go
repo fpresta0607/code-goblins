@@ -19,10 +19,10 @@ import (
 )
 
 // startMenuInstall is one run of the install as far as it goes with a
-// stand-in cfo.exe: every command it runs succeeds and records itself.
+// stand-in ceo.exe: every command it runs succeeds and records itself.
 type startMenuInstall struct {
 	output string
-	// record holds, in order, each command the stand-in cfo.exe ran.
+	// record holds, in order, each command the stand-in ceo.exe ran.
 	record string
 	// local is the session's LOCALAPPDATA, where the one-line install's home is.
 	local string
@@ -76,12 +76,12 @@ func runInstallForStartMenu(t *testing.T, base string, stubs map[string]string, 
 	return startMenuInstall{output: Said(output, temp), record: string(recorded), local: local, programs: programs, desktop: desktop}
 }
 
-// serveReleaseWithWindow serves a release holding binary as cfo.exe and, when
+// serveReleaseWithWindow serves a release holding binary as ceo.exe and, when
 // window is not nil, window as the desktop window, each listed in SHA256SUMS.
 func serveReleaseWithWindow(t *testing.T, binary, window []byte) string {
 	t.Helper()
-	files := map[string][]byte{"/cfo.exe": binary}
-	sums := fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary))
+	files := map[string][]byte{"/ceo.exe": binary}
+	sums := fmt.Sprintf("%x  ceo.exe\n", sha256.Sum256(binary))
 	if window != nil {
 		files["/goblins-window.exe"] = window
 		sums += fmt.Sprintf("%x  goblins-window.exe\n", sha256.Sum256(window))
@@ -137,19 +137,19 @@ func shortcutAt(t *testing.T, shortcut, output string) (target, arguments string
 	return target, arguments
 }
 
-// -Dev builds the desktop window beside its build of cfo.exe, outside the
-// clone, and cfo install puts it in the home's bin, so Code Goblins in the
+// -Dev builds the desktop window beside its build of ceo.exe, outside the
+// clone, and ceo install puts it in the home's bin, so Code Goblins in the
 // Start menu starts that window alone; the clone keeps what it held.
 func TestDevStartsAloneTheWindowItBuilt(t *testing.T) {
 	// Arrange: a folder the script takes for a clone, with the script in it,
-	// and a go whose build of cfo is the stand-in and whose build of the
+	// and a go whose build of ceo is the stand-in and whose build of the
 	// window is a file of its own.
 	source, err := os.ReadFile(installScript(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	checkout := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(checkout, "cmd", "cfo"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(checkout, "cmd", "ceo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	built, builtWindow := filepath.Join(t.TempDir(), "built"), filepath.Join(t.TempDir(), "built-window")
@@ -176,8 +176,8 @@ func TestDevStartsAloneTheWindowItBuilt(t *testing.T) {
 	if !strings.EqualFold(fsx.LongPath(target), wantTarget) || arguments != "" {
 		t.Errorf("Code Goblins in the Start menu runs %q with %q, want %q alone:\n%s", target, arguments, wantTarget, run.output)
 	}
-	if !strings.Contains(run.record, "cfo install\r\n") {
-		t.Errorf("cfo install was not run:\n%s\n%s", run.record, run.output)
+	if !strings.Contains(run.record, "ceo install\r\n") {
+		t.Errorf("ceo install was not run:\n%s\n%s", run.record, run.output)
 	}
 	if got, err := os.ReadFile(filepath.Join(checkout, "goblins-window.exe")); err != nil || string(got) != "a window from before" {
 		t.Errorf("goblins-window.exe in the clone = %q (%v), want the clone left as it was", got, err)
@@ -186,7 +186,7 @@ func TestDevStartsAloneTheWindowItBuilt(t *testing.T) {
 
 // Code Goblins in the Start menu starts the desktop window alone only where
 // this install delivered that window itself, from a release that carries it:
-// such a window opens the app when started alone. The stand-in cfo.exe puts
+// such a window opens the app when started alone. The stand-in ceo.exe puts
 // nothing in the home, so a delivered window is told by the download and never
 // by a file the home holds. A window the home held before, which a release
 // with none leaves there, may be from before a window could do that, so the
@@ -247,8 +247,8 @@ func TestOneLineInstallStartsAloneOnlyTheWindowItDelivered(t *testing.T) {
 			if onDesktop, desktopArguments := desktopEntry(t, run); !strings.EqualFold(fsx.LongPath(onDesktop), wantTarget) || desktopArguments != test.arguments {
 				t.Errorf("Code Goblins on the desktop runs %q with %q, want %q with %q, as the Start menu's does:\n%s", onDesktop, desktopArguments, wantTarget, test.arguments, run.output)
 			}
-			if !strings.Contains(run.record, "cfo install\r\n") || strings.Contains(run.record, "--window-built") {
-				t.Errorf("want cfo install run as it is, told of no window built here:\n%s\n%s", run.record, run.output)
+			if !strings.Contains(run.record, "ceo install\r\n") || strings.Contains(run.record, "--window-built") {
+				t.Errorf("want ceo install run as it is, told of no window built here:\n%s\n%s", run.record, run.output)
 			}
 			if test.held != "" {
 				if got, err := os.ReadFile(filepath.Join(bin, "goblins-window.exe")); err != nil || string(got) != test.held {
@@ -459,7 +459,7 @@ func TestADeliveredWindowReplacesTheEarlierEntryOnlyOnceItsOwnIsSaved(t *testing
 			run := runInstallForStartMenu(t, base, nil, "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression; exit $LASTEXITCODE", seed)
 
 			// Assert
-			// The stand-in cfo.exe moves nothing into the home, so the
+			// The stand-in ceo.exe moves nothing into the home, so the
 			// install's own line says it delivered the window.
 			if !strings.Contains(run.output, "Verified goblins-window.exe against the release's SHA256SUMS") {
 				t.Fatalf("want the release's window downloaded and verified, which delivers it:\n%s", run.output)

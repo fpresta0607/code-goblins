@@ -10,7 +10,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// idleAtPrompt wakes the CFO once for a goblin that has sat at its prompt for
+// idleAtPrompt wakes the CEO once for a goblin that has sat at its prompt for
 // the idle window with nothing running, nothing asked and nothing reported:
 // a goblin with work left that stopped. Every harness is read the same way,
 // from what the supervisor sees itself - the screen, the status log, the wake
@@ -18,7 +18,7 @@ import (
 // goblin runs without its hooks, and on 2026-09-30 one sat idle for about an
 // hour while a process it had left running held the other stale wakes back.
 //
-// One whose last reply asks the CFO something, or offers it a choice, wakes
+// One whose last reply asks the CEO something, or offers it a choice, wakes
 // as goblin_asks with that question instead.
 //
 // It runs after classification. A goblin already woken this stretch, as
@@ -69,7 +69,7 @@ func (s Service) idleAtPrompt(ctx context.Context, meta state.TaskMeta, sample E
 	}
 	// A goblin whose harness records it waiting on a sub-agent, background
 	// shell or monitor it started is not idle until that wait has shown no
-	// progress for the busy budget: on 2026-10-07 cg-ci-green woke the CFO
+	// progress for the busy budget: on 2026-10-07 cg-ci-green woke the CEO
 	// seven times while it waited on its own CI monitor.
 	if len(observation.Waits) > 0 && now.Sub(since) < s.busyTurnMax() {
 		return observation
@@ -98,7 +98,7 @@ func (s Service) idleAtPrompt(ctx context.Context, meta state.TaskMeta, sample E
 
 // heldByVerb reports whether the goblin's latest report, one it has not been
 // seen working past, parks, pauses or ends it: it waits on something, asked
-// the CFO, or reported its work finished, so it is not idle with work left.
+// the CEO, or reported its work finished, so it is not idle with work left.
 func (s Service) heldByVerb(id string, observation Observation) bool {
 	verb, _, line, ok := s.latestStatusVerb(id)
 	return ok && line > observation.ConsumedVerbLine && (verb == "paused" || IsParkedDecisionVerb(verb) || IsTerminalVerb(verb))
@@ -107,7 +107,7 @@ func (s Service) heldByVerb(id string, observation Observation) bool {
 // idleDetail is the goblin_idle wake: how long it has sat, what to do next,
 // its own processes left running, and the end of its screen.
 func idleDetail(id string, sample EndpointSample, jobs []string, idle time.Duration, since time.Time) string {
-	detail := fmt.Sprintf("at its prompt for %s with nothing running, no question open and no report since %s UTC; next: steer it with cfo send %s \"<what to do next>\", or retire it if its work is done",
+	detail := fmt.Sprintf("at its prompt for %s with nothing running, no question open and no report since %s UTC; next: steer it with ceo send %s \"<what to do next>\", or retire it if its work is done",
 		idle.Round(time.Minute), since.UTC().Format("15:04"), id)
 	if len(jobs) > 0 {
 		detail += "; its own processes sit idle: " + strings.Join(jobs, ", ")

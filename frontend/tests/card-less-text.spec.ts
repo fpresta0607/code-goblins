@@ -23,7 +23,7 @@ const SESSIONS = [WORKING, PAUSED].map((goblin) => ({ id: goblin.session, native
 
 async function open(page: Page) {
   await page.clock.setFixedTime(now);
-  await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, attention: [], tasks: [WORKING, PAUSED], sessions: SESSIONS });
+  await holdStream(page, { healthy: true, instance: "fixture", ceo_runs: true, revision: 1, attention: [], tasks: [WORKING, PAUSED], sessions: SESSIONS });
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.goto("/");
   await expect(page.locator(".board-column").first()).toBeVisible();

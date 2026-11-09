@@ -57,13 +57,13 @@ func eventually(t *testing.T, within time.Duration, what string, done func() boo
 	}
 }
 
-// On 2026-10-01 an install stopped serve, the CFO's Stop hook took the
+// On 2026-10-01 an install stopped serve, the CEO's Stop hook took the
 // watcher lock in the gap, and the new serve refused to start until the
 // hook's window ended. A watcher yields the lock as soon as a serve asks for
 // it: the request wakes its wait, so it does not sit out its poll.
 func TestAWatcherYieldsTheLockAtOnceToAServeThatAsksForIt(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("CFO_POLL", "300")
+	t.Setenv("CEO_POLL", "300")
 	cfg := ConfigFromEnv(home.Home{Root: filepath.Dir(dir), State: dir})
 	cfg.Monitor, cfg.Reap, cfg.FileEvery = nil, nil, 0
 	type result struct {

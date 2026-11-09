@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// builds counts the distinct builds of cfo among the files in bin, its
+// builds counts the distinct builds of ceo among the files in bin, its
 // aliases and the copies moved aside.
 func builds(t *testing.T, bin string) (map[string]bool, int) {
 	t.Helper()
@@ -19,7 +19,7 @@ func builds(t *testing.T, bin string) (map[string]bool, int) {
 	files := 0
 	for _, entry := range entries {
 		name := entry.Name()
-		if name != "cfo.exe" && name != "goblins.exe" && !asideCopy.MatchString(name) {
+		if name != "ceo.exe" && name != "goblins.exe" && !asideCopy.MatchString(name) {
 			continue
 		}
 		files++
@@ -55,7 +55,7 @@ func TestBinKeepsTheCurrentBuildAloneAfterAnyNumberOfUpdates(t *testing.T) {
 	}
 	var journal *Journal
 	for i := 1; i <= 6; i++ {
-		candidate := filepath.Join(t.TempDir(), "cfo.exe")
+		candidate := filepath.Join(t.TempDir(), "ceo.exe")
 		if err := os.WriteFile(candidate, []byte(fmt.Sprintf("build %d", i)), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -100,8 +100,8 @@ func TestBinKeepsTheCurrentBuildAloneAfterAnyNumberOfUpdates(t *testing.T) {
 func TestRemoveAsideCopiesRemovesEveryCopyMovedAsideAndNothingElse(t *testing.T) {
 	// Arrange
 	bin := t.TempDir()
-	aside := []string{"cfo.exe.1791449158834959100.update-old", "goblins.exe.ZWLFUCC5NGUANWZOS4MPE2XO2L.old", "cfo.exe.OFXG3O7Z2WTAOETUQUBHOQCWTS.old.GHVTLRQU5WOWXKXQU6QWXUHANI.old", "goblins-window.exe.abc.old", "cfo-hook.exe.KQ7YBGRJVN3HXK7Q2M4W5PZR3E.old", "cfo.exe.held-66714dea"}
-	kept := []string{"cfo.exe.update-new", "goblins.exe.update-restore", "cfo.exe", "goblins.exe", "goblins-window.exe", "cfo-hook.exe", "notes.txt", "cfo.exe.bak"}
+	aside := []string{"ceo.exe.1791449158834959100.update-old", "goblins.exe.ZWLFUCC5NGUANWZOS4MPE2XO2L.old", "ceo.exe.OFXG3O7Z2WTAOETUQUBHOQCWTS.old.GHVTLRQU5WOWXKXQU6QWXUHANI.old", "goblins-window.exe.abc.old", "ceo-hook.exe.KQ7YBGRJVN3HXK7Q2M4W5PZR3E.old", "ceo.exe.held-66714dea"}
+	kept := []string{"ceo.exe.update-new", "goblins.exe.update-restore", "ceo.exe", "goblins.exe", "goblins-window.exe", "ceo-hook.exe", "notes.txt", "ceo.exe.bak"}
 	for _, name := range append(append([]string{}, aside...), kept...) {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(name), 0o644); err != nil {
 			t.Fatal(err)

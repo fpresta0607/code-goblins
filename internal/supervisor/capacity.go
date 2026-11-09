@@ -46,7 +46,7 @@ const sessionMemory = memoryNext - memoryFloor
 // SlotHold says why no goblin starts or resumes by itself at the reading
 // memory, or "" when one may: a new session takes about 1 GB, and memory and
 // commit less that must still meet floor, what the machine's heavy line keeps
-// for its next test run as cfo gate turns shows it, so both test slots stay
+// for its next test run as ceo gate turns shows it, so both test slots stay
 // usable. The Overlord set this rule on 2026-11-02, by free memory and no
 // count of goblins, after goblins started over the next-start mark were
 // paused at the memory floor minutes later while heavy steps waited (#1926).

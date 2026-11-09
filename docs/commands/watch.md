@@ -1,6 +1,6 @@
-# cfo watch
+# ceo watch
 
-`cfo watch`
+`ceo watch`
 
 run one triage cycle by hand (manual diagnostics; the hooks are the production entry)
 

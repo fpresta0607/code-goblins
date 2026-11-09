@@ -79,10 +79,10 @@ type Engine struct {
 	Now      func() time.Time
 	// Wait pauses before GitHub is read again for what a run landed.
 	Wait func(time.Duration)
-	// TellGoblin types text into a goblin's terminal, and TellCFO reaches
-	// the CFO. A nonempty identity denotes a durable one-time notice.
+	// TellGoblin types text into a goblin's terminal, and TellCEO reaches
+	// the CEO. A nonempty identity denotes a durable one-time notice.
 	TellGoblin func(ctx context.Context, task, text string) error
-	TellCFO    func(ctx context.Context, identity, text string) error
+	TellCEO    func(ctx context.Context, identity, text string) error
 	// Landed, when set, hears of each pull request the train merged, once it
 	// is recorded: AFK mode's log keeps what merged while he is away.
 	Landed func(ctx context.Context, t Train, car Car)
@@ -146,9 +146,9 @@ func (e Engine) Start(ctx context.Context, repo Repository, riders []Car) (Train
 	switch run := t.openRun(); {
 	case t.IsFinished():
 	case run != nil && run.OwnRun != "":
-		e.tellCFO(ctx, fmt.Sprintf("merge_train: %s train %s lands %s on its own CI run (%s), which tested it merged onto %s at %s, the tree that lands, so no train run tests it again; hold other merges to %s until it lands", t.Repository, t.ID, t.numbers(t.carsIn(CarRiding)), run.OwnRun, t.Base, short(t.BaseSHA), t.Base))
+		e.tellCEO(ctx, fmt.Sprintf("merge_train: %s train %s lands %s on its own CI run (%s), which tested it merged onto %s at %s, the tree that lands, so no train run tests it again; hold other merges to %s until it lands", t.Repository, t.ID, t.numbers(t.carsIn(CarRiding)), run.OwnRun, t.Base, short(t.BaseSHA), t.Base))
 	default:
-		e.tellCFO(ctx, fmt.Sprintf("merge_train: %s started train %s with %s onto %s, testing them together in one CI run (%s); hold other merges to %s until it lands", t.Repository, t.ID, t.numbers(t.carsIn(CarRiding)), t.Base, t.PR, t.Base))
+		e.tellCEO(ctx, fmt.Sprintf("merge_train: %s started train %s with %s onto %s, testing them together in one CI run (%s); hold other merges to %s until it lands", t.Repository, t.ID, t.numbers(t.carsIn(CarRiding)), t.Base, t.PR, t.Base))
 	}
 	return t, nil
 }
@@ -510,7 +510,7 @@ func (e Engine) ask(ctx context.Context, path string) ([]byte, error) {
 // command line is what Microsoft Defender reads as a lure pasted into a
 // terminal, so it never goes there.
 func (e Engine) runWithBody(ctx context.Context, dir, body string, args ...string) (string, error) {
-	file, err := os.CreateTemp("", "cfo-train-body-*.md")
+	file, err := os.CreateTemp("", "ceo-train-body-*.md")
 	if err != nil {
 		return "", err
 	}

@@ -16,7 +16,7 @@ import (
 // home this build's commands and hooks look for, as the older build took it
 // for one without a marker; the fleet's state, data and worktrees are not
 // touched; the programs go into bin, and those at its root are brought up to
-// this build, where sessions started before still run them. CFO_HOME stays,
+// this build, where sessions started before still run them. CEO_HOME stays,
 // and PATH gives every new terminal bin.
 func TestInstallKeepsACheckoutHomeAndItsFleetAsTheyAre(t *testing.T) {
 	// Arrange
@@ -25,7 +25,7 @@ func TestInstallKeepsACheckoutHomeAndItsFleetAsTheyAre(t *testing.T) {
 	tracked := map[string]string{
 		"AGENTS.md":            "the checkout's own contract",
 		"CLAUDE.md":            "the checkout's own memory",
-		"cmd/cfo/main.go":      "package main",
+		"cmd/ceo/main.go":      "package main",
 		"config/pipeline.json": `{"tuned": true}`,
 		"data/routing.json":    `{"tuned": true}`,
 	}
@@ -43,10 +43,10 @@ func TestInstallKeepsACheckoutHomeAndItsFleetAsTheyAre(t *testing.T) {
 	// The .git above is no repository, so the search for one must stop here,
 	// not reach whatever checkout holds the temp folder.
 	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(f.root))
-	for _, name := range []string{"cfo.exe", "goblins.exe"} {
+	for _, name := range []string{"ceo.exe", "goblins.exe"} {
 		writeFile(t, filepath.Join(f.root, name), "older build")
 	}
-	f.env.values["CFO_HOME"] = f.root
+	f.env.values["CEO_HOME"] = f.root
 	f.env.values["Path"] = `C:\Windows;` + f.root
 
 	// Act
@@ -64,13 +64,13 @@ func TestInstallKeepsACheckoutHomeAndItsFleetAsTheyAre(t *testing.T) {
 	if !home.IsPrimary(home.Home{Root: f.root, State: filepath.Join(f.root, "state")}) {
 		t.Errorf("the checkout is not the primary home after the install:\n%s", output)
 	}
-	for _, program := range []string{filepath.Join(f.bin, "cfo.exe"), filepath.Join(f.bin, "goblins.exe"), filepath.Join(f.root, "cfo.exe"), filepath.Join(f.root, "goblins.exe")} {
+	for _, program := range []string{filepath.Join(f.bin, "ceo.exe"), filepath.Join(f.bin, "goblins.exe"), filepath.Join(f.root, "ceo.exe"), filepath.Join(f.root, "goblins.exe")} {
 		if got := readFile(t, program); got != "build 1" {
 			t.Errorf("%s = %q, want this build", program, got)
 		}
 	}
-	if got := f.env.values["CFO_HOME"]; got != f.root {
-		t.Errorf("CFO_HOME = %q, want it kept at %s", got, f.root)
+	if got := f.env.values["CEO_HOME"]; got != f.root {
+		t.Errorf("CEO_HOME = %q, want it kept at %s", got, f.root)
 	}
 	if got := f.env.values["Path"]; got != `C:\Windows;`+f.bin {
 		t.Errorf("PATH = %q, want new terminals to find bin:\n%s", got, output)
@@ -86,7 +86,7 @@ func TestAKeptCheckoutHomeIsPrimaryAndItsLinkedWorktreeIsNot(t *testing.T) {
 	f.service.Contract, f.service.Policy, f.service.Checkout = codegoblins.Contract, codegoblins.Policy, true
 	for name, content := range map[string]string{
 		"AGENTS.md":                       "the checkout's own contract",
-		"cmd/cfo/main.go":                 "package main",
+		"cmd/ceo/main.go":                 "package main",
 		"state/tasks/demo-task/meta.json": `{"id":"demo-task","status":"working"}`,
 	} {
 		writeFile(t, filepath.Join(f.root, filepath.FromSlash(name)), content)
@@ -94,7 +94,7 @@ func TestAKeptCheckoutHomeIsPrimaryAndItsLinkedWorktreeIsNot(t *testing.T) {
 	gitIn(t, f.root, "init", "-q")
 	gitIn(t, f.root, "add", "AGENTS.md", "cmd")
 	gitIn(t, f.root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "checkout")
-	f.env.values["CFO_HOME"] = f.root
+	f.env.values["CEO_HOME"] = f.root
 
 	// Act
 	output := f.install()

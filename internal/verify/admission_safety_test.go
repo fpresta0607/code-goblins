@@ -92,7 +92,7 @@ func TestAdmissionProductionStoreCannotBeRedirected(t *testing.T) {
 	// Arrange
 	a := admission(t)
 	previous := os.Args[0]
-	os.Args[0] = "cfo.exe"
+	os.Args[0] = "ceo.exe"
 	t.Cleanup(func() { os.Args[0] = previous })
 
 	// Act
@@ -112,7 +112,7 @@ func TestAdmissionProductionStoreCannotBeRedirected(t *testing.T) {
 func TestAdmissionRejectsPerProcessSlotSettings(t *testing.T) {
 	// Arrange
 	a := admission(t)
-	t.Setenv("CFO_VERIFY_SLOTS", "2")
+	t.Setenv("CEO_VERIFY_SLOTS", "2")
 
 	// Act
 	turn, err := a.Wait(context.Background())
@@ -322,11 +322,11 @@ func TestAdmissionProductionUsesOneStoreDespiteProcessRedirects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, variable := range []string{"CFO_VERIFY_DIR", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME"} {
+	for _, variable := range []string{"CEO_VERIFY_DIR", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME"} {
 		t.Setenv(variable, filepath.Join(t.TempDir(), "another-pool"))
 	}
 	previous := os.Args[0]
-	os.Args[0] = "cfo.exe"
+	os.Args[0] = "ceo.exe"
 	defer func() { os.Args[0] = previous }()
 
 	// Act
@@ -341,7 +341,7 @@ func TestAdmissionProductionUsesOneStoreDespiteProcessRedirects(t *testing.T) {
 
 func TestAdmissionRequiresAnExplicitIsolatedTestStore(t *testing.T) {
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", "")
+	t.Setenv("CEO_VERIFY_DIR", "")
 
 	// Act
 	_, cliErr := AdmissionDir()

@@ -11,13 +11,13 @@ import (
 
 // tallySchema versions the tally, which only builds that count suppressed
 // wakes read. The heartbeat and observations stay as older builds decode them.
-const tallySchema = "cfo-monitor-tally.v1"
+const tallySchema = "ceo-monitor-tally.v1"
 
 // Tally counts the task wakes the monitor raised and the stale wakes it held
 // back, by reason, since Since. A stale wake needs evidence the goblin is not
 // working, and a wake held back on the evidence that it is - a pane showing
 // work running, or one failed screen read waiting to be read again - is
-// counted here for cfo doctor. A detector that stops seeing then shows as
+// counted here for ceo doctor. A detector that stops seeing then shows as
 // nothing raised and nothing held back, never as a healthy fleet.
 type Tally struct {
 	Schema  string                  `json:"schema"`
@@ -43,7 +43,7 @@ func tallyPath(stateDir string) string {
 }
 
 // ReadTally reads the tally. A missing one is empty; an unreadable one is an
-// error, since cfo doctor must not show a detector's silence as health.
+// error, since ceo doctor must not show a detector's silence as health.
 func ReadTally(stateDir string) (Tally, error) {
 	var tally Tally
 	err := readStrictJSON(tallyPath(stateDir), &tally)

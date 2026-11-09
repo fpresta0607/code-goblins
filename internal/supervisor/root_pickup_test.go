@@ -58,7 +58,7 @@ func rootBoard(t *testing.T, open ...tickets.OpenRoot) (*Service, home.Home, *in
 }
 
 // fileRootAsLiveTask makes task a live task of h that filed the root issue
-// at url with cfo issue file.
+// at url with ceo issue file.
 func fileRootAsLiveTask(t *testing.T, h home.Home, task, url string) {
 	t.Helper()
 	taskTmp := filepath.Join(h.State, "tasktmp", task)
@@ -278,7 +278,7 @@ func TestPickUpRootsLeavesAnIssueSomeoneHolds(t *testing.T) {
 		{name: "an author anyone could be", change: func(issue *tickets.OpenRoot) { issue.Association = "NONE" }},
 		{name: "a contributor from outside", change: func(issue *tickets.OpenRoot) { issue.Association = "CONTRIBUTOR" }},
 		{name: "assigned to someone", change: func(issue *tickets.OpenRoot) { issue.Assignees = []string{"someone"} }},
-		{name: "a ticket's state label", change: func(issue *tickets.OpenRoot) { issue.Labels = append(issue.Labels, "cfo: queued") }},
+		{name: "a ticket's state label", change: func(issue *tickets.OpenRoot) { issue.Labels = append(issue.Labels, "ceo: queued") }},
 		{name: "named by a queued task of the project", change: func(*tickets.OpenRoot) {}, queued: "- [ ] fix-it - Take up issue #7 by hand (repo: widgets)"},
 	}
 	for _, tc := range cases {

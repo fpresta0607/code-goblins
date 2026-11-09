@@ -8,7 +8,7 @@ import "../../src/styles.css";
 import { SteppedIn } from "./stepped-in";
 
 // The board learns its token from the supervisor's snapshot; a report to the
-// CFO carries it.
+// CEO carries it.
 knowInstance("test-instance");
 
 // One native terminal pane with its voice bubble: the terminal is a text box
@@ -35,7 +35,7 @@ function Deck() {
   return <>
     <button onClick={() => setSecond((prior) => !prior)}>Switch pane</button>
     <Pane label="Goblin terminal" shown={!second} />
-    <Pane label="CFO terminal" shown={second} />
+    <Pane label="CEO terminal" shown={second} />
   </>;
 }
 

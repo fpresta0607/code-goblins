@@ -29,7 +29,7 @@ const OutcomeMerged = "merged"
 const sameWindow = 10 * time.Minute
 
 // Report is what a stretch of AFK mode comes to when it turns off: what the
-// CFO decided under the authority with the evidence of each, what each goblin
+// CEO decided under the authority with the evidence of each, what each goblin
 // finished, what is held for the Overlord and why, and what was spent, of the
 // allowance and of the disk.
 type Report struct {
@@ -37,7 +37,7 @@ type Report struct {
 	Since   time.Time `json:"since"`
 	Ended   time.Time `json:"ended"`
 	// From and EndedFrom say who turned it on and off, and Asked and
-	// EndedAsked hold the Overlord's words for a switch the CFO made at his
+	// EndedAsked hold the Overlord's words for a switch the CEO made at his
 	// ask, as the switch kept them.
 	From       string `json:"from"`
 	Asked      string `json:"asked,omitempty"`
@@ -70,7 +70,7 @@ type Report struct {
 }
 
 // Finish is a pull request a goblin reported done during the stretch, or the
-// issue it closed in place of one, with its task's title, the CFO's one line
+// issue it closed in place of one, with its task's title, the CEO's one line
 // for the work, the goblin's name and the goblin's own last note on the work
 // before it reported it done.
 type Finish struct {
@@ -88,7 +88,7 @@ type Finish struct {
 // the stretch, such as a question asked of him before it began.
 type Held struct {
 	// Item is its key in the Command Center, Task its goblin, empty for the
-	// CFO's own, and What the question or request itself, which says why it
+	// CEO's own, and What the question or request itself, which says why it
 	// is his.
 	Item string    `json:"item"`
 	Task string    `json:"task,omitempty"`
@@ -104,13 +104,13 @@ type Held struct {
 	// Recommendation is the choice recommended for it by whoever asked it,
 	// empty when nothing was.
 	Recommendation string `json:"recommendation,omitempty"`
-	// Settled is what became of a line the CFO left for him and settled in
+	// Settled is what became of a line the CEO left for him and settled in
 	// the stretch, as a report kept before nothing was left for him held it:
 	// it was never asked, so nothing read later changes it.
 	Settled string `json:"settled,omitempty"`
 }
 
-// Recommends says what was recommended for a held item and by whom: the CFO
+// Recommends says what was recommended for a held item and by whom: the CEO
 // for its own item, or task, the goblin whose question it is. It is in the
 // present while the item still waits on the Overlord, in the past once it
 // does not, and empty when nothing was recommended.
@@ -118,7 +118,7 @@ func Recommends(task, recommendation string, waiting bool) string {
 	if recommendation == "" {
 		return ""
 	}
-	who, verb := "The CFO", " recommended: "
+	who, verb := "The CEO", " recommended: "
 	if task != "" {
 		who = task
 	}
@@ -212,18 +212,18 @@ func folded(entries []Entry, kinds []string) []Entry {
 // follows its id.
 var trainLanding = regexp.MustCompile(`^merge train \S+: CI passed on (\S+) at `)
 
-// Noted is decisions with each line the CFO wrote of a merge folded into the
+// Noted is decisions with each line the CEO wrote of a merge folded into the
 // merge it names, so a merge is told once and a warning is never a merge that
 // landed. A merge line that did not land names a merge when it links, or is,
 // the pull request that merged, or the merge train's own pull request whose
-// train landed it: a line the CFO wrote for the landing, or a merge word that
+// train landed it: a line the CEO wrote for the landing, or a merge word that
 // failed before another landed it. Its words go to the merges it names that
-// landed before it and carry no earlier line of the CFO's, so a train that
+// landed before it and carry no earlier line of the CEO's, so a train that
 // landed twice under one pull request gives each line its own landing, or
-// else to every merge it names. A line the CFO wrote that links a pull request
-// that did not merge goes the same way to that merge, as what the CFO did about
-// it, and a decision the CFO answered in the Overlord's place that links it
-// gives it its words and the CFO's answer, and a step only he can take that
+// else to every merge it names. A line the CEO wrote that links a pull request
+// that did not merge goes the same way to that merge, as what the CEO did about
+// it, and a decision the CEO answered in the Overlord's place that links it
+// gives it its words and the CEO's answer, and a step only he can take that
 // links it says it needs him, each staying a line of its own. A struck line,
 // and one that names no merge, stays as it was.
 func Noted(decisions []Entry) []Entry {
@@ -242,7 +242,7 @@ func Noted(decisions []Entry) []Entry {
 	open := func(merge Entry) bool {
 		return merge.Kind == KindMerge && merge.Outcome != OutcomeMerged && merge.Struck == ""
 	}
-	// A line the CFO wrote of a landing, which GitHub says merged, is no
+	// A line the CEO wrote of a landing, which GitHub says merged, is no
 	// merge of its own where the log holds the merge it names.
 	handLanded := func(line Entry) bool { return landed(line) && isHandWritten(line) }
 	noted := slices.Clone(decisions)
@@ -312,7 +312,7 @@ func PullRequestURL(link, what string) string {
 	return ""
 }
 
-// isHandWritten reports whether a merge line is one the CFO wrote of a
+// isHandWritten reports whether a merge line is one the CEO wrote of a
 // pull request in its own words, rather than the merge's own record, which is
 // the pull request and links it.
 func isHandWritten(line Entry) bool {
@@ -338,7 +338,7 @@ func UnprovenMerges(decisions []Entry) []string {
 
 // ConfirmMerges is decisions with the outcome merged on each merge line that
 // records none and names a pull request merged says GitHub merged, so a merge
-// the CFO logged by hand reads as the merge it is. A pull request merged does
+// the CEO logged by hand reads as the merge it is. A pull request merged does
 // not answer for, or answers false for, leaves its lines as they were.
 func ConfirmMerges(decisions []Entry, merged map[string]bool) []Entry {
 	confirmed := slices.Clone(decisions)
@@ -350,9 +350,9 @@ func ConfirmMerges(decisions []Entry, merged map[string]bool) []Entry {
 	return confirmed
 }
 
-// asPullRequests is decisions with each merge the CFO logged by hand, which
+// asPullRequests is decisions with each merge the CEO logged by hand, which
 // GitHub says merged and the log holds no merge line of its own for, as the
-// pull request it merged: the CFO's words ride on it as a train's line for it
+// pull request it merged: the CEO's words ride on it as a train's line for it
 // would carry them, and a second line for the same pull request rides on the
 // first.
 func asPullRequests(decisions []Entry) []Entry {
@@ -374,7 +374,7 @@ func asPullRequests(decisions []Entry) []Entry {
 	return kept
 }
 
-// said is a line of the CFO's as it rides on the merge it names: its words,
+// said is a line of the CEO's as it rides on the merge it names: its words,
 // without the pull request the merge names already, and how it ended when it
 // was a merge word that did not land.
 func said(line, merge Entry) string {
@@ -400,15 +400,15 @@ func sentence(text string) string {
 	return text + "."
 }
 
-// did says what the CFO did about a merge that did not land: the lines it
-// wrote about it, or that it logged nothing. A line the CFO wrote that names
-// no merge needs no word of what it did, since it is the CFO's own.
+// did says what the CEO did about a merge that did not land: the lines it
+// wrote about it, or that it logged nothing. A line the CEO wrote that names
+// no merge needs no word of what it did, since it is the CEO's own.
 func did(merge Entry) string {
 	switch {
 	case merge.Noted != "":
-		return "The CFO: " + merge.Noted
+		return "The CEO: " + merge.Noted
 	case merge.Link == "" || merge.Link == merge.What:
-		return "The CFO logged nothing about it."
+		return "The CEO logged nothing about it."
 	}
 	return ""
 }
@@ -424,7 +424,7 @@ func NotLanded(outcome string) string {
 }
 
 // The parts of the recap a heading is in, in the order it reads them: what
-// was done, what the CFO decided for the Overlord and the goblins, and last
+// was done, what the CEO decided for the Overlord and the goblins, and last
 // what needs him.
 const (
 	GroupDone    = "done"
@@ -444,14 +444,14 @@ type Section struct {
 // recap reads them, and a heading is there only when it holds something.
 // Done leads with a merge that did not land, then what changed for the
 // Overlord: what was deployed, migrated and installed, then what merged, and
-// what else the CFO did, the goblins the supervisor paused at a floor, each
-// step only he could take that the CFO saw to later, and last what the CFO
-// struck, under Struck by the CFO alone so it is never taken for anything
-// else. A line the CFO wrote for a landing is with the merge it names. Then
-// Decided: each decision the CFO answered in his place and each goblin's
+// what else the CEO did, the goblins the supervisor paused at a floor, each
+// step only he could take that the CEO saw to later, and last what the CEO
+// struck, under Struck by the CEO alone so it is never taken for anything
+// else. A line the CEO wrote for a landing is with the merge it names. Then
+// Decided: each decision the CEO answered in his place and each goblin's
 // question it answered, each naming the question in his History where he
 // changes its answer. Last Needs you: each step only he can take that is
-// still open. The CFO's text and the board's page are both written from these.
+// still open. The CEO's text and the board's page are both written from these.
 func (r Report) Sections() []Section {
 	var sections []Section
 	// A decision already represented by a held question takes that question's
@@ -497,24 +497,24 @@ func (r Report) Sections() []Section {
 	carded := func(entry Entry) bool {
 		return entry.Kind == KindHis && slices.ContainsFunc(r.Held, func(held Held) bool { return held.Item == HisCardItem(entry) })
 	}
-	lines(GroupDone, "Settled by the CFO", func(entry Entry) bool { return entry.Settled != "" && !carded(entry) })
-	add(GroupDone, "Struck by the CFO", slices.Concat(slices.DeleteFunc(slices.Clone(r.Decisions), func(entry Entry) bool { return entry.Struck == "" }), r.Struck))
+	lines(GroupDone, "Settled by the CEO", func(entry Entry) bool { return entry.Settled != "" && !carded(entry) })
+	add(GroupDone, "Struck by the CEO", slices.Concat(slices.DeleteFunc(slices.Clone(r.Decisions), func(entry Entry) bool { return entry.Struck == "" }), r.Struck))
 	lines(GroupDecided, "For you", AnsweredForHim)
 	lines(GroupDecided, "For the goblins", kind(KindAnswer))
 	lines(GroupNeeds, "Needs you", func(entry Entry) bool { return NeedsHim(entry) && !carded(entry) })
 	return sections
 }
 
-// AnsweredForHim reports whether a line is a decision the CFO answered in the
+// AnsweredForHim reports whether a line is a decision the CEO answered in the
 // Overlord's place: once AFK mode turns off it is in his History with the
-// CFO's answer, never asked of him. One the CFO settled before nothing was
-// left for him was never put there, and is under Settled by the CFO.
+// CEO's answer, never asked of him. One the CEO settled before nothing was
+// left for him was never put there, and is under Settled by the CEO.
 func AnsweredForHim(left Entry) bool {
 	return left.Kind == KindLeft && left.Answer != "" && left.Settled == ""
 }
 
 // NeedsHim reports whether a line is a step only the Overlord can take that is
-// still open: one the CFO logged as his, or a line it left him unanswered
+// still open: one the CEO logged as his, or a line it left him unanswered
 // before nothing was left for him, which it neither struck nor saw to later.
 func NeedsHim(line Entry) bool {
 	return (line.Kind == KindHis || line.Kind == KindLeft && line.Answer == "") && line.Struck == "" && line.Settled == ""
@@ -608,7 +608,7 @@ func DiskUsed(before, after *disk.Reading) *DiskUse {
 	return &DiskUse{Drive: after.Drive, Total: after.Total, On: before.Free, Off: after.Free}
 }
 
-// says is free disk as the CFO's text words it, after the rows of Spent: what
+// says is free disk as the CEO's text words it, after the rows of Spent: what
 // was free at either end and what AFK mode used or freed of it, to the tenth
 // of a gigabyte, under which free disk did not move.
 func (use DiskUse) says() string {
@@ -627,7 +627,7 @@ func (use DiskUse) says() string {
 	return name + ": " + number(on) + " GB free when it turned on, " + number(off) + " GB when it turned off (" + change + ")"
 }
 
-// says is a row of Spent as the CFO's text words it.
+// says is a row of Spent as the CEO's text words it.
 func (row Used) says() string {
 	name := row.Provider + " " + row.Window + ": "
 	switch {
@@ -660,7 +660,7 @@ func span(d time.Duration) string {
 	return fmt.Sprintf("%dm", int(d/time.Minute))
 }
 
-// Render writes the report as the text the CFO puts in its terminal, in the
+// Render writes the report as the text the CEO puts in its terminal, in the
 // recap's order: who turned it on and off, or that nothing needs him, then
 // Done, with what each goblin finished, what was spent, with what became of
 // free disk after it, and each item held for the Overlord that no longer
@@ -700,7 +700,7 @@ func Render(w io.Writer, r Report) error {
 		say("")
 		say("%s (%d), each as it stands now", title, len(held))
 		for _, one := range held {
-			whose := "the CFO's"
+			whose := "the CEO's"
 			if one.Task != "" {
 				whose = one.Task + "'s"
 			}
@@ -760,7 +760,7 @@ func Render(w io.Writer, r Report) error {
 	return nil
 }
 
-// entryLines is one line of the report as the CFO's text writes it: whose and
+// entryLines is one line of the report as the CEO's text writes it: whose and
 // what, its link, how it ended, then what it stood on on lines of its own. A
 // decision answered in the Overlord's place is recapped with its answer and
 // where he changes it, since its question in History carries what it stood on.
@@ -795,10 +795,10 @@ func entryLines(entry Entry) []string {
 		lines = append(lines, "  Settled: "+entry.Settled)
 	}
 	if entry.Noted != "" && !notLanded {
-		lines = append(lines, "  The CFO: "+entry.Noted)
+		lines = append(lines, "  The CEO: "+entry.Noted)
 	}
 	if AnsweredForHim(entry) && entry.Struck == "" {
-		return append(lines, "  The CFO answered: "+strings.TrimSuffix(entry.Answer, ".")+". You can change it in History.")
+		return append(lines, "  The CEO answered: "+strings.TrimSuffix(entry.Answer, ".")+". You can change it in History.")
 	}
 	// A strike of an earlier stretch's line carries the reason as its
 	// evidence, and names the line by when it was logged.
@@ -818,7 +818,7 @@ func SaveReport(stateDir string, r Report) error {
 }
 
 // ReadReport returns the report of the last stretch that ended, and whether
-// there is one, with each strike the CFO made since it was kept, which
+// there is one, with each strike the CEO made since it was kept, which
 // belongs to that stretch: the report shows those lines struck too.
 func ReadReport(stateDir string) (Report, bool, error) {
 	data, err := fsx.ReadFile(filepath.Join(stateDir, reportFile))

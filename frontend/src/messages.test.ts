@@ -11,24 +11,24 @@ const task = (fields: Partial<Task>): Task => parseSnapshot({ healthy: true, tas
 // The Overlord, 2026-10-08: "message queued to chief no matter whats running
 // smoothly". What he typed shows with where it is, in a word or two, never
 // as an error line.
-test("a message says where it is: queued, sent or with the CFO", () => {
+test("a message says where it is: queued, sent or with the CEO", () => {
   assert.equal(messageState(snapshot([action({})]).actions[0]), "Queued");
   assert.equal(messageState(snapshot([action({ status: "running" })]).actions[0]), "Queued");
   assert.equal(messageState(snapshot([action({ message: "Starting goblin-one. The message goes in once it runs." })]).actions[0]), "Starting");
-  assert.equal(messageState(snapshot([action({ status: "running", message: "Starting the CFO. The message goes in once it runs." })]).actions[0]), "Starting");
+  assert.equal(messageState(snapshot([action({ status: "running", message: "Starting the CEO. The message goes in once it runs." })]).actions[0]), "Starting");
   assert.equal(messageState(snapshot([action({ status: "succeeded", message: "Accepted by the goblin in its native terminal." })]).actions[0]), "Sent");
   assert.equal(messageState(snapshot([action({ status: "running", awaiting: { task: "goblin-one" } })]).actions[0]), "Sent");
-  assert.equal(messageState(snapshot([action({ status: "failed", message: "goblin-one was stopped before it could take it; the CFO has it" })]).actions[0]), "With the CFO");
+  assert.equal(messageState(snapshot([action({ status: "failed", message: "goblin-one was stopped before it could take it; the CEO has it" })]).actions[0]), "With the CEO");
 });
 
-// The Overlord, 2026-10-29: a message he typed for the CFO the day before
+// The Overlord, 2026-10-29: a message he typed for the CEO the day before
 // still showed as queued, and its Cancel said "that queued message is no
 // longer waiting, so nothing was deleted". A delivery the board typed and
 // still watches for a late take, whatever its outcome, waits nowhere: only
 // one the board holds, or is typing, or that the harness holds untaken does.
 test("a message waits only while the board or its harness holds it", () => {
   const waits = (fields: Record<string, unknown>) => isPendingMessage(snapshot([action(fields)]).actions[0]);
-  const awaiting = { host: "cfo", since: "2026-10-28T03:04:16Z" };
+  const awaiting = { host: "ceo", since: "2026-10-28T03:04:16Z" };
   assert.equal(waits({ status: "queued" }), true);
   assert.equal(waits({ status: "running" }), true);
   assert.equal(waits({ status: "running", awaiting }), true);

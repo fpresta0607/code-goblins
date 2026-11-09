@@ -75,7 +75,7 @@ func readMemory(t *testing.T, s *Service, h home.Home, meter *memoryReadings, no
 	return len(fleetWakeRecords(t, h, "memory")) - before
 }
 
-// disk_low wakes the CFO once when free disk falls under the mark, and again
+// disk_low wakes the CEO once when free disk falls under the mark, and again
 // only after a reading back at or above the floor and a fall under the mark,
 // never twice within the gap.
 func TestDiskLowWakesOnceUnderTheMarkAndAgainOnlyAfterTheFloor(t *testing.T) {
@@ -198,15 +198,15 @@ func TestMemoryReadyWakesOnlyForWorkWaitingOnIt(t *testing.T) {
 		t.Fatalf("memory ready with a goblin waiting on it woke %d times, want one", woke)
 	}
 	if detail := fleetWakeRecords(t, h, "memory")[0].Detail; !strings.Contains(detail, "next: tell cg-heavy that the memory its heavy work waits on is free") {
-		t.Fatalf("memory wake %q does not tell the CFO to release cg-heavy", detail)
+		t.Fatalf("memory wake %q does not tell the CEO to release cg-heavy", detail)
 	}
 }
 
-// A queued task the scheduler is starting could start no more, though cfo
+// A queued task the scheduler is starting could start no more, though ceo
 // spawn writes its task record only once its worktree exists, so memory_ready
 // names the work after it. On 2026-10-19 the wake named root-pocketpiggies-161
 // as the next task to dispatch while the scheduler's start of it was under
-// way, and the hold the CFO put on its row seconds later read as one the
+// way, and the hold the CEO put on its row seconds later read as one the
 // scheduler ignored (#1182).
 func TestMemoryReadyLeavesOutTheTaskBeingStarted(t *testing.T) {
 	// Arrange
@@ -223,7 +223,7 @@ func TestMemoryReadyLeavesOutTheTaskBeingStarted(t *testing.T) {
 	now := time.Date(2026, 10, 19, 2, 0, 0, 0, time.UTC)
 
 	// Act: the first reading over the mark starts next-task, whose spawn is
-	// still under way at the second, which wakes the CFO.
+	// still under way at the second, which wakes the CEO.
 	for range 2 {
 		now = now.Add(time.Minute)
 		if err := s.checkFleet(t.Context(), now); err != nil {
@@ -549,7 +549,7 @@ func TestCIFinishedWakesOncePerCompletionOfAGoblinsPullRequest(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
 	if woke := pollForge(t, s, h, &now); len(woke) != 0 {
-		t.Fatalf("a check still running woke the CFO: %+v", woke)
+		t.Fatalf("a check still running woke the CEO: %+v", woke)
 	}
 	forge.pulls = passedChecks
 	passed := pollForge(t, s, h, &now)
@@ -562,14 +562,14 @@ func TestCIFinishedWakesOncePerCompletionOfAGoblinsPullRequest(t *testing.T) {
 		}
 	}
 	if again := pollForge(t, s, h, &now); len(again) != 0 {
-		t.Fatalf("the same result woke the CFO again: %+v", again)
+		t.Fatalf("the same result woke the CEO again: %+v", again)
 	}
 	forge.pulls = failedRerun
 	if held := pollForge(t, s, h, &now); len(held) != 0 {
-		t.Fatalf("a second completion within the gap woke the CFO at once: %+v", held)
+		t.Fatalf("a second completion within the gap woke the CEO at once: %+v", held)
 	}
 	failed := pollForge(t, s, h, &now)
-	if len(failed) != 1 || !strings.Contains(failed[0].Detail, "1 of 3 failed (test)") || !strings.Contains(failed[0].Detail, "cfo send cg-wakes") {
+	if len(failed) != 1 || !strings.Contains(failed[0].Detail, "1 of 3 failed (test)") || !strings.Contains(failed[0].Detail, "ceo send cg-wakes") {
 		t.Fatalf("a rerun that failed, once the gap passed = %+v, want one wake naming the failed check", failed)
 	}
 }
@@ -622,7 +622,7 @@ func TestCIFinishedWaitsForThePullRequestsWorkflows(t *testing.T) {
 	} {
 		forge.pulls = rollupWith("ed99ac3f00", "MERGEABLE", step.checks...)
 		if woke := pollForge(t, s, h, &now); len(woke) != 0 {
-			t.Fatalf("%s: woke the CFO: %+v", step.name, woke)
+			t.Fatalf("%s: woke the CEO: %+v", step.name, woke)
 		}
 	}
 	forge.pulls = rollupWith("ed99ac3f00", "MERGEABLE", scanPassedRun, goTestPassed)
@@ -737,7 +737,7 @@ func TestCIFinishedIgnoresPullRequestsNoLiveGoblinOwns(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
 	if woke := pollForge(t, s, h, &now); len(woke) != 0 {
-		t.Fatalf("another branch's pull request woke the CFO: %+v", woke)
+		t.Fatalf("another branch's pull request woke the CEO: %+v", woke)
 	}
 }
 
@@ -766,11 +766,11 @@ func TestCIFinishedWakesWhenMainsPushCIGoesRed(t *testing.T) {
 		}
 	}
 	if again := pollForge(t, s, h, &now); len(again) != 0 {
-		t.Fatalf("the same red run woke the CFO again: %+v", again)
+		t.Fatalf("the same red run woke the CEO again: %+v", again)
 	}
 	forge.runs = `[{"databaseId":36750000000,"workflowName":"go","status":"completed","conclusion":"success","headSha":"5f00000000","url":"https://github.com/o/r/actions/runs/36750000000"}]`
 	if green := pollForge(t, s, h, &now); len(green) != 0 {
-		t.Fatalf("a green run woke the CFO: %+v", green)
+		t.Fatalf("a green run woke the CEO: %+v", green)
 	}
 	forge.runs = `[{"databaseId":36760000000,"workflowName":"go","status":"completed","conclusion":"timed_out","headSha":"6f00000000","url":"https://github.com/o/r/actions/runs/36760000000"}]`
 	if again := pollForge(t, s, h, &now); len(again) != 1 || !strings.Contains(again[0].Detail, "run 36760000000") {
@@ -811,7 +811,7 @@ func deployRun(id int64, conclusion string) string {
 
 // GitHub sometimes answers the newest-first listing of main's push runs with
 // an older page. On 2026-10-06 it gave PrecisionDocs-AI's deploy run of
-// 2026-03-01 as the newest, and the CFO was told main was red while every
+// 2026-03-01 as the newest, and the CEO was told main was red while every
 // deploy that day had passed. A listing older than one a poll already read
 // says nothing of main as it is now; a newer red run still wakes.
 func TestCIFinishedJudgesMainByItsNewestRunNeverAnOlderPage(t *testing.T) {
@@ -826,7 +826,7 @@ func TestCIFinishedJudgesMainByItsNewestRunNeverAnOlderPage(t *testing.T) {
 	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 10, 6, 15, 0, 0, 0, time.UTC)
 	if green := pollForge(t, s, h, &now); len(green) != 0 {
-		t.Fatalf("a green deploy woke the CFO: %+v", green)
+		t.Fatalf("a green deploy woke the CEO: %+v", green)
 	}
 
 	// Act: GitHub lists a page from March.
@@ -837,7 +837,7 @@ func TestCIFinishedJudgesMainByItsNewestRunNeverAnOlderPage(t *testing.T) {
 
 	// Assert
 	if len(stale) != 0 {
-		t.Fatalf("a red run older than the newest one read woke the CFO: %+v", stale)
+		t.Fatalf("a red run older than the newest one read woke the CEO: %+v", stale)
 	}
 	if len(red) != 1 || !strings.Contains(red[0].Detail, "run 37470000000") {
 		t.Fatalf("main red on its newest run = %+v, want one wake for run 37470000000", red)
@@ -860,7 +860,7 @@ func TestCIFinishedKnowsMainsNewestRunWhenItsRepositoryIsWatchedAgain(t *testing
 	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 10, 6, 6, 0, 0, 0, time.UTC)
 	if green := pollForge(t, s, h, &now); len(green) != 0 {
-		t.Fatalf("a green deploy woke the CFO: %+v", green)
+		t.Fatalf("a green deploy woke the CEO: %+v", green)
 	}
 	if err := os.Remove(filepath.Join(h.State, "pd-goblin.meta")); err != nil {
 		t.Fatal(err)
@@ -886,7 +886,7 @@ func TestCIFinishedKnowsMainsNewestRunWhenItsRepositoryIsWatchedAgain(t *testing
 		t.Fatalf("main's runs were listed %d times, want twice: the repository is watched again", listed())
 	}
 	if len(stale) != 0 {
-		t.Fatalf("an old red run newly seen after the repository was watched again woke the CFO: %+v", stale)
+		t.Fatalf("an old red run newly seen after the repository was watched again woke the CEO: %+v", stale)
 	}
 }
 
@@ -909,7 +909,7 @@ func TestCIFinishedJudgesEachWorkflowByItsNewestRunInAnyOrder(t *testing.T) {
 
 	// Assert
 	if len(woke) != 0 {
-		t.Fatalf("a red run listed before its workflow's newer green one woke the CFO: %+v", woke)
+		t.Fatalf("a red run listed before its workflow's newer green one woke the CEO: %+v", woke)
 	}
 }
 
@@ -1032,7 +1032,7 @@ func TestCIFinishedReportsARepositoryWithNoDefaultBranch(t *testing.T) {
 		t.Fatalf("poll error = %v, want one naming %s and its missing default branch", err, project)
 	}
 	if woke := fleetWakeRecords(t, h, "ci"); len(woke) != 0 {
-		t.Fatalf("a repository with no default branch woke the CFO: %+v", woke)
+		t.Fatalf("a repository with no default branch woke the CEO: %+v", woke)
 	}
 	if slices.Contains(forge.runListDirs, filepath.Clean(project)) {
 		t.Fatalf("push runs were listed for %s, whose default branch is unknown", project)
@@ -1043,7 +1043,7 @@ func TestCIFinishedReportsARepositoryWithNoDefaultBranch(t *testing.T) {
 }
 
 // A pull request a live goblin still owns keeps its reported checks however
-// long it stays open, so its one result never wakes the CFO a second time.
+// long it stays open, so its one result never wakes the CEO a second time.
 func TestCIFinishedNeverRepeatsForAPullRequestOpenForWeeks(t *testing.T) {
 	s, h := fleetService(t)
 	project := t.TempDir()
@@ -1067,7 +1067,7 @@ func TestCIFinishedNeverRepeatsForAPullRequestOpenForWeeks(t *testing.T) {
 }
 
 // What state/fleet-wakes.json remembers of a pull request, its reported
-// checks and when it last woke the CFO, is dropped once no live goblin has
+// checks and when it last woke the CEO, is dropped once no live goblin has
 // owned it open for ciRecordFor, so the record does not grow for ever.
 func TestFleetWakesForgetAPullRequestNoLongerWatched(t *testing.T) {
 	s, h := fleetService(t)
@@ -1133,12 +1133,12 @@ func TestCIUnreadableIgnoresARepositoryWithNoOrigin(t *testing.T) {
 		t.Fatalf("GitHub was asked %d times of a repository with no origin, want none", forge.githubCalls)
 	}
 	if woke := fleetWakeRecords(t, h, "ci"); len(woke) != 0 {
-		t.Fatalf("a repository with no origin woke the CFO: %+v", woke)
+		t.Fatalf("a repository with no origin woke the CEO: %+v", woke)
 	}
 }
 
 // A repository gh cannot read keeps its named error at every reading,
-// polling or not, and wakes the CFO once, when the same failure was met on
+// polling or not, and wakes the CEO once, when the same failure was met on
 // three polls in a row, however long it then lasts.
 func TestCIUnreadableWakesOnceForAFailureMetOnThreePolls(t *testing.T) {
 	s, h, _, project := unreadableForge(t)
@@ -1154,7 +1154,7 @@ func TestCIUnreadableWakesOnceForAFailureMetOnThreePolls(t *testing.T) {
 		}
 		woke := fleetWakeRecords(t, h, "ci")
 		if len(woke) != reading.woke {
-			t.Fatalf("by the reading at %s the CFO was woken %d times, want %d: %+v", reading.after, len(woke), reading.woke, woke)
+			t.Fatalf("by the reading at %s the CEO was woken %d times, want %d: %+v", reading.after, len(woke), reading.woke, woke)
 		}
 	}
 	woke := fleetWakeRecords(t, h, "ci")[0]
@@ -1182,7 +1182,7 @@ func TestCIUnreadableWakesAgainForAChangedOrReturningFailure(t *testing.T) {
 	}{{signedOut, 0}, {signedOut, 0}, {signedOut, 1}, {notFound, 1}, {notFound, 1}, {notFound, 2}} {
 		forge.refusal = step.refusal
 		if woke, _ := poll(); woke != step.woke {
-			t.Fatalf("after a poll GitHub refused with %+v the CFO was woken %d times, want %d", step.refusal, woke, step.woke)
+			t.Fatalf("after a poll GitHub refused with %+v the CEO was woken %d times, want %d", step.refusal, woke, step.woke)
 		}
 	}
 
@@ -1206,19 +1206,19 @@ func TestCIUnreadableWakesAgainForAChangedOrReturningFailure(t *testing.T) {
 	forge.refusal = signedOut
 	for range 2 {
 		if woke, _ := poll(); woke != 2 {
-			t.Fatalf("the failure met on fewer than three polls after it cleared woke the CFO %d times, want 2", woke)
+			t.Fatalf("the failure met on fewer than three polls after it cleared woke the CEO %d times, want 2", woke)
 		}
 	}
 	if woke, _ := poll(); woke != 3 {
-		t.Fatalf("the failure back on three polls woke the CFO %d times, want 3", woke)
+		t.Fatalf("the failure back on three polls woke the CEO %d times, want 3", woke)
 	}
 }
 
 // On 2026-10-08 the listing of code-goblins's push runs on main timed out
-// under the fleet's load, woke the CFO as ci_unreadable, and took about
+// under the fleet's load, woke the CEO as ci_unreadable, and took about
 // 600 ms minutes later. A listing that times out on two polls and reads on
 // the third wakes nobody.
-func TestCIRunListThatTimesOutTwiceThenReadsNeverWakesTheCFO(t *testing.T) {
+func TestCIRunListThatTimesOutTwiceThenReadsNeverWakesTheCEO(t *testing.T) {
 	// Arrange
 	s, h := fleetService(t)
 	project := t.TempDir()
@@ -1237,7 +1237,7 @@ func TestCIRunListThatTimesOutTwiceThenReadsNeverWakesTheCFO(t *testing.T) {
 
 		// Assert
 		if woke := fleetWakeRecords(t, h, "ci"); len(woke) != 0 {
-			t.Fatalf("poll %d woke the CFO for a listing that timed out on %d polls: %+v", poll+1, min(poll+1, 2), woke)
+			t.Fatalf("poll %d woke the CEO for a listing that timed out on %d polls: %+v", poll+1, min(poll+1, 2), woke)
 		}
 	}
 	listings := 0
@@ -1256,7 +1256,7 @@ func TestCIRunListThatTimesOutTwiceThenReadsNeverWakesTheCFO(t *testing.T) {
 
 // What state/fleet-wakes.json remembers of a failure outlives a restart: a
 // new supervisor on the same state shows the line before it polls and does
-// not wake the CFO for it again.
+// not wake the CEO for it again.
 func TestCIUnreadableStandsAcrossARestartWithoutWakingAgain(t *testing.T) {
 	s, h, _, project := unreadableForge(t)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
@@ -1278,7 +1278,7 @@ func TestCIUnreadableStandsAcrossARestartWithoutWakingAgain(t *testing.T) {
 		}
 	}
 	if woke := fleetWakeRecords(t, h, "ci"); len(woke) != 1 {
-		t.Fatalf("the restart woke the CFO again: %+v", woke)
+		t.Fatalf("the restart woke the CEO again: %+v", woke)
 	}
 }
 
@@ -1411,7 +1411,7 @@ func (c *cancellingForge) Run(ctx context.Context, req execx.Request) (execx.Res
 
 // A poll cut short by the supervisor stopping leaves what
 // state/fleet-wakes.json remembers of unreadable repositories as it was: a
-// repository the CFO was woken for keeps its record, a healthy one gains no
+// repository the CEO was woken for keeps its record, a healthy one gains no
 // line, and the same failure after the restart wakes nobody again.
 func TestCIUnreadableRecordOutlivesAPollCutShort(t *testing.T) {
 	for name, at := range map[string]func(other string) func(execx.Request) bool{
@@ -1469,7 +1469,7 @@ func TestCIUnreadableRecordOutlivesAPollCutShort(t *testing.T) {
 				_ = restarted.checkFleet(context.Background(), now)
 			}
 			if woke := fleetWakeRecords(t, h, "ci"); len(woke) != 1 {
-				t.Fatalf("the same failure after the restart woke the CFO again: %+v", woke)
+				t.Fatalf("the same failure after the restart woke the CEO again: %+v", woke)
 			}
 		})
 	}
@@ -1477,7 +1477,7 @@ func TestCIUnreadableRecordOutlivesAPollCutShort(t *testing.T) {
 
 // A goblin that opens a second pull request has its second branch checked
 // out while the first one's checks finish. The first is still its own, so the
-// CFO is woken for its checks as for the one on the branch the goblin has
+// CEO is woken for its checks as for the one on the branch the goblin has
 // now, where on 2026-10-10 it was told nothing until the goblin reported the
 // pull request done. One another account opened from a branch the goblin's
 // worktree only had checked out before is not the goblin's.
@@ -1536,7 +1536,7 @@ func memoryQuietTask(t *testing.T, h home.Home, pausedAt time.Time, record *stat
 	return meta
 }
 
-// On 2026-10-24 repeated memory_ready wakes told the CFO to release Bea, Jules,
+// On 2026-10-24 repeated memory_ready wakes told the CEO to release Bea, Jules,
 // Marv and Lou, although the first three were paused until a weekly reset and
 // Lou waited on another task. A task's own pause outranks an older report of a
 // memory wait, because freeing memory cannot end a condition that is not

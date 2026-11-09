@@ -24,7 +24,7 @@ func installedFixture(t *testing.T, env map[string]string, contract, policy fs.F
 	f := newFixture(t, adopterSettings, env)
 	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(f.root))
 	f.service.Contract, f.service.Policy = contract, policy
-	f.service.Binary = filepath.Join(t.TempDir(), "cfo.exe")
+	f.service.Binary = filepath.Join(t.TempDir(), "ceo.exe")
 	writeFile(t, f.service.Binary, "build 1")
 	return f
 }
@@ -149,7 +149,7 @@ func TestInstallOutsideACheckoutSetsUpAPrimaryHomeFromTheBinary(t *testing.T) {
 			t.Errorf("the home has no %s folder: %v", folder, err)
 		}
 	}
-	for _, name := range []string{"cfo.exe", "goblins.exe"} {
+	for _, name := range []string{"ceo.exe", "goblins.exe"} {
 		if got := readFile(t, filepath.Join(f.bin, name)); got != "build 1" {
 			t.Errorf("bin\\%s = %q, want the running binary", name, got)
 		}
@@ -163,15 +163,15 @@ func TestInstallOutsideACheckoutSetsUpAPrimaryHomeFromTheBinary(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(f.root, ".agents")); !os.IsNotExist(err) {
 		t.Errorf("the home holds a second copy of the skills: %v", err)
 	}
-	if got := f.env.values["CFO_HOME"]; got != f.root {
-		t.Errorf("CFO_HOME = %q, want the home %q", got, f.root)
+	if got := f.env.values["CEO_HOME"]; got != f.root {
+		t.Errorf("CEO_HOME = %q, want the home %q", got, f.root)
 	}
 	if got := f.env.values["Path"]; got != `C:\Windows;`+f.bin {
 		t.Errorf("PATH = %q, want the home's bin appended", got)
 	}
 	for _, command := range hookCommands(t, f.user) {
-		if isCFOCommand(command) {
-			t.Errorf("the install wrote the CFO hook %q into the user's settings, which only the CFO's terminal starts with", command)
+		if isCEOCommand(command) {
+			t.Errorf("the install wrote the CEO hook %q into the user's settings, which only the CEO's terminal starts with", command)
 		}
 	}
 }
@@ -274,7 +274,7 @@ func TestReinstallUpdatesTheContractAndTheSkillsAndKeepsTunedPolicy(t *testing.T
 		filepath.Join(f.profile, ".claude", "skills", "stow", "SKILL.md"): "skill 2",
 		filepath.Join(f.root, "config", "pipeline.json"):                  "tuned",
 		filepath.Join(f.root, "data", "routing.json"):                     "lanes 2",
-		filepath.Join(f.bin, "cfo.exe"):                                   "build 2",
+		filepath.Join(f.bin, "ceo.exe"):                                   "build 2",
 		filepath.Join(f.bin, "goblins.exe"):                               "build 2",
 	} {
 		if got := readFile(t, path); got != want {
@@ -287,14 +287,14 @@ func TestReinstallUpdatesTheContractAndTheSkillsAndKeepsTunedPolicy(t *testing.T
 }
 
 // Outside a checkout, install and uninstall act only on the per-user home: a
-// CFO_HOME naming another home in use is refused before anything is written,
+// CEO_HOME naming another home in use is refused before anything is written,
 // while one naming no home at all is simply replaced.
 func TestOutsideACheckoutAHomeInUseIsLeftAlone(t *testing.T) {
 	for name, act := range map[string]func(Service, io.Writer) error{"install": Service.Install, "uninstall": Service.Uninstall} {
 		t.Run(name, func(t *testing.T) {
 			inUse := t.TempDir()
 			makePrimaryHome(t, inUse)
-			f := installedFixture(t, map[string]string{"CFO_HOME": inUse}, codegoblins.Contract, codegoblins.Policy)
+			f := installedFixture(t, map[string]string{"CEO_HOME": inUse}, codegoblins.Contract, codegoblins.Policy)
 
 			var out strings.Builder
 			err := act(f.service, &out)
@@ -302,8 +302,8 @@ func TestOutsideACheckoutAHomeInUseIsLeftAlone(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), inUse) || !strings.Contains(err.Error(), "goblins uninstall") {
 				t.Fatalf("%s = %v, want a refusal naming the home in use and goblins uninstall\n%s", name, err, out.String())
 			}
-			if got := f.env.values["CFO_HOME"]; got != inUse || len(f.env.setCalls) != 0 {
-				t.Errorf("CFO_HOME = %q after %v, want it left at the home in use", got, f.env.setCalls)
+			if got := f.env.values["CEO_HOME"]; got != inUse || len(f.env.setCalls) != 0 {
+				t.Errorf("CEO_HOME = %q after %v, want it left at the home in use", got, f.env.setCalls)
 			}
 			if got := readFile(t, f.user); got != adopterSettings {
 				t.Errorf("the refused %s rewrote the user settings:\n%s", name, got)
@@ -313,22 +313,22 @@ func TestOutsideACheckoutAHomeInUseIsLeftAlone(t *testing.T) {
 			}
 		})
 	}
-	t.Run("a CFO_HOME naming no home", func(t *testing.T) {
+	t.Run("a CEO_HOME naming no home", func(t *testing.T) {
 		gone := filepath.Join(t.TempDir(), "deleted-checkout")
-		f := installedFixture(t, map[string]string{"CFO_HOME": gone}, codegoblins.Contract, codegoblins.Policy)
+		f := installedFixture(t, map[string]string{"CEO_HOME": gone}, codegoblins.Contract, codegoblins.Policy)
 		output := f.install()
-		if got := f.env.values["CFO_HOME"]; got != f.root || !strings.Contains(output, "changed from "+gone) {
-			t.Errorf("CFO_HOME = %q, want it moved from %q to %q:\n%s", got, gone, f.root, output)
+		if got := f.env.values["CEO_HOME"]; got != f.root || !strings.Contains(output, "changed from "+gone) {
+			t.Errorf("CEO_HOME = %q, want it moved from %q to %q:\n%s", got, gone, f.root, output)
 		}
 	})
 }
 
-// An install refuses while CFO_HOME names another home in use: moving
-// CFO_HOME would leave that home's binaries first on PATH and its fleet's
+// An install refuses while CEO_HOME names another home in use: moving
+// CEO_HOME would leave that home's binaries first on PATH and its fleet's
 // state unreachable. A folder holding a fleet's state is in use whether an
 // install set it up or an older build made a checkout its home without the
 // marker, and the refusal names the move that brings the fleet along. A
-// CFO_HOME left naming a folder with no state is no home, and the install
+// CEO_HOME left naming a folder with no state is no home, and the install
 // takes over.
 func TestInstallRefusesWhileAnotherHomeIsInUse(t *testing.T) {
 	tests := []struct {
@@ -353,7 +353,7 @@ func TestInstallRefusesWhileAnotherHomeIsInUse(t *testing.T) {
 			// Arrange
 			inUse := t.TempDir()
 			test.arrange(t, inUse)
-			f := newFixture(t, adopterSettings, map[string]string{"CFO_HOME": inUse, "Path": `C:\Windows;` + inUse})
+			f := newFixture(t, adopterSettings, map[string]string{"CEO_HOME": inUse, "Path": `C:\Windows;` + inUse})
 
 			// Act
 			var out strings.Builder
@@ -366,10 +366,10 @@ func TestInstallRefusesWhileAnotherHomeIsInUse(t *testing.T) {
 				}
 				return
 			}
-			if err == nil || !strings.Contains(err.Error(), inUse) || !strings.Contains(err.Error(), "cfo home move") || !strings.Contains(err.Error(), "goblins uninstall") {
-				t.Fatalf("Install = %v, want a refusal naming the home in use, cfo home move and goblins uninstall\n%s", err, out.String())
+			if err == nil || !strings.Contains(err.Error(), inUse) || !strings.Contains(err.Error(), "ceo home move") || !strings.Contains(err.Error(), "goblins uninstall") {
+				t.Fatalf("Install = %v, want a refusal naming the home in use, ceo home move and goblins uninstall\n%s", err, out.String())
 			}
-			if len(f.env.setCalls) != 0 || f.env.values["CFO_HOME"] != inUse || f.env.values["Path"] != `C:\Windows;`+inUse {
+			if len(f.env.setCalls) != 0 || f.env.values["CEO_HOME"] != inUse || f.env.values["Path"] != `C:\Windows;`+inUse {
 				t.Errorf("the refused install changed the environment: %v", f.env.setCalls)
 			}
 			if got := readFile(t, f.user); got != adopterSettings {
@@ -381,11 +381,11 @@ func TestInstallRefusesWhileAnotherHomeIsInUse(t *testing.T) {
 
 // A home an install has just made, before any fleet has run there, is already
 // a home in use: an install into another folder must refuse rather than move
-// CFO_HOME away from it.
+// CEO_HOME away from it.
 func TestAFreshInstallIsAHomeInUse(t *testing.T) {
 	first := installedFixture(t, map[string]string{"Path": `C:\Windows`}, codegoblins.Contract, codegoblins.Policy)
 	first.install()
-	f := installedFixture(t, map[string]string{"CFO_HOME": first.root}, codegoblins.Contract, codegoblins.Policy)
+	f := installedFixture(t, map[string]string{"CEO_HOME": first.root}, codegoblins.Contract, codegoblins.Policy)
 
 	var out strings.Builder
 	err := f.service.Install(&out)
@@ -401,16 +401,16 @@ func TestAFreshInstallIsAHomeInUse(t *testing.T) {
 // A home an older install set up kept its binaries at its root, on PATH
 // there; a reinstall puts them in bin and PATH with them. The desktop
 // window, which this build does not supply, stays the home's own in bin.
-// cfo.exe and goblins.exe stay at the root too, as this build: sessions
+// ceo.exe and goblins.exe stay at the root too, as this build: sessions
 // started before the reinstall run them there, by the path their hooks and
 // their briefs name and through the PATH they started with.
 func TestReinstallMovesAnOlderInstallsRootBinariesIntoBin(t *testing.T) {
 	// Arrange
 	f := installedFixture(t, map[string]string{"Path": `C:\Windows`}, codegoblins.Contract, codegoblins.Policy)
 	makePrimaryHome(t, f.root)
-	f.env.values["CFO_HOME"] = f.root
+	f.env.values["CEO_HOME"] = f.root
 	f.env.values["Path"] = `C:\Windows;` + f.root
-	older := []string{"cfo.exe", "goblins.exe", "goblins-window.exe", "goblins-window.png", "cfo.exe.1790989608292912900.update-old", "goblins.exe.abc.old", "cfo.exe.held-66714dea"}
+	older := []string{"ceo.exe", "goblins.exe", "goblins-window.exe", "goblins-window.png", "ceo.exe.1790989608292912900.update-old", "goblins.exe.abc.old", "ceo.exe.held-66714dea"}
 	for _, name := range older {
 		writeFile(t, filepath.Join(f.root, name), "older build")
 	}
@@ -429,8 +429,8 @@ func TestReinstallMovesAnOlderInstallsRootBinariesIntoBin(t *testing.T) {
 			t.Errorf("%s at the home's root = %q (%v), want it kept as this build:\n%s", name, got, err, output)
 		}
 	}
-	if got := readFile(t, filepath.Join(f.bin, "cfo.exe")); got != "build 1" {
-		t.Errorf("bin\\cfo.exe = %q, want this build", got)
+	if got := readFile(t, filepath.Join(f.bin, "ceo.exe")); got != "build 1" {
+		t.Errorf("bin\\ceo.exe = %q, want this build", got)
 	}
 	for _, name := range []string{"goblins-window.exe", "goblins-window.png"} {
 		if got, err := os.ReadFile(filepath.Join(f.bin, name)); err != nil || string(got) != "older build" {
@@ -464,7 +464,7 @@ func TestInstallOutsideACheckoutThatFailsPartwayLeavesNoPrimaryHome(t *testing.T
 
 // An update whose new build cannot be written after the old one moved aside
 // puts the old one back, so the hooks and the Start-menu shortcut still find
-// cfo.exe and goblins.exe.
+// ceo.exe and goblins.exe.
 func TestUpdateOutsideACheckoutThatCannotWriteTheNewBuildKeepsTheOldOne(t *testing.T) {
 	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
 	f.install()
@@ -500,15 +500,15 @@ func TestUninstallOutsideACheckoutUnwiresTheHomeAndKeepsIt(t *testing.T) {
 
 	output := f.uninstall()
 
-	if _, set := f.env.values["CFO_HOME"]; set {
-		t.Error("CFO_HOME survived the uninstall")
+	if _, set := f.env.values["CEO_HOME"]; set {
+		t.Error("CEO_HOME survived the uninstall")
 	}
 	if got := f.env.values["Path"]; got != `C:\Windows` {
 		t.Errorf("PATH = %q, want the home removed", got)
 	}
 	for _, command := range hookCommands(t, f.user) {
-		if isCFOCommand(command) {
-			t.Errorf("CFO hook %q survived the uninstall", command)
+		if isCEOCommand(command) {
+			t.Errorf("CEO hook %q survived the uninstall", command)
 		}
 	}
 	if got := readFile(t, filepath.Join(f.root, "state", "wake.log")); got != "fleet state" {
@@ -596,7 +596,7 @@ func TestCarryWindowBringsTheWindowBesideTheBuildIntoTheHome(t *testing.T) {
 			var out strings.Builder
 
 			// Act
-			err := CarryWindow(filepath.Join(root, "bin"), filepath.Join(release, "cfo.exe"), &out)
+			err := CarryWindow(filepath.Join(root, "bin"), filepath.Join(release, "ceo.exe"), &out)
 
 			// Assert
 			if err != nil {
@@ -621,7 +621,7 @@ func TestCarryWindowReportsAWindowItCannotReplace(t *testing.T) {
 	writeFile(t, filepath.Join(release, "goblins-window.exe"), "window 2")
 
 	// Act
-	err := CarryWindow(filepath.Join(root, "bin"), filepath.Join(release, "cfo.exe"), io.Discard)
+	err := CarryWindow(filepath.Join(root, "bin"), filepath.Join(release, "ceo.exe"), io.Discard)
 
 	// Assert
 	if err == nil {

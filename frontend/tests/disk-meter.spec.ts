@@ -9,7 +9,7 @@ const tasks = [
 const memory = { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 * GB, available: 9.4 * GB, commit_available: 20 * GB, paged_pool: 0.6 * GB, nonpaged_pool: 0.4 * GB };
 const drive = { drive: "C:", total: 953 * GB, floor: 15 * GB, wake: 10 * GB };
 // Free disk well above the floor, under the floor where nothing starts, and
-// under the lower mark where the CFO is woken.
+// under the lower mark where the CEO is woken.
 const states = {
   roomy: { ...drive, free: 74 * GB },
   floor: { ...drive, free: 12.6 * GB },
@@ -17,7 +17,7 @@ const states = {
 };
 
 async function board(page: Page, disk: object, shown: object[] = tasks) {
-  const snapshot = { instance: "disk-fixture", revision: 1, healthy: true, cfo_runs: true, attention: [], memory, disk, tasks: shown };
+  const snapshot = { instance: "disk-fixture", revision: 1, healthy: true, ceo_runs: true, attention: [], memory, disk, tasks: shown };
   await page.route("**/api/**", async (route) => {
     if (new URL(route.request().url()).pathname === "/api/events") {
       await route.fulfill({ contentType: "text/event-stream", body: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` });
@@ -56,13 +56,13 @@ async function layout(column: ReturnType<Page["getByRole"]>) {
 }
 
 // The Overlord's window: 2560 by 1600 at 150 percent, so 1707 CSS pixels wide,
-// with the CFO's panel open beside the board.
-test.describe("in the Overlord's window, 1707 px wide with the CFO's panel open", () => {
+// with the CEO's panel open beside the board.
+test.describe("in the Overlord's window, 1707 px wide with the CEO's panel open", () => {
   test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
 
   for (const [state, disk] of Object.entries(states)) {
     test(`free disk ${state === "roomy" ? "above the floor" : state === "floor" ? "under the floor" : "under the wake mark"} shows under memory in the same box`, async ({ page }, testInfo) => {
-      // Arrange: the CFO's own panel, on its Task view, beside the board.
+      // Arrange: the CEO's own panel, on its Task view, beside the board.
       const column = await board(page, disk);
       await page.keyboard.press("Control+Alt+1");
       await openTaskList(page);
@@ -77,7 +77,7 @@ test.describe("in the Overlord's window, 1707 px wide with the CFO's panel open"
       const meter = column.getByRole("group", { name: "Disk" });
       await expect(meter.locator(".memory-line")).toHaveText(`Disk free (C:)${(disk.free / GB).toFixed(1)} GB`);
       await expect(meter.locator(".memory-fill")).toHaveClass(new RegExp(state === "roomy" ? "ready" : state === "floor" ? "waiting" : "under"));
-      await expect(meter.locator(".memory-bar")).toHaveAttribute("data-tip", "Red mark: 10 GB, where the CFO is woken. White mark: the 15 GB floor. No goblin or gate test run starts under it.");
+      await expect(meter.locator(".memory-bar")).toHaveAttribute("data-tip", "Red mark: 10 GB, where the CEO is woken. White mark: the 15 GB floor. No goblin or gate test run starts under it.");
     });
   }
 

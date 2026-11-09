@@ -41,10 +41,10 @@ func hookPrograms(t *testing.T, settings []byte) map[string]bool {
 }
 
 // A goblin's hooks run the home's hook program, which Windows starts with no
-// console host, only while it is the same build as the home's cfo.exe: with
-// none, or one another build left, they run cfo.exe, so no hook ever runs
+// console host, only while it is the same build as the home's ceo.exe: with
+// none, or one another build left, they run ceo.exe, so no hook ever runs
 // another build's code.
-func TestAGoblinsHooksRunTheHookProgramOnlyWhileItIsCfosBuild(t *testing.T) {
+func TestAGoblinsHooksRunTheHookProgramOnlyWhileItIsCeosBuild(t *testing.T) {
 	tests := []struct {
 		name     string
 		hook     func(t *testing.T, path string)
@@ -63,7 +63,7 @@ func TestAGoblinsHooksRunTheHookProgramOnlyWhileItIsCfosBuild(t *testing.T) {
 				t.Fatal(err)
 			}
 			// The stand-in program is a Go program with its build information.
-			standin.Put(t, filepath.Join(bin, "cfo.exe"))
+			standin.Put(t, filepath.Join(bin, "ceo.exe"))
 			test.hook(t, filepath.Join(bin, HookProgram))
 
 			// Act
@@ -73,7 +73,7 @@ func TestAGoblinsHooksRunTheHookProgramOnlyWhileItIsCfosBuild(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := filepath.Join(bin, "cfo.exe")
+			want := filepath.Join(bin, "ceo.exe")
 			if test.wantHook {
 				want = filepath.Join(bin, HookProgram)
 			}
@@ -84,7 +84,7 @@ func TestAGoblinsHooksRunTheHookProgramOnlyWhileItIsCfosBuild(t *testing.T) {
 	}
 }
 
-// The hook program is cfo built with -H windowsgui, which its build settings
+// The hook program is ceo built with -H windowsgui, which its build settings
 // record: that is the one difference two builds may have and still be the
 // same build.
 func TestTheSameBuildDiffersOnlyByTheWindowedFlag(t *testing.T) {
@@ -98,7 +98,7 @@ func TestTheSameBuildDiffersOnlyByTheWindowedFlag(t *testing.T) {
 	}
 	tests := []struct {
 		name        string
-		hook, cfo   *debug.BuildInfo
+		hook, ceo   *debug.BuildInfo
 		isSameBuild bool
 	}{
 		{"a release", build("-H windowsgui -X main.version=v0.6.0", "a1"), build("-X main.version=v0.6.0", "a1"), true},
@@ -110,7 +110,7 @@ func TestTheSameBuildDiffersOnlyByTheWindowedFlag(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Act
-			isSameBuild := buildIdentity(test.hook) == buildIdentity(test.cfo)
+			isSameBuild := buildIdentity(test.hook) == buildIdentity(test.ceo)
 
 			// Assert
 			if isSameBuild != test.isSameBuild {
@@ -123,7 +123,7 @@ func TestTheSameBuildDiffersOnlyByTheWindowedFlag(t *testing.T) {
 // An install puts the hook program shipped beside its binary in the home's
 // bin, and one with none beside it, such as a build from source, leaves the
 // home's own.
-func TestInstallPutsTheHookProgramBesideCfo(t *testing.T) {
+func TestInstallPutsTheHookProgramBesideCeo(t *testing.T) {
 	// Arrange
 	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
 	writeFile(t, filepath.Join(filepath.Dir(f.service.Binary), HookProgram), "hook program 1")
@@ -147,11 +147,11 @@ func TestInstallPutsTheHookProgramBesideCfo(t *testing.T) {
 	}
 }
 
-// cfo update carries the hook program beside the candidate into the home,
+// ceo update carries the hook program beside the candidate into the home,
 // as it carries the window.
 func TestCarryHookProgramBringsTheHookProgramIntoTheHome(t *testing.T) {
 	// Arrange
-	candidate := filepath.Join(t.TempDir(), "cfo.exe")
+	candidate := filepath.Join(t.TempDir(), "ceo.exe")
 	writeFile(t, candidate, "candidate")
 	writeFile(t, filepath.Join(filepath.Dir(candidate), HookProgram), "hook program 2")
 	programs := t.TempDir()

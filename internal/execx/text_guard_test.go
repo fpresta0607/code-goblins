@@ -113,7 +113,7 @@ func TestTextFlagsNamedReportsEveryFreeTextFlag(t *testing.T) {
 		{"an intent by file", `_ = []string{"axi", "run", "--intent-file", file}`, nil},
 		{"a body by file", `run("gh", "pr", "create", "--body-file", file)`, nil},
 		{"a flag of the fleet's own command", `flags.StringVar(&intent, "intent", "", "task intent")`, nil},
-		{"a flag named in a sentence", `_ = "use cfo pipeline run --intent <text>"`, nil},
+		{"a flag named in a sentence", `_ = "use ceo pipeline run --intent <text>"`, nil},
 		{"a fixed text by a literal", `run("gh", "label", "create", name, "--description", "A merge train's own pull request")`, nil},
 		{"a fixed text by a constant of the file", `run("gh", "label", "create", name, "--description", labelSays, "--color", "8B949E")`, nil},
 		{"a fixed text as long as a short one may be", `run("gh", "label", "create", "--description", "` + strings.Repeat("a", fixedTextLimit) + `")`, nil},

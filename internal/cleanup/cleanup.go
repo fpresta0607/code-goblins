@@ -54,7 +54,7 @@ type Service struct {
 	ForceArchive bool
 	// LeaveRunningTerminals refuses a native task whose terminal still runs,
 	// even one idle at its composer, so nothing is closed: a caller that must
-	// never end a process, as reap must not, leaves that to cfo cleanup.
+	// never end a process, as reap must not, leaves that to ceo cleanup.
 	LeaveRunningTerminals bool
 	// Data is the home's data directory, whose backlog.md queues the task: a
 	// task cleanup finds delivered leaves ## Queued for ## Done. Without it
@@ -67,7 +67,7 @@ type Service struct {
 	EndLeft func(ctx context.Context, meta state.TaskMeta) ([]string, error)
 	// ReleaseServices releases the local services stacks the task held, once
 	// its record is retired, and says what it did: the last holder's release
-	// stops what cfo started. Nil releases nothing.
+	// stops what ceo started. Nil releases nothing.
 	ReleaseServices func(ctx context.Context, task string) ([]string, error)
 	// HandOver hands on what the task's lifecycle record keeps for a resume
 	// the retired task never runs, as the board messages kept for a paused
@@ -255,7 +255,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if err := state.WriteOutcome(s.StateDir, outcome); err != nil {
 		return Result{}, err
 	}
-	if err := state.AppendStatus(s.StateDir, id, outcome.Phase+": "+returned+" via cfo cleanup"); err != nil {
+	if err := state.AppendStatus(s.StateDir, id, outcome.Phase+": "+returned+" via ceo cleanup"); err != nil {
 		return Result{}, fmt.Errorf("cleanup: record returned worktree: %w", err)
 	}
 	if err := state.RemoveTaskMeta(s.StateDir, id); err != nil {
@@ -303,7 +303,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 // so the supervisor's resume of the same task ran through it: the worktree
 // went from under the resume, which then wrote a new task record.
 //
-// A lock this process already holds is its caller's and is left with it: cfo
+// A lock this process already holds is its caller's and is left with it: ceo
 // kill cleans its goblin up from inside its stop, which holds both, and the
 // lock package refuses a process a lock it holds. Such a caller has excluded
 // every other command already.
@@ -351,7 +351,7 @@ func (s Service) handOver(meta state.TaskMeta) (string, error) {
 	}
 	isRetirable, err := s.HandOver(meta)
 	if !isRetirable {
-		return "", fmt.Errorf("cleanup: the messages kept for the resume of %s could not be handed to the CFO, so nothing was removed: %w", meta.ID, err)
+		return "", fmt.Errorf("cleanup: the messages kept for the resume of %s could not be handed to the CEO, so nothing was removed: %w", meta.ID, err)
 	}
 	if err != nil {
 		return "\nwarning: " + err.Error(), nil
@@ -498,7 +498,7 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	if err := state.WriteOutcome(s.StateDir, outcome); err != nil {
 		return Result{}, err
 	}
-	if err := state.AppendStatus(s.StateDir, id, outcome.Phase+": force-archived via cfo cleanup --force-archive; worktree "+worktreePath+" left in place"); err != nil {
+	if err := state.AppendStatus(s.StateDir, id, outcome.Phase+": force-archived via ceo cleanup --force-archive; worktree "+worktreePath+" left in place"); err != nil {
 		return Result{}, fmt.Errorf("cleanup: record force archive: %w", err)
 	}
 	if err := state.RemoveTaskMeta(s.StateDir, id); err != nil {
@@ -579,7 +579,7 @@ func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id,
 	if err := state.WriteOutcome(s.StateDir, outcome); err != nil {
 		return Result{}, err
 	}
-	if err := state.AppendStatus(s.StateDir, id, outcome.Phase+": "+removed+" via cfo cleanup"); err != nil {
+	if err := state.AppendStatus(s.StateDir, id, outcome.Phase+": "+removed+" via ceo cleanup"); err != nil {
 		return Result{}, fmt.Errorf("cleanup: record the removed folder: %w", err)
 	}
 	if err := state.RemoveTaskMeta(s.StateDir, id); err != nil {
@@ -802,13 +802,13 @@ func (s Service) requireHerdrInactive(ctx context.Context, meta state.TaskMeta) 
 }
 
 // requireNativeIdle proves a native task's terminal holds no turn in progress
-// (CFO decision 2339). Its host runs exactly as long as the harness and
+// (CEO decision 2339). Its host runs exactly as long as the harness and
 // removes its record on the way out, so a missing record, or one whose host
 // Windows shows as ended or whose pid a later process reuses, means the
 // terminal has ended. A running terminal is idle only while its harness shows
 // the ready composer with no working marker, and its record is returned so
 // the cleanup closes it. A record or a screen that cannot be read, any other
-// screen, and a harness whose screens cfo cannot read are all refused. Under
+// screen, and a harness whose screens ceo cannot read are all refused. Under
 // LeaveRunningTerminals every running terminal is refused.
 func (s Service) requireNativeIdle(meta state.TaskMeta) (host.Record, error) {
 	record, err := host.ReadRecord(s.StateDir, meta.ID)
@@ -822,11 +822,11 @@ func (s Service) requireNativeIdle(meta state.TaskMeta) (host.Record, error) {
 		return host.Record{}, nil
 	}
 	if s.LeaveRunningTerminals {
-		return host.Record{}, fmt.Errorf("cleanup: native task %s still runs in host pid %d, and this cleanup never ends a process; retire it with cfo cleanup %s, which closes its terminal once its harness is idle", meta.ID, record.HostPID, meta.ID)
+		return host.Record{}, fmt.Errorf("cleanup: native task %s still runs in host pid %d, and this cleanup never ends a process; retire it with ceo cleanup %s, which closes its terminal once its harness is idle", meta.ID, record.HostPID, meta.ID)
 	}
 	screens, ok := harness.NativeScreens(harness.Kind(meta.Harness))
 	if !ok {
-		return host.Record{}, fmt.Errorf("cleanup: native terminal %s runs %s, whose screen cfo cannot read; end its harness first", meta.ID, meta.Harness)
+		return host.Record{}, fmt.Errorf("cleanup: native terminal %s runs %s, whose screen ceo cannot read; end its harness first", meta.ID, meta.Harness)
 	}
 	screen, err := host.ReadScreen(record)
 	if err != nil {

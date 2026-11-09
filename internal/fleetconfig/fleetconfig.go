@@ -1,6 +1,6 @@
 // Package fleetconfig reads the fleet's machine settings, config/fleet.json in
 // the home: whether the board looks for a newer release, the free disk under
-// which no goblin or gate starts and the lower mark at which the CFO is woken,
+// which no goblin or gate starts and the lower mark at which the CEO is woken,
 // how large the shared caches may grow, which temporary folders the janitor
 // treats as the fleet's leaks, the GitHub organizations whose pull requests
 // the fleet watches as its own, and the part of each provider's weekly
@@ -30,7 +30,7 @@ type Settings struct {
 	// DiskFloorGB is the free disk, in gigabytes, under which spawn, Start,
 	// Resume and gate test runs are refused.
 	DiskFloorGB float64 `json:"disk_floor_gb"`
-	// DiskWakeGB is the lower mark under which the CFO is woken.
+	// DiskWakeGB is the lower mark under which the CEO is woken.
 	DiskWakeGB float64 `json:"disk_wake_gb"`
 	// CachesCapGB is the size, in gigabytes, the home's caches folder is
 	// trimmed back under.
@@ -43,7 +43,7 @@ type Settings struct {
 	CheckForUpdates bool `json:"check_for_updates"`
 	// GitHubOwners name the GitHub organizations, and any account besides
 	// the one gh works as, whose repositories the fleet owns: a teammate's
-	// pull request there is watched as the fleet's own are, and cfo issue
+	// pull request there is watched as the fleet's own are, and ceo issue
 	// file files a root issue only there.
 	GitHubOwners []string `json:"github_owners"`
 	// WeeklyFloorPercent is, by provider, the percent of its weekly
@@ -77,10 +77,10 @@ func Defaults() Settings {
 		DiskFloorGB: 15,
 		DiskWakeGB:  10,
 		CachesCapGB: 20,
-		// The leaks the CFO removed by hand on 2026-10-02: Go test homes,
-		// Go's own build folders, cfo fixtures, Playwright and Chrome
+		// The leaks the CEO removed by hand on 2026-10-02: Go test homes,
+		// Go's own build folders, ceo fixtures, Playwright and Chrome
 		// profiles, audit runs and PrecisionDocs test homes.
-		TempPatterns:    []string{"Test*", "go-build*", "cfo-*", "playwright*", "scoped_dir*", "fallow-audit*", "pd-*"},
+		TempPatterns:    []string{"Test*", "go-build*", "ceo-*", "playwright*", "scoped_dir*", "fallow-audit*", "pd-*"},
 		CheckForUpdates: true,
 	}
 }

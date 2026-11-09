@@ -19,7 +19,7 @@ import (
 // gateHead is the head of goblin cg-wakes's pull request 209 in hostedRollup.
 const gateHead = "3d7072f8aa"
 
-// localRun is a cfo gate test report of project northwind, with its log in
+// localRun is a ceo gate test report of project northwind, with its log in
 // the store's folder for the project: the run of commit for task (empty for
 // a gate's run, which names none), with the packages that failed.
 func localRun(t *testing.T, store, task, commit, status string, start time.Time, failed ...string) verify.Report {
@@ -45,7 +45,7 @@ func localRun(t *testing.T, store, task, commit, status string, start time.Time,
 
 // localBoard is a board with live goblin cg-wakes working in project
 // northwind on pull request 209, whose checks hostedRollup reports, and
-// another goblin, cg-other, in the same project; its cfo gate test reports are
+// another goblin, cg-other, in the same project; its ceo gate test reports are
 // reports, newest first.
 func localBoard(t *testing.T, reports ...verify.Report) *HTTP {
 	t.Helper()
@@ -83,7 +83,7 @@ func localBoard(t *testing.T, reports ...verify.Report) *HTTP {
 	return handler
 }
 
-// cardLocal reads the cfo gate test run the board's snapshot shows on a
+// cardLocal reads the ceo gate test run the board's snapshot shows on a
 // task's card, as the JSON the board reads.
 func cardLocal(t *testing.T, s *Service, id string) map[string]any {
 	t.Helper()
@@ -107,7 +107,7 @@ func cardLocal(t *testing.T, s *Service, id string) map[string]any {
 	return checks
 }
 
-// A card shows the newest cfo gate test run of its task's change: one a
+// A card shows the newest ceo gate test run of its task's change: one a
 // gate ran on the commit its pull request is at, which names no task, or one
 // its goblin ran, which does; never another task's. It gives the level, the
 // result, how long the run took and waited, and what did not pass.

@@ -5,8 +5,8 @@ import type { CommandFocus } from "../../src/CommandCenter";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
-// The Command Center at 01:30Z on 2026-10-11 with the one item the CFO handed
-// the Overlord, the picture of the board fix, after, as cfo deliver now makes
+// The Command Center at 01:30Z on 2026-10-11 with the one item the CEO handed
+// the Overlord, the picture of the board fix, after, as ceo deliver now makes
 // it: a Scrawl page the supervisor watches, which shows the file.
 const NOW = Date.parse("2026-10-11T01:30:00Z");
 const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60000).toISOString();

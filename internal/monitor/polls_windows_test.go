@@ -19,16 +19,16 @@ import (
 // TestMain doubles the test binary as the stand-ins the process tests run.
 // Copied as lavish-axi.exe it is a poll that waits to be stopped, and says
 // "running" first when its starter waits for it; copied as claude.exe or
-// cfo.exe it starts one below itself and prints its pid once that one runs;
+// ceo.exe it starts one below itself and prints its pid once that one runs;
 // run busy it keeps a processor busy, the way a build does; run as a gate it
 // is a no-mistakes status call that leaves a process holding its output. A
 // stand-in nobody stops ends on its own after a minute.
 func TestMain(m *testing.M) {
-	switch os.Getenv("CFO_POLL_STANDIN") {
+	switch os.Getenv("CEO_POLL_STANDIN") {
 	case "":
 		os.Exit(m.Run())
 	case "wait":
-		if os.Getenv("CFO_POLL_READY") != "" {
+		if os.Getenv("CEO_POLL_READY") != "" {
 			fmt.Println("running")
 		}
 	case "busy":
@@ -38,19 +38,19 @@ func TestMain(m *testing.M) {
 	case "gate":
 		// A no-mistakes whose status call exits but leaves a process of its
 		// own holding the output pipe, the way a daemon it starts would.
-		fmt.Print(os.Getenv("CFO_GATE_STATUS"))
+		fmt.Print(os.Getenv("CEO_GATE_STATUS"))
 		child := exec.Command(os.Args[0])
-		child.Env = append(os.Environ(), "CFO_POLL_STANDIN=wait")
+		child.Env = append(os.Environ(), "CEO_POLL_STANDIN=wait")
 		child.Stdout = os.Stdout
 		if err := child.Start(); err != nil {
 			os.Exit(1)
 		}
-		_ = os.WriteFile(os.Getenv("CFO_GATE_CHILD_PID"), []byte(strconv.Itoa(child.Process.Pid)), 0o644)
+		_ = os.WriteFile(os.Getenv("CEO_GATE_CHILD_PID"), []byte(strconv.Itoa(child.Process.Pid)), 0o644)
 		os.Exit(0)
 	case "parent":
-		child := exec.Command(os.Getenv("CFO_POLL_CHILD"), os.Args[1:]...)
-		child.Dir = os.Getenv("CFO_POLL_CHILD_DIR")
-		child.Env = append(os.Environ(), "CFO_POLL_STANDIN=wait", "CFO_POLL_READY=1")
+		child := exec.Command(os.Getenv("CEO_POLL_CHILD"), os.Args[1:]...)
+		child.Dir = os.Getenv("CEO_POLL_CHILD_DIR")
+		child.Env = append(os.Environ(), "CEO_POLL_STANDIN=wait", "CEO_POLL_READY=1")
 		running, err := child.StdoutPipe()
 		if err != nil {
 			os.Exit(1)
@@ -62,7 +62,7 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 		fmt.Println(child.Process.Pid)
-		if os.Getenv("CFO_POLL_ORPHAN") != "" {
+		if os.Getenv("CEO_POLL_ORPHAN") != "" {
 			os.Exit(0)
 		}
 	}
@@ -135,7 +135,7 @@ func (f pollFixture) poll(dir string, args ...string) int {
 	f.t.Helper()
 	command := exec.Command(f.standIn("lavish-axi.exe"), args...)
 	command.Dir = dir
-	command.Env = append(os.Environ(), "CFO_POLL_STANDIN=wait", "CFO_POLL_READY=1")
+	command.Env = append(os.Environ(), "CEO_POLL_STANDIN=wait", "CEO_POLL_READY=1")
 	running, err := command.StdoutPipe()
 	if err != nil {
 		f.t.Fatal(err)
@@ -160,9 +160,9 @@ func (f pollFixture) pollUnder(parent, parentDir, childDir string, orphan bool, 
 	f.t.Helper()
 	command := exec.Command(parent, args...)
 	command.Dir = parentDir
-	command.Env = append(os.Environ(), "CFO_POLL_STANDIN=parent", "CFO_POLL_CHILD="+f.standIn("lavish-axi.exe"), "CFO_POLL_CHILD_DIR="+childDir)
+	command.Env = append(os.Environ(), "CEO_POLL_STANDIN=parent", "CEO_POLL_CHILD="+f.standIn("lavish-axi.exe"), "CEO_POLL_CHILD_DIR="+childDir)
 	if orphan {
-		command.Env = append(command.Env, "CFO_POLL_ORPHAN=1")
+		command.Env = append(command.Env, "CEO_POLL_ORPHAN=1")
 	}
 	stdout, err := command.StdoutPipe()
 	if err != nil {
@@ -270,21 +270,21 @@ func TestProcessPollsPlacesAPollByTheGoblinAboveIt(t *testing.T) {
 	}
 }
 
-// The supervisor polls a page wait for the CFO, which is the flow a goblin
-// should have used, so a poll cfo started is never flagged, even one running
+// The supervisor polls a page wait for the CEO, which is the flow a goblin
+// should have used, so a poll ceo started is never flagged, even one running
 // in a goblin's worktree.
-func TestProcessPollsNeverListsAPollCFOStarted(t *testing.T) {
+func TestProcessPollsNeverListsAPollCEOStarted(t *testing.T) {
 	f := newPollFixture(t)
 	worktree := f.dir("app", ".worktrees", "gb-pollfix-3")
 
-	pid := f.pollUnder(f.standIn("cfo.exe"), worktree, worktree, false, "poll", filepath.Join(worktree, "plan.html"), "--timeout-ms", "300000")
+	pid := f.pollUnder(f.standIn("ceo.exe"), worktree, worktree, false, "poll", filepath.Join(worktree, "plan.html"), "--timeout-ms", "300000")
 
 	chain, err := proc.Ancestry(pid, 2)
-	if err != nil || len(chain) != 2 || !strings.EqualFold(chain[1].ExeBase, "cfo.exe") {
-		t.Fatalf("chain = %+v (%v); the fixture needs the poll directly under cfo.exe", chain, err)
+	if err != nil || len(chain) != 2 || !strings.EqualFold(chain[1].ExeBase, "ceo.exe") {
+		t.Fatalf("chain = %+v (%v); the fixture needs the poll directly under ceo.exe", chain, err)
 	}
 	if dir, err := proc.WorkingDirectory(pid); err != nil || worktreeTask(nil, nil, dir) != "pollfix-3" {
-		t.Fatalf("the poll runs in %q (%v); the fixture needs it in gb-pollfix-3 so only cfo keeps it out", dir, err)
+		t.Fatalf("the poll runs in %q (%v); the fixture needs it in gb-pollfix-3 so only ceo keeps it out", dir, err)
 	}
 	if poll, ok := listed(t, pid); ok {
 		t.Fatalf("the supervisor's poll was listed as a goblin's: %+v", poll)

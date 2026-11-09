@@ -25,7 +25,7 @@ func taskControlRequest(handler *HTTP, path string, input map[string]string) *ht
 	request := httptest.NewRequest("POST", "http://board.local"+path, strings.NewReader(string(data)))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", "http://board.local")
-	request.Header.Set("X-CFO-Token", orderToken)
+	request.Header.Set("X-CEO-Token", orderToken)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response
@@ -267,11 +267,11 @@ func TestRefusedResumeLeavesTheSharedSnapshotAndItsEarlierFailureUntilOneIsAccep
 		t.Fatalf("the snapshot built while Resume read memory: %+v", during.Tasks)
 	}
 	if code := <-refused; code != 202 {
-		t.Fatalf("resume with an unreadable memory=%d, want it taken and its failure sent to the CFO", code)
+		t.Fatalf("resume with an unreadable memory=%d, want it taken and its failure sent to the CEO", code)
 	}
 	records, err := wake.Pending(h.State)
 	if err != nil || !slices.ContainsFunc(records, func(record wake.Record) bool { return record.Key == meta.ID && strings.Contains(record.Detail, "memory reading failed") }) {
-		t.Fatalf("wakes = %+v, %v, want the CFO told the Resume could not read memory", records, err)
+		t.Fatalf("wakes = %+v, %v, want the CEO told the Resume could not read memory", records, err)
 	}
 
 	// Act
@@ -427,7 +427,7 @@ func TestBoardResumeLetsTheCLIReconcileOnlyAnOperationBoundLaunchBelowFiveGigaby
 				calls = awaitCalls(t, spawner, 1)
 			}
 			if response.Code != 202 || test.isRun != (len(calls) == 1) {
-				t.Fatalf("resume=%d %s, cfo ran %v, want it taken and run at once %v", response.Code, response.Body, calls, test.isRun)
+				t.Fatalf("resume=%d %s, ceo ran %v, want it taken and run at once %v", response.Code, response.Body, calls, test.isRun)
 			}
 		})
 	}
@@ -465,7 +465,7 @@ func TestBoardResumeWaitsItsTurnForFiveGigabytesOfBothMemoryAndCommit(t *testing
 				calls = awaitCalls(t, spawner, 1)
 			}
 			if response.Code != 202 || test.isRun != (len(calls) == 1) {
-				t.Fatalf("resume = %d %s, cfo ran %v, want it taken and run at once %v", response.Code, response.Body, calls, test.isRun)
+				t.Fatalf("resume = %d %s, ceo ran %v, want it taken and run at once %v", response.Code, response.Body, calls, test.isRun)
 			}
 			if card := cardOf(t, handler, meta.ID); !test.isRun && (card.Phase != "resuming" || !card.Asked) {
 				t.Fatalf("card = %+v, want it resuming and waiting its turn for memory", card)

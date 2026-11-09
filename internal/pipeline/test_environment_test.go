@@ -216,7 +216,7 @@ func environmentIdentity(t *testing.T, executable, prefix, base, version, releas
 }
 
 func TestRequiredEnvironmentNeedsTheDaemonWrapperToCarryFullRunIdentity(t *testing.T) {
-	for _, command := range []string{`["cfo", "gate", "turn", "--gate-run", "{run}", "--test-comparison-sha", "{test_comparison_sha}", "--"]`, `["cfo", "gate", "turn", "--gate-run", "{run}", "--"]`, `["cfo", "gate", "turn", "--"]`, `["cfo", "gate", "turn", "--gate-run", "{run_short}", "--test-comparison-sha", "{test_comparison_sha}", "--"]`, `["cfo", "gate", "turn", "--gate-run", "{run}", "--test-comparison-sha", "{run}", "--"]`, `[]`} {
+	for _, command := range []string{`["ceo", "gate", "turn", "--gate-run", "{run}", "--test-comparison-sha", "{test_comparison_sha}", "--"]`, `["ceo", "gate", "turn", "--gate-run", "{run}", "--"]`, `["ceo", "gate", "turn", "--"]`, `["ceo", "gate", "turn", "--gate-run", "{run_short}", "--test-comparison-sha", "{test_comparison_sha}", "--"]`, `["ceo", "gate", "turn", "--gate-run", "{run}", "--test-comparison-sha", "{run}", "--"]`, `[]`} {
 		t.Run(command, func(t *testing.T) {
 			// Arrange
 			root := t.TempDir()
@@ -226,7 +226,7 @@ func TestRequiredEnvironmentNeedsTheDaemonWrapperToCarryFullRunIdentity(t *testi
 			// Act
 			err := CheckTestEnvironmentWrapper(root)
 			// Assert
-			isValid := command == `["cfo", "gate", "turn", "--gate-run", "{run}", "--test-comparison-sha", "{test_comparison_sha}", "--"]`
+			isValid := command == `["ceo", "gate", "turn", "--gate-run", "{run}", "--test-comparison-sha", "{test_comparison_sha}", "--"]`
 			if (err == nil) != isValid {
 				t.Fatalf("command=%s error=%v", command, err)
 			}

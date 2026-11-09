@@ -2,7 +2,7 @@ import { expect, type Locator, openTaskList, type Page, test } from "./site";
 
 const GB = 2 ** 30;
 const snapshot = {
-  instance: "empty-tasks-fixture", revision: 1, healthy: true, cfo_runs: true, attention: [], tasks: [],
+  instance: "empty-tasks-fixture", revision: 1, healthy: true, ceo_runs: true, attention: [], tasks: [],
   memory: { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 * GB, available: 9.4 * GB, commit_available: 20 * GB, paged_pool: 0.6 * GB, nonpaged_pool: 0.4 * GB },
   disk: { drive: "C:", total: 953 * GB, floor: 15 * GB, wake: 10 * GB, free: 331.3 * GB },
   processors: { performance_cores: 6, efficiency_cores: 4, efficiency_free: 0, next: 0.25, busiest: ["WmiPrvSE"], free: 0.55 },
@@ -63,10 +63,10 @@ for (const [where, viewport, deviceScaleFactor] of [["in the Overlord's window, 
   });
 }
 
-// The CFO's Task view draws the meters only where no Tasks column shows them
+// The CEO's Task view draws the meters only where no Tasks column shows them
 // (#1598): beside the board an empty queue adds nothing to it, and in
 // Orchestration it shows the meters and no words, as the column does.
-test("the CFO's Task view adds nothing for an empty queue beside the board, and shows the meters alone in Orchestration", async ({ page }) => {
+test("the CEO's Task view adds nothing for an empty queue beside the board, and shows the meters alone in Orchestration", async ({ page }) => {
   // Arrange
   await board(page);
   await page.keyboard.press("Control+Alt+1");

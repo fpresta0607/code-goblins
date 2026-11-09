@@ -1,0 +1,566 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/onboarding"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
+)
+
+// runQuickstart is goblins with no command, with --harness, and
+// goblins setup. It finds the supervisor or starts one, which never opens the
+// board; one Enter at a time it makes the agent the CEO runs on ready; it
+// starts the CEO in the Code Goblins home when none runs; and launches from
+// the user's terminal end on one screen: Enter shows the CEO's terminal here,
+// and the board's link or B opens the board, B in the desktop window where
+// one sits beside this binary.
+// It asks for no project, since the CEO works across every
+// project from its home. The agent steps are skipped while a CEO runs and
+// nothing asks for them: rerun, which goblins setup sets, or a harness named
+// with --harness. A new CEO starts in a native terminal. restart, which
+// goblins resume sets, first restarts a CEO running in native terminal ceo on
+// its conversation, as for a CEO whose screen froze. What it finds running it
+// says first and starts nothing beside, and each step it finishes is one line
+// with a tick, so the screen holds what was answered and the one step that
+// waits.
+func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, restart bool, harness string) int {
+	h, err := runtime.resolveHome()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	ctx := context.Background()
+	board, startedServe, ok := launchBoard(ctx, runtime, h, stdout, stderr)
+	if !ok {
+		return 1
+	}
+	list := &onboarding.Checklist{Output: stdout, Tick: onboarding.MarksFor(onboarding.DrawsUnicode(os.Getenv)).Tick, Width: onboarding.ConsoleWidth, Plain: !consoleTakesEscapes(stdout), NoColor: onboarding.NoColor()}
+	fmt.Fprintln(stdout)
+	if startedServe {
+		list.Done("Supervisor", "started")
+	} else {
+		list.Done("Supervisor", "already running")
+	}
+	// A step back to the choice of agent takes the agent's lines with it,
+	// never this one.
+	list.Keep()
+	restarted := false
+	if restart {
+		conversation, fresh, err := runtime.restartCEO(h, harness)
+		switch {
+		case err == nil:
+			notes := runtime.settleCEO(ctx, h.State, conversation.Harness)
+			// A restarted harness can end while its startup dialogs are
+			// answered, as a fresh one can.
+			if !runtime.nativeTerminalRuns(h.State, supervisor.NativeCEOTerminal) {
+				for _, note := range notes {
+					list.Note(note)
+				}
+				list.End()
+				fmt.Fprintln(stderr, "goblins: the restarted CEO's native terminal ended during startup")
+				return 1
+			}
+			if fresh == "" {
+				list.Done("CEO", fmt.Sprintf("restarted on its conversation %s, in native terminal %s", conversation.Session, supervisor.NativeCEOTerminal))
+			} else {
+				list.Done("CEO", fmt.Sprintf("restarted as %s on a new conversation, in native terminal %s", onboarding.Name(conversation.Harness), supervisor.NativeCEOTerminal))
+				list.Note(fresh)
+			}
+			list.Note("Its current response was interrupted; goblins keep running.")
+			for _, note := range append(wakePath(conversation.Harness), notes...) {
+				list.Note(note)
+			}
+			restarted = true
+		case errors.Is(err, errNoRunningCEO):
+			// A CEO that is not running comes back below, as goblins brings it.
+		default:
+			list.End()
+			fmt.Fprintf(stderr, "goblins: %v\n", err)
+			return 1
+		}
+	}
+	// A CEO just restarted is the session this run ends on: nothing asks for
+	// its agent again, and nothing says a second time that it runs.
+	session, started := ceoSession{native: supervisor.NativeCEOTerminal}, restarted
+	if !restarted {
+		agent := ""
+		if rerun || harness != "" || !ceoRuns(runtime, h.State) {
+			if agent, err = runtime.setupAgent(ctx, h.State, harness, rerun, list, stdout, stderr); err != nil {
+				list.End()
+				fmt.Fprintf(stderr, "goblins: %v\n", err)
+				return 1
+			}
+		}
+		if session, started, err = ensureCEOSession(ctx, runtime, h, agent, list); err != nil {
+			list.End()
+			fmt.Fprintf(stderr, "goblins: %v\n", err)
+			return 1
+		}
+		if !started && agent != "" {
+			list.Note(fmt.Sprintf("It keeps its agent; %s is the agent goblins starts the next CEO as.", onboarding.Name(agent)))
+		}
+	}
+	// goblins resume then brings back the goblins whose terminals ended, as a
+	// reboot ends them all, and says what came back and what needs a hand.
+	if restart {
+		comebacks, err := bringGoblinsBack(ctx, h, runtime)
+		if err != nil {
+			list.Note("The goblins could not be brought back: their records cannot be read: " + err.Error())
+		}
+		back := 0
+		for _, comeback := range comebacks {
+			if comeback.isBack {
+				back++
+			}
+		}
+		if len(comebacks) > 0 {
+			list.Done("Goblins", fmt.Sprintf("%d of %d whose terminals ended are back", back, len(comebacks)))
+			for _, comeback := range comebacks {
+				list.Note(comeback.id + ": " + comeback.said)
+			}
+		}
+	}
+	// A command card must return to its runner to record the exit code;
+	// attaching the CEO here would keep the card running for its whole session.
+	if restart && os.Getenv(host.IDVariable) == "run" {
+		list.End()
+		return 0
+	}
+	heading := "Your CEO is running"
+	if started {
+		heading = "Your CEO is starting"
+	}
+	link := board
+	if consoleTakesEscapes(stdout) {
+		link = "\x1b]8;;" + board + "\x1b\\" + board + "\x1b]8;;\x1b\\"
+	}
+	choice, err := runtime.choose(stdout, onboarding.Step{
+		Title:   heading,
+		Detail:  fmt.Sprintf("Home   %s\nBoard  %s  (Ctrl+click opens it)", h.Root, link),
+		Choices: []onboarding.Choice{{Label: "Open the CEO terminal"}, {Label: "Open the board", Key: 'b'}},
+	})
+	if errors.Is(err, onboarding.ErrBack) {
+		fmt.Fprintln(stdout, "\nThe CEO and the board keep running; run goblins to see them again.")
+		return 0
+	}
+	if err != nil {
+		// The CEO and the board run either way; only this screen had no
+		// answer.
+		fmt.Fprintf(stderr, "goblins: %v\n", err)
+		return 1
+	}
+	if choice == 1 {
+		// The board opens in the desktop window where one sits beside this
+		// binary, and in the browser otherwise.
+		err := runtime.openWindow(board, h.State, false)
+		if err == nil {
+			return 0
+		}
+		if !errors.Is(err, errNoWindow) {
+			fmt.Fprintf(stderr, "goblins: the desktop window did not start (%v), so the board opens in the browser\n", err)
+		}
+		if err := runtime.openURL(board); err != nil {
+			fmt.Fprintf(stderr, "goblins: open the board at %s yourself (%v)\n", board, err)
+			return 1
+		}
+		return 0
+	}
+	if session.native != "" {
+		return runtime.attachNative(h.State, session.native, stdout, stderr)
+	}
+	if os.Getenv("HERDR_PANE_ID") != "" {
+		fmt.Fprintln(stdout, "The CEO is in front in Herdr.")
+		return 0
+	}
+	return runtime.attachHerdr(session.herdr)
+}
+
+// ceoRuns reports whether a CEO runs for the home: one registered in a native
+// terminal or in Herdr, or native terminal ceo up for one that has not
+// registered yet.
+func ceoRuns(runtime commandRuntime, stateDir string) bool {
+	if _, live := runtime.nativeCEO(stateDir); live {
+		return true
+	}
+	if _, live := runtime.liveCEO(stateDir); live {
+		return true
+	}
+	return runtime.nativeTerminalRuns(stateDir, supervisor.NativeCEOTerminal)
+}
+
+// ceoSession is where the CEO runs: a native terminal, or the Herdr session it
+// runs in.
+type ceoSession struct {
+	native string
+	herdr  string
+}
+
+// ensureCEOSession finds the CEO's session, or starts the CEO as agent in the
+// home, in native terminal ceo, and reports whether it started one. A CEO
+// registered in a native terminal
+// comes first, then one whose registration names a live process in Herdr,
+// which is brought to the front where it registered, then native terminal ceo
+// while its host answers, since the CEO started there may not have registered
+// yet. A CEO is never started beside one that runs. Either way list says so
+// in one line.
+func ensureCEOSession(ctx context.Context, runtime commandRuntime, h home.Home, agent string, list *onboarding.Checklist) (ceoSession, bool, error) {
+	launchErr := acquireCEOLaunch(ctx, h.State)
+	if launchErr == nil {
+		defer lock.ReleaseExclusiveNamed(h.State, supervisor.CEOLaunchLock)
+	}
+	if id, live := runtime.nativeCEO(h.State); live {
+		list.Done("CEO", "already running in native terminal "+id)
+		return ceoSession{native: id}, false, nil
+	}
+	if endpoint, live := runtime.liveCEO(h.State); live {
+		if err := runtime.focusCEO(ctx, endpoint); err != nil {
+			return ceoSession{}, false, fmt.Errorf("the CEO could not be brought to the front in Herdr: %w", err)
+		}
+		list.Done("CEO", "already running in Herdr")
+		return ceoSession{herdr: endpoint.Target.Session}, false, nil
+	}
+	if runtime.nativeTerminalRuns(h.State, supervisor.NativeCEOTerminal) {
+		list.Done("CEO", "already starting in native terminal "+supervisor.NativeCEOTerminal)
+		return ceoSession{native: supervisor.NativeCEOTerminal}, false, nil
+	}
+	if launchErr != nil {
+		return ceoSession{}, false, launchErr
+	}
+	if agent == "" {
+		// The CEO that ran when this launch began has ended since.
+		var err error
+		if agent, err = ceoHarness(h.State); err != nil {
+			return ceoSession{}, false, err
+		}
+	}
+	resume, why := ceoResume(h, agent)
+	// A CEO that ran in this home before is told why it starts again, so it
+	// takes up its work without anybody typing into it.
+	const back = "goblins started it again after it closed"
+	// said is what the lines under the CEO's own say, starting with why it
+	// did not come back on its conversation, when it did not.
+	var said []string
+	var left *supervisor.CEOConversationLeft
+	if why != "" {
+		said = append(said, why+", so the CEO starts a new one.")
+	}
+	if len(resume) > 0 {
+		conversation := resume[len(resume)-1]
+		list.Working("CEO", "coming back as "+onboarding.Name(agent)+" on its conversation")
+		held, err := comeBack(h, agent, resume, backPrompt(h, agent, back, "", true), runtime.startNativeCEO, runtime.nativeTerminalRuns)
+		if err != nil {
+			return ceoSession{}, false, fmt.Errorf("the CEO could not be started in a native terminal: %w", err)
+		}
+		// A resumed harness can also end while its startup dialogs are
+		// answered, so it is back only if its terminal still runs after them.
+		var notes []string
+		if held {
+			notes = runtime.settleCEO(ctx, h.State, agent)
+		}
+		if held && runtime.nativeTerminalRuns(h.State, supervisor.NativeCEOTerminal) {
+			supervisor.ClearCEOConversationLeft(h.State)
+			list.Done("CEO", fmt.Sprintf("back as %s on its conversation %s, in native terminal %s", onboarding.Name(agent), conversation, supervisor.NativeCEOTerminal))
+			for _, note := range append(wakePath(agent), notes...) {
+				list.Note(note)
+			}
+			return ceoSession{native: supervisor.NativeCEOTerminal}, true, nil
+		}
+		said = append(said, fmt.Sprintf("Its conversation %s could not be resumed, so the CEO starts a new one.", conversation))
+		left = &supervisor.CEOConversationLeft{Harness: agent, Session: conversation, Resume: resume}
+	}
+	list.Working("CEO", "starting as "+onboarding.Name(agent))
+	if err := runtime.startNativeCEO(h, h.Root, agent, nil, backPrompt(h, agent, back, strings.Join(said, " "), false)); err != nil {
+		return ceoSession{}, false, fmt.Errorf("the CEO could not be started in a native terminal: %w", err)
+	}
+	if left != nil {
+		if err := supervisor.RecordCEOConversationLeft(h.State, *left); err != nil {
+			return ceoSession{}, false, fmt.Errorf("the CEO started on a new conversation, but the board could not be told that its conversation %s could not be resumed: %w", left.Session, err)
+		}
+	}
+	// Its startup dialogs are answered before the line says it started.
+	notes := runtime.settleCEO(ctx, h.State, agent)
+	if !runtime.nativeTerminalRuns(h.State, supervisor.NativeCEOTerminal) {
+		for _, note := range append(said, notes...) {
+			list.Note(note)
+		}
+		return ceoSession{}, false, errors.New("the CEO's native terminal ended during startup")
+	}
+	list.Done("CEO", fmt.Sprintf("started as %s in %s, in native terminal %s", onboarding.Name(agent), h.Root, supervisor.NativeCEOTerminal))
+	for _, note := range append(append(said, wakePath(agent)...), notes...) {
+		list.Note(note)
+	}
+	return ceoSession{native: supervisor.NativeCEOTerminal}, true, nil
+}
+
+// quickstartDetector reads how ready each agent is in this console.
+func quickstartDetector() onboarding.Detector {
+	return agentDetector(os.Environ(), execx.OSRunner{})
+}
+
+// agentDetector reads how ready each agent is for a process started with
+// env: PATH, each agent's own status command run with env by runner, pi's
+// settings in the agent folder env names, and whether Claude Code's native
+// build is in the home env names.
+func agentDetector(env []string, runner execx.Runner) onboarding.Detector {
+	value := func(name string) string {
+		for _, entry := range env {
+			if key, found, ok := strings.Cut(entry, "="); ok && strings.EqualFold(key, name) {
+				return found
+			}
+		}
+		return ""
+	}
+	directory, claudeDirectory := value("PI_CODING_AGENT_DIR"), ""
+	if userHome := value("USERPROFILE"); userHome != "" {
+		if directory == "" {
+			directory = filepath.Join(userHome, ".pi", "agent")
+		}
+		claudeDirectory = filepath.Join(userHome, ".local", "bin")
+	}
+	return onboarding.Detector{LookPath: exec.LookPath, PiDirectory: directory, ClaudeDirectory: claudeDirectory, Probe: func(ctx context.Context, name string, args ...string) (execx.Result, error) {
+		program, err := spawn.NativeProgram(name, args...)
+		if err != nil {
+			return execx.Result{}, err
+		}
+		return runner.Run(ctx, execx.Request{Name: program[0], Args: program[1:], Env: env, KillTree: true})
+	}}
+}
+
+// ceoSignIn asks agent's own status command whether it is signed in, run in
+// the environment the CEO's native terminal of home h starts with, so the
+// first-run page says what that terminal will find. A status command that
+// does not say, or an environment that cannot be read, is unknown.
+func ceoSignIn(h home.Home) func(context.Context, string) supervisor.SignInState {
+	return func(ctx context.Context, agent string) supervisor.SignInState {
+		env, err := ceoTerminalEnvironment(h)
+		if err != nil {
+			return supervisor.SignInUnknown
+		}
+		switch agentDetector(env, execx.OSRunner{}).Detect(ctx, agent).State {
+		case onboarding.Ready:
+			return supervisor.SignedIn
+		case onboarding.SignedOut:
+			return supervisor.SignedOut
+		}
+		return supervisor.SignInUnknown
+	}
+}
+
+// setupAgent runs the quick start's agent steps in this console and returns
+// the agent the CEO starts as. An installer and a sign-in run in this console,
+// where the person sees them and answers them: nothing is typed for them.
+// Each step finished is a line of list.
+func setupAgent(ctx context.Context, stateDir, chosen string, rerun bool, list *onboarding.Checklist, stdout, stderr io.Writer) (string, error) {
+	list.Working("Agent", "checking the agents on this machine")
+	return rememberAgent(ctx, stateDir, chosen, rerun, onboarding.Flow{
+		Detect:      quickstartDetector().Detect,
+		Ask:         func(step onboarding.Step) (int, error) { return onboarding.AskConsole(stdout, step) },
+		Done:        list.Done,
+		Undo:        list.Clear,
+		Marks:       onboarding.MarksFor(onboarding.DrawsUnicode(os.Getenv)).Agents,
+		Recommended: recommendedCEOAgent(),
+		Notes:       ceoAgentNotes(),
+		Install:     func(id string) error { return installAgent(ctx, id, stdout, stderr) },
+		Login:       func(id string) error { return signInAgent(id, stdout, stderr) },
+	})
+}
+
+// rememberAgent runs flow for the home whose state is stateDir and returns
+// the agent the CEO starts as. The flow starts from chosen, the agent
+// --harness named, or else from the agent the home remembers, and the agent
+// it ends on is remembered for every later start. A flow that ends on none
+// leaves what the home remembers as it was.
+func rememberAgent(ctx context.Context, stateDir, chosen string, rerun bool, flow onboarding.Flow) (string, error) {
+	if chosen == "" {
+		data, err := fsx.ReadFile(ceoHarnessPath(stateDir))
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		chosen = strings.TrimSpace(string(data))
+	}
+	flow.Save = func(id string) error {
+		return fsx.AtomicWriteFile(ceoHarnessPath(stateDir), []byte(id+"\n"))
+	}
+	return flow.Run(ctx, chosen, rerun)
+}
+
+// installAgent installs an agent the way install.ps1 does, in this console,
+// then brings this process's PATH up to date so the agent it installed is
+// found.
+func installAgent(ctx context.Context, id string, stdout, stderr io.Writer) error {
+	installer, ok := onboarding.InstallerFor(id)
+	if !ok {
+		return fmt.Errorf("%s has no installer", id)
+	}
+	heading := "Running " + installer.Describe() + ". This screen closes when it ends."
+	switch installer.Kind {
+	case "npm":
+		if _, err := exec.LookPath("npm.cmd"); err != nil {
+			return errors.New("npm is not installed; install Node.js first with: winget install OpenJS.NodeJS.LTS")
+		}
+		if err := runInConsole(stdout, stderr, heading, "npm.cmd", "install", "-g", installer.Source); err != nil {
+			return err
+		}
+	default:
+		// The script is saved to a file and run from it. A download-and-run
+		// one-liner on a child's command line is what Defender blocks as
+		// Trojan:Win32/Commando.A!ml.
+		script, err := downloadInstaller(ctx, installer.Source)
+		if err != nil {
+			return err
+		}
+		defer fsx.Remove(script)
+		if err := runInConsole(stdout, stderr, heading, "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script); err != nil {
+			return err
+		}
+	}
+	return refreshPath(id)
+}
+
+// installerTimeout bounds the download of an install script.
+const installerTimeout = 2 * time.Minute
+
+// downloadInstaller saves the install script at address to a temporary file
+// and returns its path.
+func downloadInstaller(ctx context.Context, address string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, installerTimeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
+	if err != nil {
+		return "", err
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("download %s: %w", address, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download %s: HTTP %d", address, response.StatusCode)
+	}
+	file, err := os.CreateTemp("", "code-goblins-install-*.ps1")
+	if err != nil {
+		return "", err
+	}
+	_, err = io.Copy(file, response.Body)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = fsx.Remove(file.Name())
+		return "", fmt.Errorf("save %s: %w", address, err)
+	}
+	return file.Name(), nil
+}
+
+// refreshPath makes what an installer added to the user's PATH visible to
+// this process, which still holds the PATH it started with: every entry the
+// user's own environment has and this one lacks is appended. Claude Code's
+// native installer puts claude.exe in ~\.local\bin and may leave that folder
+// off PATH, so it is added to the user's PATH as install.ps1 adds it.
+func refreshPath(id string) error {
+	userEnv, err := spawn.UserEnvironment()
+	if err != nil {
+		return fmt.Errorf("read the user's environment: %w", err)
+	}
+	var added []string
+	for _, entry := range userEnv {
+		if name, value, _ := strings.Cut(entry, "="); strings.EqualFold(name, "PATH") {
+			added = filepath.SplitList(value)
+		}
+	}
+	if id == "claude" {
+		if userHome, err := os.UserHomeDir(); err == nil {
+			bin := filepath.Join(userHome, ".local", "bin")
+			if _, err := os.Stat(filepath.Join(bin, "claude.exe")); err == nil {
+				if err := install.AddToUserPath(bin); err != nil {
+					return fmt.Errorf("add %s to your PATH: %w", bin, err)
+				}
+				added = append(added, bin)
+			}
+		}
+	}
+	entries := filepath.SplitList(os.Getenv("PATH"))
+	for _, entry := range added {
+		if entry != "" && !containsPath(entries, entry) {
+			entries = append(entries, entry)
+		}
+	}
+	return os.Setenv("PATH", strings.Join(entries, string(os.PathListSeparator)))
+}
+
+// containsPath reports whether entries names dir, as Windows compares paths.
+func containsPath(entries []string, dir string) bool {
+	for _, entry := range entries {
+		if fsx.SamePath(entry, dir) {
+			return true
+		}
+	}
+	return false
+}
+
+// signInAgent opens an agent's own sign-in in this console and returns when
+// it ends. The person signs in there: Code Goblins types nothing and never
+// sees a password.
+func signInAgent(id string, stdout, stderr io.Writer) error {
+	const comesBack = " Code Goblins never sees your password. This screen closes when the sign-in ends."
+	switch id {
+	case "claude":
+		return runInConsole(stdout, stderr, "Claude Code's own sign-in."+comesBack, id, "auth", "login")
+	case "codex":
+		return runInConsole(stdout, stderr, "Codex's own sign-in."+comesBack, id, "login")
+	case "pi":
+		// pi signs in from inside itself.
+		return runInConsole(stdout, stderr, "pi opens next. In pi, sign in with /login, pick a model with /model, then leave with /quit to come back here.", id)
+	}
+	return fmt.Errorf("%s has no sign-in", id)
+}
+
+// The console's other screen: a program run on it leaves nothing behind on
+// the screen the quick start draws on.
+const (
+	enterAlternateScreen = "\x1b[?1049h\x1b[H"
+	leaveAlternateScreen = "\x1b[?1049l"
+)
+
+// runInConsole runs a program in this console, as the person would run it,
+// and waits for it. In a console it runs on the other screen under heading,
+// so what it printed leaves with it and the steps finished stay as they
+// were; a program that failed keeps that screen until the person has read
+// why. Output that is no console, such as a log, gets heading and the
+// program's output as they come.
+func runInConsole(stdout, stderr io.Writer, heading, name string, args ...string) error {
+	program, err := spawn.NativeProgram(name, args...)
+	if err != nil {
+		return err
+	}
+	command := execx.Command(program[0], program[1:]...)
+	command.Stdin, command.Stdout, command.Stderr = os.Stdin, stdout, stderr
+	if !consoleTakesEscapes(stdout) {
+		fmt.Fprintf(stdout, "\n%s\n", heading)
+		return command.Run()
+	}
+	fmt.Fprintf(stdout, "%s%s\n\n", enterAlternateScreen, heading)
+	defer fmt.Fprint(stdout, leaveAlternateScreen)
+	err = command.Run()
+	if err != nil {
+		// Only Enter or Escape leaves: either way the person has seen it.
+		_, _ = onboarding.AskConsole(stdout, onboarding.Step{Title: "That did not finish", Detail: err.Error(), Choices: onboarding.Labels("Go back")})
+	}
+	return err
+}

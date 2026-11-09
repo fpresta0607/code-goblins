@@ -44,7 +44,7 @@ func StartOf(ctx context.Context, commands execx.Runner, dir string, env []strin
 	if !bytes.Contains(help.Stdout, []byte("--intent-file")) {
 		return Start{Args: []string{"axi", "run", "--intent", intent}, IsOnCommandLine: true}, nil
 	}
-	file, err := os.CreateTemp("", "cfo-gate-intent-*.txt")
+	file, err := os.CreateTemp("", "ceo-gate-intent-*.txt")
 	if err != nil {
 		return Start{}, err
 	}

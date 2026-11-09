@@ -42,7 +42,7 @@ test("the meter waits and its tip says why while the heavy line keeps the memory
 // The Overlord, 2026-10-08: "below memory disk remove the text please not
 // needed", and 2026-10-09 on the scheduler's line: "dont display nothing
 // starts text too much text". The board reads nothing the scheduler says:
-// why nothing starts reaches the CFO as a wake.
+// why nothing starts reaches the CEO as a wake.
 test("the board keeps nothing of what the scheduler said", () => {
   // Arrange
   const snapshot = parseSnapshot({ healthy: true, scheduling: { at: "2026-10-09T16:05:00Z", text: "nothing starts: next-task: its last start failed: refused", waiting: [{ id: "next-task", why: "its last start failed: refused" }] } });
@@ -136,8 +136,8 @@ test("the next task names commit when it is the one short, and clears once both 
 });
 
 test("the meter names the apps holding the most commit only while commit is the tighter", () => {
-  const holders = [{ name: "ChatGPT", commit: 11.2 * GB }, { name: "claude", commit: 5.7 * GB }, { name: "cfo", commit: 4.3 * GB }];
-  assert.equal(holdersLine({ ...memory(3.4, 2.5), holders }), "Most commit: ChatGPT 11.2 GB, claude 5.7 GB, cfo 4.3 GB");
+  const holders = [{ name: "ChatGPT", commit: 11.2 * GB }, { name: "claude", commit: 5.7 * GB }, { name: "ceo", commit: 4.3 * GB }];
+  assert.equal(holdersLine({ ...memory(3.4, 2.5), holders }), "Most commit: ChatGPT 11.2 GB, claude 5.7 GB, ceo 4.3 GB");
   assert.equal(holdersLine({ ...memory(3.4, 20), holders }), "", "memory is the tighter");
   assert.equal(holdersLine(memory(3.4, 2.5)), "", "no holders read, no line");
 });
@@ -171,8 +171,8 @@ test("the pools' bar puts the line at its middle and its tip names each pool and
   // Assert
   assert.deepEqual(scale, { fill: 73.06666666666666, line: 50 });
   assert.equal(poolScale({ ...pools, paged_pool: 30 * GB }).fill, 100, "pools far past the line fill the bar");
-  assert.equal(tip, "Paged 7.6 GB, nonpaged 3.4 GB. Red mark: 7.5 GB, past which free memory cannot hold the fleet and the CFO's panel offers Restart PC. Grew most since sign-in: Toke 3.2 GB paged, Mdl 40 MB nonpaged.");
-  assert.equal(poolState(pools).text, "The kernel's pools hold 11.0 GB, past the 7.5 GB line: Restart PC in the CFO's panel frees them.");
+  assert.equal(tip, "Paged 7.6 GB, nonpaged 3.4 GB. Red mark: 7.5 GB, past which free memory cannot hold the fleet and the CEO's panel offers Restart PC. Grew most since sign-in: Toke 3.2 GB paged, Mdl 40 MB nonpaged.");
+  assert.equal(poolState(pools).text, "The kernel's pools hold 11.0 GB, past the 7.5 GB line: Restart PC in the CEO's panel frees them.");
   assert.doesNotMatch(poolMarks(memory(7)), /Grew most/, "nothing grew, nothing named");
 });
 
@@ -327,11 +327,11 @@ test("the Tasks column runs in start order: Next up first, then what can start, 
 // disk is a drive with free GB of 900 free, the fleet's 15 GB floor and 10 GB mark.
 const disk = (free: number): Disk => ({ drive: "C:", free: free * GB, total: 900 * GB, floor: 15 * GB, wake: 10 * GB });
 
-test("the disk meter says when no goblin starts and when the CFO is woken", () => {
+test("the disk meter says when no goblin starts and when the CEO is woken", () => {
   assert.equal(diskState(disk(48)).tone, "ready");
   assert.deepEqual(diskState(disk(14.9)), { tone: "waiting", text: "Under the 15 GB floor: no goblin or gate test run starts until disk frees." });
   assert.equal(diskState(disk(15)).tone, "ready");
-  assert.deepEqual(diskState(disk(9.9)), { tone: "under", text: "Under the 10 GB mark: the CFO is woken, and nothing starts until disk frees." });
+  assert.deepEqual(diskState(disk(9.9)), { tone: "under", text: "Under the 10 GB mark: the CEO is woken, and nothing starts until disk frees." });
 });
 
 test("the disk bar spans twice the floor, with the mark and the floor inside it", () => {

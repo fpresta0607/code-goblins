@@ -18,14 +18,14 @@ const GOBLIN = {
 };
 const CODEX = { id: "cg-codex", title: "A Codex task", project: "code-goblins", phase: "working", verified: false, generation: "cg-codex-1", harness: "codex", backend: "native", since: at };
 const PI = { id: "cg-pi", title: "A pi task", goblin_name: "Pia", goblin_title: "Pi Pilot", project: "code-goblins", phase: "working", verified: false, generation: "cg-pi-1", harness: "pi", backend: "native", since: at };
-const SNAPSHOT = { healthy: true, instance: "fixture", revision: 1, attention: [], cfo_runs: true, cfo_terminal: "cfo-term", cfo_harness: "claude", afk: { state: "off" }, tasks: [GOBLIN, CODEX, PI], actions: [] };
+const SNAPSHOT = { healthy: true, instance: "fixture", revision: 1, attention: [], ceo_runs: true, ceo_terminal: "ceo-term", ceo_harness: "claude", afk: { state: "off" }, tasks: [GOBLIN, CODEX, PI], actions: [] };
 
 const message = (seq: number, fields: Record<string, unknown>) => ({ id: "m" + seq, seq, at, kind: "prompt", ...fields });
 const reply = (seq: number, ...blocks: Record<string, unknown>[]) => message(seq, { kind: "reply", blocks });
 
 // The goblin's conversation, one of every kind of message the view draws.
 const TALK = [
-  message(0, { source: "cfo", text: "Read the brief at brief.md and follow it exactly." }),
+  message(0, { source: "ceo", text: "Read the brief at brief.md and follow it exactly." }),
   reply(1, { kind: "text", text: "I'll read the brief, then the phone terminal code." }, { kind: "call", tool: "Read", subject: "frontend/src/terminalView.ts", state: "done", result: "1\timport { Terminal } from \"@xterm/xterm\";" }),
   reply(2, { kind: "thinking", text: "The swipe lands on the text box." },
     { kind: "text", text: "**Found the scroll bug.** On a touch screen the text box lies over the whole screen.\n\n- Hand a vertical swipe to the history\n- Keep a long press for Paste\n\n```ts\nconst swipe = true;\n```\n\n| Item | State |\n| --- | --- |\n| S11 | fixed |" },
@@ -41,7 +41,7 @@ const TALK = [
   reply(10, { kind: "text", text: "That matches. Running the phone spec now." }, { kind: "call", tool: "Bash", subject: "npx playwright test phone-paste.spec.ts", state: "running" }, { kind: "call", tool: "Read", subject: "missing.ts", state: "failed", result: "Error: File does not exist." }),
 ];
 
-// The CFO's conversation, long enough to read up in: its newest page here,
+// The CEO's conversation, long enough to read up in: its newest page here,
 // and the page before it on request.
 const exchange = (seq: number) => seq % 2
   ? reply(seq, { kind: "text", text: `Answer ${seq}\n\nIt runs over a few lines\nso the page has height to read up in.` })
@@ -66,7 +66,7 @@ interface Board {
 // stays connecting, as a long replay on a loaded machine keeps it.
 async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<Board> {
   const board: Board = { resizes: [], older: [], say: () => {}, sayTo: async () => {} };
-  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
   // No WebGL, so a baby goblin's terminal draws its text with xterm's DOM
   // renderer, where a test reads it.
   await page.addInitScript(() => {
@@ -81,10 +81,10 @@ async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<B
     // and a baby goblin's output. A test sends a message stream an event. A
     // message stream says alive every five seconds, as the supervisor's does
     // while it has nothing to send, until a test makes the streams fall
-    // silent (fixtureSilent); a CFO stream opened after a test set
-    // fixtureCfoPage begins with that page.
+    // silent (fixtureSilent); a CEO stream opened after a test set
+    // fixtureCeoPage begins with that page.
     const streams: { url: URL; source: EventTarget & { readyState: number } }[] = [];
-    const fixture = window as unknown as { fixtureSilent?: boolean; fixtureCfoPage?: unknown };
+    const fixture = window as unknown as { fixtureSilent?: boolean; fixtureCeoPage?: unknown };
     Object.assign(window, { messageStreams: streams });
     // The board's own stream is separate, so a test can send it a snapshot
     // without counting it among the message streams.
@@ -100,7 +100,7 @@ async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<B
         const send = (type: string, data: unknown) => setTimeout(() => this.dispatchEvent(new MessageEvent(type, { data: typeof data === "string" ? data : JSON.stringify(data) })));
         if (url.pathname === "/api/messages") {
           streams.push({ url, source: this });
-          send("page", url.searchParams.get("cfo") ? fixture.fixtureCfoPage ?? pages.cfo : pages.goblin);
+          send("page", url.searchParams.get("ceo") ? fixture.fixtureCeoPage ?? pages.ceo : pages.goblin);
           this.alive = setInterval(() => { if (!fixture.fixtureSilent) this.dispatchEvent(new MessageEvent("alive", { data: "{}" })); }, 5000);
         } else if (url.pathname.endsWith("/agent")) send("output", { entries: [{ kind: "prompt", text: "Find the touch handlers" }, { kind: "reply", text: "Found them in terminal-touch.ts" }] });
         else { boards.push(this); send("snapshot", withKept); }
@@ -114,7 +114,7 @@ async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<B
       // A snapshot goes to the board alone, which is where a test changes it.
       if (type === "snapshot") for (const source of boards) if (source.readyState === 1) source.dispatchEvent(new MessageEvent(type, { data: JSON.stringify(data) }));
     });
-  }, { snapshot: JSON.stringify(SNAPSHOT), pages: { cfo: NEWEST, goblin: { messages: TALK, conversation: "fixture-conversation", more: false } } });
+  }, { snapshot: JSON.stringify(SNAPSHOT), pages: { ceo: NEWEST, goblin: { messages: TALK, conversation: "fixture-conversation", more: false } } });
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/messages" && url.searchParams.get("token") === "fixture" && url.searchParams.get("picture") === "pic1") await route.fulfill({ body: PNG, contentType: "image/png" });
@@ -133,7 +133,7 @@ async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<B
     speaker.send(JSON.stringify(message));
   };
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
-    // A task's terminal is keyed by its task; the CFO's names no task, so it is
+    // A task's terminal is keyed by its task; the CEO's names no task, so it is
     // keyed by the empty name a test asks for.
     const owner = new URL(socket.url()).searchParams.get("task") || "";
     const speaker = { send: (text: string) => socket.send(text) };
@@ -168,13 +168,13 @@ const clipboard = async (page: Page) => (await page.evaluate(() => navigator.cli
 const streams = (page: Page) => page.evaluate(() => (window as unknown as { messageStreams: unknown[] }).messageStreams.length);
 const olderPage = (url: URL) => url.pathname === "/api/messages" && url.searchParams.has("before");
 
-// The switch key reaches the CFO only once the board shows the supervisor's
+// The switch key reaches the CEO only once the board shows the supervisor's
 // snapshot, which after a reload can come after the page has loaded, and a
 // key pressed before it is lost (#1546).
-async function openCfo(page: Page) {
+async function openCeo(page: Page) {
   await expect(page.locator(".board-column").first()).toBeVisible();
   await page.keyboard.press("Control+Alt+1");
-  await expect(page.locator("#panel-title")).toHaveText("CFO");
+  await expect(page.locator("#panel-title")).toHaveText("CEO");
 }
 
 async function openGoblin(page: Page, who = "Zeke - Touch Wrangler") {
@@ -234,9 +234,9 @@ async function readingAt(box: Locator): Promise<{ read: string; before: number }
 test("Claude Code and Codex panels show their messages in the same Modern view", async ({ page }) => {
   await open(page);
 
-  await openCfo(page);
+  await openCeo(page);
   await expect(pill(page)).toHaveCount(0);
-  await expect(list(page, "CFO")).toBeVisible();
+  await expect(list(page, "CEO")).toBeVisible();
   await openGoblin(page);
   await expect(list(page, "Zeke - Touch Wrangler")).toBeVisible();
   await page.locator(".task-board .task-card-shell").filter({ hasText: "A Codex task" }).locator(".task-card").click();
@@ -254,7 +254,7 @@ test("the Messages view draws the conversation as the session recorded it, under
   await expect(talk).toBeVisible();
   await expect(page.locator(".panel-header.one-row")).toHaveCount(1);
   await expect(talk.locator(".message-from")).toHaveCount(0);
-  await expect(talk.locator(".message-prompt.cfo .message-bubble")).toHaveText("Read the brief at brief.md and follow it exactly.");
+  await expect(talk.locator(".message-prompt.ceo .message-bubble")).toHaveText("Read the brief at brief.md and follow it exactly.");
   await expect(talk.locator("strong").filter({ hasText: "Found the scroll bug." })).toBeVisible();
   await expect(talk.locator(".message-words li")).toHaveText(["Hand a vertical swipe to the history", "Keep a long press for Paste"]);
   await expect(talk.locator(".message-code pre")).toHaveText("const swipe = true;");
@@ -304,8 +304,8 @@ test("a baby goblin's row opens that baby goblin's own terminal", async ({ page 
 
 test("a message that changes takes its place, and a new one shows at the end he reads", async ({ page }) => {
   await open(page);
-  await openCfo(page);
-  const talk = list(page, "CFO");
+  await openCeo(page);
+  const talk = list(page, "CEO");
   await expect(talk).toContainText("Answer 99");
   await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
 
@@ -319,8 +319,8 @@ test("a message that changes takes its place, and a new one shows at the end he 
 
 test("reading up, new and changed messages move nothing, and Jump to latest returns to the end", async ({ page }) => {
   await open(page);
-  await openCfo(page);
-  const talk = list(page, "CFO");
+  await openCeo(page);
+  const talk = list(page, "CEO");
   await expect(talk).toContainText("Answer 99");
   const { end } = await scroll(talk);
   await scrollTo(talk, Math.round(end / 2));
@@ -343,8 +343,8 @@ test("reading up, new and changed messages move nothing, and Jump to latest retu
 test("Jump to latest lands at the end of a reply taller than its estimate that arrived while he read up", async ({ page }) => {
   // Arrange
   await open(page);
-  await openCfo(page);
-  const talk = list(page, "CFO");
+  await openCeo(page);
+  const talk = list(page, "CEO");
   await expect(talk).toContainText("Answer 99");
   await scrollTo(talk, Math.round((await scroll(talk)).end / 2));
   const jump = page.getByRole("button", { name: "Jump to latest" });
@@ -373,8 +373,8 @@ test("older messages are read a page at a time as he reads up, and his place is 
     await held;
     await route.fallback();
   });
-  await openCfo(page);
-  const talk = list(page, "CFO");
+  await openCeo(page);
+  const talk = list(page, "CEO");
   await expect(talk).toContainText("Answer 99");
   expect(board.older, "nothing older is read while he reads the end").toEqual([]);
 
@@ -396,7 +396,7 @@ test("older messages are read a page at a time as he reads up, and his place is 
   await expect(talk.locator("[data-message]").last()).toContainText("Answer 101");
 });
 
-test("an older page that fails to arrive goes to the CFO and is asked for again on his next approach to the top five seconds later", async ({ page }) => {
+test("an older page that fails to arrive goes to the CEO and is asked for again on his next approach to the top five seconds later", async ({ page }) => {
   await page.clock.install();
   const board = await open(page);
   let failures = 0;
@@ -405,10 +405,10 @@ test("an older page that fails to arrive goes to the CFO and is asked for again 
     failures++;
     await route.fulfill({ status: 503, json: { error: "The supervisor is restarting" } });
   });
-  await openCfo(page);
-  const talk = list(page, "CFO");
+  await openCeo(page);
+  const talk = list(page, "CEO");
   await expect(talk).toContainText("Answer 99");
-  const reported = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/cfo/report");
+  const reported = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/ceo/report");
 
   await scrollTo(talk, 0);
   await reported;
@@ -426,11 +426,11 @@ test("an older page that fails to arrive goes to the CFO and is asked for again 
 });
 
 // Shift+Escape goes to the panel's first control, never to the AFK switch
-// that leads the CFO's, where a Space would turn AFK off with no question.
+// that leads the CEO's, where a Space would turn AFK off with no question.
 test("Shift with Page Up and Page Down scrolls the messages, Shift+Escape goes to the panel's first control, not the AFK switch, and Escape goes back", async ({ page }) => {
   await open(page);
-  await openCfo(page);
-  const talk = list(page, "CFO");
+  await openCeo(page);
+  const talk = list(page, "CEO");
   await expect(talk).toContainText("Answer 99");
   await talk.focus();
   const { top } = await scroll(talk);
@@ -444,7 +444,7 @@ test("Shift with Page Up and Page Down scrolls the messages, Shift+Escape goes t
   // The row's first control, Open in Windows Terminal, which the row holds
   // beside the box since #1987.
   await expect(page.locator(".context-pane").getByRole("button", { name: "Open in Windows Terminal", exact: true })).toBeFocused();
-  await expect(page.locator("#panel-title")).toHaveText("CFO");
+  await expect(page.locator("#panel-title")).toHaveText("CEO");
   await talk.focus();
   await page.keyboard.press("Escape");
 
@@ -573,17 +573,17 @@ test("a prompt its harness holds reads Queued from the moment it waits, until it
   await expect(waiting).toHaveCount(0);
 });
 
-test("a stream's first page shows what the harness already holds, the CFO's words as the CFO's, in a conversation with no message yet", async ({ page }) => {
+test("a stream's first page shows what the harness already holds, the CEO's words as the CEO's, in a conversation with no message yet", async ({ page }) => {
   // Arrange
   await open(page);
   await openGoblin(page);
   const talk = list(page, "Zeke - Touch Wrangler");
 
   // Act
-  await send(page, "page", { conversation: "fixture-conversation", messages: [], more: false, waiting: [{ id: "q1", at, source: "cfo", text: "run the specs too" }] });
+  await send(page, "page", { conversation: "fixture-conversation", messages: [], more: false, waiting: [{ id: "q1", at, source: "ceo", text: "run the specs too" }] });
 
   // Assert
-  await expect(talk.locator(".queued-message.pane.cfo")).toContainText("run the specs too");
+  await expect(talk.locator(".queued-message.pane.ceo")).toContainText("run the specs too");
   await expect(page.locator(".messages-empty")).toHaveCount(0);
 });
 
@@ -729,7 +729,7 @@ test("a send still reaching the board and the prompt its harness recorded for it
   await expect(rows).toHaveCount(2);
 });
 
-for (const state of ["unsubmitted", "older terminal prompt", "before this send started", "CFO prompt"] as const) {
+for (const state of ["unsubmitted", "older terminal prompt", "before this send started", "CEO prompt"] as const) {
   test(`harness queue matching preserves a separate ${state}`, async ({ page }) => {
     await open(page);
     await openGoblin(page);
@@ -742,19 +742,19 @@ for (const state of ["unsubmitted", "older terminal prompt", "before this send s
       updated_at: state === "before this send started" ? "2026-10-22T09:00:01Z" : at,
     }] });
     await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [{
-      id: "q1", at, source: state === "CFO prompt" ? "cfo" : "overlord", text: words,
+      id: "q1", at, source: state === "CEO prompt" ? "ceo" : "overlord", text: words,
     }] });
     const rows = talk.locator(".queued-message.pane").filter({ hasText: words });
     await expect(rows).toHaveCount(2);
     await expect(rows.filter({ hasText: "Queued" })).toHaveCount(state === "unsubmitted" || state === "before this send started" ? 2 : 1);
-    if (state === "CFO prompt") await expect(talk.locator(".queued-message.cfo")).toContainText(words);
+    if (state === "CEO prompt") await expect(talk.locator(".queued-message.ceo")).toContainText(words);
   });
 }
 
 test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, size the message text, kept in this browser", async ({ page }) => {
   await open(page);
-  await openCfo(page);
-  const talk = list(page, "CFO");
+  await openCeo(page);
+  const talk = list(page, "CEO");
   await expect(talk).toContainText("Answer 99");
   const size = () => talk.evaluate((element) => getComputedStyle(element).fontSize);
   await expect.poll(size).toBe("16px");
@@ -771,10 +771,10 @@ test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, siz
   await page.mouse.wheel(0, -100);
   await page.mouse.up({ button: "right" });
   await expect.poll(size).toBe("18px");
-  expect(await page.evaluate(() => localStorage.getItem("cfo-message-font-size"))).toBe("18");
-  expect(await page.evaluate(() => localStorage.getItem("cfo-terminal-font-size")), "the terminals keep their own size").toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem("ceo-message-font-size"))).toBe("18");
+  expect(await page.evaluate(() => localStorage.getItem("ceo-terminal-font-size")), "the terminals keep their own size").toBeNull();
   await page.reload();
-  await openCfo(page);
+  await openCeo(page);
   await expect.poll(size).toBe("18px");
   await talk.focus();
   await page.keyboard.press("Control+0");
@@ -784,36 +784,36 @@ test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, siz
 
 test("a stream the supervisor ends says why, and Reconnect reads the messages again", async ({ page }) => {
   await open(page);
-  await openCfo(page);
-  await expect(list(page, "CFO")).toContainText("Answer 99");
+  await openCeo(page);
+  await expect(list(page, "CEO")).toContainText("Answer 99");
 
-  await send(page, "unavailable", "The CFO runs in another terminal now. Open the CFO again.");
+  await send(page, "unavailable", "The CEO runs in another terminal now. Open the CEO again.");
 
   const closed = page.locator(".messages-view .terminal-foot.box");
-  await expect(closed).toContainText("The CFO runs in another terminal now. Open the CFO again.");
+  await expect(closed).toContainText("The CEO runs in another terminal now. Open the CEO again.");
   await closed.getByRole("button", { name: "Reconnect" }).click();
   await expect(closed).toHaveCount(0);
   expect(await streams(page)).toBe(2);
 });
 
 // The Overlord, 2026-10-29: "why is the modern chat lagging ... it seems like
-// it stopped". His CFO's chat showed a call Running at least 76 s after its
+// it stopped". His CEO's chat showed a call Running at least 76 s after its
 // result was written, with no notice: its stream had fallen silent, and the
 // board could not tell a silent stream from a quiet one. The supervisor says
 // alive while it has nothing to send, so a stream silent for 15 s stalled.
 test("a message stream that falls silent says Reconnecting and opens again with the newest messages", async ({ page }) => {
-  // Arrange: the CFO's chat reads Answer 99, and the conversation goes on to
+  // Arrange: the CEO's chat reads Answer 99, and the conversation goes on to
   // Answer 101 while its stream is silent. Reconnecting shows only until the
   // stream opened again sends its page, which the clock can fire in the same
   // run, so a watch on the view records it.
   await page.clock.install();
   await open(page);
-  await openCfo(page);
-  const talk = list(page, "CFO");
+  await openCeo(page);
+  const talk = list(page, "CEO");
   await expect(talk).toContainText("Answer 99");
   await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
   await page.evaluate((newest) => {
-    Object.assign(window, { fixtureSilent: true, fixtureCfoPage: newest });
+    Object.assign(window, { fixtureSilent: true, fixtureCeoPage: newest });
     const view = document.querySelector(".messages-view:not([hidden])")!;
     const watch = new MutationObserver(() => {
       if (view.querySelector(".terminal-corner")?.textContent !== "Reconnecting") return;
@@ -839,8 +839,8 @@ test("a message stream that says it is alive stays open while nothing happens", 
   // Arrange
   await page.clock.install();
   await open(page);
-  await openCfo(page);
-  await expect(list(page, "CFO")).toContainText("Answer 99");
+  await openCeo(page);
+  await expect(list(page, "CEO")).toContainText("Answer 99");
 
   // Act
   await page.clock.runFor(60_000);
@@ -849,22 +849,22 @@ test("a message stream that says it is alive stays open while nothing happens", 
   expect(await streams(page)).toBe(1);
 });
 
-test("Back from a goblin's panel returns to the CFO's messages", async ({ page }) => {
+test("Back from a goblin's panel returns to the CEO's messages", async ({ page }) => {
   await open(page);
-  await openCfo(page);
-  await expect(list(page, "CFO")).toContainText("Answer 99");
+  await openCeo(page);
+  await expect(list(page, "CEO")).toContainText("Answer 99");
   await openGoblin(page);
 
-  await page.getByRole("button", { name: "Back to the CFO", exact: true }).click();
+  await page.getByRole("button", { name: "Back to the CEO", exact: true }).click();
 
-  await expect(page.locator("#panel-title")).toHaveText("CFO");
-  await expect(list(page, "CFO")).toBeVisible();
+  await expect(page.locator("#panel-title")).toHaveText("CEO");
+  await expect(list(page, "CEO")).toBeVisible();
 });
 
 // The first request for a terminal sizes it to the conversation's box;
-// subsequent switches of style in that box keep the size, for the CFO and a goblin,
+// subsequent switches of style in that box keep the size, for the CEO and a goblin,
 // with the relay answering at once and late, as on a loaded machine (#1614).
-for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as const) for (const resizeLatency of [0, 1000]) {
+for (const [who, choose] of [["the CEO", openCeo], ["a goblin", openGoblin]] as const) for (const resizeLatency of [0, 1000]) {
   test(`switching ${who}'s pane to Terminal and back keeps its requested size, beside the board and maximized${resizeLatency ? ", with the relay answering late" : ""}`, async ({ page }) => {
     const board = await open(page, resizeLatency);
     await choose(page);
@@ -997,7 +997,7 @@ test("a queued withdrawal names the row he picked, not just its words", async ({
 // the conversation's place and its box is not on screen while custody is clear.
 test("a keyboard switch in Classic puts the keys in the terminal it shows", async ({ page }) => {
   // Arrange: Classic, two goblins, and one of them open.
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "classic"));
   const board = await open(page);
   await openGoblin(page, "Pia - Pi Pilot");
   await expect(page.locator(".native-terminal")).toBeVisible();
@@ -1091,7 +1091,7 @@ test("a held goblin's Send is queued while its terminal still replays its histor
 test("Modern: a held chat opens at the bottom, stays where he reads, and keeps its queue", async ({ page }) => {
   // Arrange
   const posted: { id: string; kind: string; task_id: string; text: string; target?: string }[] = [];
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
+  await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "modern"));
   const board = await open(page);
   await page.route("**/api/actions", async (route) => {
     const body = route.request().postDataJSON() as { id: string; kind: string; task_id: string; text: string; target?: string };
@@ -1168,8 +1168,8 @@ test.describe("on a phone", () => {
   test("a tap on Jump to latest while the conversation glides takes him to the newest message, the button leaves, and it wears the box's fill", async ({ page }) => {
     // Arrange: a flick up the conversation, on a page no click reaches.
     await open(page);
-    await openCfo(page);
-    const talk = list(page, "CFO");
+    await openCeo(page);
+    const talk = list(page, "CEO");
     await expect(talk).toContainText("Answer 99");
     const jump = page.getByRole("button", { name: "Jump to latest" });
     await page.evaluate(() => window.addEventListener("click", (event) => { event.stopImmediatePropagation(); event.preventDefault(); }, true));

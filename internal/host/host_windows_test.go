@@ -1028,11 +1028,11 @@ func TestClosingTheTerminalLeavesNoProcess(t *testing.T) {
 }
 
 func TestClosingOneTerminalLeavesAnIndependentTerminalAndItsWorkRunning(t *testing.T) {
-	_, cfo := launch(t)
+	_, ceo := launch(t)
 	_, worker := launch(t)
-	cfoView := connect(t, cfo)
+	ceoView := connect(t, ceo)
 	workerView := connect(t, worker)
-	cfoView.waitFor(t, "ready")
+	ceoView.waitFor(t, "ready")
 	workerView.waitFor(t, "ready")
 	typeLine(t, workerView, "spawn")
 	child, err := strconv.Atoi(workerView.waitFor(t, `grandchild (\d+)`)[1])
@@ -1040,12 +1040,12 @@ func TestClosingOneTerminalLeavesAnIndependentTerminalAndItsWorkRunning(t *testi
 		t.Fatal(err)
 	}
 	pin(t, child)
-	if err := cfoView.CloseTerminal(); err != nil {
+	if err := ceoView.CloseTerminal(); err != nil {
 		t.Fatal(err)
 	}
-	cfoView.waitForExit(t)
+	ceoView.waitForExit(t)
 	if !running(worker.HostPID) || !running(worker.ChildPID) || !running(child) {
-		t.Fatal("closing the CFO's terminal ended independent work")
+		t.Fatal("closing the CEO's terminal ended independent work")
 	}
 	if err := workerView.CloseTerminal(); err != nil {
 		t.Fatal(err)
@@ -1234,7 +1234,7 @@ func unreadEvents(client *Client) <-chan bool {
 
 // A key typed while the terminal's program is busy sits unread in its input.
 // A viewer that asked is told so, and told once the program has read it. A
-// viewer that did not ask, as an older cfo's and cfo attach are, is told
+// viewer that did not ask, as an older ceo's and ceo attach are, is told
 // nothing, since a frame it does not know ends its view.
 func TestOnlyAViewerThatAskedIsToldOfAKeyABusyProgramLeavesUnread(t *testing.T) {
 	readNow := filepath.Join(t.TempDir(), "read-now")
@@ -1299,7 +1299,7 @@ func priorityClass(t *testing.T, pid int) uint32 {
 // A host answers the handshake of everything that reaches its terminal and
 // relays its keys and output. It ran at the priority of the builds in that
 // terminal, so with every core busy it waited its turn behind them: on
-// 2026-10-10 cfo send twice got no answer to its handshake in five seconds.
+// 2026-10-10 ceo send twice got no answer to its handshake in five seconds.
 // It runs one class above them now, and the terminal's program runs at
 // normal, where Windows starts the child of a raised process.
 func TestAHostRunsOneClassAboveItsTerminalWhichRunsAtNormal(t *testing.T) {

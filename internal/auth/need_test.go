@@ -300,7 +300,7 @@ func TestTheWithheldLineNamesServicesAndTheGrantCommandAndNoValue(t *testing.T) 
 
 	line := WithheldLine("task-7", "ledger", result)
 
-	for _, want := range []string{"database", "payments", "errors", "cfo auth grant task-7 <service>", standInStray} {
+	for _, want := range []string{"database", "payments", "errors", "ceo auth grant task-7 <service>", standInStray} {
 		if !strings.Contains(line, want) {
 			t.Errorf("line = %q, want %q in it", line, want)
 		}
@@ -329,7 +329,7 @@ func TestNeedFromBrief(t *testing.T) {
 		{"says none", "## Authentication\n\ncredentials: none\n", Need{}},
 		{"none in any case", "## Authentication\r\n\r\nCredentials: None\r\n", Need{}},
 		{"names one twice", "## Authentication\ncredentials: database, database\n", Need{Services: []string{"database"}}},
-		{"the older form", "## Authentication\n\nServices this task needs are declared in data\\projects\\ledger\\auth.json.\nRun `cfo auth ledger --fix` before dispatch; add any service the task needs that the manifest does not list yet.\n", Need{IsUnstated: true}},
+		{"the older form", "## Authentication\n\nServices this task needs are declared in data\\projects\\ledger\\auth.json.\nRun `ceo auth ledger --fix` before dispatch; add any service the task needs that the manifest does not list yet.\n", Need{IsUnstated: true}},
 		{"no section at all", "# Brief\n\n## Task\n\nBuild it.\n", Need{IsUnstated: true}},
 		{"a line in another section is not read", "## Task\n\ncredentials: payments\n\n## Authentication\n\nUse the project's configured authentication preflight before dispatch.\n", Need{IsUnstated: true}},
 		{"a services line under Delivery is not read", "## Authentication\n\ncredentials: database\n\n## Delivery\n\nservices: needed\n", Need{Services: []string{"database"}}},

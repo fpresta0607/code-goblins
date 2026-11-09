@@ -24,7 +24,7 @@ import (
 )
 
 // variable makes a test binary the process a test pauses.
-const variable = "CFO_AWAKE_TEST_PAUSED"
+const variable = "CEO_AWAKE_TEST_PAUSED"
 
 // readyLine is the line the paused process writes once the pause may fall.
 const readyLine = "awaketest: ready"

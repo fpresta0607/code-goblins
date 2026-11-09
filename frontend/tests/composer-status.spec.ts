@@ -11,12 +11,12 @@ for (const style of ["modern"]) {
         test.slow();
         // Arrange
         await page.setViewportSize({ width, height: 900 });
-        await page.addInitScript((value) => localStorage.setItem("cfo-chat-style", value), style);
+        await page.addInitScript((value) => localStorage.setItem("ceo-chat-style", value), style);
         const relay = await open(page);
         await card(page, NAME).click();
         await expect.poll(() => relay.views).toBeGreaterThan(0);
         await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
-        relay.say({ type: "held", reason: "pipeline owns this task; use cfo pipeline respond" });
+        relay.say({ type: "held", reason: "pipeline owns this task; use ceo pipeline respond" });
         await expect(field(page)).toBeVisible();
         const draft = "Keep this draft\n" + "A long message that stays readable while waiting. ".repeat(40);
         await field(page).fill(draft);
@@ -89,7 +89,7 @@ for (const style of ["modern"]) {
       });
       test(`${style} gives a held send failure priority at ${width}px`, async ({ page }, testInfo) => {
         // Arrange
-        await page.addInitScript((value) => localStorage.setItem("cfo-chat-style", value), style);
+        await page.addInitScript((value) => localStorage.setItem("ceo-chat-style", value), style);
         const relay = await open(page);
         await card(page, NAME).click();
         await expect.poll(() => relay.views).toBeGreaterThan(0);
@@ -112,7 +112,7 @@ for (const style of ["modern"]) {
       test(`${style} preserves composing and queue safety through busy, reconnecting and ended states at ${width}px`, async ({ page }, testInfo) => {
         test.slow();
         // Arrange
-        await page.addInitScript((value) => localStorage.setItem("cfo-chat-style", value), style);
+        await page.addInitScript((value) => localStorage.setItem("ceo-chat-style", value), style);
         const relay = await open(page);
         await card(page, NAME).click();
         await expect.poll(() => relay.views).toBeGreaterThan(0);
@@ -186,7 +186,7 @@ for (const style of ["modern"]) {
         // Arrange: a restart ended the terminal, and the board starts it for
         // his message (the Overlord, 2026-11-04: "The modern chat should. be
         // its own trigger to start any code session.").
-        await page.addInitScript((value) => localStorage.setItem("cfo-chat-style", value), style);
+        await page.addInitScript((value) => localStorage.setItem("ceo-chat-style", value), style);
         const relay = await open(page);
         await openGoblin(page);
         const requests: { id: string; kind: string; task_id: string; text: string }[] = [];
@@ -213,7 +213,7 @@ for (const style of ["modern"]) {
       });
       test(`${style} retains delayed sends and uploads when a hold clears at ${width}px`, async ({ page }) => {
         // Arrange
-        await page.addInitScript((value) => localStorage.setItem("cfo-chat-style", value), style);
+        await page.addInitScript((value) => localStorage.setItem("ceo-chat-style", value), style);
         const relay = await open(page);
         await card(page, NAME).click();
         await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
@@ -282,7 +282,7 @@ for (const style of ["modern"]) {
       });
       test(`${style} keeps recording controls and terminal output usable through release at ${width}px`, async ({ page }) => {
         // Arrange
-        await page.addInitScript((value) => localStorage.setItem("cfo-chat-style", value), style);
+        await page.addInitScript((value) => localStorage.setItem("ceo-chat-style", value), style);
         const relay = await open(page);
         await card(page, NAME).click();
         await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
@@ -323,7 +323,7 @@ for (const style of ["modern"]) {
       // words for why (the Overlord, 2026-10-28).
       test(`${style} shows no usage and no words for it when the session's usage cannot be read at ${width}px`, async ({ page }, testInfo) => {
         // Arrange
-        await page.addInitScript((value) => localStorage.setItem("cfo-chat-style", value), style);
+        await page.addInitScript((value) => localStorage.setItem("ceo-chat-style", value), style);
         const relay = await open(page);
 
         // Act
@@ -350,9 +350,9 @@ for (const style of ["modern"]) {
       test.slow();
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
       await page.addInitScript((chatStyle) => {
-        localStorage.setItem("cfo-chat-style", chatStyle);
-        localStorage.setItem("cfo-terminal-font-size", "20");
-        localStorage.setItem("cfo-message-font-size", "20");
+        localStorage.setItem("ceo-chat-style", chatStyle);
+        localStorage.setItem("ceo-terminal-font-size", "20");
+        localStorage.setItem("ceo-message-font-size", "20");
         const real = window.visualViewport!;
         let keyboard = 0, top = 0;
         const viewport = new EventTarget();
@@ -423,7 +423,7 @@ for (const style of ["modern"]) {
       await field(page).fill("Keep this until ");
       await field(page).focus();
       await page.keyboard.type("recovery");
-      relay.say({ type: "held", reason: "pipeline owns this task; use cfo pipeline respond" });
+      relay.say({ type: "held", reason: "pipeline owns this task; use ceo pipeline respond" });
       await expect(box(page)).toHaveAttribute("data-queues", "");
       await expect(box(page).getByRole("status")).toHaveText("");
       expect(await note.count()).toBe(0);
@@ -443,7 +443,7 @@ test("a detached hold said while the Task view shows says so over the box when h
   // Arrange: Zeke's conversation was opened once, and the panel then shows his
   // Task view, while the relay says his worktree is detached.
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
+  await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "modern"));
   const relay = await open(page);
   await openGoblin(page);
   const views = page.locator(".panel-view-switch");

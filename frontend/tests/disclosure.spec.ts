@@ -1,4 +1,4 @@
-import { CFO_DOOR, expect, openChat, openItem, openTaskList, test, type Locator, type Page } from "./site";
+import { CEO_DOOR, expect, openChat, openItem, openTaskList, test, type Locator, type Page } from "./site";
 import { caret, nativeMarkers } from "./caret";
 import { at, field, GOBLIN, open, openGoblin, snapshot, typed } from "./session-board";
 
@@ -36,7 +36,7 @@ async function resizePanel(page: Page, width: number) {
 }
 
 async function preparePanel(page: Page, who = "goblin", fields: Record<string, unknown> = {}) {
-  await page.addInitScript(() => localStorage.setItem("cfo-pane-width", "800"));
+  await page.addInitScript(() => localStorage.setItem("ceo-pane-width", "800"));
   const relay = await open(page, snapshot(fields));
   const posts: { path: string; body: unknown }[] = [];
   await page.route("**/api/**", (route) => {
@@ -52,7 +52,7 @@ async function preparePanel(page: Page, who = "goblin", fields: Record<string, u
     return route.fulfill({ json: {} });
   });
   if (who === "goblin") await openGoblin(page);
-  else await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
+  else await page.locator(".ceo-pin").getByRole("button", { name: CEO_DOOR }).last().click();
   await openTaskList(page);
   return { relay, posts };
 }
@@ -117,7 +117,7 @@ test("controlled and persistent Disclosures share the caret while retaining only
   await expectDisclosure(page, "#controlled", false);
 });
 
-for (const who of ["goblin", "CFO"]) {
+for (const who of ["goblin", "CEO"]) {
   test(`${who}'s panel selector switches between its conversation and its task view and keeps an unsaved choice`, async ({ page }) => {
     const { posts } = await preparePanel(page, who);
     const switcher = page.locator(".panel-view-switch");

@@ -15,7 +15,7 @@ func TestInstallIncludesNativeCompactLifecycle(t *testing.T) {
 		t.Run(harness, func(t *testing.T) {
 			// Arrange
 			directory := t.TempDir()
-			configuration := InstallConfig{Harness: harness, ConfigDir: directory, Executable: filepath.Join(directory, "cfo.exe"), Home: directory, State: filepath.Join(directory, "state")}
+			configuration := InstallConfig{Harness: harness, ConfigDir: directory, Executable: filepath.Join(directory, "ceo.exe"), Home: directory, State: filepath.Join(directory, "state")}
 			if harness == "codex" {
 				original := []byte(`{"model":"unchanged","hooks":{"PreCompact":[{"hooks":[{"type":"command","command":"echo unrelated pre"}]}],"PostCompact":[{"hooks":[{"type":"command","command":"echo unrelated post"}]}]}}`)
 				if err := os.WriteFile(filepath.Join(directory, "hooks.json"), original, 0o600); err != nil {
@@ -117,7 +117,7 @@ func TestNativeCompactEventsNeverTakeAPrompt(t *testing.T) {
 			}
 
 			// Act
-			event, err := Normalize(bytes.NewReader(payload), Context{Harness: test.harness, Role: "cfo", HostID: "cfo", Now: time.Now()})
+			event, err := Normalize(bytes.NewReader(payload), Context{Harness: test.harness, Role: "ceo", HostID: "ceo", Now: time.Now()})
 			if err != nil {
 				t.Fatalf("missing native compact contract: %v", err)
 			}

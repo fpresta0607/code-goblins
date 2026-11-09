@@ -10,7 +10,7 @@ const instructions = "# northwind\n\n" +
 	"Test with `go test ./internal/billing/...` and `python scripts/check.py`.\n" +
 	"Lint with `ruff check .`.\n" +
 	"Deploy with `flyctl deploy --remote-only`.\n" +
-	"Run `cfo spawn <id> --project <p>` to dispatch, and read `docs/guide.md`.\n"
+	"Run `ceo spawn <id> --project <p>` to dispatch, and read `docs/guide.md`.\n"
 
 // An instruction file that names a command the repository no longer has
 // sends every agent that reads it down a path that fails.
@@ -32,7 +32,7 @@ func TestAnInstructionCommandThatIsNotTrueIsReported(t *testing.T) {
 		t.Errorf("instruction-command-missing is %s in %s, want high in instructions", finding.Severity, finding.Area)
 	}
 	contains(t, "evidence", finding.Evidence, "AGENTS.md:4", "internal/billing", "scripts/check.py", "AGENTS.md:5", "ruff is not on PATH")
-	for _, fine := range []string{"npm run build", "go build", "flyctl", "cfo spawn"} {
+	for _, fine := range []string{"npm run build", "go build", "flyctl", "ceo spawn"} {
 		if strings.Contains(finding.Evidence, fine) {
 			t.Errorf("evidence %q names %q, which is there, a deploy or no build, test or lint command", finding.Evidence, fine)
 		}
@@ -75,7 +75,7 @@ func TestProseAndListingsInAnInstructionFileAreNotCommands(t *testing.T) {
 	// Arrange
 	f := newFixture(t, map[string]string{
 		"AGENTS.md": "The card shows `installing its dependencies first`, and the drive is made with `Format-Volume -DevDrive`.\n" +
-			"Run `cfo install --projects-root` once.\n\n" +
+			"Run `ceo install --projects-root` once.\n\n" +
 			"```\napp/        core/ (config), tests/\nscripts/    migrations/ (ordered), pytest_changed.py (diff-scoped gate)\n```\n\n" +
 			"```bash\n$ go test ./internal/gone/...\n```\n",
 	})
@@ -86,7 +86,7 @@ func TestProseAndListingsInAnInstructionFileAreNotCommands(t *testing.T) {
 	// Assert
 	finding := only(t, report, "instruction-command-missing")
 	contains(t, "evidence", finding.Evidence, "AGENTS.md:10", "internal/gone")
-	for _, prose := range []string{"installing", "Format-Volume", "cfo install", "migrations", "core/"} {
+	for _, prose := range []string{"installing", "Format-Volume", "ceo install", "migrations", "core/"} {
 		if strings.Contains(report.Only([]string{AreaInstructions}).Text(), prose) {
 			t.Errorf("the instructions area reads %q as a command:\n%s", prose, report.Only([]string{AreaInstructions}).Text())
 		}

@@ -56,7 +56,7 @@ export class PinnedLine {
   }
 
   private open(term: Terminal): Terminal {
-    const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || "";
+    const nonce = document.querySelector<HTMLMetaElement>('meta[name="ceo-style-nonce"]')?.content || "";
     const line = new Terminal({ documentOverride: terminalDocument(nonce), cols: term.cols, rows: 1, scrollback: 0, disableStdin: true, cursorBlink: false, fontSize: term.options.fontSize, fontFamily: term.options.fontFamily, lineHeight: term.options.lineHeight, theme: term.options.theme });
     line.open(this.element);
     if (line.textarea) line.textarea.tabIndex = -1;

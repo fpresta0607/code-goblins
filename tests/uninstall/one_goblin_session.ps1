@@ -1,6 +1,6 @@
 # one_goblin_session.ps1 - a short first session of Code Goblins on a clean
 # runner, as a person's first use is: one goblin in their own checkout,
-# briefed and spawned as the CFO does, with work it has not landed, and one
+# briefed and spawned as the CEO does, with work it has not landed, and one
 # stored credential. The uninstall after it must keep that work at the
 # person's choice and leave nothing else.
 #
@@ -21,7 +21,7 @@ $ErrorActionPreference = "Continue"
 # A new terminal sees what the install wrote to the registry; a new step
 # does not.
 $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-$env:CFO_HOME = [Environment]::GetEnvironmentVariable("CFO_HOME", "User")
+$env:CEO_HOME = [Environment]::GetEnvironmentVariable("CEO_HOME", "User")
 
 $port = 8767
 $pi = Join-Path $env:USERPROFILE ".pi\agent"
@@ -51,13 +51,13 @@ while ($true) {
 
 # A build that selects delivery at intake takes local-only from the demo
 # project's record, a local-only posture with a check it can run, and the
-# task's low-risk internal assessment, as the CFO records them. An earlier
+# task's low-risk internal assessment, as the CEO records them. An earlier
 # release, as the update job runs, takes the mode alone, and its loader
 # refuses a record that names a posture.
 $assessment = @()
 if ((& goblins brief demo-goblin -h 2>&1 | Out-String) -match "-surface") {
     $name = Split-Path -Leaf $Project
-    $record = Join-Path $env:CFO_HOME "data\projects\$name\project.json"
+    $record = Join-Path $env:CEO_HOME "data\projects\$name\project.json"
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $record) | Out-Null
     [IO.File]::WriteAllText($record, '{"project":' + (ConvertTo-Json $name) + ',"delivery":{"posture":"local-only"},"verification":{"fast":[["git","status"]]}}')
     $assessment = @("--surface", "internal", "--risk", "low", "--reason", "a demo goblin in a disposable checkout")
@@ -104,7 +104,7 @@ ready: false
 Write-Host "goblins spawn exited with code $LASTEXITCODE"
 Stop-Process -Id $standIn.Id -ErrorAction SilentlyContinue
 
-$worktree = Join-Path $env:CFO_HOME "worktrees\$(Split-Path -Leaf $Project)\demo-goblin"
+$worktree = Join-Path $env:CEO_HOME "worktrees\$(Split-Path -Leaf $Project)\demo-goblin"
 if (Test-Path -LiteralPath $worktree) {
     Set-Content -LiteralPath (Join-Path $worktree "unpushed.txt") -Value "a commit the goblin made and never pushed"
     git -C $worktree add unpushed.txt

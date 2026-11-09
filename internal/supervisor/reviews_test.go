@@ -36,7 +36,7 @@ func TestValidReviewRefusesWhatTheBoardCannotShowSafely(t *testing.T) {
 		t.Fatalf("a goblin's page beside its link was refused: %v", err)
 	}
 	if err := validReview(page("", link, file)); err != nil {
-		t.Fatalf("the CFO's own page beside its link was refused: %v", err)
+		t.Fatalf("the CEO's own page beside its link was refused: %v", err)
 	}
 	withLink := func(link string) Review {
 		r := openReview("waiting-task-1-7", "task-1")
@@ -49,7 +49,7 @@ func TestValidReviewRefusesWhatTheBoardCannotShowSafely(t *testing.T) {
 	for name, r := range map[string]Review{
 		"an ID with a slash":  openReview("mockups/review", "task-1"),
 		"an ID too short":     openReview("short", "task-1"),
-		"images from the CFO": openReview("cfo-review-1", "", sum),
+		"images from the CEO": openReview("ceo-review-1", "", sum),
 		"thirteen images":     openReview("many-review", "task-1", strings.Split(strings.Repeat(sum+",", 13), ",")[:13]...),
 		"a malformed digest":  openReview("digest-review", "task-1", "zz"),
 		"an empty title":      func() Review { r := openReview("empty-review", "task-1"); r.Title = " "; return r }(),
@@ -75,7 +75,7 @@ func TestValidReviewRefusesWhatTheBoardCannotShowSafely(t *testing.T) {
 
 // Only a goblin's wait that opens nothing follows a decision, named by a
 // question's ID: a review that is no wait, another goblin's wait name, the
-// CFO's item, a wait with a link or a page, and an ID no question can have
+// CEO's item, a wait with a link or a page, and an ID no question can have
 // are refused.
 func TestValidReviewTakesAFollowedDecisionOnlyOnAGoblinsPlainWait(t *testing.T) {
 	following := func(r Review, follows string) Review {
@@ -92,7 +92,7 @@ func TestValidReviewTakesAFollowedDecisionOnlyOnAGoblinsPlainWait(t *testing.T) 
 	for name, r := range map[string]Review{
 		"a review that is no wait":   following(openReview("canvas-review-1", "task-1"), "pd-connector-parity"),
 		"another goblin's wait name": following(openReview("waiting-task-2-9", "task-1"), "pd-connector-parity"),
-		"the CFO's item":             following(openReview("cfo-review-1", ""), "pd-connector-parity"),
+		"the CEO's item":             following(openReview("ceo-review-1", ""), "pd-connector-parity"),
 		"a wait with a link":         following(withLink, "pd-connector-parity"),
 		"a wait with a page":         following(withPage, "pd-connector-parity"),
 		"an ID too short":            following(wait, "q-1"),
@@ -162,8 +162,8 @@ func TestClearActionsCloseOnlyWhatTheOverlordMayClear(t *testing.T) {
 // waiting-pd-billing-margin-review-1001404, read cleared four minutes after
 // she filed it, with no reason and no line in state/reviews.audit, so no one
 // could tell who closed it or that he never saw it. A clear from the Command
-// Center is recorded there as the CFO's are, and a wait it closes is told to
-// its goblin, which still waits, and to the CFO.
+// Center is recorded there as the CEO's are, and a wait it closes is told to
+// its goblin, which still waits, and to the CEO.
 func TestACommandCenterClearOfAWaitIsAuditedAndTold(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
@@ -183,7 +183,7 @@ func TestACommandCenterClearOfAWaitIsAuditedAndTold(t *testing.T) {
 		told = append(told, text)
 		return nil
 	}
-	s := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+	s := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}}}
 
 	// Act
 	if _, err := store.Queue(Action{ID: "clear-wait", Kind: "review_clear", ReviewID: wait.ID, Generation: wait.Identity}); err != nil {
@@ -214,7 +214,7 @@ func TestACommandCenterClearOfAWaitIsAuditedAndTold(t *testing.T) {
 	if !slices.ContainsFunc(records, func(r wake.Record) bool {
 		return r.Kind == "review" && r.Key == meta.ID && strings.Contains(r.Detail, wait.ID) && strings.Contains(r.Detail, "cleared")
 	}) {
-		t.Errorf("wakes = %+v, want the CFO told the Overlord cleared the wait", records)
+		t.Errorf("wakes = %+v, want the CEO told the Overlord cleared the wait", records)
 	}
 }
 
@@ -252,7 +252,7 @@ func TestAPageTheOverlordEndsIsAudited(t *testing.T) {
 // Only a goblin's wait on the Overlord is told when he clears it: any other
 // card he clears has no one waiting on it.
 func TestACommandCenterClearOfAnItemThatIsNoWaitTellsNoOne(t *testing.T) {
-	for _, item := range []Review{openReview("mockups-review-1", "task-1"), openReview("cfo-review-1", "")} {
+	for _, item := range []Review{openReview("mockups-review-1", "task-1"), openReview("ceo-review-1", "")} {
 		t.Run(item.ID, func(t *testing.T) {
 			// Arrange
 			store, h := testStore(t)
@@ -266,7 +266,7 @@ func TestACommandCenterClearOfAnItemThatIsNoWaitTellsNoOne(t *testing.T) {
 				told = append(told, text)
 				return nil
 			}
-			s := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+			s := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}}}
 
 			// Act
 			if _, err := store.Queue(Action{ID: "clear-item", Kind: "review_clear", ReviewID: item.ID, Generation: item.Identity}); err != nil {
@@ -282,7 +282,7 @@ func TestACommandCenterClearOfAnItemThatIsNoWaitTellsNoOne(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(told) != 0 || slices.ContainsFunc(records, func(r wake.Record) bool { return r.Kind == "review" }) {
-				t.Errorf("a clear of %s told the goblin %q and the CFO %+v, want no one", item.ID, told, records)
+				t.Errorf("a clear of %s told the goblin %q and the CEO %+v, want no one", item.ID, told, records)
 			}
 		})
 	}
@@ -679,17 +679,17 @@ func TestSnapshotReadsWorkingAndWaitingOnReports(t *testing.T) {
 	// Done is per pull request: a goblin that asks about one PR and then
 	// reports another done still owes the answer.
 	report("task-1", "done: PR https://github.com/example/repo/pull/8")
-	if got := task(); got.Phase != "blocked" || got.Reason != "Waiting on the CFO: Which port?" {
+	if got := task(); got.Phase != "blocked" || got.Reason != "Waiting on the CEO: Which port?" {
 		t.Fatalf("a question followed by a done report = %+v, want blocked on it", got.Evaluation)
 	}
 	// A report older than a pending question never replaces it, even as the
-	// last status line: the CFO's release can land between a goblin's status
+	// last status line: the CEO's release can land between a goblin's status
 	// line and its wake.
-	older := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339) + " working: released by the CFO\n"
+	older := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339) + " working: released by the CEO\n"
 	if err := os.WriteFile(filepath.Join(h.State, "task-1.status"), []byte(older), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := task(); got.Phase != "blocked" || got.Reason != "Waiting on the CFO: Which port?" {
+	if got := task(); got.Phase != "blocked" || got.Reason != "Waiting on the CEO: Which port?" {
 		t.Fatalf("a question newer than the latest report = %+v, want blocked on it", got.Evaluation)
 	}
 }
@@ -720,7 +720,7 @@ func TestWaitingOnMemoryOutlastsATaskNamedMemoryReportingDone(t *testing.T) {
 }
 
 // A goblin waiting on the Overlord is past the wait once the Command Center
-// item it raised closes: answered, cleared, or handed to the CFO to relay a
+// item it raised closes: answered, cleared, or handed to the CEO to relay a
 // page's answer. The board then reads the goblin's own state again. An answer
 // typed on the item still on its way to the goblin keeps the wait.
 func TestSnapshotEndsAWaitOnTheOverlordOnceTheAnswerReachesTheGoblin(t *testing.T) {
@@ -738,14 +738,14 @@ func TestSnapshotEndsAWaitOnTheOverlordOnceTheAnswerReachesTheGoblin(t *testing.
 		{"an open item", func(*Review) {}, false, true},
 		{"an answer on its way", answer(false), false, true},
 		{"an answer delivered", answer(true), false, false},
-		{"an item the CFO's answer cleared", func(r *Review) { r.State, r.Reason = "cleared", "The CFO answered task-1's question." }, false, false},
-		{"a page answered for the CFO to relay", func(r *Review) {
-			r.State, r.AnsweredBy, r.AnsweredIn, r.Reason = "answered", "overlord", "page", "You answered on its page; the CFO relays it to the goblin."
+		{"an item the CEO's answer cleared", func(r *Review) { r.State, r.Reason = "cleared", "The CEO answered task-1's question." }, false, false},
+		{"a page answered for the CEO to relay", func(r *Review) {
+			r.State, r.AnsweredBy, r.AnsweredIn, r.Reason = "answered", "overlord", "page", "You answered on its page; the CEO relays it to the goblin."
 		}, false, false},
 		{"an earlier wait's delivered answer", answer(true), true, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			// Arrange: the report comes first, then its item, as cfo notify
+			// Arrange: the report comes first, then its item, as ceo notify
 			// writes them.
 			store, h := testStore(t)
 			if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: pick a plan"); err != nil {
@@ -785,13 +785,13 @@ func TestSnapshotEndsAWaitOnTheOverlordOnceTheAnswerReachesTheGoblin(t *testing.
 	}
 }
 
-// A goblin waiting on the Overlord that asks the CFO a question waits on both
+// A goblin waiting on the Overlord that asks the CEO a question waits on both
 // at once: the question replaces nothing, so the wait's item stays in the
-// Command Center while the question is open, and once the CFO answers, the
+// Command Center while the question is open, and once the CEO answers, the
 // board reads the goblin as waiting on the Overlord again. On 2026-10-01 each
 // question cg-credential-requests asked (3620, 3624) withdrew its wait, and it
 // filed the wait again each time.
-func TestAWaitOnTheOverlordOutlastsAQuestionToTheCFO(t *testing.T) {
+func TestAWaitOnTheOverlordOutlastsAQuestionToTheCEO(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	s := &Service{Store: store}
@@ -824,7 +824,7 @@ func TestAWaitOnTheOverlordOutlastsAQuestionToTheCFO(t *testing.T) {
 	// Act
 	retired := store.retireItems()
 	asking := task()
-	if err := wake.MarkAnswered(h.State, question.Seq, wake.AnsweredByCFO, "Yes, keep the hunks small"); err != nil {
+	if err := wake.MarkAnswered(h.State, question.Seq, wake.AnsweredByCEO, "Yes, keep the hunks small"); err != nil {
 		t.Fatal(err)
 	}
 	answered := task()
@@ -834,13 +834,13 @@ func TestAWaitOnTheOverlordOutlastsAQuestionToTheCFO(t *testing.T) {
 		t.Fatal(retired)
 	}
 	if got := store.Snapshot().Reviews[0]; got.State != "open" {
-		t.Errorf("the wait after the goblin asked the CFO = %+v, want it still open", got)
+		t.Errorf("the wait after the goblin asked the CEO = %+v, want it still open", got)
 	}
 	if asking.Phase != "blocked" {
 		t.Errorf("task-1 with its question open = %+v, want blocked on it", asking)
 	}
 	if answered.Phase != "waiting" || answered.WaitingOn != "overlord" {
-		t.Errorf("task-1 once the CFO answered = %+v, want waiting on the Overlord again", answered)
+		t.Errorf("task-1 once the CEO answered = %+v, want waiting on the Overlord again", answered)
 	}
 }
 
@@ -952,12 +952,12 @@ func TestAGoblinsItemsStayOpenUntilItsTaskRecordIsGone(t *testing.T) {
 	}
 }
 
-// A CFO audit record in a task's status log is the CFO's word: the board
+// A CEO audit record in a task's status log is the CEO's word: the board
 // still reads the goblin's own latest report, and a wait on the Overlord
 // stays open.
-func TestCFOAuditLinesNeverCountAsTheGoblinsReport(t *testing.T) {
+func TestCEOAuditLinesNeverCountAsTheGoblinsReport(t *testing.T) {
 	for _, audit := range []string{
-		"pipeline-findings-accepted: step=review run=r1 round=2 findings=ask,bug by=cfo",
+		"pipeline-findings-accepted: step=review run=r1 round=2 findings=ask,bug by=ceo",
 		"pipeline-policy-migrated: class=ordinary review_cycles=3 old=aaa new=bbb",
 	} {
 		t.Run(audit, func(t *testing.T) {

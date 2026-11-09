@@ -41,7 +41,7 @@ export function QuestionCard({ question, snapshot, connected, now, draft, review
   const chosen = chosenOption(question);
   const displayed = questionSelection(question, draft, outcome);
   const task = snapshot.tasks.find((candidate) => candidate.id === question.task);
-  const asker = question.task ? task ? goblinName(task) : question.task : "The CFO";
+  const asker = question.task ? task ? goblinName(task) : question.task : "The CEO";
   const payload = questionAnswer(question, displayed.selection, displayed.written);
   const canSend = connected && !!payload && !draft.sending;
   const choices = questionChoices(question);
@@ -50,7 +50,7 @@ export function QuestionCard({ question, snapshot, connected, now, draft, review
   // An image can vanish with its goblin's worktree; show that, not a broken image.
   const [missing, setMissing] = useState<Set<string>>(new Set());
   return <form className="question-card" aria-labelledby={"question-" + question.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
-    <p className="asker"><Avatar persona={question.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asks · {question.status !== "pending" ? "asked " + age(question.created_at, now) : "waiting " + age(question.created_at, now).replace(/ ago$/, "")}</span></p>
+    <p className="asker"><Avatar persona={question.task ? personaFor(task) : "ceo"} small /><span><strong>{asker}</strong> asks · {question.status !== "pending" ? "asked " + age(question.created_at, now) : "waiting " + age(question.created_at, now).replace(/ ago$/, "")}</span></p>
     {/* The question reads as body text: only what its asker marked is bold. */}
     <QuestionText id={"question-" + question.id} text={question.text} path={pathLinks({ kind: "question", id: question.id, instance: snapshot.instance })} />
     {question.mail && <CardMail mail={question.mail} />}
@@ -68,7 +68,7 @@ export function QuestionCard({ question, snapshot, connected, now, draft, review
       </label>)}
       {closed ? question.answer_kind === "other" && <label className="question-choice chosen"><span className="choice-mark"><Icon name="check" /></span><span className="question-option"><span>Other</span><small>{question.answer}</small></span></label>
         : <label className="question-choice"><input type="radio" name={"answer-" + question.id} checked={displayed.selection === "other"} onChange={() => onDraft({ selection: "other", error: "", receipt: undefined })} /><span className="question-option"><span>Other</span><small>Write your own answer.</small></span></label>}
-      {displayed.selection === "other" && <DictatedAnswer label="Your written answer" placeholder={"Tell " + (question.task ? asker : "the CFO") + " what you prefer..."} value={displayed.written} instance={snapshot.instance} onText={(written) => onDraft({ written, error: "", receipt: undefined })} onSubmit={() => { if (canSend) onSend(); }} />}
+      {displayed.selection === "other" && <DictatedAnswer label="Your written answer" placeholder={"Tell " + (question.task ? asker : "the CEO") + " what you prefer..."} value={displayed.written} instance={snapshot.instance} onText={(written) => onDraft({ written, error: "", receipt: undefined })} onSubmit={() => { if (canSend) onSend(); }} />}
     </fieldset>
     {mark ? <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>
       // An answer the board never saw marks no choice, so its line carries the check.

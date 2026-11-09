@@ -93,7 +93,7 @@ func TestAToolTokenNeverReplacesADeliberatelyStoredCredential(t *testing.T) {
 
 // TestAStoredCredentialOutlivesAnEnvFileThatDidNotChange is the PrecisionDocs
 // incident of 2026-10-08. The project's .env still carried an older Fly token,
-// a run item stored a fresh org token with cfo auth store, and the next
+// a run item stored a fresh org token with ceo auth store, and the next
 // preflight put the .env token back because the two values differed, so the
 // stored token read unauthorized an hour after it read green. Only a .env that
 // changed is the Overlord rotating a credential; one that merely differs from
@@ -118,7 +118,7 @@ func TestAStoredCredentialOutlivesAnEnvFileThatDidNotChange(t *testing.T) {
 		t.Fatalf("first preflight: %v", err)
 	}
 
-	// What `cfo auth store --project PrecisionDocs-AI FLY_API_TOKEN` writes.
+	// What `ceo auth store --project PrecisionDocs-AI FLY_API_TOKEN` writes.
 	store, err := OpenStore()
 	if err != nil {
 		t.Fatal(err)
@@ -149,7 +149,7 @@ func TestAStoredCredentialOutlivesAnEnvFileThatDidNotChange(t *testing.T) {
 }
 
 // TestAnEnvValueReadForTheFirstTimeNeverReplacesAStoredOne covers a value
-// whose history cfo has never seen: a store and a .env that disagree on the
+// whose history ceo has never seen: a store and a .env that disagree on the
 // first read, which is every project the first time this build reads it.
 // Nothing says the file is the newer of the two, and replacing a stored value
 // on a guess is how one disappears without anyone choosing it, so the stored
@@ -447,7 +447,7 @@ func TestABareCredentialTwoProjectsDeclareIsLeftWhereItIs(t *testing.T) {
 			note = candidate.Note
 		}
 	}
-	if !strings.Contains(note, "cfo auth copy") {
+	if !strings.Contains(note, "ceo auth copy") {
 		t.Errorf("chain note = %q, want the copy command that claims it", note)
 	}
 }
@@ -1272,17 +1272,17 @@ func TestCacheAuditNamesAnInheritedLocationRatherThanOmittingIt(t *testing.T) {
 	if playwright.Source != CacheSourceInherited || playwright.Path != tuned {
 		t.Errorf("playwright = %+v, want it marked inherited and pointing where the operator set it", playwright)
 	}
-	if uv := byName["UV_CACHE_DIR"]; uv.Source != CacheSourceCFO || uv.Path != filepath.Join(caches, "uv") {
-		t.Errorf("uv = %+v, want a redirect cfo set rather than an inherited one", uv)
+	if uv := byName["UV_CACHE_DIR"]; uv.Source != CacheSourceCEO || uv.Path != filepath.Join(caches, "uv") {
+		t.Errorf("uv = %+v, want a redirect ceo set rather than an inherited one", uv)
 	}
-	// The launch path is unchanged: a pane still receives only what cfo sets,
+	// The launch path is unchanged: a pane still receives only what ceo sets,
 	// so the audit can never hand back an inherited location as a redirect.
 	if _, redirected := CacheEnv(caches)["PLAYWRIGHT_BROWSERS_PATH"]; redirected {
 		t.Error("the audit changed what a pane inherits")
 	}
 }
 
-func TestCacheEnvIsEmptyWithoutACFOHome(t *testing.T) {
+func TestCacheEnvIsEmptyWithoutACEOHome(t *testing.T) {
 	if env := CacheEnv(""); len(env) != 0 {
 		t.Errorf("CacheEnv with no home = %v, want nothing rather than redirects rooted at the working directory", env)
 	}
@@ -1339,10 +1339,10 @@ func TestCacheAuditReportsTheProjectsOwnDeclaredLocation(t *testing.T) {
 		t.Errorf("playwright = %+v, want the project's own declared location", playwright)
 	}
 	// A declaration for one ecosystem must not silence the rest.
-	if uv := byName["UV_CACHE_DIR"]; uv.Source != CacheSourceCFO || uv.Path != filepath.Join(caches, "uv") {
+	if uv := byName["UV_CACHE_DIR"]; uv.Source != CacheSourceCEO || uv.Path != filepath.Join(caches, "uv") {
 		t.Errorf("uv = %+v, want the shared root still reported", uv)
 	}
-	// The launch path is untouched: a pane still receives only what cfo sets.
+	// The launch path is untouched: a pane still receives only what ceo sets.
 	if _, redirected := CacheEnv(caches)["PLAYWRIGHT_BROWSERS_PATH"]; redirected {
 		t.Error("the audit changed what a pane inherits")
 	}
@@ -1418,7 +1418,7 @@ func TestTwoCredentialsLandingOnOneKeyProduceOneWrite(t *testing.T) {
 // inode - so a goblin writing .env writes the Overlord's file and, with
 // refresh enabled, would rotate the fleet's stored credential. The link count
 // is the only thing that distinguishes a shared file from a private one, and
-// it drops back to one when cfo cleanup returns the worktree.
+// it drops back to one when ceo cleanup returns the worktree.
 func TestAnEnvSharedWithALiveWorktreeIsNotAnAdoptionOrigin(t *testing.T) {
 	clearEnv(t, "STRIPE_SECRET_KEY")
 	project := filepath.Join(t.TempDir(), "clock-in")
@@ -1456,7 +1456,7 @@ func TestAnEnvSharedWithALiveWorktreeIsNotAnAdoptionOrigin(t *testing.T) {
 		t.Errorf("skipped = %+v, want the shared file named", skipped)
 	}
 	line := WorktreeSharedLine(skipped.WorktreeShared)
-	if !strings.Contains(line, "cfo cleanup") {
+	if !strings.Contains(line, "ceo cleanup") {
 		t.Errorf("line = %q, want it to name what releases the file", line)
 	}
 	if strings.Contains(line, "sk_written_by_a_goblin") || strings.Contains(line, "STRIPE_SECRET_KEY") {
@@ -1480,7 +1480,7 @@ func TestAnEnvSharedWithALiveWorktreeIsNotAnAdoptionOrigin(t *testing.T) {
 // share one outcome. A file whose link count cannot be read is skipped
 // exactly as a worktree-shared one is, because not knowing whether a goblin
 // can write a file is not the same answer as knowing it cannot - but filing
-// it under WorktreeShared would tell the operator to run cfo cleanup, and
+// it under WorktreeShared would tell the operator to run ceo cleanup, and
 // returning a worktree cannot fix a stat that failed.
 func TestAnUnreadableLinkCountIsReportedAsItsOwnCause(t *testing.T) {
 	clearEnv(t, "STRIPE_SECRET_KEY")
@@ -1530,7 +1530,7 @@ func TestAnUnreadableLinkCountIsReportedAsItsOwnCause(t *testing.T) {
 		t.Errorf("line = %q, want the file named", line)
 	}
 	// The remedy that cannot help must not be offered.
-	if strings.Contains(line, "cfo cleanup") {
+	if strings.Contains(line, "ceo cleanup") {
 		t.Errorf("line = %q, want no worktree remedy for a stat failure", line)
 	}
 	// Same rule the adoption line keeps: paths only.
@@ -1542,7 +1542,7 @@ func TestAnUnreadableLinkCountIsReportedAsItsOwnCause(t *testing.T) {
 // TestAnUnreadableLinkCountIsNamedOnTheDispatchLine covers the consumer every
 // goblin goes through. A credential that never rotates is indistinguishable
 // from one that had nothing to rotate unless the dispatch line says why, and
-// the cause it names has to be one the operator can act on: `cfo cleanup`
+// the cause it names has to be one the operator can act on: `ceo cleanup`
 // releases a worktree, and no worktree is holding this file.
 func TestAnUnreadableLinkCountIsNamedOnTheDispatchLine(t *testing.T) {
 	clearEnv(t, "STRIPE_SECRET_KEY")
@@ -1573,7 +1573,7 @@ func TestAnUnreadableLinkCountIsNamedOnTheDispatchLine(t *testing.T) {
 	if !strings.Contains(result.Warning, "link check failed") || !strings.Contains(result.Warning, envFile) {
 		t.Errorf("warning %q does not name the file whose link count could not be read", result.Warning)
 	}
-	if strings.Contains(result.Warning, "cfo cleanup") {
+	if strings.Contains(result.Warning, "ceo cleanup") {
 		t.Errorf("warning %q offers a worktree remedy for a stat failure", result.Warning)
 	}
 	if result.Env["STRIPE_SECRET_KEY"] != "" {

@@ -5,7 +5,7 @@ test.use({ hadTour: false, launchOptions: { args: ["--disable-webgl"] } });
 
 // The Overlord, 2026-10-02: "just a quick tour walk through, very quick, how
 // it works, explaining how to use it would be really nice for new users".
-// Approved on his review page, 2026-10-06: the CFO walks a new user through
+// Approved on his review page, 2026-10-06: the CEO walks a new user through
 // three steps on the first open, each lighting one part of the board and
 // saying one line; it is skippable at once, shown once, and replayed from the
 // question mark in the top bar, in the browser and the desktop window alike.
@@ -16,8 +16,8 @@ const TASKS = [
   task("working-one", "working", { backend: "native" }),
   task("finished:done-one", "done", { archived: true, merged: true, verified: true, generation: "", branch: "fix/done-one" }),
 ];
-const running = { healthy: true, instance: "fixture", cfo_runs: true, cfo_terminal: "cfo", cfo_harness: "claude", revision: 1, attention: [], tasks: TASKS };
-const noCfo = { ...running, cfo_runs: false, cfo_terminal: "", cfo_harness: "" };
+const running = { healthy: true, instance: "fixture", ceo_runs: true, ceo_terminal: "ceo", ceo_harness: "claude", revision: 1, attention: [], tasks: TASKS };
+const noCeo = { ...running, ceo_runs: false, ceo_terminal: "", ceo_harness: "" };
 
 // open gives the page the supervisor's stream, held open as tests/site.ts
 // holdStream does, which a test hands a later snapshot with send. Each
@@ -42,7 +42,7 @@ async function open(page: Page, snapshot: Record<string, unknown> = running, kep
   }, JSON.stringify(snapshot));
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path === "/api/setup") await route.fulfill({ json: { home: "C:\\Users\\franco\\AppData\\Local\\CodeGoblins", agent: "claude", projects_root: "", checkouts: [], agents: [{ id: "claude", name: "Claude Code", recommended: true, note: "the best experience", installed: true, sign_in: "signed_in" }], cfo_runs: false } });
+    if (path === "/api/setup") await route.fulfill({ json: { home: "C:\\Users\\franco\\AppData\\Local\\CodeGoblins", agent: "claude", projects_root: "", checkouts: [], agents: [{ id: "claude", name: "Claude Code", recommended: true, note: "the best experience", installed: true, sign_in: "signed_in" }], ceo_runs: false } });
     else if (path === "/api/setup/start") await route.fulfill({ json: { started: true } });
     else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
@@ -68,7 +68,7 @@ const tour = (page: Page) => page.getByRole("dialog");
 const board = (page: Page) => page.locator("main.canvas-region");
 const panel = (page: Page) => page.locator("aside.context-pane");
 const commandCenter = (page: Page) => page.locator(".command-center-menu > summary");
-const cfoBox = (page: Page) => page.getByRole("textbox", { name: "Message CFO", exact: true });
+const ceoBox = (page: Page) => page.getByRole("textbox", { name: "Message CEO", exact: true });
 const box = async (locator: Locator) => (await locator.boundingBox())!;
 
 // lights says the tour's step lights the part, dims around it, and keeps its
@@ -94,25 +94,25 @@ for (const [name, viewport, scale] of [
   test.describe(`in ${name}`, () => {
     test.use({ viewport, deviceScaleFactor: scale });
 
-    test("the first open walks through the CFO's panel, the board and the Command Center, then hands the keyboard to the CFO's box", async ({ page }, testInfo) => {
+    test("the first open walks through the CEO's panel, the board and the Command Center, then hands the keyboard to the CEO's box", async ({ page }, testInfo) => {
       // Three steps, each measured and photographed at the window's full size.
       test.slow();
 
       // Act
       const typed = await open(page);
 
-      // Assert: step 1, the CFO's panel, which the first open put beside the
+      // Assert: step 1, the CEO's panel, which the first open put beside the
       // board on its Chat view with no terminal drawn; the tour says how to
       // speak, so no voice hint repeats it.
-      await expect(tour(page).getByRole("heading", { name: "I'm the CFO. Tell me what to build." })).toBeVisible();
-      await expect(page.locator("#panel-title")).toHaveText("CFO");
-      await expect(cfoBox(page)).toBeVisible();
+      await expect(tour(page).getByRole("heading", { name: "I'm the CEO. Tell me what to build." })).toBeVisible();
+      await expect(page.locator("#panel-title")).toHaveText("CEO");
+      await expect(ceoBox(page)).toBeVisible();
       await expect(page.locator(".xterm")).toHaveCount(0);
       await expect(tour(page).getByRole("button", { name: "Next" })).toBeFocused();
       await expect(tour(page).getByRole("img", { name: "Step 1 of 3" })).toBeVisible();
       await expect(page.getByText("Speak into this terminal")).toHaveCount(0);
       await lights(page, panel(page));
-      await page.screenshot({ path: testInfo.outputPath("1-talk-to-the-cfo.png"), animations: "disabled" });
+      await page.screenshot({ path: testInfo.outputPath("1-talk-to-the-ceo.png"), animations: "disabled" });
 
       // Act
       await page.keyboard.press("Enter");
@@ -136,9 +136,9 @@ for (const [name, viewport, scale] of [
       await tour(page).getByRole("button", { name: "Done" }).click();
 
       // Assert: the board as the first open leaves it, the keyboard in the
-      // box under the CFO's messages, which types into its terminal.
+      // box under the CEO's messages, which types into its terminal.
       await expect(tour(page)).toHaveCount(0);
-      await expect(cfoBox(page)).toBeFocused();
+      await expect(ceoBox(page)).toBeFocused();
       await page.keyboard.type("help");
       await page.keyboard.press("Enter");
       await expect.poll(() => typed.join("")).toBe("help\r");
@@ -154,7 +154,7 @@ test.describe("in the desktop window", () => {
     ["X", (page: Page) => tour(page).getByRole("button", { name: "Skip the tour" }).click()],
     ["Escape", (page: Page) => page.keyboard.press("Escape")],
   ] as const) {
-    test(`${how} ends the tour at once and leaves the CFO's terminal open beside the board`, async ({ page }) => {
+    test(`${how} ends the tour at once and leaves the CEO's terminal open beside the board`, async ({ page }) => {
       // Arrange
       await open(page);
       await expect(tour(page)).toBeVisible();
@@ -164,8 +164,8 @@ test.describe("in the desktop window", () => {
 
       // Assert
       await expect(tour(page)).toHaveCount(0);
-      await expect(page.locator("#panel-title")).toHaveText("CFO");
-      await expect(cfoBox(page)).toBeFocused();
+      await expect(page.locator("#panel-title")).toHaveText("CEO");
+      await expect(ceoBox(page)).toBeFocused();
       await expect(board(page)).toBeVisible();
     });
   }
@@ -185,7 +185,7 @@ test.describe("in the desktop window", () => {
 
   test("a browser that has used the board before shows no tour, and the question mark replays it from any panel", async ({ page }) => {
     // Arrange
-    await open(page, running, { "cfo-first-open": "shown" });
+    await open(page, running, { "ceo-first-open": "shown" });
     await expect(page.getByRole("heading", { name: "Review the work" })).toBeVisible();
     await expect(tour(page)).toHaveCount(0);
     await page.locator(".task-card").filter({ hasText: "working-one" }).click();
@@ -194,9 +194,9 @@ test.describe("in the desktop window", () => {
     // Act
     await page.getByRole("button", { name: "Replay the tour" }).click();
 
-    // Assert: it begins at the CFO's terminal, wherever the panel was.
-    await expect(tour(page).getByRole("heading", { name: "I'm the CFO. Tell me what to build." })).toBeVisible();
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    // Assert: it begins at the CEO's terminal, wherever the panel was.
+    await expect(tour(page).getByRole("heading", { name: "I'm the CEO. Tell me what to build." })).toBeVisible();
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
     await lights(page, panel(page));
   });
 
@@ -208,9 +208,9 @@ test.describe("in the desktop window", () => {
     await open(page);
 
     // Assert: the first open's layout, with no tour over it. A browser that
-    // keeps nothing has no saved style either, so the CFO opens in Classic,
-    // the default, with the keyboard in the CFO's terminal.
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    // keeps nothing has no saved style either, so the CEO opens in Classic,
+    // the default, with the keyboard in the CEO's terminal.
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
     await expect(tour(page)).toHaveCount(0);
 
@@ -218,28 +218,28 @@ test.describe("in the desktop window", () => {
     await page.getByRole("button", { name: "Replay the tour" }).click();
 
     // Assert
-    await expect(tour(page).getByRole("heading", { name: "I'm the CFO. Tell me what to build." })).toBeVisible();
+    await expect(tour(page).getByRole("heading", { name: "I'm the CEO. Tell me what to build." })).toBeVisible();
   });
 
-  test("with no CFO the tour waits for the one the first-run page starts, through a reload", async ({ page }) => {
+  test("with no CEO the tour waits for the one the first-run page starts, through a reload", async ({ page }) => {
     // Arrange
-    await open(page, noCfo);
+    await open(page, noCeo);
     await expect(page.getByRole("heading", { name: "Start Code Goblins" })).toBeVisible();
 
     // Act
-    await page.getByRole("button", { name: "Start the CFO" }).click();
+    await page.getByRole("button", { name: "Start the CEO" }).click();
 
-    // Assert: the board, with no tour while the CFO is not running yet.
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    // Assert: the board, with no tour while the CEO is not running yet.
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
     await expect(tour(page)).toHaveCount(0);
 
-    // Act: the page reloads before the CFO runs, then the CFO runs.
+    // Act: the page reloads before the CEO runs, then the CEO runs.
     await page.reload();
     await expect(page.getByRole("heading", { name: "Start Code Goblins" })).toBeVisible();
     await send(page, { ...running, revision: 2 });
 
     // Assert
-    await expect(tour(page).getByRole("heading", { name: "I'm the CFO. Tell me what to build." })).toBeVisible();
+    await expect(tour(page).getByRole("heading", { name: "I'm the CEO. Tell me what to build." })).toBeVisible();
     await lights(page, panel(page));
   });
 });
@@ -255,7 +255,7 @@ test.describe("in a narrow window", () => {
     await open(page);
 
     // Assert
-    await expect(tour(page).getByRole("heading", { name: "I'm the CFO. Tell me what to build." })).toBeVisible();
+    await expect(tour(page).getByRole("heading", { name: "I'm the CEO. Tell me what to build." })).toBeVisible();
     const card = await box(page.locator(".quick-tour-card"));
     expect(card.x).toBeGreaterThanOrEqual(0);
     expect(card.x + card.width).toBeLessThanOrEqual(390);
@@ -272,7 +272,7 @@ test.describe("in a narrow window", () => {
 
     // Assert
     await expect(tour(page)).toHaveCount(0);
-    await expect(cfoBox(page)).toBeVisible();
-    await expect(cfoBox(page)).not.toBeFocused();
+    await expect(ceoBox(page)).toBeVisible();
+    await expect(ceoBox(page)).not.toBeFocused();
   });
 });

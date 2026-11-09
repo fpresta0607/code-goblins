@@ -14,12 +14,12 @@ for (const width of [1440, 390, 320]) {
     await page.clock.install({ time: new Date(NOW) });
     const unavailable = reading({ status: "unavailable", total: null, repositories: [], detail: "Billing permission is missing; eligibility may also affect access.",
       problem: { kind: "permission", action: "allow", account: "example-user", credential: "gh" } });
-    await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true, actions_spend: unavailable });
+    await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true, actions_spend: unavailable });
     let repairs = 0;
     await page.route("**/api/actions-spend/repair", async (route) => {
       repairs++;
       expect(route.request().method()).toBe("POST");
-      expect(route.request().headers()["x-cfo-token"]).toBe("actions-fixture");
+      expect(route.request().headers()["x-ceo-token"]).toBe("actions-fixture");
       expect(route.request().postDataJSON()).toEqual({ month: "2026-10", action: "allow" });
       await route.fulfill({ json: { ...unavailable, recovery: { run_id: "billing-consent", state: "ready" } } });
     });
@@ -46,7 +46,7 @@ for (const width of [1440, 390, 320]) {
 
 test("transient billing failure retries once and displays the refreshed reading", async ({ page }) => {
   await page.clock.install({ time: new Date(NOW) });
-  await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+  await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true,
     actions_spend: reading({ status: "unavailable", total: null, repositories: [], detail: "GitHub billing is temporarily unavailable.", problem: { kind: "transient", action: "retry", account: "example-user", credential: "gh" } }) });
   let repairs = 0;
   await page.route("**/api/actions-spend/repair", async (route) => {
@@ -66,7 +66,7 @@ test("transient billing failure retries once and displays the refreshed reading"
 
 test("environment billing credential offers update guidance without CLI consent", async ({ page }) => {
   await page.clock.install({ time: new Date(NOW) });
-  await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+  await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true,
     actions_spend: reading({ status: "unavailable", total: null, repositories: [], detail: "Update the selected environment credential.", problem: { kind: "permission", action: "update", account: "example-user", credential: "GH_TOKEN" } }) });
   await page.goto("/");
   await page.getByRole("button", { name: "Board", exact: true }).click();
@@ -79,7 +79,7 @@ test("environment billing credential offers update guidance without CLI consent"
 
 test("a missing CLI login offers sign-in guidance and Retry, never a consent run", async ({ page }) => {
   await page.clock.install({ time: new Date(NOW) });
-  await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+  await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true,
     actions_spend: reading({ status: "unavailable", total: null, repositories: [], detail: "The GitHub CLI login on this PC is missing or was refused.", problem: { kind: "authentication", action: "renew", account: "", credential: "gh" } }) });
   const actions: unknown[] = [];
   await page.route("**/api/actions-spend/repair", async (route) => {
@@ -100,7 +100,7 @@ test("a missing CLI login offers sign-in guidance and Retry, never a consent run
 
 test("sign-in guidance leaves once a retried reading needs billing access instead", async ({ page }) => {
   await page.clock.install({ time: new Date(NOW) });
-  await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+  await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true,
     actions_spend: reading({ status: "unavailable", total: null, repositories: [], detail: "The GitHub CLI login on this PC is missing or was refused.", problem: { kind: "authentication", action: "renew", account: "", credential: "gh" } }) });
   await page.route("**/api/actions-spend/repair", (route) => route.fulfill({ json: reading({ status: "unavailable", total: null, repositories: [], detail: "Billing permission is missing.", checked_at: "2026-10-15T12:00:01Z",
     problem: { kind: "permission", action: "allow", account: "example-user", credential: "gh" } }) }));
@@ -120,7 +120,7 @@ test("sign-in guidance leaves once a retried reading needs billing access instea
 test("billing repair shows loading and a recoverable owner refusal", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 1000 });
   await page.clock.install({ time: new Date(NOW) });
-  await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+  await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true,
     actions_spend: reading({ status: "unavailable", total: null, repositories: [], problem: { kind: "permission", action: "allow", account: "example-user", credential: "gh" } }) });
   let release: () => void = () => { throw new Error("repair has not started"); };
   await page.route("**/api/actions-spend/repair", async (route) => {
@@ -145,7 +145,7 @@ for (const state of ["succeeded", "failed", "withdrawn", "stopped"]) {
     await page.clock.install({ time: new Date(NOW) });
     const unavailable = reading({ status: "unavailable", total: null, repositories: [], detail: "Billing permission is missing.",
       problem: { kind: "permission", action: "allow", account: "example-user", credential: "gh" } });
-    await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true, actions_spend: unavailable });
+    await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true, actions_spend: unavailable });
     let repairs = 0;
     let polls = 0;
     await page.route("**/api/actions-spend/repair", async (route) => {
@@ -178,7 +178,7 @@ test.describe("device-local Actions month", () => {
 
   test("keeps October's report while UTC is already in November", async ({ page }) => {
     await page.clock.install({ time: new Date("2026-11-01T00:30:00Z") });
-    await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+    await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true,
       actions_spend: reading({ read_at: "2026-11-01T00:30:00Z", checked_at: "2026-11-01T00:30:00Z" }) });
     await page.goto("/");
     await page.getByRole("button", { name: "Board", exact: true }).click();
@@ -202,10 +202,10 @@ for (const scenario of [
       const months: string[] = [];
       await page.route("**/api/actions-spend?*", (route) => {
         months.push(new URL(route.request().url()).searchParams.get("month") || "");
-        expect(route.request().headers()["x-cfo-token"]).toBe("actions-fixture");
+        expect(route.request().headers()["x-ceo-token"]).toBe("actions-fixture");
         return route.fulfill({ json: reading({ month: scenario.month, total: total(scenario.amount), read_at: scenario.now, checked_at: scenario.now }) });
       });
-      await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true, cfo_closed: scenario.isClosed,
+      await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true, ceo_closed: scenario.isClosed,
         actions_spend: reading({ month: scenario.now.slice(0, 7), total: total(40), read_at: scenario.now, checked_at: scenario.now }) });
       await page.goto("/");
       await page.getByRole("button", { name: "Board", exact: true }).click();
@@ -248,7 +248,7 @@ test.describe("Actions rollover on an open device", () => {
         }
         return route.fulfill({ json: reading({ total: total(15), read_at: "2026-11-01T02:10:00Z", checked_at: "2026-11-01T02:10:00Z" }) });
       });
-      await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+      await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true,
         actions_spend: reading({ month: "2026-11", total: total(40), read_at: "2026-11-01T00:05:00Z", checked_at: "2026-11-01T00:05:00Z" }) });
       await page.goto("/");
       await page.getByRole("button", { name: "Board", exact: true }).click();
@@ -309,7 +309,7 @@ test.describe("Actions rollover on an open device", () => {
           read_at: scenario.refreshed === "stale" ? "2026-11-01T00:10:00Z" : "2026-11-01T01:10:55Z",
           checked_at: "2026-11-01T01:10:55Z", detail: scenario.refreshed === "stale" ? "Could not refresh usage." : "" }) });
       });
-      await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+      await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true,
         actions_spend: reading({ month: "2026-11", total: total(40), read_at: "2026-11-01T00:05:00Z", checked_at: "2026-11-01T00:05:00Z" }) });
       await page.goto("/");
       await page.getByRole("button", { name: "Board", exact: true }).click();
@@ -356,7 +356,7 @@ test.describe("Actions rollover on an open device", () => {
       requests++;
       return route.fulfill({ json: reading({ read_at: "2026-11-01T00:30:00Z", checked_at: "2026-11-01T00:30:00Z" }) });
     });
-    const snapshot = { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+    const snapshot = { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true,
       actions_spend: reading({ month: "2026-11", total: total(40), read_at: "2026-11-01T00:30:00Z", checked_at: "2026-11-01T00:30:00Z" }) };
     await page.addInitScript((data) => {
       const streams: EventTarget[] = [];
@@ -395,7 +395,7 @@ test.describe("Actions rollover on an open device", () => {
         ? reading({ read_at: "2026-11-01T00:30:00Z", checked_at: "2026-11-01T00:30:00Z" })
         : reading({ status: "stale", read_at: "2026-11-01T00:30:00Z", checked_at: "2026-11-01T01:30:00Z", detail: "Could not refresh usage." }) });
     });
-    await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+    await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true,
       actions_spend: reading({ month: "2026-11", total: total(40), read_at: "2026-11-01T00:30:00Z", checked_at: "2026-11-01T00:30:00Z" }) });
     await page.goto("/");
     await page.getByRole("button", { name: "Board", exact: true }).click();
@@ -419,7 +419,7 @@ test.describe("Actions rollover on an open device", () => {
       await pending;
       await route.fulfill({ status: 503, json: { error: "Billing unavailable" } });
     });
-    await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+    await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true,
       actions_spend: reading({ read_at: "2026-11-01T04:59:30Z", checked_at: "2026-11-01T04:59:30Z" }) });
     await page.goto("/");
     await page.getByRole("button", { name: "Board", exact: true }).click();
@@ -452,7 +452,7 @@ for (const scenario of [
         expect(new URL(route.request().url()).searchParams.get("month")).toBe(scenario.after);
         return route.fulfill({ json: reading({ status: "stale", month: scenario.after, total: total(40), read_at: scenario.now, checked_at: checkedAt, detail: "Could not refresh usage." }) });
       });
-      await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+      await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true,
         actions_spend: reading({ month: scenario.before, read_at: scenario.now, checked_at: scenario.now }) });
       await page.goto("/");
       await page.getByRole("button", { name: "Board", exact: true }).click();
@@ -487,7 +487,7 @@ test("devices in different zones select independent months from the same board",
         expect(new URL(route.request().url()).searchParams.get("month")).toBe(month);
         return route.fulfill({ json: reading({ month, total: total(amount), read_at: now, checked_at: now }) });
       });
-      await holdStream(page, { instance: "same-board", revision: 1, healthy: true, example: true, cfo_runs: true,
+      await holdStream(page, { instance: "same-board", revision: 1, healthy: true, example: true, ceo_runs: true,
         actions_spend: reading({ month: "2026-11", total: total(40), read_at: now, checked_at: now }) });
       await page.goto("/");
       await page.getByRole("button", { name: "Board", exact: true }).click();
@@ -513,7 +513,7 @@ test.describe("Actions spend panel", () => {
         await page.clock.install({ time: new Date(NOW) });
         const panelRequests: string[] = [];
         page.on("request", (request) => { if (request.url().includes("/actions-spend-panel-")) panelRequests.push(request.url()); });
-        await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true, cfo_harness: "codex",
+        await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true, ceo_harness: "codex",
           subscriptions: [{ provider: "codex", status: "available", source: "oauth", percent_remaining: 75, read_at: NOW, resets_at: "2026-10-20T00:00:00Z", floor_percent: 20 }], actions_spend: reading(month.changes) });
         await page.goto("/");
         await page.getByRole("button", { name: "Board", exact: true }).click();
@@ -529,7 +529,7 @@ test.describe("Actions spend panel", () => {
         expect(Math.abs(amount.y + amount.height / 2 - (mark.y + mark.height / 2)), "the mark and the amount share one line").toBeLessThanOrEqual(1);
         // What shows of it sits the row's own gap from the items either side, on
         // a phone only before it, since the AFK switch and the button that opens
-        // the CFO take the next line there.
+        // the CEO take the next line there.
         if (width >= 390) {
           const around = await button.evaluate((element) => {
             const drawn = (selector: string) => element.querySelector(selector)!.getBoundingClientRect();
@@ -548,7 +548,7 @@ test.describe("Actions spend panel", () => {
         expect(panelRequests).toHaveLength(0);
         await page.evaluate(() => document.fonts.ready);
         const slug = month.name.replaceAll(" ", "-");
-        await page.getByRole("group", { name: "CFO", exact: true }).screenshot({ path: testInfo.outputPath(`actions-header-${slug}-${width}.png`) });
+        await page.getByRole("group", { name: "CEO", exact: true }).screenshot({ path: testInfo.outputPath(`actions-header-${slug}-${width}.png`) });
         await button.click();
         const panel = page.getByRole("dialog", { name: "GitHub Actions" });
         await expect(panel).toBeVisible();
@@ -584,7 +584,7 @@ test.describe("Actions spend panel", () => {
     test(`shows a ${name} in one line each without guessing`, async ({ page }, testInfo) => {
       await page.clock.install({ time: new Date(NOW) });
       await page.route("**/api/actions-spend?*", (route) => route.fulfill({ json: reading({ status: "unavailable", total: null, repositories: [], detail: "Waiting for this month's GitHub Actions usage." }) }));
-      await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true, actions_spend: reading(changes) });
+      await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true, actions_spend: reading(changes) });
       await page.goto("/");
       await page.getByRole("button", { name: "Board", exact: true }).click();
       await page.getByRole("button", { name: `GitHub Actions spend: ${label}`, exact: true }).click();

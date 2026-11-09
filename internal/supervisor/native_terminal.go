@@ -148,7 +148,7 @@ func (h *HTTP) announce(key string, cols, rows int) {
 }
 
 // nativeTerminal relays one view of a native task's terminal, or of the
-// registered CFO's, over a WebSocket: the host's output goes out as binary
+// registered CEO's, over a WebSocket: the host's output goes out as binary
 // messages, typing comes back as binary messages, and a resize or an
 // acknowledgement as a JSON text message. The host's history comes first; a view repaints the screen by
 // sending its size, since the pseudo console redraws its whole window on every
@@ -578,7 +578,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 }
 
 // nativeBinding is the terminal a native view shows: a task's, the
-// registered CFO's, or a run item's on its card. Its host records itself as
+// registered CEO's, or a run item's on its card. Its host records itself as
 // id in the state directory dir, and key names it among every view's: every
 // run item's terminal is recorded as run, in the item's own directory. check
 // repeats what opening it proved: it returns an error once the view must
@@ -588,7 +588,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 // access, which only this PC does. isLaunching, when set, says the terminal's host may not run
 // yet because its goblin starts or resumes now. harness, when set, returns the
 // harness the terminal runs at the moment, whose screens the relay reads: for
-// the CFO, the one it registered as. A run item's terminal has none.
+// the CEO, the one it registered as. A run item's terminal has none.
 type nativeBinding struct {
 	id, name, dir, key string
 	harness            func() string
@@ -621,21 +621,21 @@ func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
 			return nil, nil
 		}}, nil
 	}
-	// A view of the CFO names the terminal it expects the CFO in, so a CFO
+	// A view of the CEO names the terminal it expects the CEO in, so a CEO
 	// that moved is opened again rather than shown in a view of another.
-	if want := query.Get("cfo"); want != "" {
-		id := readCFOState(s.Store.Home.State).terminal
+	if want := query.Get("ceo"); want != "" {
+		id := readCEOState(s.Store.Home.State).terminal
 		if id == "" {
-			return nativeBinding{}, terminalEnded("The CFO does not run in a native terminal.")
+			return nativeBinding{}, terminalEnded("The CEO does not run in a native terminal.")
 		}
 		if id != want {
-			return nativeBinding{}, terminalEnded("The CFO runs in another terminal now. Open the CFO again.")
+			return nativeBinding{}, terminalEnded("The CEO runs in another terminal now. Open the CEO again.")
 		}
-		return nativeBinding{id: id, name: "the CFO", dir: s.Store.Home.State, key: id, harness: func() string {
-			return readCFOState(s.Store.Home.State).harness
+		return nativeBinding{id: id, name: "the CEO", dir: s.Store.Home.State, key: id, harness: func() string {
+			return readCEOState(s.Store.Home.State).harness
 		}, check: func(context.Context) (error, error) {
-			if readCFOState(s.Store.Home.State).terminal != id {
-				return nil, terminalEnded("The CFO no longer runs in this terminal. Open the CFO again.")
+			if readCEOState(s.Store.Home.State).terminal != id {
+				return nil, terminalEnded("The CEO no longer runs in this terminal. Open the CEO again.")
 			}
 			return nil, nil
 		}}, nil
@@ -688,7 +688,7 @@ func (s *Service) nativeTask(selected terminalSelection) (state.TaskMeta, error)
 }
 
 // endedTerminal is why a view closes when the terminal it names no longer
-// runs: its command or its task's session ended or was replaced, or the CFO
+// runs: its command or its task's session ended or was replaced, or the CEO
 // left it. No reconnect brings such a terminal back, so the view closes as
 // ended, a normal close, which the board shows without Reconnect, and a new
 // session or terminal is one the board opens by itself.

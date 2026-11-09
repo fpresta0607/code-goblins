@@ -19,12 +19,12 @@ It never replaces the original ruling bytes with a summary.
 The digest delivers warm ranges, a bounded cold routing index and a bounded fleet/backlog projection.
 State bounds also apply without a catalog, independently of the full legacy authority bytes.
 One current-state sample is reused by all startup renderings, with a shared two-second terminal-read budget and explicit unknown state when it expires.
-It reports omitted state and directs current-state reads to `cfo fleet-view`, `cfo drain` and the existing recovery owners.
+It reports omitted state and directs current-state reads to `ceo fleet-view`, `ceo drain` and the existing recovery owners.
 Displayed status tails are events, not evidence of present state, and omitted wakes remain unacknowledged.
 Read-only startup retains its existing custody boundary and writes no digest or marker.
 
 Claude's hook preview validates current sources on every start, resume, reload and fork before pointing to the newly composed `state/session-digest.md`.
-Codex and Pi run `cfo session-start` at startup and after resume or compaction; a saved digest alone never validates current authority.
+Codex and Pi run `ceo session-start` at startup and after resume or compaction; a saved digest alone never validates current authority.
 An unchanged resumed conversation skips source bytes only if it actually read and still holds them; a prior composition or completion marker is not proof of delivery.
 Changed authority must be read again before dependent action, and current state still requires reconciliation.
 Every role retrieves cold memory relevant to the project, task and topic before dependent action, even when the bounded routing index omitted its line.
@@ -86,14 +86,14 @@ If a tier is renamed or retired, Stow retargets the pending marker to the new ow
 
 ### Budgets and exceptions
 
-`cfo memory budget` measures the combined always-loaded memory, including bookkeeping and cold routing lines.
+`ceo memory budget` measures the combined always-loaded memory, including bookkeeping and cold routing lines.
 Before a catalog exists it counts the legacy directives, project map and fact index and says which are absent.
 `config/startup-memory-budget`, when present, is a positive integer estimated-token allowance; otherwise it is 10,000.
 An invalid setting is an exception, never an inferred default.
 An overrun retains all authority and requires a concrete budget or named-offload decision.
 It is never budget relief or a reset-safe result.
 
-`cfo memory budget --packages <file>` measures complete supplied startup captures for all three harnesses, not only a hook preview.
+`ceo memory budget --packages <file>` measures complete supplied startup captures for all three harnesses, not only a hook preview.
 The file is a JSON array with one object per `codex`, `claude` and `pi`, each having `harness` and `inputs`.
 Each input has `kind` and `path`, with paths relative to this file unless absolute.
 All six categories must be present for each harness: `core`, `global`, `memory`, `skills-index`, `brief` and `digest`.
@@ -110,7 +110,7 @@ Report before and after using the same capture boundaries, and distinguish synth
 
 ### Lossless planning and pinned offload
 
-Run `cfo memory migration-plan` before proposing any live history move.
+Run `ceo memory migration-plan` before proposing any live history move.
 It is a read-only inventory with no apply operation.
 It reports source hashes, complete byte ranges, proposed destinations, authority classification, scope, each pinned approval boundary and the hash of reconstructed retained bytes.
 An existing valid catalog supplies the exact item identities, ranges, authority, tiers, routing and declared layer owners; an invalid catalog is an error rather than permission to infer legacy ownership.

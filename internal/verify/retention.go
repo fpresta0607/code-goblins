@@ -28,9 +28,9 @@ const (
 	keptFailures       = 50
 	keptRefusals       = 20
 	keptAlwaysFailures = 5
-	// keptUnlogged are the runs that kept no logs, as cfo gate turn's, whose
+	// keptUnlogged are the runs that kept no logs, as ceo gate turn's, whose
 	// output their caller keeps. They are kept apart, so a burst of them
-	// never evicts a cfo verify run's logs, which are kept nowhere else.
+	// never evicts a ceo verify run's logs, which are kept nowhere else.
 	keptUnlogged    = 200
 	executionBudget = 2 << 30
 	// abandonedExecutionAge is how long a record still pending or one that
@@ -198,7 +198,7 @@ func pruneExecutions(dir, custodyDir, passesDir string, budget int64, now time.T
 			err = json.Unmarshal(data, &record)
 		}
 		if err != nil || record.ID != id || record.Version != 1 {
-			// A record being written, or one a newer cfo wrote, is not
+			// A record being written, or one a newer ceo wrote, is not
 			// taken for an old failure while it is young.
 			if !isYoung {
 				failures = append(failures, stored{id: id, created: info.ModTime(), size: sizes[id]})

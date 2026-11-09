@@ -74,12 +74,12 @@ func (s *Service) withdraw(task string) {
 // runAsked runs, oldest first, each Start and Resume the Overlord clicked
 // whose turn has come: nothing else starts or resumes, the fleet is not
 // stopping for the PC's restart, and memory and disk allow. It stops at the
-// first that must wait. One that no longer applies, such as a goblin the CFO
-// resumed meanwhile, is dropped, and one that fails goes to the CFO, as every
+// first that must wait. One that no longer applies, such as a goblin the CEO
+// resumed meanwhile, is dropped, and one that fails goes to the CEO, as every
 // failure does. One loop runs them at a time, and a call while it runs has it
 // look once more, so the loop that ran a change takes it off the queue before
 // any other loop sees it: a resume that ended at once called this while its
-// own click still waited, and cfo resumed the goblin twice (CI run
+// own click still waited, and ceo resumed the goblin twice (CI run
 // 37884316186).
 func (s *Service) runAsked() {
 	s.starts.Lock()
@@ -133,15 +133,15 @@ func (s *Service) runAsked() {
 			if next.resume != nil {
 				verb = "resume failed: "
 			}
-			s.tellCFOOfFailure(next.task, verb+err.Error())
+			s.tellCEOOfFailure(next.task, verb+err.Error())
 		}
 		s.notify()
 	}
 }
 
-// tellCFOOfFailure gives the CFO a start or change that failed on the board,
+// tellCEOOfFailure gives the CEO a start or change that failed on the board,
 // as a notify keyed by its task, which is no question.
-func (s *Service) tellCFOOfFailure(task, detail string) {
+func (s *Service) tellCEOOfFailure(task, detail string) {
 	if _, err := wake.Append(s.Store.Home.State, "notify", task, bounded(detail, 1500)); err != nil {
 		s.publish(err)
 	} else if _, err := wake.PublishEpisode(s.Store.Home.State); err != nil {

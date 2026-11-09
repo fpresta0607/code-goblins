@@ -38,7 +38,7 @@ type Reason string
 const (
 	WaitingOnDecision Reason = "waiting on a decision"
 	StoppedOnFailure  Reason = "stopped on a failure"
-	StoppedByCFO      Reason = "stopped by the CFO"
+	StoppedByCEO      Reason = "stopped by the CEO"
 	FinishedUnmerged  Reason = "finished without a merge"
 	LeftTheFleet      Reason = "no longer in the fleet"
 )
@@ -57,7 +57,7 @@ type Ticket struct {
 	TaskID string
 	Title  string
 	// What is the Ticket section of the task's brief: the two or three
-	// sentences the CFO wrote there for teammates, and the one text of a
+	// sentences the CEO wrote there for teammates, and the one text of a
 	// brief a ticket carries.
 	What string
 	// Area is the repository paths the brief's work names that the
@@ -70,7 +70,7 @@ type Ticket struct {
 	// the order they appeared, PullRequest among them.
 	PullRequests []PullRequestLink
 	Reason       Reason
-	// Overlap is the CFO's reason for starting the task beside a teammate's
+	// Overlap is the CEO's reason for starting the task beside a teammate's
 	// work, when he did; he writes it for the ticket.
 	Overlap string
 	// Assignee is the account the fleet writes as, which an issue the task
@@ -91,7 +91,7 @@ func (t Ticket) Labels() []string {
 	return labels
 }
 
-func stateLabel(state State) string { return "cfo: " + string(state) }
+func stateLabel(state State) string { return "ceo: " + string(state) }
 
 func harnessLabel(name string) string { return "goblin: " + name }
 
@@ -143,7 +143,7 @@ func (t Ticket) CloseReason() string {
 	}
 }
 
-// Body is the body of an issue cfo opened for the task: what it changes and
+// Body is the body of an issue ceo opened for the task: what it changes and
 // where, its state, who is on it and every pull request of the task,
 // rewritten in place as the state changes. The title is the issue's own, so
 // the body does not repeat it.

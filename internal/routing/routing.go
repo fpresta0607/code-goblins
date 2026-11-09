@@ -18,7 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// FileName is the policy file under the CFO home's data directory.
+// FileName is the policy file under the CEO home's data directory.
 const FileName = "routing.json"
 
 // Fault names a kind of provider failure seen in a goblin's pane.
@@ -72,8 +72,8 @@ var faultPatterns = []struct {
 	}},
 }
 
-// SteerPrefix is stamped on every line the CFO delivers into a goblin's pane
-// with cfo send, and OverlordPrefix is what the Overlord types before a line
+// SteerPrefix is stamped on every line the CEO delivers into a goblin's pane
+// with ceo send, and OverlordPrefix is what the Overlord types before a line
 // of their own. Detect blanks lines carrying either, and the indented
 // continuation lines a pane wraps a long prompt into, before it looks for a
 // fault: text an operator wrote about a provider is not evidence about the
@@ -81,7 +81,7 @@ var faultPatterns = []struct {
 // its test asserts the stamp through it, so a prefix change here changes the
 // stamp and the exclusion together rather than leaving one behind.
 const (
-	SteerPrefix    = "CFO: "
+	SteerPrefix    = "CEO: "
 	OverlordPrefix = "Overlord: "
 )
 
@@ -227,7 +227,7 @@ func allMatches(haystack, needle string) []int {
 	return indexes
 }
 
-// redactOperatorLines blanks every line an operator wrote, a cfo send steer
+// redactOperatorLines blanks every line an operator wrote, a ceo send steer
 // or an Overlord line, together with the indented lines a pane wraps the
 // rest of that prompt into. An indented line that opens with a harness result
 // or turn marker (⎿ ● ✻ ◐ ⏺ ❯ › >) is the harness answering, not the prompt
@@ -361,7 +361,7 @@ var harnessNotices = []string{"api error", "you've hit your", "claude usage limi
 // that is not indented, or opens with a harness mark, as a tool call, its
 // result, a refusal under it or a status row does, ends the reply. On
 // 2026-10-15 a goblin writing "a 429 that the classifier mistakes for rate
-// limiting" woke the CFO as a rate limit (#971), and a Windows goblin's
+// limiting" woke the CEO as a rate limit (#971), and a Windows goblin's
 // Monitor notice printing a test's local 503 woke it as a provider outage
 // (#1027).
 // Lengths are kept, so an index into the result still names the same place
@@ -412,7 +412,7 @@ func lineStartMatches(haystack, needle string) []int {
 
 // thirdPartyFramed reports whether a line carries error framing beyond the
 // matched keyword itself: a status code or an error word. A prose keyword on
-// its own (a CFO steer saying "not a github rate limit") is not an outage.
+// its own (a CEO steer saying "not a github rate limit") is not an outage.
 func thirdPartyFramed(line, keyword string) bool {
 	for _, code := range []string{"429", "403", "503", "502"} {
 		if hasStatusCode(line, code) {
@@ -436,7 +436,7 @@ func thirdPartyErrorWord(line, keyword string) bool {
 // usageWarning is the notice Claude Code prints as a limit nears, "You've
 // used 76% of your weekly limit · resets Oct 13, 10am": it names the limit
 // and its reset as the refusal does, but the harness works on, so its reset
-// is no refusal's. On 2026-10-08 it woke the CFO five times as a rate limit.
+// is no refusal's. On 2026-10-08 it woke the CEO five times as a rate limit.
 var usageWarning = regexp.MustCompile(`used \d+(?:\.\d+)?% of your [a-z -]*limit`)
 
 // retryOrResetTime is a retry or reset time written as one, "retry after 30s"
@@ -515,7 +515,7 @@ type Rule struct {
 	// Switch is where the task goes.
 	Switch Switch `json:"switch"`
 	// Auto lets the watcher act without asking. Without it the rule is a
-	// recommendation the CFO is woken with, which is the safer default for a
+	// recommendation the CEO is woken with, which is the safer default for a
 	// policy that restarts someone's harness.
 	Auto bool `json:"auto,omitempty"`
 	// ForceDirty renders --force-dirty in the rule's switch command, so a
@@ -535,7 +535,7 @@ type Lane struct {
 	Model   string `json:"model,omitempty"`
 	Effort  string `json:"effort,omitempty"`
 	// Note says what the lane is for, to whoever reads the file or
-	// `cfo doctor` next.
+	// `ceo doctor` next.
 	Note string `json:"note,omitempty"`
 }
 
@@ -558,8 +558,8 @@ type Policy struct {
 	Path string `json:"-"`
 }
 
-// Load reads the policy from a CFO home's data directory. A missing file is
-// not an error: a fleet with no standing rules simply wakes the CFO for every
+// Load reads the policy from a CEO home's data directory. A missing file is
+// not an error: a fleet with no standing rules simply wakes the CEO for every
 // fault, which is the behaviour without this package at all.
 func Load(dataDir string) (Policy, error) {
 	path := filepath.Join(dataDir, FileName)
@@ -662,10 +662,10 @@ func (p Policy) Match(harness string, fault Fault) (Rule, bool) {
 	return fallback, found
 }
 
-// Command renders the cfo switch command a rule calls for, which is what the
-// CFO is shown when the rule is a recommendation rather than an automatic.
+// Command renders the ceo switch command a rule calls for, which is what the
+// CEO is shown when the rule is a recommendation rather than an automatic.
 func (r Rule) Command(id string) string {
-	command := "cfo switch " + id + " --harness " + r.Switch.Harness
+	command := "ceo switch " + id + " --harness " + r.Switch.Harness
 	if r.Switch.Model != "" {
 		command += " --model " + r.Switch.Model
 	}

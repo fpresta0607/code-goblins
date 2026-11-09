@@ -7,28 +7,28 @@ import { plainMessage } from "./messageText.ts";
 import { updateOutcome } from "./update-progress.ts";
 
 // Everything the board holds as an item lives in one queue: a goblin's or the
-// CFO's question, a review item (images, a Lavish page, or a wait on him), a
-// command the CFO needs him to run, or a request for credential values.
+// CEO's question, a review item (images, a Lavish page, or a wait on him), a
+// command the CEO needs him to run, or a request for credential values.
 export type Item = { kind: "question"; key: string; question: Question } | { kind: "review"; key: string; review: Review } | { kind: "run"; key: string; run: Run }
   | { kind: "credential"; key: string; request: CredentialRequest }
   | { kind: "browser-signin"; key: string; signin: BrowserSignIn };
 
-// CFO_QUIET_AFTER_MS is how long the CFO has a goblin's question to itself:
-// past it the CFO's bar says the question waits, and it is his too.
-export const CFO_QUIET_AFTER_MS = 10 * 60 * 1000;
+// CEO_QUIET_AFTER_MS is how long the CEO has a goblin's question to itself:
+// past it the CEO's bar says the question waits, and it is his too.
+export const CEO_QUIET_AFTER_MS = 10 * 60 * 1000;
 
-// leftByTheCFO says whether a goblin's question is still unanswered
-// CFO_QUIET_AFTER_MS after it was asked, at the snapshot's time at.
-export const leftByTheCFO = (question: Question, at: number) => !!question.task && question.status === "pending" && at - Date.parse(question.created_at) >= CFO_QUIET_AFTER_MS;
+// leftByTheCEO says whether a goblin's question is still unanswered
+// CEO_QUIET_AFTER_MS after it was asked, at the snapshot's time at.
+export const leftByTheCEO = (question: Question, at: number) => !!question.task && question.status === "pending" && at - Date.parse(question.created_at) >= CEO_QUIET_AFTER_MS;
 
-// forOverlord says whether an item is his: a question the CFO asks him, what
-// the CFO passes up, a goblin's wait or page addressed to him, a command and
-// a credential request. A goblin's question is the CFO's to answer: it does
+// forOverlord says whether an item is his: a question the CEO asks him, what
+// the CEO passes up, a goblin's wait or page addressed to him, a command and
+// a credential request. A goblin's question is the CEO's to answer: it does
 // not wait on him or open anything, and is in History once answered, until
-// the CFO has left it for ten minutes, when it waits on him too, as the
-// CFO's bar then says (the Overlord, 2026-10-13: "the command center is not
+// the CEO has left it for ten minutes, when it waits on him too, as the
+// CEO's bar then says (the Overlord, 2026-10-13: "the command center is not
 // asking me every question").
-export const forOverlord = (item: Item, at: number) => item.kind !== "question" || !item.question.task || leftByTheCFO(item.question, at);
+export const forOverlord = (item: Item, at: number) => item.kind !== "question" || !item.question.task || leftByTheCEO(item.question, at);
 
 // A terminal a credential card or the Remote access setting opened shows
 // there, not as a run of its own.
@@ -54,14 +54,14 @@ export const isOpen = (item: Item) => item.kind === "browser-signin" ? ["ready",
 const waitsOnHim = (item: Item) => isOpen(item) && !(item.kind === "review" && item.review.revising_since);
 
 // An item the Overlord answered outside the Command Center, such as on its own
-// page or in chat as the CFO recorded: its card finishes as one he answered
+// page or in chat as the CEO recorded: its card finishes as one he answered
 // from it does.
 export const answeredElsewhere = (item: Item) => item.kind === "review" ? item.review.state === "answered" && !!item.review.answered_in
   : item.kind === "question" && item.question.status === "succeeded" && !!item.question.answered_in;
 
 // How the card of an item that closed without that card sending anything
 // finishes: Answered when he answered it somewhere else, such as on another
-// board, Closed when its asker or the CFO took it back. Empty while the item
+// board, Closed when its asker or the CEO took it back. Empty while the item
 // is open, and for one whose answer did not arrive, whose card says what to
 // do. A run's card shows its result and a credential request's card what it
 // saved, so neither finishes this way.
@@ -72,7 +72,7 @@ export function closedElsewhere(item: Item, actions: Action[]): "" | "Answered" 
 
 // A goblin's wait on the Overlord himself, raised by notify --waiting-on
 // overlord: a status to see and dismiss, not a question to answer. It stays
-// until he dismisses it, the goblin withdraws it, its task is gone or the CFO
+// until he dismisses it, the goblin withdraws it, its task is gone or the CEO
 // answers it, whatever the goblin reports meanwhile.
 export const waitsOnOverlord = (review: Review) => !!review.task && review.id.startsWith("waiting-" + review.task + "-");
 
@@ -86,8 +86,8 @@ export const reviewLine = (review: Review) => plainMessage(waitsOnOverlord(revie
 
 // What a wait points at, so its card says it plainly and opens it: the page
 // the goblin named, else a file it delivered, else the web link it gave as the
-// link (cfo notify --link), never an address it only names in its words, and
-// never its question to the CFO. Null when it names nothing.
+// link (ceo notify --link), never an address it only names in its words, and
+// never its question to the CEO. Null when it names nothing.
 export type WaitTarget = { kind: "item"; key: string; label: string } | { kind: "page"; url: string; label: string };
 export function waitTarget(review: Review, snapshot: Snapshot): WaitTarget | null {
   if (review.lavish) return { kind: "page", url: review.lavish, label: "Open review" };
@@ -102,7 +102,7 @@ export function waitTarget(review: Review, snapshot: Snapshot): WaitTarget | nul
 // is still open, which alone shows (the Overlord, 2026-10-17: "These
 // follow-ups should not be notifications in the Command Center ... But the
 // initial one is critical"). The goblin ties its wait to that decision by its
-// question's ID as it raises the wait (cfo notify --follows), and the
+// question's ID as it raises the wait (ceo notify --follows), and the
 // supervisor closes the wait when that decision is answered, so nothing open
 // is ever hidden past its decision.
 export const followsDecision = (review: Review, snapshot: Snapshot) => !!review.follows && (snapshot.questions || []).some((question) => question.id === review.follows && question.status === "pending");
@@ -111,7 +111,7 @@ export function itemFor(snapshot: Snapshot, key: string): Item | undefined {
   return asItems(snapshot).find((item) => item.key === key);
 }
 
-// The stack he works through: the CFO's own items first, then goblins in the
+// The stack he works through: the CEO's own items first, then goblins in the
 // In progress order he set, then goblins he has not placed, each by longest
 // wait. An item answered in this sitting keeps its place, so it can show its
 // outcome instead of vanishing under the pointer. A goblin's follow-up of a
@@ -124,7 +124,7 @@ export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new
 }
 
 // hasItemWaitingOnHim says goblin id has an item in that list: its own, or a
-// decision of its that the CFO put to him.
+// decision of its that the CEO put to him.
 export const hasItemWaitingOnHim = (snapshot: Snapshot, id: string) =>
   waitingItems(snapshot).some((item) => (item.kind === "question" && item.question.for_task || task(item)) === id);
 
@@ -185,7 +185,7 @@ export function notSent(draft: SentDraft, item: Item | undefined, actions: Actio
 }
 
 // holdsUnsent says whether any card of an item still waiting, or a change to
-// the CFO's answer made from History, keeps a choice or written text the
+// the CEO's answer made from History, keeps a choice or written text the
 // Overlord has not sent, is sending it, or saw its send fail, which a reload
 // would lose. A draft left on an item that closed is no longer his to send;
 // one he is sending counts whatever the item shows, since the board shows it
@@ -201,12 +201,12 @@ export function holdsUnsent(drafts: Record<string, SentDraft & { selection: stri
 
 
 // The page a question's card may open: its asker's most recent live review
-// page, from the same goblin session or the CFO registration that asked, so a
+// page, from the same goblin session or the CEO registration that asked, so a
 // card never opens another task's page or one a replaced asker left behind.
 export function questionPage(presentations: BoardActivity[], question: Question): BoardActivity | undefined {
   return [...presentations].reverse().find((event) => event.kind === "review" && (question.task
     ? event.task_id === question.task && event.generation === question.generation
-    : !!event.cfo_identity && event.cfo_identity === question.identity));
+    : !!event.ceo_identity && event.ceo_identity === question.identity));
 }
 
 export function settledItems(snapshot: Snapshot): Item[] {
@@ -226,7 +226,7 @@ export function withClosed(snapshot: Snapshot, read: ClosedItems | undefined): S
 
 export type QuestionOutcome = "pending" | "answered" | "superseded" | "cleared" | "failed" | "uncertain";
 
-// What became of a question. The CFO's cfo answer sets answered_by with an
+// What became of a question. The CEO's ceo answer sets answered_by with an
 // empty answer_id; a board answer that failed or went unconfirmed never
 // reached its asker, so it is not answered.
 export function questionOutcome(question: Question): QuestionOutcome {
@@ -241,41 +241,41 @@ export function answeredLabel(question: Question): string {
     // Superseded is a replaced asker; the backend's message says which.
     case "superseded": return question.message || "Superseded. The asker was replaced.";
     case "cleared": return question.message || "Closed without an answer";
-    case "failed": return "Your answer did not reach " + (question.task ? "the goblin" : "the CFO");
-    case "uncertain": return "Not confirmed: check " + (question.task ? "the goblin's" : "the CFO's") + " terminal";
+    case "failed": return "Your answer did not reach " + (question.task ? "the goblin" : "the CEO");
+    case "uncertain": return "Not confirmed: check " + (question.task ? "the goblin's" : "the CEO's") + " terminal";
   }
-  const who = question.answered_by === "cfo" ? "The CFO" : "You";
+  const who = question.answered_by === "ceo" ? "The CEO" : "You";
   if (question.answered_in === "page") return who + " answered on its page" + (question.answer ? ": " + question.answer : "");
-  if (question.answered_in) return "You answered in " + question.answered_in + " · recorded by the CFO";
-  // A question the CFO answered and retired with --ack-blocking closed
+  if (question.answered_in) return "You answered in " + question.answered_in + " · recorded by the CEO";
+  // A question the CEO answered and retired with --ack-blocking closed
   // without the board learning which choice.
   if (!question.answer) return who + " answered it";
   // A board answer still on its way says so until its reader has it.
-  const onItsWay = question.status === "succeeded" ? "" : " (not yet delivered to " + (question.task ? "the goblin" : "the CFO") + ")";
-  return (question.answer_kind === "other" ? who + " wrote: " + question.answer : who + " chose " + (cfoReason(question) ? question.answered_option : question.answer)) + onItsWay;
+  const onItsWay = question.status === "succeeded" ? "" : " (not yet delivered to " + (question.task ? "the goblin" : "the CEO") + ")";
+  return (question.answer_kind === "other" ? who + " wrote: " + question.answer : who + " chose " + (ceoReason(question) ? question.answered_option : question.answer)) + onItsWay;
 }
 
-// The reason the CFO gave with its choice: cfo answer --note joins it to the
+// The reason the CEO gave with its choice: ceo answer --note joins it to the
 // choice as "<choice>. <reason>".
-const cfoReason = (question: Question) => question.answered_by === "cfo" && question.answered_option && question.answer.startsWith(question.answered_option + ". ")
+const ceoReason = (question: Question) => question.answered_by === "ceo" && question.answered_option && question.answer.startsWith(question.answered_option + ". ")
   ? question.answer.slice(question.answered_option.length + 2) : "";
 
-// The line under an answer in History: the CFO's reason, or the answer his
+// The line under an answer in History: the CEO's reason, or the answer his
 // change replaced.
 export function answerReason(question: Question): string {
   if (question.replaced_answer) return "Changed from " + question.replaced_answer;
-  const reason = cfoReason(question);
+  const reason = ceoReason(question);
   return reason ? "Reason: " + reason : "";
 }
 
-// Who answered, as History marks it: you, the CFO, or the CFO while you were
+// Who answered, as History marks it: you, the CEO, or the CEO while you were
 // away. A question nobody answered, or whose answer is still on its way or
 // did not arrive, keeps the mark of what became of it, so its row reads sent,
 // then delivered.
-export function answerMark(question: Question): "" | "you" | "cfo" | "away" {
+export function answerMark(question: Question): "" | "you" | "ceo" | "away" {
   if (questionOutcome(question) !== "answered" || question.status !== "succeeded") return "";
-  if (question.answered_by !== "cfo") return "you";
-  return question.answered_away ? "away" : "cfo";
+  if (question.answered_by !== "ceo") return "you";
+  return question.answered_away ? "away" : "ceo";
 }
 
 // Whether he can change a question's answer: it has one, whoever gave it, on
@@ -317,12 +317,12 @@ export function standingAnswer(question: Question, draft: SentDraft, actions: Ac
 }
 
 // Who chose the answer a question stands on, and when, as its card says it.
-export function standingWho(question: Question, draft: SentDraft & { sentAt?: string }, actions: Action[]): { mark: "you" | "cfo" | "away"; label: string; at: string } {
+export function standingWho(question: Question, draft: SentDraft & { sentAt?: string }, actions: Action[]): { mark: "you" | "ceo" | "away"; label: string; at: string } {
   const sent = changeOnItsWay(question, draft, actions);
   const kind = sent ? sent.answer_kind : question.answer_kind;
   const yours = kind === "other" ? "You wrote this" : "You chose this";
   if (sent) return { mark: "you", label: yours, at: draft.sentAt || "" };
-  if (question.answered_by === "cfo") return { mark: question.answered_away ? "away" : "cfo", label: !question.answer ? "The CFO answered it" : question.answered_away ? "The CFO chose this while you were away" : "The CFO chose this", at: question.answered_at };
+  if (question.answered_by === "ceo") return { mark: question.answered_away ? "away" : "ceo", label: !question.answer ? "The CEO answered it" : question.answered_away ? "The CEO chose this while you were away" : "The CEO chose this", at: question.answered_at };
   if (question.answered_in && question.answered_in !== "page") return { mark: "you", label: "You answered in " + question.answered_in, at: question.answered_at };
   return { mark: "you", label: yours, at: question.answered_at };
 }
@@ -343,8 +343,8 @@ export function outcomeIcon(outcome: QuestionOutcome): IconName {
 // outcome, a review item by its state. The backend marks a review answered as
 // soon as it queues the answer and sets delivered only once the goblin has it,
 // so only delivered says it arrived. An answer action that succeeded without
-// delivery was handed to the CFO because the goblin was replaced, one of a
-// goblin's items that awaits the CFO is being handed to it, and an answer
+// delivery was handed to the CEO because the goblin was replaced, one of a
+// goblin's items that awaits the CEO is being handed to it, and an answer
 // whose action has aged out of the snapshot is no longer recorded.
 function answerOutcome(review: Review, actions: Action[]): "delivered" | "handed" | "handing" | "pending" | "failed" | "uncertain" | "unrecorded" {
   if (review.delivered) return "delivered";
@@ -352,7 +352,7 @@ function answerOutcome(review: Review, actions: Action[]): "delivered" | "handed
   if (!action) return "unrecorded";
   if (action.status === "succeeded") return "handed";
   if (action.status === "failed" || action.status === "uncertain") return action.status;
-  return review.task && action.awaiting === "the CFO" ? "handing" : "pending";
+  return review.task && action.awaiting === "the CEO" ? "handing" : "pending";
 }
 
 // A delivery that never arrived reads as what to do about it, in the
@@ -363,13 +363,13 @@ export function settledLabel(item: Item, actions: Action[]): string {
   const advice = (answer: string) => actions.find((action) => action.id === answer)?.advice || "";
   if (item.kind === "question") return questionOutcome(item.question) === "uncertain" && advice(item.question.answer_id) || answeredLabel(item.question);
   // A command's exit code is kept here, beside how it ended; one he stopped
-  // needs no reason, which speaks of him to the CFO.
+  // needs no reason, which speaks of him to the CEO.
   if (item.kind === "run") {
     const label = item.run.update ? updateOutcome(item.run).label + " " + item.run.update.to : runMark(item.run).label + (item.run.exit_code === null ? "" : " · exit " + item.run.exit_code);
     return label + (item.run.reason && item.run.state !== "stopped" && !label.includes(item.run.reason) ? ": " + item.run.reason : "");
   }
   const { state, answer, reason, task } = item.review;
-  const asker = task ? "the goblin" : "the CFO";
+  const asker = task ? "the goblin" : "the CEO";
   if (state === "withdrawn") return "Withdrawn: " + reason;
   if (state !== "answered") return reason || "Cleared";
   if (answeredElsewhere(item)) return answer ? reason + " You wrote: " + answer : reason;
@@ -377,8 +377,8 @@ export function settledLabel(item: Item, actions: Action[]): string {
     case "failed": return "Your answer did not reach " + asker;
     case "uncertain": return advice(item.review.answer_id) || "Not confirmed: check " + asker + "'s terminal before answering again";
     case "pending": return "You wrote: " + answer + " (not yet delivered to " + asker + ")";
-    case "handing": return "You wrote: " + answer + " (not yet delivered to the CFO)";
-    case "handed": return "Sent to the CFO: " + answer;
+    case "handing": return "You wrote: " + answer + " (not yet delivered to the CEO)";
+    case "handed": return "Sent to the CEO: " + answer;
     case "unrecorded": return "You wrote: " + answer + " (delivery no longer recorded)";
     case "delivered": return "You wrote: " + answer;
   }
@@ -409,5 +409,5 @@ export function chosenOption(question: Question): string {
 }
 
 export function answeredBy(question: Question): string {
-  return "Answered by " + (question.answered_by === "cfo" ? "the CFO" : "you");
+  return "Answered by " + (question.answered_by === "ceo" ? "the CEO" : "you");
 }

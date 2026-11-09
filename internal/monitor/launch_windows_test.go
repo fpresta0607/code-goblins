@@ -12,7 +12,7 @@ import (
 )
 
 // On 2026-10-07 pd-discovery-ladders' host started thirteen minutes after its
-// cfo spawn wrote its task record, and the monitor woke the CFO with
+// ceo spawn wrote its task record, and the monitor woke the CEO with
 // endpoint_missing eight minutes in: the launch grace ran from the record. A
 // spawn takes the home's spawn lock as its turn before it names the goblin's
 // generation and gives it back once the goblin's host runs, and the goblin

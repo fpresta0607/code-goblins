@@ -93,13 +93,13 @@ type Outside struct {
 }
 
 // StoreDir is the folder verification runs record into: the one
-// CFO_VERIFY_DIR names, else cfo/verify in the user's cache folder, beside
+// CEO_VERIFY_DIR names, else ceo/verify in the user's cache folder, beside
 // the fleet's Go temporary directories. A test binary that names none is
 // refused, as internal/home refuses the inherited fleet home, so no test
 // writes into the store real runs read.
 func StoreDir() (string, error) {
 	name := strings.ToLower(filepath.Base(os.Args[0]))
-	return storeDir(os.Getenv("CFO_VERIFY_DIR"), strings.HasSuffix(name, ".test") || strings.HasSuffix(name, ".test.exe"))
+	return storeDir(os.Getenv("CEO_VERIFY_DIR"), strings.HasSuffix(name, ".test") || strings.HasSuffix(name, ".test.exe"))
 }
 
 func storeDir(override string, testBinary bool) (string, error) {
@@ -107,13 +107,13 @@ func storeDir(override string, testBinary bool) (string, error) {
 		return override, nil
 	}
 	if testBinary {
-		return "", errors.New("verify: a test must name its own report store in CFO_VERIFY_DIR; the default is the store real runs read")
+		return "", errors.New("verify: a test must name its own report store in CEO_VERIFY_DIR; the default is the store real runs read")
 	}
 	cache, err := os.UserCacheDir()
 	if err != nil {
 		return "", fmt.Errorf("verify: resolve user cache directory: %w", err)
 	}
-	return filepath.Join(cache, "cfo", "verify"), nil
+	return filepath.Join(cache, "ceo", "verify"), nil
 }
 
 // Begin makes a run's log in the store, open for the run's output, and

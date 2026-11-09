@@ -118,10 +118,10 @@ func TestControllerInheritedPublicationJourney(t *testing.T) {
 	{
 		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 		defer cancel()
-		command := exec.CommandContext(ctx, os.Getenv("CFO_RECOVERY_CONTROLLER_TESTS"), "-test.run", "^TestRecoverInheritedPublicationNativeFixture$", "-test.v", "-test.timeout", "140s")
-		command.Dir = filepath.Join(os.Getenv("CFO_RECOVERY_NATIVE_CONTROLLER"), "internal", "pipeline")
+		command := exec.CommandContext(ctx, os.Getenv("CEO_RECOVERY_CONTROLLER_TESTS"), "-test.run", "^TestRecoverInheritedPublicationNativeFixture$", "-test.v", "-test.timeout", "140s")
+		command.Dir = filepath.Join(os.Getenv("CEO_RECOVERY_NATIVE_CONTROLLER"), "internal", "pipeline")
 		winproc.Harden(command)
-		command.Env = append(os.Environ(), "CFO_RECOVERY_NATIVE_ROOT="+manager.paths.Root(), "CFO_RECOVERY_NATIVE_PROJECT="+repo.WorkingPath, "CFO_RECOVERY_NATIVE_RUN="+child.ID, "CFO_RECOVERY_NATIVE_ADMISSION="+event.ID, "CFO_RECOVERY_NATIVE_HEAD="+child.HeadSHA)
+		command.Env = append(os.Environ(), "CEO_RECOVERY_NATIVE_ROOT="+manager.paths.Root(), "CEO_RECOVERY_NATIVE_PROJECT="+repo.WorkingPath, "CEO_RECOVERY_NATIVE_RUN="+child.ID, "CEO_RECOVERY_NATIVE_ADMISSION="+event.ID, "CEO_RECOVERY_NATIVE_HEAD="+child.HeadSHA)
 		output, err := command.CombinedOutput()
 		t.Logf("controller boundary:\n%s", output)
 		if err != nil {
@@ -296,10 +296,10 @@ func TestControllerUnpublishedAuthoredJourney(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(manager.paths.Root(), ".controller-recovery-fixture"), []byte("isolated native admission fixture\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	command := exec.CommandContext(ctx, os.Getenv("CFO_RECOVERY_CONTROLLER_TESTS"), "-test.run", "^TestRecoverInheritedPublicationNativeFixture$", "-test.v", "-test.timeout", "25s")
-	command.Dir = filepath.Join(os.Getenv("CFO_RECOVERY_NATIVE_CONTROLLER"), "internal", "pipeline")
+	command := exec.CommandContext(ctx, os.Getenv("CEO_RECOVERY_CONTROLLER_TESTS"), "-test.run", "^TestRecoverInheritedPublicationNativeFixture$", "-test.v", "-test.timeout", "25s")
+	command.Dir = filepath.Join(os.Getenv("CEO_RECOVERY_NATIVE_CONTROLLER"), "internal", "pipeline")
 	winproc.Harden(command)
-	command.Env = append(os.Environ(), "CFO_RECOVERY_NATIVE_ROOT="+manager.paths.Root(), "CFO_RECOVERY_NATIVE_PROJECT="+repo.WorkingPath, "CFO_RECOVERY_NATIVE_RUN="+event.ChildID, "CFO_RECOVERY_NATIVE_HEAD="+params.Request.CandidateSHA, "CFO_RECOVERY_EXPECT_AUTHORED_UNPUBLISHED=1")
+	command.Env = append(os.Environ(), "CEO_RECOVERY_NATIVE_ROOT="+manager.paths.Root(), "CEO_RECOVERY_NATIVE_PROJECT="+repo.WorkingPath, "CEO_RECOVERY_NATIVE_RUN="+event.ChildID, "CEO_RECOVERY_NATIVE_HEAD="+params.Request.CandidateSHA, "CEO_RECOVERY_EXPECT_AUTHORED_UNPUBLISHED=1")
 	output, err = command.CombinedOutput()
 	t.Logf("unpublished authored controller recovery:\n%s", output)
 	if err != nil || gitOutput(t, gate, "rev-parse", "refs/heads/feature") != gateHead {
@@ -329,10 +329,10 @@ func TestControllerOrdinaryCancellationRemainsRefused(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, os.Getenv("CFO_RECOVERY_CONTROLLER_TESTS"), "-test.run", "^TestRecoverInheritedPublicationNativeFixture$", "-test.v", "-test.timeout", "25s")
-	command.Dir = filepath.Join(os.Getenv("CFO_RECOVERY_NATIVE_CONTROLLER"), "internal", "pipeline")
+	command := exec.CommandContext(ctx, os.Getenv("CEO_RECOVERY_CONTROLLER_TESTS"), "-test.run", "^TestRecoverInheritedPublicationNativeFixture$", "-test.v", "-test.timeout", "25s")
+	command.Dir = filepath.Join(os.Getenv("CEO_RECOVERY_NATIVE_CONTROLLER"), "internal", "pipeline")
 	winproc.Harden(command)
-	command.Env = append(os.Environ(), "CFO_RECOVERY_NATIVE_ROOT="+manager.paths.Root(), "CFO_RECOVERY_NATIVE_PROJECT="+repo.WorkingPath, "CFO_RECOVERY_NATIVE_RUN="+run.ID, "CFO_RECOVERY_NATIVE_HEAD="+run.HeadSHA, "CFO_RECOVERY_EXPECT_USER_OWNED=1")
+	command.Env = append(os.Environ(), "CEO_RECOVERY_NATIVE_ROOT="+manager.paths.Root(), "CEO_RECOVERY_NATIVE_PROJECT="+repo.WorkingPath, "CEO_RECOVERY_NATIVE_RUN="+run.ID, "CEO_RECOVERY_NATIVE_HEAD="+run.HeadSHA, "CEO_RECOVERY_EXPECT_USER_OWNED=1")
 	output, err := command.CombinedOutput()
 	t.Logf("ordinary user-owned cancellation:\n%s", output)
 	if err != nil || gitOutput(t, gate, "rev-parse", "refs/heads/feature") != gateHead {

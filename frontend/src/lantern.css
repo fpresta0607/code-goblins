@@ -1,4 +1,4 @@
-/* Everything that tells the Overlord something waits for him wears the CFO's
+/* Everything that tells the Overlord something waits for him wears the CEO's
    lantern box, as he asked on 2026-10-07 ("with lantern bars back make sure
    alerts match it correct?"): the Command Center's count, its list of what
    waits, its item cards and what is held for him in AFK mode share the box's
@@ -15,7 +15,7 @@
 .inbox-list.waiting li.release-row { border: 0; box-shadow: none; }
 .inbox-list.waiting li.opens-item { cursor: pointer; }
 
-/* Who asks is named in lantern, as the box's tab names the CFO. */
+/* Who asks is named in lantern, as the box's tab names the CEO. */
 :is(.question-card, .run-card) .asker strong, .inbox-list.waiting .inbox-text strong { color: var(--lantern); font-family: var(--font-display); font-weight: 400; }
 
 /* The one action of an item is the lantern button. */

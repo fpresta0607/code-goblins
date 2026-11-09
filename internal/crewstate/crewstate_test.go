@@ -120,7 +120,7 @@ func TestResolveMapsStatusOnlyAfterExactStructuralIdle(t *testing.T) {
 		{line: "done: shipped", want: Done},
 		{line: "failed: test failure", want: Failed},
 		// On 2026-10-13 fleet-view read Murray and Bernie as unknown while
-		// the board showed what they waited on: cfo notify --waiting-on
+		// the board showed what they waited on: ceo notify --waiting-on
 		// writes waiting on <what>, which no state took.
 		{line: "waiting on memory: scoped checks queued in the gate turn", want: Waiting},
 		{line: "waiting on 01M4TK6QXR7F31S7EY3SFGKWF6: respond queued", want: Waiting},
@@ -213,13 +213,13 @@ func TestParseStatusLineReadsStampedAndUnstampedEvents(t *testing.T) {
 	}
 }
 
-// A CFO audit record is the CFO's word, never the goblin's, so the goblin's
+// A CEO audit record is the CEO's word, never the goblin's, so the goblin's
 // own latest report still decides its state after one.
-func TestLatestReportSkipsCFOAuditLines(t *testing.T) {
+func TestLatestReportSkipsCEOAuditLines(t *testing.T) {
 	ctx := context.Background()
 	for _, audit := range []string{
-		"pipeline-findings-accepted: step=review run=r1 round=2 findings=ask,bug by=cfo",
-		`pipeline-approval-reason: step=test run=r1 round=1 reason="only the sandbox's compiler is missing" by=cfo`,
+		"pipeline-findings-accepted: step=review run=r1 round=2 findings=ask,bug by=ceo",
+		`pipeline-approval-reason: step=test run=r1 round=1 reason="only the sandbox's compiler is missing" by=ceo`,
 		"pipeline-policy-migrated: class=ordinary review_cycles=3 old=aaa new=bbb",
 		"overlap-accepted: it only adds a log line (PR #412 by ana-teammate changes tasks/billing_sync.py)",
 		`notify-handled: {"seq":7,"kind":"notify","key":"g1","detail":"failed: Which fix?"}`,

@@ -21,7 +21,7 @@ const STATES: GoblinState[] = [
   { id: "nw-lars", name: "Lars - Load Tester", fields: { phase: "waiting", waiting_on: "memory",
     tree: { task_id: "nw-lars", generation: "nw-lars-1", harness: "claude", memory: 0, own_memory: 0, children: [], line_place: 2 } }, text: "2nd in line for the machine", isPaused: false },
   { id: "nw-vera", name: "Vera - Vault Keeper", fields: { phase: "waiting", waiting_on: "overlord" }, text: "Waiting on you", isPaused: false },
-  { id: "nw-cole", name: "Cole - Config Clerk", fields: { phase: "blocked", report: "blocked", reason: "Which port should the API listen on?" }, text: "Waiting on the CFO", isPaused: false },
+  { id: "nw-cole", name: "Cole - Config Clerk", fields: { phase: "blocked", report: "blocked", reason: "Which port should the API listen on?" }, text: "Waiting on the CEO", isPaused: false },
   { id: "nw-cid", name: "Cid - Check Chaser", fields: { phase: "waiting", waiting_on: "ci" }, text: "Waiting on CI", isPaused: false },
   { id: "nw-dot", name: "Dot - Deploy Driver", fields: { phase: "waiting", waiting_on: "deploy" }, text: "Waiting on its deploy", isPaused: false },
   { id: "nw-nell", name: "Nell - Schema Sculptor", fields: { phase: "waiting", waiting_on: "nw-wren" }, text: "Waiting on Wren", isPaused: false },
@@ -33,8 +33,8 @@ const STATES: GoblinState[] = [
 ];
 
 const SNAPSHOT = {
-  healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
-  sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }],
+  healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [],
+  sessions: [{ id: "ceo-1", harness: "claude", role: "ceo", model: "claude-opus-5-5" }],
   tasks: STATES.map(({ id, name, fields }) => {
     const [goblinName, goblinTitle] = name.split(" - ");
     return { id, title: id, goblin_name: goblinName, goblin_title: goblinTitle, project: "northwind-api", verified: false,

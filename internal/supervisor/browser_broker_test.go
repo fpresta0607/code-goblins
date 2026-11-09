@@ -106,7 +106,7 @@ func testBroker(t *testing.T) (*browserBroker, *fakeChrome, map[string]bool, *ti
 // brokerTask records a live goblin task of project.
 func brokerTask(t *testing.T, broker *browserBroker, id, project string) {
 	t.Helper()
-	meta := state.TaskMeta{ID: id, Project: filepath.Join(`C:\dev`, project), Backend: "native", Window: "native", Harness: "claude", Kind: "ship", Worktree: filepath.Join(`C:\cfo\worktrees`, id), Credentials: []string{"stripe"}, HasCredentials: true}
+	meta := state.TaskMeta{ID: id, Project: filepath.Join(`C:\dev`, project), Backend: "native", Window: "native", Harness: "claude", Kind: "ship", Worktree: filepath.Join(`C:\ceo\worktrees`, id), Credentials: []string{"stripe"}, HasCredentials: true}
 	if err := state.WriteTaskMeta(broker.state, meta); err != nil {
 		t.Fatal(err)
 	}

@@ -12,7 +12,7 @@ import (
 )
 
 // Ongoing is a goblin's work that was still under way when AFK mode turned
-// off, or a task queued to start next: its title, the CFO's one line for it,
+// off, or a task queued to start next: its title, the CEO's one line for it,
 // and the goblin's latest note on it.
 type Ongoing struct {
 	Task   string    `json:"task"`
@@ -79,7 +79,7 @@ type Pull struct {
 	URL    string
 }
 
-// Decision is one decision the CFO made for the Overlord: the short question,
+// Decision is one decision the CEO made for the Overlord: the short question,
 // the answer taken, why in a sentence, and the question in his History it
 // changes.
 type Decision struct {
@@ -120,7 +120,7 @@ func pullOf(url string) Pull {
 const elsewhere = "Across the fleet"
 
 // Walkthrough is what changed in the stretch, by project: each task's work as
-// one change, told by the CFO's title for it and the goblin's own note, with
+// one change, told by the CEO's title for it and the goblin's own note, with
 // every pull request it finished small beside it, then each merge, deploy,
 // migration, install or other decision no task's work holds. A deploy, a
 // migration and an install are named on the change whose pull request they
@@ -192,7 +192,7 @@ func (r Return) Walkthrough() []Project {
 		}
 	}
 	for _, section := range r.Report.Sections() {
-		if section.Group != GroupDone || section.Title == "Struck by the CFO" || section.Title == "Settled by the CFO" || section.Title == "Paused at a floor" {
+		if section.Group != GroupDone || section.Title == "Struck by the CEO" || section.Title == "Settled by the CEO" || section.Title == "Paused at a floor" {
 			continue
 		}
 		for _, entry := range section.Entries {
@@ -234,7 +234,7 @@ func (r Return) Walkthrough() []Project {
 	return projects
 }
 
-// Decided is each decision the CFO made for the Overlord in the stretch, his
+// Decided is each decision the CEO made for the Overlord in the stretch, his
 // own first and then the goblins' questions, each in the order it was made,
 // with the question in his History it changes.
 func (r Return) Decided() (his, goblins []Decision) {
@@ -265,7 +265,7 @@ func (r Return) Decided() (his, goblins []Decision) {
 	return his, goblins
 }
 
-// askedAndAnswered splits the evidence cfo answer logs for a goblin's question
+// askedAndAnswered splits the evidence ceo answer logs for a goblin's question
 // into the question it asked and the answer it was given.
 func askedAndAnswered(evidence string) (asked, answered string) {
 	rest := strings.TrimPrefix(evidence, "asked: ")
@@ -275,11 +275,11 @@ func askedAndAnswered(evidence string) (asked, answered string) {
 	return strings.TrimSpace(rest), ""
 }
 
-// splitAnswer reads an answer the CFO gave a goblin as the answer taken and
-// why: the choice before the CFO's note, which follows "CFO under AFK:" or
-// "CFO:", and the note's first sentence.
+// splitAnswer reads an answer the CEO gave a goblin as the answer taken and
+// why: the choice before the CEO's note, which follows "CEO under AFK:" or
+// "CEO:", and the note's first sentence.
 func splitAnswer(answered string) (answer, why string) {
-	for _, marker := range []string{" CFO under AFK: ", " CFO: "} {
+	for _, marker := range []string{" CEO under AFK: ", " CEO: "} {
 		if before, after, ok := strings.Cut(answered, marker); ok {
 			return strings.TrimSuffix(strings.TrimSpace(before), "."), firstSentence(after)
 		}

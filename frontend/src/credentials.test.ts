@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { credentialAsk, credentialFinish, credentialHeading, credentialSettled, fetchOffer, linkLabel, onThisMachine, readersOf, stepText, stillNeeded, storeCommand, storedHow, terminalNames, valueWarnings, whereItGoes } from "./credentials.ts";
 import { boardAlerts, outlived } from "./alertRules.ts";
-import { cfoSummary } from "./cfoSummary.ts";
+import { ceoSummary } from "./ceoSummary.ts";
 import { settledLabel, waitingItems } from "./commandQueue.ts";
 import type { CredentialRequest, Run, Snapshot, Task } from "./types.ts";
 import { parseSnapshot } from "./types.ts";
@@ -27,7 +27,7 @@ test("a service grant card names the service and task, and records its granted o
 });
 
 test("a recorded grant whose script refresh failed keeps its recovery instruction in the completed card and History", () => {
-  const reason = "spawn: the record of add-billing changed as asked, but its auth.ps1 was not rewritten, so run cfo auth refresh add-billing: task cleanup is in progress";
+  const reason = "spawn: the record of add-billing changed as asked, but its auth.ps1 was not rewritten, so run ceo auth refresh add-billing: task cleanup is in progress";
   const card = request({ names: [], grant_service: "stripe", state: "granted", reason });
 
   const settled = credentialSettled(card);
@@ -75,7 +75,7 @@ test("a request's link shows its site and page, without the scheme", () => {
   assert.equal(linkLabel("https://resend.com"), "resend.com");
 });
 
-// CFO decision 3624: Run and the card behave the same. A stored name is typed
+// CEO decision 3624: Run and the card behave the same. A stored name is typed
 // again only when he confirms replacing it.
 test("the terminal types the names the scope does not hold, and a stored one only once he confirms replacing it", () => {
   const held = request({ existing: ["DATABASE_URL"] });
@@ -85,9 +85,9 @@ test("the terminal types the names the scope does not hold, and a stored one onl
   assert.deepEqual(terminalNames(request({ saved: ["DATABASE_URL"] }), []), ["STRIPE_SECRET_KEY"]);
 });
 
-test("the terminal command is the exact cfo auth store line, quoting a scope a shell would split", () => {
-  assert.equal(storeCommand("precisiondocs", "STRIPE_SECRET_KEY"), "cfo auth store --project precisiondocs STRIPE_SECRET_KEY");
-  assert.equal(storeCommand("Acme Shop (old)", "STRIPE_SECRET_KEY"), 'cfo auth store --project "Acme Shop (old)" STRIPE_SECRET_KEY');
+test("the terminal command is the exact ceo auth store line, quoting a scope a shell would split", () => {
+  assert.equal(storeCommand("precisiondocs", "STRIPE_SECRET_KEY"), "ceo auth store --project precisiondocs STRIPE_SECRET_KEY");
+  assert.equal(storeCommand("Acme Shop (old)", "STRIPE_SECRET_KEY"), 'ceo auth store --project "Acme Shop (old)" STRIPE_SECRET_KEY');
 });
 
 test("a format hint warns about a value of the wrong kind and advises on one it names, never blocking", () => {
@@ -128,9 +128,9 @@ test("a new request alerts once, naming who asks and what, and opens its card", 
   assert.deepEqual(alerts.map(({ key, speaker, text, item }) => ({ key, speaker, text, item })), [
     { key: "credential:" + filed.id + "@" + filed.created_at, speaker: "Add Stripe billing", text: "Add Stripe billing asks: Paste STRIPE_SECRET_KEY for precisiondocs", item: "credential:" + filed.id },
   ]);
-  const [cfo] = boardAlerts(board([]), board([{ ...filed, by: "cfo", task: "" }]));
-  assert.equal(cfo.speaker, "CFO");
-  assert.equal(cfo.text, "The CFO asks: Paste STRIPE_SECRET_KEY for precisiondocs");
+  const [ceo] = boardAlerts(board([]), board([{ ...filed, by: "ceo", task: "" }]));
+  assert.equal(ceo.speaker, "CEO");
+  assert.equal(ceo.text, "The CEO asks: Paste STRIPE_SECRET_KEY for precisiondocs");
   assert.deepEqual(boardAlerts(board([filed]), board([filed])), [], "a request already there alerts nothing");
 });
 
@@ -143,9 +143,9 @@ test("a request's alert has nothing left to open once the request is saved or ex
   assert.equal(outlived(alert, board([])), false, "a request the snapshot does not hold is not known to be closed");
 });
 
-test("the CFO bar counts an open request as waiting on the Overlord, and a saved one no longer", () => {
-  assert.deepEqual(cfoSummary(board([request({ names: ["STRIPE_SECRET_KEY"] })])), { waiting: 1, line: "1 goblin at work." });
-  assert.equal(cfoSummary(board([request({ state: "saved", saved: ["STRIPE_SECRET_KEY"] })])).waiting, 0);
+test("the CEO bar counts an open request as waiting on the Overlord, and a saved one no longer", () => {
+  assert.deepEqual(ceoSummary(board([request({ names: ["STRIPE_SECRET_KEY"] })])), { waiting: 1, line: "1 goblin at work." });
+  assert.equal(ceoSummary(board([request({ state: "saved", saved: ["STRIPE_SECRET_KEY"] })])).waiting, 0);
 });
 
 test("a request waits on the Overlord until it closes, and its terminal is part of its card, not an item of its own", () => {

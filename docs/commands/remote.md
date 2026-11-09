@@ -1,6 +1,6 @@
-# cfo remote
+# ceo remote
 
-`cfo remote on\|status\|off`
+`ceo remote on\|status\|off`
 
 Optional private phone access to the board and existing CEO terminal through Tailscale Serve HTTPS, restricted to the PC owner's discovered Tailscale account.
 Off by default.

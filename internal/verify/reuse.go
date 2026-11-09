@@ -30,14 +30,14 @@ const keptPassAge = 7 * 24 * time.Hour
 
 // ReuseKey is what a tier's pass depends on, as far as this machine can read
 // it. Its caller names the project, the tier, its commands, its time limit
-// and the cfo build that verifies, and ReadReuseKey reads the rest. A pass is
+// and the ceo build that verifies, and ReadReuseKey reads the rest. A pass is
 // taken again only for the very same key.
 type ReuseKey struct {
 	Project      string     `json:"project"`
 	Scope        string     `json:"scope"`
 	Commands     [][]string `json:"commands"`
 	LimitSeconds int        `json:"limit_seconds"`
-	// Executor is the cfo build that verifies, not a cfo a tier's command
+	// Executor is the ceo build that verifies, not a ceo a tier's command
 	// starts from its PATH, which a record names among its tools.
 	Executor string `json:"executor"`
 	// Source is the complete source of the worktree, and Base where its
@@ -66,12 +66,12 @@ func (key ReuseKey) ID() string {
 
 // ReadReuseKey completes key with what the worktree dir holds now, as reuse
 // declares it, within sourceReadLimit. A key that cannot all be read is no
-// key: an unstamped cfo build, an incomplete source, no default branch to
+// key: an unstamped ceo build, an incomplete source, no default branch to
 // measure the branch against, an input that is a link, or a tool command
 // that fails.
 func ReadReuseKey(ctx context.Context, commands execx.Runner, dir string, key ReuseKey, reuse project.Reuse) (ReuseKey, error) {
 	if key.Executor == "" || key.Executor == "dev" {
-		return ReuseKey{}, errors.New("verify: an unstamped cfo build cannot say what ran a pass")
+		return ReuseKey{}, errors.New("verify: an unstamped ceo build cannot say what ran a pass")
 	}
 	ctx, cancel := context.WithTimeout(ctx, sourceReadLimit)
 	defer cancel()

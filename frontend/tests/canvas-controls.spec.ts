@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "./site";
 
 // The Overlord's canvas: 836 by 956 at his window size, 1707 wide at 1.5x,
-// with the CFO's panel open beside it.
+// with the CEO's panel open beside it.
 const CANVAS = { width: 836, height: 956 };
 
 const zoom = async (page: Page) => Number((await page.getByRole("status", { name: "Zoom" }).textContent())!.replace("%", ""));

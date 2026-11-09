@@ -405,7 +405,7 @@ func holdProcesses(ids []uint32) ([]windows.Handle, error) {
 
 // TestHeldProcessFixture is a process to hold, which waits to be ended.
 func TestHeldProcessFixture(t *testing.T) {
-	if os.Getenv("CFO_HELD_PROCESS_FIXTURE") != "1" {
+	if os.Getenv("CEO_HELD_PROCESS_FIXTURE") != "1" {
 		return
 	}
 	time.Sleep(time.Minute)
@@ -447,7 +447,7 @@ func TestHoldProcessesSkipsAProcessThatEndedAfterItWasListed(t *testing.T) {
 				t.Fatal(err)
 			}
 			live := exec.Command(os.Args[0], "-test.run=^TestHeldProcessFixture$")
-			live.Env = append(os.Environ(), "CFO_HELD_PROCESS_FIXTURE=1")
+			live.Env = append(os.Environ(), "CEO_HELD_PROCESS_FIXTURE=1")
 			if err := live.Start(); err != nil {
 				t.Fatal(err)
 			}

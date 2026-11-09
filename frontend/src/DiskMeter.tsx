@@ -2,7 +2,7 @@ import type { Disk } from "./types";
 import { diskMarks, diskScale, diskState, freeGigabytes } from "./start";
 
 // Free disk on the home's drive, the second meter in the memory meter's box,
-// on a bar marked with the mark under which the CFO is woken and the floor
+// on a bar marked with the mark under which the CEO is woken and the floor
 // under which no goblin or gate test run starts (see diskScale), whose tip
 // says what each mark means; the fill's colour says which side of them the
 // disk is on, and the same in words is for a screen reader. It shares the

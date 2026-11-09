@@ -1,6 +1,6 @@
-# cfo codex-guard
+# ceo codex-guard
 
-`cfo codex-guard`
+`ceo codex-guard`
 
 the codex a goblin's armed codex guard runs while Codex's included allowance is used up: says why in one line, wakes the CEO once and starts nothing; the guard runs it, not you
 

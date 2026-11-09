@@ -2,7 +2,7 @@
 # of their own, to the release the staged API names, and what it must keep.
 # Want installed: the release's build runs and the board serves it. Want
 # rolled-back: the build from before runs and the board serves it again.
-# Either way the home, the CFO's and the goblin's running terminals, the
+# Either way the home, the CEO's and the goblin's running terminals, the
 # person's settings, project record, stored credential and the goblin's work
 # are as fleet_at_work.ps1 found them, and dictation is ready: its files as
 # they were, or, where the release pins a newer model, that model fetched in
@@ -10,7 +10,7 @@
 # from before, whose pinned asset upstream may have re-uploaded since this
 # checkout pinned it: it keeps every verified part it had and reads as not
 # ready, an expected difference and not a loss. When the runner could not make
-# that download, the installed check runs `cfo dictation setup` once and
+# that download, the installed check runs `ceo dictation setup` once and
 # records it as an environment result, never a failure of the change.
 #
 #   .\tests\update\update_and_check.ps1 -Api <url> -Release <folder> -Want installed|rolled-back -Project <checkout> -Facts <file>
@@ -25,10 +25,10 @@ param(
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "fleet_facts.ps1")
 $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-$env:CFO_HOME = [Environment]::GetEnvironmentVariable("CFO_HOME", "User")
+$env:CEO_HOME = [Environment]::GetEnvironmentVariable("CEO_HOME", "User")
 $before = Get-Content -Raw -LiteralPath $Facts | ConvertFrom-Json
 $tag = (Get-Content -Raw -LiteralPath (Join-Path $Release "latest") | ConvertFrom-Json).tag_name
-$released = (Get-FileHash (Join-Path $Release "cfo.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
+$released = (Get-FileHash (Join-Path $Release "ceo.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
 
 # An update runs only in a terminal of the person's own, which a runner's
 # step is not: the step runs it under a stand-in for Windows Terminal, as the
@@ -51,18 +51,18 @@ $after = Get-FleetFacts -Project $Project
 $after | Format-Table -AutoSize -Wrap | Out-String -Width 400 | Write-Host
 $problems = @()
 if ($Want -eq "installed") {
-    if ($after.version -ne "cfo $tag") { $problems += "goblins version prints '$($after.version)', want 'cfo $tag'" }
-    if ($after.cfoExe -ne $released) { $problems += "bin\cfo.exe is $($after.cfoExe), want the release's $released" }
+    if ($after.version -ne "ceo $tag") { $problems += "goblins version prints '$($after.version)', want 'ceo $tag'" }
+    if ($after.ceoExe -ne $released) { $problems += "bin\ceo.exe is $($after.ceoExe), want the release's $released" }
     if ($after.boardExe -ne $released) { $problems += "the board runs a program of SHA-256 $($after.boardExe), want the release's $released" }
     if ($after.board -eq $before.board) { $problems += "the board is still the supervisor from before the update: $($after.board)" }
 }
 else {
-    foreach ($fact in "version", "cfoExe", "boardExe") {
+    foreach ($fact in "version", "ceoExe", "boardExe") {
         if ($after[$fact] -ne $before.$fact) { $problems += "after the rollback $fact is '$($after[$fact])', want '$($before.$fact)' as before" }
     }
 }
 if ($after.board -match "not running") { $problems += "the board's supervisor is not running: $($after.board)" }
-foreach ($kept in "home", "cfo host", "cfo harness", "demo-goblin host", "demo-goblin harness", "allowanceFloor", "claudeSetting", "project", "credentials", "goblinWork") {
+foreach ($kept in "home", "ceo host", "ceo harness", "demo-goblin host", "demo-goblin harness", "allowanceFloor", "claudeSetting", "project", "credentials", "goblinWork") {
     if ($after[$kept] -ne $before.$kept) { $problems += "$kept changed across the update: '$($before.$kept)' became '$($after[$kept])'" }
 }
 if ($after.claudeSetting -ne "kept") { $problems += "the person's own Claude Code setting is '$($after.claudeSetting)', want 'kept'" }
@@ -70,7 +70,7 @@ if ($after.claudeSetting -ne "kept") { $problems += "the person's own Claude Cod
 # Dictation stays ready. A release that pins the model the home has keeps its
 # files untouched; one that pins a newer model has its board fetch that one
 # in place of the earlier, once it serves. When the runner could not make
-# that download, tests/acceptance/dictation.ps1 runs `cfo dictation setup`
+# that download, tests/acceptance/dictation.ps1 runs `ceo dictation setup`
 # once and records the runner's failure as an environment result, never a
 # product failure; any other outcome fails, as that script decides it.
 $model = (Get-Content -Raw config\voice.json | ConvertFrom-Json).model.name
@@ -78,7 +78,7 @@ $replaced = $Want -eq "installed" -and $before.dictation -notmatch [regex]::Esca
 if (-not $replaced -and $after.dictation -ne $before.dictation) { $problems += "dictation's engine and model changed on disk: '$($before.dictation)' became '$($after.dictation)'" }
 $deadline = (Get-Date).AddMinutes(15)
 do {
-    $dictation = @(& (Join-Path $env:CFO_HOME "bin\goblins.exe") doctor) -match "^dictation:"
+    $dictation = @(& (Join-Path $env:CEO_HOME "bin\goblins.exe") doctor) -match "^dictation:"
     $global:LASTEXITCODE = 0
 } while ($replaced -and $dictation -notmatch "^dictation: ready: $([regex]::Escape($model)) " -and (Get-Date) -lt $deadline -and -not (Start-Sleep -Seconds 10))
 Write-Host $dictation
@@ -86,7 +86,7 @@ $dictationReady = $dictation -match "^dictation: ready: "
 $environment = $false
 if ($Want -eq "installed" -and -not $dictationReady) {
     $resultFile = Join-Path $env:RUNNER_TEMP "dictation-verdict.json"
-    & (Join-Path $PSScriptRoot "..\acceptance\dictation.ps1") -Goblins (Join-Path $env:CFO_HOME "bin\goblins.exe") -Cfo (Join-Path $env:CFO_HOME "bin\cfo.exe") -CfoHome $env:CFO_HOME -Summary $env:GITHUB_STEP_SUMMARY -ResultFile $resultFile
+    & (Join-Path $PSScriptRoot "..\acceptance\dictation.ps1") -Goblins (Join-Path $env:CEO_HOME "bin\goblins.exe") -Ceo (Join-Path $env:CEO_HOME "bin\ceo.exe") -CeoHome $env:CEO_HOME -Summary $env:GITHUB_STEP_SUMMARY -ResultFile $resultFile
     $dictationExit = $LASTEXITCODE
     $verdict = Get-Content -Raw -LiteralPath $resultFile | ConvertFrom-Json
     if ($dictationExit -ne 0) {
@@ -103,7 +103,7 @@ if ($Want -eq "installed" -and -not $dictationReady) {
     # reads as missing, an expected difference and not a loss. Only a
     # verified part the rollback dropped is the failure.
     $beforeParts = ([regex]::Matches([string]$before.dictation, [regex]::Escape("verified.json"))).Count
-    $left = @(Get-ChildItem -LiteralPath (Join-Path $env:CFO_HOME "caches\voice") -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "verified.json") })
+    $left = @(Get-ChildItem -LiteralPath (Join-Path $env:CEO_HOME "caches\voice") -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "verified.json") })
     if ($left.Count -lt $beforeParts) {
         $problems += "the rollback lost a verified part: caches\voice holds $($left.Count) verified parts, want $beforeParts as before: $($left.Name -join ', ')"
     } else {
@@ -116,12 +116,12 @@ if ($Want -eq "installed" -and -not $dictationReady) {
     }
 }
 if ($replaced -and -not $environment) {
-    $left = @(Get-ChildItem -LiteralPath (Join-Path $env:CFO_HOME "caches\voice") -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "verified.json") })
+    $left = @(Get-ChildItem -LiteralPath (Join-Path $env:CEO_HOME "caches\voice") -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "verified.json") })
     if ($left.Count -ne 2) { $problems += "caches\voice holds $($left.Count) verified parts after the new model's fetch, want its engine and model alone: $($left.Name -join ', ')" }
 }
 
 if ($problems.Count -gt 0) { throw "the update from $($before.version) did not keep what it must:`n- $($problems -join "`n- ")" }
 $dictationSaid = "dictation is as it must be"
 if ($environment) { $dictationSaid = "dictation's readiness is an environment result on this runner, so it is no verdict on the change" }
-Write-Host "goblins update from $($before.version): $Want, and the home, the CFO, the goblin, the settings, the project, the credential and the goblin's work are as they must be; $dictationSaid."
+Write-Host "goblins update from $($before.version): $Want, and the home, the CEO, the goblin, the settings, the project, the credential and the goblin's work are as they must be; $dictationSaid."
 $global:LASTEXITCODE = 0

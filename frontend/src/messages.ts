@@ -23,11 +23,11 @@ const STARTING = /^Starting /;
 
 // Where a message he typed is: Queued while it waits for its goblin, Starting
 // while its session starts for it, Sent once it is typed into the terminal,
-// and With the CFO when its goblin could not take it and the supervisor gave
-// it to the CFO.
+// and With the CEO when its goblin could not take it and the supervisor gave
+// it to the CEO.
 export function messageState(action: Action): string {
   if (action.status === "queued" || action.status === "running" && !action.awaiting) return STARTING.test(action.message) ? "Starting" : "Queued";
-  if (action.status === "failed") return action.message.includes("the CFO has it") ? "With the CFO" : "Not sent";
+  if (action.status === "failed") return action.message.includes("the CEO has it") ? "With the CEO" : "Not sent";
   return "Sent";
 }
 

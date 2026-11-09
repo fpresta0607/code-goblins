@@ -34,7 +34,7 @@ func (h *heldCleanup) Run(ctx context.Context, request execx.Request) (execx.Res
 }
 
 // pausedForResume records the fixture's task as paused with a resume of it
-// under way, as cfo resume leaves it when it hands the relaunch to Switch.
+// under way, as ceo resume leaves it when it hands the relaunch to Switch.
 func pausedForResume(t *testing.T, f *switchFixture) SwitchRequest {
 	t.Helper()
 	if err := state.WriteLifecycle(f.stateDir, state.Lifecycle{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "auto-resume-1", Action: "resume", Phase: "resuming"}); err != nil {
@@ -44,7 +44,7 @@ func pausedForResume(t *testing.T, f *switchFixture) SwitchRequest {
 }
 
 // The 2026-10-09 20:15Z order, held still by a seam: the supervisor resumes
-// a paused goblin whose pause cleared while the CFO's cleanup of it runs.
+// a paused goblin whose pause cleared while the CEO's cleanup of it runs.
 // The cleanup holds the task and has not removed its worktree yet, so the
 // resume's own early look at the worktree passes. Then the resume wrote a new
 // task record and started a host into a worktree that was going, and the

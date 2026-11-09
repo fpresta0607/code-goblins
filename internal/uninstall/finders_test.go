@@ -75,12 +75,12 @@ func TestFoldersFindsCodeGoblinsOwnFilesOutsideTheHomeAndNothingElse(t *testing.
 	// Arrange
 	m := testMachine(t)
 	for _, path := range []string{
-		filepath.Join(m.LocalAppData, "cfo", "conpty", "OpenConsole.exe"),
+		filepath.Join(m.LocalAppData, "ceo", "conpty", "OpenConsole.exe"),
 		filepath.Join(m.AppData, "goblins-window.exe", "EBWebView", "Local State"),
 		filepath.Join(m.Temp, "CodeGoblinsInstall.log"),
 		filepath.Join(m.Temp, "code-goblins-1234", "SHA256SUMS"),
 		filepath.Join(m.Temp, "Code Goblins{ABC}.png"),
-		filepath.Join(m.Temp, "jiti", "extensions-cfo-native.291f97c5.mjs"),
+		filepath.Join(m.Temp, "jiti", "extensions-ceo-native.291f97c5.mjs"),
 		filepath.Join(m.Temp, "jiti", "someone-elses.mjs"),
 		filepath.Join(m.Temp, "unrelated.log"),
 	} {
@@ -120,10 +120,10 @@ func (v *fakeVault) Delete(target string) error {
 func TestCredentialsAreEveryOneCodeGoblinsStoredInTheVaultAndInFiles(t *testing.T) {
 	// Arrange
 	m := testMachine(t)
-	t.Setenv("CFO_CREDENTIAL_DIR", "")
-	vault := &fakeVault{targets: []string{"cfo:GITHUB_TOKEN", "cfo:demo/API_KEY", "cfo:.env-seen/demo/API_KEY"}}
+	t.Setenv("CEO_CREDENTIAL_DIR", "")
+	vault := &fakeVault{targets: []string{"ceo:GITHUB_TOKEN", "ceo:demo/API_KEY", "ceo:.env-seen/demo/API_KEY"}}
 	m.Vault = vault
-	write(t, filepath.Join(m.Profile, ".cfo", "credentials", "OLD_TOKEN"), "x")
+	write(t, filepath.Join(m.Profile, ".ceo", "credentials", "OLD_TOKEN"), "x")
 
 	// Act
 	items, err := m.credentials(context.Background())
@@ -139,8 +139,8 @@ func TestCredentialsAreEveryOneCodeGoblinsStoredInTheVaultAndInFiles(t *testing.
 	if len(vault.targets) != 0 {
 		t.Errorf("the vault still holds %v", vault.targets)
 	}
-	if _, err := os.Stat(filepath.Join(m.Profile, ".cfo")); !os.IsNotExist(err) {
-		t.Errorf("~\\.cfo is still there: %v", err)
+	if _, err := os.Stat(filepath.Join(m.Profile, ".ceo")); !os.IsNotExist(err) {
+		t.Errorf("~\\.ceo is still there: %v", err)
 	}
 }
 
@@ -151,7 +151,7 @@ func TestConversationRecordsAreTheHomesAndNamedByWhoseTheyAre(t *testing.T) {
 	claude := filepath.Join(m.Install.HarnessDirs["claude"], "projects")
 	pi := filepath.Join(m.Install.HarnessDirs["pi"], "sessions")
 	codex := filepath.Join(m.Install.HarnessDirs["codex"], "sessions", "2026", "10", "10")
-	write(t, filepath.Join(claude, slug(m.Home.Root), "cfo.jsonl"), "{}")
+	write(t, filepath.Join(claude, slug(m.Home.Root), "ceo.jsonl"), "{}")
 	write(t, filepath.Join(claude, slug(filepath.Join(worktrees, "demo", "g1")), "g1.jsonl"), "{}")
 	write(t, filepath.Join(claude, slug(filepath.Join(m.Profile, "source", "mine")), "mine.jsonl"), "{}")
 	write(t, filepath.Join(claude, slug(m.Home.Root)+"Window", "other.jsonl"), "{}")
@@ -172,7 +172,7 @@ func TestConversationRecordsAreTheHomesAndNamedByWhoseTheyAre(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := whats(items)
-	for _, want := range []string{"Claude Code's record of the CFO's conversations", "Claude Code's record of demo-g1's conversations", "pi's record of demo-g1's conversations", "Codex's record of g1's conversations"} {
+	for _, want := range []string{"Claude Code's record of the CEO's conversations", "Claude Code's record of demo-g1's conversations", "pi's record of demo-g1's conversations", "Codex's record of g1's conversations"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("found\n%s\nwant %q", got, want)
 		}
@@ -491,11 +491,11 @@ func TestTheWordsHaveNoSemicolonAndNoDash(t *testing.T) {
 	// Arrange
 	plan := Plan{Home: `C:\Users\you\AppData\Local\CodeGoblins`, Kept: `C:\Users\you\Code Goblins kept`, Items: []Item{
 		{Action: Stop, Group: GroupRunning, What: "the board"}, {Action: Stop, Group: GroupRunning, What: "the window"},
-		{Action: Stop, Group: GroupRunning, What: "the CFO's terminal"}, {Action: Stop, Group: GroupRunning, What: "g1's terminal"},
+		{Action: Stop, Group: GroupRunning, What: "the CEO's terminal"}, {Action: Stop, Group: GroupRunning, What: "g1's terminal"},
 		{Action: Keep, Group: GroupWork, What: "g1's work, 1 commit not pushed, 2 changed files"},
 		{Action: Keep, Group: GroupFleetData, What: "your fleet data: briefs, backlog, memory and reports"},
 		{Action: Remove, Group: GroupDevDrive, Admin: true, What: "the Dev Drive E:", Where: `C:\DevDrives\CodeGoblins.vhdx`},
-		{Action: Remove, Group: GroupCredentials, What: "a saved credential", Where: "cfo:GITHUB_TOKEN"},
+		{Action: Remove, Group: GroupCredentials, What: "a saved credential", Where: "ceo:GITHUB_TOKEN"},
 		{Action: Remove, Group: GroupHarnesses, What: "Claude Code's record of g1's conversations"},
 		{Action: Remove, Group: GroupHarnesses, What: "the skill lavish"},
 		{Action: Leave, Group: GroupTools, What: "Claude Code"}, {Action: Leave, Group: GroupTools, What: "Codex"},
@@ -516,7 +516,7 @@ func TestTheWordsHaveNoSemicolonAndNoDash(t *testing.T) {
 	if strings.ContainsAny(words, ";\u2014\u2013") {
 		t.Errorf("the words hold a semicolon or a dash:\n%s", words)
 	}
-	for _, want := range []string{"It keeps, in " + plan.Kept, "Work not landed", "the board, the window, the CFO and 1 goblin", "Claude Code's record of g1's conversations", "It leaves the tools it installed", "Windows asks once for an administrator", "3.0 GB"} {
+	for _, want := range []string{"It keeps, in " + plan.Kept, "Work not landed", "the board, the window, the CEO and 1 goblin", "Claude Code's record of g1's conversations", "It leaves the tools it installed", "Windows asks once for an administrator", "3.0 GB"} {
 		if !strings.Contains(summary.String(), want) {
 			t.Errorf("the summary does not say %q:\n%s", want, summary.String())
 		}
@@ -532,11 +532,11 @@ func TestTheWordsHaveNoSemicolonAndNoDash(t *testing.T) {
 func TestTheRecordsGoInALineForEachAgent(t *testing.T) {
 	// Arrange
 	plan := Plan{Home: `C:\Users\you\AppData\Local\CodeGoblins`, Kept: `C:\Users\you\Code Goblins kept`}
-	for _, owner := range []string{"the CFO", "the CFO", "the CFO", "g1", "g2", "g3", "g4"} {
+	for _, owner := range []string{"the CEO", "the CEO", "the CEO", "g1", "g2", "g3", "g4"} {
 		plan.Items = append(plan.Items, Item{Action: Remove, Group: GroupHarnesses, What: "Codex's record of " + owner + "'s conversations", Where: `C:\Users\you\.codex\sessions\` + owner})
 	}
 	plan.Items = append(plan.Items, Item{Action: Remove, Group: GroupHarnesses, What: "Claude Code's record of g1's conversations", Where: `C:\Users\you\.claude\projects\g1`})
-	want := []string{"Codex's records of the conversations of the CFO, g1, g2 and 2 more", "Claude Code's record of g1's conversations"}
+	want := []string{"Codex's records of the conversations of the CEO, g1, g2 and 2 more", "Claude Code's record of g1's conversations"}
 	var summary, dry bytes.Buffer
 
 	// Act
@@ -581,7 +581,7 @@ func TestAHomeInACheckoutNamesOnlyItsOwnFolders(t *testing.T) {
 			m.Checkout = tc.isCheckout
 			t.Setenv(installbase.UserEnvFileVariable, filepath.Join(t.TempDir(), "env.json"))
 			m.Install.Env = installbase.NewEnvStore(execx.OSRunner{})
-			write(t, filepath.Join(m.Home.Root, "bin", "cfo.exe"), "abc")
+			write(t, filepath.Join(m.Home.Root, "bin", "ceo.exe"), "abc")
 			write(t, filepath.Join(m.Home.Root, "worktrees", "g1", "x"), "abc")
 			write(t, filepath.Join(m.Home.Root, "data", "backlog.md"), "abc")
 			write(t, filepath.Join(m.Home.Root, "go.mod"), "abc")

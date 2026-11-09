@@ -23,7 +23,7 @@ type openedWindow struct {
 	focused []string
 }
 
-func recordWindows(h *HTTP, runner *cfoRunner) *[]openedWindow {
+func recordWindows(h *HTTP, runner *ceoRunner) *[]openedWindow {
 	var opened []openedWindow
 	h.openWindow = func(_ context.Context, program string, args ...string) error {
 		window := openedWindow{program: program, args: args}
@@ -59,11 +59,11 @@ func TestOpenInTerminalAttachesToTheHerdrSessionWithTheTabInFront(t *testing.T) 
 		t.Errorf("window runs %s %q, want herdr attached to session isolated", window.program, window.args)
 	}
 	if !slices.Equal(window.focused, []string{"workspace focus w1", "tab focus w1:t1"}) {
-		t.Errorf("focused %q before the window opened, want the CFO's workspace and tab", window.focused)
+		t.Errorf("focused %q before the window opened, want the CEO's workspace and tab", window.focused)
 	}
 }
 
-// A native terminal opens through cfo attach, told the state folder, since a
+// A native terminal opens through ceo attach, told the state folder, since a
 // Windows Terminal window does not inherit the supervisor's environment.
 func TestOpenInTerminalAttachesANativeTerminalInItsStateFolder(t *testing.T) {
 	// Arrange
@@ -146,7 +146,7 @@ func TestOpenInTerminalRefusesAGoblinWhileAGateOwnsItsTask(t *testing.T) {
 			// Arrange
 			var h *HTTP
 			var server *httptest.Server
-			var runner *cfoRunner
+			var runner *ceoRunner
 			var body string
 			if isNative {
 				h, server = nativeBoard(t, "no-mistakes")

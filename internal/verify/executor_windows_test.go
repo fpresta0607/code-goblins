@@ -22,7 +22,7 @@ func TestExecutorRecordsActualExitOutputAndWholeJobCleanup(t *testing.T) {
 		t.Run(string(rune('0'+code)), func(t *testing.T) {
 			// Arrange
 			store := t.TempDir()
-			t.Setenv("CFO_VERIFY_DIR", store)
+			t.Setenv("CEO_VERIFY_DIR", store)
 			root := t.TempDir()
 			standin.RemoveAtCleanup(t, root)
 			program := filepath.Join(root, "workload.exe")
@@ -92,7 +92,7 @@ func TestExecutorTracksDescendantsAfterTheParentExits(t *testing.T) {
 	}
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CFO_VERIFY_DIR", store)
+	t.Setenv("CEO_VERIFY_DIR", store)
 	root := t.TempDir()
 	isParentGone := false
 	var childHandle windows.Handle
@@ -170,7 +170,7 @@ func TestExecutorTracksDescendantsAfterTheParentExits(t *testing.T) {
 func TestExecutorRefusesResourceWaitWithoutStartingCommand(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CFO_VERIFY_DIR", store)
+	t.Setenv("CEO_VERIFY_DIR", store)
 	root := t.TempDir()
 	executor := Executor{Admission: admission(t), Monitor: Monitor{Headroom: func() (Headroom, error) {
 		return Headroom{PhysicalAvailable: 3 << 30, CommitAvailable: 8 << 30}, nil
@@ -206,7 +206,7 @@ func TestExecutorRefusesResourceWaitWithoutStartingCommand(t *testing.T) {
 func TestExecutorRetainsCancellationFromTheFinalObserver(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CFO_VERIFY_DIR", store)
+	t.Setenv("CEO_VERIFY_DIR", store)
 	root := t.TempDir()
 	standin.RemoveAtCleanup(t, root)
 	program := filepath.Join(root, "workload.exe")
@@ -248,7 +248,7 @@ func TestExecutorRetainsCancellationFromTheFinalObserver(t *testing.T) {
 
 func TestExecutorFileInputDoesNotWaitForEOFWhenTheCommandEnds(t *testing.T) {
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 	root := t.TempDir()
 	standin.RemoveAtCleanup(t, root)
 	program := filepath.Join(root, "workload.exe")
@@ -276,7 +276,7 @@ func TestExecutorFileInputDoesNotWaitForEOFWhenTheCommandEnds(t *testing.T) {
 
 func TestExecutorAdmitsIndependentPhysicalAndCommitReserves(t *testing.T) {
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 	root := t.TempDir()
 	standin.RemoveAtCleanup(t, root)
 	program := filepath.Join(root, "workload.exe")
@@ -300,7 +300,7 @@ func TestExecutorAdmitsIndependentPhysicalAndCommitReserves(t *testing.T) {
 
 func TestExecutorRetainsCleanupForRetryWithoutChangingFailureToPass(t *testing.T) {
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 	execution, err := BeginExecution(t.TempDir(), []string{"controlled fixture"})
 	if err != nil {
 		t.Fatal(err)
@@ -366,7 +366,7 @@ func TestExecutorRetainsCleanupForRetryWithoutChangingFailureToPass(t *testing.T
 func TestExecutorRetainsFinalWriteFailureAfterSuccessfulCleanup(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CFO_VERIFY_DIR", store)
+	t.Setenv("CEO_VERIFY_DIR", store)
 	root := t.TempDir()
 	standin.RemoveAtCleanup(t, root)
 	program := filepath.Join(root, "workload.exe")
@@ -462,7 +462,7 @@ func (ctx *canceledAdmission) Err() error {
 
 func TestExecutorRetainsFailedReleaseWhenAdmissionIsCanceled(t *testing.T) {
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 	requested := admission(t)
 	parent, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -509,7 +509,7 @@ func (job *delayedCleanup) EndAndWait(ctx context.Context) (execx.TreeUsage, []e
 
 func TestExecutorConcurrentCleanupHonorsTheWaitingCallersDeadline(t *testing.T) {
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 	execution, err := BeginExecution(t.TempDir(), []string{"controlled fixture"})
 	if err != nil {
 		t.Fatal(err)
@@ -548,7 +548,7 @@ func TestExecutorCleanupDeadlineCoversCustodyReleaseAndEvidence(t *testing.T) {
 	for _, phase := range []string{"custody", "release", "evidence"} {
 		t.Run(phase, func(t *testing.T) {
 			// Arrange
-			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 			execution, err := BeginExecution(t.TempDir(), []string{"controlled fixture"})
 			if err != nil {
 				t.Fatal(err)
@@ -660,7 +660,7 @@ func TestCustodyMutationRetriesItsFailedRelease(t *testing.T) {
 }
 
 func TestExecutorNestedCleanupDeadlineCoversProgressCard(t *testing.T) {
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 	requested := admission(t)
 	outer, err := requested.Wait(context.Background())
 	if err != nil {
@@ -729,7 +729,7 @@ func TestExecutorRetryCompletesARunWhoseEndSparedAService(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 			execution, err := BeginExecution(t.TempDir(), []string{"controlled fixture"})
 			if err != nil {
 				t.Fatal(err)
@@ -773,7 +773,7 @@ func TestExecutorReadsTheSourceAroundItsCommand(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			store := t.TempDir()
-			t.Setenv("CFO_VERIFY_DIR", store)
+			t.Setenv("CEO_VERIFY_DIR", store)
 			root := t.TempDir()
 			standin.RemoveAtCleanup(t, root)
 			program := filepath.Join(root, "workload.exe")

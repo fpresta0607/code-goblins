@@ -89,7 +89,7 @@ func TestGoModulesListsEachShippedModuleOnceWithTheStandardLibrary(t *testing.T)
 {"ImportPath":"golang.org/x/sys/windows","Module":{"Path":"golang.org/x/sys","Version":"v0.48.0","Dir":"C:/cache/sys"}}
 {"ImportPath":"golang.org/x/sys/windows/registry","Module":{"Path":"golang.org/x/sys","Version":"v0.48.0","Dir":"C:/cache/sys"}}
 {"ImportPath":"example.com/fork","Module":{"Path":"example.com/upstream","Version":"v1.0.0","Dir":"C:/cache/upstream","Replace":{"Path":"example.com/fork","Version":"v1.0.1","Dir":"C:/cache/fork"}}}
-{"ImportPath":"github.com/fpresta0607/code-goblins/cmd/cfo","Module":{"Path":"github.com/fpresta0607/code-goblins","Main":true,"Dir":"C:/dev/repo"}}
+{"ImportPath":"github.com/fpresta0607/code-goblins/cmd/ceo","Module":{"Path":"github.com/fpresta0607/code-goblins","Main":true,"Dir":"C:/dev/repo"}}
 `
 
 	modules, err := goModules(strings.NewReader(listed))
@@ -209,7 +209,7 @@ func TestNPMComponentsAsksForNPMCIWhenAPackageIsNotInstalled(t *testing.T) {
 	}
 }
 
-// The console host cfo.exe embeds is listed by the package and version beside
+// The console host ceo.exe embeds is listed by the package and version beside
 // its files, under their licence, and a copyleft one is refused.
 func TestConsoleHostComponentsNameThePackageVersionAndLicence(t *testing.T) {
 	for name, test := range map[string]struct {

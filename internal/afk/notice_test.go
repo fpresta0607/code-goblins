@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestTheCFOIsToldNothingWhileAFKModeIsOff(t *testing.T) {
+func TestTheCEOIsToldNothingWhileAFKModeIsOff(t *testing.T) {
 	for name, state := range map[string]State{
 		"never on": {},
 		"ended":    {Session: "afk-1", Since: night, Ended: night.Add(1), From: "the board"},
@@ -23,8 +23,8 @@ func TestTheCFOIsToldNothingWhileAFKModeIsOff(t *testing.T) {
 	}
 }
 
-// The notice is the authority the CFO acts on while the Overlord is away, so
-// every term of his directive is pinned: what the CFO decides, the checks a
+// The notice is the authority the CEO acts on while the Overlord is away, so
+// every term of his directive is pinned: what the CEO decides, the checks a
 // merge word needs, and each thing that stays his alone. The Overlord,
 // 2026-10-12 on the recap's page: under AFK only what a tool refuses or needs
 // his sign-in stays his.
@@ -45,7 +45,7 @@ func TestTheNoticeSaysWhoTurnedItOnWhenAndTheAuthoritysTerms(t *testing.T) {
 		"merge: the merge ref check":     "its head holds main's tip, which is what makes its merge ref's first parent origin/main",
 		"merge: mergeable":               "mergeable",
 		"merge: the classes it covers":   "recovery, security, money-path and production-deploy pull requests included",
-		"merge: the command":             "cfo pr merge <url> --verified",
+		"merge: the command":             "ceo pr merge <url> --verified",
 		"deploy":                         "named and verified read-only",
 		"migration":                      "A merged migration that adds or changes, applied to production and dev and read back",
 		"install":                        "update once the merge queue settles",
@@ -57,22 +57,22 @@ func TestTheNoticeSaysWhoTurnedItOnWhenAndTheAuthoritysTerms(t *testing.T) {
 		"his alone: spend":               "any spend his account refuses",
 		"his alone: identity":            "his own sign-ins and identity checks",
 		"his alone: a tool's refusal":    "anything else a tool refuses",
-		"the rest is the CFO's":          "Everything else is yours to decide",
+		"the rest is the CEO's":          "Everything else is yours to decide",
 		"deleting data: a backup first":  "a migration or command that drops or deletes data included, which you run only after a backup you can restore",
 		"nothing asked, away or back":    "Nothing is asked of him, while he is away or when he is back",
-		"no question":                    "never publish anything as a cfo question or a cfo run-request",
+		"no question":                    "never publish anything as a ceo question or a ceo run-request",
 		"no question once back":          "nothing you log becomes a Command Center question",
 		"his step: what it is":           "A step you cannot take, such as his own sign-in or a step a tool refuses",
 		"his step: one card":             "becomes one card in his Command Center once he is back",
 		"his step: a backlog row":        "give it a backlog row in data/backlog.md",
-		"his step: logged as his":        "cfo afk log --kind his",
+		"his step: logged as his":        "ceo afk log --kind his",
 		"his step: worked around":        "work around it",
-		"his step: settled once done":    "cfo afk settle --at <its at> --how",
-		"questions refused":              "cfo question refuses",
+		"his step: settled once done":    "ceo afk settle --at <its at> --how",
+		"questions refused":              "ceo question refuses",
 		"the goblin moves on":            "move to its next piece of work",
-		"the command that logs the rest": "cfo afk log --kind",
-		"a decision the CFO answers":     "Answer it yourself with your recommendation, act on your answer",
-		"logged as left":                 "cfo afk log --kind left",
+		"the command that logs the rest": "ceo afk log --kind",
+		"a decision the CEO answers":     "Answer it yourself with your recommendation, act on your answer",
+		"logged as left":                 "ceo afk log --kind left",
 		"logged with its answer":         "--answer",
 	} {
 		if !strings.Contains(notice, phrase) {
@@ -90,12 +90,12 @@ func TestTheNoticeSaysWhoTurnedItOnWhenAndTheAuthoritysTerms(t *testing.T) {
 func TestTheBannerIsOneLineThatSaysItIsOnAndWhereTheTermsAre(t *testing.T) {
 	banner := Banner(State{On: true, Session: "afk-1", Since: night, From: "the board"})
 
-	if strings.Contains(banner, "\n") || !strings.Contains(banner, "AFK mode is on") || !strings.Contains(banner, "2026-10-02 02:10 UTC") || !strings.Contains(banner, "cfo drain") {
-		t.Errorf("Banner = %q, want one line saying it is on, since when, and that cfo drain prints the terms", banner)
+	if strings.Contains(banner, "\n") || !strings.Contains(banner, "AFK mode is on") || !strings.Contains(banner, "2026-10-02 02:10 UTC") || !strings.Contains(banner, "ceo drain") {
+		t.Errorf("Banner = %q, want one line saying it is on, since when, and that ceo drain prints the terms", banner)
 	}
 }
 
-// The digest, cfo drain and the wake banners all read the switch through
+// The digest, ceo drain and the wake banners all read the switch through
 // these two, so what they print cannot drift: the notice or the banner while
 // it is on, nothing while it is off, and a switch that cannot be read said as
 // such rather than left out, which would read as off.
@@ -131,7 +131,7 @@ func TestTheNoticeAndBannerForAHomeFollowItsSwitch(t *testing.T) {
 			t.Errorf("NoticeFor = %q, want the unreadable switch said", lines)
 		}
 		// The way back is his alone, so the line names it as his.
-		if len(lines) == 1 && !strings.Contains(lines[0], "only the Overlord resets it, with cfo afk off from a terminal of his own") {
+		if len(lines) == 1 && !strings.Contains(lines[0], "only the Overlord resets it, with ceo afk off from a terminal of his own") {
 			t.Errorf("NoticeFor = %q, want it to say who resets the switch and how", lines)
 		}
 		if !strings.HasPrefix(banner, "AFK MODE: UNREADABLE (") || strings.Contains(banner, "\n") {

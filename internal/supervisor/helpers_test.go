@@ -20,7 +20,7 @@ const helperBrief = "## Task\nWrite the migration for the accounts table.\n## Au
 
 // helperBoard is a supervisor whose goblin g1 works on branch feat/x in a
 // real repository, on a machine with available memory and ample disk and
-// commit, whose cfo spawn and cfo send are spawner.
+// commit, whose ceo spawn and ceo send are spawner.
 func helperBoard(t *testing.T, available uint64, spawner *spawnRecorder) (*Service, home.Home) {
 	t.Helper()
 	handler, h := startBoard(t, available, spawner)
@@ -59,7 +59,7 @@ func waitForCalls(t *testing.T, spawner *spawnRecorder, n int) [][]string {
 			return calls
 		}
 	}
-	t.Fatalf("cfo ran %q, want %d commands", spawner.recorded(), n)
+	t.Fatalf("ceo ran %q, want %d commands", spawner.recorded(), n)
 	return nil
 }
 
@@ -77,7 +77,7 @@ func waitStartEnds(t *testing.T, s *Service) {
 	t.Fatal("the start never ended")
 }
 
-func TestAHelperStartsThroughCfoSpawnOnABranchOffItsParentsAndTellsItsParent(t *testing.T) {
+func TestAHelperStartsThroughCeoSpawnOnABranchOffItsParentsAndTellsItsParent(t *testing.T) {
 	// Arrange
 	spawner := &spawnRecorder{output: "spawned g1-h1 harness=claude kind=ship"}
 	s, h := helperBoard(t, 6*gigabyte, spawner)
@@ -100,7 +100,7 @@ func TestAHelperStartsThroughCfoSpawnOnABranchOffItsParentsAndTellsItsParent(t *
 	}
 	want := []string{"spawn", "g1-h1", "--project", filepath.Join(h.Root, "app"), "--brief", brief, "--mode", "local-only", "--parent", "g1", "--title", "Accounts migration"}
 	if !slices.Equal(calls[0], want) {
-		t.Errorf("cfo ran %q\nwant %q", calls[0], want)
+		t.Errorf("ceo ran %q\nwant %q", calls[0], want)
 	}
 	if told := calls[1]; len(told) != 3 || told[0] != "send" || told[1] != "g1" || !strings.Contains(told[2], "Your helper g1-h1 is up on branch feat/x-h1") {
 		t.Errorf("the parent was told %q, want its helper up", told)
@@ -109,7 +109,7 @@ func TestAHelperStartsThroughCfoSpawnOnABranchOffItsParentsAndTellsItsParent(t *
 	if err != nil || !slices.ContainsFunc(records, func(record wake.Record) bool {
 		return record.Key == "g1-h1" && strings.HasPrefix(record.Detail, "started: helper of g1")
 	}) {
-		t.Errorf("wake records = %+v, %v; want the CFO told the helper started", records, err)
+		t.Errorf("wake records = %+v, %v; want the CEO told the helper started", records, err)
 	}
 }
 
@@ -143,7 +143,7 @@ func TestHelperRoutesItsOwnBriefUnderADeepParent(t *testing.T) {
 			want = append(want, test.flags...)
 			want = append(want, "--mode", "local-only", "--parent", "g1")
 			if !slices.Equal(calls[0], want) {
-				t.Fatalf("cfo ran %q, want %q", calls[0], want)
+				t.Fatalf("ceo ran %q, want %q", calls[0], want)
 			}
 		})
 	}
@@ -179,7 +179,7 @@ func TestHelperRejectsInvalidSettingsBeforeWritingOrDispatching(t *testing.T) {
 
 func TestAHelperThatCannotStartIsReportedToItsParent(t *testing.T) {
 	// Arrange
-	spawner := &spawnRecorder{output: "cfo spawn: the brief's project could not be read", err: os.ErrInvalid}
+	spawner := &spawnRecorder{output: "ceo spawn: the brief's project could not be read", err: os.ErrInvalid}
 	s, h := helperBoard(t, 6*gigabyte, spawner)
 
 	// Act
@@ -191,12 +191,12 @@ func TestAHelperThatCannotStartIsReportedToItsParent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("acceptHelper: %v", err)
 	}
-	if told := calls[1]; told[0] != "send" || told[1] != "g1" || !strings.Contains(told[2], "could not start: cfo spawn: the brief's project could not be read") {
+	if told := calls[1]; told[0] != "send" || told[1] != "g1" || !strings.Contains(told[2], "could not start: ceo spawn: the brief's project could not be read") {
 		t.Errorf("the parent was told %q, want why its helper did not start", told)
 	}
 	records, _ := wake.Pending(h.State)
 	if !slices.ContainsFunc(records, func(record wake.Record) bool { return strings.HasPrefix(record.Detail, "start failed: helper of g1") }) {
-		t.Errorf("wake records = %+v, want the CFO told the start failed", records)
+		t.Errorf("wake records = %+v, want the CEO told the start failed", records)
 	}
 }
 
@@ -258,7 +258,7 @@ func TestAHelperIsRefusedWithWhyAndWhenToAskAgain(t *testing.T) {
 				}
 			}
 			if calls := spawner.recorded(); len(calls) != 0 {
-				t.Errorf("cfo ran %q for a refused helper", calls)
+				t.Errorf("ceo ran %q for a refused helper", calls)
 			}
 			if _, statErr := os.Stat(filepath.Join(h.Data, "g1-h1")); statErr == nil && test.name != "a helper of a helper" && test.name != "a second helper" {
 				t.Errorf("a refused helper left its brief folder")
@@ -282,7 +282,7 @@ func TestAHelperStartsWhenTheHeavyLineCannotBeReadAndTheBoardSaysSo(t *testing.T
 
 	// Assert
 	if err != nil || calls[0][0] != "spawn" || calls[0][1] != "g1-h1" {
-		t.Fatalf("acceptHelper = %v, cfo ran %q; want g1-h1 spawned", err, calls)
+		t.Fatalf("acceptHelper = %v, ceo ran %q; want g1-h1 spawned", err, calls)
 	}
 	s.mu.Lock()
 	reported := s.lastError

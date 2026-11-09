@@ -26,7 +26,7 @@ var issueLink = regexp.MustCompile(`^https://github\.com/[\w.-]+/[\w.-]+/issues/
 func IsIssueLink(link string) bool { return issueLink.MatchString(link) }
 
 // DoneClosed is the issue a done report says the task closed in place of a
-// pull request, which cfo notify --closed writes once a decision ruled it
+// pull request, which ceo notify --closed writes once a decision ruled it
 // finished; empty for any other report.
 func DoneClosed(event string) string {
 	rest, isClosed := strings.CutPrefix(strings.TrimSpace(event), "done: closed ")

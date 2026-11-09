@@ -50,7 +50,7 @@ func TestInstallReplacesAHomeBuildThatIsStillRunning(t *testing.T) {
 
 	output := f.install()
 
-	for _, name := range []string{"cfo.exe", "goblins.exe"} {
+	for _, name := range []string{"ceo.exe", "goblins.exe"} {
 		if got := readFile(t, filepath.Join(f.bin, name)); got != "build 2" {
 			t.Errorf("%s = %q, want the new build", name, got)
 		}
@@ -92,7 +92,7 @@ func TestARootCopyStillRunningMovesIntoBinUnderItsProgramsName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	running := filepath.Join(f.root, "cfo.exe.ZWLFUCC5NGUANWZOS4MPE2XO2L.old")
+	running := filepath.Join(f.root, "ceo.exe.ZWLFUCC5NGUANWZOS4MPE2XO2L.old")
 	if err := os.WriteFile(running, ping, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -116,12 +116,12 @@ func TestARootCopyStillRunningMovesIntoBinUnderItsProgramsName(t *testing.T) {
 	output := f.install()
 
 	// Assert
-	moved, err := filepath.Glob(filepath.Join(f.bin, "cfo.exe.*.old"))
+	moved, err := filepath.Glob(filepath.Join(f.bin, "ceo.exe.*.old"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(moved) != 1 || !regexp.MustCompile(`^cfo\.exe\.[A-Za-z0-9]+\.old$`).MatchString(filepath.Base(moved[0])) || readFile(t, moved[0]) != string(ping) {
-		t.Fatalf("copies moved into bin = %v, want the running copy alone, named cfo.exe.<text>.old:\n%s", moved, output)
+	if len(moved) != 1 || !regexp.MustCompile(`^ceo\.exe\.[A-Za-z0-9]+\.old$`).MatchString(filepath.Base(moved[0])) || readFile(t, moved[0]) != string(ping) {
+		t.Fatalf("copies moved into bin = %v, want the running copy alone, named ceo.exe.<text>.old:\n%s", moved, output)
 	}
 	if _, err := os.Stat(running); !os.IsNotExist(err) {
 		t.Errorf("the running copy is still at the home's root: %v", err)
@@ -130,7 +130,7 @@ func TestARootCopyStillRunningMovesIntoBinUnderItsProgramsName(t *testing.T) {
 	stop()
 	f.install()
 
-	if left, _ := filepath.Glob(filepath.Join(f.bin, "cfo.exe.*.old")); len(left) != 0 {
+	if left, _ := filepath.Glob(filepath.Join(f.bin, "ceo.exe.*.old")); len(left) != 0 {
 		t.Errorf("copies left once nothing runs them: %v", left)
 	}
 }

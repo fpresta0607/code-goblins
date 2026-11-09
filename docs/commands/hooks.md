@@ -1,6 +1,6 @@
-# cfo hooks
+# ceo hooks
 
-`cfo hooks`
+`ceo hooks`
 
 check|install <claude|codex|pi> native lifecycle hooks
 

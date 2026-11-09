@@ -29,7 +29,7 @@ import (
 type ProcessLister interface {
 	List(ctx context.Context) ([]Process, error)
 	// SelfAncestry is the sweeping process and its parents on the machine
-	// List reads. The sweep runs inside the CFO's own Claude session
+	// List reads. The sweep runs inside the CEO's own Claude session
 	// (directly, or hosted by the watcher), so its own harness would
 	// otherwise look exactly like an orphan. It comes from the lister because
 	// pids name processes only on the machine they were read from: a real
@@ -359,7 +359,7 @@ func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved, unp
 
 // worktrees enumerates every worktree the fleet could own: every folder under
 // the home's worktrees folder, where spawn puts each one, and every
-// .worktrees/ directory an older build used, the CFO home's own, each clone
+// .worktrees/ directory an older build used, the CEO home's own, each clone
 // under projects/, and the project of every task that has a record. The last
 // is what reaches a project cloned outside the home, which is most of them.
 //
@@ -479,7 +479,7 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 			}
 			if strings.EqualFold(filepath.Base(filepath.Dir(entry.Path)), home.LegacyWorktreesDir) {
 				// A goblin worktree where an older build put them, placed above
-				// or left to cfo cleanup and cfo reap when it is another home's.
+				// or left to ceo cleanup and ceo reap when it is another home's.
 				// The check is by folder name because git spells a junctioned
 				// checkout's paths as its target while the scan holds the
 				// junction's own name.
@@ -788,7 +788,7 @@ func registrationOf(path string, registered []registrationEntry, answered bool) 
 	return RegistrationUnlisted
 }
 
-// herdrRoots finds the Herdr server processes. Every pane shell CFO ever
+// herdrRoots finds the Herdr server processes. Every pane shell CEO ever
 // created descends from one, which is what makes an unsupervised harness
 // attributable to the fleet rather than to the operator's own editor.
 func herdrRoots(processes []Process) []int {

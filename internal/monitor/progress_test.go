@@ -114,7 +114,7 @@ func scanStatus(t *testing.T, service Service, probe *fakeProber, meta state.Tas
 }
 
 // The first noise class of 2026-09-25: goblins plainly working - a refactor, a
-// gate being fixed - woke the CFO because their turn had outlived the budget.
+// gate being fixed - woke the CEO because their turn had outlived the budget.
 // A turn whose transcript keeps being written is progressing however old it is.
 func TestWorkingPastBudgetStaysQuietWhileTranscriptMoves(t *testing.T) {
 	now := time.Date(2026, 9, 25, 18, 0, 0, 0, time.UTC)
@@ -124,7 +124,7 @@ func TestWorkingPastBudgetStaysQuietWhileTranscriptMoves(t *testing.T) {
 	for range 12 {
 		progress.sample.TranscriptAt = now.Add(9 * time.Minute)
 		if r := scanWorking(t, service, probe, meta, &now, 10*time.Minute); r.Event != nil {
-			t.Fatalf("a turn writing its transcript woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)
+			t.Fatalf("a turn writing its transcript woke the CEO at %s: %+v", now.Format(time.Kitchen), r.Event)
 		}
 	}
 }
@@ -140,7 +140,7 @@ func TestWorkingPastBudgetStaysQuietWhileItsOwnProcessesUseCPU(t *testing.T) {
 	for range 90 {
 		progress.sample.JobCPU += 30 * time.Second
 		if r := scanWorking(t, service, probe, meta, &now, time.Minute); r.Event != nil {
-			t.Fatalf("a turn whose test run is using the processor woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)
+			t.Fatalf("a turn whose test run is using the processor woke the CEO at %s: %+v", now.Format(time.Kitchen), r.Event)
 		}
 	}
 }
@@ -210,11 +210,11 @@ func TestLongTestRunIsJudgedOverAWindowNotOneReading(t *testing.T) {
 	for range 60 {
 		progress.sample.JobCPU += 40 * time.Second
 		if r := scanWorking(t, service, probe, meta, &now, time.Minute); r.Event != nil {
-			t.Fatalf("a test run inside the budget woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)
+			t.Fatalf("a test run inside the budget woke the CEO at %s: %+v", now.Format(time.Kitchen), r.Event)
 		}
 	}
 	if r := scanWorking(t, service, probe, meta, &now, 15*time.Second); r.Event != nil {
-		t.Fatalf("one quiet 15s reading past the budget woke the CFO: %+v", r.Event)
+		t.Fatalf("one quiet 15s reading past the budget woke the CEO: %+v", r.Event)
 	}
 
 	windowEnds := now.Add(-15 * time.Second).Add(service.StallAfter)
@@ -289,7 +289,7 @@ func TestChurningPollLoopStillWakesAfterTheBudgetAndOneStallInterval(t *testing.
 	}
 }
 
-// cfo watch rescans at once when any goblin's status changes, so two readings
+// ceo watch rescans at once when any goblin's status changes, so two readings
 // of one goblin can land a second apart. A short-lived child caught in that
 // second - a poll loop's `gh`, a dev server's garbage collection - uses more
 // than 5% of the second but nothing like 5% of a minute, and it must not pass
@@ -383,7 +383,7 @@ func TestGateFlippingUnderAWorkingGoblinDoesNotRewake(t *testing.T) {
 		}
 	}
 	if wakes != 0 {
-		t.Fatalf("a goblin fixing its gate woke the CFO %d times in 40 minutes, want none", wakes)
+		t.Fatalf("a goblin fixing its gate woke the CEO %d times in 40 minutes, want none", wakes)
 	}
 }
 
@@ -410,7 +410,7 @@ func TestTurnEndedWithABackgroundJobStaysQuietUntilTheJobEnds(t *testing.T) {
 			for range job.scans {
 				r := scanPane(t, service, probe, herdr.AgentDone, job.pane, &now, time.Minute)
 				if r.Event != nil {
-					t.Fatalf("a goblin waiting on its own background job woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)
+					t.Fatalf("a goblin waiting on its own background job woke the CEO at %s: %+v", now.Format(time.Kitchen), r.Event)
 				}
 				if r.Observations[0].Health != HealthBusy {
 					t.Fatalf("health = %s, want busy while its own job runs", r.Observations[0].Health)
@@ -531,7 +531,7 @@ func TestUnreadableProgressEvidenceStillWakes(t *testing.T) {
 }
 
 // The noise of 2026-09-27: a goblin plainly working in its gate's test step
-// woke the CFO every few minutes, because each scan on which Herdr's
+// woke the CEO every few minutes, because each scan on which Herdr's
 // process-info timed out threw away the transcript already read. What could
 // be read still counts: a transcript that keeps being written is progress
 // whether or not the goblin's processes could be listed.
@@ -553,14 +553,14 @@ func TestAMovingTranscriptHoldsTheWakeWhenProcessesCannotBeRead(t *testing.T) {
 
 		// Assert
 		if r.Event != nil {
-			t.Fatalf("a goblin writing its transcript woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)
+			t.Fatalf("a goblin writing its transcript woke the CEO at %s: %+v", now.Format(time.Kitchen), r.Event)
 		}
 	}
 }
 
 // A wedge the monitor loses sight of for one scan, such as a gate probe that
 // timed out beside a fresh transcript, is not new when it is seen again: the
-// CFO already has it. The same busy wake for the same task waits a whole
+// CEO already has it. The same busy wake for the same task waits a whole
 // budget after the last one, and a different one is raised at once.
 func TestTheSameBusyWakeWaitsABudgetBeforeItIsRaisedAgain(t *testing.T) {
 	// Arrange
@@ -655,7 +655,7 @@ func TestHostProgressKeepsTheTranscriptWhenProcessInfoFails(t *testing.T) {
 	}
 }
 
-// On 2026-09-29 the monitor woke the CFO about two native Codex goblins with
+// On 2026-09-29 the monitor woke the CEO about two native Codex goblins with
 // no progress evidence for an hour while both were working. Codex keeps its
 // rollout open and appends to it, and each rollout's write time stayed about
 // ninety seconds after its creation for hours while its entries ran on, read

@@ -22,7 +22,7 @@ for (const viewport of [{ width: 1280, height: 1000 }, { width: 390, height: 844
     await page.setViewportSize(viewport);
     const sent: { token: string | null; body: unknown }[] = [];
     await page.route("**/api/credentials/fetch", async (route) => {
-      sent.push({ token: await route.request().headerValue("X-CFO-Token"), body: route.request().postDataJSON() });
+      sent.push({ token: await route.request().headerValue("X-CEO-Token"), body: route.request().postDataJSON() });
       await route.fulfill({ status: 202, json: { state: "fetching" } });
     });
     const card = await openCard(page);

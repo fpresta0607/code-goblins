@@ -1,6 +1,6 @@
-# cfo gate tests-kept
+# ceo gate tests-kept
 
-`cfo gate tests-kept`
+`ceo gate tests-kept`
 
 The check a no-mistakes repository gate runs from its run worktree: exits 1, listing each one, when the pipeline's own fix commits (subject `no-mistakes(<step>): ...`) deleted a test file, removed a test that HEAD no longer has anywhere, or added a skip, so the run parks with an ask-user finding instead of a test disappearing unseen; approve accepts it, fix restores it.
 Skips are judged by code tokens, so skip text inside a string or comment literal (a checker's own test fixture, say) is never a skip, while a real skip that shares its line with such a string still is.
@@ -11,4 +11,4 @@ Approvals come from the no-mistakes database, read in process and read-only, not
 A commit the rebase step rewrote after the approval is a new commit and parks once more, and when the database cannot be read every gate commit is read and the output says so.
 It holds against a fixer that deletes or skips through its own edits, not against an agent that writes the gate's database or commits without the `no-mistakes(` prefix.
 This repository's `.no-mistakes.yaml` runs it after lint; another repository adopts it with the same three-line `gates` entry.
-CI auto-fix is off in code-goblins (`auto_fix.ci: 0`), and must stay off: a repository gate can run only after rebase, review, test, document or lint, so a no-mistakes(ci) fix that deleted or skipped a test would ship unchecked; a CI failure goes back to the goblin, whose own fix is gated again, and `cfo pipeline run` accepts the lowered count because a repository may lower an automatic fix below the frozen policy, never raise one
+CI auto-fix is off in code-goblins (`auto_fix.ci: 0`), and must stay off: a repository gate can run only after rebase, review, test, document or lint, so a no-mistakes(ci) fix that deleted or skipped a test would ship unchecked; a CI failure goes back to the goblin, whose own fix is gated again, and `ceo pipeline run` accepts the lowered count because a repository may lower an automatic fix below the frozen policy, never raise one

@@ -14,7 +14,7 @@ import (
 )
 
 // Scheduling is what the scheduler made of its last reading with memory
-// free, for the board's memory meter and the CFO's idle wake: Text says what
+// free, for the board's memory meter and the CEO's idle wake: Text says what
 // it started or resumed, else why waiting work did not start, and is empty
 // when nothing waits. Waiting is the work that could run now and did not,
 // each with why.
@@ -46,7 +46,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	record := &Scheduling{At: now}
 	// A pull request a queued row waits on that merged lets the row start
 	// at this reading. One that cannot be read holds its own row only, and
-	// the CFO is told why once it stays unread, so the rest of the reading
+	// the CEO is told why once it stays unread, so the rest of the reading
 	// and its wakes go on.
 	if err := s.learnAwaitedPulls(ctx, watched); err != nil {
 		s.publish(err)
@@ -89,7 +89,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		}
 	}
 	// A root issue the supervisor picked up waits behind every task the
-	// Overlord or the CFO queued.
+	// Overlord or the CEO queued.
 	queued = append(queued, roots...)
 	problems := tellRetiredRows(s.Store.Home.State, finished.retired)
 	var ready []state.Lifecycle
@@ -118,7 +118,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		if record.Phase != "paused" || record.Generation != meta.SpawnGen || record.Pause == nil {
 			continue
 		}
-		// A goblin given new settings while paused resumes on them, as cfo
+		// A goblin given new settings while paused resumes on them, as ceo
 		// resume does, so it waits on their allowance and not on the one
 		// it paused on.
 		harness, model := meta.Harness, meta.Model
@@ -345,10 +345,10 @@ func (s *Service) resumeAutomatically(record state.Lifecycle) error {
 		if isFailed {
 			failure = taskChangeError{Message: spawnFailure(output, err), Generation: record.Generation, Operation: record.Operation, Updated: record.Updated, IsRefused: strings.Contains(output, state.ErrResumeRefused.Error())}
 		}
-		// Nothing resumes a refused goblin again by itself, so the CFO is
+		// Nothing resumes a refused goblin again by itself, so the CEO is
 		// told what to put right.
 		if failure.IsRefused {
-			s.tellCFOOfFailure(record.ID, "resume failed: "+failure.Message)
+			s.tellCEOOfFailure(record.ID, "resume failed: "+failure.Message)
 		}
 		s.starts.Lock()
 		delete(s.changing, record.ID)

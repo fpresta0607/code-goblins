@@ -55,7 +55,7 @@ func TestRoutedContractReachesEveryHarnessOnInstallAndUpdate(t *testing.T) {
 				f.service.Contract = updated
 				f.service.Skills = updatedSkills
 				writeFile(t, filepath.Join(f.root, "docs", "contract", "delivery.md"), "stale procedure")
-				writeFile(t, filepath.Join(f.service.Harnesses.SharedSkills, "cfo-delivery", "SKILL.md"), "stale skill")
+				writeFile(t, filepath.Join(f.service.Harnesses.SharedSkills, "ceo-delivery", "SKILL.md"), "stale skill")
 			}
 
 			// Act
@@ -83,7 +83,7 @@ func TestRoutedContractReachesEveryHarnessOnInstallAndUpdate(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, entry := range entries {
-				if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "cfo-") && entry.Name() != "stow" {
+				if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "ceo-") && entry.Name() != "stow" {
 					continue
 				}
 				if !slices.Contains(mapping.Installed, entry.Name()) {
@@ -120,7 +120,7 @@ func TestLegacyTrackedHomeKeepsItsLoadedContractAndDirtyPolicy(t *testing.T) {
 	// Arrange
 	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
 	f.service.Checkout = true
-	f.env.values["CFO_HOME"] = f.root
+	f.env.values["CEO_HOME"] = f.root
 	tracked := map[string]string{
 		"AGENTS.md":            "# Stale tracked contract\n",
 		"CLAUDE.md":            "Read [AGENTS.md](AGENTS.md).\n",
@@ -183,7 +183,7 @@ func TestLegacyTrackedHomeKeepsItsLoadedContractAndDirtyPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "cfo-") {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "ceo-") {
 			continue
 		}
 		want, err := fs.ReadFile(skills, entry.Name()+"/SKILL.md")

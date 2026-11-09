@@ -17,7 +17,7 @@ async function answer(page: Page): Promise<Sent[]> {
   await page.route("**/api/credentials/**", async (route: Route) => {
     const request = route.request();
     const body = request.postDataJSON() as Record<string, unknown>;
-    sent.push({ path: new URL(request.url()).pathname, token: await request.headerValue("X-CFO-Token"), body });
+    sent.push({ path: new URL(request.url()).pathname, token: await request.headerValue("X-CEO-Token"), body });
     const values = Object.keys((body.values as Record<string, string> | undefined) || {});
     await route.fulfill({ status: 200, json: { id: body.id, state: "open", saved: values.filter((name) => name !== "ACCOUNT_EMAIL"), received: values.filter((name) => name === "ACCOUNT_EMAIL"), replaced: [] } });
   });
@@ -88,7 +88,7 @@ test("Skip beside the decision buttons skips a card from any board and leaves th
 
   // Assert
   expect(sent[0]).toEqual({ path: "/api/credentials/close", token: "fixture-token", body: { id: INPUTS, generation: "b".repeat(32), action: "dismiss" } });
-  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Closed.*goes on without it\. Give it later: cfo auth store --project acme-shop SHOP_API_TOKEN/));
+  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Closed.*goes on without it\. Give it later: ceo auth store --project acme-shop SHOP_API_TOKEN/));
 });
 
 test("a closed card with nothing secret to give later says how to bring it back", async ({ page }) => {
@@ -102,7 +102,7 @@ test("a closed card with nothing secret to give later says how to bring it back"
   await setCard(page, CLICKS, { state: "dismissed", closed_at: "2026-10-14T23:45:00Z" });
 
   // Assert
-  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Closed.*Bring it back: cfo auth request --reopen cred-1111111111111111/));
+  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Closed.*Bring it back: ceo auth request --reopen cred-1111111111111111/));
 });
 
 test("each input shows by its label: a plain value is typed in the open and sent to the goblin, a secret stays hidden", async ({ page }) => {
@@ -159,7 +159,7 @@ test("a plain value refused as a key keeps its warning and offers to send it any
   const sent: Sent[] = [];
   const answers = [KEY_REFUSAL, { status: 200, json: { id: REFERENCE_CARD, state: "open", saved: [], received: ["MADE_UP_ACCOUNT_REF"], replaced: [] } }];
   await page.route("**/api/credentials/**", async (route: Route) => {
-    sent.push({ path: new URL(route.request().url()).pathname, token: await route.request().headerValue("X-CFO-Token"), body: route.request().postDataJSON() as Record<string, unknown> });
+    sent.push({ path: new URL(route.request().url()).pathname, token: await route.request().headerValue("X-CEO-Token"), body: route.request().postDataJSON() as Record<string, unknown> });
     await route.fulfill(answers.shift()!);
   });
   const card = await openCard(page, REFERENCE_CARD);

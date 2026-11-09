@@ -15,12 +15,12 @@ import (
 // last line is one Windows PowerShell cannot parse, so his click ran none of
 // it and the item failed.
 const repairHome = "Set-Location 'C:\\dev\\code-goblins'\n" +
-	"\"before: marker present = $(Test-Path 'C:\\dev\\code-goblins\\.cfo-home')\"\n" +
-	"& 'C:\\dev\\code-goblins\\cfo.exe' install 2>&1 | Select-Object -Last 25\n" +
+	"\"before: marker present = $(Test-Path 'C:\\dev\\code-goblins\\.ceo-home')\"\n" +
+	"& 'C:\\dev\\code-goblins\\ceo.exe' install 2>&1 | Select-Object -Last 25\n" +
 	"\"exit code: $LASTEXITCODE\"\n" +
-	"\"after: marker present = $(Test-Path 'C:\\dev\\code-goblins\\.cfo-home')\"\n" +
+	"\"after: marker present = $(Test-Path 'C:\\dev\\code-goblins\\.ceo-home')\"\n" +
 	"$settings = Get-Content (Join-Path $env:USERPROFILE '.claude\\settings.json') -Raw | ConvertFrom-Json\n" +
-	"\"Command Center allow rules now in your Claude Code settings: $(@($settings.permissions.allow | Where-Object { $_ -match '^(Bash|PowerShell)\\(cfo ' }).Count)\"\n"
+	"\"Command Center allow rules now in your Claude Code settings: $(@($settings.permissions.allow | Where-Object { $_ -match '^(Bash|PowerShell)\\(ceo ' }).Count)\"\n"
 
 // A command its own shell cannot parse would run nothing, so it is refused
 // before it reaches the Command Center, with the line its shell names.
@@ -40,7 +40,7 @@ func TestARunCommandItsShellCannotParseIsRefused(t *testing.T) {
 // parameters: Short:" and installed nothing.
 const installCandidate = "param([Parameter(Mandatory = $true)][string]$Short)\n" +
 	"$ErrorActionPreference = 'Stop'\n" +
-	"$cand = Join-Path 'C:\\dev\\code-goblins\\scratch\\candidates' (\"cand-$Short\\cfo.exe\")\n"
+	"$cand = Join-Path 'C:\\dev\\code-goblins\\scratch\\candidates' (\"cand-$Short\\ceo.exe\")\n"
 
 // Run starts a command with no arguments, so a PowerShell script whose param
 // block makes a parameter mandatory would stop at a prompt for its value: it
@@ -126,7 +126,7 @@ func TestABashRunCommandItCannotParseIsRefused(t *testing.T) {
 	}
 }
 
-// cfo run-request checks the command before it asks the supervisor for
+// ceo run-request checks the command before it asks the supervisor for
 // anything: a command that cannot parse is never published.
 func TestPublishRunRefusesACommandItsShellCannotParse(t *testing.T) {
 	// Arrange

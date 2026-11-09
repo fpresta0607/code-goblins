@@ -1,4 +1,4 @@
-import { CFO_DOOR, expect, test, type Locator, type Page } from "./site";
+import { CEO_DOOR, expect, test, type Locator, type Page } from "./site";
 
 // The lantern in SIQstack's look (the Overlord, 2026-10-11): its mint for the
 // lantern's words and counts, its green gradient for a lantern button's fill
@@ -15,45 +15,45 @@ async function open(page: Page) {
   await expect(page.locator(".toasts .dialogue")).toHaveCount(1);
 }
 // The fixture's two bars: one over a board column while a question waits on
-// the Overlord, the CFO's lantern box, and one at rest.
-const waiting = (page: Page) => page.locator(".task-board .cfo-pin .dialogue");
-const resting = (page: Page) => page.locator("main > .cfo-pin .cfo-rest");
+// the Overlord, the CEO's lantern box, and one at rest.
+const waiting = (page: Page) => page.locator(".task-board .ceo-pin .dialogue");
+const resting = (page: Page) => page.locator("main > .ceo-pin .ceo-rest");
 const command = (page: Page) => waiting(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" });
 const filled = (button: Locator) => button.evaluate((element) => getComputedStyle(element, "::before").backgroundImage);
 
 // The Overlord, 2026-10-07, after the bar's gold Open Command Center pill: "i
 // liked the lantern box button". While something waits on him the bar is the
-// CFO's lantern box again, as before 2026-10-02, with the count on its button.
-test("the CFO's bar is a plain card at rest and the CFO's lantern box while something waits, whose lantern Open Command Center counts what waits and says none of it", async ({ page }) => {
+// CEO's lantern box again, as before 2026-10-02, with the count on its button.
+test("the CEO's bar is a plain card at rest and the CEO's lantern box while something waits, whose lantern Open Command Center counts what waits and says none of it", async ({ page }) => {
   await open(page);
   const needs = waiting(page), rest = resting(page);
-  // The lantern box, with the CFO's name on its tab and none of the alert's
-  // words: the line says only how many goblins the CFO supervises, and the
+  // The lantern box, with the CEO's name on its tab and none of the alert's
+  // words: the line says only how many goblins the CEO supervises, and the
   // button how many things wait.
-  await expect(needs.locator(".dialogue-tab")).toHaveText("CFO");
+  await expect(needs.locator(".dialogue-tab")).toHaveText("CEO");
   await expect(needs.locator(".dialogue-tab")).toHaveCSS("color", LANTERN);
   await expect(needs.locator(".dialogue-text p")).toHaveText("3 goblins at work.");
-  await expect(page.locator(".task-board .cfo-pin")).not.toContainText("Which layout should I keep?");
+  await expect(page.locator(".task-board .ceo-pin")).not.toContainText("Which layout should I keep?");
   await expect(command(page)).toHaveText("Open Command Center1");
-  await expect(command(page).locator(".cfo-command-count")).toHaveText("1");
+  await expect(command(page).locator(".ceo-command-count")).toHaveText("1");
   expect(await filled(command(page))).toBe(LANTERN_FILL);
   await expect(command(page)).toHaveCSS("animation-name", "none");
-  await needs.locator(".dialogue-actions").getByRole("button", { name: CFO_DOOR }).click();
-  await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its icon");
+  await needs.locator(".dialogue-actions").getByRole("button", { name: CEO_DOOR }).click();
+  await expect(page.locator("output")).toHaveText("opened the CEO's terminal from its icon");
   await needs.locator("button.dialogue-portrait").click();
-  await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its portrait");
+  await expect(page.locator("output")).toHaveText("opened the CEO's terminal from its portrait");
   // At rest: no lantern box and no Open Command Center; only its terminal, on
   // the icon and the portrait, on the same card as the column under it.
   await expect(rest).toContainText("All quiet. 3 goblins at work.");
-  await expect(page.locator("main > .cfo-pin .dialogue")).toHaveCount(0);
+  await expect(page.locator("main > .ceo-pin .dialogue")).toHaveCount(0);
   await expect(rest.getByRole("button")).toHaveCount(2);
   await expect(rest.getByRole("button", { name: /Open Command Center/ })).toHaveCount(0);
   const look = (locator: Locator) => locator.evaluate((element) => { const style = getComputedStyle(element); return [style.backgroundColor, style.borderTopColor, style.borderRadius].join(" "); });
   expect(await look(rest)).toBe(await look(page.locator(".board-column")));
   await rest.locator("button.icon-button").click();
-  await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its icon");
-  await rest.locator("button.cfo-rest-portrait").click();
-  await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its portrait");
+  await expect(page.locator("output")).toHaveText("opened the CEO's terminal from its icon");
+  await rest.locator("button.ceo-rest-portrait").click();
+  await expect(page.locator("output")).toHaveText("opened the CEO's terminal from its portrait");
 });
 
 test("the bar keeps its line and its buttons inside it on a phone, at rest and while something waits", async ({ page }) => {
@@ -78,16 +78,16 @@ test("Open Command Center opens the first item waiting", async ({ page }) => {
 });
 
 // The Overlord, 2026-10-07: "alerts should only be open command center
-// questions". A goblin finishing or failing, and its question for the CFO,
-// are on its card; the board shows no toast for them, nor for the CFO's own
+// questions". A goblin finishing or failing, and its question for the CEO,
+// are on its card; the board shows no toast for them, nor for the CEO's own
 // question, whose one signal is the bar's Open Command Center. The first
 // item for him brings only the ask for Windows notifications.
-test("a goblin's news and its question for the CFO show no toast, and the CFO's question brings only the ask for notifications", async ({ page }, testInfo) => {
+test("a goblin's news and its question for the CEO show no toast, and the CEO's question brings only the ask for notifications", async ({ page }, testInfo) => {
   await open(page);
   await expect(page.locator(".toasts .toast")).toHaveCount(1);
   for (const said of ["cg-board-kill", "pd-billing-admin", "cg-voice", "Which layout should I keep?", "Merge pull request 204 now?"]) await expect(page.locator(".toasts"), said).not.toContainText(said);
   await expect(page.locator("dialog.question-modal")).not.toBeVisible();
-  await testInfo.attach("cfo-question-after", { body: await page.screenshot(), contentType: "image/png" });
+  await testInfo.attach("ceo-question-after", { body: await page.screenshot(), contentType: "image/png" });
   await expect(page.getByRole("button", { name: /terminal/i }).filter({ hasText: /Open terminal/ })).toHaveCount(0);
   const ask = page.locator(".toasts .dialogue").filter({ hasText: "Windows notification" });
   expect(await filled(ask.getByRole("button", { name: "Turn on" }))).toBe(LANTERN_FILL);
@@ -151,7 +151,7 @@ test("with reduced motion the boxes just appear", async ({ page }) => {
 
 // The Overlord, 2026-10-28: "remove the redundant claude or codex or pi icons
 // in cfo banner in top left of board, only need usage".
-test("the CFO's bar wears no mark of the harness the CFO runs, at rest or while something waits, and no goblin's alert does", async ({ page }) => {
+test("the CEO's bar wears no mark of the harness the CEO runs, at rest or while something waits, and no goblin's alert does", async ({ page }) => {
   await open(page);
   await expect(waiting(page)).toBeVisible();
   await expect(resting(page)).toBeVisible();

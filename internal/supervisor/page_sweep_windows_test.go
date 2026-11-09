@@ -92,8 +92,8 @@ func pageExists(page string) error {
 }
 
 // sweeper is a service whose sweep meets scrawl.
-func sweeper(t *testing.T, store *Store, scrawl *fakeScrawl, cfo *CFOConnection) *Service {
-	s := &Service{Store: store, Options: Options{CFO: cfo, PollPage: scrawl.poll, PageSessions: scrawl.list, EndPage: scrawl.end}}
+func sweeper(t *testing.T, store *Store, scrawl *fakeScrawl, ceo *CEOConnection) *Service {
+	s := &Service{Store: store, Options: Options{CEO: ceo, PollPage: scrawl.poll, PageSessions: scrawl.list, EndPage: scrawl.end}}
 	t.Cleanup(s.pageWork.Wait)
 	return s
 }
@@ -110,7 +110,7 @@ func writePage(t *testing.T, path string) string {
 	return path
 }
 
-// retire leaves task id as cfo cleanup does: its status log, no record.
+// retire leaves task id as ceo cleanup does: its status log, no record.
 func retire(t *testing.T, stateDir, id string) {
 	t.Helper()
 	if err := state.AppendStatus(stateDir, id, "done: PR https://github.com/example/repo/pull/1"); err != nil {
@@ -122,11 +122,11 @@ func retire(t *testing.T, stateDir, id string) {
 }
 
 // Item 2 of the brief: what the Overlord sent on a goblin's page that nothing
-// read reaches the CFO once the goblin has been retired, as a review wake
+// read reaches the CEO once the goblin has been retired, as a review wake
 // naming the task, exactly once however often the sweep runs. The page is
 // ended first, so it takes nothing more, and the replies on it say why the
 // review closed and who has what he sent.
-func TestASweepDeliversARetiredGoblinsUnreadFeedbackToTheCFOOnce(t *testing.T) {
+func TestASweepDeliversARetiredGoblinsUnreadFeedbackToTheCEOOnce(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	page := writePage(t, filepath.Join(h.Data, "task-1", "mockups", "plan.html"))
@@ -146,7 +146,7 @@ func TestASweepDeliversARetiredGoblinsUnreadFeedbackToTheCFOOnce(t *testing.T) {
 	}
 	wakes := reviewWakes(t, h.State, "task-1")
 	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "the Overlord wrote on the page "+page+" of task-1, which has been retired") || !strings.HasSuffix(wakes[0].Detail, ", act on it") {
-		t.Fatalf("review wakes = %+v, want one naming the retired task and its page, for the CFO to act on", wakes)
+		t.Fatalf("review wakes = %+v, want one naming the retired task and its page, for the CEO to act on", wakes)
 	}
 	_, rest, _ := strings.Cut(wakes[0].Detail, "his feedback is in ")
 	saved, _, _ := strings.Cut(rest, ", act on it")
@@ -156,7 +156,7 @@ func TestASweepDeliversARetiredGoblinsUnreadFeedbackToTheCFOOnce(t *testing.T) {
 	if !slices.Equal(scrawl.ended, []string{page}) {
 		t.Errorf("ended %q, want the retired goblin's page ended once", scrawl.ended)
 	}
-	want := []string{"task-1 has been retired, so this review is closed. Anything you sent here went to the CFO.", "Received."}
+	want := []string{"task-1 has been retired, so this review is closed. Anything you sent here went to the CEO.", "Received."}
 	if got := scrawl.replies[page]; !slices.Equal(got, want) {
 		t.Errorf("replies on the page = %q, want %q", got, want)
 	}
@@ -165,7 +165,7 @@ func TestASweepDeliversARetiredGoblinsUnreadFeedbackToTheCFOOnce(t *testing.T) {
 // Item 4 of the brief: a sweep ends the open pages of retired goblins, found
 // by the item that presented them or by the worktree, data folder or task
 // scratch folder that holds them, so Scrawl's open list means something. It
-// never touches a page of a goblin that stands, the CFO's own, one a poller
+// never touches a page of a goblin that stands, the CEO's own, one a poller
 // watches, one already ended, or one no fleet task holds. A goblin's harness
 // keeps its own scratchpad inside the task's scratch folder, under either
 // scratch root, where cg-canvas-live-only's page sat on 2026-10-17 while the
@@ -180,7 +180,7 @@ func TestASweepEndsOnlyTheOpenPagesOfRetiredGoblins(t *testing.T) {
 	store.mu.Lock()
 	store.db.Reviews = append(store.db.Reviews,
 		Review{ID: "waiting-task-2-4", Identity: strings.Repeat("a", 64), Task: "task-2", Title: "Waiting on you: the plan", Lavish: pageLink, LavishPage: presented, State: "withdrawn", CreatedAt: time.Now().UTC()},
-		Review{ID: "cfo-plan-1", Identity: strings.Repeat("c", 64), Title: "The plan", Lavish: pageLink, LavishPage: filepath.Join(h.Root, ".lavish", "cfo.html"), State: "cleared", CreatedAt: time.Now().UTC()})
+		Review{ID: "ceo-plan-1", Identity: strings.Repeat("c", 64), Title: "The plan", Lavish: pageLink, LavishPage: filepath.Join(h.Root, ".lavish", "ceo.html"), State: "cleared", CreatedAt: time.Now().UTC()})
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestASweepEndsOnlyTheOpenPagesOfRetiredGoblins(t *testing.T) {
 	inDevDriveScratch := writePage(t, filepath.Join(store.Home.DevDrive, "scratch", "task-8", "review.html"))
 	inSharedTemp := writePage(t, filepath.Join(store.Home.DevDrive, "scratch", ".tmp", "task-8", "review.html"))
 	watched := writePage(t, filepath.Join(h.Data, "task-1", "watched.html"))
-	for _, page := range []string{presented, inData, inOldWorktree, inTaskScratch, inHomeWorktree, inDevDriveWorktree, inHomeScratch, inDevDriveScratch, inSharedTemp, writePage(t, filepath.Join(h.Data, "task-1", "review.html")), filepath.Join(h.Root, ".lavish", "cfo.html"), writePage(t, filepath.Join(h.Data, "research", "plan.html")), writePage(t, filepath.Join(t.TempDir(), "notes.html"))} {
+	for _, page := range []string{presented, inData, inOldWorktree, inTaskScratch, inHomeWorktree, inDevDriveWorktree, inHomeScratch, inDevDriveScratch, inSharedTemp, writePage(t, filepath.Join(h.Data, "task-1", "review.html")), filepath.Join(h.Root, ".lavish", "ceo.html"), writePage(t, filepath.Join(h.Data, "research", "plan.html")), writePage(t, filepath.Join(t.TempDir(), "notes.html"))} {
 		scrawl.add(page, "open")
 	}
 	ended := writePage(t, filepath.Join(h.Data, "task-2", "old.html"))
@@ -230,7 +230,7 @@ func TestASweepEndsOnlyTheOpenPagesOfRetiredGoblins(t *testing.T) {
 	if !slices.Equal(polled, want) {
 		t.Errorf("polled %q, want only the pages it ended, to post why %q", polled, want)
 	}
-	if got := scrawl.replies[inOldWorktree]; len(got) != 1 || got[0] != "task-3 has been retired, so this review is closed. Anything you sent here went to the CFO." {
+	if got := scrawl.replies[inOldWorktree]; len(got) != 1 || got[0] != "task-3 has been retired, so this review is closed. Anything you sent here went to the CEO." {
 		t.Errorf("replies on task-3's page = %q, want it told why the review closed", got)
 	}
 	if r := store.Snapshot().Reviews[0]; r.ID != "waiting-task-2-4" || r.PageSettled == nil {
@@ -239,8 +239,8 @@ func TestASweepEndsOnlyTheOpenPagesOfRetiredGoblins(t *testing.T) {
 }
 
 // What the Overlord sent on a page of a goblin that stands but that nothing
-// watches, such as one it presented with cfo present, reaches that goblin
-// while it runs and the CFO otherwise, once, and the page stays open.
+// watches, such as one it presented with ceo present, reaches that goblin
+// while it runs and the CEO otherwise, once, and the page stays open.
 func TestASweepHandsUnreadFeedbackToTheGoblinThatStillStands(t *testing.T) {
 	for name, test := range map[string]struct {
 		runs  bool
@@ -253,7 +253,7 @@ func TestASweepHandsUnreadFeedbackToTheGoblinThatStillStands(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			store, h := testStore(t)
-			var cfo *CFOConnection
+			var ceo *CEOConnection
 			var told func() []string
 			meta, err := state.ReadTaskMeta(h.State, "task-1")
 			if err != nil {
@@ -261,13 +261,13 @@ func TestASweepHandsUnreadFeedbackToTheGoblinThatStillStands(t *testing.T) {
 			}
 			if test.runs {
 				var goblin hostedTerminal
-				meta, _, goblin, cfo = goblinFixture(t, store)
+				meta, _, goblin, ceo = goblinFixture(t, store)
 				told = func() []string { return goblin.lines(t) }
 			}
 			page := writePage(t, filepath.Join(meta.Worktree, ".lavish", "walkthrough.html"))
 			scrawl := newFakeScrawl()
 			scrawl.add(page, "feedback", "Make the heads bigger")
-			s := sweeper(t, store, scrawl, cfo)
+			s := sweeper(t, store, scrawl, ceo)
 
 			// Act
 			first := s.sweepSessions(context.Background())
@@ -301,7 +301,7 @@ func TestASweepHandsUnreadFeedbackToTheGoblinThatStillStands(t *testing.T) {
 // priority.html among them); lavish-axi resolves a page's real path first, so
 // each end failed and the failure filled the board. A session whose page is
 // gone is over: nothing can end it, poll it or show it any more, so the sweep
-// counts it ended and asks lavish-axi nothing about it, and tells the CFO
+// counts it ended and asks lavish-axi nothing about it, and tells the CEO
 // once of anything the Overlord sent there that can no longer be read.
 func TestASweepCountsASessionWhosePageIsGoneAsEnded(t *testing.T) {
 	for name, test := range map[string]struct {

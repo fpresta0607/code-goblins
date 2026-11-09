@@ -48,7 +48,7 @@ const NATIVE_EXIT_PHASES_FILE = "native-exit-phases.txt"
 
 // TestNativeTerminalProgram is not a test but the program a native terminal
 // test runs in its terminal: it records each typed line in the file it is
-// given, prints its terminal's size for "size", registers as the CFO of the
+// given, prints its terminal's size for "size", registers as the CEO of the
 // state directory it is given for "register" as Claude Code, or for "register
 // by program" as whatever its terminal's program names, recording the
 // outcome, prints
@@ -230,7 +230,7 @@ func TestNativeTerminalProgram(t *testing.T) {
 			record("asked")
 		case line == "present":
 			now := time.Now().UTC()
-			a := BoardActivity{ID: "cfo-walkthrough", Kind: "browser", State: "active", URL: "http://127.0.0.1:4387/walkthrough", At: now, Until: now.Add(time.Minute)}
+			a := BoardActivity{ID: "ceo-walkthrough", Kind: "browser", State: "active", URL: "http://127.0.0.1:4387/walkthrough", At: now, Until: now.Add(time.Minute)}
 			if err := PublishPresentation(home.Home{Root: filepath.Dir(args[2]), State: args[2]}, a); err != nil {
 				record("present error: " + err.Error())
 				continue
@@ -243,7 +243,7 @@ func TestNativeTerminalProgram(t *testing.T) {
 			}
 			record("sent")
 		case line == "register", line == "register by program", line == "register by hand":
-			// A CFO runs plain cfo register, which names no harness, so the
+			// A CEO runs plain ceo register, which names no harness, so the
 			// terminal's program has to say which harness it is; by hand it
 			// names no session either.
 			named, session := "claude", "session-1"
@@ -399,7 +399,7 @@ func nativeBoard(t *testing.T, mode string) (*HTTP, *httptest.Server) {
 	return h, server
 }
 
-// hostedTerminal is a terminal hosted in this test process as cfo host hosts
+// hostedTerminal is a terminal hosted in this test process as ceo host hosts
 // one, running this test binary as TestNativeTerminalProgram.
 type hostedTerminal struct {
 	stateDir, id string
@@ -549,7 +549,7 @@ func (terminal hostedTerminal) showsTurn(t *testing.T) {
 }
 
 // drawsComposer has the terminal's program draw the empty composer of the
-// named harness, the one its CFO is registered as, and waits until that
+// named harness, the one its CEO is registered as, and waits until that
 // harness's screen reads it as ready: a delivery types only into one.
 func (terminal hostedTerminal) drawsComposer(t *testing.T, name string) {
 	t.Helper()
@@ -1256,18 +1256,18 @@ func TestANativeViewThatOpensWhileItsHarnessAsksIsToldAsItOpens(t *testing.T) {
 	}
 }
 
-// A view of the CFO's terminal opened while the CFO starts, before it
+// A view of the CEO's terminal opened while the CEO starts, before it
 // registers, is told when the harness it registers as asks at a screen of its
-// own: the relay reads the screens of the CFO's harness as it is when it
+// own: the relay reads the screens of the CEO's harness as it is when it
 // reads, not as it was when the view opened.
-func TestANativeViewOfACFOOpenedWhileItStartsIsToldWhenItsHarnessAsks(t *testing.T) {
+func TestANativeViewOfACEOOpenedWhileItStartsIsToldWhenItsHarnessAsks(t *testing.T) {
 	h, server := nativeBoard(t, "direct")
-	cfo := hostTerminal(t, h.Service.Store.Home.State, NativeCFOTerminal)
-	v := openNativeView(t, server, cfoQuery)
+	ceo := hostTerminal(t, h.Service.Store.Home.State, NativeCEOTerminal)
+	v := openNativeView(t, server, ceoQuery)
 	v.waitFor(t, "program ready")
 	v.send(t, websocket.MessageBinary, "register\r")
-	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
-		t.Fatalf("the CFO recorded %q, want its registration", lines)
+	if lines := ceo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+		t.Fatalf("the CEO recorded %q, want its registration", lines)
 	}
 
 	v.send(t, websocket.MessageBinary, "permission\r")
@@ -1375,7 +1375,7 @@ func TestANativeTerminalTellsEveryViewItsNewSize(t *testing.T) {
 	first.waitForSize(t, "100x30")
 }
 
-// A resize made straight through the host, as cfo attach in the Open window
+// A resize made straight through the host, as ceo attach in the Open window
 // makes one, reaches the board's views as the size the terminal took, so a
 // view never draws the terminal's output on a grid of another size.
 func TestANativeViewIsToldOfAResizeMadeThroughTheHost(t *testing.T) {

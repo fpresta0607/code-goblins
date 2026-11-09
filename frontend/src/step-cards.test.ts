@@ -48,7 +48,7 @@ test("Done closes only a card that asks for no input: one that asks closes when 
 
 test("a closed card says how it closed, in his history", () => {
   assert.equal(credentialSettled(card({ state: "done" })), "Done");
-  assert.equal(credentialSettled(card({ state: "dismissed" })), "Closed. Bring it back: cfo auth request --reopen cred-0123456789abcdef");
+  assert.equal(credentialSettled(card({ state: "dismissed" })), "Closed. Bring it back: ceo auth request --reopen cred-0123456789abcdef");
   assert.equal(credentialSettled(card({ state: "withdrawn", reason: "shop-signup is gone" })), "Withdrawn: shop-signup is gone");
   assert.equal(credentialSettled(card({ state: "saved", plain: ["ACCOUNT_EMAIL"], received: ["ACCOUNT_EMAIL"] })), "Sent ACCOUNT_EMAIL to shop-signup");
   assert.equal(credentialSettled(card({ state: "saved", names: ["STRIPE_SECRET_KEY"], saved: ["STRIPE_SECRET_KEY"], plain: ["ACCOUNT_EMAIL"], received: ["ACCOUNT_EMAIL"] })), "Saved STRIPE_SECRET_KEY for acme-shop and sent ACCOUNT_EMAIL to shop-signup");
@@ -56,7 +56,7 @@ test("a closed card says how it closed, in his history", () => {
 
 test("a card that finishes on screen says how, and that its goblin goes on", () => {
   assert.deepEqual(credentialFinish(card({ state: "done" })), { heading: "Done", label: "Its goblin goes on now." });
-  assert.deepEqual(credentialFinish(card({ state: "dismissed" })), { heading: "Closed", label: "Its goblin goes on without it. Bring it back: cfo auth request --reopen cred-0123456789abcdef" });
+  assert.deepEqual(credentialFinish(card({ state: "dismissed" })), { heading: "Closed", label: "Its goblin goes on without it. Bring it back: ceo auth request --reopen cred-0123456789abcdef" });
   assert.deepEqual(credentialFinish(card({ state: "saved", plain: ["ACCOUNT_EMAIL"], received: ["ACCOUNT_EMAIL"] })), { heading: "Sent", label: "Sent ACCOUNT_EMAIL to shop-signup" });
   assert.deepEqual(credentialFinish(card({ state: "saved", names: ["STRIPE_SECRET_KEY"], saved: ["STRIPE_SECRET_KEY"] })), { heading: "Stored", label: "Saved STRIPE_SECRET_KEY for acme-shop" });
   assert.equal(credentialFinish(card({ state: "open" })), null);
@@ -66,12 +66,12 @@ test("a card that finishes on screen says how, and that its goblin goes on", () 
 // The Overlord, 2026-10-15: a card he closes leaves one short line with the
 // command to give the value later, or to bring the card back.
 test("a closed card's place says how to give its secret later, or to bring it back", () => {
-  assert.equal(closedLine(card({ names: ["FLEET_GITHUB_TOKEN"], project: "code-goblins" })), "Give it later: cfo auth store --project code-goblins FLEET_GITHUB_TOKEN");
-  assert.equal(closedLine(card({ names: ["A_KEY", "B_KEY"], saved: ["A_KEY"] })), "Give it later: cfo auth store --project acme-shop B_KEY");
-  assert.equal(closedLine(card({ names: ["A_KEY", "B_KEY"] })), "Give them later: cfo auth store --project acme-shop A_KEY, then the same for B_KEY");
-  assert.equal(closedLine(card({ plain: ["ACCOUNT_EMAIL"] })), "Bring it back: cfo auth request --reopen cred-0123456789abcdef");
-  assert.equal(closedLine(card()), "Bring it back: cfo auth request --reopen cred-0123456789abcdef");
-  assert.equal(credentialFinish(card({ state: "dismissed", task: "", names: ["FLEET_GITHUB_TOKEN"] }))?.label, "Give it later: cfo auth store --project acme-shop FLEET_GITHUB_TOKEN");
+  assert.equal(closedLine(card({ names: ["FLEET_GITHUB_TOKEN"], project: "code-goblins" })), "Give it later: ceo auth store --project code-goblins FLEET_GITHUB_TOKEN");
+  assert.equal(closedLine(card({ names: ["A_KEY", "B_KEY"], saved: ["A_KEY"] })), "Give it later: ceo auth store --project acme-shop B_KEY");
+  assert.equal(closedLine(card({ names: ["A_KEY", "B_KEY"] })), "Give them later: ceo auth store --project acme-shop A_KEY, then the same for B_KEY");
+  assert.equal(closedLine(card({ plain: ["ACCOUNT_EMAIL"] })), "Bring it back: ceo auth request --reopen cred-0123456789abcdef");
+  assert.equal(closedLine(card()), "Bring it back: ceo auth request --reopen cred-0123456789abcdef");
+  assert.equal(credentialFinish(card({ state: "dismissed", task: "", names: ["FLEET_GITHUB_TOKEN"] }))?.label, "Give it later: ceo auth store --project acme-shop FLEET_GITHUB_TOKEN");
 });
 
 // The Overlord, 2026-10-15: Other is his free answer on any card.

@@ -810,7 +810,7 @@ func holdOpen(t *testing.T, path string) func() {
 	return release
 }
 
-// After serve ends a watcher from before the handover, a Stop hook, cfo
+// After serve ends a watcher from before the handover, a Stop hook, ceo
 // doctor or the board can be reading the dead watcher's record just as serve
 // removes it. The removal waits for the reader to let go rather than failing
 // serve's start.

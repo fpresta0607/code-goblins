@@ -77,7 +77,7 @@ func TestRunTellsACommandThatGaveNoResultFromOneThatFailed(t *testing.T) {
 			r := Runner{Commands: exitingFake{code: test.code}}
 
 			// Act
-			got, err := r.Run(context.Background(), []project.Command{{"cfo", "gate", "test"}, {"never"}}, "fast", "t", "sha", "", 0)
+			got, err := r.Run(context.Background(), []project.Command{{"ceo", "gate", "test"}, {"never"}}, "fast", "t", "sha", "", 0)
 
 			// Assert
 			if err == nil {

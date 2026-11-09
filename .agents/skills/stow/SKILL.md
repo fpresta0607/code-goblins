@@ -7,7 +7,7 @@ description: Sweep the CEO session for uncaptured knowledge and open work, curat
 
 Leave a compact current operating map and preserve everything this session knows that must survive a reset.
 Adapted from First Mate Stow at bb3e6906548b5c03d3212e9f060bafde982e0cf1; its copyright and MIT permissions remain in the repository's LICENSE.
-Read `docs/contract/memory.md`, or `cfo help contract memory` in an installed home, for source ownership, catalog format, commands and lossless planning.
+Read `docs/contract/memory.md`, or `ceo help contract memory` in an installed home, for source ownership, catalog format, commands and lossless planning.
 The pass writes private home data, never tracked project files, skills or shared runtime configuration.
 
 ## Owners
@@ -56,12 +56,12 @@ Each editable memory file carries at most the one-line scheme pointer `<!-- memo
 
 Every invocation performs the whole pass, even with no new finding.
 
-1. Run `cfo memory budget` and record combined bytes, estimated tokens and effective allowance before a write.
+1. Run `ceo memory budget` and record combined bytes, estimated tokens and effective allowance before a write.
    Invalid settings or unreadable memory are unresolved exceptions, never inferred defaults or reset-safe results.
    Overall startup accounting also uses the full three-harness package report defined by the memory contract, not a hook preview.
 2. Read every governed source completely before planning a change and note which declared tiers this session can reach.
    An absent file stays absent unless a genuinely new finding requires it.
-   Before any history move run `cfo memory migration-plan` and verify its complete retained-byte proof.
+   Before any history move run `ceo memory migration-plan` and verify its complete retained-byte proof.
 3. Sweep this session for uncaptured rulings, preferences, facts, corrections, project knowledge and undone work.
    Check the authoritative owner first; file a concise pointer or nothing when that owner already holds the fact.
    Capture declared-tier knowledge through its declared rule even when a local copy exists.

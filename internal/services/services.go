@@ -33,7 +33,7 @@ type Memory struct {
 }
 
 // Service starts, shares and stops the projects' local services for one
-// CFO home.
+// CEO home.
 type Service struct {
 	StateDir string
 	DataDir  string
@@ -53,7 +53,7 @@ type Service struct {
 	Poll time.Duration
 	// Out takes the lines a start says while it waits.
 	Out io.Writer
-	// Turn takes the machine's one turn for heavy runs, the line cfo gate
+	// Turn takes the machine's one turn for heavy runs, the line ceo gate
 	// turn stands in, for the start who names, and returns what gives it
 	// back.
 	Turn func(ctx context.Context, who string) (release func(), err error)
@@ -82,7 +82,7 @@ func (s Service) Up(ctx context.Context, checkout, task string, wait time.Durati
 	if line, isJoined, err := s.tryJoin(ctx, checkout, manifest, task); err != nil || isJoined {
 		return line, err
 	}
-	release, err := s.Turn(ctx, fmt.Sprintf("cfo services up %s for %s", auth.ProjectName(checkout), task))
+	release, err := s.Turn(ctx, fmt.Sprintf("ceo services up %s for %s", auth.ProjectName(checkout), task))
 	if err != nil {
 		return "", fmt.Errorf("services: take the machine's turn for heavy runs: %w", err)
 	}
@@ -102,7 +102,7 @@ func (s Service) Up(ctx context.Context, checkout, task string, wait time.Durati
 			return "", fmt.Errorf("services: gave up after %s waiting for memory: %s", wait, short)
 		}
 		if said.IsZero() || s.Now().Sub(said) >= sayEvery {
-			fmt.Fprintf(s.Out, "cfo services: waiting for memory (%s so far): %s\n", waited.Round(time.Second), short)
+			fmt.Fprintf(s.Out, "ceo services: waiting for memory (%s so far): %s\n", waited.Round(time.Second), short)
 			said = s.Now()
 		}
 		s.Sleep(s.Poll)
@@ -202,11 +202,11 @@ func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, 
 	if !engineUp {
 		// Written before the start, so a start cut short leaves the record
 		// knowing whose engine it is.
-		record.Engine = Engine{StartedByCFO: true, Since: s.Now().UTC()}
+		record.Engine = Engine{StartedByCEO: true, Since: s.Now().UTC()}
 		if err := WriteRecord(s.StateDir, record); err != nil {
 			return "", "", err
 		}
-		fmt.Fprintln(s.Out, "cfo services: starting the Docker engine")
+		fmt.Fprintln(s.Out, "ceo services: starting the Docker engine")
 		if err := s.Docker.StartEngine(ctx); err != nil {
 			if running, readErr := s.Docker.EngineRunning(ctx); readErr == nil && !running {
 				record.Engine = Engine{}
@@ -220,7 +220,7 @@ func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, 
 		return "", "", err
 	}
 	if !stack.IsUp() {
-		// A stack cfo started stays cfo's though nobody holds it, until a
+		// A stack ceo started stays ceo's though nobody holds it, until a
 		// release or the janitor stops it.
 		stack.Owned = stack.Owned || len(already) == 0
 		stack.Since = s.Now().UTC()
@@ -240,10 +240,10 @@ func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, 
 	if err := WriteRecord(s.StateDir, record); err != nil {
 		return "", "", err
 	}
-	fmt.Fprintf(s.Out, "cfo services: starting %s's %s and what they depend on, which builds any image they lack first and can take many minutes\n", project, strings.Join(manifest.Services, ", "))
+	fmt.Fprintf(s.Out, "ceo services: starting %s's %s and what they depend on, which builds any image they lack first and can take many minutes\n", project, strings.Join(manifest.Services, ", "))
 	if isEnded, err := s.upHoldingTheFloor(ctx, project, compose, manifest.Services); err != nil {
 		upErr := fmt.Errorf("services: start %s's services: %w", project, err)
-		// A start cfo ended itself failed for cfo's reason, not a service's,
+		// A start ceo ended itself failed for ceo's reason, not a service's,
 		// and gives its memory back at once.
 		if !isEnded {
 			saved, saveErr := s.saveFailures(ctx, compose, project, task, upErr)
@@ -390,14 +390,14 @@ func (s Service) upHoldingTheFloor(ctx context.Context, project string, compose 
 			if err != nil {
 				endBuild()
 				<-built
-				return true, fmt.Errorf("cfo could not read memory while it built, so it ended the build: %w", err)
+				return true, fmt.Errorf("ceo could not read memory while it built, so it ended the build: %w", err)
 			}
 			if memory.Available >= s.Floor && memory.CommitAvailable >= s.Floor {
 				continue
 			}
 			endBuild()
 			<-built
-			fmt.Fprintf(s.Out, "cfo services: %s of memory and %s of commit are free, under the %.0f GB floor, so cfo ended its start of %s's services and everything that start ran\n", gigabytes(memory.Available), gigabytes(memory.CommitAvailable), float64(s.Floor)/(1<<30), project)
+			fmt.Fprintf(s.Out, "ceo services: %s of memory and %s of commit are free, under the %.0f GB floor, so ceo ended its start of %s's services and everything that start ran\n", gigabytes(memory.Available), gigabytes(memory.CommitAvailable), float64(s.Floor)/(1<<30), project)
 			return true, fmt.Errorf("the %.0f GB floor ended it, with %s of memory and %s of commit free", float64(s.Floor)/(1<<30), gigabytes(memory.Available), gigabytes(memory.CommitAvailable))
 		case <-relief.C:
 			if !isRelieving {
@@ -408,13 +408,13 @@ func (s Service) upHoldingTheFloor(ctx context.Context, project string, compose 
 			isRelieving = false
 			if err != nil && !hasReliefFailed {
 				hasReliefFailed = true
-				fmt.Fprintf(s.Out, "cfo services: the cache relief failed, and the floor watch goes on without it: %v\n", err)
+				fmt.Fprintf(s.Out, "ceo services: the cache relief failed, and the floor watch goes on without it: %v\n", err)
 			}
 		}
 	}
 }
 
-// Down releases task's hold on the project's stack, and stops what cfo
+// Down releases task's hold on the project's stack, and stops what ceo
 // started once no task holds it.
 func (s Service) Down(ctx context.Context, checkout, task string) (line string, err error) {
 	release, err := s.lock(ctx, true)
@@ -465,7 +465,7 @@ func (s Service) ReleaseTask(ctx context.Context, task string) (lines []string, 
 }
 
 // Sweep drops the holds of tasks that are no longer live and stops every
-// stack cfo started that no live task holds, and the engine cfo started
+// stack ceo started that no live task holds, and the engine ceo started
 // once nothing it started runs on it. A start or release under way is left
 // to finish: the next sweep looks again.
 func (s Service) Sweep(ctx context.Context) (lines []string, err error) {
@@ -509,7 +509,7 @@ func (s Service) Sweep(ctx context.Context) (lines []string, err error) {
 			lines = append(lines, line+": "+why)
 		}
 	}
-	if record.Engine.StartedByCFO && !record.holdsAnything() {
+	if record.Engine.StartedByCEO && !record.holdsAnything() {
 		line, stopErr := s.stopEngine(ctx, &record)
 		changed = true
 		err = errors.Join(err, stopErr)
@@ -539,8 +539,8 @@ func (s Service) release(ctx context.Context, record *Record, project, task stri
 	return task + " was the last to hold them: " + line, nil
 }
 
-// stop takes down what cfo started of a stack nobody holds, and the engine
-// when cfo started it and nothing else holds or runs on it. With the engine
+// stop takes down what ceo started of a stack nobody holds, and the engine
+// when ceo started it and nothing else holds or runs on it. With the engine
 // stopped, as quitting Docker Desktop leaves it, nothing of the stack runs,
 // so it is only marked stopped.
 func (s Service) stop(ctx context.Context, record *Record, project string) (string, error) {
@@ -565,7 +565,7 @@ func (s Service) stop(ctx context.Context, record *Record, project string) (stri
 		}
 		before = reading
 	}
-	line := project + "'s services were not cfo's to stop, so they keep running"
+	line := project + "'s services were not ceo's to stop, so they keep running"
 	switch {
 	case stack.Owned:
 		if err := s.Docker.Down(ctx, compose, nil); err != nil {
@@ -576,12 +576,12 @@ func (s Service) stop(ctx context.Context, record *Record, project string) (stri
 		if err := s.Docker.Down(ctx, compose, stack.Started); err != nil {
 			return "", fmt.Errorf("services: stop %s: %w", strings.Join(stack.Started, ", "), err)
 		}
-		line = "stopped " + strings.Join(stack.Started, ", ") + ", the services cfo started beside " + project + "'s"
+		line = "stopped " + strings.Join(stack.Started, ", ") + ", the services ceo started beside " + project + "'s"
 	}
 	stopped := stack.Owned || len(stack.Started) > 0
 	stack.Owned, stack.Started, stack.Since, stack.MemoryBeforeStart = false, nil, time.Time{}, 0
 	record.Stacks[project] = stack
-	if record.Engine.StartedByCFO && !record.holdsAnything() {
+	if record.Engine.StartedByCEO && !record.holdsAnything() {
 		engineLine, err := s.stopEngine(ctx, record)
 		if err != nil {
 			return "", err
@@ -605,7 +605,7 @@ func (s Service) stop(ctx context.Context, record *Record, project string) (stri
 	return line, nil
 }
 
-// stopEngine stops the engine cfo started, unless a container cfo did not
+// stopEngine stops the engine ceo started, unless a container ceo did not
 // start runs on it.
 func (s Service) stopEngine(ctx context.Context, record *Record) (string, error) {
 	running, err := s.Docker.EngineRunning(ctx)
@@ -621,13 +621,13 @@ func (s Service) stopEngine(ctx context.Context, record *Record) (string, error)
 		return "", err
 	}
 	if len(containers) > 0 {
-		return "left the Docker engine cfo started running, because " + strings.Join(containers, ", ") + " runs on it and cfo did not start it", nil
+		return "left the Docker engine ceo started running, because " + strings.Join(containers, ", ") + " runs on it and ceo did not start it", nil
 	}
 	if err := s.Docker.StopEngine(ctx); err != nil {
 		return "", fmt.Errorf("services: stop the Docker engine: %w", err)
 	}
 	record.Engine = Engine{}
-	return "stopped the Docker engine cfo started", nil
+	return "stopped the Docker engine ceo started", nil
 }
 
 // check runs the manifest's check in the checkout.
@@ -660,7 +660,7 @@ func (s Service) runningServices(ctx context.Context, compose Compose) ([]string
 // way when wait is true.
 func (s Service) lock(ctx context.Context, wait bool) (func() error, error) {
 	for {
-		_, err := lock.AcquireExclusiveNamedFor(s.StateDir, lockName, "cfo services")
+		_, err := lock.AcquireExclusiveNamedFor(s.StateDir, lockName, "ceo services")
 		if err == nil {
 			return func() error { return lock.ReleaseExclusiveNamed(s.StateDir, lockName) }, nil
 		}
@@ -674,7 +674,7 @@ func (s Service) lock(ctx context.Context, wait bool) (func() error, error) {
 	}
 }
 
-// holdsAnything reports whether any stack is held, or is cfo's and still
+// holdsAnything reports whether any stack is held, or is ceo's and still
 // running, so the engine under it must stay.
 func (r Record) holdsAnything() bool {
 	for _, stack := range r.Stacks {

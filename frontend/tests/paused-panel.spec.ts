@@ -20,7 +20,7 @@ const REPO = "https://github.com/fpresta0607/PrecisionDocs-AI";
 const at = "2026-10-09T07:11:36Z";
 const HEAD = "@" + "a".repeat(40);
 // What a pause that missed its handoff and its teardown leaves in its record,
-// which the CFO hears and the panel never shows.
+// which the CEO hears and the panel never shows.
 const PROBLEMS = ["Stopping-point deadline reached or request failed; no new handoff was saved", "its terminal ended, but the rest of its stop did not finish: context deadline exceeded"];
 const BERNIE = {
   id: "pd-whats-new", title: "What's new in PrecisionDocs for the connector changes; Claude Code", project: "PrecisionDocs-AI",
@@ -52,7 +52,7 @@ const did = (name: string) => `${name} wrote the tests at ${name.toLowerCase()}.
 
 async function open(page: Page, goblins: object[], name: string) {
   await page.clock.setFixedTime(Date.parse("2026-10-09T13:50:00Z"));
-  await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], tasks: goblins });
+  await holdStream(page, { healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [], tasks: goblins });
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.goto("/");
   await select(page, name);

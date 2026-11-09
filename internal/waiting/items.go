@@ -9,16 +9,16 @@ import (
 	"time"
 )
 
-// cfoQuietAfter is how long the CFO has a goblin's question to itself; past
+// ceoQuietAfter is how long the CEO has a goblin's question to itself; past
 // it the question waits on the Overlord too, as the board's page counts it
-// (CFO_QUIET_AFTER_MS).
-const cfoQuietAfter = 10 * time.Minute
+// (CEO_QUIET_AFTER_MS).
+const ceoQuietAfter = 10 * time.Minute
 
 // Item is one thing on the board that asks the Overlord something: its
 // alert's key as the board's page names it, the item's id with the
 // publishing it stands for, so the page and the window raise one
 // notification for it; who asks; and what it asks, on one plain line.
-// IsQuiet marks one the page never alerts: a goblin's question the CFO has
+// IsQuiet marks one the page never alerts: a goblin's question the CEO has
 // left, which it counts, and an item open but not waiting on him, which
 // IsOpenOnly marks and it does not count, so that once it waits on him it is
 // not new.
@@ -46,8 +46,8 @@ type Look struct {
 // access setting opened, since that terminal shows there; an open request for
 // credentials, by its project alone, so the credential names stay out of a
 // notification; and a browser sign-in under way. A question that names a
-// task is a goblin's, which the CFO answers: it is listed only once the CFO
-// has left it cfoQuietAfter, by the snapshot's time, and then quiet, as the
+// task is a goblin's, which the CEO answers: it is listed only once the CEO
+// has left it ceoQuietAfter, by the snapshot's time, and then quiet, as the
 // page counts it but never alerts it. Nothing else on the
 // board, such as a goblin blocked, failed or done, is an item. It names the
 // supervisor's instance too, which every request to the board that changes
@@ -90,11 +90,11 @@ func Items(snapshot []byte) (string, []Item, error) {
 	if err := json.Unmarshal(snapshot, &view); err != nil {
 		return "", nil, err
 	}
-	// A goblin speaks by its title, as its card names it, and the CFO for
+	// A goblin speaks by its title, as its card names it, and the CEO for
 	// what names no goblin.
 	speaker := func(task string) string {
 		if task == "" {
-			return "CFO"
+			return "CEO"
 		}
 		for _, t := range view.Tasks {
 			if t.ID == task {
@@ -107,7 +107,7 @@ func Items(snapshot []byte) (string, []Item, error) {
 	}
 	asker := func(task string) string {
 		if task == "" {
-			return "The CFO"
+			return "The CEO"
 		}
 		return shortened(speaker(task), nameLimit)
 	}
@@ -123,8 +123,8 @@ func Items(snapshot []byte) (string, []Item, error) {
 	}
 	for _, q := range view.Questions {
 		asked, err := time.Parse(time.RFC3339, q.CreatedAt)
-		isLeftByTheCFO := err == nil && !view.At.IsZero() && view.At.Sub(asked) >= cfoQuietAfter
-		if q.Status != "pending" || q.Task != "" && !isLeftByTheCFO {
+		isLeftByTheCEO := err == nil && !view.At.IsZero() && view.At.Sub(asked) >= ceoQuietAfter
+		if q.Status != "pending" || q.Task != "" && !isLeftByTheCEO {
 			continue
 		}
 		question := item("question:"+q.ID, q.CreatedAt, q.Task, asker(q.Task)+" asks: "+lead(q.Text))

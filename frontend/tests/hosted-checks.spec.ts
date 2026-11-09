@@ -1,6 +1,6 @@
 import { expect, openTaskList, type Page, test } from "./site";
 
-// A live goblin's hosted checks and its change's newest cfo gate test run
+// A live goblin's hosted checks and its change's newest ceo gate test run
 // beside its pull request in its panel, and never on its card (the Overlord,
 // 2026-10-17: "we don't need to have the test checks as an icon. That can be
 // in the task panel"). The supervisor is played by one held snapshot.
@@ -8,8 +8,8 @@ const REPO = "https://github.com/northwind/northwind-api";
 const JOB = REPO + "/actions/runs/5/job/50";
 const task = (id: string, title: string, fields: Record<string, unknown> = {}) => ({ id, title, project: "northwind-api", phase: "working", verified: false, generation: id + "-1", harness: "claude", since: new Date(Date.now() - 42 * 60_000).toISOString(), ...fields });
 const SNAPSHOT = {
-  healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
-  sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }],
+  healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [],
+  sessions: [{ id: "ceo-1", harness: "claude", role: "ceo", model: "claude-opus-5-5" }],
   tasks: [
     task("nw-sync", "Say why a billing sync fails", { pr: REPO + "/pull/55", ticket: { number: 52, url: REPO + "/issues/52", state: "pr open" }, hosted_checks: { head: "3d7072f8aa", state: "failed", checks: 9, failed: ["go (rest)", "frontend"], link: JOB, at: new Date().toISOString() }, local_checks: { commit: "3d7072f8aa", level: "affected", required_level: "affected", status: "failed", duration_seconds: 1080, queue_seconds: 300, failed: ["internal/supervisor"], at: new Date().toISOString() } }),
     task("nw-export", "Export the audit trail", { pr: REPO + "/pull/56", hosted_checks: { head: "5f52309400", state: "passed", checks: 9, approved: true, at: new Date().toISOString() }, local_checks: { commit: "5f52309400", level: "affected", required_level: "affected", status: "passed", duration_seconds: 600, failed: [], at: new Date().toISOString() } }),

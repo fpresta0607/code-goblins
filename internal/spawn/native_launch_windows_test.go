@@ -103,7 +103,7 @@ type codexEvent struct {
 }
 
 // recordedEnv is what the fake codex records of its environment.
-var recordedEnv = []string{"PATH", "CFO_TASK_ID", "CFO_ROLE", "GOTMPDIR", "TEMP", "TMP", "TMPDIR", "CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_PROJECTS_ROOT", "CFO_HOST_ID", "FIXTURE_TOKEN", "PLAYWRIGHT_BROWSERS_PATH", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", "UV_CACHE_DIR", "UV_EXCLUDE_NEWER", "PIP_UPLOADED_PRIOR_TO", "npm_config_before", "DATABASE_URL", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_GIT_BASH_PATH", "CODEX_SANDBOX_NETWORK_DISABLED", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "A_SESSION_ONLY_VARIABLE", "USERS_OWN_SETTING", standInDatabase, standInPayments, standInSource, standInStray}
+var recordedEnv = []string{"PATH", "CEO_TASK_ID", "CEO_ROLE", "GOTMPDIR", "TEMP", "TMP", "TMPDIR", "CEO_HOME", "CEO_STATE_OVERRIDE", "CEO_PROJECTS_ROOT", "CEO_HOST_ID", "FIXTURE_TOKEN", "PLAYWRIGHT_BROWSERS_PATH", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", "UV_CACHE_DIR", "UV_EXCLUDE_NEWER", "PIP_UPLOADED_PRIOR_TO", "npm_config_before", "DATABASE_URL", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_GIT_BASH_PATH", "CODEX_SANDBOX_NETWORK_DISABLED", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "A_SESSION_ONLY_VARIABLE", "USERS_OWN_SETTING", standInDatabase, standInPayments, standInSource, standInStray}
 
 // fakeHarness shows codex's own startup screens, as captured on this machine,
 // and answers keys the way codex does. It records its environment, every key
@@ -128,7 +128,7 @@ func fakeHarness() {
 		}
 	}
 	record(codexEvent{Event: "env", PID: os.Getpid(), Env: env, Text: strings.Join(os.Args[1:], " ")})
-	// The home every cfo command run in the goblin's terminal resolves.
+	// The home every ceo command run in the goblin's terminal resolves.
 	if resolved, err := home.Resolve(); err != nil {
 		record(codexEvent{Event: "home", Text: err.Error()})
 	} else {
@@ -232,7 +232,7 @@ func fakeHarness() {
 		}
 	}
 	if mode == "working-at-start" {
-		// As cg-cards-stay-open was on 2026-10-15, when a cfo send reached it
+		// As cg-cards-stay-open was on 2026-10-15, when a ceo send reached it
 		// before its spawn typed the instruction: in a turn from its first
 		// screen, it takes what is typed as a message queued for the turn.
 		working := func(text string) {
@@ -811,7 +811,7 @@ type nativeFixture struct {
 	record string
 	// userEnv is what Windows gives a new process of this user: what a
 	// native goblin starts from, where this test process's own environment
-	// stands for the session that runs cfo spawn.
+	// stands for the session that runs ceo spawn.
 	userEnv []string
 	// terminal is the host record the spawn started, once it recorded itself.
 	terminal func() (host.Record, bool)
@@ -851,10 +851,10 @@ func newNativeFixture(t *testing.T, kind harness.Kind, mode string) *nativeFixtu
 	t.Setenv(fakeCodexRecord, record)
 	t.Setenv(fakeCodexMode, mode)
 	userEnv := append(os.Environ(), "OPENAI_API_KEY=a user-scope billing key", "ANTHROPIC_API_KEY=a user-scope billing key", "CLAUDECODE=1", "HERDR_SOCKET_PATH=a user-scope herdr socket")
-	t.Setenv("OPENAI_API_KEY", "a billing key of the CFO's")
+	t.Setenv("OPENAI_API_KEY", "a billing key of the CEO's")
 	t.Setenv("HERDR_PANE_ID", "w1:p9")
 	t.Setenv("CLAUDECODE", "1")
-	t.Setenv("CFO_STATE_OVERRIDE", t.TempDir())
+	t.Setenv("CEO_STATE_OVERRIDE", t.TempDir())
 	f.service.Sleep = nil
 	f.service.HostCommand = []string{program, nativeSpawnHost}
 	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{kind: nativeAdapter{kind: kind}}}
@@ -1123,7 +1123,7 @@ func TestANativeSpawnDeliversToAComposerWhoseFooterItCannotRead(t *testing.T) {
 	}
 }
 
-// A goblin idle at a live Daybreak security offer takes a CFO message whose
+// A goblin idle at a live Daybreak security offer takes a CEO message whose
 // first key is a digit: the delivery dismisses the offer with its one Escape
 // before it types, so the banner never takes that digit as its own choice and
 // the whole message arrives once (#1432).
@@ -1168,7 +1168,7 @@ func TestANativeSendDismissesALiveInlineOfferBeforeTypingADigit(t *testing.T) {
 }
 
 // A goblin idle at a live Daybreak offer it only reads keys for after the
-// banner was drawn, as Codex drew its hook review, takes a CFO message whose
+// banner was drawn, as Codex drew its hook review, takes a CEO message whose
 // first key is a digit: the delivery lets the offer settle before its one
 // Escape, as answerDialog does for a dialog, so the key is not lost while the
 // banner starts and the whole message arrives once with no offer chosen
@@ -1220,7 +1220,7 @@ func TestANativeSendSettlesALiveInlineOfferBeforeItsEscape(t *testing.T) {
 }
 
 // A delivery that met a live Daybreak offer over an empty composer and could
-// not press its Escape has typed nothing into the terminal, so cfo send's
+// not press its Escape has typed nothing into the terminal, so ceo send's
 // queue sends it again: the failure says nothing was typed.
 func TestAFailedInlineOfferDismissalSaysNothingWasTyped(t *testing.T) {
 	previousSettle := nativeDialogSettle
@@ -1405,7 +1405,7 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 				t.Errorf("instruction.md = %q, want the whole instruction:\n%s", written, instruction)
 			}
 			env := named(events, "env")[0].Env
-			want := map[string]string{"CFO_TASK_ID": "task-7", "CFO_ROLE": harness.RoleGoblin, "GOTMPDIR": taskScratch(f.stateDir, "task-7"), "TEMP": taskScratch(f.stateDir, "task-7"), "TMPDIR": taskScratch(f.stateDir, "task-7"), "TMP": home.SharedTempBeside(taskScratch(f.stateDir, "task-7")), "CFO_STATE_OVERRIDE": f.stateDir, "CFO_HOST_ID": "task-7", "FIXTURE_TOKEN": "t0ken", "CLAUDE_CODE_GIT_BASH_PATH": gitBash}
+			want := map[string]string{"CEO_TASK_ID": "task-7", "CEO_ROLE": harness.RoleGoblin, "GOTMPDIR": taskScratch(f.stateDir, "task-7"), "TEMP": taskScratch(f.stateDir, "task-7"), "TMPDIR": taskScratch(f.stateDir, "task-7"), "TMP": home.SharedTempBeside(taskScratch(f.stateDir, "task-7")), "CEO_STATE_OVERRIDE": f.stateDir, "CEO_HOST_ID": "task-7", "FIXTURE_TOKEN": "t0ken", "CLAUDE_CODE_GIT_BASH_PATH": gitBash}
 			for name, value := range want {
 				if got := env[name]; got == nil || *got != value {
 					t.Errorf("the goblin's %s = %v, want %q", name, got, value)
@@ -1491,7 +1491,7 @@ func spawnPointer(t *testing.T, f *fixture) string {
 // Wanda and Lyle each asked whether to proceed with what they were resumed
 // with, and sat until someone said yes.
 // On 2026-10-24 a resumed session was told its prior context was intact and to
-// carry on, so it re-ran checks for a pull request the CFO had already merged
+// carry on, so it re-ran checks for a pull request the CEO had already merged
 // while it was paused. Nothing in the note sent it to the brief as it stood
 // then, so a resume now reconciles the current brief and the task's own record
 // before it acts.
@@ -1603,7 +1603,7 @@ func TestTypedTextIsGivenTimeByItsLengthWhereAHarnessTakesItInSlowly(t *testing.
 // Codex asks at every start to review hooks that are new or changed. Trusting
 // a hook is the Overlord's decision, never a spawn's, yet the goblin must not
 // stop there: the spawn continues without trusting them, so they do not run,
-// takes its brief on, and tells the CFO, as cfo notify does, which hooks the
+// takes its brief on, and tells the CEO, as ceo notify does, which hooks the
 // session loads.
 func TestANativeSpawnContinuesPastTheHookReviewWithoutTrusting(t *testing.T) {
 	for _, mode := range []string{"hooks", "hooks-deaf", "hooks-late"} {
@@ -1653,7 +1653,7 @@ func continuesPastTheHookReview(t *testing.T, mode string) {
 }
 
 // A hooks file that cannot be parsed never stops a spawn whose Codex already
-// runs past the hook review: the report still reaches the CFO, naming the file
+// runs past the hook review: the report still reaches the CEO, naming the file
 // in place of its hooks.
 func TestANativeSpawnReportsHooksItCannotNameWithoutStopping(t *testing.T) {
 	previous := nativeKeyEffect
@@ -1820,7 +1820,7 @@ func TestANativeSpawnSucceedsOnlyOnceTheHarnessWorks(t *testing.T) {
 }
 
 // A harness already in a turn when its spawn first reads it has started: a
-// cfo send that reached it first started the turn. Its instruction is still
+// ceo send that reached it first started the turn. Its instruction is still
 // handed to it, queued for the turn, once (#959).
 func TestANativeSpawnCountsAHarnessAlreadyWorkingAsStarted(t *testing.T) {
 	// Arrange
@@ -1899,7 +1899,7 @@ func TestANativeSpawnFailsWhenPiNeverFinishesStarting(t *testing.T) {
 }
 
 // pi keeps "Startup is still in progress" in its chat after it takes the
-// instruction, so a later cfo send can find that row already on its screen.
+// instruction, so a later ceo send can find that row already on its screen.
 // That row turned an earlier submit away, not this one: Enter is pressed once,
 // and a pi that never shows itself working fails the send once its acceptance
 // window has run, not its startup budget.
@@ -1929,7 +1929,7 @@ func TestANativeSendIgnoresAStartupRowLeftFromAnEarlierSubmit(t *testing.T) {
 
 	// Act
 	began := time.Now()
-	err = f.service.SendNative(context.Background(), meta, "CFO: run the tests")
+	err = f.service.SendNative(context.Background(), meta, "CEO: run the tests")
 	took := time.Since(began)
 
 	// Assert
@@ -1939,7 +1939,7 @@ func TestANativeSendIgnoresAStartupRowLeftFromAnEarlierSubmit(t *testing.T) {
 	if took >= time.Minute {
 		t.Errorf("SendNative took %s, want it back once the %s acceptance window ran", took, nativeAccepted)
 	}
-	if left := named(f.events(t), "left in the editor"); len(left) != 1 || left[0].Text != "CFO: run the tests" {
+	if left := named(f.events(t), "left in the editor"); len(left) != 1 || left[0].Text != "CEO: run the tests" {
 		t.Errorf("Enter presses on the send = %+v, want one", left)
 	}
 }
@@ -2060,7 +2060,7 @@ func TestAShimHarnessNotOnThisProcessPathIsRefused(t *testing.T) {
 	}
 }
 
-// NativeProgram, which starts the CFO's harness and the connection checks',
+// NativeProgram, which starts the CEO's harness and the connection checks',
 // starts a script shim by the path this process's PATH finds it at, so a
 // terminal or command whose PATH is the user's never starts another (#1155),
 // and refuses a name this PATH does not find.
@@ -2145,7 +2145,7 @@ func TestAShimAtAPathWithASpaceStartsAsItselfOrIsRefused(t *testing.T) {
 func TestANativeSpawnStartsTheHarnessItValidatedNotTheOneOnTheUsersPath(t *testing.T) {
 	// Arrange
 	f := newQuickFixture(t)
-	t.Setenv("CFO_CODEX_GUARD", "")
+	t.Setenv("CEO_CODEX_GUARD", "")
 	users := t.TempDir()
 	ran := filepath.Join(t.TempDir(), "users-codex-ran.txt")
 	writeFile(t, filepath.Join(users, "codex.cmd"), "@echo ran> \""+ran+"\"\r\n")
@@ -2241,26 +2241,26 @@ func copyFile(t *testing.T, from, to string) {
 	}
 }
 
-// On 2026-09-26 a CFO running in Claude Code spawned pd-chat-turn-died
-// natively, and the goblin started with the CFO's whole session: Claude
-// Code's child-session marker, so the goblin saved no transcript, the CFO's
-// session id and messaging socket and token, its pid, and the CFO's own
+// On 2026-09-26 a CEO running in Claude Code spawned pd-chat-turn-died
+// natively, and the goblin started with the CEO's whole session: Claude
+// Code's child-session marker, so the goblin saved no transcript, the CEO's
+// session id and messaging socket and token, its pid, and the CEO's own
 // Herdr pane. A native goblin starts from the user's environment, as a Herdr
-// goblin does from its pane, never from the process that ran cfo spawn.
+// goblin does from its pane, never from the process that ran ceo spawn.
 func TestANativeGoblinStartsFromTheUsersEnvironmentNotTheSpawners(t *testing.T) {
 	f := newNativeFixture(t, harness.Codex, "")
 	f.userEnv = append(f.userEnv, "USERS_OWN_SETTING=kept")
 	spawner := map[string]string{
 		"CLAUDECODE":                   "1",
 		"CLAUDE_CODE_CHILD_SESSION":    "1",
-		"CLAUDE_CODE_SESSION_ID":       "the-cfos-session",
-		"CLAUDE_CODE_MESSAGING_SOCKET": `\\.\pipe\the-cfos-socket`,
-		"CLAUDE_CODE_MESSAGING_TOKEN":  "the-cfos-token",
+		"CLAUDE_CODE_SESSION_ID":       "the-ceos-session",
+		"CLAUDE_CODE_MESSAGING_SOCKET": `\\.\pipe\the-ceos-socket`,
+		"CLAUDE_CODE_MESSAGING_TOKEN":  "the-ceos-token",
 		"CLAUDE_PID":                   "4242",
 		"HERDR_PANE_ID":                "w9:p0",
 		"HERDR_TAB_ID":                 "w9:t0",
 		"HERDR_WORKSPACE_ID":           "w9",
-		"CFO_ROLE":                     "cfo",
+		"CEO_ROLE":                     "ceo",
 		"A_SESSION_ONLY_VARIABLE":      "the spawner's",
 	}
 	for name, value := range spawner {
@@ -2273,15 +2273,15 @@ func TestANativeGoblinStartsFromTheUsersEnvironmentNotTheSpawners(t *testing.T) 
 
 	env := named(f.events(t), "env")[0].Env
 	for name := range spawner {
-		if name == "CFO_ROLE" {
+		if name == "CEO_ROLE" {
 			continue
 		}
 		if got := env[name]; got != nil {
 			t.Errorf("the goblin started with the spawner's %s = %q", name, *got)
 		}
 	}
-	if got := env["CFO_ROLE"]; got == nil || *got != harness.RoleGoblin {
-		t.Errorf("the goblin's CFO_ROLE = %v, want %q", got, harness.RoleGoblin)
+	if got := env["CEO_ROLE"]; got == nil || *got != harness.RoleGoblin {
+		t.Errorf("the goblin's CEO_ROLE = %v, want %q", got, harness.RoleGoblin)
 	}
 	if got := env["USERS_OWN_SETTING"]; got == nil || *got != "kept" {
 		t.Errorf("the goblin's USERS_OWN_SETTING = %v, want the user's own setting kept", got)
@@ -2290,7 +2290,7 @@ func TestANativeGoblinStartsFromTheUsersEnvironmentNotTheSpawners(t *testing.T) 
 
 // A server that authenticates by bearerTokenEnvVar reaches a native goblin
 // only when the environment its host starts with sets that variable: one set
-// only in the spawning process, as a CFO's session exports it, is withheld,
+// only in the spawning process, as a CEO's session exports it, is withheld,
 // and one the user configured is handed on.
 func TestANativeSpawnHandsATokenServerOnlyWhenTheGoblinStartsWithItsToken(t *testing.T) {
 	for _, test := range []struct {
@@ -2302,7 +2302,7 @@ func TestANativeSpawnHandsATokenServerOnlyWhenTheGoblinStartsWithItsToken(t *tes
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			f := newNativeFixture(t, harness.Codex, "")
-			t.Setenv("FIXTURE_MCP_TOKEN", "the-cfos-token")
+			t.Setenv("FIXTURE_MCP_TOKEN", "the-ceos-token")
 			if test.isUserScoped {
 				f.userEnv = append(f.userEnv, "FIXTURE_MCP_TOKEN=the-users-token")
 			}
@@ -2325,7 +2325,7 @@ func TestANativeSpawnHandsATokenServerOnlyWhenTheGoblinStartsWithItsToken(t *tes
 // the spawn's output, since it ends when that job closes; one that left is not.
 func TestAContainedNativeTerminalIsReported(t *testing.T) {
 	for contained, want := range map[bool]string{
-		true:  "warning: native terminal task-7 could not leave the job of the process that ran cfo, so it ends when that job closes (see its host log)",
+		true:  "warning: native terminal task-7 could not leave the job of the process that ran ceo, so it ends when that job closes (see its host log)",
 		false: "",
 	} {
 		if got := containedNotice(host.Record{ID: "task-7", Contained: contained}); got != want {
@@ -2334,9 +2334,9 @@ func TestAContainedNativeTerminalIsReported(t *testing.T) {
 	}
 }
 
-// On 2026-09-30 the CFO's terminal rendered white: it had been started from a
+// On 2026-09-30 the CEO's terminal rendered white: it had been started from a
 // Codex tool shell carrying NO_COLOR, TERM=dumb and CODEX_CI. A goblin that
-// cfo spawn, switch or resume starts from such a shell starts from the user's
+// ceo spawn, switch or resume starts from such a shell starts from the user's
 // own logon environment instead, so none of those settings reaches it, while
 // the user's PATH and the task's own variables do.
 func TestANativeGoblinDoesNotInheritTheCallersTerminalSettings(t *testing.T) {
@@ -2352,7 +2352,7 @@ func TestANativeGoblinDoesNotInheritTheCallersTerminalSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("userEnvironment: %v", err)
 	}
-	env := service.nativeHostEnvironment(userEnv, harness.Launch{Env: map[string]string{harness.RoleVariable: harness.RoleGoblin, "CFO_TASK_ID": "g1"}}, auth.Result{})
+	env := service.nativeHostEnvironment(userEnv, harness.Launch{Env: map[string]string{harness.RoleVariable: harness.RoleGoblin, "CEO_TASK_ID": "g1"}}, auth.Result{})
 
 	// Assert
 	for name := range caller {
@@ -2360,23 +2360,23 @@ func TestANativeGoblinDoesNotInheritTheCallersTerminalSettings(t *testing.T) {
 			t.Errorf("the goblin starts with the caller's %s", name)
 		}
 	}
-	for _, name := range []string{"PATH", harness.RoleVariable, "CFO_TASK_ID", "CFO_STATE_OVERRIDE"} {
+	for _, name := range []string{"PATH", harness.RoleVariable, "CEO_TASK_ID", "CEO_STATE_OVERRIDE"} {
 		if !hasNativeVariable(env, name) {
 			t.Errorf("the goblin starts without %s", name)
 		}
 	}
 }
 
-// Every cfo command a goblin runs acts on the home that spawned it, root and
+// Every ceo command a goblin runs acts on the home that spawned it, root and
 // state alike, whatever home the user's environment names. A second home on
-// the machine spawns its goblins from a user environment whose CFO_HOME is the
+// the machine spawns its goblins from a user environment whose CEO_HOME is the
 // first install's: on 2026-10-07 a scratch home's goblin resolved that home's
 // root with its own home's state, so it merged its helper but could not
-// retire it, and its cfo kill was refused as needing a primary home.
+// retire it, and its ceo kill was refused as needing a primary home.
 func TestANativeGoblinResolvesTheHomeThatSpawnedIt(t *testing.T) {
 	// Arrange
 	f := newQuickFixture(t)
-	f.userEnv = append(f.userEnv, "CFO_HOME="+t.TempDir())
+	f.userEnv = append(f.userEnv, "CEO_HOME="+t.TempDir())
 	spawningRoot := filepath.Dir(f.stateDir)
 
 	// Act
@@ -2402,7 +2402,7 @@ func recordedValue(value *string) string {
 	return *value
 }
 
-// A goblin's terminal names the projects root its spawner names, as the CFO's
+// A goblin's terminal names the projects root its spawner names, as the CEO's
 // terminal does, so a home started with a projects root of its own never
 // gives its goblins the machine's, which the user's environment names; a
 // spawner that names none leaves the user's.

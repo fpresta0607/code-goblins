@@ -1,7 +1,7 @@
 {
   "version": 1,
   "slow_packages": [
-    "cmd/cfo",
+    "cmd/ceo",
     "internal/installscript",
     "internal/installtest",
     "internal/monitor",
@@ -69,17 +69,17 @@
     },
     {
       "paths": ["config/pipeline.json", ".no-mistakes.yaml"],
-      "packages": ["internal/pipeline", "cmd/cfo", "internal/spawn"],
+      "packages": ["internal/pipeline", "cmd/ceo", "internal/spawn"],
       "why": "the pipeline tests read the committed gate policy"
     },
     {
       "paths": ["data/routing.json"],
-      "packages": ["internal/routing", "cmd/cfo"],
+      "packages": ["internal/routing", "cmd/ceo"],
       "why": "the lane tests read the shipped table"
     },
     {
-      "paths": ["cmd/cfo/winres.json"],
-      "packages": ["cmd/cfo"],
+      "paths": ["cmd/ceo/winres.json"],
+      "packages": ["cmd/ceo"],
       "why": "the Windows resource objects are built from it"
     },
     {
@@ -99,7 +99,7 @@
     },
     {
       "paths": ["tests/acceptance/plan3_windows.ps1"],
-      "packages": ["cmd/cfo"],
+      "packages": ["cmd/ceo"],
       "why": "a test runs the acceptance script's self-tests"
     },
     {

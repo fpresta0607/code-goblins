@@ -133,7 +133,7 @@ func WriteCheckpoint(h home.Home, now time.Time) error {
 			ew.printf("%s %s\n", record.Key, question)
 		}
 	}
-	waits, waitsErr := supervisor.CFOWaits(h)
+	waits, waitsErr := supervisor.CEOWaits(h)
 	if wakeErr != nil {
 		ew.printf("wake queue: UNREADABLE (%s)\n", wakeErr)
 	} else if !hasQuestion && len(waits) == 0 && waitsErr == nil {
@@ -141,7 +141,7 @@ func WriteCheckpoint(h home.Home, now time.Time) error {
 	}
 
 	ew.println("")
-	writeCFOWaits(waits, waitsErr, now, math.MaxInt, math.MaxInt, ew)
+	writeCEOWaits(waits, waitsErr, now, math.MaxInt, math.MaxInt, ew)
 
 	ew.println("\n== OWED ==")
 	if wakeErr != nil {
@@ -149,7 +149,7 @@ func WriteCheckpoint(h home.Home, now time.Time) error {
 	} else if len(records) == 0 {
 		ew.println("No wake waits to be acknowledged.")
 	} else {
-		ew.printf("%d wakes are not acknowledged; run cfo drain to read and handle them.\n", len(records))
+		ew.printf("%d wakes are not acknowledged; run ceo drain to read and handle them.\n", len(records))
 		for _, record := range records {
 			ew.printf("[%d] %s %s: %s\n", record.Seq, record.Kind, record.Key, record.Detail)
 			if record.Answered != "" {
@@ -165,7 +165,7 @@ func WriteCheckpoint(h home.Home, now time.Time) error {
 		ew.printf("data\\: UNREADABLE (%s)\n", err)
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "cfo-handoff-") || !strings.HasSuffix(entry.Name(), ".md") {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "ceo-handoff-") || !strings.HasSuffix(entry.Name(), ".md") {
 			continue
 		}
 		info, err := entry.Info()
@@ -178,7 +178,7 @@ func WriteCheckpoint(h home.Home, now time.Time) error {
 		}
 	}
 	if newest == "" {
-		ew.println("no cfo-handoff-*.md was found in data\\; conversation-only holds need a handoff on disk.")
+		ew.println("no ceo-handoff-*.md was found in data\\; conversation-only holds need a handoff on disk.")
 	} else {
 		ew.println(filepath.Join(h.Data, newest))
 	}

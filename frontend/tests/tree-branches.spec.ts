@@ -50,7 +50,7 @@ async function wrongLines(page: Page, isArranged: boolean): Promise<string[]> {
       if (line.points.some((point) => point.x > box.left + 2 && point.x < box.right - 2 && point.y > box.top + 2 && point.y < box.bottom - 2)) wrong.push(`the line to ${child?.name} runs through ${box.name}`);
     }
   }
-  for (const box of boxes.filter((box) => box.name !== "CFO")) {
+  for (const box of boxes.filter((box) => box.name !== "CEO")) {
     const reaching = drawn.filter((line) => near(line.end, topCenter(box))).length;
     if (reaching !== 1) wrong.push(`${reaching} lines reach the top of ${box.name}`);
   }
@@ -67,7 +67,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("every branch ends at the top center of its goblin or baby goblin, at every zoom", async ({ page }) => {
-  expect(await lines(page), "a line to each card under the CFO and to each baby goblin").toHaveLength(CHILDREN);
+  expect(await lines(page), "a line to each card under the CEO and to each baby goblin").toHaveLength(CHILDREN);
   expect(await wrongLines(page, true), "fitted").toEqual([]);
   for (let i = 0; i < 3; i++) await page.getByRole("button", { name: "Zoom in" }).click();
   expect(await wrongLines(page, true), "zoomed in").toEqual([]);

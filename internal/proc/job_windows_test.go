@@ -94,7 +94,7 @@ func TestJobProcessIDsReadsTheListWithWhatTheJobCountsBeyondIt(t *testing.T) {
 // TestJobHolderFixture is a process holding a job open, which waits to be
 // ended.
 func TestJobHolderFixture(t *testing.T) {
-	if os.Getenv("CFO_JOB_HOLDER_FIXTURE") != "1" {
+	if os.Getenv("CEO_JOB_HOLDER_FIXTURE") != "1" {
 		return
 	}
 	if job, _, err := procCreateJobObjectW.Call(0, 0); job == 0 {
@@ -115,7 +115,7 @@ func TestJobHolderFixture(t *testing.T) {
 func TestAHolderThatEndsWhileItsJobsAreReadHoldsNone(t *testing.T) {
 	// Arrange
 	holder := exec.Command(os.Args[0], "-test.run=^TestJobHolderFixture$")
-	holder.Env = append(os.Environ(), "CFO_JOB_HOLDER_FIXTURE=1")
+	holder.Env = append(os.Environ(), "CEO_JOB_HOLDER_FIXTURE=1")
 	output, err := holder.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -196,7 +196,7 @@ func TestJobProcessStartTakesAPIDThatNamesNoProcessAsGone(t *testing.T) {
 
 // TestJobMemberFixture is a process a job holds, which waits to be ended.
 func TestJobMemberFixture(t *testing.T) {
-	if os.Getenv("CFO_JOB_MEMBER_FIXTURE") != "1" {
+	if os.Getenv("CEO_JOB_MEMBER_FIXTURE") != "1" {
 		return
 	}
 	time.Sleep(time.Minute)
@@ -213,7 +213,7 @@ func TestEndJobMemberEndsOnlyTheProcessItListed(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = windows.TerminateJobObject(job, 1); _ = windows.CloseHandle(job) })
 	member := exec.Command(os.Args[0], "-test.run=^TestJobMemberFixture$")
-	member.Env = append(os.Environ(), "CFO_JOB_MEMBER_FIXTURE=1")
+	member.Env = append(os.Environ(), "CEO_JOB_MEMBER_FIXTURE=1")
 	if err := member.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestEndJobEndsAJobThatCountsAProcessStillExiting(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = windows.TerminateJobObject(job, 1); _ = windows.CloseHandle(job) })
 	member := exec.Command(os.Args[0], "-test.run=^TestJobMemberFixture$")
-	member.Env = append(os.Environ(), "CFO_JOB_MEMBER_FIXTURE=1")
+	member.Env = append(os.Environ(), "CEO_JOB_MEMBER_FIXTURE=1")
 	if err := member.Start(); err != nil {
 		t.Fatal(err)
 	}

@@ -133,7 +133,7 @@ type cleanupFixture struct {
 }
 
 func cleanupSnapshot(panes, agents string) string {
-	return `{"result":{"type":"session_snapshot","snapshot":{"protocol":22,"workspaces":[{"workspace_id":"ws","label":"cfo"}],"tabs":[{"tab_id":"tab-g1","workspace_id":"ws","label":"gb-g1"}],"panes":[` + panes + `],"agents":[` + agents + `]}}}`
+	return `{"result":{"type":"session_snapshot","snapshot":{"protocol":22,"workspaces":[{"workspace_id":"ws","label":"ceo"}],"tabs":[{"tab_id":"tab-g1","workspace_id":"ws","label":"gb-g1"}],"panes":[` + panes + `],"agents":[` + agents + `]}}}`
 }
 
 func newCleanupFixture(t *testing.T) *cleanupFixture {
@@ -281,7 +281,7 @@ func TestCleanupReturnsCleanInactiveWorktree(t *testing.T) {
 	if err != nil || len(status) != 1 {
 		t.Fatalf("status = %v, %v; want one done line recording the returned worktree", status, err)
 	}
-	if _, event := state.SplitStatus(status[0]); event != "stopped: returned worktree "+fixture.worktree+" via cfo cleanup" {
+	if _, event := state.SplitStatus(status[0]); event != "stopped: returned worktree "+fixture.worktree+" via ceo cleanup" {
 		t.Fatalf("status = %v; want one done line recording the returned worktree", status)
 	}
 	fixture.assertOnlyTabCloseLifecycle(t)
@@ -713,7 +713,7 @@ func TestForceArchiveRetiresUnvalidatableWorktreeWithoutTouchingIt(t *testing.T)
 	}
 }
 
-// cfo-no-mistakes-update, 2026-10-09 04:12Z: a local-only task whose
+// ceo-no-mistakes-update, 2026-10-09 04:12Z: a local-only task whose
 // recorded worktree was an empty plain folder, no Git worktree at all, so Git
 // read the home's own checkout above it and the plain cleanup refused with
 // "Git top-level C:/dev/code-goblins is not worktree root"; only
@@ -844,8 +844,8 @@ func TestForceArchiveStillRefusesAnUnresolvableWorktree(t *testing.T) {
 // #1317).
 func TestCleanupHandsOnTheResumeOfTheTaskItRetiresBeforeChangingAnything(t *testing.T) {
 	queueFailure := errors.New("the wake queue cannot be written")
-	publishFailure := errors.New("the messages kept for its resume went to the CFO, but the wake episode cannot be published")
-	unreadable := errors.New("the lifecycle record of g1 cannot be read, so no message kept for its resume was handed to the CFO: unexpected end of JSON input")
+	publishFailure := errors.New("the messages kept for its resume went to the CEO, but the wake episode cannot be published")
+	unreadable := errors.New("the lifecycle record of g1 cannot be read, so no message kept for its resume was handed to the CEO: unexpected end of JSON input")
 	forceArchive := func(f *cleanupFixture) { f.service.ForceArchive = true }
 	emptyFolder := func(f *cleanupFixture) { f.git.top = f.project }
 	for _, tc := range []struct {
@@ -861,7 +861,7 @@ func TestCleanupHandsOnTheResumeOfTheTaskItRetiresBeforeChangingAnything(t *test
 		{name: "a force archive", setup: forceArchive, isRetirable: true, wantCalls: 1, want: "force-archived g1"},
 		{name: "a cleanup of an empty folder", setup: emptyFolder, isRetirable: true, wantCalls: 1, want: "removed the empty folder"},
 		{name: "a cleanup a guard refuses", setup: func(f *cleanupFixture) { f.runner.gitStatus = " M main.go\n" }, isRetirable: true, wantErr: "uncommitted or untracked changes"},
-		{name: "a hand-off that hands nothing on", failure: queueFailure, wantCalls: 1, wantErr: "the messages kept for the resume of g1 could not be handed to the CFO, so nothing was removed: " + queueFailure.Error()},
+		{name: "a hand-off that hands nothing on", failure: queueFailure, wantCalls: 1, wantErr: "the messages kept for the resume of g1 could not be handed to the CEO, so nothing was removed: " + queueFailure.Error()},
 		{name: "a hand-off that fails after the messages", isRetirable: true, failure: publishFailure, wantCalls: 1, want: "cleaned g1 worktree="},
 		{name: "a cleanup of a task whose record cannot be read", isRetirable: true, failure: unreadable, wantCalls: 1, want: "cleaned g1 worktree="},
 		{name: "a force archive of a task whose record cannot be read", setup: forceArchive, isRetirable: true, failure: unreadable, wantCalls: 1, want: "force-archived g1"},

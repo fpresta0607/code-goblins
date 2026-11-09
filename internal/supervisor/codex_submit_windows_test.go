@@ -227,7 +227,7 @@ func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
 			}
 			output := filepath.Join(t.TempDir(), "events.jsonl")
 			release := filepath.Join(t.TempDir(), "turn-ended")
-			terminal := hostProgram(t, store.Home.State, "cfo", output, program, "-test.run=^TestNativeCodexSubmitProgram$", "--", "codex-submit-program", store.Home.State, output, release, mode)
+			terminal := hostProgram(t, store.Home.State, "ceo", output, program, "-test.run=^TestNativeCodexSubmitProgram$", "--", "codex-submit-program", store.Home.State, output, release, mode)
 			for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 				if events := codexSubmitEvents(t, output); len(events) > 0 && events[0].Kind == "ready" {
 					break
@@ -244,9 +244,9 @@ func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
 			if err := store.acceptQuestion(question); err != nil {
 				t.Fatal(err)
 			}
-			service := &Service{Store: store, Instance: "instance", Options: Options{CFO: &CFOConnection{State: store.Home.State}}}
+			service := &Service{Store: store, Instance: "instance", Options: Options{CEO: &CEOConnection{State: store.Home.State}}}
 			board := NewHTTP(service, "localhost", nil)
-			action := Action{ID: "decision-1", Kind: "cfo_answer", Generation: identity, QuestionID: question.ID, Text: "Fix native submission\nPreserve the old evidence.", AnswerKind: "other"}
+			action := Action{ID: "decision-1", Kind: "ceo_answer", Generation: identity, QuestionID: question.ID, Text: "Fix native submission\nPreserve the old evidence.", AnswerKind: "other"}
 			post := func() {
 				data, err := json.Marshal(map[string]string{"id": action.ID, "kind": action.Kind, "generation": action.Generation, "question_id": action.QuestionID, "text": action.Text, "answer_kind": action.AnswerKind})
 				if err != nil {
@@ -255,7 +255,7 @@ func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
 				request := httptest.NewRequest(http.MethodPost, "http://localhost/api/actions", bytes.NewReader(data))
 				request.Header.Set("Content-Type", "application/json")
 				request.Header.Set("Origin", "http://localhost")
-				request.Header.Set("X-CFO-Token", "instance")
+				request.Header.Set("X-CEO-Token", "instance")
 				response := httptest.NewRecorder()
 				board.ServeHTTP(response, request)
 				if response.Code != http.StatusAccepted {
@@ -266,7 +266,7 @@ func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
 			if err := store.ProcessOne(t.Context(), service.execute); err != nil {
 				t.Fatal(err)
 			}
-			want := oneLine(fmt.Sprintf("Overlord: User answer to CFO question %s. Question: %s Answer (Other): %s", question.ID, question.Text, action.Text))
+			want := oneLine(fmt.Sprintf("Overlord: User answer to CEO question %s. Question: %s Answer (Other): %s", question.ID, question.Text, action.Text))
 			var events, submitted []codexSubmitEvent
 			for deadline := time.Now().Add(time.Minute); len(submitted) == 0 && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 				events, submitted = codexSubmitEvents(t, output), nil

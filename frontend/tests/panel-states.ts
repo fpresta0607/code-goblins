@@ -27,7 +27,7 @@ export const PAUSED = live("cg-subscription-dials", "Memory and subscription dia
   lifecycle: { phase: "paused", action: "pause", at, kept: ["worktree C:\\dev\\code-goblins\\.worktrees\\gb-cg-subscription-dials", "task session and branch"], stopped: ["Claude Code pid 18004"], problems: ["Stopping-point deadline reached or request failed; no new handoff was saved"], handoff_saved: false, validation_restarts: false, pause: { reason: "overlord", at } },
 });
 
-// The goblin of his screenshot: the CFO asked it to pause, the pause ran out
+// The goblin of his screenshot: the CEO asked it to pause, the pause ran out
 // of time, and the goblin's own last report still says working.
 export const PAUSE_FAILED = live("cg-fleet-auto-resume", "Paused goblins resume by themselves when the reason for the pause clears; Claude Code", {
   phase: "working", report: "working", pr: "https://github.com/fpresta0607/code-goblins/pull/326",
@@ -37,7 +37,7 @@ export const PAUSE_FAILED = live("cg-fleet-auto-resume", "Paused goblins resume 
 
 export const FAILED = live("pd-ci-minutes", "PrecisionDocs-AI uses far fewer GitHub Actions minutes; Claude Code", {
   phase: "failed", report: "failed", project: "PrecisionDocs-AI",
-  activity: "failed: go test ./internal/billing failed at 9f3c2a1e: TestMeteredUsage timed out after 10m0s; log at C:\\Users\\fpres\\AppData\\Local\\cfo\\verify\\reports\\report.log",
+  activity: "failed: go test ./internal/billing failed at 9f3c2a1e: TestMeteredUsage timed out after 10m0s; log at C:\\Users\\fpres\\AppData\\Local\\ceo\\verify\\reports\\report.log",
 });
 
 const queued = (id: string, title: string, fields: Record<string, unknown> = {}) => ({
@@ -60,7 +60,7 @@ export const REVIEW = {
 export const MEMORY = { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 * GB, available: 4.0 * GB, commit_available: 9 * GB, paged_pool: 4.7 * GB, nonpaged_pool: 0.4 * GB };
 
 export function snapshot(revision = 1) {
-  return { instance: "panel-states", revision, healthy: true, cfo_runs: true, attention: [], memory: MEMORY, tasks: TASKS, reviews: [REVIEW] };
+  return { instance: "panel-states", revision, healthy: true, ceo_runs: true, attention: [], memory: MEMORY, tasks: TASKS, reviews: [REVIEW] };
 }
 
 export const events = (revision = 1) => `event: snapshot\ndata: ${JSON.stringify(snapshot(revision))}\n\n`;

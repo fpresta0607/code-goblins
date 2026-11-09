@@ -54,7 +54,7 @@ func TestExecutorEndsAndNamesWhatTheCommandLeftRunning(t *testing.T) {
 	}
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CFO_VERIFY_DIR", store)
+	t.Setenv("CEO_VERIFY_DIR", store)
 	root := t.TempDir()
 	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Linger: 200 * time.Millisecond, Headroom: plentyOfMemory}}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -88,7 +88,7 @@ func TestExecutorEndsAndNamesWhatTheCommandLeftRunning(t *testing.T) {
 func TestExecutorLimitCountsFromTheCommandsStartNotItsWait(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CFO_VERIFY_DIR", store)
+	t.Setenv("CEO_VERIFY_DIR", store)
 	root := t.TempDir()
 	standin.RemoveAtCleanup(t, root)
 	program := filepath.Join(root, "workload.exe")
@@ -146,7 +146,7 @@ func TestExecutorLimitCountsFromTheCommandsStartNotItsWait(t *testing.T) {
 func TestExecutorCountsTheSetupBeforeItsTurnInTheWait(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CFO_VERIFY_DIR", store)
+	t.Setenv("CEO_VERIFY_DIR", store)
 	root := t.TempDir()
 	standin.RemoveAtCleanup(t, root)
 	program := filepath.Join(root, "workload.exe")
@@ -194,7 +194,7 @@ func TestExecutorLimitEndsACommandThatOutrunsIt(t *testing.T) {
 	}
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CFO_VERIFY_DIR", store)
+	t.Setenv("CEO_VERIFY_DIR", store)
 	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Grace: 10 * time.Millisecond, Headroom: plentyOfMemory}}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -216,7 +216,7 @@ func TestExecutorLimitEndsACommandThatOutrunsIt(t *testing.T) {
 func TestExecutorRefusesAnUntrustedDesktopReserveBeforeStarting(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CFO_VERIFY_DIR", store)
+	t.Setenv("CEO_VERIFY_DIR", store)
 	root := t.TempDir()
 	standin.RemoveAtCleanup(t, root)
 	program := filepath.Join(root, "workload.exe")
@@ -254,7 +254,7 @@ func TestExecutorStartsTheCommandOnlyWhenItsRunStillNeedsIt(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 			root := t.TempDir()
 			executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}}
 			asked, isHeldWhenAsked := 0, false
@@ -306,7 +306,7 @@ func TestExecutorStartsTheCommandOnlyWhenItsRunStillNeedsIt(t *testing.T) {
 
 // A command that tested no one source verified nothing a caller can name, so
 // its run fails though the command exited 0, and keeps that exit code. On
-// 2026-10-27 a cfo verify run whose tree moved while it ran exited 0 and
+// 2026-10-27 a ceo verify run whose tree moved while it ran exited 0 and
 // recorded a pass.
 func TestExecutorFailsARunThatTestedNoOneSource(t *testing.T) {
 	complete := Source{Commit: "c1", CommitTree: "t1", Tree: "t1", IsComplete: true}
@@ -321,7 +321,7 @@ func TestExecutorFailsARunThatTestedNoOneSource(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 			executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}}
 			reads := 0
 			executor.Source = func(context.Context, string) (Source, error) {
@@ -362,7 +362,7 @@ func TestExecutorLimitStopsOnceTheCommandExits(t *testing.T) {
 	}
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CFO_VERIFY_DIR", store)
+	t.Setenv("CEO_VERIFY_DIR", store)
 	// The command exits well inside its limit, and its child lives through
 	// the linger, past the limit, which would end it if the limit still ran.
 	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Grace: 10 * time.Millisecond, Linger: 12 * time.Second, Headroom: plentyOfMemory}}
@@ -393,7 +393,7 @@ func TestExecutorGivesTheCommandAnEmptyInputWithoutOne(t *testing.T) {
 		os.Exit(0)
 	}
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -414,7 +414,7 @@ func TestExecutorInterruptsACommandWhoseOutputPassesItsLimit(t *testing.T) {
 		os.Exit(9)
 	}
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 	executor := Executor{OutputLimit: 1 << 10, Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Grace: 10 * time.Millisecond, Headroom: plentyOfMemory}}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -447,7 +447,7 @@ func TestExecutorAppliesTheStoresReserveAndNeverALowerOne(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 			var isStarted atomic.Bool
 			executor := Executor{Admission: admission(t), Monitor: Monitor{Reserve: test.given, Sustain: time.Millisecond, Poll: 10 * time.Millisecond, Grace: 10 * time.Millisecond,
 				Headroom: func() (Headroom, error) {
@@ -477,7 +477,7 @@ func TestExecutorAppliesTheStoresReserveAndNeverALowerOne(t *testing.T) {
 	}
 }
 
-// A nested turn in the command, as cfo gate turn under cfo verify takes,
+// A nested turn in the command, as ceo gate turn under ceo verify takes,
 // runs inside the executor's turn, and what it lets go of when it ends is
 // still the executor's to end and name.
 func TestExecutorNamesWhatANestedTurnLeftRunning(t *testing.T) {
@@ -517,7 +517,7 @@ func TestExecutorNamesWhatANestedTurnLeftRunning(t *testing.T) {
 		os.Exit(9)
 	}
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 	root := t.TempDir()
 	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Linger: 300 * time.Millisecond, Headroom: plentyOfMemory}}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -547,7 +547,7 @@ func TestExecutorNamesWhatANestedTurnLeftRunning(t *testing.T) {
 	}
 }
 
-// A machine service the command started, as cfo services up starts Docker
+// A machine service the command started, as ceo services up starts Docker
 // Desktop, serves the whole machine: the run's end leaves it running and
 // names it apart from what it ended, and the run keeps its pass and gives
 // its turn back.
@@ -566,7 +566,7 @@ func TestExecutorSparesAMachineServiceTheCommandStarted(t *testing.T) {
 		os.Exit(0)
 	}
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 	root := t.TempDir()
 	programs := t.TempDir()
 	standin.RemoveAtCleanup(t, programs)
@@ -628,7 +628,7 @@ func TestExecutorSparesAMachineServiceTheCommandStarted(t *testing.T) {
 func TestExecutorRetryKeepsTheServiceItsRunSpared(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CFO_VERIFY_DIR", store)
+	t.Setenv("CEO_VERIFY_DIR", store)
 	root := t.TempDir()
 	programs := t.TempDir()
 	standin.RemoveAtCleanup(t, programs)
@@ -692,13 +692,13 @@ func TestExecutorRetryKeepsTheServiceItsRunSpared(t *testing.T) {
 	}
 }
 
-// Given its caller's own output, as cfo gate turn gives its console or pipe,
+// Given its caller's own output, as ceo gate turn gives its console or pipe,
 // the command writes there, the execution keeps no logs, and the result
 // holds no output: the caller keeps it.
 func TestExecutorWritesToItsCallersOutputWhenGivenIt(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CFO_VERIFY_DIR", store)
+	t.Setenv("CEO_VERIFY_DIR", store)
 	root := t.TempDir()
 	standin.RemoveAtCleanup(t, root)
 	program := filepath.Join(root, "workload.exe")
@@ -760,7 +760,7 @@ func TestExecutorLetsACommandSharingItsConsoleAnswerAnInterrupt(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 			root := t.TempDir()
 			executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Grace: time.Millisecond, Headroom: plentyOfMemory}, IsConsoleShared: test.isConsoleShared}
 			ctx, cancel := context.WithCancel(context.Background())
@@ -785,7 +785,7 @@ func TestExecutorLetsACommandSharingItsConsoleAnswerAnInterrupt(t *testing.T) {
 }
 
 // A run that never started its command says why in the error's kind: no
-// turn when it took none, so a caller such as cfo gate turn exits 125, and
+// turn when it took none, so a caller such as ceo gate turn exits 125, and
 // not started when it took its turn and the command could not start, 126.
 func TestExecutorSaysWhyACommandNeverStarted(t *testing.T) {
 	for _, test := range []struct {
@@ -803,7 +803,7 @@ func TestExecutorSaysWhyACommandNeverStarted(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 			executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}}
 
 			// Act
@@ -833,7 +833,7 @@ func TestExecutorEndsASharedRunInterruptedBeforeItsCommandStarted(t *testing.T) 
 		os.Exit(0)
 	}
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 	root := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -864,7 +864,7 @@ func TestExecutorEndsASharedRunInterruptedWhileItsSourceIsRead(t *testing.T) {
 		os.Exit(0)
 	}
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 	root := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -900,7 +900,7 @@ func TestExecutorKeepsRunningWhenASampleCannotBeWritten(t *testing.T) {
 	}
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CFO_VERIFY_DIR", store)
+	t.Setenv("CEO_VERIFY_DIR", store)
 	root := t.TempDir()
 	var record string
 	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 50 * time.Millisecond, Headroom: plentyOfMemory,
@@ -958,7 +958,7 @@ func TestExecutorReadsTheEndOfASharedRunPastAnInterrupt(t *testing.T) {
 		os.Exit(0)
 	}
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
 	root := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

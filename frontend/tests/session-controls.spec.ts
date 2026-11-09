@@ -23,24 +23,24 @@ for (const width of [1440, 390]) {
 for (const width of [1440, 390]) {
   test.describe(`${width}px controls`, () => {
   test.use({ viewport: { width, height: 900 }, hasTouch: width === 390 });
-  for (const who of ["CFO", "goblin"]) {
+  for (const who of ["CEO", "goblin"]) {
     test(`${who} session controls use current data and open its window at ${width}px`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 900 });
-      const relay = await open(page, snapshot({ cfo_harness: "codex" }, { harness: "codex" }), "", { ...PAGE, usage: USAGE });
+      const relay = await open(page, snapshot({ ceo_harness: "codex" }, { harness: "codex" }), "", { ...PAGE, usage: USAGE });
       const posted: unknown[] = [];
       await page.route("**/api/terminal/open", (route) => {
         posted.push(route.request().postDataJSON());
         return route.fulfill({ json: {} });
       });
       await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [{ text: "from speech", at: 1 }] } }));
-      if (who === "CFO") await page.keyboard.press("Control+Alt+1");
+      if (who === "CEO") await page.keyboard.press("Control+Alt+1");
       else await openGoblin(page);
       relay.say({ type: "screen", asking: false, open: false, working: false });
-      const name = who === "CFO" ? "CFO" : NAME;
+      const name = who === "CEO" ? "CEO" : NAME;
       const composer = box(page, name);
       await field(page, name).fill("preserve this draft");
       await expect(composer.locator(".engine-control-model")).toHaveText("Recorded Model");
-      await expect(composer.locator(".engine-control .effort-level"), "the model's button shows the session's effort where one is known").toHaveText(who === "CFO" ? [] : ["xhigh"]);
+      await expect(composer.locator(".engine-control .effort-level"), "the model's button shows the session's effort where one is known").toHaveText(who === "CEO" ? [] : ["xhigh"]);
 
       await expect(context(page)).toHaveAttribute("aria-valuenow", "24");
       await expect(context(page)).toHaveAttribute("aria-valuetext", "24% used, 24k of 100k tokens");
@@ -53,19 +53,19 @@ for (const width of [1440, 390]) {
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
 
       await pressRow(page, "Open in Windows Terminal", "Open in terminal");
-      await expect.poll(() => posted).toEqual([who === "CFO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
+      await expect.poll(() => posted).toEqual([who === "CEO" ? { native: "ceo=ceo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
       await expect(composer.getByRole("button", { name: "Open in Windows Terminal", exact: true })).toHaveCount(0);
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
       expect(typed(relay)).toBe("");
       await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage } } })), { ...USAGE, context_tokens: 72000, model: "changed-model" });
       await expect(context(page)).toHaveAttribute("aria-valuenow", "72");
       await expect(composer.locator(".engine-control-model")).toHaveText("Changed Model");
-      await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, cfo_harness: "codex", cfo_terminal: "new-cfo" }, { harness: "codex", generation: "replacement" }));
+      await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, ceo_harness: "codex", ceo_terminal: "new-ceo" }, { harness: "codex", generation: "replacement" }));
       await expect(context(page)).toHaveAttribute("aria-valuenow", "24");
-      await expect.poll(() => relay.addresses.some((address) => address.includes(who === "CFO" ? "cfo=new-cfo" : "generation=replacement"))).toBe(true);
+      await expect.poll(() => relay.addresses.some((address) => address.includes(who === "CEO" ? "ceo=new-ceo" : "generation=replacement"))).toBe(true);
       relay.say({ type: "screen", asking: false, open: false, working: false });
       await pressRow(page, "Open in Windows Terminal", "Open in terminal");
-      await expect.poll(() => posted[1]).toEqual(who === "CFO" ? { native: "cfo=new-cfo" } : { native: `task=${GOBLIN.id}&generation=replacement` });
+      await expect.poll(() => posted[1]).toEqual(who === "CEO" ? { native: "ceo=new-ceo" } : { native: `task=${GOBLIN.id}&generation=replacement` });
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
       await expect(composer.locator(".engine-control-model")).toHaveText("Recorded Model");
       await expect(composer.getByRole("button", { name: "Change model", exact: true })).toBeEnabled();
@@ -114,17 +114,17 @@ for (const width of [1440, 390]) {
 test.describe(`${width}px native settings`, () => {
 test.use({ viewport: { width, height: 900 }, hasTouch: width === 390 });
 for (const harness of ["codex", "claude", "pi"] as const) {
-  for (const who of harness === "codex" ? ["CFO", "goblin"] : ["goblin"]) {
+  for (const who of harness === "codex" ? ["CEO", "goblin"] : ["goblin"]) {
   for (const setting of ["model", "effort"] as const) {
     test(`${harness} ${who} ${setting} opens the board's own pane, sets the same session and reads it back`, async ({ page }) => {
       // Arrange
       const session = SESSIONS[harness];
       const [value, option, shown] = session.picks[setting];
-      const relay = await open(page, snapshot({ cfo_harness: harness }, { harness, model: session.model, effort: session.effort }), "", { ...PAGE, usage: recorded(session.model, session.effort) });
+      const relay = await open(page, snapshot({ ceo_harness: harness }, { harness, model: session.model, effort: session.effort }), "", { ...PAGE, usage: recorded(session.model, session.effort) });
       await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
-      if (who === "CFO") await page.keyboard.press("Control+Alt+1");
+      if (who === "CEO") await page.keyboard.press("Control+Alt+1");
       else await openGoblin(page);
-      const name = who === "CFO" ? "CFO" : NAME;
+      const name = who === "CEO" ? "CEO" : NAME;
       await field(page, name).fill("my unsent words");
       await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
       relay.say({ type: "screen", asking: false, open: false, working: false });
@@ -443,8 +443,8 @@ test("a /model or /effort typed while the controls cannot change the session sta
 
 test("a narrow desktop panel keeps all session controls inside the composer", async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("cfo-pane-width", "360");
-    localStorage.setItem("cfo-terminal-maximized", "false");
+    localStorage.setItem("ceo-pane-width", "360");
+    localStorage.setItem("ceo-terminal-maximized", "false");
   });
   await open(page, snapshot(), "", { ...PAGE, usage: USAGE });
   await openGoblin(page);

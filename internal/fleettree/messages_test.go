@@ -1151,7 +1151,7 @@ func TestAnAnswerSaysWhetherItCameFromTheBoardOrItsPage(t *testing.T) {
 	for _, test := range []struct{ text, source string }{
 		{"The Overlord answered your question on the board. Answer: yes", FromAnswer},
 		{"The Overlord answered your question on its page. Answer: yes", FromPage},
-		{"CFO: answered on your review page https://example/page: Build it as shown", FromPage},
+		{"CEO: answered on your review page https://example/page: Build it as shown", FromPage},
 	} {
 		source, _ := promptSource(test.text)
 		if source != test.source {
@@ -1161,13 +1161,13 @@ func TestAnAnswerSaysWhetherItCameFromTheBoardOrItsPage(t *testing.T) {
 }
 
 // A message he typed to a goblin on the board reaches its terminal behind the
-// CFO's stamp and the board's, and reads back as his own words, so the board
-// can show it as his and as read. The CFO's own steer stays the CFO's, and a
+// CEO's stamp and the board's, and reads back as his own words, so the board
+// can show it as his and as read. The CEO's own steer stays the CEO's, and a
 // command he typed stays as he typed it.
 func TestABoardMessageToAGoblinReadsAsHisOwnWords(t *testing.T) {
 	for _, tc := range []struct{ name, text, source, words string }{
 		{"his message from the board", routing.SteerPrefix + routing.BoardMessagePrefix + "check the deploy before you merge", FromOverlord, "check the deploy before you merge"},
-		{"the CFO's steer", routing.SteerPrefix + "rebase on main", FromCFO, "rebase on main"},
+		{"the CEO's steer", routing.SteerPrefix + "rebase on main", FromCEO, "rebase on main"},
 		{"his command", "/compact", FromOverlord, "/compact"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1214,18 +1214,18 @@ func TestMessagesReadEachKindOfEntry(t *testing.T) {
 			name: "prompts name where they came from",
 			entries: func(*testing.T, string) []any {
 				return []any{
-					prompted("u1", `Read C:\work\state\instruction.md and follow it exactly: it is your instruction from the CFO.`),
-					prompted("u2", "CFO: merge origin/main first"),
-					prompted("u3", "CFO: The Overlord answered your question on the board. Question: Which first? Answer: Fix it next"),
-					prompted("u4", "User answer to CFO question q-1. Question: Ship it? Answer: Yes"),
+					prompted("u1", `Read C:\work\state\instruction.md and follow it exactly: it is your instruction from the CEO.`),
+					prompted("u2", "CEO: merge origin/main first"),
+					prompted("u3", "CEO: The Overlord answered your question on the board. Question: Which first? Answer: Fix it next"),
+					prompted("u4", "User answer to CEO question q-1. Question: Ship it? Answer: Yes"),
 					prompted("u5", "Overlord: keep the tests\n<system-reminder>Claude Code's own note</system-reminder>"),
 				}
 			},
 			want: []Message{
-				prompt(0, "u1", FromCFO, `Read C:\work\state\instruction.md and follow it exactly: it is your instruction from the CFO.`),
-				prompt(1, "u2", FromCFO, "merge origin/main first"),
+				prompt(0, "u1", FromCEO, `Read C:\work\state\instruction.md and follow it exactly: it is your instruction from the CEO.`),
+				prompt(1, "u2", FromCEO, "merge origin/main first"),
 				prompt(2, "u3", FromAnswer, "The Overlord answered your question on the board. Question: Which first? Answer: Fix it next"),
-				prompt(3, "u4", FromAnswer, "User answer to CFO question q-1. Question: Ship it? Answer: Yes"),
+				prompt(3, "u4", FromAnswer, "User answer to CEO question q-1. Question: Ship it? Answer: Yes"),
 				prompt(4, "u5", FromOverlord, "Overlord: keep the tests"),
 			},
 		},
@@ -1235,13 +1235,13 @@ func TestMessagesReadEachKindOfEntry(t *testing.T) {
 				queuedPrompt := prompted("u2", "check the phone too")
 				queuedPrompt["promptSource"] = "queued"
 				return []any{
-					attachment("q1", object{"type": "queued_command", "commandMode": "prompt", "prompt": `CFO: also run the specs <pasted_content id="07">now</pasted_content id="07">`}),
+					attachment("q1", object{"type": "queued_command", "commandMode": "prompt", "prompt": `CEO: also run the specs <pasted_content id="07">now</pasted_content id="07">`}),
 					queuedPrompt,
 					attachment("q2", object{"type": "queued_command", "commandMode": "prompt", "prompt": []object{textBlock("look at this"), imageBlock([]byte("png"))}}),
 				}
 			},
 			want: []Message{
-				{ID: "q1", Seq: 0, Kind: MessagePrompt, At: at, Source: FromCFO, IsQueued: true, Text: "also run the specs now"},
+				{ID: "q1", Seq: 0, Kind: MessagePrompt, At: at, Source: FromCEO, IsQueued: true, Text: "also run the specs now"},
 				{ID: "u2", Seq: 1, Kind: MessagePrompt, At: at, Source: FromOverlord, IsQueued: true, Text: "check the phone too"},
 				{ID: "q2", Seq: 2, Kind: MessagePrompt, At: at, Source: FromOverlord, IsQueued: true, Text: "look at this"},
 			},
@@ -1741,18 +1741,18 @@ func TestAConversationNoViewAsksForIsLetGo(t *testing.T) {
 	}
 }
 
-// The wake line the supervisor types into a Codex or pi CFO's terminal is the
+// The wake line the supervisor types into a Codex or pi CEO's terminal is the
 // fleet speaking, never the Overlord: it reads as the session's own notice,
 // with its words kept, and everything else he types stays his own message,
-// a line that begins with "cfo" included (the Overlord, 2026-10-26).
+// a line that begins with "ceo" included (the Overlord, 2026-10-26).
 func TestTheFleetsTypedWakeIsANoticeNotHisMessage(t *testing.T) {
 	// Arrange
-	wake := WakePrefix + "2 queued wakes (ci cg-a, notify cg-b); run cfo drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints"
+	wake := WakePrefix + "2 queued wakes (ci cg-a, notify cg-b); run ceo drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints"
 	home := t.TempDir()
 	path := conversation(t, home,
 		prompted("u1", wake),
-		prompted("u2", "cfo, take a look at the failing test"),
-		prompted("u3", "cfo watcher wake-ups are noisy, quiet them down"),
+		prompted("u2", "ceo, take a look at the failing test"),
+		prompted("u3", "ceo watcher wake-ups are noisy, quiet them down"),
 	)
 	reader := Reader{Home: home}
 
@@ -1762,8 +1762,8 @@ func TestTheFleetsTypedWakeIsANoticeNotHisMessage(t *testing.T) {
 	// Assert
 	want := []Message{
 		prompt(0, "u1", FromNotice, wake),
-		prompt(1, "u2", FromOverlord, "cfo, take a look at the failing test"),
-		prompt(2, "u3", FromOverlord, "cfo watcher wake-ups are noisy, quiet them down"),
+		prompt(1, "u2", FromOverlord, "ceo, take a look at the failing test"),
+		prompt(2, "u3", FromOverlord, "ceo watcher wake-ups are noisy, quiet them down"),
 	}
 	if got := numbered(t, path, page.Messages); err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("MessagePage = %+v, %v\nwant %+v", got, err, want)
@@ -1771,15 +1771,15 @@ func TestTheFleetsTypedWakeIsANoticeNotHisMessage(t *testing.T) {
 }
 
 // A pi session reads the same fleet wake line as the session's notice, since
-// the supervisor types it into a pi CFO's terminal too.
+// the supervisor types it into a pi CEO's terminal too.
 func TestAPiSessionReadsTheFleetsWakeAsANotice(t *testing.T) {
 	// Arrange
-	wake := WakePrefix + "1 queued wake (notify cg-a); run cfo drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints"
+	wake := WakePrefix + "1 queued wake (notify cg-a); run ceo drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints"
 	home := t.TempDir()
 	path := piSession(t, home,
 		piHeader(),
 		piMessageEntry("u1", "", "user", object{"content": wake}),
-		piMessageEntry("u2", "u1", "user", object{"content": "cfo, what changed?"}),
+		piMessageEntry("u2", "u1", "user", object{"content": "ceo, what changed?"}),
 	)
 	reader := Reader{Home: home}
 
@@ -1789,7 +1789,7 @@ func TestAPiSessionReadsTheFleetsWakeAsANotice(t *testing.T) {
 	// Assert
 	want := []Message{
 		prompt(0, "u1", FromNotice, wake),
-		prompt(1, "u2", FromOverlord, "cfo, what changed?"),
+		prompt(1, "u2", FromOverlord, "ceo, what changed?"),
 	}
 	if !reflect.DeepEqual(page.Messages, want) {
 		t.Fatalf("messages = %+v, want %+v", page.Messages, want)
@@ -1800,19 +1800,19 @@ func TestFleetProducerMessagesAreNotOverlordPrompts(t *testing.T) {
 	for _, test := range []struct {
 		text, source string
 	}{
-		{WakePrefix + "1 queued wake (notify task-1); run cfo drain", FromNotice},
+		{WakePrefix + "1 queued wake (notify task-1); run ceo drain", FromNotice},
 		{"== SESSION LOCK ==\nSESSION LOCK: held by pid 123 on test\n== WAKE QUEUE ==\nWAKE QUEUE: empty", FromNotice},
-		{"WAKE QUEUE: 1 pending\n  1 notify task-1 done\nWAKE_ACK_REQUIRED: cfo drain --ack-through 1", FromNotice},
+		{"WAKE QUEUE: 1 pending\n  1 notify task-1 done\nWAKE_ACK_REQUIRED: ceo drain --ack-through 1", FromNotice},
 		{"AFK MODE IS ON: the Supreme Overlord turned it on 2026-10-02 02:10 UTC from the board, and he is away until he turns it off.\nIt is complete autopilot: no Command Center prompt opens for him while it is on, and nothing is asked of him or held for him.\nWAKE QUEUE: empty", FromNotice},
 		{routing.SteerPrefix + "Your run npm test ended with exit 0 after 1m35s; read its output and carry on from it.", FromNotice},
-		{routing.SteerPrefix + "Your helper task-1 is done: its work is committed on its branch, ready. Merge it into your branch with: cfo helper merge parent", FromNotice},
-		{routing.SteerPrefix + "Your helper task-1 asks: Which path? Answer it with: cfo send task-1 \"<answer>\"", FromNotice},
-		{routing.SteerPrefix + "Your helper task-1 failed: test failure. Tell it what to do with: cfo send task-1 \"<what>\", or stop it with: cfo kill task-1 --reason \"<why>\"", FromNotice},
-		{"cfo drain please", FromOverlord},
-		{"cfo watcher wake-ups need fixing", FromOverlord},
+		{routing.SteerPrefix + "Your helper task-1 is done: its work is committed on its branch, ready. Merge it into your branch with: ceo helper merge parent", FromNotice},
+		{routing.SteerPrefix + "Your helper task-1 asks: Which path? Answer it with: ceo send task-1 \"<answer>\"", FromNotice},
+		{routing.SteerPrefix + "Your helper task-1 failed: test failure. Tell it what to do with: ceo send task-1 \"<what>\", or stop it with: ceo kill task-1 --reason \"<why>\"", FromNotice},
+		{"ceo drain please", FromOverlord},
+		{"ceo watcher wake-ups need fixing", FromOverlord},
 		{"Your run was slow, please check it", FromOverlord},
 		{"WAKE QUEUE: please show it", FromOverlord},
-		{routing.SteerPrefix + "Your run needs a regression test", FromCFO},
+		{routing.SteerPrefix + "Your run needs a regression test", FromCEO},
 	} {
 		for _, harness := range []string{"claude", "pi", "codex"} {
 			t.Run(harness+"/"+test.text, func(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 )
 
 // OwnerKind names who a running thing belongs to. The four are the four
-// answers the CFO needs before it can decide anything: leave it alone, it is
+// answers the CEO needs before it can decide anything: leave it alone, it is
 // the project's, it is the Overlord's, or nobody is coming back for it.
 type OwnerKind string
 
@@ -30,7 +30,7 @@ const (
 )
 
 // Owner is an attribution and the evidence behind it. Evidence is not
-// decoration: an attribution the CFO cannot check is one it will not act on,
+// decoration: an attribution the CEO cannot check is one it will not act on,
 // and the wrong answer here means either a killed working goblin or a demo
 // stack left to rot.
 type Owner struct {
@@ -38,7 +38,7 @@ type Owner struct {
 	Project  string    `json:"project,omitempty"`
 	TaskID   string    `json:"task_id,omitempty"`
 	Evidence string    `json:"evidence"`
-	// Reap records that `cfo reap` is the command that retires this. It is a
+	// Reap records that `ceo reap` is the command that retires this. It is a
 	// pointer, never an action: reap owns that decision and already refuses
 	// to kill what is still working.
 	Reap bool `json:"reap,omitempty"`
@@ -255,7 +255,7 @@ func (a Attribution) Of(workDir, stack string) Owner {
 		return owner
 	}
 	if !checked {
-		// Never looked for. Reporting it as abandoned would put a `cfo reap`
+		// Never looked for. Reporting it as abandoned would put a `ceo reap`
 		// pointer on a directory nothing has established is gone.
 		return Owner{
 			Kind:     OwnerUnowned,

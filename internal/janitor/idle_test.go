@@ -33,7 +33,7 @@ func TestATreeIsIdleOnlyWhenNothingInItChangedOrUsedTheProcessor(t *testing.T) {
 		}
 		return Process{Process: lifecycle.Process{PID: pid, ParentPID: parent, Name: name, Started: started.Add(start), Mark: mark}, CPU: cpu}
 	}
-	host := Process{Process: lifecycle.Process{PID: 1, Name: "cfo.exe", Started: started}}
+	host := Process{Process: lifecycle.Process{PID: 1, Name: "ceo.exe", Started: started}}
 	// At the first sweep: go test and its first test program, which had used
 	// 100 seconds of processor time.
 	seen := []Watched{{PID: 10, Started: started.Add(time.Minute), Since: firstSeen, Members: []WatchedMember{
@@ -106,7 +106,7 @@ func TestNothingOfAWorkingGoblinsIsIdleHoweverLongItSatStill(t *testing.T) {
 	now := firstSeen.Add(3 * time.Hour)
 	bridge := []string{"node", `C:\npm\chrome-devtools-axi\dist\bin\chrome-devtools-axi-bridge.js`}
 	processes := []Process{
-		{Process: lifecycle.Process{PID: 1, Name: "cfo.exe", Started: started}},
+		{Process: lifecycle.Process{PID: 1, Name: "ceo.exe", Started: started}},
 		// A gate waiter, blocked since it started.
 		{Process: lifecycle.Process{PID: 10, ParentPID: 900, Name: "no-mistakes.exe", Started: started.Add(time.Minute), Mark: mark}, CPU: time.Second},
 		// A browser bridge nothing has driven for two hours.

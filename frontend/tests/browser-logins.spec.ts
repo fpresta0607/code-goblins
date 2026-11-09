@@ -21,7 +21,7 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
       } else if (url.pathname === "/api/connections") {
         await route.fulfill({ json: { instance: "connections-proof", checking: false, checked_at: hoursAgo(0), entries: [], browser_logins: logins } });
       } else if (url.pathname === "/api/browser-logins/sign-out" || url.pathname === "/api/browser-logins/forget") {
-        posted.push({ path: url.pathname, token: route.request().headers()["x-cfo-token"], body: route.request().postDataJSON() });
+        posted.push({ path: url.pathname, token: route.request().headers()["x-ceo-token"], body: route.request().postDataJSON() });
         logins = url.pathname.endsWith("forget") ? logins.filter((login) => login.id !== "stripe-siqstack") : logins.map((login) => login.id === "stripe-precisiondocs" ? { ...login, signed_in: false, signed_in_at: "" } : login);
         await route.fulfill({ json: { browser_logins: logins } });
       } else {

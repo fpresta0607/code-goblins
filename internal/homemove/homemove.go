@@ -1,4 +1,4 @@
-// Package homemove moves a CFO home to another folder: a checkout an older
+// Package homemove moves a CEO home to another folder: a checkout an older
 // build made its home, or a home anywhere else, into the per-user home every
 // install now uses. A plan lists every file it moves, with its SHA-256, the
 // task records whose paths into the moved folders it rewrites, and the proof
@@ -149,7 +149,7 @@ func PlanMove(from, to string, tracked map[string]bool, now time.Time) (Plan, er
 
 // oldPrograms are the binaries an older build kept at the home's root, which
 // the move removes once the new home's bin holds this build.
-var oldPrograms = []string{"cfo.exe", "goblins.exe", "goblins-window.exe", "goblins-window.png"}
+var oldPrograms = []string{"ceo.exe", "goblins.exe", "goblins-window.exe", "goblins-window.png"}
 
 // leftBehind names every top-level entry of the old home the move neither
 // carries nor removes, and that its git does not track: what the Overlord

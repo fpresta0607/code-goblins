@@ -16,12 +16,12 @@ param(
     [switch]$FromInstalledApps
 )
 $ErrorActionPreference = "Stop"
-$cfoHome = Join-Path $env:LOCALAPPDATA "CodeGoblins"
-$goblins = Join-Path $cfoHome "bin\goblins.exe"
+$ceoHome = Join-Path $env:LOCALAPPDATA "CodeGoblins"
+$goblins = Join-Path $ceoHome "bin\goblins.exe"
 # From a neutral folder, in a new terminal's environment, as a person would.
 Set-Location $env:RUNNER_TEMP
 $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-$env:CFO_HOME = [Environment]::GetEnvironmentVariable("CFO_HOME", "User")
+$env:CEO_HOME = [Environment]::GetEnvironmentVariable("CEO_HOME", "User")
 
 $choices = @()
 if ($RemoveAll) { $choices = @("--remove-work", "--remove-tools") }
@@ -41,7 +41,7 @@ $planFile = Join-Path $env:RUNNER_TEMP "leftovers-plan.json"
 & $goblins uninstall --dry-run @choices | Write-Host
 & $Leftovers snapshot (Join-Path $env:RUNNER_TEMP "leftovers-after-plan.json") @snapshot | Out-Null
 & $Leftovers compare (Join-Path $env:RUNNER_TEMP "leftovers-before-plan.json") (Join-Path $env:RUNNER_TEMP "leftovers-after-plan.json") --report (Join-Path $env:RUNNER_TEMP "leftovers-plan-report.json") | Out-Null
-$taken = @((Get-Content -Raw -LiteralPath (Join-Path $env:RUNNER_TEMP "leftovers-plan-report.json") | ConvertFrom-Json).remaining | Where-Object { $_.change -eq "gone" -and $_.kind -ne "process" -and -not $_.identity.StartsWith($cfoHome, [StringComparison]::OrdinalIgnoreCase) })
+$taken = @((Get-Content -Raw -LiteralPath (Join-Path $env:RUNNER_TEMP "leftovers-plan-report.json") | ConvertFrom-Json).remaining | Where-Object { $_.change -eq "gone" -and $_.kind -ne "process" -and -not $_.identity.StartsWith($ceoHome, [StringComparison]::OrdinalIgnoreCase) })
 if ($taken.Count -gt 0) { throw "the dry run took away: $(($taken | ForEach-Object { "$($_.kind) $($_.identity)" }) -join '; ')" }
 
 $plan = $planText -join "`n" | ConvertFrom-Json
@@ -63,8 +63,8 @@ else {
 if ($LASTEXITCODE -ne 0) { throw "goblins uninstall exited with code $LASTEXITCODE" }
 
 # What a person sees at once.
-if (Test-Path -LiteralPath $cfoHome) { throw "the uninstall left $cfoHome" }
-if ([Environment]::GetEnvironmentVariable("CFO_HOME", "User")) { throw "CFO_HOME survived the uninstall" }
+if (Test-Path -LiteralPath $ceoHome) { throw "the uninstall left $ceoHome" }
+if ([Environment]::GetEnvironmentVariable("CEO_HOME", "User")) { throw "CEO_HOME survived the uninstall" }
 if (Test-Path -LiteralPath "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CodeGoblins") { throw "Code Goblins is still in Installed apps" }
 $kept = @()
 if ($plan.kept -and @($plan.items | Where-Object { $_.action -eq "keep" })) {

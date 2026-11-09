@@ -16,13 +16,13 @@ import (
 // session through.
 var claudeEvents = []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact"}
 
-// isNativeHook reports whether hook runs cfo native-hook, which reports its
-// session to the supervisor, rather than a cfo hook.
+// isNativeHook reports whether hook runs ceo native-hook, which reports its
+// session to the supervisor, rather than a ceo hook.
 func isNativeHook(hook registeredHook) bool {
 	return len(hook.Args) > 0 && hook.Args[0] == "native-hook"
 }
 
-// Every Claude Code session the fleet starts, a goblin's and the CFO's,
+// Every Claude Code session the fleet starts, a goblin's and the CEO's,
 // carries its native session hooks in its own launch settings, so it reports
 // its session as a Codex or Pi session does, and nothing is written to the
 // user's settings, which every Claude Code session on the machine loads. A
@@ -34,7 +34,7 @@ func TestEveryFleetClaudeSessionCarriesItsNativeSessionHooks(t *testing.T) {
 		settings func(root, stateDir string) ([]byte, error)
 	}{
 		{"a goblin", func(root, stateDir string) ([]byte, error) { return GoblinSettings(root, stateDir, board) }},
-		{"the CFO", CFOSettings},
+		{"the CEO", CEOSettings},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -60,8 +60,8 @@ func TestEveryFleetClaudeSessionCarriesItsNativeSessionHooks(t *testing.T) {
 					continue
 				}
 				want := []string{"native-hook", "claude", "--home", root, "--state", stateDir}
-				if hook.Command != filepath.Join(root, home.BinDir, "cfo.exe") || !slices.Equal(hook.Args, want) || hook.Shell || hook.Matcher != "" {
-					t.Errorf("native hook = %+v, want the home's cfo.exe run with %q and no shell for every tool", hook, want)
+				if hook.Command != filepath.Join(root, home.BinDir, "ceo.exe") || !slices.Equal(hook.Args, want) || hook.Shell || hook.Matcher != "" {
+					t.Errorf("native hook = %+v, want the home's ceo.exe run with %q and no shell for every tool", hook, want)
 				}
 				events = append(events, hook.Event)
 			}
@@ -76,13 +76,13 @@ func TestEveryFleetClaudeSessionCarriesItsNativeSessionHooks(t *testing.T) {
 
 // An install brings the board's pi extension up to its own build, since
 // nothing else rewrites it: on 2026-10-24 one an install of 2026-10-16 wrote
-// still ended its hook after 2.5 s and said "CFO native event could not be
+// still ended its hook after 2.5 s and said "CEO native event could not be
 // spooled" of an event that had reached the supervisor (#1502). One the
 // Overlord never installed, or a file of his own there, is left as it is.
 func TestInstallBringsTheBoardsPiExtensionUpToItsBuild(t *testing.T) {
-	const olderBuild = "// CFO native hooks v1\n" +
-		`    const result = spawnSync("C:\cfo.exe", ["native-hook","pi"], {input: JSON.stringify(payload), encoding: "utf8", windowsHide: true, timeout: 2500});` + "\n" +
-		`    if (result.error || result.status !== 0) console.error("CFO native event could not be spooled");` + "\n"
+	const olderBuild = "// CEO native hooks v1\n" +
+		`    const result = spawnSync("C:\ceo.exe", ["native-hook","pi"], {input: JSON.stringify(payload), encoding: "utf8", windowsHide: true, timeout: 2500});` + "\n" +
+		`    if (result.error || result.status !== 0) console.error("CEO native event could not be spooled");` + "\n"
 	const ownExtension = "// the Overlord's own extension\n"
 	for _, test := range []struct {
 		name, before string
@@ -95,7 +95,7 @@ func TestInstallBringsTheBoardsPiExtensionUpToItsBuild(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			f := newFixture(t, "", nil)
-			path := filepath.Join(f.profile, ".pi", "agent", "extensions", "cfo-native.ts")
+			path := filepath.Join(f.profile, ".pi", "agent", "extensions", "ceo-native.ts")
 			if test.before != "" {
 				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 					t.Fatal(err)
@@ -104,7 +104,7 @@ func TestInstallBringsTheBoardsPiExtensionUpToItsBuild(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			current, err := nativehook.Install(nativehook.InstallConfig{Harness: "pi", ConfigDir: t.TempDir(), Executable: filepath.Join(f.bin, "cfo.exe"), Home: f.root, State: filepath.Join(f.root, "state")})
+			current, err := nativehook.Install(nativehook.InstallConfig{Harness: "pi", ConfigDir: t.TempDir(), Executable: filepath.Join(f.bin, "ceo.exe"), Home: f.root, State: filepath.Join(f.root, "state")})
 			if err != nil {
 				t.Fatal(err)
 			}

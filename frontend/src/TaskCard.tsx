@@ -29,12 +29,12 @@ const TERMINAL_ACTIVITY: Record<string, string> = { busy: "Terminal active", act
 // issue"), then the mark of the harness it runs, whose tip names the model
 // and effort. A goblin leads with its name, a finished one too, which wraps
 // rather than ending in an ellipsis, and shows its task in the name's tip
-// (the CFO's decision 1008011). Its checks and deploy, the goblin it helps,
+// (the CEO's decision 1008011). Its checks and deploy, the goblin it helps,
 // what runs under it and a waiting update are in its panel. rank, when the
 // card sits in an ordered list, is read out with it; nextText and nextTone
 // mark the one card the order for a free slot takes first. The goblin it waits on is named in
 // its status line only. A goblin gone quiet, and windows still closing, are
-// the CFO's to hear, never warnings on the card.
+// the CEO's to hear, never warnings on the card.
 //
 // A card is given what it shows as plain values (cardFacts) and is drawn
 // again only when one of them changed, so a snapshot that changed another

@@ -32,7 +32,7 @@ async function open(page: Page, { card, choose, box }: (typeof BOXES)[number]) {
   await page.route("**/api/dictation/warm", (route) => route.fulfill({ status: 202 }));
   await page.route("**/api/dictation", async (route) => {
     if (route.request().method() === "GET") return route.fulfill({ json: { engine: "test-model", state: "ready" } });
-    heard.push(await route.request().headerValue("X-CFO-Token"));
+    heard.push(await route.request().headerValue("X-CEO-Token"));
     return route.fulfill({ json: { text: "rebase onto main", engine: "test-model" } });
   });
   await page.clock.install({ time: new Date("2026-10-13T14:30:00Z") });
@@ -42,7 +42,7 @@ async function open(page: Page, { card, choose, box }: (typeof BOXES)[number]) {
   else {
     await page.locator(".command-center-menu > summary").click();
     await page.locator(".command-center-updates").getByText("History").click();
-    await page.getByRole("button", { name: /^Change the answer to The CFO: Merge PocketPiggies 125/ }).click();
+    await page.getByRole("button", { name: /^Change the answer to The CEO: Merge PocketPiggies 125/ }).click();
   }
   const dialog = page.getByRole("dialog");
   if (choose) await dialog.getByRole("radio", { name: new RegExp("^" + choose) }).check();

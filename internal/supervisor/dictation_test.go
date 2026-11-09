@@ -137,7 +137,7 @@ func dictate(handler *HTTP, sound []byte, change func(*http.Request)) *httptest.
 	request.Host = handler.Host
 	request.RemoteAddr = "127.0.0.1:50000"
 	request.Header.Set("Origin", "http://"+handler.Host)
-	request.Header.Set("X-CFO-Token", "test-instance")
+	request.Header.Set("X-CEO-Token", "test-instance")
 	request.Header.Set("Content-Type", "audio/wav")
 	if change != nil {
 		change(request)
@@ -198,7 +198,7 @@ func TestDictationTakesSoundOnlyFromTheBoardsOwnPageOnThisMachine(t *testing.T) 
 	}{
 		"a peer off this machine":    {func(r *http.Request) { r.RemoteAddr = "100.101.102.103:51234" }, http.StatusForbidden},
 		"a request through a proxy":  {header("X-Forwarded-For", "100.101.102.103"), http.StatusForbidden},
-		"no board token":             {func(r *http.Request) { r.Header.Del("X-CFO-Token") }, http.StatusForbidden},
+		"no board token":             {func(r *http.Request) { r.Header.Del("X-CEO-Token") }, http.StatusForbidden},
 		"another site's page":        {header("Origin", "https://example.test"), http.StatusForbidden},
 		"a body that is not a sound": {header("Content-Type", "application/json"), http.StatusBadRequest},
 	} {
@@ -334,7 +334,7 @@ func TestDictationSaysSoWhenTheMachineHasNoRoom(t *testing.T) {
 func TestASupervisorWithoutAnEngineSaysDictationIsNotSetUp(t *testing.T) {
 	handler := dictationBoard(t, nil)
 	response := dictate(handler, []byte("RIFF-sound"), nil)
-	if _, _, problem := answer(t, response); response.Code != http.StatusServiceUnavailable || !strings.Contains(problem, "cfo doctor") {
+	if _, _, problem := answer(t, response); response.Code != http.StatusServiceUnavailable || !strings.Contains(problem, "ceo doctor") {
 		t.Fatalf("without an engine it answered %d %s", response.Code, response.Body)
 	}
 	if _, state, _ := dictationStatus(t, handler); state != "none" {
@@ -402,7 +402,7 @@ func TestTheLastDictationWithSpeechAnsweredNoWordsIsKeptForReplay(t *testing.T) 
 }
 
 // A no-words answer whose sound cannot be kept says so, as every failure the
-// board sees goes to the CFO, rather than leaving nothing to replay unsaid.
+// board sees goes to the CEO, rather than leaving nothing to replay unsaid.
 func TestANoWordsSoundThatCannotBeKeptIsAFailure(t *testing.T) {
 	// Arrange
 	handler := dictationBoard(t, &fakeSpeech{})

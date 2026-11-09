@@ -56,20 +56,20 @@ that in mind: the fix must make a read genuinely free when nothing changed.
 - PR opened against main, referencing "Closes #1049", with the production evidence summarized and the
   post-deploy expectation stated (regeneration events ~667/week -> near zero; briefing_version stops
   climbing; 94% stale-on-read -> near zero).
-- Report with `cfo notify pdocs-welcome-drift --done --pr <url>`.
+- Report with `ceo notify pdocs-welcome-drift --done --pr <url>`.
 
 ## Constraints
 
 - NEVER run the no-mistakes daemon or any `no-mistakes`/`axi` command. It is deliberately DOWN. Verify
   locally instead. This is a standing Overlord order after a cost incident.
 - NEVER read, print, or use ANTHROPIC_API_KEY or any provider API key. Your harness runs on the Overlord's
-  subscription. If any tool errors with a usage or quota limit, STOP and `cfo notify --blocked` - never retry.
+  subscription. If any tool errors with a usage or quota limit, STOP and `ceo notify --blocked` - never retry.
 - Do not make live LLM calls in tests. Mock the generator. The whole point of this issue is that paid
   calls were happening when they should not; do not add more.
 - Read-only against production. Do not run migrations against prod, do not touch prod data. A schema change
   ships as a migration file in the PR.
 - NEVER touch `C:\dev\PrecisionDocs-AI` - that is the Overlord's own checkout. Work only in your worktree.
-- Do not merge your own PR. The CFO merges.
+- Do not merge your own PR. The CEO merges.
 - Rebase onto current origin/main before opening the PR; main moved several times today.
 - Interactive git (`git rebase -i`, `git add -i`) is unavailable.
 - Keep the diff focused on the three spec parts. If you find adjacent defects, note them in the PR body as

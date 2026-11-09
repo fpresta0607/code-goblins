@@ -351,7 +351,7 @@ func TestComposeUsesVerifiedWarmMemoryInsteadOfHistoricalRulings(t *testing.T) {
 	if !strings.Contains(output.String(), active) || strings.Contains(output.String(), history) {
 		t.Fatalf("startup did not select current authority independently of cold history: %s", output.String())
 	}
-	if !strings.Contains(output.String(), "cfo memory retrieve") || !strings.Contains(output.String(), "completed-incident") {
+	if !strings.Contains(output.String(), "ceo memory retrieve") || !strings.Contains(output.String(), "completed-incident") {
 		t.Fatalf("startup omitted the cold retrieval route: %s", output.String())
 	}
 	if output.Len() > 18000 {
@@ -473,7 +473,7 @@ func TestWarmStartupBoundsCanonicalStateWithoutAcknowledgingOmittedWakes(t *test
 	if err != nil || len(remaining) != 200 || output.Len() > 18000 {
 		t.Fatalf("state output=%d bytes, pending=%d, error=%v", output.Len(), len(remaining), err)
 	}
-	if !strings.Contains(output.String(), "cfo fleet-view") || !strings.Contains(output.String(), "cfo drain") {
+	if !strings.Contains(output.String(), "ceo fleet-view") || !strings.Contains(output.String(), "ceo drain") {
 		t.Fatal("bounded state omitted its canonical retrieval commands")
 	}
 }
@@ -577,7 +577,7 @@ func TestReadOnlyWarmPreviewUsesSelectiveRetrieval(t *testing.T) {
 	if err := ComposeBrief(h, 0, "read-only", false, false, &output); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "cfo memory retrieve") || strings.Contains(output.String(), "read "+filepath.Join(h.Data, "overlord.md")) {
+	if !strings.Contains(output.String(), "ceo memory retrieve") || strings.Contains(output.String(), "read "+filepath.Join(h.Data, "overlord.md")) {
 		t.Fatal("read-only startup selected the full history instead of selective retrieval")
 	}
 	if _, err := os.Stat(filepath.Join(h.State, FullDigestFile)); !os.IsNotExist(err) {

@@ -36,7 +36,7 @@ type BoardActivity struct {
 	Kind        string    `json:"kind"`
 	TaskID      string    `json:"task_id,omitempty"`
 	Generation  string    `json:"generation,omitempty"`
-	CFOIdentity string    `json:"cfo_identity,omitempty"`
+	CEOIdentity string    `json:"ceo_identity,omitempty"`
 	Live        bool      `json:"live,omitempty"` // Snapshot evidence, never trusted on admission.
 	Source      string    `json:"source,omitempty"`
 	Target      string    `json:"target"`
@@ -99,8 +99,8 @@ func (s *Store) retainActivity(a BoardActivity) error {
 	// A goblin proves its presentation by its own terminal when it
 	// publishes, so the report names no native session.
 	paneProven := a.Target == "" && a.TaskID != "" && (a.Kind == "browser" || a.Kind == "review")
-	if a.CFOIdentity != "" {
-		if a.TaskID != "" || a.Generation != "" || a.Source != "" || (a.Kind != "browser" && a.Kind != "review") || (a.Target != "primary-cfo" && (!ok || node.Role != "cfo")) {
+	if a.CEOIdentity != "" {
+		if a.TaskID != "" || a.Generation != "" || a.Source != "" || (a.Kind != "browser" && a.Kind != "review") || (a.Target != "primary-ceo" && (!ok || node.Role != "ceo")) {
 			return errors.New("invalid primary presentation identity")
 		}
 		file, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
@@ -109,7 +109,7 @@ func (s *Store) retainActivity(a BoardActivity) error {
 		}
 		_, identity, err := decodePrimary(file)
 		_ = file.Close()
-		if err != nil || identity != a.CFOIdentity {
+		if err != nil || identity != a.CEOIdentity {
 			return errors.New("primary presentation recipient changed")
 		}
 	} else if !paneProven && (!ok || node.TaskID != a.TaskID || node.Generation != a.Generation) {
@@ -234,7 +234,7 @@ func (s *Store) settleQueuedSends(now time.Time, look func(BoardActivity) (took,
 }
 
 func activityReplacement(prior, next BoardActivity) (bool, error) {
-	if prior.Kind != next.Kind || prior.TaskID != next.TaskID || prior.Generation != next.Generation || prior.CFOIdentity != next.CFOIdentity || prior.Source != next.Source || prior.Target != next.Target || prior.URL != next.URL {
+	if prior.Kind != next.Kind || prior.TaskID != next.TaskID || prior.Generation != next.Generation || prior.CEOIdentity != next.CEOIdentity || prior.Source != next.Source || prior.Target != next.Target || prior.URL != next.URL {
 		return false, errors.New("activity ID already used")
 	}
 	if prior.State == "ended" && next.State != "ended" {
@@ -459,15 +459,15 @@ func PublishPresentation(h home.Home, a BoardActivity) error {
 		}
 		a.Generation, a.Target = meta.SpawnGen, ""
 	} else {
-		// The primary CFO proves itself as it does for a question, in its
+		// The primary CEO proves itself as it does for a question, in its
 		// native terminal.
-		identity, release, err := (&CFOConnection{State: h.State}).CallerIdentity()
+		identity, release, err := (&CEOConnection{State: h.State}).CallerIdentity()
 		if err != nil {
-			return fmt.Errorf("only the registered primary CFO may report a presentation without a task: %w", err)
+			return fmt.Errorf("only the registered primary CEO may report a presentation without a task: %w", err)
 		}
 		defer release()
 		// Native session discovery can arrive later; it must not change a report's recipient.
-		a.CFOIdentity, a.Target = identity, "primary-cfo"
+		a.CEOIdentity, a.Target = identity, "primary-ceo"
 	}
 	if err := store.retainActivity(a); err != nil {
 		return err
@@ -475,7 +475,7 @@ func PublishPresentation(h home.Home, a BoardActivity) error {
 	return spoolActivity(h.State, a)
 }
 
-// SendReceipt is the board's receipt of one cfo send to a native goblin,
+// SendReceipt is the board's receipt of one ceo send to a native goblin,
 // pinned to the goblin the send was for. One for a goblin the board shows no
 // session of does nothing.
 type SendReceipt struct {
@@ -534,11 +534,11 @@ func PrepareSendActivity(h home.Home, target string) SendReceipt {
 	if err == nil {
 		p, _, err := decodePrimary(file)
 		_ = file.Close()
-		if err == nil && parent.ID == callerSession() && parent.Phase != "ended" && parent.Role == "cfo" && parent.Harness == p.Agent && callerOwns(h.State, p.Host, p.Process) && (&CFOConnection{State: h.State}).verify(p) == nil {
+		if err == nil && parent.ID == callerSession() && parent.Phase != "ended" && parent.Role == "ceo" && parent.Harness == p.Agent && callerOwns(h.State, p.Host, p.Process) && (&CEOConnection{State: h.State}).verify(p) == nil {
 			source = parent.ID
 		}
 	}
-	if parent.ID != "" && parent.ID == callerSession() && parent.Phase != "ended" && parent.Role != "cfo" && parent.TaskID != "" {
+	if parent.ID != "" && parent.ID == callerSession() && parent.Phase != "ended" && parent.Role != "ceo" && parent.TaskID != "" {
 		if proven, err := goblinAsker(h.State, parent.TaskID); err == nil && proven.SpawnGen == parent.Generation {
 			source = parent.ID
 		}
@@ -566,11 +566,11 @@ func (s *Service) lookAtQueuedSend(a BoardActivity) (took, gone bool) {
 // check per minute while a primary presentation is live; no browser polling.
 func (s *Service) reconcilePresentations() {
 	now := time.Now()
-	if s.Options.CFO == nil {
+	if s.Options.CEO == nil {
 		return
 	}
 	d := s.Store.Snapshot()
-	if !slices.ContainsFunc(d.Activity, func(a BoardActivity) bool { return a.CFOIdentity != "" && a.State == "active" && a.Until.After(now) }) {
+	if !slices.ContainsFunc(d.Activity, func(a BoardActivity) bool { return a.CEOIdentity != "" && a.State == "active" && a.Until.After(now) }) {
 		return
 	}
 	s.mu.Lock()
@@ -590,7 +590,7 @@ func (s *Service) reconcilePresentations() {
 	if err != nil {
 		return
 	}
-	if err := s.Options.CFO.verify(p); err != nil {
+	if err := s.Options.CEO.verify(p); err != nil {
 		return
 	}
 	s.mu.Lock()

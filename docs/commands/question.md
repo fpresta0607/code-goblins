@@ -1,6 +1,6 @@
-# cfo question
+# ceo question
 
-`cfo question --id <stable-id> --text "<user question>" [--option "<choice>"]... [--recommend "<exact-choice>"]`
+`ceo question --id <stable-id> --text "<user question>" [--option "<choice>"]... [--recommend "<exact-choice>"]`
 
 registered CEO opens a user decision modal with Other; the answer returns as one normal native message, not a native prompt-tool response
 

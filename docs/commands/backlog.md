@@ -1,6 +1,6 @@
-# cfo backlog
+# ceo backlog
 
-`cfo backlog`
+`ceo backlog`
 
 done <id>   close a retired delivered task's queued row, preserving its evidence and continuation under Done
 

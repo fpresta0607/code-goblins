@@ -11,7 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// On 2026-09-29 the monitor woke the CFO about two native Codex goblins with
+// On 2026-09-29 the monitor woke the CEO about two native Codex goblins with
 // no progress evidence for an hour while both were working. Codex keeps its
 // rollout open and appends to it, and each rollout's write time stayed about
 // ninety seconds after its creation for hours while its entries ran on, read

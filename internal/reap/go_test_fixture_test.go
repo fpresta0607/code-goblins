@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-const boardGoTmp = `C:\Users\op\AppData\Local\cfo\gotmp\0b49f5f9\board`
+const boardGoTmp = `C:\Users\op\AppData\Local\ceo\gotmp\0b49f5f9\board`
 
 // fleetScratch is the home's scratch folder, where a goblin's TEMP, TMP and
 // GOTMPDIR point, one folder per task.
@@ -35,7 +35,7 @@ func withGoTest(inv Inventory, goTmp, dir string) Inventory {
 }
 
 // A goblin's Go tests run under its own Go temporary directory, its scratch
-// folder <home>\scratch\<task id>, or %LOCALAPPDATA%\cfo\gotmp\<fleet>\<task
+// folder <home>\scratch\<task id>, or %LOCALAPPDATA%\ceo\gotmp\<fleet>\<task
 // id> for a goblin an older build spawned, so a test binary serving as a
 // native terminal host there, and the stand-in harness it runs, belong to the
 // task that path names: skipped while that goblin lives, and reported against
@@ -118,7 +118,7 @@ func TestALiveGoblinsGoTestRunFromItsOwnDirectoriesIsItsFixture(t *testing.T) {
 // unsupervised harness is.
 func TestAGoTestStandInOfAnUnknownTaskIsReported(t *testing.T) {
 	// Arrange
-	inv := withGoTest(fleetWithGoblin(true, "done: PR https://example.invalid/pull/1"), `C:\Users\op\AppData\Local\cfo\gotmp\0b49f5f9\retired-task`, `C:\dev\proj\.worktrees\gb-retired-task\internal\spawn`)
+	inv := withGoTest(fleetWithGoblin(true, "done: PR https://example.invalid/pull/1"), `C:\Users\op\AppData\Local\ceo\gotmp\0b49f5f9\retired-task`, `C:\dev\proj\.worktrees\gb-retired-task\internal\spawn`)
 
 	// Act
 	orphans := classOf(Classify(inv), OrphanProcess)

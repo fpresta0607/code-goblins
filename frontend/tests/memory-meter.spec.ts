@@ -6,7 +6,7 @@ const tasks = [
   { id: "onboarding-tour", title: "onboarding-tour", project: "acme-web", phase: "queued", brief: true, verified: false },
 ];
 const machine = { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 * GB, paged_pool: 0.6 * GB, nonpaged_pool: 0.4 * GB, pool_line: 7.5 * GB, pool_growth: [] };
-const holders = [{ name: "ChatGPT", commit: 11.2 * GB }, { name: "claude", commit: 5.7 * GB }, { name: "cfo", commit: 4.3 * GB }];
+const holders = [{ name: "ChatGPT", commit: 11.2 * GB }, { name: "claude", commit: 5.7 * GB }, { name: "ceo", commit: 4.3 * GB }];
 // The three states of the approved mockup: memory is the tighter, commit is
 // the tighter, and the kernel's pools are past their line, as they were on
 // 2026-10-18 four days into a boot. Then the two that put
@@ -21,7 +21,7 @@ const states = {
 };
 
 async function tasksColumn(page: Page, memory: object, scheduling: object | null = null, disk: object | null = null) {
-  const snapshot = { instance: "memory-fixture", revision: 1, healthy: true, example: true, cfo_runs: false, memory, scheduling, disk, tasks };
+  const snapshot = { instance: "memory-fixture", revision: 1, healthy: true, example: true, ceo_runs: false, memory, scheduling, disk, tasks };
   await page.route("**/api/**", async (route) => {
     if (new URL(route.request().url()).pathname === "/api/events") {
       await route.fulfill({ contentType: "text/event-stream", body: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` });
@@ -85,7 +85,7 @@ for (const width of [1440, 390]) {
       const column = await tasksColumn(page, states.commit);
       const meter = column.getByRole("group", { name: "Memory" });
       await expect(meter.locator(":scope > .memory-line")).toHaveText("Commit free (memory plus page file)2.5 GB");
-      await expect(meter.locator(":scope > .memory-bar")).toHaveAttribute("data-tip", /Most commit: ChatGPT 11\.2 GB, claude 5\.7 GB, cfo 4\.3 GB$/);
+      await expect(meter.locator(":scope > .memory-bar")).toHaveAttribute("data-tip", /Most commit: ChatGPT 11\.2 GB, claude 5\.7 GB, ceo 4\.3 GB$/);
       await expect(column.locator(".next-chip")).toHaveText("Next at 5 GB");
       // Start is in the task's panel, never on its card.
       await column.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("Polish settings", { exact: true }) }).locator(".task-card").click();
@@ -98,7 +98,7 @@ for (const width of [1440, 390]) {
     // memory bar: "dont display nothing starts text too much text". Whatever
     // the scheduler says, the box holds each meter's name and value and
     // nothing else a person reads: no text under a bar and none between two
-    // meters. Why nothing starts reaches the CFO as a wake.
+    // meters. Why nothing starts reaches the CEO as a wake.
     for (const [said, text] of Object.entries({
       "started a task": "starting polish-settings",
       "resumed a goblin": "resuming paused-task",
@@ -148,10 +148,10 @@ for (const width of [1440, 390]) {
       // Assert
       await expect(pools.locator(".memory-line")).toHaveText("Kernel pools11.0 GB");
       await expect(pools.locator(".memory-fill")).toHaveClass(/under/);
-      await expect(pools.locator(".memory-bar")).toHaveAttribute("data-tip", "Paged 7.6 GB, nonpaged 3.4 GB. Red mark: 7.5 GB, past which free memory cannot hold the fleet and the CFO's panel offers Restart PC. Grew most since sign-in: Toke 3.2 GB paged.");
+      await expect(pools.locator(".memory-bar")).toHaveAttribute("data-tip", "Paged 7.6 GB, nonpaged 3.4 GB. Red mark: 7.5 GB, past which free memory cannot hold the fleet and the CEO's panel offers Restart PC. Grew most since sign-in: Toke 3.2 GB paged.");
       await expect(column.getByRole("group", { name: "Memory" }).locator(":scope > .memory-bar")).not.toHaveAttribute("data-tip", /pool/i);
       // A screen reader hears the meter's state and tip in its hidden line.
-      await expect(pools.locator(".sr-only")).toHaveText(/^The kernel's pools hold 11\.0 GB, past the 7\.5 GB line: Restart PC in the CFO's panel frees them\. Paged 7\.6 GB/);
+      await expect(pools.locator(".sr-only")).toHaveText(/^The kernel's pools hold 11\.0 GB, past the 7\.5 GB line: Restart PC in the CEO's panel frees them\. Paged 7\.6 GB/);
       await column.locator(".task-meters").screenshot({ path: testInfo.outputPath(`pools-past-the-line-${width}.png`) });
     });
 

@@ -1,11 +1,11 @@
-import { CFO_DOOR, doneCards, expect, openItem, recordDoneCards, test, type BrowserContext, type Page } from "./site";
+import { CEO_DOOR, doneCards, expect, openItem, recordDoneCards, test, type BrowserContext, type Page } from "./site";
 
 // The Overlord, 2026-10-02: "when I close a Command Center question or the CFO
 // answers it, the alert hangs around for a stale second or two in the goblin
 // board even after answered ... or reappears a second later as the same
 // command, it's not idempotent." Measured on main-9f22183c: the live board
 // took 3 to 13 seconds to build a snapshot, and the alert, the count and the
-// CFO's bar kept asking for that long after the card had closed with its
+// CEO's bar kept asking for that long after the card had closed with its
 // check. So these tests hold every snapshot back: what he acted on leaves in
 // the frame he acts, on every open board, and no late snapshot brings it back.
 test.use({ timezoneId: "UTC", viewport: { width: 1440, height: 900 } });
@@ -16,7 +16,7 @@ const question = { id: "release-train-20261002", identity: "c".repeat(64), task:
 const wait = { id: "waiting-cg-probe-7", identity: "d".repeat(64), task: "cg-probe", title: "Waiting on you: " + WAITS, state: "open", created_at: "2026-10-02T11:00:00Z", updated_at: "2026-10-02T11:00:00Z" };
 const proof = { id: "proof-shots-20261002", identity: "c".repeat(64), task: "", title: "Do the proof screenshots read well?", state: "open", created_at: "2026-10-02T11:00:00Z", updated_at: "2026-10-02T11:00:00Z" };
 const quiet = {
-  healthy: true, instance: "board-0m", cfo_runs: true, cfo_terminal: "cfo", cfo_harness: "claude", revision: 1,
+  healthy: true, instance: "board-0m", ceo_runs: true, ceo_terminal: "ceo", ceo_harness: "claude", revision: 1,
   tasks: [{ id: "cg-probe", title: "Probe the DNS", project: "code-goblins", phase: "working", generation: "g1", verified: false }],
   questions: [] as object[], reviews: [] as object[], runs: [], credentials: [], actions: [],
 };
@@ -28,7 +28,7 @@ const asking = (item: { questions?: object[]; reviews?: object[] }, revision = 2
 // that the test did not send.
 async function standInStream(context: BrowserContext) {
   await context.addInitScript(() => {
-    localStorage.setItem("cfo-notifications-asked", "true");
+    localStorage.setItem("ceo-notifications-asked", "true");
     class FixtureSource extends EventTarget {
       private publish = (event: Event) => {
         if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent(event.detail.type, { data: JSON.stringify(event.detail.data) }));
@@ -76,10 +76,10 @@ async function actions(context: BrowserContext) {
 
 const toasts = (page: Page) => page.locator(".toasts .toast");
 const badge = (page: Page) => page.locator(".command-center-menu > summary");
-const bar = (page: Page) => page.locator(".cfo-pin");
+const bar = (page: Page) => page.locator(".ceo-pin");
 const card = (page: Page) => page.locator("dialog.question-modal");
 
-// A board that was quiet, then is asked: the item's count and the CFO's bar
+// A board that was quiet, then is asked: the item's count and the CEO's bar
 // are on screen, and that is its one signal: an item shows no toast.
 async function boardAsked(page: Page, item: { questions?: object[]; reviews?: object[] }, says: string) {
   await page.goto("/");
@@ -106,7 +106,7 @@ const clickAndLook = (page: Page, selector: string) => page.evaluate(async (sele
   requestAnimationFrame(() => { painted = true; });
   document.querySelector<HTMLElement>(selector)!.click();
   for (let turn = 0; turn < 5; turn++) await Promise.resolve();
-  return { painted, toasts: document.querySelectorAll(".toasts .toast").length, badge: document.querySelector(".command-center-menu > summary")!.getAttribute("aria-label"), bar: document.querySelector(".cfo-pin")!.textContent, command: document.querySelector(".cfo-pin .cfo-command")?.getAttribute("aria-label") || "", card: document.querySelector("dialog.question-modal .done-card h3")?.textContent || "" };
+  return { painted, toasts: document.querySelectorAll(".toasts .toast").length, badge: document.querySelector(".command-center-menu > summary")!.getAttribute("aria-label"), bar: document.querySelector(".ceo-pin")!.textContent, command: document.querySelector(".ceo-pin .ceo-command")?.getAttribute("aria-label") || "", card: document.querySelector("dialog.question-modal .done-card h3")?.textContent || "" };
 }, selector);
 async function expectGone(page: Page, says: string) {
   await expect(toasts(page)).toHaveCount(0);
@@ -118,7 +118,7 @@ async function expectGone(page: Page, says: string) {
 }
 
 const WAYS = [
-  { name: "a question he answers", item: { questions: [question] }, says: ASKS, pick: "Merge it", open: "", press: "dialog.question-modal .send-decision", kind: "cfo_answer", heading: "Sending" },
+  { name: "a question he answers", item: { questions: [question] }, says: ASKS, pick: "Merge it", open: "", press: "dialog.question-modal .send-decision", kind: "ceo_answer", heading: "Sending" },
   { name: "a question he dismisses", item: { questions: [question] }, says: ASKS, pick: "", open: "", press: 'dialog.question-modal [aria-label="Skip this card"]', kind: "question_clear", heading: "Dismissed" },
   { name: "a goblin's wait he dismisses", item: { reviews: [wait] }, says: WAITS, pick: "", open: "", press: 'dialog.question-modal [aria-label="Skip this card"]', kind: "review_clear", heading: "Cleared" },
   { name: "a review he clears", item: { reviews: [proof] }, says: "Do the proof screenshots read well?", pick: "", open: "", press: 'dialog.question-modal [aria-label="Skip this card"]', kind: "review_clear", heading: "Cleared" },
@@ -128,10 +128,10 @@ test("an answer waiting for the Codex composer reads Queued with its reason", as
   // Arrange
   await standInStream(context);
   await announcer(context);
-  const reason = "The CFO is typing. Your answer will wait.";
+  const reason = "The CEO is typing. Your answer will wait.";
   await context.route("**/api/actions", (route) => route.fulfill({ status: 202, json: { ...route.request().postDataJSON(), status: "queued", message: reason } }));
   await boardAsked(page, { questions: [question] }, ASKS);
-  await send(page, "snapshot", { ...asking({ questions: [question] }), cfo_harness: "codex", revision: 3 });
+  await send(page, "snapshot", { ...asking({ questions: [question] }), ceo_harness: "codex", revision: 3 });
   await openCard(page, ASKS);
   await card(page).getByText("Merge it", { exact: true }).click();
   await recordDoneCards(page);
@@ -143,11 +143,11 @@ test("an answer waiting for the Codex composer reads Queued with its reason", as
   await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Queued/));
   const shown = await doneCards(page);
   for (const queued of shown.filter((text) => text.startsWith("Queued"))) expect(queued).toContain(reason);
-  expect(shown.filter((text) => text.includes("CFO received"))).toEqual([]);
+  expect(shown.filter((text) => text.includes("CEO received"))).toEqual([]);
 });
 
 for (const way of WAYS) {
-  test(`${way.name} leaves the count and the CFO's bar in the frame he acts, before the board hears back`, async ({ page, context }) => {
+  test(`${way.name} leaves the count and the CEO's bar in the frame he acts, before the board hears back`, async ({ page, context }) => {
     // Arrange
     await standInStream(context);
     await announcer(context);
@@ -169,11 +169,11 @@ for (const way of WAYS) {
 
 // The Overlord works in the desktop window: the board in WebView2, maximized
 // on his 2560 by 1600 screen at 150 percent, which is 1707 CSS pixels wide at
-// device scale 1.5, with the CFO's panel open beside the board.
-test.describe("in the desktop window's size, with the CFO's panel open", () => {
+// device scale 1.5, with the CEO's panel open beside the board.
+test.describe("in the desktop window's size, with the CEO's panel open", () => {
   test.use({ viewport: { width: 1707, height: 1000 }, deviceScaleFactor: 1.5 });
 
-  test("a goblin's question stays with the CFO, his own question waits quietly, and goblins' questions the CFO left ten minutes wait on him too, said on the CFO's bar, alerting nothing", async ({ page, context }, testInfo) => {
+  test("a goblin's question stays with the CEO, his own question waits quietly, and goblins' questions the CEO left ten minutes wait on him too, said on the CEO's bar, alerting nothing", async ({ page, context }, testInfo) => {
     // Arrange
     await standInStream(context);
     await announcer(context);
@@ -183,10 +183,10 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     });
     await page.goto("/");
     await send(page, "snapshot", quiet);
-    await bar(page).getByRole("button", { name: CFO_DOOR }).first().click();
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await bar(page).getByRole("button", { name: CEO_DOOR }).first().click();
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
 
-    // Act: the goblin asks the CFO, then the CFO asks the Overlord.
+    // Act: the goblin asks the CEO, then the CEO asks the Overlord.
     await send(page, "snapshot", asking({ questions: [{ ...question, task: "cg-probe" }] }));
     await expect(badge(page)).toHaveAccessibleName("Command Center");
     await expect(toasts(page)).toHaveCount(0);
@@ -197,21 +197,21 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
     await expect(toasts(page)).toHaveCount(0);
     await expect(card(page)).toBeHidden();
-    await testInfo.attach("one quiet item with the CFO's terminal open", { body: await page.screenshot(), contentType: "image/png" });
+    await testInfo.attach("one quiet item with the CEO's terminal open", { body: await page.screenshot(), contentType: "image/png" });
     await page.getByRole("button", { name: "Close panel", exact: true }).click();
     const left = [660, 630, 600].map((age, i) => ({ ...question, id: "left-" + i, task: "cg-probe", created_at: new Date(Date.parse("2026-10-02T12:21:00Z") - age * 1000).toISOString() }));
     await send(page, "snapshot", { ...quiet, revision: 4, at: "2026-10-02T12:21:00Z", questions: left });
-    await expect(bar(page)).toContainText("3 questions wait for the CFO (11 min). 1 goblin at work.");
+    await expect(bar(page)).toContainText("3 questions wait for the CEO (11 min). 1 goblin at work.");
     await expect(badge(page)).toHaveAccessibleName("Command Center, 3 waiting on you");
     await page.waitForTimeout(500);
     await expect(toasts(page)).toHaveCount(0);
-    await bar(page).getByRole("button", { name: CFO_DOOR }).first().click();
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
-    // The CFO's panel opens on its Messages view, with the keyboard in its box.
-    await expect(page.getByRole("textbox", { name: "Message CFO" })).toBeFocused();
+    await bar(page).getByRole("button", { name: CEO_DOOR }).first().click();
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
+    // The CEO's panel opens on its Messages view, with the keyboard in its box.
+    await expect(page.getByRole("textbox", { name: "Message CEO" })).toBeFocused();
   });
 
-  test("a question he answers leaves the count and the CFO's bar in the frame he acts", async ({ page, context }, testInfo) => {
+  test("a question he answers leaves the count and the CEO's bar in the frame he acts", async ({ page, context }, testInfo) => {
     // Arrange
     await standInStream(context);
     await announcer(context);
@@ -222,8 +222,8 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     });
     await page.goto("/");
     await send(page, "snapshot", quiet);
-    await bar(page).getByRole("button", { name: CFO_DOOR }).first().click();
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await bar(page).getByRole("button", { name: CEO_DOOR }).first().click();
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
     await expect(page.locator(".canvas-region")).toBeVisible();
     await send(page, "snapshot", asking({ questions: [question] }));
     await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
@@ -238,7 +238,7 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
 
     // Assert
     expect(shown).toEqual({ painted: false, toasts: 0, badge: "Command Center", bar: expect.stringContaining("All quiet"), command: "", card: "Sending" });
-    await expect.poll(() => supervisor.posted.map((body) => body.kind)).toEqual(["cfo_answer"]);
+    await expect.poll(() => supervisor.posted.map((body) => body.kind)).toEqual(["ceo_answer"]);
     await testInfo.attach("the frame after his answer", { body: await page.screenshot(), contentType: "image/png" });
     await expectGone(page, ASKS);
   });
@@ -266,7 +266,7 @@ test("a snapshot taken before his answer and arriving after it does not bring th
   await expect(card(page)).toBeHidden();
 });
 
-test("an ID published again after its item closed shows its count and its CFO bar button", async ({ page, context }) => {
+test("an ID published again after its item closed shows its count and its CEO bar button", async ({ page, context }) => {
   // Arrange: he answers the question and the supervisor's snapshot shows it closed.
   await standInStream(context);
   await announcer(context);
@@ -292,7 +292,7 @@ test("an ID published again after its item closed shows its count and its CFO ba
 });
 
 for (const kind of ["question", "review"] as const) {
-  test(`a reused ${kind} clears its draft, while CFO registration keeps it`, async ({ page, context }) => {
+  test(`a reused ${kind} clears its draft, while CEO registration keeps it`, async ({ page, context }) => {
     // Arrange
     await standInStream(context);
     await announcer(context);
@@ -303,7 +303,7 @@ for (const kind of ["question", "review"] as const) {
     if (kind === "question") await card(page).getByText("Other", { exact: true }).click();
     await card(page).getByRole("textbox").fill("Keep this unfinished answer");
 
-    // Act: a new CFO adopts the same publication.
+    // Act: a new CEO adopts the same publication.
     await send(page, "snapshot", publish({ identity: "e".repeat(64) }, 3));
 
     // Assert
@@ -349,11 +349,11 @@ test("a reused run does not keep the previous publication's pending send", async
   supervisor.accept();
 });
 
-test("a reused credential request clears its typed value, while CFO registration keeps it", async ({ page, context }) => {
+test("a reused credential request clears its typed value, while CEO registration keeps it", async ({ page, context }) => {
   // Arrange
   await standInStream(context);
   await announcer(context);
-  const request = { id: "cred-release", generation: "f".repeat(32), identity: "c".repeat(64), by: "cfo", project: "probe", repository: "C:/dev/probe", names: ["PROBE_VALUE"], why: "Configure the first release", state: "open", created_at: question.created_at, expires_at: "2026-10-13T09:00:00Z" };
+  const request = { id: "cred-release", generation: "f".repeat(32), identity: "c".repeat(64), by: "ceo", project: "probe", repository: "C:/dev/probe", names: ["PROBE_VALUE"], why: "Configure the first release", state: "open", created_at: question.created_at, expires_at: "2026-10-13T09:00:00Z" };
   await page.goto("/");
   await send(page, "snapshot", { ...quiet, revision: 2, credentials: [request] });
   await openCard(page, request.why, "Paste PROBE_VALUE for probe");
@@ -418,23 +418,23 @@ test("a send the board refuses puts the item back, with a few words of why", asy
   await expectGone(page, ASKS);
 
   // Act
-  supervisor.refuse("the primary CFO changed; refresh before sending");
+  supervisor.refuse("the primary CEO changed; refresh before sending");
 
   // Assert
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
   await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
-  await expect(card(page).locator(".notice")).toHaveText("The primary CFO changed. Refresh before sending.");
+  await expect(card(page).locator(".notice")).toHaveText("The primary CEO changed. Refresh before sending.");
   await expect(card(page).getByRole("alert")).toHaveCount(0);
 });
 
-test("the CFO's answer reaches the board ahead of the full snapshot, and a snapshot built before it does not undo it", async ({ page, context }) => {
+test("the CEO's answer reaches the board ahead of the full snapshot, and a snapshot built before it does not undo it", async ({ page, context }) => {
   // Arrange: the item waits on him and the Command Center is closed.
   await standInStream(context);
   await announcer(context);
   await boardAsked(page, { questions: [question] }, ASKS);
   await page.keyboard.press("Escape");
   await expect(card(page)).toBeHidden();
-  const answered = { ...question, status: "succeeded", answer: "Merge it", answer_kind: "option", answered_option: "Merge it", answered_by: "cfo", answered_at: "2026-10-02T11:05:00Z", message: "Answered by the CFO." };
+  const answered = { ...question, status: "succeeded", answer: "Merge it", answer_kind: "option", answered_option: "Merge it", answered_by: "ceo", answered_at: "2026-10-02T11:05:00Z", message: "Answered by the CEO." };
 
   // Act: only the Command Center's items arrive.
   await send(page, "change", { keys: { revision: { value: 3 }, questions: { items: { [question.id]: { value: answered } } } } });
@@ -494,12 +494,12 @@ test("a card open for an item that closed somewhere else shows what became of it
 });
 
 // The Overlord, 2026-10-13 at about 13:58Z, at a bar reading "1 question waits
-// for the CFO (20 min). 15 goblins at work.": "Why is it telling me there's a
+// for the CEO (20 min). 15 goblins at work.": "Why is it telling me there's a
 // question that waits for me for twenty minutes, and I there's no command
-// center?" Olive's question had waited on the CFO since 13:43Z, and six of the
+// center?" Olive's question had waited on the CEO since 13:43Z, and six of the
 // fifteen goblins were paused. The bar names only what his Command Center
 // shows, where he can answer it himself, and counts only the goblins at work.
-test("the CFO's bar names only a goblin's question his Command Center shows him, which he answers there, and counts only the goblins at work", async ({ page, context }, testInfo) => {
+test("the CEO's bar names only a goblin's question his Command Center shows him, which he answers there, and counts only the goblins at work", async ({ page, context }, testInfo) => {
   // Arrange
   await standInStream(context);
   await announcer(context);
@@ -516,7 +516,7 @@ test("the CFO's bar names only a goblin's question his Command Center shows him,
   await send(page, "snapshot", { ...quiet, revision: 2, at: "2026-10-13T14:03:01Z", tasks, questions: [olive] });
 
   // Assert
-  await expect(bar(page)).toContainText("1 question waits for the CFO (20 min). 9 goblins at work.");
+  await expect(bar(page)).toContainText("1 question waits for the CEO (20 min). 9 goblins at work.");
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
   await expect(toasts(page)).toHaveCount(0);
   await testInfo.attach("the bar and the question it names", { body: await page.screenshot(), contentType: "image/png" });
@@ -532,7 +532,7 @@ test("the CFO's bar names only a goblin's question his Command Center shows him,
 // The Overlord, 2026-10-18, after Send and end on Kenny's page on local host:
 // "we should get an immediate result in my command center that it's cleared
 // and that question no longer shows." A goblin's question asked on its Scrawl
-// page, which the CFO left long enough that it waits on him, leaves Waiting on
+// page, which the CEO left long enough that it waits on him, leaves Waiting on
 // you within a second of the supervisor reading his answer on the page, on
 // local host or the tailnet, and its open card finishes with his answer.
 for (const [where, link] of [["local host", "http://127.0.0.1:4387/session/030284fb3915be1f"], ["the tailnet", "https://pc.example.ts.net:4388/session/030284fb3915be1f"]]) {

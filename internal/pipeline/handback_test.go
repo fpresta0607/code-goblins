@@ -40,8 +40,8 @@ func TestHandbackReadsTheExactPersistedPublicationAndReceipt(t *testing.T) {
 				t.Setenv(name, profile)
 			}
 			t.Setenv("NM_HOME", root)
-			t.Setenv("CFO_HOME", profile)
-			t.Setenv("CFO_STATE_OVERRIDE", filepath.Join(profile, "state"))
+			t.Setenv("CEO_HOME", profile)
+			t.Setenv("CEO_STATE_OVERRIDE", filepath.Join(profile, "state"))
 			if effective, err := os.UserHomeDir(); err != nil || effective != profile {
 				t.Fatalf("effective user home = %q, %v", effective, err)
 			}

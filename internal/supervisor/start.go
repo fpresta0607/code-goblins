@@ -25,7 +25,7 @@ import (
 const (
 	// memoryFloor is the free memory the fleet keeps: nothing starts under it.
 	memoryFloor = 4 << 30
-	// memoryNext is the free memory at which the CFO starts the next queued
+	// memoryNext is the free memory at which the CEO starts the next queued
 	// task: the floor and about 1 GB for the new session.
 	memoryNext = 5 << 30
 )
@@ -48,7 +48,7 @@ var (
 )
 
 // Dispatch is what a queued task's Start reads and runs on this machine:
-// its memory, and cfo spawn itself. Without it the board starts no goblin.
+// its memory, and ceo spawn itself. Without it the board starts no goblin.
 type Dispatch struct {
 	Idle func(context.Context, state.TaskMeta) (bool, error)
 	// Memory reads the machine's physical memory, commit and kernel pools.
@@ -72,13 +72,13 @@ type Dispatch struct {
 	// SlotHold says it, or "" when one may; nil reads none, and nothing waits
 	// on it.
 	HeavyLine func(Memory) (string, error)
-	// Spawn runs cfo with args and returns what it printed.
+	// Spawn runs ceo with args and returns what it printed.
 	Spawn func(ctx context.Context, args []string) (string, error)
 }
 
 // Memory is the machine's available physical memory and available commit,
 // in bytes, beside the fleet's floor, under which nothing starts, and the mark
-// at which the CFO starts the next task: a start needs both to reach them.
+// at which the CEO starts the next task: a start needs both to reach them.
 // The kernel's pools ride along, since a pool that keeps growing is a driver
 // leaking memory, with the line past which the PC is better restarted
 // (pc_restart.go) and the tags that grew most since the sign-in began, and so
@@ -116,7 +116,7 @@ func (m Memory) shortfall() string {
 	return ""
 }
 
-// startPlan is the cfo spawn a Start runs.
+// startPlan is the ceo spawn a Start runs.
 type startPlan struct {
 	id, project, brief, harness, model, effort, mode string
 	briefRevision                                    string
@@ -143,7 +143,7 @@ func (p startPlan) args() []string {
 }
 
 // startTask serves POST /api/tasks/start: the Overlord's Start on a queued
-// task, which dispatches it through cfo spawn as the CFO would.
+// task, which dispatches it through ceo spawn as the CEO would.
 func (h *HTTP) startTask(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Task string `json:"task"`
@@ -297,7 +297,7 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 			return err
 		}
 		plan.briefRevision = fmt.Sprintf("brief:%x", sha256.Sum256(content))
-		if _, err := wake.Append(s.Store.Home.State, "notify", id, "brief created: Start wrote data/"+id+"/brief.md from the queued task; the CFO can amend it"); err != nil {
+		if _, err := wake.Append(s.Store.Home.State, "notify", id, "brief created: Start wrote data/"+id+"/brief.md from the queued task; the CEO can amend it"); err != nil {
 			return err
 		}
 	}
@@ -312,9 +312,9 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 	return nil
 }
 
-// runStart runs cfo spawn to its end, which confirms the goblin works before
+// runStart runs ceo spawn to its end, which confirms the goblin works before
 // it returns, so it is never cut short: a killed spawn strands its task.
-// Either way the CFO is told through the wake queue, as a notify tells it,
+// Either way the CEO is told through the wake queue, as a notify tells it,
 // before the card stops showing the start.
 func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
 	defer func() {
@@ -388,7 +388,7 @@ func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
 	s.runAsked()
 }
 
-// spawnFailure is why cfo spawn failed: the last line it printed, which is
+// spawnFailure is why ceo spawn failed: the last line it printed, which is
 // its refusal, or the error when it printed nothing.
 func spawnFailure(output string, err error) string {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
@@ -398,7 +398,7 @@ func spawnFailure(output string, err error) string {
 	return bounded(err.Error(), 500)
 }
 
-// planStart is the cfo spawn a Start of id runs, or why it cannot: id must be
+// planStart is the ceo spawn a Start of id runs, or why it cannot: id must be
 // queued work with a brief and a project, not already running and not
 // already finished. Harness, model, effort and mode come from the backlog
 // row, then the brief. Unspecified engine settings are routed by spawn.
@@ -481,11 +481,11 @@ func planStart(h home.Home, id string, finished *finishedWork, reading rowReadin
 func (p startPlan) validateEngine() error {
 	switch {
 	case p.harness != "" && !slices.Contains(spawnHarnesses, p.harness):
-		return fmt.Errorf("the brief or backlog row names harness %s, which cfo spawn does not run", p.harness)
+		return fmt.Errorf("the brief or backlog row names harness %s, which ceo spawn does not run", p.harness)
 	case p.mode != "" && !slices.Contains(spawnModes, p.mode):
-		return fmt.Errorf("the brief or backlog row names mode %s, which cfo spawn does not run", p.mode)
+		return fmt.Errorf("the brief or backlog row names mode %s, which ceo spawn does not run", p.mode)
 	case p.model != "" && !spawnValue.MatchString(p.model), p.effort != "" && p.effort != "default" && !slices.Contains(harness.Efforts(harness.Claude), p.effort):
-		return errors.New("the brief or backlog row names a model or effort cfo spawn cannot take")
+		return errors.New("the brief or backlog row names a model or effort ceo spawn cannot take")
 	}
 	return nil
 }

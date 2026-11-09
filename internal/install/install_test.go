@@ -120,7 +120,7 @@ var (
 	minimalSkills   = fstest.MapFS{"stow/SKILL.md": {Data: []byte("stow")}}
 )
 
-// mklink makes a directory junction as cfo install does.
+// mklink makes a directory junction as ceo install does.
 func mklink(link, target string) error {
 	out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput()
 	if err != nil {
@@ -147,7 +147,7 @@ func newFixture(t *testing.T, userSettings string, env map[string]string) *fixtu
 		}
 	}
 	profile := filepath.Join(dir, "home")
-	binary := filepath.Join(dir, "release", "cfo.exe")
+	binary := filepath.Join(dir, "release", "ceo.exe")
 	if err := os.MkdirAll(filepath.Dir(binary), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -229,10 +229,10 @@ func commandLine(entry map[string]any) string {
 	return line
 }
 
-// isCFOCommand reports whether a command line runs a CFO hook, in either
+// isCEOCommand reports whether a command line runs a CEO hook, in either
 // form an install has written.
-func isCFOCommand(line string) bool {
-	return strings.Contains(line, "cfo.exe hook ")
+func isCEOCommand(line string) bool {
+	return strings.Contains(line, "ceo.exe hook ")
 }
 
 func count(values []string, want string) int {
@@ -256,8 +256,8 @@ func TestInstallMergesIntoAnAdoptersSettings(t *testing.T) {
 		}
 	}
 	for _, command := range commands {
-		if isCFOCommand(command) {
-			t.Errorf("the install wrote the CFO hook %q, which only the CFO's terminal starts with", command)
+		if isCEOCommand(command) {
+			t.Errorf("the install wrote the CEO hook %q, which only the CEO's terminal starts with", command)
 		}
 	}
 
@@ -276,7 +276,7 @@ func TestInstallMergesIntoAnAdoptersSettings(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(output, "left 6 hook(s) that are not the CFO's") {
+	if !strings.Contains(output, "left 6 hook(s) that are not the CEO's") {
 		t.Errorf("output does not report what it left alone:\n%s", output)
 	}
 }
@@ -323,7 +323,7 @@ func TestInstallTwiceChangesNothingTheSecondTime(t *testing.T) {
 	if !strings.Contains(output, "already installed - nothing changed") {
 		t.Errorf("a second install did not report itself as a no-op:\n%s", output)
 	}
-	for _, want := range []string{"unchanged already " + f.root, "unchanged already contains " + f.bin, "unchanged none of the CFO's in " + f.user} {
+	for _, want := range []string{"unchanged already " + f.root, "unchanged already contains " + f.bin, "unchanged none of the CEO's in " + f.user} {
 		if !strings.Contains(output, want) {
 			t.Errorf("output is missing %q:\n%s", want, output)
 		}
@@ -342,8 +342,8 @@ func TestUninstallRestoresThePriorState(t *testing.T) {
 		}
 	}
 	for _, command := range commands {
-		if isCFOCommand(command) {
-			t.Errorf("CFO hook %q survived the uninstall", command)
+		if isCEOCommand(command) {
+			t.Errorf("CEO hook %q survived the uninstall", command)
 		}
 	}
 
@@ -364,8 +364,8 @@ func TestUninstallRestoresThePriorState(t *testing.T) {
 		t.Errorf("uninstall did not restore the settings document\n before: %s\n  after: %s", beforeJSON, afterJSON)
 	}
 
-	if value, ok := f.env.values["CFO_HOME"]; ok {
-		t.Errorf("CFO_HOME survived the uninstall as %q", value)
+	if value, ok := f.env.values["CEO_HOME"]; ok {
+		t.Errorf("CEO_HOME survived the uninstall as %q", value)
 	}
 	if got, want := f.env.values["Path"], `C:\Windows;C:\Windows\System32`; got != want {
 		t.Errorf("PATH = %q, want %q", got, want)
@@ -449,21 +449,21 @@ func TestUninstallRefusesWithNothingChangedWhileDictationsEngineIsInUse(t *testi
 	if _, err := os.Stat(engine); err != nil {
 		t.Errorf("the engine in use was not left whole: %v", err)
 	}
-	if f.env.values["CFO_HOME"] != f.root {
-		t.Errorf("CFO_HOME = %q after the refusal, want it kept as %q", f.env.values["CFO_HOME"], f.root)
+	if f.env.values["CEO_HOME"] != f.root {
+		t.Errorf("CEO_HOME = %q after the refusal, want it kept as %q", f.env.values["CEO_HOME"], f.root)
 	}
 	if left, _ := filepath.Glob(filepath.Join(f.root, "caches", "voice-removed-*")); len(left) != 0 {
 		t.Errorf("the refusal left %v", left)
 	}
 }
 
-// Uninstall also takes out the board's native hooks, which `cfo hooks
+// Uninstall also takes out the board's native hooks, which `ceo hooks
 // install` wrote into each harness's own configuration.
 func TestUninstallRemovesTheBoardNativeHooks(t *testing.T) {
 	f := newFixture(t, adopterSettings, nil)
 	claude, codex, pi := t.TempDir(), t.TempDir(), t.TempDir()
 	for harness, dir := range map[string]string{"claude": claude, "pi": pi} {
-		if _, err := nativehook.Install(nativehook.InstallConfig{Harness: harness, ConfigDir: dir, Executable: filepath.Join(dir, "cfo.exe"), Home: f.root, State: filepath.Join(f.root, "state")}); err != nil {
+		if _, err := nativehook.Install(nativehook.InstallConfig{Harness: harness, ConfigDir: dir, Executable: filepath.Join(dir, "ceo.exe"), Home: f.root, State: filepath.Join(f.root, "state")}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -477,7 +477,7 @@ func TestUninstallRemovesTheBoardNativeHooks(t *testing.T) {
 			t.Errorf("the uninstall output is missing %q:\n%s", want, output)
 		}
 	}
-	for _, left := range []string{filepath.Join(claude, "cfo-native-hook.ps1"), filepath.Join(pi, "extensions", "cfo-native.ts")} {
+	for _, left := range []string{filepath.Join(claude, "ceo-native-hook.ps1"), filepath.Join(pi, "extensions", "ceo-native.ts")} {
 		if _, err := os.Stat(left); !os.IsNotExist(err) {
 			t.Errorf("%s survived the uninstall: %v", left, err)
 		}
@@ -657,15 +657,15 @@ func TestUninstallRefusingAMalformedNativeHooksFileLeavesTheEnvironmentForARerun
 	}
 	writeFile(t, hooksFile, "{}")
 	f.uninstall()
-	if _, ok := f.env.values["CFO_HOME"]; ok {
-		t.Error("CFO_HOME survived the rerun")
+	if _, ok := f.env.values["CEO_HOME"]; ok {
+		t.Error("CEO_HOME survived the rerun")
 	}
 	if got := f.env.values["Path"]; got != `C:\Windows` {
 		t.Errorf("PATH = %q after the rerun, want C:\\Windows", got)
 	}
 	for _, command := range hookCommands(t, f.user) {
-		if isCFOCommand(command) {
-			t.Errorf("CFO hook %q survived the rerun", command)
+		if isCEOCommand(command) {
+			t.Errorf("CEO hook %q survived the rerun", command)
 		}
 	}
 	if f.env.broadcasts != broadcasts+1 {
@@ -674,14 +674,14 @@ func TestUninstallRefusingAMalformedNativeHooksFileLeavesTheEnvironmentForARerun
 }
 
 // In production the Claude native hooks live in the same settings.json as
-// the CFO user hooks, so the uninstall backup must still hold that file as
+// the CEO user hooks, so the uninstall backup must still hold that file as
 // it stood before the uninstall touched it.
 func TestUninstallBacksUpTheSharedClaudeSettingsAsTheyWereBeforeIt(t *testing.T) {
 	f := newFixture(t, adopterSettings, nil)
 	claude := filepath.Dir(f.user)
 	f.service.HarnessDirs = map[string]string{"claude": claude}
 	f.install()
-	if _, err := nativehook.Install(nativehook.InstallConfig{Harness: "claude", ConfigDir: claude, Executable: filepath.Join(claude, "cfo.exe"), Home: f.root, State: filepath.Join(f.root, "state")}); err != nil {
+	if _, err := nativehook.Install(nativehook.InstallConfig{Harness: "claude", ConfigDir: claude, Executable: filepath.Join(claude, "ceo.exe"), Home: f.root, State: filepath.Join(f.root, "state")}); err != nil {
 		t.Fatal(err)
 	}
 	before := readFile(t, f.user)
@@ -693,8 +693,8 @@ func TestUninstallBacksUpTheSharedClaudeSettingsAsTheyWereBeforeIt(t *testing.T)
 	}
 	commands := hookCommands(t, f.user)
 	for _, command := range commands {
-		if isCFOCommand(command) || strings.Contains(command, "cfo-native-hook.ps1") {
-			t.Errorf("CFO hook %q survived the uninstall", command)
+		if isCEOCommand(command) || strings.Contains(command, "ceo-native-hook.ps1") {
+			t.Errorf("CEO hook %q survived the uninstall", command)
 		}
 	}
 	for _, foreign := range foreignCommands {
@@ -717,7 +717,7 @@ func TestUninstallWithNoUserSettingsFileCreatesNothing(t *testing.T) {
 }
 
 // A machine with no Claude Code settings file gets one for the Command Center
-// allow rules, and no hook in it: the CFO's terminal starts with its own.
+// allow rules, and no hook in it: the CEO's terminal starts with its own.
 func TestInstallWithNoUserSettingsFileCreatesOne(t *testing.T) {
 	f := newFixture(t, "", nil)
 	f.install()
@@ -767,8 +767,8 @@ func TestInstallTakesTheRetiredGoblinCountOutOfTheFleetSettings(t *testing.T) {
 func TestInstallRemovesTheRepoHooksBlockAndKeepsTheRest(t *testing.T) {
 	f := newFixture(t, adopterSettings, nil)
 	f.writeRepoSettings(`{
-  "permissions": {"allow": ["Bash(./cfo.exe *)"]},
-  "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/cfo.exe hook session-start"}]}]}
+  "permissions": {"allow": ["Bash(./ceo.exe *)"]},
+  "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/ceo.exe hook session-start"}]}]}
 }`)
 	output := f.install()
 
@@ -809,8 +809,8 @@ func TestInstallSetsHomeAndPath(t *testing.T) {
 	f := newFixture(t, adopterSettings, map[string]string{"Path": `C:\Windows;C:\Windows\System32`})
 	f.install()
 
-	if got := f.env.values["CFO_HOME"]; got != f.root {
-		t.Errorf("CFO_HOME = %q, want %q", got, f.root)
+	if got := f.env.values["CEO_HOME"]; got != f.root {
+		t.Errorf("CEO_HOME = %q, want %q", got, f.root)
 	}
 	want := `C:\Windows;C:\Windows\System32;` + f.bin
 	if got := f.env.values["Path"]; got != want {
@@ -821,15 +821,15 @@ func TestInstallSetsHomeAndPath(t *testing.T) {
 	}
 }
 
-// An install that takes over from the home CFO_HOME names once cfo home move
+// An install that takes over from the home CEO_HOME names once ceo home move
 // has carried its state away takes that home's root off PATH, so neither an
-// older build left there nor a cfo.exe built in that checkout ever runs before
+// older build left there nor a ceo.exe built in that checkout ever runs before
 // the new home's bin. Any other entry stays.
 func TestInstallTakingOverFromAFormerHomeTakesItsRootOffPath(t *testing.T) {
 	// Arrange
 	former := filepath.Join(t.TempDir(), "code-goblins")
 	writeFile(t, filepath.Join(former, "AGENTS.md"), "contract")
-	f := newFixture(t, adopterSettings, map[string]string{"CFO_HOME": former, "Path": `C:\Windows;` + former + `;C:\Tools`})
+	f := newFixture(t, adopterSettings, map[string]string{"CEO_HOME": former, "Path": `C:\Windows;` + former + `;C:\Tools`})
 
 	// Act
 	f.install()
@@ -842,7 +842,7 @@ func TestInstallTakingOverFromAFormerHomeTakesItsRootOffPath(t *testing.T) {
 
 func TestInstallLeavesAnAlreadyCorrectEnvironmentAlone(t *testing.T) {
 	f := newFixture(t, adopterSettings, nil)
-	f.env.values["CFO_HOME"] = f.root + `\`
+	f.env.values["CEO_HOME"] = f.root + `\`
 	f.env.values["Path"] = `C:\Windows;` + strings.ToUpper(f.bin)
 	f.install()
 
@@ -856,12 +856,12 @@ func TestInstallLeavesAnAlreadyCorrectEnvironmentAlone(t *testing.T) {
 
 func TestInstallDoesNotDuplicateAPathEntryWrittenWithVariables(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("CFO_TEST_TOOLS", dir)
-	f := newFixture(t, adopterSettings, map[string]string{"Path": `C:\Windows;%CFO_TEST_TOOLS%\code-goblins\bin`})
+	t.Setenv("CEO_TEST_TOOLS", dir)
+	f := newFixture(t, adopterSettings, map[string]string{"Path": `C:\Windows;%CEO_TEST_TOOLS%\code-goblins\bin`})
 	f.service.Root = filepath.Join(dir, "code-goblins")
 	f.install()
 
-	if got, want := f.env.values["Path"], `C:\Windows;%CFO_TEST_TOOLS%\code-goblins\bin`; got != want {
+	if got, want := f.env.values["Path"], `C:\Windows;%CEO_TEST_TOOLS%\code-goblins\bin`; got != want {
 		t.Errorf("PATH = %q, want it untouched at %q", got, want)
 	}
 }
@@ -954,14 +954,14 @@ func TestInstallAcceptsASettingsFileWithAByteOrderMark(t *testing.T) {
 }
 
 func TestExpandWindowsVarsLeavesUnknownNamesAlone(t *testing.T) {
-	t.Setenv("CFO_TEST_ONE", "one")
+	t.Setenv("CEO_TEST_ONE", "one")
 	cases := map[string]string{
-		`%CFO_TEST_ONE%\bin`:            `one\bin`,
-		`%CFO_TEST_MISSING%\bin`:        `%CFO_TEST_MISSING%\bin`,
+		`%CEO_TEST_ONE%\bin`:            `one\bin`,
+		`%CEO_TEST_MISSING%\bin`:        `%CEO_TEST_MISSING%\bin`,
 		`C:\plain`:                      `C:\plain`,
-		`%CFO_TEST_ONE%`:                `one`,
+		`%CEO_TEST_ONE%`:                `one`,
 		`50%% off`:                      `50%% off`,
-		`%CFO_TEST_ONE%\%CFO_TEST_ONE%`: `one\one`,
+		`%CEO_TEST_ONE%\%CEO_TEST_ONE%`: `one\one`,
 	}
 	for input, want := range cases {
 		if got := expandWindowsVars(input); got != want {
@@ -1005,7 +1005,7 @@ func TestInstallWithoutTheFlagKeepsTheRecordedProjectsRoot(t *testing.T) {
 
 func TestInstallSaysWhenNoProjectsRootIsRecorded(t *testing.T) {
 	f := newFixture(t, adopterSettings, nil)
-	if output := f.install(); !strings.Contains(output, "root not set; `cfo install --projects-root <dir>`") {
+	if output := f.install(); !strings.Contains(output, "root not set; `ceo install --projects-root <dir>`") {
 		t.Errorf("output does not say how to set the projects root:\n%s", output)
 	}
 	if _, set := f.env.values[ProjectsRootVariable]; set {

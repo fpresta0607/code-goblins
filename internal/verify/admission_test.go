@@ -1222,7 +1222,7 @@ func TestAWaitingRunKeepsItsPlaceWhileTheLinesLockIsBusy(t *testing.T) {
 	}
 }
 
-// A run whose admission has a limit, as cfo gate test's hour, gives up a lock
+// A run whose admission has a limit, as ceo gate test's hour, gives up a lock
 // busy past that limit with why, rather than waiting on it for good.
 func TestAWaitingRunGivesUpALockBusyPastItsLimit(t *testing.T) {
 	// Arrange

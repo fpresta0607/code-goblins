@@ -320,7 +320,7 @@ func TestAHarnessHasItsOwnScreenOpenOnlyWhileItsInputLineIsGone(t *testing.T) {
 	}
 }
 
-// Claude Code's footer names the session's permission mode, which a CFO the
+// Claude Code's footer names the session's permission mode, which a CEO the
 // Overlord opens chooses for itself, so its composer reads as ready, and its
 // turn as working, in every mode. The rows are Claude Code 2.1.302's, read
 // from its build; the manual one is a live capture's, where it holds no
@@ -360,7 +360,7 @@ func TestClaudeCodesComposerIsReadInEveryPermissionMode(t *testing.T) {
 // row's glyph alternates between • and ◦.
 func TestCodexsLiveComposerIsReadyAndItsTurnIsWorking(t *testing.T) {
 	screens, _ := NativeScreens(Codex)
-	footer := "  gpt-6-astra low · ~\\AppData\\Local\\Temp\\cfo-codex-proof\\projects\\proof\\.worktrees\\cxprobe"
+	footer := "  gpt-6-astra low · ~\\AppData\\Local\\Temp\\ceo-codex-proof\\projects\\proof\\.worktrees\\cxprobe"
 	for name, test := range map[string]struct {
 		screen         []string
 		ready, working bool
@@ -409,7 +409,7 @@ func TestCodexWorkingIsReadOnlyFromItsStatusRow(t *testing.T) {
 }
 
 // Codex 0.160 on its alternate screen and pi 0.85.1 with --tui-mode
-// fullscreen, as goblins and the CFO start them since 2026-10-17, read in a
+// fullscreen, as goblins and the CEO start them since 2026-10-17, read in a
 // native terminal on that day: the rows a turn shows and the rows after it,
 // with the scratch folder's path shortened. They read as their inline screens
 // did, ready only while no turn runs.
@@ -458,7 +458,7 @@ func TestPisComposerIsReadyAfterItsFirstTurn(t *testing.T) {
 }
 
 // After a compaction pi does not know its context use until the next turn and
-// shows the meter as "?", as seen live on pi 0.85.1 on 2026-10-08: a pi CFO
+// shows the meter as "?", as seen live on pi 0.85.1 on 2026-10-08: a pi CEO
 // that read as busy there was never typed the wake its compaction raised.
 func TestPisComposerIsReadyAfterACompaction(t *testing.T) {
 	screens, _ := NativeScreens(Pi)
@@ -470,7 +470,7 @@ func TestPisComposerIsReadyAfterACompaction(t *testing.T) {
 	}
 }
 
-// On 2026-09-28 the monitor woke the CFO with "agent turn ended; waiting on
+// On 2026-09-28 the monitor woke the CEO with "agent turn ended; waiting on
 // input" for a native Claude Code goblin 29 minutes into one turn. Claude
 // Code 2.1.283 draws its spinner from one of three glyph lists, one of them
 // "·✢*✶✻✽", and a turn sampled on its "*" frame read as over, since the
@@ -490,12 +490,12 @@ func TestAClaudeTurnReadsAsWorkingOnEverySpinnerFrame(t *testing.T) {
 // or as a paste's placeholder.
 func TestTypedTextShowsByItsEndOrAsAPaste(t *testing.T) {
 	screens, _ := NativeScreens(Claude)
-	typed := "Read the brief at C:\\briefs\\t1.md and follow it exactly. Report outcomes to the CFO."
+	typed := "Read the brief at C:\\briefs\\t1.md and follow it exactly. Report outcomes to the CEO."
 	for name, test := range map[string]struct {
 		screen []string
 		shows  bool
 	}{
-		"wrapped":     {[]string{"❯ Read the brief at C:\\briefs\\t1.md and follow it", "  exactly. Report outcomes to the CFO."}, true},
+		"wrapped":     {[]string{"❯ Read the brief at C:\\briefs\\t1.md and follow it", "  exactly. Report outcomes to the CEO."}, true},
 		"placeholder": {[]string{"❯ [Pasted text #1 +0 lines]"}, true},
 		"not typed":   {[]string{"❯ Try \"fix typecheck errors\""}, false},
 		"cut short":   {[]string{"❯ Read the brief at C:\\briefs\\t1.md and follow it exactly."}, false},
@@ -506,7 +506,7 @@ func TestTypedTextShowsByItsEndOrAsAPaste(t *testing.T) {
 	}
 }
 
-// On 2026-11-02 the board typed the Overlord's "?" into the CFO's Claude Code,
+// On 2026-11-02 the board typed the Overlord's "?" into the CEO's Claude Code,
 // which took the key as its shortcut help and left its prompt line empty, and
 // read the "?" as typed from the footer's "? for shortcuts", so it pressed
 // Enter on nothing and the message stranded as sent. Typed text shows only in
@@ -780,7 +780,7 @@ func TestHasBackgroundWorkReadsEveryRowRunningWorkDoes(t *testing.T) {
 }
 
 // A screen whose only movement is the harness's own clock, spinner or hint
-// shows no new output, and a row written to it does: on 2026-10-08 the CFO
+// shows no new output, and a row written to it does: on 2026-10-08 the CEO
 // was woken about 30 times for goblins whose screens were filling with test
 // output, and a wedged goblin's spinner ticks on all the same.
 func TestOutputDigestMovesOnlyWithOutput(t *testing.T) {
@@ -845,7 +845,7 @@ func TestPisEditorIsReadWhileItsTurnRuns(t *testing.T) {
 	}
 }
 
-// Text is typed into a CFO's composer only while it holds nothing, so a line
+// Text is typed into a CEO's composer only while it holds nothing, so a line
 // somebody left unsent is never typed over: Codex shows its placeholder only
 // while its composer is empty, and pi's editor is the rows between its last
 // two rules. A harness whose empty composer is not known never reads empty.
@@ -883,7 +883,7 @@ func TestAComposerReadsEmptyOnlyWhileItHoldsNothing(t *testing.T) {
 func TestCodexDisplayNameFooterDoesNotBecomeAnUnsentDraft(t *testing.T) {
 	screens, _ := NativeScreens(Codex)
 	for _, footer := range []string{
-		"  GPT-6.1 Terra xhigh \u00b7 C:\\proof \u00b7 Register CFO and handle messages",
+		"  GPT-6.1 Terra xhigh \u00b7 C:\\proof \u00b7 Register CEO and handle messages",
 		"  GPT-6.1 Sol high \u00b7 C:\\proof \u00b7 A follow-up",
 	} {
 		t.Run(footer, func(t *testing.T) {
@@ -1204,7 +1204,7 @@ func TestAPiComposerShowsACollapsedPaste(t *testing.T) {
 	rule := strings.Repeat("─", 80)
 	footer := "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)"
 	screens, _ := NativeScreens(Pi)
-	typed := "CFO: fix the monitor's turn reading. " + strings.Repeat("and check the family tree too. ", 40)
+	typed := "CEO: fix the monitor's turn reading. " + strings.Repeat("and check the family tree too. ", 40)
 	for name, test := range map[string]struct {
 		screen []string
 		shows  bool

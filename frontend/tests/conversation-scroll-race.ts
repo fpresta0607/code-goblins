@@ -14,11 +14,11 @@ async function settled(talk: Locator) {
 // arrives. With drawsRowAbove the scroll goes past two rows at their estimate,
 // so the window draws a row above him wherever the list rested, as 80 px does
 // only from some places.
-export async function delayedScroll(page: Page, owner: "CFO" | "goblin", movement: "keyboard" | "wheel", update: "stream" | "board", drawsRowAbove = false) {
-  const queued = { ...action, task_id: owner === "CFO" ? "" : GOBLIN.id };
+export async function delayedScroll(page: Page, owner: "CEO" | "goblin", movement: "keyboard" | "wheel", update: "stream" | "board", drawsRowAbove = false) {
+  const queued = { ...action, task_id: owner === "CEO" ? "" : GOBLIN.id };
   await open(page, snapshot({ actions: [queued] }), "", { messages, conversation, more: false });
-  if (owner === "CFO") await page.keyboard.press("Control+Alt+1"); else await openGoblin(page);
-  const talk = page.getByRole("log", { name: "Messages of " + (owner === "CFO" ? "CFO" : NAME) });
+  if (owner === "CEO") await page.keyboard.press("Control+Alt+1"); else await openGoblin(page);
+  const talk = page.getByRole("log", { name: "Messages of " + (owner === "CEO" ? "CEO" : NAME) });
   await expect(talk.locator('[data-message="m999"]')).toBeVisible();
   await expect(talk.locator('[data-queued="q1"]')).toBeVisible();
   await settled(talk);
@@ -101,8 +101,8 @@ const watched = (page: Page) => page.evaluate(() => (window as unknown as Watche
 // the rows in view lie, and each scroll position the page writes to the
 // list is noted, apart from the reader's own: how far it moved the list and
 // how long after the list last scrolled. With isStreaming false no reply is
-// in progress until start begins it, and owner CFO opens the CFO's messages.
-async function streamingTalk(page: Page, { isStreaming = true, owner = "goblin" }: { isStreaming?: boolean; owner?: "CFO" | "goblin" } = {}) {
+// in progress until start begins it, and owner CEO opens the CEO's messages.
+async function streamingTalk(page: Page, { isStreaming = true, owner = "goblin" }: { isStreaming?: boolean; owner?: "CEO" | "goblin" } = {}) {
   await page.addInitScript(() => {
     const frames: Frame[] = [], writes: Written[] = [], rowsDrawn: number[] = [];
     let isWatching = false, scrolled = -Infinity;
@@ -166,8 +166,8 @@ async function streamingTalk(page: Page, { isStreaming = true, owner = "goblin" 
     Object.assign(window, watcher);
   });
   const relay = await open(page, snapshot(), "", { conversation: "fixture-conversation", messages: HISTORY, more: false });
-  if (owner === "CFO") await page.keyboard.press("Control+Alt+1"); else await openGoblin(page);
-  const talk = page.getByRole("log", { name: "Messages of " + (owner === "CFO" ? "CFO" : NAME) });
+  if (owner === "CEO") await page.keyboard.press("Control+Alt+1"); else await openGoblin(page);
+  const talk = page.getByRole("log", { name: "Messages of " + (owner === "CEO" ? "CEO" : NAME) });
   await expect(talk.locator('[data-message="m299"]')).toBeVisible();
   await settled(talk);
   if (isStreaming) relay.say(WORKING);
@@ -524,13 +524,13 @@ export async function readOlderPastLostRelease(page: Page, loss: "right button" 
   await expect(talk.locator('[data-message="m149"]')).toBeAttached();
 }
 
-// phoneTalk opens the CFO's long history at its end, as the Overlord reads it
+// phoneTalk opens the CEO's long history at its end, as the Overlord reads it
 // on his phone, with no reply in progress or with one streaming through the
 // board's message path. That reply streams on from a box that already shows
 // what the session spent, as a reply's first line that brings its usage
 // takes WebKit off the end by itself, which startReplyAtEnd checks on its own.
 async function phoneTalk(page: Page, isStreaming: boolean) {
-  const opened = await streamingTalk(page, { isStreaming: false, owner: "CFO" });
+  const opened = await streamingTalk(page, { isStreaming: false, owner: "CEO" });
   await expect.poll(() => distanceToEnd(opened.talk)).toBeLessThanOrEqual(1);
   if (isStreaming) {
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation",

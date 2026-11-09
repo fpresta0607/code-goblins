@@ -1,8 +1,8 @@
-import { CFO_DOOR, expect, servePages, test, type Page } from "./site";
+import { CEO_DOOR, expect, servePages, test, type Page } from "./site";
 
 // The Overlord, 2026-10-18, after the kernel's pools held 11 GB four days into
 // a boot: "the header shows the restart button in terminal cfo for safe pc
-// restart". Past the line measured on this PC the line under the CFO's header
+// restart". Past the line measured on this PC the line under the CEO's header
 // row offers Restart PC on the board on the PC itself, never on his private
 // board, as AFK mode's on. The supervisor is played here: snapshots on a stream the test moves on,
 // and what the board sends is collected.
@@ -11,11 +11,11 @@ const PRIVATE_BOARD = "https://my-desktop.example.ts.net:4311";
 const machine = { available: 4.2 * GB, total: 32 * GB, commit_available: 18 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 * GB, pool_line: 7.5 * GB, pool_growth: [{ tag: "Toke", pool: "paged", grown: 3.2 * GB, holds: 3.5 * GB }] };
 const PAST = { ...machine, paged_pool: 7.61 * GB, nonpaged_pool: 3.35 * GB };
 const UNDER = { ...machine, paged_pool: 0.68 * GB, nonpaged_pool: 1.15 * GB };
-const BOARD = { healthy: true, instance: "fixture", revision: 1, attention: [], tasks: [], afk: { state: "off" }, cfo_runs: true, cfo_harness: "claude", sessions: [{ id: "cfo-1", harness: "claude", role: "cfo" }] };
+const BOARD = { healthy: true, instance: "fixture", revision: 1, attention: [], tasks: [], afk: { state: "off" }, ceo_runs: true, ceo_harness: "claude", sessions: [{ id: "ceo-1", harness: "claude", role: "ceo" }] };
 
 interface Sent { body: unknown; token: string }
 
-// open shows the CFO's panel with memory, on the board on this PC or, with
+// open shows the CEO's panel with memory, on the board on this PC or, with
 // origin, as a phone sees the private board, and collects each press of
 // Restart PC the board sends, which refusal refuses as the supervisor would.
 // header is the header's row, and line the line under it.
@@ -35,24 +35,24 @@ async function open(page: Page, memory: object, { origin = "", refusal = "" } = 
   }, JSON.stringify({ ...BOARD, memory }));
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.route("**/api/pc/restart", (route) => {
-    sent.push({ body: route.request().postDataJSON(), token: route.request().headers()["x-cfo-token"] });
+    sent.push({ body: route.request().postDataJSON(), token: route.request().headers()["x-ceo-token"] });
     return refusal ? route.fulfill({ status: 403, json: { error: refusal } }) : route.fulfill({ status: 202, json: { state: "stopping" } });
   });
   if (origin) {
     await servePages(page.context(), origin);
     await page.goto(origin + "/");
   } else await page.goto("/");
-  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
-  await expect(page.locator(".panel-header #panel-title")).toHaveText("CFO");
+  await page.locator(".ceo-pin").getByRole("button", { name: CEO_DOOR }).last().click();
+  await expect(page.locator(".panel-header #panel-title")).toHaveText("CEO");
   const push = (snapshot: object) => page.evaluate((data) => (window as unknown as { pushSnapshot: (data: string) => void }).pushSnapshot(data), JSON.stringify({ ...BOARD, revision: 2, ...snapshot }));
-  return { sent, push, header: page.locator(".panel-header"), line: page.locator(".cfo-header-line") };
+  return { sent, push, header: page.locator(".panel-header"), line: page.locator(".ceo-header-line") };
 }
 
 for (const [width, height] of [[1280, 800], [390, 844]]) {
   test.describe(`at ${width} px`, () => {
     test.use({ viewport: { width, height } });
 
-    test("past the line the CFO's header offers Restart PC on a line under its row, asks once, and his yes asks the supervisor once", async ({ page }, testInfo) => {
+    test("past the line the CEO's header offers Restart PC on a line under its row, asks once, and his yes asks the supervisor once", async ({ page }, testInfo) => {
       // Arrange
       const { sent, push, header, line } = await open(page, PAST);
       const restart = line.getByRole("button", { name: "Restart the PC" });
@@ -60,7 +60,7 @@ for (const [width, height] of [[1280, 800], [390, 844]]) {
       // Assert: on a line of its own right under the header's row, at the
       // row's end, at every width, so the row keeps the AFK switch and Close.
       await expect(restart).toBeVisible();
-      await page.locator(".goblin-panel").screenshot({ path: testInfo.outputPath(`cfo-header-restart-pc-${width}.png`) });
+      await page.locator(".goblin-panel").screenshot({ path: testInfo.outputPath(`ceo-header-restart-pc-${width}.png`) });
       const button = (await restart.boundingBox())!, row = (await header.boundingBox())!, corner = (await header.locator(".panel-corner").boundingBox())!;
       expect(button.y).toBeGreaterThanOrEqual(row.y + row.height - 0.5);
       expect(button.y - (row.y + row.height)).toBeLessThan(12);
@@ -75,10 +75,10 @@ for (const [width, height] of [[1280, 800], [390, 844]]) {
       await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
       await expect(dialog).toContainText("The kernel's pools hold 11.0 GB, past the 7.5 GB line where free memory can no longer hold the fleet.");
       await expect(dialog.getByRole("listitem")).toHaveText([
-        "The CFO is told first.",
+        "The CEO is told first.",
         "Every working goblin writes its handoff and pauses until the PC has restarted.",
         "The heavy runs end, then Windows restarts. An app with unsaved work asks you first.",
-        "After you sign in, the CFO and the goblins come back by themselves.",
+        "After you sign in, the CEO and the goblins come back by themselves.",
       ]);
       await dialog.getByRole("button", { name: "Restart PC" }).click();
 
@@ -112,7 +112,7 @@ test("under the line there is no Restart PC", async ({ page }) => {
   const { header, line } = await open(page, UNDER);
 
   // Assert: and the line under the header's row takes no room.
-  await expect(header.locator("#panel-title")).toHaveText("CFO");
+  await expect(header.locator("#panel-title")).toHaveText("CEO");
   await expect(line.getByRole("button", { name: "Restart the PC" })).toHaveCount(0);
   await expect(line).toBeHidden();
 });
@@ -125,13 +125,13 @@ test("his private board never offers Restart PC", async ({ page }) => {
   await push({ memory: PAST, pc_restart: { state: "stopped", problem: "not every working goblin paused: second-goblin (failed)", at: "2026-10-18T22:30:00Z" } });
 
   // Assert
-  await expect(header.locator("#panel-title")).toHaveText("CFO");
+  await expect(header.locator("#panel-title")).toHaveText("CEO");
   await expect(line.getByRole("button", { name: /Restart the PC|Restarting/ })).toHaveCount(0);
   await expect(line.getByText(/The PC did not restart/)).toHaveCount(0);
 });
 
 // What a press could not do says so in a few words under the button that
-// go by themselves, as Update's do, and the CFO is told why: the Overlord,
+// go by themselves, as Update's do, and the CEO is told why: the Overlord,
 // 2026-10-08, "everything error wise goes to cfo". They lie over the
 // conversation, so they neither widen the line nor move the conversation.
 test("a press the supervisor refuses says so under the button and restarts nothing", async ({ page }) => {
@@ -161,6 +161,6 @@ test("a restart that stopped short says so under the button and offers Restart P
   await push({ memory: PAST, pc_restart: { state: "stopped", problem: "not every working goblin paused: second-goblin (failed)", at: "2026-10-18T22:30:00Z" } });
 
   // Assert
-  await expect(line.locator(".notice")).toHaveText("The PC did not restart, and the CFO knows why.");
+  await expect(line.locator(".notice")).toHaveText("The PC did not restart, and the CEO knows why.");
   await expect(line.getByRole("button", { name: "Restart the PC" })).toBeEnabled();
 });

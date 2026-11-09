@@ -14,7 +14,7 @@ import (
 
 // switchedTailscale is this PC's Tailscale, which its own client stops and
 // starts, which the network going away leaves unconnected, and whose Serve
-// keeps a route per port. The board and cfo remote share it, as the one
+// keeps a route per port. The board and ceo remote share it, as the one
 // Tailscale on the PC.
 type switchedTailscale struct {
 	mu                   sync.Mutex
@@ -88,7 +88,7 @@ func TestEveryWayRemoteAccessTurnsOnOrOffShowsInTheBoardsSetting(t *testing.T) {
 		r := httptest.NewRequest(method, "http://"+address+"/api/remote", strings.NewReader(body))
 		r.RemoteAddr = "127.0.0.1:50000"
 		r.Header.Set("Origin", "http://"+address)
-		r.Header.Set("X-CFO-Token", "instance")
+		r.Header.Set("X-CEO-Token", "instance")
 		r.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		gate.ServeHTTP(w, r)
@@ -131,7 +131,7 @@ func TestEveryWayRemoteAccessTurnsOnOrOffShowsInTheBoardsSetting(t *testing.T) {
 				t.Fatalf("off answered %d", code)
 			}
 		}},
-		{name: "cfo remote on", change: func(t *testing.T) {
+		{name: "ceo remote on", change: func(t *testing.T) {
 			if _, err := cli.Enable(context.Background()); err != nil {
 				t.Fatal(err)
 			}
@@ -152,7 +152,7 @@ func TestEveryWayRemoteAccessTurnsOnOrOffShowsInTheBoardsSetting(t *testing.T) {
 				t.Fatalf("Follow = %v, %v", moved, err)
 			}
 		}, isOn: true, isReady: true, routeTo: "http://127.0.0.1:64610"},
-		{name: "cfo remote off", change: func(t *testing.T) {
+		{name: "ceo remote off", change: func(t *testing.T) {
 			cli.Target = "http://127.0.0.1:64610"
 			if err := cli.Disable(context.Background()); err != nil {
 				t.Fatal(err)

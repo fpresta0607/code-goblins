@@ -5,7 +5,7 @@ import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWith
 import { alreadyKnown, deliveryMark, runFailure, runMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
 import { taskStatus } from "./task-status.ts";
-import { arrange, settle, waitingOn, workflowNodes, lineageFamily, taskColumn, personaFor, nodeStatus, nativeStatus, statusPhase, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, zoomAt, MAX_ZOOM, MIN_ZOOM, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT, ROW, liveCfoSession } from "./workflow.ts";
+import { arrange, settle, waitingOn, workflowNodes, lineageFamily, taskColumn, personaFor, nodeStatus, nativeStatus, statusPhase, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, zoomAt, MAX_ZOOM, MIN_ZOOM, CEO_ROOT, NODE_WIDTH, NODE_HEIGHT, ROW, liveCeoSession } from "./workflow.ts";
 
 // A canvas of the board's usual shape, wider than it is tall.
 const CANVAS = { width: 1400, height: 900 };
@@ -27,18 +27,18 @@ test("board completion and semantic personas require the corresponding evidence"
   assert.equal(nativeStatus("busy"), "Working");
   assert.equal(nativeStatus("done"), "Turn finished");
   assert.equal(nodeStatus({id:"t",title:"",task,relation:""}), "Done, verifying");
-  assert.equal(nodeStatus({id:"t",title:"",task:{...task,phase:"blocked"},relation:""}), "Waiting on the CFO");
+  assert.equal(nodeStatus({id:"t",title:"",task:{...task,phase:"blocked"},relation:""}), "Waiting on the CEO");
   assert.equal(statusText("failed"), "Failed");
 });
 
 test("arrangement preserves five-level lineage and a cyclic report links no parent", () => {
-  const parents: Record<string, string> = { g: "cfo", child: "g", nested: "child", deep: "nested", orphan: "missing", cycle1: "cycle2", cycle2: "cycle1" };
+  const parents: Record<string, string> = { g: "ceo", child: "g", nested: "child", deep: "nested", orphan: "missing", cycle1: "cycle2", cycle2: "cycle1" };
   const goblins = Object.keys(parents);
   const snapshot=parseSnapshot({healthy:true,
-    sessions:[{id:"cfo",role:"cfo"}, ...goblins.map((id) => ({id, role:"goblin", task_id:id, generation:"g1", parent:parents[id]}))],
+    sessions:[{id:"ceo",role:"ceo"}, ...goblins.map((id) => ({id, role:"goblin", task_id:id, generation:"g1", parent:parents[id]}))],
     tasks:goblins.map((id) => ({id, phase:"working", session:id, generation:"g1", verified:false}))});
   const nodes=workflowNodes(snapshot), positions=arrange(nodes, CANVAS);
-  assert.deepEqual([nodes.find(node=>node.id==="session:orphan")?.parent, nodes.find(node=>node.id==="session:orphan")?.relation], ["session:cfo", "Dispatched by the CFO"]);
+  assert.deepEqual([nodes.find(node=>node.id==="session:orphan")?.parent, nodes.find(node=>node.id==="session:orphan")?.relation], ["session:ceo", "Dispatched by the CEO"]);
   assert.equal(Object.keys(positions).length,8);
   assert.ok(positions["session:deep"].y>positions["session:nested"].y);
   assert.equal(nodes.find(node=>node.id==="session:deep")?.parent,"session:nested");
@@ -66,12 +66,12 @@ test("project filtering keeps native relatives without inventing missing owners"
     { id: "one", project: "one", session: "goblin", generation: "g2", verified: false },
     { id: "two", project: "two", session: "other", generation: "g1", verified: false },
   ], sessions: [
-    { id: "cfo", role: "cfo" },
-    { id: "goblin", role: "goblin", generation: "g1", task_id: "one", parent: "cfo" },
+    { id: "ceo", role: "ceo" },
+    { id: "goblin", role: "goblin", generation: "g1", task_id: "one", parent: "ceo" },
     { id: "child", role: "worker", native_id: "actual-child", parent: "goblin" },
-    { id: "other", role: "goblin", generation: "g1", task_id: "two", parent: "cfo" },
+    { id: "other", role: "goblin", generation: "g1", task_id: "two", parent: "ceo" },
   ] });
-  assert.deepEqual(projectSessions(snapshot.sessions, snapshot.tasks, "one").map((node) => node.id), ["cfo", "goblin", "child"]);
+  assert.deepEqual(projectSessions(snapshot.sessions, snapshot.tasks, "one").map((node) => node.id), ["ceo", "goblin", "child"]);
   assert.deepEqual(tasksWithoutSession(snapshot.tasks, snapshot.sessions).map((task) => task.id), ["one"]);
   assert.equal(sessionTitle(snapshot.sessions[2], { ...snapshot.tasks[0], title: "Owning task" }), "actual-child");
 });
@@ -223,16 +223,16 @@ test("a live card whose gate saw its pull request merge wears the merge icon", (
   assert.deepEqual(cards.map(pullRequestIcon), ["merge", "merge", "pull-request", "pull-request"]);
 });
 
-test("the board keeps the CFO registration state the supervisor reports", () => {
-  const stale = "The CFO is not registered; run cfo register in the CFO session";
+test("the board keeps the CEO registration state the supervisor reports", () => {
+  const stale = "The CEO is not registered; run ceo register in the CEO session";
   assert.equal(parseSnapshot({healthy:true, registration:stale}).registration, stale);
   assert.equal(parseSnapshot({healthy:true}).registration, "");
 });
 
-test("the board keeps the conversation the CFO could not resume, as the supervisor reports it", () => {
-  const left = "The CFO's conversation a1b2c3d4-session could not be resumed when it came back at 2026-10-03 01:47 UTC, so it started on a new one. That conversation is kept: claude --resume a1b2c3d4-session in the CFO's home opens it by hand.";
-  assert.equal(parseSnapshot({healthy:true, cfo_conversation_left:left}).cfo_conversation_left, left);
-  assert.equal(parseSnapshot({healthy:true}).cfo_conversation_left, "");
+test("the board keeps the conversation the CEO could not resume, as the supervisor reports it", () => {
+  const left = "The CEO's conversation a1b2c3d4-session could not be resumed when it came back at 2026-10-03 01:47 UTC, so it started on a new one. That conversation is kept: claude --resume a1b2c3d4-session in the CEO's home opens it by hand.";
+  assert.equal(parseSnapshot({healthy:true, ceo_conversation_left:left}).ceo_conversation_left, left);
+  assert.equal(parseSnapshot({healthy:true}).ceo_conversation_left, "");
 });
 
 test("completed history and fleet statuses read the way the fleet reports them", () => {
@@ -244,13 +244,13 @@ test("completed history and fleet statuses read the way the fleet reports them",
   ]}).tasks;
   assert.equal(live.activity, "working: gate test step");
   assert.equal(taskColumn(live), "In progress");
-  assert.equal(nodeStatus({id:"w", title:"work", task:live, relation:""}), "Waiting on the CFO");
+  assert.equal(nodeStatus({id:"w", title:"work", task:live, relation:""}), "Waiting on the CEO");
   assert.equal(taskColumn(finished), "Completed");
   assert.equal(nodeStatus({id:"f", title:"old", task:finished, relation:""}), "Finished");
   assert.equal(taskColumn(merged), "Completed");
   assert.equal(nodeStatus({id:"m", title:"x", task:merged, relation:""}), "Merged");
   assert.equal(taskColumn(queued), "Tasks");
-  for (const [phase, label] of [["merged", "Merged, verifying"], ["blocked", "Waiting on the CFO"], ["ready", "Checks passed"]]) {
+  for (const [phase, label] of [["merged", "Merged, verifying"], ["blocked", "Waiting on the CEO"], ["ready", "Checks passed"]]) {
     const landed = {...live, phase, merged:true};
     assert.equal(taskColumn(landed), "In progress");
     assert.equal(nodeStatus({id:"l", title:"work", task:landed, relation:""}), label);
@@ -259,7 +259,7 @@ test("completed history and fleet statuses read the way the fleet reports them",
 });
 
 test("every live goblin gets its own stable artwork instead of the generic app icon", () => {
-  const ids = ["cfo-native-board", "cms-editor-fast-load", "pd-land-1251-1252"];
+  const ids = ["ceo-native-board", "cms-editor-fast-load", "pd-land-1251-1252"];
   const persona = (id: string) => personaFor(parseSnapshot({healthy:true, tasks:[{id, title:id, verified:false}]}).tasks[0]);
   const personas = ids.map(persona);
   assert.ok(!personas.includes("general"), personas.join());
@@ -283,36 +283,36 @@ test("only a GitHub pull request wears the GitHub mark and its bare number", () 
   for (const [url, badge] of cases) assert.deepEqual(pullRequestBadge(url), badge, url);
 });
 
-test("dispatched goblins hang under the CFO, and only live work is in the tree", () => {
+test("dispatched goblins hang under the CEO, and only live work is in the tree", () => {
   const live = ["a", "b", "c", "d", "e", "f"].map((id) => ({id, phase:"working", verified:false}));
   const history = [{id:"finished:x", phase:"done", verified:false, archived:true}, {id:"brief", phase:"queued", verified:false}];
-  const drawn = workflowNodes(parseSnapshot({healthy:true, registration:"The CFO is not registered; run cfo register in the CFO session", tasks:[...live, ...history]}));
-  const root = drawn.find((node) => node.id === CFO_ROOT);
-  assert.ok(root?.cfo);
+  const drawn = workflowNodes(parseSnapshot({healthy:true, registration:"The CEO is not registered; run ceo register in the CEO session", tasks:[...live, ...history]}));
+  const root = drawn.find((node) => node.id === CEO_ROOT);
+  assert.ok(root?.ceo);
   assert.equal(nodeStatus(root!), "Registration stale");
-  assert.deepEqual(drawn.filter((node) => node.task).map((node) => [node.task!.id, node.parent, node.relation]), live.map((task) => [task.id, CFO_ROOT, "Dispatched by the CFO"]));
+  assert.deepEqual(drawn.filter((node) => node.task).map((node) => [node.task!.id, node.parent, node.relation]), live.map((task) => [task.id, CEO_ROOT, "Dispatched by the CEO"]));
 
-  const reported = workflowNodes(parseSnapshot({healthy:true, sessions:[{id:"cfo", role:"cfo"}, {id:"lost", role:"goblin", task_id:"b", generation:"g1", parent:"missing"}], tasks:[{id:"a", phase:"working", verified:false}, {id:"b", phase:"working", session:"lost", generation:"g1", verified:false}]}));
-  assert.equal(reported.find((node) => node.id === CFO_ROOT), undefined);
-  assert.equal(reported.find((node) => node.id === "task:a")?.parent, "session:cfo");
-  assert.deepEqual([reported.find((node) => node.id === "session:lost")?.parent, reported.find((node) => node.id === "session:lost")?.relation], ["session:cfo", "Dispatched by the CFO"]);
+  const reported = workflowNodes(parseSnapshot({healthy:true, sessions:[{id:"ceo", role:"ceo"}, {id:"lost", role:"goblin", task_id:"b", generation:"g1", parent:"missing"}], tasks:[{id:"a", phase:"working", verified:false}, {id:"b", phase:"working", session:"lost", generation:"g1", verified:false}]}));
+  assert.equal(reported.find((node) => node.id === CEO_ROOT), undefined);
+  assert.equal(reported.find((node) => node.id === "task:a")?.parent, "session:ceo");
+  assert.deepEqual([reported.find((node) => node.id === "session:lost")?.parent, reported.find((node) => node.id === "session:lost")?.relation], ["session:ceo", "Dispatched by the CEO"]);
   assert.equal(workflowNodes(parseSnapshot({healthy:true, tasks:history})).length, 0);
 });
 
-// A goblin of a live task hangs under the CFO on the canvas and in the
+// A goblin of a live task hangs under the CEO on the canvas and in the
 // lineage list, whoever started or resumed it and whatever harness it and the
-// CFO run. On 2026-10-16 three live pi goblins floated on the canvas marked
-// Parent unreported: one a CFO in Claude Code spawned and two the supervisor
+// CEO run. On 2026-10-16 three live pi goblins floated on the canvas marked
+// Parent unreported: one a CEO in Claude Code spawned and two the supervisor
 // resumed after a memory pause, since only a parent a session reported was
 // kept.
-test("a live goblin session with no parent in the tree hangs under the CFO, whoever started it", () => {
+test("a live goblin session with no parent in the tree hangs under the CEO, whoever started it", () => {
   const cases: [string, Record<string, string>[], string][] = [
-    ["a Claude Code CFO's spawn, with no CFO session reported", [{ id: "claude-spawned", native_id: "claude-spawned", harness: "pi", role: "goblin", task_id: "a", generation: "g1" }], CFO_ROOT],
-    ["a supervisor resume", [{ id: "cfo", native_id: "cfo", harness: "claude", role: "cfo", phase: "active" }, { id: "resumed", native_id: "resumed", harness: "codex", role: "goblin", task_id: "a", generation: "g1", phase: "active" }], "cfo"],
-    ["a pi goblin under a pi CFO", [{ id: "pi-cfo", native_id: "pi-cfo", harness: "pi", role: "cfo", phase: "active" }, { id: "pi-goblin", native_id: "pi-goblin", harness: "pi", role: "goblin", task_id: "a", generation: "g1" }], "pi-cfo"],
-    ["a goblin whose reported parent left the tree", [{ id: "orphan", native_id: "orphan", harness: "claude", role: "goblin", task_id: "a", generation: "g1", parent: "gone" }], CFO_ROOT],
+    ["a Claude Code CEO's spawn, with no CEO session reported", [{ id: "claude-spawned", native_id: "claude-spawned", harness: "pi", role: "goblin", task_id: "a", generation: "g1" }], CEO_ROOT],
+    ["a supervisor resume", [{ id: "ceo", native_id: "ceo", harness: "claude", role: "ceo", phase: "active" }, { id: "resumed", native_id: "resumed", harness: "codex", role: "goblin", task_id: "a", generation: "g1", phase: "active" }], "ceo"],
+    ["a pi goblin under a pi CEO", [{ id: "pi-ceo", native_id: "pi-ceo", harness: "pi", role: "ceo", phase: "active" }, { id: "pi-goblin", native_id: "pi-goblin", harness: "pi", role: "goblin", task_id: "a", generation: "g1" }], "pi-ceo"],
+    ["a goblin whose reported parent left the tree", [{ id: "orphan", native_id: "orphan", harness: "claude", role: "goblin", task_id: "a", generation: "g1", parent: "gone" }], CEO_ROOT],
   ];
-  for (const [name, sessions, cfo] of cases) {
+  for (const [name, sessions, ceo] of cases) {
     // Arrange
     const goblin = sessions[sessions.length - 1];
     const snapshot = parseSnapshot({ healthy: true, sessions, tasks: [{ id: "a", phase: "working", session: goblin.id, generation: "g1", verified: false }] });
@@ -323,16 +323,16 @@ test("a live goblin session with no parent in the tree hangs under the CFO, whoe
 
     // Assert
     const card = nodes.find((node) => node.id === "session:" + goblin.id);
-    assert.deepEqual([card?.parent, card?.relation], [cfo === CFO_ROOT ? CFO_ROOT : "session:" + cfo, "Dispatched by the CFO"], name);
-    assert.equal(lineage.sessions.find((node) => node.id === goblin.id)?.parent, cfo, name);
-    assert.deepEqual(lineageRoots(lineage.sessions).map((node) => node.id), [cfo], name);
+    assert.deepEqual([card?.parent, card?.relation], [ceo === CEO_ROOT ? CEO_ROOT : "session:" + ceo, "Dispatched by the CEO"], name);
+    assert.equal(lineage.sessions.find((node) => node.id === goblin.id)?.parent, ceo, name);
+    assert.deepEqual(lineageRoots(lineage.sessions).map((node) => node.id), [ceo], name);
   }
 });
 
-// A goblin with no session hangs under the CFO in the lineage list as it does
+// A goblin with no session hangs under the CEO in the lineage list as it does
 // on the canvas, never as a root of its own, and a paused goblin and a queued
 // task are in neither: they wait on the board's Paused bench and in Tasks.
-test("a goblin with no session hangs under the CFO in the lineage list too", () => {
+test("a goblin with no session hangs under the CEO in the lineage list too", () => {
   // Arrange
   const snapshot = parseSnapshot({ healthy: true, tasks: [{ id: "working", phase: "working", generation: "g1", project: "p", verified: false }, { id: "paused", phase: "paused", generation: "g1", project: "p", verified: false }, { id: "brief", phase: "queued", project: "p", verified: false }] });
 
@@ -342,32 +342,32 @@ test("a goblin with no session hangs under the CFO in the lineage list too", () 
 
   // Assert
   for (const family of [all, project]) {
-    assert.deepEqual(family.sessions.map((node) => node.id), [CFO_ROOT]);
-    assert.deepEqual([...family.underCfo], ["working"]);
+    assert.deepEqual(family.sessions.map((node) => node.id), [CEO_ROOT]);
+    assert.deepEqual([...family.underCeo], ["working"]);
   }
 });
 
 // A parent a session reported and the tree holds still wins: a goblin stays
-// under the CFO session that started it, with the relation it reported, on
+// under the CEO session that started it, with the relation it reported, on
 // the canvas and in the lineage list.
 test("a session keeps a parent it reported that the tree holds", () => {
   // Arrange
-  const cfo = { id: "cfo", native_id: "cfo", harness: "claude", role: "cfo", phase: "active" };
-  const goblin = { id: "own", native_id: "own", harness: "claude", role: "goblin", task_id: "g", generation: "g1", parent: "cfo", relation: "spawned" };
-  const snapshot = parseSnapshot({ healthy: true, sessions: [cfo, goblin], tasks: [{ id: "g", phase: "working", session: "own", generation: "g1", verified: false }] });
+  const ceo = { id: "ceo", native_id: "ceo", harness: "claude", role: "ceo", phase: "active" };
+  const goblin = { id: "own", native_id: "own", harness: "claude", role: "goblin", task_id: "g", generation: "g1", parent: "ceo", relation: "spawned" };
+  const snapshot = parseSnapshot({ healthy: true, sessions: [ceo, goblin], tasks: [{ id: "g", phase: "working", session: "own", generation: "g1", verified: false }] });
 
   // Act
   const nodes = workflowNodes(snapshot);
   const lineage = lineageFamily(snapshot, "");
 
   // Assert
-  assert.deepEqual([nodes.find((node) => node.id === "session:own")?.parent, nodes.find((node) => node.id === "session:own")?.relation], ["session:cfo", "spawned"]);
-  assert.equal(lineage.sessions.find((node) => node.id === "own")?.parent, "cfo");
+  assert.deepEqual([nodes.find((node) => node.id === "session:own")?.parent, nodes.find((node) => node.id === "session:own")?.relation], ["session:ceo", "spawned"]);
+  assert.equal(lineage.sessions.find((node) => node.id === "own")?.parent, "ceo");
 });
 
 // A helper hangs under its goblin, whose session its task record names, and
-// never under the CFO, even when it reported no parent of its own.
-test("a helper's session hangs under its goblin, never the CFO", () => {
+// never under the CEO, even when it reported no parent of its own.
+test("a helper's session hangs under its goblin, never the CEO", () => {
   // Arrange
   const goblin = { id: "goblin-session", native_id: "goblin-session", harness: "claude", role: "goblin", task_id: "g", generation: "g1" };
   const helper = { id: "helper-session", native_id: "helper-session", harness: "pi", role: "goblin", task_id: "h", generation: "h1" };
@@ -383,7 +383,7 @@ test("a helper's session hangs under its goblin, never the CFO", () => {
 
 // A retired task's session leaves the canvas and the lineage list, and its
 // baby goblins with it: its record is in the board's archived history. On
-// 2026-10-16 a session stayed on the canvas after cfo cleanup retired its
+// 2026-10-16 a session stayed on the canvas after ceo cleanup retired its
 // task.
 test("a retired task's sessions are gone from the tree", () => {
   // Arrange
@@ -407,7 +407,7 @@ test("a retired task's sessions are gone from the tree", () => {
 // for in-progress goblins". The supervisor keeps a retired task's session
 // record, which a goblin cleanup ended never marks ended, and the board's
 // history names only its newest 20 finished tasks, so goblins retired the day
-// before read Turn finished and Working under the CFO, beside a second card
+// before read Turn finished and Working under the CEO, beside a second card
 // for a live goblin's earlier generation and a sub-agent record that opened
 // to "This child has no separate terminal."
 test("the canvas holds only goblins in progress, never a finished or terminal-less record", () => {
@@ -433,7 +433,7 @@ test("the canvas holds only goblins in progress, never a finished or terminal-le
     { id: "delivered", phase: "done", generation: "g1", verified: true },
     { id: "queued", phase: "queued", verified: false },
   ];
-  const snapshot = parseSnapshot({ healthy: true, cfo_runs: true, cfo_session: "claude/unreported-cfo", sessions, tasks });
+  const snapshot = parseSnapshot({ healthy: true, ceo_runs: true, ceo_session: "claude/unreported-ceo", sessions, tasks });
 
   // Act
   const nodes = workflowNodes(snapshot);
@@ -441,10 +441,10 @@ test("the canvas holds only goblins in progress, never a finished or terminal-le
 
   // Assert
   assert.deepEqual(nodes.map((node) => [node.id, node.parent]), [
-    [CFO_ROOT, undefined], ["session:working-session", CFO_ROOT], ["session:waiting-session", CFO_ROOT], ["task:unreported", CFO_ROOT], ["task:starting", CFO_ROOT],
+    [CEO_ROOT, undefined], ["session:working-session", CEO_ROOT], ["session:waiting-session", CEO_ROOT], ["task:unreported", CEO_ROOT], ["task:starting", CEO_ROOT],
   ]);
-  assert.deepEqual(lineage.sessions.map((node) => [node.id, node.parent]), [[CFO_ROOT, ""], ["working-session", CFO_ROOT], ["waiting-session", CFO_ROOT]]);
-  assert.deepEqual([...lineage.underCfo], ["unreported", "starting"]);
+  assert.deepEqual(lineage.sessions.map((node) => [node.id, node.parent]), [[CEO_ROOT, ""], ["working-session", CEO_ROOT], ["waiting-session", CEO_ROOT]]);
+  assert.deepEqual([...lineage.underCeo], ["unreported", "starting"]);
 });
 
 // A goblin leaves the canvas the moment it finishes, pauses or retires, and
@@ -454,9 +454,9 @@ test("a goblin is on the canvas from its start until it finishes, pauses or reti
   const working = { id: "a", phase: "working", session: "a-session", generation: "g1", verified: false };
   const cases: [string, object[], string[]][] = [
     ["queued", [{ id: "a", phase: "queued", verified: false }], []],
-    ["starting", [{ id: "a", phase: "queued", starting: true, verified: false }], [CFO_ROOT, "task:a"]],
-    ["working", [working], [CFO_ROOT, "session:a-session"]],
-    ["delivered and verifying", [{ ...working, phase: "done" }], [CFO_ROOT, "session:a-session"]],
+    ["starting", [{ id: "a", phase: "queued", starting: true, verified: false }], [CEO_ROOT, "task:a"]],
+    ["working", [working], [CEO_ROOT, "session:a-session"]],
+    ["delivered and verifying", [{ ...working, phase: "done" }], [CEO_ROOT, "session:a-session"]],
     ["pausing", [{ ...working, phase: "pausing" }], []],
     ["delivered and verified", [{ ...working, phase: "done", verified: true }], []],
     ["stopping", [{ ...working, phase: "stopping" }], []],
@@ -475,15 +475,15 @@ test("a goblin is on the canvas from its start until it finishes, pauses or reti
   }
 });
 
-// The CFO root is the live CFO, never the ended session of one the fleet
-// replaced, and that ended CFO's ended sub-agents leave with it rather than
+// The CEO root is the live CEO, never the ended session of one the fleet
+// replaced, and that ended CEO's ended sub-agents leave with it rather than
 // float as cards of their own.
-test("an ended CFO session is never the tree's root, and leaves with its sub-agents", () => {
+test("an ended CEO session is never the tree's root, and leaves with its sub-agents", () => {
   // Arrange
-  const ended = { id: "old-cfo", native_id: "old-cfo", harness: "pi", role: "cfo", phase: "ended" };
-  const endedAgent = { id: "old-agent", native_id: "old-agent", harness: "pi", role: "subagent", parent: "old-cfo", relation: "delegated", phase: "ended" };
-  const live = { id: "new-cfo", native_id: "new-cfo", harness: "claude", role: "cfo", phase: "active" };
-  const goblin = { id: "a-session", native_id: "a-session", harness: "pi", role: "goblin", task_id: "a", generation: "g1", parent: "old-cfo" };
+  const ended = { id: "old-ceo", native_id: "old-ceo", harness: "pi", role: "ceo", phase: "ended" };
+  const endedAgent = { id: "old-agent", native_id: "old-agent", harness: "pi", role: "subagent", parent: "old-ceo", relation: "delegated", phase: "ended" };
+  const live = { id: "new-ceo", native_id: "new-ceo", harness: "claude", role: "ceo", phase: "active" };
+  const goblin = { id: "a-session", native_id: "a-session", harness: "pi", role: "goblin", task_id: "a", generation: "g1", parent: "old-ceo" };
   const tasks = [{ id: "a", phase: "working", session: "a-session", generation: "g1", verified: false }];
 
   // Act
@@ -491,100 +491,100 @@ test("an ended CFO session is never the tree's root, and leaves with its sub-age
   const both = workflowNodes(parseSnapshot({ healthy: true, sessions: [ended, endedAgent, live, goblin], tasks }));
 
   // Assert
-  assert.deepEqual(onlyEnded.map((node) => [node.id, node.parent]), [[CFO_ROOT, undefined], ["session:a-session", CFO_ROOT]]);
-  assert.deepEqual(both.map((node) => [node.id, node.parent]), [["session:new-cfo", undefined], ["session:a-session", "session:new-cfo"]]);
+  assert.deepEqual(onlyEnded.map((node) => [node.id, node.parent]), [[CEO_ROOT, undefined], ["session:a-session", CEO_ROOT]]);
+  assert.deepEqual(both.map((node) => [node.id, node.parent]), [["session:new-ceo", undefined], ["session:a-session", "session:new-ceo"]]);
 });
 
-// The Overlord, 2026-10-17, of the CFO panel reading Session ended while a
-// Claude Code CFO worked: the CFO's status comes from the registered CFO's
-// own session on every surface. An older CFO's session, ended or still
+// The Overlord, 2026-10-17, of the CEO panel reading Session ended while a
+// Claude Code CEO worked: the CEO's status comes from the registered CEO's
+// own session on every surface. An older CEO's session, ended or still
 // marked running, never stands in for it and leaves with its sub-agents,
 // while a goblin in progress whose current session it started, ended or not,
-// hangs under the live CFO, so a goblin in progress keeps its card and a
+// hangs under the live CEO, so a goblin in progress keeps its card and a
 // paused one waits on the Paused bench.
 // An ended goblin session that is no live task's current one leaves with
-// that CFO, so a finished task leaves no Session ended card behind. With no
+// that CEO, so a finished task leaves no Session ended card behind. With no
 // registration naming a session the newest
-// CFO session still running is read, and while the registered CFO has
-// reported no session, or its session has ended, no CFO session is read and
+// CEO session still running is read, and while the registered CEO has
+// reported no session, or its session has ended, no CEO session is read and
 // the canvas draws the supervisor root.
-test("the CFO's status comes from the registered CFO's session, never an older one", () => {
+test("the CEO's status comes from the registered CEO's session, never an older one", () => {
   // Arrange
-  const endedPi = { id: "pi/old-cfo", native_id: "old-cfo", harness: "pi", role: "cfo", phase: "ended" };
-  const stalePi = { id: "pi/stale-cfo", native_id: "stale-cfo", harness: "pi", role: "cfo", phase: "settled" };
-  const newerPi = { id: "pi/new-cfo", native_id: "new-cfo", harness: "pi", role: "cfo", phase: "active" };
-  const activePi = { id: "pi/active-cfo", native_id: "active-cfo", harness: "pi", role: "cfo", phase: "active" };
-  const activeAgent = { id: "pi/active-agent", native_id: "active-agent", harness: "pi", role: "subagent", parent: "pi/active-cfo", relation: "delegated", phase: "active" };
-  const live = { id: "claude/live-cfo", native_id: "live-cfo", harness: "claude", role: "cfo", phase: "active" };
-  const goblin = { id: "pi/a-session", native_id: "a-session", harness: "pi", role: "goblin", task_id: "a", generation: "g1", parent: "pi/old-cfo" };
+  const endedPi = { id: "pi/old-ceo", native_id: "old-ceo", harness: "pi", role: "ceo", phase: "ended" };
+  const stalePi = { id: "pi/stale-ceo", native_id: "stale-ceo", harness: "pi", role: "ceo", phase: "settled" };
+  const newerPi = { id: "pi/new-ceo", native_id: "new-ceo", harness: "pi", role: "ceo", phase: "active" };
+  const activePi = { id: "pi/active-ceo", native_id: "active-ceo", harness: "pi", role: "ceo", phase: "active" };
+  const activeAgent = { id: "pi/active-agent", native_id: "active-agent", harness: "pi", role: "subagent", parent: "pi/active-ceo", relation: "delegated", phase: "active" };
+  const live = { id: "claude/live-ceo", native_id: "live-ceo", harness: "claude", role: "ceo", phase: "active" };
+  const goblin = { id: "pi/a-session", native_id: "a-session", harness: "pi", role: "goblin", task_id: "a", generation: "g1", parent: "pi/old-ceo" };
   const endedGoblin = { ...goblin, phase: "ended" };
   const tasks = [{ id: "a", phase: "working", session: "pi/a-session", generation: "g1", verified: false }];
   const pausedTasks = [{ ...tasks[0], phase: "paused" }];
-  const finishedGoblin = { id: "pi/b-session", native_id: "b-session", harness: "pi", role: "goblin", task_id: "b", generation: "g1", parent: "pi/old-cfo", phase: "ended" };
-  const switchedGoblin = { id: "codex/a-session", native_id: "a-session", harness: "codex", role: "goblin", task_id: "a", generation: "g2", parent: "claude/live-cfo", phase: "active" };
+  const finishedGoblin = { id: "pi/b-session", native_id: "b-session", harness: "pi", role: "goblin", task_id: "b", generation: "g1", parent: "pi/old-ceo", phase: "ended" };
+  const switchedGoblin = { id: "codex/a-session", native_id: "a-session", harness: "codex", role: "goblin", task_id: "a", generation: "g2", parent: "claude/live-ceo", phase: "active" };
   const switchedTasks = [{ ...tasks[0], session: "codex/a-session", generation: "g2" }];
-  const board =(sessions: object[], cfo: string, onBoard: object[] = tasks) => parseSnapshot({ healthy: true, cfo_runs: true, cfo_session: cfo, sessions, tasks: onBoard });
+  const board =(sessions: object[], ceo: string, onBoard: object[] = tasks) => parseSnapshot({ healthy: true, ceo_runs: true, ceo_session: ceo, sessions, tasks: onBoard });
 
   // Act
-  const reported = board([endedPi, stalePi, live, goblin], "claude/live-cfo");
-  const unreported = board([endedPi, stalePi, goblin], "claude/live-cfo");
+  const reported = board([endedPi, stalePi, live, goblin], "claude/live-ceo");
+  const unreported = board([endedPi, stalePi, goblin], "claude/live-ceo");
   const unregistered = board([endedPi, goblin], "");
   const newest = board([stalePi, newerPi, goblin], "");
-  const superseded = board([activePi, activeAgent, live, { ...goblin, parent: "pi/active-cfo", phase: "active" }], "claude/live-cfo");
-  const endedUnderStale = board([stalePi, newerPi, { ...endedGoblin, parent: "pi/stale-cfo" }], "");
-  const endedUnderSuperseded = board([activePi, live, { ...endedGoblin, parent: "pi/active-cfo" }], "claude/live-cfo");
-  const pausedUnderSuperseded = board([activePi, live, { ...endedGoblin, parent: "pi/active-cfo" }], "claude/live-cfo", pausedTasks);
-  const registeredEnded = board([{ ...live, phase: "ended" }, goblin], "claude/live-cfo");
-  const leftBehind = board([endedPi, live, finishedGoblin, endedGoblin, switchedGoblin], "claude/live-cfo", switchedTasks);
+  const superseded = board([activePi, activeAgent, live, { ...goblin, parent: "pi/active-ceo", phase: "active" }], "claude/live-ceo");
+  const endedUnderStale = board([stalePi, newerPi, { ...endedGoblin, parent: "pi/stale-ceo" }], "");
+  const endedUnderSuperseded = board([activePi, live, { ...endedGoblin, parent: "pi/active-ceo" }], "claude/live-ceo");
+  const pausedUnderSuperseded = board([activePi, live, { ...endedGoblin, parent: "pi/active-ceo" }], "claude/live-ceo", pausedTasks);
+  const registeredEnded = board([{ ...live, phase: "ended" }, goblin], "claude/live-ceo");
+  const leftBehind = board([endedPi, live, finishedGoblin, endedGoblin, switchedGoblin], "claude/live-ceo", switchedTasks);
 
   // Assert
-  assert.equal(liveCfoSession(reported)?.id, "claude/live-cfo");
-  assert.equal(nodeStatus({ id: "cfo", title: "CFO", session: liveCfoSession(reported), relation: "" }), "Working");
-  assert.equal(liveCfoSession(unreported), undefined);
-  assert.equal(liveCfoSession(unregistered), undefined);
-  assert.deepEqual(workflowNodes(reported).map((node) => [node.id, node.parent]), [["session:claude/live-cfo", undefined], ["session:pi/a-session", "session:claude/live-cfo"]]);
-  assert.deepEqual(workflowNodes(unreported).map((node) => [node.id, node.parent]), [[CFO_ROOT, undefined], ["session:pi/a-session", CFO_ROOT]]);
-  assert.equal(liveCfoSession(newest)?.id, "pi/new-cfo");
-  assert.deepEqual(workflowNodes(newest).map((node) => [node.id, node.parent]), [["session:pi/new-cfo", undefined], ["session:pi/a-session", "session:pi/new-cfo"]]);
-  assert.equal(lineageFamily(newest, "").cfo?.session?.id, "pi/new-cfo");
-  assert.deepEqual(workflowNodes(superseded).map((node) => [node.id, node.parent]), [["session:claude/live-cfo", undefined], ["session:pi/a-session", "session:claude/live-cfo"]]);
-  assert.deepEqual(workflowNodes(endedUnderStale).map((node) => [node.id, node.parent]), [["session:pi/new-cfo", undefined], ["session:pi/a-session", "session:pi/new-cfo"]]);
-  assert.deepEqual(workflowNodes(endedUnderSuperseded).map((node) => [node.id, node.parent]), [["session:claude/live-cfo", undefined], ["session:pi/a-session", "session:claude/live-cfo"]]);
-  assert.deepEqual(workflowNodes(pausedUnderSuperseded).map((node) => [node.id, node.parent]), [["session:claude/live-cfo", undefined]]);
-  assert.equal(liveCfoSession(registeredEnded), undefined);
-  assert.deepEqual(workflowNodes(registeredEnded).map((node) => [node.id, node.parent]), [[CFO_ROOT, undefined], ["session:pi/a-session", CFO_ROOT]]);
-  assert.deepEqual(workflowNodes(leftBehind).map((node) => [node.id, node.parent]), [["session:claude/live-cfo", undefined], ["session:codex/a-session", "session:claude/live-cfo"]]);
+  assert.equal(liveCeoSession(reported)?.id, "claude/live-ceo");
+  assert.equal(nodeStatus({ id: "ceo", title: "CEO", session: liveCeoSession(reported), relation: "" }), "Working");
+  assert.equal(liveCeoSession(unreported), undefined);
+  assert.equal(liveCeoSession(unregistered), undefined);
+  assert.deepEqual(workflowNodes(reported).map((node) => [node.id, node.parent]), [["session:claude/live-ceo", undefined], ["session:pi/a-session", "session:claude/live-ceo"]]);
+  assert.deepEqual(workflowNodes(unreported).map((node) => [node.id, node.parent]), [[CEO_ROOT, undefined], ["session:pi/a-session", CEO_ROOT]]);
+  assert.equal(liveCeoSession(newest)?.id, "pi/new-ceo");
+  assert.deepEqual(workflowNodes(newest).map((node) => [node.id, node.parent]), [["session:pi/new-ceo", undefined], ["session:pi/a-session", "session:pi/new-ceo"]]);
+  assert.equal(lineageFamily(newest, "").ceo?.session?.id, "pi/new-ceo");
+  assert.deepEqual(workflowNodes(superseded).map((node) => [node.id, node.parent]), [["session:claude/live-ceo", undefined], ["session:pi/a-session", "session:claude/live-ceo"]]);
+  assert.deepEqual(workflowNodes(endedUnderStale).map((node) => [node.id, node.parent]), [["session:pi/new-ceo", undefined], ["session:pi/a-session", "session:pi/new-ceo"]]);
+  assert.deepEqual(workflowNodes(endedUnderSuperseded).map((node) => [node.id, node.parent]), [["session:claude/live-ceo", undefined], ["session:pi/a-session", "session:claude/live-ceo"]]);
+  assert.deepEqual(workflowNodes(pausedUnderSuperseded).map((node) => [node.id, node.parent]), [["session:claude/live-ceo", undefined]]);
+  assert.equal(liveCeoSession(registeredEnded), undefined);
+  assert.deepEqual(workflowNodes(registeredEnded).map((node) => [node.id, node.parent]), [[CEO_ROOT, undefined], ["session:pi/a-session", CEO_ROOT]]);
+  assert.deepEqual(workflowNodes(leftBehind).map((node) => [node.id, node.parent]), [["session:claude/live-ceo", undefined], ["session:codex/a-session", "session:claude/live-ceo"]]);
 });
 
 // #1611: the supervisor lists the sessions by id, so one that reports keeps its
-// place in what it sends, and the board still takes the CFO session it heard
-// from last as the CFO while no registration names one.
+// place in what it sends, and the board still takes the CEO session it heard
+// from last as the CEO while no registration names one.
 test("the board holds the sessions oldest update first, though the supervisor lists them by id", () => {
   // Arrange: by id the newest comes first, and its time sorts last as text.
-  const newest = { id: "pi/a-cfo", native_id: "a-cfo", harness: "pi", role: "cfo", phase: "active", updated_at: "2026-10-29T06:00:00.25Z" };
-  const older = { id: "pi/b-cfo", native_id: "b-cfo", harness: "pi", role: "cfo", phase: "active", updated_at: "2026-10-29T06:00:00.2Z" };
+  const newest = { id: "pi/a-ceo", native_id: "a-ceo", harness: "pi", role: "ceo", phase: "active", updated_at: "2026-10-29T06:00:00.25Z" };
+  const older = { id: "pi/b-ceo", native_id: "b-ceo", harness: "pi", role: "ceo", phase: "active", updated_at: "2026-10-29T06:00:00.2Z" };
 
   // Act
-  const snapshot = parseSnapshot({ healthy: true, cfo_runs: true, cfo_session: "", sessions: [newest, older] });
+  const snapshot = parseSnapshot({ healthy: true, ceo_runs: true, ceo_session: "", sessions: [newest, older] });
 
   // Assert
-  assert.deepEqual(snapshot.sessions.map((session) => session.id), ["pi/b-cfo", "pi/a-cfo"]);
-  assert.equal(liveCfoSession(snapshot)?.id, "pi/a-cfo");
+  assert.deepEqual(snapshot.sessions.map((session) => session.id), ["pi/b-ceo", "pi/a-ceo"]);
+  assert.equal(liveCeoSession(snapshot)?.id, "pi/a-ceo");
 });
 
-// A goblin hung under a CFO session the board heard from after it is drawn a
-// row below that CFO, not beside it at the top of the canvas.
-test("a goblin hung under a later CFO session is drawn below it", () => {
+// A goblin hung under a CEO session the board heard from after it is drawn a
+// row below that CEO, not beside it at the top of the canvas.
+test("a goblin hung under a later CEO session is drawn below it", () => {
   // Arrange
   const goblin = { id: "early-goblin", native_id: "early-goblin", harness: "pi", role: "goblin", task_id: "a", generation: "g1", updated_at: "2026-10-16T20:00:00Z" };
-  const cfo = { id: "late-cfo", native_id: "late-cfo", harness: "claude", role: "cfo", phase: "active", updated_at: "2026-10-16T20:05:00Z" };
-  const nodes = workflowNodes(parseSnapshot({ healthy: true, sessions: [goblin, cfo], tasks: [{ id: "a", phase: "working", session: "early-goblin", generation: "g1", verified: false }] }));
+  const ceo = { id: "late-ceo", native_id: "late-ceo", harness: "claude", role: "ceo", phase: "active", updated_at: "2026-10-16T20:05:00Z" };
+  const nodes = workflowNodes(parseSnapshot({ healthy: true, sessions: [goblin, ceo], tasks: [{ id: "a", phase: "working", session: "early-goblin", generation: "g1", verified: false }] }));
 
   // Act
   const positions = arrange(nodes, CANVAS);
 
   // Assert
-  assert.equal(positions["session:early-goblin"].y, positions["session:late-cfo"].y + ROW);
+  assert.equal(positions["session:early-goblin"].y, positions["session:late-ceo"].y + ROW);
 });
 
 test("a wide family of goblins wraps into rows that never overlap", () => {
@@ -596,7 +596,7 @@ test("a wide family of goblins wraps into rows that never overlap", () => {
   for (const [i, one] of cards.entries()) for (const other of cards.slice(i + 1)) {
     assert.ok(Math.abs(one.x - other.x) >= NODE_WIDTH || Math.abs(one.y - other.y) >= NODE_HEIGHT, JSON.stringify([one, other]));
   }
-  assert.ok(cards.every((point) => point.y > positions[CFO_ROOT].y));
+  assert.ok(cards.every((point) => point.y > positions[CEO_ROOT].y));
   // A second-row card's connector drops through a gap in the first row, never
   // behind a first-row card that would then look like its parent.
   const first = cards.filter((point) => point.y === rows[0]);
@@ -607,10 +607,10 @@ test("a wide family of goblins wraps into rows that never overlap", () => {
 });
 
 // The eight goblins on the canvas the Overlord showed on 2026-10-01, in their
-// order there: cg-board-theme waited on cg-cfo-wakes, and
+// order there: cg-board-theme waited on cg-ceo-wakes, and
 // cg-credential-requests sat where he had placed it by hand, under
 // pd-connect-quickstart's arranged place.
-const FLEET = ["cg-native-desktop", "cg-board-theme", "cg-cfo-wakes", "cg-hidden-windows", "cg-review-editor-sync", "cg-credential-requests", "pd-connect-quickstart", "cg-install-no-mistakes-pinned"];
+const FLEET = ["cg-native-desktop", "cg-board-theme", "cg-ceo-wakes", "cg-hidden-windows", "cg-review-editor-sync", "cg-credential-requests", "pd-connect-quickstart", "cg-install-no-mistakes-pinned"];
 // He placed it a little above the third row of the arranged grid.
 const PLACED_BY_HAND = { "task:cg-credential-requests": { x: 686, y: 72 + 2 * ROW - 18 } };
 const fleet = (count: number, waits: Record<string, string> = {}) => parseSnapshot({ healthy: true, tasks: FLEET.slice(0, count).map((id) => ({ id, phase: waits[id] ? "waiting" : "working", waiting_on: waits[id] || "", verified: false })) });
@@ -625,15 +625,15 @@ test("a family of goblins wraps into the rows that show it largest in the canvas
   };
   assert.equal(rows({ width: 3200, height: 700 }), 1, "a wide canvas");
   assert.equal(rows(CANVAS), 2, "the board's usual canvas");
-  assert.ok(rows({ width: 836, height: 956 }) > 2, "his canvas with the CFO panel open: " + rows({ width: 836, height: 956 }) + " rows");
+  assert.ok(rows({ width: 836, height: 956 }) > 2, "his canvas with the CEO panel open: " + rows({ width: 836, height: 956 }) + " rows");
   assert.equal(rows({ width: 0, height: 0 }), 1, "a canvas not yet measured keeps one row");
 });
 
 test("a goblin waiting on another sits in the row under it, half a card over, and no card covers another", () => {
   for (const count of [3, 5, FLEET.length]) {
-    const nodes = workflowNodes(fleet(count, { "cg-board-theme": "cg-cfo-wakes" }));
-    const positions = arrange(nodes, CANVAS, { "task:cg-board-theme": "task:cg-cfo-wakes" });
-    const waiting = positions["task:cg-board-theme"], awaited = positions["task:cg-cfo-wakes"];
+    const nodes = workflowNodes(fleet(count, { "cg-board-theme": "cg-ceo-wakes" }));
+    const positions = arrange(nodes, CANVAS, { "task:cg-board-theme": "task:cg-ceo-wakes" });
+    const waiting = positions["task:cg-board-theme"], awaited = positions["task:cg-ceo-wakes"];
     assert.equal(waiting.y, awaited.y + ROW, count + " goblins: in the row under it");
     assert.equal(Math.abs(waiting.x - awaited.x), (NODE_WIDTH + 44) / 2, count + " goblins: half a card over");
     assert.deepEqual(overlaps(positions), [], count + " goblins");
@@ -643,17 +643,17 @@ test("a goblin waiting on another sits in the row under it, half a card over, an
 test("a chain or a cycle of waits keeps its places, and only the first link moves under its goblin", () => {
   const nodes = workflowNodes(fleet(FLEET.length));
   const family = arrange(nodes, CANVAS);
-  const chain = arrange(nodes, CANVAS, { "task:cg-board-theme": "task:cg-cfo-wakes", "task:cg-cfo-wakes": "task:cg-hidden-windows" });
-  assert.equal(chain["task:cg-cfo-wakes"].y, chain["task:cg-hidden-windows"].y + ROW);
+  const chain = arrange(nodes, CANVAS, { "task:cg-board-theme": "task:cg-ceo-wakes", "task:cg-ceo-wakes": "task:cg-hidden-windows" });
+  assert.equal(chain["task:cg-ceo-wakes"].y, chain["task:cg-hidden-windows"].y + ROW);
   assert.ok([...new Set(Object.values(family).map((point) => point.y))].includes(chain["task:cg-board-theme"].y), "the waiting end of a chain stays in a family row");
   assert.deepEqual(overlaps(chain), []);
-  const cycle = arrange(nodes, CANVAS, { "task:cg-board-theme": "task:cg-cfo-wakes", "task:cg-cfo-wakes": "task:cg-board-theme" });
+  const cycle = arrange(nodes, CANVAS, { "task:cg-board-theme": "task:cg-ceo-wakes", "task:cg-ceo-wakes": "task:cg-board-theme" });
   assert.deepEqual(cycle, family);
 });
 
 test("the dashed line's goblins are the waiting one and the one it waits on, on the canvas", () => {
-  const snapshot = fleet(3, { "cg-board-theme": "cg-cfo-wakes", "cg-native-desktop": "overlord" });
-  assert.deepEqual(waitingOn(snapshot, workflowNodes(snapshot)), { "task:cg-board-theme": "task:cg-cfo-wakes" });
+  const snapshot = fleet(3, { "cg-board-theme": "cg-ceo-wakes", "cg-native-desktop": "overlord" });
+  assert.deepEqual(waitingOn(snapshot, workflowNodes(snapshot)), { "task:cg-board-theme": "task:cg-ceo-wakes" });
 });
 
 test("no card covers another, whatever the Overlord placed by hand", () => {
@@ -663,16 +663,16 @@ test("no card covers another, whatever the Overlord placed by hand", () => {
   assert.deepEqual(overlaps(shown), []);
   assert.deepEqual(shown["task:cg-credential-requests"], PLACED_BY_HAND["task:cg-credential-requests"], "his card stays where he put it");
   assert.notDeepEqual(shown["task:pd-connect-quickstart"], arranged["task:pd-connect-quickstart"], "the covered card moves");
-  assert.deepEqual(shown["task:cg-cfo-wakes"], arranged["task:cg-cfo-wakes"], "a card nothing covers keeps its place");
+  assert.deepEqual(shown["task:cg-ceo-wakes"], arranged["task:cg-ceo-wakes"], "a card nothing covers keeps its place");
   assert.deepEqual(settle(arranged, {}), arranged);
 });
 
 test("a goblin arranged under the one it waits on stays under it when a card the Overlord placed takes its place, whatever the canvas", () => {
-  const snapshot = fleet(FLEET.length, { "cg-board-theme": "cg-cfo-wakes" });
+  const snapshot = fleet(FLEET.length, { "cg-board-theme": "cg-ceo-wakes" });
   const nodes = workflowNodes(snapshot), waits = waitingOn(snapshot, nodes);
   for (const canvas of [CANVAS, { width: 900, height: 700 }, { width: 836, height: 956 }, { width: 390, height: 844 }]) {
     const shown = settle(arrange(nodes, canvas, waits), PLACED_BY_HAND, {}, waits);
-    const waiting = shown["task:cg-board-theme"], awaited = shown["task:cg-cfo-wakes"];
+    const waiting = shown["task:cg-board-theme"], awaited = shown["task:cg-ceo-wakes"];
     assert.ok(waiting.y > awaited.y && Math.abs(waiting.x - awaited.x) < NODE_WIDTH, `${canvas.width} by ${canvas.height}: ${JSON.stringify({ waiting, awaited })}`);
     assert.deepEqual(overlaps(shown), [], `${canvas.width} by ${canvas.height}`);
   }
@@ -729,37 +729,37 @@ test("every status reads as plain words, never the old evidence jargon", () => {
 
 test("a goblin waiting on a question says who it is waiting on", () => {
   const snapshot = parseSnapshot({healthy:true, tasks:[
-    {id:"asks", phase:"blocked", verified:false, reason:"Waiting on the CFO: which rule?"},
-    {id:"cfo", phase:"blocked", verified:false, reason:"Waiting on the CFO: rebase?"},
+    {id:"asks", phase:"blocked", verified:false, reason:"Waiting on the CEO: which rule?"},
+    {id:"ceo", phase:"blocked", verified:false, reason:"Waiting on the CEO: rebase?"},
     {id:"stuck", phase:"failed", verified:false, reason:"gate died"},
   ], questions:[
     {id:"notify-asks-1", identity:"g", task:"asks", status:"pending", options:["A","B"]},
     {id:"notify-stuck-1", identity:"g", task:"stuck", status:"queued", options:["A"]},
-    {id:"cfo-question", identity:"c", task:"", status:"pending", options:["A"]},
+    {id:"ceo-question", identity:"c", task:"", status:"pending", options:["A"]},
   ]});
-  const [asks, cfo, stuck] = snapshot.tasks;
-  assert.equal(asksOverlord(snapshot, "asks"), false, "a goblin's question is the CFO's to answer");
+  const [asks, ceo, stuck] = snapshot.tasks;
+  assert.equal(asksOverlord(snapshot, "asks"), false, "a goblin's question is the CEO's to answer");
   assert.equal(asksOverlord(snapshot, "stuck"), false, "an answered question no longer waits on the Overlord");
-  assert.equal(asksOverlord(snapshot, ""), false, "the CFO's own question belongs to no goblin");
-  assert.equal(nodeStatus({id:"a", title:"", task:asks, relation:""}), "Waiting on the CFO", "a goblin's question reaches the Overlord through the CFO");
-  assert.equal(nodeStatus({id:"c", title:"", task:cfo, relation:""}), "Waiting on the CFO");
+  assert.equal(asksOverlord(snapshot, ""), false, "the CEO's own question belongs to no goblin");
+  assert.equal(nodeStatus({id:"a", title:"", task:asks, relation:""}), "Waiting on the CEO", "a goblin's question reaches the Overlord through the CEO");
+  assert.equal(nodeStatus({id:"c", title:"", task:ceo, relation:""}), "Waiting on the CEO");
   assert.equal(nodeStatus({id:"s", title:"", task:stuck, relation:""}), "Failed");
 });
 
 test("delivery reads as a mark, and only trouble spells itself out", () => {
   const mark = (status: string, kind: string) => deliveryMark(parseAction({ id: "a", kind, status }));
-  assert.deepEqual(mark("succeeded", "review"), { icon: "check-double", label: "CFO received", trouble: false });
-  assert.deepEqual(mark("succeeded", "cfo_answer"), { icon: "check-double", label: "CFO received", trouble: false });
+  assert.deepEqual(mark("succeeded", "review"), { icon: "check-double", label: "CEO received", trouble: false });
+  assert.deepEqual(mark("succeeded", "ceo_answer"), { icon: "check-double", label: "CEO received", trouble: false });
   assert.deepEqual(mark("succeeded", "goblin_answer"), { icon: "check-double", label: "Delivered to the goblin", trouble: false });
   assert.deepEqual(deliveryMark(parseAction({ id: "a", kind: "goblin_answer", status: "succeeded" }), "pd-cad-lineage"), { icon: "check-double", label: "Delivered to pd-cad-lineage", trouble: false });
   assert.deepEqual(mark("succeeded", "evaluate"), { icon: "check-double", label: "Done", trouble: false });
   // A review answer's action succeeds whether it reached the goblin or was
-  // handed to the CFO, so only the review item's delivered flag earns two checks.
-  assert.deepEqual(mark("succeeded", "review_answer"), { icon: "check", label: "Sent to the goblin or the CFO", trouble: false });
+  // handed to the CEO, so only the review item's delivered flag earns two checks.
+  assert.deepEqual(mark("succeeded", "review_answer"), { icon: "check", label: "Sent to the goblin or the CEO", trouble: false });
   assert.deepEqual(mark("running", "review"), { icon: "check", label: "Sending", trouble: false });
   assert.deepEqual(mark("queued", "review"), { icon: "check", label: "Queued", trouble: false });
   assert.deepEqual(mark("failed", "review"), { icon: "close", label: "Could not deliver", trouble: true });
-  assert.deepEqual(mark("uncertain", "review"), { icon: "warning", label: "Not confirmed. Check the CFO's terminal before sending it again.", trouble: true });
+  assert.deepEqual(mark("uncertain", "review"), { icon: "warning", label: "Not confirmed. Check the CEO's terminal before sending it again.", trouble: true });
   assert.deepEqual(mark("uncertain", "feedback"), { icon: "warning", label: "Not confirmed. Check the goblin's terminal before sending it again.", trouble: true });
   assert.deepEqual(mark("", "review"), { icon: "check", label: "Sending", trouble: false });
   assert.deepEqual(mark("succeeded", "review_clear"), { icon: "check", label: "Cleared", trouble: false });
@@ -767,20 +767,20 @@ test("delivery reads as a mark, and only trouble spells itself out", () => {
 
 // The Overlord, 2026-10-01, on answers that had all arrived: "Delivery
 // unconfirmed ... I get these command center blips and errors, fix".
-test("an answer typed for a busy CFO reads sent, then delivered, and warns only in words that say what to do", () => {
+test("an answer typed for a busy CEO reads sent, then delivered, and warns only in words that say what to do", () => {
   // Arrange
-  const sent = "Sent. The CFO takes it at its next tool call, or as its current turn ends.";
-  const advice = "Your answer was typed for the CFO, which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to the CFO.";
-  const answer = (fields: Record<string, unknown>) => deliveryMark(parseAction({ id: "a", kind: "cfo_answer", ...fields }));
+  const sent = "Sent. The CEO takes it at its next tool call, or as its current turn ends.";
+  const advice = "Your answer was typed for the CEO, which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to the CEO.";
+  const answer = (fields: Record<string, unknown>) => deliveryMark(parseAction({ id: "a", kind: "ceo_answer", ...fields }));
 
   // Act
-  const waiting = answer({ status: "running", message: sent, awaiting: { host: "cfo", since: "2026-10-01T16:54:54Z" } });
-  const delivered = answer({ status: "succeeded", message: "Taken by the CFO, as its own record of the conversation shows." });
+  const waiting = answer({ status: "running", message: sent, awaiting: { host: "ceo", since: "2026-10-01T16:54:54Z" } });
+  const delivered = answer({ status: "succeeded", message: "Taken by the CEO, as its own record of the conversation shows." });
   const lost = answer({ status: "uncertain", message: advice, advice });
 
   // Assert
   assert.deepEqual(waiting, { icon: "check", label: sent, trouble: false });
-  assert.deepEqual(delivered, { icon: "check-double", label: "CFO received", trouble: false });
+  assert.deepEqual(delivered, { icon: "check-double", label: "CEO received", trouble: false });
   assert.deepEqual(lost, { icon: "warning", label: advice, trouble: true });
 });
 
@@ -867,12 +867,12 @@ test("a waiting goblin says what it waits on, and only a wait on the Overlord re
     { id: "older", phase: "working", verified: false, waiting_on: undefined },
   ] });
   const status = (id: string) => taskStatus(snapshot.tasks.find((candidate) => candidate.id === id)!, snapshot).text;
-  const cases: [string, string][] = [["billing", "Waiting on board-ui"], ["ship", "Waiting on CI"], ["release", "Waiting on its deploy"], ["deploy", "Waiting on its deploy"], ["heavy", "In line for the machine"], ["ask", "Waiting on the CFO"],
+  const cases: [string, string][] = [["billing", "Waiting on board-ui"], ["ship", "Waiting on CI"], ["release", "Waiting on its deploy"], ["deploy", "Waiting on its deploy"], ["heavy", "In line for the machine"], ["ask", "Waiting on the CEO"],
     ["gone", "Waiting on retired-task"], ["gate", "In review gate: tests"], ["gate-ci", "In review gate: CI"],
     ["gate-review", "In review gate: code review"], ["gate-lint", "In review gate: lint"], ["gate-push", "In review gate: push"], ["gate-new", "In review gate"], ["gate-unknown", "In review gate"], ["older", "Working"]];
   for (const [id, label] of cases) assert.equal(status(id), label, id);
   const ask = snapshot.tasks.find((task) => task.id === "ask")!;
-  assert.equal(nodeStatus({ id: "ask", title: "", task: ask, relation: "" }), "Waiting on the CFO", "a wait on the Overlord goes through the CFO even when no caller says it asks");
+  assert.equal(nodeStatus({ id: "ask", title: "", task: ask, relation: "" }), "Waiting on the CEO", "a wait on the Overlord goes through the CEO even when no caller says it asks");
   assert.equal(asksOverlord(snapshot, "ask"), true);
   for (const id of ["billing", "ship", "release", "deploy", "gone"]) assert.equal(asksOverlord(snapshot, id), false, id);
   assert.equal(waitingTarget(snapshot, snapshot.tasks[0])?.id, "board-ui");
@@ -880,7 +880,7 @@ test("a waiting goblin says what it waits on, and only a wait on the Overlord re
   assert.equal(statusText("waiting"), "Waiting");
 });
 
-test("a goblin's command the goblin moved past reads withdrawn, without naming the CFO", () => {
+test("a goblin's command the goblin moved past reads withdrawn, without naming the CEO", () => {
   // Arrange
   const snapshot = parseSnapshot({ healthy: true, runs: [
     { id: "run-billing-7", task: "billing", state: "withdrawn", reason: "billing reported again: working: pushing without it" },
@@ -891,7 +891,7 @@ test("a goblin's command the goblin moved past reads withdrawn, without naming t
   const labels = (snapshot.runs ?? []).map((run) => runMark(run).label);
 
   // Assert
-  assert.deepEqual(labels, ["Withdrawn", "Withdrawn by the CFO"]);
+  assert.deepEqual(labels, ["Withdrawn", "Withdrawn by the CEO"]);
   assert.deepEqual((snapshot.runs ?? []).map((run) => [run.task, run.terminal]), [["billing", false], ["", false]]);
 });
 
@@ -904,7 +904,7 @@ test("a failed run item says in one line why it failed and who takes the next st
     { id: "repair-home-v0.5.3", state: "failed", exit_code: 1, output: "At line:7 char:63\r\n$(subexpression) is missing the closing ')'.\r\n" },
     { id: "fly-signin-precisiondocs-20261007", state: "failed", exit_code: 1, output: "" },
     { id: "run-cg-codex-pi-proof-6513", task: "cg-codex-pi-proof", state: "failed", exit_code: null, reason: "Windows did not start it elevated: The operation was canceled by the user." },
-    { id: "publish-v0.5.4", state: "failed", exit_code: 1, output: "gh: not found", reason: "the CFO could not be told: it restarted" },
+    { id: "publish-v0.5.4", state: "failed", exit_code: 1, output: "gh: not found", reason: "the CEO could not be told: it restarted" },
     { id: "publish-v0.5.5", state: "succeeded", exit_code: 0, output: "done" },
   ] });
 
@@ -913,10 +913,10 @@ test("a failed run item says in one line why it failed and who takes the next st
 
   // Assert
   assert.deepEqual(lines, [
-    "$(subexpression) is missing the closing ')'. The CFO has its output and takes the next step.",
-    "It exited with code 1. The CFO has its output and takes the next step.",
+    "$(subexpression) is missing the closing ')'. The CEO has its output and takes the next step.",
+    "It exited with code 1. The CEO has its output and takes the next step.",
     "Windows did not start it elevated: The operation was canceled by the user. The goblin that asked has its output and takes the next step.",
-    "gh: not found. The CFO may not have its output yet: telling it failed.",
+    "gh: not found. The CEO may not have its output yet: telling it failed.",
     "",
   ]);
 });
@@ -927,7 +927,7 @@ test("a failed run item says in one line why it failed and who takes the next st
 // line the command printed, or why it never finished.
 test("a run item states its progress in plain words, never its exit code", () => {
   const snapshot = parseSnapshot({ healthy: true, runs: [
-    { id: "a", identity: "cfo-1", title: "Rebuild the index", shell: "pwsh", admin: false, command: "Get-Date", cwd: "C:\\work", state: "ready", terminal: true },
+    { id: "a", identity: "ceo-1", title: "Rebuild the index", shell: "pwsh", admin: false, command: "Get-Date", cwd: "C:\\work", state: "ready", terminal: true },
     { id: "b", state: "running" },
     { id: "c", state: "succeeded", exit_code: 0, output: "Published v0.5.2\n" },
     { id: "d", state: "failed", exit_code: 2, output: "Uploading assets\r\ngh: release v0.5.2 already exists\r\n\r\n" },
@@ -943,13 +943,13 @@ test("a run item states its progress in plain words, never its exit code", () =>
   assert.equal(runs[0].terminal, true);
   const cases: [string, string, boolean][] = [["Ready to run", "play", false], ["Running", "clock", false], ["Complete", "check", false],
     ["Failed: gh: release v0.5.2 already exists", "warning", true], ["Failed: Windows did not start it elevated: The operation was canceled by the user.", "warning", true],
-    ["Expired", "close", false], ["Withdrawn by the CFO", "close", false], ["Failed: it exited with code 1", "warning", true], ["Stopped", "stop-circle", false]];
+    ["Expired", "close", false], ["Withdrawn by the CEO", "close", false], ["Failed: it exited with code 1", "warning", true], ["Stopped", "stop-circle", false]];
   cases.forEach(([label, icon, trouble], index) => assert.deepEqual(runMark(runs[index]), { icon, label, trouble }, runs[index].id));
 });
 
 // A stop that did not finish is the task's status, but never drawn as the
-// goblin failing: the CFO or the Overlord asked for it, and the CFO hears of
-// it (the Overlord, 2026-10-07: a pause or retirement the CFO asked for is
+// goblin failing: the CEO or the Overlord asked for it, and the CEO hears of
+// it (the Overlord, 2026-10-07: a pause or retirement the CEO asked for is
 // never shown as a failure). A goblin that did not start again is. A pause
 // that did not finish shows no status of its own: of Shirley's card on
 // 2026-10-08, "Pause did not finish" in yellow, the Overlord ruled that a

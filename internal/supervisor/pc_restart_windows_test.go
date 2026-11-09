@@ -45,7 +45,7 @@ func (l *restartLog) recorded() []string {
 }
 
 // restartBoard is a board on the Overlord's own PC whose kernel pools hold
-// pools bytes together. Its cfo pause writes a goblin's handoff, then its
+// pools bytes together. Its ceo pause writes a goblin's handoff, then its
 // pause, and pauses its helpers with it, as the real one does, and a goblin
 // named in failing fails to pause. Windows' restart is a fake that records
 // each goblin's pause and handoff as it finds them on disk.
@@ -64,7 +64,7 @@ func restartBoard(t *testing.T, pools uint64, failing ...string) (*Service, home
 			return
 		}
 		if pending, err := wake.Pending(h.State); err == nil && len(pending) > 0 && pending[0].Key == "restart" && strings.Contains(pending[0].Detail, "pressed Restart PC") {
-			log.add("the CFO was told before pausing " + args[1])
+			log.add("the CEO was told before pausing " + args[1])
 		}
 		log.add("pause " + args[1])
 		if slices.Contains(failing, args[1]) {
@@ -100,7 +100,7 @@ func restartBoard(t *testing.T, pools uint64, failing ...string) (*Service, home
 	return s, h, log, spawner
 }
 
-// writeRestartPause writes what cfo pause leaves of id's pause until the PC
+// writeRestartPause writes what ceo pause leaves of id's pause until the PC
 // restarts: the handoff its goblin wrote first, then its lifecycle record,
 // in phase.
 func writeRestartPause(t *testing.T, h home.Home, id, phase, until string) {
@@ -141,7 +141,7 @@ func awaitRestartState(t *testing.T, s *Service, want string) PCRestart {
 }
 
 // The Overlord, 2026-10-18: "the header shows the restart button in terminal
-// cfo for safe pc restart". His press tells the CFO first, has every working
+// cfo for safe pc restart". His press tells the CEO first, has every working
 // goblin write its handoff and pause until the PC has restarted, ends the
 // runs in the machine's heavy line, then restarts Windows: here a fake,
 // which finds each handoff and each pause already written. A helper pauses
@@ -183,17 +183,17 @@ func TestRestartPCWritesEveryHandoffAndPauseBeforeWindowsRestarts(t *testing.T) 
 	until := signedInAt.Format(time.RFC3339Nano)
 	calls := spawner.recorded()
 	if len(calls) != 2 {
-		t.Fatalf("cfo ran %v, want a pause of each working goblin and nothing else", calls)
+		t.Fatalf("ceo ran %v, want a pause of each working goblin and nothing else", calls)
 	}
 	for _, meta := range []state.TaskMeta{first, second} {
 		want := []string{"pause", meta.ID, "--generation", meta.SpawnGen, "--operation", calls[0][5], "--reason", "restart", "--until", until}
 		if !slices.ContainsFunc(calls, func(call []string) bool { return slices.Equal(call, want) }) {
-			t.Errorf("cfo ran %v, want %v", calls, want)
+			t.Errorf("ceo ran %v, want %v", calls, want)
 		}
 	}
 	events := log.recorded()
-	if !strings.HasPrefix(events[0], "the CFO was told before pausing ") || !slices.Equal(events[len(events)-2:], []string{"end the heavy line's runs", "restart Windows"}) {
-		t.Errorf("the restart did %v, want the CFO told, then the pauses, then the heavy line's runs ended, then Windows restarted", events)
+	if !strings.HasPrefix(events[0], "the CEO was told before pausing ") || !slices.Equal(events[len(events)-2:], []string{"end the heavy line's runs", "restart Windows"}) {
+		t.Errorf("the restart did %v, want the CEO told, then the pauses, then the heavy line's runs ended, then Windows restarted", events)
 	}
 	for _, id := range []string{first.ID, second.ID, helper.ID} {
 		if got, want := log.atRestart[id], "paused for restart until "+until+", handoff saved yes"; got != want {
@@ -205,7 +205,7 @@ func TestRestartPCWritesEveryHandoffAndPauseBeforeWindowsRestarts(t *testing.T) 
 	}
 	pending, err := wake.Pending(h.State)
 	if err != nil || len(pending) != 2 || pending[1].Key != "restart" || pending[1].Detail != "The PC restarts now. Paused for the restart: first-goblin, helper-goblin, second-goblin. Ended in the machine's heavy line: go test ./... in C:\\work, task first-goblin (pid 4242)." {
-		t.Errorf("the CFO's queue = %+v, %v, want it told first, then what the restart did", pending, err)
+		t.Errorf("the CEO's queue = %+v, %v, want it told first, then what the restart did", pending, err)
 	}
 	if restart.Problem != "" {
 		t.Errorf("the restart = %+v, want it restarting with no problem", restart)
@@ -216,7 +216,7 @@ func TestRestartPCWritesEveryHandoffAndPauseBeforeWindowsRestarts(t *testing.T) 
 // not on a session. A restart that paused it would have the scheduler resume
 // it after the sign-in, only to report the same pull request done again, as
 // three goblins did after a restart on 2026-10-27, so the restart leaves it
-// unpaused. One the CFO steered back to work after its done report took a
+// unpaused. One the CEO steered back to work after its done report took a
 // prompt since, and is paused with its handoff as one still working is.
 func TestRestartPCLeavesAGoblinThatDeliveredItsPullRequestUnpaused(t *testing.T) {
 	// Arrange
@@ -246,7 +246,7 @@ func TestRestartPCLeavesAGoblinThatDeliveredItsPullRequestUnpaused(t *testing.T)
 		t.Fatalf("POST /api/pc/restart = %d, want it accepted", code)
 	}
 	if calls := spawner.recorded(); len(calls) != 1 || calls[0][0] != "pause" || calls[0][1] != working.ID {
-		t.Errorf("cfo ran %v, want a pause of %s alone", calls, working.ID)
+		t.Errorf("ceo ran %v, want a pause of %s alone", calls, working.ID)
 	}
 	if got, isPaused := log.atRestart[delivered.ID]; isPaused {
 		t.Errorf("as Windows restarted %s was %q, want it left unpaused", delivered.ID, got)
@@ -257,7 +257,7 @@ func TestRestartPCLeavesAGoblinThatDeliveredItsPullRequestUnpaused(t *testing.T)
 }
 
 // A goblin that does not pause stops the restart short, so its work is not
-// cut off: Windows is not restarted, the board says why, the CFO is told,
+// cut off: Windows is not restarted, the board says why, the CEO is told,
 // and the goblins already paused stay paused until the PC restarts.
 func TestARestartStopsShortWhenAGoblinDoesNotPause(t *testing.T) {
 	// Arrange
@@ -285,7 +285,7 @@ func TestARestartStopsShortWhenAGoblinDoesNotPause(t *testing.T) {
 	}
 	pending, err := wake.Pending(h.State)
 	if err != nil || len(pending) != 2 || !strings.HasPrefix(pending[1].Detail, "The PC did not restart: not every working goblin paused: second-goblin (failed). Paused for the restart: first-goblin.") {
-		t.Errorf("the CFO's queue = %+v, %v, want it told why the PC did not restart", pending, err)
+		t.Errorf("the CEO's queue = %+v, %v, want it told why the PC did not restart", pending, err)
 	}
 	if code, body := askTheBoard(t, s, "POST", "/api/pc/restart", "{}", nil); code != http.StatusAccepted {
 		t.Errorf("a second press after the restart stopped short = %d %s, want it to try again", code, body)
@@ -314,7 +314,7 @@ func TestRestartPCIsRefusedWhileThePoolsAreUnderTheLine(t *testing.T) {
 
 // Only the PC's own board restarts it, as only it turns AFK mode on: a press
 // through his private board, through a proxy or from a browser an agent
-// started is refused, the CFO is told, and nothing pauses.
+// started is refused, the CEO is told, and nothing pauses.
 func TestOnlyThePCsOwnBoardRestartsThePC(t *testing.T) {
 	for name, press := range map[string]func(*testing.T, *Service) int{
 		"his private board": func(t *testing.T, s *Service) int {
@@ -357,7 +357,7 @@ func TestOnlyThePCsOwnBoardRestartsThePC(t *testing.T) {
 			}
 			pending, err := wake.Pending(h.State)
 			if err != nil || len(pending) != 1 || pending[0].Kind != "review" || pending[0].Key != "restart" {
-				t.Errorf("the CFO's queue = %+v, %v, want the one refusal", pending, err)
+				t.Errorf("the CEO's queue = %+v, %v, want the one refusal", pending, err)
 			}
 		})
 	}
@@ -392,13 +392,13 @@ func TestARestartPauseClearsOnlyInALaterSignIn(t *testing.T) {
 			}
 			isResumed := slices.ContainsFunc(calls, func(call []string) bool { return call[0] == "resume" && call[1] == meta.ID })
 			if isResumed != test.wantResumed {
-				t.Errorf("cfo ran %v in %s, want a resume %v", calls, name, test.wantResumed)
+				t.Errorf("ceo ran %v in %s, want a resume %v", calls, name, test.wantResumed)
 			}
 		})
 	}
 }
 
-// A restart whose last step fails says so on the board and to the CFO, and
+// A restart whose last step fails says so on the board and to the CEO, and
 // the goblins stay paused until the PC restarts.
 func TestARestartThatWindowsRefusesSaysWhy(t *testing.T) {
 	// Arrange
@@ -416,6 +416,6 @@ func TestARestartThatWindowsRefusesSaysWhy(t *testing.T) {
 	}
 	pending, err := wake.Pending(h.State)
 	if err != nil || len(pending) != 3 || !strings.HasPrefix(pending[2].Detail, "The PC did not restart: Windows did not restart") {
-		t.Errorf("the CFO's queue = %+v, %v, want it told the PC did not restart", pending, err)
+		t.Errorf("the CEO's queue = %+v, %v, want it told the PC did not restart", pending, err)
 	}
 }

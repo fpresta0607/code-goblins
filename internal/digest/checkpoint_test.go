@@ -53,10 +53,10 @@ func section(t *testing.T, checkpoint, header string) string {
 	return body
 }
 
-// A checkpoint holds what a CFO loses to a compaction and can read back from
+// A checkpoint holds what a CEO loses to a compaction and can read back from
 // disk: each goblin with its pull request and last status lines, what is
 // paused and whether AFK mode is on, what waits on an answer, the wakes not
-// yet acknowledged, and where the CFO's own handoff is.
+// yet acknowledged, and where the CEO's own handoff is.
 func TestTheCheckpointHoldsTheFleetHoldsQuestionsAndWhatIsOwed(t *testing.T) {
 	// Arrange
 	h := newDigestHome(t)
@@ -91,10 +91,10 @@ func TestTheCheckpointHoldsTheFleetHoldsQuestionsAndWhatIsOwed(t *testing.T) {
 	if _, err := wake.Append(h.State, "stale", "cg-tickets", "awaiting_answer: agent turn ended"); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(h.Data, "cfo-handoff-2026-09-29.md"), "an older handoff\n")
-	newest := filepath.Join(h.Data, "cfo-handoff-2026-10-01.md")
+	writeFile(t, filepath.Join(h.Data, "ceo-handoff-2026-09-29.md"), "an older handoff\n")
+	newest := filepath.Join(h.Data, "ceo-handoff-2026-10-01.md")
 	writeFile(t, newest, "main is held for PR 235\n")
-	if err := os.Chtimes(filepath.Join(h.Data, "cfo-handoff-2026-09-29.md"), now.Add(-72*time.Hour), now.Add(-72*time.Hour)); err != nil {
+	if err := os.Chtimes(filepath.Join(h.Data, "ceo-handoff-2026-09-29.md"), now.Add(-72*time.Hour), now.Add(-72*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -138,7 +138,7 @@ func TestTheCheckpointHoldsTheFleetHoldsQuestionsAndWhatIsOwed(t *testing.T) {
 		t.Errorf("OWED lacks the unacknowledged wakes:\n%s", owed)
 	}
 	next := section(t, checkpoint, "== READ THIS NEXT ==")
-	if !strings.Contains(next, newest) || strings.Contains(next, "cfo-handoff-2026-09-29.md") {
+	if !strings.Contains(next, newest) || strings.Contains(next, "ceo-handoff-2026-09-29.md") {
 		t.Errorf("READ THIS NEXT does not name the newest handoff alone:\n%s", next)
 	}
 	if !strings.Contains(next, filepath.Join(h.State, FullDigestFile)) {
@@ -159,7 +159,7 @@ func TestACheckpointOfAnEmptyHomeSaysWhatIsEmpty(t *testing.T) {
 		"== OPEN QUESTIONS ==":     "Nothing waits on the Overlord in the Command Center.\nNo goblin waits on your answer.",
 		"== WAITING ON THE CEO ==": "No goblin waits on the CEO.",
 		"== OWED ==":               "No wake waits to be acknowledged.",
-		"== READ THIS NEXT ==":     "no cfo-handoff-*.md",
+		"== READ THIS NEXT ==":     "no ceo-handoff-*.md",
 	} {
 		if body := section(t, checkpoint, header); !strings.Contains(body, want) {
 			t.Errorf("%s lacks %q:\n%s", header, want, body)
@@ -167,13 +167,13 @@ func TestACheckpointOfAnEmptyHomeSaysWhatIsEmpty(t *testing.T) {
 	}
 }
 
-// A goblin that asked the CFO in prose waits on its answer as one that filed
+// A goblin that asked the CEO in prose waits on its answer as one that filed
 // a blocked notify does, so the checkpoint lists its question rather than
 // saying no goblin waits.
 func TestACheckpointListsAQuestionAGoblinAskedInProse(t *testing.T) {
 	// Arrange
 	h := newDigestHome(t)
-	if _, err := wake.Append(h.State, "stale", "cg-wakes", `goblin_asks: cg-wakes ended its turn asking in prose instead of with cfo notify --blocked and waits at its prompt for the answer; next: answer it with cfo send cg-wakes "<your answer>" (cfo answer takes only a notify's question). It asked: "Should I open the PR?"`); err != nil {
+	if _, err := wake.Append(h.State, "stale", "cg-wakes", `goblin_asks: cg-wakes ended its turn asking in prose instead of with ceo notify --blocked and waits at its prompt for the answer; next: answer it with ceo send cg-wakes "<your answer>" (ceo answer takes only a notify's question). It asked: "Should I open the PR?"`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -298,7 +298,7 @@ func TestACheckpointKeepsAnsweredWakesWithoutReopeningTheirQuestions(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := wake.MarkAnswered(h.State, record.Seq, wake.AnsweredByCFO, "Keep the plan"); err != nil {
+	if err := wake.MarkAnswered(h.State, record.Seq, wake.AnsweredByCEO, "Keep the plan"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -307,7 +307,7 @@ func TestACheckpointKeepsAnsweredWakesWithoutReopeningTheirQuestions(t *testing.
 	if questions := section(t, checkpoint, "== OPEN QUESTIONS =="); strings.Contains(questions, "Which plan?") {
 		t.Errorf("an answered wake reopens its question:\n%s", questions)
 	}
-	if owed := section(t, checkpoint, "== OWED =="); !strings.Contains(owed, "answered by cfo: Keep the plan") {
+	if owed := section(t, checkpoint, "== OWED =="); !strings.Contains(owed, "answered by ceo: Keep the plan") {
 		t.Errorf("the pending wake lost its answer:\n%s", owed)
 	}
 	records, err := wake.Pending(h.State)
@@ -375,7 +375,7 @@ func TestTheBriefAtStartupNamesNoCheckpoint(t *testing.T) {
 }
 
 // A compaction the pre-compact hook did not run before is said plainly: the
-// CFO is not handed an earlier compaction's checkpoint as this one's.
+// CEO is not handed an earlier compaction's checkpoint as this one's.
 func TestTheBriefAfterACompactionSaysWhenNoFreshCheckpointWasWritten(t *testing.T) {
 	for name, arrange := range map[string]func(t *testing.T, h home.Home){
 		"no checkpoint": func(*testing.T, home.Home) {},
@@ -400,7 +400,7 @@ func TestTheBriefAfterACompactionSaysWhenNoFreshCheckpointWasWritten(t *testing.
 
 			next := section(t, briefAfterCompact(t, h), "== READ THIS NEXT ==")
 
-			if !strings.Contains(next, "no checkpoint was written before this compaction") || !strings.Contains(next, "cfo install") {
+			if !strings.Contains(next, "no checkpoint was written before this compaction") || !strings.Contains(next, "ceo install") {
 				t.Fatalf("READ THIS NEXT does not say the pre-compact hook did not run:\n%s", next)
 			}
 		})

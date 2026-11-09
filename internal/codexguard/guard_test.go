@@ -12,13 +12,13 @@ import (
 )
 
 // An armed guard holds a codex for cmd and one for Git Bash, each running the
-// home's cfo.exe as cfo codex-guard with the home, the task and when Codex
+// home's ceo.exe as ceo codex-guard with the home, the task and when Codex
 // renews, and passing codex's own arguments after --. A path cmd would
 // expand or a shell would split is quoted for each.
 func TestArmWritesACodexForCmdAndOneForGitBash(t *testing.T) {
 	// Arrange
 	stateDir := filepath.Join(t.TempDir(), "100% state")
-	program := `C:\Users\o'neil\CodeGoblins\bin\cfo.exe`
+	program := `C:\Users\o'neil\CodeGoblins\bin\ceo.exe`
 	until := time.Date(2026, 10, 22, 12, 0, 13, 0, time.UTC)
 
 	// Act
@@ -30,8 +30,8 @@ func TestArmWritesACodexForCmdAndOneForGitBash(t *testing.T) {
 	}
 	escapedState := strings.ReplaceAll(stateDir, "%", "%%")
 	for name, want := range map[string]string{
-		"codex.cmd": `@"C:\Users\o'neil\CodeGoblins\bin\cfo.exe" "codex-guard" "--state" "` + escapedState + `" "--task" "g1" "--until" "2026-10-22T12:00:13Z" -- %*` + "\r\n",
-		"codex":     "#!/bin/sh\nexec 'C:/Users/o'\\''neil/CodeGoblins/bin/cfo.exe' 'codex-guard' '--state' '" + stateDir + "' '--task' 'g1' '--until' '2026-10-22T12:00:13Z' -- \"$@\"\n",
+		"codex.cmd": `@"C:\Users\o'neil\CodeGoblins\bin\ceo.exe" "codex-guard" "--state" "` + escapedState + `" "--task" "g1" "--until" "2026-10-22T12:00:13Z" -- %*` + "\r\n",
+		"codex":     "#!/bin/sh\nexec 'C:/Users/o'\\''neil/CodeGoblins/bin/ceo.exe' 'codex-guard' '--state' '" + stateDir + "' '--task' 'g1' '--until' '2026-10-22T12:00:13Z' -- \"$@\"\n",
 	} {
 		got, err := os.ReadFile(filepath.Join(Dir(stateDir, "g1"), name))
 		if err != nil || string(got) != want {
@@ -47,15 +47,15 @@ func TestArmLeavesAGuardArmedSoAsItIs(t *testing.T) {
 	// Arrange
 	stateDir := t.TempDir()
 	until := time.Date(2026, 10, 22, 12, 0, 13, 0, time.UTC)
-	if err := Arm(stateDir, `C:\home\bin\cfo.exe`, "g1", until); err != nil {
+	if err := Arm(stateDir, `C:\home\bin\ceo.exe`, "g1", until); err != nil {
 		t.Fatal(err)
 	}
 	staged := fsx.Stages()
 
 	// Act
-	again := Arm(stateDir, `C:\home\bin\cfo.exe`, "g1", until)
+	again := Arm(stateDir, `C:\home\bin\ceo.exe`, "g1", until)
 	stagedAgain := fsx.Stages() - staged
-	later := Arm(stateDir, `C:\home\bin\cfo.exe`, "g1", until.Add(time.Hour))
+	later := Arm(stateDir, `C:\home\bin\ceo.exe`, "g1", until.Add(time.Hour))
 
 	// Assert
 	if again != nil || later != nil {
@@ -74,7 +74,7 @@ func TestArmLeavesAGuardArmedSoAsItIs(t *testing.T) {
 func TestArmAndDisarmRefuseAnIDThatIsNoTasks(t *testing.T) {
 	stateDir := t.TempDir()
 	for _, id := range []string{"", "..", `..\state`, "a/b"} {
-		if err := Arm(stateDir, `C:\home\bin\cfo.exe`, id, time.Now()); err == nil {
+		if err := Arm(stateDir, `C:\home\bin\ceo.exe`, id, time.Now()); err == nil {
 			t.Errorf("Arm(%q) armed a guard", id)
 		}
 		if err := Disarm(stateDir, id); err == nil {
@@ -90,7 +90,7 @@ func TestDisarmAndPruneTakeGuardsAway(t *testing.T) {
 	stateDir := t.TempDir()
 	until := time.Now().Add(time.Hour)
 	for _, id := range []string{"g1", "g2", "gone-1"} {
-		if err := Arm(stateDir, `C:\home\bin\cfo.exe`, id, until); err != nil {
+		if err := Arm(stateDir, `C:\home\bin\ceo.exe`, id, until); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -114,11 +114,11 @@ func TestDisarmAndPruneTakeGuardsAway(t *testing.T) {
 	}
 }
 
-// A refused codex says why in one line and wakes the CFO the first time the
+// A refused codex says why in one line and wakes the CEO the first time the
 // task meets its guard before Codex renews, naming the goblin and the
 // command; the second refusal wakes nobody. A guard met after Codex renewed,
 // which the supervisor has not yet disarmed, says so and wakes nobody.
-func TestRefuseWakesTheCFOOncePerTaskUntilCodexRenews(t *testing.T) {
+func TestRefuseWakesTheCEOOncePerTaskUntilCodexRenews(t *testing.T) {
 	// Arrange
 	stateDir := t.TempDir()
 	now := time.Date(2026, 10, 17, 3, 0, 0, 0, time.UTC)
@@ -145,7 +145,7 @@ func TestRefuseWakesTheCFOOncePerTaskUntilCodexRenews(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 1 || records[0].Kind != "allowance" || records[0].Key != "g1" || !strings.Contains(records[0].Detail, "goblin g1 started `codex exec -c model_provider=local \"probe the harness\"`") || !strings.Contains(records[0].Detail, "cfo auth grant g1 --codex-credits") {
+	if len(records) != 1 || records[0].Kind != "allowance" || records[0].Key != "g1" || !strings.Contains(records[0].Detail, "goblin g1 started `codex exec -c model_provider=local \"probe the harness\"`") || !strings.Contains(records[0].Detail, "ceo auth grant g1 --codex-credits") {
 		t.Errorf("wakes = %+v, want one naming goblin g1, its command and the grant", records)
 	}
 }

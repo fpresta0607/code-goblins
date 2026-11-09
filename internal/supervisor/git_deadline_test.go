@@ -17,7 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 )
 
-const CUSTODY_GIT_PHASE_VARIABLE = "CFO_TEST_CUSTODY_GIT_PHASE"
+const CUSTODY_GIT_PHASE_VARIABLE = "CEO_TEST_CUSTODY_GIT_PHASE"
 
 // TestMain runs this test binary as a git that never answers when it is
 // started under that name, the stand-in for a git slowed past its deadline,
@@ -51,8 +51,8 @@ func TestMain(m *testing.M) {
 	if stateDir := os.Getenv(lockHolderVariable); stateDir != "" {
 		os.Exit(holdWatcherLock(stateDir, os.Getenv(lockHolderModeVariable)))
 	}
-	// A run item's launcher starts this binary as cfo host, which hosts the
-	// item's terminal as cfo host does.
+	// A run item's launcher starts this binary as ceo host, which hosts the
+	// item's terminal as ceo host does.
 	if os.Getenv(runHostVariable) != "" && len(os.Args) > 1 && os.Args[1] == "host" {
 		if err := host.RunArgs(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -70,8 +70,8 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	// A goblin's shell and a gate agent's export these, and neither is the
-	// CFO's own session, so every test that stands this process in as the
-	// CFO's would be refused where a goblin or a gate runs the suite and
+	// CEO's own session, so every test that stands this process in as the
+	// CEO's would be refused where a goblin or a gate runs the suite and
 	// pass in CI. A test of that refusal sets the one it tests.
 	for _, name := range []string{harness.RoleVariable, gateAgentVariable} {
 		if err := os.Unsetenv(name); err != nil {

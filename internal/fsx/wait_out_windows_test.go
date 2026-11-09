@@ -14,7 +14,7 @@ import (
 // clock.
 func TestWaitOutTriesAgainOnceAReaderLetsGo(t *testing.T) {
 	// Arrange
-	path := filepath.Join(t.TempDir(), "cfo.exe")
+	path := filepath.Join(t.TempDir(), "ceo.exe")
 	if err := os.WriteFile(path, []byte("a build"), 0o700); err != nil {
 		t.Fatal(err)
 	}

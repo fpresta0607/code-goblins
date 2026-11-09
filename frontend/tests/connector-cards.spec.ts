@@ -6,7 +6,7 @@ import { expect, test, type Page, type Route } from "./site";
 // plus icon either has a plus or check". Each connector is a card with its
 // logo, its name, one line on what it does and one square button. The
 // supervisor is played here: its connection check and its grant are routes.
-const withheld = (name: string) => ({ id: "service:" + name, name, kind: "service", status: "withheld", source: "Repository", detail: "This task does not carry it. The CFO gives it with cfo auth grant connection-proof " + name + ".", checked_at: "2026-10-13T12:07:00Z", grant: "grant" });
+const withheld = (name: string) => ({ id: "service:" + name, name, kind: "service", status: "withheld", source: "Repository", detail: "This task does not carry it. The CEO gives it with ceo auth grant connection-proof " + name + ".", checked_at: "2026-10-13T12:07:00Z", grant: "grant" });
 const ENTRIES = [
   withheld("github"), withheld("context7"), withheld("openrouter"), withheld("google-report"),
   { id: "service:acme-internal", name: "acme-internal", kind: "service", status: "unauthorized", detail: "Sign-in required.", actions: ["login"], checked_at: "2026-10-13T12:07:00Z", grant: "revoke" },
@@ -24,7 +24,7 @@ async function open(page: Page, supervisor: Supervisor) {
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/connections/grant") {
       supervisor.grants.push(route.request().postDataJSON());
-      supervisor.tokens.push(route.request().headers()["x-cfo-token"]);
+      supervisor.tokens.push(route.request().headers()["x-ceo-token"]);
       await supervisor.held;
       if (supervisor.refuses) return route.fulfill({ status: 409, json: { error: supervisor.refuses } });
       return route.fulfill({ json: { instance: "connections-proof", checking: true, entries: supervisor.entries } });
@@ -105,7 +105,7 @@ test("+ gives the task the connector through the board's API and the card shows 
 
 test("a press the supervisor refuses puts the card back and says why beside it", async ({ page }) => {
   // Arrange
-  const supervisor: Supervisor = { grants: [], tokens: [], entries: ENTRIES, checking: false, refuses: "Change it in the Code Goblins window, or ask the CFO." };
+  const supervisor: Supervisor = { grants: [], tokens: [], entries: ENTRIES, checking: false, refuses: "Change it in the Code Goblins window, or ask the CEO." };
   const panel = await open(page, supervisor);
   const context7 = card(panel, "context7");
 
@@ -113,7 +113,7 @@ test("a press the supervisor refuses puts the card back and says why beside it",
   await context7.getByRole("button", { name: "Give context7" }).click();
 
   // Assert
-  await expect(panel.locator(".notice")).toHaveText("Change it in the Code Goblins window, or ask the CFO.");
+  await expect(panel.locator(".notice")).toHaveText("Change it in the Code Goblins window, or ask the CEO.");
   await expect(context7.getByRole("button", { name: "Give context7" })).toBeVisible();
 });
 

@@ -1,5 +1,5 @@
-# cfo evidence
+# ceo evidence
 
-`cfo evidence <task-id>`
+`ceo evidence <task-id>`
 
 Read the [applicable delivery procedure](../contract/delivery.md) before acting.
