@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/memory"
 )
@@ -68,14 +67,15 @@ func TestMemoryIndexReportsAFailedRebuildInsteadOfAnsweringFromTheOldOne(t *test
 	}
 }
 
-func TestRecallWithNoSupervisorSaysSoAtOnce(t *testing.T) {
+func TestRecallWithNoSupervisorSaysSoWithoutAskingThePipe(t *testing.T) {
 	_, h := testStore(t)
-	started := time.Now()
 
 	_, err := Recall(h.State, memory.RecallQuery{Question: "harbor", Limit: 5})
 
-	if err != ErrNotRunning || time.Since(started) > time.Second {
-		t.Fatalf("recall with no supervisor gave %v after %s", err, time.Since(started))
+	// Only the lock check returns ErrNotRunning; asking the pipe fails with
+	// its own error after waiting to open it.
+	if err != ErrNotRunning {
+		t.Fatalf("recall with no supervisor gave %v", err)
 	}
 }
 
