@@ -249,31 +249,43 @@ func TestCutoverRefusesEveryFormWhileASupervisorServesTheHome(t *testing.T) {
 }
 
 func TestCutoverRefusesEveryFormWhileAProgramRunsFromTheHomesBin(t *testing.T) {
-	for _, form := range []string{"--dry-run", "--plan", "--undo"} {
-		t.Run(form, func(t *testing.T) {
-			// Arrange
-			machine, root := cutoverHome(t)
-			args := []string{form}
-			switch form {
-			case "--plan":
-				args = append(args, dryRunDigest(t, machine))
-			case "--undo":
-				args = append(args, appliedCutover(t, machine))
-			}
-			before := homeFiles(t, root)
-			machine.Programs = runningPrograms{{PID: 1234, Image: filepath.Join(root, "bin", "goblins-window.exe")}}
+	programs := []struct {
+		name      string
+		pid       int
+		file      string
+		want      string
+		forbidden string
+	}{
+		{"the window", 1234, "goblins-window.exe", " (pid 1234) runs from this home; close it first", "is this cutover"},
+		{"this cutover", os.Getpid(), "ceo.exe", fmt.Sprintf(" (pid %d) is this cutover", os.Getpid()), "close it first"},
+	}
+	for _, program := range programs {
+		for _, form := range []string{"--dry-run", "--plan", "--undo"} {
+			t.Run(program.name+" "+form, func(t *testing.T) {
+				// Arrange
+				machine, root := cutoverHome(t)
+				args := []string{form}
+				switch form {
+				case "--plan":
+					args = append(args, dryRunDigest(t, machine))
+				case "--undo":
+					args = append(args, appliedCutover(t, machine))
+				}
+				before := homeFiles(t, root)
+				machine.Programs = runningPrograms{{PID: program.pid, Image: filepath.Join(root, "bin", program.file)}}
 
-			// Act
-			code, stdout, stderr := runCutoverOn(machine, args...)
+				// Act
+				code, stdout, stderr := runCutoverOn(machine, args...)
 
-			// Assert
-			if code != 1 || stdout != "" || !strings.Contains(stderr, filepath.Join("bin", "goblins-window.exe")+" (pid 1234) runs from this home; close it first") {
-				t.Fatalf("exit %d, %q, %q; want the refusal naming the window and exit 1", code, stdout, stderr)
-			}
-			if after := homeFiles(t, root); !maps.Equal(before, after) {
-				t.Fatalf("the refused cutover changed the home:\nbefore %v\nafter  %v", before, after)
-			}
-		})
+				// Assert
+				if code != 1 || stdout != "" || !strings.Contains(stderr, filepath.Join("bin", program.file)+program.want) || strings.Contains(stderr, program.forbidden) {
+					t.Fatalf("exit %d, %q, %q; want the refusal naming %s and exit 1", code, stdout, stderr, program.name)
+				}
+				if after := homeFiles(t, root); !maps.Equal(before, after) {
+					t.Fatalf("the refused cutover changed the home:\nbefore %v\nafter  %v", before, after)
+				}
+			})
+		}
 	}
 }
 
