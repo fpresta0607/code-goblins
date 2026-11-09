@@ -12,6 +12,7 @@ type actionsSpendEntry struct {
 	reading actionsbilling.Reading
 	started time.Time
 	done    chan struct{}
+	retried time.Time
 }
 
 func (s *Service) readActionsSpend(ctx context.Context, now time.Time) {
@@ -64,14 +65,14 @@ func (s *Service) readActionsSpendMonth(ctx, lifetime context.Context, now time.
 		s.mu.Unlock()
 		select {
 		case <-done:
-			return s.actionsSpendUsage(now, month)
+			return s.actionsSpendUsage(now, month, s.billingRuns())
 		case <-ctx.Done():
 			return actionsbilling.Reading{Status: "unavailable", Month: month, Detail: "The GitHub Actions usage request was interrupted."}
 		}
 	}
 	if entry != nil && now.Sub(entry.started) < time.Hour {
 		s.mu.Unlock()
-		return s.actionsSpendUsage(now, month)
+		return s.actionsSpendUsage(now, month, s.billingRuns())
 	}
 	if entry == nil {
 		entry = &actionsSpendEntry{}
@@ -86,6 +87,7 @@ func (s *Service) readActionsSpendMonth(ctx, lifetime context.Context, now time.
 	before := entry.reading
 	if reading.Status != "available" && before.Total != nil {
 		before.Status, before.Detail, before.CheckedAt = "stale", reading.Detail, reading.CheckedAt
+		before.Problem = reading.Problem
 		reading = before
 	}
 	entry.reading = reading
@@ -93,10 +95,21 @@ func (s *Service) readActionsSpendMonth(ctx, lifetime context.Context, now time.
 	entry.done = nil
 	s.mu.Unlock()
 	s.notify()
-	return s.actionsSpendUsage(now, month)
+	return s.actionsSpendUsage(now, month, s.billingRuns())
 }
 
-func (s *Service) actionsSpendUsage(now time.Time, month string) actionsbilling.Reading {
+// billingRuns are the stored runs a reading looks through for its consent.
+func (s *Service) billingRuns() []Run {
+	if s.Store == nil {
+		return nil
+	}
+	return s.Store.Snapshot().Runs
+}
+
+// actionsSpendUsage is month's cached reading with the billing consent that
+// explains its problem: one still pending, or one that ended since the last
+// reading GitHub answered, for the account and month it asks access for.
+func (s *Service) actionsSpendUsage(now time.Time, month string, runs []Run) actionsbilling.Reading {
 	s.mu.Lock()
 	entry := s.actionsSpendReadings[month]
 	var reading actionsbilling.Reading
@@ -111,6 +124,19 @@ func (s *Service) actionsSpendUsage(now time.Time, month string) actionsbilling.
 	// carries no problem line.
 	if reading.Status == "available" && now.Sub(reading.ReadAt) >= 2*time.Hour {
 		reading.Status = "stale"
+	}
+	if reading.Problem == nil {
+		return reading
+	}
+	for _, run := range runs {
+		if run.Billing == nil {
+			continue
+		}
+		isPending := run.State == "ready" || run.State == "running"
+		isExplaining := reading.Problem.Action == "allow" && run.Billing.Month == month && run.Billing.Account == reading.Problem.Account && run.FinishedAt != nil && run.FinishedAt.After(reading.ReadAt)
+		if isPending || isExplaining {
+			reading.Recovery = &actionsbilling.Recovery{RunID: run.ID, State: run.State}
+		}
 	}
 	return reading
 }

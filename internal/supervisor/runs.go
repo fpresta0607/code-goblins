@@ -82,8 +82,9 @@ type Run struct {
 	RanAt      *time.Time `json:"ran_at,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 
-	ConnectionTask       string `json:"connection_task,omitempty"`
-	ConnectionGeneration string `json:"connection_generation,omitempty"`
+	ConnectionTask       string         `json:"connection_task,omitempty"`
+	ConnectionGeneration string         `json:"connection_generation,omitempty"`
+	Billing              *BillingRepair `json:"billing,omitempty"`
 	// Untold is how the item ended, in the words the CFO is told, while no
 	// CFO has been told yet: one that was closed when the item ended hears it
 	// once it runs again.
@@ -404,6 +405,9 @@ func (s *Store) withdrawRun(id, reason string) error {
 	case r.RemoteFix != "":
 		s.mu.Unlock()
 		return fmt.Errorf("run item %s is the command the Overlord ran from Remote access; it is not the CFO's to withdraw", r.ID)
+	case r.Billing != nil:
+		s.mu.Unlock()
+		return fmt.Errorf("run item %s is the GitHub billing consent the Overlord asked for; it is not the CFO's to withdraw", r.ID)
 	case r.Update != nil:
 		s.mu.Unlock()
 		return fmt.Errorf("run item %s is the Overlord's Update to Code Goblins %s; it is not the CFO's to withdraw", r.ID, r.Update.To)
@@ -834,6 +838,10 @@ func (s *Service) endRun(ctx context.Context, r Run, state string, code *int, re
 		exit = strconv.Itoa(*code)
 	}
 	err = appendRunAudit(s.Store.Home.State, r, exit, time.Now().UTC())
+	if r.Billing != nil {
+		s.finishBillingRepair(r, state)
+		return err
+	}
 	// A credential request's terminal tells the CFO the names it stored.
 	if r.CredentialRequest != "" {
 		s.credentialTerminalEnded(r, code)
@@ -980,6 +988,10 @@ func (h *HTTP) runOutput(w http.ResponseWriter, r *http.Request) {
 	for _, run := range h.Service.Store.Snapshot().Runs {
 		if run.ID != id {
 			continue
+		}
+		if run.Billing != nil && offMachine(r, h.Host) != "" {
+			apiError(w, http.StatusForbidden, "GitHub billing consent output stays on this PC.")
+			return
 		}
 		output := run.Output
 		if run.State == "running" {

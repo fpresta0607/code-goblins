@@ -352,7 +352,7 @@ type Service struct {
 	signedIn time.Time
 	// credentialSaves takes one credential save at a time, and
 	// credentialWork waits for the refresh and the CFO's notice each save
-	// starts after it answers.
+	// starts after it answers, and for the reading a billing consent rereads.
 	credentialSaves sync.Mutex
 	credentialWork  sync.WaitGroup
 	// pages are the pages a poller watches now, by pageKey; pageSwept is when
@@ -2225,7 +2225,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	out.Subscriptions = s.subscriptionUsage(cfo, out)
 	out.KeySpend = s.keySpendUsage(cfo, out)
 	if s.Options.ActionsSpend != nil && !s.Options.Example {
-		reading := s.actionsSpendUsage(out.At, out.At.UTC().Format("2006-01"))
+		reading := s.actionsSpendUsage(out.At, out.At.UTC().Format("2006-01"), d.Runs)
 		out.ActionsSpend = &reading
 	}
 	return out, nil
