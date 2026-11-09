@@ -184,6 +184,7 @@ Continuing retained terminal work requires its supported source-bound continuati
 ```powershell
 cfo pipeline run <id> --intent-file intent.md
 cfo pipeline respond <id> --action fix --findings finding-id --instructions "Concrete guidance"
+cfo pipeline respond <id> --action fix --findings finding-id --scope-decision <answered-notify-sequence>
 cfo pipeline respond <id> --action approve
 cfo pipeline respond <id> --action approve --accept ask-1,bug-2 --reason "the only failure was the sandbox's missing compiler"
 cfo pipeline respond <id> --branch fix/connections --action approve
@@ -302,6 +303,13 @@ It is the registered primary CEO's reason alone, so a goblin is refused before a
 The native engine keeps a reason only for an approve of the Test step, so the driver refuses one for any other gate and for `fix`, and it refuses a blank reason or one that is not a single line of plain text: the engine would store a blank as none and the run would read as a Test exception nobody explained (issue 1422).
 An empty `--reason`, as `--reason "$WHY"` gives with `WHY` unset, is a reason given and refused like any blank one, never read as no reason (issue 1585).
 A reason never approves anything, so open findings still need the exact `--accept` and a clean gate still needs its own approve.
+The registered primary CEO alone may answer a pending Review finding with `respond <id> --action fix --findings <one-id> --scope-decision <answered-notify-sequence>`.
+The reference is the task's own `notify-<task>-<sequence>` ID or its bare sequence, and it identifies the answered blocked notify the task asked in its current generation, whose exact answer is the accepted requirement correction; another task's notify is refused.
+The managed driver reads native typed `get_run` source identity and the latest persisted `axi rounds --step review --run <run> --json` round before writing the one private JSON scope file native consumes.
+It retains that request's bytes and hash with the exact native stdout, stderr and outcome in the task-private `review-scope-decisions.jsonl` journal, and reports the response only once native's own rounds evidence keeps that exact decision.
+An old native engine, wrong or unavailable acknowledgement, unreadable evidence, replay with any changed scope binding, or a non-primary caller refuses without an ordinary response fallback, automatic retry, changed repair budget or replacement run.
+It requires a native build carrying the typed accepted-Review-scope contract: `get_run` RunInfo naming the parked Review round, `--scope-decision-file`, and an `axi rounds --json` document whose round publishes `id`, `step_result_id`, `reviewed_head_sha` and `trusted_config_sha` and whose top level has the `scope_decisions` array; an earlier build cannot carry it: a round missing those fields is refused before the scope file is written or a response is sent, and any refusal or unkept `scope_decisions` acknowledgement is recorded with its exact native outcome in `review-scope-decisions.jsonl`, with no ordinary-response fallback, automatic retry or new run.
+A blank `--scope-decision`, as an unset variable gives, is a decision given and refused, never read as no decision.
 Unsupported or malformed evidence fails closed.
 The command returns exit 3 for unresolved work requiring a CEO decision, or on a spent review its own goblin's accept, which the refusal names, without advancing the gate.
 Other refusals return exit 1.
@@ -482,7 +490,7 @@ A report is written whole or not at all, and the board reads them: a live task's
 
 ### Taking turns
 
-Every `go vet` and `go test` command waits for a turn at every level: the shared capacity limits concurrent commands, every goblin's and every gate's alike, in the order they asked, with a low-priority run behind every other.
+Every `go vet` and `go test` command waits for a turn at every level: the shared capacity limits concurrent commands, every goblin's and every gate's alike, in the order below.
 Any other command stands in the same line behind `cfo gate turn`, described under [Any command in the line](#any-command-in-the-line).
 The janitor's prunes of the package caches stand in it too, each as its own `cfo gate turn --wait 30s`, started only while the line has one slot that no run holds or waits for, so a run that takes the line first defers the prune rather than queue it.
 Each command releases its turn when execution ends and joins the common line again before its next command.
@@ -492,6 +500,34 @@ The shared `capacity.json` setting accepts only `{"capacity":1}` or `{"capacity"
 Activating capacity two requires a separately reviewed quiet window with no legacy command executing or queued.
 An unreadable or invalid setting, or any nonempty `CFO_VERIFY_SLOTS` process setting, refuses admission.
 Only test binaries can use explicitly isolated admission stores.
+
+The line goes by what a run is and then by when it asked, so urgent work does not wait behind everything else.
+From the front:
+
+1. A run that has waited two hours, whatever it is, in the order those runs asked.
+2. A gate's Test step, which its wrapper's `--gate-run` names, since a whole delivery waits on it.
+3. A run of a task with `(priority: production-defect)` on its backlog row.
+4. A run of priority 0, of a row that names no priority or one the line does not know, or of no task, which is the place every run had when the line kept only the order they asked in.
+5. Runs of priority 1, then 2, then 3, then `ops-root`, the last of the backlog's rows.
+6. A low-priority run.
+
+Test steps order among themselves by the same task priorities, and a Test step of any priority goes ahead of every run that is not one.
+Runs of one place keep the order they asked in.
+`cfo gate turn`, `cfo gate test`, `cfo gate prepush` and `cfo verify` each read the priority on their task's row as they join the line, so a row changed later moves no run that already waits.
+A row they cannot read costs a run only its priority: it says so and stands as a run with no task.
+A gate's Test step finds its task through its run's recorded managed checkout and the fleet task that owns it, so its command stands by that task's priority in the managed checkout and in the run's base clone alike.
+That read only orders the line, so it checks no origin, HEAD or comparison, and a changed local origin costs a step nothing.
+A step whose run no fleet task owns, or whose record cannot be read, stands as a Test step with no task and says nothing of it.
+
+The order is only of runs that wait: a run that holds a turn, or is in the moment of taking one, keeps it until it ends, whatever joins the line behind it.
+
+No run starves.
+Once a run has waited two hours it moves to the front, where only runs that have waited longer stand ahead of it, and nothing that joins later passes it.
+Two hours is a gate's 90 minute turn budget and half an hour more.
+Waits reached an hour on a busy morning, so a limit that short would turn a busy line back into the order runs asked in, just when the order matters, and a limit much longer leaves a goblin idle for more of its session than a whole turn is worth.
+
+Every build orders the line by the names of its places and nothing else, so a run an older build started agrees with a newer one on who goes first.
+An older build's run takes its place by when it asked and never moves to the front.
 
 A command also waits while either physical or commit availability is under the shared floor.
 At capacity one the floor is 4 GiB.
@@ -512,10 +548,10 @@ At the head of the line it says `the line's lock is busy` as the lock turns busy
 It tries again within its admission's limit, an hour for `cfo gate test` and `cfo gate prepush`, past which it gives up with why, and for as long as it waits for `cfo gate turn` and `cfo verify`, which set none.
 On 2026-10-14 a run that had waited an hour and fourteen minutes reached the head of the line and ended with no turn on one busy change of the lock.
 
-A gate shows a step's output only once the step has ended, so `cfo gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they take their turns, a low-priority run marked and behind every other, and the memory when the machine is short of it.
+A gate shows a step's output only once the step has ended, so `cfo gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they take their turns, a low-priority run marked, each after the first with why it stands behind the one before it, as `behind run 1: a gate's Test step goes ahead of a goblin's own turn` or `behind run 2: it asked first`, and the memory when the machine is short of it.
 At capacity two it also shows what each run is expected to use and what each holder uses now.
 When memory and commit, less the about 1 GB a new goblin's session takes, are short of the floor for the line's next run, its last line says the supervisor starts and resumes no goblin by itself, keeping the test slots open, as the scheduler's own line says ([The fleet never idles](contract/dispatch.md#the-fleet-never-idles)).
-`cfo gate turns --json` gives the same as one JSON object, for the board to read, whose keys stay as they are and are always there, an empty line being empty lists: `capacity`, `is_weighed`, `holding` and `waiting`, each run with `who`, `pid`, `since`, `budget_seconds`, `now`, `estimate_bytes`, `used_bytes` and `is_low_priority`, `memory` with `available_bytes`, `commit_available_bytes`, `floor_bytes` and `is_short`, and `hold`, which says why no goblin starts or resumes by itself and is empty when one may.
+`cfo gate turns --json` gives the same, less why a run stands behind another, as one JSON object, for the board to read, whose keys stay as they are and are always there, an empty line being empty lists: `capacity`, `is_weighed`, `holding` and `waiting`, each run with `who`, `pid`, `since`, `budget_seconds`, `now`, `estimate_bytes`, `used_bytes` and `is_low_priority`, `memory` with `available_bytes`, `commit_available_bytes`, `floor_bytes` and `is_short`, and `hold`, which says why no goblin starts or resumes by itself and is empty when one may.
 Under a run that holds a turn, `cfo gate turns` prints what the run says it is doing, which the run renews every five seconds while its tests run: how many packages are done, which tests are running and for how long, and the last line of its output.
 A new gate run names the task registered for its source worktree, including the owner of an extra worktree, in its turn and report.
 Its turn names the task's goblin with it, as `Zora (cg-example)`, when the task's record names one, and its report keeps the id.
@@ -561,7 +597,7 @@ A timeout before the command launches records `not_started`, with no invented co
 Cleanup still uses the existing measured job owner and spares machine services, with five seconds for the job cleanup proof, five seconds for the command wait, bounded custody release, and a final retry bounded to ten seconds.
 Those cleanup and receipt operations can extend elapsed time past the execution deadline, and native Windows calls must return before their cancellation can be observed; the limit is not a guarantee that the wrapper exits at that exact instant.
 A cleanup that cannot be confirmed keeps its custody and reports uncertainty; later confirmed cleanup never makes the timed-out run pass.
-`--low-priority` has the run wait at the lowest priority: it takes its turn only while no ordinary run waits, and an ordinary run that joins the line after it still goes first, unless the low-priority run is already taking its turn, as the desktop's CI jobs wait, and `cfo gate turns` marks it.
+`--low-priority` has the run wait at the lowest priority: it takes its turn only while no ordinary run waits, and an ordinary run that joins the line after it still goes first, unless the low-priority run is already taking its turn or has waited the line's two hours, as the desktop's CI jobs wait, and `cfo gate turns` marks it.
 `--memory <size>`, as `--memory 7GiB` or `--memory 512MiB`, is the most memory the run is expected to use, which a line of two slots weighs before it starts the run beside another, as [Taking turns](#taking-turns) says.
 Without it a run is expected to use 2.5 GiB.
 A caller such as a gate knows its repository, branch and run, which the command and the folder do not say, so it should give them: `--as "PrecisionDocs feat/x, run 01M4FG7F"`.
@@ -854,7 +890,7 @@ No environment is created, synchronized or repaired by the binding.
 An unavailable, invalid or mismatched required binding refuses execution with exit 126 and an actionable explanation; the native wrapper parks that as an unexecuted command, never a passing baseline.
 Repair and verify the existing environment or its project setting, then request the same Test command again through `cfo pipeline respond <task> --action fix --findings test-command-no-turn`.
 `cfo pipeline respond` refuses approval of a recorded required-environment refusal, even with `--accept` or `--reason` and after the project setting changes; a successful Test retry is required.
-Projects with no `test_environment` keep their existing runner environment: the wrapper reads only their project from the native run and checks no checkout provenance, so a changed local origin never stops their Test.
+Projects with no `test_environment` keep their existing runner environment: the wrapper reads only their project and recorded checkout from the native run and checks no checkout provenance, so a changed local origin never stops their Test or costs it its place in line.
 The machine must have the `test_command_wrapper` configuration above pointing at the reviewed CEO build, including both native identity arguments; the managed preflight refuses a required binding when either is absent or uses another placeholder.
 The native build must support the `{test_comparison_sha}` contract delivered by [native pull request 46](https://github.com/fpresta0607/no-mistakes/pull/46).
 The CEO activates that native build and the reviewed wrapper setting together through its normal idle configuration window.
@@ -867,7 +903,7 @@ What the test command leaves running is ended ten seconds after it exits, and af
 
 A machine with the desktop CI runner installed (`cg-ci-runner`, a Windows service the Supreme Overlord installs from a signed release) runs one GitHub Actions job at a time for one repository, in a Hyper-V VM put back to a clean checkpoint before every job.
 The service holds the repository's GitHub App key and drives the VM, and it runs a job only when the fleet asks, on its named pipe, which only the fleet's Windows user, SYSTEM and Administrators may open.
-Every 30 seconds the watcher asks it whether a job of its labels waits, and starts one turn for it, at the lowest priority, so it never goes ahead of a run that waits, and expected to use 7 GiB, the VM's 6 GB at most with its Hyper-V worker and the job's own process, which the line weighs since the VM's memory is the worker's, outside the turn:
+Every 30 seconds the watcher asks it whether a job of its labels waits, and starts one turn for it, at the lowest priority, so it goes ahead of a run that waits only once it has waited the line's two hours, and expected to use 7 GiB, the VM's 6 GB at most with its Hyper-V worker and the job's own process, which the line weighs since the VM's memory is the worker's, outside the turn:
 
 ```
 cfo gate turn --low-priority --memory 7GiB --as "desktop CI: <job> of run <id>" --detach <state>\ci-runner\job-<run>-<time>.log -- <this cfo> ci-runner job

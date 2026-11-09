@@ -154,13 +154,22 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 		tell(exitNoTurn)
 		return exitNoTurn
 	}
-	executor, err := measuredExecutor("cfo gate turn", gateTurnWho(as, command, dir, runtime), stderr, runtime.availableMemory)
+	// A run whose task cannot be read stands in line all the same, under what
+	// is known of it.
+	task, err := gateTurnTask(ctx, dir, request.gateRun, runtime)
+	if err != nil {
+		task = ""
+	}
+	executor, err := measuredExecutor("cfo gate turn", gateTurnWho(as, command, dir, task, runtime), stderr, runtime.availableMemory)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: %v\n", err)
 		tell(exitNoTurn)
 		return exitNoTurn
 	}
 	executor.Admission.IsLowPriority = request.isLowPriority
+	// Only a gate's Test step names its run, with its wrapper's --gate-run.
+	executor.Admission.IsTestStep = request.gateRun != ""
+	executor.Admission.Priority = taskPriority("cfo gate turn", task, stderr, runtime)
 	executor.Admission.Estimate = request.memory
 	executor.ExecutionLimit = request.executionLimit
 	// The command writes to this run's own output, which a process's always
@@ -338,6 +347,28 @@ func gateTestEnvironment(ctx context.Context, dir, runID, comparison string, run
 	return gateTestBinding{environment: environment, source: source}, err
 }
 
+// gateTurnTask is the fleet task whose run this is. A gate's Test step names
+// its run, so its task is the one that owns the run's recorded managed
+// checkout: the step may run in the run's base clone, and neither that folder
+// nor the environment it inherits from the gate's daemon says it. This orders
+// the line and binds nothing, so it needs none of the provenance
+// gateTestEnvironment proves.
+func gateTurnTask(ctx context.Context, dir, runID string, runtime commandRuntime) (string, error) {
+	if runID == "" {
+		return gateTask(dir, runtime)
+	}
+	root, err := pipeline.DefaultRoot()
+	if err != nil {
+		return "", err
+	}
+	reader := pipeline.Reader{Root: root, Commands: gatedb.Runner{Next: execx.OSRunner{}}}
+	worktree, err := reader.RunWorktree(ctx, runID)
+	if err != nil {
+		return "", err
+	}
+	return gateTask(worktree, runtime)
+}
+
 // oneLine is err's text on one line, the errors it joins separated by commas.
 func oneLine(err error) string {
 	return strings.ReplaceAll(err.Error(), "\n", ", ")
@@ -354,7 +385,7 @@ type gateTurnRequest struct {
 	// executionLimit, when set, bounds the execution after admission.
 	executionLimit time.Duration
 	// isLowPriority has the run wait at the lowest priority, behind every
-	// other run that waits, whenever that one joined.
+	// other run that waits, whenever that one joined, until it is overdue.
 	isLowPriority bool
 	// memory, when set, is the most memory, in bytes, the run is expected
 	// to use, which the line weighs when it has two slots, and memoryText
@@ -592,16 +623,15 @@ func gateWait(command []string) string {
 // turns: the name its caller gave it, or else its folder, with its command,
 // and the fleet task whose run it is when it is one's. A caller such as a
 // gate knows its repository, branch and run, which the command and the
-// folder do not say. A run whose task cannot be read stands in line all the
-// same, under what is known of it.
-func gateTurnWho(as string, command []string, dir string, runtime commandRuntime) string {
+// folder do not say.
+func gateTurnWho(as string, command []string, dir, task string, runtime commandRuntime) string {
 	who := strings.Join(command, " ")
 	if as != "" {
 		who = as + ": " + who
 	} else {
 		who += " in " + dir
 	}
-	if task, err := gateTask(dir, runtime); err == nil && task != "" {
+	if task != "" {
 		who += ", task " + taskLabel(task, runtime)
 	}
 	return who

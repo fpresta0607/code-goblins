@@ -39,6 +39,27 @@ func (reader Reader) RunProject(ctx context.Context, runID string) (string, erro
 	return rows[0].Project, nil
 }
 
+// RunWorktree is the managed checkout the daemon recorded for a gate run, read
+// from that record alone. Only a required binding needs CommandSource's proof
+// of the checkout's origin and head, which say nothing of whose run it is.
+func (reader Reader) RunWorktree(ctx context.Context, runID string) (string, error) {
+	if !gateIdentity.MatchString(runID) {
+		return "", errors.New("pipeline: invalid configured-command run identity")
+	}
+	var rows []struct {
+		Worktree   string `json:"worktree"`
+		Repository string `json:"repository"`
+	}
+	query := `SELECT worktree_dir AS worktree,repo_id AS repository FROM runs WHERE id=` + sqlString(runID)
+	if err := reader.query(ctx, query, &rows); err != nil {
+		return "", err
+	}
+	if len(rows) != 1 || !gateIdentity.MatchString(rows[0].Repository) || !fsx.SamePath(rows[0].Worktree, filepath.Join(reader.Root, "worktrees", rows[0].Repository, runID)) {
+		return "", errors.New("pipeline: configured-command run worktree could not be read")
+	}
+	return rows[0].Worktree, nil
+}
+
 // CommandSource verifies the daemon's run identity for either its managed
 // checkout or its separate clone of the native-selected Test comparison.
 func (reader Reader) CommandSource(ctx context.Context, directory, runID, comparison string) (RunSource, error) {
