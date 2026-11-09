@@ -309,6 +309,15 @@ func (s *Store) taskActions(id string) []Action {
 	return actions[max(0, len(actions)-20):]
 }
 
+// nativeSession is the session the store last committed for a harness
+// conversation, and whether it holds one at all.
+func (s *Store) nativeSession(harness, session string) (Session, bool) {
+	s.readers.RLock()
+	defer s.readers.RUnlock()
+	node, ok := s.committed.Sessions[harness+"/"+session]
+	return node, ok
+}
+
 // taskSession is the session the store last committed for the task's goblin.
 func (s *Store) taskSession(id string) Session {
 	s.readers.RLock()

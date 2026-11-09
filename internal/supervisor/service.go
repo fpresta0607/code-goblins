@@ -210,6 +210,11 @@ type Service struct {
 	Started   time.Time
 	mu        sync.Mutex
 	lastError string
+	// sessionStreams holds each session's conversation stream as this
+	// supervisor has read it, so a board view renders what the fleet agrees
+	// on rather than reading the harness again for itself.
+	sessionStreamsMu sync.Mutex
+	sessionStreams   map[string]*heldStream
 	// boardErrors keeps an error the board would have shown the Overlord
 	// from waking the CFO more than once an hour (board_errors.go).
 	boardErrors          boardErrors
@@ -870,6 +875,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		s.mu.Lock()
 		s.reconciled = time.Now().UTC()
 		s.mu.Unlock()
+		reconcileErr = errors.Join(reconcileErr, s.refreshCFOConversation(ctx))
 		reconcileErr = errors.Join(reconcileErr, finishTakenResumes(s.Store.Home.State))
 		reconcileErr = errors.Join(reconcileErr, handOverReplacedResumes(s.Store.Home.State))
 		reconcileErr = errors.Join(reconcileErr, s.reconcileTasks(time.Now()))

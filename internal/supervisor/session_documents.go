@@ -33,13 +33,13 @@ func (h *HTTP) messageDocument(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusForbidden, UNAVAILABLE_DOCUMENT)
 		return
 	}
-	locate, err := h.messagesLocator(query)
+	locate, err := h.messagesLocator(r.Context(), query)
 	if err != nil {
 		apiError(w, http.StatusForbidden, UNAVAILABLE_DOCUMENT)
 		return
 	}
-	transcript, err := locate()
-	if err != nil || transcript == "" || !h.hasDocumentReference(r, transcript, target) {
+	located, err := locate()
+	if err != nil || located.Path == "" || !h.hasDocumentReference(r, located.Path, target) {
 		apiError(w, http.StatusForbidden, UNAVAILABLE_DOCUMENT)
 		return
 	}

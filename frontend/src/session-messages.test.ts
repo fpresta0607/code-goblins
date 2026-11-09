@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { changeMessages, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, olderMessages, pageMessages, parseMessages, parsePage, parseWaiting, replyParts, textParts, turnEnds, type SessionMessage } from "./session-messages.ts";
+import { changeMessages, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, olderMessages, pageMessages, parseMessages, parsePage, parseSession, parseWaiting, replyParts, textParts, turnEnds, viewStanding, type SessionMessage, type SessionReport } from "./session-messages.ts";
 import type { Task } from "./types.ts";
 
 // A message as the supervisor serves it (internal/fleettree/messages.go).
@@ -236,4 +236,71 @@ test("a disjoint newest page replaces held history so older pagination can fill 
   assert.deepEqual(next, newest);
   const recovered = olderMessages(next, { conversation: "a", messages: held(...Array.from({ length: 50 }, (_, index) => index + 50)), more: true, waiting: [] });
   assert.deepEqual(seqs(recovered.messages), Array.from({ length: 100 }, (_, index) => index + 50));
+});
+
+// What the fleet's stream says of a session, as /api/messages sends it in a
+// session event: the newest turn, whether it runs, ended or was never
+// reported, and where the head of the stream is.
+const reported = (fields: Record<string, unknown> = {}) => ({ turn: "m0", state: "running", newest: 1, head: 3, ...fields });
+
+test("a session that produced a newer turn than the view drew is behind, not working", () => {
+  // Arrange: he drew the prompt and its first reply; the stream holds a later
+  // message the view has not drawn.
+  const messages = held(0, 1);
+
+  // Act
+  const standing = viewStanding(parseSession(reported({ newest: 4 })) as SessionReport, messages);
+
+  // Assert: behind is its own state, and no indicator is drawn on a turn the
+  // view has not caught up with.
+  assert.deepEqual(standing, { isBehind: true, isWorking: false });
+});
+
+test("a drawn turn the stream says ended never draws a working indicator, whatever the snapshot says", () => {
+  // Arrange
+  const messages = held(0, 1);
+
+  // Act
+  const standing = viewStanding(parseSession(reported({ state: "ended", newest: 1 })) as SessionReport, messages);
+
+  // Assert
+  assert.deepEqual(standing, { isBehind: false, isWorking: false });
+});
+
+test("a turn the stream says runs is working once the view has drawn to its end", () => {
+  const standing = viewStanding(parseSession(reported({ newest: 1 })) as SessionReport, held(0, 1));
+  assert.deepEqual(standing, { isBehind: false, isWorking: true });
+});
+
+test("a turn no harness reported draws no indicator and says why", () => {
+  const report = parseSession(reported({ state: "unknown", why: "no hooks", newest: 1 }));
+  assert.deepEqual(viewStanding(report as SessionReport, held(0, 1)), { isBehind: false, isWorking: false });
+  assert.equal((report as SessionReport).why, "no hooks");
+});
+
+test("a session the board hears nothing of yet is neither behind nor working", () => {
+  assert.deepEqual(viewStanding(null, held(0, 1)), { isBehind: false, isWorking: false });
+});
+
+test("a session event carries why its record is stale or its stream cannot be kept, and says neither when it omits them", () => {
+  // Arrange
+  const cases = [
+    { what: "a stale record", value: reported({ stale: "The record names cfo-9." }), stale: "The record names cfo-9.", problem: "" },
+    { what: "a stream that cannot be kept", value: reported({ problem: "disk full" }), stale: "", problem: "disk full" },
+    { what: "a current record", value: reported(), stale: "", problem: "" },
+  ];
+  for (const { what, value, stale, problem } of cases) {
+    // Act
+    const report = parseSession(value);
+
+    // Assert
+    assert.deepEqual({ stale: report.stale, problem: report.problem }, { stale, problem }, what);
+  }
+  assert.throws(() => parseSession(reported({ stale: 9 })), /Invalid/, "a stale reason that is not words");
+});
+
+test("a session event without the fields the board draws is refused", () => {
+  for (const [what, value] of [["an unknown turn state", reported({ state: "maybe" })], ["a newest that is not a number", reported({ newest: "4" })]] as const) {
+    assert.throws(() => parseSession(value), /Invalid/, what);
+  }
 });
