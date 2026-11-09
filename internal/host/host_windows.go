@@ -345,12 +345,12 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 		return
 	}
 	if greeting.Deliver {
-		serveDelivery(connection, console)
+		serveDelivery(connection, console, output)
 		return
 	}
 	past, sizes, feed, detach := output.attach()
 	defer detach()
-	answer := hello{Version: Version, Unread: greeting.Unread, View: feed.id}
+	answer := hello{Version: Version, Unread: greeting.Unread, View: feed.id, His: true}
 	if greeting.Sizes {
 		answer.Sizes, answer.History = true, len(past)
 	}
@@ -390,6 +390,7 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 		// ends the output loop below.
 		defer close(reading)
 		defer detach()
+		isHis := false
 		for {
 			kind, payload, err := readFrame(connection)
 			if err != nil {
@@ -401,8 +402,11 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 				if json.Unmarshal(payload, &mark) != nil || feed.submit(mark) != nil {
 					return
 				}
+			case frameHis:
+				isHis = true
 			case frameInput:
 				_, _ = console.Write(payload)
+				output.typedFrom(feed, isHis)
 			case frameResize:
 				if cols, rows, ok := parseSize(payload); ok {
 					_ = output.resize(cols, rows, func() error { return console.Resize(cols, rows) })

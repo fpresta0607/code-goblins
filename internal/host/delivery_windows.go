@@ -62,26 +62,42 @@ func (d *Delivery) Write(p []byte) error {
 	return nil
 }
 
+// MarkHis says the input this delivery types is the Overlord's own, so a
+// screen his harness draws from it is his to answer.
+func (d *Delivery) MarkHis() error {
+	return d.client.MarkHis()
+}
+
 // Close ends the delivery and leaves the terminal running.
 func (d *Delivery) Close() error {
 	return d.client.Close()
 }
 
 // serveDelivery writes each input frame a delivery sends into the terminal
-// and acknowledges it, with no history or output.
-func serveDelivery(connection *os.File, console *conpty.Console) {
-	if writeHello(connection, hello{Version: Version, Deliver: true}) != nil {
+// and acknowledges it, with no history or output. What a connection that says
+// it is his types keeps his mark; anything else clears it.
+func serveDelivery(connection *os.File, console *conpty.Console, output *history) {
+	if writeHello(connection, hello{Version: Version, Deliver: true, His: true}) != nil {
 		return
 	}
+	isHis := false
 	for {
 		kind, payload, err := readFrame(connection)
-		if err != nil || kind != frameInput {
+		if err != nil {
+			return
+		}
+		if kind == frameHis {
+			isHis = true
+			continue
+		}
+		if kind != frameInput {
 			return
 		}
 		var refusal []byte
 		if _, err := console.Write(payload); err != nil {
 			refusal = []byte(err.Error())
 		}
+		output.typedFrom(nil, isHis)
 		if writeFrame(connection, frameAck, refusal) != nil {
 			return
 		}

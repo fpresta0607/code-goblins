@@ -30,6 +30,11 @@ func conversationPath(directory, id string) string {
 	return filepath.Join(directory, "conversations", id+".json")
 }
 
+// ConversationPath is where the conversation kept for task id lives, so a
+// reader that keys its own cache by the file it reads names the same file
+// ReadConversation and WriteConversation use.
+func ConversationPath(directory, id string) string { return conversationPath(directory, id) }
+
 // ReadConversation reads the conversation kept for task id; a task with
 // none kept returns an error that is os.ErrNotExist.
 func ReadConversation(directory, id string) (Conversation, error) {

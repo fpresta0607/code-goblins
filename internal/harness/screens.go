@@ -63,9 +63,15 @@ type Screens struct {
 	// holds nothing, as Codex's placeholder does. RuledComposer says the
 	// composer is instead the rows between the screen's last two full-width
 	// rules, as pi 0.85 draws its editor, and holds nothing while they are
-	// blank.
+	// blank. RuledBorder matches a rule a harness draws its own status
+	// inside, as pi draws the turn's status in its editor's top border while
+	// a turn runs ("── ⠸ Working ──") and the count of lines the editor
+	// scrolled past above it ("─── ↑ 3 more ───", pi-tui's
+	// Editor.renderTopBorder with embedWorkingStatus): such a row still
+	// bounds the composer it belongs to, and counts as a rule nowhere else.
 	Empty         *regexp.Regexp
 	RuledComposer bool
+	RuledBorder   *regexp.Regexp
 	// Footer bounds an unruled composer below its last prompt row.
 	Footer *regexp.Regexp
 	// Choice matches the focused row of a list of numbered choices the
@@ -77,10 +83,14 @@ type Screens struct {
 	// permission mode, its first group the mode, for a harness that cycles
 	// modes with Shift+Tab.
 	Modes *regexp.Regexp
-	// SendNow is the key that has the harness take what waits in its own
-	// queue at once, during a turn, rather than at its next tool call. Codex
-	// and pi have none, so each takes a line typed during a turn at its next
-	// tool call, as Codex 0.160 did live on 2026-10-06.
+	// SendNow is the key that interrupts the harness's own turn and has it
+	// take what waits in its queue at once, rather than at its next tool
+	// call: Claude Code 2.1.275's chat:sendNow chord, and the Escape that
+	// Codex's working row calls "esc to interrupt" and that pi binds to
+	// app.interrupt. pi's abort returns the lines its editor queued to the
+	// editor, so the board submits them as the next prompt (submitHandedBack
+	// in internal/supervisor). A harness with none would take a line typed
+	// during a turn only at its next tool call.
 	SendNow string
 }
 
@@ -186,6 +196,8 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Undrawn:           true,
 			Empty:             regexp.MustCompile(`^› (Ask Codex to do anything|Ask a follow-up question)\s*$`),
 			Footer:            regexp.MustCompile(`^\s*(\? for shortcuts\b|\d+% context left\b|\S+ \S+ · \S|(?i:gpt-\S+)(?: \S+)* (minimal|low|medium|high|xhigh)(\s*$| · \S))`),
+			// Its working row names it: "• Working (5s • esc to interrupt)".
+			SendNow: "\x1b",
 		}, true
 	case Pi:
 		return Screens{
@@ -217,8 +229,15 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// otherwise find there.
 			Pasted: []string{"[paste #"},
 			// The editor draws a full-width rule above and below its rows
-			// and nothing at their sides (pi-tui's Editor.render).
+			// and nothing at their sides (pi-tui's Editor.render). While a
+			// turn runs, the top one carries the turn's status or the count
+			// of lines scrolled past, as in "── ⠸ Working ──" and
+			// "─── ↑ 3 more ───".
 			RuledComposer: true,
+			RuledBorder:   regexp.MustCompile(`^\s*─{2,}\s+\S.*\S\s+─{2,}\s*$`),
+			// pi binds app.interrupt to Escape: it ends the run, keeps the
+			// session, and returns the lines the editor queued to the editor.
+			SendNow: "\x1b",
 		}, true
 	}
 	return Screens{}, false
@@ -382,7 +401,7 @@ func (s Screens) IsAsking(screen []string) bool {
 // showsComposerOrTurn reports whether rows show a turn, the composer's footer
 // or a ruled composer.
 func (s Screens) showsComposerOrTurn(rows []string) bool {
-	_, composer := ruledComposer(rows)
+	_, composer := s.ruledComposer(rows)
 	return composer || s.IsWorking(rows) || anyRow(rows, s.Ready)
 }
 
@@ -533,7 +552,7 @@ func (s Screens) draft(screen []string) (string, bool) {
 // footer-shaped draft row cannot replace the trailing UI footer block.
 func (s Screens) composer(screen []string) ([]string, bool) {
 	if s.RuledComposer {
-		return ruledComposer(screen)
+		return s.ruledComposer(screen)
 	}
 	if s.Footer == nil {
 		return nil, false
@@ -568,11 +587,11 @@ func (s Screens) TookEnterAsNewLine(atPress, screen []string) bool {
 	if !s.RuledComposer {
 		return false
 	}
-	before, isRead := ruledComposer(atPress)
+	before, isRead := s.ruledComposer(atPress)
 	if !isRead {
 		return false
 	}
-	after, isRead := ruledComposer(screen)
+	after, isRead := s.ruledComposer(screen)
 	if !isRead {
 		return false
 	}
@@ -580,12 +599,12 @@ func (s Screens) TookEnterAsNewLine(atPress, screen []string) bool {
 	return empty < len(after) && empty > emptyRowsAtEnd(before)
 }
 
-// ruledComposer returns the rows between screen's last two full-width rules,
+// ruledComposer returns the rows between screen's last two composer rules,
 // and false when there are no such rows.
-func ruledComposer(screen []string) ([]string, bool) {
+func (s Screens) ruledComposer(screen []string) ([]string, bool) {
 	var rules []int
 	for i, row := range screen {
-		if isRule(row) {
+		if s.isComposerRule(row) {
 			rules = append(rules, i)
 		}
 	}
@@ -593,6 +612,13 @@ func ruledComposer(screen []string) ([]string, bool) {
 		return nil, false
 	}
 	return screen[rules[len(rules)-2]+1 : rules[len(rules)-1]], true
+}
+
+// isComposerRule reports whether row is one of the rules that bound the
+// harness's composer: a full-width rule, or the rule a harness draws its own
+// status inside, as pi draws the turn's status in its editor's top border.
+func (s Screens) isComposerRule(row string) bool {
+	return isRule(row) || s.RuledBorder != nil && s.RuledBorder.MatchString(row)
 }
 
 // emptyRowsAtEnd counts the empty rows rows ends with.

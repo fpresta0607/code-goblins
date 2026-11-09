@@ -390,7 +390,7 @@ func TestRecoverKeepLocalRepairsAncestralRebaseGateShapeWithoutReset(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.RunID != recoveryRun || result.Head != recoveryPreserved || !strings.Contains(string(result.NativeOutput), "custody returned") {
+	if result.RunID != recoveryRun || result.Head != recoveryPreserved || result.GateHead != recoveryPreserved || !strings.Contains(string(result.NativeOutput), "custody returned") {
 		t.Fatalf("result: %+v", result)
 	}
 
@@ -830,8 +830,8 @@ func TestRecoverKeepLocalAlignsV172UserOwnedGateBeforeSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Head != advanced {
-		t.Fatalf("head=%s, want %s", result.Head, advanced)
+	if result.Head != advanced || result.GateHead != advanced {
+		t.Fatalf("heads=%s/%s, want %s for both", result.Head, result.GateHead, advanced)
 	}
 	var fetched, gateAligned, databaseAligned bool
 	for _, request := range runner.requests {

@@ -103,6 +103,21 @@
       "why": "a test runs the acceptance script's self-tests"
     },
     {
+      "paths": ["tests/acceptance/no_visible_windows.ps1"],
+      "packages": ["."],
+      "why": "a test runs the acceptance script's self-tests"
+    },
+    {
+      "paths": ["tests/acceptance/dictation.ps1"],
+      "packages": ["."],
+      "why": "a test runs the acceptance script's self-tests"
+    },
+    {
+      "paths": ["tests/acceptance/install_left_out.ps1"],
+      "packages": ["."],
+      "why": "a test runs the acceptance script's self-tests"
+    },
+    {
       "paths": ["**/*.go"],
       "packages": ["internal/fsx", "internal/execx"],
       "why": "the read and process-start guards scan every Go file"

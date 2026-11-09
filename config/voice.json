@@ -11,8 +11,8 @@
     "name": "parakeet-tdt-0.6b-v2",
     "version": "int8-2025-08-16",
     "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2",
-    "sha256": "157c157bc51155e03e37d2466522a3a737dd9c72bb25f36eb18912964161e1ad",
-    "size": 482468385,
+    "sha256": "6fc4426b54aa549a0019b8a75b8dea59164e71790a37ac56a045ad57f915f714",
+    "size": 482440461,
     "files": ["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"]
   },
   "program": "sherpa-onnx-c-api.dll",

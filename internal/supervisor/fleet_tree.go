@@ -129,6 +129,26 @@ func (s *Service) helperStanding(meta state.TaskMeta) fleettree.HelperStanding {
 	return standing
 }
 
+// namedSession is the session node the board draws for the task's goblin of
+// its current generation: the one its ledger recorded, else the conversation
+// the board's own read of the running harness proved and kept for that
+// generation (keepConversation), drawn as the ledger draws a goblin's
+// session. A harness whose start the ledger never took, as pi's is on a home
+// whose native hook it never ran, is still the session Modern Chat, the
+// family tree and the goblin's panel all find, and a relaunch finds it again.
+// conversation reads the kept record for a task, which a caller serving the
+// board caches as it caches every other file a snapshot reads.
+func namedSession(d Database, conversation func(string) (state.Conversation, error), meta state.TaskMeta) (Session, bool) {
+	if node, ok := d.Sessions[d.TaskSessions[meta.ID]]; ok && node.Generation == meta.SpawnGen && node.Harness == meta.Harness {
+		return node, true
+	}
+	kept, err := conversation(meta.ID)
+	if err != nil || kept.Session == "" || kept.Generation != meta.SpawnGen || kept.Harness != meta.Harness {
+		return Session{}, false
+	}
+	return Session{ID: meta.Harness + "/" + kept.Session, NativeID: kept.Session, Harness: meta.Harness, Role: "goblin", TaskID: meta.ID, Generation: meta.SpawnGen, UpdatedAt: kept.ProvedAt}, true
+}
+
 // recordedSession is the conversation the board recorded for the task's
 // goblin of its current generation, read from the store in memory.
 func (s *Store) recordedSession(meta state.TaskMeta) string {
