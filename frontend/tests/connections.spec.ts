@@ -51,6 +51,8 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     await expect(panel.getByRole("list", { name: "Repository services" }).getByRole("listitem").filter({ hasText: "GitHub CLI" })).toContainText("Restart required.");
     await expect(panel).toContainText("Generation first. Verified process 42, started 2026-09-29T14:00:00Z, workspace C:/scratch/work.");
     await expect(github.locator("time")).toHaveAttribute("datetime", checkedAt);
+    await expect(panel.locator(".connector-card").filter({ hasText: "Live session unknown" })).toHaveCount(1);
+    await expect(panel.locator(".connector-card time")).toHaveCount(1);
     await expect(panel).not.toContainText(/Connected|Withheld/);
     await expect(panel.getByText("TEST_TOKEN", { exact: true })).toBeVisible();
     await expect(panel.getByText("Configured is not connected.", { exact: false })).toHaveCount(0);

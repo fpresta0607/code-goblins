@@ -7,7 +7,9 @@ import { Icon } from "./Icon";
 // 2026-10-13): the service's own logo on a tile, its name, one line on what it
 // does, and one square button, + when the task does not carry it and a check
 // when it does. A connector that is failing keeps a faint mark, its reason in
-// a muted line under its name, and the repairs it offers beside it.
+// a muted line under its name, and the repairs it offers beside it. A probe
+// that succeeded says what it observed and when, since a separate probe proves
+// nothing about the running session, and a restart the process needs says so.
 export function ConnectorCard({ entry, isCarried, isBusy, isChanging, onFix, onToggle }: {
   entry: ConnectionEntry; isCarried: boolean; isBusy: boolean; isChanging: boolean;
   onFix: (entry: ConnectionEntry, action: string) => void; onToggle: (entry: ConnectionEntry) => void;
@@ -23,8 +25,7 @@ export function ConnectorCard({ entry, isCarried, isBusy, isChanging, onFix, onT
       <span className="connector-name"><strong>{entry.name}</strong>{trouble && <span className="connector-trouble" aria-hidden="true"><Icon name="warning" /></span>}</span>
       {about && <span className="connector-about">{about}</span>}
       {trouble && <span className="connector-about">{trouble}</span>}
-      <span className="connector-about">{connectionEvidence(entry)}</span>
-      {entry.checkedAt && <span className="connector-about">Observed <time dateTime={entry.checkedAt}>{entry.checkedAt}</time></span>}
+      {entry.status === "probe_succeeded" && <span className="connector-about">{connectionEvidence(entry)}{entry.checkedAt && <> Observed <time dateTime={entry.checkedAt}>{entry.checkedAt}</time>.</>}</span>}
       {entry.restartReason && <span className="connector-about">{entry.isRestartRequired && "Restart required. "}{entry.restartReason}</span>}
     </span>
     {trouble && entry.actions.map((action) => <button key={action} type="button" className="icon-button connector-repair" disabled={isBusy} aria-label={connectionAction(action, entry.name)} onClick={() => onFix(entry, action)}><Icon name={action.startsWith("store:") ? "key" : action === "cli" ? "terminal" : "external"} /></button>)}
