@@ -207,8 +207,11 @@ func TestKillStillArchivesThroughItsOwnCleanup(t *testing.T) {
 // run ended, as after a resume or a failed pause, is refused while its newer
 // run is open, and a saved run the gate no longer holds leaves the branch to
 // name the run. A resumed goblin's saved run is read by its id as a paused
-// one's is. A refusal where cfo kill cannot find the run, the worktree gone or
-// no longer a Git worktree, names the abort that ends it (#2246).
+// one's is. A gate with no database names no run, as it names none to the
+// stop, while a lifecycle record that cannot be read refuses as a gate that
+// cannot be read does. A refusal where cfo kill cannot find the run, the
+// worktree gone or no longer a Git worktree, names the abort that ends it
+// (#2246).
 func TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt(t *testing.T) {
 	if _, err := exec.LookPath("sqlite3"); err != nil {
 		t.Fatal("sqlite3 is needed for the gate fixture")
@@ -224,9 +227,9 @@ func TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt(t *testing.T) {
 	}
 	for _, caller := range callers {
 		for _, tc := range []struct {
-			name, status, head, phase, saved                                 string
-			want                                                             []string
-			isForceArchive, isWorktreeGone, isNotAWorktree, isGateUnreadable bool
+			name, status, head, phase, saved                                                                    string
+			want                                                                                                []string
+			isForceArchive, isWorktreeGone, isNotAWorktree, isGateUnreadable, isGateMissing, isRecordUnreadable bool
 		}{
 			{name: "a completed run", status: "completed"},
 			{name: "a cancelled run", status: "cancelled"},
@@ -250,6 +253,8 @@ func TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt(t *testing.T) {
 			{name: "a force archive of a resumed task whose worktree is gone and whose saved run is open", status: "running", isForceArchive: true, isWorktreeGone: true, phase: "running", want: []string{"cfo kill g1", "no-mistakes axi abort --run run-1"}},
 			{name: "a resumed task whose empty folder is no longer a Git worktree and whose saved run is open", status: "running", isNotAWorktree: true, phase: "running", want: []string{"cfo kill g1", "no-mistakes axi abort --run run-1"}},
 			{name: "a paused task whose saved run the gate no longer holds and whose branch's run is open", status: "running", phase: "paused", saved: "run-9", want: []string{"gate run run-1", "cfo kill g1"}},
+			{name: "a paused task whose gate holds no database", phase: "paused", isGateMissing: true},
+			{name: "a force archive of a task whose lifecycle record cannot be read and whose worktree is gone", status: "running", isForceArchive: true, isWorktreeGone: true, isRecordUnreadable: true, want: []string{"cannot be read"}},
 		} {
 			t.Run(caller.name+" of "+tc.name, func(t *testing.T) {
 				// Arrange: the task's worktree on its own branch, whose
@@ -275,11 +280,13 @@ func TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt(t *testing.T) {
 				gateRoot := t.TempDir()
 				t.Setenv("NM_HOME", gateRoot)
 				gateDatabase := filepath.Join(gateRoot, "state.sqlite")
-				if tc.isGateUnreadable {
+				switch {
+				case tc.isGateMissing:
+				case tc.isGateUnreadable:
 					if err := os.WriteFile(gateDatabase, []byte("not a database"), 0o644); err != nil {
 						t.Fatal(err)
 					}
-				} else {
+				default:
 					schema := fmt.Sprintf(`CREATE TABLE repos(id TEXT,working_path TEXT);
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,last_pushed_sha TEXT,intent TEXT,worktree_dir TEXT,created_at INTEGER,submitted_head_sha TEXT,custody_returned_at INTEGER,review_approved_head_sha TEXT,pr_url TEXT,pr_state TEXT,ci_ready_at INTEGER,terminal_head_verified_at INTEGER);
 INSERT INTO repos VALUES('repo-1','%s');
@@ -298,6 +305,15 @@ INSERT INTO runs(id,repo_id,branch,status,head_sha,last_pushed_sha,intent,worktr
 						saved = "run-1"
 					}
 					if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: action + "-1", Action: action, Phase: tc.phase, GateRun: saved, NoticeSent: true}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if tc.isRecordUnreadable {
+					record := state.LifecyclePath(h.State, meta.ID)
+					if err := os.MkdirAll(filepath.Dir(record), 0o700); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(record, []byte("not a lifecycle record"), 0o600); err != nil {
 						t.Fatal(err)
 					}
 				}
