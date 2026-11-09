@@ -29,12 +29,15 @@ import (
 // a leaf package a, a package b whose test imports a and fails when it sees
 // the fleet's CFO_HOME, and a package c nothing imports whose test fails.
 // base adds files to the default branch, and the branch then changes what
-// change names. The run's reports go to a store of the test's own, and it
-// takes turns one at a time whatever CFO_VERIFY_SLOTS this machine has set.
+// change names. The run's reports go to a store of the test's own, it
+// takes turns one at a time whatever CFO_VERIFY_SLOTS this machine has set,
+// and it is no task's run, whatever task the terminal running the tests is,
+// unless its test names one.
 func testStepModule(t *testing.T, base, change map[string]string) string {
 	t.Helper()
 	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	t.Setenv("CFO_VERIFY_SLOTS", "")
+	t.Setenv("CFO_TASK_ID", "")
 	dir := t.TempDir()
 	write := func(files map[string]string) {
 		for name, content := range files {
