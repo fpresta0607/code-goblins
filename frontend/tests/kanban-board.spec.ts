@@ -49,7 +49,7 @@ for (const width of [390, 1707]) {
       await card.locator(".task-card").click();
       const header = await openTaskList(page);
       await expect(header.locator(".panel-status")).toHaveText(status);
-      await expect(header).toContainText(reason.replace("Waiting on the CEO: ", ""));
+      await expect(header).toContainText(reason.replace("Waiting on the CFO: ", ""));
       if (width === 390) await page.getByRole("button", { name: "Back to Board" }).click();
     }
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
