@@ -67,8 +67,9 @@ Existing history already owned by `memory-archive.md` may remain cold without in
 Broad approval, an uncreated destination or a proposed project change is insufficient.
 The original file remains the live retrieval owner in this catalog; migration to a different owner needs a new approved plan and discoverability proof.
 No command here moves or deletes history.
-The optional keyword discovery, caller-declared delivery fingerprints and local retention proposals are defined in [the memory command reference](../commands/memory.md).
+The optional keyword discovery, ranked recall, task context packs, caller-declared delivery fingerprints and local retention proposals are defined in [the memory command reference](../commands/memory.md).
 They preserve this approval boundary, never promote a search match to authority and never establish task custody from a proposal.
+The recall index is disposable and rebuilt from these files; it is never a second owner of any fact.
 
 Tier markers in source text are interpreted by the shared `stow` skill, the single owner of their spellings, clocks and curation procedure; the [load map](../load-map.md) owns its discovery across harnesses.
 Only trailing annotations carry tier metadata; literal examples in prose and code remain source content.
