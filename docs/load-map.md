@@ -161,7 +161,7 @@ Everything in the user rows above still loads for a goblin; spawn adds the follo
 It is this repository's own settings file for the no-mistakes gate, the local pipeline (review, test, document, lint, push, pull request, CI) every change passes before it merges.
 Three of its settings shape how a gate agent runs.
 It sets `disable_project_settings: true`, so the gate's reviewers and fixers never load this repository's `AGENTS.md` or `CLAUDE.md` as project instructions and keep their assigned gate phase separate from the project's operating contract.
-It sets how many automatic fix rounds each step may take.
+It sets how many automatic fix rounds review, rebase and CI may take, and names no test or lint count, so the machine config that the home's pipeline policy sets governs both.
 It carries the review instruction that asks whether a change is reached by its tests through the real caller, as `review.path_instructions` scoped to the Go, TypeScript and TSX files a change touches.
 That instruction is adapted, in this repository's own words, from the ECC library at [`affaan-m/ecc`](https://github.com/affaan-m/ecc) commit `d2ef2680594f9a17526a6e1a2e18b3d242c5d17b`: the test-analysis idea in its `agents/pr-test-analyzer.md`, and its `skills/ai-regression-testing/SKILL.md` and `rules/common/code-review.md` where they bear on the same question.
 Nothing from that repository is installed, copied or executed here.
@@ -169,7 +169,7 @@ The gate trusts this file from the default branch, so a pushed branch can neithe
 
 **What a gate agent reads.**
 
-1. `~/.no-mistakes/config.yaml`: the agent chain, each agent's arguments, automatic fix limits and timeouts. Under pipeline policy v6 a run the CEO drives carries its own chain as a launch selection, and this file's chain serves only the other runs.
+1. `~/.no-mistakes/config.yaml`: the agent chain, each agent's arguments, automatic fix limits and timeouts. From pipeline policy v6 a run the CEO drives carries its own chain as a launch selection, and this file's chain serves only the other runs.
 2. The repository's `.no-mistakes.yaml`, from the trusted default branch.
 3. For a CEO-managed task, `cfo pipeline run` first checks the task's frozen policy snapshot (`state/tasktmp/<id>/pipeline.json`, taken from `config/pipeline.json` at spawn) against the live configuration and refuses on drift.
 4. The agent then runs in the gate's own worktree with `NO_MISTAKES_GATE=1`, and with project instructions neutralized: Claude through `--setting-sources`, Codex through `project_doc_max_bytes=0`, and Pi through `--no-context-files`.

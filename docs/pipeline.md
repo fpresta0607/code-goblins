@@ -6,7 +6,7 @@ The binary still owns review, fixes, tests, lint, documentation, push, PR creati
 
 ## Task classes
 
-| Spawn class | Review repair cycles | Gate agents under v6 | Gate agents under v5 |
+| Spawn class | Review repair cycles | Gate agents under v6 and v7 | Gate agents under v5 |
 | --- | --- | --- | --- |
 | `ordinary` (default) | 2 | The task's own harness | Codex gpt-6.1-sol xhigh, then Claude |
 | `high-risk` | 3 | The task's own harness | Codex gpt-6.1-sol xhigh, then Claude |
@@ -14,7 +14,7 @@ The binary still owns review, fixes, tests, lint, documentation, push, PR creati
 
 Use `cfo spawn <id> ... --class high-risk` for a high-risk task.
 A task freezes the version its home's `config/pipeline.json` holds when it is spawned.
-The checked-in file is v5, and a home takes v6 by writing its own, as [A gate on its task's own harness](#a-gate-on-its-tasks-own-harness) describes.
+The checked-in file is v7, which an install writes only into a home that has none, so a home that holds an earlier version keeps it until its operator writes v7 there, as [A gate that only checks](#a-gate-that-only-checks) describes.
 No-mistakes tasks receive a policy snapshot at `state/tasktmp/<id>/pipeline.json`, with its class and SHA-256 recorded in task metadata.
 Editing the source policy does not change a running task's snapshot, and `cfo switch` retains it.
 Direct-PR and local-only tasks retain their existing delivery paths.
@@ -43,7 +43,7 @@ The driver does not rewrite repository configuration, and non-CEO no-mistakes us
 
 ## A gate on its task's own harness
 
-Policy v6 names no harness.
+Policy v6 names no harness, and neither does v7.
 Every gate role of a task, which is review, review fix, test, document and lint, runs on the harness that task's goblin runs on, with the model and effort its record holds.
 A Claude Code goblin's gate runs Claude Code, a Codex goblin's gate runs Codex, and a pi goblin's gate runs pi.
 A task whose record names no model or no effort takes the machine config's `agent_config.<harness>` value, which is the operator's default for that harness.
@@ -100,8 +100,19 @@ A pi gate needs one more, the fork's pull request 10, which teaches the launch a
 The install puts in the build of that fork `install.ps1` pins, commit `710f031`, the head of the fork's main, and each release builds and signs it beside its own programs.
 That main carries pull requests 4 to 10, the fix that gives a gate daemon a temporary directory of its own that outlives the goblin that started it (pull request 32), and the fix that hands the Test step's correction turn the whole response an agent refused, not a snippet of it (pull request 31), and the fix that makes a review with no answer text name what pi ended on and rerun once, not twice (pull request 34).
 It also carries pull requests 46, 49, 52, 56, 60, 61 and 72, and the change that holds a repair round's rereview to what the fix changed, keeping the previous round's verdict on each file the fix left alone that no open finding names (pull request 79).
-The checked-in `config/pipeline.json` stays at v5, so a fresh install gates as before until the policy moves to v6.
-no-mistakes proves Codex, Claude Code and pi selections only, so a goblin on any other harness has no gate under v6: `cfo spawn` refuses such a task in `no-mistakes` mode there, and `cfo pipeline run` refuses one switched to it.
+The checked-in `config/pipeline.json` is v7, which needs the same build.
+no-mistakes proves Codex, Claude Code and pi selections only, so a goblin on any other harness has no gate from v6: `cfo spawn` refuses such a task in `no-mistakes` mode there, and `cfo pipeline run` refuses one switched to it.
+
+### A gate that only checks
+
+Policy v7 is v6 whose gate repairs no Test, Lint or CI failure: `auto_fix` is 0 for test, lint and CI, review stays 0 and rebase stays 1.
+It follows the Supreme Overlord's decision of 2026-11-09, "Gate checks only, the goblin fixes its own failures".
+From 2026-11-07 13:12Z to 2026-11-09 13:20Z each automatic Test repair round took 80 to 131 minutes in the gate's database, and three rounds of one branch took 382 minutes together, while a gate repair agent rebuilds the context the goblin that owns the branch already holds.
+Under v7 a failed Test, Lint or CI step starts no repair agent and parks with its findings.
+A published CI failure goes back to its goblin through [handback](#driving-a-task), as it already does in a repository that sets `auto_fix.ci: 0`.
+A repository's committed `auto_fix` counts are ceilings under the frozen policy, so under v7 a repository whose `.no-mistakes.yaml` names a test, lint or CI count above 0 is refused at `cfo pipeline run`.
+This repository names no test or lint count, so its machine config's governs each, and it names CI at 0.
+A home moves to v7 as it moves to any version: its operator writes v7 into the home's `config/pipeline.json`, runs `cfo pipeline config-apply` in an idle window, and migrates each task frozen at an earlier version, as [Explicit machine configuration](#explicit-machine-configuration) describes.
 
 A cycle means one repair followed by another review, after the initial review.
 The driver counts completed rounds from the native database, so the budget is durable within a native run and restarting the CLI mid-run does not reset it.
@@ -141,6 +152,8 @@ v6 does not own `agent` or `agent_config`.
 The `agent` list is the operator's, and it serves only runs started outside `cfo pipeline run`, since every run the CEO drives carries its own agents.
 `agent_config` holds the operator's default model and effort for a task that names none.
 So a machine whose operator set `agent: [claude]` by hand, as on 2026-10-09, reaches v6 with `cfo pipeline config-apply` writing the two argument lists and nothing else, and one config serves every harness and every fallback.
+Owned machine fields under v7 are v6's, except that `auto_fix.test`, `auto_fix.lint` and `auto_fix.ci` are 0, with `auto_fix.review` still 0 and `auto_fix.rebase` still 1.
+So a machine at v6 reaches v7 with `config-apply` writing those three counts and nothing else, and `config-drift` on it names exactly `auto_fix.test`, `auto_fix.lint` and `auto_fix.ci`.
 Owned machine fields under v5 are `agent: [codex, claude]`, `agent_config.codex: {model: gpt-6.1-sol, effort: xhigh}`, the absence of `review_agents`, `agent_args_override.codex: [-c, 'service_tier="default"', --ignore-user-config, --disable, plugins, --disable, apps, -c, 'personality="pragmatic"', -c, 'model_auto_compact_token_limit_scope="total"', -c, features.multi_agent=true, -c, project_doc_max_bytes=65536]`, `agent_args_override.claude: [--strict-mcp-config]`, the absence of `agent_path_override.codex`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
 Under v4 `agent_args_override.codex` is `[-c, 'service_tier="default"']` and the policy does not own Claude's arguments.
 Under v2 and v3 `agent` is `[codex]` and both global `review_agents` roles carry the version's Codex profile.
@@ -155,8 +168,8 @@ The YAML parser dependency is needed to preserve unrelated configuration structu
 Run `config-apply` before migrating any live task snapshot, unless `config-drift` already reports no drift for the current policy.
 `migrate` requires the applied target-version global configuration and the task's pipeline lock.
 It writes only the task's own snapshot, metadata and status, never the shared config, so it runs while the daemon serves gate runs: a policy that only catches up with the machine never needs the daemon stopped.
-It accepts every forward transition, from any of v1 to v5 to any later version, and preserves the task class and `review_cycles` cap exactly.
-Between two v6 policies, which can differ only in the fallback the operator names, it moves the task to the current one the same way.
+It accepts every forward transition, from any of v1 to v6 to any later version, and preserves the task class and `review_cycles` cap exactly.
+Between two policies of one version from v6, which can differ only in the fallback the operator names, it moves the task to the current one the same way.
 The same frozen policy is a no-op; downgrades and invalid snapshots are refused.
 Before replacing either owned field, it writes a task-local transaction journal containing the validated old and new snapshots and the expected audit event.
 An interrupted command resumes that journal under the same pipeline, cleanup and metadata locks before `run`, `respond`, `recover` or `migrate` trusts the snapshot hash.
