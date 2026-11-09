@@ -4,9 +4,10 @@ name: install
 # runner is by construction: the one-line install, with this commit's own
 # build served as the release and installed exactly as `irm ... | iex` would,
 # the setup program's install of that same release, and `.\install.cmd -Dev`
-# from this checkout. Each ends with dictation ready. It also proves the
-# update a person who installed a published release makes to this commit's
-# build with goblins update.
+# from this checkout. Each ends with the installed home's dictation proven
+# ready, or, where the runner could not download the model, recorded as an
+# environment result. It also proves the update a person who installed a
+# published release makes to this commit's build with goblins update.
 on:
   # A draft runs nothing but the draft job, and marking it ready runs both
   # installs on its head, as the go workflow does.
@@ -316,39 +317,45 @@ jobs:
           # the shared ~\.agents\skills as well as their own folder, and the
           # skills CLI lays pi's copy in the shared one since its 1.7.1.
           # A skill comes from GitHub through the skills CLI, which npm fetches
-          # from its registry first, so one that is missing says which it is:
-          # a fetch of the CLI or of the skill the install could not make and
-          # named in its closing note, with what npm said, or a skill the
-          # install left out without saying so.
+          # from its registry first: one the install could not fetch is named
+          # in its closing note, an environment result, and one missing that
+          # the note does not name is the install's failure.
           $installLog = Get-Content -Raw -LiteralPath (Join-Path $env:TEMP "CodeGoblinsInstall.log")
+          # tests/acceptance/install_left_out.ps1 owns the rule and its fixtures:
+          # a tool the install's closing note names is an environment result on
+          # a runner that could not reach it, never a failure of the change.
+          . ".\tests\acceptance\install_left_out.ps1"
+          $environment = @()
           foreach ($skill in "gh-axi", "chrome-devtools-axi", "no-mistakes") {
+            $reason = ''
             foreach ($folders in @(".claude\skills"), @(".pi\agent\skills", ".agents\skills"), @(".codex\skills", ".agents\skills")) {
               $found = @($folders | ForEach-Object { Join-Path $env:USERPROFILE "$_\$skill" } | Where-Object { Test-Path -LiteralPath (Join-Path $_ "SKILL.md") })
               if ($found.Count -eq 0) {
-                $failed = [regex]::Match($installLog, "(?ms)^skill\s+skills CLI\s.*?^WARN\s+skills CLI\s+npm install exited with code (-?\d+)")
-                if ($failed.Success) {
-                  $npm = @([regex]::Matches($failed.Value, "(?m)^npm error code \S+") | ForEach-Object { $_.Value.Trim() } | Select-Object -Unique) -join "; "
-                  throw "the install could not fetch the skills CLI and named the $skill skill in its closing note: npm exited with code $($failed.Groups[1].Value) after its retry ($npm), so $($folders -join ', ') hold none; a failed fetch, not a broken install"
+                if (-not $reason) {
+                  $reason = Get-LeftOutReason -Text $installLog -Name "$skill skill"
+                  if (-not $reason) { throw "the one-line install left the $skill skill in none of $($folders -join ', '), and its log does not name it as one it could not fetch" }
+                  $environment += "the install could not fetch the $skill skill, so no harness has it: $reason"
                 }
-                $failed = [regex]::Match($installLog, "(?ms)^skill\s+$([regex]::Escape($skill))\s.*?^WARN\s+$([regex]::Escape($skill))\s+skill install exited with code (-?\d+)")
-                if ($failed.Success) {
-                  $npm = @([regex]::Matches($failed.Value, "(?m)^npm error code \S+") | ForEach-Object { $_.Value.Trim() } | Select-Object -Unique) -join "; "
-                  throw "the install could not fetch the $skill skill and named it in its closing note: npx exited with code $($failed.Groups[1].Value) after its retry ($npm), so $($folders -join ', ') hold none; a failed fetch, not a broken install"
-                }
-                throw "the one-line install left the $skill skill in none of $($folders -join ', '), and its log does not say the fetch failed"
+                continue
               }
               if ((Get-Item -LiteralPath $found[0]).LinkType) { throw "$($found[0]) is a link, want a copy" }
             }
           }
           $doctor = & (Join-Path $bin "goblins.exe") doctor
           $doctor | Write-Host
-          $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" })
-          if ($failing.Count -gt 0) { throw "goblins doctor reports something missing or broken: $($failing -join '; ')" }
-          # The install set dictation up, so the first press works at once:
-          # the engine and the model it pins are where dictation looks.
-          if (-not ($doctor -match "^dictation: ready: ")) { throw "goblins doctor does not report dictation ready: $($doctor -match '^dictation:')" }
-          $parts = @(Get-ChildItem -LiteralPath (Join-Path $cfoHome "caches\voice") -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "verified.json") })
-          if ($parts.Count -ne 2) { throw "caches\voice holds $($parts.Count) verified parts, want the engine and the model: $($parts.Name -join ', ')" }
+          # A MISSING or broken tool the install named is that same environment
+          # result; one it did not name is the install's failure.
+          $tools = Get-DoctorVerdict -Doctor $doctor -Log $installLog
+          Write-EnvironmentResult -Lines (@($environment) + @($tools.Environment)) -Summary $env:GITHUB_STEP_SUMMARY
+          if ($tools.Failures.Count -gt 0) { throw "goblins doctor reports something missing or broken: $($tools.Failures -join '; ')" }
+          # Whether dictation is ready is a premise the runner may not be
+          # able to make: the check runs `cfo dictation setup` once, asserts
+          # readiness when it works, and records a runner that could not
+          # download the model as an environment result, never a product
+          # failure. tests/acceptance/dictation.ps1 owns that rule and its
+          # fixtures, and its summary says which outcome happened.
+          & ".\tests\acceptance\dictation.ps1" -Goblins (Join-Path $bin "goblins.exe") -Cfo (Join-Path $bin "cfo.exe") -CfoHome $cfoHome -Summary $env:GITHUB_STEP_SUMMARY
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The install set up the crawler connector every goblin carries; a
           # published release from before it has none.
           if ($env:REAL_RELEASE -ne "true" -and -not ($doctor -match "^crawler: ready: ")) { throw "goblins doctor does not report the crawler ready: $($doctor -match '^crawler:')" }
@@ -357,15 +364,21 @@ jobs:
           # fleet's gate gives it; a published release's script may pin an
           # earlier one. Only stdout holds the version: stderr may
           # carry an update notice, which Windows PowerShell 5.1 would turn
-          # into a terminating error under this step's Stop preference.
-          $noMistakes = (Get-Command no-mistakes -ErrorAction Stop).Source
-          if ($noMistakes -ne (Join-Path $env:LOCALAPPDATA "no-mistakes\no-mistakes.exe")) { throw "no-mistakes resolves to $noMistakes, want it in $env:LOCALAPPDATA\no-mistakes" }
-          $pin = [regex]::Match((Get-Content -Raw install.ps1), '\$noMistakesVersion = "([^"]+)"').Groups[1].Value
-          $version = & { $ErrorActionPreference = "Continue"; & no-mistakes --version 2>$null } | Out-String
-          if ($env:REAL_RELEASE -ne "true" -and $version -notmatch "(?m)^no-mistakes version v$([regex]::Escape($pin))(\s|$)") { throw "no-mistakes --version prints '$($version.Trim())', want the pinned v$pin" }
-          $help = & { $ErrorActionPreference = "Continue"; & no-mistakes help axi run 2>$null } | Out-String
-          foreach ($flag in "--intent-file", "--launch-assertion") {
-            if ($env:REAL_RELEASE -ne "true" -and -not $help.Contains($flag)) { throw "no-mistakes axi run has no $flag, which the fleet's gate needs" }
+          # into a terminating error under this step's Stop preference. A copy
+          # this runner could not fetch is the environment result the note made
+          # it above, so it has no build to assert.
+          $noMistakes = (Get-Command no-mistakes -ErrorAction SilentlyContinue).Source
+          if (-not $noMistakes) {
+            if (-not (Get-LeftOutReason -Text $installLog -Name "no-mistakes")) { throw "the one-line install left no no-mistakes on PATH, and its log does not name it as one it could not install" }
+          } else {
+            if ($noMistakes -ne (Join-Path $env:LOCALAPPDATA "no-mistakes\no-mistakes.exe")) { throw "no-mistakes resolves to $noMistakes, want it in $env:LOCALAPPDATA\no-mistakes" }
+            $pin = [regex]::Match((Get-Content -Raw install.ps1), '\$noMistakesVersion = "([^"]+)"').Groups[1].Value
+            $version = & { $ErrorActionPreference = "Continue"; & no-mistakes --version 2>$null } | Out-String
+            if ($env:REAL_RELEASE -ne "true" -and $version -notmatch "(?m)^no-mistakes version v$([regex]::Escape($pin))(\s|$)") { throw "no-mistakes --version prints '$($version.Trim())', want the pinned v$pin" }
+            $help = & { $ErrorActionPreference = "Continue"; & no-mistakes help axi run 2>$null } | Out-String
+            foreach ($flag in "--intent-file", "--launch-assertion") {
+              if ($env:REAL_RELEASE -ne "true" -and -not $help.Contains($flag)) { throw "no-mistakes axi run has no $flag, which the fleet's gate needs" }
+            }
           }
           # The app the install opened, or its quick start where the release
           # ships no app, started the supervisor, so one runs within a minute,
@@ -402,9 +415,16 @@ jobs:
             if ($count -ne $hook.want) { throw "after a second install SessionStart holds $count hooks matching $($hook.match), want $($hook.want)" }
           }
           # The second install finds dictation's engine and model in place and
-          # downloads neither again.
-          $log = Get-Content -Raw (Join-Path $env:TEMP "CodeGoblinsInstall.log")
-          if ($log -notmatch "dictation: ready: .*, already in .*, so nothing was downloaded") { throw "the second install did not find dictation already set up" }
+          # downloads neither again. When the check step recorded that this
+          # runner could not download them, the second install cannot show
+          # that precedence, and it is the same environment result, not a
+          # failure of the change.
+          if ($env:INSTALL_DICTATION -eq "environment") {
+            Write-Host "the runner could not download dictation, so the second install's already-set-up premise is an environment result, not proven here"
+          } else {
+            $log = Get-Content -Raw (Join-Path $env:TEMP "CodeGoblinsInstall.log")
+            if ($log -notmatch "dictation: ready: .*, already in .*, so nothing was downloaded") { throw "the second install did not find dictation already set up" }
+          }
           $global:LASTEXITCODE = 0
       - name: Use it with one goblin
         shell: powershell
@@ -531,14 +551,30 @@ jobs:
           $commands = @((Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json).hooks.SessionStart.hooks | ForEach-Object { @($_.command) + @($_.args) -join " " })
           if ($commands -match "cfo-native-hook\.ps1") { throw "-Dev wrote the native hooks into the Claude Code user settings, where every session runs them" }
           if ($commands -match "cfo\.exe hook ") { throw "-Dev wrote the CFO's hooks into the Claude Code user settings, where every session runs them" }
+          # tests/acceptance/install_left_out.ps1 owns the rule and its fixtures:
+          # a tool the install's closing note names is an environment result on
+          # a runner that could not reach it, never a failure of the change.
+          . ".\tests\acceptance\install_left_out.ps1"
+          $installLog = Get-Content -Raw -LiteralPath (Join-Path $env:TEMP "CodeGoblinsInstall.log")
+          $environment = @()
           foreach ($skill in "gh-axi", "chrome-devtools-axi", "no-mistakes") {
-            if (-not (Test-Path -LiteralPath (Join-Path $env:USERPROFILE ".claude\skills\$skill\SKILL.md"))) { throw "-Dev did not install the $skill skill" }
+            if (Test-Path -LiteralPath (Join-Path $env:USERPROFILE ".claude\skills\$skill\SKILL.md")) { continue }
+            $reason = Get-LeftOutReason -Text $installLog -Name "$skill skill"
+            if (-not $reason) { throw "-Dev did not install the $skill skill, and its log does not name it as one it could not fetch" }
+            $environment += "the install could not fetch the $skill skill, so ~\.claude\skills holds none: $reason"
           }
           $doctor = & goblins doctor
           $doctor | Write-Host
-          $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" })
-          if ($failing.Count -gt 0) { throw "goblins doctor reports something missing or broken: $($failing -join '; ')" }
-          if (-not ($doctor -match "^dictation: ready: ")) { throw "goblins doctor does not report dictation ready: $($doctor -match '^dictation:')" }
+          # A MISSING or broken tool the install named is that same environment
+          # result; one it did not name is the install's failure.
+          $tools = Get-DoctorVerdict -Doctor $doctor -Log $installLog
+          Write-EnvironmentResult -Lines (@($environment) + @($tools.Environment)) -Summary $env:GITHUB_STEP_SUMMARY
+          if ($tools.Failures.Count -gt 0) { throw "goblins doctor reports something missing or broken: $($tools.Failures -join '; ')" }
+          # The home's dictation is the same premise as the one-line job's:
+          # the check runs `cfo dictation setup` once and records a runner
+          # that could not download the model as an environment result.
+          & ".\tests\acceptance\dictation.ps1" -Goblins (Join-Path $bin "goblins.exe") -Cfo (Join-Path $bin "cfo.exe") -CfoHome $cfoHome -Summary $env:GITHUB_STEP_SUMMARY
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $deadline = (Get-Date).AddMinutes(1)
           do { & goblins status | Out-Null } while ($LASTEXITCODE -ne 0 -and (Get-Date) -lt $deadline -and -not (Start-Sleep -Seconds 2))
           if ($LASTEXITCODE -ne 0) { throw "no supervisor runs a minute after -Dev opened Code Goblins" }
@@ -595,7 +631,8 @@ jobs:
   # build of it whose board exits as it starts: the update to that one rolls
   # back, the update to this commit installs it, and each keeps the home, the
   # running terminals, the person's settings, project, credential and work,
-  # and dictation ready.
+  # and dictation ready, or the update's own download recorded as the same
+  # environment result.
   update:
     name: update from ${{ matrix.from }}
     needs: [draft, reuse]
@@ -650,8 +687,32 @@ jobs:
           git -C $seed -c user.name=Person -c user.email=person@example.invalid commit -q -m "first"
           git -C $seed push -q $origin main
           git clone -q $origin (Join-Path $env:USERPROFILE "source\demo")
-          irm "https://github.com/fpresta0607/code-goblins/releases/download/$env:FROM/install.ps1" | iex
-          $global:LASTEXITCODE = 0
+          # GitHub answers a release download with a gateway timeout now and
+          # then, which that release's install script gives up on, so both the
+          # script and the install that fetches the build are tried a few
+          # times; nothing here masks a failed install, and the home every
+          # later step works from decides whether one landed.
+          $installer = Join-Path $env:RUNNER_TEMP "install-$env:FROM.ps1"
+          foreach ($attempt in 1..3) {
+            try {
+              Invoke-WebRequest -Uri "https://github.com/fpresta0607/code-goblins/releases/download/$env:FROM/install.ps1" -OutFile $installer -UseBasicParsing -ErrorAction Stop
+              break
+            } catch {
+              if ($attempt -eq 3) { throw "$env:FROM's install script could not be downloaded after $attempt tries: $($_.Exception.Message)" }
+              Write-Host "$env:FROM's install script did not download (attempt $attempt of 3): $($_.Exception.Message); trying again"
+              Start-Sleep -Seconds ($attempt * 10)
+            }
+          }
+          $installed = Join-Path $env:LOCALAPPDATA "CodeGoblins\bin\goblins.exe"
+          foreach ($attempt in 1..3) {
+            Get-Content -Raw -LiteralPath $installer | Invoke-Expression
+            # Through Invoke-Expression a failed install leaves LASTEXITCODE 1
+            # instead of throwing, so it is read here, never masked.
+            if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $installed)) { break }
+            if ($attempt -eq 3) { throw "installing $env:FROM left no $installed, ending at exit code $LASTEXITCODE after $attempt tries, so there is no home for the update to be made from; the install said why above and its log is $(Join-Path $env:TEMP 'CodeGoblinsInstall.log')" }
+            Write-Host "installing $env:FROM ended at exit code $LASTEXITCODE with no $installed (attempt $attempt of 3); trying again"
+            Start-Sleep -Seconds ($attempt * 15)
+          }
       - name: Put the CFO and a goblin to work
         run: ./tests/update/fleet_at_work.ps1 -Project (Join-Path $env:USERPROFILE "source\demo") -Facts $env:FACTS
       - name: Update to a build whose board does not start, which rolls back
