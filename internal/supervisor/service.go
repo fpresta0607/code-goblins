@@ -419,8 +419,10 @@ type Service struct {
 	// reads is what the snapshot remembers of the fleet's files, and
 	// historyReads what the Completed column's rebuild remembers of each
 	// finished task's, kept apart so neither crowds the other past keptLimit.
-	reads                keptReads
-	historyReads         keptReads
+	reads        keptReads
+	historyReads keptReads
+	// memory is the keyword index of the memory files that recall reads.
+	memory               memoryIndex
 	subscriptionReadings map[string]quota.WeeklyReading
 	// quotaReadAt is when the supervisor last began a quota-axi read.
 	quotaReadAt time.Time
@@ -606,6 +608,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepHistory(ctx, historyRefresh, historyWatch)
 	}()
 	defer func() { s.cancel(); <-historyDone }()
+	memoryDone := make(chan struct{})
+	go func() {
+		defer close(memoryDone)
+		s.keepMemoryIndex(ctx)
+	}()
+	defer func() { s.cancel(); <-memoryDone }()
 	usageDone := make(chan struct{})
 	go func() {
 		defer close(usageDone)

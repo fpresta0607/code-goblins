@@ -109,6 +109,9 @@ type Service struct {
 	// user's environment names.
 	HomeRoot string
 	StateDir string
+	// DataDir is the home's private data folder, whose memory each task's
+	// context pack is drawn from. Empty writes no pack.
+	DataDir string
 	// Board is the address of the home's board, which a Claude Code
 	// goblin's hooks that run at every tool call post to
 	// (install.GoblinHooks).
@@ -553,7 +556,11 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 			return result, err
 		}
 	}
-	launch.Instruction = spawnInstruction(req.BriefPath, result.Meta, provision.Install, provision.InstallRefused)
+	packInstruction, recordPack, err := s.writeContextPack(ctx, result.Meta, string(brief), false)
+	if err != nil {
+		return fail(result, err)
+	}
+	launch.Instruction = spawnInstruction(req.BriefPath, result.Meta, provision.Install, provision.InstallRefused) + packInstruction
 	launch.Instruction += cooldownInstruction(cooldown)
 	launch.Instruction += launch.SubagentInstruction
 	if selection != nil {
@@ -589,6 +596,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 
 	result.Output = successOutput(result.Meta) + "\ngoblin: " + goblin.String()
+	if err := recordPack(); err != nil {
+		result.Output += "\ncontext pack: " + err.Error()
+	}
 	if req.Delivery != nil {
 		result.Output += fmt.Sprintf("\ndelivery: mode=%s posture=%s surface=%s risk=%s reason=%s", req.Delivery.Mode, req.Delivery.Posture, req.Delivery.Surface, req.Delivery.Risk, req.Delivery.Reason)
 	}
