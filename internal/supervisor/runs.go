@@ -21,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/memory"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
@@ -273,14 +274,17 @@ type runPipeRequest struct {
 	Step *CredentialStep `json:"step,omitempty"`
 	// Train is a landing a merge train asks to be logged as merged.
 	Train *trainLanding `json:"train,omitempty"`
+	// Recall is a question of the memory index.
+	Recall *memory.RecallQuery `json:"recall,omitempty"`
 }
 
 // pipeReply is the supervisor's answer to one request over its pipe: why it
 // was refused, or, for a helper, the helper it is starting.
 type pipeReply struct {
-	Error   string        `json:"error,omitempty"`
-	Helper  *HelperStart  `json:"helper,omitempty"`
-	Browser *BrowserLease `json:"browser,omitempty"`
+	Error   string               `json:"error,omitempty"`
+	Helper  *HelperStart         `json:"helper,omitempty"`
+	Browser *BrowserLease        `json:"browser,omitempty"`
+	Recall  *memory.RecallResult `json:"recall,omitempty"`
 }
 
 // acceptRunRequest records a run item that came over the pipe from process
