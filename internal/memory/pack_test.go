@@ -186,7 +186,7 @@ func TestBuildPackLeadsWithALessonAcceptedForItsProjectWhateverTheBriefSaysAndWi
 	}
 }
 
-func TestBuildPackLeadsWithAllSixLessonsOfTwoDoneReportsInTheOrderOfTheirIDs(t *testing.T) {
+func TestBuildPackLeadsWithAllSixLessonsOfTwoDoneReportsInTheOrderOfTheirFactNames(t *testing.T) {
 	dataDir, stateDir := writeIndexFixture(t)
 	names := slices.Concat(
 		acceptLessons(t, dataDir, stateDir, "quay-tides", "harbor", "Kelp beds slow the ferry.", "Gulls steal unattended lunches.", "Tides peak at noon on Fridays."),
@@ -209,7 +209,7 @@ func TestBuildPackLeadsWithAllSixLessonsOfTwoDoneReportsInTheOrderOfTheirIDs(t *
 	}
 	for position, name := range names {
 		if !strings.HasPrefix(facts[position], "- 2026-11-09 "+name+" (") {
-			t.Fatalf("fact %d is %q, want lesson %s; the lessons accepted together lead in the order of their ids:\n%s", position+1, facts[position], name, pack.Text)
+			t.Fatalf("fact %d is %q, want lesson %s; the lessons accepted together lead in the order of their fact names:\n%s", position+1, facts[position], name, pack.Text)
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,6 +10,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 )
 
 var harborStatus = []string{
@@ -340,6 +344,110 @@ func TestAcceptLessonsAtOnceTakeTurnsSoTheCatalogLoadsWithEachFact(t *testing.T)
 			}
 			if accepted != test.wantFacts {
 				t.Fatalf("%d accepts succeeded, want %d: %v", accepted, test.wantFacts, errs)
+			}
+		})
+	}
+}
+
+func TestAcceptLessonWaitsForTheLessonsLockAnotherProcessHolds(t *testing.T) {
+	dataDir, _ := catalogFixture(t)
+	stateDir := t.TempDir()
+	ids := proposeHarborLessons(t, stateDir, "The harbor cache test needs its port free.")
+	before, err := os.ReadFile(filepath.Join(dataDir, "memory", "startup.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := GovernedFiles(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another live process, this test's parent, holds the lock as a decision
+	// another cfo makes at the same moment does.
+	record := filepath.Join(stateDir, lessonLockName)
+	if _, err := lock.AcquireNamedOwner(stateDir, lessonLockName, os.Getppid(), ""); err != nil {
+		t.Fatal(err)
+	}
+	var name string
+	var acceptErr error
+	finished := make(chan struct{})
+
+	go func() {
+		defer close(finished)
+		name, acceptErr = AcceptLesson(dataDir, stateDir, ids[0], Acceptance{Now: referenceDate})
+	}()
+	t.Cleanup(func() {
+		_ = fsx.Remove(record)
+		<-finished
+	})
+
+	deadline := time.Now().Add(30 * time.Second)
+	for !lock.Shown(filepath.Join(stateDir, lessonLockName+".waiters")) {
+		select {
+		case <-finished:
+			t.Fatalf("the accept went on while another process held the lessons' lock: %q %v", name, acceptErr)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the accept never waited in the line for the lessons' lock")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	held, readErr := os.ReadFile(filepath.Join(dataDir, "memory", "startup.json"))
+	filesHeld, filesErr := GovernedFiles(dataDir)
+	if readErr != nil || string(held) != string(before) || filesErr != nil || !reflect.DeepEqual(filesHeld, files) {
+		t.Fatalf("an accept waiting for the lessons' lock wrote memory; files %v then %v: %v %v", files, filesHeld, readErr, filesErr)
+	}
+	if err := fsx.Remove(record); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-finished:
+	case <-time.After(time.Minute):
+		t.Fatal("the accept did not finish once the other process let the lessons' lock go")
+	}
+	if acceptErr != nil {
+		t.Fatal(acceptErr)
+	}
+	catalog, err := Load(dataDir, referenceDate)
+	if err != nil {
+		t.Fatalf("the catalog no longer loads: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "memory", name+".md")); err != nil || !slices.ContainsFunc(catalog.Sources, func(source Source) bool { return source.Path == "memory/"+name+".md" }) {
+		t.Fatalf("fact %s was not written and cataloged: %v", name, err)
+	}
+}
+
+func TestALessonDecisionSaysWhyItCouldNotTakeTheLessonsLock(t *testing.T) {
+	for name, test := range map[string]struct {
+		stateDir func(t *testing.T) string
+		want     string
+		isHeld   bool
+	}{
+		"a lock another process holds": {func(t *testing.T) string {
+			stateDir := t.TempDir()
+			if _, err := lock.AcquireNamedOwner(stateDir, lessonLockName, os.Getppid(), ""); err != nil {
+				t.Fatal(err)
+			}
+			return stateDir
+		}, "another decision on a lesson is still under way, so nothing was decided", true},
+		"a state directory that is a file": {func(t *testing.T) string {
+			stateDir := filepath.Join(t.TempDir(), "state")
+			writeFile(t, stateDir, "not a folder\n")
+			return stateDir
+		}, "the lessons' lock could not be taken, so nothing was decided", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Nobody lets the held lock go, so a pause of the machine can
+			// only lengthen the wait, never end it with the lock taken.
+			previousWait := lessonLockWait
+			lessonLockWait = time.Second
+			t.Cleanup(func() { lessonLockWait = previousWait })
+			stateDir := test.stateDir(t)
+
+			err := RejectLesson(stateDir, "lesson-000000000000", "too narrow", indexDate)
+
+			if err == nil || !strings.Contains(err.Error(), test.want) || errors.Is(err, lock.ErrHeld) != test.isHeld {
+				t.Fatalf("got %v, want %q", err, test.want)
 			}
 		})
 	}

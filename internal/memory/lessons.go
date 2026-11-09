@@ -40,8 +40,9 @@ const lessonsDir = "lessons"
 const lessonLockName = ".lessons.lock"
 
 // lessonLockWait is how long a decision waits for another, which reads and
-// writes a few memory files; it outlasts a paused machine.
-const lessonLockWait = 30 * time.Second
+// writes a few memory files; it outlasts a paused machine. A test that waits
+// out a lock nobody lets go shortens it.
+var lessonLockWait = 30 * time.Second
 
 // deciding serializes decisions within one process, which the named lock
 // lets in again.
@@ -151,15 +152,10 @@ func lessonPath(stateDir, id string) string {
 	return filepath.Join(stateDir, lessonsDir, id+".json")
 }
 
-// ProposeLessons records each lesson as a candidate for the CEO, under the
-// lessons' lock. A lesson already proposed, or already decided, is left as
-// it is.
-func ProposeLessons(stateDir string, candidate LessonCandidate, lessons []ProposedLesson) (ids []string, err error) {
-	unlock, err := lockLessons(stateDir)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { err = errors.Join(err, unlock()) }()
+// ProposeLessons records each lesson as a candidate for the CEO. A lesson
+// already proposed, or already decided, is left as it is.
+func ProposeLessons(stateDir string, candidate LessonCandidate, lessons []ProposedLesson) ([]string, error) {
+	var ids []string
 	for _, lesson := range lessons {
 		proposed := candidate
 		proposed.ID, proposed.Text, proposed.Cites = LessonID(candidate.Task, lesson.Text), lesson.Text, lesson.Cites
@@ -266,7 +262,10 @@ func lockLessons(stateDir string) (func() error, error) {
 	deciding.Lock()
 	if _, err := lock.AcquireNamedOwnerWithin(stateDir, lessonLockName, os.Getpid(), "lessons", lessonLockWait); err != nil {
 		deciding.Unlock()
-		return nil, fmt.Errorf("another decision on a lesson is still under way, so nothing was decided: %w", err)
+		if errors.Is(err, lock.ErrHeld) {
+			return nil, fmt.Errorf("another decision on a lesson is still under way, so nothing was decided: %w", err)
+		}
+		return nil, fmt.Errorf("the lessons' lock could not be taken, so nothing was decided: %w", err)
 	}
 	return func() error {
 		defer deciding.Unlock()

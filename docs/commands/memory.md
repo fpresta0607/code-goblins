@@ -64,7 +64,7 @@ Recall has an accepted lesson within ten seconds, and the next context pack for 
 
 `cfo spawn` and a harness switch write `context-pack.md` beside the brief and tell the goblin to read it.
 The pack holds the rulings and current facts in scope for the task and the goblin role that recall ranks highest for the task's title and project, then for its brief, the repository's other live tasks with their branches, the last pull request their reports name and their last reports, main's commits since the task's base, and the repository's recent done reports.
-Its facts lead with up to 10 lessons accepted for the task's repository, newest first and those accepted at the same moment in the order of their ids, whatever the title and brief say, so an accepted lesson reaches the repository's next pack; every other fact is ranked by recall.
+Its facts lead with up to 10 lessons accepted for the task's repository, newest first and those accepted at the same moment in the order of their fact names, whatever the title and brief say, so an accepted lesson reaches the repository's next pack; every other fact is ranked by recall.
 Each entry names its source and date, and rulings are quoted verbatim.
 It fits a budget of 6000 estimated tokens unless `config/context-pack-budget` names another, and is cut entry by entry, never inside one.
 A conversation resumed in place is given only the entries that are new or changed since the pack it holds, recorded in `context-pack.json` only once the goblin has been given it; any other start drops that record and is given the whole pack, and so is a resume whose record cannot be read, with a note saying so.
