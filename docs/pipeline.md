@@ -65,8 +65,8 @@ So a run carries its own agents as a launch selection, which `cfo pipeline run` 
 
 Nothing edits the machine's `config.yaml` for a run, so two tasks on different harnesses gate at once under one daemon and one config.
 A no-mistakes build that cannot apply a selection refuses the launch before it takes the branch: a build with no launch assertion rejects the flag, and a build that proves but cannot apply rejects the `apply` field.
-The driver then says which build v6 needs.
-A repository's own `agent` field does not stop a v6 start, because the run's selection replaces it.
+The driver then says which build v6 and later need.
+A repository's own `agent` field does not stop a start from v6, because the run's selection replaces it.
 
 ### A second harness only when named
 
@@ -160,7 +160,7 @@ Under v2 and v3 `agent` is `[codex]` and both global `review_agents` roles carry
 The raw Codex argument override forces standard service for every managed role, so a user-level fast or priority preference cannot leak into a gate, while `agent_config` owns model and reasoning effort.
 Removing the Codex executable override makes no-mistakes resolve the native `codex` command from `PATH`; executable overrides for other harnesses remain operator-owned.
 Up to v4 the exact legacy CEO-owned Claude model and effort vector is removed during apply, and a differing operator-owned Claude vector is preserved.
-From v5 the policy owns Claude's arguments as well, since Claude is a gate agent of its chain, and under v6 the agent of every Claude Code goblin's gate.
+From v5 the policy owns Claude's arguments as well, since Claude is a gate agent of its chain, and from v6 the agent of every Claude Code goblin's gate.
 Document follow-ups and other native settings retain their existing values.
 Spawn never rewrites shared YAML.
 The YAML parser dependency is needed to preserve unrelated configuration structurally; v3.0.1 avoids the old parser's [known panic vulnerability](https://pkg.go.dev/vuln/GO-2022-0603).
@@ -232,7 +232,7 @@ Refresh origin before starting; global reviewer/fixer drift is refused.
 A repository's committed `auto_fix` counts are read from the submitted branch, which can edit its own `.no-mistakes.yaml`, so each is held to the frozen policy's count as a ceiling: a repository may lower one, which only sends more to a person, and a count above the policy's, a negative count, or a key the policy does not govern (anything but review, test, lint, rebase, ci and its legacy name babysit) is refused.
 No-mistakes v1.75.1 does not expose an assertion that binds an expected trusted SHA and effective primary after its fresh fetch but before agent creation.
 Up to v5 the `run` check validates the trusted inputs before invoking native start and does not establish that post-fetch binding.
-Under v6 the launch selection establishes it: the daemon proves the trusted commit and every role's agents after its own fetch and before any agent starts.
+From v6 the launch selection establishes it: the daemon proves the trusted commit and every role's agents after its own fetch and before any agent starts.
 A repository's `agent` field continues to select only its native primary path and cannot replace the global reviewer or fixer profiles.
 An earlier unresolved run cannot be restarted to reset its budget.
 A run that is still working is reattached to instead: repeating `cfo pipeline run` with the same branch, submitted head (or current head when no submitted head is recorded) and nonblank retained intent reattaches to it, so no new run starts and no review budget resets.
