@@ -248,9 +248,9 @@ func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", mediaType)
 		_, _ = w.Write(data)
 	case query.Get("stream") == "1":
-		h.streamMessages(w, r, locate, path)
+		h.streamMessages(w, r, locate, path, query.Get("task"))
 	default:
-		page, _, err := h.messagePage(path, before)
+		page, _, err := h.messagePage(path, before, query.Get("task"))
 		if err != nil {
 			messagesError(w, err)
 			return
@@ -266,12 +266,14 @@ func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 // messagePage is the page of the messages of the conversation at path
 // before seq before, or its newest page, and none while there is no
 // conversation.
-func (h *HTTP) messagePage(path string, before int) (fleettree.MessagePage, fleettree.MessageCursor, error) {
+func (h *HTTP) messagePage(path string, before int, task string) (fleettree.MessagePage, fleettree.MessageCursor, error) {
 	if path == "" {
 		cursor := fleettree.MessageCursor{}
 		return fleettree.MessagePage{Conversation: cursor.Conversation(), Messages: []fleettree.Message{}}, cursor, nil
 	}
-	return h.Service.Options.Tree.MessagePage(path, before)
+	page, cursor, err := h.Service.Options.Tree.MessagePage(path, before)
+	page.Waiting = h.Service.Store.namedWaiting(task, page.Waiting)
+	return page, cursor, err
 }
 
 func messagesError(w http.ResponseWriter, err error) {
@@ -300,7 +302,7 @@ const unreadMessages = "The session's messages cannot be read"
 // long sends an alive event, so a board that hears nothing for longer knows
 // the stream stalled: on 2026-10-29 the Overlord's view of the CFO showed a
 // call Running at least 76 s after it ended, with no word that it was stale.
-func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate func() (string, error), path string) {
+func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate func() (string, error), path, task string) {
 	select {
 	case h.messageSlots <- struct{}{}:
 		defer func() { <-h.messageSlots }()
@@ -331,6 +333,7 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 	}
 	var cursor fleettree.MessageCursor
 	var lastUsage *fleettree.Usage
+	var lastWaiting []fleettree.WaitingPrompt
 	// usage tells the board what the session has spent, from what the last read
 	// already found, so the footer's stats keep up with its turns.
 	usage := func() bool {
@@ -346,7 +349,7 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 		return true
 	}
 	page := func() bool {
-		messages, now, err := h.messagePage(path, -1)
+		messages, now, err := h.messagePage(path, -1, task)
 		if err != nil {
 			send("unavailable", unreadMessages)
 			return false
@@ -355,6 +358,7 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 		if !send("page", messages) {
 			return false
 		}
+		lastWaiting = messages.Waiting
 		lastUsage = nil
 		return usage()
 	}
@@ -397,7 +401,8 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 			if path == "" {
 				continue
 			}
-			messages, now, isAnew, err := h.Service.Options.Tree.MessagesSince(path, cursor)
+			messages, waiting, now, isAnew, err := h.Service.Options.Tree.MessagesSince(path, cursor)
+			waiting = h.Service.Store.namedWaiting(task, waiting)
 			switch {
 			case err != nil:
 				send("unavailable", unreadMessages)
@@ -408,12 +413,17 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 				}
 			default:
 				cursor = now
-				if len(messages) > 0 && !send("messages", struct {
-					Conversation string              `json:"conversation"`
-					Messages     []fleettree.Message `json:"messages"`
-				}{cursor.Conversation(), messages}) {
+				// What the harness holds rides with the messages, so a prompt
+				// leaves the one in the event that brings it to the other, and
+				// the board never draws it twice.
+				if (len(messages) > 0 || !slices.Equal(waiting, lastWaiting)) && !send("messages", struct {
+					Conversation string                    `json:"conversation"`
+					Messages     []fleettree.Message       `json:"messages"`
+					Waiting      []fleettree.WaitingPrompt `json:"waiting"`
+				}{cursor.Conversation(), messages, waiting}) {
 					return
 				}
+				lastWaiting = waiting
 				if !usage() {
 					return
 				}
