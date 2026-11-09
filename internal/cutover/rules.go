@@ -58,6 +58,12 @@ var names = []string{
 	"ceo.exe", "ceo-hook.exe",
 	// Identifiers the state's records hold as values.
 	"ceo_answer", "ceo_message", "ceo_wait", "primary-ceo", "previous-ceo", "board-ceo",
+	// The copy of the old build the last update kept as its way back.
+	"previous-ceo.exe",
+	// The schemas of the state's records, which the new build reads only
+	// under its own names.
+	"ceo-fleet-wakes.v1", "ceo-merge-train.v1", "ceo-monitor.v1", "ceo-monitor-polls.v1", "ceo-monitor-tally.v1",
+	"ceo-reap.v2", "ceo-update.v1",
 }
 
 // prefixes begin the names of a kind of file or record the new build names
@@ -77,13 +83,31 @@ type rules struct {
 }
 
 var (
-	variable    = regexp.MustCompile(`\b` + strings.ToUpper(oldName) + `_([A-Z0-9])`)
-	backticked  = regexp.MustCompile("`" + oldName + "`")
-	nameToken   = regexp.MustCompile(`(^|[^A-Za-z0-9_-])(\.?(?i:` + oldName + `)[-_.][A-Za-z0-9_.-]*)`)
-	jsonKey     = regexp.MustCompile(`"((?:[a-z0-9]+_)*` + oldName + `(?:_[a-z0-9]+)*)"(\s*:)`)
-	jsonValue   = regexp.MustCompile(`"` + oldName + `(: [^"]*)?"`)
+	variable   = regexp.MustCompile(`\b` + strings.ToUpper(oldName) + `_([A-Z0-9])`)
+	backticked = regexp.MustCompile("`" + oldName + "`")
+	nameToken  = regexp.MustCompile(`(^|[^A-Za-z0-9_-])(\.?(?i:` + oldName + `)[-_.][A-Za-z0-9_.-]*)`)
+	jsonKey    = regexp.MustCompile(`"((?:[a-z0-9]+_)*` + oldName + `(?:_[a-z0-9]+)*)"(\s*:)`)
+	jsonValue  = regexp.MustCompile(`"` + oldName + `(: [^"]*)?"`)
+	// aside is the name an update gives a program it moved out of the way
+	// while it ran: the program's name, a number and .update-old.
+	aside = regexp.MustCompile(`^(.+)(\.\d+\.update-old)$`)
+	// ledName finds the names whose old name follows another word, such as
+	// the last update's previous copy, which nameToken leaves alone since a
+	// task's id is spelled the same way.
+	ledName     = ledNames()
 	quotedWords = regexp.MustCompile(`(?m)^[ \t]*>.*$|"[^"\n]*"|“[^”]*”`)
 )
+
+func ledNames() *regexp.Regexp {
+	var led []string
+	for _, name := range names {
+		if !strings.HasPrefix(strings.TrimPrefix(name, "."), newName) {
+			led = append(led, regexp.QuoteMeta(oldSpelling(name)))
+		}
+	}
+	slices.SortFunc(led, func(a, b string) int { return len(b) - len(a) })
+	return regexp.MustCompile(`(^|[^A-Za-z0-9_-])(` + strings.Join(led, "|") + `)\b`)
+}
 
 // newRules rewrites the old command's calls of commands, and the names of
 // skills, the build's skill folders as the new build spells them.
@@ -113,6 +137,11 @@ func (r rules) renamed(name string) string {
 	for _, prefix := range prefixes {
 		if strings.HasPrefix(lower, prefix) {
 			return respelled[:len(prefix)] + name[len(prefix):]
+		}
+	}
+	if parts := aside.FindStringSubmatch(name); parts != nil {
+		if program := r.renamed(parts[1]); program != parts[1] {
+			return program + parts[2]
 		}
 	}
 	return name
@@ -171,6 +200,7 @@ func (r rules) words(text string) string {
 	for _, marker := range markers {
 		text = strings.ReplaceAll(text, oldSpelling(marker), marker)
 	}
+	text = ledName.ReplaceAllStringFunc(text, newSpelling)
 	return nameToken.ReplaceAllStringFunc(text, func(match string) string {
 		parts := nameToken.FindStringSubmatch(match)
 		token := strings.TrimRight(parts[2], ".")

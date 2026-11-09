@@ -326,6 +326,23 @@ func (p *planner) programs() error {
 			p.add(KindProgram, path+": removed, the old build", removeStep(path, before))
 		}
 	}
+	entries, err := os.ReadDir(bin)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		renamed := p.rules.renamed(name)
+		if entry.IsDir() || !aside.MatchString(name) || renamed == name {
+			continue
+		}
+		from, to := filepath.Join(bin, name), filepath.Join(bin, renamed)
+		if exists(to) {
+			p.add(KindListed, fmt.Sprintf("%s: kept, since %s is already there", from, to))
+			continue
+		}
+		p.add(KindProgram, fmt.Sprintf("%s: renamed %s, the old build an update set aside, as the last update's journal now names it", from, renamed), moveStep(from, to))
+	}
 	return nil
 }
 
@@ -690,8 +707,17 @@ func (p *planner) stateFiles() error {
 		}
 		return nil
 	}
-	for _, folder := range []string{p.machine.Root, p.state(), p.data()} {
+	updates := filepath.Join(p.state(), "update")
+	for _, folder := range []string{p.machine.Root, p.state(), p.data(), updates} {
 		if err := move(folder); err != nil {
+			return err
+		}
+	}
+	// The last update's journal names the programs it swapped and the copies
+	// it kept, which ceo update checks against this build's names before it
+	// updates again.
+	if journal := filepath.Join(updates, "journal.json"); exists(journal) {
+		if err := p.rewrite(KindState, journal, journal, nil); err != nil {
 			return err
 		}
 	}
@@ -723,7 +749,17 @@ func (p *planner) stateFiles() error {
 	if caches := filepath.Join(p.machine.LocalAppData, oldName); p.machine.LocalAppData != "" && exists(caches) {
 		p.add(KindListed, caches+": the old build's caches outside the home, left for you to delete, since this build makes its own")
 	}
-	for _, folder := range []string{p.state(), filepath.Join(p.state(), "tickets")} {
+	conversations := filepath.Join(p.state(), "conversations")
+	if from, to := filepath.Join(conversations, oldName), filepath.Join(conversations, newName); exists(from) && exists(to) {
+		p.add(KindListed, fmt.Sprintf("%s: kept, since %s is already there", from, to))
+	} else if exists(from) {
+		p.add(KindState, fmt.Sprintf("%s: renamed %s, the CEO's own conversation streams", from, newName), moveStep(from, to))
+	}
+	recordFolders := []string{p.state()}
+	for _, folder := range []string{"tickets", "trains", "monitor", filepath.Join("monitor", "tasks")} {
+		recordFolders = append(recordFolders, filepath.Join(p.state(), folder))
+	}
+	for _, folder := range recordFolders {
 		entries, err := os.ReadDir(folder)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
