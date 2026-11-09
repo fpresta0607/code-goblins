@@ -50,8 +50,8 @@ type Service struct {
 	// from under the record. It archives the task record and leaves the
 	// worktree exactly as found, so it can never discard work, though the
 	// task's Go temporary directory is retired with the record. It still
-	// refuses a pane that has a live agent and, while the worktree is there, a
-	// gate run that is open or cannot be read.
+	// refuses a pane that has a live agent and a gate run that is open or
+	// cannot be read, as OpenGateRun names it.
 	ForceArchive bool
 	// LeaveRunningTerminals refuses a native task whose terminal still runs,
 	// even one idle at its composer, so nothing is closed: a caller that must
@@ -80,7 +80,7 @@ type Service struct {
 	HandOver func(meta state.TaskMeta) (bool, error)
 	// OpenGateRun names the task's gate run while that run is still open, and
 	// nothing once it has ended or the task has none, and it decides which
-	// evidence names the run: the run a pause saved, or the worktree's branch
+	// evidence names the run: the run a pause saved, and the worktree's branch
 	// while the folder is still a Git worktree. A pause leaves the run running
 	// and only cfo kill aborts it, so every retirement, a force archive and an
 	// empty folder's included, asks it first, and one whose run is open, or
@@ -383,7 +383,7 @@ func (s Service) requireGateRunEnded(ctx context.Context, meta state.TaskMeta) e
 		return fmt.Errorf("cleanup: the gate run of %s cannot be read, so nothing was removed, and the cleanup can run again once it can: %w", meta.ID, err)
 	}
 	if run != "" {
-		return fmt.Errorf("cleanup: the gate run %s of %s is still open, so nothing was removed; cfo kill %s aborts the run after keeping its commits and retires the task", run, meta.ID, meta.ID)
+		return fmt.Errorf("cleanup: the gate run %s of %s is still open, so nothing was removed; cfo kill %s aborts the run after keeping its commits and retires the task, but while the task's worktree is gone or no longer a Git worktree cfo kill cannot find the run (issue #2246), so end it with no-mistakes axi abort --run %s and run the cleanup again", run, meta.ID, meta.ID, run)
 	}
 	return nil
 }

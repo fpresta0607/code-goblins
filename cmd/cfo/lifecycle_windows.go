@@ -262,12 +262,13 @@ func endLeftProcesses(ctx context.Context, h home.Home, meta state.TaskMeta) ([]
 // cleanup that refuses to retire a task around it. The run a pause saved is
 // read by its id, whatever state the worktree is in, since a pause leaves its
 // run running and a worktree gone or no longer a Git worktree names no branch
-// to find it by. A task with no saved run, or whose goblin runs again, is read
-// by its worktree's branch, and only while the folder is still a Git
-// worktree, so a folder gone or no longer one retires unread. A task whose
-// project checkout is gone names no run either way, as lifecycle.TaskGate
-// rules for the stop: its kill can abort nothing, and its own retirement
-// must still go through (issue #1578).
+// to find it by. The worktree's branch is read as well, and only while the
+// folder is still a Git worktree, since a goblin that runs again, as after a
+// resume or a failed pause, can start a newer run there; a folder gone or no
+// longer one with no saved run retires unread. Either run still open names
+// it. A task whose project checkout is gone names no run either way, as
+// lifecycle.TaskGate rules for the stop: its kill can abort nothing, and its
+// own retirement must still go through (issue #1578).
 func openGateRun(h home.Home) func(context.Context, state.TaskMeta) (string, error) {
 	return func(ctx context.Context, meta state.TaskMeta) (string, error) {
 		root, err := pipeline.DefaultRoot()
@@ -279,7 +280,7 @@ func openGateRun(h home.Home) func(context.Context, state.TaskMeta) (string, err
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return "", err
 		}
-		if err == nil && record.GateRun != "" && record.Phase != "running" {
+		if err == nil && record.GateRun != "" {
 			if _, err := os.Stat(meta.Project); errors.Is(err, os.ErrNotExist) {
 				return "", nil
 			}
@@ -287,13 +288,12 @@ func openGateRun(h home.Home) func(context.Context, state.TaskMeta) (string, err
 				return "", nil
 			}
 			run, err := gate.Run(ctx, record.GateRun)
-			if errors.Is(err, pipeline.ErrNoProgress) {
-				return "", nil
-			}
-			if err != nil || run.IsTerminal() {
+			if err != nil && !errors.Is(err, pipeline.ErrNoProgress) {
 				return "", err
 			}
-			return run.RunID, nil
+			if err == nil && !run.IsTerminal() {
+				return run.RunID, nil
+			}
 		}
 		isWorktree, err := isGitWorktree(ctx, gate.Commands, meta.Worktree)
 		if err != nil || !isWorktree {
