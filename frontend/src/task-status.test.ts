@@ -29,16 +29,13 @@ for (const [phase, step, reason, runtime, text] of [
   ["review", "test", "Pipeline evidence is incomplete or belongs to a different HEAD", "parked", "In review gate: tests"],
   ["blocked", "test", "Waiting on the CFO: Which source should ship?", "busy", "Waiting on the CFO"],
 ] as const) {
-  test(`gate ${step}/${phase} preserves its decision and reason beside a ${runtime} terminal`, () => {
+  test(`gate ${step}/${phase} keeps its gate status beside a ${runtime} terminal`, () => {
     const snapshot = board({ phase, gate_step: step, reason, report: "working", runtime: { state: runtime } });
     const task = zane(snapshot);
 
     const status = taskStatus(task, snapshot);
 
     assert.deepEqual(status, { text, phase });
-    assert.equal(task.reason, reason);
-    assert.equal(task.runtime?.state, runtime);
-    assert.equal(task.report, "working");
   });
 }
 

@@ -15,7 +15,6 @@ export function ownsTaskSession(node?: Session, task?: Task): boolean {
   return (
     !node ||
     (node.role === "goblin" &&
-      node.task_id === task?.id &&
       node.id === task?.session &&
       node.generation === task.generation)
   );
