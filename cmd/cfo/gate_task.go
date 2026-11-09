@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -74,6 +76,31 @@ func taskLabel(task string, runtime commandRuntime) string {
 		return task
 	}
 	return meta.GoblinName + " (" + task + ")"
+}
+
+// taskPriority is the priority on task's backlog row, which orders its runs in
+// the machine's heavy line, and empty for no task, a task with no row and a
+// row that names none. A backlog that cannot be read costs the run only its
+// priority, which it says on says under label.
+func taskPriority(label, task string, says io.Writer, runtime commandRuntime) string {
+	if task == "" {
+		return ""
+	}
+	h, err := runtime.resolveHome()
+	var backlog fleet.BacklogRows
+	if err == nil {
+		backlog, err = fleet.ReadBacklog(h)
+	}
+	if err != nil {
+		fmt.Fprintf(says, "%s: its task's priority cannot be read, so it takes a place in line as a run with no task: %v\n", label, err)
+		return ""
+	}
+	for _, row := range slices.Concat(backlog.Queued, backlog.Parked) {
+		if row.ID == task {
+			return row.Priority
+		}
+	}
+	return ""
 }
 
 func gateWorktreeTask(h home.Home, project, worktree string) (string, error) {
