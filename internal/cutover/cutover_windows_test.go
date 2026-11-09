@@ -190,6 +190,7 @@ func newFixture(t *testing.T) fixture {
 	shared := filepath.Join(harnesses.SharedSkills, oldName+"-afk")
 	write(t, filepath.Join(shared, "SKILL.md"), oldSpelling(skillText))
 	write(t, filepath.Join(shared, "notes.md"), "a file the old build shipped and this one does not\n")
+	write(t, filepath.Join(shared, "my-notes.md"), "notes the user added, which no install wrote\n")
 	write(t, filepath.Join(shared, ".code-goblins"), "Code Goblins installed this skill\r\nThe files it wrote:\r\nSKILL.md\r\nnotes.md\r\n")
 	if err := os.MkdirAll(claude.Skills, 0o755); err != nil {
 		t.Fatal(err)
@@ -200,6 +201,7 @@ func newFixture(t *testing.T) fixture {
 	lavish := filepath.Join(harnesses.SharedSkills, "lavish")
 	write(t, filepath.Join(lavish, "SKILL.md"), oldSpelling(lavishText))
 	write(t, filepath.Join(lavish, ".code-goblins"), lavishOwnerText)
+	write(t, filepath.Join(lavish, "my-notes.md"), "notes the user added, which no install wrote\n")
 	if err := junction(filepath.Join(claude.Skills, "lavish"), lavish); err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +401,7 @@ func TestTheDryRunListsEveryChangeAndChangesNothing(t *testing.T) {
 			t.Errorf("the dry run does not say %q:\n%s", want, listing)
 		}
 	}
-	for _, unwanted := range []string{"cg-" + oldName + "-wakes", "archive", "overlord.md", "cg-x.status", "run.log", "CLAUDE.md", "untracked.md", filepath.Join("code-goblins", "README.md"), oldName + "-native-board", "someone-else", "Unrelated", "their-own", filepath.Join(f.machine.LocalAppData, newName)} {
+	for _, unwanted := range []string{"cg-" + oldName + "-wakes", "archive", "overlord.md", "cg-x.status", "run.log", "CLAUDE.md", "untracked.md", filepath.Join("code-goblins", "README.md"), oldName + "-native-board", "someone-else", "Unrelated", "their-own", "my-notes.md", filepath.Join(f.machine.LocalAppData, newName)} {
 		if strings.Contains(listing, unwanted) {
 			t.Errorf("the dry run names %q, which it never changes:\n%s", unwanted, listing)
 		}
@@ -425,6 +427,7 @@ func TestTheCutoverLeavesTheHomeWorkingUnderTheNewName(t *testing.T) {
 		filepath.Join(root, "data", "archive", "finished", "cg-old", "brief.md"), filepath.Join(root, "data", oldName+"-native-board", "brief.md"),
 		filepath.Join(user, ".claude", "CLAUDE.md"), filepath.Join(f.machine.ProjectsRoot, "other-app", "README.md"),
 		filepath.Join(user, ".agents", "skills", "their-own", "SKILL.md"), filepath.Join(f.machine.LocalAppData, oldName, "conpty", "OpenConsole.exe"),
+		filepath.Join(user, ".agents", "skills", "lavish", "my-notes.md"),
 	} {
 		untouched[path] = read(t, path)
 	}
@@ -479,6 +482,9 @@ func TestTheCutoverLeavesTheHomeWorkingUnderTheNewName(t *testing.T) {
 	skill := filepath.Join(user, ".claude", "skills", newName+"-afk", "SKILL.md")
 	if got := read(t, skill); got != skillText {
 		t.Errorf("%s is %q, want this build's skill", skill, got)
+	}
+	if !exists(filepath.Join(user, ".agents", "skills", newName+"-afk", "my-notes.md")) {
+		t.Errorf("a file no install wrote was not kept in the renamed skill")
 	}
 	if exists(filepath.Join(user, ".agents", "skills", newName+"-afk", "notes.md")) {
 		t.Errorf("a file the old build shipped and this one does not is still in the skill")

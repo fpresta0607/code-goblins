@@ -232,15 +232,10 @@ func isOurs(path string) (bool, error) {
 // file last, and reports whether it wrote or removed anything.
 func writeSkill(skills fs.FS, name, dest string) (bool, error) {
 	changed := false
-	previous := map[string]bool{}
+	var previous map[string]bool
 	owner, ownerErr := fsx.ReadFile(filepath.Join(dest, ownerFile))
 	if ownerErr == nil {
-		_, list, _ := strings.Cut(strings.ReplaceAll(string(owner), "\r\n", "\n"), "wrote:\n")
-		for _, line := range strings.Split(list, "\n") {
-			if line != "" {
-				previous[line] = true
-			}
-		}
+		previous = OwnedFiles(owner)
 	}
 	var written []string
 	err := fs.WalkDir(skills, name, func(path string, entry fs.DirEntry, err error) error {
@@ -283,6 +278,19 @@ func writeSkill(skills fs.FS, name, dest string) (bool, error) {
 		return changed, nil
 	}
 	return true, fsx.AtomicWriteFile(filepath.Join(dest, ownerFile), text)
+}
+
+// OwnedFiles are the files a skill folder's owner file, whose content is
+// owner, lists as the ones an install wrote there, each by its slash path.
+func OwnedFiles(owner []byte) map[string]bool {
+	files := map[string]bool{}
+	_, list, _ := strings.Cut(strings.ReplaceAll(string(owner), "\r\n", "\n"), "wrote:\n")
+	for _, line := range strings.Split(list, "\n") {
+		if line != "" {
+			files[line] = true
+		}
+	}
+	return files
 }
 
 // ownerContent is the owner file of a skill folder an install wrote the

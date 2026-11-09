@@ -46,15 +46,23 @@ type noLabels struct{}
 func (noLabels) Labels(string) ([]string, error)     { return nil, nil }
 func (noLabels) Rename(string, string, string) error { return nil }
 
+// runningPrograms are the programs a test says run on the machine.
+type runningPrograms []cutover.Process
+
+func (r runningPrograms) Running() ([]cutover.Process, error) { return r, nil }
+
 // cutoverHome is a home whose bin holds an older goblins.exe, and the
-// machine the cutover reads around it, with nothing outside the folder.
+// machine the cutover reads around it, with nothing outside the folder and
+// nothing running. The build and the home sit in folders whose names have a
+// space, and the build's a quote, as a user profile's can.
 func cutoverHome(t *testing.T) (cutover.Machine, string) {
 	t.Helper()
 	top := t.TempDir()
-	root := filepath.Join(top, "home")
+	root := filepath.Join(top, "the home")
+	program := filepath.Join(top, "John's build", "ceo.exe")
 	for path, content := range map[string]string{
 		filepath.Join(root, "bin", "goblins.exe"): "the old build",
-		filepath.Join(top, "build", "ceo.exe"):    "this build",
+		program: "this build",
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
@@ -64,10 +72,24 @@ func cutoverHome(t *testing.T) (cutover.Machine, string) {
 		}
 	}
 	return cutover.Machine{
-		Root: root, UserHome: filepath.Join(top, "user"), Program: filepath.Join(top, "build", "ceo.exe"),
+		Root: root, UserHome: filepath.Join(top, "user"), Program: program,
 		Skills: fstest.MapFS{}, Contract: fstest.MapFS{}, Commands: []string{"spawn"},
-		Env: cutoverEnv{}, Jobs: noJobs{}, Vault: noCredentials{}, Labels: noLabels{},
+		Env: cutoverEnv{}, Jobs: noJobs{}, Vault: noCredentials{}, Labels: noLabels{}, Programs: runningPrograms{},
 	}, root
+}
+
+// undoCommand is the undo line an apply prints: a PowerShell call of a
+// program with one argument, each in single quotes with a quote doubled.
+var undoCommand = regexp.MustCompile(`(?m)^undo: & '((?:[^']|'')*)' cutover --undo '((?:[^']|'')*)'$`)
+
+// printedUndo is the program and the folder of the undo line in stdout, as
+// PowerShell reads them.
+func printedUndo(stdout string) (program, folder string, isPrinted bool) {
+	found := undoCommand.FindStringSubmatch(strings.ReplaceAll(stdout, "\r", ""))
+	if found == nil {
+		return "", "", false
+	}
+	return strings.ReplaceAll(found[1], "''", "'"), strings.ReplaceAll(found[2], "''", "'"), true
 }
 
 func runCutoverOn(machine cutover.Machine, args ...string) (int, string, string) {
@@ -109,17 +131,17 @@ func TestCutoverMakesOnlyThePlanItsDryRunPrintedAndUndoesIt(t *testing.T) {
 	if refusedCode != 1 || !strings.Contains(refused, "nothing was changed") {
 		t.Fatalf("another digest: exit %d, %q; want a refusal", refusedCode, refused)
 	}
-	undo := regexp.MustCompile(`(?m)^undo: (.+) cutover --undo (.+)$`).FindStringSubmatch(strings.ReplaceAll(applied, "\r", ""))
-	if appliedCode != 0 || undo == nil {
+	program, folder, isPrinted := printedUndo(applied)
+	if appliedCode != 0 || !isPrinted {
 		t.Fatalf("apply: exit %d, %q, %q", appliedCode, applied, appliedErr)
 	}
-	if undo[1] != machine.Program {
-		t.Fatalf("the undo command runs %s; want this build, %s, since the undo removes the home's bin\\ceo.exe", undo[1], machine.Program)
+	if program != machine.Program {
+		t.Fatalf("the undo command runs %s; want this build, %s, since the undo removes the home's bin\\ceo.exe", program, machine.Program)
 	}
 	if content, err := os.ReadFile(filepath.Join(root, "bin", "goblins.exe")); err != nil || string(content) != "this build" {
 		t.Fatalf("bin\\goblins.exe is %q, %v; want this build", content, err)
 	}
-	undoneCode, _, undoneErr := runCutoverOn(machine, "--undo", undo[2])
+	undoneCode, _, undoneErr := runCutoverOn(machine, "--undo", folder)
 	if undoneCode != 0 {
 		t.Fatalf("undo: exit %d, %q", undoneCode, undoneErr)
 	}
@@ -149,11 +171,11 @@ func dryRunDigest(t *testing.T, machine cutover.Machine) string {
 func appliedCutover(t *testing.T, machine cutover.Machine) string {
 	t.Helper()
 	code, stdout, stderr := runCutoverOn(machine, "--plan", dryRunDigest(t, machine))
-	undo := regexp.MustCompile(`(?m)^undo: .+ cutover --undo (.+)$`).FindStringSubmatch(strings.ReplaceAll(stdout, "\r", ""))
-	if code != 0 || undo == nil {
+	_, folder, isPrinted := printedUndo(stdout)
+	if code != 0 || !isPrinted {
 		t.Fatalf("apply: exit %d, %q, %q", code, stdout, stderr)
 	}
-	return undo[1]
+	return folder
 }
 
 // recordSupervisor writes the home's board record, as ceo serve does, naming
@@ -223,6 +245,56 @@ func TestCutoverRefusesEveryFormWhileASupervisorServesTheHome(t *testing.T) {
 				t.Fatalf("the refused cutover changed the home:\nbefore %v\nafter  %v", before, after)
 			}
 		})
+	}
+}
+
+func TestCutoverRefusesEveryFormWhileAProgramRunsFromTheHomesBin(t *testing.T) {
+	for _, form := range []string{"--dry-run", "--plan", "--undo"} {
+		t.Run(form, func(t *testing.T) {
+			// Arrange
+			machine, root := cutoverHome(t)
+			args := []string{form}
+			switch form {
+			case "--plan":
+				args = append(args, dryRunDigest(t, machine))
+			case "--undo":
+				args = append(args, appliedCutover(t, machine))
+			}
+			before := homeFiles(t, root)
+			machine.Programs = runningPrograms{{PID: 1234, Image: filepath.Join(root, "bin", "goblins-window.exe")}}
+
+			// Act
+			code, stdout, stderr := runCutoverOn(machine, args...)
+
+			// Assert
+			if code != 1 || stdout != "" || !strings.Contains(stderr, filepath.Join("bin", "goblins-window.exe")+" (pid 1234) runs from this home; close it first") {
+				t.Fatalf("exit %d, %q, %q; want the refusal naming the window and exit 1", code, stdout, stderr)
+			}
+			if after := homeFiles(t, root); !maps.Equal(before, after) {
+				t.Fatalf("the refused cutover changed the home:\nbefore %v\nafter  %v", before, after)
+			}
+		})
+	}
+}
+
+func TestCutoverProceedsWhileNothingRunsFromTheHomesBin(t *testing.T) {
+	// Arrange
+	machine, root := cutoverHome(t)
+	machine.Programs = runningPrograms{
+		{PID: 1, Image: machine.Program},
+		{PID: 2, Image: filepath.Join(root, "binaries", "goblins-window.exe")},
+		{PID: 3, Image: filepath.Join(root+" two", "bin", "goblins-window.exe")},
+	}
+
+	// Act
+	folder := appliedCutover(t, machine)
+
+	// Assert
+	if content, err := os.ReadFile(filepath.Join(root, "bin", "goblins.exe")); err != nil || string(content) != "this build" {
+		t.Fatalf("bin\\goblins.exe is %q, %v; want this build", content, err)
+	}
+	if code, _, stderr := runCutoverOn(machine, "--undo", folder); code != 0 {
+		t.Fatalf("undo: exit %d, %q", code, stderr)
 	}
 }
 

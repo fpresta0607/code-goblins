@@ -4,19 +4,20 @@
 
 Move an installed home from the command's old name to `ceo`, once, after the build that renamed it is merged.
 The CEO runs it as the new build with the fleet paused: it refuses while a supervisor serves the home.
+Each of its forms also refuses, before it changes anything, while any program runs from the home's `bin` folder, judged by the full path of the program each running process was started from, and names each with its pid, such as `bin\goblins-window.exe (pid 1234) runs from this home; close it first`, since Windows does not let a running program be replaced or removed.
 The home is the one the old build's user setting for it names, or the home this build resolves.
 
 `--dry-run` changes nothing.
 It lists every change, grouped by kind, and ends with the plan's digest, `plan: <digest>`:
 
 - **program**: this build becomes the home's `bin\ceo.exe` and `bin\goblins.exe`, with the hook program and the desktop window beside it as `bin\ceo-hook.exe` and `bin\goblins-window.exe`, and the old build's programs are removed.
-  Close the desktop window first, since Windows does not let a running program be replaced.
 - **contract**: each file of this build's contract that an install writes into the home, its `AGENTS.md`, `CLAUDE.md`, `docs\contract` and `docs\commands` among them, is written where its content differs, one line each.
   A home that is a code-goblins checkout keeps its own, which git tracks.
 - **setting**: each user setting of the old name's, such as the home's and the projects root's, moves to its `CEO_` name, and the change is announced to new processes.
 - **harness file**: the hooks and allow rules in each harness's settings call `ceo`, and the files the old build wrote in a harness's folder (its settings' backups and rules, the native hooks' helper and backup, and pi's extension) take the new names, so each harness's native hooks are this build's own.
 - **skill**: each skill the old build installed in the shared skills folder becomes this build's skill of the new name, with Claude Code's junction to it.
-  In every skill Code Goblins installed, whether its name changes or not, each file whose content differs from this build's is written and each file this build does not ship is removed, one line each.
+  In every skill Code Goblins installed, whether its name changes or not, each file whose content differs from this build's is written and each file the skill's owner file lists as the old build's that this build does not ship is removed, one line each, as an install does.
+  A file the owner file does not list, such as one you added, is kept.
   A skill folder Code Goblins did not install is kept as it is.
 - **scheduled job**: each job named for the old command takes the new name, and each whose definition calls it calls `ceo`.
   Windows' own jobs are never read.
@@ -35,6 +36,7 @@ Recorded history is never changed: archives, backups, logs, status logs, audit f
 Otherwise it first keeps in `state\backups\cutover-<time>` everything its undo needs: the content and time of every file it changes or removes, and each setting's, job's and link's value before.
 Then it makes the plan one step at a time, recording each step there as it is made, and a step that fails removes what it made itself and undoes every step made before it.
 It ends with the command that undoes it, which names this build by its full path rather than `ceo`, since the `ceo` on the path is the home's `bin\ceo.exe`, which the undo removes.
+The command is quoted for PowerShell, as `& '<program>' cutover --undo '<folder>'`, so it can be pasted as it is.
 
 `--undo <folder>` undoes the cutover that folder records, every step in the reverse order, restoring each file's content and time exactly, and removes the folder.
-It too refuses while a supervisor serves the home.
+It too refuses while a supervisor serves the home or a program runs from its `bin` folder.

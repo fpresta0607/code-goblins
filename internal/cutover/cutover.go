@@ -57,6 +57,7 @@ type Machine struct {
 	Jobs     Scheduler
 	Vault    Vault
 	Labels   Labels
+	Programs Programs
 	Link     harnessmap.Linker
 	// Git runs git in dir and returns what it printed.
 	Git func(dir string, args ...string) ([]byte, error)
@@ -89,6 +90,35 @@ type Vault interface {
 type Labels interface {
 	Labels(repository string) ([]string, error)
 	Rename(repository, from, to string) error
+}
+
+// Programs reads the programs running on the machine.
+type Programs interface {
+	Running() ([]Process, error)
+}
+
+// Process is one running program: its pid and the full path of its image.
+type Process struct {
+	PID   int
+	Image string
+}
+
+// RunningFromBin are the programs that run now from the home's bin folder,
+// judged by the full path of each one's image, which no step can replace or
+// remove while it runs.
+func (m Machine) RunningFromBin() ([]Process, error) {
+	running, err := m.Programs.Running()
+	if err != nil {
+		return nil, fmt.Errorf("cutover: read what runs: %w", err)
+	}
+	bin := filepath.Join(m.Root, "bin")
+	var found []Process
+	for _, process := range running {
+		if rel, err := filepath.Rel(bin, process.Image); err == nil && filepath.IsLocal(rel) {
+			found = append(found, process)
+		}
+	}
+	return found, nil
 }
 
 // Kinds of change, in the order a plan lists them.
@@ -463,8 +493,8 @@ func changedLines(before, after string) int {
 // skills makes each skill Code Goblins installed in the shared skills folder
 // this build's: one of the old name's becomes this build's skill of the new
 // name, with Claude Code's junction to it, and every file of a skill whose
-// content differs from this build's is written, and every file this build
-// does not ship is removed.
+// content differs from this build's is written, and every file its owner
+// file lists that this build does not ship is removed, as an install does.
 func (p *planner) skills() error {
 	shared := p.machine.Harnesses.SharedSkills
 	entries, err := os.ReadDir(shared)
@@ -516,27 +546,25 @@ func (p *planner) skills() error {
 			p.claimed[from] = true
 			p.add(KindSkill, fmt.Sprintf("%s: becomes %s, with Claude Code's junction to it", from, to), steps...)
 		}
-		err = filepath.WalkDir(from, func(path string, entry fs.DirEntry, err error) error {
-			if err != nil || entry.IsDir() {
-				return err
+		owner, err := os.ReadFile(filepath.Join(from, ".code-goblins"))
+		if err != nil {
+			return err
+		}
+		for _, rel := range sortedKeys(harnessmap.OwnedFiles(owner)) {
+			local := filepath.FromSlash(rel)
+			if _, isShipped := files[rel]; isShipped || !filepath.IsLocal(local) {
+				continue
 			}
-			rel, err := filepath.Rel(from, path)
+			before, isAbsent, err := readFile(filepath.Join(from, local))
 			if err != nil {
 				return err
 			}
-			if _, isShipped := files[filepath.ToSlash(rel)]; !isShipped {
-				content, err := os.ReadFile(path)
-				if err != nil {
-					return err
-				}
-				step := removeStep(filepath.Join(to, rel), content)
-				step.readFrom = path
-				p.add(KindSkill, step.Key+": removed, since this build does not ship it", step)
+			if isAbsent {
+				continue
 			}
-			return nil
-		})
-		if err != nil {
-			return err
+			step := removeStep(filepath.Join(to, local), before)
+			step.readFrom = filepath.Join(from, local)
+			p.add(KindSkill, step.Key+": removed, since the old build wrote it and this build does not ship it", step)
 		}
 		for _, rel := range sortedKeys(files) {
 			before, isAbsent, err := readFile(filepath.Join(from, filepath.FromSlash(rel)))

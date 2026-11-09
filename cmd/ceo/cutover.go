@@ -24,15 +24,16 @@ import (
 const cutoverUsage = `usage: ceo cutover --dry-run | --plan <digest> | --undo <folder>
 
 Move an installed home from the command's old name to ceo, run as this build
-while the fleet is paused and no supervisor serves the home.
+while the fleet is paused, no supervisor serves the home and no program runs
+from the home's bin, such as the desktop window; each form refuses otherwise.
 
 --dry-run changes nothing: it lists every change by kind and ends with the
 plan's digest, "plan: <digest>". --plan <digest> plans again, refuses when that
 plan is not the one the dry run printed, and otherwise first keeps everything
 its undo needs in state\backups\cutover-<time>, then makes the plan. It ends
 with the undo command, which names this build by its full path, since the undo
-removes the home's bin\ceo.exe. --undo <folder> undoes the cutover that folder records, exactly, and removes
-the folder.
+removes the home's bin\ceo.exe. --undo <folder> undoes the cutover that folder
+records, exactly, and removes the folder.
 `
 
 func runCutover(args []string, stdout, stderr io.Writer, newMachine func() (cutover.Machine, error)) int {
@@ -60,6 +61,25 @@ func runCutover(args []string, stdout, stderr io.Writer, newMachine func() (cuto
 	}
 	if refusal := supervisorServing(filepath.Join(machine.Root, "state")); refusal != "" {
 		fmt.Fprintf(stderr, "ceo cutover: %s\n", refusal)
+		return 1
+	}
+	running, err := machine.RunningFromBin()
+	if err != nil {
+		fmt.Fprintf(stderr, "ceo cutover: %v\n", err)
+		return 1
+	}
+	for _, program := range running {
+		where := program.Image
+		if rel, err := filepath.Rel(machine.Root, program.Image); err == nil {
+			where = rel
+		}
+		if program.PID == os.Getpid() {
+			fmt.Fprintf(stderr, "ceo cutover: %s (pid %d) is this cutover, which runs from this home; run this build from the folder it was built or downloaded in\n", where, program.PID)
+			continue
+		}
+		fmt.Fprintf(stderr, "ceo cutover: %s (pid %d) runs from this home; close it first\n", where, program.PID)
+	}
+	if len(running) > 0 {
 		return 1
 	}
 	if *undo != "" {
@@ -96,7 +116,8 @@ func runCutover(args []string, stdout, stderr io.Writer, newMachine func() (cuto
 	for _, line := range plan.Listing() {
 		fmt.Fprintln(stdout, line)
 	}
-	fmt.Fprintf(stdout, "undo: %s cutover --undo %s\n", machine.Program, folder)
+	quoted := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
+	fmt.Fprintf(stdout, "undo: & %s cutover --undo %s\n", quoted(machine.Program), quoted(folder))
 	return 0
 }
 
@@ -168,6 +189,7 @@ func cutoverMachine() (cutover.Machine, error) {
 		Jobs:         cutover.TaskScheduler{Commands: commands},
 		Vault:        cutover.CredentialManager{},
 		Labels:       cutover.GitHubLabels{Client: githubapi.New(commands)},
+		Programs:     cutover.RunningPrograms{},
 		Link:         junction(commands),
 		Git: func(dir string, args ...string) ([]byte, error) {
 			result, err := commands.Run(context.Background(), execx.Request{Name: "git", Args: append([]string{"-C", dir}, args...)})
