@@ -205,8 +205,10 @@ func TestKillStillArchivesThroughItsOwnCleanup(t *testing.T) {
 // or a folder no longer a Git worktree, retires its task unread. The branch
 // is read beside a saved run too, so a goblin that ran again after its saved
 // run ended, as after a resume or a failed pause, is refused while its newer
-// run is open. A refusal where cfo kill cannot find the run, the worktree
-// gone or no longer a Git worktree, names the abort that ends it (#2246).
+// run is open, and a saved run the gate no longer holds leaves the branch to
+// name the run. A resumed goblin's saved run is read by its id as a paused
+// one's is. A refusal where cfo kill cannot find the run, the worktree gone or
+// no longer a Git worktree, names the abort that ends it (#2246).
 func TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt(t *testing.T) {
 	if _, err := exec.LookPath("sqlite3"); err != nil {
 		t.Fatal("sqlite3 is needed for the gate fixture")
@@ -222,9 +224,9 @@ func TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt(t *testing.T) {
 	}
 	for _, caller := range callers {
 		for _, tc := range []struct {
-			name, status, head, phase                                                         string
-			want                                                                              []string
-			isForceArchive, isWorktreeGone, isNotAWorktree, isOlderRunSaved, isGateUnreadable bool
+			name, status, head, phase, saved                                 string
+			want                                                             []string
+			isForceArchive, isWorktreeGone, isNotAWorktree, isGateUnreadable bool
 		}{
 			{name: "a completed run", status: "completed"},
 			{name: "a cancelled run", status: "cancelled"},
@@ -243,13 +245,17 @@ func TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt(t *testing.T) {
 			{name: "a force archive of a paused task whose folder is no longer a Git worktree", status: "running", isForceArchive: true, isNotAWorktree: true, phase: "paused", want: []string{"cfo kill g1", "no-mistakes axi abort --run run-1"}},
 			{name: "a paused task whose empty folder is no longer a Git worktree", status: "running", isNotAWorktree: true, phase: "paused", want: []string{"cfo kill g1", "no-mistakes axi abort --run run-1"}},
 			{name: "a force archive of a paused task whose worktree is gone and whose gate cannot be read", isForceArchive: true, isWorktreeGone: true, phase: "paused", isGateUnreadable: true, want: []string{"cannot be read"}},
-			{name: "a resumed task whose saved run completed and whose branch's newer run is open", status: "running", phase: "running", isOlderRunSaved: true, want: []string{"gate run run-1", "cfo kill g1"}},
-			{name: "a failed pause whose saved run completed and whose branch's newer run is open", status: "running", phase: "failed", isOlderRunSaved: true, want: []string{"gate run run-1", "cfo kill g1"}},
+			{name: "a resumed task whose saved run completed and whose branch's newer run is open", status: "running", phase: "running", saved: "run-0", want: []string{"gate run run-1", "cfo kill g1"}},
+			{name: "a failed pause whose saved run completed and whose branch's newer run is open", status: "running", phase: "failed", saved: "run-0", want: []string{"gate run run-1", "cfo kill g1"}},
+			{name: "a force archive of a resumed task whose worktree is gone and whose saved run is open", status: "running", isForceArchive: true, isWorktreeGone: true, phase: "running", want: []string{"cfo kill g1", "no-mistakes axi abort --run run-1"}},
+			{name: "a resumed task whose empty folder is no longer a Git worktree and whose saved run is open", status: "running", isNotAWorktree: true, phase: "running", want: []string{"cfo kill g1", "no-mistakes axi abort --run run-1"}},
+			{name: "a paused task whose saved run the gate no longer holds and whose branch's run is open", status: "running", phase: "paused", saved: "run-9", want: []string{"gate run run-1", "cfo kill g1"}},
 		} {
 			t.Run(caller.name+" of "+tc.name, func(t *testing.T) {
 				// Arrange: the task's worktree on its own branch, whose
-				// latest run the scratch gate's database holds, and for a
-				// paused task the run its pause saved.
+				// older completed run-0 and latest run-1 the scratch gate's
+				// database holds, and for a paused or resumed task the run its
+				// pause saved.
 				h, meta := killedTask(t)
 				git := func(args ...string) string {
 					t.Helper()
@@ -277,21 +283,19 @@ func TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt(t *testing.T) {
 					schema := fmt.Sprintf(`CREATE TABLE repos(id TEXT,working_path TEXT);
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,last_pushed_sha TEXT,intent TEXT,worktree_dir TEXT,created_at INTEGER,submitted_head_sha TEXT,custody_returned_at INTEGER,review_approved_head_sha TEXT,pr_url TEXT,pr_state TEXT,ci_ready_at INTEGER,terminal_head_verified_at INTEGER);
 INSERT INTO repos VALUES('repo-1','%s');
-INSERT INTO runs(id,repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,created_at) VALUES('run-1','repo-1','fix/g1','%s','%s','','','',1);`, strings.ReplaceAll(filepath.ToSlash(meta.Project), "'", "''"), tc.status, head)
-					if tc.isOlderRunSaved {
-						schema += fmt.Sprintf(`INSERT INTO runs(id,repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,created_at) VALUES('run-0','repo-1','fix/g1','completed','%s','','','',0);`, head)
-					}
+INSERT INTO runs(id,repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,created_at) VALUES('run-0','repo-1','fix/g1','completed','%[3]s','','','',0);
+INSERT INTO runs(id,repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,created_at) VALUES('run-1','repo-1','fix/g1','%[2]s','%[3]s','','','',1);`, strings.ReplaceAll(filepath.ToSlash(meta.Project), "'", "''"), tc.status, head)
 					if output, err := exec.Command("sqlite3", gateDatabase, schema).CombinedOutput(); err != nil {
 						t.Fatalf("create gate fixture: %v %s", err, output)
 					}
 				}
 				if tc.phase != "" {
-					action, saved := "pause", "run-1"
+					action, saved := "pause", tc.saved
 					if tc.phase == "running" {
 						action = "resume"
 					}
-					if tc.isOlderRunSaved {
-						saved = "run-0"
+					if saved == "" {
+						saved = "run-1"
 					}
 					if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: action + "-1", Action: action, Phase: tc.phase, GateRun: saved, NoticeSent: true}); err != nil {
 						t.Fatal(err)
