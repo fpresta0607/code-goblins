@@ -1,9 +1,10 @@
 import { Icon } from "./Icon";
 import { isPicturePath, keptFileAddress } from "./kept-files";
+import "./composer-attachments.css";
 
-// The files he added to a message, in the box above his words: a picture as
-// a thumbnail read back from where the board kept it, any other file by its
-// name, each with a button that takes it out of what Send sends.
+// The files he added to a message or a written answer, above his words: a
+// picture as a thumbnail read back from where the board kept it, any other
+// file by its name, each with a button that takes it out of what Send sends.
 export function ComposerAttachments({ paths, instance, task, onRemove }: {
   paths: string[]; instance: string; task?: string; onRemove: (path: string) => void;
 }) {
