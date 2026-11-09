@@ -25,6 +25,7 @@ for (const who of ["CFO", "goblin"] as const) {
     await expect(log).toContainText("The latest reply arrived.");
     await log.locator(".message-thinking summary").click();
     await expect(log.locator(".message-thinking li")).toHaveText(["Read the file.", "Keep its order."]);
+    await log.locator("details.message-call-group > summary", { hasText: "Ran 1 command, edited 1 file" }).click();
     await log.getByText("src/example.ts", { exact: true }).click();
     await expect(log.locator(".message-diff")).toContainText("+new");
     await expect(field(page, name)).toHaveValue("continue from this draft");
