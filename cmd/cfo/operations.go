@@ -351,6 +351,7 @@ func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta 
 		failure := fmt.Errorf("%s: this run takes no turn: %w", name, err)
 		return nil, errors.Join(failure, verifyrun.Save(path, notRun(failure)))
 	}
+	executor.Admission.Priority = taskPriority(name, meta.ID, stderr, runtime)
 	executor.Source = func(ctx context.Context, dir string) (verifyrun.Source, error) {
 		return verifyrun.ReadSource(ctx, execx.OSRunner{}, dir)
 	}

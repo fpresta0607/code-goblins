@@ -93,6 +93,54 @@ INSERT INTO runs VALUES('run','repo','main',` + sqlString(managed) + `,` + sqlSt
 	}
 }
 
+// A record whose checkout is not <root>/worktrees/<repo>/<run> names no run: a
+// caller that took it for one would read its folder as no gate's at all.
+func TestRunWorktreeReadsOnlyAManagedCheckoutOnRecord(t *testing.T) {
+	for _, name := range []string{"managed checkout", "unknown run", "invalid run identity", "outside the gate's worktrees", "repository with no identity", "duplicate record"} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			repository, asked := "repo", "run"
+			worktree := filepath.Join(root, "worktrees", repository, "run")
+			switch name {
+			case "unknown run":
+				asked = "another-run"
+			case "invalid run identity":
+				asked = "invalid run"
+			case "outside the gate's worktrees":
+				worktree = filepath.Join(t.TempDir(), "worktrees", repository, "run")
+			case "repository with no identity":
+				repository = filepath.Join("group", "repo")
+				worktree = filepath.Join(root, "worktrees", repository, "run")
+			}
+			if err := os.MkdirAll(worktree, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			row := `INSERT INTO runs VALUES('run',` + sqlString(repository) + `,` + sqlString(worktree) + `);`
+			sql := `CREATE TABLE runs(id TEXT,repo_id TEXT,worktree_dir TEXT);` + row
+			if name == "duplicate record" {
+				sql += row
+			}
+			if output, err := exec.Command("sqlite3", filepath.Join(root, "state.sqlite"), sql).CombinedOutput(); err != nil {
+				t.Fatalf("record the run: %s (%v)", output, err)
+			}
+			reader := Reader{Root: root, Commands: fixtureCommands{execx.OSRunner{}}}
+
+			// Act
+			got, err := reader.RunWorktree(t.Context(), asked)
+
+			// Assert
+			if name == "managed checkout" {
+				if got != worktree || err != nil {
+					t.Fatalf("worktree=%q, err=%v; want the recorded %q", got, err, worktree)
+				}
+			} else if got != "" || err == nil {
+				t.Fatalf("worktree=%q, err=%v; want no checkout from this record", got, err)
+			}
+		})
+	}
+}
+
 func TestWorktreeSourceRejectsAnUnmanagedDirectory(t *testing.T) {
 	for _, name := range []string{"outside root", "invalid run identity"} {
 		t.Run(name, func(t *testing.T) {
