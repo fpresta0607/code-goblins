@@ -10,7 +10,7 @@ func TestReadPayloadPreToolUse(t *testing.T) {
 	if !ok {
 		t.Fatal("ok = false, want true")
 	}
-	want := Payload{SessionID: "s1", ToolName: "Bash", Command: "echo hi"}
+	want := Payload{SessionID: "s1", ToolName: "Bash", Command: "echo hi", ToolInput: `{"command":"echo hi"}`}
 	if p != want {
 		t.Errorf("ReadPayload = %+v, want %+v", p, want)
 	}
@@ -23,7 +23,7 @@ func TestReadPayloadKeepsTheSessionFolderCodexNames(t *testing.T) {
 	if !ok {
 		t.Fatal("ok = false, want true")
 	}
-	want := Payload{SessionID: "s5", Cwd: `D:\worktrees\pd-keys`, ToolName: "Bash", Command: "uv run pytest"}
+	want := Payload{SessionID: "s5", Cwd: `D:\worktrees\pd-keys`, ToolName: "Bash", Command: "uv run pytest", ToolInput: `{"command":"uv run pytest"}`}
 	if p != want {
 		t.Errorf("ReadPayload = %+v, want %+v", p, want)
 	}

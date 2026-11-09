@@ -237,3 +237,66 @@ func TestTheBoardRefusesASealItCannotReadTheTaskOf(t *testing.T) {
 		t.Fatalf("status = %d, body = %q, want 503", response.Code, response.Body.String())
 	}
 }
+
+// The board holds a goblin's file tools to its task's path boundary: a read
+// of the ssh folder or the credential store and a write outside its worktree
+// are denied before they run, naming the path, and a write in its worktree
+// runs.
+func TestTheBoardHoldsAGoblinsFileToolsToItsPathBoundary(t *testing.T) {
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileStore := filepath.Join(t.TempDir(), "credentials")
+	t.Setenv("CFO_CREDENTIAL_DIR", fileStore)
+	outside := filepath.Join(t.TempDir(), "elsewhere.txt")
+	for _, test := range []struct {
+		name, tool, path string
+		isRefused        bool
+	}{
+		{"a read of an ssh key", "Read", filepath.Join(userHome, ".ssh", "id_ed25519"), true},
+		{"a read of the credential store", "Read", filepath.Join(fileStore, "project", "TOKEN"), true},
+		{"a write outside the worktree", "Write", outside, true},
+		{"a write in the worktree", "Write", "", false},
+		{"a read outside the worktree", "Read", outside, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			board, _, worktree := goblinHookBoard(t)
+			path := test.path
+			if path == "" {
+				path = filepath.Join(worktree, "main.go")
+			}
+			body, err := json.Marshal(map[string]any{"session_id": "s1", "hook_event_name": "PreToolUse", "tool_name": test.tool, "tool_input": map[string]string{"file_path": path, "content": "x"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			response := postHook(board, http.MethodPost, install.GoblinSealPath, string(body), goblinVariables())
+
+			// Assert
+			if response.Code != http.StatusOK {
+				t.Fatalf("status = %d, body = %q, want 200", response.Code, response.Body.String())
+			}
+			if !test.isRefused {
+				if response.Body.Len() != 0 {
+					t.Fatalf("body = %q, want none, so the call runs", response.Body.String())
+				}
+				return
+			}
+			var answer struct {
+				Output struct {
+					Decision string `json:"permissionDecision"`
+					Reason   string `json:"permissionDecisionReason"`
+				} `json:"hookSpecificOutput"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &answer); err != nil || answer.Output.Decision != "deny" || !strings.Contains(strings.ToLower(answer.Output.Reason), strings.ToLower(path)) {
+				t.Fatalf("body = %q (%v), want the call denied naming %s", response.Body.String(), err, path)
+			}
+			if _, err := os.Stat(path); test.tool == "Write" && !os.IsNotExist(err) {
+				t.Fatalf("the refused call left %s behind (%v)", path, err)
+			}
+		})
+	}
+}

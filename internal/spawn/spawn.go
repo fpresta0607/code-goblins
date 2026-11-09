@@ -295,6 +295,10 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err != nil {
 		return Result{}, err
 	}
+	isSandboxed, err := s.sandboxNeeded(req, admittedBrief)
+	if err != nil {
+		return Result{}, err
+	}
 	preflight, err := s.preflightCredentials(ctx, project, need)
 	if err != nil {
 		return Result{}, err
@@ -412,6 +416,11 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	result.Meta.MCPServers = need.MCPServers
 	result.Meta.IsCrawlerLeftOut = isCrawlerLeftOut
 	result.Meta.DeliveryHash = deliveryHash
+	if isSandboxed {
+		if err := containWorktree(&result.Meta, wt.Path); err != nil {
+			return Result{}, errors.Join(err, s.teardownLaunch(ctx, host.Record{}, project, wt.Path, scratch, result.Meta.ID))
+		}
+	}
 
 	// Publish metadata as soon as the worktree exists, before the harness can
 	// start: a task whose launch later fails is then addressable and cleanable
@@ -544,6 +553,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return fail(result, fmt.Errorf("spawn: %w", err))
 	}
 	mergeProvisionEnv(launch.Env, cooldown)
+	if err := containEnvironment(launch.Env, result.Meta); err != nil {
+		return fail(result, err)
+	}
 	s.nativeEnvironment(launch.Env, result.Meta)
 	// Every goblin is told to report its outcome through cfo notify, so the
 	// CFO is woken with the actual PR URL, question, or failure reason instead
@@ -562,6 +574,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 	launch.Instruction = spawnInstruction(req.BriefPath, result.Meta, provision.Install, provision.InstallRefused) + packInstruction
 	launch.Instruction += cooldownInstruction(cooldown)
+	launch.Instruction += sandboxInstruction(result.Meta)
 	launch.Instruction += launch.SubagentInstruction
 	if selection != nil {
 		launch.Instruction += selection.Instruction(req.ID, filepath.Join(taskTmp, "pipeline.json"))

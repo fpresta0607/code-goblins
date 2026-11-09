@@ -13,20 +13,25 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // goblinHookHome is a scratch home whose goblin pd-keys runs the goblin
 // hooks, as its terminal names them, in a worktree of its own that holds
-// nothing yet.
+// nothing yet, which its task record names.
 func goblinHookHome(t *testing.T) string {
 	t.Helper()
 	root := useScratchHome(t)
+	worktree := t.TempDir()
 	t.Setenv(harness.RoleVariable, harness.RoleGoblin)
 	t.Setenv("CFO_TASK_ID", "pd-keys")
-	t.Setenv("CLAUDE_PROJECT_DIR", t.TempDir())
+	t.Setenv("CLAUDE_PROJECT_DIR", worktree)
 	stateDir := filepath.Join(root, "state")
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: "pd-keys", Worktree: worktree, Scratch: filepath.Join(root, "scratch", "pd-keys")}); err != nil {
 		t.Fatal(err)
 	}
 	return stateDir

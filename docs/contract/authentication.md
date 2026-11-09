@@ -127,8 +127,32 @@ Its next relaunch withholds every server whose entry holds a value: the relaunch
 Its running harness keeps the servers it started with until then.
 
 This is a gate on what `cfo` puts into a terminal, not a sandbox.
-A goblin runs as the Supreme Overlord's Windows user, so the credential store, a CLI's own login and the task's own record stay within its reach.
+A goblin runs as the Supreme Overlord's Windows user, so a CLI's own login and the task's own record stay within its reach.
 What the gate ends is a test run, a gate step or a one-off script spending with a credential its task never named.
+
+Beside it, a path boundary holds every goblin's tool calls, whatever its harness, before each runs.
+A call that names a path in the credential store, which is `cfo`'s file store and Windows' `Credentials`, `Protect` and `Vault` folders, or in `~/.ssh`, is refused, as is a credential program such as `cmdkey`.
+A call that writes outside the goblin's worktree, its scratch folder, the temporary folder goblins share and the caches its terminal names is refused too.
+The refusal names the path, and a refused call never ran, so it wrote nothing.
+The boundary reads the paths a call names: those of the file tools, and the words and redirects of a shell command.
+What a program the command starts opens is not seen, so the boundary keeps a goblin's own reach in line and is no wall against code that sets out to cross it: such code runs in a container, as [Untrusted code](#untrusted-code) says.
+A gate's agents run without the goblin's hooks and are not held to it yet.
+
+### Untrusted code
+
+A brief whose code is not to be trusted adds `sandbox: needed` under `## Authentication`.
+Any other value, or a second line, refuses the brief at `cfo brief ready` and at the spawn, and every task without the line runs as an ordinary process.
+The project names the container's image in its devcontainer, `.devcontainer/devcontainer.json` or `.devcontainer.json`, as an `image` field.
+A devcontainer that builds its image, with `build`, `dockerFile` or `dockerComposeFile`, is refused, since the build would run the untrusted Dockerfile on the engine outside the line; the project names a built image instead.
+A spawn is refused before anything starts when `docker` is not on PATH or the project names no image, and a helper of a sandbox task is a sandbox task too.
+The task keeps its worktree, branch and delivery, and the task's record keeps the image and the worktree's `.git` link (`sandbox_image` and `sandbox_git` in `state/<id>.meta`).
+Its goblin's harness runs on the host, where its shell runs only `cfo`, `git` and `gh`, from its worktree.
+Every other command is refused there, as are `cfo gate test`, `cfo verify` and `cfo services`, and the goblin runs them in the container with [`cfo sandbox run`](../commands/sandbox.md), in the machine's heavy line.
+Its gate's Test step runs its command in the same image, with the gate's checkout alone mounted.
+A run that cannot start Docker runs nowhere, never on the host instead.
+Code in the container can write the worktree, so the task's host git reads hooks from an empty folder, runs with its fsmonitor off, and reads attributes from the empty tree, so no filter, diff or merge driver the worktree names runs.
+Every host command is refused while the worktree's `.git` link differs from the one its spawn recorded or a folder under it holds a `.git` of its own, and the container sees the `.git` link read-only.
+The gate's prepare, lint and format commands and its agents' own shells still run on the host.
 
 ### The credential store
 

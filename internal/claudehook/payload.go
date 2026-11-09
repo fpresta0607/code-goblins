@@ -30,6 +30,9 @@ type Payload struct {
 	// Code wrote it.
 	ToolUseID    string
 	ToolResponse string
+	// ToolInput is the JSON of the call's arguments, as the harness wrote
+	// them, which the path boundary reads for the paths a call names.
+	ToolInput string
 }
 
 // rawPayload mirrors Claude's hook JSON field names before the stop-hook
@@ -89,6 +92,7 @@ func ReadPayload(r io.Reader) (Payload, bool) {
 		ToolName:     raw.ToolName,
 		ToolUseID:    raw.ToolUseID,
 		ToolResponse: string(raw.ToolResponse),
+		ToolInput:    string(raw.ToolInput),
 	}
 
 	if len(raw.ToolInput) > 0 {

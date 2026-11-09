@@ -120,7 +120,7 @@ process.stdout.write(JSON.stringify(answer ?? null));
 					t.Fatal(err)
 				}
 			}
-			run := exec.Command(node, driver, test.tool, `.venv\Scripts\python.exe -m pytest`, worktree)
+			run := exec.Command(node, driver, test.tool, "uv run pytest", worktree)
 			run.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
 			var stderr bytes.Buffer
 			run.Stderr = &stderr
