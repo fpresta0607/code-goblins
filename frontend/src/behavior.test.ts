@@ -224,13 +224,13 @@ test("a live card whose gate saw its pull request merge wears the merge icon", (
 });
 
 test("the board keeps the CFO registration state the supervisor reports", () => {
-  const stale = "The CEO is not registered; run cfo register in the CEO session";
+  const stale = "The CFO is not registered; run cfo register in the CFO session";
   assert.equal(parseSnapshot({healthy:true, registration:stale}).registration, stale);
   assert.equal(parseSnapshot({healthy:true}).registration, "");
 });
 
 test("the board keeps the conversation the CFO could not resume, as the supervisor reports it", () => {
-  const left = "The CEO's conversation a1b2c3d4-session could not be resumed when it came back at 2026-10-03 01:47 UTC, so it started on a new one. That conversation is kept: claude --resume a1b2c3d4-session in the CEO's home opens it by hand.";
+  const left = "The CFO's conversation a1b2c3d4-session could not be resumed when it came back at 2026-10-03 01:47 UTC, so it started on a new one. That conversation is kept: claude --resume a1b2c3d4-session in the CFO's home opens it by hand.";
   assert.equal(parseSnapshot({healthy:true, cfo_conversation_left:left}).cfo_conversation_left, left);
   assert.equal(parseSnapshot({healthy:true}).cfo_conversation_left, "");
 });
@@ -286,7 +286,7 @@ test("only a GitHub pull request wears the GitHub mark and its bare number", () 
 test("dispatched goblins hang under the CFO, and only live work is in the tree", () => {
   const live = ["a", "b", "c", "d", "e", "f"].map((id) => ({id, phase:"working", verified:false}));
   const history = [{id:"finished:x", phase:"done", verified:false, archived:true}, {id:"brief", phase:"queued", verified:false}];
-  const drawn = workflowNodes(parseSnapshot({healthy:true, registration:"The CEO is not registered; run cfo register in the CEO session", tasks:[...live, ...history]}));
+  const drawn = workflowNodes(parseSnapshot({healthy:true, registration:"The CFO is not registered; run cfo register in the CFO session", tasks:[...live, ...history]}));
   const root = drawn.find((node) => node.id === CFO_ROOT);
   assert.ok(root?.cfo);
   assert.equal(nodeStatus(root!), "Registration stale");
@@ -769,8 +769,8 @@ test("delivery reads as a mark, and only trouble spells itself out", () => {
 // unconfirmed ... I get these command center blips and errors, fix".
 test("an answer typed for a busy CFO reads sent, then delivered, and warns only in words that say what to do", () => {
   // Arrange
-  const sent = "Sent. The CEO takes it at its next tool call, or as its current turn ends.";
-  const advice = "Your answer was typed for the CEO, which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to the CEO.";
+  const sent = "Sent. The CFO takes it at its next tool call, or as its current turn ends.";
+  const advice = "Your answer was typed for the CFO, which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to the CFO.";
   const answer = (fields: Record<string, unknown>) => deliveryMark(parseAction({ id: "a", kind: "cfo_answer", ...fields }));
 
   // Act

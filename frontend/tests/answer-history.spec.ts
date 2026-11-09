@@ -65,7 +65,7 @@ for (const width of [1707, 390]) {
 
 test("an answered question reopens with its answer checked, and who chose it and when", async ({ page }, testInfo) => {
   for (const [asker, chosen, who] of [
-    [/^Change the answer to The CFO:/, "Merge it", "You chose this · 40m ago"],
+    [/^Change the answer to The CEO:/, "Merge it", "You chose this · 40m ago"],
     [/^Change the answer to Bernie - Gate Keeper:/, "Wait for the running test step to end", "The CEO chose this · 2m ago"],
     [/^Change the answer to Lucy - Pixel Polisher:/, "Mint", "The CEO chose this while you were away · 3h ago"],
   ] as const) {
@@ -88,7 +88,7 @@ test("an answered question reopens with its answer checked, and who chose it and
 test("he changes an answer and the card shows it on the frame he makes it, with no spinner and no error line", async ({ page }, testInfo) => {
   // Arrange
   const posted = await actions(page);
-  const dialog = await reopen(page, /^Change the answer to The CFO:/);
+  const dialog = await reopen(page, /^Change the answer to The CEO:/);
   await dialog.getByRole("radio", { name: "Keep it open" }).check();
 
   // Act
@@ -128,7 +128,7 @@ test("he writes his own answer in place of the one chosen", async ({ page }) => 
 test("choosing the answer already chosen sends nothing", async ({ page }) => {
   // Arrange
   const posted = await actions(page);
-  const dialog = await reopen(page, /^Change the answer to The CFO:/);
+  const dialog = await reopen(page, /^Change the answer to The CEO:/);
   await dialog.getByRole("radio", { name: "Keep it open" }).check();
   await dialog.getByRole("radio", { name: "Merge it" }).check();
 
@@ -146,7 +146,7 @@ test("a double click sends one change", async ({ page }) => {
   let release = () => {};
   const held = new Promise<void>((resolve) => { release = resolve; });
   const posted = await actions(page, async (route, body) => { await held; await route.fulfill({ status: 202, json: { ...body, status: "queued" } }); });
-  const dialog = await reopen(page, /^Change the answer to The CFO:/);
+  const dialog = await reopen(page, /^Change the answer to The CEO:/);
   await dialog.getByRole("radio", { name: "Keep it open" }).check();
 
   // Act
@@ -167,7 +167,7 @@ test("a change the dropped connection kept from the supervisor goes again under 
     if (++attempts === 1) return route.abort("connectionreset");
     await route.fulfill({ status: 202, json: { ...body, status: "queued" } });
   });
-  const dialog = await reopen(page, /^Change the answer to The CFO:/);
+  const dialog = await reopen(page, /^Change the answer to The CEO:/);
   await dialog.getByRole("radio", { name: "Keep it open" }).check();
 
   // Act
@@ -188,7 +188,7 @@ test("a change the dropped connection kept from the supervisor goes again under 
 test("a change the supervisor refuses puts the answer back as it stood and says why beside the button", async ({ page }) => {
   // Arrange
   await actions(page, (route) => route.fulfill({ status: 409, json: { error: "this question is no longer on the board; refresh the board" } }));
-  const dialog = await reopen(page, /^Change the answer to The CFO:/);
+  const dialog = await reopen(page, /^Change the answer to The CEO:/);
   await dialog.getByRole("radio", { name: "Keep it open" }).check();
 
   // Act

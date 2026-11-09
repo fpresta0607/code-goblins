@@ -27,7 +27,7 @@ for (const [phase, step, reason, runtime, text] of [
   ["blocked", "rebase", "Pipeline decision required at rebase; use cfo pipeline respond", "parked", "Waiting on the CEO: rebase gate"],
   ["review", "test", "Pipeline evidence is incomplete or belongs to a different HEAD", "busy", "In review gate: tests"],
   ["review", "test", "Pipeline evidence is incomplete or belongs to a different HEAD", "parked", "In review gate: tests"],
-  ["blocked", "test", "Waiting on the CEO: Which source should ship?", "busy", "Waiting on the CEO"],
+  ["blocked", "test", "Waiting on the CFO: Which source should ship?", "busy", "Waiting on the CEO"],
 ] as const) {
   test(`gate ${step}/${phase} keeps its gate status beside a ${runtime} terminal`, () => {
     const snapshot = board({ phase, gate_step: step, reason, report: "working", runtime: { state: runtime } });
@@ -42,7 +42,7 @@ for (const [phase, step, reason, runtime, text] of [
 for (const [name, reason, text] of [
   ["a gate", "Review gate needs approval before continuing", "Waiting on the CEO"],
   ["a dependency", "Wait for the dependency task to land before continuing", "Waiting on the CEO"],
-  ["the CEO", "Waiting on the CEO: Which dependency should land first?", "Waiting on the CEO"],
+  ["the CEO", "Waiting on the CFO: Which dependency should land first?", "Waiting on the CEO"],
 ]) {
   test(`a blocked goblin awaiting ${name} reads Waiting on the CFO, who answers it, and keeps its reason and phase`, () => {
     // Arrange
@@ -61,7 +61,7 @@ for (const [name, reason, text] of [
     assert.equal(task.phase, "blocked");
     assert.equal(task.reason, reason);
     assert.equal(summary.isFailure, false);
-    assert.ok([summary.sentence, ...summary.details].join(" ").includes(reason.replace("Waiting on the CEO: ", "")));
+    assert.ok([summary.sentence, ...summary.details].join(" ").includes(reason.replace("Waiting on the CFO: ", "")));
   });
 }
 

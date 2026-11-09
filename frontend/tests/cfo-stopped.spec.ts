@@ -5,10 +5,10 @@ import { expect, holdStream, openItem, test } from "./site";
 // started, so it does not start a CFO that keeps ending in a loop. The
 // Overlord is told in one plain item whose one action is the board's own
 // Reopen the CFO. It runs no command.
-const TITLE = "The CEO's terminal ended 3 times in a row, each within 10 minutes of its start, with no more than 10 minutes between one end and the next start, the last time because its terminal ended with exit code 1, so the supervisor stopped bringing it back. Reopen the CEO once you have looked?";
+const TITLE = "The CFO's terminal ended 3 times in a row, each within 10 minutes of its start, with no more than 10 minutes between one end and the next start, the last time because its terminal ended with exit code 1, so the supervisor stopped bringing it back. Reopen the CFO once you have looked?";
 const item = {
   id: "cfo-stopped-0123456789abcdef", identity: "f".repeat(64), title: TITLE, shell: "powershell", admin: false,
-  command: "# This item reopens the CEO with the board's Reopen the CEO, never as a command.\n", cwd: "C:\\CodeGoblins",
+  command: "# This item reopens the CFO with the board's Reopen the CFO, never as a command.\n", cwd: "C:\\CodeGoblins",
   state: "ready", created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 86400000).toISOString(), cfo_stopped: true,
 };
 const snapshot = {

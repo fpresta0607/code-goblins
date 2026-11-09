@@ -30,7 +30,7 @@ test("a closed CFO is said to be closed in plain words, with Reopen as its one a
   // Assert: plain words, one action, and nothing about a pid or a command.
   await expect(bar.locator("p")).toHaveText("The CEO is closed.");
   await expect(bar.getByRole("button")).toHaveCount(1);
-  await expect(page.getByText(/pid|cfo register|No CFO is running|Start the CFO/)).toHaveCount(0);
+  await expect(page.getByText(/pid|cfo register|No CEO is running|Start the CEO/)).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("closed-cfo.png") });
 
   // Act
@@ -47,7 +47,7 @@ test("a closed CFO is said to be closed in plain words, with Reopen as its one a
 
 test("a CFO that could not come back says so in a few words beside Reopen, which can be tried again", async ({ page }) => {
   // Arrange
-  const reason = "the CEO could not be reopened: claude is not on PATH";
+  const reason = "the CFO could not be reopened: claude is not on PATH";
   const { requests, release } = await open(page, { status: 500, body: { error: reason } });
   release();
 
@@ -55,7 +55,7 @@ test("a CFO that could not come back says so in a few words beside Reopen, which
   await page.getByRole("button", { name: "Reopen the CEO" }).click();
 
   // Assert
-  await expect(page.locator(".cfo-pin .notice")).toHaveText("The CEO could not be reopened: claude is not on PATH.");
+  await expect(page.locator(".cfo-pin .notice")).toHaveText("The CFO could not be reopened: claude is not on PATH.");
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Reopen the CEO" })).toBeEnabled();
   expect(requests).toHaveLength(1);

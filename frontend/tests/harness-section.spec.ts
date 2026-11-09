@@ -73,7 +73,7 @@ test("the CFO engine is saved for a safe turn without restarting on selection", 
 // A selection waits for the CFO's own safe turn, and the board says so beside
 // its selectors rather than showing it as applied.
 test("a CFO engine the CFO cannot take yet shows as pending with its reason", async ({ page }) => {
-  const waiting = "Waiting for python.exe (pid 2) in the CEO's terminal to finish";
+  const waiting = "Waiting for python.exe (pid 2) in the CFO's terminal to finish";
   await open(page, [], { cfo_engine: { harness: "codex", model: "next-model", effort: "low", pending: true, problem: "", waiting } });
   await openCfo(page);
   await harness(page).locator("> summary").click();

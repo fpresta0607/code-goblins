@@ -119,7 +119,7 @@ test.describe("on the board, in a browser tab", () => {
       expect(asked).toEqual([]);
       await expect(page.getByRole("button", { name: "Turn on", exact: true })).toHaveCount(permission === "default" ? 1 : 0);
       await send(allowed, board({ questions: [RELEASE] }));
-      await expect.poll(() => notes(allowed)).toEqual([{ title: "CFO", body: "The CFO asks: " + ASKS, tag: "question:" + RELEASE.id + "@" + RELEASE.created_at, closed: false }]);
+      await expect.poll(() => notes(allowed)).toEqual([{ title: "CEO", body: "The CEO asks: " + ASKS, tag: "question:" + RELEASE.id + "@" + RELEASE.created_at, closed: false }]);
       await send(allowed, board({ questions: [RELEASE] }));
       await send(allowed, board({ instance: "board-2" }));
       await send(allowed, board({ instance: "board-2", questions: [RELEASE] }));
@@ -207,13 +207,13 @@ test.describe("on the board, in a browser tab", () => {
 
     // Assert
     const alert = "question:" + RELEASE.id + "@" + RELEASE.created_at;
-    await expect.poll(() => notes(page)).toEqual([{ title: "CFO", body: "The CFO asks: " + ASKS, tag: alert, closed: false }]);
+    await expect.poll(() => notes(page)).toEqual([{ title: "CEO", body: "The CEO asks: " + ASKS, tag: alert, closed: false }]);
     expect(asked).toEqual(["alert:" + alert]);
     await expect(card(page)).toBeHidden();
     await page.evaluate(() => (window as unknown as { notes: { onclick: () => void }[] }).notes[0].onclick());
     await expect(card(page)).toContainText(ASKS);
     await testInfo.attach("the notification opened its question", { body: await page.screenshot(), contentType: "image/png" });
-    expect(await notes(page)).toEqual([{ title: "CFO", body: "The CFO asks: " + ASKS, tag: alert, closed: true }]);
+    expect(await notes(page)).toEqual([{ title: "CEO", body: "The CEO asks: " + ASKS, tag: alert, closed: true }]);
   });
 });
 
@@ -266,12 +266,12 @@ window.addEventListener("DOMContentLoaded", () => { ${notesScript} });`;
     // the page was handed reached it in its asker's words.
     expect(quiet).toEqual([]);
     const fromPage = "question:" + RELEASE.id + "@" + RELEASE.created_at;
-    await expect.poll(() => posted(page)).toEqual([{ id: fromPage, title: "CFO", body: "The CFO asks: " + ASKS }]);
+    await expect.poll(() => posted(page)).toEqual([{ id: fromPage, title: "CEO", body: "The CEO asks: " + ASKS }]);
     await send(page, { ...news(), questions: [RELEASE, second] });
     await send(page, board({ instance: "board-2" }));
     await send(page, board({ instance: "board-2", questions: [RELEASE, second] }));
     await page.waitForTimeout(ANNOUNCED_BY_MS);
-    expect(await posted(page)).toEqual([{ id: fromPage, title: "CFO", body: "The CFO asks: " + ASKS }]);
+    expect(await posted(page)).toEqual([{ id: fromPage, title: "CEO", body: "The CEO asks: " + ASKS }]);
     await testInfo.attach("one item posted to Windows, in the window's size", { body: await page.screenshot(), contentType: "image/png" });
     await clicked(page, fromPage);
     await expect(card(page)).toContainText(ASKS);

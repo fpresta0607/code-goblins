@@ -862,7 +862,7 @@ test("a CFO whose stream says its record is stale says why in its one corner not
   // Arrange
   await open(page);
   await openCfo(page);
-  await expect(list(page, "CFO")).toContainText("Answer 99");
+  await expect(list(page, "CEO")).toContainText("Answer 99");
   const corner = page.locator(".messages-view:not([hidden]) .terminal-corner");
   const stale = "The CFO's record names conversation cfo-9, which its folder does not hold.";
   const problem = "The board cannot write or read this session's conversation stream, so it draws the session's own record: disk full";

@@ -115,7 +115,7 @@ test("what says a queued task already finished reads as one plain sentence, with
     ["its last report", refusal("its last report was done (2026-10-06 11:59Z: done: PR https://github.com/fpresta0607/code-goblins/pull/9)"), "Its last report was done (2026-10-06 11:59Z: done: PR #9)."],
     ["its pull request", refusal("its pull request merged (https://github.com/fpresta0607/code-goblins/pull/31)"), "Its pull request merged (PR #31)."],
     ["its branch's pull request", refusal("its branch fix/panel-clarity's pull request merged (https://github.com/fpresta0607/code-goblins/pull/31)"), "Its branch fix/panel-clarity's pull request merged (PR #31)."],
-    ["a retirement", refusal("the CEO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since"), "The CEO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since."],
+    ["a retirement", refusal("the CFO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since"), "The CFO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since."],
     ["other words are kept whole", "Finished under another id", "Finished under another id."],
     ["nothing says so", "", ""],
   ];

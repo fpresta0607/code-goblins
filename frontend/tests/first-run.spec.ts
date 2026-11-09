@@ -7,7 +7,7 @@ import { expect, test, type Page } from "./site";
 // "shouldn't it be a tab or a drop-down switch or icon selection for the
 // harness?" The page asks for no project, shows as done what the quick start
 // already knows, and offers the agents as one row of icon tabs.
-const missing = "Install pi to start the CEO";
+const missing = "Install pi to start the CFO";
 const setup = (changes: Record<string, unknown> = {}) => ({
   home: "C:\\Users\\franco\\AppData\\Local\\CodeGoblins",
   agent: "claude",

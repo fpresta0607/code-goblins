@@ -119,7 +119,7 @@ for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) 
     const isPhone = size.width === 390;
     await page.goto("/tests/fixtures/orchestration-card-text.html?crowded&view=" + (isPhone ? "lineage" : "canvas"));
     await page.evaluate(() => document.fonts.ready);
-    const cfo = page.locator(isPhone ? ".workflow-node.role-cfo" : ".flow-node").filter({ has: page.locator("strong", { hasText: /^CFO$/ }) });
+    const cfo = page.locator(isPhone ? ".workflow-node.role-cfo" : ".flow-node").filter({ has: page.locator("strong", { hasText: /^CEO$/ }) });
     await expect(cfo.locator(".subscription-dial")).toHaveCount(3);
 
     // Act
@@ -373,7 +373,7 @@ for (const { view, width, height } of [
       await page.mouse.move(2, 2);
 
       // Assert
-      const cfo = page.locator(view === "canvas" ? ".flow-node" : ".workflow-node.role-cfo").filter({ has: page.locator("strong", { hasText: /^CFO$/ }) });
+      const cfo = page.locator(view === "canvas" ? ".flow-node" : ".workflow-node.role-cfo").filter({ has: page.locator("strong", { hasText: /^CEO$/ }) });
       const seen = await cfo.evaluate(fit, PARTS);
       expect(seen.spills).toEqual([]);
       expect(seen.cut).toEqual([]);

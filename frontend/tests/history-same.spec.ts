@@ -26,7 +26,7 @@ async function reopens(page: Page, status = 200, body: Record<string, unknown> =
 }
 
 const MARKS: [string, RegExp][] = [
-  ["May I file the push key card now?", /^The CFO answered$/],
+  ["May I file the push key card now?", /^The CEO answered$/],
   ["Tick the App Group for the share extension", /^Done$/],
   ["Move the sign-in screen out of test mode", /^Closed\./],
   ["Turn on time sensitive notifications", /^You wrote: The box was already ticked$/],
@@ -37,7 +37,7 @@ const MARKS: [string, RegExp][] = [
   ["Merge the release pull request?", /^You answered$/],
   ["Add the DNS records for the docs site", /^You wrote: Added both records$/],
   ["Publish release v0.5.2", /exit 0/],
-  ["Which accent should the board use?", /^The CFO answered while you were away$/],
+  ["Which accent should the board use?", /^The CEO answered while you were away$/],
   ["Should the sign-in page keep its old link?", /^Superseded/],
   ["Sign in to Example for sample-app", /^Signed in to Example/],
 ];

@@ -38,7 +38,7 @@ test("a new question never opens the Command Center by itself, and opens from th
 
   // Act
   await page.getByLabel("Command Center, 1 waiting on you").click();
-  await page.getByRole("button", { name: /^Answer The CFO: / }).click();
+  await page.getByRole("button", { name: /^Answer The CEO: / }).click();
 
   // Assert
   await expect(page.getByRole("dialog").getByText("May I build the layout switch as drawn?")).toBeVisible();

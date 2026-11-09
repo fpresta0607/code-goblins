@@ -681,7 +681,7 @@ test.describe("AFK report layout", () => {
     await expect(frame.getByRole("heading", { name: "Record", exact: true })).toBeInViewport();
     await expect(report.getByRole("button", { name: "Go through what needs you" })).toBeInViewport();
     await page.screenshot({ path: testInfo.outputPath(`after-${width}-scrolled.png`) });
-    await frame.getByRole("button", { name: /^Answer The CFO: Review the complete migration/ }).click();
+    await frame.getByRole("button", { name: /^Answer The CEO: Review the complete migration/ }).click();
     await expect(report).toHaveCount(0);
     await expect(page.locator("dialog.question-modal")).toContainText(QUESTIONS[0].text);
   });
@@ -826,7 +826,7 @@ test("a stretch the CFO turned on at his ask says so on the bar, and the offer q
   await page.clock.install();
   const byTheCFO = { from: "the CFO at his ask (claude pid 4242)", asked: "I'm stepping away, turn AFK on" };
   await open(page, snapshot({ afk: on({ ...byTheCFO, decided: 1 }, 8 * HOURS) }));
-  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+, turned on by the CFO at your ask\. 1 decided\.$/);
+  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+, turned on by the CEO at your ask\. 1 decided\.$/);
   await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
   await expect(offer(page)).toContainText("turned on by the CEO at your ask: “I'm stepping away, turn AFK on”. The CEO decided 1.");
   await offer(page).getByRole("button", { name: "Stay AFK" }).click();
@@ -878,7 +878,7 @@ test("after the CFO turned AFK on at his ask, the lesser Turn AFK off turns it o
   const switched = page.locator("dialog.afk-dialog").filter({ hasText: "The CEO turned AFK on" });
   await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
   // Once the CFO decided something the line counts it.
-  await expect(switched.locator("p").first()).toHaveText(/^It did so at your ask, at .+\. The CFO decided 2\.$/);
+  await expect(switched.locator("p").first()).toHaveText(/^It did so at your ask, at .+\. The CEO decided 2\.$/);
   await switched.getByRole("button", { name: "Turn AFK off" }).click();
   await expect(switched.getByRole("alert")).toHaveText("AFK did not turn off" + REFUSAL);
   await expect(switched).toBeVisible();

@@ -38,7 +38,7 @@ test("a new release is its own item: the versions, what is new, what the update 
   const card = dialog.locator(".update-card");
   await expect(card.getByRole("heading", { name: "Update Code Goblins" })).toBeVisible();
   await expect(card.locator(".update-versions")).toHaveAccessibleName("From v0.4.2 to v0.5.0");
-  await expect(card.locator(".update-notes li")).toHaveText(["The installer sorts out every machine by itself", "AFK mode holds questions for you", "Goblins that stall wake the CEO"]);
+  await expect(card.locator(".update-notes li")).toHaveText(["The installer sorts out every machine by itself", "AFK mode holds questions for you", "Goblins that stall wake the CFO"]);
   await expect(card.getByRole("link", { name: "What's new" })).toHaveAttribute("href", "https://github.com/fpresta0607/code-goblins/releases/tag/v0.5.0");
   await expect(card.locator(".update-trust")).toContainText("Unsigned release. Update installs it only when each file matches the release's SHA-256, such as cfo.exe 3f9a6c0e…5bc21e.");
   await expect(card.locator(".run-command")).toHaveCount(0);

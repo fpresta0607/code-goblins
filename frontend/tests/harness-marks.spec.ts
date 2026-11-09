@@ -53,7 +53,7 @@ const CFO_ENGINES = [
   { why: "no saved engine", engine: undefined, line: "Claude Code · Opus 5.5" },
   { why: "an applied engine", engine: { pending: false, problem: "" }, line: "Claude Code · Opus 5.5 · high" },
   { why: "a pending engine", engine: { pending: true, problem: "" }, line: "Claude Code · Opus 5.5" },
-  { why: "an engine that could not be applied", engine: { pending: false, problem: "The selection could not be applied: the CEO is busy" }, line: "Claude Code · Opus 5.5" },
+  { why: "an engine that could not be applied", engine: { pending: false, problem: "The selection could not be applied: the CFO is busy" }, line: "Claude Code · Opus 5.5" },
 ] as const;
 for (const cfo of CFO_ENGINES) {
   test(`the CFO's Task view with ${cfo.why} names its harness, its live session's model and the effort it runs`, async ({ page }) => {

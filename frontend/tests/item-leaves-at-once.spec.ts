@@ -128,7 +128,7 @@ test("an answer waiting for the Codex composer reads Queued with its reason", as
   // Arrange
   await standInStream(context);
   await announcer(context);
-  const reason = "The CEO is typing. Your answer will wait.";
+  const reason = "The CFO is typing. Your answer will wait.";
   await context.route("**/api/actions", (route) => route.fulfill({ status: 202, json: { ...route.request().postDataJSON(), status: "queued", message: reason } }));
   await boardAsked(page, { questions: [question] }, ASKS);
   await send(page, "snapshot", { ...asking({ questions: [question] }), cfo_harness: "codex", revision: 3 });
@@ -418,12 +418,12 @@ test("a send the board refuses puts the item back, with a few words of why", asy
   await expectGone(page, ASKS);
 
   // Act
-  supervisor.refuse("the primary CEO changed; refresh before sending");
+  supervisor.refuse("the primary CFO changed; refresh before sending");
 
   // Assert
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
   await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
-  await expect(card(page).locator(".notice")).toHaveText("The primary CEO changed. Refresh before sending.");
+  await expect(card(page).locator(".notice")).toHaveText("The primary CFO changed. Refresh before sending.");
   await expect(card(page).getByRole("alert")).toHaveCount(0);
 });
 

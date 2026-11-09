@@ -28,7 +28,7 @@ const gretaReview = { id: "cg-canvas-live-only-before-after", identity: "g".repe
 // The CFO's own review, as cfo review --lavish without --task publishes it.
 const cfoReview = { ...gretaReview, id: "itascaunity-mockup-20261017", identity: "c".repeat(64), task: "", title: "Oona's mockup of the Russo and Presta one-page site, desktop and phone" };
 // What the supervisor's poll of the page makes of his Send and End there.
-const answeredOnPage = (review: typeof gretaReview, words: string) => ({ ...review, state: "answered", answered_by: "overlord", answered_in: "page", reason: "You answered on its page; " + (review.task ? "the goblin" : "the CEO") + " has it.", answer: words, updated_at: "2026-10-17T18:14:31Z" });
+const answeredOnPage = (review: typeof gretaReview, words: string) => ({ ...review, state: "answered", answered_by: "overlord", answered_in: "page", reason: "You answered on its page; " + (review.task ? "the goblin" : "the CFO") + " has it.", answer: words, updated_at: "2026-10-17T18:14:31Z" });
 
 // Every board the test opens gets its snapshots from the test, through a
 // stand-in event stream, one event at a time.

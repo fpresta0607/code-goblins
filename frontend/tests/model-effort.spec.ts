@@ -54,7 +54,7 @@ test("the CFO's box shows the effort its engine was started at", async ({ page }
 // (internal/supervisor/cfo_engine.go). The CFO does not run its effort.
 const UNAPPLIED = [
   { why: "names another harness", cfo_harness: "codex", model: "gpt-6-astra", shown: "GPT-6 Astra", engine: { harness: "claude", pending: false, problem: "" } },
-  { why: "could not be applied", cfo_harness: "claude", model: "claude-opus-5-5", shown: "Opus 5.5", engine: { harness: "claude", pending: false, problem: "The selection could not be applied: the CEO is busy" } },
+  { why: "could not be applied", cfo_harness: "claude", model: "claude-opus-5-5", shown: "Opus 5.5", engine: { harness: "claude", pending: false, problem: "The selection could not be applied: the CFO is busy" } },
   { why: "is still pending", cfo_harness: "claude", model: "claude-opus-5-5", shown: "Opus 5.5", engine: { harness: "claude", pending: true, problem: "" } },
 ] as const;
 for (const unapplied of UNAPPLIED) {
