@@ -177,14 +177,11 @@ func TestAskedInRecognizesSupervisorRolePhrases(t *testing.T) {
 		{"CEO decision", "Waiting for the CEO's decision.", []string{"Waiting for the CEO's decision."}},
 		{"CEO word with curly apostrophe", "Waiting on the CEO’s word.", []string{"Waiting on the CEO’s word."}},
 		{"case insensitive CEO", "waiting for the ceo's approval.", []string{"waiting for the ceo's approval."}},
-		{"legacy CEO choice", "I'll continue unless the CEO wants another choice.", []string{"I'll continue unless the CEO wants another choice."}},
-		{"legacy CEO decision", "Waiting for the CEO's decision.", []string{"Waiting for the CEO's decision."}},
 		{"code choice excluded", "The example is `unless the CEO wants another choice`.", nil},
 		{"code decision excluded", "The example is `waiting for the CEO's decision`.", nil},
 		{"link excluded", "https://example.invalid/?unless=the%20CEO?", nil},
 		{"prose after code", "The example is `unless the CEO wants another choice`. Waiting on the CEO's word.", []string{"Waiting on the CEO's word."}},
 		{"wire prefix preserved", "CEO: Waiting for the CEO's decision.", []string{"CEO: Waiting for the CEO's decision."}},
-		{"legacy wire phrase preserved", "CEO: Waiting for the CEO's decision.", []string{"CEO: Waiting for the CEO's decision."}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
