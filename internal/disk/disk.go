@@ -6,6 +6,7 @@ package disk
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 )
 
 // Reading is the drive holding a folder: its name, the bytes free to this
@@ -52,6 +53,59 @@ func ReadLeast(paths ...string) (Reading, error) {
 		return Reading{}, errors.New("disk: no folder to read")
 	}
 	return least, nil
+}
+
+// Folder is a folder the fleet writes to, and whether it is the Dev Drive
+// root config\dev-drive.json names.
+type Folder struct {
+	Path       string
+	IsDevDrive bool
+}
+
+// Drive is one drive the fleet writes to, as the board's disk meter shows it:
+// its reading, whether it holds the Dev Drive, and why it could not be read.
+type Drive struct {
+	Reading
+	IsDevDrive bool   `json:"dev_drive,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+// ReadDrives reads the drive holding each of folders, skipping an empty path,
+// and returns one Drive for each distinct drive, in the order the folders
+// first name it. A drive whose folders all fail to read carries the error and
+// no free space, never room; one any of its folders reads is that reading,
+// since a folder not made yet, such as a gate home before the first gate run,
+// says nothing about the drive under it.
+func ReadDrives(folders ...Folder) []Drive {
+	var drives []Drive
+	index := map[string]int{}
+	for _, folder := range folders {
+		if folder.Path == "" {
+			continue
+		}
+		key := strings.ToUpper(filepath.VolumeName(folder.Path))
+		if key == "" {
+			key = folder.Path
+		}
+		at, isSeen := index[key]
+		if !isSeen {
+			at = len(drives)
+			index[key] = at
+			drives = append(drives, Drive{Reading: Reading{Drive: filepath.VolumeName(folder.Path)}})
+		}
+		drive := &drives[at]
+		drive.IsDevDrive = drive.IsDevDrive || folder.IsDevDrive
+		if isSeen && drive.Error == "" {
+			continue
+		}
+		reading, err := Read(folder.Path)
+		if err != nil {
+			drive.Error = err.Error()
+			continue
+		}
+		drive.Reading, drive.Error = reading, ""
+	}
+	return drives
 }
 
 // GB is bytes as gigabytes, for messages.

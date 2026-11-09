@@ -325,7 +325,7 @@ test("the Tasks column runs in start order: Next up first, then what can start, 
 });
 
 // disk is a drive with free GB of 900 free, the fleet's 15 GB floor and 10 GB mark.
-const disk = (free: number): Disk => ({ drive: "C:", free: free * GB, total: 900 * GB, floor: 15 * GB, wake: 10 * GB });
+const disk = (free: number): Disk => ({ drive: "C:", free: free * GB, total: 900 * GB, floor: 15 * GB, wake: 10 * GB, drives: [] });
 
 test("the disk meter says when no goblin starts and when the CFO is woken", () => {
   assert.equal(diskState(disk(48)).tone, "ready");
@@ -347,7 +347,8 @@ test("a start under the disk floor names the floor and the free disk", () => {
 });
 
 test("a snapshot carries the disk reading, and none when the board cannot read it", () => {
-  assert.deepEqual(parseSnapshot({ healthy: true, disk: { drive: "C:", free: 1, total: 2, floor: 3, wake: 4 } }).disk, { drive: "C:", free: 1, total: 2, floor: 3, wake: 4 });
+  const drives = [{ drive: "C:", free: 1, total: 2 }, { drive: "D:", free: 0, total: 0, dev_drive: true, error: "the device is not ready" }];
+  assert.deepEqual(parseSnapshot({ healthy: true, disk: { drive: "C:", free: 1, total: 2, floor: 3, wake: 4, drives } }).disk, { drive: "C:", free: 1, total: 2, floor: 3, wake: 4, drives: [{ drive: "C:", free: 1, total: 2, dev_drive: false, error: "" }, { drive: "D:", free: 0, total: 0, dev_drive: true, error: "the device is not ready" }] });
   assert.equal(parseSnapshot({ healthy: true }).disk, null);
 });
 

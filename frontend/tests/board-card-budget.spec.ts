@@ -5,7 +5,7 @@ const TITLE = "Audit the Code Goblins board layout, task cards and machine meter
 const SNAPSHOT = {
   healthy: true, instance: "card-budget", revision: 1, cfo_runs: true, attention: [],
   memory: { available: 9 * GB, total: 32 * GB, commit_available: 20 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 * GB, paged_pool: GB, nonpaged_pool: GB, pool_line: 7 * GB },
-  disk: { drive: "C:", total: 953 * GB, free: 300 * GB, floor: 15 * GB, wake: 10 * GB },
+  disk: { drive: "C:", total: 953 * GB, free: 300 * GB, floor: 15 * GB, wake: 10 * GB, drives: [{ drive: "C:", total: 953 * GB, free: 300 * GB }] },
   processors: { performance_cores: 6, efficiency_cores: 4, free: .55, efficiency_free: .5, next: .25, busiest: [] },
   gpu: { adapters: [{ name: "Fixture GPU", busy: .2 }] },
   tasks: [

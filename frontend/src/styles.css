@@ -1261,6 +1261,10 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .memory-mark.floor { background: var(--red); }
 .disk-meter { display: grid; gap: 6px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--glass-border); }
 .memory > .disk-meter:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.disk-drive { display: grid; gap: 6px; }
+.disk-drive + .disk-drive { margin-top: 4px; }
+.disk-drive-name { white-space: nowrap; }
+.disk-drive.unreadable .memory-line strong { color: var(--red); }
 .task-meters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
 .task-meters .memory { flex: 1 1 160px; min-width: 0; margin: 0; }
 @media (max-width: 40rem) {
