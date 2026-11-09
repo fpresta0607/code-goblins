@@ -303,6 +303,14 @@ func TestPipelineRunReportsABoundedWaitAsNotAFailure(t *testing.T) {
 func acceptedHandbackStart(t *testing.T) (home.Home, string, taskWorktreesRunner, *pipelineStartRunner) {
 	t.Helper()
 	h, nm, branches := extraWorktreeTask(t)
+	commands, start := acceptedHandbackFixture(t, h, branches)
+	return h, nm, commands, start
+}
+
+// acceptedHandbackFixture answers an accepted CI handback for the task's
+// registered extra, whose branches map is keyed by the recorded spelling.
+func acceptedHandbackFixture(t *testing.T, h home.Home, branches map[string]string) (taskWorktreesRunner, *pipelineStartRunner) {
+	t.Helper()
 	meta, err := state.ReadTaskMeta(h.State, "task")
 	if err != nil {
 		t.Fatal(err)
@@ -311,6 +319,9 @@ func acceptedHandbackStart(t *testing.T) (home.Home, string, taskWorktreesRunner
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The guard asks Git at the canonical caller; the recorded spelling stays
+	// mapped for worktree selection.
+	branches[caller] = branches[meta.Extras[0]]
 	candidate, err := json.Marshal(map[string]string{"Head": liveRunHead, "BaseHead": movedRunHead, "ManagedBranch": "HEAD", "UpstreamURL": "https://example.com/widget.git", "ForkURL": "", "ReviewRoundID": "review-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -339,12 +350,42 @@ func acceptedHandbackStart(t *testing.T) (home.Home, string, taskWorktreesRunner
 	}
 	start := &pipelineStartRunner{worktree: caller, head: liveRunHead, handback: data,
 		previous: []byte(`[{"id":"live","status":"running","head":"` + liveRunHead + `","submitted_head":"` + movedRunHead + `","intent":"ship the correction"}]`)}
-	return h, nm, taskWorktreesRunner{Runner: start, branches: branches}, start
+	return taskWorktreesRunner{Runner: start, branches: branches}, start
 }
 
 func TestPipelineRunReattachesToAcceptedCIHandback(t *testing.T) {
-	// Arrange
 	h, nm, commands, start := acceptedHandbackStart(t)
+	requireAcceptedHandbackReattachment(t, h, nm, commands, start)
+}
+
+// A hosted Windows runner can record a worktree under a spelling, such as a
+// short name, that differs from its physical path; selection asks Git at the
+// recorded spelling and the handback guard at the canonical one, so both must
+// answer with the same checked-out branch.
+func TestPipelineRunReattachesToAcceptedCIHandbackWithEquivalentCallerPath(t *testing.T) {
+	// Arrange
+	h, nm, branches := extraWorktreeTask(t)
+	meta, err := state.ReadTaskMeta(h.State, "task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical := meta.Extras[0]
+	recorded := filepath.Dir(physical) + string(filepath.Separator) + "." + string(filepath.Separator) + filepath.Base(physical)
+	branches[recorded] = branches[physical]
+	delete(branches, physical)
+	meta.Extras[0] = recorded
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	commands, start := acceptedHandbackFixture(t, h, branches)
+
+	// Act and Assert
+	requireAcceptedHandbackReattachment(t, h, nm, commands, start)
+}
+
+func requireAcceptedHandbackReattachment(t *testing.T, h home.Home, nm string, commands taskWorktreesRunner, start *pipelineStartRunner) {
+	t.Helper()
+	// Arrange
 	intentFile := filepath.Join(t.TempDir(), "intent.txt")
 	if err := os.WriteFile(intentFile, []byte("ship the correction"), 0o600); err != nil {
 		t.Fatal(err)
