@@ -64,7 +64,7 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 	// has a record that names none and a terminal that holds everything, so
 	// every service is its own.
 	carried, withheld := manifest, map[string]string{}
-	unresolved := map[string][]string{}
+	loadable := map[string][]string{}
 	if meta.HasCredentials {
 		carried = manifest.Only(meta.Credentials)
 		for _, service := range manifest.Services {
@@ -93,12 +93,18 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 			if err != nil {
 				result.Error = "Repository checks could not finish."
 			} else {
+				refused := auth.RefusedNames(report)
 				for index, status := range report.Statuses {
 					entry := serviceEntry(carried.Services[index], status)
 					entry.CheckedAt = time.Now().UTC()
 					result.Entries = append(result.Entries, entry)
-					if status.Resolution != nil {
-						unresolved[status.Service] = status.Missing
+					if !status.Usable() {
+						continue
+					}
+					for _, name := range status.Declared {
+						if _, isRefused := refused[name]; !isRefused && !auth.IsHarnessBillingKey(name) && !slices.Contains(status.Missing, name) {
+							loadable[status.Service] = append(loadable[status.Service], name)
+						}
 					}
 				}
 			}
@@ -153,10 +159,7 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 		serviceIndex := slices.IndexFunc(manifest.Services, func(service auth.Service) bool { return service.Name == entry.Name })
 		service := manifest.Services[serviceIndex]
 		isLoaded := slices.ContainsFunc(service.Env, func(name string) bool { return values[strings.ToUpper(name)] != "" })
-		missing, isResolved := unresolved[entry.Name]
-		hasLoadable := isResolved && slices.ContainsFunc(service.Env, func(name string) bool {
-			return values[strings.ToUpper(name)] == "" && !slices.Contains(missing, name)
-		})
+		hasLoadable := slices.ContainsFunc(loadable[entry.Name], func(name string) bool { return values[strings.ToUpper(name)] == "" })
 		hasRevokedLoaded := slices.ContainsFunc(service.Env, func(name string) bool {
 			return values[strings.ToUpper(name)] != "" && !slices.Contains(carried.EnvNames(), name)
 		})

@@ -215,15 +215,16 @@ func TestFailedSeparateProbeCannotRetainPartialSuccess(t *testing.T) {
 
 func TestInspectorExplainsCredentialGrantDifferencesFromObservedProcess(t *testing.T) {
 	for _, test := range []struct {
-		name                          string
-		isGranted, isLoaded, isStored bool
-		wantReason                    string
+		name                                      string
+		isGranted, isLoaded, isStored, isRejected bool
+		wantReason                                string
 	}{
-		{"granted absent", true, false, true, "Restart to load"},
-		{"granted absent unstored", true, false, false, ""},
-		{"revoked present", false, true, true, "Restart to remove"},
-		{"granted present", true, true, true, ""},
-		{"revoked absent", false, false, true, ""},
+		{"granted absent", true, false, true, false, "Restart to load"},
+		{"granted absent unstored", true, false, false, false, ""},
+		{"granted absent rejected by probe", true, false, true, true, ""},
+		{"revoked present", false, true, true, false, "Restart to remove"},
+		{"granted present", true, true, true, false, ""},
+		{"revoked absent", false, false, true, false, ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			inspector, meta := inspectorFixture(t)
@@ -234,7 +235,12 @@ func TestInspectorExplainsCredentialGrantDifferencesFromObservedProcess(t *testi
 			if test.isStored {
 				storeConnectionCredential(t, inspector, meta, "FIXTURE_SECRET")
 			}
-			writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"repo","method":"env","env":["FIXTURE_SECRET"]}]}`)
+			writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"repo","method":"env","env":["FIXTURE_SECRET"],"probe":["probe"]}]}`)
+			if test.isRejected {
+				inspector.Runner = checkRunner(func(context.Context, execx.Request) (execx.Result, error) {
+					return execx.Result{ExitCode: 1, Stderr: []byte("401 Unauthorized")}, nil
+				})
+			}
 			readRuntime := inspector.Runtime
 			inspector.Runtime = func(ctx context.Context, directory string, task state.TaskMeta) (RuntimeObservation, error) {
 				observed, err := readRuntime(ctx, directory, task)
@@ -272,6 +278,7 @@ func TestSharedAndPartiallyLoadedCredentialsHaveAccurateRestartExplanations(t *t
 		t.Run(test.name, func(t *testing.T) {
 			inspector, meta := inspectorFixture(t)
 			meta.HasCredentials, meta.Credentials = true, test.grants
+			storeConnectionCredential(t, inspector, meta, "FIXTURE_SECRET")
 			storeConnectionCredential(t, inspector, meta, "MISSING_TOKEN")
 			writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"repo","method":"env","env":["FIXTURE_SECRET","MISSING_TOKEN"]},{"name":"other","method":"env","env":["FIXTURE_SECRET"]}]}`)
 
