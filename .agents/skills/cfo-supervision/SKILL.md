@@ -1,9 +1,11 @@
 ---
 name: cfo-supervision
-description: Use when starting or recovering the CFO session, reading or acknowledging wakes, handling stale, idle or missing workers, diagnosing hooks, or reconciling session custody.
+description: Use when starting or recovering the CEO session, reading or acknowledging wakes, handling stale, idle or missing workers, diagnosing hooks, or reconciling session custody.
 ---
 
-# CFO supervision
+<a id="cfo-supervision"></a>
+
+# CEO supervision
 
 In a source checkout, read `docs/contract/supervision.md` at the repository root before acting at this trigger.
 In an installed home, run `cfo help contract supervision` to retrieve this build's complete procedure from the same policy source.

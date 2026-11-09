@@ -169,7 +169,7 @@ A resume or a switch of its task ends each such link and says so: a file the man
 While such a link lasts, the file is one a live goblin can write, so it is not an origin the store follows at all: adoption and refresh skip any local file whose hard link count is above one, which is the only thing that distinguishes a shared file from a private one when the inode is the same.
 The count drops back to one when the link becomes a copy or `cfo cleanup <id>` returns the worktree, so adoption resumes by itself with no command and no state of its own.
 While it is paused the dispatch line says so and names the files, because a credential that never rotates would otherwise look exactly like one that had nothing to rotate.
-A count that cannot be read at all is skipped the same way and reported as its own cause, since returning a worktree will not fix a file the CFO could not inspect.
+A count that cannot be read at all is skipped the same way and reported as its own cause, since returning a worktree will not fix a file the CEO could not inspect.
 
 Credentials live in Windows Credential Manager, or in `~/.cfo/credentials/` with owner-only ACLs when the vault is unavailable (`CFO_CREDENTIAL_DIR` overrides the location).
 They are never written into a repository and never printed - reports show provenance and a redacted shape only.

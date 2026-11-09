@@ -27,7 +27,7 @@ type handbackBinding struct {
 // Handback delegates custody and continuation to the native receipt protocol.
 // Its expectation binds the command to the task evidence read here, so native
 // cannot silently select a different run or publication after this read.
-func (reader Reader) Handback(ctx context.Context, project, worktree, branch, runID, receipt string, env []string) (execx.Result, error) {
+func (reader Reader) Handback(ctx context.Context, project, worktree, branch, runID, receipt string, shouldRevalidatePublication bool, env []string) (execx.Result, error) {
 	if receipt != "" && !gateIdentity.MatchString(receipt) {
 		return execx.Result{}, errors.New("pipeline: invalid native handback receipt ID")
 	}
@@ -90,6 +90,9 @@ func (reader Reader) Handback(ctx context.Context, project, worktree, branch, ru
 		return execx.Result{}, err
 	}
 	args := []string{"axi", "handback", "--expect", file.Name()}
+	if shouldRevalidatePublication {
+		args = append(args, "--revalidate-publication")
+	}
 	if receipt != "" {
 		args = append(args, "--resume", "--receipt", receipt)
 	}

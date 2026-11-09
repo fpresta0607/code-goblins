@@ -449,6 +449,36 @@ func (r *keyRecorder) Input(keys []byte) error {
 	return r.err
 }
 
+// Send now interrupts a harness's own turn through the control it binds to
+// that, pressed the way every delivery presses it: Claude Code 2.1.275's
+// chat:sendNow chord, and the Escape Codex's working row names and pi binds to
+// app.interrupt. Codex and pi were read as having none, so a message sent now
+// into either stayed in its queue until its next tool call.
+func TestEachHarnessNamesTheKeyItsSendNowPresses(t *testing.T) {
+	for name, test := range map[string]struct {
+		kind       harness.Kind
+		wantWrites []string
+	}{
+		"claude": {harness.Claude, []string{"\x18", "\x13"}},
+		"codex":  {harness.Codex, []string{"\x1b"}},
+		"pi":     {harness.Pi, []string{"\x1b"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := harness.NativeScreens(test.kind)
+			recorder := &keyRecorder{}
+
+			// Act: the press a goblin's delivery and the CFO's delivery make.
+			err := PressKeys(recorder.Input, screens.SendNow)
+
+			// Assert
+			if err != nil || !slices.Equal(recorder.writes, test.wantWrites) {
+				t.Fatalf("pressing %q wrote %q, %v; want %q", screens.SendNow, recorder.writes, err, test.wantWrites)
+			}
+		})
+	}
+}
+
 // Ctrl+X Ctrl+S is two keys, which fingers press one after the other, so it
 // reaches a harness as two writes, in that order and 50 ms apart, never as
 // one input it might not read as a chord. The stand-in harnesses read input a
@@ -457,6 +487,8 @@ func (r *keyRecorder) Input(keys []byte) error {
 // press, leaving the next key unsent.
 func TestKeysReachATerminalOneWriteEachAndApart(t *testing.T) {
 	claude, _ := harness.NativeScreens(harness.Claude)
+	codex, _ := harness.NativeScreens(harness.Codex)
+	pi, _ := harness.NativeScreens(harness.Pi)
 	failed := errors.New("the terminal went away")
 	for _, test := range []struct {
 		name       string
@@ -465,6 +497,8 @@ func TestKeysReachATerminalOneWriteEachAndApart(t *testing.T) {
 		wantWrites []string
 	}{
 		{name: "Claude Code's send-now chord", keys: claude.SendNow, wantWrites: []string{"\x18", "\x13"}},
+		{name: "Codex's interrupt key", keys: codex.SendNow, wantWrites: []string{"\x1b"}},
+		{name: "pi's interrupt key", keys: pi.SendNow, wantWrites: []string{"\x1b"}},
 		{name: "Enter", keys: "\r", wantWrites: []string{"\r"}},
 		{name: "a chord whose first key fails", keys: claude.SendNow, failure: failed, wantWrites: []string{"\x18"}},
 	} {
@@ -473,11 +507,11 @@ func TestKeysReachATerminalOneWriteEachAndApart(t *testing.T) {
 			recorder := &keyRecorder{err: test.failure}
 
 			// Act
-			err := pressKeys(recorder, test.keys)
+			err := PressKeys(recorder.Input, test.keys)
 
 			// Assert
 			if !errors.Is(err, test.failure) {
-				t.Fatalf("pressKeys = %v, want %v", err, test.failure)
+				t.Fatalf("PressKeys = %v, want %v", err, test.failure)
 			}
 			if !slices.Equal(recorder.writes, test.wantWrites) {
 				t.Fatalf("writes = %q, want %q", recorder.writes, test.wantWrites)
@@ -576,6 +610,59 @@ func submittedLines(t *testing.T, f *nativeFixture, n int) []string {
 		}
 	}
 	return submitted
+}
+
+// A board message or answer of his is his own input, so his harness's next
+// screen is bound to him, while a line nobody says is his, the supervisor's
+// notice, a wake line or a command's own typing, clears that binding: a
+// picker those draw never reaches Modern Chat as his to answer. His mark is
+// never a property of what the generic SendNative is given, so a caller that
+// authors a notice cannot set it by accident.
+func TestOnlyHisOwnDeliveryKeepsTheGoblinsMenuHis(t *testing.T) {
+	// Arrange
+	f := newNativeFixture(t, harness.Codex, "turns")
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitComposer(t, f)
+	record, found := f.terminal()
+	if !found {
+		t.Fatal("the spawn recorded no terminal")
+	}
+	viewer, err := host.View(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer viewer.Close()
+
+	// Act: the board delivers the message he queued, which its own path marks
+	// as his.
+	his := f.service
+	his.His = true
+	if err := his.SendNative(t.Context(), meta, "carry on"); err != nil {
+		t.Fatalf("SendNative: %v", err)
+	}
+
+	// Assert
+	if _, submission, _, err := viewer.Screen(record, ""); err != nil || submission == "" {
+		t.Fatalf("submission = %q, %v after his own message; want the screen bound to him", submission, err)
+	}
+
+	// Act: a notice nobody says is his, as the supervisor's own lines go,
+	// once his own message's turn has ended and the composer waits again.
+	awaitComposer(t, f)
+	if err := f.service.SendNative(t.Context(), meta, "the supervisor's notice"); err != nil {
+		t.Fatalf("SendNative: %v", err)
+	}
+
+	// Assert
+	if _, submission, _, err := viewer.Screen(record, ""); err != nil || submission != "" {
+		t.Fatalf("submission = %q, %v after a notice; want it cleared", submission, err)
+	}
 }
 
 // awaitComposer waits until the fake harness's turn has ended and its

@@ -299,7 +299,7 @@ for (const who of ["CFO", "goblin"] as const) {
         const name = who === "CFO" ? "CFO" : NAME;
         await openConnected(page, relay, who);
         await field(page, name).fill(DRAFT);
-        relay.say({ type: "screen", asking: true, open: true, working: false, submission: "", panel: { rows: ["Select model"], choices: [{ text: "Default", number: 1, focused: true }, { text: "Opus", number: 2 }], hints: ["Enter to confirm · Esc to exit"] } });
+        relay.say({ type: "screen", asking: true, open: true, working: false, submission: "menu-1", panel: { rows: ["Select model"], choices: [{ text: "Default", number: 1, focused: true }, { text: "Opus", number: 2 }], hints: ["Enter to confirm · Esc to exit"] } });
         const list = box(page, name).getByRole("group", { name: name + " asks" });
         await expect(list).toBeVisible();
         const before = typed(relay);
@@ -321,9 +321,9 @@ for (const who of ["CFO", "goblin"] as const) {
         await field(page, name).fill(DRAFT);
         const before = typed(relay);
         const panel = box(page, name).getByRole("group", { name: name + " asks" });
-        relay.say({ type: "screen", asking: false, open: true, working: false, panel: { rows: ["Sign in", "Paste your code below"], choices: [], hints: ["Press Enter to submit · Esc to cancel"] } });
+        relay.say({ type: "screen", asking: false, open: true, working: false, submission: "login-1", panel: { rows: ["Sign in", "Paste your code below"], choices: [], hints: ["Press Enter to submit · Esc to cancel"] } });
         await expect(panel).toContainText("Paste your code below");
-        relay.say({ type: "screen", asking: false, open: true, working: false, panel: { rows: ["Login successful"], choices: [], hints: ["Press Enter to continue"] } });
+        relay.say({ type: "screen", asking: false, open: true, working: false, submission: "login-1", panel: { rows: ["Login successful"], choices: [], hints: ["Press Enter to continue"] } });
         await expect(panel).toContainText("Login successful");
         await expect(panel).toContainText("Press Enter to continue");
         await panel.getByRole("button", { name: "Continue", exact: true }).click();
@@ -331,6 +331,27 @@ for (const who of ["CFO", "goblin"] as const) {
         relay.say({ type: "screen", asking: false, open: false, working: false, submission: "" });
         await expect(panel).toHaveCount(0);
         await expect(field(page, name)).toHaveValue(DRAFT);
+      });
+
+      test("a menu the harness drew for something other than his own input is not shown and takes no keys", async ({ page }) => {
+        // Arrange
+        const relay = await open(page);
+        const name = who === "CFO" ? "CFO" : NAME;
+        await openConnected(page, relay, who);
+        const list = box(page, name).getByRole("group", { name: name + " asks" });
+        const before = typed(relay);
+
+        // Act: the screen is bound to no input he submitted, as one a
+        // watcher's wake line or a board delivery drew is not.
+        relay.say({ type: "screen", asking: true, open: true, working: false, submission: "", panel: { rows: ["Select model"], choices: [{ text: "Default", number: 1, focused: true }, { text: "Opus", number: 2 }], hints: ["Enter to confirm · Esc to exit"] } });
+        await page.waitForTimeout(300);
+
+        // Assert: nothing of that screen shows, and its keys stay his.
+        await expect(list).toHaveCount(0);
+        await field(page, name).press("ArrowDown");
+        await field(page, name).press("Enter");
+        await page.waitForTimeout(300);
+        expect(typed(relay), "no key of the screen reaches the terminal").toBe(before);
       });
     });
   }

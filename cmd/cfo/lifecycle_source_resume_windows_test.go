@@ -92,7 +92,7 @@ func runSourceResumeHarness(recordPath, instructionPath string) int {
 			continue
 		}
 		if character == '\r' {
-			if line.String() != "Read "+instructionPath+" and follow it exactly: it is your instruction from the CFO." {
+			if line.String() != "Read "+instructionPath+" and follow it exactly: it is your instruction from the CEO." {
 				return 2
 			}
 			prompt, err := os.ReadFile(instructionPath)

@@ -11,14 +11,14 @@
   For a retired goblin, whose status log is all that is left, read the page's open questions, put them to the Overlord, and stop the poll.
 ## User decisions on the board
 
-The registered primary CFO in any supported harness (Claude Code, Codex, Pi) must publish deliberate user questions with `cfo question --id <stable-id> --text "<question>" --option "<choice>" --recommend "<exact-choice>"`.
+The registered primary CEO in any supported harness (Claude Code, Codex, Pi) must publish deliberate user questions with `cfo question --id <stable-id> --text "<question>" --option "<choice>" --recommend "<exact-choice>"`.
 Repeat `--option` for actual choices; omit `--recommend` when no choice is recommended.
 When the question puts a goblin's decision to him, add `--for <task>`: while it waits, that goblin's waits on him must declare whether they are this decision, and one it declares with `cfo notify --follows <this question's ID>` is hidden while the question waits and closed by its answer, so he sees one card, the decision.
 When it comes with a message he sends himself, such as an email, add `--message-file <file>` in the form `cfo auth request` takes: his card shows it with Copy.
 While [AFK mode](afk.md#afk-mode) is on `cfo question` refuses: nothing is asked of him then.
-Write every question to the Overlord, the CFO's `--text` and a goblin's `--blocked` alike, to be read rather than scanned: lead with one short sentence that is the actual question, put the details on lines of their own that start with `- ` (a real line break, such as `` `n `` in PowerShell), and wrap only the verdict or the blocking item in `**two asterisks**`, never the whole question.
+Write every question to the Overlord, the CEO's `--text` and a goblin's `--blocked` alike, to be read rather than scanned: lead with one short sentence that is the actual question, put the details on lines of their own that start with `- ` (a real line break, such as `` `n `` in PowerShell), and wrap only the verdict or the blocking item in `**two asterisks**`, never the whole question.
 Write it for a person who has not followed the work: those lines give the recommendation and its material reason, what each choice does in practice, and any risk, cost or missing evidence, in plain words without run IDs, finding codes, hashes or command names.
-Put that evidence, with every finding, identifier, receipt and doubt it rests on, after a line that reads only `Details:`: the card folds it under Technical details, and the CFO's wake and History keep the whole text.
+Put that evidence, with every finding, identifier, receipt and doubt it rests on, after a line that reads only `Details:`: the card folds it under Technical details, and the CEO's wake and History keep the whole text.
 
 ```text
 Fix the three review findings in one managed round?
@@ -32,10 +32,10 @@ Details:
 The Command Center shows it as body text: a blank line starts a paragraph, a `- ` line is a bullet, `**text**` is bold, and anything else, markup included, is shown exactly as written.
 Other always accepts a written answer, and no answer is selected automatically.
 Run publication from the registered primary session's shell and reuse the same ID/content for an uncertain retry.
-Everything that speaks for the CFO on the board (`cfo question`, `cfo review` without `--task` and its `--withdraw`, `--clear`, `cfo deliver` without `--task`, and `cfo answer`) reaches the supervisor only over its pipe, which proves the sender is the registered CFO process, so it needs `cfo serve` running and fails with `start cfo serve` otherwise; nothing falls back to a file.
-A goblin's own items still go through the inboxes and always show as that goblin's: an item in an inbox that claims to be the CFO's is refused and named on the board, whatever identity it carries.
-This closes the file inbox path, not the same-user boundary: a process of this Windows user can still spoof another goblin's items, including withdrawing them, the CFO's `cfo present` notices without `--task`, text typed into a goblin's terminal (a `CFO:` line included), the wake queue and status files, `state/.supervisor.json` while `cfo serve` is stopped, AFK mode's switch and log (`state/afk.json`, `state/afk.audit`), anything run as a descendant of the CFO's harness, and the CFO process itself, which it can debug or inject into.
-The board sends the durable answer to that same verified CFO as an ordinary message, so continue independent supervision or finish the turn while waiting.
+Everything that speaks for the CEO on the board (`cfo question`, `cfo review` without `--task` and its `--withdraw`, `--clear`, `cfo deliver` without `--task`, and `cfo answer`) reaches the supervisor only over its pipe, which proves the sender is the registered CEO process, so it needs `cfo serve` running and fails with `start cfo serve` otherwise; nothing falls back to a file.
+A goblin's own items still go through the inboxes and always show as that goblin's: an item in an inbox that claims to be the CEO's is refused and named on the board, whatever identity it carries.
+This closes the file inbox path, not the same-user boundary: a process of this Windows user can still spoof another goblin's items, including withdrawing them, the CEO's `cfo present` notices without `--task`, text typed into a goblin's terminal (a `CFO:` line included), the wake queue and status files, `state/.supervisor.json` while `cfo serve` is stopped, AFK mode's switch and log (`state/afk.json`, `state/afk.audit`), anything run as a descendant of the CEO's harness, and the CEO process itself, which it can debug or inject into.
+The board sends the durable answer to that same verified CEO as an ordinary message, so continue independent supervision or finish the turn while waiting.
 Answers he gives to several of your questions in one go arrive as one message, which says how many there are and lists each in the order he gave them, as `[1/4] User answer to CFO question <id>.
 Question: <text> Answer: <answer>`: act on every one of them.
 He can change any answer at any time, whoever gave it, from the question's card in History: the change reaches whoever acts on the answer once, as `The Overlord changed ...
@@ -43,13 +43,13 @@ Was: <old>.
 Now: <new>.`, the goblin that asked, or you for your own question and for a goblin that restarted or ended.
 When it reaches you, undo or redo what the first answer started, and when that cannot be undone, such as a merge, carry out the new answer as a new instruction.
 Do not also invoke a native question tool for this decision: an ordinary message typed into your terminal cannot answer a correlated Codex or Pi native prompt.
-In Claude Code the pre-tool hook enforces this: the registered primary CFO's `AskUserQuestion` is refused with a pointer to `cfo question` and `cfo run-request`, because a native selector holds the whole turn, shows only in the CFO's terminal and never reaches the Command Center, so supervision stops while it waits.
-A goblin's blocked question, in the form the [cfo notify reference](../commands/notify.md) gives, is the CFO's question to answer.
+In Claude Code the pre-tool hook enforces this: the registered primary CEO's `AskUserQuestion` is refused with a pointer to `cfo question` and `cfo run-request`, because a native selector holds the whole turn, shows only in the CEO's terminal and never reaches the Command Center, so supervision stops while it waits.
+A goblin's blocked question, in the form the [cfo notify reference](../commands/notify.md) gives, is the CEO's question to answer.
 It never enters the Overlord's waiting count, alerts him or opens the Command Center; once answered it appears in History.
 Publish the decision that needs him with `cfo question` from your own registered process.
 An item addressed to him has one visible signal, **Open Command Center** and its count, and opens only when he chooses it.
 Windows notifications require a hidden tab or minimized window, not merely an unfocused visible window.
-After ten minutes of unanswered blocked or failed questions for the CFO, or questions a goblin asked in prose (`goblin_asks`) and nobody acked, one notice per durable stretch gives their count and oldest age and opens the CFO's terminal; those questions stay the CFO's.
+After ten minutes of unanswered blocked or failed questions for the CEO, or questions a goblin asked in prose (`goblin_asks`) and nobody acked, one notice per durable stretch gives their count and oldest age and opens the CEO's terminal; those questions stay the CEO's.
 When the choice is visual, such as mockups, brief the goblin to add `--image <path>` once for each choice, in order, so the Overlord picks by picture; the images must be PNG, JPEG, GIF or WebP files inside the goblin's worktree, task scratch or data directory.
 For something the Overlord should look at without blocking the goblin, brief it to run `cfo review --id <stable-id> --task <its id> --title "<what to look at>" [--image <path>]... [--lavish <url|html-file>]` from its own pane or native terminal (while [AFK mode](afk.md#afk-mode) is on, one with a page is instead that goblin's question to you): the item stays in the Command Center until he clears it, the goblin withdraws it with `--withdraw "<reason>"`, or the goblin is cleaned up, whatever the goblin reports meanwhile, done included, and its images are copied so they outlive the worktree.
 Clear a stale item yourself, such as one a retired goblin left, with `cfo review --clear <id> --reason "<why>"`; the clear is audited in `state/reviews.audit`.
@@ -70,7 +70,7 @@ A question whose notify could not show it on the board (the notify printed why) 
 A question you already answered another way (the goblin has your decision and its notify is acknowledged or answered) shows no chosen option on the Command Center until it is recorded; record it with `cfo answer <question-id> --option <choice> --record-only`, naming it by its ID `notify-<task>-<sequence>`, which records the choice on the board and sends the goblin nothing, and refuses a notify still waiting unanswered or a question the Overlord is answering.
 When the Overlord answered a question somewhere else, such as in chat, record his answer with `--in <where>` added (`cfo answer herdr-strays-20260929 --option "Stop them" --record-only --in chat`): the card closes as his answer there, recorded by you, and your own `cfo question` takes only this form, since only he answers it.
 He can also dismiss a question he answered elsewhere or no longer needs from its card; you are told, and a goblin's notify still waits for you to resolve.
-Other worker alerts stay in the CFO wake queue until the CFO deliberately escalates a real user decision.
+Other worker alerts stay in the CEO wake queue until the CEO deliberately escalates a real user decision.
 When you need the Overlord to run a command you cannot run yourself (a classifier refusal, a step that needs administrator rights, or credentials only he holds), create a run item instead of pasting the command into chat: write the exact command to a file and run `cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>` from verified primary context.
 He runs it with one click from the Command Center, in exactly that shell and, for `--admin`, elevated once he confirms Windows' prompt; it runs in a terminal drawn on its card, where he types into it, so a sign-in or anything else that needs a console works there, and no window opens.
 When it exits the card completes by itself, and its exit code and the end of what its terminal showed come back to you as his answer.

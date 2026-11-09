@@ -25,7 +25,10 @@ const PANELS = {
   codex: { rows: ["Hooks need review", "2 hooks are new or changed."], choices: [{ text: "Review hooks", number: 1, focused: true }, { text: "Trust all and continue", number: 2 }, { text: "Continue without trusting (hooks won't run)", number: 3 }], hints: ["Press enter to confirm or esc to go back"] },
   pi: { rows: ["Trust project folder?", "C:\\dev\\app"], choices: [{ text: "Trust", focused: true }, { text: "Trust parent folder (C:\\dev)" }, { text: "Trust (this session only)" }, { text: "Do not trust" }], hints: ["↑↓ navigate enter select escape/ctrl+c cancel"] },
 } as const;
-const asking = (panel: object) => ({ type: "screen", asking: true, open: true, working: false, submission: "", panel });
+// A screen the harness draws while the input it shows is his: the relay
+// reports the host's own "his" while its terminal last took his keys, and a
+// screen bound to him alone is drawn and answered in Modern Chat.
+const asking = (panel: object) => ({ type: "screen", asking: true, open: true, working: false, submission: "his", panel });
 const closed = { type: "screen", asking: false, open: false, working: false, submission: "" };
 
 for (const harness of ["claude", "pi", "codex"] as const) {

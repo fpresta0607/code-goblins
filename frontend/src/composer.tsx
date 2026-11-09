@@ -301,7 +301,13 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // Terminal style and Open in Windows Terminal show it.
   const isScreenOpen = !!live?.screen?.isOpen;
   const screenPanel = isScreenOpen ? live?.screen?.panel ?? null : null;
-  const panel = screenPanel && (screenPanel.choices.length > 0 || screenPanel.hints.some((hint) => /\benter\b/i.test(hint))) ? screenPanel : null;
+  // A menu of the harness's own is drawn and answered here only while the
+  // screen is still bound to input he submitted: the terminal's host clears
+  // that binding the moment any other writer, a watcher's wake line or a
+  // board delivery, types into it, so a picker those drew is never shown as
+  // his own menu and never takes his keys (cg-human-triggered-menus).
+  const isHumanMenu = !!live?.screen?.submission;
+  const panel = screenPanel && isHumanMenu && (screenPanel.choices.length > 0 || screenPanel.hints.some((hint) => /\benter\b/i.test(hint))) ? screenPanel : null;
   const isAsking = !!panel;
   // The permission mode the session's terminal shows, which Shift+Tab cycles.
   const mode = live?.screen?.mode ?? "";

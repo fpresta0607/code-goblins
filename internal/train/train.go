@@ -146,6 +146,10 @@ type Car struct {
 	// Head is the commit that rides: the pull request merges only while its
 	// head is still this commit.
 	Head string `json:"head"`
+	// NativeAttestation is the exact successful PR-only check admitted with
+	// this head, pinned by immutable check ID after every native sibling
+	// passed. Its disappearance or replacement withdraws the rider.
+	NativeAttestation *Check `json:"native_attestation,omitempty"`
 	// Task is the goblin that reported the pull request done, and Goblin
 	// and GoblinTitle its fun name and title.
 	Task        string `json:"task"`
@@ -193,6 +197,9 @@ type Run struct {
 	OnceUnread  string        `json:"failed_once_unread,omitempty"`
 	OwnRun      string        `json:"own_run,omitempty"`
 	Passed      Checks        `json:"passed_checks,omitempty"`
+	// PRChecks keeps recognized PR-only failures separately from source CI
+	// proof. They never count as tests that passed or need a retry.
+	PRChecks Checks `json:"pr_checks,omitempty"`
 	// MergeAttempts is spent before each merge call, including one whose
 	// answer is lost; polling and holds never replenish it.
 	MergeAttempts   int      `json:"merge_attempts,omitempty"`

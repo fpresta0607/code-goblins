@@ -14,7 +14,7 @@ func runPresent(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 	f.SetOutput(stderr)
 	var a supervisor.BoardActivity
 	f.StringVar(&a.ID, "id", "", "stable activity ID; reuse for updates and end")
-	f.StringVar(&a.TaskID, "task", "", "reporting task ID, run from that goblin's own pane; omit only from verified primary CFO context")
+	f.StringVar(&a.TaskID, "task", "", "reporting task ID, run from that goblin's own pane; omit only from verified primary CEO context")
 	f.StringVar(&a.Generation, "generation", "", "optional: the task's spawn generation, refused when it is no longer current")
 	f.StringVar(&a.Kind, "kind", "", "browser or review")
 	f.StringVar(&a.URL, "url", "", "https, or plain http on this machine or the tailnet, without credentials, query or fragment")

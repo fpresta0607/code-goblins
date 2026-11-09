@@ -143,7 +143,7 @@ func lateHookComposer(mode string, keys <-chan string, record func(codexEvent), 
 		default:
 			line += key
 		}
-		if !hasOpened && strings.Contains(mode, "busy") && strings.HasSuffix(line, "instruction from the CFO.") {
+		if !hasOpened && strings.Contains(mode, "busy") && strings.HasSuffix(line, "instruction from the CEO.") {
 			dialog, hasOpened = "hooks", true
 			record(codexEvent{Event: "late hook review", Text: line})
 		}

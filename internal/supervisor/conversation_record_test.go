@@ -26,7 +26,14 @@ func useConversations(t *testing.T) string {
 // else the one kept for the agent's folder dir.
 func takenInRecord(t *testing.T, home, harness, session, dir, text string) {
 	t.Helper()
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	takenInRecordAt(t, home, harness, session, dir, text, time.Now())
+}
+
+// takenInRecordAt writes the record takenInRecord writes, showing the text
+// handed to its model at at.
+func takenInRecordAt(t *testing.T, home, harness, session, dir, text string, at time.Time) {
+	t.Helper()
+	now := at.UTC().Format(time.RFC3339Nano)
 	var path string
 	var entries []map[string]any
 	switch harness {

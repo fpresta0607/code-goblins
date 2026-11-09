@@ -139,9 +139,9 @@ test("a reply draws each run of calls as one stack between its words, and leaves
   // Arrange
   const [reply] = parseMessages([served(0, { kind: "reply", blocks: [
     { kind: "thinking", text: "Plan it" }, { kind: "text", text: "Reading." }, { kind: "call", tool: "Read", state: "done" }, { kind: "call", tool: "Grep", state: "done" },
-    { kind: "thinking", text: "" }, { kind: "text", text: "Found it." }, { kind: "call", tool: "Edit", state: "running" },
+    { kind: "thinking", text: "" }, { kind: "text", text: "\n\n" }, { kind: "text", text: "Found it." }, { kind: "call", tool: "Edit", state: "running" },
   ] })]);
-  const [read, grep, , , edit] = reply.blocks.slice(2);
+  const [read, grep, , , , edit] = reply.blocks.slice(2);
 
   // Act
   const parts = replyParts(reply.blocks);
@@ -149,7 +149,7 @@ test("a reply draws each run of calls as one stack between its words, and leaves
   // Assert
   assert.deepEqual(parts, [
     { kind: "thinking", at: 0, text: "Plan it" }, { kind: "text", at: 1, text: "Reading." }, { kind: "calls", at: 2, calls: [read, grep] },
-    { kind: "text", at: 5, text: "Found it." }, { kind: "calls", at: 6, calls: [edit] },
+    { kind: "text", at: 6, text: "Found it." }, { kind: "calls", at: 7, calls: [edit] },
   ]);
   assert.deepEqual(replyParts([]), []);
 });

@@ -239,18 +239,28 @@ func questionChoices(options []string) ([]string, string) {
 	return choices, recommended
 }
 
-// SendGoblin delivers text to the goblin a question named, through its own
-// native terminal. The delivery is pinned to the task generation that asked,
-// so a restarted task never receives an answer meant for its predecessor.
+// SendGoblin delivers a notice to the goblin a question named, through its
+// own native terminal. The delivery is pinned to the task generation that
+// asked, so a restarted task never receives an answer meant for its
+// predecessor. A notice is nobody's own input, so it clears the terminal's
+// mark of his.
 func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text string) (Evaluation, error) {
-	return c.sendGoblin(ctx, taskID, identity, text, false, false)
+	return c.sendGoblin(ctx, taskID, identity, text, false, false, false)
+}
+
+// SendGoblinHis delivers the Overlord's own board message or answer to the
+// goblin a task names, so a screen its harness draws from it is his to
+// answer.
+func (c *CFOConnection) SendGoblinHis(ctx context.Context, taskID, identity, text string) (Evaluation, error) {
+	return c.sendGoblin(ctx, taskID, identity, text, false, false, true)
 }
 
 // sendGoblin delivers text as SendGoblin does. A send that holds types nothing
 // into a goblin in a turn and says so with spawn.ErrInTurn; one that sends now
 // has the goblin's harness take it at once in a turn, where it has a key for
-// that.
-func (c *CFOConnection) sendGoblin(ctx context.Context, taskID, identity, text string, holds, sendsNow bool) (Evaluation, error) {
+// that. One from him keeps his mark on the terminal the harness's next screen
+// is bound to.
+func (c *CFOConnection) sendGoblin(ctx context.Context, taskID, identity, text string, holds, sendsNow, his bool) (Evaluation, error) {
 	meta, err := state.ReadTaskMeta(c.State, taskID)
 	if err != nil || goblinIdentity(meta) != identity {
 		return Evaluation{}, fmt.Errorf("%w: the goblin's task restarted or ended; nothing was sent", ErrRejected)
@@ -258,7 +268,7 @@ func (c *CFOConnection) sendGoblin(ctx context.Context, taskID, identity, text s
 	if meta.Backend != "native" {
 		return Evaluation{}, fmt.Errorf("%w: the goblin's task was recorded in Herdr by an older build, which this build cannot reach; nothing was sent", ErrRejected)
 	}
-	if err := typeIntoGoblin(ctx, c.State, meta, goblinLine(text), holds, sendsNow); err != nil {
+	if err := typeIntoGoblin(ctx, c.State, meta, goblinLine(text), holds, sendsNow, his); err != nil {
 		return Evaluation{}, err
 	}
 	return Evaluation{Reason: "Accepted by the goblin in its native terminal."}, nil
@@ -278,8 +288,8 @@ var readAnswerRecipient = state.ReadTaskMeta
 // into a turn when it should refuse one, and has the harness take it at once
 // in a turn when it should send it now. It is a variable so a test can act
 // while a delivery is in flight.
-var typeIntoGoblin = func(ctx context.Context, stateDir string, meta state.TaskMeta, text string, shouldRefuseTurn, shouldSendNow bool) error {
-	sender := spawn.Service{StateDir: stateDir, ShouldRefuseTurn: shouldRefuseTurn, ShouldSendNow: shouldSendNow, PromptSince: func(taskID, generation string, since time.Time) (bool, error) {
+var typeIntoGoblin = func(ctx context.Context, stateDir string, meta state.TaskMeta, text string, shouldRefuseTurn, shouldSendNow, his bool) error {
+	sender := spawn.Service{StateDir: stateDir, ShouldRefuseTurn: shouldRefuseTurn, ShouldSendNow: shouldSendNow, His: his, PromptSince: func(taskID, generation string, since time.Time) (bool, error) {
 		return NativePromptSince(stateDir, taskID, generation, since)
 	}, Took: NativeTook}
 	return sender.SendNative(ctx, meta, text)
@@ -341,7 +351,7 @@ func (s *Service) changeAnswer(ctx context.Context, a Action) (Evaluation, error
 		change = fmt.Sprintf("Question: %s Was: %s. Now, in his own words: %s. Act on the new answer: undo or redo what the first answer started.", q.Text, a.Replaces, a.Text)
 	}
 	if q.Task == "" {
-		return s.sendToCFO(ctx, fmt.Sprintf("The Overlord changed the answer to your question %s on the board. %s", q.ID, change))
+		return s.sendToCFO(ctx, fmt.Sprintf("The Overlord changed the answer to your question %s on the board. %s", q.ID, change), true)
 	}
 	unlock, err := answerLock(s.Store.Home.State, q.Seq)
 	if err != nil {
@@ -354,7 +364,7 @@ func (s *Service) changeAnswer(ctx context.Context, a Action) (Evaluation, error
 			return result, err
 		}
 	}
-	return s.sendToCFO(ctx, fmt.Sprintf("The Overlord changed the answer to %s's question %s on the board. %s restarted, ended or cannot be reached, so act on it yourself. %s", q.Task, q.ID, q.Task, change))
+	return s.sendToCFO(ctx, fmt.Sprintf("The Overlord changed the answer to %s's question %s on the board. %s restarted, ended or cannot be reached, so act on it yourself. %s", q.Task, q.ID, q.Task, change), true)
 }
 
 // isAsker reports whether goblin question q's task still runs the session
@@ -393,7 +403,7 @@ func (s *Service) deliverAnswer(ctx context.Context, q Question, text string) (E
 	}
 	result := Evaluation{Reason: "Answer saved for the goblin's Resume."}
 	if !isSaved {
-		result, err = s.Options.CFO.SendGoblin(ctx, q.Task, q.Identity, text)
+		result, err = s.Options.CFO.SendGoblinHis(ctx, q.Task, q.Identity, text)
 	}
 	if errors.Is(err, fleet.ErrQueuedForToolCall) {
 		result, err = s.behindGoblinsTurn(q.Task, sent, text, "Submitted to the goblin while it was working; it takes the answer at its next tool call, or as its current turn ends."), nil

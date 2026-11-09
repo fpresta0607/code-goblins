@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -431,12 +432,14 @@ func (r Reader) RunBranch(ctx context.Context, project, run string) (string, err
 
 // Response is one answer to a parked gate. Accept names the open ask-user and
 // auto-fix findings the CFO, or on a spent review the task's own goblin, takes
-// as they stand, with approve only, and Reason is the operator's rationale,
-// which only an approved Test exception keeps.
+// as they stand, with approve only. A recognized blank configured Test failure
+// also needs Accept and the CFO's Reason, which the native exception keeps.
 type Response struct{ Action, Findings, Instructions, Accept, Reason string }
 type finding struct {
 	ID          string `json:"id"`
 	Action      string `json:"action"`
+	Severity    string `json:"severity"`
+	Category    string `json:"category"`
 	Description string `json:"description"`
 }
 
@@ -463,7 +466,9 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 	emptyActionFixable := gate.Step != "review" && gate.AutoFixLimit != nil && *gate.AutoFixLimit > 0
 	actions := map[string]string{}
 	var open []string
+	var informational []string
 	unresolved, blank := false, false
+	isConfiguredTestException := false
 	baseRefusal, _, _ := strings.Cut(report.Summary, "\n")
 	isRequiredEnvironmentRefused := strings.HasPrefix(baseRefusal, "Base attribution unavailable (test command was given no turn on the base checkout:") && strings.Contains(baseRefusal, "required test environment")
 	for _, f := range *report.Findings {
@@ -476,11 +481,20 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 		case "no-op":
 			// Native selection includes all matching IDs; informational rows
 			// add no actionable meaning to a selected repair.
+			informational = append(informational, f.ID)
 			continue
 		case "auto-fix", "ask-user":
 			unresolved = true
 			open = append(open, f.ID)
 		case "":
+			if gate.Step == "test" && response.Action == "approve" && response.Reason != "" && f.Category == "test-command" && f.Severity == "error" {
+				exitCode, err := strconv.Atoi(strings.TrimPrefix(f.Description, "configured test command failed with exit code "))
+				if err == nil && exitCode != 0 && f.Description == fmt.Sprintf("configured test command failed with exit code %d", exitCode) {
+					unresolved, isConfiguredTestException = true, true
+					open = append(open, f.ID)
+					break
+				}
+			}
 			if !emptyActionFixable {
 				return nil, ErrUnresolved
 			}
@@ -512,7 +526,7 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 		}
 		if response.Accept != "" {
 			// The CFO takes the open findings as they stand only by naming
-			// every one of them; a finding with no action still needs its fix.
+			// every one of them; an unrecognized blank action needs its fix.
 			named := strings.Split(response.Accept, ",")
 			slices.Sort(named)
 			slices.Sort(open)
@@ -532,6 +546,9 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 		}
 		if response.Reason != "" {
 			args = append(args, "--reason", response.Reason)
+		}
+		if isConfiguredTestException {
+			args = append(args, "--run", gate.RunID)
 		}
 	case "fix":
 		if response.Accept != "" {
@@ -555,6 +572,20 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 			seen[id] = true
 		}
 		args = append(args, "--findings", response.Findings)
+		var ignored []string
+		for _, id := range informational {
+			if _, isActionable := actions[id]; isActionable {
+				continue
+			}
+			if seen[id] || strings.TrimSpace(id) != id || strings.ContainsRune(id, ',') || strings.IndexFunc(id, unicode.IsControl) >= 0 {
+				return nil, errors.New("pipeline: ignored no-op finding ID is invalid or duplicated")
+			}
+			seen[id] = true
+			ignored = append(ignored, id)
+		}
+		if len(ignored) > 0 {
+			args = append(args, "--ignore", strings.Join(ignored, ","), "--run", gate.RunID)
+		}
 		if response.Instructions != "" {
 			args = append(args, "--instructions", response.Instructions)
 		}

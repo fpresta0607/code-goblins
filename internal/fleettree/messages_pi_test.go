@@ -133,6 +133,42 @@ func equalMessages(got, want Message) bool {
 	return reflect.DeepEqual(got, want)
 }
 
+// pi writes a text block with no words between the steps of a turn, as
+// "\n\n", and the board draws every text block as prose with its own Copy
+// under it: the reader keeps no such block and no such thinking, so a reply
+// carries no row or control with nothing behind it (the Overlord, 2026-11-07:
+// "no copy button without content", of an orphan Copy drawn between two rows
+// of Hank's session).
+func TestAPiReplyKeepsNoBlockWithNoWords(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	path := piSession(t, home,
+		piHeader(),
+		piMessageEntry("u1", "", "user", object{"content": "Go on"}),
+		piMessageEntry("a1", "u1", "assistant", object{
+			"provider": "acme", "model": "thinker-1", "stopReason": "toolUse",
+			"content": []object{
+				{"type": "thinking", "thinking": "\n"},
+				{"type": "text", "text": "\n\n"},
+				{"type": "toolCall", "id": "call-1", "name": "bash", "arguments": object{"command": "sleep 300"}},
+			},
+		}),
+	)
+	reader := Reader{Home: t.TempDir()}
+
+	// Act
+	page := readPi(t, &reader, path)
+
+	// Assert
+	if len(page.Messages) != 2 {
+		t.Fatalf("read %d messages, want the prompt and its reply: %+v", len(page.Messages), page.Messages)
+	}
+	reply := page.Messages[1]
+	if reply.Kind != MessageReply || len(reply.Blocks) != 1 || reply.Blocks[0].Kind != BlockCall || reply.Blocks[0].Subject != "sleep 300" {
+		t.Fatalf("the reply = %+v, want the call alone with no wordless block beside it", reply.Blocks)
+	}
+}
+
 func TestAPiTurnEndedByAnAbortShowsItsNotice(t *testing.T) {
 	// Arrange
 	home := t.TempDir()

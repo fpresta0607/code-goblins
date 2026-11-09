@@ -192,7 +192,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // row and when the last did: his next approach to the top asks again once
   // OLDER_RETRY_MS have passed, until OLDER_TRIES have failed, which leaves
   // the rest unread until the stream's next page, the first a reconnect sends.
-  const readingOlder = useRef(false);
+  const readingOlder = useRef<{ conversation: string; id: string; seq: number } | null>(null);
   const olderFailures = useRef({ count: 0, at: 0 });
   // An older page that arrives while he scrolls waits for his scroll to rest:
   // read in above him then, it would move the list by a scroll position his
@@ -209,7 +209,8 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
 
   useEffect(() => {
     if (!visible) return;
-    readingOlder.current = false;
+    readingOlder.current = null;
+    olderWaiting.current = null;
     const stream = new EventSource(address({ stream: "1" }));
     let failures = 0;
     // A stream that stalled is opened again, which begins with the newest
@@ -242,6 +243,11 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
       pages.delete(pageKey);
       pages.set(pageKey, { conversation: next.conversation, messages: next.messages.slice(-RECENT_MESSAGES), more: next.more || next.messages.length > RECENT_MESSAGES, usage: next.usage, waiting: next.waiting });
       if (pages.size > RECENT_SESSIONS) pages.delete(pages.keys().next().value!);
+      const reading = readingOlder.current;
+      if (reading && (reading.conversation !== next.conversation || reading.id !== next.messages[0]?.id || reading.seq !== next.messages[0]?.seq)) {
+        readingOlder.current = null;
+        olderWaiting.current = null;
+      }
       reconcile.current();
       isTaking.current = true;
       try {
@@ -402,12 +408,15 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     const failed = olderFailures.current;
     const conversation = heldValue.current.conversation;
     if (readingOlder.current || !conversation || conversation !== latest.current.conversation || !heldValue.current.more || !first || latest.current.messages[0]?.id !== first.id || latest.current.messages[0]?.seq !== first.seq || failed.count >= OLDER_TRIES || Date.now() - failed.at < OLDER_RETRY_MS) return;
-    readingOlder.current = true;
+    const reading = { conversation, id: first.id, seq: first.seq };
+    readingOlder.current = reading;
     request(address({ before: String(first.seq), conversation })).then((value) => {
+      if (readingOlder.current !== reading) return;
       const page = parsePage(value);
       olderFailures.current = { count: 0, at: 0 };
       const readIn = () => {
-        readingOlder.current = false;
+        if (readingOlder.current !== reading) return;
+        readingOlder.current = null;
         // A page of a conversation the view no longer shows is dropped.
         if (page.conversation !== conversation || heldValue.current.conversation !== conversation || latest.current.conversation !== conversation || heldValue.current.messages[0]?.id !== first.id || heldValue.current.messages[0]?.seq !== first.seq || latest.current.messages[0]?.id !== first.id || latest.current.messages[0]?.seq !== first.seq) return;
         reconcile.current();
@@ -419,7 +428,8 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
       if (isScrolling.current) olderWaiting.current = readIn;
       else readIn();
     }).catch((error: unknown) => {
-      readingOlder.current = false;
+      if (readingOlder.current !== reading) return;
+      readingOlder.current = null;
       olderFailures.current = { count: olderFailures.current.count + 1, at: Date.now() };
       reportToCfo(where, errorText(error));
     });

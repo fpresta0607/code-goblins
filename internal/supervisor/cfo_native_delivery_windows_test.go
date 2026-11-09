@@ -242,17 +242,18 @@ func sendNow(service *Service, task, id string) *httptest.ResponseRecorder {
 	return boardRequest(NewHTTP(service, "board.local", nil), "POST", "/api/actions", fmt.Sprintf(`{"id":"now-%s","kind":"message_now","task_id":%q,"generation":"","target":%q}`, id, task, id))
 }
 
-// The CFO, 2026-11-02: his message to the CFO waits on the board for its
-// undo window, and Send now skips the window and types it into the turn at
-// once, without the harness's own send-now key, which would interrupt the
-// turn: interrupting stays the box's Stop. Once typed it is the harness's, so
-// Send now is no longer offered. A line starting with $ is words, not a
+// The CFO, 2026-11-03, withdrawing the 2026-11-02 rule that interrupting
+// stays the box's Stop: his message to the CFO waits on the board for its
+// undo window, and Send now skips the window, types it into the turn and
+// presses the harness's own send-now key once, which interrupts that turn
+// and has the CFO take the message at once. Once typed it is the harness's,
+// so Send now is no longer offered. A line starting with $ is words, not a
 // command, so it waits too.
-func TestSendNowTypesHisHeldMessageIntoTheCFOsTurnWithoutItsKey(t *testing.T) {
-	for _, test := range []struct{ mode, text string }{
-		{mode: "claude-busy", text: "stop and rebase"},
-		{mode: "claude-busy", text: "$40k a month is too much, stop the migration"},
-		{mode: "busy", text: "stop and rebase"},
+func TestSendNowInterruptsTheCFOsTurnAndDeliversHisMessageOnce(t *testing.T) {
+	for _, test := range []struct{ mode, text, interrupt string }{
+		{mode: "claude-busy", text: "stop and rebase", interrupt: "sent now"},
+		{mode: "claude-busy", text: "$40k a month is too much, stop the migration", interrupt: "sent now"},
+		{mode: "busy", text: "stop and rebase", interrupt: "interrupted"},
 	} {
 		t.Run(test.mode+" "+test.text, func(t *testing.T) {
 			// Arrange
@@ -282,17 +283,103 @@ func TestSendNowTypesHisHeldMessageIntoTheCFOsTurnWithoutItsKey(t *testing.T) {
 			if first.Code != http.StatusAccepted || second.Code != http.StatusAccepted {
 				t.Fatalf("Send now answered %d %q, then %d %q; want both accepted", first.Code, first.Body, second.Code, second.Body)
 			}
-			if lines := terminal.waitForLines(t, 2); len(lines) != 2 || !strings.HasPrefix(lines[1], "queued ") || !strings.HasSuffix(lines[1], test.text) {
-				t.Fatalf("terminal input = %q; want the message typed into the turn once", lines)
+			if lines := terminal.waitForLines(t, 3); len(lines) != 3 || !strings.HasPrefix(lines[1], "queued ") || !strings.HasSuffix(lines[1], test.text) || lines[2] != test.interrupt {
+				t.Fatalf("terminal input = %q; want the message queued into the turn once and the harness's own send-now key pressed once", lines)
 			}
 			time.Sleep(500 * time.Millisecond)
-			if lines := terminal.lines(t); slices.Contains(lines, "sent now") || len(lines) != 2 {
-				t.Errorf("terminal input = %q; want no send-now key pressed", lines)
+			if lines := terminal.lines(t); len(lines) != 3 || lines[2] != test.interrupt {
+				t.Errorf("terminal input = %q; want the send-now key pressed exactly once", lines)
 			}
-			if sent := store.Snapshot().Actions[0]; !sent.IsSentNow || sent.CanSendNow || sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentToCFO {
+			if sent := store.Snapshot().Actions[0]; !sent.IsSentNow || sent.CanSendNow || sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentNowInTurn {
 				t.Errorf("after Send now = %+v; want it typed into the turn, awaiting the CFO, and Send now gone", sent)
 			}
 		})
+	}
+}
+
+// Send now interrupts the turn its message was typed into, never the turn
+// that is already answering that message: a turn that ends as the answer is
+// typed and submitted leaves the busy read from before typing stale, and its
+// harness starts a turn on the just-submitted answer, which its own record
+// proves taken. The key is not pressed then, as a goblin's delivery returns
+// once the goblin's record proves the text taken rather than pressing it.
+func TestSendNowDoesNotInterruptTheTurnThatTookHisAnswerFirst(t *testing.T) {
+	// Arrange
+	home := useConversations(t)
+	store, h := testStore(t)
+	terminal := nativeCFOComposer(t, h.State, "claude-busy")
+	service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: h.State}}}
+	if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+	// Its record shows the answer taken by the turn the submit started.
+	takenInRecordAt(t, home, "claude", "session-1", "", "stop and rebase", time.Now().Add(time.Hour))
+
+	// Act
+	sendNow(service, "", "m1")
+	if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert: the answer is queued once and no interrupt key follows it.
+	if lines := terminal.waitForLines(t, 2); len(lines) != 2 || lines[1] != "queued stop and rebase" {
+		t.Fatalf("terminal input = %q; want the answer typed into the turn once", lines)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if lines := terminal.lines(t); len(lines) != 2 {
+		t.Errorf("terminal input = %q; want no interrupt key after the answer", lines)
+	}
+	if sent := store.Snapshot().Actions[0]; sent.Status != "succeeded" || sent.Message != "Taken by the CFO in its native terminal, as its record showed." {
+		t.Errorf("after Send now = %+v; want it taken by the record, with no interrupt key", sent)
+	}
+}
+
+// A board message or answer from him is his own input, so the CFO's next
+// screen is bound to him, while a notice the supervisor writes is nobody's and
+// clears that binding: a picker a notice draws never reaches Modern Chat as
+// his.
+func TestABoardMessageKeepsHisMarkOnTheCFOsTerminalAndANoticeClearsIt(t *testing.T) {
+	// Arrange
+	useConversations(t)
+	store, h := testStore(t)
+	cfo := nativeCFOComposer(t, h.State, "ready")
+	service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: h.State}}}
+	if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "carry on"}); err != nil {
+		t.Fatal(err)
+	}
+	pastUndoWindow(t, store)
+	if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+	record, err := host.ReadRecord(h.State, "cfo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewer, err := host.View(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer viewer.Close()
+
+	// Assert: his board message is his.
+	if _, submission, _, err := viewer.Screen(record, ""); err != nil || submission == "" {
+		t.Fatalf("submission = %q, %v after his board message; want the screen bound to him", submission, err)
+	}
+
+	// Act: a notice the supervisor writes.
+	if _, err := service.Options.CFO.SendNotice(context.Background(), registrationIdentity(t, h.State), "Review request for CFO: look"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert: the notice is nobody's input.
+	if _, submission, _, err := viewer.Screen(record, ""); err != nil || submission != "" {
+		t.Fatalf("submission = %q, %v after a notice; want it cleared", submission, err)
+	}
+	if lines := cfo.lines(t); !slices.Contains(lines, "accepted carry on") {
+		t.Errorf("terminal input = %q; want his message typed", lines)
 	}
 }
 

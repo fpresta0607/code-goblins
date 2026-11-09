@@ -12,19 +12,20 @@ import (
 
 // PullRequest is one open pull request as gh pr list reports it.
 type PullRequest struct {
-	Number            int     `json:"number"`
-	URL               string  `json:"url"`
-	Title             string  `json:"title"`
-	HeadRefName       string  `json:"headRefName"`
-	HeadRefOid        string  `json:"headRefOid"`
-	BaseRefName       string  `json:"baseRefName"`
-	IsDraft           bool    `json:"isDraft"`
-	IsCrossRepository bool    `json:"isCrossRepository"`
-	Mergeable         string  `json:"mergeable"`
-	ReviewDecision    string  `json:"reviewDecision"`
-	Labels            []Label `json:"labels"`
-	Checks            Checks  `json:"statusCheckRollup"`
-	Author            struct {
+	IsCheckRollupIncomplete bool    `json:"isCheckRollupIncomplete,omitempty"`
+	Number                  int     `json:"number"`
+	URL                     string  `json:"url"`
+	Title                   string  `json:"title"`
+	HeadRefName             string  `json:"headRefName"`
+	HeadRefOid              string  `json:"headRefOid"`
+	BaseRefName             string  `json:"baseRefName"`
+	IsDraft                 bool    `json:"isDraft"`
+	IsCrossRepository       bool    `json:"isCrossRepository"`
+	Mergeable               string  `json:"mergeable"`
+	ReviewDecision          string  `json:"reviewDecision"`
+	Labels                  []Label `json:"labels"`
+	Checks                  Checks  `json:"statusCheckRollup"`
+	Author                  struct {
 		Login string `json:"login"`
 	} `json:"author"`
 }
@@ -72,18 +73,97 @@ func IsRateLimitedDeploy(state, targetURL string) bool {
 // Check is one entry of a check rollup: a check run, with a status and a
 // conclusion, or a commit status context, with a state and a target page.
 type Check struct {
-	Kind       string `json:"__typename"`
-	Name       string `json:"name"`
-	Context    string `json:"context"`
-	Status     string `json:"status"`
-	Conclusion string `json:"conclusion"`
-	State      string `json:"state"`
-	DetailsURL string `json:"detailsUrl"`
-	TargetURL  string `json:"targetUrl"`
+	Kind               string `json:"__typename"`
+	Name               string `json:"name"`
+	Context            string `json:"context"`
+	Status             string `json:"status"`
+	Conclusion         string `json:"conclusion"`
+	State              string `json:"state"`
+	DetailsURL         string `json:"detailsUrl"`
+	TargetURL          string `json:"targetUrl"`
+	WorkflowName       string `json:"workflowName,omitempty"`
+	DatabaseID         int64  `json:"databaseId,omitempty"`
+	NodeID             string `json:"id,omitempty"`
+	SuiteID            int64  `json:"checkSuiteId,omitempty"`
+	SuiteNodeID        string `json:"checkSuiteNodeId,omitempty"`
+	AppID              int64  `json:"appId,omitempty"`
+	Repository         string `json:"repository,omitempty"`
+	HeadSHA            string `json:"headSha,omitempty"`
+	RunID              int64  `json:"workflowRunId,omitempty"`
+	RunNodeID          string `json:"workflowRunNodeId,omitempty"`
+	RunAttempt         int    `json:"runAttempt,omitempty"`
+	Event              string `json:"event,omitempty"`
+	WorkflowID         int64  `json:"workflowId,omitempty"`
+	WorkflowNodeID     string `json:"workflowNodeId,omitempty"`
+	WorkflowPath       string `json:"workflowPath,omitempty"`
+	WorkflowRepository string `json:"workflowRepository,omitempty"`
 	// StartedAt and CompletedAt are when GitHub says a check run started and
 	// finished. A commit status has only the first, the time it was set.
 	StartedAt   string `json:"startedAt"`
 	CompletedAt string `json:"completedAt"`
+}
+
+const nativeAttestationName = "PR must be raised via no-mistakes"
+const nativeAttestationWorkflow = "Require no-mistakes"
+const nativeAttestationPath = ".github/workflows/no-mistakes-required.yml"
+
+// nativeAttestation recognizes the single synthetic PR-only check eligible
+// for the exception. Multiple or differently sourced names remain ambiguous.
+func nativeAttestation(checks Checks) (*Check, bool) {
+	var found *Check
+	for _, check := range checks {
+		if check.name() != nativeAttestationName {
+			continue
+		}
+		if found != nil || check.Kind != "CheckRun" || check.WorkflowName != nativeAttestationWorkflow {
+			return nil, true
+		}
+		found = &check
+	}
+	return found, found != nil
+}
+
+// nativeRiderAttestation validates every native-name entry before choosing a
+// witness. An admitted witness never changes, even when another run succeeds.
+func nativeRiderAttestation(pr PullRequest, admitted *Check) (*Check, bool) {
+	repository, _, _ := strings.Cut(strings.TrimPrefix(pr.URL, "https://github.com/"), "/pull/")
+	var found *Check
+	hasAttestation := false
+	checkIDs, suiteIDs, runIDs := map[int64]bool{}, map[int64]bool{}, map[int64]bool{}
+	var workflowID int64
+	for _, check := range pr.Checks {
+		if check.name() != nativeAttestationName {
+			continue
+		}
+		hasAttestation = true
+		if !strings.HasPrefix(pr.URL, "https://github.com/") || !successfulAttestation(&check) || !check.isNativePRCheck(repository, pr.HeadRefOid) || checkIDs[check.DatabaseID] || suiteIDs[check.SuiteID] || runIDs[check.RunID] || workflowID != 0 && workflowID != check.WorkflowID {
+			return nil, true
+		}
+		checkIDs[check.DatabaseID], suiteIDs[check.SuiteID], runIDs[check.RunID] = true, true, true
+		workflowID = check.WorkflowID
+		if admitted != nil {
+			if check.DatabaseID == admitted.DatabaseID && check == *admitted {
+				found = &check
+			}
+		} else if found == nil || check.DatabaseID < found.DatabaseID {
+			found = &check
+		}
+	}
+	return found, hasAttestation
+}
+
+func (c Check) isNativePRCheck(repository, head string) bool {
+	runURL := fmt.Sprintf("https://github.com/%s/actions/runs/%d", repository, c.RunID)
+	return c.Kind == "CheckRun" && c.Name == nativeAttestationName && c.WorkflowName == nativeAttestationWorkflow &&
+		c.DatabaseID > 0 && c.NodeID != "" && c.SuiteID > 0 && c.SuiteNodeID != "" && c.AppID == githubActions &&
+		c.RunID > 0 && c.RunNodeID != "" && c.RunAttempt > 0 && c.WorkflowID > 0 && c.WorkflowNodeID != "" &&
+		c.Repository == repository && c.WorkflowRepository == repository && c.HeadSHA == head && head != "" &&
+		c.Event == "pull_request" && c.WorkflowPath == nativeAttestationPath &&
+		(c.DetailsURL == runURL || strings.HasPrefix(c.DetailsURL, runURL+"/"))
+}
+
+func successfulAttestation(check *Check) bool {
+	return check != nil && check.Status == "COMPLETED" && check.Conclusion == "SUCCESS"
 }
 
 func (c Check) name() string {
@@ -238,6 +318,7 @@ func Riders(open []PullRequest, base, viewer string, goblins []Goblin, past []Tr
 		}
 		owner, done := ownerOf(goblins, pr.URL)
 		limited := rateLimited(pr.Checks)
+		attestation, hasAttestation := nativeRiderAttestation(pr, nil)
 		why := ""
 		switch outcome, _ := checksOutcome(pr.Checks); {
 		case owner.Task == "":
@@ -252,6 +333,10 @@ func Riders(open []PullRequest, base, viewer string, goblins []Goblin, past []Tr
 			why = "it conflicts with " + base
 		case pr.ReviewDecision == "CHANGES_REQUESTED" || pr.ReviewDecision == "REVIEW_REQUIRED":
 			why = "it waits on a review"
+		case pr.IsCheckRollupIncomplete:
+			why = "its check rollup is incomplete"
+		case hasAttestation && !successfulAttestation(attestation):
+			why = "it has no unambiguous successful native attestation"
 		case outcome == "none" && len(pr.Checks) == 0:
 			why = "it has no checks"
 		case outcome == "none" && limited != "":
@@ -274,6 +359,7 @@ func Riders(open []PullRequest, base, viewer string, goblins []Goblin, past []Tr
 			continue
 		}
 		car := Car{Number: pr.Number, URL: pr.URL, Title: pr.Title, Branch: pr.HeadRefName, Head: pr.HeadRefOid, Task: owner.Task, Goblin: owner.Name, GoblinTitle: owner.Title, State: CarRiding}
+		car.NativeAttestation = attestation
 		if limited != "" {
 			car.Note = "the host rate limited the deploy of " + limited + ", which never built this head"
 		}

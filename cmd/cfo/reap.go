@@ -48,7 +48,7 @@ never its orphans. The sweep lists the machine's processes and then reads
 which of them still run. One that ended in between is named in a note and
 is no finding.
 
-The watcher runs this sweep on its own timer and wakes the CFO once for a
+The watcher runs this sweep on its own timer and wakes the CEO once for a
 running finding. A fleet harness and a dev server are each told once for each
 process. A harness nothing ties to the fleet is told once for its shape, where
 it runs from, what started it and why it is held, however many processes of

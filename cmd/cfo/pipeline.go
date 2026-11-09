@@ -29,10 +29,10 @@ import (
 
 func runPipeline(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "cfo pipeline: config-drift, config-apply, migrate, run, respond, recover or handback required")
+		fmt.Fprintln(stderr, "cfo pipeline: config-drift, config-apply, migrate, run, respond, recover, handback, terminal-preflight, validate-authored or validate-terminal required")
 		return 2
 	}
-	if args[0] != "config-drift" && args[0] != "config-apply" && args[0] != "migrate" && args[0] != "run" && args[0] != "respond" && args[0] != "recover" && args[0] != "handback" {
+	if args[0] != "config-drift" && args[0] != "config-apply" && args[0] != "migrate" && args[0] != "run" && args[0] != "respond" && args[0] != "recover" && args[0] != "handback" && args[0] != "terminal-preflight" && args[0] != "validate-authored" && args[0] != "validate-terminal" {
 		fmt.Fprintln(stderr, "cfo pipeline: unknown command")
 		return 2
 	}
@@ -99,8 +99,10 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	}
 	flags := flag.NewFlagSet("pipeline", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var intent, intentFile, wantBranch, wantRun string
-	var shouldResume bool
+	var intent, intentFile, wantBranch, wantRun, admissionFile string
+	isAdmission := args[0] == "validate-authored" || args[0] == "validate-terminal"
+	isPreflight := args[0] == "terminal-preflight"
+	var shouldResume, shouldRevalidatePublication bool
 	var receipt string
 	var response pipeline.Response
 	if args[0] == "run" {
@@ -110,16 +112,19 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		flags.StringVar(&response.Action, "action", "", "fix or approve")
 		flags.StringVar(&response.Findings, "findings", "", "comma-separated finding IDs")
 		flags.StringVar(&response.Instructions, "instructions", "", "guidance for selected findings")
-		flags.StringVar(&response.Accept, "accept", "", "with approve: every open ask-user and auto-fix finding the CFO, or the task's own goblin on its run's spent review, accepts as it stands")
+		flags.StringVar(&response.Accept, "accept", "", "with approve: every open ask-user and auto-fix finding the CEO, or the task's own goblin on its run's spent review, accepts as it stands")
 		flags.StringVar(&response.Reason, "reason", "", "with approve of the test step: the operator's reason the native exception record keeps")
+	} else if isAdmission {
+		flags.StringVar(&admissionFile, "admission-file", "", "controller-owned native validation admission JSON")
 	} else if args[0] == "handback" {
 		flags.BoolVar(&shouldResume, "resume", false, "submit the authored correction to the same native run")
 		flags.StringVar(&receipt, "receipt", "", "the native release receipt required with --resume")
+		flags.BoolVar(&shouldRevalidatePublication, "revalidate-publication", false, "release a post-validation publication with historical evidence pinned; primary CFO only")
 	}
-	if args[0] == "run" || args[0] == "respond" || args[0] == "recover" || args[0] == "handback" {
+	if args[0] == "run" || args[0] == "respond" || args[0] == "recover" || args[0] == "handback" || isAdmission {
 		flags.StringVar(&wantBranch, "branch", "", "the branch, checked out in one of the task's worktrees, to act on")
 	}
-	if args[0] == "respond" || args[0] == "recover" || args[0] == "handback" {
+	if args[0] == "respond" || args[0] == "recover" || args[0] == "handback" || isPreflight {
 		flags.StringVar(&wantRun, "run", "", "the run, the latest of a branch checked out in one of the task's worktrees, to act on")
 	}
 	if err := flags.Parse(args[2:]); err != nil {
@@ -127,6 +132,33 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	}
 	if flags.NArg() != 0 {
 		return errors.New("pipeline: unexpected arguments")
+	}
+	if isAdmission && strings.TrimSpace(admissionFile) == "" {
+		return errors.New("pipeline: --admission-file is required")
+	}
+	if isPreflight && wantRun == "" {
+		return errors.New("pipeline: terminal-preflight requires --run <predecessor>")
+	}
+	if isAdmission || isPreflight || shouldRevalidatePublication {
+		cfo := supervisor.CFOConnection{State: h.State}
+		var release func()
+		err := errors.New("gate agents and goblins cannot act as the registered primary CFO")
+		if os.Getenv(gateAgentVariable) == "" && os.Getenv(harness.RoleVariable) != harness.RoleGoblin {
+			_, release, err = cfo.CallerIdentity()
+		}
+		if err != nil {
+			if shouldRevalidatePublication {
+				return fmt.Errorf("pipeline: --revalidate-publication requires the registered primary CFO: %w", err)
+			}
+			if isAdmission {
+				return fmt.Errorf("pipeline: validation admission and successor selection require the registered primary CFO: %w", err)
+			}
+			if goblinErr := ownGoblin(h.State, id); goblinErr != nil {
+				return fmt.Errorf("pipeline: terminal preflight requires the registered primary CFO (%v) or the task's own goblin (%v)", err, goblinErr)
+			}
+		} else {
+			defer release()
+		}
 	}
 	if shouldResume != (receipt != "") {
 		return errors.New("pipeline: handback --resume requires --receipt, and --receipt requires --resume")
@@ -215,11 +247,11 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if !fsx.SamePath(meta.TaskTmp, expectedTmp) {
 		return errors.New("pipeline: task temporary path does not match metadata identity")
 	}
-	if args[0] == "handback" {
+	if args[0] == "handback" || isAdmission || isPreflight {
 		if _, err := os.Lstat(filepath.Join(expectedTmp, policyMigrationJournalName)); err == nil {
-			return errors.New("pipeline: pending policy migration; run cfo pipeline migrate explicitly before handback")
+			return fmt.Errorf("pipeline: pending policy migration; run cfo pipeline migrate explicitly before %s", args[0])
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return errors.New("pipeline: policy migration journal cannot be inspected; handback refused")
+			return fmt.Errorf("pipeline: policy migration journal cannot be inspected; %s refused", args[0])
 		}
 	} else if err := resumePipelinePolicyMigration(h, root, meta); err != nil {
 		return err
@@ -241,7 +273,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if err := worktree.Validate(ctx, worktree.RunnerGit{Commands: commands}, meta.Project, meta.Worktree); err != nil {
 		return err
 	}
-	if args[0] != "recover" && args[0] != "migrate" {
+	if args[0] != "recover" && args[0] != "migrate" && !isAdmission && !isPreflight {
 		config := pipeline.Config{Path: filepath.Join(root, "config.yaml"), Policy: selection.Policy}
 		drift, err := config.Drift()
 		if err != nil {
@@ -252,7 +284,12 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		}
 	}
 	if wantRun != "" {
-		if wantBranch, err = reader.RunBranch(ctx, meta.Project, wantRun); err != nil {
+		if isPreflight {
+			wantBranch, _, err = reader.AdmissionBranch(ctx, meta.Project, wantRun)
+		} else {
+			wantBranch, err = reader.RunBranch(ctx, meta.Project, wantRun)
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -266,8 +303,22 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if args[0] == "migrate" {
 		return migratePipelinePolicy(h, root, meta, selection, out)
 	}
+	if isAdmission {
+		return pipelineAdmission(ctx, h, reader, meta, selection, gated, branch, args[0], admissionFile, out)
+	}
+	if isPreflight {
+		result, err := commands.Run(ctx, execx.Request{Dir: gated, Env: nativeEnv(root), Name: "no-mistakes", Args: []string{"axi", "terminal-preflight", "--predecessor", wantRun}})
+		fmt.Fprint(out, string(result.Stdout), string(result.Stderr))
+		if err != nil {
+			return fmt.Errorf("pipeline: native terminal-preflight failed: %w", err)
+		}
+		if result.ExitCode != 0 {
+			return fmt.Errorf("pipeline: native terminal-preflight exited %d; a native terminal-preflight contract is required; no admission was attempted", result.ExitCode)
+		}
+		return nil
+	}
 	if args[0] == "handback" {
-		result, err := reader.Handback(ctx, meta.Project, gated, branch, wantRun, receipt, nativeEnv(root))
+		result, err := reader.Handback(ctx, meta.Project, gated, branch, wantRun, receipt, shouldRevalidatePublication, nativeEnv(root))
 		fmt.Fprint(out, string(result.Stdout), string(result.Stderr))
 		if err != nil {
 			return fmt.Errorf("pipeline: native handback failed: %w", err)
@@ -276,7 +327,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			if shouldResume && isGateWaitElapsed(result) {
 				return fmt.Errorf("%w: the native handback hold elapsed while the same run continues; inspect its status and receipt before an explicit continuation; no replacement run was started", pipeline.ErrUnresolved)
 			}
-			return fmt.Errorf("pipeline: native handback exited %d; inspect its result before any explicit retry; a supported axi handback --expect contract is required", result.ExitCode)
+			return fmt.Errorf("pipeline: native handback exited %d; inspect the native refusal above and its status and receipt before any explicit retry; no replacement run was started", result.ExitCode)
 		}
 		return nil
 	}
@@ -288,7 +339,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "pipeline custody: recovered run %s; local and gate head preserved at %s\n", result.RunID, result.Head)
+		fmt.Fprintf(out, "pipeline custody: recovered run %s; local head preserved at %s; gate branch at %s\n", result.RunID, result.Head, result.GateHead)
 		if result.WorktreeEdits != "" {
 			fmt.Fprintf(out, "pipeline worktree: run %s's unfinished edits are kept at %s under %s; restore them with git cherry-pick -n %s\n", result.RunID, result.WorktreeEdits, pipeline.WorktreeRef(result.RunID), result.WorktreeEdits)
 		}

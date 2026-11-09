@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
+	goruntime "runtime"
 	"slices"
 	"strings"
 	"time"
@@ -47,9 +49,9 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 		fmt.Fprintln(stderr, "usage: cfo gate turns [--json]")
 		return 2
 	}
-	takesFlags := len(args) > 0 && (args[0] == "test" || args[0] == "prepush")
-	if len(args) == 0 || !slices.Contains([]string{"tests-kept", "test", "prepush", "turns"}, args[0]) || (!takesFlags && len(args) != 1) {
-		fmt.Fprintln(stderr, "cfo gate: the checks are tests-kept, test [--level fast|affected|full] [--plan], prepush [--plan] [--limit <duration>], turn [--as <name>] -- <program> [<argument>...] and turns [--json]")
+	takesFlags := len(args) > 0 && (args[0] == "test" || args[0] == "lint" || args[0] == "prepush")
+	if len(args) == 0 || !slices.Contains([]string{"tests-kept", "prepare", "test", "lint", "prepush", "turns"}, args[0]) || (!takesFlags && len(args) != 1) {
+		fmt.Fprintln(stderr, "cfo gate: the checks are tests-kept, prepare, test [--level fast|affected|full | --focused] [--plan], lint [--plan], prepush [--plan] [--limit <duration>], turn [--as <name>] -- <program> [<argument>...] and turns [--json]")
 		return 2
 	}
 	dir, err := os.Getwd()
@@ -57,8 +59,11 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	if args[0] == "test" {
-		return runGateTest(args[1:], dir, stdout, stderr, runtime)
+	if args[0] == "prepare" {
+		return runGatePrepare(dir, stdout, stderr, runtime)
+	}
+	if args[0] == "test" || args[0] == "lint" {
+		return runGateChecks(args[0], args[1:], dir, stdout, stderr, runtime)
 	}
 	if args[0] == "prepush" {
 		return runGatePrepush(args[1:], dir, stdout, stderr, runtime)
@@ -89,6 +94,33 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 	return 1
 }
 
+func runGatePrepare(dir string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	ctx, cancel := context.WithTimeout(context.Background(), runtime.gatePlanLimit)
+	defer cancel()
+	plan, err := gatetest.Read(ctx, execx.OSRunner{}, dir, gatetest.Fast)
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo gate prepare: %v\n", err)
+		return 2
+	}
+	if !slices.ContainsFunc(plan.Changed, func(file string) bool { return strings.HasPrefix(file, "frontend/") }) {
+		fmt.Fprintln(stdout, "cfo gate prepare: no frontend change; no dependencies installed")
+		return 0
+	}
+	start := time.Now()
+	fmt.Fprintln(stdout, "cfo gate prepare: npm ci in this worktree's frontend")
+	command := []string{"npm", "ci"}
+	if goruntime.GOOS == "windows" {
+		command = []string{"cmd.exe", "/d", "/c", "npm", "ci"}
+	}
+	exit, err := runtime.gateRun(command, filepath.Join(plan.Root, "frontend"), gatetest.Environment(os.Environ()), stdout, stderr)
+	fmt.Fprintf(stdout, "cfo gate prepare: locked install finished in %s\n", time.Since(start).Round(time.Millisecond))
+	if err != nil || exit != 0 {
+		fmt.Fprintf(stderr, "cfo gate prepare: npm ci: exit %d: %v\n", exit, err)
+		return 1
+	}
+	return 0
+}
+
 // approvedHeads are the heads of earlier tests-kept parks a person approved
 // or skipped, read from the gate's database, where each park's summary keeps
 // the check's first line. When the database cannot be read the check leaves
@@ -105,13 +137,13 @@ func approvedHeads(ctx context.Context) ([]string, error) {
 	return testguard.ApprovedHeads(summaries), nil
 }
 
-// runGateTest is this repository's local gate test step. It plans what the
+// runGateChecks runs this repository's test or vet-only lint step. It plans what the
 // branch's change requires, prints the plan with why each package is in it,
-// runs go vet and go test at the planned level without the fleet's CFO_HOME
+// runs go vet and, for the test step, go test without the fleet's CFO_HOME
 // and CFO_STATE_OVERRIDE, which a gate step inherits from the goblin's pane,
-// and leaves a report of what it ran. With no --level it runs the fast level,
-// because CI runs every package on every pull request and so is the check of
-// the level the change requires: the changed packages, the packages that
+// and leaves a report only for the test step. With no --level or --focused,
+// test runs fast; lint vets at the required level. CI checks the level the
+// change requires: the changed packages, the packages that
 // import them directly or transitively and the packages a contract of the
 // policy names for a changed file, or every package once a module file
 // changed or a changed file is one the policy does not account for. Running
@@ -123,13 +155,16 @@ func approvedHeads(ctx context.Context) ([]string, error) {
 // go test prints without -v, the log holds every line they wrote, the report
 // what became of each package, and a run that holds a turn says beside it how
 // far its tests are.
-func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	flags := flag.NewFlagSet("cfo gate test", flag.ContinueOnError)
+func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	label := "cfo gate " + kind
+	isLint := kind == "lint"
+	flags := flag.NewFlagSet(label, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	levelName := flags.String("level", "", "fast, affected or full; fast when not given, since CI runs every package")
 	planOnly := flags.Bool("plan", false, "print the plan and run nothing")
-	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: cfo gate test [--level fast|affected|full] [--plan]")
+	isFocused := flags.Bool("focused", false, "read repair tests and paths from NO_MISTAKES_TEST_FOCUS")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || *isFocused && *levelName != "" || isLint && (*isFocused || *levelName != "") {
+		fmt.Fprintln(stderr, "usage: cfo gate test [--level fast|affected|full | --focused] [--plan]; cfo gate lint [--plan]")
 		return 2
 	}
 	asked, defaulted := gatetest.Fast, true
@@ -141,17 +176,34 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		}
 		asked, defaulted = level, false
 	}
+	if isLint {
+		asked, defaulted = "", false
+	}
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), runtime.gatePlanLimit)
-	plan, err := gatetest.Read(ctx, execx.OSRunner{}, dir, asked)
+	var plan gatetest.Plan
+	var note string
+	var err error
+	if *isFocused {
+		plan, note, err = gatetest.ReadFocused(ctx, execx.OSRunner{}, dir, os.Getenv("NO_MISTAKES_TEST_FOCUS"))
+		defaulted = false
+	} else {
+		plan, err = gatetest.Read(ctx, execx.OSRunner{}, dir, asked)
+	}
 	isStalled := err != nil && ctx.Err() != nil
 	cancel()
 	if isStalled {
-		return planStalled("cfo gate test", runtime.gatePlanLimit, err, stdout, stderr)
+		return planStalled(label, runtime.gatePlanLimit, err, stdout, stderr)
 	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
+	}
+	if note != "" {
+		fmt.Fprintln(stdout, note)
+	}
+	if isLint {
+		plan.Tests, plan.Alone, plan.Guards = nil, nil, nil
 	}
 	var commands [][]string
 	for _, guard := range plan.Guards {
@@ -170,8 +222,27 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		// a time, so nothing competes with the real Chrome their tests drive.
 		commands = append(commands, append([]string{"go", "test", "-json", "-count=1", "-p", "1", "-timeout", "45m"}, plan.Alone...))
 	}
-	if *planOnly {
+	for _, named := range plan.Named {
+		commands = append(commands, named.Command)
+	}
+	printPlan := func() {
+		if isLint {
+			fmt.Fprintf(stdout, "%s: vet at level %s: %s; no tests run\n", label, plan.Level, plan.Why)
+			for _, choice := range plan.Choices {
+				fmt.Fprintln(stdout, "- "+choice.String())
+			}
+			return
+		}
+		if *isFocused && note == "" {
+			fmt.Fprintln(stdout, label+": focused repair check, not a full baseline")
+			for _, named := range plan.Named {
+				fmt.Fprintln(stdout, "- "+named.What)
+			}
+		}
 		printGatePlan(stdout, plan, defaulted)
+	}
+	if *planOnly {
+		printPlan()
 		fmt.Fprintln(stdout, "policy: "+plan.Policy)
 		for _, command := range commands {
 			fmt.Fprintln(stdout, "would run: "+strings.Join(command, " "))
@@ -197,6 +268,12 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		Status:        "passed",
 		Start:         start,
 	}
+	if *isFocused && note == "" {
+		report.Level = "focused"
+	}
+	if isLint {
+		report.Level = "lint"
+	}
 	for _, choice := range plan.Choices {
 		report.Selected = append(report.Selected, verify.Selection{Package: choice.ImportPath, Why: choice.Reason()})
 	}
@@ -210,18 +287,21 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 	// short is where the step's own output goes, and full takes every line
 	// the tests wrote: the log, when the run has one.
 	short, full := stdout, io.Discard
-	log, reportPath, err := verify.Begin(report.Project, start, plan.Commit, report.Level)
-	if err != nil {
-		fmt.Fprintf(stderr, "cfo gate test: this run leaves no report: %v\n", err)
-	} else {
-		defer log.Close()
-		report.Log = log.Name()
-		full = log
-		stdout, stderr = io.MultiWriter(stdout, log), io.MultiWriter(stderr, log)
+	reportPath := ""
+	if !isLint {
+		log, filename, err := verify.Begin(report.Project, start, plan.Commit, report.Level)
+		if err != nil {
+			fmt.Fprintf(stderr, "%s: this run leaves no report: %v\n", label, err)
+		} else {
+			defer log.Close()
+			reportPath, report.Log = filename, log.Name()
+			full = log
+			stdout, stderr = io.MultiWriter(stdout, log), io.MultiWriter(stderr, log)
+		}
 	}
-	printGatePlan(stdout, plan, defaulted)
+	printPlan()
 	if taskErr != nil {
-		fmt.Fprintf(stderr, "cfo gate test: task attribution unavailable: %v\n", taskErr)
+		fmt.Fprintf(stderr, "%s: task attribution unavailable: %v\n", label, taskErr)
 	}
 
 	// A run under the disk floor is refused before it takes a turn: its
@@ -231,7 +311,7 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		if err != nil {
 			short = "free disk cannot be read, so the run cannot be shown to leave the disk floor free: " + err.Error()
 		}
-		fmt.Fprintf(stderr, "cfo gate test: %s; a run needs the floor free\n", short)
+		fmt.Fprintf(stderr, "%s: %s; a run needs the floor free\n", label, short)
 		report.Status, report.QueueNote = "failed", short
 	}
 
@@ -240,11 +320,12 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		who += ", task " + taskLabel(report.Task, runtime)
 	}
 	env := gatetest.Environment(os.Environ())
+	remainingFailures := slices.Clone(plan.Failures)
 	for _, command := range commands {
 		check := verify.Result{Command: command, Scope: report.Level, Status: "not_run", ExitCode: -1}
 		if report.Status == "passed" {
 			budget := runtime.gateBudget(plan.Level)
-			turn, admissionErr := takeGateTurn(context.Background(), "cfo gate test", stdout, stderr, runtime.availableMemory, who, budget, runtime.gateWaitLimit)
+			turn, admissionErr := takeGateTurn(context.Background(), label, stdout, stderr, runtime.availableMemory, who, budget, runtime.gateWaitLimit)
 			report.QueueSeconds += turn.Waited.Seconds()
 			if admissionErr != nil {
 				report.Status, report.QueueNote = "failed", admissionErr.Error()
@@ -276,16 +357,19 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 				if outputErr := events.End(); outputErr != nil && !errors.Is(err, outputErr) {
 					err = errors.Join(err, outputErr)
 				}
+				remainingFailures = slices.DeleteFunc(remainingFailures, func(failure gatetest.FailedTest) bool {
+					return events.Tested(failure.Package, failure.Name)
+				})
 				// What this run timed is what cfo gate prepush goes by when
 				// it leaves a slow package's slowest tests to CI.
 				if keepErr := verify.KeepTimes(report.Project, events.Times()); keepErr != nil {
-					fmt.Fprintf(stderr, "cfo gate test: this run's test times are not kept: %v\n", keepErr)
+					fmt.Fprintf(stderr, "%s: this run's test times are not kept: %v\n", label, keepErr)
 				}
 			}
 			check.ExitCode = exit
 			if err != nil || exit != 0 {
 				check.Status, report.Status = "failed", "failed"
-				fmt.Fprintf(stderr, "cfo gate test: go %s: exit %d: %v\n", command[1], exit, err)
+				fmt.Fprintf(stderr, "%s: go %s: exit %d: %v\n", label, command[1], exit, err)
 			}
 			check.DurationSeconds = ran.Seconds()
 			if events != nil {
@@ -294,26 +378,30 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 			turn.Release()
 			if check.Status == "passed" && ran > budget {
 				check.Status, report.Status = "over_budget", "failed"
-				fmt.Fprintf(stderr, "cfo gate test: go %s passed but ran for %s, past the %s budget of the %s level, so the run does not pass\n", command[1], ran.Round(time.Second), budget, plan.Level)
+				fmt.Fprintf(stderr, "%s: go %s passed but ran for %s, past the %s budget of the %s level, so the run does not pass\n", label, command[1], ran.Round(time.Second), budget, plan.Level)
 			}
 		}
 		report.Checks = append(report.Checks, check)
 	}
+	for _, failure := range remainingFailures {
+		report.Status = "failed"
+		fmt.Fprintf(stderr, "%s: named failure %s %s was missing, skipped or unfinished\n", label, failure.Package, failure.Name)
+	}
 	report.DurationSeconds = time.Since(start).Seconds()
 
-	verdict := fmt.Sprintf("cfo gate test: %s at level %s in %s", report.Status, plan.Level, time.Since(start).Round(time.Second))
+	verdict := fmt.Sprintf("%s: %s at level %s in %s", label, report.Status, report.Level, time.Since(start).Round(time.Second))
 	if waited := time.Duration(report.QueueSeconds * float64(time.Second)).Round(time.Second); waited > 0 {
 		verdict += fmt.Sprintf(", %s of it waiting for its turn", waited)
 	}
 	if reportPath != "" {
 		if err := verify.Finish(reportPath, report); err != nil {
-			fmt.Fprintf(stderr, "cfo gate test: this run leaves no report: %v\n", err)
+			fmt.Fprintf(stderr, "%s: this run leaves no report: %v\n", label, err)
 		} else {
 			verdict += "; report " + reportPath
 		}
 	}
 	fmt.Fprintln(stdout, verdict)
-	if report.Status == "passed" && !plan.Level.Covers(plan.Required) {
+	if !isLint && report.Status == "passed" && !plan.Level.Covers(plan.Required) {
 		fmt.Fprintf(stdout, "cfo gate test: the change requires the %s level before it merges, which CI's run of every package checks\n", plan.Required)
 	}
 	if report.Status != "passed" {
