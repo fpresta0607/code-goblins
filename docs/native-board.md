@@ -1428,6 +1428,7 @@ A `session` event says what the fleet's stream says of the session: its newest t
 The view draws a turn's working indicator from that event alone, never from a snapshot of the session's terminal, so a finished turn never draws one at any snapshot timing; a view the stream has run past says it is behind, a state of its own that is neither disconnected nor ended, and no timer infers it from elapsed time.
 On 2026-10-29 the Overlord's view of the CFO showed a call Running at least 76 seconds after it ended, with no word that it was stale.
 A stream that drops or ends is opened again, which begins with the newest page, and says Reconnecting until it does.
+Its corner shows one of those notices at a time, the most pressing first: Reconnecting, then why the conversation it draws is stale or why its stream cannot be kept, then Behind.
 A stream also ends after ten minutes, as a baby goblin's does, and at most 32 stream at once, a limit of their own.
 With `picture=ID` it answers a picture a message holds, read back from its entry by the id a read of the messages gave it, never by a path or an offset the browser names; a Claude Code picture's id names where it is in its conversation, so a read of the tail and a read of the whole name it alike, and it is answered only when a read found a picture there.
 It must come with the page's `conversation`, and is refused with 400 without one; a picture of a conversation the session no longer has, or whose file changed while it was read, is answered with 404 as one no read found.
@@ -1728,7 +1729,9 @@ No daemon, database or dependency is added; the stream lives where the fleet's o
 
 An event is one thing that happened, in the order it happened, with a stable id: a prompt, the assistant's text as the harness writes it, thinking, a tool call, the result that answers it, a notice, a compaction, an interrupt, the session's own report that a turn runs or ended, the end of a session, and the board's word where a harness cannot provide part of it.
 The newest report of a turn is the one the board draws, so a word that a session the board had not yet seen report anything is running supersedes the earlier one that said it could not tell.
+A report is written only where it changes the newest word the stream holds of its turn, so a turn a notice set running again after it ended is told again, and a report read again writes nothing.
 A harness that rewrites its own record behind the reader, as pi's branch reset drops an abandoned answer, has its record restated in the stream, so a stream that only appends never shows a message its harness has dropped.
+A read of the newest page is weighed against everything the stream holds, an earlier supervisor's writing included, from the message where one begins inside the other: a page that slid past messages the stream holds only carries it on, and one that disagrees with it, or shares no message with it, is restated.
 Its id is derived from the session, the message and block it belongs to and its own content, so a reader that derives the same events from the same harness record again writes nothing, and content that changed derives another event a reader folds over the one before.
 Every event of a turn names the prompt that began it.
 `internal/sessionstream` owns the shape and the file; `internal/fleettree` maps the messages a harness's own reader already normalized into those events, and back, so a new harness is one adapter and no reader of the stream changes with it, and Claude Code, Codex and pi produce the same events for a turn.

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -367,17 +368,23 @@ func TestATickThatCarriesInANewMessageKeepsTheConversation(t *testing.T) {
 // TestAReadThatOnlyCarriesOnTheStreamIsNoRestatement keeps an ordinary read of
 // newer messages from being taken for a harness that rewrote its record.
 func TestAReadThatOnlyCarriesOnTheStreamIsNoRestatement(t *testing.T) {
-	held := []fleettree.Message{{ID: "u1", Seq: 0}, {ID: "a1", Seq: 1}}
+	held := []fleettree.Message{{ID: "u1", Seq: 2}, {ID: "a1", Seq: 3}, {ID: "u2", Seq: 4}, {ID: "a2", Seq: 5}}
 	for name, tc := range map[string]struct {
 		read []fleettree.Message
 		want bool
 	}{
-		"a read past the stream":      {[]fleettree.Message{{ID: "u1", Seq: 0}, {ID: "a1", Seq: 1}, {ID: "u2", Seq: 2}}, false},
-		"a read of what it holds":     {[]fleettree.Message{{ID: "u1", Seq: 0}, {ID: "a1", Seq: 1}}, false},
-		"a read that begins later":    {[]fleettree.Message{{ID: "a1", Seq: 1}}, false},
-		"a read of other messages":    {[]fleettree.Message{{ID: "u1", Seq: 0}, {ID: "u2", Seq: 1}}, true},
-		"a read of an empty record":   {nil, false},
-		"a stream that holds nothing": {[]fleettree.Message{{ID: "u1", Seq: 0}}, false},
+		"a read past the stream":   {[]fleettree.Message{{ID: "u1", Seq: 2}, {ID: "a1", Seq: 3}, {ID: "u2", Seq: 4}, {ID: "a2", Seq: 5}, {ID: "u3", Seq: 6}}, false},
+		"a read of what it holds":  {slices.Clone(held), false},
+		"a read that begins later": {[]fleettree.Message{{ID: "u2", Seq: 4}, {ID: "a2", Seq: 5}}, false},
+		// The newest page once the session wrote more than a page: it begins
+		// past the stream's oldest message and ends past its newest.
+		"a page that slid on past the stream": {[]fleettree.Message{{ID: "u2", Seq: 4}, {ID: "a2", Seq: 5}, {ID: "u3", Seq: 6}, {ID: "a3", Seq: 7}}, false},
+		"a stream that began after the read":  {[]fleettree.Message{{ID: "u0", Seq: 0}, {ID: "a0", Seq: 1}, {ID: "u1", Seq: 2}, {ID: "a1", Seq: 3}, {ID: "u2", Seq: 4}, {ID: "a2", Seq: 5}}, false},
+		"a read of other messages":            {[]fleettree.Message{{ID: "u1", Seq: 2}, {ID: "u9", Seq: 3}}, true},
+		"a read that dropped the newest":      {[]fleettree.Message{{ID: "u1", Seq: 2}, {ID: "a1", Seq: 3}, {ID: "u2", Seq: 4}}, true},
+		"a read that shares nothing with it":  {[]fleettree.Message{{ID: "u7", Seq: 14}, {ID: "a7", Seq: 15}}, true},
+		"a read of an empty record":           {nil, false},
+		"a stream that holds nothing":         {[]fleettree.Message{{ID: "u1", Seq: 0}}, false},
 	} {
 		held := held
 		if name == "a stream that holds nothing" {
@@ -386,6 +393,245 @@ func TestAReadThatOnlyCarriesOnTheStreamIsNoRestatement(t *testing.T) {
 		if got := streamDiverges(held, tc.read); got != tc.want {
 			t.Fatalf("%s: %t; want %t", name, got, tc.want)
 		}
+	}
+}
+
+// conversationOf is the transcript of a Claude Code session's exchanges from
+// one to before another, each a question and its answer.
+func conversationOf(stamp string, from, to int) []string {
+	entries := make([]string, 0, 2*(to-from))
+	for at := from; at < to; at++ {
+		n := strconv.Itoa(at)
+		entries = append(entries,
+			`{"type":"user","uuid":"u`+n+`","timestamp":"`+stamp+`","message":{"role":"user","content":"Question `+n+`"}}`,
+			`{"type":"assistant","uuid":"a`+n+`","timestamp":"`+stamp+`","message":{"id":"msg_`+n+`","model":"claude-opus-5-5","role":"assistant","content":[{"type":"text","text":"Answer `+n+`"}]}}`)
+	}
+	return entries
+}
+
+// TestAViewReopenedOnALongSessionRestatesNothing is the newest page of a
+// session longer than a page, read again once its harness wrote more: that
+// page slid past messages the stream holds, which only carries the stream on,
+// so the stream holds the whole of both reads and restates neither.
+func TestAViewReopenedOnALongSessionRestatesNothing(t *testing.T) {
+	// Arrange: a view read the newest page of a session of 30 exchanges.
+	stamp := time.Now().UTC().Format(time.RFC3339Nano)
+	get, meta, service := messagesBoard(t, conversationOf(stamp, 0, 30)...)
+	query := "task=" + meta.ID + "&generation=" + meta.SpawnGen + "&token=board-token"
+	var first fleettree.MessagePage
+	if response := get(query); response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &first) != nil || !first.More || len(first.Messages) == 0 {
+		t.Fatalf("the first read is not the newest page of a longer session: %d %s", response.Code, response.Body)
+	}
+	appendEntries(t, filepath.Join(service.Options.Tree.Home, ".claude", "projects", "C--work-talker", "talker-conversation.jsonl"), conversationOf(stamp, 30, 31)...)
+
+	// Act: a view opens on the session again.
+	response := get(query)
+
+	// Assert
+	var page fleettree.MessagePage
+	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &page) != nil || len(page.Messages) == 0 || page.Messages[len(page.Messages)-1].ID != "msg_30" {
+		t.Fatalf("the reopened view's page does not end at the newest answer: %d %s", response.Code, response.Body)
+	}
+	events, err := sessionstream.Read(service.Store.Home.State, sessionstream.Identity{Task: meta.ID, Generation: meta.SpawnGen, Harness: "claude", Session: "talker-conversation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.Kind == sessionstream.KindRestated {
+			t.Fatalf("a page that slid on past the stream was restated: %d events", len(events))
+		}
+	}
+	var ids []string
+	for _, message := range fleettree.MessagesOf(events) {
+		ids = append(ids, message.ID)
+	}
+	if !slices.Contains(ids, first.Messages[0].ID) || !slices.Contains(ids, "msg_30") {
+		t.Fatalf("the stream holds %v; want %s, the first read's oldest, through msg_30", ids, first.Messages[0].ID)
+	}
+}
+
+// TestASupervisorThatNeverReadTheStreamWeighsAReadAgainstItsFile is a harness
+// that rewrote its record while no supervisor watched, as pi's branch reset
+// drops an answer: a supervisor that has not read the stream yet reads it from
+// its file before it compares a read with it, so the answer the harness
+// dropped is restated away rather than drawn beside the one that replaced it.
+func TestASupervisorThatNeverReadTheStreamWeighsAReadAgainstItsFile(t *testing.T) {
+	// Arrange: one supervisor drew the session, its harness then replaced the
+	// answer, and another supervisor started.
+	stamp := time.Now().UTC().Format(time.RFC3339Nano)
+	get, meta, service := messagesBoard(t, messageEntries(stamp)...)
+	query := "task=" + meta.ID + "&generation=" + meta.SpawnGen + "&token=board-token"
+	if response := get(query); response.Code != 200 || !strings.Contains(response.Body.String(), "Its gate failed.") {
+		t.Fatalf("the first supervisor's read: %d %s", response.Code, response.Body)
+	}
+	conversation := filepath.Join(service.Options.Tree.Home, ".claude", "projects", "C--work-talker", "talker-conversation.jsonl")
+	data, err := os.ReadFile(conversation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, conversation, strings.NewReplacer(`"uuid":"a1"`, `"uuid":"a9"`, `"id":"msg_1"`, `"id":"msg_9"`, "Its gate failed.", "Its gate passed on a rerun.").Replace(string(data)))
+	restarted := &Service{Store: service.Store, Instance: "board-token", Options: Options{Tree: &fleettree.Reader{Home: service.Options.Tree.Home}}}
+	restarted.readTrees(t.Context())
+	handler := NewHTTP(restarted, "127.0.0.1:50000", nil)
+
+	// Act
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest("GET", "http://127.0.0.1:50000/api/messages?"+query, nil)
+	request.RemoteAddr = "127.0.0.1:50001"
+	handler.ServeHTTP(response, request)
+
+	// Assert
+	if response.Code != 200 || !strings.Contains(response.Body.String(), "Its gate passed on a rerun.") || strings.Contains(response.Body.String(), "Its gate failed.") {
+		t.Fatalf("the restarted supervisor drew the answer its harness dropped: %d %s", response.Code, response.Body)
+	}
+	events, err := sessionstream.Read(service.Store.Home.State, sessionstream.Identity{Task: meta.ID, Generation: meta.SpawnGen, Harness: "claude", Session: "talker-conversation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(events, func(event sessionstream.Event) bool { return event.Kind == sessionstream.KindRestated }) {
+		t.Fatalf("the stream does not restate the rewritten record: %d events", len(events))
+	}
+}
+
+// TestEveryChangeOfASessionsTurnIsTold is a session's own report of one turn
+// told through the board's stream as it changes: the turn runs, ends, runs
+// again on a notice its prompt did not begin, and ends again, and the board is
+// told each change, however often the one turn made it.
+func TestEveryChangeOfASessionsTurnIsTold(t *testing.T) {
+	// Arrange
+	stamp := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339Nano)
+	_, meta, service := messagesBoard(t, messageEntries(stamp)...)
+	report := func(phase string) {
+		t.Helper()
+		service.Store.mu.Lock()
+		defer service.Store.mu.Unlock()
+		service.Store.db.Sessions["claude/talker-conversation"] = Session{
+			ID: "claude/talker-conversation", NativeID: "talker-conversation", Harness: "claude", Role: "goblin",
+			TaskID: meta.ID, Generation: meta.SpawnGen, Phase: phase, UpdatedAt: time.Now().UTC(),
+		}
+		if err := service.Store.save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report("active")
+	handler := NewHTTP(service, "127.0.0.1:50000", nil)
+	handler.terminalTick = 50 * time.Millisecond
+	server := httptest.NewUnstartedServer(handler)
+	handler.Host = server.Listener.Addr().String()
+	server.Start()
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/messages?task="+meta.ID+"&generation="+meta.SpawnGen+"&token=board-token&stream=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	scanner := bufio.NewScanner(response.Body)
+	scanner.Buffer(nil, 1<<20)
+	told := func(want string) {
+		t.Helper()
+		current := ""
+		for scanner.Scan() {
+			if name, isEvent := strings.CutPrefix(scanner.Text(), "event: "); isEvent {
+				current = name
+			}
+			data, isData := strings.CutPrefix(scanner.Text(), "data: ")
+			var said struct{ Turn, State string }
+			if !isData || current != "session" || json.Unmarshal([]byte(data), &said) != nil || said.State != want {
+				continue
+			}
+			if said.Turn != "u1" {
+				t.Fatalf("the board was told of turn %q; want u1, which the notice did not end", said.Turn)
+			}
+			return
+		}
+		t.Fatalf("the board was never told the turn is %s: %v", want, scanner.Err())
+	}
+
+	// Act and Assert
+	told("running")
+	report("settled")
+	told("ended")
+	appendEntries(t, fleettree.SessionTranscript(service.Options.Tree.Home, "claude", "talker-conversation"),
+		`{"type":"user","uuid":"n1","timestamp":"`+time.Now().UTC().Format(time.RFC3339Nano)+`","message":{"role":"user","content":"<task-notification>\n<summary>Background command finished</summary>\n</task-notification>"}}`)
+	report("active")
+	told("running")
+	report("settled")
+	told("ended")
+}
+
+// TestAStreamWhoseWriteFailedIsReadAgainFromItsFile is a write the stream's
+// file refused, after which the file holds an entry this supervisor never saw
+// land, as an append whose cut back failed too leaves one: the next write reads
+// the stream again from its file, so the entry is neither written twice nor
+// missing from what the board draws.
+func TestAStreamWhoseWriteFailedIsReadAgainFromItsFile(t *testing.T) {
+	// Arrange: a stream that holds a session's first prompt.
+	store, _ := testStore(t)
+	service := &Service{Store: store}
+	id := sessionstream.Identity{Task: "talker", Generation: "s1", Harness: "claude", Session: "talker-conversation"}
+	held, err := service.sessionStreamOf(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(events []sessionstream.Event) ([]fleettree.Message, error) {
+		return held.record(func([]fleettree.Message, []sessionstream.Event) []sessionstream.Event { return events })
+	}
+	if _, err := write(fleettree.StreamEvents(id, []fleettree.Message{{ID: "u1", Seq: 0, Kind: fleettree.MessagePrompt, Text: "Why is the card red?"}})); err != nil {
+		t.Fatal(err)
+	}
+	path, err := id.Path(store.Home.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := fleettree.StreamEvents(id, []fleettree.Message{{ID: "u2", Seq: 1, Kind: fleettree.MessagePrompt, Text: "And now?"}})
+	if err := os.Chmod(path, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(path, 0o644) })
+	if _, err := write(second); err == nil {
+		t.Fatal("a write to a stream whose file refuses it succeeded")
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	landed := slices.Clone(second)
+	landed[0].Seq = 1
+	appendEntries(t, path, strings.TrimSuffix(string(sessionstream.Encode(landed)), "\n"))
+
+	// Act
+	projection, err := write(second)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := sessionstream.Read(store.Home.State, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	written := 0
+	for _, event := range events {
+		if event.ID == second[0].ID {
+			written++
+		}
+	}
+	if written != 1 {
+		t.Fatalf("the stream's file holds the entry %d times; want once", written)
+	}
+	drawn := 0
+	for _, message := range projection {
+		if message.ID == "u2" {
+			drawn++
+		}
+	}
+	if drawn != 1 {
+		t.Fatalf("the board draws the entry %d times: %+v; want once", drawn, projection)
 	}
 }
 

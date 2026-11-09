@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "./site";
-import { box, field, GOBLIN, holdMessages, open, openGoblin, pickStyle, releaseMessages, snapshot, typed } from "./session-board";
+import { box, field, GOBLIN, holdMessages, open, openGoblin, pickStyle, releaseMessages, reportSession, snapshot, typed } from "./session-board";
 
 // The Overlord, 2026-10-27: "We don't need to print the date after every
 // response. We only need to print it at the end of a message, and the dither
@@ -217,6 +217,26 @@ test("while the session works the dither takes the time's place at the reply in 
   // Assert: the dither gives its place to the reply's time.
   await expect(working(page)).toHaveCount(0);
   await expect(row(page, "r5").locator("time")).toHaveCount(1);
+});
+
+// The dither is drawn from the fleet's stream alone: a terminal's screen and
+// the board's snapshot can each still say a turn works after it ended, and
+// neither draws it.
+test("a turn the stream says ended draws no dither while the terminal's screen and the board's snapshot say the session works", async ({ page }) => {
+  // Arrange
+  const relay = await open(page, snapshot({}, { phase: "working" }), "", TALK);
+  await openGoblin(page);
+  await reportSession(page, { state: "ended" });
+
+  // Act
+  relay.say(screen(true, "Cogitating"));
+
+  // Assert: the box heard the screen say its harness works, and the
+  // conversation draws the turn's end where the dither would be.
+  await expect(box(page).getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await expect(working(page)).toHaveCount(0);
+  await expect(row(page, "r5").locator("time")).toHaveCount(1);
+  await expect(page.getByRole("log")).not.toContainText("Cogitating");
 });
 
 test("with no reply yet the dither sits at the reply's place under his message without Stop, held typing or not", async ({ page }) => {

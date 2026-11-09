@@ -836,14 +836,16 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
           latest button mobile doesn't work"). */}
       {!isAtEnd && <button type="button" className="message-jump" onClick={jump} onPointerUp={(event) => { if (event.pointerType === "touch") jump(); }}><Icon name="arrow-down" />Jump to latest</button>}
       {isCopied && <Notice className="terminal-corner">Copied</Notice>}
-      {/* The one Reconnecting of the pane, for its stream and for the
-          terminal its box types through, which is not drawn here
-          (2026-11-04). */}
-      {phase !== "closed" && (isReconnecting || !visible || !!link?.isReconnecting) && <Notice tone="warning" className="terminal-corner">Reconnecting</Notice>}
-      {/* A view the stream has run past is behind, which is neither
-          disconnected nor ended, and no clock says it. */}
-      {phase === "live" && !isReconnecting && standing.isBehind && <Notice className="terminal-corner">Behind the session. Jump to latest catches up.</Notice>}
-      {(report?.stale || report?.problem) && <Notice tone="warning" className="terminal-corner">{report?.stale || report?.problem}</Notice>}
+      {/* One notice in the corner at a time, the most pressing first: the one
+          Reconnecting of the pane, for its stream and for the terminal its box
+          types through, which is not drawn here (2026-11-04); why the
+          conversation drawn is not the session's current one; then a view
+          the stream has run past, which is behind, neither disconnected nor
+          ended, and no clock says it. */}
+      {phase !== "closed" && (isReconnecting || !visible || !!link?.isReconnecting) ? <Notice tone="warning" className="terminal-corner">Reconnecting</Notice>
+        : report?.stale || report?.problem ? <Notice tone="warning" className="terminal-corner">{report.stale || report.problem}</Notice>
+        : phase === "live" && standing.isBehind ? <Notice className="terminal-corner">Behind the session. Jump to latest catches up.</Notice>
+        : null}
       {phase === "closed" && <Notice form="box" icon="comment" className="terminal-foot"
         actions={<button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button>}>{closedWhy}</Notice>}
     </div>

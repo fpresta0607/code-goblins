@@ -826,6 +826,40 @@ test("a view the stream has run past says it is behind and draws no indicator fo
   await expect(talk.locator(".reply-working")).toHaveCount(1);
 });
 
+// #2172: the CFO's chat drew a conversation the CFO had left. The fleet's
+// stream says why the record the board reads is stale, or that the stream
+// itself cannot be kept, and the view says it in its one corner notice, over
+// the Behind it would otherwise say there.
+test("a CFO whose stream says its record is stale says why in its one corner notice", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await openCfo(page);
+  await expect(list(page, "CFO")).toContainText("Answer 99");
+  const corner = page.locator(".messages-view:not([hidden]) .terminal-corner");
+  const stale = "The CFO's record names conversation cfo-9, which its folder does not hold.";
+  const problem = "The board cannot write or read this session's conversation stream, so it draws the session's own record: disk full";
+
+  // Act: the record is stale, and the stream's head is past what the view drew.
+  await send(page, "session", { conversation: "fixture-conversation", turn: "q102", state: "ended", newest: 104, head: 104, stale });
+
+  // Assert
+  await expect(corner).toHaveText(stale);
+  await expect(corner).toHaveCount(1);
+
+  // Act: the stream cannot be kept.
+  await send(page, "session", { conversation: "fixture-conversation", turn: "q102", state: "ended", newest: 104, head: 104, problem });
+
+  // Assert
+  await expect(corner).toHaveText(problem);
+  await expect(corner).toHaveCount(1);
+
+  // Act: the record is current again.
+  await send(page, "session", { conversation: "fixture-conversation", turn: "q102", state: "ended", newest: 104, head: 104 });
+
+  // Assert: the corner says the view is behind, once nothing more pressing does.
+  await expect(corner).toHaveText("Behind the session. Jump to latest catches up.");
+});
+
 test("a message stream that says it is alive stays open while nothing happens", async ({ page }) => {
   // Arrange
   await page.clock.install();

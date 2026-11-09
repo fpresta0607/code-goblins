@@ -264,6 +264,23 @@ test("a session the board hears nothing of yet is neither behind nor working", (
   assert.deepEqual(viewStanding(null, held(0, 1)), { isBehind: false, isWorking: false });
 });
 
+test("a session event carries why its record is stale or its stream cannot be kept, and says neither when it omits them", () => {
+  // Arrange
+  const cases = [
+    { what: "a stale record", value: reported({ stale: "The record names cfo-9." }), stale: "The record names cfo-9.", problem: "" },
+    { what: "a stream that cannot be kept", value: reported({ problem: "disk full" }), stale: "", problem: "disk full" },
+    { what: "a current record", value: reported(), stale: "", problem: "" },
+  ];
+  for (const { what, value, stale, problem } of cases) {
+    // Act
+    const report = parseSession(value);
+
+    // Assert
+    assert.deepEqual({ stale: report.stale, problem: report.problem }, { stale, problem }, what);
+  }
+  assert.throws(() => parseSession(reported({ stale: 9 })), /Invalid/, "a stale reason that is not words");
+});
+
 test("a session event without the fields the board draws is refused", () => {
   for (const [what, value] of [["an unknown turn state", reported({ state: "maybe" })], ["a newest that is not a number", reported({ newest: "4" })]] as const) {
     assert.throws(() => parseSession(value), /Invalid/, what);

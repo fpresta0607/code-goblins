@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"errors"
+	"slices"
 	"sync"
 	"time"
 
@@ -106,9 +107,13 @@ func (s *Service) sessionStreamOf(id sessionstream.Identity) (*heldStream, error
 	return held, nil
 }
 
-// record writes the events of a read of the session that the stream does not
-// hold yet, and answers the conversation the stream holds now.
-func (held *heldStream) record(events []sessionstream.Event) ([]fleettree.Message, error) {
+// record writes the events derive makes of the stream as it holds the session
+// now, its conversation and the events it is, that the stream does not hold
+// yet, and answers the conversation the stream holds after. The stream an
+// earlier supervisor wrote is read before derive looks at it, so a read of the
+// session is weighed against all the stream holds, never only what this
+// supervisor has written of it.
+func (held *heldStream) record(derive func(messages []fleettree.Message, events []sessionstream.Event) []sessionstream.Event) ([]fleettree.Message, error) {
 	held.mu.Lock()
 	defer held.mu.Unlock()
 	if !held.isRead {
@@ -132,7 +137,7 @@ func (held *heldStream) record(events []sessionstream.Event) ([]fleettree.Messag
 		held.isRead = true
 		held.messages = fleettree.MessagesOf(held.events)
 	}
-	written, isCompacted, err := held.appender.Write(events)
+	written, isCompacted, err := held.appender.Write(derive(held.messages, held.events))
 	if err != nil {
 		// A stream this supervisor could not write is read again from its file
 		// before the board draws it, so what the board draws is never older
@@ -173,21 +178,28 @@ func streamTurn(messages []fleettree.Message, events []sessionstream.Event) (tur
 	if turn == "" {
 		return "", "none", ""
 	}
-	for at := len(events) - 1; at >= 0; at-- {
-		event := events[at]
-		if event.Turn != turn {
-			continue
-		}
-		switch event.Kind {
-		case sessionstream.KindTurnEnd:
-			return turn, "ended", ""
-		case sessionstream.KindTurnState:
-			return turn, "running", ""
-		case sessionstream.KindMissing:
-			return turn, "unknown", event.Missing
-		}
+	switch word := turnWord(events, turn); word.Kind {
+	case sessionstream.KindTurnEnd:
+		return turn, "ended", ""
+	case sessionstream.KindMissing:
+		return turn, "unknown", word.Missing
 	}
 	return turn, "running", ""
+}
+
+// turnWord is the newest word the stream holds of a turn: the session's report
+// that it runs or ended, or the board's word that its harness reported nothing,
+// and none while the stream holds no word of it.
+func turnWord(events []sessionstream.Event, turn string) sessionstream.Event {
+	for at := len(events) - 1; at >= 0; at-- {
+		switch event := events[at]; event.Kind {
+		case sessionstream.KindTurnEnd, sessionstream.KindTurnState, sessionstream.KindMissing:
+			if event.Turn == turn {
+				return event
+			}
+		}
+	}
+	return sessionstream.Event{}
 }
 
 // recordSession writes what the supervisor just read of a session into the
@@ -206,55 +218,62 @@ func (h *HTTP) recordSession(session messagesSession, messages []fleettree.Messa
 	if err != nil {
 		return nil, err
 	}
-	heldMessages, _ := held.conversation()
-	events := fleettree.StreamEvents(session.Identity, messages)
-	// Only a read of the newest page can show that the record was rewritten:
-	// a page read further back is older than what the stream holds even when
-	// the harness dropped nothing, and a read of what changed is not the
-	// conversation at all.
-	if isWhole && streamDiverges(heldMessages, messages) {
-		// The harness rewrote its own record behind the reader, so the stream
-		// restates what it holds rather than showing a message it dropped.
-		events = []sessionstream.Event{fleettree.RestatedEvent(session.Identity, messages)}
-	}
-	projection, err := held.record(events)
-	if err != nil {
+	projection, err := held.record(func(heldMessages []fleettree.Message, _ []sessionstream.Event) []sessionstream.Event {
+		// Only a read of the newest page can show that the record was
+		// rewritten: a page read further back is older than what the stream
+		// holds even when the harness dropped nothing, and a read of what
+		// changed is not the conversation at all.
+		if isWhole && streamDiverges(heldMessages, messages) {
+			// The harness rewrote its own record behind the reader, so the
+			// stream restates what it holds rather than showing a message it
+			// dropped.
+			return []sessionstream.Event{fleettree.RestatedEvent(session.Identity, messages)}
+		}
+		return fleettree.StreamEvents(session.Identity, messages)
+	})
+	if err != nil || !isNewest {
 		return projection, err
 	}
-	if !isNewest {
-		return projection, nil
-	}
 	node, isTracked := h.Service.Store.nativeSession(session.Identity.Harness, session.Identity.Session)
-	reported := turnEvents(session.Identity, projection, turnState(node, isTracked, newestPromptAt(projection)))
-	if len(reported) == 0 {
-		return projection, nil
-	}
-	return held.record(reported)
+	return held.record(func(heldMessages []fleettree.Message, events []sessionstream.Event) []sessionstream.Event {
+		return turnEvents(session.Identity, heldMessages, events, turnState(node, isTracked, newestPromptAt(heldMessages)))
+	})
 }
 
-// streamDiverges reports whether a read of a session disagrees with the
-// conversation its stream holds. A stream only appends, so a harness that
-// dropped messages, as pi's branch reset does, needs its record restated; a
-// read that merely carries on past the stream, or repeats what it holds, does
-// not.
+// streamDiverges reports whether a whole read of a session's newest messages
+// disagrees with the conversation its stream holds. A stream only appends, so a
+// harness that dropped messages, as pi's branch reset does, needs its record
+// restated, and so does a read that shares no message with the stream, whose
+// gap the stream would otherwise serve as the history before it. The two are
+// compared from the message where one begins inside the other, so a newest
+// page that slid past messages the stream holds, as it does once the session
+// wrote more than a page, or a stream that began after the page did, only
+// carries the stream on.
 func streamDiverges(held, read []fleettree.Message) bool {
 	if len(held) == 0 || len(read) == 0 {
 		return false
 	}
-	if len(read) <= len(held) {
-		return !sameMessageIDs(held[len(held)-len(read):], read)
+	isMessage := func(id string) func(fleettree.Message) bool {
+		return func(message fleettree.Message) bool { return message.ID == id }
 	}
-	return !sameMessageIDs(read[:len(held)], held)
+	if at := slices.IndexFunc(held, isMessage(read[0].ID)); at >= 0 {
+		return !leads(held[at:], read)
+	}
+	if at := slices.IndexFunc(read, isMessage(held[0].ID)); at >= 0 {
+		return !leads(held, read[at:])
+	}
+	return true
 }
 
-// sameMessageIDs says two runs of messages are the same messages in the same
-// order.
-func sameMessageIDs(one, other []fleettree.Message) bool {
-	if len(one) != len(other) {
+// leads says held is how read begins: the same messages in the same order,
+// none of them past read's newest, which a harness that dropped them no
+// longer holds.
+func leads(held, read []fleettree.Message) bool {
+	if len(held) > len(read) {
 		return false
 	}
-	for at := range one {
-		if one[at].ID != other[at].ID || one[at].Seq != other[at].Seq {
+	for at := range held {
+		if held[at].ID != read[at].ID || held[at].Seq != read[at].Seq {
 			return false
 		}
 	}
@@ -273,29 +292,33 @@ func newestPromptAt(messages []fleettree.Message) time.Time {
 }
 
 // turnEvents are the events a session's own report of its turn adds to its
-// stream: the end of a turn, the end of a session, and the board's word where
-// the harness reports nothing, which it draws rather than inventing a turn.
-func turnEvents(id sessionstream.Identity, messages []fleettree.Message, turn sessionTurn) []sessionstream.Event {
-	at := time.Now().UTC()
+// stream: that the turn runs or ended, and the board's word where the harness
+// reports nothing, which it draws rather than inventing a turn. A report is
+// written where it changes the newest word the stream holds of the turn, and
+// only there, so the board draws every change however often one turn makes
+// it, as a turn a notice set working again after it ended does, and a report
+// read again writes nothing.
+func turnEvents(id sessionstream.Identity, messages []fleettree.Message, events []sessionstream.Event, turn sessionTurn) []sessionstream.Event {
 	_, prompt := fleettree.TurnOf(messages)
-	if !turn.Known {
-		return []sessionstream.Event{{
-			ID: sessionstream.EventID(id, sessionstream.KindMissing, prompt, "", 0, turn.Why), At: at,
-			Kind: sessionstream.KindMissing, Turn: prompt, Message: prompt, Missing: turn.Why,
-		}}
+	kind := sessionstream.KindMissing
+	switch {
+	case !turn.Known:
+	case prompt == "":
+		return nil
+	case turn.Ended:
+		kind = sessionstream.KindTurnEnd
+	default:
+		kind = sessionstream.KindTurnState
 	}
-	if prompt == "" {
+	word := turnWord(events, prompt)
+	if word.Kind == kind && word.Missing == turn.Why {
 		return nil
 	}
-	// Every state the report gives is written, so one that supersedes an
-	// earlier word of the same turn, as a session the board had not seen
-	// report anything beginning to, is the one the board draws.
-	kind := sessionstream.KindTurnState
-	if turn.Ended {
-		kind = sessionstream.KindTurnEnd
-	}
+	// The word a report changes is part of its id, so a turn that comes back
+	// to a state it left says so again rather than being taken for the word it
+	// wrote then.
 	return []sessionstream.Event{{
-		ID: sessionstream.EventID(id, kind, prompt, "", 0, "reported"), At: at,
-		Kind: kind, Turn: prompt, Message: prompt,
+		ID: sessionstream.EventID(id, kind, prompt, "", 0, turn.Why, word.ID), At: time.Now().UTC(),
+		Kind: kind, Turn: prompt, Message: prompt, Missing: turn.Why,
 	}}
 }
