@@ -336,13 +336,15 @@ for (const [label, width, height] of [["desktop", 1440, 960], ["phone", 390, 844
     relay.say(asking({ ...PANELS.claude, rows: ["Create file", "nine.txt", ...preview, "Do you want to create nine.txt?"] }));
     await expect(list(page)).toBeVisible();
 
-    // Assert: the list scrolls inside itself, the conversation keeps its own
-    // room above the box's dock, and the box with its controls is on screen.
+    // Assert: the list is the conversation's last message, read in its one
+    // scroll and never a scroll of its own (#2223), the conversation keeps its
+    // own room above the box's dock, and the box with its controls is on screen.
     const frame = (await page.locator(".messages-view:not([hidden]) .conversation-frame").boundingBox())!;
     const dock = (await page.locator(".messages-view:not([hidden]) .composer-dock").boundingBox())!;
     expect(frame.y + frame.height, "the conversation ends where the dock begins").toBeLessThanOrEqual(dock.y + 0.5);
     expect(frame.height, "the conversation keeps a few lines").toBeGreaterThanOrEqual(80);
-    expect(await list(page).evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+    expect(await list(page).evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(false);
+    expect(await page.locator(".messages-view:not([hidden]) [role=log]").evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
     for (const control of [box(page).locator(".composer-send"), box(page).getByRole("button", { name: "Change model", exact: true })]) {
       const bounds = (await control.boundingBox())!;
       expect(bounds.y + bounds.height, "the box's controls are inside the window").toBeLessThanOrEqual(height + 0.5);
