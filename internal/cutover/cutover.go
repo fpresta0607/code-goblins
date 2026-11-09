@@ -33,7 +33,8 @@ type Machine struct {
 	// UserHome is the user's profile folder, which holds the credential
 	// file store's folder.
 	UserHome string
-	// LocalAppData holds the caches ceo keeps outside the home.
+	// LocalAppData holds the caches the old build kept outside the home,
+	// which the plan lists for deletion and never changes.
 	LocalAppData string
 	// Harnesses are the harnesses' folders and the shared skills folder.
 	Harnesses harnessmap.Map
@@ -41,10 +42,14 @@ type Machine struct {
 	// naming the old command are listed and never changed; empty for none.
 	ProjectsRoot string
 	// Program is this build's ceo.exe, which the home's bin takes as ceo.exe
-	// and goblins.exe, with the hook program beside it when there is one.
+	// and goblins.exe, with the hook program and the desktop window beside it
+	// when there are.
 	Program string
 	// Skills are the skills this build ships, by folder.
 	Skills fs.FS
+	// Contract is the contract this build writes into the home, by its path
+	// in the home.
+	Contract fs.FS
 	// Commands are this build's commands: the old name followed by one of
 	// them in a file is a call of the command.
 	Commands []string
@@ -89,6 +94,7 @@ type Labels interface {
 // Kinds of change, in the order a plan lists them.
 const (
 	KindProgram    = "program"
+	KindContract   = "contract"
 	KindSetting    = "setting"
 	KindHook       = "harness file"
 	KindSkill      = "skill"
@@ -101,7 +107,7 @@ const (
 	KindNote       = "note"
 )
 
-var kindOrder = []string{KindProgram, KindSetting, KindHook, KindSkill, KindJob, KindCredential, KindState, KindTask, KindLabel, KindListed, KindNote}
+var kindOrder = []string{KindProgram, KindContract, KindSetting, KindHook, KindSkill, KindJob, KindCredential, KindState, KindTask, KindLabel, KindListed, KindNote}
 
 // Change is one line of a plan and the steps that make it.
 type Change struct {
@@ -198,7 +204,7 @@ func (m Machine) Plan() (Plan, error) {
 		}
 	}
 	p := &planner{machine: m, rules: newRules(m.Commands, skillNames), claimed: map[string]bool{}}
-	for _, part := range []func() error{p.programs, p.settings, p.harnessFiles, p.skills, p.jobs, p.credentials, p.stateFiles, p.taskFiles, p.labels, p.elsewhere} {
+	for _, part := range []func() error{p.programs, p.contract, p.settings, p.harnessFiles, p.skills, p.jobs, p.credentials, p.stateFiles, p.taskFiles, p.labels, p.elsewhere} {
 		if err := part(); err != nil {
 			return Plan{}, err
 		}
@@ -241,7 +247,8 @@ func exists(path string) bool {
 }
 
 // programs puts this build in the home's bin as ceo.exe and goblins.exe, and
-// its hook program as ceo-hook.exe, and takes the old build's programs out.
+// the hook program and the desktop window beside it, and takes the old
+// build's programs out.
 func (p *planner) programs() error {
 	bin := filepath.Join(p.machine.Root, "bin")
 	program, err := os.ReadFile(p.machine.Program)
@@ -266,14 +273,18 @@ func (p *planner) programs() error {
 	if err := install("goblins.exe", p.machine.Program, program); err != nil {
 		return err
 	}
-	hookName := newName + "-hook.exe"
-	hookPath := filepath.Join(filepath.Dir(p.machine.Program), hookName)
-	if hook, err := os.ReadFile(hookPath); err == nil {
-		if err := install(hookName, hookPath, hook); err != nil {
+	for _, name := range []string{newName + "-hook.exe", "goblins-window.exe"} {
+		source := filepath.Join(filepath.Dir(p.machine.Program), name)
+		content, err := os.ReadFile(source)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
 			return err
 		}
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return err
+		if err := install(name, source, content); err != nil {
+			return err
+		}
 	}
 	for _, name := range []string{oldName + ".exe", oldName + "-hook.exe"} {
 		path := filepath.Join(bin, name)
@@ -286,6 +297,35 @@ func (p *planner) programs() error {
 		}
 	}
 	return nil
+}
+
+// contract writes this build's contract into the home, each file whose
+// content differs, as an install does. A code-goblins checkout keeps its own,
+// which git tracks.
+func (p *planner) contract() error {
+	if exists(filepath.Join(p.machine.Root, "cmd", newName)) || exists(filepath.Join(p.machine.Root, "cmd", oldName)) {
+		return nil
+	}
+	return fs.WalkDir(p.machine.Contract, ".", func(name string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		content, err := fs.ReadFile(p.machine.Contract, name)
+		if err != nil {
+			return err
+		}
+		path := filepath.Join(p.machine.Root, filepath.FromSlash(name))
+		before, isAbsent, err := readFile(path)
+		if err != nil {
+			return err
+		}
+		if !isAbsent && string(before) == string(content) {
+			return nil
+		}
+		p.claimed[path] = true
+		p.add(KindContract, path+": this build's", writeStep(path, before, isAbsent, content))
+		return nil
+	})
 }
 
 // settings moves every user setting of the old name's to the new name's.
@@ -387,7 +427,12 @@ func (p *planner) rewrite(kind, path, to string, protected *regexp.Regexp) error
 	var said []string
 	if after != string(content) {
 		steps = append(steps, writeStep(path, content, false, []byte(after)))
-		said = append(said, fmt.Sprintf("%d lines rewritten", changedLines(string(content), after)))
+		count := changedLines(string(content), after)
+		unit := "lines"
+		if count == 1 {
+			unit = "line"
+		}
+		said = append(said, fmt.Sprintf("%d %s rewritten", count, unit))
 	}
 	if to != path {
 		steps = append(steps, moveStep(path, to))
@@ -415,9 +460,11 @@ func changedLines(before, after string) int {
 	return changed
 }
 
-// skills replaces each skill the old build installed in the shared skills
-// folder with this build's skill of the new name, and Claude Code's junction
-// to it.
+// skills makes each skill Code Goblins installed in the shared skills folder
+// this build's: one of the old name's becomes this build's skill of the new
+// name, with Claude Code's junction to it, and every file of a skill whose
+// content differs from this build's is written, and every file this build
+// does not ship is removed.
 func (p *planner) skills() error {
 	shared := p.machine.Harnesses.SharedSkills
 	entries, err := os.ReadDir(shared)
@@ -431,15 +478,18 @@ func (p *planner) skills() error {
 	for _, entry := range entries {
 		name := entry.Name()
 		renamed := p.rules.renamed(name)
-		if !entry.IsDir() || renamed == name {
+		if !entry.IsDir() || !slices.Contains(p.rules.skills, strings.ToLower(renamed)) {
 			continue
 		}
 		from, to := filepath.Join(shared, name), filepath.Join(shared, renamed)
-		if !exists(filepath.Join(from, ".code-goblins")) {
+		isOwned := exists(filepath.Join(from, ".code-goblins"))
+		switch {
+		case !isOwned && renamed == name:
+			continue
+		case !isOwned:
 			p.add(KindListed, from+": kept, since Code Goblins did not install it")
 			continue
-		}
-		if exists(to) {
+		case renamed != name && exists(to):
 			p.add(KindListed, fmt.Sprintf("%s: kept, since %s is already there", from, to))
 			continue
 		}
@@ -447,14 +497,25 @@ func (p *planner) skills() error {
 		if err != nil {
 			return err
 		}
-		var steps []Step
-		if claude.Skills != "" {
-			link := filepath.Join(claude.Skills, name)
-			if target, err := os.Readlink(link); err == nil && strings.EqualFold(filepath.Clean(target), from) {
-				steps = append(steps, Step{Kind: "link", Key: link, Before: &target})
+		if renamed != name {
+			var steps []Step
+			if claude.Skills != "" {
+				link := filepath.Join(claude.Skills, name)
+				if target, err := os.Readlink(link); err == nil && strings.EqualFold(filepath.Clean(target), from) {
+					steps = append(steps, Step{Kind: "link", Key: link, Before: &target})
+				}
 			}
+			steps = append(steps, moveStep(from, to))
+			if claude.Skills != "" {
+				link := filepath.Join(claude.Skills, renamed)
+				if !exists(link) {
+					target := to
+					steps = append(steps, Step{Kind: "link", Key: link, After: &target})
+				}
+			}
+			p.claimed[from] = true
+			p.add(KindSkill, fmt.Sprintf("%s: becomes %s, with Claude Code's junction to it", from, to), steps...)
 		}
-		steps = append(steps, moveStep(from, to))
 		err = filepath.WalkDir(from, func(path string, entry fs.DirEntry, err error) error {
 			if err != nil || entry.IsDir() {
 				return err
@@ -470,7 +531,7 @@ func (p *planner) skills() error {
 				}
 				step := removeStep(filepath.Join(to, rel), content)
 				step.readFrom = path
-				steps = append(steps, step)
+				p.add(KindSkill, step.Key+": removed, since this build does not ship it", step)
 			}
 			return nil
 		})
@@ -485,18 +546,9 @@ func (p *planner) skills() error {
 			if isAbsent || string(before) != string(files[rel]) {
 				step := writeStep(filepath.Join(to, filepath.FromSlash(rel)), before, isAbsent, files[rel])
 				step.readFrom = filepath.Join(from, filepath.FromSlash(rel))
-				steps = append(steps, step)
+				p.add(KindSkill, step.Key+": this build's", step)
 			}
 		}
-		if claude.Skills != "" {
-			link := filepath.Join(claude.Skills, renamed)
-			if !exists(link) {
-				target := to
-				steps = append(steps, Step{Kind: "link", Key: link, After: &target})
-			}
-		}
-		p.claimed[from] = true
-		p.add(KindSkill, fmt.Sprintf("%s: becomes %s, this build's skill, with Claude Code's junction to it", from, to), steps...)
 	}
 	return nil
 }
@@ -577,8 +629,8 @@ func (p *planner) credentials() error {
 }
 
 // stateFiles renames the home's files and markers the old build named, the
-// CEO's own terminal's files, the handoff notes and the caches, and rewrites
-// the identifiers the state's records hold.
+// CEO's own terminal's files and the handoff notes, rewrites the identifiers
+// the state's records hold, and lists the old build's caches outside the home.
 func (p *planner) stateFiles() error {
 	move := func(folder string) error {
 		entries, err := os.ReadDir(folder)
@@ -640,11 +692,8 @@ func (p *planner) stateFiles() error {
 		p.claimed[from] = true
 		p.add(KindState, fmt.Sprintf("%s: renamed %s, the CEO's own terminal's", from, filepath.Base(to)), moveStep(from, to))
 	}
-	if p.machine.LocalAppData != "" {
-		from, to := filepath.Join(p.machine.LocalAppData, oldName), filepath.Join(p.machine.LocalAppData, newName)
-		if exists(from) && !exists(to) {
-			p.add(KindState, fmt.Sprintf("%s: the caches outside the home, become %s", from, to), moveStep(from, to))
-		}
+	if caches := filepath.Join(p.machine.LocalAppData, oldName); p.machine.LocalAppData != "" && exists(caches) {
+		p.add(KindListed, caches+": the old build's caches outside the home, left for you to delete, since this build makes its own")
 	}
 	for _, folder := range []string{p.state(), filepath.Join(p.state(), "tickets")} {
 		entries, err := os.ReadDir(folder)

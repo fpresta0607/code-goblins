@@ -2,6 +2,11 @@ package main
 
 import (
 	"bytes"
+	"fmt"
+	iofs "io/fs"
+	"maps"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -60,7 +65,7 @@ func cutoverHome(t *testing.T) (cutover.Machine, string) {
 	}
 	return cutover.Machine{
 		Root: root, UserHome: filepath.Join(top, "user"), Program: filepath.Join(top, "build", "ceo.exe"),
-		Skills: fstest.MapFS{}, Commands: []string{"spawn"},
+		Skills: fstest.MapFS{}, Contract: fstest.MapFS{}, Commands: []string{"spawn"},
 		Env: cutoverEnv{}, Jobs: noJobs{}, Vault: noCredentials{}, Labels: noLabels{},
 	}, root
 }
@@ -104,14 +109,17 @@ func TestCutoverMakesOnlyThePlanItsDryRunPrintedAndUndoesIt(t *testing.T) {
 	if refusedCode != 1 || !strings.Contains(refused, "nothing was changed") {
 		t.Fatalf("another digest: exit %d, %q; want a refusal", refusedCode, refused)
 	}
-	undo := regexp.MustCompile(`(?m)^undo: ceo cutover --undo (.+)$`).FindStringSubmatch(strings.ReplaceAll(applied, "\r", ""))
+	undo := regexp.MustCompile(`(?m)^undo: (.+) cutover --undo (.+)$`).FindStringSubmatch(strings.ReplaceAll(applied, "\r", ""))
 	if appliedCode != 0 || undo == nil {
 		t.Fatalf("apply: exit %d, %q, %q", appliedCode, applied, appliedErr)
+	}
+	if undo[1] != machine.Program {
+		t.Fatalf("the undo command runs %s; want this build, %s, since the undo removes the home's bin\\ceo.exe", undo[1], machine.Program)
 	}
 	if content, err := os.ReadFile(filepath.Join(root, "bin", "goblins.exe")); err != nil || string(content) != "this build" {
 		t.Fatalf("bin\\goblins.exe is %q, %v; want this build", content, err)
 	}
-	undoneCode, _, undoneErr := runCutoverOn(machine, "--undo", undo[1])
+	undoneCode, _, undoneErr := runCutoverOn(machine, "--undo", undo[2])
 	if undoneCode != 0 {
 		t.Fatalf("undo: exit %d, %q", undoneCode, undoneErr)
 	}
@@ -123,5 +131,117 @@ func TestCutoverMakesOnlyThePlanItsDryRunPrintedAndUndoesIt(t *testing.T) {
 		if _, err := os.Stat(gone); !os.IsNotExist(err) {
 			t.Errorf("after the undo %s is still there: %v", gone, err)
 		}
+	}
+}
+
+func dryRunDigest(t *testing.T, machine cutover.Machine) string {
+	t.Helper()
+	code, stdout, stderr := runCutoverOn(machine, "--dry-run")
+	digest := regexp.MustCompile(`(?m)^plan: ([0-9a-f]{64})$`).FindStringSubmatch(stdout)
+	if code != 0 || digest == nil {
+		t.Fatalf("dry run: exit %d, %q, %q", code, stdout, stderr)
+	}
+	return digest[1]
+}
+
+// appliedCutover makes the cutover on machine and returns the folder its
+// undo names.
+func appliedCutover(t *testing.T, machine cutover.Machine) string {
+	t.Helper()
+	code, stdout, stderr := runCutoverOn(machine, "--plan", dryRunDigest(t, machine))
+	undo := regexp.MustCompile(`(?m)^undo: .+ cutover --undo (.+)$`).FindStringSubmatch(strings.ReplaceAll(stdout, "\r", ""))
+	if code != 0 || undo == nil {
+		t.Fatalf("apply: exit %d, %q, %q", code, stdout, stderr)
+	}
+	return undo[1]
+}
+
+// recordSupervisor writes the home's board record, as ceo serve does, naming
+// a supervisor at board.
+func recordSupervisor(t *testing.T, root, board string) {
+	t.Helper()
+	state := filepath.Join(root, "state")
+	if err := os.MkdirAll(state, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeBoardRecord(state, boardRecord{PID: fakeBoardPID, URL: board}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// homeFiles is every file in the home and its content.
+func homeFiles(t *testing.T, root string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := filepath.WalkDir(root, func(path string, entry iofs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		content, err := os.ReadFile(path)
+		files[path] = string(content)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+func TestCutoverRefusesEveryFormWhileASupervisorServesTheHome(t *testing.T) {
+	for _, form := range []string{"--dry-run", "--plan", "--undo"} {
+		t.Run(form, func(t *testing.T) {
+			// Arrange
+			machine, root := cutoverHome(t)
+			args := []string{form}
+			switch form {
+			case "--plan":
+				args = append(args, dryRunDigest(t, machine))
+			case "--undo":
+				args = append(args, appliedCutover(t, machine))
+			}
+			before := homeFiles(t, root)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/alive" {
+					http.NotFound(w, r)
+					return
+				}
+				fmt.Fprintf(w, `{"pid":%d}`, fakeBoardPID)
+			}))
+			defer server.Close()
+			recordSupervisor(t, root, server.URL)
+
+			// Act
+			code, stdout, stderr := runCutoverOn(machine, args...)
+
+			// Assert
+			if code != 1 || stdout != "" || !strings.Contains(stderr, "a supervisor serves this home") {
+				t.Fatalf("exit %d, %q, %q; want the refusal and exit 1", code, stdout, stderr)
+			}
+			after := homeFiles(t, root)
+			delete(after, filepath.Join(root, "state", "board.json"))
+			if !maps.Equal(before, after) {
+				t.Fatalf("the refused cutover changed the home:\nbefore %v\nafter  %v", before, after)
+			}
+		})
+	}
+}
+
+func TestCutoverProceedsWhenTheRecordedSupervisorDoesNotAnswer(t *testing.T) {
+	// Arrange
+	machine, root := cutoverHome(t)
+	server := httptest.NewServer(http.NotFoundHandler())
+	board := server.URL
+	server.Close()
+	recordSupervisor(t, root, board)
+
+	// Act
+	folder := appliedCutover(t, machine)
+
+	// Assert
+	if content, err := os.ReadFile(filepath.Join(root, "bin", "goblins.exe")); err != nil || string(content) != "this build" {
+		t.Fatalf("bin\\goblins.exe is %q, %v; want this build", content, err)
+	}
+	if code, _, stderr := runCutoverOn(machine, "--undo", folder); code != 0 {
+		t.Fatalf("undo: exit %d, %q", code, stderr)
 	}
 }

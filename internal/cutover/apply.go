@@ -42,7 +42,7 @@ type recordedStep struct {
 
 // Apply makes the plan, after first keeping in a new folder under the
 // state's backups, which it returns, everything the undo needs. A step that
-// fails undoes every step made before it.
+// fails removes the folders it made and undoes every step made before it.
 func (m Machine) Apply(plan Plan, now time.Time) (string, error) {
 	record := undoRecord{Plan: plan.Digest()}
 	folder := filepath.Join(m.Root, "state", "backups", "cutover-"+now.UTC().Format("20060102T150405Z"))
@@ -80,7 +80,9 @@ func (m Machine) Apply(plan Plan, now time.Time) (string, error) {
 	for index := range record.Steps {
 		made, err := m.do(&record.Steps[index].Step, record.Steps[index].IsRemoved, record.Steps[index].after)
 		record.Steps[index].Made = made
-		if err == nil {
+		if err != nil {
+			err = errors.Join(err, removeMade(made))
+		} else {
 			record.Done = index + 1
 			err = writeRecord(folder, record)
 		}
@@ -160,15 +162,15 @@ func writeRecord(folder string, record undoRecord) error {
 }
 
 // makeParents makes the folders above path that are not there, and returns
-// them, deepest last.
+// the ones it made, deepest last, even when it fails.
 func makeParents(path string) ([]string, error) {
 	var missing []string
 	for folder := filepath.Dir(path); !exists(folder); folder = filepath.Dir(folder) {
 		missing = append([]string{folder}, missing...)
 	}
-	for _, folder := range missing {
+	for index, folder := range missing {
 		if err := os.Mkdir(folder, 0o755); err != nil {
-			return nil, err
+			return missing[:index], err
 		}
 	}
 	return missing, nil
@@ -277,7 +279,8 @@ func (m Machine) undoStep(folder string, index int, step recordedStep) error {
 }
 
 // moveCredential writes the credential at from as to, for user, and then
-// removes from, so its secret never leaves Credential Manager.
+// removes from, so its secret never leaves Credential Manager. When from
+// cannot be removed, to is removed again, so the secret is under one target.
 func (m Machine) moveCredential(from, to, user string) error {
 	entries, err := m.Vault.Entries(from)
 	if err != nil {
@@ -290,5 +293,8 @@ func (m Machine) moveCredential(from, to, user string) error {
 	if err := m.Vault.Write(auth.VaultEntry{Target: to, User: user, Value: entries[index].Value}); err != nil {
 		return err
 	}
-	return m.Vault.Delete(from)
+	if err := m.Vault.Delete(from); err != nil {
+		return errors.Join(err, m.Vault.Delete(to))
+	}
+	return nil
 }

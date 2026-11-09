@@ -147,7 +147,13 @@ type fixture struct {
 	folders []string
 }
 
-const skillText = "---\nname: " + newName + "-afk\n---\nRun `" + newName + " afk on`.\n"
+const (
+	skillText       = "---\nname: " + newName + "-afk\n---\nRun `" + newName + " afk on`.\n"
+	lavishText      = "---\nname: lavish\n---\nRun `" + newName + " present` with the plan.\n"
+	agentsText      = "# The CEO\n\nRun `" + newName + " spawn` for every task.\n"
+	spawnPage       = "# " + newName + " spawn\n"
+	lavishOwnerText = "Code Goblins installed this skill\r\nThe files it wrote:\r\nSKILL.md\r\n"
+)
 
 func newFixture(t *testing.T) fixture {
 	t.Helper()
@@ -157,10 +163,13 @@ func newFixture(t *testing.T) fixture {
 	build := filepath.Join(top, "build")
 	write(t, filepath.Join(build, newName+".exe"), "this build")
 	write(t, filepath.Join(build, newName+"-hook.exe"), "this build's hook program")
+	write(t, filepath.Join(build, "goblins-window.exe"), "this build's window")
 	write(t, filepath.Join(root, "bin", oldName+".exe"), "the old build")
 	write(t, filepath.Join(root, "bin", oldName+"-hook.exe"), "the old hook program")
 	write(t, filepath.Join(root, "bin", "goblins.exe"), "the old build")
+	write(t, filepath.Join(root, "bin", "goblins-window.exe"), "the old window")
 	write(t, filepath.Join(root, "."+oldName+"-home"), "")
+	write(t, filepath.Join(root, "AGENTS.md"), oldSpelling(agentsText))
 
 	harnesses := harnessmap.Find(func(string) string { return "" }, user)
 	for _, root := range harnesses.Roots {
@@ -188,6 +197,13 @@ func newFixture(t *testing.T) fixture {
 	if err := junction(filepath.Join(claude.Skills, oldName+"-afk"), shared); err != nil {
 		t.Fatal(err)
 	}
+	lavish := filepath.Join(harnesses.SharedSkills, "lavish")
+	write(t, filepath.Join(lavish, "SKILL.md"), oldSpelling(lavishText))
+	write(t, filepath.Join(lavish, ".code-goblins"), lavishOwnerText)
+	if err := junction(filepath.Join(claude.Skills, "lavish"), lavish); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(harnesses.SharedSkills, "their-own", "SKILL.md"), "Run "+oldName+" spawn.\n")
 
 	write(t, filepath.Join(state, oldName+"-engine.json"), `{"harness":"claude","problem":"The `+strings.ToUpper(oldName)+` started as claude"}`)
 	write(t, filepath.Join(state, oldName+"-wake-skips.jsonl"), `{"skipped":"`+oldName+` spawn"}`+"\n")
@@ -243,8 +259,15 @@ func newFixture(t *testing.T) fixture {
 	return fixture{
 		machine: Machine{
 			Root: root, UserHome: user, LocalAppData: local, Harnesses: harnesses, ProjectsRoot: projects,
-			Program:  filepath.Join(build, newName+".exe"),
-			Skills:   fstest.MapFS{newName + "-afk/SKILL.md": {Data: []byte(skillText)}},
+			Program: filepath.Join(build, newName+".exe"),
+			Skills: fstest.MapFS{
+				newName + "-afk/SKILL.md": {Data: []byte(skillText)},
+				"lavish/SKILL.md":         {Data: []byte(lavishText)},
+			},
+			Contract: fstest.MapFS{
+				"AGENTS.md":              {Data: []byte(agentsText)},
+				"docs/commands/spawn.md": {Data: []byte(spawnPage)},
+			},
 			Commands: []string{"afk", "doctor", "gate", "native-hook", "notify", "question", "resume", "spawn", "status", "watch"},
 			Env:      env, Jobs: jobs, Vault: vault, Labels: labels, Link: junction,
 			Git: func(dir string, args ...string) ([]byte, error) {
@@ -353,15 +376,21 @@ func TestTheDryRunListsEveryChangeAndChangesNothing(t *testing.T) {
 	listing := strings.Join(plan.Listing(), "\n")
 	t.Logf("the dry run on the test home:\n%s\nplan: %s", listing, plan.Digest())
 	root, user := f.machine.Root, f.machine.UserHome
+	shared := filepath.Join(user, ".agents", "skills")
 	for _, want := range []string{
 		KindProgram + ":", filepath.Join(root, "bin", newName+".exe") + ": this build", filepath.Join(root, "bin", oldName+".exe") + ": removed",
+		filepath.Join(root, "bin", "goblins-window.exe") + ": this build",
+		KindContract + ":", filepath.Join(root, "AGENTS.md") + ": this build's", filepath.Join(root, "docs", "commands", "spawn.md") + ": this build's",
+		filepath.Join(shared, newName+"-afk", "SKILL.md") + ": this build's", filepath.Join(shared, newName+"-afk", "notes.md") + ": removed",
+		filepath.Join(shared, "lavish", "SKILL.md") + ": this build's", filepath.Join(shared, "lavish", ".code-goblins") + ": this build's",
+		filepath.Join(f.machine.LocalAppData, oldName) + ": the old build's caches outside the home, left for you to delete",
 		KindSetting + ":", strings.ToUpper(oldName) + "_HOME=" + root + " becomes " + strings.ToUpper(newName) + "_HOME",
 		KindHook + ":", filepath.Join(user, ".claude", "settings.json") + ": ", "renamed " + newName + "-native.ts", filepath.Join(root, "state", oldName+"-wake-skips.jsonl") + ": renamed",
 		KindSkill + ":", filepath.Join(user, ".agents", "skills", oldName+"-afk") + ": becomes",
 		KindJob + ":", `\` + oldName + `-stall-watchdog: becomes \` + newName + `-stall-watchdog`, `\Code Goblins\Resume: its definition rewritten`,
 		KindCredential + ":", oldName + ":GITHUB_TOKEN becomes " + newName + ":GITHUB_TOKEN", filepath.Join(user, "."+oldName) + ": the credential file store's folder",
 		KindState + ":", filepath.Join(root, "state", "hosts", oldName+".log") + ": renamed " + newName + ".log", filepath.Join(root, "."+oldName+"-home") + ": renamed",
-		KindTask + ":", filepath.Join(root, "data", "backlog.md") + ": 1 lines rewritten", filepath.Join(root, "state", "tasktmp", "cg-x", "delivery.json"),
+		KindTask + ":", filepath.Join(root, "data", "backlog.md") + ": 1 line rewritten", filepath.Join(root, "state", "tasktmp", "cg-x", "delivery.json"),
 		KindLabel + ":", `owner/repo: "` + oldName + `: running" becomes "` + newName + `: running"`,
 		KindListed + ":", filepath.Join(f.machine.ProjectsRoot, "other-app", "README.md") + ": names the old command on line 1, 3",
 		KindNote + ":", "the first-open layout and the quick tour once more",
@@ -370,7 +399,7 @@ func TestTheDryRunListsEveryChangeAndChangesNothing(t *testing.T) {
 			t.Errorf("the dry run does not say %q:\n%s", want, listing)
 		}
 	}
-	for _, unwanted := range []string{"cg-" + oldName + "-wakes", "archive", "overlord.md", "cg-x.status", "run.log", "CLAUDE.md", "untracked.md", filepath.Join("code-goblins", "README.md"), oldName + "-native-board", "someone-else", "Unrelated"} {
+	for _, unwanted := range []string{"cg-" + oldName + "-wakes", "archive", "overlord.md", "cg-x.status", "run.log", "CLAUDE.md", "untracked.md", filepath.Join("code-goblins", "README.md"), oldName + "-native-board", "someone-else", "Unrelated", "their-own", filepath.Join(f.machine.LocalAppData, newName)} {
 		if strings.Contains(listing, unwanted) {
 			t.Errorf("the dry run names %q, which it never changes:\n%s", unwanted, listing)
 		}
@@ -395,6 +424,7 @@ func TestTheCutoverLeavesTheHomeWorkingUnderTheNewName(t *testing.T) {
 		filepath.Join(state, "hosts", "cg-"+oldName+"-wakes.log"), filepath.Join(root, "data", "overlord.md"),
 		filepath.Join(root, "data", "archive", "finished", "cg-old", "brief.md"), filepath.Join(root, "data", oldName+"-native-board", "brief.md"),
 		filepath.Join(user, ".claude", "CLAUDE.md"), filepath.Join(f.machine.ProjectsRoot, "other-app", "README.md"),
+		filepath.Join(user, ".agents", "skills", "their-own", "SKILL.md"), filepath.Join(f.machine.LocalAppData, oldName, "conpty", "OpenConsole.exe"),
 	} {
 		untouched[path] = read(t, path)
 	}
@@ -415,7 +445,7 @@ func TestTheCutoverLeavesTheHomeWorkingUnderTheNewName(t *testing.T) {
 		}
 	}
 	bin := filepath.Join(root, "bin")
-	for name, want := range map[string]string{newName + ".exe": "this build", "goblins.exe": "this build", newName + "-hook.exe": "this build's hook program"} {
+	for name, want := range map[string]string{newName + ".exe": "this build", "goblins.exe": "this build", newName + "-hook.exe": "this build's hook program", "goblins-window.exe": "this build's window"} {
 		if got := read(t, filepath.Join(bin, name)); got != want {
 			t.Errorf("bin\\%s is %q, want %q", name, got, want)
 		}
@@ -464,23 +494,32 @@ func TestTheCutoverLeavesTheHomeWorkingUnderTheNewName(t *testing.T) {
 		t.Errorf("another program's credential was moved: %v", f.vault)
 	}
 	for path, want := range map[string]string{
-		filepath.Join(state, newName+"-wake-skips.jsonl"):             `{"skipped":"` + oldName + ` spawn"}` + "\n",
-		filepath.Join(state, "hosts", newName+".json"):                `{"host":"` + newName + `","started_by_` + newName + `":true,"pid":7}`,
-		filepath.Join(state, "tasktmp", "cg-x", "delivery.json"):      `{"fast":[["` + newName + `","gate","test"]],"mode":"no-mistakes"}`,
-		filepath.Join(state, "tickets", "cg-x.json"):                  `{"task_id":"cg-x","repository":"owner/repo","labels":["` + newName + `: running"]}`,
-		filepath.Join(state, "ops", "watchdog.ps1"):                   "& \"$env:" + strings.ToUpper(newName) + "_HOME\\bin\\" + newName + ".exe\" watch\n",
-		filepath.Join(root, "data", "backlog.md"):                     "| cg-x | run `" + newName + " spawn cg-x` |\n| " + oldName + "-native-board | done |\n",
-		filepath.Join(root, "data", "memory", "fleet.md"):             "Use " + newName + " gate turn --low-priority.\n",
-		filepath.Join(root, "data", "cg-x", "ticket.md"):              "Run " + newName + " status first.\n",
-		filepath.Join(root, "data", newName+"-handoff-2026-11-05.md"): "The CFO handed off; " + oldName + " spawn later.\n",
-		filepath.Join(state, "tasktmp", "cg-x", "brief.md"):           "# Brief\n\nRun `" + newName + " gate test` with " + strings.ToUpper(newName) + "_HOME cleared, then " + newName + " notify cg-x --done.\n\nThe Overlord wrote: \"restart the " + oldName + " when " + oldName + " gate test hangs\"\n\n> " + oldName + " spawn is his to run\n\nTask cg-" + oldName + "-wakes and the skill " + newName + "-afk stay named.\n",
+		filepath.Join(state, newName+"-wake-skips.jsonl"):              `{"skipped":"` + oldName + ` spawn"}` + "\n",
+		filepath.Join(state, "hosts", newName+".json"):                 `{"host":"` + newName + `","started_by_` + newName + `":true,"pid":7}`,
+		filepath.Join(state, "tasktmp", "cg-x", "delivery.json"):       `{"fast":[["` + newName + `","gate","test"]],"mode":"no-mistakes"}`,
+		filepath.Join(state, "tickets", "cg-x.json"):                   `{"task_id":"cg-x","repository":"owner/repo","labels":["` + newName + `: running"]}`,
+		filepath.Join(state, "ops", "watchdog.ps1"):                    "& \"$env:" + strings.ToUpper(newName) + "_HOME\\bin\\" + newName + ".exe\" watch\n",
+		filepath.Join(root, "data", "backlog.md"):                      "| cg-x | run `" + newName + " spawn cg-x` |\n| " + oldName + "-native-board | done |\n",
+		filepath.Join(root, "data", "memory", "fleet.md"):              "Use " + newName + " gate turn --low-priority.\n",
+		filepath.Join(root, "data", "cg-x", "ticket.md"):               "Run " + newName + " status first.\n",
+		filepath.Join(root, "data", newName+"-handoff-2026-11-05.md"):  "The CFO handed off; " + oldName + " spawn later.\n",
+		filepath.Join(root, "AGENTS.md"):                               agentsText,
+		filepath.Join(root, "docs", "commands", "spawn.md"):            spawnPage,
+		filepath.Join(user, ".agents", "skills", "lavish", "SKILL.md"): lavishText,
+		filepath.Join(state, "tasktmp", "cg-x", "brief.md"):            "# Brief\n\nRun `" + newName + " gate test` with " + strings.ToUpper(newName) + "_HOME cleared, then " + newName + " notify cg-x --done.\n\nThe Overlord wrote: \"restart the " + oldName + " when " + oldName + " gate test hangs\"\n\n> " + oldName + " spawn is his to run\n\nTask cg-" + oldName + "-wakes and the skill " + newName + "-afk stay named.\n",
 	} {
 		if got := read(t, path); got != want {
 			t.Errorf("%s is\n%q, want\n%q", path, got, want)
 		}
 	}
-	if !exists(filepath.Join(root, "."+newName+"-home")) || !exists(filepath.Join(user, "."+newName, "credentials", "x")) || !exists(filepath.Join(f.machine.LocalAppData, newName, "conpty")) {
-		t.Errorf("the home's marker, the credential folder or the caches were not renamed")
+	if !exists(filepath.Join(root, "."+newName+"-home")) || !exists(filepath.Join(user, "."+newName, "credentials", "x")) {
+		t.Errorf("the home's marker or the credential folder were not renamed")
+	}
+	if exists(filepath.Join(f.machine.LocalAppData, newName)) {
+		t.Errorf("the old build's caches outside the home were moved")
+	}
+	if owner := read(t, filepath.Join(user, ".agents", "skills", "lavish", ".code-goblins")); owner == lavishOwnerText || !strings.Contains(owner, "SKILL.md") {
+		t.Errorf("the unrenamed skill's owner file is %q, want this build's", owner)
 	}
 	if got := strings.Join(f.labels["owner/repo"], ","); got != newName+": running,"+newName+": queued,bug" {
 		t.Errorf("the labels are %s", got)
@@ -531,5 +570,61 @@ func TestAFailedStepUndoesEveryStepBeforeIt(t *testing.T) {
 	}
 	if found := before.differences(f.snapshot(t)); len(found) > 0 {
 		t.Fatalf("the failed apply left the machine changed:\n%s", strings.Join(found, "\n"))
+	}
+}
+
+func TestAFailedStepRemovesTheFoldersItMade(t *testing.T) {
+	// Arrange
+	top := t.TempDir()
+	target := top
+	machine := Machine{Root: filepath.Join(top, "home"), Link: func(string, string) error { return errors.New("no junction can be made here") }}
+	plan := Plan{Changes: []Change{{Kind: KindSkill, Line: "a junction in folders not there yet", Steps: []Step{{Kind: "link", Key: filepath.Join(top, "skills", "nested", newName+"-afk"), After: &target}}}}}
+
+	// Act
+	folder, err := machine.Apply(plan, time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC))
+
+	// Assert
+	if err == nil || folder != "" {
+		t.Fatalf("apply returned %q, %v; want the junction's failure", folder, err)
+	}
+	for _, gone := range []string{filepath.Join(top, "skills"), machine.Root} {
+		if exists(gone) {
+			t.Errorf("%s, which the failed apply made, is still there", gone)
+		}
+	}
+}
+
+// undeletable is Credential Manager refusing to delete one target.
+type undeletable struct {
+	fakeVault
+	target string
+}
+
+func (v undeletable) Delete(target string) error {
+	if target == v.target {
+		return errors.New("Credential Manager refused to delete " + target)
+	}
+	return v.fakeVault.Delete(target)
+}
+
+func TestACredentialWhoseOldEntryStaysIsNotLeftUnderItsNewName(t *testing.T) {
+	// Arrange
+	f := newFixture(t)
+	f.machine.Vault = undeletable{fakeVault: f.vault, target: oldName + ":GITHUB_TOKEN"}
+	plan, err := f.machine.Plan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := f.snapshot(t)
+
+	// Act
+	folder, err := f.machine.Apply(plan, time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC))
+
+	// Assert
+	if err == nil || folder != "" || !strings.Contains(err.Error(), "everything it made before was undone") {
+		t.Fatalf("apply returned %q, %v; want a failure that undid everything", folder, err)
+	}
+	if found := before.differences(f.snapshot(t)); len(found) > 0 {
+		t.Fatalf("the failed apply left the machine changed, the secret under both names among it: %v\n%s", f.vault, strings.Join(found, "\n"))
 	}
 }

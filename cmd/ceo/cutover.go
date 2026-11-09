@@ -29,8 +29,9 @@ while the fleet is paused and no supervisor serves the home.
 --dry-run changes nothing: it lists every change by kind and ends with the
 plan's digest, "plan: <digest>". --plan <digest> plans again, refuses when that
 plan is not the one the dry run printed, and otherwise first keeps everything
-its undo needs in state\backups\cutover-<time>, then makes the plan.
---undo <folder> undoes the cutover that folder records, exactly, and removes
+its undo needs in state\backups\cutover-<time>, then makes the plan. It ends
+with the undo command, which names this build by its full path, since the undo
+removes the home's bin\ceo.exe. --undo <folder> undoes the cutover that folder records, exactly, and removes
 the folder.
 `
 
@@ -57,6 +58,10 @@ func runCutover(args []string, stdout, stderr io.Writer, newMachine func() (cuto
 		fmt.Fprintf(stderr, "ceo cutover: %v\n", err)
 		return 1
 	}
+	if refusal := supervisorServing(filepath.Join(machine.Root, "state")); refusal != "" {
+		fmt.Fprintf(stderr, "ceo cutover: %s\n", refusal)
+		return 1
+	}
 	if *undo != "" {
 		if err := machine.Undo(*undo); err != nil {
 			fmt.Fprintf(stderr, "ceo cutover: %v\n", err)
@@ -64,10 +69,6 @@ func runCutover(args []string, stdout, stderr io.Writer, newMachine func() (cuto
 		}
 		fmt.Fprintf(stdout, "ceo cutover: undid the cutover %s recorded, and removed it\n", *undo)
 		return 0
-	}
-	if refusal := supervisorServing(filepath.Join(machine.Root, "state")); refusal != "" {
-		fmt.Fprintf(stderr, "ceo cutover: %s\n", refusal)
-		return 1
 	}
 	plan, err := machine.Plan()
 	if err != nil {
@@ -95,7 +96,7 @@ func runCutover(args []string, stdout, stderr io.Writer, newMachine func() (cuto
 	for _, line := range plan.Listing() {
 		fmt.Fprintln(stdout, line)
 	}
-	fmt.Fprintf(stdout, "undo: ceo cutover --undo %s\n", folder)
+	fmt.Fprintf(stdout, "undo: %s cutover --undo %s\n", machine.Program, folder)
 	return 0
 }
 
@@ -161,6 +162,7 @@ func cutoverMachine() (cutover.Machine, error) {
 		ProjectsRoot: projects,
 		Program:      program,
 		Skills:       skills,
+		Contract:     codegoblins.Contract,
 		Commands:     names,
 		Env:          env,
 		Jobs:         cutover.TaskScheduler{Commands: commands},
