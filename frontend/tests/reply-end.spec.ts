@@ -664,25 +664,32 @@ test.describe("on a phone", () => {
 // The Overlord, 2026-10-28: "connecting screens don't need to display the
 // dither or usage unavailable it's just messy when clicking into a goblin
 // task". While the view connects no dither shows, and once it is live it does.
-test("a working goblin's dither shows only once its view has connected", async ({ page }) => {
-  // Arrange
-  await holdMessages(page);
-  await open(page, snapshot({}, { runtime: { state: "working" } }), "", TALK);
+// A goblin the board's snapshot says works, and one whose own hooks say it
+// compacts, which draws the dither whatever its turn.
+for (const [what, first] of [
+  ["working", snapshot({}, { runtime: { state: "working" } })],
+  ["compacting", snapshot({ sessions: [{ id: "claude/goblin-session", native_id: "goblin-session", harness: "claude", role: "goblin", task_id: GOBLIN.id, generation: GOBLIN.generation, phase: "settled", updated_at: "2026-10-22T09:05:00Z", is_compacting: true }] }, { phase: "settled", session: "claude/goblin-session" })],
+] as const) {
+  test(`a ${what} goblin's dither shows only once its view has connected`, async ({ page }) => {
+    // Arrange
+    await holdMessages(page);
+    await open(page, first, "", TALK);
 
-  // Act
-  await openGoblin(page);
+    // Act
+    await openGoblin(page);
 
-  // Assert: connecting, and no dither.
-  await expect(page.locator(".terminal-connecting")).toBeVisible();
-  await expect(working(page)).toHaveCount(0);
+    // Assert: connecting, and no dither.
+    await expect(page.locator(".terminal-connecting")).toBeVisible();
+    await expect(working(page)).toHaveCount(0);
 
-  // Act
-  await releaseMessages(page);
+    // Act
+    await releaseMessages(page);
 
-  // Assert
-  await expect(row(page, "r5")).toBeVisible();
-  await expect(working(page)).toHaveCount(1);
-});
+    // Assert
+    await expect(row(page, "r5")).toBeVisible();
+    await expect(working(page)).toHaveCount(1);
+  });
+}
 
 // The Overlord, 2026-11-04: a compaction showed whimsical verbs as if the
 // session were at work on his ask. While the session's own hooks say it

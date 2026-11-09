@@ -92,10 +92,11 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // say a finished turn still works.
   const [report, setReport] = useState<SessionReport | null>(null);
   // Behind and working are the stream's own words, and a compaction is the
-  // session's own state rather than a turn: both draw the one indicator, and
-  // both are published with the messages so what he reads up keeps still.
+  // session's own state rather than a turn: both draw the one indicator, only
+  // once the view is live, and both are published with the messages so what
+  // he reads up keeps still.
   const standing = viewStanding(report, held.messages);
-  const isAtWork = standing.isWorking || isCompacting;
+  const isAtWork = standing.isWorking || phase === "live" && isCompacting;
   const [isReconnecting, setReconnecting] = useState(false);
   const [closedWhy, setClosedWhy] = useState("");
   const [attempt, setAttempt] = useState(0);

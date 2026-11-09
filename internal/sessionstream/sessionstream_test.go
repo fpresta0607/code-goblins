@@ -267,6 +267,57 @@ func TestAStreamAtItsBoundKeepsWhatTheSessionIsNow(t *testing.T) {
 	}
 }
 
+// TestACompactedStreamHoldsNoPartOfAMessage is a reply whose blocks lie on
+// both sides of where a compaction halves the stream, with another message's
+// event between them, as a turn's other messages interleave with a reply's
+// blocks: the stream keeps none of that reply rather than its later blocks
+// alone, which the board would draw beside empty ones.
+func TestACompactedStreamHoldsNoPartOfAMessage(t *testing.T) {
+	// Arrange: a stream at its bound whose next write halves it at start,
+	// with the reply's first block just before start and its second just
+	// after.
+	stateDir := t.TempDir()
+	appender, err := Open(stateDir, goblin())
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := MaxEvents + 1 - MaxEvents/2
+	events := make([]Event, 0, MaxEvents)
+	for at := 0; at < MaxEvents; at++ {
+		switch at {
+		case start - 1:
+			events = append(events, event(goblin(), KindAssistant, "split", 0))
+		case start + 1:
+			events = append(events, event(goblin(), KindAssistant, "split", 1))
+		default:
+			events = append(events, event(goblin(), KindAssistant, "r"+strconv.Itoa(at), 0))
+		}
+	}
+	if _, _, err := appender.Write(events); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, isCompacted, err := appender.Write([]Event{event(goblin(), KindAssistant, "newest", 0)})
+
+	// Assert
+	if err != nil || !isCompacted {
+		t.Fatalf("write at the bound: compacted %v, %v", isCompacted, err)
+	}
+	kept, err := Read(stateDir, goblin())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range kept {
+		if event.Message == "split" {
+			t.Fatalf("a compacted stream holds block %d of a reply whose block 0 it cut", event.Block)
+		}
+	}
+	if first, newest := kept[0], kept[len(kept)-1]; first.Message != "r"+strconv.Itoa(start) || newest.Message != "newest" {
+		t.Fatalf("a compacted stream runs from %s to %s; want r%d to newest", first.Message, newest.Message, start)
+	}
+}
+
 func TestTheSameEventDerivedAgainHasTheSameID(t *testing.T) {
 	id := goblin()
 	one := EventID(id, KindAssistant, "r1", "", 0, "words")

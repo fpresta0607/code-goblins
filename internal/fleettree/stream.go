@@ -21,7 +21,8 @@ import (
 //
 // A turn is named by the prompt that began it, and every event of the turn
 // names it. A notice is the fleet's own word to the session rather than a
-// turn, so it belongs to the turn it landed in without beginning one.
+// turn, and a command the harness ran itself never reached the model, so each
+// belongs to the turn it landed in without beginning one.
 func StreamEvents(id sessionstream.Identity, messages []Message) []sessionstream.Event {
 	events := make([]sessionstream.Event, 0, len(messages))
 	turn := ""
@@ -31,7 +32,8 @@ func StreamEvents(id sessionstream.Identity, messages []Message) []sessionstream
 			kind := sessionstream.KindPrompt
 			if message.Source == FromNotice {
 				kind = sessionstream.KindNotice
-			} else {
+			}
+			if beginsTurn(message) {
 				turn = message.ID
 			}
 			event := sessionstream.Event{
@@ -76,10 +78,10 @@ func streamBlock(id sessionstream.Identity, turn string, message Message, at int
 		return []sessionstream.Event{base}
 	case BlockCall:
 		call := base
-		call.ID = sessionstream.EventID(id, sessionstream.KindToolCall, message.ID, block.CallID, at, block.Tool, block.Subject, planWords(block.Plan))
+		call.ID = sessionstream.EventID(id, sessionstream.KindToolCall, message.ID, block.CallID, at, block.Tool, block.Subject, planWords(block.Plan), agentWords(block.Agent))
 		call.Kind = sessionstream.KindToolCall
 		call.CallID, call.Tool, call.Subject, call.State = block.CallID, block.Tool, block.Subject, block.State
-		call.Plan = streamPlan(block.Plan)
+		call.Plan, call.Agent = streamPlan(block.Plan), streamAgent(block.Agent)
 		if block.State == CallRunning || block.State == "" {
 			return []sessionstream.Event{call}
 		}
@@ -88,12 +90,9 @@ func streamBlock(id sessionstream.Identity, turn string, message Message, at int
 			strconv.FormatInt(block.Spilled, 10), editWords(block.Edit), agentWords(block.Agent))
 		result.Kind = sessionstream.KindToolResult
 		result.CallID, result.Tool, result.State, result.Result, result.Spilled = block.CallID, block.Tool, block.State, block.Result, block.Spilled
-		result.Pictures = streamPictures(block.Pictures)
+		result.Pictures, result.Agent = streamPictures(block.Pictures), streamAgent(block.Agent)
 		if block.Edit.Added != 0 || block.Edit.Removed != 0 || len(block.Edit.Diff) > 0 {
 			result.Edit = &sessionstream.Edit{Added: block.Edit.Added, Removed: block.Edit.Removed, Diff: block.Edit.Diff}
-		}
-		if block.Agent != (AgentLink{}) {
-			result.Agent = &sessionstream.Agent{Node: block.Agent.Node, Type: block.Agent.Type}
 		}
 		return []sessionstream.Event{call, result}
 	}
@@ -124,6 +123,13 @@ func streamPlan(steps []PlanStep) []sessionstream.PlanStep {
 		kept = append(kept, sessionstream.PlanStep{Text: step.Text, Status: step.Status})
 	}
 	return kept
+}
+
+func streamAgent(agent AgentLink) *sessionstream.Agent {
+	if agent == (AgentLink{}) {
+		return nil
+	}
+	return &sessionstream.Agent{Node: agent.Node, Type: agent.Type}
 }
 
 // planWords, editWords and agentWords are the parts of a call's own event id,
@@ -164,16 +170,32 @@ func RestatedEvent(id sessionstream.Identity, messages []Message) sessionstream.
 	}
 }
 
-// TurnOf is the turn the newest event of a session belongs to, and the prompt
-// that began it, empty when the session holds no turn yet.
-func TurnOf(messages []Message) (turn string, prompt string) {
+// TurnPrompt is the prompt that began a session's newest turn, which names
+// the turn, and the zero Message while the session holds no turn yet.
+func TurnPrompt(messages []Message) Message {
 	for at := len(messages) - 1; at >= 0; at-- {
-		message := messages[at]
-		if message.Kind == MessagePrompt && message.Source != FromNotice {
-			return message.ID, message.ID
+		if beginsTurn(messages[at]) {
+			return messages[at]
 		}
 	}
-	return "", ""
+	return Message{}
+}
+
+// beginsTurn reports whether message is a prompt that begins a turn. A notice
+// is the fleet's own word to the session, and a ! command, or a slash command
+// the harness ran itself and recorded what it printed, as /model does, never
+// reaches the model, so no hook reports a turn for it.
+func beginsTurn(message Message) bool {
+	if message.Kind != MessagePrompt {
+		return false
+	}
+	switch message.Source {
+	case FromNotice, FromShell:
+		return false
+	case FromSlash:
+		return message.Output == "" && message.Errors == ""
+	}
+	return true
 }
 
 // MessagesOf is the conversation a stream's events are, in the order the
@@ -230,7 +252,7 @@ func MessagesOf(events []sessionstream.Event) []Message {
 			}
 			if event.Kind == sessionstream.KindToolCall {
 				block.Kind, block.CallID, block.Tool, block.Subject = BlockCall, event.CallID, event.Tool, event.Subject
-				block.State, block.Plan = event.State, messagesPlan(event.Plan)
+				block.State, block.Plan, block.Agent = event.State, messagesPlan(event.Plan), messagesAgent(event.Agent)
 			}
 			block.Pictures = messagesPictures(event.Pictures)
 		case sessionstream.KindToolResult:
@@ -242,7 +264,7 @@ func MessagesOf(events []sessionstream.Event) []Message {
 				block.Edit = Edit{Added: event.Edit.Added, Removed: event.Edit.Removed, Diff: event.Edit.Diff}
 			}
 			if event.Agent != nil {
-				block.Agent = AgentLink{Node: event.Agent.Node, Type: event.Agent.Type}
+				block.Agent = messagesAgent(event.Agent)
 			}
 		}
 	}
@@ -321,4 +343,11 @@ func messagesPlan(steps []sessionstream.PlanStep) []PlanStep {
 		kept = append(kept, PlanStep{Text: step.Text, Status: step.Status})
 	}
 	return kept
+}
+
+func messagesAgent(agent *sessionstream.Agent) AgentLink {
+	if agent == nil {
+		return AgentLink{}
+	}
+	return AgentLink{Node: agent.Node, Type: agent.Type}
 }

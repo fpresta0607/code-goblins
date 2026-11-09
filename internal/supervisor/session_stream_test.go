@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -130,10 +131,9 @@ func TestWhatASessionsOwnReportSaysOfItsTurn(t *testing.T) {
 		"a running turn":                {Session{Phase: "active"}, true, false, true},
 		"a turn it began":               {Session{Phase: "started"}, true, false, true},
 		"a session untracked":           {Session{}, false, false, false},
-		"a session that compacts":       {Session{Phase: "compacting"}, true, false, true},
 		"a phase the board cannot read": {Session{Phase: "queued"}, true, false, false},
 	} {
-		got := turnState(tc.node, tc.isTracked, time.Time{})
+		got := turnState(tc.node, tc.isTracked, nil)
 		if got.Ended != tc.ended || got.Known != tc.known {
 			t.Fatalf("%s: %+v; want ended %t, known %t", name, got, tc.ended, tc.known)
 		}
@@ -563,6 +563,182 @@ func TestEveryChangeOfASessionsTurnIsTold(t *testing.T) {
 	told("running")
 	report("settled")
 	told("ended")
+}
+
+// openMessagesStream opens a view's stream of the goblin's messages on a board
+// that checks its session every 50 ms, and answers the data of the next event
+// named event whose data carries carries.
+func openMessagesStream(t *testing.T, service *Service, meta state.TaskMeta) func(event, carries string) string {
+	t.Helper()
+	handler := NewHTTP(service, "127.0.0.1:50000", nil)
+	handler.terminalTick = 50 * time.Millisecond
+	server := httptest.NewUnstartedServer(handler)
+	handler.Host = server.Listener.Addr().String()
+	server.Start()
+	t.Cleanup(server.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	request, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/messages?task="+meta.ID+"&generation="+meta.SpawnGen+"&token=board-token&stream=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { response.Body.Close() })
+	scanner := bufio.NewScanner(response.Body)
+	scanner.Buffer(nil, 1<<20)
+	return func(event, carries string) string {
+		t.Helper()
+		current := ""
+		for scanner.Scan() {
+			if name, isEvent := strings.CutPrefix(scanner.Text(), "event: "); isEvent {
+				current = name
+			}
+			if data, isData := strings.CutPrefix(scanner.Text(), "data: "); isData && current == event && strings.Contains(data, carries) {
+				return data
+			}
+		}
+		t.Fatalf("the board was sent no %s event carrying %q: %v", event, carries, scanner.Err())
+		return ""
+	}
+}
+
+// TestACommandOrAnInterruptLeavesNoTurnRunning is a session's record holding
+// what no hook of its harness reports, told through the board's stream: a
+// slash command Claude Code ran itself after the turn ended, which begins no
+// turn, and an interrupt while the turn ran, which ended it, so the board is
+// told the turn ended after either.
+func TestACommandOrAnInterruptLeavesNoTurnRunning(t *testing.T) {
+	for name, tc := range map[string]struct {
+		phase   string
+		landed  func(stamp string) []string
+		carries string
+	}{
+		"a /model command after the turn ended": {"settled", func(stamp string) []string {
+			return []string{
+				`{"type":"user","uuid":"c1","timestamp":"` + stamp + `","message":{"role":"user","content":"<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>opus</command-args>"}}`,
+				`{"type":"user","uuid":"c2","timestamp":"` + stamp + `","message":{"role":"user","content":"<local-command-stdout>Set model to opus</local-command-stdout>"}}`,
+			}
+		}, "Set model to opus"},
+		"an interrupt while the turn ran": {"active", func(stamp string) []string {
+			return []string{`{"type":"user","uuid":"i1","timestamp":"` + stamp + `","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}`}
+		}, "Request interrupted by user"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange: the turn's prompt a minute ago, and the session's own
+			// report of the turn since.
+			_, meta, service := messagesBoard(t, messageEntries(time.Now().UTC().Add(-time.Minute).Format(time.RFC3339Nano))...)
+			service.Store.db.Sessions["claude/talker-conversation"] = Session{
+				ID: "claude/talker-conversation", NativeID: "talker-conversation", Harness: "claude", Role: "goblin",
+				TaskID: meta.ID, Generation: meta.SpawnGen, Phase: tc.phase, UpdatedAt: time.Now().UTC().Add(-30 * time.Second),
+			}
+			if err := service.Store.save(); err != nil {
+				t.Fatal(err)
+			}
+			next := openMessagesStream(t, service, meta)
+			next("page", `"id":"u1"`)
+
+			// Act
+			appendEntries(t, fleettree.SessionTranscript(service.Options.Tree.Home, "claude", "talker-conversation"), tc.landed(time.Now().UTC().Add(-10*time.Second).Format(time.RFC3339Nano))...)
+
+			// Assert
+			next("messages", tc.carries)
+			var said struct{ Turn, State string }
+			if err := json.Unmarshal([]byte(next("session", "")), &said); err != nil {
+				t.Fatal(err)
+			}
+			if said.Turn != "u1" || said.State != "ended" {
+				t.Fatalf("the board was told turn %q is %q; want u1 ended", said.Turn, said.State)
+			}
+		})
+	}
+}
+
+// TestAViewIsToldOfARunningSubAgentFromTheStream is a sub-agent call told to
+// a view while it runs, as the stream holds it: the call names the baby goblin
+// it started, so the board draws its row and its Open before the sub-agent's
+// result comes back.
+func TestAViewIsToldOfARunningSubAgentFromTheStream(t *testing.T) {
+	// Arrange
+	stamp := time.Now().UTC().Format(time.RFC3339Nano)
+	_, meta, service := messagesBoard(t, messageEntries(stamp)...)
+	next := openMessagesStream(t, service, meta)
+	next("page", `"id":"u1"`)
+
+	// Act
+	appendEntries(t, fleettree.SessionTranscript(service.Options.Tree.Home, "claude", "talker-conversation"),
+		`{"type":"assistant","uuid":"a2","timestamp":"`+stamp+`","message":{"id":"msg_2","model":"claude-opus-5-5","role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Task","input":{"subagent_type":"code-reviewer","description":"Review the branch","prompt":"Review it."}}]}}`)
+	var told struct {
+		Messages []fleettree.Message `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(next("messages", `"id":"msg_2"`)), &told); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	at := slices.IndexFunc(told.Messages, func(message fleettree.Message) bool { return message.ID == "msg_2" })
+	if at < 0 || len(told.Messages[at].Blocks) != 1 {
+		t.Fatalf("the view was told %+v; want the reply with its call", told.Messages)
+	}
+	call := told.Messages[at].Blocks[0]
+	if want := (fleettree.AgentLink{Node: "subagent:toolu_1", Type: "code-reviewer"}); call.State != fleettree.CallRunning || call.Agent != want {
+		t.Fatalf("the running call the view was told: %+v; want it running with agent %+v", call, want)
+	}
+}
+
+// TestAReplyReadAgainAfterARestatementIsDrawnWhole is a reply the stream held
+// while its call ran, a restatement that does not hold it, as a view that
+// reopens past a gap writes, and the older page read again once the call
+// finished: the reply is written whole after the restatement, by the
+// supervisor that wrote it and by one started after, so the board draws the
+// reply rather than its result beside empty blocks.
+func TestAReplyReadAgainAfterARestatementIsDrawnWhole(t *testing.T) {
+	for name, isRestarted := range map[string]bool{"the supervisor that restated it": false, "a supervisor started after": true} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, _ := testStore(t)
+			id := sessionstream.Identity{Task: "talker", Generation: "s1", Harness: "claude", Session: "talker-conversation"}
+			held, err := (&Service{Store: store}).sessionStreamOf(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			write := func(held *heldStream, events []sessionstream.Event) []fleettree.Message {
+				t.Helper()
+				projection, err := held.record(func([]fleettree.Message, []sessionstream.Event) []sessionstream.Event { return events })
+				if err != nil {
+					t.Fatal(err)
+				}
+				return projection
+			}
+			at := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+			prompt := fleettree.Message{ID: "u1", Seq: 0, Kind: fleettree.MessagePrompt, At: at, Source: fleettree.FromOverlord, Text: "Read b.go"}
+			reply := func(state, result string) fleettree.Message {
+				return fleettree.Message{ID: "msg_1", Seq: 1, Kind: fleettree.MessageReply, At: at, Model: "claude-opus-5-5", Blocks: []fleettree.Block{
+					{Kind: fleettree.BlockText, Text: "Reading b.go."},
+					{Kind: fleettree.BlockCall, CallID: "toolu_1", Tool: "Read", Subject: "b.go", State: state, Result: result},
+				}}
+			}
+			write(held, fleettree.StreamEvents(id, []fleettree.Message{prompt, reply(fleettree.CallRunning, "")}))
+			write(held, []sessionstream.Event{fleettree.RestatedEvent(id, []fleettree.Message{{ID: "u9", Seq: 90, Kind: fleettree.MessagePrompt, At: at, Source: fleettree.FromOverlord, Text: "Later"}})})
+			if isRestarted {
+				if held, err = (&Service{Store: store}).sessionStreamOf(id); err != nil {
+					t.Fatal(err)
+				}
+			}
+			finished := reply(fleettree.CallDone, "package b")
+
+			// Act
+			projection := write(held, fleettree.StreamEvents(id, []fleettree.Message{prompt, finished}))
+
+			// Assert
+			drawn := slices.IndexFunc(projection, func(message fleettree.Message) bool { return message.ID == "msg_1" })
+			if drawn < 0 || !reflect.DeepEqual(projection[drawn], finished) {
+				t.Fatalf("the board draws %+v; want the reply whole: %+v", projection, finished)
+			}
+		})
+	}
 }
 
 // TestAStreamWhoseWriteFailedIsReadAgainFromItsFile is a write the stream's

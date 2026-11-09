@@ -67,15 +67,6 @@ const (
 	KindRestated = "restated"
 )
 
-// The states a call ends in beside done, and what ends a turn.
-const (
-	CallRunning = "running"
-
-	TurnSettled     = "settled"
-	TurnInterrupted = "interrupted"
-	TurnEnded       = "ended"
-)
-
 // Picture is an image a prompt or a call's result holds.
 type Picture struct {
 	ID        string `json:"id"`
@@ -350,9 +341,10 @@ func (event Event) key() string {
 	}
 }
 
-// Appender appends to one session's stream. It holds what it has already
-// written, read from the stream the first time it appends, so a reader that
-// derives a session's events again and again writes only what is new.
+// Appender appends to one session's stream. It holds what the stream holds
+// since its newest restatement, read from the stream the first time it
+// appends, so a reader that derives a session's events again and again writes
+// only what is new.
 type Appender struct {
 	mu     sync.Mutex
 	id     Identity
@@ -393,13 +385,24 @@ func (a *Appender) load() error {
 		return fmt.Errorf("%w: %v", ErrUnreadable, err)
 	}
 	for _, event := range events {
-		a.seen[event.ID] = true
+		a.saw(event)
 		if event.Seq >= a.seq {
 			a.seq = event.Seq + 1
 		}
 	}
 	a.loaded = true
 	return nil
+}
+
+// saw notes an event the stream holds. A restatement takes the place of all
+// the stream held before it, so a write is weighed only against what the
+// stream holds from its newest restatement on, and a message the restatement
+// does not hold is written whole again rather than only what changed of it.
+func (a *Appender) saw(event Event) {
+	if event.Kind == KindRestated {
+		a.seen = map[string]bool{}
+	}
+	a.seen[event.ID] = true
 }
 
 // Write appends the events of the stream that are not written yet, in the
@@ -443,7 +446,7 @@ func (a *Appender) Write(events []Event) (written []Event, isCompacted bool, err
 		return nil, false, err
 	}
 	for _, event := range fresh {
-		a.seen[event.ID] = true
+		a.saw(event)
 	}
 	a.seq += len(fresh)
 	return fresh, false, nil
@@ -532,8 +535,8 @@ func trimTail(path string) (int64, error) {
 // compact rewrites the stream with the newest event of each thing the session
 // did, then the events of this read that are not among them, so a stream that
 // reached its bound keeps what the session is now in the room of what it was.
-// A stream still at its bound then keeps its newest half, from the first
-// message it still holds whole, so a session that runs on for weeks costs a
+// A stream still at its bound then keeps its newest half, less any message
+// part of which fell before it, so a session that runs on for weeks costs a
 // bounded file and its older history is read from the harness's own record.
 func (a *Appender) compact(fresh []Event) error {
 	data, err := fsx.ReadFile(a.path)
@@ -569,20 +572,34 @@ func (a *Appender) compact(fresh []Event) error {
 	}
 	a.seen = map[string]bool{}
 	for _, event := range kept {
-		a.seen[event.ID] = true
+		a.saw(event)
 	}
 	a.seq = len(kept)
 	a.loaded = true
 	return nil
 }
 
-// wholeFrom is the newest keep events of events, beginning at the first
-// message the events still hold whole, so a stream never begins part way
-// through a reply.
+// wholeFrom is the newest keep events of events, less the events of each
+// message that also has events before them, so a stream never holds part of
+// a message without the rest of it. A restatement holds every message whole,
+// and the appender writes each message whole after one, so what follows a
+// restatement stands whatever came before it.
 func wholeFrom(events []Event, keep int) []Event {
 	start := max(0, len(events)-keep)
-	for start > 0 && start < len(events) && events[start].Message == events[start-1].Message {
-		start++
+	isCut := map[string]bool{}
+	for _, event := range events[:start] {
+		if event.key() != "" {
+			isCut[event.Message] = true
+		}
 	}
-	return events[start:]
+	kept := make([]Event, 0, len(events)-start)
+	for _, event := range events[start:] {
+		if event.Kind == KindRestated {
+			clear(isCut)
+		}
+		if event.key() == "" || !isCut[event.Message] {
+			kept = append(kept, event)
+		}
+	}
+	return kept
 }

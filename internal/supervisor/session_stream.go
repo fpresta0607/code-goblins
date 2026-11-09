@@ -33,23 +33,33 @@ type sessionTurn struct {
 // completion and pi's settle each arrive as a session's own event, which the
 // supervisor keeps as the session's phase, and a prompt that begins another
 // turn makes it active again. A session whose hooks were never installed has
-// said nothing, and says so rather than leaving the board to guess.
-func turnState(node Session, isTracked bool, promptAt time.Time) sessionTurn {
+// said nothing, and says so rather than leaving the board to guess. The
+// report is read against the session's messages, the conversation the stream
+// holds.
+func turnState(node Session, isTracked bool, messages []fleettree.Message) sessionTurn {
 	if !isTracked {
 		return sessionTurn{Why: "The board has not seen this session report a turn, so it does not draw one as working."}
 	}
-	// A session's report is about the turn it last heard of. A prompt written
-	// after it began another turn, whose own report has not reached the board
-	// yet, and the phase before it says nothing of the new turn.
-	if !promptAt.IsZero() && node.UpdatedAt.Before(promptAt) {
+	// A session's report is about the turn it last heard of. Claude Code runs
+	// no hook for a turn the Overlord stops, and its record says where the turn
+	// was stopped: a report older than an interrupt after the turn's prompt is
+	// of the turn that stopped.
+	prompt := fleettree.TurnPrompt(messages)
+	if slices.ContainsFunc(messages, func(message fleettree.Message) bool {
+		return message.Kind == fleettree.MessageInterrupt && message.Seq > prompt.Seq && node.UpdatedAt.Before(message.At)
+	}) {
+		return sessionTurn{Ended: true, Known: true}
+	}
+	// A prompt written after the report began another turn, whose own report
+	// has not reached the board yet, and the phase before it says nothing of
+	// the new turn.
+	if node.UpdatedAt.Before(prompt.At) {
 		return sessionTurn{Known: true}
 	}
 	switch node.Phase {
 	case "settled", "interrupted", "ended":
 		return sessionTurn{Ended: true, Known: true}
-	case "active", "started", "compacting", "compacted":
-		// A session that compacts is still in its turn: a compaction neither
-		// starts nor ends one.
+	case "active", "started":
 		return sessionTurn{Known: true}
 	}
 	return sessionTurn{Why: "This session's harness has not reported a turn yet, so the board does not draw one as working."}
@@ -123,14 +133,10 @@ func (held *heldStream) record(derive func(messages []fleettree.Message, events 
 		switch {
 		case err == nil:
 			held.events = kept
-		case errors.Is(err, sessionstream.ErrNoStream):
-		case errors.Is(err, sessionstream.ErrUnreadable):
+		case !errors.Is(err, sessionstream.ErrNoStream):
 			// A damaged stream is never overwritten with a fresh one: the
 			// board says it cannot read it, and the session's own record
 			// stands until somebody looks.
-			held.isRead = true
-			return nil, err
-		default:
 			held.isRead = true
 			return nil, err
 		}
@@ -174,7 +180,7 @@ func (held *heldStream) conversation() ([]fleettree.Message, []sessionstream.Eve
 // harness has reported nothing, with the reason it gives. A session with no
 // turn yet says none.
 func streamTurn(messages []fleettree.Message, events []sessionstream.Event) (turn, state, why string) {
-	_, turn = fleettree.TurnOf(messages)
+	turn = fleettree.TurnPrompt(messages).ID
 	if turn == "" {
 		return "", "none", ""
 	}
@@ -236,7 +242,7 @@ func (h *HTTP) recordSession(session messagesSession, messages []fleettree.Messa
 	}
 	node, isTracked := h.Service.Store.nativeSession(session.Identity.Harness, session.Identity.Session)
 	return held.record(func(heldMessages []fleettree.Message, events []sessionstream.Event) []sessionstream.Event {
-		return turnEvents(session.Identity, heldMessages, events, turnState(node, isTracked, newestPromptAt(heldMessages)))
+		return turnEvents(session.Identity, heldMessages, events, turnState(node, isTracked, heldMessages))
 	})
 }
 
@@ -280,17 +286,6 @@ func leads(held, read []fleettree.Message) bool {
 	return true
 }
 
-// newestPromptAt is when the newest turn of a session began, which is what a
-// session's own report of its turn is read against.
-func newestPromptAt(messages []fleettree.Message) time.Time {
-	for at := len(messages) - 1; at >= 0; at-- {
-		if messages[at].Kind == fleettree.MessagePrompt && messages[at].Source != fleettree.FromNotice {
-			return messages[at].At
-		}
-	}
-	return time.Time{}
-}
-
 // turnEvents are the events a session's own report of its turn adds to its
 // stream: that the turn runs or ended, and the board's word where the harness
 // reports nothing, which it draws rather than inventing a turn. A report is
@@ -299,7 +294,7 @@ func newestPromptAt(messages []fleettree.Message) time.Time {
 // it, as a turn a notice set working again after it ended does, and a report
 // read again writes nothing.
 func turnEvents(id sessionstream.Identity, messages []fleettree.Message, events []sessionstream.Event, turn sessionTurn) []sessionstream.Event {
-	_, prompt := fleettree.TurnOf(messages)
+	prompt := fleettree.TurnPrompt(messages).ID
 	kind := sessionstream.KindMissing
 	switch {
 	case !turn.Known:

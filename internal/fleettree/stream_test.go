@@ -2,6 +2,7 @@ package fleettree
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/sessionstream"
@@ -25,6 +26,25 @@ func claudeTurn(t *testing.T) MessagePage {
 	page, _, err := (&Reader{Home: home}).MessagePage(path, -1)
 	if err != nil {
 		t.Fatal(err)
+	}
+	return page
+}
+
+// claudeSubAgentRunning is a Claude Code turn whose sub-agent still runs: its
+// call names the baby goblin it started, and no result has come back yet.
+func claudeSubAgentRunning(t *testing.T) MessagePage {
+	t.Helper()
+	home := t.TempDir()
+	path := conversation(t, home,
+		prompted("p1", "Review the branch"),
+		answer("r1", "msg-1", useBlock("call-1", "Task", object{"subagent_type": "code-reviewer", "description": "Review the branch", "prompt": "Review it."})),
+	)
+	page, _, err := (&Reader{Home: home}).MessagePage(path, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call := page.Messages[len(page.Messages)-1].Blocks[0]; call.State != CallRunning || call.Agent == (AgentLink{}) {
+		t.Fatalf("the fixture's sub-agent call is not running with its baby goblin: %+v", call)
 	}
 	return page
 }
@@ -103,8 +123,9 @@ func TestEachHarnesssTurnIsTheSameEvents(t *testing.T) {
 // TestAStreamProjectsBackToTheMessagesItCameFrom proves the stream is the
 // same conversation the harness's record is, not a second guess at it.
 func TestAStreamProjectsBackToTheMessagesItCameFrom(t *testing.T) {
-	for harness, page := range map[string]MessagePage{"claude": claudeTurn(t), "codex": codexTurn(t), "pi": piTurn(t)} {
+	for name, page := range map[string]MessagePage{"claude": claudeTurn(t), "codex": codexTurn(t), "pi": piTurn(t), "claude sub-agent": claudeSubAgentRunning(t)} {
 		// Arrange
+		harness, _, _ := strings.Cut(name, " ")
 		id := sessionstream.Identity{Task: "cg-session-event-stream", Generation: "1201-1", Harness: harness, Session: "session-1"}
 
 		// Act
@@ -116,7 +137,7 @@ func TestAStreamProjectsBackToTheMessagesItCameFrom(t *testing.T) {
 
 		// Assert
 		if !reflect.DeepEqual(projected, page.Messages) {
-			t.Fatalf("%s projected back:\n got %+v\nwant %+v", harness, projected, page.Messages)
+			t.Fatalf("%s projected back:\n got %+v\nwant %+v", name, projected, page.Messages)
 		}
 	}
 }
@@ -130,11 +151,11 @@ func TestATurnIsNamedByThePromptThatBeganIt(t *testing.T) {
 
 	// Act
 	events := StreamEvents(id, page.Messages)
-	turn, prompt := TurnOf(page.Messages)
+	turn := TurnPrompt(page.Messages).ID
 
 	// Assert
-	if turn == "" || prompt != turn {
-		t.Fatalf("turn of a session with one prompt: %q, prompt %q", turn, prompt)
+	if turn == "" || turn != page.Messages[0].ID {
+		t.Fatalf("turn of a session with one prompt: %q; want %q", turn, page.Messages[0].ID)
 	}
 	for _, event := range events {
 		if event.Turn != turn {
@@ -143,27 +164,40 @@ func TestATurnIsNamedByThePromptThatBeganIt(t *testing.T) {
 	}
 }
 
-// TestANoticeBelongsToItsTurnWithoutBeginningOne keeps the fleet's own words
-// to a session inside the turn they landed in.
-func TestANoticeBelongsToItsTurnWithoutBeginningOne(t *testing.T) {
-	// Arrange
-	messages := []Message{
-		prompt(0, "p1", FromOverlord, "Read the brief"),
-		reply(1, "r1", Block{Kind: BlockText, Text: "Reading."}),
-		prompt(2, "n1", FromNotice, "A background task ended"),
-	}
-	id := sessionstream.Identity{Task: "cg-session-event-stream", Generation: "1201-1", Harness: "claude", Session: "session-1"}
+// TestWhatNeverReachesTheModelBeginsNoTurn keeps the fleet's own words to a
+// session, and a command the harness ran itself, inside the turn they landed
+// in, since no hook reports a turn for either, while a slash command that
+// hands the model its prompt begins one.
+func TestWhatNeverReachesTheModelBeginsNoTurn(t *testing.T) {
+	for name, tc := range map[string]struct {
+		landed Message
+		kind   string
+		turn   string
+	}{
+		"a notice":                        {prompt(2, "n1", FromNotice, "A background task ended"), sessionstream.KindNotice, "p1"},
+		"a ! command":                     {prompt(2, "c1", FromShell, "git status"), sessionstream.KindPrompt, "p1"},
+		"a slash command the harness ran": {Message{ID: "c1", Seq: 2, Kind: MessagePrompt, At: at, Source: FromSlash, Text: "/model opus", Output: "Set model to opus"}, sessionstream.KindPrompt, "p1"},
+		"a slash command that prompts":    {prompt(2, "c1", FromSlash, "/review"), sessionstream.KindPrompt, "c1"},
+	} {
+		// Arrange
+		messages := []Message{
+			prompt(0, "p1", FromOverlord, "Read the brief"),
+			reply(1, "r1", Block{Kind: BlockText, Text: "Reading."}),
+			tc.landed,
+		}
+		id := sessionstream.Identity{Task: "cg-session-event-stream", Generation: "1201-1", Harness: "claude", Session: "session-1"}
 
-	// Act
-	events := StreamEvents(id, messages)
-	turn, _ := TurnOf(messages)
+		// Act
+		events := StreamEvents(id, messages)
+		turn := TurnPrompt(messages).ID
 
-	// Assert
-	if turn != "p1" {
-		t.Fatalf("turn of a session whose last message is a notice: %q", turn)
-	}
-	if last := events[len(events)-1]; last.Kind != sessionstream.KindNotice || last.Turn != "p1" {
-		t.Fatalf("notice event: %+v", last)
+		// Assert
+		if turn != tc.turn {
+			t.Fatalf("%s: the session's turn is %q; want %q", name, turn, tc.turn)
+		}
+		if last := events[len(events)-1]; last.Kind != tc.kind || last.Message != tc.landed.ID || last.Turn != tc.turn {
+			t.Fatalf("%s: its event %+v; want a %s of turn %s", name, last, tc.kind, tc.turn)
+		}
 	}
 }
 
@@ -173,7 +207,7 @@ func TestALaterEventOfACallReplacesTheOneBeforeIt(t *testing.T) {
 	// Arrange
 	running := []sessionstream.Event{{
 		ID: "a", Seq: 0, Kind: sessionstream.KindToolCall, Message: "r1", Block: 0,
-		CallID: "call-1", Tool: "Read", Subject: "b.go", State: sessionstream.CallRunning,
+		CallID: "call-1", Tool: "Read", Subject: "b.go", State: CallRunning,
 	}}
 	done := []sessionstream.Event{
 		running[0],
@@ -227,8 +261,8 @@ func TestAHarnessThatRewroteItsWordsReplacesThem(t *testing.T) {
 // TestAnEmptySessionKeepsNoTurn keeps a session that has only heard the
 // fleet's own words from claiming a turn it never had.
 func TestAnEmptySessionKeepsNoTurn(t *testing.T) {
-	if turn, prompt := TurnOf([]Message{prompt(0, "n1", FromNotice, "hello")}); turn != "" || prompt != "" {
-		t.Fatalf("turn of a session with no prompt: %q, %q", turn, prompt)
+	if turn := TurnPrompt([]Message{prompt(0, "n1", FromNotice, "hello")}).ID; turn != "" {
+		t.Fatalf("turn of a session with no prompt: %q", turn)
 	}
 }
 
