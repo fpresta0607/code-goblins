@@ -1,4 +1,4 @@
-import { memo, useRef, useState, type SyntheticEvent } from "react";
+import { memo, useRef, useState, type ButtonHTMLAttributes, type SyntheticEvent } from "react";
 import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { HarnessMark } from "./harness-mark";
@@ -12,6 +12,8 @@ import { CardClock } from "./card-clock";
 import { CardPullRequest } from "./card-pull-request";
 import { BrandGlyph } from "./brand-glyph";
 import { safeGitHubLink } from "./people";
+
+const TERMINAL_ACTIVITY: Record<string, string> = { busy: "Terminal active", active: "Terminal active", parked: "Terminal awaiting input", idle: "Terminal idle", stale: "Terminal evidence stale", unknown: "Terminal state unknown", unavailable: "Terminal unavailable", launching: "Terminal starting", ended: "Terminal ended" };
 
 // A task's card on the board is one row, like a conversation in a list (the
 // Overlord, 2026-10-17: "minimal cards are better like an imessage history
@@ -37,10 +39,11 @@ import { safeGitHubLink } from "./people";
 // A card is given what it shows as plain values (cardFacts) and is drawn
 // again only when one of them changed, so a snapshot that changed another
 // goblin, or only the meters, leaves it as it is (#1599).
-export const TaskCard = memo(function TaskCard({ task, status, phase, repository, isPresenting, selected, now, rank, nextText, nextTone, onSelect }: CardFacts & {
+export const TaskCard = memo(function TaskCard({ task, status, phase, repository, isPresenting, selected, now, rank, nextText, nextTone, onSelect, buttonProps }: CardFacts & {
   task: Task; selected: boolean; now: number; rank?: string;
   nextText?: string; nextTone?: NextUp["tone"];
   onSelect: (task: Task, source: HTMLElement) => void;
+  buttonProps?: Pick<ButtonHTMLAttributes<HTMLButtonElement>, "onPointerDown" | "onPointerMove" | "onPointerUp" | "onPointerCancel" | "onKeyDown" | "onKeyUp" | "aria-describedby">;
 }) {
   // A task with no goblin yet goes by its title, which shows in full in its
   // tip while it is shortened: that card carries data-tip only then.
@@ -55,15 +58,19 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
   const tip = isNamed ? { "data-tip": taskName(task) } : clipped ? { "data-tip": name } : {};
   const icon = pullRequestIcon(task);
   const repositoryLink = repository ? safeGitHubLink("https://github.com/" + repository) : "";
+  const terminal = task.runtime?.state ?? "";
+  const activity = task.gate_step && ["blocked", "review"].includes(task.phase)
+    ? [(TERMINAL_ACTIVITY[terminal] || (terminal ? "Terminal: " + terminal : "Terminal state unreported")), task.report && "Last report: " + task.report].filter(Boolean).join(" · ") : "";
   const content = <>
     <Avatar persona={personaFor(task)} />
     <span className="card-copy"><span className="card-head">{isPresenting && <span className="browser-indicator">Browser active</span>}{nextText && <span className={"next-chip" + (nextTone ? " " + nextTone : "")}>{nextText}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>
       {rank && <span className="sr-only">, {rank}</span>}
-      <span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span>
+      <span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text" data-tip={task.gate_step && task.reason ? task.reason : undefined}>{status}</span></span>
+      {activity && <span className="card-activity">{activity}</span>}
     </span>
   </>;
   return <div className={"task-card-shell" + (selected ? " selected" : "")}>
-    <button ref={card} className="task-card"
+    <button {...buttonProps} ref={card} className="task-card"
       aria-pressed={selected} onClick={(event) => onSelect(task, event.currentTarget)} onPointerEnter={measure} onFocus={measure} {...tip}>{content}</button>
     {task.project && <span className="card-repo">{task.project}{repositoryLink && <a className="card-repo-link" href={repositoryLink} target="_blank" rel="noreferrer" aria-label={"Open " + repository + " on GitHub"} data-tip={repository}><BrandGlyph brand="github" /></a>}</span>}
     <CardClock task={task} now={now} />

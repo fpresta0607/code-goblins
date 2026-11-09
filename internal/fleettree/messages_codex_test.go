@@ -2,6 +2,7 @@ package fleettree
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,6 +11,32 @@ import (
 	"testing"
 	"time"
 )
+
+func TestCodexCustomToolKeepsFullInputSeparateFromProse(t *testing.T) {
+	home := t.TempDir()
+	input := "text(await tools.exec_command({cmd:\"git status\"}));\ntext('second line');"
+	prose := "The expression text(await ...) is JavaScript."
+	path := codexRollout(t, home, "tool-details", codexMeta("tool-details", workDir), codexUserSaid(prose), codexCall("call-1", "exec", input), codexAgentSaid(prose), codexOutput("call-1", "Script failed\nError: command failed"))
+	reader := Reader{Home: home}
+
+	page := readCodex(t, &reader, path)
+
+	if len(page.Messages) != 2 || page.Messages[0].Text != prose || len(page.Messages[1].Blocks) != 2 || page.Messages[1].Blocks[1].Text != prose {
+		t.Fatalf("ordinary messages changed: %+v", page.Messages)
+	}
+	call := page.Messages[1].Blocks[0]
+	data, err := json.Marshal(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire struct{ Input string }
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if call.Kind != BlockCall || call.Subject != "exec" || wire.Input != input || call.State != "failed" || !strings.Contains(call.Result, "command failed") {
+		t.Fatalf("structured tool lost its details or leaked input into its heading: %s", data)
+	}
+}
 
 // The entries below are made up in the shape Codex 0.160 writes a rollout in:
 // its opening session_meta, then one entry per event, the conversation items
@@ -120,7 +147,7 @@ func TestACodexRolloutIsReadAsItsConversation(t *testing.T) {
 		{ID: "user-1", Seq: 0, Kind: MessagePrompt, At: at, Source: FromCFO, Text: "Read the brief at C:\\state\\brief.md and follow it exactly: it is your instruction from the CFO."},
 		{ID: "@", Seq: 1, Kind: MessageReply, At: at, Model: "gpt-6-astra", Blocks: []Block{
 			{Kind: BlockText, Text: "I will read the brief first."},
-			{Kind: BlockCall, CallID: "call-1", Tool: "exec", Subject: "text(await tools.exec_command({cmd:\"Get-Content brief.md\"}));", State: "done", Result: "Script completed\nWall time 0.4 seconds\nOutput:\n{\"exit_code\":0}"},
+			{Kind: BlockCall, CallID: "call-1", Tool: "exec", Subject: "exec", Input: "text(await tools.exec_command({cmd:\"Get-Content brief.md\"}));", State: "done", Result: "Script completed\nWall time 0.4 seconds\nOutput:\n{\"exit_code\":0}"},
 		}},
 		{ID: "user-1", Seq: 2, Kind: MessagePrompt, At: at, Source: FromCFO, Text: "steer left"},
 		{ID: "@", Seq: 3, Kind: MessageReply, At: at, Model: "gpt-6-luna", Blocks: []Block{{Kind: BlockText, Text: "Both done."}}},

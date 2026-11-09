@@ -7,24 +7,43 @@ import (
 )
 
 type Entry struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Kind      string    `json:"kind"`
-	Status    string    `json:"status"`
-	Detail    string    `json:"detail,omitempty"`
-	Source    string    `json:"source,omitempty"`
-	CheckedAt time.Time `json:"checked_at"`
-	Actions   []string  `json:"actions,omitempty"`
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	Kind            string    `json:"kind"`
+	Status          string    `json:"status"`
+	Detail          string    `json:"detail,omitempty"`
+	Source          string    `json:"source,omitempty"`
+	CheckedAt       time.Time `json:"checked_at"`
+	Actions         []string  `json:"actions,omitempty"`
+	Scope           string    `json:"scope"`
+	LiveStatus      string    `json:"live_status"`
+	AccountIdentity string    `json:"account_identity"`
+	TargetIdentity  string    `json:"target_identity"`
+	RestartRequired bool      `json:"restart_required"`
+	RestartReason   string    `json:"restart_reason,omitempty"`
 	// Grant is what the entry's connector card offers: grant for a service or
 	// a project MCP server the task does not carry, revoke for one its record
 	// names, or empty for one no cfo auth grant changes.
 	Grant string `json:"grant,omitempty"`
 }
 type Snapshot struct {
-	Entries   []Entry   `json:"entries"`
-	Checking  bool      `json:"checking"`
-	Error     string    `json:"error,omitempty"`
-	CheckedAt time.Time `json:"checked_at"`
+	Generation string           `json:"generation"`
+	Runtime    *RuntimeIdentity `json:"runtime,omitempty"`
+	Entries    []Entry          `json:"entries"`
+	Checking   bool             `json:"checking"`
+	Error      string           `json:"error,omitempty"`
+	CheckedAt  time.Time        `json:"checked_at"`
+}
+
+type RuntimeIdentity struct {
+	ProcessID int       `json:"process_id"`
+	StartedAt time.Time `json:"started_at"`
+	Workspace string    `json:"workspace"`
+}
+
+type RuntimeObservation struct {
+	Identity  RuntimeIdentity
+	Env, Args []string
 }
 type codexStatus struct {
 	Name          string `json:"name"`
@@ -41,6 +60,10 @@ func serviceEntry(service auth.Service, status auth.Status) Entry {
 		}
 	}
 	entry := Entry{ID: "service:" + service.Name, Name: service.Name, Kind: "service", Status: verdict, Source: "Repository", Detail: statusDetail(verdict)}
+	entry.Scope = "configuration"
+	if len(service.Probe) > 0 {
+		entry.Scope = "separate_probe"
+	}
 	if verdict != "connected" {
 		if safeLoginURL(service.URL) {
 			entry.Actions = append(entry.Actions, "login")
@@ -62,7 +85,7 @@ func statusDetail(status string) string {
 		"missing": "Credential missing.", "unauthorized": "Sign-in required.", "expired": "Sign-in expired.",
 		"wrong_target": "Credentials point to another project.", "unreachable": "Service did not respond.",
 		"failed": "Connection check failed.", "unverified": "No successful connection check.",
-		"withheld": "Not available to this goblin.", "disabled": "Disabled at launch. Ask the CFO to enable it.",
+		"withheld": "Not currently granted to this goblin.", "disabled": "Disabled in the probe configuration. Live session load state unknown.",
 		"checking": "Waiting for the harness.", "skipped": "Optional connection is not available.",
 	}[status]
 }

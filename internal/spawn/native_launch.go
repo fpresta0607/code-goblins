@@ -67,6 +67,9 @@ var (
 	// a turn waits for the harness's record to show it taken, in case the
 	// tool call running was ending.
 	nativeQueuedProof = 5 * time.Second
+	// nativeCommandTaken bounds how long a command submitted while no turn
+	// runs takes to leave the harness's input line.
+	nativeCommandTaken = 5 * time.Second
 	// nativeStartingPress is how often Enter is pressed again while a harness
 	// turns its instruction away as still starting.
 	nativeStartingPress = time.Second

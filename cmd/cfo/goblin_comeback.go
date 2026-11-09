@@ -111,6 +111,14 @@ func bringGoblinBack(ctx context.Context, h home.Home, runtime commandRuntime, i
 	if err := runtime.admitLaunch(h); err != nil {
 		return goblinComeback{id: id, said: "waits for room: " + err.Error(), isWaiting: true}, true
 	}
+	// Only automatic recovery is held to a prepared admission, since only it
+	// would retry an uncertain lifecycle call by itself. The Overlord's own
+	// message still wakes a goblin whose prepared pause failed.
+	if !isPrompted {
+		if err := checkAutomaticPreparedComeback(h, meta); err != nil {
+			return goblinComeback{id: id, said: err.Error()}, true
+		}
+	}
 	// A resume the reboot cut short is finished by a resume, which takes up
 	// what its record kept and leaves the record running, where a bare
 	// switch would leave it reading resuming. A failed pause his message
@@ -156,6 +164,17 @@ func bringGoblinBack(ctx context.Context, h home.Home, runtime commandRuntime, i
 		return goblinComeback{id: id, said: "back on its conversation", isBack: true}, true
 	}
 	return goblinComeback{id: id, said: "back from a handoff, since no conversation is proved its own", isBack: true}, true
+}
+
+// checkAutomaticPreparedComeback reports an uncertain prepared admission a
+// restart may not retry by itself, under the lock its reporter holds.
+func checkAutomaticPreparedComeback(h home.Home, meta state.TaskMeta) error {
+	name := ".prepared-wait-" + meta.ID + ".lock"
+	if _, err := lock.AcquireExclusiveNamed(h.State, name); err != nil {
+		return fmt.Errorf("prepared dependency admission cannot be checked: %w", err)
+	}
+	defer lock.ReleaseExclusiveNamed(h.State, name)
+	return state.CheckPreparedComeback(h.State, meta)
 }
 
 // comebackGoblin is the supervisor's comeback of one goblin, after a restart

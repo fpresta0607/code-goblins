@@ -26,7 +26,7 @@ type Inspector struct {
 	HomeRoot, DataDir, StateDir string
 	Runner                      execx.Runner
 	OpenStore                   func() (auth.Store, error)
-	Runtime                     func(context.Context, string, state.TaskMeta) ([]string, []string, error)
+	Runtime                     func(context.Context, string, state.TaskMeta) (RuntimeObservation, error)
 	Codex                       func(context.Context, string, []string, []string) ([]Entry, error)
 	Claude                      func(context.Context, string, []string, []string) ([]Entry, error)
 }
@@ -34,8 +34,26 @@ type Inspector struct {
 func NewInspector(homeRoot, dataDir, stateDir string) *Inspector {
 	return &Inspector{HomeRoot: homeRoot, DataDir: dataDir, StateDir: stateDir, Runner: execx.OSRunner{}, OpenStore: auth.OpenStore, Runtime: nativeRuntime, Codex: checkCodex, Claude: checkClaude}
 }
-func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) Snapshot {
-	result := Snapshot{Entries: []Entry{}}
+func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snapshot) {
+	result = Snapshot{Generation: meta.SpawnGen, Entries: []Entry{}}
+	defer func() {
+		for index := range result.Entries {
+			entry := &result.Entries[index]
+			entry.LiveStatus, entry.AccountIdentity, entry.TargetIdentity = "unknown", "unknown", "unknown"
+			if entry.CheckedAt.IsZero() {
+				entry.CheckedAt = time.Now().UTC()
+			}
+			if entry.Scope == "" {
+				entry.Scope = "configuration"
+			}
+			if entry.Kind == "mcp" && entry.ID == "mcp:"+entry.Name {
+				entry.Scope = "separate_probe"
+			}
+			if entry.Status == "connected" {
+				entry.Status = "probe_succeeded"
+			}
+		}
+	}()
 	manifest, manifestErr := auth.LoadManifest(i.DataDir, meta.Project)
 	if manifestErr != nil && !errors.Is(manifestErr, os.ErrNotExist) {
 		result.Error = "Repository connections could not be read."
@@ -46,6 +64,7 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) Snapshot {
 	// has a record that names none and a terminal that holds everything, so
 	// every service is its own.
 	carried, withheld := manifest, map[string]string{}
+	loadable := map[string][]string{}
 	if meta.HasCredentials {
 		carried = manifest.Only(meta.Credentials)
 		for _, service := range manifest.Services {
@@ -74,15 +93,25 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) Snapshot {
 			if err != nil {
 				result.Error = "Repository checks could not finish."
 			} else {
+				refused := auth.RefusedNames(report)
 				for index, status := range report.Statuses {
 					entry := serviceEntry(carried.Services[index], status)
 					entry.CheckedAt = time.Now().UTC()
 					result.Entries = append(result.Entries, entry)
+					if !status.Usable() {
+						continue
+					}
+					for _, name := range status.Declared {
+						if _, isRefused := refused[name]; !isRefused && !auth.IsHarnessBillingKey(name) && !slices.Contains(status.Missing, name) {
+							loadable[status.Service] = append(loadable[status.Service], name)
+						}
+					}
 				}
 			}
 		}
 	}
-	env, args, runtimeErr := i.Runtime(ctx, i.StateDir, meta)
+	observed, runtimeErr := i.Runtime(ctx, i.StateDir, meta)
+	env, args := observed.Env, observed.Args
 	if runtimeErr != nil {
 		result.Error = runtimeErr.Error()
 		for _, name := range manifest.EnvNames() {
@@ -96,6 +125,7 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) Snapshot {
 		}
 		return result
 	}
+	result.Runtime = &observed.Identity
 	values := map[string]string{}
 	for _, item := range env {
 		key, value, ok := strings.Cut(item, "=")
@@ -119,7 +149,29 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) Snapshot {
 		} else if grant, isWithheld := withheld[name]; isWithheld {
 			verdict, detail, actions = "withheld", grant, nil
 		}
-		result.Entries = append(result.Entries, Entry{ID: "credential:" + name, Name: name, Kind: "credential", Status: verdict, Source: "Goblin environment", Detail: detail, Actions: actions, CheckedAt: time.Now().UTC()})
+		result.Entries = append(result.Entries, Entry{ID: "credential:" + name, Name: name, Kind: "credential", Status: verdict, Source: "Goblin environment", Scope: "launch_environment", Detail: detail, Actions: actions, CheckedAt: time.Now().UTC()})
+	}
+	for index := range result.Entries {
+		entry := &result.Entries[index]
+		if entry.Kind != "service" || !meta.HasCredentials {
+			continue
+		}
+		serviceIndex := slices.IndexFunc(manifest.Services, func(service auth.Service) bool { return service.Name == entry.Name })
+		service := manifest.Services[serviceIndex]
+		isLoaded := slices.ContainsFunc(service.Env, func(name string) bool { return values[strings.ToUpper(name)] != "" })
+		hasLoadable := slices.ContainsFunc(loadable[entry.Name], func(name string) bool { return values[strings.ToUpper(name)] == "" })
+		hasRevokedLoaded := slices.ContainsFunc(service.Env, func(name string) bool {
+			return values[strings.ToUpper(name)] != "" && !slices.Contains(carried.EnvNames(), name)
+		})
+		isGranted := slices.Contains(meta.Credentials, entry.Name)
+		switch {
+		case isGranted && hasLoadable:
+			entry.RestartRequired, entry.RestartReason = true, "Granted, but declared credentials are missing from the running process. Restart to load available credentials."
+		case !isGranted && hasRevokedLoaded:
+			entry.RestartRequired, entry.RestartReason = true, "Revoked, but credentials remain in the running process. Restart to remove them; rewriting auth scripts does not remove loaded credentials."
+		case !isGranted && isLoaded:
+			entry.RestartReason = "Credentials remain loaded for another granted service. Restarting retains those shared credentials while that service is granted."
+		}
 	}
 	result.Entries = append(result.Entries, i.crawlerEntry(meta, values["PATH"]))
 	var entries []Entry
@@ -164,6 +216,10 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) Snapshot {
 	}
 	for index := range entries {
 		entries[index].CheckedAt = time.Now().UTC()
+		if err != nil && entries[index].Status != "disabled" {
+			entries[index].Status = "unverified"
+			entries[index].Detail = "Separate probe failed or timed out. Live session unknown."
+		}
 	}
 	result.Entries = append(result.Entries, entries...)
 	result.Entries = append(result.Entries, withheldEntries(meta, entries)...)
@@ -177,6 +233,10 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) Snapshot {
 			entry.Detail = "Sign in from your own harness session, or ask the CFO for token access."
 		}
 		entry.Grant = grantOffered(*entry, meta)
+	}
+	after, runtimeErr := i.Runtime(ctx, i.StateDir, meta)
+	if runtimeErr != nil || observed.Identity != after.Identity || ctx.Err() != nil {
+		return Snapshot{Generation: meta.SpawnGen, Error: "Goblin runtime changed or could not be rechecked. Refresh connections.", Entries: []Entry{}}
 	}
 	sort.SliceStable(result.Entries, func(a, b int) bool {
 		return result.Entries[a].Kind+result.Entries[a].Name < result.Entries[b].Kind+result.Entries[b].Name
@@ -210,7 +270,7 @@ func grantOffered(entry Entry, meta state.TaskMeta) string {
 // a terminal that started before the home set the crawler up, or a home
 // where cfo crawler setup has not run.
 func (i *Inspector) crawlerEntry(meta state.TaskMeta, path string) Entry {
-	entry := Entry{ID: "connector:" + crawler.Name, Name: crawler.Name, Kind: "connector", Source: "Code Goblins", CheckedAt: time.Now().UTC()}
+	entry := Entry{ID: "connector:" + crawler.Name, Name: crawler.Name, Kind: "connector", Source: "Code Goblins", Scope: "launch_environment", CheckedAt: time.Now().UTC()}
 	switch {
 	case slices.ContainsFunc(filepath.SplitList(path), crawler.IsCommandIn):
 		entry.Status = "provided"
@@ -275,7 +335,7 @@ func withheldEntries(meta state.TaskMeta, reported []Entry) []Entry {
 		if json.Unmarshal(raw, &shape) != nil {
 			continue
 		}
-		entry := Entry{ID: "withheld:" + name, Name: name, Kind: "mcp", Status: "withheld", Source: "Project", Detail: "Not loaded by this goblin's harness.", CheckedAt: time.Now().UTC()}
+		entry := Entry{ID: "withheld:" + name, Name: name, Kind: "mcp", Status: "withheld", Source: "Project", Detail: "Not reported by the separate probe. Running session load state unknown.", CheckedAt: time.Now().UTC()}
 		hasToken := shape.Token != ""
 		for header := range shape.Headers {
 			hasToken = hasToken || strings.EqualFold(header, "authorization")

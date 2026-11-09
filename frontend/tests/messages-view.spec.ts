@@ -652,6 +652,34 @@ for (const isAwaiting of [false, true]) {
   });
 }
 
+// Codex and pi run a slash command themselves and record nothing of it, so
+// once the board saw the harness take one, the board's message is its row,
+// in the conversation where it was taken, and never waits under it. Claude
+// Code records its own row, which is the command's one row (#2193).
+for (const { who, task, isDrawn } of [
+  { who: "Pia - Pi Pilot", task: "cg-pi", isDrawn: true },
+  { who: "Zeke - Touch Wrangler", task: "cg-touch", isDrawn: false },
+]) {
+  test(`a slash command taken by ${task}'s harness ${isDrawn ? "takes its place in the conversation" : "waits for the row its harness records"}`, async ({ page }) => {
+    // Arrange
+    await open(page);
+    await openGoblin(page, who);
+    const talk = list(page, who);
+    const sentAt = "2026-10-22T09:01:00Z";
+    const action = { id: "a1", kind: "message", task_id: task, text: "/session", status: "running", message: "", created_at: sentAt, updated_at: sentAt };
+    await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [action] });
+    await expect(talk.locator(".queued-message.pane").filter({ hasText: "/session" })).toHaveCount(1);
+
+    // Act: the board sees the harness take it, and the conversation goes on.
+    await send(page, "snapshot", { ...SNAPSHOT, revision: 3, actions: [{ ...action, status: "succeeded", message: "Accepted by the goblin in its native terminal.", updated_at: "2026-10-22T09:01:02Z" }] });
+    await send(page, "messages", { conversation: "fixture-conversation", messages: [message(11, { source: "overlord", at: "2026-10-22T09:02:00Z", text: "now the tests" })], waiting: [] });
+
+    // Assert
+    await expect(talk.locator(".message-prompt .message-bubble").filter({ hasText: /^(\/session|now the tests)$/ })).toHaveText(isDrawn ? ["/session", "now the tests"] : ["now the tests"]);
+    await expect(talk.locator(".queued-message.pane")).toHaveCount(0);
+  });
+}
+
 // The harness can record a prompt before the board's snapshot says the board
 // typed it, so the prompt names its message and the two are one row whichever
 // arrives first, the snapshot's stale Queued included.

@@ -1292,6 +1292,51 @@ func TestMessagesReadEachKindOfEntry(t *testing.T) {
 			},
 		},
 		{
+			name: "a slash command Claude Code ran itself, recorded only as system entries, reads as typed",
+			entries: func(*testing.T, string) []any {
+				return []any{
+					prompted("u1", "Read the readme"),
+					system("s1", "local_command", object{"content": "/remote-control", "level": "info"}),
+					system("s2", "local_command", object{"content": "<local-command-stdout>/remote-control isn't available in this environment.</local-command-stdout>", "level": "info"}),
+					system("s3", "local_command", object{"content": "<command-name>/model</command-name>\n<command-args>opus</command-args>", "level": "info"}),
+				}
+			},
+			want: []Message{
+				prompt(0, "u1", FromOverlord, "Read the readme"),
+				{ID: "s1", Seq: 1, Kind: MessagePrompt, At: at, Source: FromSlash, Text: "/remote-control", Output: "/remote-control isn't available in this environment."},
+				prompt(3, "s3", FromSlash, "/model opus"),
+			},
+		},
+		{
+			name: "an older command's system output folds into its command",
+			entries: func(*testing.T, string) []any {
+				return []any{
+					prompted("u1", "<command-name>/clear</command-name>\n            <command-message>clear</command-message>\n            <command-args></command-args>"),
+					system("s1", "local_command", object{"content": "<local-command-stdout>Cleared.</local-command-stdout>", "level": "info"}),
+				}
+			},
+			want: []Message{
+				{ID: "u1", Seq: 0, Kind: MessagePrompt, At: at, Source: FromSlash, Text: "/clear", Output: "Cleared."},
+			},
+		},
+		{
+			name: "remote control's status is its command, recorded with nothing else",
+			entries: func(*testing.T, string) []any {
+				return []any{
+					prompted("u1", "Read the readme"),
+					system("s1", "bridge_status", object{"content": "/remote-control is active · Continue here, on your phone, or at https://claude.ai/code/session_1", "url": "https://claude.ai/code/session_1", "isMeta": false}),
+					system("s2", "local_command", object{"content": "/remote-control"}),
+					system("s3", "bridge_status", object{"content": "/remote-control is active · Continue here, on your phone, or at https://claude.ai/code/session_2", "url": "https://claude.ai/code/session_2", "isMeta": false}),
+					system("s4", "bridge_status", object{"content": "Remote control is reconnecting"}),
+				}
+			},
+			want: []Message{
+				prompt(0, "u1", FromOverlord, "Read the readme"),
+				{ID: "s1", Seq: 1, Kind: MessagePrompt, At: at, Source: FromSlash, Text: "/remote-control", Output: "/remote-control is active · Continue here, on your phone, or at https://claude.ai/code/session_1"},
+				{ID: "s2", Seq: 2, Kind: MessagePrompt, At: at, Source: FromSlash, Text: "/remote-control", Output: "/remote-control is active · Continue here, on your phone, or at https://claude.ai/code/session_2"},
+			},
+		},
+		{
 			name: "a compaction carries its summary",
 			entries: func(*testing.T, string) []any {
 				summary := prompted("u2", "This session is being continued from a previous conversation.")

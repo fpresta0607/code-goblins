@@ -94,6 +94,36 @@ func TestTheTokenComesFromTheEnvironmentBeforeGh(t *testing.T) {
 	}
 }
 
+func TestConsentInvalidatesTheSharedCLIIdentityWithoutChangingEnvironmentPrecedence(t *testing.T) {
+	var sent []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sent = append(sent, r.Header.Get("Authorization"))
+		_, _ = io.WriteString(w, `{"login":"o"}`)
+	}))
+	defer server.Close()
+	runner := &tokenRunner{tokens: []string{"tokenA", "tokenB"}}
+	environment := map[string]string{}
+	client := testClient(server, environment, runner)
+	guarded := client.Guarded(&recordingGuard{})
+	if err := guarded.Get(context.Background(), "user", &struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+
+	client.InvalidateCLIToken()
+	if err := guarded.Get(context.Background(), "user", &struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	environment["GITHUB_TOKEN"] = "environment"
+	client.InvalidateCLIToken()
+	if err := guarded.Get(context.Background(), "user", &struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.Join(sent, ",") != "Bearer tokenA,Bearer tokenB,Bearer environment" || len(runner.runs) != 2 || client.CredentialSource() != "GITHUB_TOKEN" {
+		t.Fatalf("sent %v; CLI reads %d; source %s", sent, len(runner.runs), client.CredentialSource())
+	}
+}
+
 // A 401 drops the token kept from gh, so the next call reads it again, once;
 // a token from the environment is the environment's and is never dropped.
 func TestARefusedTokenIsReadAgainOnceByTheNextCall(t *testing.T) {
@@ -156,6 +186,10 @@ func TestNoTokenSendsNothing(t *testing.T) {
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "gh auth token exited 1: no oauth token found") || requests != 0 {
 		t.Fatalf("err = %v after %d requests, want gh's refusal and nothing sent", err, requests)
+	}
+	var credential *CredentialError
+	if !errors.As(err, &credential) {
+		t.Fatalf("missing credential error is untyped: %T", err)
 	}
 }
 

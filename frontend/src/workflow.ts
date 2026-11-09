@@ -9,7 +9,7 @@ export type Persona = "cfo" | "builder" | "reviewer" | "tester" | "planner" | "f
   | "debugger" | "security" | "database" | "designer" | "documentation" | "operations"
   | "researcher" | "performance" | "integrations" | "git" | "accessibility" | "releases";
 export type Point = { x: number; y: number };
-export const NODE_WIDTH = 292;
+export const NODE_WIDTH = 340;
 export const NODE_HEIGHT = 232;
 
 // The canvas zooms between a tenth and one and a half times, so the whole of
@@ -292,6 +292,7 @@ export function nodeStatus(node: WorkflowNode, isWaitingOnYou = false, tasks: Ta
     if (isWaitingOnYou) return WAITING_ON_YOU;
     if (isInLine(node.task)) return inLineStatus(node.task.tree?.line_place || 0);
     if (isPastLine(node.task)) return statusText("working");
+    if (phase === "blocked" && node.task.gate_step && reason.startsWith("Pipeline decision required at ")) return "Waiting on the CFO: " + (GATE_STEPS[node.task.gate_step] || node.task.gate_step) + " gate";
     if ((phase === "blocked" || phase === "failed") && reason.startsWith("Waiting on the CFO")) return "Waiting on the CFO";
     // A question it asked or a session gone quiet waits on whoever answers
     // it: a helper's parent, which its reports reach, else the CFO.

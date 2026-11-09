@@ -1,3 +1,4 @@
+import type { SessionMessage } from "./session-messages.ts";
 import type { Action, Snapshot, Task } from "./types.ts";
 
 // The Overlord's messages to a goblin, in the order he sent them, never one
@@ -35,4 +36,36 @@ export function messageState(action: Action): string {
 // takes typing now.
 export function takesMessages(task: Task): boolean {
   return task.phase === "paused" || task.phase === "resuming" || task.phase === "queued" && task.starting;
+}
+
+// UNRECORDED_COMMANDS are the harnesses that keep no record of a slash
+// command they run themselves (#2193).
+const UNRECORDED_COMMANDS = new Set(["codex", "pi"]);
+
+// withTakenCommands is messages with a row for each slash command the board
+// saw harness take where harness records nothing of it: Codex and pi run one
+// with no turn and write no row, so the board's own message is its place in
+// the conversation, where it was taken, rather than a bubble waiting under it
+// (#2193). One the conversation holds a row of its own words for, written
+// since it was sent, already has its row, and one taken before the first
+// loaded row is never drawn, so an empty conversation draws none: it may
+// belong to an older page or to an earlier session of the same harness.
+export function withTakenCommands(messages: SessionMessage[], sent: Action[], harness: string): SessionMessage[] {
+  if (!UNRECORDED_COMMANDS.has(harness) || !messages.length) return messages;
+  const first = Date.parse(messages[0].at);
+  const taken = sent.filter((action) => action.status === "succeeded" && action.text.trim().startsWith("/") && Date.parse(action.updated_at) >= first
+    && !messages.some((message) => message.kind === "prompt" && Date.parse(message.at) >= Date.parse(action.created_at) && sameWords(message.text, action.text)));
+  if (!taken.length) return messages;
+  const rows = [...messages];
+  for (const action of taken.sort((one, other) => Date.parse(one.updated_at) - Date.parse(other.updated_at))) {
+    const at = Date.parse(action.updated_at);
+    const later = rows.findIndex((message) => Date.parse(message.at) > at);
+    rows.splice(later < 0 ? rows.length : later, 0, { id: "board-" + action.id, seq: -1, kind: "prompt", at: action.updated_at, source: "slash", queued: false, text: action.text.trim(), output: "", errors: "", trigger: "", blocks: [], pictures: [] });
+  }
+  return rows;
+}
+
+// sameWords says two texts are the same words, however each is spaced.
+export function sameWords(one: string, other: string): boolean {
+  return one.trim().split(/\s+/).join(" ") === other.trim().split(/\s+/).join(" ");
 }

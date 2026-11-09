@@ -171,6 +171,9 @@ type Options struct {
 	// the board's record of each goblin's conversation. Without it no card
 	// shows one, and nothing watches what the fleet starts.
 	Tree *fleettree.Reader
+	// PreparedOwnership re-reads ownership at prepared pause admission;
+	// nil uses Tree's existing process and harness readers.
+	PreparedOwnership func(context.Context, state.TaskMeta) (fleettree.Tree, error)
 	// Windows lists the processes that show a window on the desktop, and
 	// ConsoleShown says the console a process is attached to shows in one,
 	// for the start watch; nil reads the desktop.
@@ -354,7 +357,7 @@ type Service struct {
 	signedIn time.Time
 	// credentialSaves takes one credential save at a time, and
 	// credentialWork waits for the refresh and the CFO's notice each save
-	// starts after it answers.
+	// starts after it answers, and for the reading a billing consent rereads.
 	credentialSaves sync.Mutex
 	credentialWork  sync.WaitGroup
 	// pages are the pages a poller watches now, by pageKey; pageSwept is when
@@ -1833,7 +1836,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 				return r.Key == id && (r.Time.Before(spawned.Truncate(time.Second)) || supersedesQuestion(report) && !r.Time.Truncate(time.Second).After(reportedAt))
 			})
 		}
-		if !linked {
+		if !linked && !isGateHeld {
 			evaluation = fleetEvaluation(evaluation, meta, runtime, decisions)
 		}
 		if linked && !isGateHeld && (node.Phase == "active" || node.Phase == "started") && node.UpdatedAt.After(evaluation.At) {
@@ -2228,7 +2231,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	out.Subscriptions = s.subscriptionUsage(cfo, out)
 	out.KeySpend = s.keySpendUsage(cfo, out)
 	if s.Options.ActionsSpend != nil && !s.Options.Example {
-		reading := s.actionsSpendUsage(out.At, out.At.UTC().Format("2006-01"))
+		reading := s.actionsSpendUsage(out.At, out.At.UTC().Format("2006-01"), d.Runs)
 		out.ActionsSpend = &reading
 	}
 	return out, nil
