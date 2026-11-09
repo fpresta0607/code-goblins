@@ -275,6 +275,24 @@ function facts(card: Element, selectors: Record<string, string>): Record<string,
   }));
 }
 
+// A goblin whose task names no session says beside its card whether its
+// native terminal is running, and never calls an unknown terminal running.
+for (const [view, width, line] of [["canvas", 1440, ".flow-session-details"], ["lineage", 390, ".node-relation"]] as const) {
+  for (const [state, text] of [["busy", "Native terminal running, session details unavailable"], ["parked", "Native terminal running, session details unavailable"], ["unknown", "Session details unavailable"]]) {
+    test(`${view} at ${width}px says a ${state} terminal's session details are unavailable`, async ({ page }) => {
+      // Arrange
+      await page.setViewportSize({ width, height: 900 });
+
+      // Act
+      await page.goto("/tests/fixtures/orchestration-card-text.html?terminal=" + state + (view === "canvas" ? "" : "&view=" + view));
+
+      // Assert
+      const task = page.locator(view === "canvas" ? ".flow-node" : ".node-group").filter({ has: page.locator(".task-card", { hasText: "Olive - Billing Baron" }) });
+      await expect(task.locator(line)).toHaveText(text);
+    });
+  }
+}
+
 for (const [view, width] of [["canvas", 1440], ["lineage", 320]] as const) {
   test(`${view} reuses the board task card and its controls at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });

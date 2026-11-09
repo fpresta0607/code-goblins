@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { BoardActivity, Session, Snapshot, Task } from "./types";
 import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type ActivityEffect } from "./activity";
 import { CFO_ROOT, isHelperHeld, isInProgress, lineageFamily, nodeStatus } from "./workflow";
@@ -27,6 +27,12 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkT
   afkToggle: AfkToggleState;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // A goblin's card is drawn again only when what it shows changed
+  // (TaskCard), so the handler it is given stays the same between renders
+  // and calls the latest onSelect.
+  const latestSelect = useRef(onSelect);
+  useEffect(() => { latestSelect.current = onSelect; });
+  const selectTask = useCallback((task: Task, source: HTMLElement) => latestSelect.current({ task: task.id }, source), []);
   // The list draws the canvas's family, so a goblin hangs under the CFO here
   // whenever it does there.
   const family = lineageFamily(snapshot, project);
@@ -82,7 +88,7 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkT
         <div className={"workflow-node role-" + node.role + (owner && task ? " has-task" : "") + (activity.created ? " node-enter" : "") + (selected?.session === node.id ? " selected" : "")}>
           {glow && <span key={glow.id} ref={playFrom(glow.expires - EFFECT_MS)} className="activity-glow" aria-hidden="true" />}
           {owner && task ? <TaskCard task={task} {...cardFacts(task, snapshot, presentations)} selected={selected?.session === node.id || selected?.task === task.id} now={now}
-            onSelect={(_, source) => onSelect({ task: task.id }, source)} /> : <button className="node-select" aria-pressed={selected?.session === node.id}
+            onSelect={selectTask} /> : <button className="node-select" aria-pressed={selected?.session === node.id}
             onClick={(event) => onSelect(node.id === CFO_ROOT ? {} : { session: node.id }, event.currentTarget)}>
             <Avatar persona={personaFor(task, node)} small /><span className="node-role">{sessionRole(node)}</span>
             <strong>{title}</strong>{presentations.some(a=>presentationShownOn(a,node,task))&&<span className="browser-indicator">Browser active</span>}{task?.project && <span className="project-label">{task.project}</span>}
@@ -109,7 +115,7 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkT
       <div className="node-group">
         <p className="node-relation">{isHelper ? "Helper goblin · " : ""}{taskSessionDetails(task)}</p>
         <div className={"workflow-node has-task" + (selected?.task === task.id ? " selected" : "")}>
-          <TaskCard task={task} {...cardFacts(task, snapshot, presentations)} selected={selected?.task === task.id} now={now} onSelect={(_, source) => onSelect({ task: task.id }, source)} />
+          <TaskCard task={task} {...cardFacts(task, snapshot, presentations)} selected={selected?.task === task.id} now={now} onSelect={selectTask} />
         </div>
       </div>
       {task.tree && hasRunningChildren(task.tree) && <TreeUnder goblin={task} tree={task.tree} title={title} now={now} selected={selected?.task === task.id ? selected.child : undefined} onOpen={(child, source) => onSelect(childSelection(task, child), source)} />}

@@ -21,6 +21,8 @@ import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 // he asked about since their cards named no program, and Olive is the board
 // card he showed beside them. ?view picks what shows: the canvas (the default), the
 // lineage list the canvas becomes at phone width, or the board's cards.
+// ?terminal gives Olive, whose task names no session, a native terminal in
+// that state, such as busy or unknown.
 const at = "2026-10-12T12:00:00Z";
 const ago = (minutes: number) => new Date(Date.parse(at) - minutes * 60_000).toISOString();
 const goblin = (fields: Record<string, unknown>) => ({ project: "code-goblins", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", route_lane: "strong-claude", route_reason: "strong cross-harness fallback", verified: false, since: at, at, ...fields });
@@ -32,6 +34,7 @@ const PULL_REQUEST = "https://github.com/fpresta0607/precisiondocs/pull/1556";
 const params = new URLSearchParams(location.search);
 const view = params.get("view") || "canvas";
 const isCrowded = params.has("crowded");
+const terminal = params.get("terminal");
 const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, cfo_runs: true, afk: { state: params.has("unreadable") ? "unreadable" : "off" }, cfo_harness: "claude",
   subscriptions: [{ provider: "claude", status: "available", percent_remaining: 62, read_at: at, resets_at: "2026-10-16T22:27:42Z", source: "oauth", floor_percent: 5 },
     ...(isCrowded ? [{ provider: "codex", status: "available", percent_remaining: 8, read_at: at, source: "oauth", floor_percent: 5 }] : [])],
@@ -56,7 +59,8 @@ const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, cfo_run
         child({ id: "process:5150:6", kind: "process", group: "other", label: "bash scripts/sync-tenants.sh", task: "bash scripts/sync-tenants.sh --all", state: "waiting", detached: true, started: ago(280), last_activity: ago(6), memory: 20 * 2 ** 20 }),
         child({ id: "process:4949:8", kind: "process", group: "other", label: "stripe listen --forward-to localhost:3000/api/stripe/webhook", task: "stripe listen --forward-to localhost:3000/api/stripe/webhook", state: "waiting", started: ago(0.5), last_activity: ago(0.5), memory: 8 * 2 ** 20 }),
       ]) }),
-    goblin({ id: "pd-billing", title: "Bill the pilot tenants", goblin_name: "Olive", goblin_title: "Billing Baron", project: "PrecisionDocs-AI", generation: "g-billing", phase: "working", since: ago(7), pr: PULL_REQUEST }),
+    goblin({ id: "pd-billing", title: "Bill the pilot tenants", goblin_name: "Olive", goblin_title: "Billing Baron", project: "PrecisionDocs-AI", generation: "g-billing", phase: "working", since: ago(7), pr: PULL_REQUEST,
+      ...(terminal ? { backend: "native", runtime: { state: terminal, reason: "Native terminal reports " + terminal, at } } : {}) }),
   ], sessions: [
     { id: "s-plumbing", native_id: "n-plumbing", harness: "claude", role: "goblin", task_id: "cg-plumbing", generation: "g-plumbing", phase: "working" },
   ] });

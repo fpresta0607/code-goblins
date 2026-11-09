@@ -233,7 +233,7 @@ func (l *codexMessageLog) response(entry codexEntry, id string, offset int64) {
 	case "custom_tool_call":
 		l.block(entry.Timestamp, id, Block{Kind: BlockCall, CallID: payload.CallID, Tool: payload.Name, Subject: payload.Name, Input: bounded(payload.Input, messageTextLimit), State: CallRunning})
 	case "function_call":
-		l.block(entry.Timestamp, id, Block{Kind: BlockCall, CallID: payload.CallID, Tool: payload.Name, Subject: codexSubject(payload.Input, payload.Arguments), State: CallRunning, Plan: callPlan(payload.Name, payload.Arguments)})
+		l.block(entry.Timestamp, id, Block{Kind: BlockCall, CallID: payload.CallID, Tool: payload.Name, Subject: bounded(callSubject(payload.Arguments, ""), agentLineLimit), State: CallRunning, Plan: callPlan(payload.Name, payload.Arguments)})
 	case "function_call_output", "custom_tool_call_output":
 		l.outcome(payload.CallID, payload.Output, offset)
 	case "agent_message":
@@ -478,16 +478,6 @@ func codexText(parts []codexPart) string {
 		}
 	}
 	return strings.Join(texts, "\n")
-}
-
-// codexSubject is what a call was made on: the first line of the script the
-// exec tool was given, or the arguments of a function call, read as Claude
-// Code's own calls are.
-func codexSubject(input string, arguments json.RawMessage) string {
-	if line := firstLine(input); line != "" {
-		return bounded(line, agentLineLimit)
-	}
-	return bounded(callSubject(arguments, ""), agentLineLimit)
 }
 
 // add appends message to the log and returns where it is.
