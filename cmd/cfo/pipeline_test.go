@@ -60,6 +60,7 @@ type pipelineStartRunner struct {
 	// previous is the branch's latest run as CheckStart reads it: "[]" when
 	// the branch has none, and a one-element array otherwise.
 	previous []byte
+	handback []byte
 	// head is the commit the task branch holds.
 	head string
 }
@@ -69,6 +70,12 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 	switch q.Name {
 	case "sqlite3":
 		sql := q.Args[len(q.Args)-1]
+		if strings.Contains(sql, "JOIN ci_handbacks") {
+			if len(r.handback) == 0 {
+				return execx.Result{Stdout: []byte(`[]`)}, nil
+			}
+			return execx.Result{Stdout: r.handback}, nil
+		}
 		if strings.Contains(sql, "SELECT default_branch FROM repos") {
 			return execx.Result{Stdout: []byte(`[{"default_branch":"main"}]`)}, nil
 		}

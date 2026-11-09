@@ -1,11 +1,13 @@
 package pipeline
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -538,5 +540,288 @@ func TestCommittedRepoConfigSatisfiesTheCheckedInPolicy(t *testing.T) {
 	}
 	if config.Agent.Kind != 0 {
 		t.Fatalf("committed config overrides the globally owned primary agent: %+v", config.Agent)
+	}
+}
+
+const acceptedReattachmentHead = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+const releasedReattachmentHead = "cccccccccccccccccccccccccccccccccccccccc"
+
+type acceptedReattachmentRunner struct {
+	execx.Runner
+	head                string
+	branch              string
+	isDirty             bool
+	secondHead          string
+	headReads           int
+	receiptReads        int
+	beforeReceiptRead   func()
+	beforeReceiptReread func()
+}
+
+func (r *acceptedReattachmentRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	if request.Name == "sqlite3" {
+		if !slices.Contains(request.Args, "-readonly") {
+			return execx.Result{}, errors.New("reattachment attempted a writable database command")
+		}
+		if strings.Contains(request.Args[len(request.Args)-1], "ci_handbacks") {
+			r.receiptReads++
+			if r.receiptReads == 1 && r.beforeReceiptRead != nil {
+				r.beforeReceiptRead()
+			}
+			if r.receiptReads == 2 && r.beforeReceiptReread != nil {
+				r.beforeReceiptReread()
+			}
+		}
+		return r.Runner.Run(ctx, request)
+	}
+	if request.Name == "git" {
+		switch strings.Join(request.Args, " ") {
+		case "rev-parse HEAD":
+			r.headReads++
+			head := r.head
+			if r.headReads > 1 && r.secondHead != "" {
+				head = r.secondHead
+			}
+			return execx.Result{Stdout: []byte(head + "\n")}, nil
+		case "symbolic-ref --quiet --short HEAD":
+			return execx.Result{Stdout: []byte(r.branch + "\n")}, nil
+		case "status --porcelain --untracked-files=all":
+			if r.isDirty {
+				return execx.Result{Stdout: []byte(" M source.go\n")}, nil
+			}
+			return execx.Result{}, nil
+		}
+	}
+	return execx.Result{}, errors.New("unexpected reattachment command: " + request.Name + " " + strings.Join(request.Args, " "))
+}
+
+func acceptedReattachmentFixture(t *testing.T) (Reader, string, string, *acceptedReattachmentRunner) {
+	t.Helper()
+	project, worktree, root := t.TempDir(), t.TempDir(), t.TempDir()
+	candidate := `{"Head":"` + acceptedReattachmentHead + `","BaseHead":"` + releasedReattachmentHead + `","ManagedBranch":"HEAD","UpstreamURL":"https://example.com/widget.git","ForkURL":"","ReviewRoundID":"review-1"}`
+	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT,upstream_url TEXT,fork_url TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT,head_sha TEXT,submitted_head_sha TEXT,intent TEXT,push_active INTEGER,custody_returned_at INTEGER,pr_url TEXT,pr_state TEXT,last_pushed_sha TEXT,push_generation INTEGER,push_target_fingerprint TEXT,push_ref TEXT);
+CREATE TABLE ci_handbacks(id TEXT,run_id TEXT,round_id TEXT,caller_dir TEXT,released_head TEXT,pr_url TEXT,push_generation INTEGER,target_fingerprint TEXT,push_ref TEXT,accepted_head TEXT,accepted_at INTEGER,candidate_json TEXT);
+INSERT INTO repos VALUES('repo-1',` + sqlString(filepath.ToSlash(project)) + `,'main','https://example.com/widget.git','');
+INSERT INTO runs VALUES('run-1','repo-1','feature',1,'running','` + acceptedReattachmentHead + `','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','ship the correction',0,NULL,'https://example.com/widget/pull/1','open','` + releasedReattachmentHead + `',7,'target-1','refs/heads/feature');
+INSERT INTO ci_handbacks VALUES('receipt-1','run-1','round-1',` + sqlString(worktree) + `,'` + releasedReattachmentHead + `','https://example.com/widget/pull/1',7,'target-1','refs/heads/feature','` + acceptedReattachmentHead + `',2,` + sqlString(candidate) + `);`
+	updateReattachmentFixture(t, root, sql)
+	runner := &acceptedReattachmentRunner{Runner: fixtureCommands{execx.OSRunner{}}, head: acceptedReattachmentHead, branch: "feature"}
+	return Reader{Root: root, Commands: runner}, project, worktree, runner
+}
+
+func updateReattachmentFixture(t *testing.T, root, sql string) {
+	t.Helper()
+	sqlite, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Fatal("SQLite is required for receipt-bound reattachment fixtures")
+	}
+	if output, err := exec.Command(sqlite, filepath.Join(root, "state.sqlite"), sql).CombinedOutput(); err != nil {
+		t.Fatalf("fixture: %s %v", output, err)
+	}
+}
+
+func TestCheckStartReattachesToAcceptedCIHandback(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		sql  string
+	}{
+		{name: "released publication"},
+		{name: "accepted publication", sql: `UPDATE runs SET last_pushed_sha='` + acceptedReattachmentHead + `',push_generation=8;`},
+		{name: "candidate names the managed branch", sql: `UPDATE ci_handbacks SET candidate_json=replace(candidate_json,'HEAD','feature');`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			reader, project, worktree, _ := acceptedReattachmentFixture(t)
+			if test.sql != "" {
+				updateReattachmentFixture(t, reader.Root, test.sql)
+			}
+			before, err := os.ReadFile(filepath.Join(reader.Root, "state.sqlite"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			check, err := reader.CheckStart(t.Context(), project, worktree, "feature", "ship the correction", testPolicy(t))
+
+			// Assert
+			if err != nil || check.ReattachRun != "run-1" || check.TrustedHead != "" {
+				t.Fatalf("got %+v, %v; want the accepted original run without a new launch", check, err)
+			}
+			after, err := os.ReadFile(filepath.Join(reader.Root, "state.sqlite"))
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("reattachment changed fixture state: %v", err)
+			}
+		})
+	}
+}
+
+func TestCheckStartRefusesInvalidCIHandbackReattachment(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		sql    string
+		intent string
+		change func(*acceptedReattachmentRunner)
+	}{
+		{name: "no receipt", sql: `DELETE FROM ci_handbacks;`},
+		{name: "latest receipt is unaccepted", sql: `INSERT INTO ci_handbacks SELECT 'receipt-2',run_id,round_id,caller_dir,released_head,pr_url,push_generation,target_fingerprint,push_ref,NULL,NULL,NULL FROM ci_handbacks;`},
+		{name: "foreign run", sql: `UPDATE ci_handbacks SET run_id='other-run';`},
+		{name: "foreign repository", sql: `UPDATE runs SET repo_id='other-repo';`},
+		{name: "malformed repository identity", sql: `UPDATE repos SET id='invalid repo'; UPDATE runs SET repo_id='invalid repo';`},
+		{name: "foreign branch", sql: `UPDATE runs SET branch='other-branch';`},
+		{name: "foreign caller", sql: `UPDATE ci_handbacks SET caller_dir='C:/another-caller';`},
+		{name: "wrong symbolic branch", change: func(r *acceptedReattachmentRunner) { r.branch = "other-branch" }},
+		{name: "dirty caller", change: func(r *acceptedReattachmentRunner) { r.isDirty = true }},
+		{name: "caller moved", change: func(r *acceptedReattachmentRunner) { r.head = releasedReattachmentHead }},
+		{name: "caller moves during check", change: func(r *acceptedReattachmentRunner) { r.secondHead = releasedReattachmentHead }},
+		{name: "current head differs", sql: `UPDATE runs SET head_sha='` + releasedReattachmentHead + `';`},
+		{name: "later native descendant", sql: `UPDATE runs SET head_sha='dddddddddddddddddddddddddddddddddddddddd';`, change: func(r *acceptedReattachmentRunner) { r.head = "dddddddddddddddddddddddddddddddddddddddd" }},
+		{name: "accepted head differs", sql: `UPDATE ci_handbacks SET accepted_head='` + releasedReattachmentHead + `';`},
+		{name: "candidate head differs", sql: `UPDATE ci_handbacks SET candidate_json=replace(candidate_json,'` + acceptedReattachmentHead + `','dddddddddddddddddddddddddddddddddddddddd');`},
+		{name: "malformed candidate", sql: `UPDATE ci_handbacks SET candidate_json='{';`},
+		{name: "missing candidate", sql: `UPDATE ci_handbacks SET candidate_json=NULL;`},
+		{name: "missing checkpoint", sql: `UPDATE ci_handbacks SET candidate_json=replace(candidate_json,'review-1','');`},
+		{name: "malformed base hash", sql: `UPDATE ci_handbacks SET candidate_json=replace(candidate_json,'` + releasedReattachmentHead + `','short');`},
+		{name: "wrong managed branch", sql: `UPDATE ci_handbacks SET candidate_json=replace(candidate_json,'HEAD','other-branch');`},
+		{name: "malformed released hash", sql: `UPDATE ci_handbacks SET released_head='short';`},
+		{name: "malformed accepted hash", sql: `UPDATE ci_handbacks SET accepted_head='short';`},
+		{name: "missing acceptance time", sql: `UPDATE ci_handbacks SET accepted_at=NULL;`},
+		{name: "invalid acceptance time", sql: `UPDATE ci_handbacks SET accepted_at=0;`},
+		{name: "malformed receipt identity", sql: `UPDATE ci_handbacks SET id='invalid receipt';`},
+		{name: "missing release round", sql: `UPDATE ci_handbacks SET round_id=NULL;`},
+		{name: "ambiguous receipt", sql: `INSERT INTO ci_handbacks SELECT * FROM ci_handbacks;`},
+		{name: "blank intent", intent: " "},
+		{name: "changed intent", intent: "another task"},
+		{name: "newer run", sql: `INSERT INTO runs SELECT 'run-2',repo_id,branch,2,status,head_sha,submitted_head_sha,intent,push_active,custody_returned_at,pr_url,pr_state,last_pushed_sha,push_generation,push_target_fingerprint,push_ref FROM runs;`},
+		{name: "unknown status", sql: `UPDATE runs SET status='unknown';`},
+		{name: "pending status", sql: `UPDATE runs SET status='pending';`},
+		{name: "returned custody", sql: `UPDATE runs SET custody_returned_at=0;`},
+		{name: "active publication", sql: `UPDATE runs SET push_active=1;`},
+		{name: "unknown publication activity", sql: `UPDATE runs SET push_active=NULL;`},
+		{name: "closed PR", sql: `UPDATE runs SET pr_state='closed';`},
+		{name: "foreign PR", sql: `UPDATE ci_handbacks SET pr_url='https://example.com/widget/pull/2';`},
+		{name: "missing PR", sql: `UPDATE runs SET pr_url=NULL;`},
+		{name: "missing PR on both sides", sql: `UPDATE runs SET pr_url=NULL; UPDATE ci_handbacks SET pr_url=NULL;`},
+		{name: "wrong ref", sql: `UPDATE runs SET push_ref='refs/heads/other';`},
+		{name: "receipt ref differs", sql: `UPDATE ci_handbacks SET push_ref='refs/heads/other';`},
+		{name: "foreign ref on both sides", sql: `UPDATE runs SET push_ref='refs/heads/other'; UPDATE ci_handbacks SET push_ref='refs/heads/other';`},
+		{name: "empty target", sql: `UPDATE runs SET push_target_fingerprint='';`},
+		{name: "empty target on both sides", sql: `UPDATE runs SET push_target_fingerprint=''; UPDATE ci_handbacks SET target_fingerprint='';`},
+		{name: "target differs", sql: `UPDATE ci_handbacks SET target_fingerprint='target-2';`},
+		{name: "upstream differs", sql: `UPDATE repos SET upstream_url='https://example.com/other.git';`},
+		{name: "empty upstream on both sides", sql: `UPDATE repos SET upstream_url=''; UPDATE ci_handbacks SET candidate_json=replace(candidate_json,'https://example.com/widget.git','');`},
+		{name: "fork differs", sql: `UPDATE repos SET fork_url='https://example.com/fork.git';`},
+		{name: "missing publication", sql: `UPDATE runs SET last_pushed_sha=NULL;`},
+		{name: "unrelated publication", sql: `UPDATE runs SET last_pushed_sha='dddddddddddddddddddddddddddddddddddddddd';`},
+		{name: "missing receipt generation", sql: `UPDATE ci_handbacks SET push_generation=0;`},
+		{name: "missing generation on both sides", sql: `UPDATE runs SET push_generation=0; UPDATE ci_handbacks SET push_generation=0;`},
+		{name: "released publication generation advanced", sql: `UPDATE runs SET push_generation=8;`},
+		{name: "accepted publication generation unchanged", sql: `UPDATE runs SET last_pushed_sha='` + acceptedReattachmentHead + `';`},
+		{name: "publication generation jumped", sql: `UPDATE runs SET last_pushed_sha='` + acceptedReattachmentHead + `',push_generation=9;`},
+		{name: "receipt schema unavailable", sql: `DROP TABLE ci_handbacks;`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			reader, project, worktree, runner := acceptedReattachmentFixture(t)
+			if test.sql != "" {
+				updateReattachmentFixture(t, reader.Root, test.sql)
+			}
+			if test.change != nil {
+				test.change(runner)
+			}
+			intent := test.intent
+			if intent == "" {
+				intent = "ship the correction"
+			}
+			before, err := os.ReadFile(filepath.Join(reader.Root, "state.sqlite"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			check, err := reader.CheckStart(t.Context(), project, worktree, "feature", intent, testPolicy(t))
+
+			// Assert
+			if err == nil || check != (StartCheck{}) {
+				t.Fatalf("got %+v, %v; want refusal without a launch or reattachment", check, err)
+			}
+			after, readErr := os.ReadFile(filepath.Join(reader.Root, "state.sqlite"))
+			if readErr != nil || !bytes.Equal(before, after) {
+				t.Fatalf("refusal changed fixture state: %v", readErr)
+			}
+		})
+	}
+	t.Run("binding changes during check", func(t *testing.T) {
+		reader, project, worktree, runner := acceptedReattachmentFixture(t)
+		runner.beforeReceiptReread = func() {
+			updateReattachmentFixture(t, reader.Root, `UPDATE runs SET push_active=1;`)
+		}
+		check, err := reader.CheckStart(t.Context(), project, worktree, "feature", "ship the correction", testPolicy(t))
+		if !errors.Is(err, ErrUnresolved) || check != (StartCheck{}) || !strings.Contains(err.Error(), "binding changed") {
+			t.Fatalf("got %+v, %v; want identity drift refusal", check, err)
+		}
+	})
+	// The run row changes between the previous-run query and the first receipt
+	// read, so only the receipt's comparison with that earlier run can refuse it.
+	for _, test := range []struct {
+		name   string
+		sql    string
+		racing string
+	}{
+		{name: "run turns running before receipt read", sql: `UPDATE runs SET status='pending';`, racing: `UPDATE runs SET status='running';`},
+		{name: "run head changes before receipt read", sql: `UPDATE runs SET head_sha='dddddddddddddddddddddddddddddddddddddddd';`, racing: `UPDATE runs SET head_sha='` + acceptedReattachmentHead + `';`},
+		{name: "submitted head changes before receipt read", sql: `UPDATE runs SET submitted_head_sha='eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';`, racing: `UPDATE runs SET submitted_head_sha='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';`},
+		{name: "run intent changes before receipt read", racing: `UPDATE runs SET intent='another task';`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			reader, project, worktree, runner := acceptedReattachmentFixture(t)
+			if test.sql != "" {
+				updateReattachmentFixture(t, reader.Root, test.sql)
+			}
+			runner.beforeReceiptRead = func() { updateReattachmentFixture(t, reader.Root, test.racing) }
+
+			// Act
+			check, err := reader.CheckStart(t.Context(), project, worktree, "feature", "ship the correction", testPolicy(t))
+
+			// Assert
+			if !errors.Is(err, ErrUnresolved) || check != (StartCheck{}) || !strings.Contains(err.Error(), "run identity or custody") {
+				t.Fatalf("got %+v, %v; want the run identity refusal", check, err)
+			}
+		})
+	}
+	// The caller changes only after the receipt re-read, so only the final
+	// caller check can refuse it.
+	for _, test := range []struct {
+		name   string
+		change func(*acceptedReattachmentRunner)
+		want   string
+	}{
+		{name: "caller moves after receipt re-read", change: func(r *acceptedReattachmentRunner) { r.head = releasedReattachmentHead }, want: "caller head changed"},
+		{name: "caller turns dirty after receipt re-read", change: func(r *acceptedReattachmentRunner) { r.isDirty = true }, want: "clean caller worktree"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			reader, project, worktree, runner := acceptedReattachmentFixture(t)
+			runner.beforeReceiptReread = func() { test.change(runner) }
+
+			// Act
+			check, err := reader.CheckStart(t.Context(), project, worktree, "feature", "ship the correction", testPolicy(t))
+
+			// Assert
+			if !errors.Is(err, ErrUnresolved) || check != (StartCheck{}) || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("got %+v, %v; want a final caller recheck refusal saying %q", check, err, test.want)
+			}
+		})
+	}
+	for _, status := range []string{"completed", "failed", "cancelled", "ci_monitor_interrupted"} {
+		t.Run("terminal "+status, func(t *testing.T) {
+			reader, project, worktree, runner := acceptedReattachmentFixture(t)
+			updateReattachmentFixture(t, reader.Root, `UPDATE runs SET status=`+sqlString(status)+`;`)
+			check, _ := reader.CheckStart(t.Context(), project, worktree, "feature", "ship the correction", testPolicy(t))
+			if check.ReattachRun != "" || runner.receiptReads != 0 {
+				t.Fatalf("terminal run used accepted receipt: %+v, %d reads", check, runner.receiptReads)
+			}
+		})
 	}
 }
