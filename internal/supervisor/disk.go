@@ -47,7 +47,7 @@ func MachineDisk(h home.Home) (Disk, error) {
 func fleetFolders(h home.Home) []disk.Folder {
 	folders := []disk.Folder{{Path: h.Root}, {Path: h.DevDrive, IsDevDrive: true}}
 	if gate, err := pipeline.DefaultRoot(); err == nil {
-		folders = append(folders, disk.Folder{Path: gate})
+		folders = append(folders, disk.Folder{Path: gate, IsOptional: true})
 	}
 	return folders
 }

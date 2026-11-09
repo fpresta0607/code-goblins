@@ -55,11 +55,14 @@ func ReadLeast(paths ...string) (Reading, error) {
 	return least, nil
 }
 
-// Folder is a folder the fleet writes to, and whether it is the Dev Drive
-// root config\dev-drive.json names.
+// Folder is a folder the fleet writes to, whether it is the Dev Drive root
+// config\dev-drive.json names, and whether it may not be made yet, as a gate
+// home before the first gate run, so its error defers to a readable folder on
+// the same drive.
 type Folder struct {
 	Path       string
 	IsDevDrive bool
+	IsOptional bool
 }
 
 // Drive is one drive the fleet writes to, as the board's disk meter shows it:
@@ -72,13 +75,15 @@ type Drive struct {
 
 // ReadDrives reads the drive holding each of folders, skipping an empty path,
 // and returns one Drive for each distinct drive, in the order the folders
-// first name it. A drive whose folders all fail to read carries the error and
-// no free space, never room; one any of its folders reads is that reading,
-// since a folder not made yet, such as a gate home before the first gate run,
-// says nothing about the drive under it.
+// first name it. A drive with a folder that fails to read carries the error
+// and no free space, never room, unless that folder is optional and another
+// folder on the drive reads: a folder not made yet says nothing about the
+// drive under it, but a home or Dev Drive folder that cannot be read stops
+// every start, so its drive shows why.
 func ReadDrives(folders ...Folder) []Drive {
 	var drives []Drive
 	index := map[string]int{}
+	isFailed := map[string]bool{}
 	for _, folder := range folders {
 		if folder.Path == "" {
 			continue
@@ -95,12 +100,13 @@ func ReadDrives(folders ...Folder) []Drive {
 		}
 		drive := &drives[at]
 		drive.IsDevDrive = drive.IsDevDrive || folder.IsDevDrive
-		if isSeen && drive.Error == "" {
+		if isFailed[key] || (folder.IsOptional && isSeen && drive.Error == "") {
 			continue
 		}
 		reading, err := Read(folder.Path)
 		if err != nil {
-			drive.Error = err.Error()
+			drive.Reading, drive.Error = Reading{Drive: drive.Drive}, err.Error()
+			isFailed[key] = !folder.IsOptional
 			continue
 		}
 		drive.Reading, drive.Error = reading, ""

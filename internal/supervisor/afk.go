@@ -577,7 +577,7 @@ func (s *Service) settleHisCards(now time.Time) error {
 	return errs
 }
 
-// afkDisk is free disk as the board's disk meter reads it now, which AFK mode
+// afkDisk is free disk as every start reads it now, which AFK mode
 // records when it turns on and when it turns off, or nil for a disk that
 // cannot be read: a reading not taken is left out of the report, never noted.
 func (s *Service) afkDisk() *disk.Reading {

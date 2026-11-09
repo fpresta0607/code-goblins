@@ -72,10 +72,14 @@ func TestReadDrivesShowsEachDriveTheFleetWritesToOnce(t *testing.T) {
 		folders []Folder
 		want    []Drive
 	}{
-		{"one drive", []Folder{home, {}, {Path: `C:\Users\me\.nm`}}, []Drive{cDrive}},
-		{"two drives", []Folder{home, devDrive, {Path: `C:\Users\me\.nm`}}, []Drive{cDrive, dDrive}},
-		{"a gate home sharing the Dev Drive", []Folder{home, devDrive, {Path: `d:\gate`}}, []Drive{cDrive, dDrive}},
-		{"a gate home not made yet on a readable drive", []Folder{{Path: `C:\no-gate-yet`}, home}, []Drive{cDrive}},
+		{"one drive", []Folder{home, {}, {Path: `C:\Users\me\.nm`, IsOptional: true}}, []Drive{cDrive}},
+		{"two drives", []Folder{home, devDrive, {Path: `C:\Users\me\.nm`, IsOptional: true}}, []Drive{cDrive, dDrive}},
+		{"a gate home sharing the Dev Drive", []Folder{home, devDrive, {Path: `d:\gate`, IsOptional: true}}, []Drive{cDrive, dDrive}},
+		{"a gate home not made yet on a readable drive", []Folder{{Path: `C:\no-gate-yet`, IsOptional: true}, home}, []Drive{cDrive}},
+		{"an unreadable Dev Drive folder beside a readable gate home", []Folder{home, {Path: `D:\gone`, IsDevDrive: true}, {Path: `d:\gate`, IsOptional: true}}, []Drive{cDrive, {Reading: Reading{Drive: "D:"}, IsDevDrive: true, Error: "the system cannot find the path specified"}}},
+		{"a readable gate home before an unreadable Dev Drive folder", []Folder{home, {Path: `d:\gate`, IsOptional: true}, {Path: `D:\gone`, IsDevDrive: true}}, []Drive{cDrive, {Reading: Reading{Drive: "d:"}, IsDevDrive: true, Error: "the system cannot find the path specified"}}},
+		{"an unreadable Dev Drive folder on the home's drive", []Folder{home, {Path: `C:\gone`, IsDevDrive: true}, {Path: `C:\Users\me\.nm`, IsOptional: true}}, []Drive{{Reading: Reading{Drive: "C:"}, IsDevDrive: true, Error: "the system cannot find the path specified"}}},
+		{"an unreadable home beside a readable gate home on its drive", []Folder{{Path: `C:\gone`}, devDrive, {Path: `C:\Users\me\.nm`, IsOptional: true}}, []Drive{{Reading: Reading{Drive: "C:"}, Error: "the system cannot find the path specified"}, dDrive}},
 		{"an unreadable drive", []Folder{home, {Path: `E:\detached`, IsDevDrive: true}}, []Drive{cDrive, {Reading: Reading{Drive: "E:"}, IsDevDrive: true, Error: "the system cannot find the path specified"}}},
 	}
 	for _, test := range cases {

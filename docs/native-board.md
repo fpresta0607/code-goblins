@@ -2810,7 +2810,7 @@ A report kept before nothing was left for him can hold a line the CEO left him u
 Spent holds each allowance used: its provider and window, the percent used when it turned on and when it turned off, either left out for a reading not taken, and whether the window reset in between, or for a credit balance what was spent of it.
 A window at 0% wherever it was read is left out of Spent, and so is a credit balance not read at both ends or that did not fall, in the page and in the text alike.
 Its free disk is the drive every start reads, the less free of the home's drive and the Dev Drive, with the bytes free when it turned on and when it turned off, of the drive's total.
-It is absent unless free disk was read at both ends on one drive, since the meter reads whichever of the home's drive and its Dev Drive has less free.
+It is absent unless free disk was read at both ends on one drive, since a start reads whichever of the home's drive and its Dev Drive has less free.
 The board's filtering and presentation are documented in [the README](https://github.com/fpresta0607/code-goblins/blob/main/README.md#afk-mode).
 
 `cfo afk log`, `cfo pr merge` and `cfo answer` send a decision as `afk-log`, which the supervisor writes only for a process it proves runs under the registered CEO, the proof a question takes, and only while AFK mode is on.

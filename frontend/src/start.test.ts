@@ -91,6 +91,19 @@ test("a Start or Resume that waits its turn says what it waits for on its card",
   assert.equal(turnStatus(task({ starting: true }), memory(4.2), disk(30)), "", "a start under way needs no wait");
 });
 
+// A snapshot whose free disk cannot be read still carries the drives beside an
+// empty reading, as the supervisor sends it. The supervisor refuses that start
+// rather than holding it for disk, so its card names no wait for disk.
+test("a Start that waits its turn while free disk cannot be read does not say it waits for disk", () => {
+  // Arrange
+  const asked = task({ starting: true, asked: true });
+  const unreadable: Disk = { drive: "", free: 0, total: 0, floor: 15 * GB, wake: 10 * GB, drives: [{ drive: "D:", free: 0, total: 0, dev_drive: true, error: "the device is not ready" }] };
+
+  // Act and assert
+  assert.equal(diskBlock(unreadable), "");
+  assert.equal(turnStatus(asked, memory(8), unreadable), "");
+});
+
 test("a queued task that already finished offers no Start, and its card says so and why", () => {
   // Arrange
   const why = "Already finished: its last report was done (2026-10-06 11:59Z: done: PR 9); it never starts again by itself. Move its row to ## Done, or queue new work under a new id";

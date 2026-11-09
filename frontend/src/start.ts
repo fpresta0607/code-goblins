@@ -190,9 +190,9 @@ export function gpuMarks(gpu: Gpu): string {
 }
 
 // What a start or a resume needs while the disk is under the floor, or empty
-// when it is not.
+// when it is not or when free disk cannot be read, which no wait frees.
 export function diskBlock(disk: Disk | null): string {
-  return disk && disk.free < disk.floor ? `${gigabytes(disk.floor)} GB of free disk (${freeGigabytes(disk.free)} GB free)` : "";
+  return disk && disk.total > 0 && disk.free < disk.floor ? `${gigabytes(disk.floor)} GB of free disk (${freeGigabytes(disk.free)} GB free)` : "";
 }
 
 // Why a queued task's Start does nothing now, or empty when it starts it:
