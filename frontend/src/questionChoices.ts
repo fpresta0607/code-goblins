@@ -30,9 +30,12 @@ export function questionChoices(question: Question) {
   return options.map((value) => ({ value, text: texts.get(value) || value, recommended: value === question.recommended, image: question.image_count ? "/api/questions/" + encodeURIComponent(question.id) + "/images/" + question.options.indexOf(value) : "" }));
 }
 
-export function questionAnswer(question: Question, selection: string, written: string) {
+// A written answer names each file he attached to it by the path the board
+// kept it at, on its own line after his words, as a message from the composer
+// does, so the asker reads the file from there.
+export function questionAnswer(question: Question, selection: string, written: string, attached: string[] = []) {
   const other = selection === "other";
-  const text = other ? written : selection.startsWith("option:") ? selection.slice(7) : "";
+  const text = other ? [written, ...attached].filter((part) => part.trim()).join("\n") : selection.startsWith("option:") ? selection.slice(7) : "";
   if (!text.trim() || (!other && !question.options.includes(text))) return null;
   return { kind: question.task ? "goblin_answer" : "ceo_answer", question_id: question.id, generation: question.identity, answer_kind: other ? "other" : "option", text };
 }

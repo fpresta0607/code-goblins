@@ -132,11 +132,13 @@ func TestMessagesReadAPiCEOAndRefuseAnotherHarness(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	userHome := t.TempDir()
-	folder := filepath.Join(userHome, ".pi", "agent", "sessions", "--C--work--")
+	// The CEO runs in the fleet's home, so pi keeps its sessions in the folder
+	// pi names for that home.
+	folder := filepath.Join(userHome, ".pi", "agent", "sessions", "--"+strings.NewReplacer(`\`, "-", "/", "-", ":", "-").Replace(h.Root)+"--")
 	if err := os.MkdirAll(folder, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(folder, "20261006_213000_ceo-session.jsonl"), strings.Join([]string{
+	writeFile(t, filepath.Join(folder, "2026-10-06T21-30-00-000Z_ceo-session.jsonl"), strings.Join([]string{
 		`{"type":"session","version":3,"id":"ceo-session","timestamp":"` + stampNow() + `","cwd":"C:\\work"}`,
 		`{"type":"message","id":"u1","parentId":null,"timestamp":"` + stampNow() + `","message":{"role":"user","content":"Ship it?"}}`,
 	}, "\n")+"\n")
@@ -204,7 +206,12 @@ func TestPiUsageStreamsAgainAfterAnEmptyBranchReset(t *testing.T) {
 				current = name
 			}
 			if data, isData := strings.CutPrefix(scanner.Text(), "data: "); isData {
+				// The fleet's session event and its keep-alive are not
+				// what these read; anything else is a fault.
 				if current != want {
+					if current == "session" || current == "alive" {
+						continue
+					}
 					t.Fatalf("got %s event, want %s", current, want)
 				}
 				return data

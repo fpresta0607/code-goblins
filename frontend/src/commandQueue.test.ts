@@ -519,6 +519,8 @@ test("a choice or written text on an item still waiting stays unsent until its s
     ["only spaces written", { "review:r": { ...blank, written: "  " } }, [], false],
     ["a choice not sent", { "question:q": { ...blank, selection: "option:A" } }, [], true],
     ["written text not sent", { "review:r": { ...blank, written: "Looks good" } }, [], true],
+    ["files kept for a written answer not sent", { "question:q": { ...blank, attached: ["composer/pasted-1.png"] } }, [], true],
+    ["a file still being kept for a written answer", { "question:q": { ...blank, adding: 1 } }, [], true],
     ["one unsent draft among sent ones", { "question:q": { ...blank, selection: "option:A", submission: answer, sending: true }, "review:r": { ...blank, written: "Later" } }, [], true],
     ["a send in flight", { "question:q": { ...blank, selection: "option:A", submission: answer, sending: true } }, [], true],
     ["a send delivered", { "question:q": { ...blank, selection: "option:A", submission: answer } }, [action("a1", "goblin_answer", "succeeded")], false],

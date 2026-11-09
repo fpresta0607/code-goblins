@@ -1406,8 +1406,8 @@ Environment values, full process environments, dotenv, auth scripts, MCP command
 ### A session read as messages
 
 The supervisor reads a Claude Code, Codex or pi session as one list of messages, which the board's [Messages view](#the-messages-view) shows.
-`GET /api/messages?task=ID&generation=GEN&token=TOKEN` reads a task's goblin of that generation, from the conversation the board recorded for the generation, or else the one the board's read of the goblin's tree proved its running harness in and kept, as `fleettree.OwnedSession` reads them, and `?ceo=TERMINAL&token=TOKEN` reads the CEO registered in that native terminal, from the conversation it registered with.
-Finding it reads no process and parses no store file, so a goblin's conversation shows once a read of its tree, every fifteen seconds, has kept it.
+`GET /api/messages?task=ID&generation=GEN&token=TOKEN` reads a task's goblin of that generation, from the conversation the board recorded for the generation, or else the one the board's read of the goblin's tree proved its running harness in and kept, as `fleettree.OwnedSession` reads them, and `?ceo=TERMINAL&token=TOKEN` reads the CEO registered in that native terminal, from the conversation its harness proves it is in, which the board records when the record named another ([The session event stream](#the-session-event-stream)).
+Finding a goblin's reads no process and parses no store file, so its conversation shows once a read of its tree, every fifteen seconds, has kept it; the CEO's read proves its live conversation from the harness every time, and a record that names a conversation another folder keeps, or one never written, is reported as stale rather than rendered as current.
 It reads the harness's conversation records without requiring hook events or changing hook trust.
 Codex contributes recorded replies, public reasoning summaries, tool output, diffs, embedded pictures and usage; encrypted reasoning and arbitrary image paths are not read.
 The board's token comes in the query, as a terminal view's does, since a browser's event stream cannot send a header, and a request without it is refused with 403.
@@ -1434,8 +1434,12 @@ The fleet's notices never wait here, and the Codex and pi readers read no queue,
 A later `page` event of another `conversation` replaces everything a view holds: the session moved to another conversation, as `/clear` moves it, or the conversation was replaced; one of the same `conversation` keeps the older messages the view already read in before it, while the view still holds the page's first message.
 The session's conversation is found again as often as a terminal view's binding is checked, and once the session no longer runs an `unavailable` event says why and the stream ends.
 The board names a session for a task's generation from its own ledger, and where that names none, from the conversation its read of the running harness proved and kept (`namedSession` in `internal/supervisor/fleet_tree.go`), so a harness whose start the ledger never took, as pi's is on a home whose native hook it never ran, still reaches Modern Chat, the family tree and the goblin's panel, and a relaunch finds it again.
-A stream that sent nothing for as long sends an `alive` event, so the view, which hears from its stream at least every five seconds, takes one silent for 15 seconds as stalled: it says Reconnecting and opens the stream again, which begins with the newest page.
+A stream that has sent nothing for five seconds sends an `alive` event, so the view hears from its stream at least every five seconds.
+A `session` event says what the fleet's stream says of the session: its newest turn, whether that turn runs, ended or was never reported by its harness, why not when it was never reported, the stream's head, and why the conversation the board reads is not the one the session writes, or why the board cannot write or read the stream.
+The view draws a turn's working indicator from that event alone, never from a snapshot of the session's terminal, so a finished turn never draws one at any snapshot timing; a view the stream has run past says it is behind, a state of its own that is neither disconnected nor ended, and no timer infers it from elapsed time.
 On 2026-10-29 the Overlord's view of the CEO showed a call Running at least 76 seconds after it ended, with no word that it was stale.
+A stream that drops or ends is opened again, which begins with the newest page, and says Reconnecting until it does.
+Its corner shows one of those notices at a time, the most pressing first: Reconnecting, then why the conversation it draws is stale or why its stream cannot be kept, then Behind.
 A stream also ends after ten minutes, as a baby goblin's does, and at most 32 stream at once, a limit of their own.
 With `picture=ID` it answers a picture a message holds, read back from its entry by the id a read of the messages gave it, never by a path or an offset the browser names; a Claude Code picture's id names where it is in its conversation, so a read of the tail and a read of the whole name it alike, and it is answered only when a read found a picture there.
 It must come with the page's `conversation`, and is refused with 400 without one; a picture of a conversation the session no longer has, or whose file changed while it was read, is answered with 404 as one no read found.
@@ -1728,6 +1732,31 @@ Every terminal spec whose terminal a fixture page draws, including `terminal-hel
 A goblin whose terminal is gone, as one that did not come back after a restart, shows its messages, its box still taking a message, which starts it, and its terminal's own notice is behind them, while its task list names what brings it back.
 
 
+### The session event stream
+
+One append-only event stream per session is the fleet's one conversation record, so Modern Chat, the family tree and a goblin's panel render one projection of one thing, per harness, instead of three guesses at it.
+A session is one harness conversation of one goblin generation, or of the CEO, and its stream lives beside the identity record the fleet already kept for it: `state/conversations/<task>/<generation>/<session>.jsonl`, or `state/conversations/ceo/<session>.jsonl` for the CEO, since the CEO's conversation is its own generation.
+No daemon, database or dependency is added; the stream lives where the fleet's other records live.
+
+An event is one thing that happened, in the order it happened, with a stable id: a prompt, the assistant's text as the harness writes it, thinking, a tool call, the result that answers it, a notice, a compaction, an interrupt, the session's own report that a turn runs or ended, the end of a session, and the board's word where a harness cannot provide part of it.
+The newest report of a turn is the one the board draws, so a word that a session the board had not yet seen report anything is running supersedes the earlier one that said it could not tell.
+A report is written only where it changes the newest word the stream holds of its turn, so a turn a notice set running again after it ended is told again, and a report read again writes nothing.
+A harness that rewrites its own record behind the reader, as pi's branch reset drops an abandoned answer, has its record restated in the stream, so a stream that only appends never shows a message its harness has dropped.
+A read of the newest page is weighed against everything the stream holds, an earlier supervisor's writing included, from the message where one begins inside the other: a page that slid past messages the stream holds only carries it on, and one that disagrees with it, or shares no message with it, is restated.
+Its id is derived from the session, the message and block it belongs to and its own content, so a reader that derives the same events from the same harness record again writes nothing, and content that changed derives another event a reader folds over the one before.
+Every event of a turn names the prompt that began it.
+`internal/sessionstream` owns the shape and the file; `internal/fleettree` maps the messages a harness's own reader already normalized into those events, and back, so a new harness is one adapter and no reader of the stream changes with it, and Claude Code, Codex and pi produce the same events for a turn.
+The harnesses' own transcript readers are the adapters: a harness's record stays the evidence, and the stream is what the fleet agrees on.
+
+The supervisor is the only writer: it appends what its own read of the session produced, the turn's end from the session's own report of it (Claude Code's Stop, Codex's turn completion, pi's settle, which it already keeps as the session's phase), and the fact that a harness reports no turn where its hooks said nothing.
+`/api/messages` serves the page and the changes it sends from the stream, so the board renders the stream; a session with no stream yet, or an older page a stream began after, is answered from the harness's own record as it was before streams existed.
+A stream that cannot be read is reported in the session event rather than shown as an empty conversation, and the session's own record stands meanwhile.
+A stream reaches a bound of 20,000 events, and is then compacted to the newest event of each thing the session did, keeping whole messages; a tool call and the result that answered it are two things, so the call keeps what it was called on and its plan.
+
+The CEO's conversation record, `state/ceo-conversation.json`, is written when its terminal registers and is refreshed whenever the session the harness proves it is in differs from the one recorded, at every read of its messages and once a recovery cycle (`internal/supervisor/ceo_session.go`); a record that names a conversation the session never wrote is reported as stale rather than rendered as current, and the board needs no reload (issue #2172).
+What proves the live conversation is the one the harness itself keeps for the fleet's home: Claude Code's record of its own process, Codex's rollout of that home written last, or the pi session of that folder written last, once written since pi started.
+With nothing to prove it, the record stands only while the home's own folder holds its conversation, as `fleettree.HoldsTranscript` reads it, and Codex's rollout exists: a record naming a conversation another folder keeps, or one never written, is reported as stale, and the board reads no other folder's conversation as the CEO's.
+
 ### Harness updates
 
 A harness keeps running the install it started from, so an update of Claude Code, Codex or pi installed while the CEO or a goblin runs takes effect only when that harness restarts.
@@ -1836,6 +1865,8 @@ One that cannot come back is recorded stopped with the reason on its card, as it
 The snapshot's `comeback` carries the record for the board's line, and each waiting or stopped goblin's card carries its own entry; the monitor's wake for a terminal with no host says the supervisor brings it back rather than naming `goblins resume`, whatever the goblin last reported, and for one the comeback does not hold whose latest report is `done` with a pull request, or with the issue it closed in place of one, it says that a restart leaves it down unless a prompt reached it since, and that `ceo switch <id> --harness <its harness>` brings it back if it has more work.
 An example board brings nothing back.
 
+<a id="a-ceo-whose-terminal-ended"></a>
+
 ### A CEO whose terminal ended
 
 Between restarts, the supervisor brings back a CEO whose terminal ended while nobody asked it to stop, as when its harness crashes or ends itself after an update, by itself and within about ten seconds.
@@ -1934,6 +1965,8 @@ The goblins' dialogue boxes, the lantern box, keep their stepped pixel frame, ha
 Lavish's copy of the board's tokens (`board-tokens.css`) follows them at its next sync.
 The board has one dark theme, and status colors keep their meaning in it: working blue, waiting and next amber, failed red, merged purple, done mint.
 
+<a id="deliberate-ceo-questions"></a>
+
 ## Deliberate CEO questions
 
 Worker alerts and natural-language questions stay with the CEO, including a goblin's blocked notify that offers choices.
@@ -1948,6 +1981,9 @@ Omit `--option` when the question needs a written answer.
 `--for <task>` names the goblin whose decision the question puts to him, which the fleet must know: while the question waits, that goblin's waits on him must declare whether they are this decision, and one it declares with `ceo notify --follows <this question's ID>` is hidden while the question waits and closed by its answer, never a card of its own.
 The Supreme Overlord Command Center labels supplied choices A/B/C and always offers Other for a written answer.
 The box for a written answer has a microphone at its bottom right corner, and Ctrl+Shift+Space held anywhere in its card, as on the Other just chosen, dictates into the box and puts the caret there: until 15 October 2026 only the box itself heard the keys, and choosing Other leaves the keyboard on the choice, so a dictation held there was never typed.
+On a pending question the box also takes a picture pasted into it, a file dropped on it and one picked with Add files at its bottom left corner, which on a touch screen opens Paste a picture and Photos or files, as the message box does (#2206).
+Each is kept through `POST /api/composer/file` in the asking goblin's `composer-files` folder, or the state folder's for the CEO, and shows above his words with a Remove button.
+Send waits while a file is still being kept, and the answer is his words, then each kept file's path on a line of its own, which the asker reads the file from.
 A question, the CEO's or a goblin's, is shown as body text at a readable line length rather than as a heading: a blank line starts a paragraph, a line that starts with `- ` is a bullet, text between `**two asterisks**` is bold, an http or https address is an underlined link that opens in the default browser (punctuation ending its sentence is not part of it, and any other scheme stays text), and everything else, markup included, is shown exactly as written; no HTML is ever interpreted.
 So a question leads with one short sentence that is the actual question, puts its details on `- ` lines and bolds only the verdict or the blocking item.
 What follows a line that reads only `Details:` is its evidence, such as run IDs, finding codes and receipts: the card shows the decision above it and folds the evidence under a Technical details disclosure, which opens with a click, a tap, Enter or Space, tells a screen reader whether it is open, mounts its content only while open, and stays open or closed across board refreshes, while the stored question, the CEO's wake and History keep the whole text.
@@ -2941,7 +2977,7 @@ Only the recorded fixture PIDs/session may be stopped during crash checks.
 The fixture uses `serve --example`, allowed only with a temporary CEO home and its own state directory.
 That mode labels Example workspace and omits the production machine-wide orphan inventory, which otherwise sees unrelated host processes beside the isolated Herdr session.
 It retains task monitoring and custody checks and never clears shared decisions or stops shared processes.
-See [the implementation evidence](https://github.com/fpresta0607/code-goblins/blob/main/docs/evidence/cfo-native-board.md) for measured overhead, browser results, and the unresolved earlier Defender detections.
+See [the implementation evidence](https://github.com/fpresta0607/code-goblins/blob/main/docs/evidence/ceo-native-board.md) for measured overhead, browser results, and the unresolved earlier Defender detections.
 
 ## Source provenance
 

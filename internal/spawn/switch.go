@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -422,7 +423,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		}
 	}
 	launchMeta.SpawnGen = meta.SpawnGen
-	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, launchMeta, target, adapter, launch, worktreePath, briefPath, dirty, req.ID, manifest.Env, cooldown, preflight, userEnv, mcp.Held, req, endTurn)
+	handoff, resumed, nativeHost, packNote, err := s.relaunchHarness(ctx, launchMeta, target, adapter, launch, worktreePath, briefPath, dirty, req.ID, manifest.Env, cooldown, preflight, userEnv, mcp.Held, req, endTurn)
 	if err != nil {
 		// The failure may have come after the new harness was already
 		// running, so the terminal is checked again before it is described.
@@ -479,6 +480,9 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if hooksNotice != "" {
 		result.Output += "\n" + hooksNotice
 	}
+	if packNote != "" {
+		result.Output += "\n" + packNote
+	}
 	result.Output += left + scriptNote
 	if isNarrowed {
 		result.Output += "\nauth: " + narrowedLine(req.ID, project, preflight.Grant)
@@ -533,7 +537,7 @@ func (s Service) returnHarnessStrays(ctx context.Context, git worktree.Git, proj
 // in: the built launch, the project's redirects, the release cooldown, its
 // credentials, the user's environment and the MCP servers withheld from the
 // task.
-func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, launch harness.Launch, worktreePath, briefPath, dirty, id string, redirects, cooldown map[string]string, preflight auth.Result, userEnv, mcpHeld []string, request SwitchRequest, endTurn func() error) (handoff string, resumed bool, nativeHost host.Record, err error) {
+func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, launch harness.Launch, worktreePath, briefPath, dirty, id string, redirects, cooldown map[string]string, preflight auth.Result, userEnv, mcpHeld []string, request SwitchRequest, endTurn func() error) (handoff string, resumed bool, nativeHost host.Record, packNote string, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0 && request.ResumeSession != ""
 	// Claude Code, Codex and pi each resume a recorded conversation, so the
 	// resume of a pause does wherever its pause recorded one, and pi only once
@@ -571,10 +575,19 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	} else {
 		handoff, err = s.writeHandoff(ctx, meta, target, worktreePath, briefPath, dirty)
 		if err != nil {
-			return "", false, host.Record{}, err
+			return "", false, host.Record{}, "", err
 		}
 		launch.Instruction = handoffInstruction(handoff, briefPath, meta) + cooldownInstruction(cooldown)
 	}
+	brief, err := fsx.ReadFile(briefPath)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return handoff, false, host.Record{}, "", fmt.Errorf("spawn: read the brief for the context pack: %w", err)
+	}
+	packInstruction, recordPack, err := s.writeContextPack(ctx, meta, string(brief), resumed)
+	if err != nil {
+		return handoff, false, host.Record{}, "", err
+	}
+	launch.Instruction += packInstruction
 	// What the task carries is said before any note the relaunch is given,
 	// so the note stays the instruction's last word.
 	launch.Instruction += credentialsInstruction(meta.Project, preflight.Grant) + mcpInstruction(mcpHeld)
@@ -597,11 +610,20 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	}
 
 	if nativeHost, err = s.launchNativeHost(id, target.Harness, launch, userEnv, preflight); err != nil {
-		return handoff, resumed, nativeHost, err
+		return handoff, resumed, nativeHost, "", err
 	}
 	// Its release error, if any, reaches Switch's caller with the result.
 	_ = endTurn()
-	return handoff, resumed, nativeHost, s.briefNativeHarness(ctx, id, nativeHost, target.Harness, launch)
+	if err := s.briefNativeHarness(ctx, id, nativeHost, target.Harness, launch); err != nil {
+		return handoff, resumed, nativeHost, "", err
+	}
+	// The harness runs and holds its instruction, so a record that cannot be
+	// written is told with the result, never a failed switch: it only
+	// repeats entries later.
+	if err := recordPack(); err != nil {
+		packNote = "context pack: " + err.Error()
+	}
+	return handoff, resumed, nativeHost, packNote, nil
 }
 
 // switchTarget is the harness, model, and effort the task should run after
