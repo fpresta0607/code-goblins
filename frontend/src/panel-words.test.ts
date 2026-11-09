@@ -55,6 +55,30 @@ const cases: { name: string; rows: string[]; cols?: number; parts: PanelPart[] }
     parts: [{ kind: "title", text: "Bash command" }, { kind: "prose", text: "This command needs approval because it reads the network." }],
   },
   {
+    name: "Codex's question wrapped at 40 columns, sent as 38 with its indent of two taken off, joins",
+    cols: 38,
+    rows: ["Run this command?", "This command needs approval because it", "reads the network."],
+    parts: [{ kind: "title", text: "Run this command?" }, { kind: "prose", text: "This command needs approval because it reads the network." }],
+  },
+  {
+    name: "the same rows with room left for the next row's first word stay apart",
+    cols: 44,
+    rows: ["Run this command?", "This command needs approval because it", "reads the network."],
+    parts: [{ kind: "title", text: "Run this command?" }, { kind: "prose", text: "This command needs approval because it" }, { kind: "prose", text: "reads the network." }],
+  },
+  {
+    name: "a row of wide characters is measured in the cells it takes, so its wrap joins",
+    cols: 20,
+    rows: ["Title", "\u65e5\u672c\u8a9e\u306e\u8aac\u660e", "approval"],
+    parts: [{ kind: "title", text: "Title" }, { kind: "prose", text: "\u65e5\u672c\u8a9e\u306e\u8aac\u660e approval" }],
+  },
+  {
+    name: "a variation selector takes no cell, so a row that left room stays apart",
+    cols: 14,
+    rows: ["Title", "Saved \u2764\uFE0F done", "x"],
+    parts: [{ kind: "title", text: "Title" }, { kind: "prose", text: "Saved \u2764\uFE0F done" }, { kind: "prose", text: "x" }],
+  },
+  {
     name: "with no pane and no cols known no row joins",
     rows: ["Run it?", "This command needs approval because it", "reads the network."],
     parts: [{ kind: "title", text: "Run it?" }, { kind: "prose", text: "This command needs approval because it" }, { kind: "prose", text: "reads the network." }],

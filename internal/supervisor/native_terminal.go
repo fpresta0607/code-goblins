@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/vtscreen"
 )
 
 // The sizes a view may give a terminal: a smaller one was measured while the
@@ -301,10 +302,11 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		}
 		state := screenState{Asking: screens.IsAsking(rows), Open: screens.IsOpen(rows), Working: screens.IsWorking(rows), Submission: observed, HasStarted: hasStarted}
 		if state.Open {
-			panel := harness.ReadPanel(rows)
+			cols := 0
 			for _, row := range rows {
-				panel.Cols = max(panel.Cols, utf8.RuneCountInString(row))
+				cols = max(cols, vtscreen.Width(row))
 			}
+			panel := harness.ReadPanel(rows, cols)
 			state.Panel = &panel
 		}
 		state.Mode = screens.Mode(rows)

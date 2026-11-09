@@ -19,6 +19,15 @@ const SWITCH = {
   choices: [{ text: "Yes, switch to Haiku 5.5", number: 1, focused: true }, { text: "No, go back", number: 2 }],
   hints: [],
 };
+// Codex's question with no pane around it, wrapped at a terminal of 40
+// columns: the relay takes off the indent of two the rows shared and sends
+// the 38 columns left, so only those join its wrapped words.
+const WRAPPED = {
+  rows: ["Run this command?", "This command needs approval because it", "reads the network."],
+  choices: [{ text: "Yes", number: 1, focused: true }, { text: "No", number: 2 }],
+  hints: [],
+  cols: 38,
+};
 const GUTTER = /[│┃║▌▍▎▏╎╏┆┇┊┋╭╮╰╯]/;
 // A conversation long enough to read up in.
 const LONG = {
@@ -65,6 +74,21 @@ for (const width of [390, 1440]) {
       expect(typed(relay)).toBe("1");
       relay.say({ type: "screen", asking: false, open: false, working: true, submission: "" });
       await expect(prompt).toHaveCount(0);
+    });
+
+    test("joins a prompt's words where the terminal wrapped them at the columns the relay sent, with no pane to measure", async ({ page }) => {
+      // Arrange
+      const relay = await open(page);
+      await openGoblin(page);
+
+      // Act
+      relay.say({ type: "screen", asking: true, open: true, working: false, submission: "his", panel: WRAPPED });
+
+      // Assert: one paragraph, as the harness wrote it.
+      const prompt = asks(page);
+      await expect(prompt.locator(".harness-panel-title")).toHaveText("Run this command?");
+      await expect(prompt.getByText("This command needs approval because it reads the network.", { exact: true })).toBeVisible();
+      await expect(prompt.getByText("reads the network.", { exact: true })).toHaveCount(0);
     });
 
     test("takes its choices from the keyboard in the empty box", async ({ page }) => {
