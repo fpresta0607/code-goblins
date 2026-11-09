@@ -78,9 +78,9 @@ func streamBlock(id sessionstream.Identity, turn string, message Message, at int
 		return []sessionstream.Event{base}
 	case BlockCall:
 		call := base
-		call.ID = sessionstream.EventID(id, sessionstream.KindToolCall, message.ID, block.CallID, at, block.Tool, block.Subject, planWords(block.Plan), agentWords(block.Agent))
+		call.ID = sessionstream.EventID(id, sessionstream.KindToolCall, message.ID, block.CallID, at, block.Tool, block.Subject, block.Input, planWords(block.Plan), agentWords(block.Agent))
 		call.Kind = sessionstream.KindToolCall
-		call.CallID, call.Tool, call.Subject, call.State = block.CallID, block.Tool, block.Subject, block.State
+		call.CallID, call.Tool, call.Subject, call.Input, call.State = block.CallID, block.Tool, block.Subject, block.Input, block.State
 		call.Plan, call.Agent = streamPlan(block.Plan), streamAgent(block.Agent)
 		if block.State == CallRunning || block.State == "" {
 			return []sessionstream.Event{call}
@@ -251,7 +251,7 @@ func MessagesOf(events []sessionstream.Event) []Message {
 				block.Kind = BlockThinking
 			}
 			if event.Kind == sessionstream.KindToolCall {
-				block.Kind, block.CallID, block.Tool, block.Subject = BlockCall, event.CallID, event.Tool, event.Subject
+				block.Kind, block.CallID, block.Tool, block.Subject, block.Input = BlockCall, event.CallID, event.Tool, event.Subject, event.Input
 				block.State, block.Plan, block.Agent = event.State, messagesPlan(event.Plan), messagesAgent(event.Agent)
 			}
 			block.Pictures = messagesPictures(event.Pictures)

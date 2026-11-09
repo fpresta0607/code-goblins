@@ -229,6 +229,32 @@ func TestALaterEventOfACallReplacesTheOneBeforeIt(t *testing.T) {
 	}
 }
 
+// TestTheScriptACallRanIsPartOfItsEvent is the script a Codex call was given,
+// which its reader keeps as the call's input: a read of the call that differs
+// only in its script derives another event, which the fold takes over the one
+// before.
+func TestTheScriptACallRanIsPartOfItsEvent(t *testing.T) {
+	// Arrange
+	id := sessionstream.Identity{Task: "cg-session-event-stream", Generation: "1201-1", Harness: "codex", Session: "session-1"}
+	first, second := `text(await tools.exec_command({cmd:"type a.go"}));`, `text(await tools.exec_command({cmd:"type b.go"}));`
+	call := func(input string) []sessionstream.Event {
+		return StreamEvents(id, []Message{reply(1, "r1", Block{Kind: BlockCall, CallID: "call-1", Tool: "exec", Subject: "exec", Input: input, State: CallRunning})})
+	}
+
+	// Act
+	read, readAgain := call(first), call(second)
+	readAgain[0].Seq = 1
+	folded := MessagesOf(append(read, readAgain...))
+
+	// Assert
+	if len(read) != 1 || len(readAgain) != 1 || read[0].ID == readAgain[0].ID {
+		t.Fatalf("two reads of a call that ran different scripts derived %+v and %+v; want one event each, with different ids", read, readAgain)
+	}
+	if len(folded) != 1 || len(folded[0].Blocks) != 1 || folded[0].Blocks[0].Input != second {
+		t.Fatalf("folded call: %+v; want the one call with the script it ran last", folded)
+	}
+}
+
 // TestAHarnessThatRewroteItsWordsReplacesThem keeps a record that changed
 // behind the reader from growing a second copy of the same message.
 func TestAHarnessThatRewroteItsWordsReplacesThem(t *testing.T) {
