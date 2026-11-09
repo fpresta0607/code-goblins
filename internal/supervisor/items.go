@@ -63,6 +63,9 @@ func boardItems(d Database) Items {
 	items.Runs = make([]Run, len(d.Runs))
 	for i, r := range d.Runs {
 		r.ScriptSum, r.RunAction, r.PID, r.Started = "", "", 0, nil
+		if r.Billing != nil {
+			r.Output = ""
+		}
 		items.Runs[i] = r
 	}
 	// The board sees which plain values arrived, never the values, which

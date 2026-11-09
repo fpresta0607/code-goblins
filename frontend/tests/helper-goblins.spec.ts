@@ -27,7 +27,7 @@ test("a helper's card on the board is one row that names no parent", async ({ pa
 test("at phone width the lineage list shows a held helper under its parent only", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/tests/fixtures/helper-goblins.html?view=lineage");
-  await expect(page.locator(".node-select").filter({ hasText: "Accounts migration" })).toHaveCount(0);
+  await expect(page.locator(".workflow-node .task-card").filter({ hasText: "Accounts migration" })).toHaveCount(0);
   await page.getByRole("button", { name: /under Let goblins start helpers/ }).click();
   await expect(page.getByRole("list", { name: "What runs under Let goblins start helpers" }).locator(".tree-child")).toContainText("Accounts migration");
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
@@ -44,7 +44,7 @@ test("a helper no tree holds hangs under its parent's card, on the canvas and in
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/tests/fixtures/helper-goblins.html?view=lineage");
   const under = page.getByRole("list", { name: "Children of Sync the ledger" });
-  await expect(under.locator(".node-select").filter({ hasText: "Ledger fixtures" })).toHaveCount(1);
-  await expect(under.locator(".node-relation")).toHaveText("Helper goblin");
+  await expect(under.locator(".task-card").filter({ hasText: "Ledger fixtures" })).toHaveCount(1);
+  await expect(under.locator(".node-relation")).toHaveText("Helper goblin · Session details unavailable");
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });

@@ -160,6 +160,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, waiting.Look{Instance: instance, Items: items})
 	case r.URL.Path == "/api/actions-spend" && r.Method == "GET":
 		h.actionsSpend(w, r)
+	case r.URL.Path == "/api/actions-spend/repair" && r.Method == "POST":
+		h.repairActionsSpend(w, r)
 	case r.URL.Path == "/api/items/closed" && r.Method == "GET":
 		// History when it opens, or the question the Overlord opened a
 		// Change answer on from elsewhere, such as his AFK report.
@@ -555,6 +557,12 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 	if a.Kind == "run" && slices.ContainsFunc(h.Service.Store.Snapshot().Runs, func(run Run) bool { return run.ID == a.RunID && run.Update != nil }) {
 		if _, err := h.Service.overlordsBoard(r, h.Host, asked, updatingBoard); err != nil {
 			h.refuse(w, http.StatusForbidden, "update", "A press of Update on a board was refused", "", err)
+			return
+		}
+	}
+	if a.Kind == "run" && slices.ContainsFunc(h.Service.Store.Snapshot().Runs, func(run Run) bool { return run.ID == a.RunID && run.Billing != nil }) {
+		if _, err := h.Service.overlordsBoard(r, h.Host, asked, billingBoard); err != nil {
+			h.refuse(w, http.StatusForbidden, "billing", "A GitHub billing consent run was refused", "", err)
 			return
 		}
 	}

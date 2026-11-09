@@ -88,11 +88,11 @@ func (i *Inspector) RepairConnection(ctx context.Context, meta state.TaskMeta, c
 		if err != nil {
 			return errors.New("Codex login is unavailable.")
 		}
-		env, _, err := i.Runtime(ctx, i.StateDir, meta)
+		observed, err := i.Runtime(ctx, i.StateDir, meta)
 		if err != nil {
 			return err
 		}
-		result, err := i.Runner.Run(ctx, execx.Request{Name: program[0], Args: program[1:], Dir: meta.Worktree, Env: env, KillTree: true})
+		result, err := i.Runner.Run(ctx, execx.Request{Name: program[0], Args: program[1:], Dir: meta.Worktree, Env: observed.Env, KillTree: true})
 		if err != nil || result.ExitCode != 0 {
 			return errors.New("MCP sign-in did not complete.")
 		}

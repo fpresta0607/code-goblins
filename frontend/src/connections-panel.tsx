@@ -113,6 +113,7 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
   return <section className="connections-panel" aria-label="Connections">
     <div className="connections-toolbar"><p>{data?.checking || !data ? "Checking connections..." : data.error ? "Check failed" : "Connection health"}</p><button type="button" className="icon-button" aria-label="Recheck connections" disabled={isBusy || !data || data.checking} onClick={() => void refresh()}><Icon name="refresh" /></button></div>
     <ClickFeedback text={feedback} />
+    {data?.generation && <p className="connector-about" style={{ overflowWrap: "anywhere" }}>Generation {data.generation}. {data.runtime.processId > 0 ? <>Verified process {data.runtime.processId}, started {data.runtime.startedAt}, workspace {data.runtime.workspace}.</> : "Process and workspace identity unknown."}</p>}
     {notice && <div className="connection-notice"><p role="status">{notice}</p>{runId && onRepair && <button type="button" onClick={() => onRepair("run:" + runId)}>Open repair card</button>}{loginURL && <a href={loginURL} target="_blank" rel="noreferrer" onClick={() => { isSignInPending.current = true; }}>Open sign-in</a>}</div>}
     {[["mcp", "MCP servers"], ["connector", "Default connectors"], ["service", "Repository services"], ["credential", "Goblin credentials"]].map(([kind, label]) => {
       // A variable the task does not carry is its service's, whose card offers it.

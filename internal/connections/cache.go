@@ -56,7 +56,15 @@ func (c *Cache) Get(key string, refresh bool) Snapshot {
 		c.work.Add(1)
 		go c.run(key, item)
 	}
-	return item.snapshot()
+	result := item.snapshot()
+	if !item.at.IsZero() && c.now().Sub(item.at) >= c.ttl {
+		for index := range result.Entries {
+			result.Entries[index].Status = "unverified"
+			result.Entries[index].LiveStatus = "unknown"
+			result.Entries[index].Detail = "Observation expired. Recheck connections."
+		}
+	}
+	return result
 }
 
 func (c *Cache) Cached(key string) Snapshot {
@@ -95,6 +103,7 @@ func (c *Cache) run(key string, item *cached) {
 		result = Snapshot{Error: "Connection check timed out.", Entries: append([]Entry{}, item.result.Entries...)}
 		for i := range result.Entries {
 			result.Entries[i].Status = "unverified"
+			result.Entries[i].LiveStatus = "unknown"
 			result.Entries[i].Detail = "Latest check timed out."
 		}
 	}

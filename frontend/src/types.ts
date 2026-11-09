@@ -405,6 +405,8 @@ export interface ActionsSpend {
   read_at: string;
   checked_at: string;
   detail: string;
+  problem?: { kind: string; action: string; account: string; credential: string };
+  recovery?: { run_id: string; state: string };
 }
 export interface Snapshot {
   actions_spend?: ActionsSpend;
@@ -983,6 +985,8 @@ export function parseActionsSpend(value: unknown): ActionsSpend {
     month: string(usage.month), total: parseActionsTotal(usage.total),
     repositories: array(usage.repositories).map((value) => { const repository = object(value); return { name: string(repository.name), minutes: number(repository.minutes), used_usd: number(repository.used_usd), billed_usd: number(repository.billed_usd) }; }),
     read_at: string(usage.read_at), checked_at: string(usage.checked_at), detail: string(usage.detail),
+    ...(usage.problem == null ? {} : { problem: ((problem) => ({ kind: string(problem.kind), action: string(problem.action), account: string(problem.account), credential: string(problem.credential) }))(object(usage.problem)) }),
+    ...(usage.recovery == null ? {} : { recovery: ((recovery) => ({ run_id: string(recovery.run_id), state: string(recovery.state) }))(object(usage.recovery)) }),
   };
 }
 export function parseSnapshot(value: unknown): Snapshot {
