@@ -148,7 +148,7 @@ func TestACodexCallIsReadRunningUntilItsOutputLands(t *testing.T) {
 
 	// Act
 	appendLines(t, path, codexOutput("call-1", "Script completed\nWall time 30.0 seconds\nOutput:\n{\"exit_code\":0}"))
-	changed, _, isAnew, err := reader.MessagesSince(path, cursor)
+	changed, _, _, isAnew, err := reader.MessagesSince(path, cursor)
 
 	// Assert: the call ran while its output was unwritten, and the same
 	// message is what the output changed.

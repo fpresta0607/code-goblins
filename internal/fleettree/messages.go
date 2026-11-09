@@ -230,12 +230,26 @@ const (
 
 // MessagePage is a page of a session's messages, oldest first, and whether
 // older messages come before its first, with what the session's usage says
-// as far as the conversation records it.
+// as far as the conversation records it, and the prompts its harness holds.
 type MessagePage struct {
-	Conversation string    `json:"conversation"`
-	Messages     []Message `json:"messages"`
-	More         bool      `json:"more"`
-	Usage        *Usage    `json:"usage,omitempty"`
+	Conversation string          `json:"conversation"`
+	Messages     []Message       `json:"messages"`
+	More         bool            `json:"more"`
+	Usage        *Usage          `json:"usage,omitempty"`
+	Waiting      []WaitingPrompt `json:"waiting,omitempty"`
+}
+
+// WaitingPrompt keeps a Claude Code prompt visible from enqueue through its
+// handoff until its delivered Message appears. It has no delivery offset yet,
+// so it stays separate from messages; IsSending marks the handoff, and Action
+// names the board message that typed it, which the supervisor fills in.
+type WaitingPrompt struct {
+	ID        string    `json:"id"`
+	At        time.Time `json:"at"`
+	Source    string    `json:"source,omitempty"`
+	Text      string    `json:"text"`
+	IsSending bool      `json:"sending,omitempty"`
+	Action    string    `json:"action,omitempty"`
 }
 
 // Usage is what a session has spent, read from its own conversation: its
@@ -384,8 +398,9 @@ type messageState struct {
 	pictures map[string]pictureAt
 	// usage is what the conversation says the session spent, and window the
 	// context window of the model it last named (claudeContextWindow).
-	usage  Usage
-	window int64
+	usage   Usage
+	window  int64
+	waiting []WaitingPrompt
 }
 
 type blockAt struct {
@@ -424,6 +439,8 @@ type messageEntry struct {
 	CompactMetadata struct {
 		Trigger string `json:"trigger"`
 	} `json:"compactMetadata"`
+	Operation  string          `json:"operation"`
+	Content    json.RawMessage `json:"content"`
 	Attachment struct {
 		Type   string          `json:"type"`
 		Prompt json.RawMessage `json:"prompt"`
@@ -743,8 +760,47 @@ func (l *messageLog) entry(line []byte, offset int64) {
 		// A queued prompt is its text, or its blocks when a picture was
 		// pasted into it, whose text alone is read.
 		l.prompt(Message{ID: id, Seq: int(offset), At: entry.Timestamp, IsQueued: true}, resultText(entry.Attachment.Prompt))
+	case entry.Type == "queue-operation":
+		l.queueOperation(entry, id)
 	case entry.Type == "system" && entry.Subtype == "compact_boundary":
 		l.add(Message{ID: id, Seq: int(offset), Kind: MessageCompaction, At: entry.Timestamp, Trigger: entry.CompactMetadata.Trigger})
+	}
+}
+
+func (l *messageLog) queueOperation(entry messageEntry, id string) {
+	var content string
+	// A dequeue has no content, and an enqueue of a picture none that is text.
+	_ = json.Unmarshal(entry.Content, &content)
+	source, text := promptOf(content)
+	at := -1
+	switch entry.Operation {
+	case "enqueue":
+		l.waiting = append(l.waiting, WaitingPrompt{ID: id, At: entry.Timestamp, Source: source, Text: text})
+	case "dequeue":
+		at = slices.IndexFunc(l.waiting, func(prompt WaitingPrompt) bool { return !prompt.IsSending })
+	case "remove":
+		at = slices.IndexFunc(l.waiting, func(prompt WaitingPrompt) bool {
+			return !prompt.IsSending && prompt.Source == source && prompt.Text == text
+		})
+	}
+	if at >= 0 {
+		if l.waiting[at].Source == FromNotice || l.waiting[at].Text == "" {
+			l.waiting = slices.Delete(l.waiting, at, at+1)
+		} else {
+			l.waiting[at].IsSending = true
+		}
+	}
+}
+
+func (l *messageLog) stopWaiting(source, text string) {
+	at := slices.IndexFunc(l.waiting, func(prompt WaitingPrompt) bool {
+		return prompt.IsSending && prompt.Source == source && prompt.Text == text
+	})
+	if at < 0 {
+		at = slices.IndexFunc(l.waiting, func(prompt WaitingPrompt) bool { return prompt.Source == source && prompt.Text == text })
+	}
+	if at >= 0 {
+		l.waiting = slices.Delete(l.waiting, at, at+1)
 	}
 }
 
@@ -908,14 +964,19 @@ var (
 // (internal/spawn/native_launch.go).
 const cfoBrief = ": it is your instruction from the CFO."
 
-// prompt adds a prompt of text to the log, with where it came from.
 func (l *messageLog) prompt(message Message, text string) {
 	message.Kind = MessagePrompt
-	message.Source, message.Text = promptSource(strings.TrimSpace(pastedContent.ReplaceAllString(systemReminder.ReplaceAllString(text, ""), "")))
-	message.Text = bounded(message.Text, messageTextLimit)
+	message.Source, message.Text = promptOf(text)
 	if message.Text != "" || len(message.Pictures) > 0 {
 		l.add(message)
+		l.stopWaiting(message.Source, message.Text)
 	}
+}
+
+// promptOf is where a prompt of text came from and the words it shows.
+func promptOf(text string) (string, string) {
+	source, words := promptSource(strings.TrimSpace(pastedContent.ReplaceAllString(systemReminder.ReplaceAllString(text, ""), "")))
+	return source, bounded(words, messageTextLimit)
 }
 
 // WakePrefix begins the wake line the supervisor types into a Codex or pi
@@ -1203,7 +1264,7 @@ func (l *messageLog) picture(source pictureSource, at pictureAt) (Picture, bool)
 func (l *messageLog) page(before int) MessagePage {
 	end := l.end(before)
 	start := max(0, end-MessagesPerPage)
-	page := MessagePage{Messages: make([]Message, 0, end-start), More: start > 0 || l.from > 0}
+	page := MessagePage{Messages: make([]Message, 0, end-start), More: start > 0 || l.from > 0, Waiting: l.waitingPrompts()}
 	for _, message := range l.messages[start:end] {
 		page.Messages = append(page.Messages, shared(message))
 	}
@@ -1213,6 +1274,16 @@ func (l *messageLog) page(before int) MessagePage {
 		page.Usage = &usage
 	}
 	return page
+}
+
+func (l *messageLog) waitingPrompts() []WaitingPrompt {
+	waiting := make([]WaitingPrompt, 0, len(l.waiting))
+	for _, prompt := range l.waiting {
+		if prompt.Source != FromNotice && prompt.Text != "" {
+			waiting = append(waiting, prompt)
+		}
+	}
+	return waiting
 }
 
 // end is where the messages before seq before end, or all of them for a
@@ -1432,45 +1503,47 @@ func (r *Reader) UsageAt(path string, cursor MessageCursor) *Usage {
 	return nil
 }
 
-// MessagesSince reads the Claude Code conversation at path on and returns
-// every message that began or changed after cursor, with where the reader
-// then stands. isAnew says the conversation was read anew since cursor, as
-// one replaced is, so nothing a page before it held still stands: the
-// reader takes a page again.
-func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Message, now MessageCursor, isAnew bool, err error) {
+// MessagesSince reads the conversation at path on and returns every message
+// that began or changed after cursor, with the waiting prompts and cursor
+// from the same locked snapshot, so concurrent streams cannot separate a
+// delivered row from the end of its wait.
+// isAnew says the conversation was read anew since cursor, as one replaced
+// is, so nothing a page before it held still stands: the reader takes a page
+// again.
+func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Message, waiting []WaitingPrompt, now MessageCursor, isAnew bool, err error) {
 	if isPiSession(path) {
 		log, err := r.piLog(context.Background(), path)
 		if err != nil {
-			return nil, MessageCursor{}, false, err
+			return nil, nil, MessageCursor{}, false, err
 		}
 		defer log.mu.Unlock()
 		messages, now, isAnew = log.since(cursor)
-		return messages, now, isAnew, nil
+		return messages, nil, now, isAnew, nil
 	}
 	if isCodexRollout(path) {
 		log, err := r.codexLog(context.Background(), path)
 		if err != nil {
-			return nil, MessageCursor{}, false, err
+			return nil, nil, MessageCursor{}, false, err
 		}
 		defer log.mu.Unlock()
 		messages, now, isAnew = log.since(cursor)
-		return messages, now, isAnew, nil
+		return messages, nil, now, isAnew, nil
 	}
 	log, err := r.messageLog(context.Background(), path, messageTailReach)
 	if err != nil {
-		return nil, MessageCursor{}, false, err
+		return nil, nil, MessageCursor{}, false, err
 	}
 	defer log.mu.Unlock()
 	now = MessageCursor{log.epoch, log.revision, log.incarnation}
 	if cursor.epoch != log.epoch || cursor.incarnation != log.incarnation {
-		return nil, now, true, nil
+		return nil, nil, now, true, nil
 	}
 	for i, changed := range log.changed {
 		if changed > cursor.revision {
 			messages = append(messages, shared(log.messages[i]))
 		}
 	}
-	return messages, now, false, nil
+	return messages, log.waitingPrompts(), now, false, nil
 }
 
 // usageOf is what a log holds as a page's usage, nil while it records none.

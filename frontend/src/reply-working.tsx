@@ -18,8 +18,8 @@ import "./reply-working.css";
 // (the Overlord, 2026-11-04).
 export function ReplyWorking({ ink, said, isCompacting }: { ink: string; said: string; isCompacting: boolean }) {
   const words = isCompacting ? "Compacting" : said;
-  return <div className="reply-working">
-    <WorkingIndicator ink={ink} label={words || "Working"} />
+  return <div className={"reply-working" + (isCompacting ? " compacting" : "")}>
+    <WorkingIndicator ink={isCompacting ? "var(--purple)" : ink} label={words || "Working"} />
     <WorkingWord said={words} isAlone={isCompacting} />
   </div>;
 }
