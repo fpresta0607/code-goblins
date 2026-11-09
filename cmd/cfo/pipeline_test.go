@@ -1,19 +1,23 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +29,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 	"gopkg.in/yaml.v3"
@@ -33,7 +38,14 @@ import (
 type pipelineRunner struct {
 	gate         pipeline.Gate
 	native       []execx.Request
-	worktree     string
+	rounds       []byte
+	roundsAfter  []byte
+	roundsReads  int
+	// scopeDecision is the scope decision file the scoped native response was
+	// handed, with the run it named, read while the command was still running.
+	scopeDecision []byte
+	scopeRun      string
+	worktree      string
 	activeRuns   int
 	nativeResult *execx.Result
 	nativeError  error
@@ -204,6 +216,25 @@ func (r *pipelineRunner) Run(_ context.Context, q execx.Request) (execx.Result, 
 		data, err := json.Marshal([]pipeline.Gate{r.gate})
 		return execx.Result{Stdout: data}, err
 	case "no-mistakes":
+		if slices.Equal(q.Args, []string{"axi", "rounds", "--step", "review", "--run", r.gate.RunID, "--json"}) {
+			r.roundsReads++
+			if r.roundsAfter != nil && r.roundsReads > 1 {
+				return execx.Result{Stdout: r.roundsAfter}, nil
+			}
+			if r.rounds != nil {
+				return execx.Result{Stdout: r.rounds}, nil
+			}
+		}
+		if at := slices.Index(q.Args, "--scope-decision-file"); at >= 0 && at+1 < len(q.Args) {
+			data, err := os.ReadFile(q.Args[at+1])
+			if err != nil {
+				return execx.Result{}, err
+			}
+			r.scopeDecision = data
+			if runAt := slices.Index(q.Args, "--run"); runAt >= 0 && runAt+1 < len(q.Args) {
+				r.scopeRun = q.Args[runAt+1]
+			}
+		}
 		r.native = append(r.native, q)
 		if r.nativeResult != nil {
 			return *r.nativeResult, r.nativeError
@@ -1244,6 +1275,429 @@ func TestPipelineRespondInvokesNativeOnlyForBudgetedExplicitDecision(t *testing.
 			}
 		})
 	}
+}
+
+const (
+	scopeHead    = "0123456789abcdef0123456789abcdef01234567"
+	scopeBase    = "89abcdef0123456789abcdef0123456789abcdef"
+	scopeText    = "Repair exactly the retained Review requirement."
+	scopeFinding = `{"id":"bug","severity":"error","category":"review","action":"ask-user","description":"Repair the retained requirement."}`
+)
+
+func scopeGate() pipeline.Gate {
+	return pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[{"id":"bug","action":"ask-user","description":"Repair the retained requirement."}]}`}
+}
+
+func scopeRounds() string {
+	return `{"schema_version":1,"run_id":"run","step":"review","rounds":[{"id":"round","step_result_id":"step","reviewed_head_sha":"` + scopeHead + `","trusted_config_sha":"trusted-config","round":1,"findings":[` + scopeFinding + `]}]}`
+}
+
+// scopeRequest is the exact managed decision the production path builds and
+// sends for the answering notify in scopeStage.
+func scopeRequest() string {
+	return `{"version":1,"decision_id":"notify-task-7","authority":"controller_assertion","run_id":"run","step_result_id":"step","round_id":"round","source_head_sha":"` + scopeHead + `","source_base_sha":"` + scopeBase + `","trusted_config_sha":"trusted-config","finding":` + scopeFinding + `,"accepted_scope":"` + scopeText + `"}`
+}
+
+func scopeRunInfo() string {
+	return `{"id":"run","head_sha":"` + scopeHead + `","base_sha":"` + scopeBase + `","steps":[{"id":"step","step_name":"review","status":"awaiting_approval","latest_round_id":"round"}]}`
+}
+
+// scopeAccepted is what native's durable rounds evidence holds once it has
+// persisted the decision this task's answered notify names.
+func scopeAccepted() string {
+	return `{"schema_version":1,"run_id":"run","step":"review","rounds":[],"scope_decisions":[{"version":1,"decision_id":"notify-task-7","authority":"controller_assertion","run_id":"run","step_result_id":"step","round_id":"round","source_head_sha":"` + scopeHead + `","source_base_sha":"` + scopeBase + `","trusted_config_sha":"trusted-config","finding":` + scopeFinding + `,"accepted_scope":"` + scopeText + `"}]}`
+}
+
+// scopeStage is a task whose goblin put decision 7 to the CFO, which answered
+// it with the exact requirement correction, and whose Review gate is parked
+// with native rounds evidence for it.
+func scopeStage(t *testing.T) (home.Home, state.TaskMeta, string, *pipelineRunner) {
+	t.Helper()
+	h, nativeRoot, runner := registeredCFOStage(t, "cfo", scopeGate())
+	meta, err := state.ReadTaskMeta(h.State, "task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plantJSON(t, filepath.Join(h.State, ".supervisor.json"), map[string]any{"questions": []supervisor.Question{{
+		ID: "notify-task-7", Task: "task", Generation: meta.SpawnGen, Seq: 7, Answer: scopeText, Status: "succeeded",
+	}}})
+	runner.rounds = []byte(scopeRounds())
+	return h, meta, nativeRoot, runner
+}
+
+func scopeRespond(t *testing.T, h home.Home, nativeRoot string, runner *pipelineRunner) error {
+	t.Helper()
+	return scopeRespondRef(t, h, nativeRoot, runner, "7")
+}
+
+func scopeRespondRef(t *testing.T, h home.Home, nativeRoot string, runner *pipelineRunner, ref string) error {
+	t.Helper()
+	return pipelineCommand(t.Context(), h, nativeRoot, runner, []string{"respond", "task", "--action", "fix", "--findings", "bug", "--scope-decision", ref}, &bytes.Buffer{})
+}
+
+func scopeJournalPath(meta state.TaskMeta) string {
+	return filepath.Join(meta.TaskTmp, "review-scope-decisions.jsonl")
+}
+
+func scopeStatusHas(h home.Home, prefix string) bool {
+	lines, _ := state.TailStatus(h.State, "task", 20)
+	return slices.ContainsFunc(lines, func(line string) bool { return strings.Contains(line, prefix) })
+}
+
+func TestPipelineScopeDecisionUsesTheRegisteredCFOAndNativeEvidence(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	h, meta, nativeRoot, runner := scopeStage(t)
+	runner.roundsAfter = []byte(scopeAccepted())
+	requests := serveScopeRun(t, nativeRoot, scopeRunInfo())
+
+	if err := scopeRespond(t, h, nativeRoot, runner); err != nil {
+		t.Fatalf("scope decision response: %v", err)
+	}
+	if len(runner.native) != 1 {
+		t.Fatalf("native calls=%+v, want one scoped response", runner.native)
+	}
+	request := runner.native[0]
+	if request.Dir != runner.worktree {
+		t.Fatalf("native request=%+v, want the scope response sent from the task worktree", request)
+	}
+	if got := requests.all(); len(got) != 1 || got[0].Method != "get_run" || got[0].RunID != "run" {
+		t.Fatalf("native evidence requests=%+v, want one get_run for the gated run", got)
+	}
+	var sent, want any
+	if err := json.Unmarshal(runner.scopeDecision, &sent); err != nil {
+		t.Fatalf("native scope decision file=%q, want the request's decoded decision: %v", runner.scopeDecision, err)
+	}
+	if err := json.Unmarshal([]byte(scopeRequest()), &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(sent, want) || runner.scopeRun != scopeGate().RunID {
+		t.Fatalf("native scope file=%s run=%q, want the exact decision bound to run %q", runner.scopeDecision, runner.scopeRun, scopeGate().RunID)
+	}
+	if runner.roundsReads != 2 {
+		t.Fatalf("native rounds reads=%d, want the pre-response evidence and its durable acknowledgement", runner.roundsReads)
+	}
+	journal, err := os.ReadFile(scopeJournalPath(meta))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(journal, []byte(`"decision_id":"notify-task-7"`)) || !bytes.Contains(journal, []byte(`"accepted_scope":"Repair exactly the retained Review requirement."`)) || !bytes.Contains(journal, []byte(`"source_base_sha":"`+scopeBase+`"`)) {
+		t.Fatalf("scope journal=%s, want the exact decision and native source binding", journal)
+	}
+	if !bytes.Contains(journal, []byte(`"scope_decision":`+scopeRequest())) {
+		t.Fatalf("scope journal=%s, want the request's exact bytes kept", journal)
+	}
+	if !scopeStatusHas(h, "pipeline-review-scope-confirmed: decision=notify-task-7 run=run round=round") {
+		lines, _ := state.TailStatus(h.State, "task", 20)
+		t.Fatalf("status=%q, want the durable acknowledgement audited", lines)
+	}
+}
+
+// A native response that fails, as an engine without the scope method does,
+// leaves its exact outcome in the task's journal and starts no ordinary
+// response, retry or new run.
+func TestPipelineScopeDecisionRecordsANativeRefusalWithoutFallback(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	h, meta, nativeRoot, runner := scopeStage(t)
+	runner.nativeResult = &execx.Result{ExitCode: 1, Stderr: []byte("daemon did not acknowledge the accepted scope decision")}
+	serveScopeRun(t, nativeRoot, scopeRunInfo())
+
+	err := scopeRespond(t, h, nativeRoot, runner)
+	if err == nil || !strings.Contains(err.Error(), "recorded in review-scope-decisions.jsonl") {
+		t.Fatalf("native refusal err=%v, want it refused as recorded evidence with no fallback", err)
+	}
+	if len(runner.native) != 1 || runner.roundsReads != 1 {
+		t.Fatalf("native calls=%+v rounds reads=%d, want one scoped response and no acknowledgement read", runner.native, runner.roundsReads)
+	}
+	journal, readErr := os.ReadFile(scopeJournalPath(meta))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Contains(journal, []byte(`"exit_code":1`)) || scopeStatusHas(h, "pipeline-review-scope-confirmed") {
+		t.Fatalf("scope journal=%s, want the refusal kept and no confirmed audit", journal)
+	}
+}
+
+// A clean native exit with no durable record of this decision is an uncertain
+// acknowledgement: the controller refuses instead of reporting delivery.
+func TestPipelineScopeDecisionRefusesAnUnconfirmedAcknowledgement(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	h, meta, nativeRoot, runner := scopeStage(t)
+	runner.roundsAfter = []byte(`{"schema_version":1,"run_id":"run","step":"review","rounds":[]}`)
+	serveScopeRun(t, nativeRoot, scopeRunInfo())
+
+	err := scopeRespond(t, h, nativeRoot, runner)
+	if err == nil || !strings.Contains(err.Error(), "did not confirm the accepted Review scope") {
+		t.Fatalf("unconfirmed acknowledgement err=%v, want it refused", err)
+	}
+	journal, readErr := os.ReadFile(scopeJournalPath(meta))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Contains(journal, []byte(`"exit_code":0`)) || scopeStatusHas(h, "pipeline-review-scope-confirmed") {
+		t.Fatalf("scope journal=%s, want the native success kept and no confirmed audit", journal)
+	}
+}
+
+// An identical replay is the one native makes idempotent, so the journal
+// leaves it to native and records the second outcome beside the first.
+func TestPipelineScopeDecisionAllowsAnIdenticalReplay(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	h, meta, nativeRoot, runner := scopeStage(t)
+	record := `{"at":"2026-11-07T00:00:00Z","request_sha256":"earlier","scope_decision":` + scopeRequest() + `,"stdout":"","stderr":"","exit_code":0}` + "\n"
+	if err := os.WriteFile(scopeJournalPath(meta), []byte(record), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner.roundsAfter = []byte(scopeAccepted())
+	requests := serveScopeRun(t, nativeRoot, scopeRunInfo())
+
+	if err := scopeRespondRef(t, h, nativeRoot, runner, "notify-task-7"); err != nil {
+		t.Fatalf("identical replay: %v", err)
+	}
+	if len(runner.native) != 1 {
+		t.Fatalf("native calls=%+v, want the replay sent once more", runner.native)
+	}
+	if len(requests.all()) == 0 {
+		t.Fatal("identical replay did not read native RunInfo")
+	}
+	journal, readErr := os.ReadFile(scopeJournalPath(meta))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if lines := strings.Count(string(journal), "\n"); lines != 2 {
+		t.Fatalf("scope journal=%s, want the earlier decision kept beside the replay's outcome", journal)
+	}
+}
+
+// The same round's earlier decision stands: a replay carrying different bytes
+// is refused before native is asked anything.
+func TestPipelineScopeDecisionRefusesAChangedReplay(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	h, meta, nativeRoot, runner := scopeStage(t)
+	record := `{"at":"2026-11-07T00:00:00Z","request_sha256":"earlier","scope_decision":{"version":1,"decision_id":"notify-task-7","authority":"controller_assertion","run_id":"run","step_result_id":"step","round_id":"round","source_head_sha":"` + scopeHead + `","source_base_sha":"` + scopeBase + `","trusted_config_sha":"trusted-config","finding":{"id":"bug"},"accepted_scope":"An earlier requirement correction."},"stdout":"","stderr":"","exit_code":0}` + "\n"
+	if err := os.WriteFile(scopeJournalPath(meta), []byte(record), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	serveScopeRun(t, nativeRoot, scopeRunInfo())
+
+	err := scopeRespond(t, h, nativeRoot, runner)
+	if err == nil || !strings.Contains(err.Error(), "differs from its durable decision or round binding") {
+		t.Fatalf("changed replay err=%v, want it refused", err)
+	}
+	if len(runner.native) != 0 {
+		t.Fatalf("native calls=%+v, want nothing sent", runner.native)
+	}
+	journal, readErr := os.ReadFile(scopeJournalPath(meta))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(journal) != record {
+		t.Fatalf("scope journal=%s, want the earlier decision left as it stood", journal)
+	}
+}
+
+// A --scope-decision given with no sequence is a decision refused before
+// anything is read or sent, never read as no decision that would send the
+// ordinary fix and drop the accepted scope the primary CEO answered with.
+func TestPipelineScopeDecisionRefusesABlankDecision(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	h, meta, nativeRoot, runner := scopeStage(t)
+	serveScopeRun(t, nativeRoot, scopeRunInfo())
+	for _, given := range []string{"", "  "} {
+		err := pipelineCommand(t.Context(), h, nativeRoot, runner, []string{"respond", "task", "--action", "fix", "--findings", "bug", "--scope-decision", given}, &bytes.Buffer{})
+		if err == nil || !strings.Contains(err.Error(), "--scope-decision is empty") {
+			t.Fatalf("--scope-decision %q err=%v, want it refused as a blank decision", given, err)
+		}
+		if len(runner.native) != 0 || runner.roundsReads != 0 {
+			t.Fatalf("--scope-decision %q native=%+v rounds reads=%d, want nothing read or sent", given, runner.native, runner.roundsReads)
+		}
+		if _, statErr := os.Stat(scopeJournalPath(meta)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("--scope-decision %q wrote scope evidence (%v), want none", given, statErr)
+		}
+	}
+}
+
+// A goblin that carries the primary's process tree is refused by its own
+// terminal labels, and a gate agent the same way.
+func TestPipelineScopeDecisionRefusesAWorkerOrGateAgent(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	t.Run("goblin", func(t *testing.T) {
+		h, _, nativeRoot, runner := scopeStage(t)
+		inGoblinTerminal(t, h.State, "task")
+		err := scopeRespond(t, h, nativeRoot, runner)
+		if err == nil || !strings.Contains(err.Error(), "registered primary CFO") || len(runner.native) != 0 || runner.roundsReads != 0 {
+			t.Fatalf("goblin scope decision err=%v native=%+v rounds reads=%d, want primary-only refusal before native access", err, runner.native, runner.roundsReads)
+		}
+	})
+	t.Run("gate agent", func(t *testing.T) {
+		h, _, nativeRoot, runner := scopeStage(t)
+		outsideGoblinTerminal(t)
+		t.Setenv(gateAgentVariable, "1")
+		err := scopeRespond(t, h, nativeRoot, runner)
+		if err == nil || !strings.Contains(err.Error(), "registered primary CFO") || !strings.Contains(err.Error(), "gate agent") || len(runner.native) != 0 || runner.roundsReads != 0 {
+			t.Fatalf("gate agent scope decision err=%v native=%+v rounds reads=%d, want primary-only refusal before native access", err, runner.native, runner.roundsReads)
+		}
+	})
+}
+
+// Every part of the binding comes from native's typed evidence, so evidence
+// that does not name this exact round, source and finding refuses before any
+// scope file is written.
+func TestPipelineScopeDecisionRefusesMismatchedNativeEvidence(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	const otherHead = "fedcba9876543210fedcba9876543210fedcba98"
+	cases := []struct {
+		Name    string
+		Rounds  string
+		RunInfo string
+		Want    string
+	}{
+		{"reviewed head differs", strings.Replace(scopeRounds(), `"reviewed_head_sha":"`+scopeHead+`"`, `"reviewed_head_sha":"`+otherHead+`"`, 1), "", "exact source, configuration or identity"},
+		{"round differs", strings.Replace(scopeRounds(), `"round":1`, `"round":2`, 1), "", "exact source, configuration or identity"},
+		{"finding absent", strings.Replace(scopeRounds(), `"id":"bug"`, `"id":"other"`, 1), "", "absent from the native Review round"},
+		{"trusted configuration absent", strings.Replace(scopeRounds(), `"trusted_config_sha":"trusted-config"`, `"trusted_config_sha":""`, 1), "", "exact source, configuration or identity"},
+		{"foreign step result", strings.Replace(scopeRounds(), `"step_result_id":"step"`, `"step_result_id":"other"`, 1), "", "exact source, configuration or identity"},
+		{"base source absent", "", strings.Replace(scopeRunInfo(), `"base_sha":"`+scopeBase+`"`, `"base_sha":""`, 1), "lacks the exact source binding"},
+		{"step status differs", "", strings.Replace(scopeRunInfo(), `"status":"awaiting_approval"`, `"status":"running"`, 1), "does not confirm the parked Review step"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.Name, func(t *testing.T) {
+			h, _, nativeRoot, runner := scopeStage(t)
+			if testCase.Rounds != "" {
+				runner.rounds = []byte(testCase.Rounds)
+			}
+			runInfo := scopeRunInfo()
+			if testCase.RunInfo != "" {
+				runInfo = testCase.RunInfo
+			}
+			serveScopeRun(t, nativeRoot, runInfo)
+			err := scopeRespond(t, h, nativeRoot, runner)
+			if err == nil || !strings.Contains(err.Error(), testCase.Want) || len(runner.native) != 0 {
+				t.Fatalf("mismatched evidence err=%v native=%+v, want it refused before writing a scope file", err, runner.native)
+			}
+		})
+	}
+}
+
+// A durable decision that keeps the identity but not the accepted correction
+// is a wrong acknowledgement, refused like a missing one.
+func TestPipelineScopeDecisionRefusesADifferingAcknowledgement(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	h, meta, nativeRoot, runner := scopeStage(t)
+	runner.roundsAfter = []byte(strings.Replace(scopeAccepted(), `"accepted_scope":"`+scopeText+`"`, `"accepted_scope":"A different requirement correction."`, 1))
+	serveScopeRun(t, nativeRoot, scopeRunInfo())
+
+	err := scopeRespond(t, h, nativeRoot, runner)
+	if err == nil || !strings.Contains(err.Error(), "differs from the accepted request") {
+		t.Fatalf("differing acknowledgement err=%v, want it refused", err)
+	}
+	if len(runner.native) != 1 || runner.roundsReads != 2 {
+		t.Fatalf("native calls=%+v rounds reads=%d, want one scoped response and its acknowledgement read", runner.native, runner.roundsReads)
+	}
+	journal, readErr := os.ReadFile(scopeJournalPath(meta))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Contains(journal, []byte(`"exit_code":0`)) || scopeStatusHas(h, "pipeline-review-scope-confirmed") {
+		t.Fatalf("scope journal=%s, want the native success kept and no confirmed audit", journal)
+	}
+}
+
+// A --scope-decision naming another task's notify is not this task's decision.
+func TestPipelineScopeDecisionRefusesAnotherTasksNotify(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	h, meta, nativeRoot, runner := scopeStage(t)
+	serveScopeRun(t, nativeRoot, scopeRunInfo())
+	err := scopeRespondRef(t, h, nativeRoot, runner, "notify-other-7")
+	if err == nil || !strings.Contains(err.Error(), "is not the question of task task's decision 7") {
+		t.Fatalf("another task's notify err=%v, want it refused", err)
+	}
+	if len(runner.native) != 0 || runner.roundsReads != 0 {
+		t.Fatalf("native=%+v rounds reads=%d, want nothing read or sent", runner.native, runner.roundsReads)
+	}
+	if _, statErr := os.Stat(scopeJournalPath(meta)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("another task's notify wrote scope evidence (%v), want none", statErr)
+	}
+}
+
+type scopeRunRequest struct {
+	Method string
+	RunID  string
+}
+
+// scopeRunLog is the RunInfo requests the stand-in native engine answered. It
+// records a request before replying to it, so a driver that finished its read
+// cannot have done so before the request it made is on the log: no clock is
+// needed to tell whether the managed driver asked native anything.
+type scopeRunLog struct {
+	mu       sync.Mutex
+	requests []scopeRunRequest
+}
+
+func (log *scopeRunLog) all() []scopeRunRequest {
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	return slices.Clone(log.requests)
+}
+
+func serveScopeRun(t *testing.T, nativeRoot, run string) *scopeRunLog {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	const token = "scope-run-token"
+	if err := os.WriteFile(filepath.Join(nativeRoot, "socket"), []byte(listener.Addr().String()+"\n"+token+"\n"+strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	requests := &scopeRunLog{}
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		reader := bufio.NewReader(conn)
+		gotToken, err := reader.ReadString('\n')
+		if err != nil || strings.TrimSpace(gotToken) != token {
+			return
+		}
+		var request struct {
+			ID     int64  `json:"id"`
+			Method string `json:"method"`
+			Params struct {
+				RunID string `json:"run_id"`
+			} `json:"params"`
+		}
+		if err := json.NewDecoder(reader).Decode(&request); err != nil {
+			return
+		}
+		requests.mu.Lock()
+		requests.requests = append(requests.requests, scopeRunRequest{Method: request.Method, RunID: request.Params.RunID})
+		requests.mu.Unlock()
+		_ = json.NewEncoder(conn).Encode(map[string]any{"jsonrpc": "2.0", "result": map[string]json.RawMessage{"run": json.RawMessage(run)}, "id": request.ID})
+	}()
+	return requests
 }
 
 func TestPipelineRunLaunchesNativeAfterCheckStart(t *testing.T) {

@@ -1,6 +1,7 @@
 package proc
 
 import (
+	"slices"
 	"testing"
 	"time"
 )
@@ -51,6 +52,57 @@ func TestServicesAmongAJobsProcessesCountsOnlyAServiceInTheJob(t *testing.T) {
 				if got := services[member.PID]; got != c.want[member.PID] {
 					t.Errorf("%s pid %d is service %d, want %d", member.ExeBase, member.PID, got, c.want[member.PID])
 				}
+			}
+		})
+	}
+}
+
+// A process tree is judged a machine service's only by a service among its
+// own processes, as a job's are. A tree read under the Scrawl server is not
+// the server's, so cfo reap --force still ends it, while a Docker Desktop
+// started in the tree is spared there with what runs under it.
+func TestTreeOfCountsOnlyAServiceInTheTree(t *testing.T) {
+	// Arrange
+	at := time.Date(2026, 10, 12, 19, 0, 0, 0, time.UTC)
+	later := func(seconds int) time.Time { return at.Add(time.Duration(seconds) * time.Second) }
+	running := []ServiceProcess{
+		{PID: 10, ParentPID: 1, ExeBase: "node.exe", Arguments: []string{`C:\tools\node.exe`, `C:\Users\o\AppData\Roaming\npm\node_modules\lavish-axi\dist\server.mjs`, "server"}, Start: later(0)},
+		{PID: 11, ParentPID: 10, ExeBase: "cfo.exe", Start: later(1)},
+		{PID: 12, ParentPID: 11, ExeBase: "cfo.test.exe", Start: later(2)},
+		{PID: 20, ParentPID: 11, ExeBase: "Docker Desktop.exe", Start: later(3)},
+		{PID: 21, ParentPID: 20, ExeBase: "cfo.test.exe", Start: later(4)},
+	}
+	for _, c := range []struct {
+		name string
+		pid  int
+		pids []int
+		want map[int]Service
+	}{
+		{name: "a reap under the Scrawl server", pid: 11, pids: []int{11, 12, 20, 21}, want: map[int]Service{20: DockerDesktop, 21: DockerDesktop}},
+		{name: "the Scrawl server's own tree", pid: 10, pids: []int{10, 11, 12, 20, 21}, want: map[int]Service{10: PageServer, 11: PageServer, 12: PageServer, 20: DockerDesktop, 21: DockerDesktop}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Act
+			tree, services, err := treeOf(running, c.pid)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("treeOf: %v", err)
+			}
+			var pids []int
+			for _, process := range tree {
+				pids = append(pids, process.PID)
+			}
+			if !slices.Equal(pids, c.pids) {
+				t.Fatalf("tree holds %v, want %v", pids, c.pids)
+			}
+			for _, process := range tree {
+				if got := services[process.PID]; got != c.want[process.PID] {
+					t.Errorf("%s pid %d is service %d, want %d", process.ExeBase, process.PID, got, c.want[process.PID])
+				}
+			}
+			if len(services) != len(c.want) {
+				t.Errorf("services = %v, want only the tree's own", services)
 			}
 		})
 	}

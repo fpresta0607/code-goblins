@@ -319,13 +319,14 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 	if report.Task != "" {
 		who += ", task " + taskLabel(report.Task, runtime)
 	}
+	priority := taskPriority(label, report.Task, stderr, runtime)
 	env := gatetest.Environment(os.Environ())
 	remainingFailures := slices.Clone(plan.Failures)
 	for _, command := range commands {
 		check := verify.Result{Command: command, Scope: report.Level, Status: "not_run", ExitCode: -1}
 		if report.Status == "passed" {
 			budget := runtime.gateBudget(plan.Level)
-			turn, admissionErr := takeGateTurn(context.Background(), label, stdout, stderr, runtime.availableMemory, who, budget, runtime.gateWaitLimit)
+			turn, admissionErr := takeGateTurn(context.Background(), label, stdout, stderr, runtime.availableMemory, who, priority, budget, runtime.gateWaitLimit)
 			report.QueueSeconds += turn.Waited.Seconds()
 			if admissionErr != nil {
 				report.Status, report.QueueNote = "failed", admissionErr.Error()
@@ -463,7 +464,7 @@ func runGateCommand(command []string, dir string, env []string, stdout, stderr i
 // this run stands in line. An unavailable or expired floor reading, a store
 // failure, or a wait that ctx ended, prevents execution, and is written to
 // stderr. Budget expiry never displaces custody.
-func takeGateTurn(ctx context.Context, label string, says, stderr io.Writer, available func() (supervisor.Memory, error), who string, budget, limit time.Duration) (verify.Turn, error) {
+func takeGateTurn(ctx context.Context, label string, says, stderr io.Writer, available func() (supervisor.Memory, error), who, priority string, budget, limit time.Duration) (verify.Turn, error) {
 	store, err := verify.AdmissionDir()
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: this run takes no turn: %v\n", label, err)
@@ -481,6 +482,7 @@ func takeGateTurn(ctx context.Context, label string, says, stderr io.Writer, ava
 		Floor:     supervisor.MemoryFloor,
 		Available: pairedAvailable,
 		Who:       who,
+		Priority:  priority,
 		Budget:    budget,
 		Limit:     limit,
 		Poll:      time.Second,
@@ -571,8 +573,9 @@ func gateBudget(level gatetest.Level) time.Duration {
 // runGateTurns shows the line that cfo gate test, cfo gate prepush and cfo
 // gate turn runs take their turns in:
 // each run that holds a turn, with how long it has and its budget, the runs
-// that wait, in the order they asked, and the machine's memory when it is
-// under the floor a run waits for. A gate shows a step's output only once
+// that wait, in the order they take their turns, each with why it stands
+// behind the one before it, and the machine's memory when it is under the
+// floor a run waits for. A gate shows a step's output only once
 // the step has ended, so this is where a run's wait can be read while it
 // lasts.
 func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory, error)) int {
@@ -611,6 +614,9 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 		}
 		if run.IsLowPriority {
 			line += ", at the lowest priority"
+		}
+		if run.Behind != "" {
+			line += fmt.Sprintf(", behind run %d: %s", place, run.Behind)
 		}
 		fmt.Fprintln(stdout, line)
 	}
@@ -662,7 +668,8 @@ type turnsReport struct {
 // turnsRun is one run in the line: who it is, since when it holds its turn
 // or waits, the budget and what it is doing that a holder said, the memory
 // it is expected to use and, for a holder, uses now, and whether it waits
-// at the lowest priority.
+// at the lowest priority. Behind is for cfo gate turns alone, so the board's
+// keys stay as they are.
 type turnsRun struct {
 	Who           string    `json:"who"`
 	PID           int       `json:"pid"`
@@ -672,6 +679,7 @@ type turnsRun struct {
 	EstimateBytes uint64    `json:"estimate_bytes"`
 	UsedBytes     uint64    `json:"used_bytes"`
 	IsLowPriority bool      `json:"is_low_priority"`
+	Behind        string    `json:"-"`
 }
 
 // turnsMemory is the machine's physical and commit memory available now,
@@ -731,7 +739,7 @@ func readTurns(available func() (supervisor.Memory, error)) (turnsReport, error)
 func turnsRuns(standing []verify.Standing) []turnsRun {
 	runs := []turnsRun{}
 	for _, run := range standing {
-		runs = append(runs, turnsRun{Who: run.Who, PID: run.PID, Since: run.Since, BudgetSeconds: run.Budget.Seconds(), Now: run.Now, EstimateBytes: run.Estimate, UsedBytes: run.Used, IsLowPriority: run.IsLowPriority})
+		runs = append(runs, turnsRun{Who: run.Who, PID: run.PID, Since: run.Since, BudgetSeconds: run.Budget.Seconds(), Now: run.Now, EstimateBytes: run.Estimate, UsedBytes: run.Used, IsLowPriority: run.IsLowPriority, Behind: run.Behind})
 	}
 	return runs
 }

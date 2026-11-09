@@ -701,6 +701,9 @@ for (const [harness, isTurnRunning] of [["claude", true], ["codex", false]] as c
     const shown = working(page).locator(".working-word");
     await expect(shown).toHaveText(["Compacting…"]);
     await expect(working(page).getByRole("status", { name: "Compacting" })).toBeVisible();
+    await expect(working(page).locator(".reply-doing")).toHaveCSS("color", "rgb(178, 154, 233)");
+    await expect(working(page).getByRole("status", { name: "Compacting" })).toHaveCSS("color", "rgb(178, 154, 233)");
+    expect(await working(page).locator(".reply-doing").evaluate((element) => element.getAnimations({ subtree: true }).length), "Compacting stays visible instead of retyping every cycle").toBe(0);
     const bubble = page.getByRole("log").locator(`[data-queued="${queued.id}"]`);
     await expect(bubble).toContainText("Queued");
     await expect(bubble).not.toContainText("Sent");

@@ -1,6 +1,6 @@
 # cfo pipeline
 
-`cfo pipeline config-drift \| config-apply \| migrate <id> \| run <id> [--branch <b>] --intent-file <file> \| respond <id> [--branch <b> \| --run <run>] --action <fix\|approve> [--findings <ids>] [--instructions <text>] [--accept <ids>] [--reason <text>] \| recover <id> [--branch <b> \| --run <run>] \| handback <id> [--branch <b> \| --run <run>] [--revalidate-publication] [--resume --receipt <receipt>]`
+`cfo pipeline config-drift \| config-apply \| migrate <id> \| run <id> [--branch <b>] --intent-file <file> \| respond <id> [--branch <b> \| --run <run>] --action <fix\|approve> [--findings <ids>] [--instructions <text>] [--accept <ids>] [--reason <text>] [--scope-decision <answered-notify-sequence>] \| recover <id> [--branch <b> \| --run <run>] \| handback <id> [--branch <b> \| --run <run>] [--revalidate-publication] [--resume --receipt <receipt>]`
 
 `cfo pipeline terminal-preflight <id> --run <predecessor>`
 
@@ -18,6 +18,13 @@ A goblin takes as they stand only findings that are not correctness, security or
 For a recognized native configured Test command failure with an empty action, the primary CEO must supply both `--accept` naming every open finding, including the failure, and a nonblank `--reason`.
 That response binds the native approval to the recorded run and preserves the failed command as an explicit Test exception; other empty or unknown findings remain refused.
 `--reason` with approve is the reason an approved Test exception keeps, handed to the native engine's own `--reason` and recorded in the task's status log; it is the registered CEO's alone, a goblin is refused, and a reason on any other gate, with a fix, or blank or of more than one line is refused, so no approval is ever inferred from one.
+`--scope-decision <answered-notify-sequence>` is the registered primary CEO's explicit Review-fix handoff for one selected finding, never ordinary guidance and never available to a goblin or gate descendant.
+The reference is this task's own `notify-<task>-<sequence>` ID or its bare sequence; another task's notify is refused.
+A blank `--scope-decision`, as an unset variable gives, is a decision given and refused rather than read as no decision.
+It reads the exact answer of that task's current-generation blocked notify, binds it to typed native `get_run` and `axi rounds --json` evidence, and sends it once through native `--scope-decision-file` with the exact run.
+The controller retains the request hash, decision bytes and native outcome privately in `review-scope-decisions.jsonl`, and reports the response only once native's own rounds evidence keeps that exact decision.
+An old native method, an uncertain acknowledgement, or changed decision, finding, source, configuration or round remains refused without a fallback, retry or new run.
+It requires a native build carrying the typed accepted-Review-scope contract: `get_run` RunInfo naming the parked Review round, `--scope-decision-file`, and an `axi rounds --json` document whose round publishes `id`, `step_result_id`, `reviewed_head_sha` and `trusted_config_sha` and whose top level has the `scope_decisions` array; an earlier build cannot carry it: a round missing those fields is refused before the scope file is written or a response is sent, and any refusal or unkept `scope_decisions` acknowledgement is recorded with its exact native outcome in `review-scope-decisions.jsonl`, with no ordinary-response fallback, automatic retry or new run.
 From policy version 6 `run` starts the gate on the task's own harness, with that task's model and effort, as a launch selection no-mistakes proves before any agent starts, prints it on a `pipeline gate agent:` line, and names a second harness only when the operator named it as the policy's fallback and it is signed in.
 A live run of the same branch, head and intent is reattached to when its bounded hold ends with no decision, so repeating the command starts no new run and resets no review budget, and none of a new start's checks, such as origin's tracking ref, stops it, while a start of other work is still refused.
 Mode eligibility follows [Task classes](../pipeline.md#task-classes).
