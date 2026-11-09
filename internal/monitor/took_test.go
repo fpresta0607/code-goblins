@@ -203,3 +203,46 @@ func writeConversation(t *testing.T, home, harness, worktree string, entries ...
 		}
 	}
 }
+
+func claudeSystem(at, subtype, content string) map[string]any {
+	return map[string]any{"type": "system", "subtype": subtype, "timestamp": at, "content": content, "isMeta": false}
+}
+
+// A slash command Claude Code runs itself is handed over once its record
+// shows the command: as its tags in a user message, as a system
+// local_command record (2.1.309), or for /remote-control as only the
+// bridge_status record its status opens with (2.1.304 to 2.1.319). What the
+// command printed, another command's status, and a status from before the
+// send are not (#2193).
+func TestASlashCommandClaudeCodeRanItselfIsTaken(t *testing.T) {
+	sent := time.Date(2026, 11, 9, 14, 0, 0, 0, time.UTC)
+	after, before := "2026-11-09T14:00:03Z", "2026-11-09T13:40:00Z"
+	for _, tc := range []struct {
+		name    string
+		command string
+		entry   map[string]any
+		want    bool
+	}{
+		{name: "its tags in a user message", command: "/model opus", entry: claudePrompt(after, "<command-name>/model</command-name>\n            <command-message>model</command-message>\n            <command-args>opus</command-args>"), want: true},
+		{name: "a system local_command record", command: "/remote-control", entry: claudeSystem(after, "local_command", "/remote-control"), want: true},
+		{name: "only its bridge status", command: "/remote-control", entry: claudeSystem(after, "bridge_status", "/remote-control is active · Continue here, on your phone, or at https://claude.ai/code/session_1"), want: true},
+		{name: "what it printed", command: "/remote-control", entry: claudeSystem(after, "local_command", "<local-command-stdout>/remote-control isn't available in this environment.</local-command-stdout>"), want: false},
+		{name: "another command's status", command: "/remote", entry: claudeSystem(after, "bridge_status", "/remote-control is active · Continue here"), want: false},
+		{name: "a status from before the send", command: "/remote-control", entry: claudeSystem(before, "bridge_status", "/remote-control is active · Continue here"), want: false},
+		{name: "another system record", command: "/remote-control", entry: claudeSystem(after, "informational", "/remote-control"), want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			home, worktree := t.TempDir(), t.TempDir()
+			transcriptLines(t, filepath.Join(claudeProjectFolder(home, worktree), "conversation.jsonl"), time.Now(), tc.entry)
+
+			// Act
+			took := (&HostProgress{Home: home}).Took(context.Background(), Conversation{Harness: "claude", Dir: worktree}, TextDigest(tc.command), sent)
+
+			// Assert
+			if took != tc.want {
+				t.Errorf("Took = %t, want %t", took, tc.want)
+			}
+		})
+	}
+}

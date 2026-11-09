@@ -1013,3 +1013,79 @@ func TestNativeCFOCannotCallAnAnswerSentWhileItRemainsInTheIdleComposer(t *testi
 		t.Errorf("idle input = %q; want no accepted or queued prompt", input)
 	}
 }
+
+// A slash command the CFO's harness runs itself starts no turn, and Codex
+// and pi record none, so an idle CFO took it once it left the input line,
+// and the board reads it taken rather than Sent. A command typed into a
+// Codex or pi turn could be dropped with nothing to show it, so it waits for
+// the turn to end, nothing typed, while Claude Code queues one and records
+// it once run (#2193).
+func TestASlashCommandReachesTheCFOInItsTrueState(t *testing.T) {
+	for _, test := range []struct {
+		mode      string
+		isTaken   bool
+		isWaiting bool
+	}{
+		{mode: "claude-ready", isTaken: true},
+		{mode: "ready", isTaken: true},
+		{mode: "claude-busy"},
+		{mode: "busy", isWaiting: true},
+	} {
+		t.Run(test.mode, func(t *testing.T) {
+			// Arrange
+			useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCFOComposer(t, home.State, test.mode)
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+
+			// Act
+			result, err := service.deliverMessage(ctx, Action{Kind: "message", Text: "/remote-control"})
+
+			// Assert
+			lines := terminal.lines(t)
+			if !test.isWaiting {
+				lines = terminal.waitForLines(t, 2)
+			}
+			switch {
+			case test.isWaiting:
+				if !errors.Is(err, ErrDeferred) || len(lines) != 1 {
+					t.Errorf("deliverMessage = %+v, %v, terminal input %q; want it held for the turn's end, nothing typed", result, err, lines)
+				}
+			case test.isTaken:
+				if err != nil || result.Awaiting != nil || !strings.Contains(result.Reason, "Taken by the CFO") || len(lines) != 2 || lines[1] != "accepted /remote-control" {
+					t.Errorf("deliverMessage = %+v, %v, terminal input %q; want it typed once and taken", result, err, lines)
+				}
+			default:
+				if err != nil || result.Awaiting == nil || len(lines) != 2 || lines[1] != "queued /remote-control" {
+					t.Errorf("deliverMessage = %+v, %v, terminal input %q; want it queued in the turn, awaiting the CFO's record", result, err, lines)
+				}
+			}
+		})
+	}
+}
+
+// An idle CFO whose input line clears for an answer before its working row
+// draws has run no command, so only a command reads as one it ran, and an
+// answer still waits on the CFO's record as Sent (#2193).
+func TestAnAnswerAnIdleCFOClearsWithNoTurnShownReadsSentNotRun(t *testing.T) {
+	// Arrange
+	useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCFOComposer(t, home.State, "unmoved")
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// Act
+	result, err := service.deliverMessage(ctx, Action{Kind: "message", Text: "use staging"})
+
+	// Assert
+	if err != nil || result.Awaiting == nil || result.Reason != sentToCFO {
+		t.Errorf("deliverMessage = %+v, %v; want it Sent and awaiting the CFO's record, never a command it ran", result, err)
+	}
+	if lines := terminal.waitForLines(t, 2); len(lines) != 2 || lines[1] != "accepted use staging" {
+		t.Errorf("terminal input = %q; want the answer typed once", lines)
+	}
+}

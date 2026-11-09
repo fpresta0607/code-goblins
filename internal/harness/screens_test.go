@@ -1302,3 +1302,43 @@ func TestSubmittableEndsATrailingMentionWithASpaceOnlyForCodex(t *testing.T) {
 		})
 	}
 }
+
+// A slash command a harness runs itself starts no turn, so its leaving the
+// input line, the composer empty or the command's own panel open, is the
+// harness taking it, for each harness (#2193). Text still in the composer, a
+// startup dialog over it, or a screen nothing reads is not.
+func TestASubmittedCommandIsTakenOnceItLeavesTheInputLine(t *testing.T) {
+	rule := strings.Repeat("─", 40)
+	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+	piFooter := "↑7.8k ↓895 R31k CH94.9% $0.003 0.8%/1.0M (auto)"
+	picker := []string{"● Done. The branch is pushed.", "", " Select model", " Switch between Claude models.", "", " ❯ 1. Default (recommended)", "   2. Sonnet", "", " Enter to confirm · Esc to exit"}
+	for name, test := range map[string]struct {
+		kind    Kind
+		command string
+		screen  []string
+		took    bool
+	}{
+		"claude back at an empty composer":  {Claude, "/remote-control", append([]string{"● Done.", "", "/remote-control is active · Continue here, on your phone"}, rule, "❯ ", rule, footer), true},
+		"claude with the command's picker":  {Claude, "/model", picker, true},
+		"claude with the command unsent":    {Claude, "/remote-control", append([]string{"● Done."}, rule, "❯ /remote-control", rule, footer), false},
+		"codex back at its placeholder":     {Codex, "/status", []string{"• ok", "› Ask Codex to do anything", "  gpt-6-astra low · work"}, true},
+		"codex with the command unsent":     {Codex, "/status", []string{"• ok", "› /status", "  gpt-6-astra low · work"}, false},
+		"codex under its folder trust":      {Codex, "/status", []string{"> You are in this folder", "  Do you trust the contents of this directory?", "› 1. Yes, continue", "  2. No, quit", "  Press enter to continue"}, false},
+		"pi back at an empty editor":        {Pi, "/session", []string{"Session info", rule, "  ", rule, piFooter}, true},
+		"pi with the command unsent":        {Pi, "/session", []string{"Done.", rule, " /session ", rule, piFooter}, false},
+		"a harness whose screens it cannot": {Kind("other"), "/status", []string{"› "}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+
+			// Act
+			took := screens.TookCommand(test.screen, test.command)
+
+			// Assert
+			if took != test.took {
+				t.Errorf("TookCommand(%q, %q) = %v, want %v", test.screen, test.command, took, test.took)
+			}
+		})
+	}
+}
