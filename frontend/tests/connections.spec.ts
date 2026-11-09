@@ -6,10 +6,10 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/engines", (route) => route.fulfill({ json: engines }));
 });
 const entries = [
-  { id: "mcp:github", name: "GitHub", kind: "mcp", status: "connected", source: "Codex", checked_at: checkedAt },
+  { id: "mcp:github", name: "GitHub", kind: "mcp", status: "probe_succeeded", scope: "separate_probe", source: "Codex", checked_at: checkedAt },
   { id: "mcp:context7", name: "Context7", kind: "mcp", status: "unauthorized", detail: "Sign-in required.", checked_at: checkedAt, actions: ["login"] },
   { id: "mcp:sentry", name: "Sentry", kind: "mcp", status: "withheld", detail: "OAuth-only. Use a token or your own session.", checked_at: checkedAt },
-  { id: "service:github", name: "GitHub CLI", kind: "service", status: "connected", checked_at: checkedAt },
+  { id: "service:github", name: "GitHub CLI", kind: "service", status: "connected", checked_at: checkedAt, restart_required: true, restart_reason: "Granted, but declared credentials are missing from the running process. Restart to load available credentials." },
   { id: "credential:TEST_TOKEN", name: "TEST_TOKEN", kind: "credential", status: "provided", checked_at: checkedAt },
   { id: "connector:crawler", name: "crawler", kind: "connector", status: "provided", source: "Code Goblins", checked_at: checkedAt },
 ];
@@ -30,7 +30,7 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
         await route.fulfill({ json: { repository: "code-goblins", root: "C:/scratch/work", harness: "codex", model: "Reported: gpt-6-astra", notes: [] } });
       } else if (url.pathname === "/api/connections" && route.request().method() === "GET") {
         checks++;
-        await route.fulfill({ json: { instance: "connections-proof", checking: false, checked_at: checkedAt, entries: entries.map((entry) => entry.name === "Context7" && isFixed ? { ...entry, status: "connected", detail: "", actions: [] } : entry) } });
+        await route.fulfill({ json: { instance: "connections-proof", generation: "first", runtime: { process_id: 42, started_at: "2026-09-29T14:00:00Z", workspace: "C:/scratch/work" }, checking: false, checked_at: checkedAt, entries: entries.map((entry) => entry.name === "Context7" && isFixed ? { ...entry, status: "connected", detail: "", actions: [] } : entry) } });
       } else if (url.pathname === "/api/connections/fix") {
         expect(route.request().headers()["x-cfo-token"]).toBe("connections-proof");
         expect(route.request().postDataJSON()).toEqual({ task: "connection-proof", generation: "first", connection: "mcp:context7", action: "login" });
@@ -46,6 +46,13 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     await expect(panel.locator(".connector-card")).toHaveCount(6);
     await expect(panel.getByRole("list", { name: "Default connectors" }).getByRole("listitem").filter({ hasText: "crawler" })).toContainText("Finds and reads every page and file of a site");
     await expect(panel.locator(".connector-trouble")).toHaveCount(1);
+    const github = panel.getByRole("list", { name: "MCP servers" }).getByRole("listitem").filter({ hasText: "GitHub" });
+    await expect(github).toContainText("Separate probe succeeded. Live session unknown. Account and target identity unknown.");
+    await expect(panel.getByRole("list", { name: "Repository services" }).getByRole("listitem").filter({ hasText: "GitHub CLI" })).toContainText("Restart required.");
+    await expect(panel).toContainText("Generation first. Verified process 42, started 2026-09-29T14:00:00Z, workspace C:/scratch/work.");
+    await expect(github.locator("time")).toHaveAttribute("datetime", checkedAt);
+    await expect(panel.locator(".connector-card").filter({ hasText: "Live session unknown" })).toHaveCount(1);
+    await expect(panel.locator(".connector-card time")).toHaveCount(1);
     await expect(panel).not.toContainText(/Connected|Withheld/);
     await expect(panel.getByText("TEST_TOKEN", { exact: true })).toBeVisible();
     await expect(panel.getByText("Configured is not connected.", { exact: false })).toHaveCount(0);

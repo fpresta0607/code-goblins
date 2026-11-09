@@ -189,6 +189,33 @@ func TestCachedReadNeverStartsACheck(t *testing.T) {
 	}
 }
 
+func TestExpiredProbeIsUnverifiedWhileRefreshRuns(t *testing.T) {
+	var calls atomic.Int32
+	var ahead atomic.Int64
+	release := make(chan struct{})
+	cache := NewCache(time.Minute, time.Minute, func(ctx context.Context, _ string) Snapshot {
+		if calls.Add(1) > 1 {
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		}
+		return Snapshot{Entries: []Entry{{ID: "mcp:tools", Status: "probe_succeeded", Scope: "separate_probe", LiveStatus: "unknown"}}}
+	})
+	cache.now = func() time.Time { return time.Unix(100, 0).Add(time.Duration(ahead.Load())) }
+	defer cache.Close()
+	defer close(release)
+	cache.Get("task\ng1", false)
+	waitChecked(t, cache, "task\ng1")
+	ahead.Store(int64(time.Minute))
+
+	result := cache.Get("task\ng1", false)
+
+	if !result.Checking || result.Entries[0].Status != "unverified" || result.Entries[0].LiveStatus != "unknown" {
+		t.Fatalf("expired probe remained positive: %+v", result)
+	}
+}
+
 func TestRefreshesDuringACheckCoalesceIntoOneFollowingCheck(t *testing.T) {
 	var calls atomic.Int32
 	releases := []chan struct{}{make(chan struct{}), make(chan struct{})}

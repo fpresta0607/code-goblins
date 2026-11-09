@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -50,7 +51,12 @@ func (s *Service) connections() (*connections.Cache, *connections.Inspector) {
 			if err := s.verifyWorkspace(ctx, meta); err != nil {
 				return connections.Snapshot{Error: err.Error(), Entries: []connections.Entry{}}
 			}
-			return inspector.Check(ctx, meta)
+			result := inspector.Check(ctx, meta)
+			current, err := s.connectionTask(task, generation)
+			if err != nil || !reflect.DeepEqual(current, meta) {
+				return connections.Snapshot{Error: "Task or grants changed during the check. Refresh connections.", Entries: []connections.Entry{}}
+			}
+			return result
 		})
 	}
 	return s.connectionChecks, s.connectionInspector
@@ -66,6 +72,8 @@ func (s *Service) connectionTask(task, generation string) (state.TaskMeta, error
 
 func (h *HTTP) connectionResponse(w http.ResponseWriter, meta state.TaskMeta, refresh bool) {
 	checks, _ := h.Service.connections()
+	snapshot := checks.Get(meta.ID+"\n"+meta.SpawnGen, refresh)
+	snapshot.Generation = meta.SpawnGen
 	logins := []browserLoginEntry{}
 	if h.Service.browsers != nil {
 		var err error
@@ -78,7 +86,7 @@ func (h *HTTP) connectionResponse(w http.ResponseWriter, meta state.TaskMeta, re
 		connections.Snapshot
 		Instance      string              `json:"instance"`
 		BrowserLogins []browserLoginEntry `json:"browser_logins"`
-	}{checks.Get(meta.ID+"\n"+meta.SpawnGen, refresh), h.Service.Instance, logins})
+	}{snapshot, h.Service.Instance, logins})
 }
 
 func (h *HTTP) readConnections(w http.ResponseWriter, r *http.Request) {

@@ -13,8 +13,90 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/connections"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
+
+func TestConnectionAPIRejectsTaskChangesDuringAsynchronousInspection(t *testing.T) {
+	for _, change := range []string{"none", "generation", "grants", "workspace"} {
+		t.Run(change, func(t *testing.T) {
+			store, home := testStore(t)
+			meta, err := state.ReadTaskMeta(home.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.Project = gitFixture(t)
+			meta.Worktree = filepath.Join(home.Root, "linked")
+			command := execx.Command("git", "-C", meta.Project, "worktree", "add", "--detach", meta.Worktree, "HEAD")
+			if output, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("linked fixture: %s %v", output, err)
+			}
+			if err := state.WriteTaskMeta(home.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			inspector := connections.NewInspector(home.Root, home.Data, home.State)
+			inspector.Runtime = func(context.Context, string, state.TaskMeta) (connections.RuntimeObservation, error) {
+				return connections.RuntimeObservation{Identity: connections.RuntimeIdentity{ProcessID: 42, StartedAt: time.Unix(100, 0), Workspace: meta.Worktree}, Args: []string{"--strict-mcp-config"}}, nil
+			}
+			inspector.Claude = func(context.Context, string, []string, []string) ([]connections.Entry, error) {
+				current := meta
+				switch change {
+				case "generation":
+					current.SpawnGen = "replacement"
+				case "grants":
+					current.HasCredentials, current.Credentials = true, []string{"repo"}
+				case "workspace":
+					current.Worktree = meta.Project
+				}
+				if err := state.WriteTaskMeta(home.State, current); err != nil {
+					return nil, err
+				}
+				return []connections.Entry{{ID: "mcp:tools", Name: "tools", Kind: "mcp", Status: "connected"}}, nil
+			}
+			meta.Harness = "claude"
+			if err := state.WriteTaskMeta(home.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			service := &Service{Store: store, Instance: "test-instance", connectionInspector: inspector}
+			checks, _ := service.connections()
+			defer checks.Close()
+
+			checks.Get(meta.ID+"\n"+meta.SpawnGen, false)
+			result := waitForConnectionCheck(t, checks, meta.ID+"\n"+meta.SpawnGen)
+
+			if change != "none" {
+				if result.Error == "" || len(result.Entries) != 0 || result.Runtime != nil {
+					t.Fatalf("published changed task: %+v", result)
+				}
+				if change == "generation" {
+					return
+				}
+			}
+			handler := NewHTTP(service, "board.local", nil)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local/api/connections?task=task-1&generation=g1", nil))
+			var snapshot connections.Snapshot
+			if err := json.Unmarshal(response.Body.Bytes(), &snapshot); err != nil {
+				t.Fatal(err)
+			}
+			if change != "none" {
+				if response.Code != 200 || snapshot.Generation != "g1" || snapshot.Error == "" || len(snapshot.Entries) != 0 {
+					t.Fatalf("error response lost its generation: %s", response.Body)
+				}
+				return
+			}
+			if response.Code != 200 || snapshot.Generation != "g1" || snapshot.Runtime == nil || snapshot.Runtime.Workspace != meta.Worktree {
+				t.Fatalf("lost runtime provenance: %s", response.Body)
+			}
+			for _, entry := range snapshot.Entries {
+				if entry.ID == "mcp:tools" && entry.Status == "probe_succeeded" && entry.Scope == "separate_probe" && entry.LiveStatus == "unknown" {
+					return
+				}
+			}
+			t.Fatalf("API omitted separate probe scope: %s", response.Body)
+		})
+	}
+}
 
 func TestConnectionAPIIsCachedAndRejectsStaleTasksAndUntrustedRefreshes(t *testing.T) {
 	store, _ := testStore(t)
