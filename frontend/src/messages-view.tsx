@@ -760,10 +760,13 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     read.add(action.id);
   }
   const queued = waiting.filter((action) => !read.has(action.id));
+  // A prompt its harness holds that names the board message which typed it
+  // is that message's one row, whichever of the two the board drew first,
+  // its send still reaching the board included, since a send keeps the id of
+  // its message; one that names none is a row of its own.
   const harnessActions = new Map<string, Action>();
   for (const prompt of held.waiting) {
-    const row = queued.findIndex((action) => prompt.source === "overlord" && action.status === "running"
-      && Date.parse(prompt.at) >= Date.parse(action.awaiting ? action.created_at : action.updated_at) && sameWords(action.text, prompt.text));
+    const row = prompt.action ? queued.findIndex((action) => action.id === prompt.action) : -1;
     if (row >= 0) harnessActions.set(prompt.id, queued.splice(row, 1)[0]);
   }
   const queuedIDs = [...held.waiting, ...queued].map((each) => each.id).join("\0");

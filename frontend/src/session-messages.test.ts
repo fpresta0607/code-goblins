@@ -65,7 +65,7 @@ test("a page of the same conversation keeps the older messages read before it, a
 });
 
 test("a page says what its harness holds now, and a page of older messages leaves that alone", () => {
-  const prompt = { id: "q1", at: "2026-11-05T12:00:00Z", source: "overlord", text: "check the phone too", sending: false };
+  const prompt = { id: "q1", at: "2026-11-05T12:00:00Z", source: "overlord", text: "check the phone too", sending: false, action: "a1" };
   const waiting = parseWaiting([prompt]);
   assert.deepEqual(waiting, [prompt]);
   assert.deepEqual(parsePage({ conversation: "a", messages: [], more: false, waiting: [prompt] }).waiting, waiting);
@@ -75,6 +75,8 @@ test("a page says what its harness holds now, and a page of older messages leave
   assert.throws(() => parseWaiting([{ ...prompt, source: "elsewhere" }]));
   assert.deepEqual(parseWaiting([{ ...prompt, sending: true }]), [{ ...prompt, sending: true }]);
   assert.throws(() => parseWaiting([{ ...prompt, sending: "yes" }]));
+  assert.equal(parseWaiting([{ ...prompt, action: undefined }])[0].action, "", "a prompt typed in the terminal names no board message");
+  assert.throws(() => parseWaiting([{ ...prompt, action: 1 }]));
   const before = { conversation: "a", messages: held(10, 11, 12), more: true, waiting };
   assert.deepEqual(pageMessages(before, { conversation: "a", messages: held(11, 12, 13), more: true, waiting: [] }).waiting, [], "a renewed stream's page ends a wait");
   assert.deepEqual(pageMessages({ ...before, waiting: [] }, { conversation: "a", messages: held(11, 12), more: true, waiting }).waiting, waiting, "and starts one");

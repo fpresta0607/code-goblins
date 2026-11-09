@@ -598,10 +598,10 @@ for (const isAwaiting of [false, true]) {
     await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [action] });
     const rows = talk.locator(".queued-message.pane");
     await expect(rows.filter({ hasText: words })).toHaveCount(1);
-    const prompt = (id: string, text: string) => ({ id, at, source: "overlord", text });
+    const prompt = (id: string, text: string, action?: string) => ({ id, at, source: "overlord", text, action });
 
     // Act
-    await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [prompt("q1", words), prompt("q2", "and the phone")] });
+    await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [prompt("q1", words, "a1"), prompt("q2", "and the phone")] });
 
     // Assert
     await expect(rows.filter({ hasText: "and the phone" })).toHaveCount(1);
@@ -610,12 +610,12 @@ for (const isAwaiting of [false, true]) {
     await expect(rows.filter({ hasText: words }).getByRole("button", { name: "Cancel" })).toHaveCount(0);
 
     // Act
-    await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [prompt("q1", words), prompt("q3", words)] });
+    await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [prompt("q1", words, "a1"), prompt("q3", words)] });
 
     // Assert
     await expect(rows.filter({ hasText: words })).toHaveCount(2);
     await expect(rows.filter({ hasText: words }).filter({ hasText: "Queued" })).toHaveCount(2);
-    await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [{ ...prompt("q1", words), sending: true }, prompt("q3", words)] });
+    await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [{ ...prompt("q1", words, "a1"), sending: true }, prompt("q3", words)] });
     await expect(rows.filter({ hasText: words })).toHaveCount(2);
     await expect(rows.filter({ hasText: words }).filter({ hasText: "Sending" })).toHaveCount(1);
     await expect(rows.filter({ hasText: words }).locator(".queued-state")).toHaveText(["Sending", "Queued"]);
@@ -626,6 +626,80 @@ for (const isAwaiting of [false, true]) {
     await expect(talk.locator(".message-prompt").filter({ hasText: words })).toHaveCount(1);
   });
 }
+
+// The harness can record a prompt before the board's snapshot says the board
+// typed it, so the prompt names its message and the two are one row whichever
+// arrives first, the snapshot's stale Queued included.
+test("a prompt its harness holds before the board's snapshot shows its message typed is still one row", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await openGoblin(page);
+  const talk = list(page, "Zeke - Touch Wrangler");
+  const words = "also check the iPad";
+  const rows = talk.locator(".queued-message.pane").filter({ hasText: words });
+  const action = { id: "a1", kind: "message", task_id: "cg-touch", text: words, status: "queued", message: "", awaiting: "", created_at: at, updated_at: at };
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [action] });
+  await expect(rows).toHaveCount(1);
+
+  // Act: the harness records it while the board's snapshot still says Queued.
+  await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [{ id: "q1", at, source: "overlord", text: words, action: "a1" }] });
+
+  // Assert
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toContainText("Queued");
+  await expect(rows.getByRole("button", { name: "Cancel" })).toHaveCount(0);
+
+  // Act: the snapshot catches up.
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 3, actions: [{ ...action, status: "running", awaiting: { task: "cg-touch" } }] });
+
+  // Assert
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toContainText("Queued");
+});
+
+test("a prompt its harness holds before any snapshot carries its message is one row", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await openGoblin(page);
+  const talk = list(page, "Zeke - Touch Wrangler");
+  const words = "also check the iPad";
+  const rows = talk.locator(".queued-message.pane").filter({ hasText: words });
+
+  // Act: the harness holds it first.
+  await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [{ id: "q1", at, source: "overlord", text: words, action: "a1" }] });
+  await expect(rows).toHaveCount(1);
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: "a1", kind: "message", task_id: "cg-touch", text: words, status: "running", message: "", awaiting: "", created_at: at, updated_at: at }] });
+
+  // Assert
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toContainText("Queued");
+});
+
+test("a send still reaching the board and the prompt its harness recorded for it are one row", async ({ page }) => {
+  // Arrange: the board never answers the send, so it stays his own.
+  const posted: { id: string; text: string }[] = [];
+  const board = await open(page);
+  await page.route("**/api/actions", (route) => { posted.push(route.request().postDataJSON() as { id: string; text: string }); });
+  const who = "Zeke - Touch Wrangler";
+  await openGoblin(page, who);
+  await board.sayTo("cg-touch", { type: "held", reason: "pipeline: native custody status check failed" });
+  await expect(messageBox(page, who)).toHaveAttribute("data-queues", "");
+  const words = "also check the iPad";
+  const rows = list(page, who).locator(".queued-message.pane").filter({ hasText: words });
+  await boxField(page, who).fill(words);
+  await boxSend(page, who).click();
+  await expect.poll(() => posted.length).toBe(1);
+  await expect(rows).toHaveCount(1);
+
+  // Act: the harness records it, then a separate prompt of the same words.
+  await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [{ id: "q1", at, source: "overlord", text: words, action: posted[0].id }] });
+
+  // Assert
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toContainText("Queued");
+  await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [{ id: "q1", at, source: "overlord", text: words, action: posted[0].id }, { id: "q2", at, source: "overlord", text: words }] });
+  await expect(rows).toHaveCount(2);
+});
 
 for (const state of ["unsubmitted", "older terminal prompt", "before this send started", "CFO prompt"] as const) {
   test(`harness queue matching preserves a separate ${state}`, async ({ page }) => {

@@ -241,13 +241,15 @@ type MessagePage struct {
 
 // WaitingPrompt keeps a Claude Code prompt visible from enqueue through its
 // handoff until its delivered Message appears. It has no delivery offset yet,
-// so it stays separate from messages; IsSending marks the handoff.
+// so it stays separate from messages; IsSending marks the handoff, and Action
+// names the board message that typed it, which the supervisor fills in.
 type WaitingPrompt struct {
 	ID        string    `json:"id"`
 	At        time.Time `json:"at"`
 	Source    string    `json:"source,omitempty"`
 	Text      string    `json:"text"`
 	IsSending bool      `json:"sending,omitempty"`
+	Action    string    `json:"action,omitempty"`
 }
 
 // Usage is what a session has spent, read from its own conversation: its

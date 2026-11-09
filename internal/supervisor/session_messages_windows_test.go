@@ -221,8 +221,28 @@ func TestMessagesServeASessionsConversation(t *testing.T) {
 
 		// Act and Assert: queued, which changes no message.
 		read("page", `"text":"Its gate failed."`)
+		taken, err := time.Parse(time.RFC3339Nano, stamp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		store.mu.Lock()
+		store.db.Actions = append(store.db.Actions, Action{ID: "board-1", Kind: "message", TaskID: meta.ID, Text: "check the phone too", Status: "running", CreatedAt: taken.Add(-time.Second), UpdatedAt: taken})
+		err = store.save()
+		store.mu.Unlock()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			store.mu.Lock()
+			defer store.mu.Unlock()
+			store.db.Actions = slices.DeleteFunc(store.db.Actions, func(action Action) bool { return action.ID == "board-1" })
+			if err := store.save(); err != nil {
+				t.Error(err)
+			}
+		})
 		appendEntries(t, conversation, `{"type":"queue-operation","operation":"enqueue","timestamp":"`+stamp+`","content":"check the phone too"}`)
-		read("messages", `"text":"check the phone too"`)
+		// The prompt names the board message that typed it.
+		read("messages", `"text":"check the phone too","action":"board-1"`)
 
 		// Act and Assert: the same event ends its wait and brings its row, so
 		// the board never draws it twice.
