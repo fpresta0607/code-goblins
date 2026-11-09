@@ -93,7 +93,8 @@ var (
 	aside = regexp.MustCompile(`^(.+)(\.\d+\.update-old)$`)
 	// ledName finds the names whose old name follows another word, such as
 	// the last update's previous copy, which nameToken leaves alone since a
-	// task's id is spelled the same way.
+	// task's id is spelled the same way. A name that goes on after a hyphen,
+	// such as a branch's, is a longer name that keeps its words.
 	ledName     = ledNames()
 	quotedWords = regexp.MustCompile(`(?m)^[ \t]*>.*$|"[^"\n]*"|“[^”]*”`)
 )
@@ -200,10 +201,26 @@ func (r rules) words(text string) string {
 	for _, marker := range markers {
 		text = strings.ReplaceAll(text, oldSpelling(marker), marker)
 	}
-	text = ledName.ReplaceAllStringFunc(text, newSpelling)
+	text = renameLed(text)
 	return nameToken.ReplaceAllStringFunc(text, func(match string) string {
 		parts := nameToken.FindStringSubmatch(match)
 		token := strings.TrimRight(parts[2], ".")
 		return parts[1] + r.renamed(token) + parts[2][len(token):]
 	})
+}
+
+func renameLed(text string) string {
+	var out strings.Builder
+	last := 0
+	for _, span := range ledName.FindAllStringSubmatchIndex(text, -1) {
+		start, end := span[4], span[5]
+		if end < len(text) && text[end] == '-' {
+			continue
+		}
+		out.WriteString(text[last:start])
+		out.WriteString(newSpelling(text[start:end]))
+		last = end
+	}
+	out.WriteString(text[last:])
+	return out.String()
 }

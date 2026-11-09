@@ -24,6 +24,9 @@ func TestTheRulesRenameTheCommandAndKeepEveryOtherWord(t *testing.T) {
 		{"a state file", `state\` + oldName + `-engine.json.`, `state\` + newName + `-engine.json.`},
 		{"a handoff note", oldName + "-handoff-2026-11-05.md", newName + "-handoff-2026-11-05.md"},
 		{"the hooks' marker", "# " + upper + " native hooks v1", "# " + strings.ToUpper(newName) + " native hooks v1"},
+		{"the last update's copy", `bin\previous-` + oldName + `.exe`, `bin\previous-` + newName + `.exe`},
+		{"identifiers side by side", "primary-" + oldName + " previous-" + oldName, "primary-" + newName + " previous-" + newName},
+		{"a branch that begins with an identifier", "feat/board-" + oldName + "-entry and board-" + oldName + "-queue", "feat/board-" + oldName + "-entry and board-" + oldName + "-queue"},
 		{"the role in prose", "The " + upper + " decides", "The " + upper + " decides"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

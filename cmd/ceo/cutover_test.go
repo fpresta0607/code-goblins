@@ -16,6 +16,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/cutover"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
 
 type cutoverEnv map[string]string
@@ -327,5 +328,47 @@ func TestCutoverProceedsWhenTheRecordedSupervisorDoesNotAnswer(t *testing.T) {
 	}
 	if code, _, stderr := runCutoverOn(machine, "--undo", folder); code != 0 {
 		t.Fatalf("undo: exit %d, %q", code, stderr)
+	}
+}
+
+// TestCutoverUndoFromATerminalOpenedBeforeItGuardsTheHomeTheSettingsName
+// runs the printed undo where the cutover ran: the user's settings name the
+// home as this build does, and the terminal's own environment names none.
+func TestCutoverUndoFromATerminalOpenedBeforeItGuardsTheHomeTheSettingsName(t *testing.T) {
+	// Arrange
+	machine, root := cutoverHome(t)
+	folder := appliedCutover(t, machine)
+	t.Setenv(installbase.HomeVariable, "")
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+	found, _, err := cutoverSettings(cutoverEnv{installbase.HomeVariable: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.Root = found
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"pid":%d}`, fakeBoardPID)
+	}))
+	defer server.Close()
+	recordSupervisor(t, root, server.URL)
+
+	// Act
+	refusedCode, _, refused := runCutoverOn(machine, "--undo", folder)
+	if err := os.Remove(filepath.Join(root, "state", "board.json")); err != nil {
+		t.Fatal(err)
+	}
+	undoneCode, _, undoneErr := runCutoverOn(machine, "--undo", folder)
+
+	// Assert
+	if found != root {
+		t.Fatalf("the cutover found the home %s; want %s, which the settings name", found, root)
+	}
+	if refusedCode != 1 || !strings.Contains(refused, "a supervisor serves this home") {
+		t.Fatalf("undo under the supervisor: exit %d, %q; want the refusal", refusedCode, refused)
+	}
+	if undoneCode != 0 {
+		t.Fatalf("undo: exit %d, %q", undoneCode, undoneErr)
+	}
+	if content, err := os.ReadFile(filepath.Join(root, "bin", "goblins.exe")); err != nil || string(content) != "the old build" {
+		t.Fatalf("after the undo bin\\goblins.exe is %q, %v; want the old build", content, err)
 	}
 }
