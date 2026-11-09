@@ -265,6 +265,40 @@ func TestInspectorExplainsCredentialGrantDifferencesFromObservedProcess(t *testi
 	}
 }
 
+func TestRestartIsNotClaimedForCredentialsLaunchWithholds(t *testing.T) {
+	for _, test := range []struct {
+		name, manifest, stored string
+		grants                 []string
+	}{
+		{"harness billing key", `{"project":"project","services":[{"name":"repo","method":"env","env":["OPENAI_API_KEY"]}]}`, "OPENAI_API_KEY", []string{"repo"}},
+		{"name refused by a wrong-target sibling", `{"project":"project","services":[{"name":"repo","method":"env","env":["FIXTURE_SECRET"]},{"name":"elsewhere","method":"env","env":["FIXTURE_SECRET"],"identity":{"var":"FIXTURE_SECRET","expect":"another-instance","note":"n"}}]}`, "FIXTURE_SECRET", []string{"repo", "elsewhere"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			inspector, meta := inspectorFixture(t)
+			meta.HasCredentials, meta.Credentials = true, test.grants
+			storeConnectionCredential(t, inspector, meta, test.stored)
+			writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), test.manifest)
+			readRuntime := inspector.Runtime
+			inspector.Runtime = func(ctx context.Context, directory string, task state.TaskMeta) (RuntimeObservation, error) {
+				observed, err := readRuntime(ctx, directory, task)
+				observed.Env = nil
+				return observed, err
+			}
+			inspector.Claude = func(context.Context, string, []string, []string) ([]Entry, error) { return nil, nil }
+
+			result := inspector.Check(context.Background(), meta)
+
+			index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == "service:repo" })
+			if index < 0 || result.Entries[index].Status != "connected" && result.Entries[index].Status != "unverified" {
+				t.Fatalf("fixture service is not one launch would load: %+v", result)
+			}
+			if result.Entries[index].RestartRequired || result.Entries[index].RestartReason != "" {
+				t.Fatalf("restart claimed for a credential launch withholds: %+v", result.Entries[index])
+			}
+		})
+	}
+}
+
 func TestSharedAndPartiallyLoadedCredentialsHaveAccurateRestartExplanations(t *testing.T) {
 	for _, test := range []struct {
 		name        string
