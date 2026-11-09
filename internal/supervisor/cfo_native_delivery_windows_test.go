@@ -1065,3 +1065,27 @@ func TestASlashCommandReachesTheCFOInItsTrueState(t *testing.T) {
 		})
 	}
 }
+
+// An idle CFO whose input line clears for an answer before its working row
+// draws has run no command, so only a command reads as one it ran, and an
+// answer still waits on the CFO's record as Sent (#2193).
+func TestAnAnswerAnIdleCFOClearsWithNoTurnShownReadsSentNotRun(t *testing.T) {
+	// Arrange
+	useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCFOComposer(t, home.State, "unmoved")
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// Act
+	result, err := service.deliverMessage(ctx, Action{Kind: "message", Text: "use staging"})
+
+	// Assert
+	if err != nil || result.Awaiting == nil || result.Reason != sentToCFO {
+		t.Errorf("deliverMessage = %+v, %v; want it Sent and awaiting the CFO's record, never a command it ran", result, err)
+	}
+	if lines := terminal.waitForLines(t, 2); len(lines) != 2 || lines[1] != "accepted use staging" {
+		t.Errorf("terminal input = %q; want the answer typed once", lines)
+	}
+}

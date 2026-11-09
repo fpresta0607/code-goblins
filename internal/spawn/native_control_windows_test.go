@@ -314,6 +314,32 @@ func TestADeliveryThatRefusesATurnTypesNothingIntoOne(t *testing.T) {
 	}
 }
 
+// A command typed while a turn runs waits in the harness's queue, so it is
+// reported submitted once but unconfirmed, even when the harness clears its
+// input line for it, as Codex does for a slash command (#2193).
+func TestASlashCommandTypedIntoATurnIsReportedUnconfirmed(t *testing.T) {
+	// Arrange
+	f := newNativeFixture(t, harness.Codex, "")
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err = f.service.SendNative(context.Background(), meta, "/compact")
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "submitted once") || !strings.Contains(err.Error(), "cfo peek task-7") {
+		t.Errorf("SendNative /compact = %v, want it reported submitted once but unconfirmed", err)
+	}
+	if submitted := submittedLines(t, f, 2); !slices.Equal(submitted, []string{spawnPointer(t, f.fixture), "/compact"}) {
+		t.Errorf("submitted = %q, want the instruction, then /compact once", submitted)
+	}
+}
+
 // A board message he asked for now reaches a Claude Code in a turn the way
 // its terminal sends one now: typed and queued, then Ctrl+X Ctrl+S once its
 // composer shows the line gone into that queue, so it takes the line at once

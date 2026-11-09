@@ -70,11 +70,12 @@ const row = (id: string, at: string, text: string, kind: SessionMessage["kind"] 
 // Codex and pi run a slash command themselves and record nothing of it, so
 // a command the board saw taken is drawn where it was taken. Claude Code
 // records its own row, one the conversation already holds keeps that row,
-// and one taken before the loaded page belongs to an older page (#2193).
+// and one taken before the first loaded row, as from an older page or an
+// earlier session, is not drawn, nor any in an empty conversation (#2193).
 test("a slash command a harness records nothing of is drawn where it was taken", () => {
   const conversation = [row("m1", "2026-11-09T14:00:00Z", "check the build"), row("m2", "2026-11-09T14:00:05Z", "It builds.", "reply"), row("m3", "2026-11-09T14:02:00Z", "now the tests")];
   const taken = action({ id: "a1", status: "succeeded", text: "/status", created_at: "2026-11-09T14:01:00Z", updated_at: "2026-11-09T14:01:02Z" });
-  const drawn = (actions: Record<string, unknown>[], harness: string, more = false, messages = conversation) => withTakenCommands(messages, snapshot(actions).actions, harness, more).map((message) => message.id + " " + message.text);
+  const drawn = (actions: Record<string, unknown>[], harness: string, messages = conversation) => withTakenCommands(messages, snapshot(actions).actions, harness).map((message) => message.id + " " + message.text);
 
   for (const harness of ["codex", "pi"]) {
     assert.deepEqual(drawn([taken], harness), ["m1 check the build", "m2 It builds.", "board-a1 /status", "m3 now the tests"], harness);
@@ -84,8 +85,7 @@ test("a slash command a harness records nothing of is drawn where it was taken",
     assert.deepEqual(drawn([{ ...taken, status }], "codex"), ["m1 check the build", "m2 It builds.", "m3 now the tests"], status);
   }
   assert.deepEqual(drawn([{ ...taken, text: "check the logs" }], "codex"), ["m1 check the build", "m2 It builds.", "m3 now the tests"]);
-  assert.deepEqual(drawn([taken], "pi", false, [...conversation, row("m4", "2026-11-09T14:01:01Z", "/status")]).filter((each) => each.endsWith("/status")), ["m4 /status"]);
-  assert.deepEqual(drawn([{ ...taken, created_at: "2026-11-09T13:00:00Z", updated_at: "2026-11-09T13:00:02Z" }], "codex", true), ["m1 check the build", "m2 It builds.", "m3 now the tests"]);
-  assert.deepEqual(drawn([{ ...taken, created_at: "2026-11-09T13:00:00Z", updated_at: "2026-11-09T13:00:02Z" }], "codex", false), ["board-a1 /status", "m1 check the build", "m2 It builds.", "m3 now the tests"]);
-  assert.deepEqual(drawn([taken], "pi", false, []), ["board-a1 /status"]);
+  assert.deepEqual(drawn([taken], "pi", [...conversation, row("m4", "2026-11-09T14:01:01Z", "/status")]).filter((each) => each.endsWith("/status")), ["m4 /status"]);
+  assert.deepEqual(drawn([{ ...taken, created_at: "2026-11-09T13:00:00Z", updated_at: "2026-11-09T13:00:02Z" }], "codex"), ["m1 check the build", "m2 It builds.", "m3 now the tests"]);
+  assert.deepEqual(drawn([taken], "pi", []), []);
 });

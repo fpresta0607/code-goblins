@@ -440,7 +440,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // he follows it, each row not measured yet taken at an estimate.
   // The rows are the session's messages and the commands the board saw its
   // harness take that the harness keeps no row of.
-  const conversation = useMemo(() => withTakenCommands(held.messages, held.sent, harness, held.more), [held.messages, held.sent, harness, held.more]);
+  const conversation = useMemo(() => withTakenCommands(held.messages, held.sent, harness), [held.messages, held.sent, harness]);
   const rowIndices = useMemo(() => new Map(conversation.map((message, index) => [message.id, index])), [conversation]);
   const offsets = useMemo(() => {
     const offsets = [0];
