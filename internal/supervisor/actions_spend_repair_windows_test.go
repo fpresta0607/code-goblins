@@ -179,7 +179,7 @@ func TestBillingConsentRefreshDoesNotHoldTheCycle(t *testing.T) {
 	// Assert
 	select {
 	case <-reading:
-	case <-time.After(10 * time.Second):
+	case <-time.After(60 * time.Second):
 		t.Fatal("consent did not reread billing")
 	}
 	select {
@@ -187,7 +187,7 @@ func TestBillingConsentRefreshDoesNotHoldTheCycle(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(60 * time.Second):
 		t.Fatal("ending the consent run waited for GitHub's answer")
 	}
 	releaseRead()

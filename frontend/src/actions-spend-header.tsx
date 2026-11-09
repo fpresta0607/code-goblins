@@ -2,6 +2,7 @@ import { memo, Suspense, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { boardPage } from "./board-page";
 import { BRAND_MARKS } from "./brandMarks";
+import { useClickFeedback } from "./click-feedback";
 import { message, reportToCfo, request } from "./api";
 import { parseActionsSpend, type ActionsSpend } from "./types";
 import "./actions-spend.css";
@@ -13,7 +14,7 @@ const REFRESH_INTERVAL_MS = 3_600_000;
 export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, month, instance, now }: { usage?: ActionsSpend; month: string; instance: string; now: number }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isRepairing, setIsRepairing] = useState(false);
-  const [repairError, setRepairError] = useState("");
+  const [repairError, showRepairError] = useClickFeedback();
   const repair = useRef<AbortController | null>(null);
   const [selected, setSelected] = useState<{ reading: ActionsSpend; instance: string; refreshAt: number }>();
   const cached = selected?.instance === instance && selected.reading.month === month ? selected : undefined;
@@ -61,7 +62,7 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
           if (updated.recovery?.state !== "ready" && updated.recovery?.state !== "running") return;
         }
       } catch (error: unknown) {
-        if (!controller.signal.aborted) setRepairError(message(error));
+        if (!controller.signal.aborted) showRepairError(message(error));
       }
     }
     void followConsent();
@@ -73,12 +74,12 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
     repair.current = controller;
     const deadline = setTimeout(() => controller.abort(), 40_000);
     setIsRepairing(true);
-    setRepairError("");
+    showRepairError("");
     try {
       const updated = parseActionsSpend(await request("/api/actions-spend/repair", controller.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ month, action }) }));
       if (!controller.signal.aborted) setSelected({ reading: updated, instance, refreshAt: Date.now() + REFRESH_INTERVAL_MS });
     } catch (error: unknown) {
-      setRepairError(controller.signal.aborted ? "The billing request timed out. Reopen the panel to check its state." : message(error));
+      showRepairError(controller.signal.aborted ? "Billing request timed out. Reopen the panel." : message(error));
     } finally {
       clearTimeout(deadline);
       repair.current = null;

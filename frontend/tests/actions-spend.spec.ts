@@ -136,7 +136,7 @@ test("billing repair shows loading and a recoverable owner refusal", async ({ pa
   await expect(panel.getByRole("button", { name: "Checking billing...", exact: true })).toBeDisabled();
   await expect(panel.getByRole("region", { name: "Billing recovery" })).toHaveAttribute("aria-busy", "true");
   release();
-  await expect(panel.getByRole("alert")).toContainText("on this PC");
+  await expect(panel.locator(".notice")).toContainText("on this PC");
   await expect(panel.getByRole("button", { name: "Allow billing access", exact: true })).toBeEnabled();
 });
 
