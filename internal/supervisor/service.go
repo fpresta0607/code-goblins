@@ -1367,12 +1367,14 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 			result.Reason = "Pipeline decision required at " + step.Name + "; use cfo pipeline respond"
 			// From policy version 7 the gate repairs no Test, Lint or CI
 			// failure: it is the goblin's to fix, not a decision to wait on.
+			// A task spawned with no frozen policy, as outside no-mistakes
+			// delivery, has none of version 7 to hand anything back.
 			if step.Name == "test" || step.Name == "lint" || step.Name == "ci" {
 				selection, err := pipeline.LoadSelection(filepath.Join(meta.TaskTmp, "pipeline.json"))
-				if err != nil {
+				if err != nil && !errors.Is(err, os.ErrNotExist) {
 					return result, fmt.Errorf("task %s's frozen pipeline policy: %w", meta.ID, err)
 				}
-				if selection.Policy.HandsBack(step.Name) {
+				if err == nil && selection.Policy.HandsBack(step.Name) {
 					result.Phase = "working"
 					result.Reason = fmt.Sprintf("The gate handed its %s failure back to the goblin, which fixes it under pipeline policy version %d", step.Name, selection.Policy.Version)
 				}

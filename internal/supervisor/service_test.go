@@ -898,17 +898,18 @@ func TestEvaluationLeavesAHandedBackFailureWithItsGoblin(t *testing.T) {
 	versionSix := pipeline.Policy{Version: 6, AutoFix: pipeline.AutoFix{Test: 1, Lint: 1, Rebase: 1, CI: 1}, Classes: classes}
 	versionSeven := pipeline.Policy{Version: 7, AutoFix: pipeline.AutoFix{Rebase: 1}, Classes: classes}
 	for _, c := range []struct {
-		name, step string
-		policy     pipeline.Policy
-		isSaved    bool
-		want       string
+		name, step        string
+		policy            pipeline.Policy
+		isSaved, isBroken bool
+		want              string
 	}{
-		{"a version 7 test failure", "test", versionSeven, true, "working"},
-		{"a version 7 lint failure", "lint", versionSeven, true, "working"},
-		{"a version 7 ci failure", "ci", versionSeven, true, "working"},
-		{"a version 7 review decision", "review", versionSeven, true, "blocked"},
-		{"a version 6 test failure", "test", versionSix, true, "blocked"},
-		{"a test failure with no frozen policy", "test", versionSeven, false, ""},
+		{"a version 7 test failure", "test", versionSeven, true, false, "working"},
+		{"a version 7 lint failure", "lint", versionSeven, true, false, "working"},
+		{"a version 7 ci failure", "ci", versionSeven, true, false, "working"},
+		{"a version 7 review decision", "review", versionSeven, true, false, "blocked"},
+		{"a version 6 test failure", "test", versionSix, true, false, "blocked"},
+		{"a ci failure of a task spawned with no frozen policy", "ci", versionSeven, false, false, "blocked"},
+		{"a test failure whose frozen policy cannot be read", "test", versionSeven, false, true, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
@@ -927,6 +928,11 @@ func TestEvaluationLeavesAHandedBackFailureWithItsGoblin(t *testing.T) {
 					t.Fatal(err)
 				}
 				if err := selection.Save(filepath.Join(meta.TaskTmp, "pipeline.json")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.isBroken {
+				if err := os.WriteFile(filepath.Join(meta.TaskTmp, "pipeline.json"), []byte("{"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
