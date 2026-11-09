@@ -744,6 +744,30 @@ func TestCheckStartRefusesInvalidCIHandbackReattachment(t *testing.T) {
 			t.Fatalf("got %+v, %v; want identity drift refusal", check, err)
 		}
 	})
+	// The caller changes only after the receipt re-read, so only the final
+	// caller check can refuse it.
+	for _, test := range []struct {
+		name   string
+		change func(*acceptedReattachmentRunner)
+		want   string
+	}{
+		{name: "caller moves after receipt re-read", change: func(r *acceptedReattachmentRunner) { r.head = releasedReattachmentHead }, want: "caller head changed"},
+		{name: "caller turns dirty after receipt re-read", change: func(r *acceptedReattachmentRunner) { r.isDirty = true }, want: "clean caller worktree"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			reader, project, worktree, runner := acceptedReattachmentFixture(t)
+			runner.beforeReceiptReread = func() { test.change(runner) }
+
+			// Act
+			check, err := reader.CheckStart(t.Context(), project, worktree, "feature", "ship the correction", testPolicy(t))
+
+			// Assert
+			if !errors.Is(err, ErrUnresolved) || check != (StartCheck{}) || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("got %+v, %v; want a final caller recheck refusal saying %q", check, err, test.want)
+			}
+		})
+	}
 	for _, status := range []string{"completed", "failed", "cancelled", "ci_monitor_interrupted"} {
 		t.Run("terminal "+status, func(t *testing.T) {
 			reader, project, worktree, runner := acceptedReattachmentFixture(t)
