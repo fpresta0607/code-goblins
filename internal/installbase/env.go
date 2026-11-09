@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -96,6 +97,19 @@ func (s fileEnvStore) Unset(name string) error {
 	return s.write(values)
 }
 
+func (s fileEnvStore) Names() ([]string, error) {
+	values, err := s.read()
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
 // Broadcast has nothing to publish: no process reads this file on its own.
 func (fileEnvStore) Broadcast() error {
 	return nil
@@ -106,12 +120,13 @@ func (fileEnvStore) Broadcast() error {
 // Get returns the raw, unexpanded value: a user PATH routinely holds
 // `%USERPROFILE%\...` entries, and reading the expanded process value and
 // writing it back would bake today's expansion into the registry forever.
-// Broadcast publishes the changes so newly started processes see them
-// without a sign-out.
+// Names lists every variable the scope sets. Broadcast publishes the
+// changes so newly started processes see them without a sign-out.
 type EnvStore interface {
 	Get(name string) (value string, set bool, err error)
 	Set(name, value string) error
 	Unset(name string) error
+	Names() ([]string, error)
 	Broadcast() error
 }
 

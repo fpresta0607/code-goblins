@@ -92,6 +92,22 @@ const CredentialDirName = "credentials"
 // credentials are distinguishable from everything else in the user's vault.
 const credentialTarget = "ceo:"
 
+// VaultPrefix and VaultUser are how ceo's Credential Manager entries are
+// told apart: each one's target starts with VaultPrefix, and it is written
+// for the user VaultUser.
+const (
+	VaultPrefix = credentialTarget
+	VaultUser   = "ceo"
+)
+
+// VaultEntry is one generic Credential Manager entry: its target, the user it
+// was written for and its secret.
+type VaultEntry struct {
+	Target string
+	User   string
+	Value  []byte
+}
+
 // StoreDirEnv points the credential store at a directory instead of the
 // system vault. It is the escape hatch when Credential Manager is unavailable
 // or unwanted, and what tests use so they never touch the real vault.
