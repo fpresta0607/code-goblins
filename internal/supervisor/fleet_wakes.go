@@ -308,6 +308,7 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	stateDir := s.Store.Home.State
 	w, readErr := readFleetWakes(stateDir)
 	err := errors.Join(readErr, s.pauseAtAllowanceFloor(ctx, &w, now), s.pollCI(ctx, &w, now, currentTime))
+	err = errors.Join(err, s.reconcilePreparedWaits(ctx, &w, now))
 	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCFOWaits(&w, now))
 	w.RootReadings = s.currentRootReadings()
 	if s.Options.Progress != nil {

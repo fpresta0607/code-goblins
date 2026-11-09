@@ -214,7 +214,11 @@ func (s *Service) planComeback(now time.Time) (state.Comeback, bool, error) {
 		if terminal, err := host.ReadRecord(directory, meta.ID); err == nil && !terminal.Started.Before(s.signedIn) || NativeTerminalRuns(directory, meta.ID) {
 			continue
 		}
-		record.Goblins = append(record.Goblins, state.ComebackEntry{ID: meta.ID, Generation: meta.SpawnGen, State: state.ComebackWaiting})
+		entry := state.ComebackEntry{ID: meta.ID, Generation: meta.SpawnGen, State: state.ComebackWaiting}
+		if err := state.CheckPreparedComeback(directory, meta); err != nil {
+			entry.State, entry.Reason, entry.At = state.ComebackStopped, err.Error(), now
+		}
+		record.Goblins = append(record.Goblins, entry)
 	}
 	return record, true, state.WriteComeback(directory, record)
 }
@@ -261,6 +265,8 @@ func (s *Service) bringGoblinBack(comeback *Comeback, id string, memory Memory) 
 		// terminal's launch only, and admits the goblin again under it.
 		if err := s.launchRoom(memory); err != nil {
 			result = GoblinComeback{Outcome: WaitsForRoom, Said: err.Error()}
+		} else if err := state.CheckPreparedComeback(directory, meta); err != nil {
+			result = GoblinComeback{Outcome: DidNotComeBack, Said: err.Error()}
 		} else {
 			result = comeback.Goblin(context.Background(), id)
 		}
