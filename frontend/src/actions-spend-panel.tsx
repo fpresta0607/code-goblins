@@ -16,7 +16,7 @@ function localTime(time: string) {
 export function ActionsSpendPanel({ usage, month, onClose, onRepair, isRepairing, repairError }: { usage?: ActionsSpend; month: string; onClose: () => void; onRepair: (action: string) => void; isRepairing: boolean; repairError: string }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const title = useId();
-  const [isUpdateShown, setIsUpdateShown] = useState(false);
+  const [isGuidanceShown, setIsGuidanceShown] = useState(false);
   useEffect(() => {
     const element = dialog.current;
     const source = document.activeElement;
@@ -30,7 +30,7 @@ export function ActionsSpendPanel({ usage, month, onClose, onRepair, isRepairing
   const problem = usage?.problem;
   const recovery = usage?.recovery;
   const isPending = recovery?.state === "ready" || recovery?.state === "running";
-  const actionLabel = problem?.action === "allow" ? "Allow billing access" : problem?.action === "authenticate" ? "Renew GitHub login" : problem?.action === "update" ? "Update " + problem.credential : problem?.action === "retry" ? "Retry" : "";
+  const actionLabel = problem?.action === "allow" ? "Allow billing access" : problem?.action === "renew" ? "Renew GitHub login" : problem?.action === "update" ? "Update " + problem.credential : problem?.action === "retry" ? "Retry" : "";
   const recoveryDetail = isPending ? "Complete consent in Command Center on this PC. Billing refreshes once after success."
     : recovery && recovery.state !== "succeeded" ? "Consent was not completed (" + recovery.state + "). You can try again on this PC."
       : recovery && problem ? "Consent finished. The refreshed reading is still unavailable; use the action shown above." : "";
@@ -54,8 +54,10 @@ export function ActionsSpendPanel({ usage, month, onClose, onRepair, isRepairing
     {problem && <section className="actions-spend-recovery" aria-label="Billing recovery" aria-busy={isRepairing}>
       {problem.account && <p>Account: <strong>{problem.account}</strong></p>}
       {problem.action === "allow" && <p>Billing requires GitHub’s <code>user</code> scope. Review and allow access in the native GitHub consent flow on this PC.</p>}
-      {actionLabel && <button type="button" className="primary" disabled={isRepairing || isPending} onClick={() => problem.action === "update" ? setIsUpdateShown(true) : onRepair(problem.action)}>{isRepairing ? "Checking billing..." : actionLabel}</button>}
-      {isUpdateShown && <><p role="status">Update {problem.credential} for {problem.account || "the selected account"} in the environment that starts Code Goblins. This credential takes precedence over the CLI login. Keep its value on this PC. A running process retains its inherited environment until its launcher supplies the updated value.</p><button type="button" disabled={isRepairing} onClick={() => onRepair("retry")}>Retry</button></>}
+      {actionLabel && <button type="button" className="primary" disabled={isRepairing || isPending} onClick={() => problem.action === "update" || problem.action === "renew" ? setIsGuidanceShown(true) : onRepair(problem.action)}>{isRepairing ? "Checking billing..." : actionLabel}</button>}
+      {isGuidanceShown && <><p role="status">{problem.action === "renew"
+        ? <>Sign in again with <code>gh auth login</code> in a terminal on this PC{problem.account ? <> as <strong>{problem.account}</strong></> : null}, then Retry. The login stays in the GitHub CLI's own credential store.</>
+        : <>Update {problem.credential} for {problem.account || "the selected account"} in the environment that starts Code Goblins. This credential takes precedence over the CLI login. Keep its value on this PC. A running process retains its inherited environment until its launcher supplies the updated value.</>}</p><button type="button" disabled={isRepairing} onClick={() => onRepair("retry")}>Retry</button></>}
       {(isRepairing || recoveryDetail) && <p role="status">{isRepairing ? "Reading GitHub billing..." : recoveryDetail}</p>}
       {isPending && <button type="button" onClick={onClose}>Continue in Command Center</button>}
       {repairError && <p role="alert">{repairError}</p>}

@@ -405,6 +405,9 @@ func (s *Store) withdrawRun(id, reason string) error {
 	case r.RemoteFix != "":
 		s.mu.Unlock()
 		return fmt.Errorf("run item %s is the command the Overlord ran from Remote access; it is not the CFO's to withdraw", r.ID)
+	case r.Billing != nil:
+		s.mu.Unlock()
+		return fmt.Errorf("run item %s is the GitHub billing consent the Overlord asked for; it is not the CFO's to withdraw", r.ID)
 	case r.Update != nil:
 		s.mu.Unlock()
 		return fmt.Errorf("run item %s is the Overlord's Update to Code Goblins %s; it is not the CFO's to withdraw", r.ID, r.Update.To)
@@ -836,7 +839,8 @@ func (s *Service) endRun(ctx context.Context, r Run, state string, code *int, re
 	}
 	err = appendRunAudit(s.Store.Home.State, r, exit, time.Now().UTC())
 	if r.Billing != nil {
-		return errors.Join(err, s.finishBillingRepair(ctx, r, state))
+		s.finishBillingRepair(r, state)
+		return err
 	}
 	// A credential request's terminal tells the CFO the names it stored.
 	if r.CredentialRequest != "" {

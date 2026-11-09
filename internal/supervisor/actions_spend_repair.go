@@ -40,17 +40,27 @@ func (h *HTTP) repairActionsSpend(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, "Choose this month's billing action.")
 		return
 	}
+	// Retry is a forced read, which GET /api/actions-spend serves on any
+	// board; only consent is his own board's.
+	if input.Action == "retry" {
+		if h.Service.actionsSpendUsage(time.Now(), input.Month, h.Service.billingRuns()).Problem == nil {
+			apiError(w, http.StatusConflict, "The billing reading has no problem to retry. Refresh the panel.")
+			return
+		}
+		respond(w, http.StatusOK, h.Service.refreshActionsSpend(r.Context(), time.Now(), input.Month, false))
+		return
+	}
+	if input.Action != "allow" {
+		apiError(w, http.StatusBadRequest, "Choose the billing action shown on this panel.")
+		return
+	}
 	if _, err := h.Service.overlordsBoard(r, h.Host, time.Now(), billingBoard); err != nil {
 		h.refuse(w, http.StatusForbidden, "billing", "A GitHub billing repair was refused", "", err)
 		return
 	}
-	reading := h.Service.actionsSpendUsage(time.Now(), input.Month)
-	if reading.Problem == nil || input.Action != "retry" && input.Action != reading.Problem.Action || input.Action != "allow" && input.Action != "authenticate" && input.Action != "retry" {
+	reading := h.Service.actionsSpendUsage(time.Now(), input.Month, h.Service.billingRuns())
+	if reading.Problem == nil || reading.Problem.Action != "allow" {
 		apiError(w, http.StatusConflict, "The billing action changed. Refresh the panel.")
-		return
-	}
-	if input.Action == "retry" {
-		respond(w, http.StatusOK, h.Service.refreshActionsSpend(r.Context(), time.Now(), input.Month, false))
 		return
 	}
 	if err := h.Service.prepareBillingRepair(input.Month, *reading.Problem); err != nil {
@@ -58,7 +68,7 @@ func (h *HTTP) repairActionsSpend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.Service.notify()
-	respond(w, http.StatusOK, h.Service.actionsSpendUsage(time.Now(), input.Month))
+	respond(w, http.StatusOK, h.Service.actionsSpendUsage(time.Now(), input.Month, h.Service.billingRuns()))
 }
 
 func (s *Service) prepareBillingRepair(month string, problem actionsbilling.Problem) error {
@@ -67,7 +77,7 @@ func (s *Service) prepareBillingRepair(month string, problem actionsbilling.Prob
 	if s.Options.GitHub == nil || problem.Credential != "gh" || s.Options.GitHub.CredentialSource() != "gh" {
 		return errors.New("Update the selected environment credential on this PC; refreshing the CLI login will not change it.")
 	}
-	if problem.Action == "allow" && !billingAccount.MatchString(problem.Account) {
+	if problem.Action != "allow" || !billingAccount.MatchString(problem.Account) {
 		return errors.New("Recheck the selected GitHub account before allowing billing access.")
 	}
 	for _, run := range s.Store.Snapshot().Runs {
@@ -111,13 +121,13 @@ func (s *Service) refreshActionsSpend(ctx context.Context, now time.Time, month 
 	return s.readActionsSpendMonth(ctx, s.lifetime, now, month)
 }
 
-func (s *Service) finishBillingRepair(ctx context.Context, run Run, state string) error {
+// finishBillingRepair drops the CLI token a successful consent replaced and
+// rereads the month once, beside the cycle that ended the run, so a slow gh or
+// GitHub never holds the supervisor's loop.
+func (s *Service) finishBillingRepair(run Run, state string) {
 	defer s.notify()
-	if state != "succeeded" {
-		return nil
-	}
-	if s.Options.GitHub == nil || s.Options.GitHub.CredentialSource() != "gh" {
-		return nil
+	if state != "succeeded" || s.Options.GitHub == nil || s.Options.GitHub.CredentialSource() != "gh" {
+		return
 	}
 	// New reads use the refreshed token while earlier reads finish.
 	s.Options.GitHub.InvalidateCLIToken()
@@ -131,15 +141,18 @@ func (s *Service) finishBillingRepair(ctx context.Context, run Run, state string
 		done = entry.done
 	}
 	s.mu.Unlock()
-	bounded, cancel := context.WithTimeout(ctx, 35*time.Second)
-	defer cancel()
-	if done != nil {
-		select {
-		case <-done:
-		case <-bounded.Done():
-			return bounded.Err()
+	s.credentialWork.Add(1)
+	go func() {
+		defer s.credentialWork.Done()
+		bounded, cancel := context.WithTimeout(s.lifetime, 35*time.Second)
+		defer cancel()
+		if done != nil {
+			select {
+			case <-done:
+			case <-bounded.Done():
+				return
+			}
 		}
-	}
-	s.refreshActionsSpend(bounded, time.Now(), run.Billing.Month, true)
-	return nil
+		s.refreshActionsSpend(bounded, time.Now(), run.Billing.Month, true)
+	}()
 }

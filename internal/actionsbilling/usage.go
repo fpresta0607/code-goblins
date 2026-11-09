@@ -161,8 +161,13 @@ func failedReading(reading Reading, err error) Reading {
 	}
 	switch {
 	case isCredentialUnavailable || refused.Status == http.StatusUnauthorized:
-		problem.Kind, problem.Action = "authentication", "authenticate"
-		reading.Detail = "The selected GitHub credential is unavailable or was refused. Renew its login on this PC."
+		// gh auth refresh refuses a host gh is not signed in to, so a
+		// missing or refused login gets sign-in guidance, never a consent run.
+		problem.Kind, problem.Action = "authentication", "renew"
+		reading.Detail = "The GitHub CLI login on this PC is missing or was refused. Sign in again with gh auth login in a terminal on this PC, then Retry."
+		if problem.Credential != "gh" {
+			reading.Detail = "The selected GitHub credential was refused."
+		}
 	case refused.Status == http.StatusTooManyRequests || refused.Status == http.StatusForbidden && (refused.Header.Get("X-RateLimit-Remaining") == "0" || refused.Header.Get("Retry-After") != ""):
 		problem.Kind = "rate_limit"
 		reading.Detail = "GitHub is limiting requests. Wait before retrying the billing reading."
@@ -175,7 +180,7 @@ func failedReading(reading Reading, err error) Reading {
 		problem.Kind = "unavailable"
 		reading.Detail = "GitHub billing is unavailable for this account or credential. Access and account eligibility could not be confirmed."
 	}
-	if problem.Credential != "gh" && (problem.Action == "allow" || problem.Action == "authenticate") {
+	if problem.Credential != "gh" && (problem.Action == "allow" || problem.Action == "renew") {
 		problem.Action = "update"
 		reading.Detail += " Update " + problem.Credential + " in the environment that starts Code Goblins; it takes precedence over the CLI login."
 	}

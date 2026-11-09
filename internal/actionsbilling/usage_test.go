@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/githubtest"
 )
 
@@ -233,23 +234,39 @@ func TestReadAcceptsBillingTimestampsAndDocumentedDates(t *testing.T) {
 	}
 }
 
+// ghLogin answers gh auth token as the CLI does: its token, or a failed exit
+// when gh is not signed in.
+type ghLogin struct{ isSignedOut bool }
+
+func (g ghLogin) Run(context.Context, execx.Request) (execx.Result, error) {
+	if g.isSignedOut {
+		return execx.Result{ExitCode: 1, Stderr: []byte("no oauth token found for github.com")}, nil
+	}
+	return execx.Result{Stdout: []byte("gh-fixture")}, nil
+}
+
 func TestReadClassifiesBillingFailuresWithoutExposingGitHubMessages(t *testing.T) {
 	for _, test := range []struct {
-		name, scopes, accepted, remaining, retryAfter, kind, action string
-		status                                                      int
+		name, credential, scopes, accepted, remaining, retryAfter, kind, action, account string
+		status                                                                           int
+		isSignedOut                                                                      bool
 	}{
-		{name: "authenticated missing permission", status: 404, scopes: "gist, read:org, repo, workflow", accepted: "user", kind: "permission", action: "update"},
-		{name: "eligible account unknown", status: 404, scopes: "user", accepted: "user", kind: "unavailable", action: "retry"},
-		{name: "404 alone proves no permission", status: 404, kind: "unavailable", action: "retry"},
-		{name: "invalid login", status: 401, kind: "authentication", action: "update"},
-		{name: "primary rate limit", status: 403, remaining: "0", scopes: "repo", accepted: "user", kind: "rate_limit", action: "retry"},
-		{name: "secondary rate limit", status: 403, retryAfter: "60", kind: "rate_limit", action: "retry"},
-		{name: "too many requests", status: 429, kind: "rate_limit", action: "retry"},
-		{name: "server failure", status: 503, kind: "transient", action: "retry"},
-		{name: "platform refusal", status: 403, kind: "unavailable", action: "retry"},
-		{name: "malformed report", status: 200, kind: "malformed", action: "retry"},
+		{name: "authenticated missing permission", credential: "GH_TOKEN", status: 404, scopes: "gist, read:org, repo, workflow", accepted: "user", kind: "permission", action: "update", account: "example-user"},
+		{name: "authenticated CLI missing permission", credential: "gh", status: 404, scopes: "gist, read:org, repo, workflow", accepted: "user", kind: "permission", action: "allow", account: "example-user"},
+		{name: "eligible account unknown", credential: "GH_TOKEN", status: 404, scopes: "user", accepted: "user", kind: "unavailable", action: "retry", account: "example-user"},
+		{name: "404 alone proves no permission", credential: "GH_TOKEN", status: 404, kind: "unavailable", action: "retry", account: "example-user"},
+		{name: "invalid environment login", credential: "GH_TOKEN", status: 401, kind: "authentication", action: "update", account: "example-user"},
+		{name: "invalid CLI login", credential: "gh", status: 401, kind: "authentication", action: "renew", account: "example-user"},
+		{name: "signed-out CLI", credential: "gh", isSignedOut: true, kind: "authentication", action: "renew"},
+		{name: "primary rate limit", credential: "GH_TOKEN", status: 403, remaining: "0", scopes: "repo", accepted: "user", kind: "rate_limit", action: "retry", account: "example-user"},
+		{name: "secondary rate limit", credential: "GH_TOKEN", status: 403, retryAfter: "60", kind: "rate_limit", action: "retry", account: "example-user"},
+		{name: "too many requests", credential: "GH_TOKEN", status: 429, kind: "rate_limit", action: "retry", account: "example-user"},
+		{name: "server failure", credential: "GH_TOKEN", status: 503, kind: "transient", action: "retry", account: "example-user"},
+		{name: "platform refusal", credential: "GH_TOKEN", status: 403, kind: "unavailable", action: "retry", account: "example-user"},
+		{name: "malformed report", credential: "GH_TOKEN", status: 200, kind: "malformed", action: "retry", account: "example-user"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			// Arrange
 			client := githubtest.Client(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/user" {
 					_, _ = w.Write([]byte(`{"login":"example-user"}`))
@@ -264,19 +281,22 @@ func TestReadClassifiesBillingFailuresWithoutExposingGitHubMessages(t *testing.T
 				w.WriteHeader(test.status)
 				_, _ = w.Write([]byte(`{"message":"private-repo secret-detail"}`))
 			}))
+			client.Commands = ghLogin{isSignedOut: test.isSignedOut}
 			client.Getenv = func(name string) string {
-				if name == "GH_TOKEN" {
+				if name == test.credential {
 					return "fixture"
 				}
 				return ""
 			}
 
+			// Act
 			reading := (Reader{GitHub: client}).Read(context.Background(), time.Now(), "2026-11")
 
-			if reading.Problem == nil || reading.Problem.Kind != test.kind || reading.Problem.Action != test.action || reading.Problem.Account != "example-user" || reading.Problem.Credential != "GH_TOKEN" || reading.Total != nil {
+			// Assert
+			if reading.Problem == nil || reading.Problem.Kind != test.kind || reading.Problem.Action != test.action || reading.Problem.Account != test.account || reading.Problem.Credential != test.credential || reading.Total != nil {
 				t.Fatalf("reading = %+v, problem = %+v", reading, reading.Problem)
 			}
-			if strings.Contains(reading.Detail, "private-repo") || strings.Contains(reading.Detail, "secret-detail") {
+			if strings.Contains(reading.Detail, "private-repo") || strings.Contains(reading.Detail, "secret-detail") || strings.Contains(reading.Detail, "fixture") {
 				t.Fatalf("unsafe detail = %q", reading.Detail)
 			}
 		})
