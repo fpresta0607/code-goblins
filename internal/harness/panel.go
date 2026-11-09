@@ -10,11 +10,14 @@ import (
 // Panel is what a harness draws in its input line's place while something of
 // its own is open, a question, a permission prompt, a picker or a panel, read
 // so the board can offer it as a list he picks from: the rows that ask or
-// show, the choices it lists, and the keys its footer names.
+// show, the choices it lists, and the keys its footer names. Cols is the
+// width in cells the rows wrapped at: the terminal's, as its screen was read,
+// less the indent the rows shared and lost.
 type Panel struct {
 	Rows    []string `json:"rows,omitempty"`
 	Choices []Choice `json:"choices,omitempty"`
 	Hints   []string `json:"hints,omitempty"`
+	Cols    int      `json:"cols,omitempty"`
 }
 
 // Choice is one choice a panel lists: its words, its number when the harness
@@ -49,7 +52,8 @@ var (
 // as a Panel. The panel is the screen's last rows below the conversation: up
 // to the last full-width rule or pane edge, the last row of a message the
 // conversation draws (● for Claude Code, • for Codex) or panelRowLimit rows.
-func ReadPanel(screen []string) Panel {
+// cols is the terminal's width in cells, 0 where it is not known.
+func ReadPanel(screen []string, cols int) Panel {
 	region := panelRegion(screen)
 	start, choices, end := numberedChoices(region)
 	if choices == nil {
@@ -62,7 +66,12 @@ func ReadPanel(screen []string) Panel {
 		}
 		start, end = hints, hints
 	}
-	return Panel{Rows: plainRows(region[:start]), Choices: choices, Hints: hintRows(region[end:])}
+	rows, shared := plainRows(region[:start])
+	panel := Panel{Rows: rows, Choices: choices, Hints: hintRows(region[end:])}
+	if cols > 0 {
+		panel.Cols = cols - shared
+	}
+	return panel
 }
 
 // panelRegion returns the rows the panel takes, without blank rows at either
@@ -156,8 +165,8 @@ func markedChoices(region []string) (int, []Choice, int) {
 }
 
 // plainRows returns rows without the blank rows at their end and without the
-// indent they all share, a rule's dashes aside.
-func plainRows(rows []string) []string {
+// indent they all share, a rule's dashes aside, and how wide that indent was.
+func plainRows(rows []string) ([]string, int) {
 	rows = rows[:len(rows)-emptyRowsAtEnd(rows)]
 	shared := -1
 	for _, row := range rows {
@@ -173,7 +182,7 @@ func plainRows(rows []string) []string {
 		}
 		plain = append(plain, row)
 	}
-	return plain
+	return plain, max(shared, 0)
 }
 
 // hintRows returns the footer's rows that are not blank, trimmed.

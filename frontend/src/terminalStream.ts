@@ -149,9 +149,10 @@ export interface ScreenState {
 }
 
 // What a harness draws in its input line's place: the rows that ask or show,
-// the choices it lists with the one its focus is on, and the keys its footer
-// names.
-export interface HarnessPanel { rows: string[]; choices: PanelChoice[]; hints: string[] }
+// the choices it lists with the one its focus is on, the keys its footer
+// names, and cols, the terminal's width its words wrapped at, which a relay
+// from before it does not send.
+export interface HarnessPanel { rows: string[]; choices: PanelChoice[]; hints: string[]; cols?: number }
 export interface PanelChoice { text: string; number: number; isFocused: boolean }
 
 const strings = (value: unknown): string[] | null => value === undefined ? [] : Array.isArray(value) && value.every((item) => typeof item === "string") ? value : null;
@@ -159,7 +160,7 @@ const strings = (value: unknown): string[] | null => value === undefined ? [] : 
 function parsePanel(value: unknown): HarnessPanel | null | undefined {
   if (value === undefined) return null;
   if (typeof value !== "object" || value === null) return undefined;
-  const { rows, choices, hints } = value as Record<string, unknown>;
+  const { rows, choices, hints, cols } = value as Record<string, unknown>;
   const parsedRows = strings(rows), parsedHints = strings(hints);
   if (!parsedRows || !parsedHints || choices !== undefined && !Array.isArray(choices)) return undefined;
   const parsedChoices: PanelChoice[] = [];
@@ -169,7 +170,7 @@ function parsePanel(value: unknown): HarnessPanel | null | undefined {
     if (typeof text !== "string" || number !== undefined && typeof number !== "number" || focused !== undefined && typeof focused !== "boolean") return undefined;
     parsedChoices.push({ text, number: number ?? 0, isFocused: focused === true });
   }
-  return { rows: parsedRows, choices: parsedChoices, hints: parsedHints };
+  return { rows: parsedRows, choices: parsedChoices, hints: parsedHints, ...typeof cols === "number" && cols > 0 ? { cols } : {} };
 }
 
 // The relay says what it read of the harness's screen each time that changes.

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { Action, Snapshot, Task } from "./types";
 import { message, reportToCeo, request, useResource } from "./api";
 import { ComposerAttachments } from "./composer-attachments";
@@ -121,7 +122,7 @@ function storeAttached(key: string, paths: string[]): void {
 // harness's interrupt, and a paste the board cannot keep says so here. On a
 // touch screen the + opens Paste a picture, since an iPhone's own Paste in a
 // text box takes text alone, and Photos or files, the phone's own picker.
-export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, isCompacting = false, history = [], usage, onActive }: {
+export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, isCompacting = false, history = [], usage, onActive, askSlot }: {
   snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
   model?: string;
   // model and effort are what the session's own record last says it runs.
@@ -138,6 +139,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // usage is the session's usage pies, drawn at the end of the controls row
   // where the send arrow was before Send moved onto the line he writes on.
   usage?: ReactNode;
+  // askSlot is the conversation's last row, where a box with a conversation
+  // draws what the harness's own screen asks (#2223).
+  askSlot?: HTMLElement | null;
 }) {
   // A task whose terminal reads and takes messages directly is queued through
   // the board. So is a running task whose terminal refuses typing: its send
@@ -780,6 +784,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // which presses Escape in its terminal as the terminal's own Esc does.
   const canStop = isWorking && !outgoing && !isSending && live?.phase === "live" && !isHeld;
   const isTouch = matchMedia(TOUCH_SCREEN).matches;
+  // What the harness's own screen asks, which a box given the conversation's
+  // ask slot draws as the conversation's last message (#2223), and any other
+  // box above itself.
+  const asking = panel && !isHeld && !isTerminalShown && !isDriving ? <HarnessPanel panel={panel} name={name} isInChat={!!askSlot}
+    onKeys={(keys) => { if (!live?.control(keys)) setUnsent(unsentWhy); field.current?.focus(); }} /> : null;
   // data-queues says a Send now goes to the board's queue rather than into the
   // terminal, which no note tells him (queueNote).
   return <section ref={composerSection} className="composer" aria-label={"Messages to " + name} data-queues={savesThroughBoard || holdsForTurn ? "" : undefined}>
@@ -787,8 +796,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
         words change, and a refusal from its banner at once. */}
     <p className="sr-only" role="status">{note}</p>
     <ComposerBanner key={notice.count} text={notice.text} isRefusal={notice.from === "box" || notice.from === "queued"} />
-    {panel && !isHeld && !isTerminalShown && !isDriving && <HarnessPanel panel={panel} name={name}
-      onKeys={(keys) => { if (!live?.control(keys)) setUnsent(unsentWhy); field.current?.focus(); }} />}
+    {asking && askSlot ? createPortal(asking, askSlot) : asking}
     {queueRows.length + kept.length > 0 && <ol className="composer-sent">
       {queueRows.map((action) => <li key={action.id}><QueuedMessage action={action} instance={snapshot.instance} name={name} variant="queue" /></li>)}
       {kept.map((text, index) => {

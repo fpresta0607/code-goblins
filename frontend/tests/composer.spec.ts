@@ -185,7 +185,7 @@ test("while the harness asks in its terminal the box shows what it asks as a lis
   // types in that terminal, so the question it asks is his to answer here.
   relay.say({ type: "screen", asking: true, open: true, working: false, submission: "his", panel: { rows: ["Do you want to proceed?"], choices: [{ text: "Yes", number: 1, focused: true }, { text: "No", number: 2 }] } });
 
-  const asking = box(page).getByRole("group", { name: NAME + " asks" });
+  const asking = page.getByRole("group", { name: NAME + " asks", exact: true });
   await expect(asking).toContainText("Do you want to proceed?");
   await expect(page.getByText("Waiting on you in the terminal")).toHaveCount(0);
   await expect(send(page)).toBeEnabled();

@@ -19,6 +19,8 @@
 /* A short conversation sits at the bottom, by the latest, as a chat does,
    in one centred column of a readable width however wide the panel is. */
 .conversation-items { display: flex; flex-direction: column; justify-content: flex-end; gap: 1.125em; width: 100%; max-width: 48em; min-height: 100%; margin-inline: auto; }
+/* The row a harness's own question is drawn in takes no room while it asks nothing. */
+.conversation-ask:empty { display: none; }
 /* The room of the messages after those drawn; each message's room holds the
    gap after it, so the gap before the room is taken back. */
 .conversation-room { margin-top: -1.125em; }

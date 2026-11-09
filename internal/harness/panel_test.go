@@ -66,7 +66,7 @@ func TestAnOpenScreenReadsAsItsRowsChoicesAndKeys(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Act
-			got := ReadPanel(test.screen)
+			got := ReadPanel(test.screen, 0)
 
 			// Assert
 			if !reflect.DeepEqual(got, test.want) {
@@ -87,7 +87,7 @@ func TestAPanelReadsOnlyTheScreensLastRows(t *testing.T) {
 	screen = append(screen, " ❯ 1. Yes", "   2. No")
 
 	// Act
-	got, empty := ReadPanel(screen), ReadPanel(nil)
+	got, empty := ReadPanel(screen, 0), ReadPanel(nil, 0)
 
 	// Assert
 	if len(got.Rows)+len(got.Choices) > panelRowLimit || len(got.Choices) != 2 || got.Rows[0] != "a line of a long preview" {
@@ -121,5 +121,24 @@ func TestAComposerFooterNamesItsPermissionMode(t *testing.T) {
 				t.Errorf("Mode(%q) = %q, want %q", test.screen, got, test.want)
 			}
 		})
+	}
+}
+
+// A panel's width is the terminal's less the indent its rows shared and lost,
+// so a row's room is measured where the terminal wrapped it (#2223), and no
+// width is sent where the terminal's is not known.
+func TestReadPanelSendsTheWidthItsRowsWrapAt(t *testing.T) {
+	// Arrange: Codex's question, indented two, at 40 columns.
+	screen := []string{"  This command needs approval because", "  it reads the network.", "  › 1. Yes", "    2. No"}
+
+	// Act
+	known, unknown := ReadPanel(screen, 40), ReadPanel(screen, 0)
+
+	// Assert
+	if known.Cols != 38 {
+		t.Fatalf("ReadPanel at 40 columns with rows indented two sent cols %d, want 38", known.Cols)
+	}
+	if unknown.Cols != 0 {
+		t.Fatalf("ReadPanel with no columns known sent cols %d, want none", unknown.Cols)
 	}
 }
