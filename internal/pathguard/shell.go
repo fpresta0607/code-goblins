@@ -50,9 +50,7 @@ func (b Boundary) ShellRefusal(command string) string {
 		return "it reaches " + CredentialStoreName + " through " + program + ", which no goblin or gate step reads"
 	}
 	for _, segment := range shellSegments(command) {
-		if moved, isMove := b.movedTo(segment); isMove {
-			b.Cwd = moved
-		}
+		moved, isMove := b.movedTo(segment)
 		for _, word := range segment {
 			if word.isRedirect {
 				continue
@@ -72,6 +70,9 @@ func (b Boundary) ShellRefusal(command string) string {
 			if reason := b.Refusal(target, true); reason != "" {
 				return reason
 			}
+		}
+		if isMove {
+			b.Cwd = moved
 		}
 	}
 	return ""
@@ -223,9 +224,10 @@ type shellWord struct {
 	isRedirect bool
 }
 
-// pathValue is the path a word may name: the word, the value of a
-// --flag=value, -Name:value or NAME=value word, and nothing for a flag, a URL
-// or a word that names no folder.
+// pathValue is the path a word may name, read from the shell's folder when
+// it is relative, as a bare .ssh is from the user's home: the word, the
+// value of a --flag=value, -Name:value or NAME=value word, and nothing for a
+// flag or a URL.
 func (w shellWord) pathValue() string {
 	text := w.text
 	if strings.HasPrefix(text, "-") {
@@ -240,10 +242,7 @@ func (w shellWord) pathValue() string {
 	if strings.Contains(text, "://") {
 		return ""
 	}
-	if strings.ContainsAny(text, `/\`) || strings.HasPrefix(text, "~") || strings.HasPrefix(text, "$") || strings.HasPrefix(text, "%") || filepath.VolumeName(text) != "" {
-		return text
-	}
-	return ""
+	return text
 }
 
 // shellSegments splits command into its commands, at ;, |, &, && and ||

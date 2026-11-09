@@ -74,16 +74,14 @@ type piToolCall struct {
 // reason while a planted start hook is there; another tool, or a bash call
 // in a worktree with none, goes on. A seal that cannot run blocks the call
 // too. The extension runs in Node as pi loads it, with a stand-in for pi's
-// API.
+// API, and its seal as the stand-in cfo.exe, which reads the scratch home's
+// task record each call's path boundary is drawn from.
 func TestAPiGoblinsExtensionBlocksItsBashCallsWhileAStartHookIsThere(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("pi runs on Node, so a machine with no node on PATH runs no pi goblin")
 	}
-	program, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
+	program := filepath.Join(sessionProgramsDir(t), sessionCLI)
 	for _, test := range []struct {
 		name      string
 		tool      string
@@ -99,6 +97,9 @@ func TestAPiGoblinsExtensionBlocksItsBashCallsWhileAStartHookIsThere(t *testing.
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			goblinHookHome(t)
+			if err := os.WriteFile(filepath.Join(os.Getenv("CFO_HOME"), scratchHomeMarker), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
 			worktree := t.TempDir()
 			if test.isPlanted {
 				plantStartHook(t, worktree, "litellm_init.pth,sha256=AAAA,90\n")

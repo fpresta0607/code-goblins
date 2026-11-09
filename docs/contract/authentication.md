@@ -146,12 +146,13 @@ The project names the container's image in its devcontainer, `.devcontainer/devc
 A devcontainer that builds its image, with `build`, `dockerFile` or `dockerComposeFile`, is refused, since the build would run the untrusted Dockerfile on the engine outside the line; the project names a built image instead.
 A spawn is refused before anything starts when `docker` is not on PATH or the project names no image, and a helper of a sandbox task is a sandbox task too.
 The task keeps its worktree, branch and delivery, and the task's record keeps the image and the worktree's `.git` link (`sandbox_image` and `sandbox_git` in `state/<id>.meta`).
-Its goblin's harness runs on the host, where its shell runs only `cfo`, `git` and `gh`, from its worktree.
-Every other command is refused there, as are `cfo gate test`, `cfo verify` and `cfo services`, and the goblin runs them in the container with [`cfo sandbox run`](../commands/sandbox.md), in the machine's heavy line.
+Its goblin's harness runs on the host, where its shell runs only `cfo`, `git` and `gh`, from its worktree, by name or by an absolute path outside the worktree and scratch folder.
+Every other command is refused there, as are a command nested in another, `cfo gate test`, `cfo verify`, `cfo security`, `cfo deploy` and `cfo services`, and the goblin runs them in the container with [`cfo sandbox run`](../commands/sandbox.md), in the machine's heavy line.
 Its gate's Test step runs its command in the same image, with the gate's checkout alone mounted.
 A run that cannot start Docker runs nowhere, never on the host instead.
-Code in the container can write the worktree, so the task's host git reads hooks from an empty folder, runs with its fsmonitor off, and reads attributes from the empty tree, so no filter, diff or merge driver the worktree names runs.
-Every host command is refused while the worktree's `.git` link differs from the one its spawn recorded or a folder under it holds a `.git` of its own, and the container sees the `.git` link read-only.
+Code in the container can write the worktree, so the task's host git reads hooks from an empty folder, runs with its fsmonitor off, reads attributes from the empty tree, so no filter, diff or merge driver the worktree names runs, and never recurses into a submodule.
+Every host command is refused while the worktree's `.git` link differs from the one its spawn recorded, or while the folder it runs in, or one between that folder and the worktree, holds a `.git` of its own, and the container sees the `.git` link read-only.
+Host git is refused `-C`, `-c`, `--git-dir`, `--work-tree`, `--exec-path`, `--config-env` and `--attr-source` before its command, its `submodule` command and `--recurse-submodules`, so it never reads a repository the container made elsewhere in the worktree.
 The gate's prepare, lint and format commands and its agents' own shells still run on the host.
 
 ### The credential store

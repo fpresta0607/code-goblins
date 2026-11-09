@@ -53,8 +53,7 @@ func containWorktree(meta *state.TaskMeta, worktree string) error {
 }
 
 // containEnvironment sets, in a sandbox task's launch environment env, what
-// its host git runs with (sandbox.HostGitEnvironment) and sandbox.Variable,
-// and makes the empty
+// its host git runs with (sandbox.HostGitEnvironment), and makes the empty
 // folder under its tasktmp folder that git reads hooks from. Every other
 // task's is left as it is.
 func containEnvironment(env map[string]string, meta state.TaskMeta) error {
@@ -68,7 +67,6 @@ func containEnvironment(env map[string]string, meta state.TaskMeta) error {
 	for name, value := range sandbox.HostGitEnvironment(hooksOff) {
 		env[name] = value
 	}
-	env[sandbox.Variable] = sandbox.Needed
 	return nil
 }
 
@@ -80,5 +78,5 @@ func sandboxInstruction(meta state.TaskMeta) string {
 	}
 	return " Your brief carries sandbox: needed, so this repository's code is the adversary and never runs on this PC: run every command that builds, installs, tests or otherwise runs it as cfo sandbox run -- <command>, which runs it in a container of " + meta.SandboxImage +
 		" with only your worktree and scratch folder mounted, in the machine's heavy line, one at a time, and in the background as cfo gate turn --detach <log-file> -- cfo sandbox run -- <command>." +
-		" On the host your shell runs only cfo, git and gh, from your worktree, and every other command is refused, as is cfo gate test, cfo verify and cfo services. Read and edit files with your file tools. Your gate's Test step runs its command in the same container."
+		" On the host your shell runs only cfo, git and gh, from your worktree, and every other command is refused, as are cfo gate test, cfo verify, cfo security, cfo deploy and cfo services, and git on another repository or its submodules. Read and edit files with your file tools. Your gate's Test step runs its command in the same container."
 }

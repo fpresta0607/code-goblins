@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -219,5 +220,118 @@ func TestGateTestStepRunsOnTheHostOnlyForATaskThatIsNoSandboxTask(t *testing.T) 
 				t.Fatalf("gateSandboxCommand = %q, %v, want no command and the refusal %q", got, err, test.refusal)
 			}
 		})
+	}
+}
+
+// fakeDocker puts first on PATH a docker that writes the arguments it was
+// started with to the file it returns, and exits with exit.
+func fakeDocker(t *testing.T, exit int) string {
+	t.Helper()
+	dir := t.TempDir()
+	record := filepath.Join(dir, "arguments.txt")
+	script := "@echo %*> \"" + record + "\"\r\n@exit /b " + strconv.Itoa(exit) + "\r\n"
+	if err := os.WriteFile(filepath.Join(dir, "docker.bat"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return record
+}
+
+// dockerRun is what the fake docker was started with, and the container it
+// was asked to name.
+func dockerRun(t *testing.T, record string) (string, string) {
+	t.Helper()
+	data, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatalf("docker was not started: %v", err)
+	}
+	arguments := strings.TrimSpace(string(data))
+	_, after, _ := strings.Cut(arguments, "--name ")
+	name, _, _ := strings.Cut(after, " ")
+	return arguments, name
+}
+
+// A sandbox task's command runs as docker run in its image, with its
+// worktree and scratch folder mounted, takes the docker run's exit code, and
+// leaves no container behind.
+func TestSandboxRunRunsTheCommandInItsContainerAndRemovesIt(t *testing.T) {
+	// Arrange
+	turnLine(t)
+	engine := fakeSandboxEngine{isRunning: true}
+	sandboxed, meta := sandboxHome(t, "node:22", &engine)
+	runtime := turnRuntime()
+	runtime.resolveHome, runtime.sandboxEngine = sandboxed.resolveHome, sandboxed.sandboxEngine
+	record := fakeDocker(t, 3)
+	stdout, err := os.Create(filepath.Join(t.TempDir(), "stdout"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdout.Close()
+	stderr, err := os.Create(filepath.Join(t.TempDir(), "stderr"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stderr.Close()
+
+	// Act
+	exit := runSandbox([]string{"run", "--", "npm", "test"}, stdout, stderr, runtime)
+
+	// Assert
+	said, _ := os.ReadFile(stderr.Name())
+	if exit != 3 {
+		t.Fatalf("exit = %d, want 3, the docker run's; stderr: %s", exit, said)
+	}
+	arguments, name := dockerRun(t, record)
+	for _, want := range []string{
+		"run --rm --init --name cfo-sandbox-cg-x-",
+		"type=bind,source=" + meta.Worktree + ",target=/work ",
+		"type=bind,source=" + filepath.Join(meta.Worktree, ".git") + ",target=/work/.git,readonly",
+		"type=bind,source=" + meta.Scratch + ",target=/scratch ",
+		" node:22 npm test",
+	} {
+		if !strings.Contains(arguments, want) {
+			t.Fatalf("docker %s, want %q in it", arguments, want)
+		}
+	}
+	if !slices.Equal(engine.removed, []string{name}) {
+		t.Fatalf("removed containers %q, want the run's own, %q", engine.removed, name)
+	}
+}
+
+// A gate's Test step of a sandbox task, which the gate runs as cfo gate turn
+// --gate-run, starts the docker run of its command in the task's image, with
+// the gate's checkout mounted, takes its exit code, and removes its
+// container once it ended.
+func TestGateTurnRunsASandboxTasksTestStepInItsContainer(t *testing.T) {
+	// Arrange
+	project, gateRoot, worktree := gateTaskFixture(t, "cg-example")
+	owner := filepath.Join(project, ".worktrees", "gb-cg-example")
+	if err := state.WriteTaskMeta(filepath.Join(os.Getenv("CFO_HOME"), "state"), state.TaskMeta{ID: "cg-example", Project: project, Worktree: owner, SandboxImage: "node:22"}); err != nil {
+		t.Fatal(err)
+	}
+	comparison := writeGateSource(t, gateRoot, project, worktree, "feature")
+	t.Setenv("NM_HOME", gateRoot)
+	turnLine(t)
+	record := fakeDocker(t, 3)
+	engine := &fakeSandboxEngine{isRunning: true}
+	runtime := turnRuntime()
+	runtime.sandboxEngine = func(io.Writer) sandboxEngine { return engine }
+	var stdout, stderr lockedBuffer
+
+	// Act
+	exit := gateTurn(runtime, &stdout, &stderr, "--gate-run", "run", "--test-comparison-sha", comparison, "--", "cmd.exe", "/c", "npm test")
+
+	// Assert
+	if exit != 3 {
+		t.Fatalf("exit = %d, want 3, the docker run's; stderr: %s", exit, stderr.String())
+	}
+	arguments, name := dockerRun(t, record)
+	for _, want := range []string{"run --rm --init --name cfo-sandbox-cg-example-", "type=bind,source=" + worktree + ",target=/work ", ` node:22 sh -c "npm test"`} {
+		if !strings.Contains(arguments, want) {
+			t.Fatalf("docker %s, want %q in it", arguments, want)
+		}
+	}
+	if !strings.HasSuffix(name, "-gate") || !slices.Equal(engine.removed, []string{name}) {
+		t.Fatalf("removed containers %q, want the step's own, %q", engine.removed, name)
 	}
 }

@@ -50,46 +50,6 @@ func (b Boundary) ToolRefusal(tool string, input json.RawMessage) string {
 	return refused(tool, reason)
 }
 
-// Reaches reports whether a call of tool with input names anything the
-// boundary reads: a file tool's path, or in a shell command a path, a
-// redirection, a program that writes the files it is given, one that moves
-// the shell or one that reads Credential Manager. A call that names none is
-// let through without building the boundary, so an ordinary command costs
-// no file read.
-func Reaches(tool string, input json.RawMessage) bool {
-	var arguments struct {
-		FilePath     string `json:"file_path"`
-		NotebookPath string `json:"notebook_path"`
-		Path         string `json:"path"`
-		Pattern      string `json:"pattern"`
-		Command      string `json:"command"`
-	}
-	if len(input) > 0 && json.Unmarshal(input, &arguments) != nil {
-		return true
-	}
-	switch tool {
-	case "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Glob", "Grep", "read", "write", "edit", "grep", "find", "ls":
-		return arguments.FilePath != "" || arguments.NotebookPath != "" || arguments.Path != "" || (tool == "Glob" && globBase(arguments.Pattern) != "")
-	case "Bash", "bash", "PowerShell", "Monitor":
-	default:
-		return false
-	}
-	if credentialPrograms.MatchString(arguments.Command) {
-		return true
-	}
-	for _, segment := range shellSegments(arguments.Command) {
-		if verb := segmentVerb(segment); writesEveryArgument[verb] || writesLastArgument[verb] || movesShell[verb] {
-			return true
-		}
-		for _, word := range segment {
-			if word.isRedirect || word.pathValue() != "" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // refused is the refusal of one tool call for reason.
 func refused(tool, reason string) string {
 	return "[path-boundary] this " + tool + " call is refused before it ran, so it read and wrote nothing: " + reason + ". A goblin and a gate step never read the credential store or ~/.ssh, and write only inside their worktree, their scratch folder and the caches they were given."

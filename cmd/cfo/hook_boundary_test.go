@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/install"
-	"github.com/fpresta0607/code-goblins/internal/sandbox"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -83,7 +82,6 @@ func TestEverySealHoldsASandboxTasksShellToItsHostRule(t *testing.T) {
 					}
 				} else {
 					meta = containTask(t, goblinHookHome(t))
-					t.Setenv(sandbox.Variable, sandbox.Needed)
 					tool := map[string]string{"goblin-seal-codex": "Bash", "goblin-seal-pi": "bash"}[entry]
 					ask = func(command string) string {
 						var stdout, stderr bytes.Buffer
@@ -112,5 +110,62 @@ func TestEverySealHoldsASandboxTasksShellToItsHostRule(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// Codex's and pi's seals hold every goblin's tool calls to its task's path
+// boundary, as the board holds Claude Code's: a shell command that reads an
+// ssh key and a pi write outside the worktree are refused before they run,
+// naming the path, and a call within the boundary runs.
+func TestCodexAndPiSealsHoldAGoblinToItsPathBoundary(t *testing.T) {
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "elsewhere.txt")
+	for _, test := range []struct {
+		name, entry, tool string
+		input             func(worktree string) map[string]string
+		refused           string
+	}{
+		{"a Codex command that reads an ssh key", "goblin-seal-codex", "Bash", func(string) map[string]string { return map[string]string{"command": "cat ~/.ssh/id_ed25519"} }, filepath.Join(userHome, ".ssh", "id_ed25519")},
+		{"a pi command that copies the ssh folder after moving home", "goblin-seal-pi", "bash", func(string) map[string]string { return map[string]string{"command": "cd ~ && cp -r .ssh ./keys"} }, filepath.Join(userHome, ".ssh")},
+		{"a pi write outside the worktree", "goblin-seal-pi", "write", func(string) map[string]string { return map[string]string{"path": outside, "content": "x"} }, outside},
+		{"a Codex command in the worktree", "goblin-seal-codex", "Bash", func(string) map[string]string { return map[string]string{"command": "git status"} }, ""},
+		{"a pi write in the worktree", "goblin-seal-pi", "write", func(worktree string) map[string]string {
+			return map[string]string{"path": filepath.Join(worktree, "main.go"), "content": "x"}
+		}, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			stateDir := goblinHookHome(t)
+			meta, err := state.ReadTaskMeta(stateDir, "pd-keys")
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := json.Marshal(map[string]any{"session_id": "s1", "cwd": meta.Worktree, "hook_event_name": "PreToolUse", "tool_name": test.tool, "tool_input": test.input(meta.Worktree)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runHook(test.entry, strings.NewReader(string(data)), &stdout, &stderr)
+
+			// Assert
+			if exit != 0 || stderr.Len() != 0 {
+				t.Fatalf("exit = %d, stderr = %q, want 0 and the answer on stdout", exit, stderr.String())
+			}
+			if test.refused == "" {
+				if stdout.Len() != 0 {
+					t.Fatalf("stdout = %q, want none, so the call runs", stdout.String())
+				}
+				return
+			}
+			refusals := sealRefusals(t, stdout.String())
+			if len(refusals) != 1 || !strings.HasPrefix(refusals[0], "[path-boundary] ") || !strings.Contains(strings.ToLower(refusals[0]), strings.ToLower(test.refused)) {
+				t.Fatalf("refusals = %q, want one [path-boundary] refusal naming %s", refusals, test.refused)
+			}
+		})
 	}
 }

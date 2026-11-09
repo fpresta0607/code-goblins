@@ -13,11 +13,6 @@ import (
 // storing it.
 const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
-// Variable is set in a sandbox task's terminal, so the seal its Codex or pi
-// runs as a command reads the task's record for its host rule, as it does
-// for no other task's command that names no path.
-const Variable = "CFO_SANDBOX"
-
 // HooksOffDir is the folder under a task's tasktmp folder that its host git
 // reads hooks from, which holds none and which no container mounts.
 const HooksOffDir = "git-hooks-off"
@@ -25,19 +20,25 @@ const HooksOffDir = "git-hooks-off"
 // HostGitEnvironment is what a sandbox task's terminal sets for every git
 // and gh it runs on the host, which the container's writes to the worktree
 // would otherwise reach: hooks are read from hooksDir, an empty folder no
-// container mounts, git's fsmonitor is off, and attributes are read from
-// the empty tree rather than the worktree's .gitattributes, so no filter,
-// diff or merge driver a file in the worktree names runs. Git reads these
-// above any repository's own configuration. What a replaced .git link would
-// bring, a repository configuration of the container's choosing, is refused
-// before each command instead (CheckGitLink).
+// container mounts, git's fsmonitor is off, attributes are read from the
+// empty tree rather than the worktree's .gitattributes, so no filter, diff
+// or merge driver a file in the worktree names runs, and git never recurses
+// into a submodule, whose repository the container could have made. Git
+// reads these above any repository's own configuration. What a replaced
+// .git link would bring, a repository configuration of the container's
+// choosing, is refused before each command instead (CheckGitLink), as is a
+// git pointed at another repository (HostCommandRefusal).
 func HostGitEnvironment(hooksDir string) map[string]string {
 	return map[string]string{
-		"GIT_CONFIG_COUNT":   "2",
+		"GIT_CONFIG_COUNT":   "4",
 		"GIT_CONFIG_KEY_0":   "core.hooksPath",
 		"GIT_CONFIG_VALUE_0": hooksDir,
 		"GIT_CONFIG_KEY_1":   "core.fsmonitor",
 		"GIT_CONFIG_VALUE_1": "false",
+		"GIT_CONFIG_KEY_2":   "submodule.recurse",
+		"GIT_CONFIG_VALUE_2": "false",
+		"GIT_CONFIG_KEY_3":   "diff.ignoreSubmodules",
+		"GIT_CONFIG_VALUE_3": "all",
 		"GIT_ATTR_SOURCE":    emptyTree,
 	}
 }

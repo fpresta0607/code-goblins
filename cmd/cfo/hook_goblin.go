@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,8 +11,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/browserlogin"
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/home"
-	"github.com/fpresta0607/code-goblins/internal/pathguard"
-	"github.com/fpresta0607/code-goblins/internal/sandbox"
 	"github.com/fpresta0607/code-goblins/internal/starthook"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -33,11 +30,10 @@ const goblinSealRefusal = "A key fetch is reading in your login's browser now, s
 // seal the goblin's harness runs: Claude Code's goblin-seal names the folder
 // it started in and reads a refusal on stderr, and Codex's goblin-seal-codex
 // and pi's goblin-seal-pi name their session's folder in the payload and
-// read one on stdout. Every tool call it is shown that names a path is held
-// to its task's path boundary too (goblinPathRefusal), every command of a
-// sandbox task, whose terminal names sandbox.Variable, to its host rule
-// (sandboxRefusal), and a call waits when its task record cannot be read,
-// since what it may reach is then unknown.
+// read one on stdout. Every tool call it is shown is held to its task's
+// path boundary too (goblinPathRefusal), and every command of a sandbox task
+// to its host rule (sandboxRefusal), and a call waits when its task record
+// cannot be read, since what it may reach is then unknown.
 func hookGoblinSeal(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	payload, ok := claudehook.ReadPayload(stdin)
 	if !ok {
@@ -52,9 +48,6 @@ func hookGoblinSeal(name string, stdin io.Reader, stdout, stderr io.Writer) int 
 		if refusal := goblinSeal(worktree, task, payload.Command); refusal != "" {
 			return deny(refusal)
 		}
-	}
-	if !pathguard.Reaches(payload.ToolName, json.RawMessage(payload.ToolInput)) && os.Getenv(sandbox.Variable) == "" {
-		return 0
 	}
 	h, err := home.Resolve()
 	if err != nil {

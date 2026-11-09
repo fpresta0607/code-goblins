@@ -92,6 +92,10 @@ func TestToolRefusalRefusesEachSecretAndOutsideWriteByPath(t *testing.T) {
 		{"cat an ssh key by its Git Bash path", "Bash", map[string]string{"command": "cat " + gitBash(f.sshKey)}, f.sshKey},
 		{"read an ssh key by USERPROFILE", "PowerShell", map[string]string{"command": `Get-Content $env:USERPROFILE\.ssh\id_ed25519`}, f.sshKey},
 		{"read the ssh folder after moving home", "Bash", map[string]string{"command": "cd ~ && cat .ssh/id_ed25519"}, ".ssh"},
+		{"copy the ssh folder by its bare name after moving home", "Bash", map[string]string{"command": "cd ~ && cp -r .ssh ./keys"}, filepath.Dir(f.sshKey)},
+		{"move into the ssh folder by its bare name", "Bash", map[string]string{"command": "cd ~; cd .ssh; cat id_ed25519"}, filepath.Dir(f.sshKey)},
+		{"copy the ssh folder by its bare name after Set-Location", "PowerShell", map[string]string{"command": "Set-Location ~; Copy-Item -Recurse .ssh keys"}, filepath.Dir(f.sshKey)},
+		{"copy the ssh folder by its bare name after pushd", "Bash", map[string]string{"command": "pushd ~ && cp -r .ssh ./keys"}, filepath.Dir(f.sshKey)},
 		{"list Credential Manager", "PowerShell", map[string]string{"command": "cmdkey /list"}, "cmdkey"},
 		{"redirect outside", "Bash", map[string]string{"command": "echo hi > ../../../dev/project/out.txt"}, filepath.Join(f.outside, "out.txt")},
 		{"append outside by descriptor", "Bash", map[string]string{"command": "go test ./... 2>>" + gitBash(filepath.Join(f.outside, "log.txt"))}, filepath.Join(f.outside, "log.txt")},
@@ -141,6 +145,7 @@ func TestToolRefusalLetsTheWorktreeScratchAndCachesBe(t *testing.T) {
 		{"redirect into the scratch folder", "PowerShell", map[string]string{"command": "go test ./... *> '" + filepath.Join(f.scratch, "log.txt") + "'"}},
 		{"a URL that names a .ssh folder", "Bash", map[string]string{"command": "curl -s https://example.com/.ssh/x"}},
 		{"git in the worktree", "Bash", map[string]string{"command": "git status && git diff --stat"}},
+		{"a folder of the worktree named .ssh", "Bash", map[string]string{"command": "ls .ssh && cd docs && cat README.md"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

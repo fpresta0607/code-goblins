@@ -40,12 +40,12 @@ func sandboxRefusal(meta state.TaskMeta, payload claudehook.Payload) string {
 	if meta.SandboxImage == "" || !isShellTool(payload.ToolName) {
 		return ""
 	}
-	if refusal := sandbox.HostCommandRefusal(payload.Command); refusal != "" {
-		return "[sandbox] " + refusal + "."
-	}
 	cwd := payload.Cwd
 	if cwd == "" {
 		cwd = meta.Worktree
+	}
+	if refusal := sandbox.HostCommandRefusal(payload.Command, cwd, meta.Worktree, meta.Scratch); refusal != "" {
+		return "[sandbox] " + refusal + "."
 	}
 	if err := sandbox.CheckGitLink(meta.Worktree, cwd, meta.SandboxGitLink); err != nil {
 		return "[sandbox] this command waits, since host git must never read a repository the container wrote: " + err.Error() + ". Tell the CEO with a blocked report; never repair the link yourself."

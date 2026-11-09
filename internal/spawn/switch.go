@@ -558,7 +558,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	mergeProvisionEnv(launch.Env, preflight.Caches)
 	mergeProvisionEnv(launch.Env, cooldown)
 	if err := containEnvironment(launch.Env, meta); err != nil {
-		return "", false, host.Record{}, err
+		return "", false, host.Record{}, "", err
 	}
 	s.nativeEnvironment(launch.Env, meta)
 

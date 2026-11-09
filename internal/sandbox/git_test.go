@@ -52,8 +52,8 @@ func exists(path string) bool {
 }
 
 // Each escape is planted as the container would plant it, through files of
-// the repository, and is proven to run without the host environment before
-// it is proven not to run with it.
+// the repository or of a repository it made inside it, and is proven to run
+// without the host environment before it is proven not to run with it.
 func TestHostGitRunsNothingTheRepositoryPlanted(t *testing.T) {
 	for _, escape := range []struct {
 		name  string
@@ -78,6 +78,30 @@ func TestHostGitRunsNothingTheRepositoryPlanted(t *testing.T) {
 				t.Fatal(err)
 			}
 		}, []string{"add", "a.txt"}},
+		{"a filter a submodule's own repository names", func(t *testing.T, dir, marker string) {
+			sub := filepath.Join(dir, "sub")
+			if err := os.MkdirAll(sub, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, sub, nil, "init", "-q")
+			if err := os.WriteFile(filepath.Join(sub, "a.txt"), []byte("a\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, sub, nil, "add", "a.txt")
+			runGit(t, sub, nil, "commit", "-q", "-m", "x")
+			runGit(t, dir, nil, "add", "a.txt", "sub")
+			runGit(t, dir, nil, "commit", "-q", "-m", "x")
+			runGit(t, sub, nil, "config", "filter.planted.clean", "echo ran > '"+filepath.ToSlash(marker)+"'; cat")
+			if err := os.MkdirAll(filepath.Join(sub, ".git", "info"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(sub, ".git", "info", "attributes"), []byte("* filter=planted\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(sub, "a.txt"), []byte("b\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}, []string{"status", "--porcelain"}},
 	} {
 		t.Run(escape.name, func(t *testing.T) {
 			// Arrange: the premise, that the planted escape runs at all.

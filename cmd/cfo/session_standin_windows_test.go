@@ -207,6 +207,14 @@ func scratchHome(t *testing.T) home.Home {
 	if err := os.WriteFile(filepath.Join(root, scratchHomeMarker), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("PATH", sessionProgramsDir(t)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}
+}
+
+// sessionProgramsDir is the folder that holds claude.exe and cfo.exe, both
+// this test binary, made once for every test that starts them.
+func sessionProgramsDir(t *testing.T) string {
+	t.Helper()
 	sessionPrograms.once.Do(func() {
 		self, err := os.Executable()
 		if err != nil {
@@ -231,8 +239,7 @@ func scratchHome(t *testing.T) home.Home {
 	if sessionPrograms.err != nil {
 		t.Fatal(sessionPrograms.err)
 	}
-	t.Setenv("PATH", sessionPrograms.dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}
+	return sessionPrograms.dir
 }
 
 // startCFOSession starts the CFO of home h as goblins, the board and the
