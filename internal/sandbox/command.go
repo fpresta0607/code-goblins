@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 )
@@ -17,28 +18,50 @@ var hostPrograms = map[string]bool{"cfo": true, "git": true, "gh": true}
 // local services stack, whose compose file the project writes.
 var hostRefusedCommands = map[string]bool{"deploy": true, "gate": true, "security": true, "services": true, "verify": true}
 
-// hostRefusedGitOptions are the options before git's command that have it
-// read another repository, configuration or programs than the worktree's
-// own, as a repository the container made in a folder of the worktree.
-var hostRefusedGitOptions = map[string]bool{"-C": true, "-c": true, "--attr-source": true, "--config-env": true, "--exec-path": true, "--git-dir": true, "--work-tree": true}
+// hostGitCommands are the git commands a sandbox task's goblin delivers its
+// work with, the only ones its host runs.
+var hostGitCommands = map[string]bool{
+	"status": true, "diff": true, "log": true, "show": true, "add": true, "commit": true, "push": true, "fetch": true, "pull": true, "switch": true, "checkout": true,
+	"branch": true, "rebase": true, "merge": true, "reset": true, "restore": true, "stash": true, "tag": true, "rev-parse": true, "ls-files": true, "blame": true,
+}
+
+// hostRefusedGitOptions are the long options of those git commands that
+// start a program of the command's choosing, or reach a submodule, whose
+// repository the container could have made. Git takes any unambiguous start
+// of a long option for it, so each start is refused too.
+var hostRefusedGitOptions = []string{"--exec", "--receive-pack", "--recurse-submodules", "--recursive", "--upload-pack"}
+
+// hostRefusedGhCommands are the gh commands that run a command or program
+// of the goblin's choosing as gh: an alias and an extension.
+var hostRefusedGhCommands = map[string]bool{"alias": true, "extension": true, "extensions": true, "ext": true}
+
+// whyNotPlain is why a character a host command holds outside quotes is
+// refused, for the characters a shell reads as more than text.
+var whyNotPlain = map[byte]string{
+	';': "a ;, which starts another command", '|': "a |, which starts another command", '&': "a single &, which runs or calls another command",
+	'\n': "a line break, which starts another command", '\r': "a line break, which starts another command",
+	'>': "a >, which redirects", '<': "a <, which redirects", '$': "a $, which expands a variable or runs a command", '`': "a backtick, which runs a command",
+	'(': "a (, which runs a command of its own", ')': "a ), which ends a command of its own", '{': "a {, which groups commands", '}': "a }, which ends a group of commands",
+	'*': "a *, which expands to file names", '?': "a ?, which expands to file names", '[': "a [, which expands to file names", '#': "a #, which starts a comment",
+	'!': "a !, which Bash expands from its history", '\'': "a quote no other quote ends", '"': "a quote no other quote ends",
+}
 
 // HostCommandRefusal is why command, a shell command a sandbox task's goblin
 // is about to run on the host from cwd, is refused, or empty when it runs.
-// Each of its commands, at ;, |, & and line breaks outside quotes, must
-// start cfo, git or gh by name, or by an absolute path outside worktree and
-// scratch, the folders the container writes, with no variable set in front
-// of it, and none may run a command of its own outside single quotes, as
-// $(...), a backtick, a process substitution or PowerShell's (...) and
-// @(...) do. Git may not be pointed at another repository, configuration or
-// programs, or recurse into submodules. cfo sandbox run, and cfo gate turn
-// starting only it, are how the project's code runs; the cfo commands that
-// run it on the host are refused.
+// It allows what Bash and PowerShell read alike, and refuses everything
+// else: simple commands joined by &&, each of words of plain characters and
+// quoted strings (hostCommands), that start cfo, git or gh by name or by an
+// absolute path outside worktree and scratch, the folders the container
+// writes. Git runs only the commands a goblin delivers with (gitRefusal),
+// and gh no alias or extension (ghRefusal). cfo sandbox run, and cfo gate
+// turn starting only it, are how the project's code runs; the cfo commands
+// that run it on the host are refused.
 func HostCommandRefusal(command, cwd, worktree, scratch string) string {
-	segments, nested := hostSegments(command)
-	if nested != "" {
-		return "this command runs a command of its own with " + nested + ", which a sandbox task never runs on the host: run it in its container with cfo sandbox run -- <command>"
+	commands, refusal := hostCommands(command)
+	if refusal != "" {
+		return "this command holds " + refusal + ", and a sandbox task's host runs only cfo, git and gh commands of plain words and quoted text joined by &&: run anything else in its container with cfo sandbox run -- <command>"
 	}
-	for _, words := range segments {
+	for _, words := range commands {
 		program := programName(words[0])
 		if !hostPrograms[program] {
 			return "a sandbox task runs " + words[0] + " only in its container, since its code is the adversary: run it with cfo sandbox run -- <command>, and only cfo, git and gh on the host"
@@ -51,7 +74,11 @@ func HostCommandRefusal(command, cwd, worktree, scratch string) string {
 			if refusal := gitRefusal(words[1:]); refusal != "" {
 				return refusal
 			}
-		case program != "cfo" || len(words) < 2:
+		case program == "gh":
+			if refusal := ghRefusal(words[1:]); refusal != "" {
+				return refusal
+			}
+		case len(words) < 2:
 		case words[1] == "gate" && sandboxTurnProgram(words[2:]) != "":
 			if refusal := programPathRefusal(sandboxTurnProgram(words[2:]), cwd, worktree, scratch); refusal != "" {
 				return refusal
@@ -61,6 +88,71 @@ func HostCommandRefusal(command, cwd, worktree, scratch string) string {
 		}
 	}
 	return ""
+}
+
+// hostCommands splits command into its commands at &&, each as its words
+// with their quotes taken off, or says why it is refused. A word is made of
+// plain characters, letters, digits and . _ / \ : = @ % + , - and a ~ that
+// starts it, and of single- or double-quoted strings that hold no
+// backslash, $, backtick, parenthesis, quote of the other kind or quote
+// PowerShell reads as its own, so Bash and PowerShell read the same words.
+// A backslash before a quote is refused, since Bash reads it as a quote of
+// the text and PowerShell as the start of a string.
+func hostCommands(command string) ([][]string, string) {
+	var commands [][]string
+	var words []string
+	var word strings.Builder
+	isWord := false
+	flush := func() {
+		if isWord {
+			words = append(words, word.String())
+		}
+		word.Reset()
+		isWord = false
+	}
+	for index := 0; index < len(command); index++ {
+		c := command[index]
+		switch {
+		case c == ' ' || c == '\t':
+			flush()
+		case c == '&' && index+1 < len(command) && command[index+1] == '&':
+			flush()
+			if len(words) > 0 {
+				commands = append(commands, words)
+			}
+			words = nil
+			index++
+		case c == '\\' && index+1 < len(command) && (command[index+1] == '\'' || command[index+1] == '"'):
+			return nil, "a backslash before a quote, which Bash reads as a quote of the text and PowerShell as the start of a string"
+		case c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.IndexByte(`._/\:=@%+,-`, c) >= 0 || c == '~' && !isWord:
+			word.WriteByte(c)
+			isWord = true
+		case c == '\'' || c == '"':
+			end := strings.IndexByte(command[index+1:], c)
+			if end < 0 {
+				return nil, whyNotPlain[c]
+			}
+			text := command[index+1 : index+1+end]
+			if at := strings.IndexAny(text, "\\$`()'\""); at >= 0 {
+				return nil, fmt.Sprintf("%q in a quoted string, which Bash or PowerShell reads as more than text there", text[at])
+			}
+			if strings.ContainsAny(text, "\u2018\u2019\u201a\u201b\u201c\u201d\u201e") {
+				return nil, "a typographic quote in a quoted string, which PowerShell reads as a quote that ends it"
+			}
+			word.WriteString(text)
+			isWord = true
+			index += end + 1
+		case whyNotPlain[c] != "":
+			return nil, whyNotPlain[c]
+		default:
+			return nil, fmt.Sprintf("%q outside quotes, which is no plain character", c)
+		}
+	}
+	flush()
+	if len(words) > 0 {
+		commands = append(commands, words)
+	}
+	return commands, ""
 }
 
 // programPathRefusal is why word, the program a host command starts, is
@@ -96,94 +188,55 @@ func isWithin(path, root string) bool {
 }
 
 // gitRefusal is why git with arguments, those after its name, is refused on
-// a sandbox task's host: an option before its command that points it at
-// another repository, configuration or programs (hostRefusedGitOptions), its
-// submodule command, or --recurse-submodules, each of which can reach a
-// repository the container made in a folder of the worktree.
+// a sandbox task's host: an option before its command, which can point it
+// at another repository, configuration or program, a command that is none of
+// hostGitCommands, rebase's -x, which runs a command at each commit, or one
+// of hostRefusedGitOptions.
 func gitRefusal(arguments []string) string {
-	refused := ""
-	isCommand := false
-	for index := 0; index < len(arguments) && refused == ""; index++ {
-		argument := arguments[index]
-		name, _, _ := strings.Cut(argument, "=")
-		switch {
-		case !isCommand && hostRefusedGitOptions[name]:
-			refused = "git " + name
-		case !isCommand && (argument == "--namespace" || argument == "--super-prefix"):
-			index++
-		case !isCommand && !strings.HasPrefix(argument, "-"):
-			isCommand = true
-			if argument == "submodule" {
-				refused = "git submodule"
-			}
-		case name == "--recurse-submodules":
-			refused = "git's --recurse-submodules"
-		}
-	}
-	if refused == "" {
+	if len(arguments) == 0 {
 		return ""
 	}
-	return "a sandbox task never runs " + refused + " on the host, which reaches a repository, configuration or program other than its worktree's, one the container could have made: run git on the worktree itself"
+	command := arguments[0]
+	if strings.HasPrefix(command, "-") {
+		return "a sandbox task never runs git " + command + " on the host, an option before git's command, which can point git at another repository, configuration or program: run git with its command first"
+	}
+	if !hostGitCommands[command] {
+		return "a sandbox task never runs git " + command + " on the host, which is none of the git commands it delivers with: status, diff, log, show, add, commit, push, fetch, pull, switch, checkout, branch, rebase, merge, reset, restore, stash, tag, rev-parse, ls-files and blame"
+	}
+	for _, argument := range arguments[1:] {
+		if command == "rebase" && strings.HasPrefix(argument, "-") && !strings.HasPrefix(argument, "--") && strings.Contains(argument, "x") {
+			return "a sandbox task never runs git rebase " + argument + " on the host, since -x runs a command at each commit: run the command in its container with cfo sandbox run"
+		}
+	}
+	return refusedOption("git "+command, arguments[1:])
 }
 
-// hostSegments splits command into its commands, each as its words with
-// their quotes taken off, at ;, |, & and line breaks outside quotes, and
-// names the first nested command it holds: $(...), a backtick or a process
-// substitution outside single quotes, and PowerShell's (...) and @(...)
-// outside any quotes. A redirection to a descriptor, as 2>&1 and &> write
-// it, ends no command.
-func hostSegments(command string) (segments [][]string, nested string) {
-	var words []string
-	var word strings.Builder
-	isWord := false
-	flush := func() {
-		if isWord {
-			words = append(words, word.String())
-		}
-		word.Reset()
-		isWord = false
+// ghRefusal is why gh with arguments, those after its name, is refused on a
+// sandbox task's host: an alias or extension command, which runs a command
+// or program of the goblin's choosing as gh, or one of
+// hostRefusedGitOptions, which gh hands to the git it runs.
+func ghRefusal(arguments []string) string {
+	if len(arguments) > 0 && hostRefusedGhCommands[arguments[0]] {
+		return "a sandbox task never runs gh " + arguments[0] + " on the host, which runs a command or program of its own as gh"
 	}
-	end := func() {
-		flush()
-		if len(words) > 0 {
-			segments = append(segments, words)
+	return refusedOption("gh", arguments)
+}
+
+// refusedOption is why program is refused one of arguments, an option of
+// hostRefusedGitOptions or a start of one, or empty for none.
+func refusedOption(program string, arguments []string) string {
+	for _, argument := range arguments {
+		name, _, _ := strings.Cut(argument, "=")
+		if !strings.HasPrefix(name, "--") || len(name) <= 2 {
+			continue
 		}
-		words = nil
-	}
-	quote := byte(0)
-	for index := 0; index < len(command); index++ {
-		c := command[index]
-		if quote != '\'' {
-			for _, form := range []string{"$(", "`", "<(", ">("} {
-				if strings.HasPrefix(command[index:], form) {
-					return nil, form
-				}
+		for _, refused := range hostRefusedGitOptions {
+			if strings.HasPrefix(refused, name) {
+				return "a sandbox task never runs " + program + " with " + argument + " on the host, since " + refused + " starts a program of its own or reaches a submodule"
 			}
 		}
-		if quote == 0 && c == '(' {
-			return nil, "("
-		}
-		switch {
-		case quote != 0 && c == quote:
-			quote = 0
-		case quote != 0:
-			word.WriteByte(c)
-		case c == '\'' || c == '"':
-			quote, isWord = c, true
-		case c == '&' && (index > 0 && command[index-1] == '>' || index+1 < len(command) && command[index+1] == '>'):
-			word.WriteByte(c)
-			isWord = true
-		case c == ';' || c == '|' || c == '&' || c == '\n' || c == '\r':
-			end()
-		case c == ' ' || c == '\t':
-			flush()
-		default:
-			word.WriteByte(c)
-			isWord = true
-		}
 	}
-	end()
-	return segments, ""
+	return ""
 }
 
 // sandboxTurnProgram is the program word of a turn that takes it for cfo

@@ -1,6 +1,8 @@
 package sandbox
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -22,12 +24,12 @@ const HooksOffDir = "git-hooks-off"
 // would otherwise reach: hooks are read from hooksDir, an empty folder no
 // container mounts, git's fsmonitor is off, attributes are read from the
 // empty tree rather than the worktree's .gitattributes, so no filter, diff
-// or merge driver a file in the worktree names runs, and git never recurses
-// into a submodule, whose repository the container could have made. Git
-// reads these above any repository's own configuration. What a replaced
-// .git link would bring, a repository configuration of the container's
-// choosing, is refused before each command instead (CheckGitLink), as is a
-// git pointed at another repository (HostCommandRefusal).
+// or merge driver a file in the worktree names runs, and git recurses into
+// no submodule by default. Git reads these above any repository's own
+// configuration. What a replaced .git link or a submodule would bring, a
+// repository configuration of the container's choosing, is refused before
+// each command instead (CheckGitLink), as is a git pointed at another
+// repository (HostCommandRefusal).
 func HostGitEnvironment(hooksDir string) map[string]string {
 	return map[string]string{
 		"GIT_CONFIG_COUNT":   "4",
@@ -67,12 +69,12 @@ func ReadGitLink(worktree string) (string, error) {
 }
 
 // CheckGitLink refuses a host command of a sandbox task whose worktree's
-// .git link no longer says want, the link its spawn recorded, or that runs
-// from a folder of the worktree, cwd, under which a .git of another
-// repository was made: either would have host git read a repository the
-// container wrote, its hooks, filters, fsmonitor and configuration. A cwd
-// outside the worktree is refused too, since the host runs a sandbox task's
-// commands only there.
+// .git link no longer says want, the link its spawn recorded, whose
+// worktree has a submodule (submoduleRefusal), or that runs from a folder of
+// the worktree, cwd, under which a .git of another repository was made: each
+// would have host git read a repository the container wrote, its hooks,
+// filters, fsmonitor and configuration. A cwd outside the worktree is
+// refused too, since the host runs a sandbox task's commands only there.
 func CheckGitLink(worktree, cwd, want string) error {
 	link, err := ReadGitLink(worktree)
 	if err != nil {
@@ -80,6 +82,13 @@ func CheckGitLink(worktree, cwd, want string) error {
 	}
 	if link != want {
 		return fmt.Errorf("sandbox: the worktree's .git link now says %q, not %q, the link its spawn recorded, so host git would read a repository the container made", link, want)
+	}
+	gitDir := filepath.FromSlash(strings.TrimPrefix(link, "gitdir: "))
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(worktree, gitDir)
+	}
+	if err := submoduleRefusal(worktree, gitDir); err != nil {
+		return err
 	}
 	if cwd == "" {
 		return nil
@@ -96,6 +105,88 @@ func CheckGitLink(worktree, cwd, want string) error {
 		}
 		if filepath.Dir(dir) == dir {
 			break
+		}
+	}
+	return nil
+}
+
+// submoduleRefusal refuses worktree, whose git folder is gitDir, while it
+// has a submodule, whose repository the container could have made: a
+// .gitmodules, whose ignore lines override the host's diff.ignoreSubmodules,
+// or an index entry that is a gitlink, a submodule's commit, or a sparse
+// directory, which could hold one. It reads the index itself, version 2, 3
+// or 4, and runs no program, and refuses an index split across a shared
+// index or one it cannot read, since what they hold is unknown.
+func submoduleRefusal(worktree, gitDir string) error {
+	const cannotUse = "a sandbox task's project cannot use submodules, since host git would read the repository the container makes for one"
+	if _, err := os.Lstat(filepath.Join(worktree, ".gitmodules")); err == nil {
+		return fmt.Errorf("sandbox: the worktree holds %s, and %s", filepath.Join(worktree, ".gitmodules"), cannotUse)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("sandbox: look for the worktree's .gitmodules: %w", err)
+	}
+	shared, err := filepath.Glob(filepath.Join(gitDir, "sharedindex.*"))
+	if err != nil {
+		return fmt.Errorf("sandbox: look for a shared index in %s: %w", gitDir, err)
+	}
+	if len(shared) > 0 {
+		return fmt.Errorf("sandbox: the index in %s is split across %s, which this check does not read for submodules", gitDir, shared[0])
+	}
+	data, err := os.ReadFile(filepath.Join(gitDir, "index"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("sandbox: read the worktree's index: %w", err)
+	}
+	unreadable := fmt.Errorf("sandbox: the index in %s cannot be read for submodules", gitDir)
+	if len(data) < 12 || string(data[:4]) != "DIRC" {
+		return unreadable
+	}
+	version := binary.BigEndian.Uint32(data[4:8])
+	if version < 2 || version > 4 {
+		return unreadable
+	}
+	offset, path := 12, ""
+	for range binary.BigEndian.Uint32(data[8:12]) {
+		start := offset + 62
+		if start > len(data) {
+			return unreadable
+		}
+		mode := binary.BigEndian.Uint32(data[offset+24:])
+		if version >= 3 && binary.BigEndian.Uint16(data[offset+60:])&0x4000 != 0 {
+			start += 2
+		}
+		if start >= len(data) {
+			return unreadable
+		}
+		if version == 4 {
+			c := data[start]
+			start++
+			strip := int(c & 0x7f)
+			for c&0x80 != 0 {
+				if start >= len(data) || strip > len(data) {
+					return unreadable
+				}
+				c = data[start]
+				start++
+				strip = (strip+1)<<7 | int(c&0x7f)
+			}
+			end := bytes.IndexByte(data[start:], 0)
+			if end < 0 || strip > len(path) {
+				return unreadable
+			}
+			path = path[:len(path)-strip] + string(data[start:start+end])
+			offset = start + end + 1
+		} else {
+			end := bytes.IndexByte(data[start:], 0)
+			if end < 0 {
+				return unreadable
+			}
+			path = string(data[start : start+end])
+			offset += (start - offset + end + 8) &^ 7
+		}
+		if mode == 0o160000 || mode == 0o040000 {
+			return fmt.Errorf("sandbox: the worktree's index names %s as a submodule, and %s", path, cannotUse)
 		}
 	}
 	return nil

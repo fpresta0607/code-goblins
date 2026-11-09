@@ -26,6 +26,9 @@ func containTask(t *testing.T, stateDir string) state.TaskMeta {
 		t.Fatal(err)
 	}
 	meta.SandboxImage, meta.SandboxGitLink = "node:22", link
+	if meta.Scratch == "" {
+		meta.Scratch = t.TempDir()
+	}
 	if err := state.WriteTaskMeta(stateDir, meta); err != nil {
 		t.Fatal(err)
 	}
@@ -38,6 +41,7 @@ func containTask(t *testing.T, stateDir string) state.TaskMeta {
 func TestEverySealHoldsASandboxTasksShellToItsHostRule(t *testing.T) {
 	for _, test := range []struct {
 		name, command string
+		commandOf     func(meta state.TaskMeta) string
 		arrange       func(t *testing.T, meta state.TaskMeta)
 		refusal       string
 	}{
@@ -53,6 +57,22 @@ func TestEverySealHoldsASandboxTasksShellToItsHostRule(t *testing.T) {
 			},
 			refusal: "the link its spawn recorded",
 		},
+		{
+			name: "host git after the container wrote a .gitmodules", command: "git status",
+			arrange: func(t *testing.T, meta state.TaskMeta) {
+				if err := os.WriteFile(filepath.Join(meta.Worktree, ".gitmodules"), []byte("[submodule \"sub\"]\n\tpath = sub\n\tignore = none\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			refusal: "cannot use submodules",
+		},
+		{name: "git the worktree holds, by a relative path", command: "./tools/git.exe status", refusal: "the container can write it"},
+		{name: "git the worktree holds, by its path", commandOf: func(meta state.TaskMeta) string {
+			return filepath.Join(meta.Worktree, "tools", "git.exe") + " status"
+		}, refusal: "the container can write it"},
+		{name: "cfo the scratch folder holds", commandOf: func(meta state.TaskMeta) string {
+			return filepath.Join(meta.Scratch, "cfo.exe") + " notify x --working y"
+		}, refusal: "the container can write it"},
 	} {
 		for _, entry := range []string{"board", "goblin-seal-codex", "goblin-seal-pi"} {
 			t.Run(test.name+"/"+entry, func(t *testing.T) {
@@ -98,12 +118,17 @@ func TestEverySealHoldsASandboxTasksShellToItsHostRule(t *testing.T) {
 					test.arrange(t, meta)
 				}
 
+				command := test.command
+				if test.commandOf != nil {
+					command = test.commandOf(meta)
+				}
+
 				// Act
-				refusal := ask(test.command)
+				refusal := ask(command)
 
 				// Assert
 				if test.refusal == "" && refusal != "" {
-					t.Fatalf("refusal = %q, want %q to run", refusal, test.command)
+					t.Fatalf("refusal = %q, want %q to run", refusal, command)
 				}
 				if test.refusal != "" && (!strings.HasPrefix(refusal, "[sandbox] ") || !strings.Contains(refusal, test.refusal)) {
 					t.Fatalf("refusal = %q, want a [sandbox] refusal saying %q", refusal, test.refusal)

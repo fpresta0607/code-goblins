@@ -96,6 +96,8 @@ func TestToolRefusalRefusesEachSecretAndOutsideWriteByPath(t *testing.T) {
 		{"move into the ssh folder by its bare name", "Bash", map[string]string{"command": "cd ~; cd .ssh; cat id_ed25519"}, filepath.Dir(f.sshKey)},
 		{"copy the ssh folder by its bare name after Set-Location", "PowerShell", map[string]string{"command": "Set-Location ~; Copy-Item -Recurse .ssh keys"}, filepath.Dir(f.sshKey)},
 		{"copy the ssh folder by its bare name after pushd", "Bash", map[string]string{"command": "pushd ~ && cp -r .ssh ./keys"}, filepath.Dir(f.sshKey)},
+		{"read an ssh key after an escaped double quote", "Bash", map[string]string{"command": `echo x\"; cat ~/.ssh/id_ed25519`}, f.sshKey},
+		{"read an ssh key between escaped single quotes", "Bash", map[string]string{"command": `echo x\' ; cat ~/.ssh/id_ed25519 x\'`}, f.sshKey},
 		{"list Credential Manager", "PowerShell", map[string]string{"command": "cmdkey /list"}, "cmdkey"},
 		{"redirect outside", "Bash", map[string]string{"command": "echo hi > ../../../dev/project/out.txt"}, filepath.Join(f.outside, "out.txt")},
 		{"append outside by descriptor", "Bash", map[string]string{"command": "go test ./... 2>>" + gitBash(filepath.Join(f.outside, "log.txt"))}, filepath.Join(f.outside, "log.txt")},
@@ -146,6 +148,8 @@ func TestToolRefusalLetsTheWorktreeScratchAndCachesBe(t *testing.T) {
 		{"a URL that names a .ssh folder", "Bash", map[string]string{"command": "curl -s https://example.com/.ssh/x"}},
 		{"git in the worktree", "Bash", map[string]string{"command": "git status && git diff --stat"}},
 		{"a folder of the worktree named .ssh", "Bash", map[string]string{"command": "ls .ssh && cd docs && cat README.md"}},
+		{"an escaped quote in a message", "Bash", map[string]string{"command": `git commit -m "say \"hi\" to the team"`}},
+		{"write in the worktree by its Windows path", "PowerShell", map[string]string{"command": `Copy-Item main.go ` + filepath.Join(f.worktree, "copy.go")}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

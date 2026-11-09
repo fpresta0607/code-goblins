@@ -44,12 +44,24 @@ var sinks = map[string]bool{"/dev/null": true, "$null": true, "nul": true, "/dev
 // path in a secret folder anywhere in it, or reaches Credential Manager
 // through its programs, and one that writes outside the writable folders by
 // a redirection or a program that writes the files it is given. It reads the
-// command's words, not what the programs it starts do.
+// command's words, not what the programs it starts do, as PowerShell reads
+// them and as Bash does, and refuses what either reading reaches.
 func (b Boundary) ShellRefusal(command string) string {
 	if program := credentialPrograms.FindString(command); program != "" {
 		return "it reaches " + CredentialStoreName + " through " + program + ", which no goblin or gate step reads"
 	}
-	for _, segment := range shellSegments(command) {
+	for _, isEscaping := range []bool{false, true} {
+		if reason := b.shellReadingRefusal(shellSegments(command, isEscaping)); reason != "" {
+			return reason
+		}
+	}
+	return ""
+}
+
+// shellReadingRefusal is why a command, read as segments, is refused, or
+// empty when it may run, as ShellRefusal says.
+func (b Boundary) shellReadingRefusal(segments [][]shellWord) string {
+	for _, segment := range segments {
 		moved, isMove := b.movedTo(segment)
 		for _, word := range segment {
 			if word.isRedirect {
@@ -250,7 +262,12 @@ func (w shellWord) pathValue() string {
 // word and a redirection operator apart from the words around it. It reads
 // Bash and PowerShell alike, which is enough to find the paths a command
 // names: a word it splits wrongly names no folder it would otherwise miss.
-func shellSegments(command string) [][]shellWord {
+// They differ on a backslash, which Bash reads as an escape and PowerShell
+// as a character, so with isEscaping it reads one before a quote or a
+// backslash as Bash does, as that character itself, outside quotes and, for
+// " and \, in double quotes. A backslash before any other character stays,
+// as the folder separator a Windows path holds.
+func shellSegments(command string, isEscaping bool) [][]shellWord {
 	var segments [][]shellWord
 	var segment []shellWord
 	var word strings.Builder
@@ -272,14 +289,18 @@ func shellSegments(command string) [][]shellWord {
 	for index := 0; index < len(command); index++ {
 		c := command[index]
 		switch {
-		case c == '\'' || c == '"':
-			end := strings.IndexByte(command[index+1:], c)
-			if end < 0 {
-				end = len(command) - index - 1
-			}
-			word.WriteString(command[index+1 : index+1+end])
+		case isEscaping && c == '\\' && index+1 < len(command) && strings.IndexByte(`"'\`, command[index+1]) >= 0:
+			index++
+			word.WriteByte(command[index])
 			isWord = true
-			index += end + 1
+		case c == '\'' || c == '"':
+			for index++; index < len(command) && command[index] != c; index++ {
+				if isEscaping && c == '"' && command[index] == '\\' && index+1 < len(command) && strings.IndexByte(`"\`, command[index+1]) >= 0 {
+					index++
+				}
+				word.WriteByte(command[index])
+			}
+			isWord = true
 		case c == '>':
 			// A file descriptor or & written against the operator is part
 			// of it, as in 2>, &> and 1>>.

@@ -105,6 +105,15 @@ func TestSandboxRunRunsNothingItCannotContain(t *testing.T) {
 			},
 			refusal: "holds a .git of its own",
 		},
+		{
+			name: "a .gitmodules the container wrote", image: "node:22", task: "cg-x", engine: fakeSandboxEngine{isRunning: true},
+			arrange: func(t *testing.T, meta state.TaskMeta) {
+				if err := os.WriteFile(filepath.Join(meta.Worktree, ".gitmodules"), []byte("[submodule \"sub\"]\n\tpath = sub\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			refusal: "cannot use submodules",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

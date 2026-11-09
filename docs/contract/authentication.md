@@ -147,12 +147,20 @@ A devcontainer that builds its image, with `build`, `dockerFile` or `dockerCompo
 A spawn is refused before anything starts when `docker` is not on PATH or the project names no image, and a helper of a sandbox task is a sandbox task too.
 The task keeps its worktree, branch and delivery, and the task's record keeps the image and the worktree's `.git` link (`sandbox_image` and `sandbox_git` in `state/<id>.meta`).
 Its goblin's harness runs on the host, where its shell runs only `cfo`, `git` and `gh`, from its worktree, by name or by an absolute path outside the worktree and scratch folder.
-Every other command is refused there, as are a command nested in another, `cfo gate test`, `cfo verify`, `cfo security`, `cfo deploy` and `cfo services`, and the goblin runs them in the container with [`cfo sandbox run`](../commands/sandbox.md), in the machine's heavy line.
+A host command is simple commands joined by `&&`, each of plain words and quoted text, so Bash and PowerShell read it alike.
+A plain word holds letters, digits, `.`, `_`, `/`, `\`, `:`, `=`, `@`, `%`, `+`, `,` and `-`, and a `~` that starts it.
+Quoted text holds no backslash, `$`, backtick, parenthesis, quote of the other kind or typographic quote.
+Anything else is refused, naming the character, as is a backslash before a quote, so a pipe, a redirection, a `;`, a variable and a command of its own all run in the container.
+Host git runs only `status`, `diff`, `log`, `show`, `add`, `commit`, `push`, `fetch`, `pull`, `switch`, `checkout`, `branch`, `rebase`, `merge`, `reset`, `restore`, `stash`, `tag`, `rev-parse`, `ls-files` and `blame`, with no option before its command.
+It is refused `rebase -x`, and `--exec`, `--upload-pack`, `--receive-pack`, `--recurse-submodules` and `--recursive` or any start of them, each of which starts a program or reaches a submodule.
+Host gh is refused `alias` and `extension`, which run a command or program of their own, and those options too.
+`cfo gate test`, `cfo verify`, `cfo security`, `cfo deploy` and `cfo services` are refused there, and the goblin runs what they run in the container with [`cfo sandbox run`](../commands/sandbox.md), in the machine's heavy line.
 Its gate's Test step runs its command in the same image, with the gate's checkout alone mounted.
 A run that cannot start Docker runs nowhere, never on the host instead.
-Code in the container can write the worktree, so the task's host git reads hooks from an empty folder, runs with its fsmonitor off, reads attributes from the empty tree, so no filter, diff or merge driver the worktree names runs, and never recurses into a submodule.
-Every host command is refused while the worktree's `.git` link differs from the one its spawn recorded, or while the folder it runs in, or one between that folder and the worktree, holds a `.git` of its own, and the container sees the `.git` link read-only.
-Host git is refused `-C`, `-c`, `--git-dir`, `--work-tree`, `--exec-path`, `--config-env` and `--attr-source` before its command, its `submodule` command and `--recurse-submodules`, so it never reads a repository the container made elsewhere in the worktree.
+Code in the container can write the worktree, so the task's host git reads hooks from an empty folder, runs with its fsmonitor off, and reads attributes from the empty tree, so no filter, diff or merge driver the worktree names runs.
+A sandbox task's project cannot use submodules: every host command is refused while the worktree holds a `.gitmodules`, whose `ignore` lines would have host git recurse into a submodule the container made, or the worktree's index names a gitlink.
+`cfo` reads the index itself, without running git, and refuses an index split across a shared index too.
+Every host command is also refused while the worktree's `.git` link differs from the one its spawn recorded, or while the folder it runs in, or one between that folder and the worktree, holds a `.git` of its own, and the container sees the `.git` link read-only.
 The gate's prepare, lint and format commands and its agents' own shells still run on the host.
 
 ### The credential store

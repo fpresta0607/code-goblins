@@ -78,27 +78,10 @@ func TestHostGitRunsNothingTheRepositoryPlanted(t *testing.T) {
 				t.Fatal(err)
 			}
 		}, []string{"add", "a.txt"}},
-		{"a filter a submodule's own repository names", func(t *testing.T, dir, marker string) {
-			sub := filepath.Join(dir, "sub")
-			if err := os.MkdirAll(sub, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			runGit(t, sub, nil, "init", "-q")
-			if err := os.WriteFile(filepath.Join(sub, "a.txt"), []byte("a\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			runGit(t, sub, nil, "add", "a.txt")
-			runGit(t, sub, nil, "commit", "-q", "-m", "x")
-			runGit(t, dir, nil, "add", "a.txt", "sub")
-			runGit(t, dir, nil, "commit", "-q", "-m", "x")
-			runGit(t, sub, nil, "config", "filter.planted.clean", "echo ran > '"+filepath.ToSlash(marker)+"'; cat")
-			if err := os.MkdirAll(filepath.Join(sub, ".git", "info"), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(sub, ".git", "info", "attributes"), []byte("* filter=planted\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(sub, "a.txt"), []byte("b\n"), 0o644); err != nil {
+		{"a filter a submodule's own repository names", plantSubmodule, []string{"status", "--porcelain"}},
+		{"a filter a submodule's own repository names, which .gitmodules never ignores", func(t *testing.T, dir, marker string) {
+			plantSubmodule(t, dir, marker)
+			if err := os.WriteFile(filepath.Join(dir, ".gitmodules"), []byte("[submodule \"sub\"]\n\tpath = sub\n\turl = ./sub\n\tignore = none\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
 		}, []string{"status", "--porcelain"}},
@@ -116,14 +99,46 @@ func TestHostGitRunsNothingTheRepositoryPlanted(t *testing.T) {
 			marker := filepath.Join(t.TempDir(), "ran")
 			escape.plant(t, guarded, marker)
 
-			// Act
-			runGit(t, guarded, hostGit(t), escape.run...)
+			// Act: as a sandbox task's host runs it, not at all when its
+			// submodule check refuses the repository.
+			if submoduleRefusal(guarded, filepath.Join(guarded, ".git")) == nil {
+				runGit(t, guarded, hostGit(t), escape.run...)
+			}
 
 			// Assert
 			if exists(marker) {
 				t.Fatalf("the planted %s ran under a sandbox task's host git", escape.name)
 			}
 		})
+	}
+}
+
+// plantSubmodule makes sub in dir a repository of its own, committed to
+// dir as a submodule, whose own configuration and attributes run a filter
+// that writes marker on its changed file.
+func plantSubmodule(t *testing.T, dir, marker string) {
+	t.Helper()
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, sub, nil, "init", "-q")
+	if err := os.WriteFile(filepath.Join(sub, "a.txt"), []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, sub, nil, "add", "a.txt")
+	runGit(t, sub, nil, "commit", "-q", "-m", "x")
+	runGit(t, dir, nil, "add", "a.txt", "sub")
+	runGit(t, dir, nil, "commit", "-q", "-m", "x")
+	runGit(t, sub, nil, "config", "filter.planted.clean", "echo ran > '"+filepath.ToSlash(marker)+"'; cat")
+	if err := os.MkdirAll(filepath.Join(sub, ".git", "info"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, ".git", "info", "attributes"), []byte("* filter=planted\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "a.txt"), []byte("b\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -206,5 +221,73 @@ func TestCheckGitLinkLetsTheRecordedLinkBe(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CheckGitLink = %v, want the recorded link let through", err)
 		}
+	}
+}
+
+// linkedWorktree is a worktree git added to a repository of its own, as a
+// task's spawn adds one, and its .git link.
+func linkedWorktree(t *testing.T) (string, string) {
+	t.Helper()
+	repository := gitRepository(t)
+	runGit(t, repository, nil, "add", "a.txt")
+	runGit(t, repository, nil, "commit", "-q", "-m", "x")
+	worktree := filepath.Join(t.TempDir(), "task")
+	runGit(t, repository, nil, "worktree", "add", "-q", worktree)
+	link, err := ReadGitLink(worktree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return worktree, link
+}
+
+// A worktree whose index git wrote with a gitlink, in each index version git
+// writes, or that holds a .gitmodules, is refused, naming the submodule; one
+// with neither is let through.
+func TestCheckGitLinkRefusesASubmoduleOfTheWorktree(t *testing.T) {
+	const commit = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+	for _, test := range []struct {
+		name  string
+		plant func(t *testing.T, worktree string)
+		want  string
+	}{
+		{"a .gitmodules", func(t *testing.T, worktree string) {
+			if err := os.WriteFile(filepath.Join(worktree, ".gitmodules"), []byte("[submodule \"sub\"]\n\tpath = sub\n\tignore = none\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}, ".gitmodules"},
+		{"a gitlink in an index of version 2", func(t *testing.T, worktree string) {
+			runGit(t, worktree, nil, "update-index", "--add", "--cacheinfo", "160000,"+commit+",vendor/x")
+		}, "names vendor/x as a submodule"},
+		{"a gitlink in an index of version 3", func(t *testing.T, worktree string) {
+			if err := os.WriteFile(filepath.Join(worktree, "new.txt"), []byte("n\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, worktree, nil, "add", "-N", "new.txt")
+			runGit(t, worktree, nil, "update-index", "--add", "--cacheinfo", "160000,"+commit+",vendor/x")
+		}, "names vendor/x as a submodule"},
+		{"a gitlink in an index of version 4", func(t *testing.T, worktree string) {
+			runGit(t, worktree, nil, "update-index", "--index-version", "4")
+			runGit(t, worktree, nil, "update-index", "--add", "--cacheinfo", "100644,"+commit+",vendor/a.txt")
+			runGit(t, worktree, nil, "update-index", "--add", "--cacheinfo", "160000,"+commit+",vendor/x")
+		}, "names vendor/x as a submodule"},
+		{"files alone in an index of version 4", func(t *testing.T, worktree string) {
+			runGit(t, worktree, nil, "update-index", "--index-version", "4")
+			runGit(t, worktree, nil, "update-index", "--add", "--cacheinfo", "100644,"+commit+",vendor/a.txt")
+		}, ""},
+		{"files alone", func(t *testing.T, worktree string) {}, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			worktree, link := linkedWorktree(t)
+			test.plant(t, worktree)
+
+			// Act
+			err := CheckGitLink(worktree, worktree, link)
+
+			// Assert
+			if test.want == "" && err != nil || test.want != "" && (err == nil || !strings.Contains(err.Error(), test.want) || !strings.Contains(err.Error(), "cannot use submodules")) {
+				t.Fatalf("CheckGitLink = %v, want %q", err, test.want)
+			}
+		})
 	}
 }

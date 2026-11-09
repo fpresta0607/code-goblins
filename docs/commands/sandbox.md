@@ -14,6 +14,6 @@ The exit code is the command's.
 Started in the background, it is `cfo gate turn --detach <log-file> -- cfo sandbox run -- <command>`.
 
 Exit 125, with a last line on standard error that starts with `cfo sandbox run: the command ran nowhere:`, means it ran nothing.
-That happens when the terminal names no task, the task's brief carries no `sandbox: needed`, the worktree's `.git` link is not the one its spawn recorded, the folder it runs from, or one between that folder and the worktree, holds a `.git` of its own, or Docker is not running and cannot be started.
+That happens when the terminal names no task, the task's brief carries no `sandbox: needed`, the worktree's `.git` link is not the one its spawn recorded, the worktree holds a `.gitmodules` or its index names a submodule, which a sandbox task's project cannot use, the folder it runs from, or one between that folder and the worktree, holds a `.git` of its own, or Docker is not running and cannot be started.
 It never runs the command on the host instead.
 A changed `.git` link is the CEO's to look at: the goblin reports it as blocked and never repairs it.
