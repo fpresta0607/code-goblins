@@ -20,6 +20,13 @@ import (
 
 func gateTaskFixture(t *testing.T, holder string, earlier ...string) (project, gateRoot, worktree string) {
 	t.Helper()
+	return gateTaskFixtureThrough(t, "", holder, earlier...)
+}
+
+// gateTaskFixtureThrough is gateTaskFixture with the gate's worktrees\repo a
+// directory junction to repoTarget, when repoTarget is not empty.
+func gateTaskFixtureThrough(t *testing.T, repoTarget, holder string, earlier ...string) (project, gateRoot, worktree string) {
+	t.Helper()
 	project = testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
 	git := func(dir string, args ...string) {
 		t.Helper()
@@ -36,6 +43,17 @@ func gateTaskFixture(t *testing.T, holder string, earlier ...string) (project, g
 	git(project, "worktree", "add", filepath.Join(project, ".worktrees", "gb-"+holder), "feature")
 	gateRoot = t.TempDir()
 	worktree = filepath.Join(gateRoot, "worktrees", "repo", "run")
+	if repoTarget != "" {
+		if err := os.MkdirAll(repoTarget, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(gateRoot, "worktrees"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if output, err := exec.Command("cmd", "/d", "/c", "mklink", "/J", filepath.Dir(worktree), repoTarget).CombinedOutput(); err != nil {
+			t.Fatalf("mklink /J: %v %s", err, output)
+		}
+	}
 	git(project, "remote", "add", "origin", "https://example.invalid/project.git")
 	bare := filepath.Join(gateRoot, "repos", "repo.git")
 	if output, err := exec.Command("git", "clone", "--bare", "--no-hardlinks", project, bare).CombinedOutput(); err != nil {
@@ -146,6 +164,27 @@ func TestAGateRunNamesItsOwnerDespiteTheInheritedTask(t *testing.T) {
 				t.Errorf("exit=%d, task=%q, turns=%q, stderr=%q; want %s from the gate's source worktree", exit, report.Task, turns.String(), stderr.String(), test.owner)
 			}
 		})
+	}
+}
+
+// A gate home whose worktrees\<repo> is a junction to a folder elsewhere, as
+// one moved to a Dev Drive is, reads its run from its own state database,
+// not from one beside the junction's target.
+func TestAGateRunBehindAJunctionNamesItsOwner(t *testing.T) {
+	// Arrange
+	elsewhere := t.TempDir()
+	project, gateRoot, worktree := gateTaskFixtureThrough(t, filepath.Join(elsewhere, "worktrees", "repo"), "cg-example")
+	if err := state.WriteTaskMeta(filepath.Join(os.Getenv("CFO_HOME"), "state"), state.TaskMeta{ID: "cg-example", Project: project, Worktree: filepath.Join(project, ".worktrees", "gb-cg-example")}); err != nil {
+		t.Fatal(err)
+	}
+	writeGateSource(t, gateRoot, project, worktree, "feature")
+
+	// Act
+	task, err := gateTask(worktree, standIn())
+
+	// Assert
+	if task != "cg-example" || err != nil {
+		t.Fatalf("task=%q, err=%v; want cg-example from the gate home's own state database", task, err)
 	}
 }
 
