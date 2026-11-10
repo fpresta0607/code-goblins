@@ -79,18 +79,29 @@ INSERT INTO step_results VALUES('%[4]s','%[7]s',3,'%[8]s','%[9]s');`, handbackRe
 
 const handbackFindings = `{"findings":[{"id":"test-failure","severity":"error","description":"go test ./internal/c failed"},{"id":"flaky-note","action":"no-op","severity":"info","description":"a note"}]}`
 
+// noTurnFindings is a Test step whose command native gave no turn, as for a
+// missing required environment.
+const noTurnFindings = `{"findings":[{"id":"test-command-no-turn","action":"ask-user","severity":"error","description":"The wrapper reported: cfo gate turn: the command did not start: required test environment: .venv is missing. Respond with fix to run it again."},{"id":"flaky-note","action":"no-op","severity":"info","description":"a note"}]}`
+
+// A run is handed back only while it is parked at a Test, Lint or CI failure
+// of a version 7 task with an open finding other than a test command given no
+// turn, and it is handed back with every open finding.
 func TestHandedBackReadsOnlyAFailureTheTasksPolicyHandsBack(t *testing.T) {
 	for _, test := range []struct {
 		name, runStatus, step, stepStatus, findings string
-		isVersionSeven, want, isParked              bool
+		isVersionSeven                              bool
+		want                                        []string
 	}{
-		{"a parked version 7 test failure", "running", "test", "awaiting_approval", handbackFindings, true, true, true},
-		{"a version 7 lint failure stopped for its correction", "cancelled", "lint", "failed", handbackFindings, true, true, false},
-		{"a version 7 ci failure handed to the goblin", "running", "ci", "awaiting_agent", handbackFindings, true, true, true},
-		{"a version 6 test failure", "running", "test", "awaiting_approval", handbackFindings, false, false, false},
-		{"a version 7 review decision", "running", "review", "awaiting_approval", handbackFindings, true, false, false},
-		{"a version 7 run that failed outright", "failed", "test", "failed", handbackFindings, true, false, false},
-		{"a version 7 test failure whose findings are all no-ops", "running", "test", "awaiting_approval", `{"findings":[{"id":"n","action":"no-op"}]}`, true, false, false},
+		{"a parked version 7 test failure", "running", "test", "awaiting_approval", handbackFindings, true, []string{"test-failure"}},
+		{"a version 7 lint failure whose run was stopped", "cancelled", "lint", "failed", handbackFindings, true, nil},
+		{"a version 7 ci failure handed to the goblin", "running", "ci", "awaiting_agent", handbackFindings, true, []string{"test-failure"}},
+		{"a version 6 test failure", "running", "test", "awaiting_approval", handbackFindings, false, nil},
+		{"a version 7 review decision", "running", "review", "awaiting_approval", handbackFindings, true, nil},
+		{"a version 7 run that failed outright", "failed", "test", "failed", handbackFindings, true, nil},
+		{"a version 7 test failure whose findings are all no-ops", "running", "test", "awaiting_approval", `{"findings":[{"id":"n","action":"no-op"}]}`, true, nil},
+		{"a version 7 test step that recorded no findings", "running", "test", "awaiting_approval", "", true, nil},
+		{"a version 7 test command given no turn", "running", "test", "awaiting_approval", noTurnFindings, true, nil},
+		{"a version 7 test failure beside a command given no turn", "running", "test", "awaiting_approval", `{"findings":[{"id":"test-command-no-turn","action":"ask-user"},{"id":"test-failure","severity":"error","description":"go test ./internal/c failed"}]}`, true, []string{"test-command-no-turn", "test-failure"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -104,17 +115,17 @@ func TestHandedBackReadsOnlyAFailureTheTasksPolicyHandsBack(t *testing.T) {
 			run, isHandedBack, err := reader.HandedBack(context.Background(), `C:\project`, handbackBranch, policy)
 
 			// Assert
-			if err != nil || isHandedBack != test.want {
-				t.Fatalf("handed back = %v (%v), want %v", isHandedBack, err, test.want)
+			if err != nil || isHandedBack != (test.want != nil) {
+				t.Fatalf("handed back = %v (%v), want %v", isHandedBack, err, test.want != nil)
 			}
-			if !test.want {
+			if test.want == nil {
 				return
 			}
-			if run.RunID != handbackRun || run.Step != test.step || run.Head != handbackHead || run.SubmittedHead != handbackShip || run.IsParked() != test.isParked {
-				t.Fatalf("run = %+v, want run %s at %s, parked %v", run, handbackRun, test.step, test.isParked)
+			if run.RunID != handbackRun || run.Step != test.step || run.Head != handbackHead || run.SubmittedHead != handbackShip {
+				t.Fatalf("run = %+v, want run %s at %s", run, handbackRun, test.step)
 			}
-			if !slices.Equal(run.FindingIDs(), []string{"test-failure"}) {
-				t.Fatalf("findings = %v, want the one that is not a no-op", run.FindingIDs())
+			if !slices.Equal(run.FindingIDs(), test.want) {
+				t.Fatalf("findings = %v, want %v, every one that is not a no-op", run.FindingIDs(), test.want)
 			}
 			if want := filepath.Join(reader.Root, "logs", handbackRun, test.step+".log"); run.Log != want {
 				t.Fatalf("log = %s, want %s", run.Log, want)
@@ -159,7 +170,7 @@ func correctionWorktree(t *testing.T) (string, string, Handback) {
 	head := commitFiles(t, worktree, map[string]string{"a.go": "a2\n"})
 	log := filepath.Join(t.TempDir(), "test.log")
 	writeFixtureFile(t, log, "ok  \tinternal/a\n--- FAIL: TestB (0.00s)\n    b.go:12: want 2, got 3\nFAIL\n")
-	run := Handback{RunID: handbackRun, RepoID: handbackRepo, Branch: handbackBranch, Status: "running", Head: head, SubmittedHead: head, Step: "test", Log: log,
+	run := Handback{RunID: handbackRun, RepoID: handbackRepo, Branch: handbackBranch, Head: head, SubmittedHead: head, Step: "test", Log: log,
 		Findings: []HandbackFinding{{ID: "test-failure", Severity: "error", Description: `go vet: internal\c\c.go:3: unreachable code`}}}
 	return worktree, trusted, run
 }
@@ -222,6 +233,56 @@ func TestCheckCorrectionScopesAStepWithoutALogByItsFindings(t *testing.T) {
 	}
 }
 
+// A failure names a file by its path only where the path stands on its own,
+// as a compiler, linter or stack trace prints it, from the repository's root
+// or an absolute worktree the failure ran in; and by its base name, as a Go
+// test failure prints it, only when it also names the file's package.
+func TestCheckCorrectionHoldsANamedFileToItsPathBoundaries(t *testing.T) {
+	const goFailure = "--- FAIL: TestPolicy (0.00s)\n    %s:42: want 2, got 3\nFAIL\nFAIL\tgithub.com/fpresta0607/code-goblins/internal/pipeline\t0.012s\n"
+	for _, test := range []struct {
+		name, log, finding, file string
+		isNamed                  bool
+	}{
+		{"a base name in another package's failure", fmt.Sprintf(goFailure, "policy.go"), "", "internal/supervisor/policy.go", false},
+		{"a root-level file whose name ends a logged path", "internal/x/data.go:5:2: undefined: y\n", "", "a.go", false},
+		{"a root-level file whose name ends a finding's path", "", `go vet: internal\c\c.go:3: unreachable code`, "c.go", false},
+		{"a path under a directory the failure did not run in", "panic: boom\n\t/elsewhere/internal/pipeline/policy.go:12 +0x1d\n", "", "internal/pipeline/policy.go", false},
+		{"a compiler's repository path", "# github.com/fpresta0607/code-goblins/internal/pipeline\ninternal/pipeline/policy.go:12:3: undefined: x\n", "", "internal/pipeline/policy.go", true},
+		{"a finding's quoted path", "", "`internal/pipeline/policy.go` drops the error", "internal/pipeline/policy.go", true},
+		{"a stack trace's path in the task's worktree", "panic: boom\n\t{worktree}/internal/pipeline/policy.go:12 +0x1d\n", "", "internal/pipeline/policy.go", true},
+		{"a stack trace's path in the run's gate worktree", "panic: boom\n\t{gate}/internal/pipeline/policy.go:12 +0x1d\n", "", "internal/pipeline/policy.go", true},
+		{"a Go test failure's base name in its package", fmt.Sprintf(goFailure, "policy_test.go"), "", "internal/pipeline/policy_test.go", true},
+		{"a root-level file a Go test failure names", "--- FAIL: TestA (0.00s)\n    a.go:7: want 1\nFAIL\n", "", "a.go", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			root, worktree := t.TempDir(), t.TempDir()
+			runPipelineGit(t, worktree, "init", "--quiet", "--initial-branch=main")
+			trusted := commitFiles(t, worktree, map[string]string{"own.go": "own\n", "a.go": "a\n", "c.go": "c\n", "internal/x/data.go": "x\n", "internal/c/c.go": "c\n", "internal/pipeline/policy.go": "p\n", "internal/pipeline/policy_test.go": "t\n", "internal/supervisor/policy.go": "s\n"})
+			runPipelineGit(t, worktree, "checkout", "--quiet", "-b", handbackBranch)
+			head := commitFiles(t, worktree, map[string]string{"own.go": "own2\n"})
+			run := Handback{RunID: handbackRun, RepoID: handbackRepo, Branch: handbackBranch, Head: head, SubmittedHead: head, Step: "test", Log: filepath.Join(t.TempDir(), "test.log"), Findings: []HandbackFinding{{ID: "test-failure", Severity: "error", Description: test.finding}}}
+			log := strings.NewReplacer("{worktree}", worktree, "{gate}", filepath.Join(root, "worktrees", handbackRepo, handbackRun)).Replace(test.log)
+			writeFixtureFile(t, run.Log, log)
+			commitFiles(t, worktree, map[string]string{test.file: "corrected\n"})
+
+			// Act
+			err := Reader{Root: root, Commands: execx.OSRunner{}}.CheckCorrection(context.Background(), worktree, trusted, run)
+
+			// Assert
+			if test.isNamed {
+				if err != nil {
+					t.Fatalf("a correction of %s, which the failure names, was refused: %v", test.file, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "the correction changes "+test.file+", which the branch does not change") {
+				t.Fatalf("error = %v, want %s refused as outside the failure's scope", err, test.file)
+			}
+		})
+	}
+}
+
 // gateRepository is a gate's bare repository under root and a task worktree
 // of it whose branch is at the head the run was submitted from, while the
 // gate's own clone added a commit, the run's head, on top.
@@ -242,7 +303,7 @@ func gateRepository(t *testing.T, root string) (string, Handback) {
 	runPipelineGit(t, gate, "clone", "--quiet", "--branch", handbackBranch, bare, ".")
 	head := commitFiles(t, gate, map[string]string{"a.go": "a3\n"})
 	runPipelineGit(t, gate, "push", "--quiet", "origin", "HEAD:refs/heads/"+handbackBranch)
-	return worktree, Handback{RunID: handbackRun, RepoID: handbackRepo, Branch: handbackBranch, Status: "running", Head: head, SubmittedHead: submitted, Step: "test"}
+	return worktree, Handback{RunID: handbackRun, RepoID: handbackRepo, Branch: handbackBranch, Head: head, SubmittedHead: submitted, Step: "test"}
 }
 
 func TestTakeRunHeadMovesOnlyABranchStillAtItsSubmittedHead(t *testing.T) {
@@ -369,59 +430,49 @@ func ownerPreflight(status, competing, clean string) string {
 	}, "\n")
 }
 
+// The parked run is stopped first, and its correction is submitted under the
+// run's own launch with today's trusted commit.
 func TestOwnerAdmissionSubmitsTheRunsOwnLaunchWithTodaysTrustedCommit(t *testing.T) {
-	for _, test := range []struct {
-		name     string
-		status   string
-		isParked bool
-		want     []string
-	}{
-		{"a parked run is stopped first", "running", true, []string{"axi abort --run " + handbackRun, "axi terminal-preflight --predecessor " + handbackRun}},
-		{"a stopped run is not stopped again", "cancelled", false, []string{"axi terminal-preflight --predecessor " + handbackRun}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			// Arrange
-			worktree, dir := t.TempDir(), t.TempDir()
-			runner := &ownerRunner{preflight: ownerPreflight("cancelled", "false", "true")}
-			run := Handback{RunID: handbackRun, RepoID: handbackRepo, Branch: handbackBranch, Status: test.status, Head: handbackHead, Step: "lint", Findings: []HandbackFinding{{ID: "lint-failure"}}}
-			selection, err := versionSeven(t).Select("high-risk")
-			if err != nil {
-				t.Fatal(err)
-			}
+	// Arrange
+	worktree, dir := t.TempDir(), t.TempDir()
+	runner := &ownerRunner{preflight: ownerPreflight("cancelled", "false", "true")}
+	run := Handback{RunID: handbackRun, RepoID: handbackRepo, Branch: handbackBranch, Head: handbackHead, Step: "lint", Findings: []HandbackFinding{{ID: "lint-failure"}}}
+	selection, err := versionSeven(t).Select("high-risk")
+	if err != nil {
+		t.Fatal(err)
+	}
 
-			// Act
-			file, err := Reader{Commands: runner}.OwnerAdmission(context.Background(), worktree, handbackShip, dir, run, selection, nil)
+	// Act
+	file, err := Reader{Commands: runner}.OwnerAdmission(context.Background(), worktree, handbackShip, dir, run, selection, nil)
 
-			// Assert
-			if err != nil || !slices.Equal(runner.requests, test.want) {
-				t.Fatalf("requests = %q (%v), want %q", runner.requests, err, test.want)
-			}
-			data, err := fsx.ReadFile(file)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var got admission
-			if err := json.Unmarshal(data, &got); err != nil {
-				t.Fatal(err)
-			}
-			caller, err := fsx.Canonical(worktree)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got.PredecessorID != handbackRun || got.CallerDir != caller || got.CandidateSHA != strings.Repeat("c", 40) || got.LaunchNonce != "cfo-launch" || got.ValidationGeneration != "policy-hash" || got.PublishedHeadSHA != "" {
-				t.Fatalf("admission = %+v, want the predecessor's own launch", got)
-			}
-			if got.ControllerPolicy.SHA256 != selection.Hash || got.ControllerPolicy.Class != "high-risk" || got.ControllerPolicy.ReviewCycles != 3 {
-				t.Fatalf("controller policy = %+v, want the task's frozen selection", got.ControllerPolicy)
-			}
-			var assertion map[string]any
-			if err := json.Unmarshal(got.LaunchAssertion, &assertion); err != nil || assertion["trusted_sha"] != handbackShip || assertion["apply"] != true {
-				t.Fatalf("launch assertion = %v (%v), want the run's own with today's trusted commit", assertion, err)
-			}
-			if !strings.Contains(got.Reason, "lint-failure") || !strings.Contains(got.Reason, "version 7") {
-				t.Fatalf("reason = %q, want the findings and the policy named", got.Reason)
-			}
-		})
+	// Assert
+	if want := []string{"axi abort --run " + handbackRun, "axi terminal-preflight --predecessor " + handbackRun}; err != nil || !slices.Equal(runner.requests, want) {
+		t.Fatalf("requests = %q (%v), want %q", runner.requests, err, want)
+	}
+	data, err := fsx.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got admission
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	caller, err := fsx.Canonical(worktree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PredecessorID != handbackRun || got.CallerDir != caller || got.CandidateSHA != strings.Repeat("c", 40) || got.LaunchNonce != "cfo-launch" || got.ValidationGeneration != "policy-hash" || got.PublishedHeadSHA != "" {
+		t.Fatalf("admission = %+v, want the predecessor's own launch", got)
+	}
+	if got.ControllerPolicy.SHA256 != selection.Hash || got.ControllerPolicy.Class != "high-risk" || got.ControllerPolicy.ReviewCycles != 3 {
+		t.Fatalf("controller policy = %+v, want the task's frozen selection", got.ControllerPolicy)
+	}
+	var assertion map[string]any
+	if err := json.Unmarshal(got.LaunchAssertion, &assertion); err != nil || assertion["trusted_sha"] != handbackShip || assertion["apply"] != true {
+		t.Fatalf("launch assertion = %v (%v), want the run's own with today's trusted commit", assertion, err)
+	}
+	if !strings.Contains(got.Reason, "lint-failure") || !strings.Contains(got.Reason, "version 7") {
+		t.Fatalf("reason = %q, want the findings and the policy named", got.Reason)
 	}
 }
 
@@ -437,7 +488,7 @@ func TestOwnerAdmissionSubmitsNothingTheNativePreflightDoesNotClear(t *testing.T
 			// Arrange
 			dir := t.TempDir()
 			runner := &ownerRunner{preflight: ownerPreflight(test.status, test.competing, test.clean)}
-			run := Handback{RunID: handbackRun, RepoID: handbackRepo, Branch: handbackBranch, Status: "cancelled", Head: handbackHead, Step: "test", Findings: []HandbackFinding{{ID: "test-failure"}}}
+			run := Handback{RunID: handbackRun, RepoID: handbackRepo, Branch: handbackBranch, Head: handbackHead, Step: "test", Findings: []HandbackFinding{{ID: "test-failure"}}}
 			selection, err := versionSeven(t).Select("ordinary")
 			if err != nil {
 				t.Fatal(err)

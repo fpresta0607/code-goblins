@@ -22,6 +22,10 @@ const (
 	ownerRun    = "01M70OWNERRUNOFTHISTESTXYZ"
 	ownerRepo   = "c0ffee000002"
 	ownerBranch = "feat/handback"
+	ownerIntent = "ship safely"
+	// ownerNoTurn is a Test step whose command native gave no turn, as for a
+	// missing required environment.
+	ownerNoTurn = `{"findings":[{"id":"test-command-no-turn","action":"ask-user","severity":"error","description":"The wrapper reported: cfo gate turn: the command did not start: required test environment: .venv is missing. Respond with fix to run it again."}]}`
 )
 
 // ownerPolicy is version 7, whose gate repairs no Test, Lint or CI failure,
@@ -91,9 +95,36 @@ func ownerCommit(t *testing.T, dir string, files map[string]string) string {
 	return gitIn(t, dir, "rev-parse", "HEAD")
 }
 
-// ownerNative is a native engine that stops a run, prints its terminal
-// preflight for the caller's own head, and keeps the admission it is given.
-// Every other command runs for real.
+// ownerSQL runs sql against the fixture gate database under nm.
+func ownerSQL(t *testing.T, nm, sql string) {
+	t.Helper()
+	if out, err := exec.Command("sqlite3", filepath.Join(nm, "state.sqlite"), sql).CombinedOutput(); err != nil {
+		t.Fatalf("fixture database: %s %v", out, err)
+	}
+}
+
+// ownerRunHead gives the gate's bare repository under nm the task branch wt
+// holds and, one commit past it, the head its run failed on, which it records
+// as the run's head and returns.
+func ownerRunHead(t *testing.T, nm, wt string) string {
+	t.Helper()
+	bare := filepath.Join(nm, "repos", ownerRepo+".git")
+	if err := os.MkdirAll(bare, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, bare, "init", "--quiet", "--bare")
+	gitIn(t, wt, "push", "--quiet", bare, "HEAD:refs/heads/"+ownerBranch)
+	gate := t.TempDir()
+	gitIn(t, gate, "clone", "--quiet", "--branch", ownerBranch, bare, ".")
+	head := ownerCommit(t, gate, map[string]string{"a.go": "a3\n"})
+	gitIn(t, gate, "push", "--quiet", "origin", "HEAD:refs/heads/"+ownerBranch)
+	ownerSQL(t, nm, "UPDATE runs SET head_sha='"+head+"'")
+	return head
+}
+
+// ownerNative is a native engine that reattaches to a run, stops it, prints
+// its terminal preflight for the caller's own head, keeps the admission it is
+// given, and resumes a CI handback. Every other command runs for real.
 type ownerNative struct {
 	validationGeneration string
 	native               []string
@@ -106,7 +137,7 @@ func (n *ownerNative) Run(ctx context.Context, request execx.Request) (execx.Res
 	}
 	n.native = append(n.native, strings.Join(request.Args, " "))
 	switch {
-	case len(request.Args) == 4 && request.Args[1] == "abort":
+	case len(request.Args) == 2 && request.Args[1] == "run", len(request.Args) == 4 && request.Args[1] == "abort", len(request.Args) == 7 && request.Args[1] == "handback":
 		return execx.Result{}, nil
 	case len(request.Args) == 4 && request.Args[1] == "terminal-preflight":
 		head, err := exec.Command("git", "-C", request.Dir, "rev-parse", "HEAD").Output()
@@ -143,8 +174,9 @@ func (n *ownerNative) Run(ctx context.Context, request execx.Request) (execx.Res
 }
 
 // ownerStage is a task whose branch changes a.go from origin's main, and
-// whose latest gate run failed its step on that head under policy version:
-// the step's log names b.go, and its open finding is <step>-failure.
+// whose latest gate run, of ownerIntent, is parked at its failed step on that
+// head under policy version: the step's log names b.go, and its open finding
+// is <step>-failure.
 func ownerStage(t *testing.T, step string, version int) (home.Home, string, string, pipeline.Selection, *ownerNative) {
 	t.Helper()
 	if _, err := exec.LookPath("sqlite3"); err != nil {
@@ -201,56 +233,66 @@ func ownerStage(t *testing.T, step string, version int) (home.Home, string, stri
 		stepStatus = "awaiting_agent"
 	}
 	findings := fmt.Sprintf(`{"findings":[{"id":"%s-failure","severity":"error","description":"the %s command failed"}]}`, step, step)
-	schema := fmt.Sprintf(`CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,submitted_head_sha TEXT,created_at INTEGER);
+	ownerSQL(t, nm, fmt.Sprintf(`CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,submitted_head_sha TEXT,intent TEXT,created_at INTEGER);
 CREATE TABLE step_results(run_id TEXT,step_name TEXT,step_order INTEGER,status TEXT,findings_json TEXT);
 INSERT INTO repos VALUES('%[1]s','%[2]s','main');
-INSERT INTO runs VALUES('%[3]s','%[1]s','%[4]s','running','%[5]s','%[5]s',1);
+INSERT INTO runs VALUES('%[3]s','%[1]s','%[4]s','running','%[5]s','%[5]s','%[9]s',1);
 INSERT INTO step_results VALUES('%[3]s','review',1,'completed',NULL);
-INSERT INTO step_results VALUES('%[3]s','%[6]s',3,'%[7]s','%[8]s');`, ownerRepo, project, ownerRun, ownerBranch, head, step, stepStatus, findings)
-	if out, err := exec.Command("sqlite3", filepath.Join(nm, "state.sqlite"), schema).CombinedOutput(); err != nil {
-		t.Fatalf("fixture database: %s %v", out, err)
-	}
+INSERT INTO step_results VALUES('%[3]s','%[6]s',3,'%[7]s','%[8]s');`, ownerRepo, project, ownerRun, ownerBranch, head, step, stepStatus, findings, ownerIntent))
 	return h, nm, wt, selection, &ownerNative{validationGeneration: selection.Hash}
 }
 
 // Under version 7 a run that parks at a Test, Lint or CI failure starts no
 // fix round: cfo pipeline run returns the step, its findings and its log,
 // names the correction the goblin submits, and records that the task is
-// fixing them. Version 6 hands nothing back.
+// fixing them. For a Test or Lint failure it puts the run's head, one commit
+// past the head the branch submitted, into the branch and keeps it at an
+// archive ref; a CI failure's branch stays where it is. A Test step whose
+// command was given no turn stays the CFO's, and version 6 hands nothing back.
 func TestPipelineRunHandsAFailedStepBackWithItsFindingsAndLog(t *testing.T) {
 	for _, test := range []struct {
-		step, status string
-		version      int
-		correction   string
+		name, step string
+		version    int
+		findings   string
+		correction string
+		isMoved    bool
 	}{
-		{"test", "awaiting_approval", 7, "cfo pipeline validate-authored task --run " + ownerRun + " --findings test-failure"},
-		{"lint", "awaiting_approval", 7, "cfo pipeline validate-authored task --run " + ownerRun + " --findings lint-failure"},
-		{"ci", "awaiting_agent", 7, "cfo pipeline handback task --run " + ownerRun},
-		{"test", "awaiting_approval", 6, ""},
+		{"version 7 test", "test", 7, "", "cfo pipeline validate-authored task --run " + ownerRun + " --findings test-failure", true},
+		{"version 7 lint", "lint", 7, "", "cfo pipeline validate-authored task --run " + ownerRun + " --findings lint-failure", true},
+		{"version 7 ci", "ci", 7, "", "cfo pipeline handback task --run " + ownerRun, false},
+		{"version 7 test command given no turn", "test", 7, ownerNoTurn, "", false},
+		{"version 6 test", "test", 6, "", "", false},
 	} {
-		t.Run(fmt.Sprintf("version %d %s", test.version, test.step), func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			policy := ownerPolicy(t, test.version)
-			h, nm := gateHome(t, policy, operatorMachineConfig)
-			wt, _ := gatedTask(t, h, "task", policy, claudeGoblin)
-			const head = "0123456789abcdef0123456789abcdef01234567"
-			handedBack, err := json.Marshal([]map[string]string{{"run_id": ownerRun, "repo_id": ownerRepo, "branch": "feat/policy", "status": "running", "head": head, "submitted_head": head, "step": test.step, "step_status": test.status, "findings": `{"findings":[{"id":"` + test.step + `-failure","severity":"error","description":"the command failed"}]}`}})
-			if err != nil {
-				t.Fatal(err)
+			h, nm, wt, _, native := ownerStage(t, test.step, test.version)
+			if test.findings != "" {
+				ownerSQL(t, nm, "UPDATE step_results SET findings_json='"+test.findings+"' WHERE step_name='"+test.step+"'")
 			}
-			runner := &gateStartRunner{pipelineStartRunner: pipelineStartRunner{worktree: wt, handedBack: handedBack}}
+			submitted := gitIn(t, wt, "rev-parse", "HEAD")
+			runHead := ownerRunHead(t, nm, wt)
+			archive := "refs/heads/archive/handback-" + ownerRun + "-" + runHead
 			var out bytes.Buffer
 
 			// Act
-			err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &out)
+			err := pipelineCommand(context.Background(), h, nm, native, []string{"run", "task", "--intent", ownerIntent}, &out)
 
 			// Assert
 			if err != nil {
 				t.Fatalf("run: %v\n%s", err, out.String())
 			}
-			if len(runner.native) != 1 {
-				t.Fatalf("native calls = %+v, want the run alone and no fix round", runner.native)
+			if len(native.native) != 1 || native.native[0] != "axi run" {
+				t.Fatalf("native calls = %q, want the reattached run alone and no fix round", native.native)
+			}
+			head := gitIn(t, wt, "rev-parse", "HEAD")
+			kept, keptErr := exec.Command("git", "-C", wt, "rev-parse", "--verify", "--quiet", archive).Output()
+			if test.isMoved {
+				if head != runHead || gitIn(t, wt, "symbolic-ref", "--short", "HEAD") != ownerBranch || keptErr != nil || strings.TrimSpace(string(kept)) != runHead {
+					t.Fatalf("branch at %s, %s = %q (%v), want %s at the run's head %s and the archive ref keeping it", head, archive, kept, keptErr, ownerBranch, runHead)
+				}
+			} else if head != submitted || keptErr == nil {
+				t.Fatalf("branch at %s, %s = %q, want the branch left at %s and no archive ref", head, archive, kept, submitted)
 			}
 			lines, err := state.TailStatus(h.State, "task", 10)
 			if err != nil {
@@ -258,14 +300,14 @@ func TestPipelineRunHandsAFailedStepBackWithItsFindingsAndLog(t *testing.T) {
 			}
 			if test.correction == "" {
 				if strings.Contains(out.String(), "pipeline handback") || strings.Contains(strings.Join(lines, "\n"), "which its gate handed back") {
-					t.Fatalf("version 6 handed a failure back:\n%s\n%q", out.String(), lines)
+					t.Fatalf("a failure was handed back:\n%s\n%q", out.String(), lines)
 				}
 				return
 			}
 			log := filepath.Join(nm, "logs", ownerRun, test.step+".log")
 			for _, want := range []string{
 				fmt.Sprintf("pipeline handback: run %s's %s step failed", ownerRun, test.step),
-				fmt.Sprintf("pipeline handback: %s-failure (error): the command failed; log %s", test.step, log),
+				fmt.Sprintf("pipeline handback: %s-failure (error): the %s command failed; log %s", test.step, test.step, log),
 				test.correction,
 			} {
 				if !strings.Contains(out.String(), want) {
@@ -335,24 +377,31 @@ func TestPipelineOwnerCorrectionIsAdmittedToItsRunsOwnLineage(t *testing.T) {
 }
 
 // Anything but the owning goblin's one commit of exactly the handed-back
-// findings is refused before the run is stopped, naming the CFO's admission.
+// findings of a run still parked at them is refused before the run is
+// stopped, naming the CFO's admission.
 func TestPipelineOwnerCorrectionRefusesAnythingElseBeforeStoppingTheRun(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		version  int
+		sql      string
 		files    map[string]string
 		goblin   string
 		findings string
 		refusal  string
 	}{
-		{"a change outside the findings' scope", 7, map[string]string{"docs/guide.md": "guide2\n"}, "task", "test-failure", "the correction changes docs/guide.md"},
-		{"another task's goblin", 7, map[string]string{"b.go": "b2\n"}, "other", "test-failure", "own goblin's submission"},
-		{"findings that are not the run's", 7, map[string]string{"b.go": "b2\n"}, "task", "test-failure,other", "--findings must name exactly run"},
-		{"a version 6 task", 6, map[string]string{"b.go": "b2\n"}, "task", "test-failure", "hands no failure back"},
+		{"a change outside the findings' scope", 7, "", map[string]string{"docs/guide.md": "guide2\n"}, "task", "test-failure", "the correction changes docs/guide.md"},
+		{"another task's goblin", 7, "", map[string]string{"b.go": "b2\n"}, "other", "test-failure", "own goblin's submission"},
+		{"findings that are not the run's", 7, "", map[string]string{"b.go": "b2\n"}, "task", "test-failure,other", "--findings must name exactly run"},
+		{"a version 6 task", 6, "", map[string]string{"b.go": "b2\n"}, "task", "test-failure", "hands no failure back"},
+		{"a run already stopped", 7, "UPDATE runs SET status='cancelled'; UPDATE step_results SET status='failed' WHERE step_name='test'", map[string]string{"b.go": "b2\n"}, "task", "test-failure", "is parked at no Test or Lint failure its gate handed back"},
+		{"a test command given no turn", 7, "UPDATE step_results SET findings_json='" + ownerNoTurn + "' WHERE step_name='test'", map[string]string{"b.go": "b2\n"}, "task", "test-command-no-turn", "is parked at no Test or Lint failure its gate handed back"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			h, nm, wt, _, native := ownerStage(t, "test", test.version)
+			if test.sql != "" {
+				ownerSQL(t, nm, test.sql)
+			}
 			ownerCommit(t, wt, test.files)
 			inGoblinTerminal(t, h.State, test.goblin)
 
@@ -371,7 +420,8 @@ func TestPipelineOwnerCorrectionRefusesAnythingElseBeforeStoppingTheRun(t *testi
 }
 
 // A CI failure's correction goes back through the native handback, and the
-// owning goblin's resume of it is held to the same scope.
+// owning goblin's resume of it is held to the same scope: a correction the
+// failure names is resumed, and any other is refused before native sees it.
 func TestPipelineOwnerCIResumeIsHeldToTheFailuresScope(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -379,19 +429,31 @@ func TestPipelineOwnerCIResumeIsHeldToTheFailuresScope(t *testing.T) {
 		goblin  string
 		refusal string
 	}{
+		{"a change the failure names", map[string]string{"b.go": "b2\n"}, "task", ""},
 		{"a change outside the failure's scope", map[string]string{"docs/guide.md": "guide2\n"}, "task", "the correction changes docs/guide.md"},
 		{"another task's goblin", map[string]string{"b.go": "b2\n"}, "other", "resumed by task task's own goblin"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			h, nm, wt, _, native := ownerStage(t, "ci", 7)
+			caller, err := fsx.Canonical(wt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ownerSQL(t, nm, "CREATE TABLE ci_handbacks(id TEXT,run_id TEXT,caller_dir TEXT,released_head TEXT,push_generation INTEGER); INSERT INTO ci_handbacks SELECT 'native-receipt',id,'"+strings.ReplaceAll(caller, "'", "''")+"',head_sha,1 FROM runs;")
 			ownerCommit(t, wt, test.files)
 			inGoblinTerminal(t, h.State, test.goblin)
 
 			// Act
-			err := pipelineCommand(context.Background(), h, nm, native, []string{"handback", "task", "--run", ownerRun, "--resume", "--receipt", "receipt"}, &bytes.Buffer{})
+			err = pipelineCommand(context.Background(), h, nm, native, []string{"handback", "task", "--run", ownerRun, "--resume", "--receipt", "native-receipt"}, &bytes.Buffer{})
 
 			// Assert
+			if test.refusal == "" {
+				if err != nil || len(native.native) != 1 || !strings.HasPrefix(native.native[0], "axi handback --expect ") || !strings.HasSuffix(native.native[0], " --resume --receipt native-receipt") {
+					t.Fatalf("error = %v, native calls = %q, want the goblin's correction resumed through the native handback", err, native.native)
+				}
+				return
+			}
 			if err == nil || !strings.Contains(err.Error(), test.refusal) || !strings.Contains(err.Error(), "the CFO resumes any other with cfo pipeline handback task --run <run> --resume --receipt <receipt>") {
 				t.Fatalf("error = %v, want one saying %q and naming the CFO's resume", err, test.refusal)
 			}
@@ -399,25 +461,6 @@ func TestPipelineOwnerCIResumeIsHeldToTheFailuresScope(t *testing.T) {
 				t.Fatalf("a refused resume reached native: %q", native.native)
 			}
 		})
-	}
-}
-
-func TestOwnerCIResumeAdmitsTheGoblinsCorrectionInScope(t *testing.T) {
-	// Arrange
-	h, nm, wt, selection, native := ownerStage(t, "ci", 7)
-	ownerCommit(t, wt, map[string]string{"b.go": "b2\n"})
-	inGoblinTerminal(t, h.State, "task")
-	meta, err := state.ReadTaskMeta(h.State, "task")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Act
-	err = checkOwnerCIResume(context.Background(), h, pipeline.Reader{Root: nm, Commands: native}, meta, selection, wt, ownerBranch)
-
-	// Assert
-	if err != nil {
-		t.Fatalf("an in-scope CI correction was refused: %v", err)
 	}
 }
 

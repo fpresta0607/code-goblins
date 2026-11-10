@@ -254,7 +254,7 @@ func (s Selection) Instruction(id, path string) string {
 		roles = fmt.Sprintf("Global primary, reviewer and review-fixer profiles are Codex %s %s; a CFO gate requires the trusted repository primary to inherit that profile or select Codex explicitly.", s.Policy.Primary.Model, s.Policy.Primary.Effort)
 	}
 	if s.Policy.Version >= 7 {
-		roles += fmt.Sprintf(" The gate repairs no Test, Lint or CI failure: one comes back to you with its findings and log. Fix exactly those findings in one commit, then submit it with cfo pipeline validate-authored %s --run <run> --findings <ids>, or for CI with cfo pipeline handback %s --run <run>.", id, id)
+		roles += fmt.Sprintf(" The gate repairs no Test, Lint or CI failure: while its run waits at one, cfo pipeline run returns it to you with its findings and log. Fix exactly those findings in one commit on the run's head, changing only files your branch changes or the failure names, then submit it with cfo pipeline validate-authored %s --run <run> --findings <ids>, or for CI with cfo pipeline handback %s --run <run>. A test command given no turn, a run already stopped and any wider correction stay the CFO's.", id, id)
 	}
 	return fmt.Sprintf(" Pipeline policy: read %s. Class %s permits %d review repair cycles, then unresolved. Write the run's intent to a file and use cfo pipeline run %s --intent-file <file>, never the intent on a command line, and cfo pipeline respond %s for gate decisions. Never use --yes, skip a gate, or bypass an exhausted budget with native AXI. %s Shared config changes require an explicit idle config-apply; spawn never changes it.", path, s.Class, s.ReviewCycles, id, id, roles)
 }

@@ -115,12 +115,13 @@ A home moves to v7 as it moves to any version: its operator writes v7 into the h
 
 ### The goblin fixes its own failures
 
-When `cfo pipeline run` or `respond` returns at a Test, Lint or CI failure that v7 hands back, it prints the step, each open finding with its severity and description, and the step's log, which is `logs/<run>/<step>.log` under the gate's home.
+When `cfo pipeline run` or `respond` returns with its run still parked at a Test, Lint or CI failure that v7 hands back, it prints the step, each open finding with its severity and description, and the step's log, which is `logs/<run>/<step>.log` under the gate's home.
 It also appends a `working:` line naming the run, step and findings to the task's status log, and the supervisor shows the task working on them, not waiting on the CEO.
+A Test step whose every open finding is `test-command-no-turn` is not handed back: its test command was given no turn, as by a missing required environment, which is the CEO's to repair, so the driver says nothing of it and the supervisor shows the task blocked on its decision.
 For a Test or Lint failure it moves the task's branch to the run's head when the branch still holds the head the run was submitted from, and keeps that head at `refs/heads/archive/handback-<run>-<head>` in the gate's repository, so the correction carries every commit the run validated.
 A branch the goblin has moved since is left as it is, and the driver says to make the correction on the run's head.
 `respond --action fix` on such a step is refused, since the gate repairs none of it.
-The one fix left is a Test rerun of nothing but `test-command-no-turn`, which asks no repair agent, so a test command refused its turn, as by a missing required environment, still runs again once that is repaired.
+The one fix left is a Test rerun of nothing but `test-command-no-turn`, which asks no repair agent, so a test command refused its turn still runs again once its environment is repaired.
 
 The goblin commits one correction of exactly those findings on the run's head and submits it itself:
 
@@ -129,8 +130,11 @@ cfo pipeline validate-authored <id> --run <run> --findings <ids>
 ```
 
 That is the owner path of validation admission, and it needs no CEO admission.
-It is taken only from the task's own goblin terminal, only for a run whose policy hands its failure back, and only when `--findings` names exactly the step's open findings.
+It is taken only from the task's own goblin terminal, only for a run whose policy hands its failure back while the run is still parked at it, and only when `--findings` names exactly the step's open findings.
+A run already stopped, whoever stopped it, is never corrected by its owner: its correction is the CEO's to admit.
 The worktree must be clean, its HEAD must be one commit on the run's head, and every file that commit changes must be one the branch already changes from origin's default branch or one the step's log or findings name.
+A failure names a file by its repository path standing on its own, as a compiler, linter or stack trace prints it: after the start of the text, whitespace, a quote, an opening parenthesis, or the task's worktree or the run's gate worktree and a slash, and before the end of the text, whitespace, a colon, a quote, a closing parenthesis or a comma.
+A base name before a line number, as a Go test failure prints `policy_test.go:42:`, names the file only when the failure also ends a package path with the file's directory, as `FAIL\tgithub.com/<module>/internal/pipeline` does, so a file at the repository's root is named only by its path.
 A correction outside that scope, or one from another terminal, is refused before anything is sent, and the refusal names the CEO's `--admission-file` path.
 The driver then stops the parked run with native `axi abort`, reads its native terminal preflight, and writes the admission itself, beside the task's frozen policy, as `owner-admission-<run>.json`.
 That admission carries the run's own launch nonce, validation generation, intent and launch selection with today's trusted commit, and the task's frozen policy, so the correction is validated in the run's own validation family and every allowance the run spent stays spent.

@@ -891,25 +891,30 @@ func TestEvaluationNamesTheGateStep(t *testing.T) {
 }
 
 // From policy version 7 a parked Test, Lint or CI failure is the goblin's to
-// fix, so the task reads as working on it, while a review decision, and any
-// failure under version 6, still waits on the CFO.
+// fix, so the task reads as working on it, while a review decision, a test
+// command given no turn, and any failure under version 6, still wait on the
+// CFO.
 func TestEvaluationLeavesAHandedBackFailureWithItsGoblin(t *testing.T) {
 	classes := pipeline.Classes{Ordinary: pipeline.Class{ReviewCycles: 2}, HighRisk: pipeline.Class{ReviewCycles: 3}, Mechanical: pipeline.Class{ReviewCycles: 2}}
 	versionSix := pipeline.Policy{Version: 6, AutoFix: pipeline.AutoFix{Test: 1, Lint: 1, Rebase: 1, CI: 1}, Classes: classes}
 	versionSeven := pipeline.Policy{Version: 7, AutoFix: pipeline.AutoFix{Rebase: 1}, Classes: classes}
+	const failure = `{"findings":[{"id":"step-failure","action":"auto-fix","severity":"error","description":"the command failed"}]}`
+	const noTurn = `{"findings":[{"id":"test-command-no-turn","action":"ask-user","severity":"error","description":"The wrapper reported: cfo gate turn: the command did not start: required test environment: .venv is missing. Respond with fix to run it again."}]}`
 	for _, c := range []struct {
-		name, step        string
-		policy            pipeline.Policy
-		isSaved, isBroken bool
-		want              string
+		name, step, findings string
+		policy               pipeline.Policy
+		isSaved, isBroken    bool
+		want                 string
 	}{
-		{"a version 7 test failure", "test", versionSeven, true, false, "working"},
-		{"a version 7 lint failure", "lint", versionSeven, true, false, "working"},
-		{"a version 7 ci failure", "ci", versionSeven, true, false, "working"},
-		{"a version 7 review decision", "review", versionSeven, true, false, "blocked"},
-		{"a version 6 test failure", "test", versionSix, true, false, "blocked"},
-		{"a ci failure of a task spawned with no frozen policy", "ci", versionSeven, false, false, "blocked"},
-		{"a test failure whose frozen policy cannot be read", "test", versionSeven, false, true, ""},
+		{"a version 7 test failure", "test", failure, versionSeven, true, false, "working"},
+		{"a version 7 lint failure", "lint", failure, versionSeven, true, false, "working"},
+		{"a version 7 ci failure", "ci", failure, versionSeven, true, false, "working"},
+		{"a version 7 test command given no turn", "test", noTurn, versionSeven, true, false, "blocked"},
+		{"a version 7 review decision", "review", failure, versionSeven, true, false, "blocked"},
+		{"a version 6 test failure", "test", failure, versionSix, true, false, "blocked"},
+		{"a ci failure of a task spawned with no frozen policy", "ci", failure, versionSeven, false, false, "blocked"},
+		{"a test failure whose frozen policy cannot be read", "test", failure, versionSeven, false, true, ""},
+		{"a version 7 test failure whose findings cannot be read", "test", "not a document", versionSeven, true, false, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
@@ -940,7 +945,7 @@ func TestEvaluationLeavesAHandedBackFailureWithItsGoblin(t *testing.T) {
 				t.Fatal(err)
 			}
 			gitFixture(t, meta.Worktree)
-			parked := pipeline.Progress{Status: "running", Steps: []pipeline.ProgressStep{{Name: "intent", Status: "completed"}, {Name: c.step, Status: "awaiting_approval"}}}
+			parked := pipeline.Progress{Status: "running", Steps: []pipeline.ProgressStep{{Name: "intent", Status: "completed"}, {Name: c.step, Status: "awaiting_approval", Findings: c.findings}}}
 			s := &Service{Store: store, Options: Options{Gate: fakeProgress{value: parked}}}
 
 			// Act
@@ -949,7 +954,7 @@ func TestEvaluationLeavesAHandedBackFailureWithItsGoblin(t *testing.T) {
 			// Assert
 			if c.want == "" {
 				if err == nil {
-					t.Fatalf("evaluation = %+v, want an error naming the unreadable policy", got)
+					t.Fatalf("evaluation = %+v, want an error naming what cannot be read", got)
 				}
 				return
 			}

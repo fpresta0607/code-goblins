@@ -22,7 +22,7 @@ func correctionCommand(id string, run pipeline.Handback) string {
 	return fmt.Sprintf("commit one correction of exactly those findings, then submit it with cfo pipeline validate-authored %s --run %s --findings %s", id, run.RunID, strings.Join(run.FindingIDs(), ","))
 }
 
-// reportHandback tells the goblin whose run stopped at a Test, Lint or CI
+// reportHandback tells the goblin whose run parked at a Test, Lint or CI
 // failure its policy hands back what to fix and how to submit it, and records
 // in the task's status that it is fixing them, not waiting on the CFO. For a
 // Test or Lint failure it also puts the run's head into the branch, so the
@@ -32,7 +32,7 @@ func reportHandback(ctx context.Context, h home.Home, reader pipeline.Reader, me
 	if err != nil {
 		return fmt.Errorf("pipeline: the gate stopped, and whether it handed a failure back cannot be read: %w", err)
 	}
-	if !isHandedBack || !run.IsParked() {
+	if !isHandedBack {
 		return nil
 	}
 	ids := strings.Join(run.FindingIDs(), ",")
@@ -94,7 +94,7 @@ func ownerCorrection(ctx context.Context, h home.Home, reader pipeline.Reader, m
 		return err
 	}
 	if !isHandedBack || run.RunID != runID {
-		return fmt.Errorf("pipeline: run %s holds no Test or Lint failure its gate handed back, so %s", runID, cfoAdmission)
+		return fmt.Errorf("pipeline: run %s is parked at no Test or Lint failure its gate handed back, so %s", runID, cfoAdmission)
 	}
 	if run.Step == "ci" {
 		return fmt.Errorf("pipeline: run %s's CI failure goes back through the native handback: %s", run.RunID, correctionCommand(meta.ID, run))

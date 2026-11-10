@@ -23,15 +23,14 @@ import (
 // checks that passed.
 const maxScopeLog = 8 << 20
 
-// Handback is a run whose failed Test, Lint or CI step its gate hands back to
-// the goblin that owns the branch, since the task's policy lets the gate
-// repair none of it. The run parks at that step with the step's findings, and
-// a goblin's submitted correction stops it.
+// Handback is a run parked at a failed Test, Lint or CI step that its gate
+// hands back to the goblin that owns the branch, since the task's policy lets
+// the gate repair none of it. The run waits at that step with the step's
+// findings until a goblin's submitted correction stops it.
 type Handback struct {
 	RunID         string
 	RepoID        string
 	Branch        string
-	Status        string
 	Head          string
 	SubmittedHead string
 	Step          string
@@ -47,10 +46,32 @@ type HandbackFinding struct {
 	Description string
 }
 
-// IsParked reports whether the run still waits at its handed-back step,
-// rather than having been stopped for a correction.
-func (run Handback) IsParked() bool {
-	return run.Status == "running"
+// HandedBackFindings are the open findings, every one but a no-op, of a step
+// parked at a failure that policy hands back to the goblin that owns the
+// branch, read from the step's findings document. There are none when policy
+// hands the step back to nobody, when the step recorded no findings, or when
+// each open one is test-command-no-turn: a test command given no turn is an
+// environment the CFO repairs before the command runs again, not code to fix.
+func (p Policy) HandedBackFindings(step, document string) ([]HandbackFinding, error) {
+	if !p.HandsBack(step) || document == "" {
+		return nil, nil
+	}
+	var report struct {
+		Findings []finding `json:"findings"`
+	}
+	if err := json.Unmarshal([]byte(document), &report); err != nil {
+		return nil, err
+	}
+	var open []HandbackFinding
+	for _, f := range report.Findings {
+		if f.Action != "no-op" {
+			open = append(open, HandbackFinding{ID: f.ID, Severity: f.Severity, Description: f.Description})
+		}
+	}
+	if !slices.ContainsFunc(open, func(f HandbackFinding) bool { return f.ID != "test-command-no-turn" }) {
+		return nil, nil
+	}
+	return open, nil
 }
 
 // FindingIDs are the ids of the step's open findings, in their order.
@@ -62,10 +83,10 @@ func (run Handback) FindingIDs() []string {
 	return ids
 }
 
-// HandedBack reads the latest run of branch and reports it when one of its
-// steps failed in a way policy hands back: parked at that step with open
-// findings, or stopped there once a correction was submitted. Any other run,
-// or one whose policy hands nothing back, is reported as none.
+// HandedBack reads the latest run of branch and reports it while it is still
+// running, parked at a failed step whose findings policy hands back. A run
+// that stopped, by whoever stopped it, or one whose policy hands nothing
+// back, is reported as none.
 func (reader Reader) HandedBack(ctx context.Context, project, branch string, policy Policy) (Handback, bool, error) {
 	var rows []struct {
 		RunID         string `json:"run_id"`
@@ -75,38 +96,27 @@ func (reader Reader) HandedBack(ctx context.Context, project, branch string, pol
 		Head          string `json:"head"`
 		SubmittedHead string `json:"submitted_head"`
 		Step          string `json:"step"`
-		StepStatus    string `json:"step_status"`
 		Findings      string `json:"findings"`
 	}
-	query := `SELECT runs.id AS run_id,runs.repo_id,runs.branch,runs.status,runs.head_sha AS head,COALESCE(runs.submitted_head_sha,'') AS submitted_head,s.step_name AS step,s.status AS step_status,COALESCE(s.findings_json,'') AS findings FROM runs JOIN repos ON repos.id=runs.repo_id JOIN step_results s ON s.run_id=runs.id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(` + sqlString(filepath.ToSlash(project)) + `) AND runs.branch=` + sqlString(branch) + ` AND runs.id=(SELECT latest.id FROM runs latest WHERE latest.repo_id=runs.repo_id AND latest.branch=runs.branch ORDER BY latest.created_at DESC,latest.id DESC LIMIT 1) AND s.status IN ('awaiting_approval','awaiting_agent','failed') ORDER BY s.step_order`
+	query := `SELECT runs.id AS run_id,runs.repo_id,runs.branch,runs.status,runs.head_sha AS head,COALESCE(runs.submitted_head_sha,'') AS submitted_head,s.step_name AS step,COALESCE(s.findings_json,'') AS findings FROM runs JOIN repos ON repos.id=runs.repo_id JOIN step_results s ON s.run_id=runs.id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(` + sqlString(filepath.ToSlash(project)) + `) AND runs.branch=` + sqlString(branch) + ` AND runs.id=(SELECT latest.id FROM runs latest WHERE latest.repo_id=runs.repo_id AND latest.branch=runs.branch ORDER BY latest.created_at DESC,latest.id DESC LIMIT 1) AND s.status IN ('awaiting_approval','awaiting_agent') ORDER BY s.step_order`
 	if err := reader.query(ctx, query, &rows); err != nil {
 		return Handback{}, false, err
 	}
 	for _, row := range rows {
-		isParked := row.Status == "running" && (row.StepStatus == "awaiting_approval" || row.StepStatus == "awaiting_agent")
-		isStopped := row.Status == "cancelled" && row.StepStatus == "failed"
-		if !policy.HandsBack(row.Step) || !isParked && !isStopped {
+		if row.Status != "running" {
+			continue
+		}
+		findings, err := policy.HandedBackFindings(row.Step, row.Findings)
+		if err != nil {
+			return Handback{}, false, fmt.Errorf("pipeline: run %s's %s findings cannot be read: %w", row.RunID, row.Step, err)
+		}
+		if len(findings) == 0 {
 			continue
 		}
 		if !gateIdentity.MatchString(row.RunID) || !gateIdentity.MatchString(row.RepoID) || row.Branch != branch || !gateCommit.MatchString(row.Head) {
 			return Handback{}, false, errors.New("pipeline: handed-back run identity could not be verified")
 		}
-		var report struct {
-			Findings []finding `json:"findings"`
-		}
-		if err := json.Unmarshal([]byte(row.Findings), &report); err != nil {
-			return Handback{}, false, fmt.Errorf("pipeline: run %s's %s findings cannot be read: %w", row.RunID, row.Step, err)
-		}
-		run := Handback{RunID: row.RunID, RepoID: row.RepoID, Branch: row.Branch, Status: row.Status, Head: row.Head, SubmittedHead: row.SubmittedHead, Step: row.Step, Log: filepath.Join(reader.Root, "logs", row.RunID, row.Step+".log")}
-		for _, f := range report.Findings {
-			if f.Action != "no-op" {
-				run.Findings = append(run.Findings, HandbackFinding{ID: f.ID, Severity: f.Severity, Description: f.Description})
-			}
-		}
-		if len(run.Findings) == 0 {
-			return Handback{}, false, nil
-		}
-		return run, true, nil
+		return Handback{RunID: row.RunID, RepoID: row.RepoID, Branch: row.Branch, Head: row.Head, SubmittedHead: row.SubmittedHead, Step: row.Step, Findings: findings, Log: filepath.Join(reader.Root, "logs", row.RunID, row.Step+".log")}, true, nil
 	}
 	return Handback{}, false, nil
 }
@@ -145,8 +155,9 @@ func (reader Reader) TakeRunHead(ctx context.Context, worktree string, run Handb
 // correction of run's handed-back findings: a single commit on the run's
 // head, nothing else in the worktree, and no file changed outside the
 // findings' scope. That scope is what the branch itself changes from trusted,
-// and every file the step's log or its findings name; a wider correction is
-// the CFO's to admit.
+// and every file the step's log or its findings name, as isNamed reads them,
+// from the worktree or from the run's own gate worktree; a wider correction
+// is the CFO's to admit.
 func (reader Reader) CheckCorrection(ctx context.Context, worktree, trusted string, run Handback) error {
 	status, err := reader.runGit(ctx, worktree, false, "status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none")
 	if err != nil || status.ExitCode != 0 || strings.TrimSpace(string(status.Stdout)) != "" {
@@ -172,9 +183,10 @@ func (reader Reader) CheckCorrection(ctx context.Context, worktree, trusted stri
 	if err != nil {
 		return err
 	}
+	roots := []string{filepath.ToSlash(worktree), filepath.ToSlash(filepath.Join(reader.Root, "worktrees", run.RepoID, run.RunID))}
 	var outside []string
 	for _, file := range changed {
-		if !slices.Contains(own, file) && !isNamed(named, file) {
+		if !slices.Contains(own, file) && !isNamed(named, file, roots) {
 			outside = append(outside, file)
 		}
 	}
@@ -227,26 +239,67 @@ func (run Handback) namedText() (string, error) {
 	return strings.ReplaceAll(text.String(), `\`, "/"), nil
 }
 
-// isNamed reports whether text names file: by its repository path, as a
-// compiler, linter or stack trace prints it, or by its base name before a
-// line number, as a Go test failure prints it.
-func isNamed(text, file string) bool {
-	return strings.Contains(text, file) || strings.Contains(text, path.Base(file)+":")
+// isNamed reports whether text names file. Its repository path names it
+// where it stands as a path of its own, as a compiler, linter or stack trace
+// prints one: after the start of the text, whitespace, a quote, an opening
+// parenthesis or one of roots, the absolute worktrees the failure ran in,
+// and before the end of the text, whitespace, a colon, a quote, a closing
+// parenthesis or a comma. Its base name before a line number, at the start
+// of a line or after whitespace as a Go test failure prints it, names it only
+// when its directory also ends a package path in the text, so a file at the
+// repository's root is named by its path alone.
+func isNamed(text, file string, roots []string) bool {
+	isOpen := func(before string) bool {
+		return before == "" || strings.ContainsRune(" \t\r\n\"'`(", rune(before[len(before)-1]))
+	}
+	isClosed := func(after string) bool {
+		return after == "" || strings.ContainsRune(" \t\r\n:\"'`),", rune(after[0]))
+	}
+	isRooted := func(before string) bool {
+		return isOpen(before) || slices.ContainsFunc(roots, func(root string) bool {
+			root += "/"
+			return len(before) >= len(root) && strings.EqualFold(before[len(before)-len(root):], root)
+		})
+	}
+	if occurs(text, file, isRooted, isClosed) {
+		return true
+	}
+	isSpaced := func(before string) bool {
+		return before == "" || strings.ContainsRune(" \t\r\n", rune(before[len(before)-1]))
+	}
+	isPackage := func(before string) bool {
+		return isOpen(before) || strings.HasSuffix(before, "/")
+	}
+	dir := path.Dir(file)
+	return dir != "." && occurs(text, path.Base(file)+":", isSpaced, func(string) bool { return true }) && occurs(text, dir, isPackage, isClosed)
 }
 
-// OwnerAdmission stops run, whose handed-back findings the goblin corrected,
-// and writes into dir the admission that submits the correction to the run's
-// own validation family. It binds the run's original launch, intent and
-// agents and the task's frozen policy, so no allowance the run spent is
-// renewed, with trusted as today's trusted commit, and returns the file.
-func (reader Reader) OwnerAdmission(ctx context.Context, worktree, trusted, dir string, run Handback, selection Selection, env []string) (string, error) {
-	if run.IsParked() {
-		result, err := reader.Commands.Run(ctx, execx.Request{Dir: worktree, Env: env, Name: "no-mistakes", Args: []string{"axi", "abort", "--run", run.RunID}})
-		if err != nil || result.ExitCode != 0 {
-			return "", fmt.Errorf("pipeline: stopping run %s for its correction failed, and nothing was submitted: %w", run.RunID, errors.Join(err, errors.New(strings.TrimSpace(string(result.Stderr)))))
+// occurs reports whether text holds needle anywhere isBefore accepts what
+// precedes it and isAfter accepts what follows it.
+func occurs(text, needle string, isBefore, isAfter func(string) bool) bool {
+	for start := 0; ; start++ {
+		i := strings.Index(text[start:], needle)
+		if i < 0 {
+			return false
+		}
+		start += i
+		if isBefore(text[:start]) && isAfter(text[start+len(needle):]) {
+			return true
 		}
 	}
-	result, err := reader.Commands.Run(ctx, execx.Request{Dir: worktree, Env: env, Name: "no-mistakes", Args: []string{"axi", "terminal-preflight", "--predecessor", run.RunID}})
+}
+
+// OwnerAdmission stops run, parked at the handed-back findings the goblin
+// corrected, and writes into dir the admission that submits the correction to
+// the run's own validation family. It binds the run's original launch, intent
+// and agents and the task's frozen policy, so no allowance the run spent is
+// renewed, with trusted as today's trusted commit, and returns the file.
+func (reader Reader) OwnerAdmission(ctx context.Context, worktree, trusted, dir string, run Handback, selection Selection, env []string) (string, error) {
+	result, err := reader.Commands.Run(ctx, execx.Request{Dir: worktree, Env: env, Name: "no-mistakes", Args: []string{"axi", "abort", "--run", run.RunID}})
+	if err != nil || result.ExitCode != 0 {
+		return "", fmt.Errorf("pipeline: stopping run %s for its correction failed, and nothing was submitted: %w", run.RunID, errors.Join(err, errors.New(strings.TrimSpace(string(result.Stderr)))))
+	}
+	result, err = reader.Commands.Run(ctx, execx.Request{Dir: worktree, Env: env, Name: "no-mistakes", Args: []string{"axi", "terminal-preflight", "--predecessor", run.RunID}})
 	if err != nil || result.ExitCode != 0 {
 		return "", fmt.Errorf("pipeline: native terminal-preflight of run %s failed, and nothing was submitted: %w", run.RunID, errors.Join(err, errors.New(strings.TrimSpace(string(result.Stdout)+string(result.Stderr)))))
 	}
