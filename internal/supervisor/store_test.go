@@ -365,6 +365,35 @@ func TestStaleWrongSessionAndGenerationCannotAdvance(t *testing.T) {
 	}
 }
 
+// A session's record says what started it, a resume or a compaction, only
+// while its start is its last word: the board reads from it whether the turn
+// before the start still runs (#2293).
+func TestASessionsRecordKeepsWhatStartedItUntilItsNextWord(t *testing.T) {
+	// Arrange
+	s, h := testStore(t)
+	now := time.Now().UTC()
+	start := event(t, h, "SessionStart", "restarted", "", now)
+	start.Source = "resume"
+
+	// Act
+	if err := s.Accept(start); err != nil {
+		t.Fatal(err)
+	}
+	started := s.Snapshot().Sessions["codex/restarted"]
+	if err := s.Accept(event(t, h, "PostToolUse", "restarted", "t1", now.Add(time.Second))); err != nil {
+		t.Fatal(err)
+	}
+	worked := s.Snapshot().Sessions["codex/restarted"]
+
+	// Assert
+	if started.Phase != "started" || started.Source != "resume" {
+		t.Fatalf("the started session: %+v; want its source resume", started)
+	}
+	if worked.Phase != "active" || worked.Source != "" {
+		t.Fatalf("the session after its next word: %+v; want no source", worked)
+	}
+}
+
 func TestStopContinuationAndSecondStopWithinSameTurn(t *testing.T) {
 	s, h := testStore(t)
 	now := time.Now()

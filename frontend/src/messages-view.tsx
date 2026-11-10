@@ -63,14 +63,14 @@ type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 // open, absent for the CEO, terminal is the key of the session's terminal,
 // whose link reads what it is doing, sent is every message of his to the session the
 // board knows, pending those of them that still wait, and box is the message
-// box under the conversation. onAskSlot takes the conversation's last row,
+// box under the conversation, told whether the stream says a turn runs. onAskSlot takes the conversation's last row,
 // where the box draws what the harness's own screen asks (#2223).
 export function MessagesView({ query, instance, pages, name, task, terminal, harness, model, effort, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, onAskSlot, onOpenCommand, box }: {
   query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isCompacting: boolean;
   pages: Map<string, MessagePage>;
   sent: Action[]; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
-  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode, onSend: () => void) => ReactNode;
+  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode, onSend: () => void, isTurnRunning: boolean) => ReactNode;
   onComposerDock?: (node: HTMLDivElement | null) => void; onAskSlot?: (node: HTMLDivElement | null) => void;
   // onOpenCommand opens the Command Center on an item, as a block's Run does
   // on the run card it made.
@@ -102,6 +102,10 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // he reads up keeps still.
   const standing = viewStanding(report, held.messages);
   const isAtWork = standing.isWorking || phase === "live" && isCompacting;
+  // The box's Stop reads the same word of the stream, as the session is now
+  // however far up he reads, so no Stop shows for a turn that ended, whatever
+  // ended it (#2292).
+  const isTurnRunning = report?.state === "running" || phase === "live" && isCompacting;
   const [isReconnecting, setReconnecting] = useState(false);
   const [closedWhy, setClosedWhy] = useState("");
   const [attempt, setAttempt] = useState(0);
@@ -901,7 +905,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
           box"), only once the view is live and holds a real reading, never
           while it connects ("connecting screens don't need to display the
           dither or usage unavailable"). */}
-      {box?.(composing.usage?.model || model, composing.history, composing.usage?.effort || effort, phase === "live" && <UsageBar readings={readings} />, sentFromBox)}
+      {box?.(composing.usage?.model || model, composing.history, composing.usage?.effort || effort, phase === "live" && <UsageBar readings={readings} />, sentFromBox, isTurnRunning)}
     </div>}
   </section></MessageDocumentScope>;
 }

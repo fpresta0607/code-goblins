@@ -28,7 +28,7 @@ var forkReleases = map[string]string{
 // reviewedDigests are the SHA256 digests of those releases' files, as their
 // release notes give them.
 var reviewedDigests = map[string]string{
-	"chrome-devtools-axi": "382d38195d120a02b5f86631e6e31f2a1b28d09814ab6c628c5c8f7fbd1f8247",
+	"chrome-devtools-axi": "74ba3a616b598b931527e306753bfceb672a0d17f8f40693deab69d88842d57f",
 	"lavish-axi":          "afeada08e260f0ef38792d28b65b8a5d79b200c9c89f9bcd916837345679e714",
 }
 
@@ -272,11 +272,12 @@ func TestOneLineInstallReplacesAForkToolThatIsNotItsReleaseOrLater(t *testing.T)
 		{name: "the upstream release install.ps1 pinned", tool: "chrome-devtools-axi", version: "0.1.39", isReplaced: true},
 		{name: "an upstream release above the fork's", tool: "chrome-devtools-axi", version: "0.1.45", isReplaced: true},
 		{name: "the fork's build installed by hand", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins.2", isReplaced: true},
+		{name: "the fork's release whose bridge starts PowerShell for every check", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins.3", isReplaced: true},
 		{name: "a build that reports no version", tool: "chrome-devtools-axi", version: "", isReplaced: true},
-		{name: "a command that prints the release's build and fails", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins.3", exitCode: 1, isReplaced: true},
+		{name: "a command that prints the release's build and fails", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins.4", exitCode: 1, isReplaced: true},
 		{name: "the release's version with no build number", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins", isReplaced: true},
-		{name: "the release's build", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins.3"},
-		{name: "a later build of the fork's", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins.4"},
+		{name: "the release's build", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins.4"},
+		{name: "a later build of the fork's", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins.5"},
 		{name: "a later release of the fork's with no build number", tool: "chrome-devtools-axi", version: "0.1.41-codegoblins"},
 		{name: "a Scrawl build before the release", tool: "lavish-axi", version: "0.1.79-codegoblins.17", isReplaced: true},
 		{name: "the Scrawl release's build", tool: "lavish-axi", version: "0.1.79-codegoblins.19"},

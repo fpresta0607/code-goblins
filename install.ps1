@@ -784,7 +784,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         @{ Name = "quota-axi";           Kind = "npm";        Cmd = "npm.cmd install -g quota-axi@0.1.58" },
         @{ Name = "no-mistakes";         Kind = "release";    Cmd = $(if ($Dev) { "tools\build-no-mistakes.ps1, $noMistakesRepository at $noMistakesCommit" } else { "$releaseBase/no-mistakes.exe" }) },
         @{ Name = "gh-axi";              Kind = "npm";        Cmd = "npm.cmd install -g gh-axi@0.1.35" },
-        @{ Name = "chrome-devtools-axi"; Kind = "npm-file";   Cmd = "https://github.com/fpresta0607/chrome-devtools-axi/releases/download/v0.1.40-codegoblins.3/chrome-devtools-axi-0.1.40-codegoblins.3.tgz"; Sha256 = "382D38195D120A02B5F86631E6E31F2A1B28D09814AB6C628C5C8F7FBD1F8247" },
+        @{ Name = "chrome-devtools-axi"; Kind = "npm-file";   Cmd = "https://github.com/fpresta0607/chrome-devtools-axi/releases/download/v0.1.40-codegoblins.4/chrome-devtools-axi-0.1.40-codegoblins.4.tgz"; Sha256 = "74BA3A616B598B931527E306753BFCEB672A0D17F8F40693DEAB69D88842D57F" },
         @{ Name = "lavish-axi";          Kind = "npm-file";   Cmd = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.19/lavish-axi-0.1.79-codegoblins.19.tgz"; Sha256 = "AFEADA08E260F0EF38792D28B65B8A5D79B200C9C89F9BCD916837345679E714" }
     )
 

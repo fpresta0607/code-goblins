@@ -823,7 +823,6 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
         </li>;
       })}
     </ol>}
-    {hasConversation && live?.screen?.status && <TerminalStatus status={live.screen.status} isSending={isSending || live.screen === commandScreen} onAction={(command) => void send(command)} />}
     <div ref={composerBox} className="composer-box" onKeyDown={(event) => {
       if (event.key !== "Escape") return;
       if (pane) { event.stopPropagation(); setPane(null); field.current?.focus(); }
@@ -876,5 +875,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
         </div>
       </div>
     </div>
+    {/* The terminal's gauge and notices go under the box, as the terminal
+        draws them under its prompt (#2294). */}
+    {hasConversation && live?.screen?.status && <TerminalStatus status={live.screen.status} isSending={isSending || live.screen === commandScreen} onAction={(command) => void send(command)} />}
   </section>;
 }

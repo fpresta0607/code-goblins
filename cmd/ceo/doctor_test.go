@@ -141,7 +141,7 @@ func fakeDoctorTool(t *testing.T, dir, name string) {
 	// A provisioned machine has the Code Goblins build of chrome-devtools-axi,
 	// which the doctor requires.
 	if name == "chrome-devtools-axi" {
-		version = "0.1.40-codegoblins.3"
+		version = "0.1.40-codegoblins.4"
 	}
 	script := "@echo off\r\necho " + version + "\r\n"
 	if err := os.WriteFile(filepath.Join(dir, name+".bat"), []byte(script), 0o700); err != nil {
@@ -405,12 +405,15 @@ func TestRunDoctorReportsPresentationUnavailableAndStaysHealthy(t *testing.T) {
 
 // ceo doctor names a chrome-devtools-axi that is not the fork's release, or
 // is an older build than it, as missing, with the command that installs the
-// release as its fix, and reports the machine unhealthy (#1626).
+// release as its fix, and reports the machine unhealthy (#1626). The .3
+// release is older than it: its bridge starts PowerShell for every ACL and
+// ownership check, so it slows with machine load (#1658).
 func TestRunDoctorNamesAChromeDevtoolsAxiThatIsNotTheForkRelease(t *testing.T) {
 	for version, problem := range map[string]string{
 		"0.1.39":               "version 0.1.39 is below the floor",
 		"0.1.45":               "version 0.1.45 is not the codegoblins build",
 		"0.1.40-codegoblins.2": "version 0.1.40-codegoblins.2 is below the floor",
+		"0.1.40-codegoblins.3": "version 0.1.40-codegoblins.3 is below the floor",
 	} {
 		t.Run(version, func(t *testing.T) {
 			// Arrange
