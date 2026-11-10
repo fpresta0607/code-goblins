@@ -7,6 +7,29 @@ Print all exact warm ranges plus cold ranges matching any supplied project, task
 Source provenance, checksums and stale or pending-capture diagnostics accompany the original bytes.
 `cfo memory routes` lists every cold trigger and routing key without loading its body into the response.
 
+`cfo memory retrieve [scope or search flags] --cold`
+
+Print only the cold ranges the scope or search selects, for a conversation that already holds the startup map.
+They come in the map's own form: each source named once, then each entry as its id in brackets and its exact bytes, with a line naming the heading a ruling stands under when another entry holds that heading.
+A stale, legacy, grace or pending-capture entry says so inside its brackets, and a scope that holds nothing cold says that.
+`--cold` needs a scope or a search and takes neither `--id` nor `--seen`; `--id` still prints one entry with its full provenance.
+
+`cfo memory sync`
+
+Derive `data/memory/startup.json` again from the memory files, as [rulings by scope](../contract/memory.md#rulings-by-scope) defines, and report how many entries load at startup, how many come by scope, how many are new and the startup estimate against its budget.
+Run it after memory changes: until then every reader of the catalog reports the change as `MEMORY UNREADABLE` and names this command.
+A home with no catalog gets its first one, which loads every ruling and every index line, so the estimate drops only as scopes are ruled.
+A perishable line needs its expiry named before the catalog loads; the refusal names the entry and `cfo memory scope --expiry "<words>" <id>`, where the words are that line's own.
+
+`cfo memory scope --project <name>... [--ids <file>] [<id>...]`, `cfo memory scope --fleet [--ids <file>] [<id>...]` and `cfo memory scope --list`
+
+Rule whose the named entries are, after a sync.
+`--project` makes them cold and routes them to each project named, with the heading each stands under as its trigger; `--fleet` makes them warm and marks them classified.
+`--ids` reads one id from the start of each line of a file, bare or in the brackets the startup map prints, and ignores the rest of the line and blank lines.
+`--list` prints the rulings no scope is ruled for yet, in the map's form, and writes nothing.
+An id no entry has refuses the whole command, and nothing is tagged.
+`sync` and a `scope` that tags are the CEO's alone: a goblin, a gate agent and an agent session that is not [the CEO's own](../contract/supervision.md#the-ceos-own-session) are refused, and they act only on the resolved CEO home.
+
 `cfo memory retrieve --search "cache port" [--project <name>] [--task <id>] [--topic <topic>] [--limit 5] [--include-completed]`
 
 Discover cold source ranges by case-insensitive whole-word keywords in their id, trigger, topics and exact body.
@@ -101,5 +124,5 @@ Existing version-1 catalogs remain valid, and `task_state` is optional.
 Before rolling back to an older binary, remove only the new optional `task_state` metadata from a backed-up catalog, since older decoders reject unknown fields; keep all canonical source bytes and original approvals.
 Discard caller-created delivery lists across rollback or conversation reset.
 
-Every operation accepts `--data <directory>` for an explicit private data source; otherwise it uses the resolved CEO home's `data` folder.
+Every operation but `sync`, `scope` and `lesson` accepts `--data <directory>` for an explicit private data source; otherwise it uses the resolved CEO home's `data` folder.
 No operation grants consent, moves history, calls a model or alters task state.

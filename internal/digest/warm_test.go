@@ -351,8 +351,8 @@ func TestComposeUsesVerifiedWarmMemoryInsteadOfHistoricalRulings(t *testing.T) {
 	if !strings.Contains(output.String(), active) || strings.Contains(output.String(), history) {
 		t.Fatalf("startup did not select current authority independently of cold history: %s", output.String())
 	}
-	if !strings.Contains(output.String(), "cfo memory retrieve") || !strings.Contains(output.String(), "completed-incident") {
-		t.Fatalf("startup omitted the cold retrieval route: %s", output.String())
+	if !strings.Contains(output.String(), "cfo memory retrieve --project <name> --task <id> --topic <topic> --cold") || !strings.Contains(output.String(), "topic incident: history 1\n") {
+		t.Fatalf("startup omitted the scope that retrieves the cold range: %s", output.String())
 	}
 	if output.Len() > 18000 {
 		t.Fatalf("startup unexpectedly grew with cold history: %d bytes", output.Len())

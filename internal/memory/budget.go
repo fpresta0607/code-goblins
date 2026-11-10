@@ -73,13 +73,12 @@ func MemoryReport(dataDir string, now time.Time) (Report, error) {
 		if err != nil {
 			return Report{}, err
 		}
-		text, err := catalog.Retrieve(Query{})
+		text, err := catalog.StartupMap()
 		if err != nil {
 			return Report{}, err
 		}
-		text += catalog.Routes(2000)
 		report.Bytes = len(text)
-		report.Inputs = append(report.Inputs, Measurement{Kind: "memory", Path: "verified warm ranges and cold routing index", SHA256: Hash([]byte(text)), Bytes: len(text), EstimatedTokens: Tokens(len(text))})
+		report.Inputs = append(report.Inputs, Measurement{Kind: "memory", Path: "verified warm ranges and cold scope counts", SHA256: Hash([]byte(text)), Bytes: len(text), EstimatedTokens: Tokens(len(text))})
 	}
 	report.EstimatedTokens = Tokens(report.Bytes)
 	report.IsOverBudget = report.EstimatedTokens > budget

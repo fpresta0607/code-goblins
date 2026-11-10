@@ -22,9 +22,17 @@ import (
 )
 
 const CatalogPath = "memory/startup.json"
-const DefaultBudget = 10000
+const DefaultBudget = 15000
+
+// FleetTopic is the routing key of a ruling ruled fleet-wide, which tells it
+// from one no scope has been ruled for yet; both load at startup.
+const FleetTopic = "fleet"
 
 var memoryID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
+
+// errExpiryMissing is a perishable entry with no expiry named in the catalog,
+// which only whoever curates the catalog can name.
+var errExpiryMissing = errors.New("perishable memory needs its checkable expiry condition in the entry")
 
 type Approval struct {
 	By          string `json:"by"`
@@ -83,6 +91,10 @@ type Query struct {
 	Limit            int
 	IncludeCompleted bool
 	Delivered        []string
+	// IsColdOnly leaves the warm entries out and prints what the scope or
+	// search selects in the startup map's form, for a conversation that
+	// holds the map.
+	IsColdOnly bool
 }
 
 func Hash(content []byte) string {
@@ -232,9 +244,14 @@ func Load(dataDir string, now time.Time) (Catalog, error) {
 				return Catalog{}, fmt.Errorf("memory %s has a gap, overlap, invalid range or checksum", entry.ID)
 			}
 			covered = entry.End
-			status, err := Inspect(content[entry.Start:entry.End], isLiteral[entry.Start:entry.End], entry.Authority, now)
-			if err != nil {
-				return Catalog{}, fmt.Errorf("memory %s: %w", entry.ID, err)
+			// A marker in the archive is the tier a line had when it was
+			// archived: it is history now and tiers nothing.
+			status := Status{Tier: "pinned"}
+			if source.Path != "memory-archive.md" || entry.Authority != "history" {
+				status, err = Inspect(content[entry.Start:entry.End], isLiteral[entry.Start:entry.End], entry.Authority, now)
+				if err != nil {
+					return Catalog{}, fmt.Errorf("memory %s: %w", entry.ID, err)
+				}
 			}
 			if pinned[source.Path] {
 				if status.Tier != "pinned" && !status.IsLegacy {
@@ -313,7 +330,7 @@ func validateEntry(source string, entry Entry, content []byte, status Status, no
 		return errors.New("invalid authority or warm/cold location")
 	}
 	if status.Tier == "perishable" && (entry.Expiry == "" || !bytes.Contains(content, []byte(entry.Expiry))) {
-		return errors.New("perishable memory needs its checkable expiry condition in the entry")
+		return errExpiryMissing
 	}
 	for _, keys := range [][]string{entry.Projects, entry.Tasks, entry.Topics} {
 		for _, key := range keys {
@@ -326,11 +343,18 @@ func validateEntry(source string, entry Entry, content []byte, status Status, no
 		if strings.TrimSpace(entry.Trigger) == "" || len(entry.Projects)+len(entry.Tasks)+len(entry.Topics) == 0 {
 			return errors.New("cold memory needs a trigger and project, task or topic routing")
 		}
-		if status.PendingCapture != "" || status.IsGrace || status.IsLegacy || status.Tier == "perishable" {
+		// Before a catalog, startup loaded these three sources in full and no
+		// other, so unmarked text stays loaded only where startup loaded it.
+		isLoadedWithoutACatalog := source == "overlord.md" || source == "projects.md" || source == "memory/MEMORY.md"
+		if status.PendingCapture != "" || status.IsGrace || status.IsLegacy && isLoadedWithoutACatalog || status.Tier == "perishable" {
 			return errors.New("pending capture, grace, legacy or perishable memory must remain warm")
 		}
 		isExistingArchive := source == "memory-archive.md" && entry.Authority == "history"
-		if (status.Tier == "pinned" || source == "overlord.md") && !isExistingArchive {
+		// A ruling routed to a project stays verbatim at its range and one
+		// retrieval away, which the contract admits as a class; every other
+		// cold ruling needs its own approval.
+		isProjectRuling := source == "overlord.md" && len(entry.Projects) > 0
+		if (status.Tier == "pinned" || source == "overlord.md") && !isExistingArchive && !isProjectRuling {
 			approval := entry.Approval
 			if approval == nil || approval.By != "Overlord" || approval.Destination != source+"#"+entry.ID {
 				return errors.New("pinned offload requires this named item's verbatim Overlord approval and live source destination")
@@ -379,16 +403,15 @@ func (catalog Catalog) Retrieve(query Query) (string, error) {
 		return "", err
 	}
 	var output strings.Builder
-	if len(catalog.Sources) == 0 {
-		output.WriteString("MEMORY SOURCES ABSENT: no governed source files; no authority was assumed read.\n")
-	}
-	for _, layer := range catalog.Layers {
-		fmt.Fprintf(&output, "Memory tier %s owns %s; owner=%s\nCapture: %s\nCorrections: %s\nIf unreachable, keep pending capture explicit in warm memory and report it to the CFO.\n", layer.Name, strings.Join(layer.Classes, ", "), layer.Owner, layer.Capture, layer.Correction)
+	catalog.writePreamble(&output)
+	isShort := query.IsColdOnly && query.ID == ""
+	if isShort && catalog.writeShort(&output, selected) == 0 && query.Search == "" {
+		output.WriteString("No cold memory is routed to that scope.\n")
 	}
 	matched := false
 	for _, source := range catalog.Sources {
 		for _, entry := range source.Entries {
-			if !selected[entry.ID] {
+			if !selected[entry.ID] || isShort {
 				continue
 			}
 			matched = true
@@ -438,6 +461,17 @@ func (catalog Catalog) Retrieve(query Query) (string, error) {
 		return "", err
 	}
 	return output.String(), nil
+}
+
+// writePreamble says what every retrieval says first: that a home holds no
+// memory, and who owns each declared tier.
+func (catalog Catalog) writePreamble(output *strings.Builder) {
+	if len(catalog.Sources) == 0 {
+		output.WriteString("MEMORY SOURCES ABSENT: no governed source files; no authority was assumed read.\n")
+	}
+	for _, layer := range catalog.Layers {
+		fmt.Fprintf(output, "Memory tier %s owns %s; owner=%s\nCapture: %s\nCorrections: %s\nIf unreachable, keep pending capture explicit in warm memory and report it to the CFO.\n", layer.Name, strings.Join(layer.Classes, ", "), layer.Owner, layer.Capture, layer.Correction)
+	}
 }
 
 // Routes is bounded independently of the cold corpus, with an explicit remainder.

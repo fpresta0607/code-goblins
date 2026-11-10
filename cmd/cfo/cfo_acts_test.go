@@ -50,6 +50,10 @@ func TestACommandThatActsAsTheCFOIsRefusedInAnotherAgentsSession(t *testing.T) {
 		{"start-hook", "accept", "g1", `C:\worktree\.venv\Lib\site-packages\zope.interface-6.4-py3.12-nspkg.pth`},
 		{"memory", "lesson", "accept", "lesson-000000000000"},
 		{"memory", "lesson", "reject", "lesson-000000000000", "--reason", "too narrow"},
+		{"memory", "sync"},
+		{"memory", "scope", "--project", "harbor", "ruling-000000000000"},
+		{"memory", "scope", "--fleet", "--ids", `C:\ids.txt`},
+		{"memory", "scope", "--expiry", "task-7", "index-000000000000"},
 		{"auth", "grant", "g1", "--codex-credits"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
@@ -79,6 +83,8 @@ func TestReadingTheFleetIsNotActingAsTheCFO(t *testing.T) {
 		{"allowance-floor"},
 		{"memory", "recall", "harbor cache"},
 		{"memory", "retrieve", "--id", "current"},
+		{"memory", "retrieve", "--project", "harbor", "--cold"},
+		{"memory", "scope", "--list"},
 		{"fleet-view"},
 		{"peek", "g1"},
 		{"runtime"},

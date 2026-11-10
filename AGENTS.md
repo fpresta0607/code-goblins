@@ -210,7 +210,8 @@ The CEO's memory lives in the home, never only in a harness, so a CEO in Claude 
 `data/memory/` holds what the fleet has learned, one fact per file, and `data/memory/MEMORY.md` is its index: one line per fact, a markdown link to the fact's file followed by ` - ` and a few words on when it matters.
 At startup and after resume or compaction, run `cfo session-start` to validate current sources, or follow the freshly composed Claude hook's `READ THIS NEXT`; a saved `state/session-digest.md` alone is not source validation.
 Skip unchanged source bytes only when this conversation actually read and still holds them; changed authority must be read again before dependent action.
-Before dependent work, retrieve relevant original authority and facts with `cfo memory retrieve --project <name> --task <id> --topic <topic>`; a known item is available through `--id <id>`.
+Before dependent work, retrieve relevant original authority and facts with `cfo memory retrieve --project <name> --task <id> --topic <topic> --cold`, which prints what those scopes hold beyond the startup map; a known item is available through `--id <id>`.
+Startup loads the whole fleet's rulings and a project's rulings come with its scope; after writing memory, run `cfo memory sync` so the catalog lists the new words, and rule a ruling's scope with `cfo memory scope`.
 The same source-backed map and retrieval rules apply to Claude Code, Codex, Pi and goblins; a worker reports knowledge to the CEO for capture when it cannot reach the owning tier.
 When the catalog is absent, the digest explicitly retains the legacy directives and index in full; no budget silently omits authority.
 Missing, corrupt, conflicting, stale and over-budget memory requires the named diagnostic to be resolved before dependent action.

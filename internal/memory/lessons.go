@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -259,18 +258,14 @@ type lessonFrontmatter struct {
 // lockLessons takes the lessons' lock, waiting out another decision, and
 // returns what gives it back.
 func lockLessons(stateDir string) (func() error, error) {
-	deciding.Lock()
-	if _, err := lock.AcquireNamedOwnerWithin(stateDir, lessonLockName, os.Getpid(), "lessons", lessonLockWait); err != nil {
-		deciding.Unlock()
-		if errors.Is(err, lock.ErrHeld) {
-			return nil, fmt.Errorf("another decision on a lesson is still under way, so nothing was decided: %w", err)
-		}
+	unlock, err := lockCatalog(stateDir, "lessons")
+	if errors.Is(err, lock.ErrHeld) {
+		return nil, fmt.Errorf("another decision on a lesson is still under way, so nothing was decided: %w", err)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("the lessons' lock could not be taken, so nothing was decided: %w", err)
 	}
-	return func() error {
-		defer deciding.Unlock()
-		return lock.ReleaseNamed(stateDir, lessonLockName)
-	}, nil
+	return unlock, nil
 }
 
 // AcceptLesson writes the lesson as a new fact file in the memory folder,
@@ -382,21 +377,7 @@ func catalogLesson(dataDir string, before []byte, name string, candidate LessonC
 	catalog.Sources = append(catalog.Sources, Source{Path: "memory/" + name + ".md", SHA256: Hash(content), Entries: []Entry{{
 		ID: candidate.ID, End: len(content), SHA256: Hash(content), Authority: "fact", Location: "cold", Trigger: candidate.Text, Projects: []string{candidate.Project},
 	}}})
-	var encoded bytes.Buffer
-	encoder := json.NewEncoder(&encoded)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(catalog); err != nil {
-		return err
-	}
-	path := filepath.Join(dataDir, filepath.FromSlash(CatalogPath))
-	if err := fsx.AtomicWriteFile(path, encoded.Bytes()); err != nil {
-		return err
-	}
-	if _, err := Load(dataDir, now); err != nil {
-		return errors.Join(err, fsx.AtomicWriteFile(path, before))
-	}
-	return nil
+	return replaceCatalog(dataDir, catalog, before, now)
 }
 
 // RejectLesson records the CEO's rejection and its reason, under the

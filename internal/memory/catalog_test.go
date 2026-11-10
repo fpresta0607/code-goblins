@@ -718,7 +718,6 @@ func TestPendingCaptureGraceAndPerishableEntriesCannotBeCold(t *testing.T) {
 	for _, text := range []string{
 		"A cache fact <!--a:2026-10-30--><!--t:team-->",
 		"A cache fact <!--g-->",
-		"A legacy cache fact",
 		"Wait for task-7 <!--p:2026-10-30-->",
 	} {
 		t.Run(text, func(t *testing.T) {
