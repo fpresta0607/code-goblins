@@ -101,6 +101,9 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .disclosure.message-call > .disclosure-content { display: grid; gap: .5em; padding: .25em .5em .6em calc(.5em + 2.2em + 1.2em); }
 /* A folded run of calls opens to their own rows, set in under its icon. */
 .disclosure.message-call-group > .disclosure-content { gap: 1px; padding: 0 0 .25em 1.1em; font-size: 1.0667em; }
+/* The fold's count is cut with an ellipsis where its pictures leave it no
+   room, as a row's subject is. */
+.disclosure.message-call-group > summary .call-verb { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .message-diff { max-height: 24em; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: #071015; color: #8fa3ad; font: .8125em/1.5 var(--font-mono); }
 .message-diff > div { min-width: max-content; padding: 0 .75em; white-space: pre; }
 .message-diff > .line-added { background: rgba(78, 186, 101, 0.12); color: #bfe9c9; }

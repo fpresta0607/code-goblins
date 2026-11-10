@@ -43,6 +43,7 @@ for (const width of [1440, 390]) {
     // pictures, each loaded lazily and drawn inside the row's one line.
     await expect(row).toContainText("Read 2 files, ran 1 command, called chrome take_screenshot 1 time");
     await expect(thumbnails).toHaveCount(3);
+    await row.scrollIntoViewIfNeeded();
     const line = await row.boundingBox();
     for (const thumbnail of await thumbnails.all()) {
       await expect(thumbnail.locator("img")).toHaveAttribute("loading", "lazy");
@@ -78,23 +79,24 @@ for (const width of [1440, 390]) {
     await expect(hoverCard(page)).toHaveCount(0);
     await expect(talk).toBeVisible();
 
-    // Act + Assert: so does the list scrolling under it, in a window too
-    // short to hold the conversation.
-    await page.setViewportSize({ width, height: 480 });
+    // Act: the mouse over another, then off the pictures.
     await thumbnails.nth(1).hover();
     await expect(hoverCard(page).locator("p > span")).toHaveText(["Read", "2 of 3"]);
-    expect(await talk.evaluate((list) => list.scrollHeight - list.clientHeight), "a list with room to scroll").toBeGreaterThan(60);
-    await talk.evaluate((list) => { list.scrollTop += list.scrollTop >= 60 ? -60 : 60; });
-    await expect(hoverCard(page)).toHaveCount(0);
-
-    // Act: the mouse comes back, then leaves the pictures.
-    await thumbnails.nth(0).hover();
-    await expect(hoverCard(page)).toBeVisible();
     await talk.getByText("Reading the screenshots.").hover();
 
     // Assert: the card goes, and the row never opened.
     await expect(hoverCard(page)).toHaveCount(0);
     await expect(fold(page)).toHaveJSProperty("open", false);
+
+    // Act: the list scrolls under a card. Nothing here follows it, as the
+    // list settles its own place after a scroll.
+    await thumbnails.nth(0).hover();
+    await expect(hoverCard(page)).toBeVisible();
+    expect(await talk.evaluate((list) => list.scrollHeight - list.clientHeight), "a list with room to scroll").toBeGreaterThan(60);
+    await talk.evaluate((list) => { list.scrollTop += list.scrollTop >= 60 ? -60 : 60; });
+
+    // Assert
+    await expect(hoverCard(page)).toHaveCount(0);
   });
 
   test(`a click on a thumbnail opens the viewer, whose arrows, keys and counter run across the conversation at ${width}px`, async ({ page }, testInfo) => {
