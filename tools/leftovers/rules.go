@@ -70,6 +70,14 @@ func noise() []rule {
 		files(filepath.Join(roaming, "Mozilla"), "the default browser's own profile, which opening the board in it writes, as opening any page does"),
 		files(filepath.Join(roaming, "Microsoft", "Windows", "Recent"), "Windows' list of recent files"),
 		files(filepath.Join(roaming, "go", "telemetry"), "the Go toolchain's telemetry, which the runner's own go test writes"),
+		// Codex clones its plugin marketplace into a folder of its own
+		// temporary folder, .tmp in its home, and removes the clone once it
+		// holds the plugins, at times of its own. In run 41515917655 the
+		// goblin's Codex removed one between the two snapshots around the
+		// uninstall's dry run, which named every file of it taken. Code
+		// Goblins writes nothing there, and the rest of the Codex home is
+		// compared.
+		files(filepath.Join(profile, ".codex", ".tmp"), "Codex's own temporary folder, where it clones its plugin marketplace and removes the clone by itself"),
 		files(filepath.Join(roaming, "Microsoft", "Crypto"), "Windows' own keys for the credentials it encrypts"),
 		files(filepath.Join(roaming, "Microsoft", "Protect"), "Windows' own keys for the credentials it encrypts"),
 		files(filepath.Join(profile, "AppData", "LocalLow", "Microsoft", "CryptnetUrlCache"), "Windows' cache of the certificates it checked"),
