@@ -562,6 +562,8 @@ for (const [press, said] of [["Send now", "Its gate holds the branch."], ["Cance
 }
 
 const KEPT = "C:\\goblin\\tasktmp\\cg-touch\\composer-files\\pasted-1.png";
+// A 1x1 PNG, which the kept picture reads back as.
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 // controls reads a queued entry's buttons as they are drawn: name, look and
 // icon, in order.
 const controls = (entry: ReturnType<Page["locator"]>) => entry.locator(".queued-actions button").evaluateAll((buttons) =>
@@ -629,19 +631,33 @@ test("Up in the empty box takes the newest queued message back into the box, its
 });
 
 // The Overlord, 2026-10-28: "see how claude includes pictures when pasted".
-test("a queued message shows the picture the box kept above its bubble, never its path", async ({ page }) => {
-  // Arrange and Act
-  await openWith(page, queued({ text: "what is wrong here?\n" + KEPT }));
+test("a queued message shows the picture the box kept above its bubble, never its path, and opens it among its own", async ({ page }) => {
+  // Arrange and Act: the kept picture reads back to the board's token.
+  await open(page, snapshot({ actions: [queued({ text: "what is wrong here?\n" + KEPT })] }));
+  await page.route("**/api/composer/file**", (route) => route.fulfill({ body: PNG, contentType: "image/png" }));
+  await openGoblin(page);
 
   // Assert
   const picture = entry(page).locator(".message-picture img");
   await expect(picture).toHaveCount(1);
+  await expect.poll(() => picture.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth)).toBe(1);
   await expect(entry(page).locator(".queued-bubble")).toHaveText("what is wrong here?");
   await expect(page.locator(".messages-view")).not.toContainText("composer-files");
   expect(await entry(page).evaluate((element) => {
     const picture = element.querySelector(".message-pictures")?.getBoundingClientRect(), bubble = element.querySelector(".queued-bubble")?.getBoundingClientRect();
     return !!picture && !!bubble && picture.bottom <= bubble.top;
   }), "the picture sits above the bubble").toBe(true);
+
+  // Act: a message still queued is no row of the conversation yet, so its
+  // picture opens among the message's own.
+  await entry(page).getByRole("button", { name: "Open picture 1" }).click();
+
+  // Assert
+  const viewer = page.getByRole("dialog", { name: "Pictures" });
+  await expect(viewer.getByRole("status")).toHaveText("1 of 1");
+  await expect(viewer.getByRole("img", { name: "Picture 1 of 1" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(viewer).toHaveCount(0);
 });
 
 // The Overlord, 2026-10-28: "as it's working and going through stuff, it

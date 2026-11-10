@@ -270,11 +270,12 @@ export type ReplyPart = { kind: "text" | "thinking"; at: number; text: string } 
 // A run of a reply's calls as it shows: each call that finished as asked,
 // two or more in a row, folded into one row that opens to them (#2191), and
 // every other call its own row. A call still running, one that failed, was
-// denied or was interrupted, a question, one with pictures, a plan and a baby
-// goblin are never folded. at is where each starts in the run.
+// denied or was interrupted, a question, a plan and a baby goblin are never
+// folded. A call with pictures folds as any other, since the folded row shows
+// their thumbnails at its end. at is where each starts in the run.
 export type CallRun = { kind: "fold"; at: number; calls: MessageBlock[] } | { kind: "call"; at: number; call: MessageBlock };
 const QUESTIONS = new Set(["askuserquestion", "request_user_input"]);
-const isFoldable = (call: MessageBlock) => (call.state === "done" || call.state === "") && !call.agent && !call.plan.length && !call.pictures.length && !QUESTIONS.has(call.tool.toLowerCase());
+const isFoldable = (call: MessageBlock) => (call.state === "done" || call.state === "") && !call.agent && !call.plan.length && !QUESTIONS.has(call.tool.toLowerCase());
 
 export function callRuns(calls: MessageBlock[]): CallRun[] {
   const runs: CallRun[] = [];
