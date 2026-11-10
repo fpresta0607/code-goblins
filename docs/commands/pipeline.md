@@ -6,6 +6,8 @@
 
 `cfo pipeline validate-authored <id> [--branch <b>] --admission-file <file>`
 
+`cfo pipeline validate-authored <id> --run <run> --findings <ids>`
+
 `cfo pipeline validate-terminal <id> [--branch <b>] --admission-file <file>`
 
 Drive a gated task under its frozen policy: report or apply the owned shared no-mistakes settings in an explicit idle window, whose refusal names the gate runs it waits for, explicitly migrate a task's frozen snapshot to the current policy the shared config already runs while preserving its class and repair cap, which never needs the daemon stopped, validate a bounded gate start under the version-specific contract, taking the run's intent from the file `--intent-file` names (a short one may be given with `--intent <text>`) and handing it to no-mistakes in a file, never on a command line, where Microsoft Defender detected a long intent as a lure and Windows refused the start, answer one parked gate with an explicit fix or a no-op approval, return source custody through [supported recovery](../pipeline.md#driving-a-task), or return eligible published CI failures to their contributor through [native handback](../pipeline.md#driving-a-task).
@@ -29,6 +31,9 @@ From policy version 6 `run` starts the gate on the task's own harness, with that
 Reattachment after a bounded hold, a synchronized published head or an accepted CI handback follows the [reattachment contract](../pipeline.md#driving-a-task).
 Mode eligibility follows [Task classes](../pipeline.md#task-classes).
 Validation admission is the registered primary CEO's decision: `validate-authored` submits a declared authored correction, while `validate-terminal` explicitly accepts an unchanged terminal candidate and selects its successor's fresh profile.
+From policy version 7 the one exception is the task's own goblin's one-commit correction of a Test or Lint failure its gate handed back: `validate-authored <id> --run <run> --findings <ids>` names that run, still parked at the failure, and exactly its open findings, and the driver admits it to the run's own validation family, held to the scope [The goblin fixes its own failures](../pipeline.md#the-goblin-fixes-its-own-failures) sets.
+A run already stopped, and a Test step whose every open finding is `test-command-no-turn`, are not handed back and stay the CEO's.
+Under version 7 `respond --action fix` on a Test, Lint or CI step is refused, except a Test rerun of nothing but `test-command-no-turn`, which asks no repair agent, and a goblin's `handback --resume` is held to its CI failure's scope.
 `terminal-preflight` is read-only and available to the registered primary CEO or that task's own goblin; its private observations grant no execution or completion authority.
 See [terminal validation admission](../pipeline.md#driving-a-task) for the controller JSON requirements, source and policy checks, native feature dependencies, replay rules and private result records.
 Never auto-approves and never skips a step; exit 3 means unresolved work, and its refusal names who decides it.
