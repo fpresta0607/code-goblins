@@ -186,7 +186,7 @@ func (reader Reader) CheckCorrection(ctx context.Context, worktree, trusted stri
 	roots := []string{filepath.ToSlash(worktree), filepath.ToSlash(filepath.Join(reader.Root, "worktrees", run.RepoID, run.RunID))}
 	var outside []string
 	for _, file := range changed {
-		if !slices.Contains(own, file) && !isNamed(named, file, roots) {
+		if !slices.Contains(own, file) && !isNamed(named, file, roots, own) {
 			outside = append(outside, file)
 		}
 	}
@@ -239,39 +239,46 @@ func (run Handback) namedText() (string, error) {
 	return strings.ReplaceAll(text.String(), `\`, "/"), nil
 }
 
-// isNamed reports whether text names file. Its repository path names it
-// where it stands as a path of its own, as a compiler, linter or stack trace
-// prints one: after the start of the text, whitespace, a quote, an opening
-// parenthesis or one of roots, the absolute worktrees the failure ran in,
-// and before the end of the text, whitespace, a colon, a quote, a closing
-// parenthesis or a comma. Its base name before a line number, at the start
-// of a line or after whitespace as a Go test failure prints it, names it only
-// when its directory also ends a package path in the text, so a file at the
-// repository's root is named by its path alone.
-func isNamed(text, file string, roots []string) bool {
+// isNamed reports whether text names file, by one of two rules. Its path
+// names it where it stands as a path of its own, as a compiler, linter or
+// stack trace prints one: after `./` or one of roots, the absolute worktrees
+// the failure ran in, or, for a path with a directory, after the start of the
+// text, whitespace, a quote or an opening parenthesis; and before the end of
+// the text, whitespace, a colon, a quote, a parenthesis or a comma. Its base
+// name before a colon or an opening parenthesis, at the start of the text or
+// after whitespace, as a Go test failure prints it, names it only when own,
+// the files the branch itself changes, holds one in the same directory.
+func isNamed(text, file string, roots, own []string) bool {
 	isOpen := func(before string) bool {
 		return before == "" || strings.ContainsRune(" \t\r\n\"'`(", rune(before[len(before)-1]))
 	}
-	isClosed := func(after string) bool {
-		return after == "" || strings.ContainsRune(" \t\r\n:\"'`),", rune(after[0]))
-	}
-	isRooted := func(before string) bool {
-		return isOpen(before) || slices.ContainsFunc(roots, func(root string) bool {
+	isAnchored := func(before string) bool {
+		return strings.HasSuffix(before, "./") && isOpen(before[:len(before)-2]) || slices.ContainsFunc(roots, func(root string) bool {
 			root += "/"
 			return len(before) >= len(root) && strings.EqualFold(before[len(before)-len(root):], root)
 		})
 	}
-	if occurs(text, file, isRooted, isClosed) {
+	isPathStart := isAnchored
+	if strings.Contains(file, "/") {
+		isPathStart = func(before string) bool { return isOpen(before) || isAnchored(before) }
+	}
+	isClosed := func(after string) bool {
+		return after == "" || strings.ContainsRune(" \t\r\n:\"'`(),", rune(after[0]))
+	}
+	if occurs(text, file, isPathStart, isClosed) {
 		return true
+	}
+	dir := path.Dir(file)
+	if !slices.ContainsFunc(own, func(changed string) bool { return path.Dir(changed) == dir }) {
+		return false
 	}
 	isSpaced := func(before string) bool {
 		return before == "" || strings.ContainsRune(" \t\r\n", rune(before[len(before)-1]))
 	}
-	isPackage := func(before string) bool {
-		return isOpen(before) || strings.HasSuffix(before, "/")
+	isLocated := func(after string) bool {
+		return after != "" && (after[0] == ':' || after[0] == '(')
 	}
-	dir := path.Dir(file)
-	return dir != "." && occurs(text, path.Base(file)+":", isSpaced, func(string) bool { return true }) && occurs(text, dir, isPackage, isClosed)
+	return occurs(text, path.Base(file), isSpaced, isLocated)
 }
 
 // occurs reports whether text holds needle anywhere isBefore accepts what

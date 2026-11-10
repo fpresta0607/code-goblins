@@ -892,8 +892,9 @@ func TestEvaluationNamesTheGateStep(t *testing.T) {
 
 // From policy version 7 a parked Test, Lint or CI failure is the goblin's to
 // fix, so the task reads as working on it, while a review decision, a test
-// command given no turn, and any failure under version 6, still wait on the
-// CFO.
+// command given no turn, a failure whose findings cannot be read, and any
+// failure under version 6, still wait on the CFO. Only an unreadable policy
+// is an error.
 func TestEvaluationLeavesAHandedBackFailureWithItsGoblin(t *testing.T) {
 	classes := pipeline.Classes{Ordinary: pipeline.Class{ReviewCycles: 2}, HighRisk: pipeline.Class{ReviewCycles: 3}, Mechanical: pipeline.Class{ReviewCycles: 2}}
 	versionSix := pipeline.Policy{Version: 6, AutoFix: pipeline.AutoFix{Test: 1, Lint: 1, Rebase: 1, CI: 1}, Classes: classes}
@@ -914,7 +915,7 @@ func TestEvaluationLeavesAHandedBackFailureWithItsGoblin(t *testing.T) {
 		{"a version 6 test failure", "test", failure, versionSix, true, false, "blocked"},
 		{"a ci failure of a task spawned with no frozen policy", "ci", failure, versionSeven, false, false, "blocked"},
 		{"a test failure whose frozen policy cannot be read", "test", failure, versionSeven, false, true, ""},
-		{"a version 7 test failure whose findings cannot be read", "test", "not a document", versionSeven, true, false, ""},
+		{"a version 7 test failure whose findings cannot be read", "test", "not a document", versionSeven, true, false, "blocked"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
@@ -954,12 +955,15 @@ func TestEvaluationLeavesAHandedBackFailureWithItsGoblin(t *testing.T) {
 			// Assert
 			if c.want == "" {
 				if err == nil {
-					t.Fatalf("evaluation = %+v, want an error naming what cannot be read", got)
+					t.Fatalf("evaluation = %+v, want an error naming the unreadable policy", got)
 				}
 				return
 			}
 			if err != nil || got.Phase != c.want || got.GateStep != c.step {
 				t.Fatalf("evaluation = %+v (%v), want phase %s at %s", got, err, c.want, c.step)
+			}
+			if c.want == "blocked" && got.Reason != "Pipeline decision required at "+c.step+"; use cfo pipeline respond" {
+				t.Fatalf("reason = %q, want the CFO's decision at %s", got.Reason, c.step)
 			}
 		})
 	}

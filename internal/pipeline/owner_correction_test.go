@@ -234,33 +234,44 @@ func TestCheckCorrectionScopesAStepWithoutALogByItsFindings(t *testing.T) {
 }
 
 // A failure names a file by its path only where the path stands on its own,
-// as a compiler, linter or stack trace prints it, from the repository's root
-// or an absolute worktree the failure ran in; and by its base name, as a Go
-// test failure prints it, only when it also names the file's package.
+// as a compiler, linter or stack trace prints it: from the repository's root,
+// `./` or an absolute worktree the failure ran in, and a root-level file only
+// from `./` or such a worktree. A base name, as a Go test failure prints it,
+// names a file only in a directory the branch itself already changes,
+// whatever packages the rest of the log names.
 func TestCheckCorrectionHoldsANamedFileToItsPathBoundaries(t *testing.T) {
-	const goFailure = "--- FAIL: TestPolicy (0.00s)\n    %s:42: want 2, got 3\nFAIL\nFAIL\tgithub.com/fpresta0607/code-goblins/internal/pipeline\t0.012s\n"
+	const branchChange = "internal/pipeline/policy.go"
+	// goTest is a cfo gate test log: its plan, a package that passed, and the
+	// failing package's test failure and result.
+	const goTest = "- github.com/fpresta0607/code-goblins/internal/gatetest (changed)\n- github.com/fpresta0607/code-goblins/internal/pipeline (changed)\nok  \tgithub.com/fpresta0607/code-goblins/internal/gatetest\t2.1s\n--- FAIL: TestPolicy (0.00s)\n    policy_test.go:42: want 2, got 3\nFAIL\nFAIL\tgithub.com/fpresta0607/code-goblins/internal/pipeline\t0.012s\n"
 	for _, test := range []struct {
-		name, log, finding, file string
-		isNamed                  bool
+		name, log, finding, own, file string
+		isNamed                       bool
 	}{
-		{"a base name in another package's failure", fmt.Sprintf(goFailure, "policy.go"), "", "internal/supervisor/policy.go", false},
-		{"a root-level file whose name ends a logged path", "internal/x/data.go:5:2: undefined: y\n", "", "a.go", false},
-		{"a root-level file whose name ends a finding's path", "", `go vet: internal\c\c.go:3: unreachable code`, "c.go", false},
-		{"a path under a directory the failure did not run in", "panic: boom\n\t/elsewhere/internal/pipeline/policy.go:12 +0x1d\n", "", "internal/pipeline/policy.go", false},
-		{"a compiler's repository path", "# github.com/fpresta0607/code-goblins/internal/pipeline\ninternal/pipeline/policy.go:12:3: undefined: x\n", "", "internal/pipeline/policy.go", true},
-		{"a finding's quoted path", "", "`internal/pipeline/policy.go` drops the error", "internal/pipeline/policy.go", true},
-		{"a stack trace's path in the task's worktree", "panic: boom\n\t{worktree}/internal/pipeline/policy.go:12 +0x1d\n", "", "internal/pipeline/policy.go", true},
-		{"a stack trace's path in the run's gate worktree", "panic: boom\n\t{gate}/internal/pipeline/policy.go:12 +0x1d\n", "", "internal/pipeline/policy.go", true},
-		{"a Go test failure's base name in its package", fmt.Sprintf(goFailure, "policy_test.go"), "", "internal/pipeline/policy_test.go", true},
-		{"a root-level file a Go test failure names", "--- FAIL: TestA (0.00s)\n    a.go:7: want 1\nFAIL\n", "", "a.go", true},
+		{"a base name in a package the branch does not change", goTest, "", branchChange, "internal/gatetest/policy_test.go", false},
+		{"a root-level file whose name ends a logged path", "internal/x/data.go:5:2: undefined: y\n", "", branchChange, "a.go", false},
+		{"a root-level file whose name ends a finding's path", "", `go vet: internal\c\c.go:3: unreachable code`, branchChange, "c.go", false},
+		{"a root-level base name while the branch changes no root-level file", "--- FAIL: TestC (0.00s)\n    c.go:3: want 1\nFAIL\n", "", branchChange, "c.go", false},
+		{"a root-level file one directory up", "../main.go:5:2: undefined: x\n", "", branchChange, "main.go", false},
+		{"a path under a directory the failure did not run in", "panic: boom\n\t/elsewhere/internal/x/data.go:12 +0x1d\n", "", branchChange, "internal/x/data.go", false},
+		{"a compiler's repository path", "# github.com/fpresta0607/code-goblins/internal/x\ninternal/x/data.go:12:3: undefined: x\n", "", branchChange, "internal/x/data.go", true},
+		{"a finding's quoted path", "", "`internal/x/data.go` drops the error", branchChange, "internal/x/data.go", true},
+		{"a stack trace's path in the task's worktree", "panic: boom\n\t{worktree}/internal/x/data.go:12 +0x1d\n", "", branchChange, "internal/x/data.go", true},
+		{"a stack trace's path in the run's gate worktree", "panic: boom\n\t{gate}/internal/x/data.go:12 +0x1d\n", "", branchChange, "internal/x/data.go", true},
+		{"a TypeScript compiler's path", "src/foo.ts(12,3): error TS2322: Type 'string' is not assignable to type 'number'.\n", "", branchChange, "src/foo.ts", true},
+		{"a Go compiler's path in its own directory", "./internal/x/data.go:5:2: undefined: y\n", "", branchChange, "internal/x/data.go", true},
+		{"a Go compiler's root-level path", "./main.go:5:2: undefined: x\n", "", branchChange, "main.go", true},
+		{"a Go test failure's base name in a package the branch changes", goTest, "", branchChange, "internal/pipeline/policy_test.go", true},
+		{"an MSBuild base name in a project the branch changes", "File.cs(12,3): error CS0029: Cannot implicitly convert type 'string' to 'int'\n", "", "src/App/Program.cs", "src/App/File.cs", true},
+		{"a root-level base name while the branch changes a root-level file", "--- FAIL: TestC (0.00s)\n    c.go:3: want 1\nFAIL\n", "", "own.go", "c.go", true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			root, worktree := t.TempDir(), t.TempDir()
 			runPipelineGit(t, worktree, "init", "--quiet", "--initial-branch=main")
-			trusted := commitFiles(t, worktree, map[string]string{"own.go": "own\n", "a.go": "a\n", "c.go": "c\n", "internal/x/data.go": "x\n", "internal/c/c.go": "c\n", "internal/pipeline/policy.go": "p\n", "internal/pipeline/policy_test.go": "t\n", "internal/supervisor/policy.go": "s\n"})
+			trusted := commitFiles(t, worktree, map[string]string{"own.go": "own\n", "a.go": "a\n", "c.go": "c\n", "main.go": "m\n", "internal/x/data.go": "x\n", "internal/c/c.go": "c\n", "internal/pipeline/policy.go": "p\n", "internal/pipeline/policy_test.go": "t\n", "internal/gatetest/policy_test.go": "g\n", "src/foo.ts": "f\n", "src/App/File.cs": "f\n", "src/App/Program.cs": "p\n"})
 			runPipelineGit(t, worktree, "checkout", "--quiet", "-b", handbackBranch)
-			head := commitFiles(t, worktree, map[string]string{"own.go": "own2\n"})
+			head := commitFiles(t, worktree, map[string]string{test.own: "changed by the branch\n"})
 			run := Handback{RunID: handbackRun, RepoID: handbackRepo, Branch: handbackBranch, Head: head, SubmittedHead: head, Step: "test", Log: filepath.Join(t.TempDir(), "test.log"), Findings: []HandbackFinding{{ID: "test-failure", Severity: "error", Description: test.finding}}}
 			log := strings.NewReplacer("{worktree}", worktree, "{gate}", filepath.Join(root, "worktrees", handbackRepo, handbackRun)).Replace(test.log)
 			writeFixtureFile(t, run.Log, log)

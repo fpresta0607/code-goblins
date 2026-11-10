@@ -421,21 +421,23 @@ func TestPipelineOwnerCorrectionRefusesAnythingElseBeforeStoppingTheRun(t *testi
 
 // A CI failure's correction goes back through the native handback, and the
 // owning goblin's resume of it is held to the same scope: a correction the
-// failure names is resumed, and any other is refused before native sees it.
+// failure names is resumed, and any other, or a resume while the run is
+// parked at a Test failure, is refused before native sees it.
 func TestPipelineOwnerCIResumeIsHeldToTheFailuresScope(t *testing.T) {
 	for _, test := range []struct {
-		name    string
-		files   map[string]string
-		goblin  string
-		refusal string
+		name, step string
+		files      map[string]string
+		goblin     string
+		refusal    string
 	}{
-		{"a change the failure names", map[string]string{"b.go": "b2\n"}, "task", ""},
-		{"a change outside the failure's scope", map[string]string{"docs/guide.md": "guide2\n"}, "task", "the correction changes docs/guide.md"},
-		{"another task's goblin", map[string]string{"b.go": "b2\n"}, "other", "resumed by task task's own goblin"},
+		{"a change the failure names", "ci", map[string]string{"b.go": "b2\n"}, "task", ""},
+		{"a change outside the failure's scope", "ci", map[string]string{"docs/guide.md": "guide2\n"}, "task", "the correction changes docs/guide.md"},
+		{"another task's goblin", "ci", map[string]string{"b.go": "b2\n"}, "other", "resumed by task task's own goblin"},
+		{"a run parked at a Test failure", "test", map[string]string{"b.go": "b2\n"}, "task", ownerBranch + "'s latest run holds no CI failure its gate handed back"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			h, nm, wt, _, native := ownerStage(t, "ci", 7)
+			h, nm, wt, _, native := ownerStage(t, test.step, 7)
 			caller, err := fsx.Canonical(wt)
 			if err != nil {
 				t.Fatal(err)
