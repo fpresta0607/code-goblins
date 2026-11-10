@@ -4,11 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -243,6 +249,176 @@ func TestTheRepositoryPolicyAccountsForEveryTrackedFile(t *testing.T) {
 	if reach.Everything || len(reach.Unknown) != 0 {
 		t.Errorf("%s accounts for all but %d of the %d files this repository tracks, and a change to one of these would require the full level: %q. Name each in that file: under contracts, with the packages whose tests read it, or under outside, with why no Go check reads it", PolicyPath, len(reach.Unknown), len(tracked), reach.Unknown)
 	}
+}
+
+// A change to a file a package's tests read selects that package, so a file
+// a test reads is never put outside the Go checks, where a change to it alone
+// would test nothing and a break in it would pass. A test names the file as a
+// path from its package's directory, as "README.md" in the root package or
+// filepath.Join("..", "..", "README.md") in cmd/cfo.
+func TestTheRepositoryPolicySelectsEveryPackageWhoseTestsReadAChangedFile(t *testing.T) {
+	// Arrange
+	repo, err := readRepository()
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := ParsePolicy([]byte(repo.policy))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	reads, err := testReads(repo.root, repo.tracked)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if len(reads) < 50 {
+		t.Fatalf("the check found %d files the repository's tests read; it proves nothing unless it sees the tests' reads", len(reads))
+	}
+	importPaths := make(map[string]string, len(repo.packages))
+	for _, p := range repo.packages {
+		if dir, err := filepath.Rel(repo.root, p.Dir); err == nil {
+			importPaths[filepath.ToSlash(dir)] = p.ImportPath
+		}
+	}
+	for _, file := range slices.Sorted(maps.Keys(reads)) {
+		reach := Classify(repo.root, repo.module, []string{file}, repo.packages, policy)
+		if reach.Everything {
+			continue
+		}
+		for _, reader := range reads[file] {
+			if !slices.ContainsFunc(reach.Choices, func(choice Choice) bool { return choice.ImportPath == importPaths[reader.dir] }) {
+				t.Errorf("%s reads %s, and %s does not select %s when it changes; name it under contracts with that package", reader.at, file, PolicyPath, reader.dir)
+			}
+		}
+	}
+}
+
+// The scan finds a file a test names from its package's directory, alone or
+// joined from literal parts, and not a name that only matches a tracked file
+// from somewhere else, as a fixture written under a temporary directory does.
+func TestTestReadsFindsTheFilesATestNamesFromItsPackage(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	for name, text := range map[string]string{
+		"README.md":                   "# Repo\n",
+		"docs/guide.md":               "a guide\n",
+		"root_test.go":                "package root\n\nvar guides = []string{\"README.md\", `docs\\guide.md`}\n",
+		"cmd/tool/readme_test.go":     "package main\n\nimport \"path/filepath\"\n\nvar readme = filepath.Join(\"..\", \"..\", \"README.md\")\n",
+		"cmd/tool/fixture_test.go":    "package main\n\nimport \"path/filepath\"\n\nfunc fixture(dir string) string { return filepath.Join(dir, \"README.md\") }\n\nvar name = \"README.md\"\n",
+		"cmd/tool/testdata/x_test.go": "package x\n\nvar readme = \"../../../README.md\"\n",
+	} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.Dir(name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(name)), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tracked := []string{"README.md", "docs/guide.md", "root_test.go", "cmd/tool/readme_test.go", "cmd/tool/fixture_test.go", "cmd/tool/testdata/x_test.go"}
+
+	// Act
+	reads, err := testReads(root, tracked)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	readers := map[string][]string{}
+	for file, found := range reads {
+		for _, reader := range found {
+			readers[file] = append(readers[file], reader.dir)
+		}
+		slices.Sort(readers[file])
+	}
+	want := map[string][]string{"README.md": {".", "cmd/tool"}, "docs/guide.md": {"."}}
+	if !maps.EqualFunc(readers, want, slices.Equal) {
+		t.Errorf("testReads found %v; want README.md read from the root and cmd/tool, and docs/guide.md from the root", readers)
+	}
+}
+
+// testRead is a test that names a tracked file: the directory of its package,
+// from the repository root, and where in the test.
+type testRead struct {
+	dir string
+	at  string
+}
+
+// testReads finds the tracked files the tracked tests under root name, by
+// file: each string literal, and each filepath.Join or path.Join of literals
+// alone, taken as a path from the test's directory. A test under a testdata
+// directory is a fixture, not a test.
+func testReads(root string, tracked []string) (map[string][]testRead, error) {
+	byName := make(map[string]string, len(tracked))
+	for _, file := range tracked {
+		byName[strings.ToLower(file)] = file
+	}
+	reads := map[string][]testRead{}
+	for _, source := range tracked {
+		dir := path.Dir(source)
+		if !strings.HasSuffix(source, "_test.go") || slices.Contains(strings.Split(dir, "/"), "testdata") {
+			continue
+		}
+		files := token.NewFileSet()
+		parsed, err := parser.ParseFile(files, filepath.Join(root, filepath.FromSlash(source)), nil, parser.SkipObjectResolution)
+		if err != nil {
+			return nil, err
+		}
+		seen := map[string]bool{}
+		name := func(at token.Pos, parts ...string) {
+			resolved := path.Join(append([]string{dir}, parts...)...)
+			file, found := byName[strings.ToLower(resolved)]
+			if !found || file == source || seen[file] {
+				return
+			}
+			seen[file] = true
+			position := files.Position(at)
+			reads[file] = append(reads[file], testRead{dir: dir, at: fmt.Sprintf("%s:%d", source, position.Line)})
+		}
+		ast.Inspect(parsed, func(node ast.Node) bool {
+			switch node := node.(type) {
+			case *ast.BasicLit:
+				if text, isText := literalText(node); isText {
+					name(node.Pos(), text)
+				}
+			case *ast.CallExpr:
+				selector, isSelector := node.Fun.(*ast.SelectorExpr)
+				if !isSelector || selector.Sel.Name != "Join" {
+					return true
+				}
+				if pkg, isIdent := selector.X.(*ast.Ident); !isIdent || pkg.Name != "filepath" && pkg.Name != "path" {
+					return true
+				}
+				var parts []string
+				for _, arg := range node.Args {
+					literal, isLiteral := arg.(*ast.BasicLit)
+					text, isText := literalText(literal)
+					if !isLiteral || !isText {
+						return true
+					}
+					parts = append(parts, text)
+				}
+				name(node.Pos(), parts...)
+			}
+			return true
+		})
+	}
+	return reads, nil
+}
+
+// literalText is the text of a string literal, with backslashes as slashes,
+// as a Windows path names its folders.
+func literalText(literal *ast.BasicLit) (string, bool) {
+	if literal == nil || literal.Kind != token.STRING {
+		return "", false
+	}
+	text, err := strconv.Unquote(literal.Value)
+	if err != nil || text == "" {
+		return "", false
+	}
+	return strings.ReplaceAll(text, `\`, "/"), true
 }
 
 // trackedFiles lists the files the repository at root tracks, as slash paths
