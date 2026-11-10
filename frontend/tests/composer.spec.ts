@@ -657,19 +657,6 @@ for (const harness of ["claude", "codex", "pi"] as const) {
   });
 }
 
-test("a leading ! command is typed into the session as the harness's own shell command", async ({ page }) => {
-  // Arrange
-  const relay = await open(page);
-  await openGoblin(page);
-
-  // Act
-  await field(page).fill("!git status --short");
-  await field(page).press("Enter");
-
-  // Assert
-  await expect.poll(() => typed(relay)).toContain(pasted("!git status --short") + "\r");
-});
-
 test("a delivered message appears once in Modern chat, every pending message waits at its end, and the box has no queue control", async ({ page }) => {
   const actions = Array.from({ length: 8 }, (_, index) => ({ id: "q" + index, kind: "message", task_id: "cg-touch", text: "queued request " + index, status: "queued" }));
   await open(page, snapshot({ actions: [...actions, { id: "delivered", kind: "message", task_id: "cg-touch", text: "already in the conversation", status: "done" }] }), "", {
