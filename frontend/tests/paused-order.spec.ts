@@ -13,7 +13,7 @@ const now = Date.parse("2026-10-17T18:00:00Z");
 const at = (minutes: number) => new Date(now + minutes * 60_000).toISOString();
 const task = (id: string, phase: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "code-goblins", phase, verified: false, generation: id + "-1", since: at(-95), ...fields });
 const paused = (id: string, reason: string, until: string) => task(id, "paused", { at: at(-60),
-  lifecycle: { phase: "paused", action: "pause", at: at(-60), kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason, until, at: at(-60) } } });
+  lifecycle: { phase: "paused", action: "pause", at: at(-60), kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason, until, at: at(-60) } } });
 // In the snapshot's order, his In progress order, as the board he looked at
 // listed them, with a pause of every other kind after.
 const PAUSED = [

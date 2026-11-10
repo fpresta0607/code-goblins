@@ -20,7 +20,7 @@ const BERNIE = {
   goblin_name: "Bernie", goblin_title: "Merge Maestro", harness: "claude", model: "claude-opus-5-5", backend: "native",
   phase: "paused", verified: false, generation: "s-pd-whats-new-connectors", since: "2026-10-08T22:00:00Z", at,
   reason: "Paused by the Overlord; resumes on Resume",
-  lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "overlord", at } },
+  lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason: "overlord", at } },
   ticket: { number: 1516, url: REPO + "/issues/1516", state: "pr open" },
   pr: REPO + "/pull/1523",
   hosted_checks: { head: "5f52309400", state: "passed", checks: 9, at },

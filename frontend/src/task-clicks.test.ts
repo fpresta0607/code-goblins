@@ -8,7 +8,7 @@ const snapshot = (revision: number): Snapshot => parseSnapshot({
   healthy: true, revision,
   tasks: [
     { id: "queued-one", phase: "queued", brief: true, starting: false, start_error: "", verified: false },
-    { id: "paused-one", phase: "paused", generation: "s1", verified: false, lifecycle: { phase: "paused", action: "pause", at: "2026-10-08T11:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false } },
+    { id: "paused-one", phase: "paused", generation: "s1", verified: false, lifecycle: { phase: "paused", action: "pause", at: "2026-10-08T11:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false } },
     { id: "working-one", phase: "working", generation: "s2", verified: false },
   ],
 });

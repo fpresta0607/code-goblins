@@ -57,7 +57,7 @@ test("a resuming or stopping goblin shows its transition instead of connecting t
 });
 
 test("a failed resume shows no terminal until a retry is resuming", () => {
-  const failed = { phase: "failed", action: "resume", at: "", kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false };
+  const failed = { phase: "failed", action: "resume", at: "", kept: [], stopped: [], problems: [], handoff_saved: false, validation_kept: false };
   for (const backend of ["native", "herdr"]) {
     assert.deepEqual(goblinView(task("alpha", { backend, phase: "unavailable", lifecycle: failed })), { kind: "empty", text: "Resume failed." });
     assert.deepEqual(goblinView(task("alpha", { backend, phase: "resuming", lifecycle: failed })), { kind: "empty", text: "Resuming session..." });

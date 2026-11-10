@@ -507,7 +507,7 @@ test("the CFO's bar names only a goblin's question his Command Center shows him,
   const RING = "Should the Project Home map's surrounding-context ring shrink from 2,500 m to 1,000 m, or stay as it is?";
   const olive = { id: "notify-pd-billing-margin-review-1001446", identity: "e".repeat(64), task: "pd-billing-margin-review", status: "pending", created_at: "2026-10-13T13:43:01Z", text: RING, options: ["Shrink to 1,000 m", "Keep 2,500 m"], recommended: "Shrink to 1,000 m" };
   const goblin = (id: string, fields: Record<string, unknown> = {}) => ({ id, title: "Goblin " + id, project: "code-goblins", phase: "working", generation: id + "-1", verified: false, ...fields });
-  const paused = (id: string, reason: string) => goblin(id, { phase: "paused", lifecycle: { phase: "paused", action: "pause", at: "2026-10-13T13:30:00Z", pause: { reason, until: "", at: "2026-10-13T13:30:00Z" }, kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false } });
+  const paused = (id: string, reason: string) => goblin(id, { phase: "paused", lifecycle: { phase: "paused", action: "pause", at: "2026-10-13T13:30:00Z", pause: { reason, until: "", at: "2026-10-13T13:30:00Z" }, kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false } });
   const tasks = [goblin("pd-billing-margin-review", { title: "Billing margin review" }), ...Array.from({ length: 8 }, (_, i) => goblin("working-" + i)),
     paused("memory-a", "memory"), paused("memory-b", "memory"), paused("dependency", "dependency"), paused("allowance", "allowance"), paused("question", "question"), paused("overlord", "overlord")];
   await page.goto("/");
