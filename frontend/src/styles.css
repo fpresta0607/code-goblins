@@ -422,7 +422,6 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .engine-pending { overflow-wrap: anywhere; }
 .engine-pending button { margin-left: 6px; }
 @container (max-width: 390px) { .engine-fields { grid-template-columns: minmax(0, 1fr) minmax(0, .5fr); } .engine-fields label:first-child { grid-column: 1 / -1; } }
-.connections p { color: var(--muted); }
 .connection-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; }
 .connection-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 2px; border-bottom: 1px solid var(--border); }
 .connection-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-weight: 700; overflow-wrap: anywhere; }
@@ -434,8 +433,6 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .connection-status.declared { color: var(--muted); }
 .mark { display: inline-grid; place-items: center; width: 36px; height: 36px; flex: none; border: 1px solid var(--glass-border); border-radius: 50%; background: var(--glass-bg), var(--hero-surface); box-shadow: inset 0 1px 0 rgba(0, 229, 155, 0.09); color: #dfe9ef; }
 .mark svg { width: 19px; height: 19px; }
-.connections p { font-size: .9375rem; margin: 18px 0; }
-.connections h4 { margin: 20px 0 10px; font-size: 1rem; }
 /* The Command Center uses the approved generated modal, with real data only. */
 html:has(.question-modal[open]) { overflow: hidden; overscroll-behavior: none; }
 .question-modal { position: fixed; inset: calc(var(--visual-top, 0px) + var(--visual-height, 100dvh) / 2) 0 auto; transform: translateY(-50%); margin: 0 auto; color: #eef3f1; background: var(--glass-bg), var(--hero-surface); border: 1px solid var(--glass-border-hover); border-radius: var(--radius); width: min(1040px, calc(100vw - 48px)); padding: min(28px, calc(var(--visual-height, 100dvh) / 24)) 32px; max-height: min(92dvh, var(--visual-height, 100dvh)); overflow: hidden; box-shadow: var(--glass-shadow-hover); }
@@ -681,6 +678,8 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 @media (max-width: 40rem) {
   .topbar { min-height: 0; padding: 8px 12px; }
   .brand { flex-wrap: wrap; gap: 4px 10px; }
+  /* Three views fit a phone's width with less room around each name. */
+  .view-switch button { padding-inline: 10px; font-size: 1rem; }
   .fills-phone .view-switch { display: none; }
 }
 /* On a small screen a panel opened on anything is the whole view below the
@@ -871,6 +870,12 @@ button.dialogue-portrait:hover::before { background: #12202a; }
 .panel-content > .disclosure { border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; margin: 0; }
 .panel-content > .disclosure > summary { padding: 22px 0; font-size: 1.25rem; }
 .panel-content > .disclosure > .disclosure-content { padding: 0 0 24px; }
+/* A goblin's way to the Connectors page, a line among its panel's sections
+   that leads there rather than opening (#2303). */
+.connectors-link { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 0; padding: 22px 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: none; font-family: var(--font-display); font-size: 1.25rem; text-align: left; }
+.connectors-link > .icon { width: 18px; height: 18px; flex: none; color: var(--muted); stroke-width: 1.6; }
+.connectors-link > .icon:last-child { margin-left: auto; }
+.connectors-link:hover > .icon { color: var(--mint); }
 /* The terminal runs edge to edge like a Herdr pane: no border, no card, no
    caption. State and the few controls float over its corners. */
 .native-terminal { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }

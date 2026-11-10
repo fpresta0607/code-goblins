@@ -1,0 +1,342 @@
+import { CHECKED_AT, play, supervisorWith, type Supervisor } from "./connectors-supervisor";
+import { expect, holdStream, openTaskList, taskList, test, type Locator, type Page } from "./site";
+
+// The Overlord, 2026-11-10: "I also don't like the connectors panel inside
+// the task panels for every goblin. It doesn't look like Codex or Claude
+// Code's connectors panel, which is much, much cleaner, in the way that you
+// can navigate it and use it" (#2303). One Connectors page, reached from the
+// board's top bar: a list with a search and a Yours and Discover split, and
+// each connector's own page. The supervisor is played here.
+const goblin = (id: string, name: string, title: string) => ({
+  id, title: "A made-up task of " + name, goblin_name: name, goblin_title: title, project: "code-goblins", phase: "working", verified: false,
+  generation: id + "-1", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", backend: "native", since: "2026-11-10T09:00:00Z",
+});
+const BOARD = {
+  instance: "fixture", healthy: true, revision: 1, cfo_runs: true, cfo_terminal: "cfo", cfo_terminal_since: "2026-11-10T09:00:00Z", cfo_harness: "claude",
+  sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }],
+  tasks: [goblin("cg-touch", "Zeke", "Touch Wrangler"), goblin("cg-other", "Ivy", "Window Painter")],
+};
+const ZEKE = "Zeke - Touch Wrangler", IVY = "Ivy - Window Painter";
+const TOOLS = [{ name: "list_projects", read_only: true }, { name: "list_tables", read_only: true }, { name: "supabase_get_project_url", read_only: true }, { name: "execute_sql", read_only: false }, { name: "apply_migration" }];
+const SUPABASE = { id: "mcp:claude.ai Supabase", name: "claude.ai Supabase", kind: "mcp", status: "connected", source: "Claude", checked_at: CHECKED_AT, tools: TOOLS };
+const CRAWLER = { id: "connector:crawler", name: "crawler", kind: "connector", status: "provided", source: "Code Goblins", checked_at: CHECKED_AT };
+const withheld = (name: string) => ({ id: "service:" + name, name, kind: "service", status: "withheld", source: "Repository", detail: "Not currently granted to this goblin.", checked_at: CHECKED_AT, grant: "grant" });
+const carried = (name: string) => ({ id: "service:" + name, name, kind: "service", status: "connected", source: "Repository", checked_at: CHECKED_AT, grant: "revoke" });
+const fleet = () => supervisorWith({
+  "cg-touch": [
+    SUPABASE,
+    { id: "mcp:context7", name: "context7", kind: "mcp", status: "unauthorized", detail: "Sign-in required.", actions: ["login"], checked_at: CHECKED_AT },
+    { id: "mcp:chrome-devtools", name: "chrome-devtools", kind: "mcp", status: "probe_succeeded", scope: "separate_probe", source: "Claude", checked_at: CHECKED_AT },
+    { id: "mcp:acme-internal", name: "acme-internal", kind: "mcp", status: "connected", checked_at: CHECKED_AT },
+    { ...carried("github"), restart_required: true, restart_reason: "Granted, but declared credentials are missing from the running process. Restart to load available credentials." },
+    withheld("sentry"), CRAWLER,
+    { id: "credential:GITHUB_TOKEN", name: "GITHUB_TOKEN", kind: "credential", status: "provided", checked_at: CHECKED_AT },
+    { id: "credential:SENTRY_AUTH_TOKEN", name: "SENTRY_AUTH_TOKEN", kind: "credential", status: "withheld", detail: "This task does not carry it.", checked_at: CHECKED_AT },
+  ],
+  "cg-other": [SUPABASE, withheld("github"), withheld("sentry"), CRAWLER],
+});
+
+// The board, with the Connectors page chosen from its top bar.
+async function open(page: Page, supervisor: Supervisor, width: number): Promise<Locator> {
+  await page.setViewportSize({ width, height: 1100 });
+  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  await holdStream(page, BOARD);
+  await play(page, supervisor);
+  await page.goto("/");
+  await page.getByRole("group", { name: "Workspace view" }).getByRole("button", { name: "Connectors", exact: true }).click();
+  const main = page.getByRole("main", { name: "Connectors" });
+  await expect(main.getByRole("heading", { name: "Connectors", exact: true })).toBeVisible();
+  await expect(main.getByText("Checking connectors...", { exact: true })).toHaveCount(0);
+  return main;
+}
+
+const row = (main: Locator, name: string) => main.locator(".connector-row").filter({ has: main.page().getByRole("button", { name, exact: true }) });
+const tab = (main: Locator, name: string) => main.getByRole("group", { name: "Connectors shown" }).getByRole("button", { name: new RegExp("^" + name) });
+const goblinRow = (detail: Locator, name: string) => detail.getByRole("listitem").filter({ hasText: name });
+
+// Nothing on the page is wider than its place, and none of its words is small.
+async function expectFits(page: Page, main: Locator) {
+  await page.evaluate(() => document.fonts.ready);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), "the page does not scroll sideways").toBe(true);
+  expect(await main.evaluate((element) => element.scrollWidth <= element.clientWidth), "the canvas does not scroll sideways").toBe(true);
+  const small = await main.locator(".connectors-page").evaluate((element) => [...element.querySelectorAll("h2, h3, p, span, strong, button, input, summary, li, time")]
+    .filter((node) => node.textContent?.trim() && parseFloat(getComputedStyle(node).fontSize) < 16).map((node) => node.textContent));
+  expect(small).toEqual([]);
+}
+
+for (const width of [1440, 390]) {
+  test(`the list names each connector once with its logo, its type and its status, split into Yours and Discover, and a search narrows it, at ${width}px`, async ({ page }, testInfo) => {
+    // Arrange
+    const supervisor = fleet();
+
+    // Act
+    const main = await open(page, supervisor, width);
+
+    // Assert: what a goblin carries is Yours, each once, by its proper name.
+    const yours = main.getByRole("list", { name: "Your connectors" });
+    await expect(yours.locator(".connector-open")).toHaveText(["Acme Internal", "Chrome DevTools", "Context7", "Crawler", "GitHub", "GITHUB_TOKEN", "Supabase"]);
+    await expect(yours.locator(".connector-type")).toHaveText(["MCP server", "MCP server", "MCP server", "Built in", "Repository service", "Credential", "Claude connector"]);
+    const logo = row(main, "Supabase").locator(".connector-logo img");
+    await expect(logo).toHaveAttribute("src", "/assets/connectors/supabase.svg");
+    await expect(logo).toHaveAttribute("loading", "lazy");
+    await expect.poll(() => logo.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+    await expect(row(main, "GITHUB_TOKEN").locator(".connector-logo img")).toHaveAttribute("src", "/assets/connectors/github.svg");
+    await expect(row(main, "Acme Internal").locator(".connector-initial")).toHaveText("A");
+    await expect(row(main, "Acme Internal").locator("img")).toHaveCount(0);
+
+    // Assert: a check when it works, the word of its trouble when it fails.
+    await expect(row(main, "Supabase").locator(".connector-state.is-connected")).toHaveText("Connected");
+    await expect(row(main, "Context7").locator(".connector-state.is-trouble")).toHaveText("Sign in");
+    await expect(row(main, "Supabase").getByRole("button", { name: /^Connect / })).toHaveCount(0);
+    await expect(main).not.toContainText("claude.ai");
+    await expect(main).not.toContainText("SENTRY_AUTH_TOKEN");
+    await expect(tab(main, "Yours")).toHaveText("Yours7");
+    await expect(tab(main, "Discover")).toHaveText("Discover1");
+    expect(supervisor.reads).toEqual({ "cg-touch": 1, "cg-other": 1 });
+    // Assert: with no goblin chosen, no panel asks for a task beside the page.
+    await expect(page.locator("aside.context-pane")).toBeHidden();
+    await expect(page.getByRole("button", { name: /^Open (CEO|details)$/ })).toHaveCount(0);
+    await expectFits(page, main);
+    await page.screenshot({ path: testInfo.outputPath(`connectors-list-${width}.png`) });
+
+    // Act: what no goblin carries is under Discover, with Connect.
+    await tab(main, "Discover").click();
+
+    // Assert
+    await expect(main.getByRole("list", { name: "Connectors to discover" }).locator(".connector-open")).toHaveText(["Sentry"]);
+    await expect(row(main, "Sentry").getByRole("button", { name: "Connect Sentry", exact: true })).toBeVisible();
+    await expect(main.getByRole("list", { name: "Your connectors" })).toHaveCount(0);
+    await expectFits(page, main);
+    await page.screenshot({ path: testInfo.outputPath(`connectors-discover-${width}.png`) });
+
+    // Act: a search narrows both lists.
+    await tab(main, "Yours").click();
+    await main.getByRole("searchbox", { name: "Search connectors" }).fill("supa");
+
+    // Assert
+    await expect(yours.locator(".connector-open")).toHaveText(["Supabase"]);
+    await expect(tab(main, "Discover")).toHaveText("Discover0");
+
+    // Act
+    await main.getByRole("searchbox", { name: "Search connectors" }).fill("zzz");
+
+    // Assert
+    await expect(main.getByText("Nothing matches \"zzz\".", { exact: true })).toBeVisible();
+    await expect(yours).toHaveCount(0);
+  });
+
+  test(`a connector's own page says what it is, which goblins can use it and its tools in two groups, and its way back returns to the list, at ${width}px`, async ({ page }, testInfo) => {
+    // Arrange
+    const main = await open(page, fleet(), width);
+    await main.getByRole("searchbox", { name: "Search connectors" }).fill("s");
+
+    // Act
+    await row(main, "Supabase").getByRole("button", { name: "Supabase", exact: true }).click();
+
+    // Assert: its logo, name, type and what it does, with the way back first.
+    const detail = main.getByRole("article", { name: "Supabase" });
+    await expect(main.getByRole("button", { name: "Connectors", exact: true })).toBeFocused();
+    await expect(detail.getByRole("heading", { name: "Supabase", exact: true })).toBeVisible();
+    await expect(detail.locator(".connector-head .connector-type")).toHaveText("Claude connector");
+    await expect(detail.locator(".connector-head .connector-logo img")).toHaveAttribute("src", "/assets/connectors/supabase.svg");
+    await expect(detail.locator(".connector-about")).toHaveText("Supabase database, auth and storage");
+    await expect(main.getByRole("list", { name: "Your connectors" })).toBeHidden();
+
+    // Assert: the goblins that can use it.
+    const goblins = detail.getByRole("list", { name: "Goblins that can use Supabase" });
+    await expect(goblins.getByRole("listitem")).toHaveCount(2);
+    await expect(goblinRow(goblins, ZEKE)).toContainText("Connected");
+    await expect(goblinRow(goblins, IVY)).toContainText("Connected");
+    await expect(goblins.getByRole("button")).toHaveCount(0);
+
+    // Assert: its tools wait closed, in two groups with their counts.
+    const groups = detail.locator("details.connector-tool-group");
+    await expect(groups.locator("> summary")).toHaveText(["Read-only tools3", "Write tools2"]);
+    await expect(detail.getByRole("list", { name: "Read-only tools" })).toHaveCount(0);
+
+    // Act
+    await groups.nth(0).locator("> summary").click();
+    await groups.nth(1).locator("> summary").click();
+    await detail.locator("details.connector-checks > summary").click();
+
+    // Assert: each tool in words, and what each goblin's check was run against.
+    await expect(detail.getByRole("list", { name: "Read-only tools" }).getByRole("listitem")).toHaveText(["Get project URL", "List projects", "List tables"]);
+    await expect(detail.getByRole("list", { name: "Write tools" }).getByRole("listitem")).toHaveText(["Apply migration", "Execute SQL"]);
+    await expect(detail.locator("details.connector-checks")).toContainText(ZEKE + " Generation cg-touch-1. Verified process 42, started 2026-11-10T14:00:00Z, workspace C:/scratch/work.");
+    await expectFits(page, main);
+    await page.screenshot({ path: testInfo.outputPath(`connector-detail-${width}.png`), fullPage: true });
+
+    // Act
+    await main.getByRole("button", { name: "Connectors", exact: true }).click();
+
+    // Assert: the list as he left it, with the keyboard on the row he opened.
+    await expect(detail).toHaveCount(0);
+    await expect(main.getByRole("heading", { name: "Connectors", exact: true })).toBeVisible();
+    await expect(main.getByRole("searchbox", { name: "Search connectors" })).toHaveValue("s");
+    await expect(row(main, "Supabase").getByRole("button", { name: "Supabase", exact: true })).toBeFocused();
+  });
+}
+
+test("a probe that succeeded says what it proves and when, a restart a goblin needs says so, and a connector with no tools lists none", async ({ page }) => {
+  // Arrange
+  const main = await open(page, fleet(), 1440);
+
+  // Act
+  await row(main, "Chrome DevTools").getByRole("button", { name: "Chrome DevTools", exact: true }).click();
+
+  // Assert
+  const probed = main.getByRole("article", { name: "Chrome DevTools" });
+  await expect(goblinRow(probed, ZEKE)).toContainText("Separate probe succeeded. Live session unknown. Account and target identity unknown. Observed " + CHECKED_AT + ".");
+  await expect(goblinRow(probed, ZEKE).locator("time")).toHaveAttribute("datetime", CHECKED_AT);
+  await expect(probed.getByRole("listitem")).toHaveCount(1);
+  await expect(probed.getByRole("heading", { name: "Tools", exact: true })).toHaveCount(0);
+
+  // Act
+  await main.getByRole("button", { name: "Connectors", exact: true }).click();
+  await row(main, "GitHub").getByRole("button", { name: "GitHub", exact: true }).click();
+
+  // Assert
+  const github = main.getByRole("article", { name: "GitHub" });
+  await expect(goblinRow(github, ZEKE)).toContainText("Restart required. Granted, but declared credentials are missing from the running process.");
+  await expect(goblinRow(github, ZEKE).getByRole("button", { name: "Disconnect GitHub from " + ZEKE, exact: true })).toBeVisible();
+  await expect(goblinRow(github, IVY)).toContainText("Not connected");
+  await expect(goblinRow(github, IVY).getByRole("button", { name: "Connect GitHub to " + IVY, exact: true })).toBeVisible();
+});
+
+for (const width of [1440, 390]) {
+  test(`a connector no goblin carries offers Connect, which gives it to the goblin he picks at once, and Disconnect takes it back, at ${width}px`, async ({ page }, testInfo) => {
+    // Arrange
+    const supervisor = fleet();
+    let release = () => {};
+    supervisor.held = new Promise<void>((resolve) => { release = resolve; });
+    const main = await open(page, supervisor, width);
+    await tab(main, "Discover").click();
+
+    // Act
+    await main.getByRole("button", { name: "Connect Sentry", exact: true }).click();
+
+    // Assert: its page, with no goblin connected and Connect beside each.
+    const detail = main.getByRole("article", { name: "Sentry" });
+    await expect(detail.locator(".connector-head .connector-type")).toHaveText("Repository service");
+    await expect(detail.locator(".connector-about")).toHaveText("Errors and performance");
+    await expect(goblinRow(detail, ZEKE)).toContainText("Not connected");
+    await expect(goblinRow(detail, IVY)).toContainText("Not connected");
+    await expect(detail).not.toContainText("Not currently granted");
+    await expectFits(page, main);
+    await page.screenshot({ path: testInfo.outputPath(`connector-disconnected-${width}.png`) });
+
+    // Act
+    await detail.getByRole("button", { name: "Connect Sentry to " + ZEKE, exact: true }).click();
+
+    // Assert: the goblin's row changes before the supervisor has answered.
+    await expect(detail.getByRole("button", { name: "Disconnect Sentry from " + ZEKE, exact: true })).toBeVisible();
+    await expect(goblinRow(detail, IVY).getByRole("button", { name: "Connect Sentry to " + IVY, exact: true })).toBeVisible();
+    await expect.poll(() => supervisor.posts).toEqual([{ path: "/api/connections/grant", token: "fixture", body: { task: "cg-touch", generation: "cg-touch-1", connection: "service:sentry", action: "grant" } }]);
+
+    // Act: the check that follows finds it carried.
+    supervisor.entries["cg-touch"] = supervisor.entries["cg-touch"].map((entry) => (entry as { id: string }).id === "service:sentry" ? carried("sentry") : entry);
+    release();
+
+    // Assert
+    await expect(goblinRow(detail, ZEKE)).toContainText("Connected");
+    await expect(detail.getByRole("button", { name: "Disconnect Sentry from " + ZEKE, exact: true })).toBeEnabled();
+    await expect(goblinRow(detail, IVY)).toContainText("Not connected");
+
+    // Act: back in the list it is one of his.
+    await main.getByRole("button", { name: "Connectors", exact: true }).click();
+
+    // Assert
+    await expect(tab(main, "Discover")).toHaveText("Discover0");
+    await tab(main, "Yours").click();
+    await expect(row(main, "Sentry").locator(".connector-state.is-connected")).toHaveText("Connected");
+
+    // Act: Disconnect takes it back.
+    await row(main, "Sentry").getByRole("button", { name: "Sentry", exact: true }).click();
+    supervisor.entries["cg-touch"] = supervisor.entries["cg-touch"].map((entry) => (entry as { id: string }).id === "service:sentry" ? withheld("sentry") : entry);
+    await detail.getByRole("button", { name: "Disconnect Sentry from " + ZEKE, exact: true }).click();
+
+    // Assert
+    await expect(detail.getByRole("button", { name: "Connect Sentry to " + ZEKE, exact: true })).toBeVisible();
+    await expect(goblinRow(detail, ZEKE)).toContainText("Not connected");
+    expect(supervisor.posts[1]).toEqual({ path: "/api/connections/grant", token: "fixture", body: { task: "cg-touch", generation: "cg-touch-1", connection: "service:sentry", action: "revoke" } });
+  });
+}
+
+test("a Connect the supervisor refuses puts the goblin's row back and says why beside it", async ({ page }) => {
+  // Arrange
+  const supervisor = fleet();
+  supervisor.refuses = "Change it in the Code Goblins window, or ask the CFO.";
+  const main = await open(page, supervisor, 1440);
+  await tab(main, "Discover").click();
+  await main.getByRole("button", { name: "Connect Sentry", exact: true }).click();
+  const detail = main.getByRole("article", { name: "Sentry" });
+
+  // Act
+  await detail.getByRole("button", { name: "Connect Sentry to " + IVY, exact: true }).click();
+
+  // Assert
+  await expect(main.locator(".connectors-page > .notice")).toHaveText("Change it in the Code Goblins window, or ask the CFO.");
+  await expect(detail.getByRole("button", { name: "Connect Sentry to " + IVY, exact: true })).toBeVisible();
+  await expect(goblinRow(detail, IVY)).toContainText("Not connected");
+});
+
+for (const width of [1440, 390]) {
+  test(`a goblin's task panel holds no connectors panel, and its Connectors line opens the page, at ${width}px`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width, height: 1100 });
+    await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+    await holdStream(page, BOARD);
+    await play(page, fleet());
+    await page.goto("/");
+
+    // Act
+    await page.locator(".task-card").filter({ hasText: "Zeke" }).first().click();
+    await openTaskList(page);
+
+    // Assert
+    await expect(taskList(page).locator(".panel-content > details.disclosure > summary")).toHaveText(["Workspace", "Harness", "Changes", "Activity", "History"]);
+    await expect(page.locator("details.connections, .connections-panel, .connector-card")).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Connections" })).toHaveCount(0);
+
+    // Act
+    await taskList(page).getByRole("button", { name: "Connectors", exact: true }).click();
+
+    // Assert: the page shows, beside the panel or in its place on a phone.
+    const main = page.getByRole("main", { name: "Connectors" });
+    await expect(main.getByRole("list", { name: "Your connectors" }).locator(".connector-open").first()).toBeVisible();
+    await expect(page.getByRole("group", { name: "Workspace view" }).getByRole("button", { name: "Connectors", exact: true })).toHaveAttribute("aria-pressed", "true");
+    if (width === 1440) await expect(page.locator("aside.context-pane")).toBeVisible();
+    else await expect(page.locator("aside.context-pane")).toBeHidden();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+    // Act: a panel closed beside the page leaves the button that brings it back.
+    if (width === 1440) {
+      await page.getByRole("button", { name: "Back to the CEO" }).click();
+      await page.getByRole("button", { name: "Close panel" }).click();
+      await expect(page.locator("aside.context-pane")).toBeHidden();
+      await page.getByRole("button", { name: "Open CEO", exact: true }).click();
+
+      // Assert
+      await expect(page.locator("aside.context-pane")).toBeVisible();
+      await expect(main.getByRole("list", { name: "Your connectors" })).toBeVisible();
+    }
+  });
+}
+
+test("with no goblin running the page says it has nothing to read, and asks the supervisor nothing", async ({ page }) => {
+  // Arrange
+  const supervisor = fleet();
+  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  await holdStream(page, { ...BOARD, tasks: [{ ...goblin("cg-queued", "Quill", "Waiting"), generation: "", phase: "queued" }] });
+  await play(page, supervisor);
+  await page.goto("/");
+
+  // Act
+  await page.getByRole("group", { name: "Workspace view" }).getByRole("button", { name: "Connectors", exact: true }).click();
+
+  // Assert
+  const main = page.getByRole("main", { name: "Connectors" });
+  await expect(main.getByText("No goblin is running. Connectors are read from the goblins that run.", { exact: true })).toBeVisible();
+  await expect(main.getByRole("button", { name: "Recheck connectors" })).toBeDisabled();
+  expect(supervisor.reads).toEqual({});
+});

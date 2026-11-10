@@ -88,7 +88,15 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .call-what { display: flex; align-items: baseline; gap: 0 .5em; min-width: 0; overflow: hidden; white-space: nowrap; }
 .call-verb, .call-what > strong { flex: none; color: #dbe7ee; font-weight: 700; }
 .call-what > strong { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.call-subject { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--muted); font: .9em/1.6 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+/* A connector's call says its tool in words after its connector's name, a
+   step quieter than the name, the dot between them set evenly. An open tool
+   search lists the tools it loaded the same way. */
+.call-action { flex: 0 1 auto; min-width: 0; margin-left: -.22em; overflow: hidden; color: #c5d3df; text-overflow: ellipsis; }
+.call-loaded { display: grid; gap: .15em; margin: 0; padding: 0; list-style: none; color: #c5d3df; overflow-wrap: anywhere; }
+/* What a call was called on gives way before its tool's words do: the least
+   share of a squeeze would put an ellipsis on those words, so it takes all
+   of it until it is gone. */
+.call-subject { flex: 0 1000000 auto; min-width: 0; overflow: hidden; color: var(--muted); font: .9em/1.6 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .call-end { display: flex; align-items: center; gap: .5em; color: var(--muted); white-space: nowrap; }
 .call-full { margin: 0; color: var(--muted); font: .875em/1.55 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .call-mark { display: grid; place-items: center; width: 1.1em; color: var(--muted); }

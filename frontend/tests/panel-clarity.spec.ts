@@ -3,8 +3,8 @@ import { events } from "./panel-states";
 
 // The task panel says each thing once, in plain words: one true status in its
 // header with one sentence under it, the words that sentence leaves out
-// behind Details, and Changes, Workspace and Connections closed until opened,
-// with no diff read before a file is opened. The tasks are the Overlord's
+// behind Details, and Changes and Workspace closed until opened, with no
+// diff read before a file is opened. The tasks are the Overlord's
 // 2026-10-05 screenshots, with the words their goblins really wrote.
 const PATCH = "@@ -1,3 +1,4 @@\n package lifecycle\n+// resume\n \n func Resume() {}\n";
 
@@ -186,15 +186,16 @@ test("opening a task panel reads no diff; Changes reads its files when opened, a
   expect(diffCode()).toHaveLength(1);
 });
 
-test("Workspace, Harness and Connections are closed sections like those below them, and Workspace opens on what it showed", async ({ page }) => {
+test("Workspace and Harness are closed sections like those below them, with a line to the Connectors page between, and Workspace opens on what it showed", async ({ page }) => {
   // Arrange
   await open(page);
   await select(page, "An OpenClaw-style quick start in the goblins command");
   const sections = panel(page).locator(".panel-content > details.disclosure > summary");
 
   // Assert
-  await expect(sections).toHaveText(["Workspace", "Harness", "Connections", "Changes", "Activity", "History"]);
+  await expect(sections).toHaveText(["Workspace", "Harness", "Changes", "Activity", "History"]);
   await expect(panel(page).locator(".panel-content > details.disclosure[open]")).toHaveCount(0);
+  await expect(panel(page).locator(".panel-content > details.harness + button")).toHaveText("Connectors");
 
   // Act
   await sections.filter({ hasText: "Workspace" }).click();

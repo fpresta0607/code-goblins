@@ -1,44 +1,50 @@
 import type { BrandKey } from "./brandMarks.ts";
+import { connectorName, withoutPrefix } from "./connector-names.ts";
 import type { IconName } from "./Icon.tsx";
 
 export type Mark = { brand: BrandKey } | { glyph: IconName };
 
-// Checked in order against the name with case and punctuation removed, so
-// "chrome-devtools", "GITHUB_TOKEN" and "neon-auth" all find their service.
-// Short names are anchored so "butterfly" never reads as Fly.io. Each also
-// says in one line what the service does, under its name on its connector
-// card.
-const SERVICES: [RegExp, Mark, string][] = [
-  [/github|^gh(token|pat)?$/, { brand: "github" }, "Repositories, pull requests and Actions"],
-  [/chrome|devtools/, { brand: "chrome" }, "Drives a Chrome browser"],
-  [/playwright/, { glyph: "browser-check" }, "Drives a browser for tests"],
-  [/context7/, { brand: "context7" }, "Current library documentation"],
-  [/supabase/, { brand: "supabase" }, "Supabase database, auth and storage"],
-  [/sentry/, { brand: "sentry" }, "Errors and performance"],
-  [/stripe/, { brand: "stripe" }, "Payments and billing"],
-  [/vercel/, { brand: "vercel" }, "Deploys and hosting"],
-  [/^fly/, { brand: "fly" }, "Fly.io apps and machines"],
-  [/neon/, { brand: "neon" }, "Serverless Postgres"],
-  [/notion/, { brand: "notion" }, "Notion pages and databases"],
-  [/openrouter/, { brand: "openrouter" }, "Models from many providers"],
-  [/openai/, { brand: "openai" }, "OpenAI models"],
-  [/anthropic|claude/, { brand: "anthropic" }, "Claude models"],
-  [/gemini/, { brand: "gemini" }, "Gemini models"],
-  [/google/, { brand: "google" }, "Google APIs"],
-  [/kimi|moonshot/, { brand: "moonshot" }, "Kimi models"],
-  [/resend/, { brand: "resend" }, "Sends email"],
-  [/upstash/, { brand: "upstash" }, "Serverless Redis and queues"],
-  [/redis/, { brand: "redis" }, "Redis data store"],
-  [/qdrant/, { brand: "qdrant" }, "Vector search"],
-  [/railway/, { brand: "railway" }, "Railway apps and databases"],
-  [/ionos/, { brand: "ionos" }, "IONOS hosting and domains"],
-  [/postgres|^pg/, { brand: "postgres" }, "PostgreSQL database"],
-  [/database|^db/, { glyph: "database" }, "Database access"],
-  [/^crawler$/, { glyph: "browser-check" }, "Finds and reads every page and file of a site"],
+// Checked in order against a connector's own name with case and punctuation
+// removed, so "chrome-devtools", "GITHUB_TOKEN", "neon-auth" and "claude.ai
+// Supabase" all find their service. Short names are anchored so "butterfly"
+// never reads as Fly.io. Each names its logo, a file of its own under
+// /assets/connectors (public/assets/NOTICE.txt) that loads only where it is
+// shown, or none where the board carries no logo for it, and says in one line
+// what the service does.
+const SERVICES: [RegExp, string, string][] = [
+  [/github|^gh(token|pat)?$/, "github", "Repositories, pull requests and Actions"],
+  [/chrome|devtools/, "chrome", "Drives a Chrome browser"],
+  [/playwright/, "", "Drives a browser for tests"],
+  [/context7/, "context7", "Current library documentation"],
+  [/supabase/, "supabase", "Supabase database, auth and storage"],
+  [/sentry/, "sentry", "Errors and performance"],
+  [/stripe/, "stripe", "Payments and billing"],
+  [/vercel/, "vercel", "Deploys and hosting"],
+  [/^fly/, "fly", "Fly.io apps and machines"],
+  [/neon/, "neon", "Serverless Postgres"],
+  [/notion/, "notion", "Notion pages and databases"],
+  [/openrouter/, "openrouter", "Models from many providers"],
+  [/openai/, "openai", "OpenAI models"],
+  [/anthropic|claude/, "anthropic", "Claude models"],
+  [/gemini/, "gemini", "Gemini models"],
+  [/gmail/, "gmail", "Gmail messages and drafts"],
+  [/googledrive/, "google-drive", "Google Drive files"],
+  [/googlecalendar/, "google-calendar", "Google Calendar events"],
+  [/google/, "google", "Google APIs"],
+  [/kimi|moonshot/, "moonshot", "Kimi models"],
+  [/resend/, "resend", "Sends email"],
+  [/upstash/, "upstash", "Serverless Redis and queues"],
+  [/redis/, "redis", "Redis data store"],
+  [/qdrant/, "qdrant", "Vector search"],
+  [/railway/, "railway", "Railway apps and databases"],
+  [/ionos/, "ionos", "IONOS hosting and domains"],
+  [/postgres|^pg/, "postgres", "PostgreSQL database"],
+  [/database|^db/, "", "Database access"],
+  [/^crawler$/, "", "Finds and reads every page and file of a site"],
 ];
 
 const serviceOf = (name: string) => {
-  const key = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const key = withoutPrefix(name).toLowerCase().replace(/[^a-z0-9]/g, "");
   return key ? SERVICES.find(([pattern]) => pattern.test(key)) : undefined;
 };
 
@@ -60,15 +66,12 @@ export function runLabel(shell: string, admin: boolean): string {
   return "Run in " + (({ powershell: "PowerShell", pwsh: "PowerShell 7", bash: "Git Bash" } as Record<string, string>)[shell] || shell);
 }
 
-export function connectorMark(name: string, kind: "mcp" | "credential"): Mark {
-  return serviceOf(name)?.[1] || (kind === "mcp" ? { brand: "mcp" } : { glyph: "key" });
-}
-
-// connectorLogo is a service's own logo on its connector card, bundled with
-// the board, or its initial on a plain tile when the board carries none.
-export function connectorLogo(name: string): { brand: BrandKey } | { initial: string } {
-  const mark = serviceOf(name)?.[1];
-  return mark && "brand" in mark ? { brand: mark.brand } : { initial: name.trim().charAt(0).toUpperCase() || "?" };
+// connectorLogo is a service's own logo, by the name of its file among the
+// logos bundled with the board, or its name's initial for a plain tile when
+// the board carries none.
+export function connectorLogo(name: string): { file: string } | { initial: string } {
+  const file = serviceOf(name)?.[1];
+  return file ? { file } : { initial: connectorName(name).charAt(0).toUpperCase() || "?" };
 }
 
 export function connectorAbout(name: string): string {

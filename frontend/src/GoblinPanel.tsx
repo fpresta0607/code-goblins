@@ -36,10 +36,10 @@ export type PanelView = "terminal" | "task";
 // draws them only otherwise, and under no heading of that column (#1598). A
 // goblin's baby goblin (child) has the same panel, with its name and its task
 // above its terminal, which is all it shows.
-export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, views, onView, maximized, side, isBoardShown, now, presentations, cardStart, onAnswer, onOpenTask, row, styleChoice }: {
+export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, views, onView, maximized, side, isBoardShown, now, presentations, cardStart, onAnswer, onOpenTask, onConnectors, row, styleChoice }: {
   task?: Task; node?: Session; child?: TreeNode; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
   view: PanelView; views: PanelView[]; onView: (view: PanelView) => void; maximized: boolean; side: HTMLElement | null; isBoardShown: boolean;
-  now: number; presentations: BoardActivity[]; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void;
+  now: number; presentations: BoardActivity[]; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onConnectors: () => void;
   // row is the top row's controls, corner button and notice (see PanelRow),
   // and styleChoice the chat style its picture offers (see PanelHeader).
   cardStart: CardStarter; row: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; styleChoice?: StyleChoice;
@@ -67,9 +67,9 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
       <TaskControls task={task} snapshot={snapshot} start={cardStart(task)} />
       <LifecycleDetails task={task} />
     </div>}
-    {!task?.archived && owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} log={{ open: isLogOpen, onOpenChange: setLogOpen }} now={now} onRepair={onAnswer} /> : <div className="panel-content">
+    {!task?.archived && owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} log={{ open: isLogOpen, onOpenChange: setLogOpen }} now={now} onConnectors={onConnectors} /> : <div className="panel-content">
       {!task && !node && snapshot.cfo_conversation_left && <p className="cfo-conversation-left">{snapshot.cfo_conversation_left}</p>}
-      <WorkspaceDetails task={task} node={node} runs={snapshot.runs} snapshot={snapshot} connected={connected} onRepair={onAnswer} />
+      <WorkspaceDetails task={task} node={node} snapshot={snapshot} connected={connected} onConnectors={onConnectors} />
       {!task && !node && (!isBoardShown || queuedTasks(snapshot).length > 0) && <section className="cfo-queue" aria-label="Queued tasks">
         <QueuedTasks snapshot={snapshot} now={now} presentations={presentations} hasMeters={!isBoardShown} onSelect={onOpenTask} />
       </section>}
