@@ -785,10 +785,11 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   const queued = waiting.filter((action) => !read.has(action.id));
   // His messages whose delivery ended with no take seen, failed or typed and
   // never seen taken, stay at the end with what happened and Send again until
-  // something he sent after them lands, a row of his in the record or a
-  // message the board saw taken, so none reads as on its way for ever (#2242).
-  const hasLandedSince = (sentAt: number) => his.some((row) => Date.parse(row.at) > sentAt)
-    || held.sent.some((other) => other.status === "succeeded" && Date.parse(other.created_at) > sentAt);
+  // something he sent after them lands, a message of the board's whose row
+  // or take was seen, by when he sent it, or a row of his no board message
+  // owns, so none reads as on its way for ever (#2242).
+  const hasLandedSince = (sentAt: number) => rows.some((row) => Date.parse(row.at) > sentAt)
+    || held.sent.some((other) => (other.status === "succeeded" || read.has(other.id)) && Date.parse(other.created_at) > sentAt);
   const undelivered = held.sent.filter((action) => isUndelivered(action) && !hasLandedSince(Date.parse(action.created_at)));
   // A prompt its harness holds that names the board message which typed it
   // is that message's one row, whichever of the two the board drew first,
