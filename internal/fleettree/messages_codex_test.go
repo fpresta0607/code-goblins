@@ -322,7 +322,7 @@ func TestCodexUsageUsesRecordedTotalsAndLastContext(t *testing.T) {
 		codexLine("event_msg", object{"type": "token_count", "info": object{"total_token_usage": total, "last_token_usage": last, "model_context_window": 1000}}),
 	)
 	reader := Reader{Home: home}
-	want := Usage{InputTokens: 300, CacheReadTokens: 200, OutputTokens: 40, ContextTokens: 120, ContextWindow: 1000, Model: "recorded-model"}
+	want := Usage{InputTokens: 300, CacheReadTokens: 200, OutputTokens: 40, ContextTokens: 120, ContextWindow: 1000}
 	for range 2 {
 		page, cursor, err := reader.MessagePage(path, -1)
 		if err != nil {

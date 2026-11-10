@@ -1,8 +1,15 @@
 import { expect, test, type Page } from "./site";
 import { box, field, GOBLIN, NAME, open, openGoblin, PAGE, pasted, pressRow, snapshot, typed } from "./session-board";
 
-const USAGE = { input_tokens: 12000, output_tokens: 800, context_tokens: 24000, context_window: 100000, model: "recorded-model" };
+const USAGE = { input_tokens: 12000, output_tokens: 800, context_tokens: 24000, context_window: 100000 };
 const context = (page: Page) => page.getByRole("meter", { name: "Context", exact: true });
+// engine is the CFO's engine record, applied to the harness it runs.
+const engine = (harness: string, model: string, effort: string) => ({ harness, model, effort, pending: false, problem: "", waiting: "" });
+// record sends the board the session's one record of its model and effort,
+// the goblin's task record and the CFO's engine record, as the supervisor
+// does once the session's harness says it runs them.
+const record = (page: Page, model: string, effort: string, harness = "claude") => page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: data })),
+  snapshot({ revision: 2, cfo_harness: harness, cfo_engine: engine(harness, model, effort) }, { harness, model, effort }));
 
 for (const width of [1440, 390]) {
   test(`a branch reset drops abandoned context usage at ${width}px`, async ({ page }) => {
@@ -15,7 +22,7 @@ for (const width of [1440, 390]) {
     await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), { messages: PAGE.messages.slice(0, 1), conversation: "replacement-conversation", more: false });
 
     await expect(context(page)).toHaveCount(0);
-    await expect(box(page)).not.toContainText(/24k|recorded-model|unavailable/);
+    await expect(box(page)).not.toContainText(/24k|unavailable/);
     await expect(field(page)).toHaveValue("keep this draft");
   });
 }
@@ -28,7 +35,7 @@ for (const width of [1440, 390]) {
     const hasWindow = width === 1440;
     test(`${who} session controls use current data and ${hasWindow ? "open its window" : "offer no window"} at ${width}px`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 900 });
-      const relay = await open(page, snapshot({ cfo_harness: "codex" }, { harness: "codex" }), "", { ...PAGE, usage: USAGE });
+      const relay = await open(page, snapshot({ cfo_harness: "codex", cfo_engine: engine("codex", "recorded-model", "high") }, { harness: "codex", model: "recorded-model" }), "", { ...PAGE, usage: USAGE });
       const posted: unknown[] = [];
       await page.route("**/api/terminal/open", (route) => {
         posted.push(route.request().postDataJSON());
@@ -42,7 +49,7 @@ for (const width of [1440, 390]) {
       const composer = box(page, name);
       await field(page, name).fill("preserve this draft");
       await expect(composer.locator(".engine-control-model")).toHaveText("Recorded Model");
-      await expect(composer.locator(".engine-control .effort-level"), "the model's button shows the session's effort where one is known").toHaveText(who === "CEO" ? [] : ["xhigh"]);
+      await expect(composer.locator(".engine-control .effort-level"), "the model's button shows the session's effort where one is known").toHaveText(who === "CEO" ? ["high"] : ["xhigh"]);
 
       await expect(context(page)).toHaveAttribute("aria-valuenow", "24");
       await expect(context(page)).toHaveAttribute("aria-valuetext", "24% used, 24k of 100k tokens");
@@ -61,10 +68,11 @@ for (const width of [1440, 390]) {
       await expect(composer.getByRole("button", { name: "Open in Windows Terminal", exact: true })).toHaveCount(0);
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
       expect(typed(relay)).toBe("");
-      await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage } } })), { ...USAGE, context_tokens: 72000, model: "changed-model" });
+      await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage } } })), { ...USAGE, context_tokens: 72000 });
       await expect(context(page)).toHaveAttribute("aria-valuenow", "72");
+      await record(page, "changed-model", "high", "codex");
       await expect(composer.locator(".engine-control-model")).toHaveText("Changed Model");
-      await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, cfo_harness: "codex", cfo_terminal: "new-cfo" }, { harness: "codex", generation: "replacement" }));
+      await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 3, cfo_harness: "codex", cfo_terminal: "new-cfo", cfo_engine: engine("codex", "recorded-model", "high") }, { harness: "codex", model: "recorded-model", generation: "replacement" }));
       await expect(context(page)).toHaveAttribute("aria-valuenow", "24");
       await expect.poll(() => relay.addresses.some((address) => address.includes(who === "CEO" ? "cfo=new-cfo" : "generation=replacement"))).toBe(true);
       relay.say({ type: "screen", asking: false, open: false, working: false });
@@ -117,7 +125,6 @@ const SESSIONS = {
 } as const;
 const CODEX_MODELS = { rows: ["Select Model and Effort"], choices: [{ text: "gpt-6-astra (current)", number: 1, focused: true }, { text: "gpt-6.1-sol", number: 2 }], hints: ["Press enter to confirm or esc to go back"] };
 const CODEX_EFFORTS = { rows: ["Select Reasoning Level"], choices: [{ text: "Low", number: 1 }, { text: "Medium (default)", number: 2, focused: true }, { text: "High", number: 3 }, { text: "Extra high", number: 4 }], hints: ["Press enter to confirm or esc to go back"] };
-const recorded = (model: string, effort: string) => ({ ...USAGE, model, effort });
 
 for (const width of [1440, 390]) {
 test.describe(`${width}px native settings`, () => {
@@ -129,7 +136,7 @@ for (const harness of ["codex", "claude", "pi"] as const) {
       // Arrange
       const session = SESSIONS[harness];
       const [value, option, shown] = session.picks[setting];
-      const relay = await open(page, snapshot({ cfo_harness: harness }, { harness, model: session.model, effort: session.effort }), "", { ...PAGE, usage: recorded(session.model, session.effort) });
+      const relay = await open(page, snapshot({ cfo_harness: harness, cfo_engine: engine(harness, session.model, session.effort) }, { harness, model: session.model, effort: session.effort }), "", { ...PAGE, usage: USAGE });
       await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
       if (who === "CEO") await page.keyboard.press("Control+Alt+1");
       else await openGoblin(page);
@@ -174,7 +181,7 @@ for (const harness of ["codex", "claude", "pi"] as const) {
       await expect(field(page, name)).toHaveValue("my unsent words");
       await expect(control).toContainText(shown);
       // The session's own record then says what it runs, which both views read.
-      await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage } } })), recorded(setting === "model" ? value : session.model, setting === "effort" ? value : session.effort));
+      await record(page, setting === "model" ? value : session.model, setting === "effort" ? value : session.effort, harness);
       await expect(control).toContainText(shown);
       // The controls stay guarded as before: held typing and an ended
       // terminal disable them, and the draft stays.
@@ -192,7 +199,7 @@ for (const harness of ["codex", "claude", "pi"] as const) {
 
 test("a setting changed in Classic shows in Modern's controls, from the session's own record", async ({ page }) => {
   // Arrange
-  await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
+  await open(page, snapshot(), "", { ...PAGE, usage: USAGE });
   await openGoblin(page);
   const model = box(page).locator(".engine-control-model");
   const effort = box(page).locator(".engine-control .effort-level");
@@ -200,7 +207,7 @@ test("a setting changed in Classic shows in Modern's controls, from the session'
   await expect(effort).toHaveText("xhigh");
 
   // Act: the harness's own menu, in Classic, set them; its record says so.
-  await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage } } })), recorded("claude-sonnet-5-5", "low"));
+  await record(page, "claude-sonnet-5-5", "low");
 
   // Assert
   await expect(model).toHaveText("Sonnet 5.5");
@@ -209,7 +216,7 @@ test("a setting changed in Classic shows in Modern's controls, from the session'
 
 test("a pane pick gives way once the session's record says something new, and never comes back", async ({ page }) => {
   // Arrange
-  const relay = await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
+  const relay = await open(page, snapshot(), "", { ...PAGE, usage: USAGE });
   await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
   await openGoblin(page);
   relay.say({ type: "screen", asking: false, open: false, working: false });
@@ -217,12 +224,11 @@ test("a pane pick gives way once the session's record says something new, and ne
   await box(page).getByRole("button", { name: "Change model", exact: true }).click();
   await box(page).getByRole("menu", { name: "Effort", exact: true }).getByRole("menuitemradio", { name: "max", exact: true }).click();
   await expect(effort).toHaveText("max");
-  const record = (usage: object) => page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage: data } } })), usage);
 
   // Act: the record says the session runs high, then xhigh again.
-  await record(recorded("claude-opus-5-5", "high"));
+  await record(page, "claude-opus-5-5", "high");
   await expect(effort).toHaveText("high");
-  await record(recorded("claude-opus-5-5", "xhigh"));
+  await record(page, "claude-opus-5-5", "xhigh");
 
   // Assert: the control says what the record says, not the old pick.
   await expect(effort).toHaveText("xhigh");
@@ -230,7 +236,7 @@ test("a pane pick gives way once the session's record says something new, and ne
 
 test("typing /effort or /model in the box opens the board's pane and types nothing into the terminal", async ({ page }) => {
   // Arrange
-  const relay = await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
+  const relay = await open(page, snapshot(), "", { ...PAGE, usage: USAGE });
   await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
   await openGoblin(page);
   relay.say({ type: "screen", asking: false, open: false, working: false });
@@ -256,7 +262,7 @@ test("typing /effort or /model in the box opens the board's pane and types nothi
 
 test("each effort level wears its own colour, dull at the least, a gradient at max", async ({ page }) => {
   // Arrange
-  const relay = await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
+  const relay = await open(page, snapshot(), "", { ...PAGE, usage: USAGE });
   await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
   await openGoblin(page);
   relay.say({ type: "screen", asking: false, open: false, working: false });
@@ -292,7 +298,7 @@ test("a refused terminal window leaves the draft and reports the actual refusal"
 
 test("a second press on its control closes the pane, and a press outside closes it leaving the keyboard where he pressed", async ({ page }) => {
   // Arrange
-  const relay = await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
+  const relay = await open(page, snapshot(), "", { ...PAGE, usage: USAGE });
   await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
   await openGoblin(page);
   relay.say({ type: "screen", asking: false, open: false, working: false });
@@ -322,7 +328,7 @@ test("a second press on its control closes the pane, and a press outside closes 
 test("Escape with the box's pane or style menu open closes it and never stops the working harness", async ({ page }) => {
   // Arrange: the harness works, and its catalog cannot be read, so the pane
   // only offers Retry.
-  const relay = await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
+  const relay = await open(page, snapshot(), "", { ...PAGE, usage: USAGE });
   await openGoblin(page);
   relay.say({ type: "screen", asking: false, open: false, working: true });
   await expect(box(page).getByRole("button", { name: "Stop", exact: true })).toBeVisible();
@@ -356,7 +362,7 @@ test("Escape with the box's pane or style menu open closes it and never stops th
 test("a Codex pick its picker never offered leaves its control showing what the session runs", async ({ page }) => {
   // Arrange
   await page.clock.install();
-  const relay = await open(page, snapshot({}, { harness: "codex", model: "gpt-6-astra", effort: "medium" }), "", { ...PAGE, usage: recorded("gpt-6-astra", "medium") });
+  const relay = await open(page, snapshot({}, { harness: "codex", model: "gpt-6-astra", effort: "medium" }), "", { ...PAGE, usage: USAGE });
   await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
   await openGoblin(page);
   relay.say({ type: "screen", asking: false, open: false, working: false });
@@ -378,7 +384,7 @@ test("a Codex pick its picker never offered leaves its control showing what the 
 test("a Codex model typed after /model keeps the session's effort when its catalog lists the model", async ({ page }) => {
   // Arrange: the session runs high, which gpt-6.1-sol offers too, while
   // Codex's reasoning list focuses Medium.
-  const relay = await open(page, snapshot({}, { harness: "codex", model: "gpt-6-astra", effort: "high" }), "", { ...PAGE, usage: recorded("gpt-6-astra", "high") });
+  const relay = await open(page, snapshot({}, { harness: "codex", model: "gpt-6-astra", effort: "high" }), "", { ...PAGE, usage: USAGE });
   await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
   await openGoblin(page);
   relay.say({ type: "screen", asking: false, open: false, working: false });
@@ -397,13 +403,13 @@ test("a Codex model typed after /model keeps the session's effort when its catal
   relay.say({ type: "screen", asking: false, open: false, working: false });
   const control = box(page).getByRole("button", { name: "Change model", exact: true });
   await expect(control, "a typed value waits for the session's record").toContainText("GPT-6 Astra");
-  await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage } } })), recorded("gpt-6.1-sol", "high"));
+  await record(page, "gpt-6.1-sol", "high", "codex");
   await expect(control).toContainText("GPT-6.1 Sol");
 });
 
 test("a value typed after the command shows on its control only once the session's record says it runs it", async ({ page }) => {
   // Arrange
-  const relay = await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
+  const relay = await open(page, snapshot(), "", { ...PAGE, usage: USAGE });
   await openGoblin(page);
   relay.say({ type: "screen", asking: false, open: false, working: false });
   await expect(box(page).getByRole("button", { name: "Change model", exact: true })).toBeEnabled();
@@ -422,13 +428,13 @@ test("a value typed after the command shows on its control only once the session
   await field(page).press("Enter");
   await expect.poll(() => typed(relay)).toBe(pasted("/effort hgih") + "\r" + pasted("/effort high") + "\r");
   await expect(effort).toHaveText("xhigh");
-  await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage } } })), recorded("claude-opus-5-5", "high"));
+  await record(page, "claude-opus-5-5", "high");
   await expect(effort).toHaveText("high");
 });
 
 test("a /model or /effort typed while the controls cannot change the session stays in the box and is never queued", async ({ page }) => {
   // Arrange: a review holds the goblin's typing, under which a message queues.
-  const relay = await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
+  const relay = await open(page, snapshot(), "", { ...PAGE, usage: USAGE });
   const actions: unknown[] = [];
   await page.route("**/api/actions", (route) => { actions.push(route.request().postDataJSON()); return route.fulfill({ status: 202, json: {} }); });
   await openGoblin(page);

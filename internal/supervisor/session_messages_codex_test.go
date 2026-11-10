@@ -335,8 +335,8 @@ func TestCodexUsageStreamsAfterTheLastMessage(t *testing.T) {
 				records []string
 				want    fleettree.Usage
 			}{
-				{[]string{`{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":50,"cached_input_tokens":20,"output_tokens":10},"last_token_usage":{"input_tokens":30,"cached_input_tokens":20,"output_tokens":5},"model_context_window":1000}}}`}, fleettree.Usage{InputTokens: 50, CacheReadTokens: 20, OutputTokens: 10, ContextTokens: 35, ContextWindow: 1000, Model: "gpt-6-astra"}},
-				{[]string{`{"type":"turn_context","payload":{"model":"gpt-6-luna"}}`, `{"type":"token_usage_record","payload":{"thread_token_usage":{"input_tokens":65,"cached_input_tokens":20,"output_tokens":11},"usage":{"input_tokens":40,"output_tokens":6,"total_tokens":46}}}`}, fleettree.Usage{InputTokens: 65, CacheReadTokens: 20, OutputTokens: 11, ContextTokens: 46, ContextWindow: 1000, Model: "gpt-6-luna"}},
+				{[]string{`{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":50,"cached_input_tokens":20,"output_tokens":10},"last_token_usage":{"input_tokens":30,"cached_input_tokens":20,"output_tokens":5},"model_context_window":1000}}}`}, fleettree.Usage{InputTokens: 50, CacheReadTokens: 20, OutputTokens: 10, ContextTokens: 35, ContextWindow: 1000}},
+				{[]string{`{"type":"turn_context","payload":{"model":"gpt-6-luna"}}`, `{"type":"token_usage_record","payload":{"thread_token_usage":{"input_tokens":65,"cached_input_tokens":20,"output_tokens":11},"usage":{"input_tokens":40,"output_tokens":6,"total_tokens":46}}}`}, fleettree.Usage{InputTokens: 65, CacheReadTokens: 20, OutputTokens: 11, ContextTokens: 46, ContextWindow: 1000}},
 			} {
 				// Act: only usage records follow the last message.
 				appendEntries(t, path, update.records...)

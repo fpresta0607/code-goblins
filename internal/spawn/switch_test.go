@@ -285,6 +285,53 @@ func TestPausedResumeUsesTheSavedSessionInsteadOfTheLatestSession(t *testing.T) 
 	}
 }
 
+// A switch and a resume start the goblin on the model and effort its record
+// names, the one record of them, which the board keeps on what the goblin's
+// own terminal was told (#2326): a goblin resumed after a model set by hand
+// keeps it, and a switch's own model replaces it in the record.
+func TestARelaunchStartsOnTheRecordedModelAndEffort(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		request    SwitchRequest
+		wantModel  string
+		wantEffort string
+	}{
+		"a resume":                   {SwitchRequest{IsResume: true, ResumeSession: "saved-session-42"}, "gpt-9", "xhigh"},
+		"a switch to another model":  {SwitchRequest{Model: "gpt-10", ResumeSession: "saved-session-42"}, "gpt-10", "xhigh"},
+		"a switch to another effort": {SwitchRequest{Effort: "low", ResumeSession: "saved-session-42"}, "gpt-9", "low"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}})
+			f.meta.Model, f.meta.Effort = "gpt-9", "xhigh"
+			if err := state.WriteTaskMeta(f.stateDir, f.meta); err != nil {
+				t.Fatal(err)
+			}
+			if testCase.request.IsResume {
+				if err := state.WriteLifecycle(f.stateDir, state.Lifecycle{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "resume-1", Action: "resume", Phase: "resuming"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			testCase.request.ID = f.meta.ID
+
+			// Act
+			_, err := f.service.Switch(context.Background(), testCase.request)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(f.specs) == 0 {
+				t.Fatal("the relaunch built no launch")
+			}
+			launched := f.specs[len(f.specs)-1]
+			recorded, err := state.ReadTaskMeta(f.stateDir, f.meta.ID)
+			if err != nil || launched.Model != testCase.wantModel || launched.Effort != testCase.wantEffort || recorded.Model != testCase.wantModel || recorded.Effort != testCase.wantEffort {
+				t.Fatalf("launched %s at %s, recorded %s at %s, err=%v; want both %s at %s", launched.Model, launched.Effort, recorded.Model, recorded.Effort, err, testCase.wantModel, testCase.wantEffort)
+			}
+		})
+	}
+}
+
 func TestPauseResumeSupersedesTheStopAndPreservesRecovery(t *testing.T) {
 	for _, test := range []struct {
 		name           string

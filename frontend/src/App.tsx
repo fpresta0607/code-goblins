@@ -46,7 +46,7 @@ import { useVisualViewport } from "./use-visual-viewport";
 import { MessagesView } from "./messages-view";
 import { Composer } from "./composer";
 import { useTerminalLink } from "./terminal-link";
-import { cfoEffort, liveCfoSession } from "./workflow";
+import { cfoEngine, liveCfoSession } from "./workflow";
 import { messagesQuery, type MessagePage } from "./session-messages";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { CHAT_STYLE_CHANGED, useChatStyle, type ChatStyle } from "./chat-style";
@@ -373,13 +373,11 @@ export function App() {
   // shows.
   const isCompacting = !!(cfoShown ? cfoSession : selectedSession)?.is_compacting;
   const isWorking = isCompacting || !!live?.screen?.isWorking || ["busy", "working", "active"].includes((cfoShown ? cfoSession?.runtime?.state || cfoSession?.phase : task?.phase) || "");
-  // What the conversation's stats read: the session's harness, the model and
-  // effort the board recorded for it, and the memory its processes hold.
+  // What the conversation's stats and its box read: the session's harness,
+  // the model and effort its one record names, the goblin's task record or
+  // the CFO's engine record (cfoEngine), and the memory its processes hold.
   const panelHarness = cfoShown || !task ? (snapshot && snapshot.cfo_harness) || "" : task.harness;
-  const panelModel = cfoShown || !task ? ((snapshot && liveCfoSession(snapshot)?.model) || "") : task.model || "";
-  // The effort a session was started at, which its own record overrides once
-  // it says otherwise: the goblin's, or the CFO's (cfoEffort).
-  const panelEffort = cfoShown || !task ? (snapshot ? cfoEffort(snapshot) : "") : task.effort || "";
+  const panelEngine = cfoShown || !task ? snapshot ? cfoEngine(snapshot) : { model: "", effort: "" } : { model: task.model || "", effort: task.effort || "" };
   const panelSent = snapshot && (cfoShown || task) ? messagesTo(snapshot, cfoShown ? "" : task?.id || "") : [];
   const panelPending = panelSent.filter(isPendingMessage);
   // A session the board reads as messages shows them and types through its
@@ -584,7 +582,7 @@ export function App() {
         <div className="panel-main">
         <div className="panel-stage" hidden={!terminalShown && !messagesShown}>
           {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={snapshot.instance + messagesSource} query={messagesSource} instance={snapshot.instance} pages={messagePages}
-            name={cfoShown || !task ? "CEO" : goblinName(task)} task={cfoShown ? undefined : task} terminal={terminalKey} harness={panelHarness} model={panelModel} effort={panelEffort}
+            name={cfoShown || !task ? "CEO" : goblinName(task)} task={cfoShown ? undefined : task} terminal={terminalKey} harness={panelHarness} model={panelEngine.model} effort={panelEngine.effort}
             isCompacting={isCompacting} sent={panelSent} pending={panelPending}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock} onAskSlot={setAskSlot}

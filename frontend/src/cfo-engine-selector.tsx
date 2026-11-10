@@ -23,10 +23,13 @@ export function CfoEngineSelector({ snapshot }: { snapshot: Snapshot }) {
   const choice: EngineSelection = draft || (received ? { harness: received.harness, model: received.model, effort: received.effort } : { harness: snapshot.cfo_harness, model: "", effort: "" });
   const harness = catalog.data?.find((item) => item.id === choice.harness);
   const model = harness?.models.find((item) => item.id === choice.model);
+  // An effort of default is the harness's own, which the record names where
+  // the CFO's session named no level: it is what the CFO runs, and no choice
+  // the selector offers.
   const unavailable = harness?.reason
     || (choice.harness && !harness ? "Harness " + harnessName(choice.harness) + " is unavailable" : "")
     || (choice.model && !model ? "Model " + choice.model + " is unavailable" : "")
-    || (model && choice.effort && !model.efforts.includes(choice.effort) ? "Effort " + choice.effort + " is unavailable for " + model.name : "");
+    || (model && choice.effort && choice.effort !== "default" && !model.efforts.includes(choice.effort) ? "Effort " + choice.effort + " is unavailable for " + model.name : "");
   const save = async () => {
     if (isSaving) return;
     setSaving(true); showFeedback("");
@@ -47,7 +50,7 @@ export function CfoEngineSelector({ snapshot }: { snapshot: Snapshot }) {
           const next = harness?.models.find((item) => item.id === event.target.value);
           setDraft({ ...choice, model: event.target.value, effort: next?.default_effort && next.efforts.includes(next.default_effort) ? next.default_effort : "" });
         }}><option value="" disabled>Choose model</option>{!model && choice.model && <option value={choice.model} disabled>{choice.model} (unavailable)</option>}{harness?.models.filter((item) => item.id !== "default").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-        <label htmlFor={label + "-effort"}>Effort<select id={label + "-effort"} value={choice.effort} disabled={isSaving || !model} onChange={(event) => { setDraft({ ...choice, effort: event.target.value }); }}><option value="" disabled>Choose effort</option>{choice.effort && !model?.efforts.includes(choice.effort) && <option value={choice.effort} disabled>{choice.effort} (unavailable)</option>}{model?.efforts.map((effort) => <option key={effort} value={effort}>{effort}</option>)}</select></label>
+        <label htmlFor={label + "-effort"}>Effort<select id={label + "-effort"} value={choice.effort} disabled={isSaving || !model} onChange={(event) => { setDraft({ ...choice, effort: event.target.value }); }}><option value="" disabled>Choose effort</option>{choice.effort && !model?.efforts.includes(choice.effort) && <option value={choice.effort} disabled>{choice.effort === "default" ? "Default" : choice.effort + " (unavailable)"}</option>}{model?.efforts.map((effort) => <option key={effort} value={effort}>{effort}</option>)}</select></label>
       </div>
       {unavailable && <p className="muted">{unavailable}</p>}
       <button className="labelled-button" disabled={isSaving || !draft || !!unavailable} onClick={() => void save()}><Icon name="refresh" />Save</button>

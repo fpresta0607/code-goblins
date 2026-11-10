@@ -7,7 +7,7 @@ import { BRAND_MARKS } from "./brandMarks";
 import { Icon } from "./Icon";
 import { Notice } from "./notice";
 import { ownsTaskSession, sessionTitle } from "./lineageTree";
-import { ALREADY_FINISHED, cfoEffort, harnessName, harnessTip, liveCfoSession, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
+import { ALREADY_FINISHED, cfoEngine, harnessName, harnessTip, liveCfoSession, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
 import { reviewLine, waitingItems, type Item } from "./commandQueue";
 import { credentialAsk } from "./credentials";
 import { signInHeading } from "./browser-signins";
@@ -64,7 +64,8 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
     : cfo ? { text: nodeStatus({ id: "cfo", title, session: cfoSession, relation: "", status: snapshot.registration ? "Registration stale" : cfoSession ? undefined : "Supervising" }), phase: snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working" }
       : { text: nodeStatus({ id: title, title, task, session: node, relation: "" }, false, snapshot.tasks, trains), phase: node?.runtime?.state || node?.phase || "" };
   const harness = (task && task.harness) || (node && node.harness) || (cfo ? snapshot.cfo_harness : "");
-  const engine = harness ? harnessTip(harness, cfo ? cfoSession?.model || "" : task?.model || node?.model || "", cfo ? cfoEffort(snapshot) : task?.effort || "") : "";
+  const cfoRuns = cfoEngine(snapshot);
+  const engine = harness ? harnessTip(harness, cfo ? cfoRuns.model : task?.model || node?.model || "", cfo ? cfoRuns.effort : task?.effort || "") : "";
   const goblinTask = owner && task.phase !== "queued" && task.goblin_name ? task.id : "";
   // A helper names the goblin it helps here, since its card on the board is
   // one row with no room for it.

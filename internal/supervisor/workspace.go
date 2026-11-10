@@ -18,7 +18,6 @@ type WorkspaceDetail struct {
 	Root       string   `json:"root"`
 	Branch     string   `json:"branch"`
 	Harness    string   `json:"harness"`
-	Model      string   `json:"model"`
 	Notes      []string `json:"notes"`
 }
 
@@ -44,14 +43,7 @@ func (s *Service) workspaceDetail(ctx context.Context, taskID, generation string
 	if err != nil || meta.SpawnGen != generation {
 		return out, errors.New("Task restarted or was replaced. Refresh workspace details.")
 	}
-	out.Root, out.Project, out.Repository, out.Harness, out.Model = meta.Worktree, filepath.Base(meta.Project), filepath.Base(meta.Project), meta.Harness, meta.Model
-	if out.Model != "" {
-		out.Model = "Configured: " + out.Model
-	}
-	db := s.Store.Snapshot()
-	if session, ok := db.Sessions[db.TaskSessions[meta.ID]]; ok && session.Generation == meta.SpawnGen && session.Model != "" {
-		out.Model = "Reported: " + session.Model
-	}
+	out.Root, out.Project, out.Repository, out.Harness = meta.Worktree, filepath.Base(meta.Project), filepath.Base(meta.Project), meta.Harness
 	out.Branch, err = s.Git.Branch(ctx, meta.Worktree)
 	if err != nil {
 		if detached, _ := s.Git.Detached(ctx, meta.Worktree); detached {

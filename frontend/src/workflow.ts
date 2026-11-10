@@ -337,12 +337,15 @@ export function liveCfoSession(snapshot: Pick<Snapshot, "sessions" | "cfo_sessio
   return snapshot.cfo_session ? running.find((session) => session.id === snapshot.cfo_session) : running.at(-1);
 }
 
-// cfoEffort is the effort the CFO runs: its saved engine's once that applied
-// to the CFO's own harness, with no change pending and no problem, and none
-// otherwise.
-export function cfoEffort(snapshot: Pick<Snapshot, "cfo_engine" | "cfo_harness">): string {
+// cfoEngine is the model and effort the CFO runs, which every view of the CFO
+// shows: its engine record's, the one record of them, which the board keeps
+// on what the CFO's own session says it runs. The record names them once it
+// applies to the CFO's own harness, with no change pending and no problem;
+// until then it names a selection the CFO does not run yet, and no view
+// shows a model or an effort.
+export function cfoEngine(snapshot: Pick<Snapshot, "cfo_engine" | "cfo_harness">): { model: string; effort: string } {
   const engine = snapshot.cfo_engine;
-  return engine && !engine.pending && !engine.problem && engine.harness === snapshot.cfo_harness ? engine.effort : "";
+  return engine && !engine.pending && !engine.problem && engine.harness === snapshot.cfo_harness ? { model: engine.model, effort: engine.effort } : { model: "", effort: "" };
 }
 
 // isInProgress says a task's goblin works or waits, as the board's In progress

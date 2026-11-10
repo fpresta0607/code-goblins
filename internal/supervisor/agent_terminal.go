@@ -579,6 +579,9 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 				if !usage() || !turn() {
 					return
 				}
+				if len(messages) > 0 {
+					h.Service.keepStreamedEngine(task)
+				}
 			}
 		}
 	}

@@ -196,7 +196,7 @@ test("a long message keeps its last lines in view while dictation adds to it", a
 // beside its + ("trash button only needed on mobile and you can put it next
 // to plus icon"; #1987), so on a 360 px phone the model's name gives way with
 // an ellipsis, its mark and effort whole; from a 390 px phone up it is whole.
-const USAGE = { input_tokens: 1_400_000, output_tokens: 289_000, cache_read_tokens: 208_000_000, cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000, model: "claude-opus-5-5" };
+const USAGE = { input_tokens: 1_400_000, output_tokens: 289_000, cache_read_tokens: 208_000_000, cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000 };
 const WEEK = { provider: "claude", status: "available", percent_remaining: 12, read_at: "2026-10-28T09:00:00Z", resets_at: "2026-11-02T09:00:00Z", source: "oauth", floor_percent: 5 };
 for (const [label, width, height, isTouch] of [["the desktop side panel", 1440, 960, false], ["a phone", 390, 844, true], ["a small phone", 360, 640, true]] as const) {
   test.describe(`on ${label}`, () => {
