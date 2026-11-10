@@ -561,14 +561,16 @@ const releasedReattachmentHead = "cccccccccccccccccccccccccccccccccccccccc"
 
 type acceptedReattachmentRunner struct {
 	execx.Runner
-	head                string
-	branch              string
-	isDirty             bool
-	secondHead          string
-	headReads           int
-	receiptReads        int
-	beforeReceiptRead   func()
-	beforeReceiptReread func()
+	head                  string
+	branch                string
+	isDirty               bool
+	secondHead            string
+	headReads             int
+	receiptReads          int
+	publishedReads        int
+	beforeReceiptRead     func()
+	beforeReceiptReread   func()
+	beforePublishedReread func()
 }
 
 func (r *acceptedReattachmentRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
@@ -576,7 +578,14 @@ func (r *acceptedReattachmentRunner) Run(ctx context.Context, request execx.Requ
 		if !slices.Contains(request.Args, "-readonly") {
 			return execx.Result{}, errors.New("reattachment attempted a writable database command")
 		}
-		if strings.Contains(request.Args[len(request.Args)-1], "ci_handbacks") {
+		sql := request.Args[len(request.Args)-1]
+		if strings.Contains(sql, "AS published_head") && !strings.Contains(sql, "ci_handbacks") {
+			r.publishedReads++
+			if r.publishedReads == 2 && r.beforePublishedReread != nil {
+				r.beforePublishedReread()
+			}
+		}
+		if strings.Contains(sql, "ci_handbacks") {
 			r.receiptReads++
 			if r.receiptReads == 1 && r.beforeReceiptRead != nil {
 				r.beforeReceiptRead()
@@ -729,8 +738,6 @@ func TestCheckStartRefusesInvalidCIHandbackReattachment(t *testing.T) {
 		{name: "missing receipt generation", sql: `UPDATE ci_handbacks SET push_generation=0;`},
 		{name: "missing generation on both sides", sql: `UPDATE runs SET push_generation=0; UPDATE ci_handbacks SET push_generation=0;`},
 		{name: "released publication generation advanced", sql: `UPDATE runs SET push_generation=8;`},
-		{name: "accepted publication generation unchanged", sql: `UPDATE runs SET last_pushed_sha='` + acceptedReattachmentHead + `';`},
-		{name: "publication generation jumped", sql: `UPDATE runs SET last_pushed_sha='` + acceptedReattachmentHead + `',push_generation=9;`},
 		{name: "receipt schema unavailable", sql: `DROP TABLE ci_handbacks;`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -837,4 +844,135 @@ func TestCheckStartRefusesInvalidCIHandbackReattachment(t *testing.T) {
 			}
 		})
 	}
+}
+
+// publishedHeadSync is a live run that produced and published a head past its
+// submitted one, which the caller then adopted through guarded axi sync,
+// with no CI handback between them.
+const publishedHeadSync = `DELETE FROM ci_handbacks; UPDATE runs SET last_pushed_sha='` + acceptedReattachmentHead + `';`
+
+// A run that produced and published a later head keeps working in CI, and a
+// caller that adopted that head through guarded axi sync reattaches to that
+// same run instead of being refused as an earlier run at its submitted head
+// (issue 1889).
+func TestCheckStartReattachesToTheRunsPublishedHead(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		sql  string
+	}{
+		{name: "caller synchronized to the published head", sql: publishedHeadSync},
+		{name: "engine without the handback schema", sql: `DROP TABLE ci_handbacks; UPDATE runs SET last_pushed_sha='` + acceptedReattachmentHead + `';`},
+		{name: "accepted handback head published at the receipt generation", sql: `UPDATE runs SET last_pushed_sha='` + acceptedReattachmentHead + `';`},
+		{name: "accepted handback head published at a later generation", sql: `UPDATE runs SET last_pushed_sha='` + acceptedReattachmentHead + `',push_generation=9;`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			reader, project, worktree, _ := acceptedReattachmentFixture(t)
+			updateReattachmentFixture(t, reader.Root, test.sql)
+			before, err := os.ReadFile(filepath.Join(reader.Root, "state.sqlite"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			check, err := reader.CheckStart(t.Context(), project, worktree, "feature", "ship the correction", testPolicy(t))
+
+			// Assert
+			if err != nil || check.ReattachRun != "run-1" || check.TrustedHead != "" {
+				t.Fatalf("got %+v, %v; want the original run without a new launch", check, err)
+			}
+			after, err := os.ReadFile(filepath.Join(reader.Root, "state.sqlite"))
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("reattachment changed fixture state: %v", err)
+			}
+		})
+	}
+}
+
+func TestCheckStartRefusesAPublishedHeadReattachmentOfOtherWork(t *testing.T) {
+	const otherHead = "dddddddddddddddddddddddddddddddddddddddd"
+	for _, test := range []struct {
+		name   string
+		sql    string
+		intent string
+		change func(*acceptedReattachmentRunner)
+	}{
+		{name: "caller at an unrelated head", change: func(r *acceptedReattachmentRunner) { r.head = otherHead }},
+		{name: "caller moves during check", change: func(r *acceptedReattachmentRunner) { r.secondHead = otherHead }},
+		{name: "caller ahead of the publication", sql: `UPDATE runs SET last_pushed_sha='` + releasedReattachmentHead + `';`},
+		{name: "run moved past its publication", sql: `UPDATE runs SET head_sha='` + otherHead + `';`},
+		{name: "nothing published", sql: `UPDATE runs SET last_pushed_sha=NULL;`},
+		{name: "dirty caller", change: func(r *acceptedReattachmentRunner) { r.isDirty = true }},
+		{name: "wrong symbolic branch", change: func(r *acceptedReattachmentRunner) { r.branch = "other-branch" }},
+		{name: "changed intent", intent: "another task"},
+		{name: "blank intent", intent: " "},
+		{name: "pending status", sql: `UPDATE runs SET status='pending';`},
+		{name: "unknown status", sql: `UPDATE runs SET status='unknown';`},
+		{name: "returned custody", sql: `UPDATE runs SET custody_returned_at=0;`},
+		{name: "active publication", sql: `UPDATE runs SET push_active=1;`},
+		{name: "unknown publication activity", sql: `UPDATE runs SET push_active=NULL;`},
+		{name: "closed PR", sql: `UPDATE runs SET pr_state='closed';`},
+		{name: "missing PR state", sql: `UPDATE runs SET pr_state=NULL;`},
+		{name: "foreign push ref", sql: `UPDATE runs SET push_ref='refs/heads/other';`},
+		{name: "missing push ref", sql: `UPDATE runs SET push_ref=NULL;`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			reader, project, worktree, runner := acceptedReattachmentFixture(t)
+			updateReattachmentFixture(t, reader.Root, publishedHeadSync+test.sql)
+			if test.change != nil {
+				test.change(runner)
+			}
+			intent := test.intent
+			if intent == "" {
+				intent = "ship the correction"
+			}
+			before, err := os.ReadFile(filepath.Join(reader.Root, "state.sqlite"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			check, err := reader.CheckStart(t.Context(), project, worktree, "feature", intent, testPolicy(t))
+
+			// Assert
+			if !errors.Is(err, ErrUnresolved) || check != (StartCheck{}) {
+				t.Fatalf("got %+v, %v; want an unresolved refusal without a launch or reattachment", check, err)
+			}
+			after, readErr := os.ReadFile(filepath.Join(reader.Root, "state.sqlite"))
+			if readErr != nil || !bytes.Equal(before, after) {
+				t.Fatalf("refusal changed fixture state: %v", readErr)
+			}
+		})
+	}
+	t.Run("binding changes during check", func(t *testing.T) {
+		// Arrange
+		reader, project, worktree, runner := acceptedReattachmentFixture(t)
+		updateReattachmentFixture(t, reader.Root, publishedHeadSync)
+		runner.beforePublishedReread = func() {
+			updateReattachmentFixture(t, reader.Root, `UPDATE runs SET push_active=1;`)
+		}
+
+		// Act
+		check, err := reader.CheckStart(t.Context(), project, worktree, "feature", "ship the correction", testPolicy(t))
+
+		// Assert
+		if !errors.Is(err, ErrUnresolved) || check != (StartCheck{}) || !strings.Contains(err.Error(), "published head binding changed") {
+			t.Fatalf("got %+v, %v; want published binding drift refusal", check, err)
+		}
+	})
+	t.Run("refusal names the caller head", func(t *testing.T) {
+		// Arrange
+		reader, project, worktree, runner := acceptedReattachmentFixture(t)
+		updateReattachmentFixture(t, reader.Root, publishedHeadSync)
+		runner.head = otherHead
+
+		// Act
+		_, err := reader.CheckStart(t.Context(), project, worktree, "feature", "ship the correction", testPolicy(t))
+
+		// Assert
+		if !errors.Is(err, ErrUnresolved) || !strings.Contains(err.Error(), "not the head "+otherHead+" this start has") {
+			t.Fatalf("got %v; want a refusal naming the caller's head", err)
+		}
+	})
 }
