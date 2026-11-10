@@ -38,15 +38,22 @@ type Secret struct {
 }
 
 // Refusal is why a call that reads path, or writes it when isWrite, is
-// refused, naming the path, or empty when the call may go on.
+// refused, naming the path as the call gave it, and where it leads when a
+// link or a short name makes that another path, or empty when the call may
+// go on.
 func (b Boundary) Refusal(path string, isWrite bool) string {
-	resolved, ok := b.resolve(path)
+	given, ok := b.absolute(path)
 	if !ok {
 		return ""
 	}
+	resolved := realPath(given)
+	named := given
+	if !strings.EqualFold(resolved, given) {
+		named += " (" + resolved + ")"
+	}
 	for _, secret := range b.Secrets {
 		if within(resolved, secret.Path) {
-			return "it reaches " + resolved + ", which is in " + secret.Name + ", which no goblin or gate step reads or writes"
+			return "it reaches " + named + ", which is in " + secret.Name + ", which no goblin or gate step reads or writes"
 		}
 	}
 	if !isWrite {
@@ -57,12 +64,22 @@ func (b Boundary) Refusal(path string, isWrite bool) string {
 			return ""
 		}
 	}
-	return "it writes " + resolved + ", which is outside its worktree, its scratch folder and the caches it was given"
+	return "it writes " + named + ", which is outside its worktree, its scratch folder and the caches it was given"
 }
 
 // resolve is the absolute, link-free form of path as the session would
 // reach it, or false for a word that names no path.
 func (b Boundary) resolve(path string) (string, bool) {
+	given, ok := b.absolute(path)
+	if !ok {
+		return "", false
+	}
+	return realPath(given), true
+}
+
+// absolute is the absolute form of path as the session would read it, its
+// links not yet followed, or false for a word that names no path.
+func (b Boundary) absolute(path string) (string, bool) {
 	path = b.expand(strings.Trim(strings.TrimSpace(path), `"'`))
 	if path == "" {
 		return "", false
@@ -80,7 +97,7 @@ func (b Boundary) resolve(path string) (string, bool) {
 			return "", false
 		}
 	}
-	return realPath(filepath.Clean(path)), true
+	return filepath.Clean(path), true
 }
 
 // expand reads what a shell would before it reaches the path: ~, the

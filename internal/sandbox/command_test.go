@@ -10,11 +10,10 @@ func TestHostCommandRefusalRunsOnlyCfoGitAndGhOnTheHost(t *testing.T) {
 	root := t.TempDir()
 	worktree := filepath.Join(root, "worktrees", "project", "cg-x")
 	scratch := filepath.Join(root, "scratch", "cg-x")
-	installed := filepath.Join(root, "dev", "code-goblins", "bin", "cfo.exe")
-	planted := filepath.Join(worktree, "tools", "git.exe")
+	installed := filepath.ToSlash(filepath.Join(root, "dev", "code-goblins", "bin", "cfo.exe"))
+	planted := filepath.ToSlash(filepath.Join(worktree, "tools", "git.exe"))
 	gitBash := func(path string) string {
-		slashed := filepath.ToSlash(path)
-		return "/" + strings.ToLower(slashed[:1]) + slashed[2:]
+		return "/" + strings.ToLower(path[:1]) + path[2:]
 	}
 	for _, test := range []struct {
 		name, command, refusal string
@@ -25,6 +24,11 @@ func TestHostCommandRefusalRunsOnlyCfoGitAndGhOnTheHost(t *testing.T) {
 		{"git with a format of its own", `git log --format="%H %s" -n 3`, ""},
 		{"git rebase onto main", "git rebase -i --autosquash main", ""},
 		{"cfo by its installed path", installed + ` notify task --working "x && y"`, ""},
+		{"cfo by a short name in its path, as a hosted runner's temporary folder has", "C:/Users/RUNNER~1/AppData/Local/Temp/cfo.exe notify task --working x", ""},
+		{"a path with a short name in it", "git diff --stat C:/Users/RUNNER~1/notes.txt", ""},
+		{"a dashed word with a dot, quoted whole", "git log '--format=%h.%s' -n 3", ""},
+		{"an address after an option", "git log --author goblin@example.com", ""},
+		{"cfo by a path with backslashes, which Bash takes off", filepath.FromSlash(installed) + " notify task --working x", "a backslash outside quotes"},
 		{"a contained run", "cfo sandbox run -- sh -c 'npm ci && npm test'", ""},
 		{"a contained run in the background", "cfo gate turn --detach run.log -- cfo sandbox run -- npm test", ""},
 		{"a path from home", "git diff --stat ~/notes.txt", ""},
@@ -39,10 +43,23 @@ func TestHostCommandRefusalRunsOnlyCfoGitAndGhOnTheHost(t *testing.T) {
 		{"a subcommand", "git commit -m \"$(cat msg)\"", `'$' in a quoted string`},
 		{"a backtick", "git log `whoami`", "a backtick"},
 		{"PowerShell's grouping", "git status (npm test)", "a ("},
-		{"PowerShell's array subexpression", "git log @(./build.ps1)", "a ("},
-		{"an escaped double quote", `git status \"; npm test`, "a backslash before a quote"},
-		{"an escaped single quote", `git log \' ; npm test \'`, "a backslash before a quote"},
-		{"a subcommand between escaped single quotes", `git log \' $(npm test) \'`, "a backslash before a quote"},
+		{"PowerShell's array subexpression", "git log @(./build.ps1)", "an @ that starts a word"},
+		{"an escaped double quote", `git status \"; npm test`, "a backslash outside quotes"},
+		{"an escaped single quote", `git log \' ; npm test \'`, "a backslash outside quotes"},
+		{"a subcommand between escaped single quotes", `git log \' $(npm test) \'`, "a backslash outside quotes"},
+		{"rebase's -x behind a backslash, which Bash takes off", `git rebase \-x "npm test" main`, "a backslash outside quotes"},
+		{"an upload pack behind backslashes", `git fetch origin \-\-upload-pack=npm`, "a backslash outside quotes"},
+		{"a gh alias behind a backslash", `gh \alias set t --shell x`, "a backslash outside quotes"},
+		{"the gate's checks behind a backslash", `cfo \gate test`, "a backslash outside quotes"},
+		{"rebase's -x after a quoted string, which PowerShell reads as a word of its own", `git rebase 'main'-x 'npm test'`, "starts with a quoted string and goes on after it"},
+		{"an upload pack after a quoted string", `git fetch "origin"--upload-pack=npm`, "starts with a quoted string and goes on after it"},
+		{"two quoted strings PowerShell reads as one", `git commit -m 'a''b'`, "starts with a quoted string and goes on after it"},
+		{"an empty word before gh's command, which Windows PowerShell drops", `gh '' alias set t --shell x`, "an empty quoted string"},
+		{"an empty word before cfo's command", `cfo "" gate test`, "an empty quoted string"},
+		{"cfo's command in a list PowerShell spreads", "cfo gate,test", "a , outside quotes"},
+		{"PowerShell's stop-parsing token before gh's command", "gh --% alias set t --shell x", "--%, after which PowerShell"},
+		{"an upload pack Windows PowerShell splits at its dot", "git fetch origin --upload-pack.x", "starts with - and holds a ."},
+		{"a splatted variable", "git status @args", "an @ that starts a word"},
 		{"an escaped quote in a message", `git commit -m "add 3\" margin" && npm test`, `'\\' in a quoted string`},
 		{"a quote of the other kind in a string", `git commit -m "it's" && npm test`, `'\'' in a quoted string`},
 		{"a typographic quote PowerShell ends a string at", "git log '’;npm test;‘'", "a typographic quote"},
@@ -51,7 +68,7 @@ func TestHostCommandRefusalRunsOnlyCfoGitAndGhOnTheHost(t *testing.T) {
 		{"git the worktree holds, by its path", planted + " status", "the container can write it"},
 		{"git the worktree holds, by its Git Bash path", gitBash(planted) + " status", "the container can write it"},
 		{"gh the worktree's packages hold", "node_modules/.bin/gh pr view", "the container can write it"},
-		{"cfo the scratch folder holds", filepath.Join(scratch, "cfo.exe") + " notify task --working x", "the container can write it"},
+		{"cfo the scratch folder holds", filepath.ToSlash(filepath.Join(scratch, "cfo.exe")) + " notify task --working x", "the container can write it"},
 		{"cfo the worktree holds, started by a turn", "cfo gate turn -- ./cfo.exe sandbox run -- npm test", "the container can write it"},
 		{"a heavy run on the host", "cfo gate turn -- npm test", "runs the project's own code on the host"},
 		{"the gate's checks on the host", "cfo gate test", "runs the project's own code on the host"},
@@ -60,7 +77,7 @@ func TestHostCommandRefusalRunsOnlyCfoGitAndGhOnTheHost(t *testing.T) {
 		{"the project's security tier", "cfo security cg-x", "runs the project's own code on the host"},
 		{"the project's deployment", "cfo deploy cg-x", "runs the project's own code on the host"},
 		{"git in a nested repository", "git -C vendor/x diff", "git -C on the host, an option before git's command"},
-		{"git of another git folder", "git --git-dir=vendor/x/.git log", "an option before git's command"},
+		{"git of another git folder", "git --git-dir vendor/x/.git log", "an option before git's command"},
 		{"git of another work tree", "git --work-tree vendor/x status", "an option before git's command"},
 		{"git with a configuration of its own", "git -c core.pager=./build.sh log", "an option before git's command"},
 		{"git's programs from the worktree", "git --exec-path=tools status", "an option before git's command"},
@@ -97,6 +114,35 @@ func TestHostCommandRefusalRunsOnlyCfoGitAndGhOnTheHost(t *testing.T) {
 			// Assert
 			if test.refusal == "" && refusal != "" || test.refusal != "" && !strings.Contains(refusal, test.refusal) {
 				t.Fatalf("HostCommandRefusal(%q) = %q, want %q", test.command, refusal, test.refusal)
+			}
+		})
+	}
+}
+
+func TestRunsNoHostGitLetsOnlyContainedRunsAndReportsThrough(t *testing.T) {
+	for _, test := range []struct {
+		name, command string
+		want          bool
+	}{
+		{"a contained run", "cfo sandbox run -- rm -rf vendor/x/.git", true},
+		{"a contained run in the background", "cfo gate turn --detach run.log -- cfo sandbox run -- npm test", true},
+		{"a report", "cfo notify task --working x", true},
+		{"a report and a contained run", "cfo notify task --working x && cfo sandbox run -- npm test", true},
+		{"git", "git status", false},
+		{"a contained run then git", "cfo sandbox run -- npm test && git status", false},
+		{"a pipeline run, which pushes with git", "cfo pipeline run task --intent-file intent.md", false},
+		{"cfo sandbox without run", "cfo sandbox", false},
+		{"a turn of another program", "cfo gate turn -- git status", false},
+		{"a command the grammar refuses", "cfo notify task --working x; git status", false},
+		{"no command", "", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			got := RunsNoHostGit(test.command)
+
+			// Assert
+			if got != test.want {
+				t.Fatalf("RunsNoHostGit(%q) = %v, want %v", test.command, got, test.want)
 			}
 		})
 	}

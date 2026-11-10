@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // emptyTree is git's empty tree, which every repository holds without
@@ -24,15 +26,16 @@ const HooksOffDir = "git-hooks-off"
 // would otherwise reach: hooks are read from hooksDir, an empty folder no
 // container mounts, git's fsmonitor is off, attributes are read from the
 // empty tree rather than the worktree's .gitattributes, so no filter, diff
-// or merge driver a file in the worktree names runs, and git recurses into
-// no submodule by default. Git reads these above any repository's own
-// configuration. What a replaced .git link or a submodule would bring, a
-// repository configuration of the container's choosing, is refused before
-// each command instead (CheckGitLink), as is a git pointed at another
-// repository (HostCommandRefusal).
+// or merge driver a file in the worktree names runs, git recurses into no
+// submodule by default, and git never takes a folder it finds for a bare
+// repository. Git reads these above any repository's own configuration.
+// What a replaced .git link or a submodule would bring, a repository
+// configuration of the container's choosing, is refused before each command
+// instead (CheckGitLink and NestedGitRefusal), as is a git pointed at
+// another repository (HostCommandRefusal).
 func HostGitEnvironment(hooksDir string) map[string]string {
 	return map[string]string{
-		"GIT_CONFIG_COUNT":   "4",
+		"GIT_CONFIG_COUNT":   "5",
 		"GIT_CONFIG_KEY_0":   "core.hooksPath",
 		"GIT_CONFIG_VALUE_0": hooksDir,
 		"GIT_CONFIG_KEY_1":   "core.fsmonitor",
@@ -41,6 +44,8 @@ func HostGitEnvironment(hooksDir string) map[string]string {
 		"GIT_CONFIG_VALUE_2": "false",
 		"GIT_CONFIG_KEY_3":   "diff.ignoreSubmodules",
 		"GIT_CONFIG_VALUE_3": "all",
+		"GIT_CONFIG_KEY_4":   "safe.bareRepository",
+		"GIT_CONFIG_VALUE_4": "explicit",
 		"GIT_ATTR_SOURCE":    emptyTree,
 	}
 }
@@ -57,7 +62,7 @@ func ReadGitLink(worktree string) (string, error) {
 	if !info.Mode().IsRegular() {
 		return "", fmt.Errorf("sandbox: the worktree's .git at %s is a %s, not the link file git writes for a worktree", path, kind(info))
 	}
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("sandbox: read the worktree's .git link: %w", err)
 	}
@@ -69,12 +74,11 @@ func ReadGitLink(worktree string) (string, error) {
 }
 
 // CheckGitLink refuses a host command of a sandbox task whose worktree's
-// .git link no longer says want, the link its spawn recorded, whose
-// worktree has a submodule (submoduleRefusal), or that runs from a folder of
-// the worktree, cwd, under which a .git of another repository was made: each
-// would have host git read a repository the container wrote, its hooks,
-// filters, fsmonitor and configuration. A cwd outside the worktree is
-// refused too, since the host runs a sandbox task's commands only there.
+// .git link no longer says want, the link its spawn recorded, or whose
+// worktree has a submodule (submoduleRefusal): each would have host git read
+// a repository the container wrote, its hooks, filters, fsmonitor and
+// configuration. A cwd outside the worktree is refused too, since the host
+// runs a sandbox task's commands only there.
 func CheckGitLink(worktree, cwd, want string) error {
 	link, err := ReadGitLink(worktree)
 	if err != nil {
@@ -97,17 +101,37 @@ func CheckGitLink(worktree, cwd, want string) error {
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
 		return fmt.Errorf("sandbox: this command runs in %s, outside its worktree %s, and a sandbox task runs host commands only in its worktree", cwd, worktree)
 	}
-	for dir := cwd; !strings.EqualFold(filepath.Clean(dir), filepath.Clean(worktree)); dir = filepath.Dir(dir) {
-		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
-			return fmt.Errorf("sandbox: %s holds a .git of its own, so host git there would read a repository the container made", dir)
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("sandbox: look for a .git in %s: %w", dir, err)
-		}
-		if filepath.Dir(dir) == dir {
-			break
-		}
-	}
 	return nil
+}
+
+// NestedGitRefusal refuses a host git of a sandbox task while a .git other
+// than its own link is anywhere under its worktree, one the container could
+// have made: host git reads that repository's configuration, hooks and
+// filters from a folder under it, through a submodule, or once a checkout
+// or a pull brings in a gitlink there, after any check of the command
+// itself. It walks the whole worktree, stopping at the first it finds, and
+// refuses a folder it cannot read, since what that holds is unknown.
+func NestedGitRefusal(worktree string) error {
+	own := filepath.Join(worktree, ".git")
+	found := ""
+	err := filepath.WalkDir(worktree, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if strings.EqualFold(entry.Name(), ".git") && path != own {
+			found = path
+			return fs.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("sandbox: look for a .git the container made in the worktree: %w", err)
+	}
+	if found == "" {
+		return nil
+	}
+	relative := strings.TrimPrefix(found, filepath.Clean(worktree)+string(filepath.Separator))
+	return fmt.Errorf("sandbox: the worktree holds %s, a .git of another repository, which host git would read as the container wrote it: remove it in the container with cfo sandbox run -- rm -rf %s, and if the project needs it, tell the CEO, since a sandbox task's project cannot hold a repository of its own", found, filepath.ToSlash(relative))
 }
 
 // submoduleRefusal refuses worktree, whose git folder is gitDir, while it
@@ -131,7 +155,7 @@ func submoduleRefusal(worktree, gitDir string) error {
 	if len(shared) > 0 {
 		return fmt.Errorf("sandbox: the index in %s is split across %s, which this check does not read for submodules", gitDir, shared[0])
 	}
-	data, err := os.ReadFile(filepath.Join(gitDir, "index"))
+	data, err := fsx.ReadFile(filepath.Join(gitDir, "index"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}

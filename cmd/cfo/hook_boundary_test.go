@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/sandbox"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -28,6 +32,9 @@ func containTask(t *testing.T, stateDir string) state.TaskMeta {
 	meta.SandboxImage, meta.SandboxGitLink = "node:22", link
 	if meta.Scratch == "" {
 		meta.Scratch = t.TempDir()
+	}
+	if meta.TaskTmp == "" {
+		meta.TaskTmp = t.TempDir()
 	}
 	if err := state.WriteTaskMeta(stateDir, meta); err != nil {
 		t.Fatal(err)
@@ -68,11 +75,47 @@ func TestEverySealHoldsASandboxTasksShellToItsHostRule(t *testing.T) {
 		},
 		{name: "git the worktree holds, by a relative path", command: "./tools/git.exe status", refusal: "the container can write it"},
 		{name: "git the worktree holds, by its path", commandOf: func(meta state.TaskMeta) string {
-			return filepath.Join(meta.Worktree, "tools", "git.exe") + " status"
+			return filepath.ToSlash(filepath.Join(meta.Worktree, "tools", "git.exe")) + " status"
 		}, refusal: "the container can write it"},
 		{name: "cfo the scratch folder holds", commandOf: func(meta state.TaskMeta) string {
-			return filepath.Join(meta.Scratch, "cfo.exe") + " notify x --working y"
+			return filepath.ToSlash(filepath.Join(meta.Scratch, "cfo.exe")) + " notify x --working y"
 		}, refusal: "the container can write it"},
+		{name: "git by a path with backslashes, which Bash takes off", commandOf: func(meta state.TaskMeta) string {
+			return filepath.Join(meta.Scratch, "git.exe") + " status"
+		}, refusal: "a backslash outside quotes"},
+		{
+			name: "host git while the container made a repository deep in the worktree", command: "git status",
+			arrange: func(t *testing.T, meta state.TaskMeta) {
+				makeNestedGit(t, meta.Worktree)
+			},
+			refusal: "node_modules/pkg/.git",
+		},
+		{
+			name: "removing that repository in the container", command: "cfo sandbox run -- rm -rf node_modules/pkg/.git",
+			arrange: func(t *testing.T, meta state.TaskMeta) {
+				makeNestedGit(t, meta.Worktree)
+			},
+		},
+		{
+			name: "host git while a container of the task runs", command: "git status",
+			arrange: func(t *testing.T, meta state.TaskMeta) {
+				holdSandboxRun(t, meta, "cfo-sandbox-x-running", true)
+			},
+			refusal: "cfo-sandbox-x-running of this task runs",
+		},
+		{
+			name: "host git after a run ended without removing its container", command: "git status",
+			arrange: func(t *testing.T, meta state.TaskMeta) {
+				holdSandboxRun(t, meta, "cfo-sandbox-x-left", false)
+			},
+			refusal: "the next cfo sandbox run removes it",
+		},
+		{
+			name: "a report while a container of the task runs", command: "cfo notify x --working y",
+			arrange: func(t *testing.T, meta state.TaskMeta) {
+				holdSandboxRun(t, meta, "cfo-sandbox-x-running", true)
+			},
+		},
 	} {
 		for _, entry := range []string{"board", "goblin-seal-codex", "goblin-seal-pi"} {
 			t.Run(test.name+"/"+entry, func(t *testing.T) {
@@ -135,6 +178,44 @@ func TestEverySealHoldsASandboxTasksShellToItsHostRule(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// makeNestedGit makes a repository's .git deep in worktree, where the
+// container could make one.
+func makeNestedGit(t *testing.T, worktree string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(worktree, "node_modules", "pkg", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// holdSandboxRun records the container name as one of meta's cfo sandbox
+// run started: by this process, which runs, when isRunning, or by a process
+// that ended.
+func holdSandboxRun(t *testing.T, meta state.TaskMeta, name string, isRunning bool) {
+	t.Helper()
+	runs := filepath.Join(meta.TaskTmp, sandbox.RunsDir)
+	if err := os.MkdirAll(runs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if isRunning {
+		if _, err := lock.AcquireExclusiveNamedFor(runs, name, "a test's container"); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = lock.ReleaseExclusiveNamed(runs, name) })
+		return
+	}
+	ended := exec.Command("cmd.exe", "/c", "exit 0")
+	if err := ended.Run(); err != nil {
+		t.Fatal(err)
+	}
+	record, err := json.Marshal(lock.Info{PID: ended.Process.Pid, OwnerPID: ended.Process.Pid, Start: time.Now().Add(-time.Minute), Acquired: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runs, name), record, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

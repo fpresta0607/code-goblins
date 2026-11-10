@@ -24,6 +24,14 @@ func gitRepository(t *testing.T) string {
 // global or system configuration, and fails the test when git fails.
 func runGit(t *testing.T, dir string, env map[string]string, args ...string) {
 	t.Helper()
+	if output, err := gitCommand(t, dir, env, args...).CombinedOutput(); err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
+	}
+}
+
+// gitCommand is git with args in dir, as runGit runs it.
+func gitCommand(t *testing.T, dir string, env map[string]string, args ...string) *exec.Cmd {
+	t.Helper()
 	global := filepath.Join(t.TempDir(), "gitconfig")
 	if err := os.WriteFile(global, nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -34,9 +42,7 @@ func runGit(t *testing.T, dir string, env map[string]string, args ...string) {
 	for name, value := range env {
 		command.Env = append(command.Env, name+"="+value)
 	}
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
-	}
+	return command
 }
 
 // hostGit is the environment a sandbox task's host git runs with, its hooks
@@ -85,6 +91,7 @@ func TestHostGitRunsNothingTheRepositoryPlanted(t *testing.T) {
 				t.Fatal(err)
 			}
 		}, []string{"status", "--porcelain"}},
+		{"a filter a submodule's own repository names, which a checkout brings in after the check", plantSubmoduleBranch, []string{"checkout", "planted"}},
 	} {
 		t.Run(escape.name, func(t *testing.T) {
 			// Arrange: the premise, that the planted escape runs at all.
@@ -142,6 +149,60 @@ func plantSubmodule(t *testing.T, dir, marker string) {
 	}
 }
 
+// plantSubmoduleBranch makes sub in dir a repository of its own, as
+// plantSubmodule does, but commits it as a submodule only on the branch
+// planted, leaving dir on its first branch, whose index names no submodule:
+// a checkout of planted brings the submodule in after any check of the
+// index before it.
+func plantSubmoduleBranch(t *testing.T, dir, marker string) {
+	t.Helper()
+	runGit(t, dir, nil, "add", "a.txt")
+	runGit(t, dir, nil, "commit", "-q", "-m", "x")
+	runGit(t, dir, nil, "switch", "-q", "-c", "planted")
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, sub, nil, "init", "-q")
+	if err := os.WriteFile(filepath.Join(sub, "a.txt"), []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, sub, nil, "add", "a.txt")
+	runGit(t, sub, nil, "commit", "-q", "-m", "x")
+	runGit(t, dir, nil, "add", "sub")
+	runGit(t, dir, nil, "commit", "-q", "-m", "x")
+	runGit(t, dir, nil, "switch", "-q", "-")
+	runGit(t, sub, nil, "config", "filter.planted.clean", "echo ran > '"+filepath.ToSlash(marker)+"'; cat")
+	if err := os.MkdirAll(filepath.Join(sub, ".git", "info"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, ".git", "info", "attributes"), []byte("* filter=planted\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "a.txt"), []byte("b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A folder the container made a bare repository of is one plain git takes
+// for a repository from a folder in it, reading its configuration, and one
+// a sandbox task's host git does not.
+func TestHostGitTakesNoFolderItFindsForABareRepository(t *testing.T) {
+	// Arrange: the premise, that plain git takes it for one.
+	worktree := gitRepository(t)
+	bare := filepath.Join(worktree, "vendor", "x")
+	runGit(t, worktree, nil, "init", "-q", "--bare", bare)
+	runGit(t, bare, nil, "rev-parse", "--git-dir")
+
+	// Act
+	output, err := gitCommand(t, bare, hostGit(t), "rev-parse", "--git-dir").CombinedOutput()
+
+	// Assert
+	if err == nil {
+		t.Fatalf("host git took %s for a repository: %s", bare, output)
+	}
+}
+
 // worktreeWithLink is a folder with a .git link as git writes it for a
 // worktree, and the link's text.
 func worktreeWithLink(t *testing.T) (string, string) {
@@ -175,16 +236,6 @@ func TestCheckGitLinkRefusesARepositoryTheContainerMade(t *testing.T) {
 			}
 			return worktree
 		}, "is a folder"},
-		{"a .git of its own under the folder the command runs in", func(t *testing.T, worktree string) string {
-			nested := filepath.Join(worktree, "src", "pkg")
-			if err := os.MkdirAll(filepath.Join(worktree, "src", ".git"), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.MkdirAll(nested, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			return nested
-		}, "holds a .git of its own"},
 		{"a command outside the worktree", func(t *testing.T, worktree string) string {
 			return t.TempDir()
 		}, "outside its worktree"},
@@ -287,6 +338,49 @@ func TestCheckGitLinkRefusesASubmoduleOfTheWorktree(t *testing.T) {
 			// Assert
 			if test.want == "" && err != nil || test.want != "" && (err == nil || !strings.Contains(err.Error(), test.want) || !strings.Contains(err.Error(), "cannot use submodules")) {
 				t.Fatalf("CheckGitLink = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+// A .git the container made anywhere in the worktree, a folder or a link
+// file, in any case, is refused naming it and how to remove it; the
+// worktree's own link and a name that only starts with .git are let be.
+func TestNestedGitRefusalFindsARepositoryAnywhereInTheWorktree(t *testing.T) {
+	for _, test := range []struct {
+		name, plant string
+		isFile      bool
+		want        string
+	}{
+		{"a repository deep in the packages", "node_modules/pkg/.git", false, "cfo sandbox run -- rm -rf node_modules/pkg/.git"},
+		{"a submodule's link file", "vendor/x/.git", true, "cfo sandbox run -- rm -rf vendor/x/.git"},
+		{"a repository in another case", "src/.GIT", false, "cfo sandbox run -- rm -rf src/.GIT"},
+		{"a folder whose name starts with .git", ".github/workflows", false, ""},
+		{"the worktree's own link alone", "", false, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			worktree, _ := worktreeWithLink(t)
+			if test.plant != "" {
+				path := filepath.Join(worktree, filepath.FromSlash(test.plant))
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if test.isFile {
+					if err := os.WriteFile(path, []byte("gitdir: /work/evil\n"), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := os.MkdirAll(path, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			err := NestedGitRefusal(worktree)
+
+			// Assert
+			if test.want == "" && err != nil || test.want != "" && (err == nil || !strings.Contains(err.Error(), test.want) || !strings.Contains(err.Error(), filepath.Join(worktree, filepath.FromSlash(test.plant)))) {
+				t.Fatalf("NestedGitRefusal = %v, want %q", err, test.want)
 			}
 		})
 	}

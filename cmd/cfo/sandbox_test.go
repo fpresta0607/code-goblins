@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/sandbox"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -58,7 +59,7 @@ func sandboxHome(t *testing.T, image string, engine *fakeSandboxEngine) (command
 	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte(link+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	meta := state.TaskMeta{ID: "cg-x", Worktree: worktree, Scratch: filepath.Join(root, "scratch", "cg-x")}
+	meta := state.TaskMeta{ID: "cg-x", Worktree: worktree, Scratch: filepath.Join(root, "scratch", "cg-x"), TaskTmp: filepath.Join(h.State, "tasktmp", "cg-x")}
 	if image != "" {
 		meta.SandboxImage, meta.SandboxGitLink = image, link
 	}
@@ -95,15 +96,14 @@ func TestSandboxRunRunsNothingItCannotContain(t *testing.T) {
 			refusal: "the link its spawn recorded",
 		},
 		{
-			name: "a folder the container made a repository", image: "node:22", task: "cg-x", engine: fakeSandboxEngine{isRunning: true},
+			name: "a task whose record names no tasktmp folder", image: "node:22", task: "cg-x", engine: fakeSandboxEngine{isRunning: true},
 			arrange: func(t *testing.T, meta state.TaskMeta) {
-				planted := filepath.Join(meta.Worktree, "sub")
-				if err := os.MkdirAll(filepath.Join(planted, ".git"), 0o755); err != nil {
+				meta.TaskTmp = ""
+				if err := state.WriteTaskMeta(filepath.Dir(filepath.Dir(filepath.Dir(meta.Worktree)))+string(filepath.Separator)+"state", meta); err != nil {
 					t.Fatal(err)
 				}
-				t.Chdir(planted)
 			},
-			refusal: "holds a .git of its own",
+			refusal: "names no tasktmp folder",
 		},
 		{
 			name: "a .gitmodules the container wrote", image: "node:22", task: "cg-x", engine: fakeSandboxEngine{isRunning: true},
@@ -262,7 +262,10 @@ func dockerRun(t *testing.T, record string) (string, string) {
 
 // A sandbox task's command runs as docker run in its image, with its
 // worktree and scratch folder mounted, takes the docker run's exit code, and
-// leaves no container behind.
+// leaves no container behind. Its container is recorded while it runs, which
+// holds the task's host git back, and a container a run that ended left is
+// removed first. A .git the container made, which holds host git back, does
+// not hold back the run that removes it.
 func TestSandboxRunRunsTheCommandInItsContainerAndRemovesIt(t *testing.T) {
 	// Arrange
 	turnLine(t)
@@ -271,6 +274,14 @@ func TestSandboxRunRunsTheCommandInItsContainerAndRemovesIt(t *testing.T) {
 	runtime := turnRuntime()
 	runtime.resolveHome, runtime.sandboxEngine = sandboxed.resolveHome, sandboxed.sandboxEngine
 	record := fakeDocker(t, 3)
+	runs := filepath.Join(meta.TaskTmp, sandbox.RunsDir)
+	listing := filepath.Join(t.TempDir(), "records.txt")
+	script := "@dir /b \"" + runs + "\"> \"" + listing + "\"\r\n@echo %*> \"" + record + "\"\r\n@exit /b 3\r\n"
+	if err := os.WriteFile(filepath.Join(filepath.Dir(record), "docker.bat"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	holdSandboxRun(t, meta, "cfo-sandbox-cg-x-left", false)
+	makeNestedGit(t, meta.Worktree)
 	stdout, err := os.Create(filepath.Join(t.TempDir(), "stdout"))
 	if err != nil {
 		t.Fatal(err)
@@ -302,8 +313,18 @@ func TestSandboxRunRunsTheCommandInItsContainerAndRemovesIt(t *testing.T) {
 			t.Fatalf("docker %s, want %q in it", arguments, want)
 		}
 	}
-	if !slices.Equal(engine.removed, []string{name}) {
-		t.Fatalf("removed containers %q, want the run's own, %q", engine.removed, name)
+	if !slices.Equal(engine.removed, []string{"cfo-sandbox-cg-x-left", name}) {
+		t.Fatalf("removed containers %q, want the one an ended run left, then the run's own, %q", engine.removed, name)
+	}
+	recorded, err := os.ReadFile(listing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(recorded)) != name {
+		t.Fatalf("records while the container ran = %q, want the run's own, %q", recorded, name)
+	}
+	if left, err := os.ReadDir(runs); err != nil || len(left) != 0 {
+		t.Fatalf("records after the run = %v (%v), want none", left, err)
 	}
 }
 

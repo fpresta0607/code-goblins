@@ -134,13 +134,15 @@ func hostGitConfiguration(env func(string) string) map[string]string {
 
 // wantHostGit is the configuration a sandbox task's host git runs with:
 // hooks from hooksOff, an empty folder, no fsmonitor, no recursion into a
-// submodule, and attributes from git's empty tree, whose id git publishes.
+// submodule, no folder it finds taken for a bare repository, and attributes
+// from git's empty tree, whose id git publishes.
 func wantHostGit(hooksOff string) map[string]string {
 	return map[string]string{
 		"core.hooksPath":        hooksOff,
 		"core.fsmonitor":        "false",
 		"submodule.recurse":     "false",
 		"diff.ignoreSubmodules": "all",
+		"safe.bareRepository":   "explicit",
 		"GIT_ATTR_SOURCE":       "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
 	}
 }

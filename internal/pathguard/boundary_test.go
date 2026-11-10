@@ -171,13 +171,20 @@ func TestToolRefusalFollowsALinkOutOfTheWorktree(t *testing.T) {
 	if err := os.Symlink(filepath.Dir(f.sshKey), link); err != nil {
 		t.Skipf("this account cannot make a symbolic link: %v", err)
 	}
+	// Where the link leads is named in its long form, which a temporary
+	// folder's short name, as a hosted runner's is, is not.
+	sshKey, err := filepath.EvalSymlinks(f.sshKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	given := filepath.Join(link, "id_ed25519")
 
 	// Act
-	refusal := f.boundary.ToolRefusal("Read", toolInput(t, map[string]string{"file_path": filepath.Join(link, "id_ed25519")}))
+	refusal := f.boundary.ToolRefusal("Read", toolInput(t, map[string]string{"file_path": given}))
 
 	// Assert
-	if !strings.Contains(strings.ToLower(refusal), strings.ToLower(f.sshKey)) {
-		t.Fatalf("a read through a link to the ssh folder gave %q, want it refused naming %s", refusal, f.sshKey)
+	if !strings.Contains(strings.ToLower(refusal), strings.ToLower(given)) || !strings.Contains(strings.ToLower(refusal), strings.ToLower(sshKey)) {
+		t.Fatalf("a read through a link to the ssh folder gave %q, want it refused naming %s and where it leads, %s", refusal, given, sshKey)
 	}
 }
 

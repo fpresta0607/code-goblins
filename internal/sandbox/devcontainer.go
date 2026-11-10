@@ -5,10 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // devcontainerFiles are where a project declares its devcontainer, in the
@@ -27,7 +28,7 @@ var imagePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/:@+-]*$`)
 // project that declares none is refused with where to declare one.
 func Image(checkout string) (string, error) {
 	for _, name := range devcontainerFiles {
-		data, err := os.ReadFile(filepath.Join(checkout, name))
+		data, err := fsx.ReadFile(filepath.Join(checkout, name))
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}

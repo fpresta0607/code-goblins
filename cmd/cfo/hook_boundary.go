@@ -33,8 +33,10 @@ func goblinToolRefusal(h home.Home, meta state.TaskMeta, worktreeDir string, pay
 // sandboxRefusal is why a shell command of a sandbox task's goblin, meta's,
 // is refused on the host, or empty when it runs: it runs anything but cfo,
 // git and gh (sandbox.HostCommandRefusal), or its worktree's .git link no
-// longer says what its spawn found, or it runs where a .git the container
-// made would answer (sandbox.CheckGitLink). Every other task's command, and
+// longer says what its spawn found (sandbox.CheckGitLink). A command that
+// may run host git waits too while a .git the container made is anywhere in
+// the worktree (sandbox.NestedGitRefusal) or a container of the task may
+// run (sandbox.RunningContainerRefusal). Every other task's command, and
 // every call that runs no command, is left to the path boundary.
 func sandboxRefusal(meta state.TaskMeta, payload claudehook.Payload) string {
 	if meta.SandboxImage == "" || !isShellTool(payload.ToolName) {
@@ -49,6 +51,15 @@ func sandboxRefusal(meta state.TaskMeta, payload claudehook.Payload) string {
 	}
 	if err := sandbox.CheckGitLink(meta.Worktree, cwd, meta.SandboxGitLink); err != nil {
 		return "[sandbox] this command waits, since host git must never read a repository the container wrote: " + err.Error() + ". Tell the CEO with a blocked report; never repair the link yourself."
+	}
+	if sandbox.RunsNoHostGit(payload.Command) {
+		return ""
+	}
+	if err := sandbox.RunningContainerRefusal(meta.TaskTmp); err != nil {
+		return "[sandbox] this command waits, since host git must never read a repository the container wrote: " + err.Error() + "."
+	}
+	if err := sandbox.NestedGitRefusal(meta.Worktree); err != nil {
+		return "[sandbox] this command waits, since host git must never read a repository the container wrote: " + err.Error() + "."
 	}
 	return ""
 }

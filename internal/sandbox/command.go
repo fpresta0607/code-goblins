@@ -44,6 +44,7 @@ var whyNotPlain = map[byte]string{
 	'(': "a (, which runs a command of its own", ')': "a ), which ends a command of its own", '{': "a {, which groups commands", '}': "a }, which ends a group of commands",
 	'*': "a *, which expands to file names", '?': "a ?, which expands to file names", '[': "a [, which expands to file names", '#': "a #, which starts a comment",
 	'!': "a !, which Bash expands from its history", '\'': "a quote no other quote ends", '"': "a quote no other quote ends",
+	'\\': "a backslash outside quotes, which Bash takes off and PowerShell keeps: write a path with / instead", ',': "a , outside quotes, which PowerShell reads as a list of words",
 }
 
 // HostCommandRefusal is why command, a shell command a sandbox task's goblin
@@ -92,40 +93,64 @@ func HostCommandRefusal(command, cwd, worktree, scratch string) string {
 
 // hostCommands splits command into its commands at &&, each as its words
 // with their quotes taken off, or says why it is refused. A word is made of
-// plain characters, letters, digits and . _ / \ : = @ % + , - and a ~ that
-// starts it, and of single- or double-quoted strings that hold no
-// backslash, $, backtick, parenthesis, quote of the other kind or quote
-// PowerShell reads as its own, so Bash and PowerShell read the same words.
-// A backslash before a quote is refused, since Bash reads it as a quote of
-// the text and PowerShell as the start of a string.
+// plain characters, letters, digits and . _ / : = @ % + - ~, and of single-
+// or double-quoted strings that hold no backslash, $, backtick, parenthesis,
+// quote of the other kind or quote PowerShell reads as its own. Bash and
+// PowerShell then read the same words, and what either would read
+// differently is refused: a backslash outside quotes, which Bash takes off
+// and PowerShell keeps; a word that starts with a quoted string and goes on
+// after it, which PowerShell reads as two words; an empty word, which
+// Windows PowerShell drops; a comma, which PowerShell reads as a list of
+// words; an @ that starts a word, which PowerShell splats; a word that
+// starts with - and holds a ., which Windows PowerShell splits at the .;
+// and --%, after which PowerShell stops reading.
 func hostCommands(command string) ([][]string, string) {
 	var commands [][]string
 	var words []string
 	var word strings.Builder
-	isWord := false
-	flush := func() {
-		if isWord {
-			words = append(words, word.String())
-		}
+	// isBare is whether the word starts with a plain character, which
+	// PowerShell reads as a word of its own grammar, not a string.
+	isWord, isBare := false, false
+	flush := func() string {
+		text := word.String()
 		word.Reset()
-		isWord = false
+		if !isWord {
+			return ""
+		}
+		wasBare := isBare
+		isWord, isBare = false, false
+		switch {
+		case text == "":
+			return "an empty quoted string, which Windows PowerShell drops before it starts a program"
+		case wasBare && text == "--%":
+			return "--%, after which PowerShell reads the rest of the command as no words of its own"
+		case wasBare && strings.HasPrefix(text, "-") && strings.Contains(text, "."):
+			return "the word " + text + ", which starts with - and holds a ., where Windows PowerShell splits it in two: quote the whole word"
+		}
+		words = append(words, text)
+		return ""
 	}
 	for index := 0; index < len(command); index++ {
 		c := command[index]
 		switch {
 		case c == ' ' || c == '\t':
-			flush()
+			if refusal := flush(); refusal != "" {
+				return nil, refusal
+			}
 		case c == '&' && index+1 < len(command) && command[index+1] == '&':
-			flush()
+			if refusal := flush(); refusal != "" {
+				return nil, refusal
+			}
 			if len(words) > 0 {
 				commands = append(commands, words)
 			}
 			words = nil
 			index++
-		case c == '\\' && index+1 < len(command) && (command[index+1] == '\'' || command[index+1] == '"'):
-			return nil, "a backslash before a quote, which Bash reads as a quote of the text and PowerShell as the start of a string"
-		case c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.IndexByte(`._/\:=@%+,-`, c) >= 0 || c == '~' && !isWord:
+		case c == '@' && !isWord:
+			return nil, "an @ that starts a word, which PowerShell reads as a variable or array it splats"
+		case c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.IndexByte(`._/:=@%+-~`, c) >= 0:
 			word.WriteByte(c)
+			isBare = isBare || !isWord
 			isWord = true
 		case c == '\'' || c == '"':
 			end := strings.IndexByte(command[index+1:], c)
@@ -139,6 +164,10 @@ func hostCommands(command string) ([][]string, string) {
 			if strings.ContainsAny(text, "\u2018\u2019\u201a\u201b\u201c\u201d\u201e") {
 				return nil, "a typographic quote in a quoted string, which PowerShell reads as a quote that ends it"
 			}
+			after := index + 1 + end + 1
+			if !isWord && after < len(command) && command[after] != ' ' && command[after] != '\t' && command[after] != '&' {
+				return nil, "a word that starts with a quoted string and goes on after it, which PowerShell reads as two words and Bash as one: quote the whole word"
+			}
 			word.WriteString(text)
 			isWord = true
 			index += end + 1
@@ -148,7 +177,9 @@ func hostCommands(command string) ([][]string, string) {
 			return nil, fmt.Sprintf("%q outside quotes, which is no plain character", c)
 		}
 	}
-	flush()
+	if refusal := flush(); refusal != "" {
+		return nil, refusal
+	}
 	if len(words) > 0 {
 		commands = append(commands, words)
 	}
@@ -237,6 +268,29 @@ func refusedOption(program string, arguments []string) string {
 		}
 	}
 	return ""
+}
+
+// RunsNoHostGit reports whether command, which HostCommandRefusal lets run,
+// starts only cfo sandbox run, by itself or in a cfo gate turn, and cfo
+// notify, none of which runs git on the host. Those run while a .git the
+// container made or a running container refuses every other host command,
+// so a goblin can still remove the one in its container, wait its turn and
+// report.
+func RunsNoHostGit(command string) bool {
+	commands, refusal := hostCommands(command)
+	if refusal != "" || len(commands) == 0 {
+		return false
+	}
+	for _, words := range commands {
+		if programName(words[0]) != "cfo" || len(words) < 2 {
+			return false
+		}
+		isSandboxRun := words[1] == "sandbox" && len(words) > 2 && words[2] == "run"
+		if words[1] != "notify" && !isSandboxRun && (words[1] != "gate" || sandboxTurnProgram(words[2:]) == "") {
+			return false
+		}
+	}
+	return true
 }
 
 // sandboxTurnProgram is the program word of a turn that takes it for cfo

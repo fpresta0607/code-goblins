@@ -147,19 +147,24 @@ A spawn is refused before anything starts when `docker` is not on PATH or the pr
 The task keeps its worktree, branch and delivery, and the task's record keeps the image and the worktree's `.git` link (`sandbox_image` and `sandbox_git` in `state/<id>.meta`).
 Its goblin's harness runs on the host, where its shell runs only `cfo`, `git` and `gh`, from its worktree, by name or by an absolute path outside the worktree and scratch folder.
 A host command is simple commands joined by `&&`, each of plain words and quoted text, so Bash and PowerShell read it alike.
-A plain word holds letters, digits, `.`, `_`, `/`, `\`, `:`, `=`, `@`, `%`, `+`, `,` and `-`, and a `~` that starts it.
+A plain word holds letters, digits, `.`, `_`, `/`, `:`, `=`, `@`, `%`, `+`, `-` and `~`, so a path is written with `/`.
 Quoted text holds no backslash, `$`, backtick, parenthesis, quote of the other kind or typographic quote.
-Anything else is refused, naming the character, as is a backslash before a quote, so a pipe, a redirection, a `;`, a variable and a command of its own all run in the container.
+Anything else is refused, naming the character, so a pipe, a redirection, a `;`, a variable and a command of its own all run in the container.
+What the two shells would read as different words is refused too: a backslash outside quotes, which Bash takes off and PowerShell keeps; a word that starts with quoted text and goes on after it; an empty quoted word, which Windows PowerShell drops; a `,`, which PowerShell reads as a list; an `@` that starts a word; an unquoted word that starts with `-` and holds a `.`, which Windows PowerShell splits; and `--%`.
 Host git runs only `status`, `diff`, `log`, `show`, `add`, `commit`, `push`, `fetch`, `pull`, `switch`, `checkout`, `branch`, `rebase`, `merge`, `reset`, `restore`, `stash`, `tag`, `rev-parse`, `ls-files` and `blame`, with no option before its command.
 It is refused `rebase -x`, and `--exec`, `--upload-pack`, `--receive-pack`, `--recurse-submodules` and `--recursive` or any start of them, each of which starts a program or reaches a submodule.
 Host gh is refused `alias` and `extension`, which run a command or program of their own, and those options too.
 `cfo gate test`, `cfo verify`, `cfo security`, `cfo deploy` and `cfo services` are refused there, and the goblin runs what they run in the container with [`cfo sandbox run`](../commands/sandbox.md), in the machine's heavy line.
 Its gate's Test step runs its command in the same image, with the gate's checkout alone mounted.
 A run that cannot start Docker runs nowhere, never on the host instead.
-Code in the container can write the worktree, so the task's host git reads hooks from an empty folder, runs with its fsmonitor off, and reads attributes from the empty tree, so no filter, diff or merge driver the worktree names runs.
+Code in the container can write the worktree, so the task's host git reads hooks from an empty folder, runs with its fsmonitor off, takes no folder it finds for a bare repository, and reads attributes from the empty tree, so no filter, diff or merge driver the worktree names runs.
 A sandbox task's project cannot use submodules: every host command is refused while the worktree holds a `.gitmodules`, whose `ignore` lines would have host git recurse into a submodule the container made, or the worktree's index names a gitlink or a sparse directory, which could hold one.
 `cfo` reads the index itself, without running git, and refuses an index split across a shared index too.
-Every host command is also refused while the worktree's `.git` link differs from the one its spawn recorded, or while the folder it runs in, or one between that folder and the worktree, holds a `.git` of its own, and the container sees the `.git` link read-only.
+Every host command is also refused while the worktree's `.git` link differs from the one its spawn recorded, and the container sees the `.git` link read-only.
+Every host command but `cfo sandbox run` and `cfo notify` waits while a `.git` other than the worktree's own link is anywhere in the worktree, since host git would read that repository from a folder under it or once a checkout brings in its gitlink.
+The refusal names the `.git` it found and how to remove it in the container.
+`cfo` walks the whole worktree for it before each such command, which took 2.2 to 2.9 seconds on a warm worktree of 77,160 entries with its `node_modules`, and 27 seconds on the first, cold walk.
+Those commands wait too while a container of the task may run, from the moment `cfo sandbox run` records it until it removed it, since the container could make a repository between the walk and the command.
 The gate's prepare, lint and format commands and its agents' own shells still run on the host.
 
 ### The credential store
