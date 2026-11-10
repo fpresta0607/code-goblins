@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -102,6 +103,28 @@ func (s registryEnvStore) Unset(name string) error {
 		return fmt.Errorf("install: remove user %s: %s", name, strings.TrimSpace(string(result.Stderr)))
 	}
 	return nil
+}
+
+func (s registryEnvStore) Names() ([]string, error) {
+	script := fmt.Sprintf(`$names = (Get-Item -LiteralPath '%s').GetValueNames() | Where-Object { $_ -ne '' }
+[Console]::Out.Write([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes(($names -join "`+"`n"+`"))))`, s.key)
+	result, err := s.run(script)
+	if err != nil {
+		return nil, err
+	}
+	if result.ExitCode != 0 {
+		return nil, fmt.Errorf("install: list the user environment: %s", strings.TrimSpace(string(result.Stderr)))
+	}
+	text, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(result.Stdout)))
+	if err != nil {
+		return nil, fmt.Errorf("install: list the user environment: %w", err)
+	}
+	if len(text) == 0 {
+		return nil, nil
+	}
+	names := strings.Split(string(text), "\n")
+	sort.Strings(names)
+	return names, nil
 }
 
 // Broadcast sends WM_SETTINGCHANGE, which is what makes a terminal opened

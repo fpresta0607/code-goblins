@@ -232,15 +232,10 @@ func isOurs(path string) (bool, error) {
 // file last, and reports whether it wrote or removed anything.
 func writeSkill(skills fs.FS, name, dest string) (bool, error) {
 	changed := false
-	previous := map[string]bool{}
+	var previous map[string]bool
 	owner, ownerErr := fsx.ReadFile(filepath.Join(dest, ownerFile))
 	if ownerErr == nil {
-		_, list, _ := strings.Cut(strings.ReplaceAll(string(owner), "\r\n", "\n"), "wrote:\n")
-		for _, line := range strings.Split(list, "\n") {
-			if line != "" {
-				previous[line] = true
-			}
-		}
+		previous = OwnedFiles(owner)
 	}
 	var written []string
 	err := fs.WalkDir(skills, name, func(path string, entry fs.DirEntry, err error) error {
@@ -278,12 +273,57 @@ func writeSkill(skills fs.FS, name, dest string) (bool, error) {
 			changed = true
 		}
 	}
-	sort.Strings(written)
-	text := ownerText + strings.Join(written, "\r\n") + "\r\n"
-	if ownerErr == nil && string(owner) == text {
+	text := ownerContent(written)
+	if ownerErr == nil && string(owner) == string(text) {
 		return changed, nil
 	}
-	return true, fsx.AtomicWriteFile(filepath.Join(dest, ownerFile), []byte(text))
+	return true, fsx.AtomicWriteFile(filepath.Join(dest, ownerFile), text)
+}
+
+// OwnedFiles are the files a skill folder's owner file, whose content is
+// owner, lists as the ones an install wrote there, each by its slash path.
+func OwnedFiles(owner []byte) map[string]bool {
+	files := map[string]bool{}
+	_, list, _ := strings.Cut(strings.ReplaceAll(string(owner), "\r\n", "\n"), "wrote:\n")
+	for _, line := range strings.Split(list, "\n") {
+		if line != "" {
+			files[line] = true
+		}
+	}
+	return files
+}
+
+// ownerContent is the owner file of a skill folder an install wrote the
+// files written in.
+func ownerContent(written []string) []byte {
+	sort.Strings(written)
+	return []byte(ownerText + strings.Join(written, "\r\n") + "\r\n")
+}
+
+// SkillFiles are the files an install writes in the skill folder name of
+// skills, each by its slash path in the folder, the owner file among them.
+func SkillFiles(skills fs.FS, name string) (map[string][]byte, error) {
+	files := map[string][]byte{}
+	err := fs.WalkDir(skills, name, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		data, err := fs.ReadFile(skills, path)
+		if err != nil {
+			return err
+		}
+		files[strings.TrimPrefix(path, name+"/")] = data
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("harnessmap: read the skill %s: %w", name, err)
+	}
+	written := make([]string, 0, len(files))
+	for rel := range files {
+		written = append(written, rel)
+	}
+	files[ownerFile] = ownerContent(written)
+	return files, nil
 }
 
 func sameDir(a, b string) bool {

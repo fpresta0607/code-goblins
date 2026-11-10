@@ -93,6 +93,15 @@ func (e *fakeEnv) Unset(name string) error {
 	return nil
 }
 
+func (e *fakeEnv) Names() ([]string, error) {
+	names := make([]string, 0, len(e.values))
+	for name := range e.values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
 func (e *fakeEnv) Broadcast() error {
 	e.broadcasts++
 	return nil

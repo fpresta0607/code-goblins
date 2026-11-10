@@ -21,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/cirunner"
+	"github.com/fpresta0607/code-goblins/internal/cutover"
 	"github.com/fpresta0607/code-goblins/internal/defender"
 	"github.com/fpresta0607/code-goblins/internal/devdrive"
 	"github.com/fpresta0607/code-goblins/internal/digest"
@@ -35,6 +36,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
 	"github.com/fpresta0607/code-goblins/internal/openrouter"
@@ -82,6 +84,7 @@ commands:
   install   wire the CEO home into the machine (CEO_HOME, PATH, and the Command Center allow rules in your Claude Code settings, out of which it takes the CEO's hooks an older build wrote, since the CEO's terminal starts with its own) so the CEO is supervised wherever it is started: from any folder, a checkout included, it sets up %LOCALAPPDATA%\CodeGoblins from this binary (the CEO's contract, the default policy, the binary as bin\ceo.exe and bin\goblins.exe, the skills once in ~\.agents\skills with a junction from Claude Code's skills folder, and state\harnesses.json naming where each harness keeps its configuration); --projects-root <dir> records the folder that holds your checkouts so --project can take a bare name; --uninstall reverses the wiring, the board's native hooks, the Start-menu and desktop shortcuts and the skills it installed included, and keeps the home's files
   uninstall the same as install --uninstall
   home      migrate [--apply --plan <digest>] [--memory-from <dir>]: lay out a home whose data predates the layout; without --apply a dry run that lists every file it would move, create or change, proves none is dropped and prints the plan digest --apply --plan makes; move [--to <dir>] [--apply --plan <digest>]: move an older build's home, such as a checkout, to the per-user home, with the same dry run, digest and read-back
+  cutover   --dry-run | --plan <digest> | --undo <folder>: move an installed home, its harnesses' hooks and settings, its skills, the user's settings, scheduled jobs, credentials, ticket labels and live task files from the command's old name to ceo, run as this build with the fleet paused; --dry-run lists every change and the plan's digest and changes nothing, --plan makes that plan after keeping everything its undo needs, --undo restores the home exactly; files in other checkouts that name the old command are listed, never changed
   dev-drive say whether the home's worktrees, scratch and package caches are on a Dev Drive, a drive Windows 11 formats for developer work that Defender scans in performance mode (not an exclusion), whether this machine has or can have one, and why not; setup: ask for the next step, which the board puts in the Command Center as one item to run; move --to <folder>: put new goblins' worktrees, scratch and caches in <folder> on a trusted Dev Drive, keeping every started goblin's folders where they are
   defender  [--since <time|day|length>] [--json]: list what Microsoft Defender recorded under the fleet's folders since then, its detections and the samples it sent to Microsoft, each file with the task and test that made it; it only reads Defender's own records
   doctor    check the tools ceo needs (git, gh, claude, herdr, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi) and each harness's version beside its newest; --fix installs the newest Codex and pi once each starts to its composer in a terminal of its own, while nothing runs from its install
@@ -669,6 +672,10 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runStartHook(args[1:], stdout, stderr, runtime)
 	case "home":
 		return runHome(args[1:], stdout, stderr)
+	case "cutover":
+		return runCutover(args[1:], stdout, stderr, func() (cutover.Machine, error) {
+			return cutoverMachine(installbase.NewEnvStore(execx.OSRunner{}))
+		})
 	case "pipeline":
 		return runPipeline(args[1:], stdout, stderr, runtime)
 	case "drain":

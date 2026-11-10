@@ -3,6 +3,7 @@
 package auth
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -109,15 +110,24 @@ func (s credentialManagerStore) Set(key Key, value string) error {
 	if !key.Valid() {
 		return fmt.Errorf("auth: invalid credential key %q", key.String())
 	}
-	target, err := syscall.UTF16PtrFromString(s.target + key.String())
+	if err := WriteVaultEntry(VaultEntry{Target: s.target + key.String(), User: VaultUser, Value: []byte(value)}); err != nil {
+		return fmt.Errorf("auth: CredWrite %s: %w", key.String(), err)
+	}
+	return nil
+}
+
+// WriteVaultEntry writes entry as a generic credential kept for the signed-in
+// user on this machine, replacing any entry of its target.
+func WriteVaultEntry(entry VaultEntry) error {
+	target, err := syscall.UTF16PtrFromString(entry.Target)
 	if err != nil {
 		return err
 	}
-	user, err := syscall.UTF16PtrFromString("ceo")
+	user, err := syscall.UTF16PtrFromString(entry.User)
 	if err != nil {
 		return err
 	}
-	blob := []byte(value)
+	blob := entry.Value
 	credential := credentialW{
 		Type:       credTypeGeneric,
 		TargetName: target,
@@ -133,7 +143,7 @@ func (s credentialManagerStore) Set(key Key, value string) error {
 	// collector from moving or reclaiming it while the syscall reads it.
 	runtime.KeepAlive(blob)
 	if ret == 0 {
-		return fmt.Errorf("auth: CredWrite %s: %w", key.String(), callErr)
+		return callErr
 	}
 	return nil
 }
@@ -226,7 +236,30 @@ func restrictToOwner(path string) error {
 // the user ceo whose target is a key this package could have written, so an
 // uninstall that removes them never reaches another program's entry.
 func VaultTargets() ([]string, error) {
-	filter, err := syscall.UTF16PtrFromString(credentialTarget + "*")
+	entries, err := VaultEntries(credentialTarget)
+	if err != nil {
+		return nil, err
+	}
+	var targets []string
+	for _, entry := range entries {
+		if entry.User != VaultUser {
+			continue
+		}
+		scoped, _ := strings.CutPrefix(entry.Target, credentialTarget)
+		if seen, isSeen := strings.CutPrefix(scoped, seenScope+"/"); isSeen {
+			scoped = seen
+		}
+		if _, ok := parseVaultKey(scoped); ok {
+			targets = append(targets, entry.Target)
+		}
+	}
+	return targets, nil
+}
+
+// VaultEntries lists the generic Credential Manager entries whose target
+// starts with prefix, each with the user it was written for and its secret.
+func VaultEntries(prefix string) ([]VaultEntry, error) {
+	filter, err := syscall.UTF16PtrFromString(prefix + "*")
 	if err != nil {
 		return nil, err
 	}
@@ -240,24 +273,24 @@ func VaultTargets() ([]string, error) {
 		return nil, fmt.Errorf("auth: CredEnumerate: %w", callErr)
 	}
 	defer procCredFree.Call(uintptr(unsafe.Pointer(credentials)))
-	var targets []string
+	var entries []VaultEntry
 	for _, credential := range unsafe.Slice(credentials, count) {
-		if credential == nil || credential.TargetName == nil || credential.UserName == nil || credential.Type != credTypeGeneric {
+		if credential == nil || credential.TargetName == nil || credential.Type != credTypeGeneric {
 			continue
 		}
-		if syscall.UTF16ToString(unsafe.Slice(credential.UserName, targetNameLen(credential.UserName))) != "ceo" {
+		entry := VaultEntry{Target: syscall.UTF16ToString(unsafe.Slice(credential.TargetName, targetNameLen(credential.TargetName)))}
+		if !strings.HasPrefix(entry.Target, prefix) {
 			continue
 		}
-		target := syscall.UTF16ToString(unsafe.Slice(credential.TargetName, targetNameLen(credential.TargetName)))
-		scoped, _ := strings.CutPrefix(target, credentialTarget)
-		if seen, isSeen := strings.CutPrefix(scoped, seenScope+"/"); isSeen {
-			scoped = seen
+		if credential.UserName != nil {
+			entry.User = syscall.UTF16ToString(unsafe.Slice(credential.UserName, targetNameLen(credential.UserName)))
 		}
-		if _, ok := parseVaultKey(scoped); ok {
-			targets = append(targets, target)
+		if credential.CredentialBlobSize > 0 && credential.CredentialBlob != nil {
+			entry.Value = bytes.Clone(unsafe.Slice(credential.CredentialBlob, credential.CredentialBlobSize))
 		}
+		entries = append(entries, entry)
 	}
-	return targets, nil
+	return entries, nil
 }
 
 // DeleteVaultTarget removes the Credential Manager entry target, one
