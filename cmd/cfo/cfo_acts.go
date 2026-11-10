@@ -23,7 +23,8 @@ var notTheCFO = supervisor.NotTheCFO
 // (an allowance-floor that names one), accepting a Python start hook a
 // goblin's seal stopped (start-hook), deciding a lesson a done report
 // proposed for memory (memory lesson), writing the catalog that decides what
-// startup loads (memory sync, and a memory scope that tags) and authorizing a
+// startup loads (memory sync, and every memory scope but the one spelled
+// exactly memory scope --list, the only one that cannot tag) and authorizing a
 // task to spend paid Codex credits (an auth grant --codex-credits). Reading
 // the fleet is anyone's:
 // fleet-view, peek, runtime, tickets, a drain that only prints, a reap that
@@ -53,7 +54,7 @@ func actsAsCFO(args []string) bool {
 	case "allowance-floor":
 		return len(args) > 1
 	case "memory":
-		return len(args) > 1 && (args[1] == "lesson" || args[1] == "sync" || args[1] == "scope" && !hasFlag("list"))
+		return len(args) > 1 && (args[1] == "lesson" || args[1] == "sync" || args[1] == "scope" && !slices.Equal(args[2:], []string{"--list"}))
 	case "auth":
 		return len(args) > 1 && args[1] == "grant" && hasFlag("codex-credits")
 	}

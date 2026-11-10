@@ -627,6 +627,15 @@ func TestBriefCallsMemoryVerifiedOnlyWhenItsCatalogValidates(t *testing.T) {
 			if err != nil || strings.Contains(output.String(), "MEMORY UNREADABLE: memory source overlord.md") != test.isCorrupt || hasVerifiedWording == test.isCorrupt {
 				t.Fatalf("preview memory claim does not match catalog validity (corrupt=%t): %v\n%s", test.isCorrupt, err, output.String())
 			}
+			// The contract names cfo memory sync as what derives the catalog
+			// again once memory changed after it was written.
+			if test.isCorrupt {
+				_, diagnostic, _ := strings.Cut(output.String(), "MEMORY UNREADABLE: ")
+				diagnostic, _, _ = strings.Cut(diagnostic, "\n")
+				if !strings.Contains(diagnostic, "cfo memory sync") {
+					t.Fatalf("the diagnostic of memory changed after its catalog does not name cfo memory sync: %s", diagnostic)
+				}
+			}
 		})
 	}
 }

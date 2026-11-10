@@ -38,29 +38,40 @@ func runMemorySync(args []string, stdout, stderr io.Writer) int {
 
 // runMemoryScope rules whose a memory entry is: a project's, which leaves
 // startup and comes with that project's scope, or the whole fleet's, which
-// loads at every start. It also lists the rulings no scope is ruled for yet.
+// loads at every start. It also names when a perishable entry ends, and lists
+// the rulings no scope is ruled for yet.
 //
 //	cfo memory scope --project <name>... [--ids <file>] [<id>...]
 //	cfo memory scope --fleet [--ids <file>] [<id>...]
-//	cfo memory scope --expiry "<words>" <id>...
+//	cfo memory scope --expiry <id>="<words>"...
 //	cfo memory scope --list
 func runMemoryScope(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("cfo memory scope", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	var tag memory.Tag
+	tag := memory.Tag{Expiries: map[string]string{}}
 	flags.Func("project", "the project the entries are ruled for, which they then come with; repeat it for each", func(name string) error {
 		tag.Projects = append(tag.Projects, name)
 		return nil
 	})
 	flags.BoolVar(&tag.IsFleet, "fleet", false, "the entries are the whole fleet's and load at every start")
-	flags.StringVar(&tag.Expiry, "expiry", "", "words of a perishable entry that say when it ends")
-	idsFile := flags.String("ids", "", "a file naming one entry id on each line, bare or in the brackets the startup map prints it in")
+	flags.Func("expiry", "a perishable entry's id, =, and the words of that entry that say when it ends; repeat it for each entry, which needs no id argument besides", func(pair string) error {
+		id, words, isPair := strings.Cut(pair, "=")
+		if !isPair || strings.TrimSpace(id) == "" || strings.TrimSpace(words) == "" {
+			return errors.New("an expiry reads <id>=<words>, with the entry's id and words that entry holds")
+		}
+		if _, isNamed := tag.Expiries[id]; isNamed {
+			return fmt.Errorf("entry %s is given two expiries", id)
+		}
+		tag.Expiries[id] = words
+		return nil
+	})
+	idsFile := flags.String("ids", "", "a file naming one bare entry id on each line")
 	isList := flags.Bool("list", false, "print the rulings no scope is ruled for yet, each under its id")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if *isList {
-		if flags.NArg() != 0 || *idsFile != "" || tag.IsFleet || len(tag.Projects) > 0 || tag.Expiry != "" {
+		if flags.NArg() != 0 || *idsFile != "" || tag.IsFleet || len(tag.Projects) > 0 || len(tag.Expiries) > 0 {
 			fmt.Fprintln(stderr, "cfo memory scope: --list only lists; tag in a command of its own")
 			return 2
 		}
@@ -91,14 +102,14 @@ func runMemoryScope(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "cfo memory scope: "+err.Error())
 			return 1
 		}
-		for _, line := range strings.Split(string(content), "\n") {
-			if fields := strings.Fields(line); len(fields) > 0 {
-				tag.IDs = append(tag.IDs, fields[0])
+		for number, line := range strings.Split(string(content), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) > 1 {
+				fmt.Fprintf(stderr, "cfo memory scope: line %d of %s holds more than one bare id, so nothing was tagged\n", number+1, *idsFile)
+				return 2
 			}
+			tag.IDs = append(tag.IDs, fields...)
 		}
-	}
-	for position, id := range tag.IDs {
-		tag.IDs[position] = strings.Trim(id, "[]")
 	}
 	h, exit := catalogWriter("scope", stderr)
 	if exit != 0 {

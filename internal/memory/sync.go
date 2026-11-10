@@ -18,13 +18,14 @@ import (
 )
 
 // Tag is a scope ruled for the entries its ids name: a ruling is a project's
-// or the whole fleet's. Expiry names, in an entry's own words, when a
-// perishable entry ends.
+// or the whole fleet's. Expiries names, by a perishable entry's id and in
+// that entry's own words, when it ends; an id it names is tagged as one of
+// IDs is, so it need not be among them.
 type Tag struct {
 	IDs      []string
 	Projects []string
 	IsFleet  bool
-	Expiry   string
+	Expiries map[string]string
 }
 
 // SyncReport counts what a rewrite of the catalog left in it. Dropped names
@@ -43,22 +44,23 @@ type SyncReport struct {
 // under the id recall prints for it. A file that has not changed keeps its
 // entries as they were set, a line that is still there keeps its scope by
 // its id, and words the catalog has not seen load at startup until a scope
-// is ruled for them. A catalog that would not load is not written.
+// is ruled for them. A catalog that would not load is never written.
 func Sync(dataDir, stateDir string, now time.Time) (SyncReport, error) {
 	return rewriteCatalog(dataDir, stateDir, now, nil)
 }
 
-// Scope syncs the catalog and rules a scope for the entries tag names. A
-// ruling of a project leaves startup and comes with that project's scope; it
-// stays verbatim in its file, where its id still retrieves it.
+// Scope syncs the catalog and rules a scope for the entries tag names, naming
+// the expiry of each entry tag gives one. A ruling of a project leaves
+// startup and comes with that project's scope; it stays verbatim in its file,
+// where its id still retrieves it.
 func Scope(dataDir, stateDir string, now time.Time, tag Tag) (SyncReport, error) {
-	if len(tag.IDs) == 0 {
+	if len(tag.IDs)+len(tag.Expiries) == 0 {
 		return SyncReport{}, errors.New("name each entry to tag by its id")
 	}
 	if tag.IsFleet && len(tag.Projects) > 0 {
 		return SyncReport{}, errors.New("an entry is a project's or the whole fleet's, never both")
 	}
-	if !tag.IsFleet && len(tag.Projects) == 0 && tag.Expiry == "" {
+	if !tag.IsFleet && len(tag.Projects) == 0 && slices.ContainsFunc(tag.IDs, func(id string) bool { return tag.Expiries[id] == "" }) {
 		return SyncReport{}, errors.New("name a project, the whole fleet or an expiry to set")
 	}
 	return rewriteCatalog(dataDir, stateDir, now, &tag)
@@ -92,14 +94,12 @@ func rewriteCatalog(dataDir, stateDir string, now time.Time, tag *Tag) (report S
 	defer func() { err = errors.Join(err, unlock()) }()
 
 	var previous Catalog
-	before, err := ReadData(dataDir, CatalogPath)
-	switch {
+	switch written, err := ReadData(dataDir, CatalogPath); {
 	case errors.Is(err, fs.ErrNotExist):
-		before = nil
 	case err != nil:
 		return SyncReport{}, err
 	default:
-		if err := Decode(before, &previous); err != nil {
+		if err := Decode(written, &previous); err != nil {
 			return SyncReport{}, fmt.Errorf("memory catalog: %w", err)
 		}
 		if previous.Version != 1 {
@@ -126,9 +126,10 @@ func rewriteCatalog(dataDir, stateDir string, now time.Time, tag *Tag) (report S
 			known[entry.ID] = entry
 		}
 	}
-	// A file that has not changed keeps its entries, and a file that was one
-	// entry keeps that entry's id, so those ids are taken before any other
-	// is derived.
+	// A file that has not changed keeps its entries, and a file cataloged
+	// whole that was one entry keeps that entry's id, so those ids are taken
+	// before any other is derived. A file cataloged a line at a time takes
+	// each id from its line's words, so a changed one holds none back.
 	contents, used := map[string][]byte{}, map[string]bool{}
 	for _, name := range names {
 		content, err := ReadData(dataDir, name)
@@ -136,7 +137,8 @@ func rewriteCatalog(dataDir, stateDir string, now time.Time, tag *Tag) (report S
 			return SyncReport{}, fmt.Errorf("memory source %s: %w", name, err)
 		}
 		contents[name] = content
-		if source, isCataloged := cataloged[name]; isCataloged && (source.SHA256 == Hash(content) || len(source.Entries) == 1) {
+		isOneEntryFile := name != "overlord.md" && name != "memory/MEMORY.md"
+		if source, isCataloged := cataloged[name]; isCataloged && (source.SHA256 == Hash(content) || isOneEntryFile && len(source.Entries) == 1) {
 			for _, entry := range source.Entries {
 				used[entry.ID] = true
 			}
@@ -147,7 +149,7 @@ func rewriteCatalog(dataDir, stateDir string, now time.Time, tag *Tag) (report S
 		content := contents[name]
 		source, isCataloged := cataloged[name]
 		if !isCataloged || source.SHA256 != Hash(content) {
-			source = Source{Path: name, SHA256: Hash(content), Entries: deriveEntries(name, content, source.Entries, used)}
+			source = Source{Path: name, SHA256: Hash(content), Entries: deriveEntries(name, content, source.Entries, used, now)}
 		}
 		// A fact the index pins loads unless that entry's own offload was
 		// approved, whatever the catalog said before the pin.
@@ -163,12 +165,14 @@ func rewriteCatalog(dataDir, stateDir string, now time.Time, tag *Tag) (report S
 			return SyncReport{}, err
 		}
 	}
-	if err := os.MkdirAll(filepath.Join(dataDir, "memory"), 0o755); err != nil {
-		return SyncReport{}, err
-	}
-	if err := replaceCatalog(dataDir, next, before, now); err != nil {
-		if errors.Is(err, errExpiryMissing) {
-			return SyncReport{}, fmt.Errorf("the catalog would not load, so it was left as it was: %w; name the entry's expiry in its own words with cfo memory scope --expiry \"<words>\" <id>", err)
+	if err := replaceCatalog(dataDir, next, now); err != nil {
+		var missing *expiryMissingError
+		if errors.As(err, &missing) {
+			var pairs strings.Builder
+			for _, id := range missing.ids {
+				fmt.Fprintf(&pairs, " --expiry %s=\"<words>\"", id)
+			}
+			return SyncReport{}, fmt.Errorf("the catalog would not load, so it was left as it was: %w; name each one's expiry in that entry's own words, all in one command: cfo memory scope%s", err, pairs.String())
 		}
 		return SyncReport{}, fmt.Errorf("the catalog would not load, so it was left as it was: %w", err)
 	}
@@ -205,8 +209,10 @@ func startupRank(name string) int {
 // deriveEntries lists every byte of a file that is new to the catalog or has
 // changed. The rulings and the fact index are one entry a line, since each
 // line is ruled, tiered and scoped by itself; any other file is one entry,
-// which keeps what the catalog said of it when it was one entry before.
-func deriveEntries(name string, content []byte, previous []Entry, used map[string]bool) []Entry {
+// which keeps what the catalog said of it when it was one entry before. A
+// file that ends in a marker the contract keeps warm loads, whatever the
+// catalog said of it before, so no sync stops on a file nobody tagged.
+func deriveEntries(name string, content []byte, previous []Entry, used map[string]bool, now time.Time) []Entry {
 	switch {
 	case len(content) == 0:
 		return nil
@@ -241,6 +247,10 @@ func deriveEntries(name string, content []byte, previous []Entry, used map[strin
 		}
 	}
 	entry.Start, entry.End, entry.SHA256 = 0, len(content), Hash(content)
+	// A marker that does not read is left for the load to report.
+	if status, err := statusOf(name, entry, content, literalBytes(content), now); err == nil && status.keepsWarm() {
+		entry.Location = "warm"
+	}
 	return []Entry{entry}
 }
 
@@ -313,11 +323,15 @@ func uniqueID(id string, used map[string]bool) string {
 	return candidate
 }
 
-// applyTag rules the tag's scope for each entry it names, and refuses the
-// whole tag when an id names no entry.
+// applyTag rules the tag's scope for each entry it names and names the
+// expiry of each it gives one, and refuses the whole tag when an id names no
+// entry.
 func applyTag(catalog *Catalog, contents map[string][]byte, tag Tag) (int, error) {
 	wanted := map[string]bool{}
 	for _, id := range tag.IDs {
+		wanted[id] = true
+	}
+	for id := range tag.Expiries {
 		wanted[id] = true
 	}
 	tagged := 0
@@ -329,8 +343,8 @@ func applyTag(catalog *Catalog, contents map[string][]byte, tag Tag) (int, error
 			}
 			delete(wanted, entry.ID)
 			tagged++
-			if tag.Expiry != "" {
-				entry.Expiry = tag.Expiry
+			if expiry := tag.Expiries[entry.ID]; expiry != "" {
+				entry.Expiry = expiry
 			}
 			switch {
 			case tag.IsFleet:
@@ -379,9 +393,10 @@ func cueOf(content []byte, entry Entry) string {
 	return entry.ID
 }
 
-// replaceCatalog writes the catalog and loads it, and puts back what was
-// there, or nothing when there was none, if it does not load.
-func replaceCatalog(dataDir string, catalog Catalog, before []byte, now time.Time) error {
+// replaceCatalog writes the catalog once it is known to load against the
+// memory files as they stand, so one that would not load is never written
+// and whatever was there, or nothing, stays as it was.
+func replaceCatalog(dataDir string, catalog Catalog, now time.Time) error {
 	var encoded bytes.Buffer
 	encoder := json.NewEncoder(&encoded)
 	encoder.SetEscapeHTML(false)
@@ -389,15 +404,12 @@ func replaceCatalog(dataDir string, catalog Catalog, before []byte, now time.Tim
 	if err := encoder.Encode(catalog); err != nil {
 		return err
 	}
-	catalogPath := filepath.Join(dataDir, filepath.FromSlash(CatalogPath))
-	if err := fsx.AtomicWriteFile(catalogPath, encoded.Bytes()); err != nil {
+	if _, err := validate(dataDir, encoded.Bytes(), now); err != nil {
 		return err
 	}
-	if _, err := Load(dataDir, now); err != nil {
-		if before == nil {
-			return errors.Join(err, os.Remove(catalogPath))
-		}
-		return errors.Join(err, fsx.AtomicWriteFile(catalogPath, before))
+	catalogPath := filepath.Join(dataDir, filepath.FromSlash(CatalogPath))
+	if err := os.MkdirAll(filepath.Dir(catalogPath), 0o755); err != nil {
+		return err
 	}
-	return nil
+	return fsx.AtomicWriteFile(catalogPath, encoded.Bytes())
 }

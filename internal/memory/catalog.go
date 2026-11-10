@@ -34,6 +34,16 @@ var memoryID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
 // which only whoever curates the catalog can name.
 var errExpiryMissing = errors.New("perishable memory needs its checkable expiry condition in the entry")
 
+// expiryMissingError names every perishable entry a catalog names no expiry
+// for, in the catalog's order, so one refusal names all there are to name.
+type expiryMissingError struct{ ids []string }
+
+func (missing *expiryMissingError) Error() string {
+	return fmt.Sprintf("memory %s: %v", strings.Join(missing.ids, ", "), errExpiryMissing)
+}
+
+func (missing *expiryMissingError) Unwrap() error { return errExpiryMissing }
+
 type Approval struct {
 	By          string `json:"by"`
 	Quote       string `json:"quote"`
@@ -201,6 +211,21 @@ func Load(dataDir string, now time.Time) (Catalog, error) {
 	if err != nil {
 		return Catalog{}, err
 	}
+	catalog, err := validate(dataDir, data, now)
+	if err != nil {
+		return Catalog{}, err
+	}
+	if err := catalog.checkFresh(); err != nil {
+		return Catalog{}, err
+	}
+	return catalog, nil
+}
+
+// validate checks a catalog's bytes against the memory files as they stand,
+// whether or not those bytes are on disk yet, so a writer learns that a
+// catalog would not load before it writes it. Every perishable entry with no
+// expiry named is reported in one error, after every other check has passed.
+func validate(dataDir string, data []byte, now time.Time) (Catalog, error) {
 	var catalog Catalog
 	if err := Decode(data, &catalog); err != nil {
 		return Catalog{}, fmt.Errorf("memory catalog: %w", err)
@@ -219,6 +244,7 @@ func Load(dataDir string, now time.Time) (Catalog, error) {
 	catalog.content = make(map[string][]byte)
 	catalog.status = make(map[string]Status)
 	ids := make(map[string]Entry)
+	var unexpiring []string
 	for _, source := range catalog.Sources {
 		if _, exists := catalog.content[source.Path]; exists || !slices.Contains(names, source.Path) {
 			return Catalog{}, fmt.Errorf("duplicate or ungoverned source %q", source.Path)
@@ -244,14 +270,9 @@ func Load(dataDir string, now time.Time) (Catalog, error) {
 				return Catalog{}, fmt.Errorf("memory %s has a gap, overlap, invalid range or checksum", entry.ID)
 			}
 			covered = entry.End
-			// A marker in the archive is the tier a line had when it was
-			// archived: it is history now and tiers nothing.
-			status := Status{Tier: "pinned"}
-			if source.Path != "memory-archive.md" || entry.Authority != "history" {
-				status, err = Inspect(content[entry.Start:entry.End], isLiteral[entry.Start:entry.End], entry.Authority, now)
-				if err != nil {
-					return Catalog{}, fmt.Errorf("memory %s: %w", entry.ID, err)
-				}
+			status, err := statusOf(source.Path, entry, content, isLiteral, now)
+			if err != nil {
+				return Catalog{}, fmt.Errorf("memory %s: %w", entry.ID, err)
 			}
 			if pinned[source.Path] {
 				if status.Tier != "pinned" && !status.IsLegacy {
@@ -260,7 +281,10 @@ func Load(dataDir string, now time.Time) (Catalog, error) {
 				status.Tier = "pinned"
 				status.IsLegacy, status.IsStale = false, false
 			}
-			if err := validateEntry(source.Path, entry, content[entry.Start:entry.End], status, now); err != nil {
+			switch err := validateEntry(source.Path, entry, content[entry.Start:entry.End], status, now); {
+			case errors.Is(err, errExpiryMissing):
+				unexpiring = append(unexpiring, entry.ID)
+			case err != nil:
 				return Catalog{}, fmt.Errorf("memory %s: %w", entry.ID, err)
 			}
 			catalog.status[entry.ID] = status
@@ -312,11 +336,27 @@ func Load(dataDir string, now time.Time) (Catalog, error) {
 	if err := validateLayers(catalog.Layers); err != nil {
 		return Catalog{}, err
 	}
-	catalog.dataDir, catalog.checksum = dataDir, Hash(data)
-	if err := catalog.checkFresh(); err != nil {
-		return Catalog{}, err
+	if len(unexpiring) > 0 {
+		return Catalog{}, &expiryMissingError{ids: unexpiring}
 	}
+	catalog.dataDir, catalog.checksum = dataDir, Hash(data)
 	return catalog, nil
+}
+
+// statusOf is the tier an entry's own trailing markers give it. A marker in
+// the archive is the tier a line had when it was archived: it is history now
+// and tiers nothing.
+func statusOf(source string, entry Entry, content []byte, isLiteral []bool, now time.Time) (Status, error) {
+	if source == "memory-archive.md" && entry.Authority == "history" {
+		return Status{Tier: "pinned"}, nil
+	}
+	return Inspect(content[entry.Start:entry.End], isLiteral[entry.Start:entry.End], entry.Authority, now)
+}
+
+// keepsWarm reports a trailing marker the contract never lets leave startup:
+// pending capture, grace or perishable.
+func (status Status) keepsWarm() bool {
+	return status.PendingCapture != "" || status.IsGrace || status.Tier == "perishable"
 }
 
 func validateEntry(source string, entry Entry, content []byte, status Status, now time.Time) error {
@@ -346,7 +386,7 @@ func validateEntry(source string, entry Entry, content []byte, status Status, no
 		// Before a catalog, startup loaded these three sources in full and no
 		// other, so unmarked text stays loaded only where startup loaded it.
 		isLoadedWithoutACatalog := source == "overlord.md" || source == "projects.md" || source == "memory/MEMORY.md"
-		if status.PendingCapture != "" || status.IsGrace || status.IsLegacy && isLoadedWithoutACatalog || status.Tier == "perishable" {
+		if status.keepsWarm() || status.IsLegacy && isLoadedWithoutACatalog {
 			return errors.New("pending capture, grace, legacy or perishable memory must remain warm")
 		}
 		isExistingArchive := source == "memory-archive.md" && entry.Authority == "history"

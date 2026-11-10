@@ -49,9 +49,12 @@ A ruling no scope has been ruled for loads at every start, and startup says how 
 Each line of `overlord.md` that is not a heading, a comment or blank is one entry, under the id `cfo memory recall` prints for that ruling; a repeated line takes `-2`, `-3` after its id.
 A heading and what follows it belong to the entry of the first ruling below, and blank lines and comments to the ruling above, so every byte is in one entry.
 Each line of `memory/MEMORY.md` is one warm entry, a fact file is one cold fact found by its description and its `metadata.type`, `memory-archive.md` is one cold history range and `projects.md` one warm entry.
+A fact file that ends in a pending-capture, grace or perishable marker is warm instead, when it is new to the catalog and when the one entry it had was cold, since those tiers stay loaded; ruling such an entry for a project is still refused, with the entry named.
 A fact the index pins loads unless that entry carries its own approval.
 A file that has not changed keeps its entries as they were set, a line that is still there keeps its scope by its id, and words the catalog has not seen load until a scope is ruled for them.
-A scope whose words are no longer in memory is named in the command's report, and a catalog that would not load is not written.
+A scope whose words are no longer in memory is named in the command's report.
+A catalog that would not load is never written: it is checked against the memory files before it replaces the one on disk, so a refusal leaves the catalog file as it was, or absent.
+A perishable entry with no expiry named is such a refusal, which names every one of them and the single `cfo memory scope --expiry <id>="<words>"` command, one pair for each, that names them all.
 
 `cfo memory scope --project <name>` rules the entries it names for that project and `cfo memory scope --fleet` for the whole fleet; neither changes a byte of a memory file.
 Writing the catalog is the CEO's alone, since it decides what a CEO session reads at its start.

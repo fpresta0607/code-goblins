@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/harness"
 )
@@ -52,9 +53,9 @@ func TestMemorySyncThenScopeTakesAProjectsRulingsOutOfStartupAndBringsThemByScop
 		t.Fatalf("list exit=%d stdout=%q stderr=%q", exit, listed, stderr)
 	}
 	release, ports, dusk := ids[0][1], ids[1][1], ids[2][1]
-	// One id stands in the brackets the map prints it in, one before its words.
+	// One bare id stands on each line, and a blank line between them is ignored.
 	idsFile := filepath.Join(t.TempDir(), "harbor.txt")
-	if err := os.WriteFile(idsFile, []byte("["+ports+"]\n\n"+dusk+" Harbor closes at dusk.\n"), 0o600); err != nil {
+	if err := os.WriteFile(idsFile, []byte(ports+"\r\n\r\n"+dusk+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -116,30 +117,114 @@ func TestMemoryRetrieveSaysToSyncWhenMemoryChangedAfterTheCatalog(t *testing.T) 
 	}
 }
 
+func TestMemoryThatChangedAfterTheCatalogIsUnreadableAtSessionStartWhichNamesSync(t *testing.T) {
+	// Oracle: the memory contract: memory that changed after the catalog was
+	// written is an error until cfo memory sync derives the catalog again, and
+	// no startup rewrites the catalog.
+	// Arrange
+	dataDir := scopeHome(t)
+	if exit, _, stderr := memoryCommand("sync"); exit != 0 {
+		t.Fatal(stderr)
+	}
+	catalogPath := filepath.Join(dataDir, "memory", "startup.json")
+	before, err := os.ReadFile(catalogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "overlord.md"), []byte(harborRulings+"Harbor opens at dawn.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	exit, startup, _ := runCommand("session-start")
+
+	// Assert
+	start := strings.Index(startup, "MEMORY UNREADABLE")
+	if exit != 0 || start < 0 {
+		t.Fatalf("startup hid the changed memory: exit=%d %s", exit, startup)
+	}
+	diagnostic, _, _ := strings.Cut(startup[start:], "\n")
+	if !strings.Contains(diagnostic, "memory source overlord.md") || !strings.Contains(diagnostic, "cfo memory sync") {
+		t.Fatalf("the diagnostic does not name the changed source and cfo memory sync: %s", diagnostic)
+	}
+	if strings.Contains(startup, "Harbor opens at dawn.") || strings.Contains(startup, "The release needs approval.") {
+		t.Fatalf("startup loaded memory its catalog does not verify: %s", startup)
+	}
+	if after, err := os.ReadFile(catalogPath); err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("startup rewrote the catalog: %v", err)
+	}
+}
+
+func TestMemoryScopeExpiryNamesThePerishableEntryASyncWasRefusedFor(t *testing.T) {
+	// Arrange
+	dataDir := scopeHome(t)
+	recent := time.Now().AddDate(0, 0, -1).Format(time.DateOnly)
+	if err := os.WriteFile(filepath.Join(dataDir, "memory", "MEMORY.md"), []byte("- [Cache](cache.md) - until task-7 lands <!--p:"+recent+"-->\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	exit, _, refusal := memoryCommand("sync")
+	id := regexp.MustCompile(`index-[0-9a-f]{12}`).FindString(refusal)
+	if exit != 1 || id == "" || !strings.Contains(refusal, `cfo memory scope --expiry `+id+`="<words>"`) {
+		t.Fatalf("sync was not refused naming the entry and the command that names its expiry: exit=%d stderr=%q", exit, refusal)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "memory", "startup.json")); !os.IsNotExist(err) {
+		t.Fatalf("a refused first sync left a catalog: %v", err)
+	}
+
+	// Act
+	exit, tagged, stderr := memoryCommand("scope", "--expiry", id+"=until task-7 lands")
+
+	// Assert
+	if exit != 0 || !strings.HasPrefix(tagged, "Tagged 1.\n") {
+		t.Fatalf("scope --expiry exit=%d stdout=%q stderr=%q", exit, tagged, stderr)
+	}
+	if exit, startup, stderr := memoryCommand("retrieve"); exit != 0 || !strings.Contains(startup, "until task-7 lands") {
+		t.Fatalf("memory does not load once the expiry is named: exit=%d stdout=%q stderr=%q", exit, startup, stderr)
+	}
+}
+
 func TestMemorySyncAndScopeRefuseWhatTheyCannotDo(t *testing.T) {
+	// ids is what an ids file holds, which the command is then given with
+	// --ids, when it is not empty.
 	for name, test := range map[string]struct {
 		env  map[string]string
 		args []string
+		ids  string
 		exit int
 		want string
 	}{
-		"a goblin syncing":            {map[string]string{harness.RoleVariable: harness.RoleGoblin}, []string{"sync"}, 2, "the CEO's to write, never a goblin's or a gate agent's"},
-		"a gate agent tagging":        {map[string]string{gateAgentVariable: "1"}, []string{"scope", "--fleet", "ruling-000000000000"}, 2, "the CEO's to write, never a goblin's or a gate agent's"},
-		"an argument to sync":         {nil, []string{"sync", "now"}, 2, "takes no argument"},
-		"a tag with no id":            {nil, []string{"scope", "--project", "harbor"}, 1, "name each entry to tag by its id"},
-		"a tag with no scope":         {nil, []string{"scope", "ruling-000000000000"}, 1, "name a project, the whole fleet or an expiry"},
-		"both scopes at once":         {nil, []string{"scope", "--fleet", "--project", "harbor", "ruling-000000000000"}, 1, "never both"},
-		"an id no entry has":          {nil, []string{"scope", "--project", "harbor", "ruling-000000000000"}, 1, "no memory entry has the id ruling-000000000000"},
-		"a list that also tags":       {nil, []string{"scope", "--list", "--fleet"}, 2, "--list only lists"},
-		"an ids file that is missing": {nil, []string{"scope", "--fleet", "--ids", filepath.Join("no", "such", "file")}, 1, "file"},
-		"cold with no scope":          {nil, []string{"retrieve", "--cold"}, 2, "--cold prints what a scope or a search selects"},
-		"cold with an id":             {nil, []string{"retrieve", "--cold", "--id", "cache"}, 2, "--cold prints what a scope or a search selects"},
+		"a goblin syncing":               {map[string]string{harness.RoleVariable: harness.RoleGoblin}, []string{"sync"}, "", 2, "the CEO's to write, never a goblin's or a gate agent's"},
+		"a gate agent tagging":           {map[string]string{gateAgentVariable: "1"}, []string{"scope", "--fleet", "ruling-000000000000"}, "", 2, "the CEO's to write, never a goblin's or a gate agent's"},
+		"an argument to sync":            {nil, []string{"sync", "now"}, "", 2, "takes no argument"},
+		"a tag with no id":               {nil, []string{"scope", "--project", "harbor"}, "", 1, "name each entry to tag by its id"},
+		"a tag with no scope":            {nil, []string{"scope", "ruling-000000000000"}, "", 1, "name a project, the whole fleet or an expiry"},
+		"both scopes at once":            {nil, []string{"scope", "--fleet", "--project", "harbor", "ruling-000000000000"}, "", 1, "never both"},
+		"an id no entry has":             {nil, []string{"scope", "--project", "harbor", "ruling-000000000000"}, "", 1, "no memory entry has the id ruling-000000000000"},
+		"an id in brackets":              {nil, []string{"scope", "--fleet", "[ruling-000000000000]"}, "", 1, "no memory entry has the id [ruling-000000000000]"},
+		"a list that also tags":          {nil, []string{"scope", "--list", "--fleet"}, "", 2, "--list only lists"},
+		"a list that names an expiry":    {nil, []string{"scope", "--list", "--expiry", "index-000000000000=task-7"}, "", 2, "--list only lists"},
+		"an ids file that is missing":    {nil, []string{"scope", "--fleet", "--ids", filepath.Join("no", "such", "file")}, "", 1, "file"},
+		"an ids file line of two fields": {nil, []string{"scope", "--fleet"}, "ruling-000000000000\n\nruling-111111111111 Harbor closes at dusk.\n", 2, "line 3 of "},
+		"an expiry with no id":           {nil, []string{"scope", "--expiry", "task-7"}, "", 2, "an expiry reads <id>=<words>"},
+		"an expiry with a blank id":      {nil, []string{"scope", "--expiry", " =task-7"}, "", 2, "an expiry reads <id>=<words>"},
+		"an expiry with blank words":     {nil, []string{"scope", "--expiry", "index-000000000000= "}, "", 2, "an expiry reads <id>=<words>"},
+		"an id given two expiries":       {nil, []string{"scope", "--expiry", "index-000000000000=task-7", "--expiry", "index-000000000000=v2"}, "", 2, "entry index-000000000000 is given two expiries"},
+		"an expiry for an unknown id":    {nil, []string{"scope", "--expiry", "index-000000000000=task-7"}, "", 1, "no memory entry has the id index-000000000000"},
+		"cold with no scope":             {nil, []string{"retrieve", "--cold"}, "", 2, "--cold prints what a scope or a search selects"},
+		"cold with an id":                {nil, []string{"retrieve", "--cold", "--id", "cache"}, "", 2, "--cold prints what a scope or a search selects"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			dataDir := scopeHome(t)
 			for key, value := range test.env {
 				t.Setenv(key, value)
+			}
+			if test.ids != "" {
+				idsFile := filepath.Join(t.TempDir(), "ids.txt")
+				if err := os.WriteFile(idsFile, []byte(test.ids), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				test.args = append(test.args, "--ids", idsFile)
 			}
 
 			// Act

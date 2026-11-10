@@ -368,7 +368,7 @@ func AcceptLesson(dataDir, stateDir, id string, acceptance Acceptance) (name str
 // cover every memory file, as one cold fact routed to its repository and
 // triggered by the lesson's words, so a CEO session's startup memory leaves
 // it out and a retrieval for that repository carries it. A catalog that
-// would not load is put back.
+// would not load is never written.
 func catalogLesson(dataDir string, before []byte, name string, candidate LessonCandidate, content []byte, now time.Time) error {
 	var catalog Catalog
 	if err := Decode(before, &catalog); err != nil {
@@ -377,7 +377,7 @@ func catalogLesson(dataDir string, before []byte, name string, candidate LessonC
 	catalog.Sources = append(catalog.Sources, Source{Path: "memory/" + name + ".md", SHA256: Hash(content), Entries: []Entry{{
 		ID: candidate.ID, End: len(content), SHA256: Hash(content), Authority: "fact", Location: "cold", Trigger: candidate.Text, Projects: []string{candidate.Project},
 	}}})
-	return replaceCatalog(dataDir, catalog, before, now)
+	return replaceCatalog(dataDir, catalog, now)
 }
 
 // RejectLesson records the CEO's rejection and its reason, under the

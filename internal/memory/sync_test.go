@@ -2,6 +2,7 @@ package memory
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -47,6 +48,54 @@ func rulingID(t *testing.T, dataDir, stateDir, text string) string {
 	}
 	t.Fatalf("recall holds no ruling %q", text)
 	return ""
+}
+
+// catalogWritten is a fixed past instant no test runs at, so a catalog file
+// still dated then was never written again.
+var catalogWritten = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+// agedCatalog dates the catalog file at catalogWritten and returns its bytes.
+func agedCatalog(t *testing.T, dataDir string) []byte {
+	t.Helper()
+	path := filepath.Join(dataDir, filepath.FromSlash(CatalogPath))
+	if err := os.Chtimes(path, catalogWritten, catalogWritten); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return content
+}
+
+// requireCatalogNeverWritten fails unless the catalog file holds the bytes
+// agedCatalog returned and is still dated as it left it: a catalog written
+// and then put back has the same bytes and a new date.
+func requireCatalogNeverWritten(t *testing.T, dataDir string, before []byte) {
+	t.Helper()
+	path := filepath.Join(dataDir, filepath.FromSlash(CatalogPath))
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("the catalog was not left as it was: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.ModTime().Equal(catalogWritten) {
+		t.Fatalf("the catalog file was written again: %+v, %v", info, err)
+	}
+}
+
+// entryOf is the catalog's entry of that id.
+func entryOf(t *testing.T, catalog Catalog, id string) Entry {
+	t.Helper()
+	for _, source := range catalog.Sources {
+		for _, entry := range source.Entries {
+			if entry.ID == id {
+				return entry
+			}
+		}
+	}
+	t.Fatalf("the catalog holds no entry %s", id)
+	return Entry{}
 }
 
 func TestSyncCatalogsEveryByteAndEveryRulingUnderItsRecallID(t *testing.T) {
@@ -201,19 +250,16 @@ func TestScopeRefusesWhatItCannotTagAndChangesNothing(t *testing.T) {
 			if _, err := Sync(dataDir, stateDir, referenceDate); err != nil {
 				t.Fatal(err)
 			}
-			before, err := os.ReadFile(filepath.Join(dataDir, filepath.FromSlash(CatalogPath)))
-			if err != nil {
-				t.Fatal(err)
-			}
+			before := agedCatalog(t, dataDir)
 
 			// Act
-			_, err = Scope(dataDir, stateDir, referenceDate, test.tag(rulingID(t, dataDir, stateDir, "Harbor keeps port 4300 free.")))
+			_, err := Scope(dataDir, stateDir, referenceDate, test.tag(rulingID(t, dataDir, stateDir, "Harbor keeps port 4300 free.")))
 
 			// Assert
-			after, readErr := os.ReadFile(filepath.Join(dataDir, filepath.FromSlash(CatalogPath)))
-			if err == nil || !strings.Contains(err.Error(), test.want) || readErr != nil || !bytes.Equal(before, after) {
-				t.Fatalf("the tag was not refused with the catalog as it was: %v, %v", err, readErr)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("the tag was not refused: %v", err)
 			}
+			requireCatalogNeverWritten(t, dataDir, before)
 		})
 	}
 }
@@ -463,10 +509,7 @@ func TestSyncLeavesTheCatalogAsItWasWhenTheResultWouldNotLoad(t *testing.T) {
 				if _, err := Sync(dataDir, stateDir, referenceDate); err != nil {
 					t.Fatal(err)
 				}
-				var err error
-				if before, err = os.ReadFile(path); err != nil {
-					t.Fatal(err)
-				}
+				before = agedCatalog(t, dataDir)
 			}
 			// A perishable line needs an expiry only the CEO can name.
 			writeMemoryFile(t, dataDir, "memory/MEMORY.md", []byte("- [Cache](cache.md) - until task-7 lands <!--p:2026-10-30-->\n"))
@@ -475,12 +518,13 @@ func TestSyncLeavesTheCatalogAsItWasWhenTheResultWouldNotLoad(t *testing.T) {
 			_, err := Sync(dataDir, stateDir, referenceDate)
 
 			// Assert
-			after, readErr := os.ReadFile(path)
 			if err == nil || !strings.Contains(err.Error(), "perishable memory needs its checkable expiry") || !strings.Contains(err.Error(), "--expiry") {
 				t.Fatalf("a catalog that would not load was written, or the refusal does not say what to set: %v", err)
 			}
-			if hasCatalog && (readErr != nil || !bytes.Equal(before, after)) || !hasCatalog && !os.IsNotExist(readErr) {
-				t.Fatalf("the catalog was not left as it was: %v", readErr)
+			if hasCatalog {
+				requireCatalogNeverWritten(t, dataDir, before)
+			} else if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+				t.Fatalf("a refused first sync left a catalog: %v", statErr)
 			}
 		})
 	}
@@ -497,7 +541,7 @@ func TestScopeNamesAPerishableLinesExpirySoTheCatalogLoads(t *testing.T) {
 	id := regexp.MustCompile(`index-[0-9a-f]{12}`).FindString(err.Error())
 
 	// Act
-	_, err = Scope(dataDir, stateDir, referenceDate, Tag{IDs: []string{id}, Expiry: "task-7"})
+	_, err = Scope(dataDir, stateDir, referenceDate, Tag{Expiries: map[string]string{id: "task-7"}})
 
 	// Assert
 	if err != nil {
@@ -505,6 +549,172 @@ func TestScopeNamesAPerishableLinesExpirySoTheCatalogLoads(t *testing.T) {
 	}
 	if _, err := Load(dataDir, referenceDate); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestScopeNamesEveryPerishableEntrysExpiryInOneCall(t *testing.T) {
+	// Oracle: the catalog schema: an expiry is a condition quoted in a
+	// perishable entry's own text, so two entries need two sets of words.
+	// Arrange
+	dataDir, stateDir := scopedHome(t)
+	writeMemoryFile(t, dataDir, "memory/MEMORY.md", []byte("- [Cache](cache.md) - until task-7 lands <!--p:2026-10-30-->\n- [Owner](owner.md) - until v2 ships <!--p:2026-10-30-->\n"))
+	path := filepath.Join(dataDir, filepath.FromSlash(CatalogPath))
+	_, err := Sync(dataDir, stateDir, referenceDate)
+	if err == nil {
+		t.Fatal("two perishable lines with no expiry synced")
+	}
+	named, _, _ := strings.Cut(err.Error(), ": perishable")
+	ids := regexp.MustCompile(`index-[0-9a-f]{12}`).FindAllString(named, -1)
+	if len(ids) != 2 || ids[0] == ids[1] || !errors.Is(err, errExpiryMissing) || !strings.Contains(err.Error(), `cfo memory scope --expiry `+ids[0]+`="<words>" --expiry `+ids[1]+`="<words>"`) {
+		t.Fatalf("the refusal does not name both entries and the one command that names their expiries: %v", err)
+	}
+
+	// Act
+	_, oneErr := Scope(dataDir, stateDir, referenceDate, Tag{Expiries: map[string]string{ids[0]: "task-7"}})
+	_, statErr := os.Stat(path)
+	report, bothErr := Scope(dataDir, stateDir, referenceDate, Tag{Expiries: map[string]string{ids[0]: "task-7", ids[1]: "v2"}})
+
+	// Assert
+	if oneErr == nil || !strings.Contains(oneErr.Error(), `cfo memory scope --expiry `+ids[1]+`="<words>"`) || strings.Contains(oneErr.Error(), ids[0]) || !os.IsNotExist(statErr) {
+		t.Fatalf("a call naming one expiry was not refused naming the other entry alone, with no catalog written: %v, %v", oneErr, statErr)
+	}
+	if bothErr != nil || report.Tagged != 2 {
+		t.Fatalf("one call naming both expiries did not write the catalog: %+v, %v", report, bothErr)
+	}
+	catalog, err := Load(dataDir, referenceDate)
+	if err != nil {
+		t.Fatalf("the catalog with both expiries named does not load: %v", err)
+	}
+	if first, second := entryOf(t, catalog, ids[0]), entryOf(t, catalog, ids[1]); first.Expiry != "task-7" || second.Expiry != "v2" || first.Location != "warm" || second.Location != "warm" {
+		t.Fatalf("the entries do not each carry their own expiry and stay warm: %+v, %+v", first, second)
+	}
+}
+
+func TestSyncKeepsALineFilesOnlyEntryUnderItsIDWhenALineJoinsIt(t *testing.T) {
+	for name, test := range map[string]struct{ file, first, second string }{
+		"a ruling":      {"overlord.md", "Harbor closes at dusk.\n", "Harbor opens at dawn.\n"},
+		"an index line": {"memory/MEMORY.md", "- [Cache](cache.md) - where the cache lives <!--a:2026-10-30-->\n", "- [Owner](owner.md) - who approves a release <!--a:2026-10-30-->\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dataDir, stateDir := scopedHome(t)
+			writeMemoryFile(t, dataDir, test.file, []byte(test.first))
+			if _, err := Sync(dataDir, stateDir, referenceDate); err != nil {
+				t.Fatal(err)
+			}
+			synced, err := Load(dataDir, referenceDate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			position := slices.IndexFunc(synced.Sources, func(source Source) bool { return source.Path == test.file })
+			if position < 0 || len(synced.Sources[position].Entries) != 1 {
+				t.Fatalf("%s is not one entry, so this test proves nothing: %+v", test.file, synced.Sources)
+			}
+			id := synced.Sources[position].Entries[0].ID
+			if _, err := Scope(dataDir, stateDir, referenceDate, Tag{IDs: []string{id}, Projects: []string{"harbor"}}); err != nil {
+				t.Fatal(err)
+			}
+			writeMemoryFile(t, dataDir, test.file, []byte(test.first+test.second))
+
+			// Act
+			report, err := Sync(dataDir, stateDir, referenceDate)
+
+			// Assert
+			if err != nil || report.Added != 1 || len(report.Dropped) != 0 {
+				t.Fatalf("the sync did not add the one new line and drop nothing: %+v, %v", report, err)
+			}
+			catalog, err := Load(dataDir, referenceDate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if kept := entryOf(t, catalog, id); kept.Location != "cold" || !slices.Equal(kept.Projects, []string{"harbor"}) {
+				t.Fatalf("the line that is still there lost its scope: %+v", kept)
+			}
+			exact, err := catalog.Retrieve(Query{ID: id})
+			if err != nil || !strings.HasSuffix(exact, "\n"+test.first+"\n") {
+				t.Fatalf("the line is not retrievable verbatim by the id it had: %q, %v", exact, err)
+			}
+		})
+	}
+}
+
+func TestSyncLoadsAFactFileWhoseMarkerTheContractKeepsWarm(t *testing.T) {
+	// Oracle: the catalog schema: pending capture, grace and perishable
+	// entries stay warm, so a sync derives them warm and stops on none.
+	for name, test := range map[string]struct{ marker, expiry string }{
+		"pending capture": {"<!--t:team-->", ""},
+		"grace":           {"<!--g-->", ""},
+		"perishable":      {"<!--p:2026-10-30-->", "until task-7 lands"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dataDir, stateDir := scopedHome(t)
+			writeMemoryFile(t, dataDir, "memory/tide.md", []byte("---\nname: tide\ndescription: The tide table is in the office\nmetadata:\n  type: reference\n---\n\nAsk the office until task-7 lands. "+test.marker+"\n"))
+
+			// Act
+			_, err := Sync(dataDir, stateDir, referenceDate)
+			if test.expiry != "" {
+				if err == nil || !strings.Contains(err.Error(), `--expiry tide="<words>"`) {
+					t.Fatalf("a perishable fact with no expiry was not refused naming it: %v", err)
+				}
+				_, err = Scope(dataDir, stateDir, referenceDate, Tag{Expiries: map[string]string{"tide": test.expiry}})
+			}
+
+			// Assert
+			if err != nil {
+				t.Fatalf("a fact file nobody tagged stopped the sync: %v", err)
+			}
+			catalog, err := Load(dataDir, referenceDate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			startup, err := catalog.StartupMap()
+			if err != nil || !strings.Contains(startup, "Ask the office until task-7 lands.") {
+				t.Fatalf("the fact does not load at startup: %q, %v", startup, err)
+			}
+			before := agedCatalog(t, dataDir)
+			_, err = Scope(dataDir, stateDir, referenceDate, Tag{IDs: []string{"tide"}, Projects: []string{"harbor"}})
+			if err == nil || !strings.Contains(err.Error(), "memory tide: ") || !strings.Contains(err.Error(), "must remain warm") {
+				t.Fatalf("ruling the fact for a project was not refused with the entry named: %v", err)
+			}
+			requireCatalogNeverWritten(t, dataDir, before)
+		})
+	}
+}
+
+func TestSyncLoadsAColdFactThatGainsAMarkerTheContractKeepsWarm(t *testing.T) {
+	// Arrange
+	dataDir, stateDir := scopedHome(t)
+	if _, err := Sync(dataDir, stateDir, referenceDate); err != nil {
+		t.Fatal(err)
+	}
+	synced, err := Load(dataDir, referenceDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cache := entryOf(t, synced, "cache"); cache.Location != "cold" {
+		t.Fatalf("the fact was not synced cold, so this test proves nothing: %+v", cache)
+	}
+	cache, err := os.ReadFile(filepath.Join(dataDir, "memory", "cache.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeMemoryFile(t, dataDir, "memory/cache.md", append(cache, []byte("<!--g-->\n")...))
+
+	// Act
+	report, err := Sync(dataDir, stateDir, referenceDate)
+
+	// Assert
+	if err != nil || report.Added != 0 || len(report.Dropped) != 0 {
+		t.Fatalf("a fact that gained a grace marker stopped the sync or was taken for a new one: %+v, %v", report, err)
+	}
+	catalog, err := Load(dataDir, referenceDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startup, err := catalog.StartupMap()
+	if err != nil || !strings.Contains(startup, "Use the second drive.") {
+		t.Fatalf("the fact does not load at startup once it is in grace: %q, %v", startup, err)
 	}
 }
 

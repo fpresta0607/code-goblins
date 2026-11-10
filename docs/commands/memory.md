@@ -19,16 +19,21 @@ A stale, legacy, grace or pending-capture entry says so inside its brackets, and
 Derive `data/memory/startup.json` again from the memory files, as [rulings by scope](../contract/memory.md#rulings-by-scope) defines, and report how many entries load at startup, how many come by scope, how many are new and the startup estimate against its budget.
 Run it after memory changes: until then every reader of the catalog reports the change as `MEMORY UNREADABLE` and names this command.
 A home with no catalog gets its first one, which loads every ruling and every index line, so the estimate drops only as scopes are ruled.
-A perishable line needs its expiry named before the catalog loads; the refusal names the entry and `cfo memory scope --expiry "<words>" <id>`, where the words are that line's own.
+A perishable entry needs its expiry named before the catalog loads; the refusal names every such entry and the one command that names them all, `cfo memory scope --expiry <id>="<words>"` once for each, where the words are that entry's own.
+A catalog that would not load is never written: it is checked against the memory files before it replaces the one on disk, so a refused `sync`, `scope` or lesson acceptance leaves the catalog file untouched, and a home with none still has none.
 
-`cfo memory scope --project <name>... [--ids <file>] [<id>...]`, `cfo memory scope --fleet [--ids <file>] [<id>...]` and `cfo memory scope --list`
+`cfo memory scope --project <name>... [--ids <file>] [<id>...]`, `cfo memory scope --fleet [--ids <file>] [<id>...]`, `cfo memory scope --expiry <id>="<words>"...` and `cfo memory scope --list`
 
 Rule whose the named entries are, after a sync.
 `--project` makes them cold and routes them to each project named, with the heading each stands under as its trigger; `--fleet` makes them warm and marks them classified.
-`--ids` reads one id from the start of each line of a file, bare or in the brackets the startup map prints, and ignores the rest of the line and blank lines.
+`--expiry <id>=<words>` names when a perishable entry ends, in words that entry holds, and repeats, one pair for each entry.
+An id named in a pair needs no id argument besides, so `--expiry` pairs alone are a whole command; beside `--project` or `--fleet`, that scope is ruled for the pair's entry too.
+A pair with no `=`, a blank id or blank words, and an id given two expiries are refused, and nothing is written.
+An id is only ever spelled bare, as an argument and in a file alike.
+`--ids` reads one bare id from each line of a file and ignores blank lines; a line holding anything more refuses the whole command, naming the line's number, and nothing is tagged.
 `--list` prints the rulings no scope is ruled for yet, in the map's form, and writes nothing.
 An id no entry has refuses the whole command, and nothing is tagged.
-`sync` and a `scope` that tags are the CEO's alone: a goblin, a gate agent and an agent session that is not [the CEO's own](../contract/supervision.md#the-ceos-own-session) are refused, and they act only on the resolved CEO home.
+`sync` and every `scope` are the CEO's alone, but for the one spelled exactly `cfo memory scope --list`: a goblin, a gate agent and an agent session that is not [the CEO's own](../contract/supervision.md#the-ceos-own-session) are refused, and they act only on the resolved CEO home.
 
 `cfo memory retrieve --search "cache port" [--project <name>] [--task <id>] [--topic <topic>] [--limit 5] [--include-completed]`
 

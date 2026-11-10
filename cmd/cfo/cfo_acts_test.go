@@ -53,7 +53,9 @@ func TestACommandThatActsAsTheCFOIsRefusedInAnotherAgentsSession(t *testing.T) {
 		{"memory", "sync"},
 		{"memory", "scope", "--project", "harbor", "ruling-000000000000"},
 		{"memory", "scope", "--fleet", "--ids", `C:\ids.txt`},
-		{"memory", "scope", "--expiry", "task-7", "index-000000000000"},
+		{"memory", "scope", "--expiry", "index-000000000000=task-7"},
+		{"memory", "scope", "--list=false", "--fleet", "ruling-000000000000"},
+		{"memory", "scope", "--project", "--list", "ruling-000000000000"},
 		{"auth", "grant", "g1", "--codex-credits"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
