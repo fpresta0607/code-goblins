@@ -168,6 +168,8 @@ Git keeps every checkout in the worktree's own reflog, so a goblin that goes on 
   A single-digit-MB working set means the wrapper never started.
 - **Check PR state yourself.** A goblin's belief about its own PR goes stale: on 2026-08-19 a goblin reported its PR green and unmerged when it had already been squash-merged.
   `gh pr view` is the source of truth.
+<a id="the-ceos-own-session"></a>
+
 ## The CEO's own session
 
 One session on the machine is the CEO's own: the agent that native terminal `ceo` of this home runs.
@@ -190,7 +192,7 @@ Only that session:
 - takes the session lock, from the SessionStart digest, the Stop hook, `ceo register` and `ceo session-start`.
 - registers as the primary CEO.
 - is given the digest, guarded by the pre-tool hooks, held at a blind turn end and rewoken by the Stop hook with the fleet's wakes.
-- acts as the CEO from a command: `ceo brief`, `spawn`, `send`, `switch`, `title`, `pause`, `resume`, `kill`, `cleanup`, `supersede`, `backlog`, `pr`, `merge-local`, `deploy` and `start-hook`, a `ceo drain` that acknowledges, a `ceo reap` that acts, a `ceo allowance-floor` that sets a floor and a `ceo auth grant --codex-credits`.
+- acts as the CEO from a command: `ceo brief`, `spawn`, `send`, `switch`, `title`, `pause`, `resume`, `kill`, `cleanup`, `supersede`, `backlog`, `pr`, `merge-local`, `deploy` and `start-hook`, a `ceo drain` that acknowledges, a `ceo reap` that acts, a `ceo allowance-floor` that sets a floor, a `ceo memory lesson` and a `ceo auth grant --codex-credits`.
 
 Every other agent session is left alone.
 A Claude Code session the Overlord opens himself, in the desktop app or a terminal of his own, in any folder, gets nothing from any hook: no digest, no lock, no guard on its tools and no rewake.

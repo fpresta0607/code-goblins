@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/memory"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -88,6 +90,41 @@ func TestWriteContextPackDrawsMemoryAndTheRepositorysLiveState(t *testing.T) {
 	}
 	if strings.Contains(pack, "northwind") {
 		t.Fatalf("another project's task reached the pack:\n%s", pack)
+	}
+}
+
+func TestWriteContextPackLeadsWithALessonAcceptedForItsRepository(t *testing.T) {
+	service, meta := packHome(t)
+	accepted := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	accept := func(task, project, text string) string {
+		t.Helper()
+		resolved, err := memory.ResolveLessons([]memory.Lesson{{Text: text, Cites: []string{"quay"}}}, []string{"2026-11-09T10:00:00Z working: walked the quay"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids, err := memory.ProposeLessons(service.StateDir, memory.LessonCandidate{Task: task, Project: project, ProposedAt: accepted}, resolved)
+		if err != nil {
+			t.Fatal(err)
+		}
+		name, err := memory.AcceptLesson(service.DataDir, service.StateDir, ids[0], memory.Acceptance{Now: accepted})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return name
+	}
+	// meta.Project is C:\dev\harbor, so its lessons are the harbor repository's.
+	harbor := accept("harbor-quay", "harbor", "Kelp beds slow the ferry.")
+	northwind := accept("northwind-quay", "northwind", "Gulls steal unattended lunches.")
+
+	pack := deliverPack(t, service, meta, "## Task\n\nStore harbor saves in the hosted database before the deploy.\n", false)
+
+	_, facts, _ := strings.Cut(pack, "\n## Current facts (superseded ones hidden)\n")
+	facts, _, _ = strings.Cut(facts, "\n## ")
+	if !strings.HasPrefix(facts, "- 2026-11-09 "+harbor+" (") || !strings.Contains(facts, "Kelp beds slow the ferry.") {
+		t.Fatalf("the pack's facts do not lead with the lesson accepted for harbor:\n%s", pack)
+	}
+	if strings.Contains(pack, northwind) || strings.Contains(pack, "Gulls steal unattended lunches.") {
+		t.Fatalf("a lesson accepted for another repository reached the pack:\n%s", pack)
 	}
 }
 

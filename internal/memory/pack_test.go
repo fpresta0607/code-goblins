@@ -3,6 +3,7 @@ package memory
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -121,6 +122,94 @@ func TestBuildPackLeavesOutFactsScopedToAnotherRoleOrTask(t *testing.T) {
 	for id, isWanted := range map[string]bool{"harbor-this-task": true, "harbor-goblins": true, "harbor-ceo-only": false, "harbor-other-task": false} {
 		if strings.Contains(pack.Text, id+" (") != isWanted {
 			t.Errorf("%s in the pack is %v, want %v", id, !isWanted, isWanted)
+		}
+	}
+}
+
+// acceptLessons proposes texts as one done report of task in project and
+// accepts each at indexDate; no word of a text or its cited line is in
+// harborPackInput's title or brief.
+func acceptLessons(t *testing.T, dataDir, stateDir, task, project string, texts ...string) []string {
+	t.Helper()
+	var lessons []Lesson
+	for _, text := range texts {
+		lessons = append(lessons, Lesson{Text: text, Cites: []string{"quay"}})
+	}
+	resolved, err := ResolveLessons(lessons, []string{"2026-11-09T10:00:00Z working: walked the quay"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := ProposeLessons(stateDir, LessonCandidate{Task: task, Project: project, ProposedAt: indexDate}, resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, id := range ids {
+		name, err := AcceptLesson(dataDir, stateDir, id, Acceptance{Now: indexDate})
+		if err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, name)
+	}
+	return names
+}
+
+// packFacts is the lines of a pack's facts section.
+func packFacts(text string) []string {
+	_, facts, _ := strings.Cut(text, "\n## "+sectionFacts+"\n")
+	facts, _, _ = strings.Cut(facts, "\n## ")
+	return strings.Split(strings.TrimSpace(facts), "\n")
+}
+
+func TestBuildPackLeadsWithALessonAcceptedForItsProjectWhateverTheBriefSaysAndWithNoOtherFact(t *testing.T) {
+	dataDir, stateDir := writeIndexFixture(t)
+	writeFile(t, filepath.Join(dataDir, "memory", "kites-fly-in-spring.md"), "---\nname: kites-fly-in-spring\ndescription: kites fly best in spring wind\nmetadata:\n  type: project\n  projects: [harbor]\n  modified: 2026-11-09T13:00:00Z\n---\n\nKites fly best in spring wind.\n")
+	names := acceptLessons(t, dataDir, stateDir, "zebra-paint", "harbor", "Zebra crossings need fresh paint.")
+	index, err := BuildIndex(dataDir, stateDir, indexDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	northwind := harborPackInput()
+	northwind.Task, northwind.Project = "northwind-cache", "northwind"
+
+	harbor, harborErr := index.BuildPack(harborPackInput())
+	other, otherErr := index.BuildPack(northwind)
+
+	if harborErr != nil || otherErr != nil || !strings.HasPrefix(packFacts(harbor.Text)[0], "- 2026-11-09 "+names[0]+" (") || !strings.Contains(harbor.Text, "Zebra crossings need fresh paint.") {
+		t.Fatalf("%v %v\n%s", harborErr, otherErr, harbor.Text)
+	}
+	if strings.Contains(harbor.Text, "kites-fly-in-spring") {
+		t.Fatalf("a newer hand-written harbor fact no word of the brief holds reached the pack:\n%s", harbor.Text)
+	}
+	if strings.Contains(other.Text, names[0]) {
+		t.Fatalf("another project's pack carries the lesson:\n%s", other.Text)
+	}
+}
+
+func TestBuildPackLeadsWithAllSixLessonsOfTwoDoneReportsInTheOrderOfTheirFactNames(t *testing.T) {
+	dataDir, stateDir := writeIndexFixture(t)
+	names := slices.Concat(
+		acceptLessons(t, dataDir, stateDir, "quay-tides", "harbor", "Kelp beds slow the ferry.", "Gulls steal unattended lunches.", "Tides peak at noon on Fridays."),
+		acceptLessons(t, dataDir, stateDir, "quay-buoys", "harbor", "Buoys need fresh paint yearly.", "Fog horns sound every minute.", "Piers flex under heavy trucks."),
+	)
+	index, err := BuildIndex(dataDir, stateDir, indexDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pack, err := index.BuildPack(harborPackInput())
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(names)
+	facts := packFacts(pack.Text)
+	if len(facts) <= len(names) {
+		t.Fatalf("the pack holds no other fact after the lessons:\n%s", pack.Text)
+	}
+	for position, name := range names {
+		if !strings.HasPrefix(facts[position], "- 2026-11-09 "+name+" (") {
+			t.Fatalf("fact %d is %q, want lesson %s; the lessons accepted together lead in the order of their fact names:\n%s", position+1, facts[position], name, pack.Text)
 		}
 	}
 }

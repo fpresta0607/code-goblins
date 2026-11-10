@@ -37,6 +37,10 @@ type PackInput struct {
 // another role stays out of it.
 const RoleGoblin = "goblin"
 
+// lessonsLead is how many of the newest lessons accepted for a pack's
+// project lead its facts.
+const lessonsLead = 10
+
 // LiveTask is another task working in the same repository right now, with
 // the last pull request its reports name.
 type LiveTask struct {
@@ -115,8 +119,36 @@ func (index *Index) packCandidates(input PackInput) (map[string][]packEntry, err
 		question string
 		limit    int
 	}{{input.Title + "\n" + input.Project, DefaultRecallLimit}, {briefQuestion(input.Title, input.Brief, input.Project), 50}}
+	factLine := func(item Item, excerpt string) {
+		line := fmt.Sprintf("- %s %s (%s): %s", FormatDate(item.Date), item.ID, item.Path, excerpt)
+		if len(item.Supersedes) > 0 {
+			line += " Supersedes " + strings.Join(item.Supersedes, ", ") + "."
+		}
+		add(sectionFacts, line)
+	}
 	for _, kind := range []string{KindRuling, KindFact} {
 		taken := map[string]bool{}
+		if kind == KindFact {
+			// The newest lessons accepted for this project lead, whatever
+			// the brief says, so an accepted lesson is in its next pack.
+			var lessons []Item
+			for _, item := range index.Items {
+				if item.Lesson != "" && !index.superseded[item.ID] && slices.ContainsFunc(item.Projects, func(project string) bool { return strings.EqualFold(project, input.Project) }) &&
+					scoped(item.Roles, RoleGoblin) && (item.Task == "" || strings.EqualFold(item.Task, input.Task)) {
+					lessons = append(lessons, item)
+				}
+			}
+			slices.SortFunc(lessons, func(left, right Item) int {
+				if compared := right.Date.Compare(left.Date); compared != 0 {
+					return compared
+				}
+				return strings.Compare(left.ID, right.ID)
+			})
+			for _, item := range lessons[:min(lessonsLead, len(lessons))] {
+				taken[item.ID] = true
+				factLine(item, excerpt(item))
+			}
+		}
 		for _, ask := range asks {
 			if len(Terms(ask.question)) == 0 {
 				continue
@@ -134,11 +166,7 @@ func (index *Index) packCandidates(input PackInput) (map[string][]packEntry, err
 					add(sectionRulings, fmt.Sprintf("- %s %s (%s:%d, %s): %s", FormatDate(item.Date), item.Title, item.Path, item.Line, item.ID, item.Text))
 					continue
 				}
-				line := fmt.Sprintf("- %s %s (%s): %s", FormatDate(item.Date), item.ID, item.Path, item.Excerpt)
-				if len(item.Supersedes) > 0 {
-					line += " Supersedes " + strings.Join(item.Supersedes, ", ") + "."
-				}
-				add(sectionFacts, line)
+				factLine(item.Item, item.Excerpt)
 			}
 		}
 	}

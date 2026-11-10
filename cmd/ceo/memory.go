@@ -17,11 +17,14 @@ import (
 
 func runMemory(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "ceo memory: recall, retrieve, routes, budget, migration-plan or retention-plan is required")
+		fmt.Fprintln(stderr, "ceo memory: recall, lesson, retrieve, routes, budget, migration-plan or retention-plan is required")
 		return 2
 	}
 	if args[0] == "recall" {
 		return runMemoryRecall(args[1:], stdout, stderr)
+	}
+	if args[0] == "lesson" {
+		return runMemoryLesson(args[1:], stdout, stderr)
 	}
 	flags := flag.NewFlagSet("ceo memory "+args[0], flag.ContinueOnError)
 	flags.SetOutput(stderr)

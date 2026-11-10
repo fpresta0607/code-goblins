@@ -48,6 +48,8 @@ func TestACommandThatActsAsTheCEOIsRefusedInAnotherAgentsSession(t *testing.T) {
 		{"reap", "--force=g1"},
 		{"allowance-floor", "claude", "0"},
 		{"start-hook", "accept", "g1", `C:\worktree\.venv\Lib\site-packages\zope.interface-6.4-py3.12-nspkg.pth`},
+		{"memory", "lesson", "accept", "lesson-000000000000"},
+		{"memory", "lesson", "reject", "lesson-000000000000", "--reason", "too narrow"},
 		{"auth", "grant", "g1", "--codex-credits"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
@@ -75,6 +77,8 @@ func TestReadingTheFleetIsNotActingAsTheCEO(t *testing.T) {
 		{"reap"},
 		{"reap", "--dry-run", "--json"},
 		{"allowance-floor"},
+		{"memory", "recall", "harbor cache"},
+		{"memory", "retrieve", "--id", "current"},
 		{"fleet-view"},
 		{"peek", "g1"},
 		{"runtime"},
@@ -105,7 +109,7 @@ func TestCommandAuthorityMatchesReadOnlyPolicy(t *testing.T) {
 		// owner's private connection on this PC. None steers the fleet.
 		{"install", "uninstall", "update", "home", "dev-drive", "dictation", "crawler", "doctor", "serve", "stop", "status", "host", "attach", "hooks", "connection-repair", "remote", "version"},
 		// Reading the fleet and a project.
-		{"fleet-view", "peek", "runtime", "tickets", "project", "route", "verify", "security", "hygiene", "evidence", "process-plan", "defender", "memory"},
+		{"fleet-view", "peek", "runtime", "tickets", "project", "route", "verify", "security", "hygiene", "evidence", "process-plan", "defender"},
 		// The hooks, which prove the CEO's own session themselves, and the
 		// two commands that take the lock only there.
 		{"hook", "native-hook", "register", "session-start", "watch"},
@@ -123,7 +127,7 @@ func TestCommandAuthorityMatchesReadOnlyPolicy(t *testing.T) {
 		// and the runner service's status.
 		{"ci-runner"},
 	}
-	sometimes := []string{"drain", "reap", "allowance-floor", "auth"}
+	sometimes := []string{"drain", "reap", "allowance-floor", "memory", "auth"}
 	commands := append([]string{"brief", "spawn", "send", "switch", "title", "pause", "resume", "kill", "cleanup", "supersede", "backlog", "pr", "merge-local", "deploy", "start-hook"}, sometimes...)
 	for _, group := range notTheCEOs {
 		commands = append(commands, group...)
