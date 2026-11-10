@@ -56,7 +56,7 @@ func TestRunAllToolsPresent(t *testing.T) {
 	for _, name := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi"} {
 		fakeTool(t, dir, name, name+" version 1.0.0", 0)
 	}
-	fakeTool(t, dir, "chrome-devtools-axi", "0.1.40-codegoblins.3", 0)
+	fakeTool(t, dir, "chrome-devtools-axi", "0.1.40-codegoblins.4", 0)
 	fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.19", 0)
 	fakeTool(t, dir, "winget", "v1.9.25200", 0)
 	t.Setenv("PATH", dir)
@@ -77,8 +77,8 @@ func TestRunAllToolsPresent(t *testing.T) {
 	if checks[4].Name != "no-mistakes" || checks[5].Name != "gh-axi" || checks[6].Name != "chrome-devtools-axi" {
 		t.Errorf("gate/API checks = %+v, want no-mistakes, gh-axi, chrome-devtools-axi", checks[4:7])
 	}
-	if checks[6].Err != "" || checks[6].Floor != "0.1.40-codegoblins.3" {
-		t.Errorf("checks[6] = %+v, want the Code Goblins build of chrome-devtools-axi at its 0.1.40-codegoblins.3 floor", checks[6])
+	if checks[6].Err != "" || checks[6].Floor != "0.1.40-codegoblins.4" {
+		t.Errorf("checks[6] = %+v, want the Code Goblins build of chrome-devtools-axi at its 0.1.40-codegoblins.4 floor", checks[6])
 	}
 	if checks[7].Name != "lavish-axi" || checks[7].Err != "" || checks[7].Floor != "0.1.79-codegoblins.19" {
 		t.Errorf("checks[7] = %+v, want the Code Goblins build of lavish-axi at its 0.1.79-codegoblins.19 floor", checks[7])
@@ -101,7 +101,7 @@ func TestRunMissingWingetIsInstallerOnly(t *testing.T) {
 	for _, name := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi"} {
 		fakeTool(t, dir, name, name+" ok", 0)
 	}
-	fakeTool(t, dir, "chrome-devtools-axi", "0.1.40-codegoblins.3", 0)
+	fakeTool(t, dir, "chrome-devtools-axi", "0.1.40-codegoblins.4", 0)
 	fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.19", 0)
 	t.Setenv("PATH", dir)
 	t.Setenv("CFO_HOME", t.TempDir())
@@ -153,7 +153,7 @@ func TestRunLavishBelowFloorOrMissingIsPresentationOnly(t *testing.T) {
 			for _, name := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi"} {
 				fakeTool(t, dir, name, name+" ok", 0)
 			}
-			fakeTool(t, dir, "chrome-devtools-axi", "0.1.40-codegoblins.3", 0)
+			fakeTool(t, dir, "chrome-devtools-axi", "0.1.40-codegoblins.4", 0)
 			if tc.version != "" {
 				fakeTool(t, dir, "lavish-axi", tc.version, 0)
 			}
@@ -182,9 +182,11 @@ func TestRunLavishBelowFloorOrMissingIsPresentationOnly(t *testing.T) {
 
 // chrome-devtools-axi is pinned to the Code Goblins build from the fork, which
 // cfo auth browser and every goblin's browser session need (#1626): the
-// upstream package, however new, an older build of the fork's and a build of
-// it installed by hand under .1 or .2 all read as missing, with the fork
-// release's install command as the fix, and make doctor unhealthy.
+// upstream package, however new, an older build of the fork's, a build of it
+// installed by hand under .1 or .2 and the .3 release, whose bridge starts
+// PowerShell for every ACL and ownership check (#1658), all read as missing,
+// with the fork release's install command as the fix, and make doctor
+// unhealthy.
 func TestRunChromeDevtoolsAxiThatIsNotTheForkReleaseIsMissing(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -196,8 +198,9 @@ func TestRunChromeDevtoolsAxiThatIsNotTheForkReleaseIsMissing(t *testing.T) {
 		{name: "upstream above floor", version: "0.1.45", wantErr: "version 0.1.45 is not the codegoblins build"},
 		{name: "the hand-built fork build before the bridge's update checks were off", version: "0.1.40-codegoblins.1", wantErr: "version 0.1.40-codegoblins.1 is below the floor"},
 		{name: "the hand-built fork build", version: "0.1.40-codegoblins.2", wantErr: "version 0.1.40-codegoblins.2 is below the floor"},
-		{name: "the fork's release at floor", version: "0.1.40-codegoblins.3"},
-		{name: "the fork's later build of the floor's version", version: "0.1.40-codegoblins.4"},
+		{name: "the fork's release whose bridge starts PowerShell for every check", version: "0.1.40-codegoblins.3", wantErr: "version 0.1.40-codegoblins.3 is below the floor"},
+		{name: "the fork's release at floor", version: "0.1.40-codegoblins.4"},
+		{name: "the fork's later build of the floor's version", version: "0.1.40-codegoblins.5"},
 		{name: "the fork's build above floor", version: "0.1.41-codegoblins.1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
