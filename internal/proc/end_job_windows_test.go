@@ -2,6 +2,8 @@ package proc_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -94,6 +96,37 @@ func TestEndJobBesideAMachineServiceSkipsAnExitedProcessItsJobStillLists(t *test
 	// Assert
 	if err != nil || len(ended) != 1 || ended[0].PID != pids["worker"] || len(spared) != 1 || spared[0].PID != pids["com.docker.standin"] {
 		t.Fatalf("EndJob ended %+v and spared %+v, %v; want the worker %d ended once and the machine service %d spared", ended, spared, err, pids["worker"], pids["com.docker.standin"])
+	}
+}
+
+// A member the end may not read, as a sandboxed browser process can be, is
+// one it can neither end nor see exit, so an end beside a machine service
+// whose bound runs out names it with what it could not end in time: on a
+// loaded machine the bound ran out while another member's exit was still
+// finishing, and the error named only that member, never the one its caller
+// had to wait on (issue 1898). The worker here takes past the bound to exit.
+func TestEndJobBesideAMachineServiceNamesAMemberItMayNotReadWhenItsBoundRunsOut(t *testing.T) {
+	// Arrange
+	job, pids, _ := standinJob(t, "com.docker.standin", "worker", "locked")
+	proc.OpenJobProcessForTest(t, func(id uint32) error {
+		if id == uint32(pids["locked"]) {
+			return windows.ERROR_ACCESS_DENIED
+		}
+		return nil
+	})
+	proc.LoadForTest(t, 2*time.Second, 0)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond) // stall-accepted: the test means this deadline to run out before the worker's exit at two seconds.
+	defer cancel()
+
+	// Act
+	_, spared, err := proc.EndJob(ctx, job)
+
+	// Assert
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), fmt.Sprintf("could not read [%d]", pids["locked"])) {
+		t.Fatalf("EndJob = %v; want its bound's end to name the member %d it may not read", err, pids["locked"])
+	}
+	if len(spared) != 1 || spared[0].PID != pids["com.docker.standin"] {
+		t.Fatalf("spared = %+v, want the machine service %d still named beside the failure", spared, pids["com.docker.standin"])
 	}
 }
 
