@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
@@ -170,7 +171,7 @@ func (p *planner) elsewhere() error {
 			if err != nil || !info.Mode().IsRegular() || info.Size() > largestTextFile {
 				continue
 			}
-			content, err := os.ReadFile(path)
+			content, err := fsx.ReadFile(path)
 			if err != nil || isBinary(content) {
 				continue
 			}

@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
@@ -252,7 +253,7 @@ func (p *planner) data() string  { return filepath.Join(p.machine.Root, "data") 
 
 // readFile is a file's content, or isAbsent when nothing is there.
 func readFile(path string) (content []byte, isAbsent bool, err error) {
-	content, err = os.ReadFile(path)
+	content, err = fsx.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, true, nil
 	}
@@ -281,7 +282,7 @@ func exists(path string) bool {
 // build's programs out.
 func (p *planner) programs() error {
 	bin := filepath.Join(p.machine.Root, "bin")
-	program, err := os.ReadFile(p.machine.Program)
+	program, err := fsx.ReadFile(p.machine.Program)
 	if err != nil {
 		return fmt.Errorf("cutover: read this build: %w", err)
 	}
@@ -305,7 +306,7 @@ func (p *planner) programs() error {
 	}
 	for _, name := range []string{newName + "-hook.exe", "goblins-window.exe"} {
 		source := filepath.Join(filepath.Dir(p.machine.Program), name)
-		content, err := os.ReadFile(source)
+		content, err := fsx.ReadFile(source)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
@@ -457,7 +458,7 @@ func (p *planner) rewrite(kind, path, to string, protected *regexp.Regexp) error
 		p.add(KindListed, fmt.Sprintf("%s: kept, since %s is already there", path, to))
 		return nil
 	}
-	content, err := os.ReadFile(path)
+	content, err := fsx.ReadFile(path)
 	if err != nil {
 		return err
 	}
@@ -563,7 +564,7 @@ func (p *planner) skills() error {
 			p.claimed[from] = true
 			p.add(KindSkill, fmt.Sprintf("%s: becomes %s, with Claude Code's junction to it", from, to), steps...)
 		}
-		owner, err := os.ReadFile(filepath.Join(from, ".code-goblins"))
+		owner, err := fsx.ReadFile(filepath.Join(from, ".code-goblins"))
 		if err != nil {
 			return err
 		}

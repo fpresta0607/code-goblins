@@ -3,9 +3,15 @@
 # the rename: with the fleet paused, this commit's build lists the cutover
 # with --dry-run and makes that plan with --plan, then goblins resume brings
 # the board, the CEO and the goblin back under ceo. The fleet pauses as a
-# reboot pauses it: the supervisor stops when asked, and each terminal, the
+# reboot pauses it: the supervisor stops when asked, each terminal, the
 # CEO's and the goblin's, ends, its harness and then its host, by the pids its
-# record names. The home, the person's settings, project record, stored
+# record names, and the desktop window closes, the board's own window that
+# the release's install opened as its last step and that outlives a stopped
+# supervisor. The cutover refuses while it runs from the home's bin and asks
+# for it to be closed first, as the person running the cutover does; the
+# window keeps no record, so it is found by its program's full path and ended
+# by its pid.
+# The home, the person's settings, project record, stored
 # credential and the goblin's work are as fleet_at_work.ps1 -PreRename found
 # them, and the fleet's facts under ceo replace <facts>, for the updates after
 # it to keep.
@@ -34,6 +40,10 @@ foreach ($record in Get-ChildItem -LiteralPath (Join-Path $state "hosts") -Filte
     foreach ($id in $terminal.child_pid, $terminal.host_pid) {
         if ($id -gt 0 -and (Get-Process -Id $id -ErrorAction SilentlyContinue)) { Stop-Process -Id $id -Force }
     }
+}
+$window = Join-Path $bin "goblins-window.exe"
+foreach ($process in @(Get-Process | Where-Object { $_.Path -and [string]::Equals($_.Path, $window, [StringComparison]::OrdinalIgnoreCase) })) {
+    Stop-Process -Id $process.Id -Force
 }
 # The cutover refuses while any program runs from the home's bin, naming each
 # with its pid; a terminal's host takes a moment to end.
@@ -112,7 +122,11 @@ if ($after.version -notmatch '^ceo ') { $problems += "goblins version prints '$(
 foreach ($program in "ceoExe", "boardExe") {
     if ($after[$program] -ne $built) { $problems += "after the cutover $program is $($after[$program]), want this commit's $built" }
 }
-foreach ($kept in "home", "allowanceFloor", "claudeSetting", "project", "credentials", "goblinWork") {
+# The credential listing's first line names its store, which for the file
+# store is a folder the cutover renames; the credentials are the lines after.
+$stored = { param([string]$listing) @($listing -split "`r?`n" | Select-Object -Skip 1) -join "; " }
+if ((& $stored $after.credentials) -ne (& $stored $before.credentials)) { $problems += "the stored credentials changed across the cutover: '$($before.credentials)' became '$($after.credentials)'" }
+foreach ($kept in "home", "allowanceFloor", "claudeSetting", "project", "goblinWork") {
     if ($after[$kept] -ne $before.$kept) { $problems += "$kept changed across the cutover: '$($before.$kept)' became '$($after[$kept])'" }
 }
 if ($problems.Count -gt 0) { throw "the cutover from $($before.version) did not do what it must:`n- $($problems -join "`n- ")" }
