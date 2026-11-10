@@ -101,6 +101,9 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .disclosure.message-call > .disclosure-content { display: grid; gap: .5em; padding: .25em .5em .6em calc(.5em + 2.2em + 1.2em); }
 /* A folded run of calls opens to their own rows, set in under its icon. */
 .disclosure.message-call-group > .disclosure-content { gap: 1px; padding: 0 0 .25em 1.1em; font-size: 1.0667em; }
+/* The fold's count is cut with an ellipsis where its pictures leave it no
+   room, as a row's subject is. */
+.disclosure.message-call-group > summary .call-verb { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .message-diff { max-height: 24em; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: #071015; color: #8fa3ad; font: .8125em/1.5 var(--font-mono); }
 .message-diff > div { min-width: max-content; padding: 0 .75em; white-space: pre; }
 .message-diff > .line-added { background: rgba(78, 186, 101, 0.12); color: #bfe9c9; }
@@ -128,15 +131,59 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .message-interrupt > .icon { width: 1.1em; height: 1.1em; }
 .message-pictures { display: flex; flex-wrap: wrap; gap: .5em; }
 /* The pictures he sent sit above his bubble, on his side, as Claude's app
-   draws them; a call's sit in its fold. */
+   draws them; a call's sit in its fold, and small at its row's end. */
 .message-prompt > .message-pictures { justify-content: flex-end; }
 .message-picture { display: block; max-width: 100%; min-height: 0; padding: 0; border: 1px solid var(--glass-border-hover); border-radius: 8px; background: #071015; box-shadow: none; overflow: hidden; cursor: zoom-in; }
 .message-picture:hover { border-color: var(--mint); }
 .message-picture img { display: block; max-width: min(100%, 24em); max-height: 18em; object-fit: contain; }
-/* A picture opened larger, over the board. */
-.picture-viewer { width: min(1100px, calc(100vw - 28px)); max-height: 92dvh; padding: 20px; overflow: auto; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); color: #edf4f3; background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow-hover); font-size: 1rem; }
-.picture-viewer::backdrop { background: #03050aba; backdrop-filter: blur(6px); }
-@media (max-width: 640px) { .picture-viewer { padding: 14px; } }
+/* A picture that cannot be read is a quiet mark where it would be, never the
+   browser's broken image, with a few words where it has room for them. */
+.picture-missing { display: grid; place-items: center; align-content: center; gap: .5em; color: var(--muted); font-weight: 500; text-align: center; white-space: normal; }
+.picture-missing .icon { width: 1.5em; height: 1.5em; opacity: .7; }
+.message-picture .picture-missing { width: 11em; height: 7em; padding: .75em; font-size: .8125em; }
+/* The pictures a row's calls hold, at the row's end: small thumbnails of one
+   size, so a picture that loads moves nothing, and a count of those past the
+   first few. A touch screen draws them as large as a finger needs. The row
+   that is open shows its pictures under it, so its own end shows none. */
+.call-pictures { display: flex; align-items: center; gap: .3em; }
+.call-picture { display: grid; place-items: center; flex: none; width: 3em; height: 1.6em; min-height: 0; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 5px; background: #071015; box-shadow: none; color: var(--muted); cursor: zoom-in; }
+.call-picture:hover { border-color: var(--mint); }
+.call-picture img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.call-picture .picture-missing .icon { width: 1em; height: 1em; }
+.call-picture.more { width: auto; min-width: 2.4em; padding: 0 .5em; font-size: .8667em; font-weight: 700; }
+@media (pointer: coarse) { .call-picture { width: 44px; height: 44px; } .call-picture.more { min-width: 44px; height: 44px; } }
+.disclosure.message-call[open] > summary .call-pictures { display: none; }
+/* The card a mouse over a thumbnail shows, over the board: the picture
+   larger, then its call's verb and its place among the row's pictures. It
+   takes no pointer, so the thumbnail under the mouse stays the one shown. */
+.picture-hover-card { position: fixed; inset: auto; margin: 0; padding: 0; overflow: hidden; border: 1px solid var(--glass-border-hover); border-radius: 12px; background: #0b171c; box-shadow: var(--glass-shadow-hover); color: #e3ecef; font-weight: 500; line-height: 1.4; text-align: left; white-space: normal; pointer-events: none; }
+.picture-hover-card img { display: block; width: 100%; min-height: 3em; max-height: 15rem; object-fit: contain; background: #071015; }
+.picture-hover-card .picture-missing { min-height: 8em; padding: 1em; background: #071015; }
+.picture-hover-card > p { display: flex; justify-content: space-between; gap: 1em; margin: 0; padding: .55em .85em; }
+.picture-hover-card > p > :last-child { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* A conversation's pictures one at a time over the whole window, the board
+   dimmed under them: the picture as large as the window allows, and under it
+   the arrows and its place among them all. The stage's one track is the
+   room it has, so a picture larger than the window is drawn down to it. */
+.picture-viewer { position: fixed; inset: 0; width: 100vw; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; overflow: hidden; border: 0; background: transparent; color: #edf4f3; font-size: 1rem; }
+.picture-viewer::backdrop { background: #03050ad9; }
+.picture-view { display: grid; grid-template-rows: minmax(0, 1fr) auto; width: 100%; height: 100%; outline: none; }
+.picture-stage { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; min-width: 0; min-height: 0; padding: 4rem 4rem .5rem; overflow: hidden; touch-action: pan-y pinch-zoom; }
+.picture-stage img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 10px; background: #071015; cursor: zoom-in; user-select: none; }
+/* At its own size the picture scrolls in the stage, and its margins centre
+   one smaller than the stage without cutting off the start of a larger one. */
+.picture-stage.zoomed { display: flex; overflow: auto; touch-action: auto; }
+.picture-stage.zoomed img { flex: none; max-width: none; max-height: none; margin: auto; border-radius: 0; cursor: zoom-out; }
+.picture-stage .picture-missing { padding: 2rem; }
+.picture-steps { display: flex; align-items: center; justify-content: center; gap: .5rem; padding: .5rem 1rem max(.75rem, env(safe-area-inset-bottom)); font-variant-numeric: tabular-nums; }
+.picture-steps > span { min-width: 5.5em; text-align: center; }
+.picture-steps > button, .picture-close { display: grid; place-items: center; width: 44px; height: 44px; min-height: 44px; padding: 0; border-color: transparent; border-radius: 50%; background: transparent; box-shadow: none; }
+:is(.picture-steps > button, .picture-close):hover { background: #ffffff14; }
+:is(.picture-steps > button, .picture-close) .icon { width: 1.25rem; height: 1.25rem; }
+.picture-steps > button[aria-disabled="true"] { background: transparent; opacity: .35; cursor: default; }
+.picture-steps > .previous .icon { transform: rotate(180deg); }
+.picture-close { position: absolute; top: .75rem; right: .75rem; }
+@media (max-width: 640px) { .picture-stage { padding: 4rem .5rem .25rem; } }
 /* Copy shows on a message he points at or moves into, and always on a touch
    screen. */
 .message-copy { width: 32px; height: 32px; min-height: 32px; color: var(--muted); opacity: 0; transition: opacity .15s ease; }
