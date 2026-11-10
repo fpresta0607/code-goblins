@@ -8,7 +8,7 @@ const snapshot = {
   instance: "meters-once-fixture", revision: 1, healthy: true, cfo_runs: true, attention: [],
   tasks: [{ id: "polish-settings", title: "Polish settings", project: "example", phase: "queued", brief: true, verified: false, generation: "", since }],
   memory: { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 * GB, available: 6 * GB, commit_available: 20 * GB, paged_pool: 0.5 * GB, nonpaged_pool: 0.3 * GB },
-  disk: { drive: "D:", total: 953 * GB, floor: 15 * GB, wake: 10 * GB, free: 130 * GB },
+  disk: { drive: "D:", total: 953 * GB, floor: 15 * GB, wake: 10 * GB, free: 130 * GB, drives: [{ drive: "D:", total: 953 * GB, free: 130 * GB, dev_drive: true }] },
   processors: { performance_cores: 6, efficiency_cores: 4, efficiency_free: 0, next: 0.25, busiest: ["WmiPrvSE"], free: 0.4 },
   gpu: { adapters: [{ name: "Intel(R) Graphics", busy: 0.6, busiest: "siqshift-desktop" }] },
 };
