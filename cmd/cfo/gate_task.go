@@ -22,10 +22,11 @@ import (
 )
 
 func gateTask(root string, runtime commandRuntime) (string, error) {
-	root, err := fsx.Canonical(root)
+	root, err := fsx.AbsClean(root)
 	if err != nil {
 		return "", err
 	}
+	root = fsx.LongPath(root)
 	worktrees := filepath.Dir(filepath.Dir(root))
 	if !strings.EqualFold(filepath.Base(worktrees), "worktrees") {
 		return taskID(os.Getenv), nil
