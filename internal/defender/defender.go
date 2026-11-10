@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/gatehome"
 )
 
 // Detection is one detection as Defender recorded it. It holds names, paths
@@ -214,8 +215,8 @@ var notTasks = map[string]bool{".tmp": true, "candidates": true}
 
 // OriginOf reads the origin of the file at path from its folders: a goblin's
 // scratch, temporary and worktree folders hold its task's id, a test's
-// temporary folder holds the test's name, and a gate's worktree holds its
-// run's id.
+// temporary folder holds the test's name, and a gate's worktree, in the
+// gate's home in the profile or on the Dev Drive, holds its run's id.
 func OriginOf(path string) Origin {
 	elements := strings.Split(filepath.ToSlash(filepath.Clean(path)), "/")
 	var origin Origin
@@ -223,7 +224,7 @@ func OriginOf(path string) Origin {
 		if match := testFolder.FindStringSubmatch(element); match != nil && origin.Test == "" {
 			origin.Test = match[1]
 		}
-		if element == ".no-mistakes" && index+3 < len(elements) && elements[index+1] == "worktrees" {
+		if (element == ".no-mistakes" || element == gatehome.DevDriveFolder) && index+3 < len(elements) && elements[index+1] == "worktrees" {
 			return Origin{Gate: elements[index+3]}
 		}
 		skip, isTaskFolder := taskFolders[strings.ToLower(element)]

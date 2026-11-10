@@ -3,13 +3,23 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/devdrive"
+	"github.com/fpresta0607/code-goblins/internal/gatehome"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
+
+// systemGateHome is a gate home on the system drive, where no test's Dev
+// Drive folder is.
+const systemGateHome = `C:\Users\someone\.no-mistakes`
 
 // machineWith is a machine that can have a Dev Drive, its system drive
 // roomy, with the given drives.
@@ -17,10 +27,220 @@ func machineWith(volumes ...devdrive.Volume) devdrive.Machine {
 	return devdrive.Machine{Build: 26200, Revision: 9457, Defender: true, SystemDrive: "C:", SystemFree: 374 << 30, Volumes: volumes}
 }
 
-func runtimeOn(m devdrive.Machine) commandRuntime {
+// runtimeOn is a runtime on machine m that never touches the machine's own
+// gate home or board, and whose carried gate home names itself in this
+// test's process alone.
+func runtimeOn(t *testing.T, m devdrive.Machine) commandRuntime {
+	t.Setenv(gatehome.Variable, "")
 	runtime := defaultCommandRuntime()
 	runtime.readDevDrive = func(context.Context) (devdrive.Machine, error) { return m, nil }
+	runtime.gateHome = func() (string, error) { return systemGateHome, nil }
+	runtime.carryGateHome = func(_ context.Context, _, devDrive string, _ int, _ time.Duration, _ io.Writer) (string, bool, error) {
+		return "moved: the gate's home is " + gatehome.Target(devDrive), true, nil
+	}
+	runtime.restartBoard = func(home.Home, io.Writer) {}
 	return runtime
+}
+
+// cfo dev-drive move carries the gate's home onto the folder, waiting the
+// half hour for the gate runs in flight, and says where it went; a gate home
+// that does not move fails the command once the heavy folders moved.
+func TestDevDriveMoveCarriesTheGateHome(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		carryErr error
+		wantExit int
+		want     string
+	}{
+		{name: "it moves", wantExit: 0, want: "gate home: moved: the gate's home is "},
+		{name: "gate runs stay in flight", carryErr: errors.New("gate home: the daemon did not stop while gate runs stay in flight"), wantExit: 1, want: "cfo dev-drive move: gate home: the daemon did not stop"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			t.Setenv("CFO_HOME", t.TempDir())
+			t.Setenv("CFO_STATE_OVERRIDE", "")
+			folder := filepath.Join(t.TempDir(), "CodeGoblins")
+			runtime := runtimeOn(t, machineWith(devdrive.Volume{Root: filepath.VolumeName(folder) + `\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted}))
+			var carried []string
+			var tries int
+			runtime.carryGateHome = func(_ context.Context, old, devDrive string, gotTries int, _ time.Duration, _ io.Writer) (string, bool, error) {
+				carried, tries = append(carried, old+" -> "+devDrive), gotTries
+				return "moved: the gate's home is " + gatehome.Target(devDrive), test.carryErr == nil, test.carryErr
+			}
+
+			// Act
+			var stdout, stderr bytes.Buffer
+			exit := runWithRuntime([]string{"dev-drive", "move", "--to", folder}, &stdout, &stderr, runtime)
+
+			// Assert
+			if exit != test.wantExit || !strings.Contains(stdout.String()+stderr.String(), test.want) {
+				t.Errorf("exit %d, stdout %q, stderr %q; want exit %d and %q", exit, stdout.String(), stderr.String(), test.wantExit, test.want)
+			}
+			if len(carried) != 1 || carried[0] != systemGateHome+" -> "+folder || tries != gateHomeTries {
+				t.Errorf("carried %q with %d tries, want %s into %s with %d", carried, tries, systemGateHome, folder, gateHomeTries)
+			}
+			if h, err := home.Resolve(); err != nil || h.DevDrive != folder {
+				t.Errorf("home = %+v, %v; want the heavy folders moved all the same", h, err)
+			}
+		})
+	}
+}
+
+// cfo doctor and cfo dev-drive say where the gate's home is, and warn when the
+// heavy folders are on a Dev Drive while it is not.
+func TestDoctorAndDevDriveSayWhereTheGateHomeIs(t *testing.T) {
+	for _, test := range []struct {
+		name, gateHome string
+		isMoved        bool
+		want           string
+	}{
+		{name: "no Dev Drive", gateHome: systemGateHome, want: "gate home: " + systemGateHome + ", where no-mistakes keeps it, as the fleet has no Dev Drive"},
+		{name: "on the system drive", gateHome: systemGateHome, isMoved: true, want: "gate home: WARNING: " + systemGateHome + " is not on the Dev Drive"},
+		{name: "on the Dev Drive", isMoved: true, want: ", on the Dev Drive, named by NM_HOME"},
+	} {
+		for _, command := range []string{"doctor", "dev-drive"} {
+			t.Run(test.name+"/"+command, func(t *testing.T) {
+				// Arrange
+				root := t.TempDir()
+				t.Setenv("CFO_HOME", root)
+				t.Setenv("CFO_STATE_OVERRIDE", "")
+				folder := filepath.Join(t.TempDir(), "CodeGoblins")
+				if test.isMoved {
+					if err := home.WriteDevDriveConfig(root, home.DevDriveConfig{Root: folder}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				gateHome := test.gateHome
+				if gateHome == "" {
+					gateHome = gatehome.Target(folder)
+				}
+				runtime := runtimeOn(t, machineWith(devdrive.Volume{Root: filepath.VolumeName(folder) + `\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted}))
+				runtime.gateHome = func() (string, error) { return gateHome, nil }
+
+				// Act
+				var stdout, stderr bytes.Buffer
+				runWithRuntime([]string{command}, &stdout, &stderr, runtime)
+
+				// Assert
+				if !strings.Contains(stdout.String(), test.want) {
+					t.Errorf("stdout lacks %q\n%s", test.want, stdout.String())
+				}
+			})
+		}
+	}
+}
+
+// cfo install puts the gate's home on the home's Dev Drive without waiting
+// for a gate run in flight, and leaves it alone in a home without one.
+func TestInstallPlacesTheGateHomeOnTheHomesDevDrive(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		isMoved   bool
+		carryErr  error
+		wantCarry bool
+		want      string
+	}{
+		{name: "a home without a Dev Drive"},
+		{name: "a home on a Dev Drive", isMoved: true, wantCarry: true, want: "gate home: moved"},
+		{name: "a gate run in flight", isMoved: true, carryErr: errors.New("gate runs stay in flight"), wantCarry: true, want: "The gate's home did not move to the Dev Drive (gate runs stay in flight)"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			folder := filepath.Join(t.TempDir(), "CodeGoblins")
+			if test.isMoved {
+				if err := home.WriteDevDriveConfig(root, home.DevDriveConfig{Root: folder}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runtime := runtimeOn(t, machineWith())
+			var tries []int
+			runtime.carryGateHome = func(_ context.Context, _, devDrive string, gotTries int, _ time.Duration, _ io.Writer) (string, bool, error) {
+				tries = append(tries, gotTries)
+				if devDrive != folder {
+					t.Errorf("carried into %s, want %s", devDrive, folder)
+				}
+				return "moved", test.carryErr == nil, test.carryErr
+			}
+
+			// Act
+			var stdout bytes.Buffer
+			placeGateHome(root, &stdout, runtime)
+
+			// Assert
+			if test.wantCarry != (len(tries) == 1) || test.wantCarry && tries[0] != 1 {
+				t.Errorf("carries = %v, want one with one try %v", tries, test.wantCarry)
+			}
+			if !strings.Contains(stdout.String(), test.want) {
+				t.Errorf("stdout = %q, want %q", stdout.String(), test.want)
+			}
+			if isPlaced := test.wantCarry && test.carryErr == nil; isPlaced != (os.Getenv(gatehome.Variable) == gatehome.Target(folder)) {
+				t.Errorf("this process's NM_HOME = %q, want it to name %s %v, for the board install restarts", os.Getenv(gatehome.Variable), gatehome.Target(folder), isPlaced)
+			}
+		})
+	}
+}
+
+// cfo dev-drive move restarts the board serving the home once, after the
+// gate's home is carried and named by NM_HOME in its own process, so the
+// board it starts again reads the moved gate home: when the heavy folders
+// move now, whatever the gate's home did, or when the gate's home moved or
+// was placed by this move. A gate home already on the Dev Drive is no reason.
+func TestDevDriveMoveRestartsTheBoardAfterTheGateHomeMoves(t *testing.T) {
+	for _, test := range []struct {
+		name               string
+		isHeavyMoved       bool
+		isCarried          bool
+		carryErr           error
+		wantRestart        bool
+		wantRestartGateEnv bool
+	}{
+		{name: "heavy folders and the gate's home move now", isCarried: true, wantRestart: true, wantRestartGateEnv: true},
+		{name: "heavy folders move now, the gate's home stays for gate runs in flight", carryErr: errors.New("gate runs stay in flight"), wantRestart: true},
+		{name: "heavy folders already there, the gate's home moves", isHeavyMoved: true, isCarried: true, wantRestart: true, wantRestartGateEnv: true},
+		{name: "heavy folders and the gate's home already there", isHeavyMoved: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			t.Setenv("CFO_HOME", root)
+			t.Setenv("CFO_STATE_OVERRIDE", "")
+			folder := filepath.Join(t.TempDir(), "CodeGoblins")
+			runtime := runtimeOn(t, machineWith(devdrive.Volume{Root: filepath.VolumeName(folder) + `\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted}))
+			if test.isHeavyMoved {
+				var stdout, stderr bytes.Buffer
+				if exit := runWithRuntime([]string{"dev-drive", "move", "--to", folder}, &stdout, &stderr, runtime); exit != 0 {
+					t.Fatalf("the first move exited %d: %s", exit, stderr.String())
+				}
+				t.Setenv(gatehome.Variable, "")
+			}
+			var steps []string
+			runtime.carryGateHome = func(context.Context, string, string, int, time.Duration, io.Writer) (string, bool, error) {
+				steps = append(steps, "carry")
+				return "moved", test.isCarried, test.carryErr
+			}
+			runtime.restartBoard = func(h home.Home, _ io.Writer) {
+				steps = append(steps, "restart "+h.Root+" with NM_HOME "+os.Getenv(gatehome.Variable))
+			}
+
+			// Act
+			var stdout, stderr bytes.Buffer
+			runWithRuntime([]string{"dev-drive", "move", "--to", folder}, &stdout, &stderr, runtime)
+
+			// Assert
+			want := []string{"carry"}
+			if test.wantRestart {
+				gateEnv := ""
+				if test.wantRestartGateEnv {
+					gateEnv = gatehome.Target(folder)
+				}
+				want = append(want, "restart "+root+" with NM_HOME "+gateEnv)
+			}
+			if !slices.Equal(steps, want) {
+				t.Errorf("steps = %q, want %q", steps, want)
+			}
+		})
+	}
 }
 
 // cfo doctor says what the home's Dev Drive is, in one line: a machine that
@@ -44,7 +264,7 @@ func TestRunDoctorSaysWhatTheDevDriveIs(t *testing.T) {
 
 			// Act
 			var stdout, stderr bytes.Buffer
-			runWithRuntime([]string{"doctor"}, &stdout, &stderr, runtimeOn(test.m))
+			runWithRuntime([]string{"doctor"}, &stdout, &stderr, runtimeOn(t, test.m))
 
 			// Assert
 			if !strings.Contains(stdout.String(), test.says) {
@@ -63,7 +283,7 @@ func TestDevDriveMovePutsNewWorkOnTheDrive(t *testing.T) {
 	t.Setenv("CFO_HOME", root)
 	t.Setenv("CFO_STATE_OVERRIDE", "")
 	folder := filepath.Join(t.TempDir(), "CodeGoblins")
-	runtime := runtimeOn(machineWith(devdrive.Volume{Root: filepath.VolumeName(folder) + `\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted}))
+	runtime := runtimeOn(t, machineWith(devdrive.Volume{Root: filepath.VolumeName(folder) + `\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted}))
 
 	// Act
 	var stdout, stderr bytes.Buffer
@@ -89,7 +309,7 @@ func TestDevDriveSaysHowMuchOfTheSystemDriveItsFileHolds(t *testing.T) {
 	// Arrange
 	t.Setenv("CFO_HOME", t.TempDir())
 	t.Setenv("CFO_STATE_OVERRIDE", "")
-	runtime := runtimeOn(machineWith(devdrive.Volume{Root: `E:\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted, Image: devdrive.Image{Path: `C:\DevDrives\CodeGoblins.vhdx`, Size: 142 << 30 / 10}}))
+	runtime := runtimeOn(t, machineWith(devdrive.Volume{Root: `E:\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted, Image: devdrive.Image{Path: `C:\DevDrives\CodeGoblins.vhdx`, Size: 142 << 30 / 10}}))
 
 	// Act
 	var stdout, stderr bytes.Buffer
@@ -108,7 +328,7 @@ func TestDevDriveMoveRefusesADriveThatIsNoDevDrive(t *testing.T) {
 	t.Setenv("CFO_HOME", root)
 	t.Setenv("CFO_STATE_OVERRIDE", "")
 	folder := filepath.Join(t.TempDir(), "CodeGoblins")
-	runtime := runtimeOn(machineWith(devdrive.Volume{Root: filepath.VolumeName(folder) + `\`, FileSystem: "NTFS"}))
+	runtime := runtimeOn(t, machineWith(devdrive.Volume{Root: filepath.VolumeName(folder) + `\`, FileSystem: "NTFS"}))
 
 	var stdout, stderr bytes.Buffer
 	exit := runWithRuntime([]string{"dev-drive", "move", "--to", folder}, &stdout, &stderr, runtime)
@@ -131,7 +351,7 @@ func TestDevDriveSetupAsksForTheNextStep(t *testing.T) {
 
 	// Act
 	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"dev-drive", "setup"}, &stdout, &stderr, runtimeOn(machineWith()))
+	exit := runWithRuntime([]string{"dev-drive", "setup"}, &stdout, &stderr, runtimeOn(t, machineWith()))
 
 	// Assert
 	config, err := home.ReadDevDriveConfig(root)
