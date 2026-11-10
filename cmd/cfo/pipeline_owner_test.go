@@ -466,6 +466,25 @@ func TestPipelineOwnerCIResumeIsHeldToTheFailuresScope(t *testing.T) {
 	}
 }
 
+func TestOwnerCIResumeAdmitsTheGoblinsCorrectionInScope(t *testing.T) {
+	// Arrange
+	h, nm, wt, selection, native := ownerStage(t, "ci", 7)
+	ownerCommit(t, wt, map[string]string{"b.go": "b2\n"})
+	inGoblinTerminal(t, h.State, "task")
+	meta, err := state.ReadTaskMeta(h.State, "task")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err = checkOwnerCIResume(context.Background(), h, pipeline.Reader{Root: nm, Commands: native}, meta, selection, wt, ownerBranch)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("an in-scope CI correction was refused: %v", err)
+	}
+}
+
 // Under version 7 a gate that parks at a Test, Lint or CI failure starts no
 // fix round: the CFO's or the goblin's --action fix is refused, naming the
 // owner's correction. Only a Test rerun of a command given no turn, which asks
