@@ -216,6 +216,48 @@ func readOptional(path string) ([]byte, error) {
 	return content, err
 }
 
+// sourceLine is one line of a memory file as recall reads it: an item under
+// the nearest heading above it, that heading itself, or neither when it is
+// blank or a comment.
+type sourceLine struct {
+	// Start and End are the line's bytes in its source, its ending included.
+	Start, End int
+	Number     int
+	Text       string
+	// Heading is the nearest heading at or above the line, without its marks.
+	Heading   string
+	IsHeading bool
+	IsItem    bool
+}
+
+// linesOf reads a memory file line by line. Recall's items and the startup
+// catalog's entries both stand on it, so a ruling has one id in both.
+func linesOf(content []byte) []sourceLine {
+	var lines []sourceLine
+	heading, offset := "", 0
+	for number, raw := range bytes.SplitAfter(content, []byte("\n")) {
+		line := sourceLine{Start: offset, End: offset + len(raw), Number: number + 1, Text: strings.TrimSpace(string(raw))}
+		offset = line.End
+		switch {
+		case line.Text == "" || strings.HasPrefix(line.Text, "<!--"):
+		case headingLine.MatchString(line.Text):
+			heading = strings.TrimSpace(strings.TrimLeft(line.Text, "#"))
+			line.IsHeading = true
+		default:
+			line.IsItem = true
+		}
+		line.Heading = heading
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// lineID names a line by its kind and the words of its heading and itself,
+// so it stays the same until those words change.
+func lineID(kind, heading, text string) string {
+	return kind + "-" + Hash([]byte(heading + "\n" + text))[:12]
+}
+
 // addLines indexes one item per nonblank line under its heading, dated by
 // the first date the heading names. Headings and tier comments are not items.
 func (index *Index) addLines(path, kind string) error {
@@ -223,27 +265,24 @@ func (index *Index) addLines(path, kind string) error {
 	if err != nil {
 		return err
 	}
-	heading, date := "", time.Time{}
+	date := time.Time{}
 	seen := map[string]bool{}
-	for number, line := range strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n") {
-		text := strings.TrimSpace(line)
-		switch {
-		case text == "" || strings.HasPrefix(text, "<!--"):
-			continue
-		case headingLine.MatchString(text):
-			heading = strings.TrimSpace(strings.TrimLeft(text, "#"))
+	for _, line := range linesOf(content) {
+		if line.IsHeading {
 			date = time.Time{}
-			if found := datePattern.FindString(heading); found != "" {
+			if found := datePattern.FindString(line.Heading); found != "" {
 				date, _ = time.Parse(time.DateOnly, found)
 			}
+		}
+		if !line.IsItem {
 			continue
 		}
-		id := kind + "-" + Hash([]byte(heading + "\n" + text))[:12]
+		id := lineID(kind, line.Heading, line.Text)
 		if seen[id] {
 			continue
 		}
 		seen[id] = true
-		index.Items = append(index.Items, Item{ID: id, Kind: kind, Date: date, Path: path, Line: number + 1, Title: heading, Text: text})
+		index.Items = append(index.Items, Item{ID: id, Kind: kind, Date: date, Path: path, Line: line.Number, Title: line.Heading, Text: line.Text})
 	}
 	return nil
 }
@@ -281,19 +320,9 @@ func (index *Index) addFacts(directory string) error {
 			return err
 		}
 		item := Item{ID: strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)), Kind: KindFact, Date: info.ModTime().UTC(), Path: path, Line: 1}
-		body := strings.ReplaceAll(string(content), "\r\n", "\n")
-		var front factFrontmatter
-		if rest, isFenced := strings.CutPrefix(body, "---\n"); isFenced {
-			// The newlines around rest let an empty header and a fence that
-			// ends the file close it too.
-			header, after, isClosed := strings.Cut("\n"+rest+"\n", "\n---\n")
-			if !isClosed {
-				index.Problems = append(index.Problems, path+": frontmatter is not closed")
-			} else if err := yaml.Unmarshal([]byte(header), &front); err != nil {
-				index.Problems = append(index.Problems, fmt.Sprintf("%s: frontmatter: %v", path, err))
-			} else {
-				body = after
-			}
+		front, body, problem := frontmatterOf(strings.ReplaceAll(string(content), "\r\n", "\n"))
+		if problem != "" {
+			index.Problems = append(index.Problems, path+": "+problem)
 		}
 		item.Title, item.Text = front.Description, front.Name+"\n"+body
 		if modified, isDated := dateOf(front.Metadata["modified"]); isDated {
@@ -312,6 +341,27 @@ func (index *Index) addFacts(directory string) error {
 		index.Items = append(index.Items, item)
 	}
 	return nil
+}
+
+// frontmatterOf reads a fact file's header and returns the text below it. A
+// header that is not closed or does not parse leaves the whole text as the
+// body and says why.
+func frontmatterOf(body string) (factFrontmatter, string, string) {
+	var front factFrontmatter
+	rest, isFenced := strings.CutPrefix(body, "---\n")
+	if !isFenced {
+		return front, body, ""
+	}
+	// The newlines around rest let an empty header and a fence that ends the
+	// file close it too.
+	header, after, isClosed := strings.Cut("\n"+rest+"\n", "\n---\n")
+	if !isClosed {
+		return front, body, "frontmatter is not closed"
+	}
+	if err := yaml.Unmarshal([]byte(header), &front); err != nil {
+		return front, body, fmt.Sprintf("frontmatter: %v", err)
+	}
+	return front, after, ""
 }
 
 func dateOf(value any) (time.Time, bool) {

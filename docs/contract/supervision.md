@@ -192,7 +192,7 @@ Only that session:
 - takes the session lock, from the SessionStart digest, the Stop hook, `cfo register` and `cfo session-start`.
 - registers as the primary CEO.
 - is given the digest, guarded by the pre-tool hooks, held at a blind turn end and rewoken by the Stop hook with the fleet's wakes.
-- acts as the CEO from a command: `cfo brief`, `spawn`, `send`, `switch`, `title`, `pause`, `resume`, `kill`, `cleanup`, `supersede`, `backlog`, `pr`, `merge-local`, `deploy` and `start-hook`, a `cfo drain` that acknowledges, a `cfo reap` that acts, a `cfo allowance-floor` that sets a floor, a `cfo memory lesson` and a `cfo auth grant --codex-credits`.
+- acts as the CEO from a command: `cfo brief`, `spawn`, `send`, `switch`, `title`, `pause`, `resume`, `kill`, `cleanup`, `supersede`, `backlog`, `pr`, `merge-local`, `deploy` and `start-hook`, a `cfo drain` that acknowledges, a `cfo reap` that acts, a `cfo allowance-floor` that sets a floor, a `cfo memory lesson`, a `cfo memory sync`, every `cfo memory scope` but the one spelled exactly `cfo memory scope --list`, and a `cfo auth grant --codex-credits`.
 
 Every other agent session is left alone.
 A Claude Code session the Overlord opens himself, in the desktop app or a terminal of his own, in any folder, gets nothing from any hook: no digest, no lock, no guard on its tools and no rewake.

@@ -2,11 +2,9 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -17,14 +15,18 @@ import (
 
 func runMemory(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "cfo memory: recall, lesson, retrieve, routes, budget, migration-plan or retention-plan is required")
+		fmt.Fprintln(stderr, "cfo memory: recall, lesson, retrieve, routes, sync, scope, budget, migration-plan or retention-plan is required")
 		return 2
 	}
-	if args[0] == "recall" {
+	switch args[0] {
+	case "recall":
 		return runMemoryRecall(args[1:], stdout, stderr)
-	}
-	if args[0] == "lesson" {
+	case "lesson":
 		return runMemoryLesson(args[1:], stdout, stderr)
+	case "sync":
+		return runMemorySync(args[1:], stdout, stderr)
+	case "scope":
+		return runMemoryScope(args[1:], stdout, stderr)
 	}
 	flags := flag.NewFlagSet("cfo memory "+args[0], flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -41,6 +43,7 @@ func runMemory(args []string, stdout, stderr io.Writer) int {
 		flags.IntVar(&query.Limit, "limit", 5, "maximum cold search results, 1 to 50; warm authority is never capped")
 		flags.BoolVar(&query.IncludeCompleted, "include-completed", false, "include completed task history in keyword discovery")
 		flags.StringVar(&seen, "seen", "", "JSON array of delivery fingerprints actually read and still held in this conversation")
+		flags.BoolVar(&query.IsColdOnly, "cold", false, "only the cold ranges the scope or search selects, in the startup map's form, for a conversation that holds the map")
 	case "budget":
 		flags.StringVar(&packages, "packages", "", "JSON array of actual startup inputs for codex, claude and pi")
 	case "routes", "migration-plan":
@@ -55,6 +58,10 @@ func runMemory(args []string, stdout, stderr io.Writer) int {
 	}
 	if query.ID != "" && (query.Project != "" || query.Task != "" || query.Topic != "" || query.Search != "") {
 		fmt.Fprintln(stderr, "cfo memory: --id is an exact lookup; use scope flags separately")
+		return 2
+	}
+	if query.IsColdOnly && (query.ID != "" || seen != "" || query.Project == "" && query.Task == "" && query.Topic == "" && query.Search == "") {
+		fmt.Fprintln(stderr, "cfo memory: --cold prints what a scope or a search selects beyond the startup map, so name one, and use neither --id nor --seen with it")
 		return 2
 	}
 	if args[0] == "retrieve" && (query.Limit < 1 || query.Limit > 50) {
@@ -147,11 +154,7 @@ func runMemory(args []string, stdout, stderr io.Writer) int {
 	}
 	catalog, err := memory.Load(*dataDir, time.Now())
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			fmt.Fprintln(stderr, "MEMORY ABSENT: catalog or source missing; legacy authority remains in its original files; run cfo memory migration-plan")
-		} else {
-			fmt.Fprintf(stderr, "MEMORY UNREADABLE: %s\n", err)
-		}
+		fmt.Fprintln(stderr, memoryUnreadable(err))
 		return 1
 	}
 	if args[0] == "routes" {

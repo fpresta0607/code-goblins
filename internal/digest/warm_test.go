@@ -351,8 +351,8 @@ func TestComposeUsesVerifiedWarmMemoryInsteadOfHistoricalRulings(t *testing.T) {
 	if !strings.Contains(output.String(), active) || strings.Contains(output.String(), history) {
 		t.Fatalf("startup did not select current authority independently of cold history: %s", output.String())
 	}
-	if !strings.Contains(output.String(), "cfo memory retrieve") || !strings.Contains(output.String(), "completed-incident") {
-		t.Fatalf("startup omitted the cold retrieval route: %s", output.String())
+	if !strings.Contains(output.String(), "cfo memory retrieve --project <name> --task <id> --topic <topic> --cold") || !strings.Contains(output.String(), "topic incident: history 1\n") {
+		t.Fatalf("startup omitted the scope that retrieves the cold range: %s", output.String())
 	}
 	if output.Len() > 18000 {
 		t.Fatalf("startup unexpectedly grew with cold history: %d bytes", output.Len())
@@ -626,6 +626,15 @@ func TestBriefCallsMemoryVerifiedOnlyWhenItsCatalogValidates(t *testing.T) {
 			hasVerifiedWording := strings.Contains(preview, "verified warm") || strings.Contains(preview, "freshly validated")
 			if err != nil || strings.Contains(output.String(), "MEMORY UNREADABLE: memory source overlord.md") != test.isCorrupt || hasVerifiedWording == test.isCorrupt {
 				t.Fatalf("preview memory claim does not match catalog validity (corrupt=%t): %v\n%s", test.isCorrupt, err, output.String())
+			}
+			// The contract names cfo memory sync as what derives the catalog
+			// again once memory changed after it was written.
+			if test.isCorrupt {
+				_, diagnostic, _ := strings.Cut(output.String(), "MEMORY UNREADABLE: ")
+				diagnostic, _, _ = strings.Cut(diagnostic, "\n")
+				if !strings.Contains(diagnostic, "cfo memory sync") {
+					t.Fatalf("the diagnostic of memory changed after its catalog does not name cfo memory sync: %s", diagnostic)
+				}
 			}
 		})
 	}
