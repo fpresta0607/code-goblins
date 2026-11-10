@@ -1,6 +1,6 @@
 # cfo notify
 
-`cfo notify <id> --done --pr <url> \| --done --closed <issue-url> --decision <sequence> \| --blocked "<question>" \| --failed "<reason>" \| --working "<what>" \| --prepared-wait task:<id>\|pr:<URL> --generation <generation> --handoff <handoff-file> \| --waiting-on <task-id\|overlord\|ci\|deploy\|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>] [--follows <question-id> \| --separate] [--message-file <file>]`
+`cfo notify <id> --done --pr <url> [--lesson "<one line>" --cites "<stamp or words of a status line>"]... \| --done --closed <issue-url> --decision <sequence> \| --blocked "<question>" \| --failed "<reason>" \| --working "<what>" \| --prepared-wait task:<id>\|pr:<URL> --generation <generation> --handoff <handoff-file> \| --waiting-on <task-id\|overlord\|ci\|deploy\|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>] [--follows <question-id> \| --separate] [--message-file <file>]`
 
 A goblin reports its outcome (PR URL, blocked question, or failure reason) straight into the wake queue, waking the CEO with the real payload instead of the watcher guessing from pane text.
 A `--done` or `--failed` report also names, in its line and its wake, what the goblin started that still runs beside the report's own tool call, a machine service aside, as the supervisor's start watch places it, and tells the goblin to end what it no longer needs by its pid.
@@ -20,6 +20,10 @@ So the goblin asks with `--blocked` and choices, which the CEO answers with `cfo
 The same issue reported again wakes nobody, as a pull request's unchanged head does.
 Nothing asks GitHub whether the issue closed, since a goblin's terminal may carry no credential to ask with: the link is there for the CEO to follow.
 Cleanup, the board, a restart, the wake for its gone terminal and the AFK report all read that line as a delivery.
+A done report may carry up to three lessons the next goblin in its repository should know, each a `--lesson "<one plain line>"` followed by a `--cites` for every status line of the task it stands on, given as that line's stamp or as words the line holds, the latest such line counting.
+A fourth lesson, a lesson that spans lines, holds a control character or cites nothing, a cite no status line of the task matches, a `--cites` before any `--lesson` and a lesson on any report but a done are refused before anything is recorded.
+The lessons never join the done line: each is recorded under `state/lessons` as a candidate with the status lines it cites, and the report prints their ids.
+`cfo drain` lists each candidate on one line until the CEO accepts or rejects it with [`cfo memory lesson`](memory.md).
 A question goes out as `cfo notify <id> --blocked "<one short question> options: <answer> (Recommended) \| <answer>"`: the question in one short sentence, every detail on a line of its own that starts with `- ` and comes before `options:`, and the choices after `options:` on its line, each the answer itself as a short phrase, such as `Fix it next` or `Keep 300 s`.
 Its `- ` lines give the recommendation and what each choice does in plain words, and run IDs, finding codes and other evidence go after a line that reads only `Details:`, which the Command Center folds under Technical details, as the [decisions procedure](../contract/decisions.md#user-decisions-on-the-board) shows.
 `cfo drain` shows it as a decision with those choices listed.

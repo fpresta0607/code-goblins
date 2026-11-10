@@ -36,6 +36,7 @@ Ranking is BM25 over whole lowercase words cut to their stems, so plurals and -e
 A fact's description and a ruling's heading weigh four times its text, and an item's length counts only lightly, since a ruling is one line and a fact a whole file.
 A scope flag drops items scoped to another project, repository, task or role and keeps fleet-wide ones; a date flag drops undated items.
 Superseded facts and archive lines are hidden and counted unless `--history` is given.
+Incidents fade: a done report, and a fact whose `metadata` says `incident: true`, counts half for every 30 days of its age when the index was built, while rulings and every other fact are rules, which never fade and are only superseded.
 An excerpt is never the authority: open the source at its line to read it in full.
 The supervisor holds the index, built from the memory files at its start and rebuilt within ten seconds of any of them changing, and answers recall over its pipe, with long titles cut and at most ten index problems listed.
 With no supervisor running, or with `--data`, the command builds the index in its own process and says so.
@@ -46,8 +47,24 @@ A memory file that cannot be read fails the recall, one removed while the index 
 Score a JSON array of `{"question", "project", "expect"}` cases against a freshly built index and print a JSON report with hits at one and at the limit, mean reciprocal rank, build time, query times and every miss.
 An `expect` entry is an item id, or `text:` and a phrase the item's text must hold; a case is a hit when any of them ranks within the limit.
 
+`cfo memory lesson accept <id> [--incident] [--supersedes <fact-id>]...` and `cfo memory lesson reject <id> --reason "<why>"`
+
+Decide a lesson a done report proposed, as [`cfo notify`](notify.md) records it and `cfo drain` lists it.
+The decision is the CEO's alone: a goblin, a gate agent and an agent session that is not [the CEO's own](../contract/supervision.md#the-ceos-own-session) are refused, and nothing is decided.
+Accepting writes a new fact file in `data/memory`, named from the lesson's first words with a number added when that name is taken, and records the decision.
+The fact is scoped to the task's repository and holds the lesson as its description and text, the status lines it cites, the task and pull request it came from and the lesson's id.
+The cited lines, the goblin's own words, stand in a code block, and the file ends with an aging marker for the day it was accepted, so nothing a goblin wrote is read as the fact's tier.
+Without `--incident` it is a rule, which never fades; with it, it records something that happened and fades as recall says above.
+`--supersedes` names a memory fact the lesson replaces, which stays as it is and drops out of recall; a ruling is never superseded this way.
+Nothing is rewritten in place, and no background process reads or rewrites memory.
+When the home has a [startup catalog](../contract/memory.md#catalog-schema), the fact joins it as one cold fact routed to its repository and triggered by the lesson's words, so a CEO session's startup memory leaves it out and a retrieval for that repository carries it; an acceptance made while the catalog does not load, or one that would leave it unreadable, writes nothing.
+Two decisions made at once take turns, and one that waits 30 seconds for another decides nothing.
+Rejecting records the reason and writes no memory, and a lesson once decided is not decided again.
+Recall has an accepted lesson within ten seconds, and the next context pack for its repository carries it.
+
 `cfo spawn` and a harness switch write `context-pack.md` beside the brief and tell the goblin to read it.
 The pack holds the rulings and current facts in scope for the task and the goblin role that recall ranks highest for the task's title and project, then for its brief, the repository's other live tasks with their branches, the last pull request their reports name and their last reports, main's commits since the task's base, and the repository's recent done reports.
+Its facts lead with up to 10 lessons accepted for the task's repository, newest first and those accepted at the same moment in the order of their fact names, whatever the title and brief say, so an accepted lesson reaches the repository's next pack; every other fact is ranked by recall.
 Each entry names its source and date, and rulings are quoted verbatim.
 It fits a budget of 6000 estimated tokens unless `config/context-pack-budget` names another, and is cut entry by entry, never inside one.
 A conversation resumed in place is given only the entries that are new or changed since the pack it holds, recorded in `context-pack.json` only once the goblin has been given it; any other start drops that record and is given the whole pack, and so is a resume whose record cannot be read, with a note saying so.
