@@ -114,14 +114,16 @@ const takeBackPoll = 100 * time.Millisecond
 // TakeBack takes typed, which a delivery typed into a terminal whose harness
 // never took it as submitted, back off the harness's prompt line with
 // harness.ClearLine, so the words never join what is typed next (#2306).
-// While the prompt line holds words, or the screen still shows typed, it
-// presses the key and looks again, as often as a harness that takes one row
-// off at a time needs, for at most takeBackWait. It reports whether it
-// pressed and then read the prompt line empty. Nothing is pressed while a
-// dialog shows, which would take the key as its own, or for words the screen
-// does not show: a harness that has not read them yet takes a key typed
-// behind them as part of them, as Claude Code 2.1.322 did with words longer
-// than a row and with a paste, live, on 2026-11-10.
+// While all the prompt line holds is typed or a part of it, or a screen
+// whose prompt line cannot be read still shows typed, it presses the key and
+// looks again, as often as a harness that takes one row off at a time needs,
+// for at most takeBackWait. It reports whether it pressed and then read the
+// prompt line empty. Nothing is pressed over words that are not typed's
+// alone, his beside them or his typed as the line cleared, which stay his;
+// while a dialog shows, which would take the key as its own; or for words
+// the screen does not show: a harness that has not read them yet takes a key
+// typed behind them as part of them, as Claude Code 2.1.322 did with words
+// longer than a row and with a paste, live, on 2026-11-10.
 func TakeBack(read func() ([]string, error), write func([]byte) error, screens harness.Screens, typed string) bool {
 	deadline := time.Now().Add(takeBackWait)
 	for hasPressed := false; ; hasPressed = true {
@@ -132,8 +134,13 @@ func TakeBack(read func() ([]string, error), write func([]byte) error, screens h
 		if _, hasDialog := screens.Dialog(screen); hasDialog {
 			return false
 		}
-		if !screens.ComposerHoldsText(screen) && !screens.Shows(screen, typed) {
-			return hasPressed && screens.ComposerEmpty(screen)
+		if !screens.ComposerHoldsPartOf(screen, typed) {
+			if screens.ComposerHoldsText(screen) {
+				return false
+			}
+			if !screens.Shows(screen, typed) {
+				return hasPressed && screens.ComposerEmpty(screen)
+			}
 		}
 		if time.Now().After(deadline) || write([]byte(harness.ClearLine)) != nil {
 			return false

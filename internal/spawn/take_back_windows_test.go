@@ -14,11 +14,13 @@ import (
 
 // claudePromptLine stands in for Claude Code's prompt line. One ClearLine
 // takes row characters off it, the row its cursor is in, as Claude Code
-// 2.1.322 did live on 2026-11-10, and nothing while isStuck.
+// 2.1.322 did live on 2026-11-10, and nothing while isStuck. He types his
+// onto it the moment it is empty.
 type claudePromptLine struct {
 	words   string
 	row     int
 	isStuck bool
+	his     string
 	presses int
 }
 
@@ -36,14 +38,18 @@ func (p *claudePromptLine) press(keys []byte) error {
 		words := []rune(p.words)
 		p.words = string(words[:max(0, len(words)-p.row)])
 	}
+	if p.words == "" {
+		p.words, p.his = p.his, ""
+	}
 	return nil
 }
 
 // TakeBack reports words taken back off a prompt line only once it pressed
 // its key and then read the line empty. It presses once for each row Claude
-// Code gives up, and never behind a dialog, on a screen it cannot read, or
-// for words the screen does not show, which a harness that has not read them
-// yet would take the key as part of (#2306).
+// Code gives up, and never behind a dialog, on a screen it cannot read, for
+// words the screen does not show, which a harness that has not read them yet
+// would take the key as part of, or over words of his: beside the delivery's,
+// alone, or typed as the line cleared (#2306).
 func TestTakeBackPressesOnlyForWordsItSeesAndReportsThemGoneOnceTheLineIsEmpty(t *testing.T) {
 	long := strings.TrimSpace(strings.Repeat("stop and rebase ", 15))
 	dialog := []string{" Quick safety check: Is this a project you created or one you trust?", "   No, exit", " ❯ Yes, I trust this folder"}
@@ -59,6 +65,9 @@ func TestTakeBackPressesOnlyForWordsItSeesAndReportsThemGoneOnceTheLineIsEmpty(t
 		"words over three rows":          {line: claudePromptLine{words: long, row: 100}, typed: long, wantTaken: true, wantPresses: 3},
 		"a paste shown as a placeholder": {line: claudePromptLine{words: "[Pasted text #1 +3 lines]", row: 100}, typed: long, wantTaken: true, wantPresses: 1},
 		"words the screen does not show": {line: claudePromptLine{row: 100}, typed: "stop and rebase"},
+		"his words after the delivery's": {line: claudePromptLine{words: "stop and rebase and the", row: 100}, typed: "stop and rebase"},
+		"his words alone":                {line: claudePromptLine{words: "wait for me", row: 100}, typed: "stop and rebase"},
+		"his words as the line cleared":  {line: claudePromptLine{words: "stop and rebase", row: 100, his: "wait for me"}, typed: "stop and rebase", wantPresses: 1},
 		"a dialog over the prompt line":  {line: claudePromptLine{words: "stop and rebase", row: 100}, typed: "stop and rebase", screen: dialog},
 		"a screen that cannot be read":   {line: claudePromptLine{words: "stop and rebase", row: 100}, typed: "stop and rebase", readErr: errors.New("the terminal does not answer")},
 	} {

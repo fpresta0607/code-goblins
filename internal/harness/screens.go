@@ -567,6 +567,20 @@ func (s Screens) ComposerMatches(screen []string, typed string) bool {
 	return isRead && want != "" && held == want
 }
 
+// ComposerHoldsPartOf reports whether all screen's composer holds is typed
+// or one run of it, whitespace aside, or one paste's placeholder: the words
+// of one delivery as far as its harness has read them, as much of them as it
+// shows, or what is left while it gives them up a row at a time, with nobody
+// else's words beside them. An empty composer holds none of them, and neither
+// does one behind a dialog or one that cannot be read.
+func (s Screens) ComposerHoldsPartOf(screen []string, typed string) bool {
+	if !s.ComposerHoldsText(screen) {
+		return false
+	}
+	held, _ := s.draft(screen)
+	return strings.Contains(compactScreen([]string{typed}), held) || s.ComposerHoldsOnePaste(screen)
+}
+
 // ComposerHoldsOnePaste reports whether all screen's composer holds is one
 // paste's placeholder, as a harness shows text it collapsed as a paste.
 func (s Screens) ComposerHoldsOnePaste(screen []string) bool {
