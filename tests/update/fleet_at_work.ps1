@@ -8,11 +8,14 @@
 # pi has no account on a runner, so the goblin and the CEO run pi signed in
 # to the stand-in model, which keeps running for the update to find them at
 # work; its pid is in <facts>.stand-in.pid for the job to end it by.
+# -PreRename runs it under a release from before the rename, by the names
+# that release knows itself by.
 #
-#   .\tests\update\fleet_at_work.ps1 -Project <checkout> -Facts <file>
+#   .\tests\update\fleet_at_work.ps1 -Project <checkout> -Facts <file> [-PreRename]
 param(
     [Parameter(Mandatory = $true)][string]$Project,
-    [Parameter(Mandatory = $true)][string]$Facts
+    [Parameter(Mandatory = $true)][string]$Facts,
+    [switch]$PreRename
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,10 +30,12 @@ $ErrorActionPreference = "Stop"
 $piTools = Join-Path $env:USERPROFILE ".pi\agent\bin"
 New-Item -ItemType File -Force -Path (Join-Path $piTools "fd.exe"), (Join-Path $piTools "rg.exe") | Out-Null
 
-& (Join-Path $PSScriptRoot "..\uninstall\one_goblin_session.ps1") -Project $Project
+& (Join-Path $PSScriptRoot "..\uninstall\one_goblin_session.ps1") -Project $Project -PreRename:$PreRename
 $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-$env:CEO_HOME = [Environment]::GetEnvironmentVariable("CEO_HOME", "User")
-$state = Join-Path $env:CEO_HOME "state"
+$command, $settingPrefix = Get-CeoNames -PreRename:$PreRename
+$ceoHome = [Environment]::GetEnvironmentVariable("${settingPrefix}HOME", "User")
+Set-Item -LiteralPath "env:${settingPrefix}HOME" -Value $ceoHome
+$state = Join-Path $ceoHome "state"
 
 # The session ended the stand-in once the goblin was at work; the CEO needs
 # it to start, and both keep it through the update.
@@ -59,7 +64,7 @@ if ($LASTEXITCODE -ne 0) {
 # a screen that asks which to open; with no console to ask in it ends there,
 # and the CEO keeps running.
 Set-Content -LiteralPath "$Facts.no-input" -Value $null
-$quickStart = Start-Process -FilePath (Join-Path $env:CEO_HOME "bin\goblins.exe") -ArgumentList "--harness", "pi" -NoNewWindow -PassThru `
+$quickStart = Start-Process -FilePath (Join-Path $ceoHome "bin\goblins.exe") -ArgumentList "--harness", "pi" -NoNewWindow -PassThru `
     -RedirectStandardInput "$Facts.no-input" -RedirectStandardOutput "$Facts.quick-start.log" -RedirectStandardError "$Facts.quick-start.err"
 if (-not $quickStart.WaitForExit(180000)) {
     Stop-Process -Id $quickStart.Id -Force
@@ -67,12 +72,12 @@ if (-not $quickStart.WaitForExit(180000)) {
 }
 Get-Content -LiteralPath "$Facts.quick-start.log", "$Facts.quick-start.err" | Write-Host
 $deadline = (Get-Date).AddMinutes(2)
-while (-not (Test-Path -LiteralPath (Join-Path $state "hosts\ceo.json"))) {
+while (-not (Test-Path -LiteralPath (Join-Path $state "hosts\$command.json"))) {
     if ((Get-Date) -gt $deadline) { throw "the CEO's terminal did not start within 2 minutes of the quick start" }
     Start-Sleep -Seconds 1
 }
 
-$before = Get-FleetFacts -Project $Project
+$before = Get-FleetFacts -Project $Project -PreRename:$PreRename
 $before | Format-Table -AutoSize -Wrap | Out-String -Width 400 | Write-Host
 foreach ($running in "board", "ceo host", "ceo harness", "demo-goblin host", "demo-goblin harness") {
     if ($before[$running] -match "not running") { throw "before the update the $running is not running: $($before[$running])" }

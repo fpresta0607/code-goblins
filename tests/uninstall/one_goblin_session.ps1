@@ -10,10 +10,11 @@
 # started it under, once the goblin is at work.
 #
 # Run it after the install, in a new step, with the checkout it names made
-# before the snapshot the uninstall is compared with:
+# before the snapshot the uninstall is compared with. -PreRename runs it under
+# a release from before the rename, which reads its home by its old setting:
 #
-#   .\tests\uninstall\one_goblin_session.ps1 -Project <checkout>
-param([Parameter(Mandatory = $true)][string]$Project)
+#   .\tests\uninstall\one_goblin_session.ps1 -Project <checkout> [-PreRename]
+param([Parameter(Mandatory = $true)][string]$Project, [switch]$PreRename)
 
 # A native program's stderr is no failure here: each exit code is read.
 $ErrorActionPreference = "Continue"
@@ -21,7 +22,13 @@ $ErrorActionPreference = "Continue"
 # A new terminal sees what the install wrote to the registry; a new step
 # does not.
 $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-$env:CEO_HOME = [Environment]::GetEnvironmentVariable("CEO_HOME", "User")
+$homeSetting = "CEO_HOME"
+if ($PreRename) {
+    . (Join-Path $PSScriptRoot "..\pre_rename_build.ps1")
+    $homeSetting = "${PreRenameSettingPrefix}HOME"
+}
+$ceoHome = [Environment]::GetEnvironmentVariable($homeSetting, "User")
+Set-Item -LiteralPath "env:$homeSetting" -Value $ceoHome
 
 $port = 8767
 $pi = Join-Path $env:USERPROFILE ".pi\agent"
@@ -57,7 +64,7 @@ while ($true) {
 $assessment = @()
 if ((& goblins brief demo-goblin -h 2>&1 | Out-String) -match "-surface") {
     $name = Split-Path -Leaf $Project
-    $record = Join-Path $env:CEO_HOME "data\projects\$name\project.json"
+    $record = Join-Path $ceoHome "data\projects\$name\project.json"
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $record) | Out-Null
     [IO.File]::WriteAllText($record, '{"project":' + (ConvertTo-Json $name) + ',"delivery":{"posture":"local-only"},"verification":{"fast":[["git","status"]]}}')
     $assessment = @("--surface", "internal", "--risk", "low", "--reason", "a demo goblin in a disposable checkout")
@@ -104,7 +111,7 @@ ready: false
 Write-Host "goblins spawn exited with code $LASTEXITCODE"
 Stop-Process -Id $standIn.Id -ErrorAction SilentlyContinue
 
-$worktree = Join-Path $env:CEO_HOME "worktrees\$(Split-Path -Leaf $Project)\demo-goblin"
+$worktree = Join-Path $ceoHome "worktrees\$(Split-Path -Leaf $Project)\demo-goblin"
 if (Test-Path -LiteralPath $worktree) {
     Set-Content -LiteralPath (Join-Path $worktree "unpushed.txt") -Value "a commit the goblin made and never pushed"
     git -C $worktree add unpushed.txt

@@ -29,6 +29,7 @@ var recordedHistory = []struct{ path, why string }{
 	{"go.sum", "module checksums, whose base64 spells the old name by chance"},
 	{"connectors/crawler/package-lock.json", "a package's integrity hash, whose base64 spells the old name by chance"},
 	{"role_name_test.go", "this file, which names what keeps the old name"},
+	{"tests/pre_rename_build.ps1", "the names a build from before the rename knows itself by, for the tests that drive one"},
 }
 
 // overlordsWords are the Supreme Overlord's own words that name the old role,

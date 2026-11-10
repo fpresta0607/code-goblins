@@ -322,6 +322,12 @@ $env:CEO_HOME = Join-Path $Work 'home'
 $env:CEO_STATE_OVERRIDE = Join-Path $Work 'home\state'
 $env:CEO_PROJECTS_ROOT = Join-Path $Work 'projects'
 New-Item -ItemType Directory -Force $env:CEO_HOME, $env:CEO_STATE_OVERRIDE, $env:CEO_PROJECTS_ROOT | Out-Null
+# The baseline predates the rename and reads the same settings by their old
+# names, so it shares the scratch home too.
+. (Join-Path $PSScriptRoot '..\pre_rename_build.ps1')
+foreach ($name in 'HOME', 'STATE_OVERRIDE', 'PROJECTS_ROOT') {
+    Set-Item -LiteralPath "env:$PreRenameSettingPrefix$name" -Value (Get-Item -LiteralPath "env:CEO_$name").Value
+}
 
 $watchFor = 10
 $bash = 'C:\Program Files\Git\bin\bash.exe'

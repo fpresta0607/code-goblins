@@ -45,6 +45,8 @@ on:
       - cmd/ceo/update_release.go
       - internal/release/**
       - internal/update/**
+      - cmd/ceo/cutover.go
+      - internal/cutover/**
       - .github/workflows/install.yml
       - .github/workflows/release.yml
   push:
@@ -81,6 +83,8 @@ on:
       - cmd/ceo/update_release.go
       - internal/release/**
       - internal/update/**
+      - cmd/ceo/cutover.go
+      - internal/cutover/**
       - .github/workflows/install.yml
       - .github/workflows/release.yml
   # A merge queue run checks both installs too. GitHub applies no path
@@ -627,11 +631,14 @@ jobs:
 
   # A person who installed a published release, with its own install script
   # as its notes say, updates with goblins update while the CEO and a goblin
-  # work. This commit's build is served as the newest release, and so is a
-  # build of it whose board exits as it starts: the update to that one rolls
-  # back, the update to this commit installs it, and each keeps the home, the
-  # running terminals, the person's settings, project, credential and work,
-  # and dictation ready, or the update's own download recorded as the same
+  # work. Each release here predates the rename, which its update cannot cross,
+  # so its home moves to ceo by this commit's ceo cutover first, with the fleet
+  # paused, and the CEO and the goblin are brought back to work under ceo.
+  # This commit's build is served as the newest release, and so is a build of
+  # it whose board exits as it starts: the update to that one rolls back, the
+  # update to this commit installs it, and each keeps the home, the running
+  # terminals, the person's settings, project, credential and work, and
+  # dictation ready, or the update's own download recorded as the same
   # environment result.
   update:
     name: update from ${{ matrix.from }}
@@ -670,7 +677,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm --prefix frontend run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./tests/update/stage_releases.ps1 -Version v0.5.99 -Folder $env:RELEASES -Port 8765
+          ./tests/update/stage_releases.ps1 -Version v0.5.99 -CutoverVersion v0.5.98 -Folder $env:RELEASES -Port 8765
       - name: Install ${{ matrix.from }} from its published release
         shell: powershell
         env:
@@ -713,8 +720,10 @@ jobs:
             Write-Host "installing $env:FROM ended at exit code $LASTEXITCODE with no $installed (attempt $attempt of 3); trying again"
             Start-Sleep -Seconds ($attempt * 15)
           }
-      - name: Put the CEO and a goblin to work
-        run: ./tests/update/fleet_at_work.ps1 -Project (Join-Path $env:USERPROFILE "source\demo") -Facts $env:FACTS
+      - name: Put the CEO and a goblin to work under the release's names
+        run: ./tests/update/fleet_at_work.ps1 -Project (Join-Path $env:USERPROFILE "source\demo") -Facts $env:FACTS -PreRename
+      - name: Move the home to ceo with the fleet paused, and put it back to work
+        run: ./tests/update/cutover_and_check.ps1 -Ceo "$env:RELEASES\cutover\ceo.exe" -Project (Join-Path $env:USERPROFILE "source\demo") -Facts $env:FACTS
       - name: Update to a build whose board does not start, which rolls back
         run: ./tests/update/update_and_check.ps1 -Api http://127.0.0.1:8765/broken/latest -Release "$env:RELEASES\broken" -Want rolled-back -Project (Join-Path $env:USERPROFILE "source\demo") -Facts $env:FACTS
       - name: Update to this commit

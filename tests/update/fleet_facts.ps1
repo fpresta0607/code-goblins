@@ -2,10 +2,12 @@
 # the same way before and after it: the build the home runs and the board
 # serves, the CEO's and the goblin's terminals by process, the dictation
 # engine and model on disk, the person's settings, project record, stored
-# credential and the goblin's work.
+# credential and the goblin's work. -PreRename reads a home that a build from
+# before the rename runs, by the names that build knows itself by, which name
+# the CEO's program, its terminal and the home's setting.
 #
 #   . .\tests\update\fleet_facts.ps1
-#   $facts = Get-FleetFacts -Project <checkout>
+#   $facts = Get-FleetFacts -Project <checkout> [-PreRename]
 
 function Get-ProcessFact([int]$Id) {
     $process = Get-Process -Id $Id -ErrorAction SilentlyContinue
@@ -13,14 +15,24 @@ function Get-ProcessFact([int]$Id) {
     "pid $Id since $($process.StartTime.ToUniversalTime().ToString('o'))"
 }
 
-function Get-FleetFacts([Parameter(Mandatory = $true)][string]$Project) {
-    $ceoHome = [Environment]::GetEnvironmentVariable("CEO_HOME", "User")
+# Get-CeoNames answers the CEO's command and the prefix of its settings, as
+# this build names them or, with -PreRename, as a build from before the rename
+# does.
+function Get-CeoNames([switch]$PreRename) {
+    if (-not $PreRename) { return "ceo", "CEO_" }
+    . (Join-Path $PSScriptRoot "..\pre_rename_build.ps1")
+    $PreRenameCommand, $PreRenameSettingPrefix
+}
+
+function Get-FleetFacts([Parameter(Mandatory = $true)][string]$Project, [switch]$PreRename) {
+    $command, $settingPrefix = Get-CeoNames -PreRename:$PreRename
+    $ceoHome = [Environment]::GetEnvironmentVariable("${settingPrefix}HOME", "User")
     $state = Join-Path $ceoHome "state"
     $bin = Join-Path $ceoHome "bin"
     $facts = [ordered]@{}
     $facts.home = $ceoHome
     $facts.version = ((& (Join-Path $bin "goblins.exe") version) | Out-String).Trim()
-    $facts.ceoExe = (Get-FileHash (Join-Path $bin "ceo.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
+    $facts.ceoExe = (Get-FileHash (Join-Path $bin "$command.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
 
     # The board's record names the supervisor, which answers /api/alive with
     # its pid; the program that pid runs is the build the board serves.
@@ -32,8 +44,10 @@ function Get-FleetFacts([Parameter(Mandatory = $true)][string]$Project) {
     $facts.boardExe = (Get-FileHash -LiteralPath $served -Algorithm SHA256).Hash.ToLowerInvariant()
 
     # Each native terminal's record names its host and the harness it runs.
+    # The CEO's terminal is named for its command.
     foreach ($terminal in "ceo", "demo-goblin") {
-        $record = Get-Content -Raw -LiteralPath (Join-Path $state "hosts\$terminal.json") | ConvertFrom-Json
+        $id = if ($terminal -eq "ceo") { $command } else { $terminal }
+        $record = Get-Content -Raw -LiteralPath (Join-Path $state "hosts\$id.json") | ConvertFrom-Json
         $facts["$terminal host"] = Get-ProcessFact $record.host_pid
         $facts["$terminal harness"] = Get-ProcessFact $record.child_pid
     }
