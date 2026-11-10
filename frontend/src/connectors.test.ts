@@ -1,30 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { connectorAbout, connectorLogo, connectorMark, harnessMark, hasHarnessMark, modelMark, runLabel, shellLabel, shellMark } from "./connectors.ts";
+import { readdirSync, readFileSync } from "node:fs";
+import { connectorAbout, connectorLogo, harnessMark, hasHarnessMark, modelMark, runLabel, shellLabel, shellMark } from "./connectors.ts";
 import { harnessTip } from "./workflow.ts";
-
-test("every connector name the fleet declares resolves to its service mark", () => {
-  const cases: [string, "mcp" | "credential", object][] = [
-    ["github", "mcp", { brand: "github" }], ["GITHUB_TOKEN", "credential", { brand: "github" }], ["GH_TOKEN", "credential", { brand: "github" }],
-    ["chrome-devtools", "mcp", { brand: "chrome" }], ["playwright", "mcp", { glyph: "browser-check" }], ["context7", "mcp", { brand: "context7" }],
-    ["supabase", "mcp", { brand: "supabase" }], ["SUPABASE_SERVICE_ROLE_KEY", "credential", { brand: "supabase" }], ["sentry", "mcp", { brand: "sentry" }],
-    ["STRIPE_SECRET_KEY", "credential", { brand: "stripe" }], ["vercel", "mcp", { brand: "vercel" }], ["FLY_API_TOKEN", "credential", { brand: "fly" }],
-    ["neon", "mcp", { brand: "neon" }], ["neon-auth", "mcp", { brand: "neon" }], ["notion", "mcp", { brand: "notion" }],
-    ["OPENROUTER_API_KEY", "credential", { brand: "openrouter" }], ["OPENAI_API_KEY", "credential", { brand: "openai" }], ["ANTHROPIC_API_KEY", "credential", { brand: "anthropic" }],
-    ["RESEND_API_KEY", "credential", { brand: "resend" }], ["REDIS_URL", "credential", { brand: "redis" }], ["UPSTASH_REDIS_REST_TOKEN", "credential", { brand: "upstash" }],
-    ["QDRANT_API_KEY", "credential", { brand: "qdrant" }], ["railway", "mcp", { brand: "railway" }], ["ionos-vps", "mcp", { brand: "ionos" }],
-    ["POSTGRES_PASSWORD", "credential", { brand: "postgres" }], ["DATABASE_URL", "credential", { glyph: "database" }],
-  ];
-  for (const [name, kind, mark] of cases) assert.deepEqual(connectorMark(name, kind), mark, name);
-});
-
-test("an unknown name gets a neutral mark, never bare text or a lookalike service", () => {
-  assert.deepEqual(connectorMark("acme-internal", "mcp"), { brand: "mcp" });
-  assert.deepEqual(connectorMark("ACME_SIGNING_KEY", "credential"), { glyph: "key" });
-  assert.deepEqual(connectorMark("butterfly", "mcp"), { brand: "mcp" }, "fly matches only as a prefix");
-  assert.deepEqual(connectorMark("ghost-writer", "mcp"), { brand: "mcp" }, "gh matches only the GitHub token names");
-  assert.deepEqual(connectorMark("", "credential"), { glyph: "key" });
-});
 
 test("harnesses and model providers each carry their own mark", () => {
   assert.deepEqual(harnessMark("claude"), { brand: "claude" });
@@ -82,17 +60,45 @@ test("the one button on a run card says where the command runs", () => {
 });
 
 // The Overlord, 2026-10-13: connector cards "like caldu code conenctors...
-// pelase use the actual logo", each with one line on what it does.
-test("a connector card shows the service's own bundled logo, or its initial on a plain tile", () => {
+// pelase use the actual logo", each with one line on what it does; and on
+// 2026-11-10, "the UI for connector should actually use the logo", when a
+// name with its harness's prefix on it found the harness's logo, not its own.
+test("a connector shows its service's own bundled logo, or its initial on a plain tile", () => {
   const cases: [string, ReturnType<typeof connectorLogo>][] = [
-    ["github", { brand: "github" }], ["context7", { brand: "context7" }], ["openrouter", { brand: "openrouter" }], ["google-report", { brand: "google" }],
-    ["playwright", { initial: "P" }], ["database", { initial: "D" }], ["acme-internal", { initial: "A" }], ["", { initial: "?" }],
+    ["github", { file: "github" }], ["GITHUB_TOKEN", { file: "github" }], ["GH_TOKEN", { file: "github" }], ["chrome-devtools", { file: "chrome" }],
+    ["context7", { file: "context7" }], ["SUPABASE_SERVICE_ROLE_KEY", { file: "supabase" }], ["sentry", { file: "sentry" }], ["STRIPE_SECRET_KEY", { file: "stripe" }],
+    ["vercel", { file: "vercel" }], ["FLY_API_TOKEN", { file: "fly" }], ["neon-auth", { file: "neon" }], ["notion", { file: "notion" }],
+    ["openrouter", { file: "openrouter" }], ["OPENAI_API_KEY", { file: "openai" }], ["ANTHROPIC_API_KEY", { file: "anthropic" }], ["google-report", { file: "google" }],
+    ["RESEND_API_KEY", { file: "resend" }], ["REDIS_URL", { file: "redis" }], ["UPSTASH_REDIS_REST_TOKEN", { file: "upstash" }], ["QDRANT_API_KEY", { file: "qdrant" }],
+    ["railway", { file: "railway" }], ["ionos-vps", { file: "ionos" }], ["POSTGRES_PASSWORD", { file: "postgres" }],
+    ["claude.ai Supabase", { file: "supabase" }], ["claude_ai_Supabase", { file: "supabase" }], ["plugin_supabase_supabase", { file: "supabase" }],
+    ["claude.ai Gmail", { file: "gmail" }], ["claude.ai Google Drive", { file: "google-drive" }], ["claude.ai Google Calendar", { file: "google-calendar" }],
+    ["claude.ai Vercel", { file: "vercel" }], ["claude.ai Claude Docs", { file: "anthropic" }],
+    ["claude.ai PrecisionDocs", { initial: "P" }], ["claude.ai Microsoft 365", { initial: "M" }], ["playwright", { initial: "P" }], ["DATABASE_URL", { initial: "D" }],
+    ["acme-internal", { initial: "A" }], ["butterfly", { initial: "B" }], ["ghost-writer", { initial: "G" }], ["", { initial: "?" }],
   ];
   for (const [name, logo] of cases) assert.deepEqual(connectorLogo(name), logo, name);
 });
 
-test("a connector card says in one line what a known service does, and nothing for an unknown one", () => {
-  for (const [name, about] of [["github", "Repositories, pull requests and Actions"], ["context7", "Current library documentation"], ["openrouter", "Models from many providers"], ["google-report", "Google APIs"], ["crawler", "Finds and reads every page and file of a site"], ["webcrawler-mcp", ""], ["acme-internal", ""]]) {
+test("every logo a connector can name is a file bundled with the board, and no file is left without one", () => {
+  // Arrange
+  const names = ["github", "chrome-devtools", "context7", "supabase", "sentry", "stripe", "vercel", "fly", "neon", "notion", "openrouter", "openai", "anthropic", "gemini", "gmail",
+    "google-drive", "google-calendar", "google", "kimi", "resend", "upstash", "redis", "qdrant", "railway", "ionos", "postgres"];
+  const folder = new URL("../public/assets/connectors/", import.meta.url);
+
+  for (const name of names) {
+    // Act
+    const logo = connectorLogo(name);
+
+    // Assert
+    assert.ok("file" in logo, name);
+    assert.match(readFileSync(new URL(logo.file + ".svg", folder), "utf8"), /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="[\d ]+" fill="#[0-9A-Fa-f]{6}"><path d="[^"]+"\/><\/svg>\r?\n$/, name);
+  }
+  assert.equal(readdirSync(folder).length, names.length);
+});
+
+test("a connector says in one line what a known service does, and nothing for an unknown one", () => {
+  for (const [name, about] of [["github", "Repositories, pull requests and Actions"], ["context7", "Current library documentation"], ["openrouter", "Models from many providers"], ["google-report", "Google APIs"], ["crawler", "Finds and reads every page and file of a site"], ["claude.ai Gmail", "Gmail messages and drafts"], ["claude.ai Supabase", "Supabase database, auth and storage"], ["webcrawler-mcp", ""], ["acme-internal", ""]]) {
     assert.equal(connectorAbout(name), about, name);
   }
 });

@@ -179,7 +179,7 @@ A full bound makes room by dropping its oldest succeeded, failed or unconfirmed 
 
 ## Board and orchestration
 
-The header switches between Board and Orchestration, with one main view visible at a time and one contextual pane on the right.
+The header switches between Board, Orchestration and Connectors, with one main view visible at a time and one contextual pane on the right.
 The first load fetches only what the first screen draws, under 1.5 MB at a phone's width, with its pictures as WebP (#1599).
 Orchestration and the family tree that takes its place on a small screen, the Command Center, a file's diff and a command's terminal each fetch their code the first time they are shown; until the Command Center's code arrives its button counts what waits on him, as the tab's title and the app's badge do.
 `frontend/tests/first-paint.spec.ts` measures that load: on main at 83505e5de it fetched 4.7 MB, a 1.3 MB script and 3.1 MB of PNG pictures.
@@ -379,7 +379,9 @@ A queued task's panel carries Start, a labelled button beside Remove, unless the
 A queued task has not started, so nothing of it can be stopped: its panel carries Remove where a started task's has Stop, and Remove asks first, with Remove from queue and Cancel, then takes the task out of the queue and keeps its brief, through the same `POST /api/tasks/lifecycle` stop action a started task's Stop sends.
 The supervisor starts ready queued work by itself in the Tasks order, and Start and the CEO's `cfo spawn` share the [brief readiness contract](commands/brief.md).
 Start on a queued task's panel sends `POST /api/tasks/start` with the task's ID, guarded by the Host, Origin and token checks like every other change, and the supervisor dispatches it through `cfo spawn <id> --project <p> --brief <data/<id>/brief.md> --harness <h> [--model <m>] [--effort <e>] [--mode <m>]`, the same binary the CEO runs.
-The project is the brief's `## Project` line, or the backlog row's repo; harness, model, effort and mode are what the backlog row names, such as `(harness: codex, model: gpt-6-astra)`, then what the brief names on lines of their own, such as `mode: direct-PR` under its Delivery heading, then the fleet's defaults, `claude` on `claude-opus-5-5` at `xhigh` (the default model and effort apply to Claude Code only).
+The project is the brief's `## Project` line, or the backlog row's repo; harness, model and effort are what the backlog row names, such as `(harness: codex, model: gpt-6-astra)`, then what the brief names on lines of their own under its Delivery heading, such as `effort: high`, then the fleet's defaults, `claude` on `claude-opus-5-5` at `xhigh` (the default model and effort apply to Claude Code only).
+The mode is the one the brief names under its Delivery heading, such as `mode: direct-PR`, which is the one brief readiness validated; the backlog row's mode is what a brief the start itself writes is given.
+A line under any other heading of the brief names none of the four, so task text that holds a line such as `mode: direct-PR` changes nothing, on a first start or on the one after a failed spawn.
 The mode so named is a request to [delivery intake](contract/delivery.md#delivery), which selects the task's mode at its start: a narrower one with neither a qualifying assessment nor a CEO-authorized exception starts the task in no-mistakes, and the spawn says why.
 A task with no brief yet gets one written from its backlog row, and the CEO is told through the wake queue, before `cfo spawn` runs.
 It is refused with 409 and the reason, before anything runs, when the task already has a live task record, is not queued, already finished (its last report, live or archived, was done, its pull request or one of its branch merged, or the CEO retired it and no brief was written for it since, which its card says in place of Start), waits on a blocker its backlog row names, or names no project or a harness, mode, model or effort `cfo spawn` cannot take; a board started without a dispatcher, such as a test fixture's, refuses every Start.
@@ -559,7 +561,7 @@ The supervisor's panel and every label the board writes for that role name it CE
 The Chat and Task switch's icons are 44 px targets too, and Chat is the message bubble, as Modern chat is in the style menu (the Overlord, 2026-11-04: "I'd rather you have them be the message icon that we had before").
 The name wraps whole onto more lines in a taller header when the row is narrow, never cut, at a phone's width and the desktop's (2026-11-04), and the Task view's details open with the goblin's whole name and task id, then its harness with the model and effort it runs, so none of them needs a tip.
 Everything else the header used to hold is in those details at the top of the Task view: the goblin's status and the one sentence under it, its project and people, and its buttons, which wrap onto rows of their own when they do not fit.
-The task list holds the workspace, connections, changes, activity and commit history, each a section closed until it is opened, beside the goblin's messages or its live native terminal.
+The task list holds the workspace, harness, changes, activity and commit history, each a section closed until it is opened, and one Connectors line that opens the Connectors page, beside the goblin's messages or its live native terminal.
 Its header details keep the link to a goblin this one waits on, both beside the conversation and in the Task fold.
 A tall Task fold scrolls within the panel while the messages or terminal below it keep room.
 The same task-list instance moves between placements, so unsaved harness choices and nested disclosures survive resizing, maximizing and closing the outer Task fold.
@@ -574,7 +576,7 @@ Whatever opens and closes on the board is the one disclosure (`frontend/src/Disc
 The Command Center's button is a menu behind its own icon, and `frontend/src/disclosure.test.ts` names any other `details` the source draws.
 A caret only ever opens or closes what it stands before: the same test names every caret the source draws, which are the disclosure's, a tree's fold on a button that says whether it is open, and the pager's two arrows.
 The panel sends no note to the CEO: the supervisor still accepts the `note` action of `POST /api/tasks/adjust`, but nothing on the board files or shows one.
-The CEO's task list holds its workspace and connections and then every queued task, the same list as the Tasks column, in the same order, with the same drag, keyboard moves and Start; an order or a start made in either shows in both.
+The CEO's task list holds its workspace and harness and then every queued task, the same list as the Tasks column, in the same order, with the same drag, keyboard moves and Start; an order or a start made in either shows in both.
 The machine meters are drawn once on screen (#1598): at the head of the Tasks column while the board shows it, and over the CEO's queued tasks only where no Tasks column shows, as in Orchestration, beside a maximized panel and on a phone the panel fills.
 The list carries no heading there, since the column whose heading it would be is not in the panel.
 Board and Orchestration both open a goblin, and the CEO, on its one view, a Claude Code session's showing its messages ([The Messages view](#the-messages-view)); Orchestration's view defaults to the registered CEO; once opened, both views stay mounted, so switching keeps scroll position and selection.
@@ -1379,8 +1381,9 @@ Writing native stdin does not acknowledge application acceptance.
 Herdr cannot atomically compare the foreground process while writing: if an agent exits after the check, bytes may reach the same PowerShell terminal.
 Known exited/replaced sessions are refused, but the board does not claim to eliminate that native check-then-write race.
 
-Workspace details show the working folder separately from the Connections dropdown's asynchronous health checks; both are sections closed until opened, with the same header as Changes, and Harness sits between them.
-Harness holds every harness control: a task's Harness, Model and Effort selectors, with the real harness mark and efforts beside the model, the CEO's Restart with its harness and its own engine selector, and a child session's reported read-only engine rows. Connections names no harness, and a panel with nothing for it to check, such as the CEO's or a queued task's, has no Connections section.
+Workspace details show the working folder and Harness follows them; both are sections closed until opened, with the same header as Changes.
+Harness holds every harness control: a task's Harness, Model and Effort selectors, with the real harness mark and efforts beside the model, the CEO's Restart with its harness and its own engine selector, and a child session's reported read-only engine rows.
+Under Harness a running goblin's panel has one line, Connectors, which opens the Connectors page; a panel with nothing to check, such as the CEO's, a queued task's or a baby goblin's, has none, and no panel holds a connectors section of its own (the Overlord, 2026-11-10: "I also don't like the connectors panel inside the task panels for every goblin"; #2303).
 `GET /api/engines` reads installed, signed-in harnesses and their local model catalogs: Codex's `models_cache.json`, Claude Code's own catalog for the organization `~/.claude.json` says it is signed in to (the newest `~/.claude/cache/model-catalog/<organization>-*-cc.json`, with each model's effort options) and its `additionalModelOptionsCache`, pi's `models-store.json` and configured model in `settings.json`, plus fleet routing and the adapter's default model.
 A model a harness catalog lists keeps the catalog's name and efforts; a routing lane or the default model only adds its effort as the model's default when the catalog names none, so Opus 5.5 still opens at the fleet's xhigh.
 The model catalog is not a model-name list embedded in the board; each model's reasoning levels are limited to those the installed adapter accepts, and an unavailable current value remains visible with its reason.
@@ -1399,26 +1402,37 @@ pi writes a session's file only when its first reply ends and exits on a `--sess
 The panel keeps its live values while the switch runs, then shows the resulting session and any failure reason.
 The CEO receives one digest line in the notify wake queue, never a prompt, for each saved queued or Resume choice, each switch that completed or failed, and each pending choice removed because its session changed or its selection became unavailable.
 Completed outcomes record the last harness, model and effort, while older outcomes without those fields say Engine not recorded.
-Connections groups MCP servers, the default connectors every goblin carries, such as the [crawler](crawler.md), repository services and credentials present in the goblin's launch environment as cards, with 16px or larger text: each card has the service's logo on a tile, bundled with the board (Simple Icons marks, and Context7's own MIT icon), or its initial where the board has none, its name, one line on what it does for a known service, and one square button.
-The button is + for a repository service the task does not carry or a project MCP server its harness was not given, and a check for one the task's record names; a credential variable and an MCP server from outside the project's `.mcp.json` have none, and a credential variable the task does not carry has no card, since its service's card offers it.
-Every name wraps whole, so a long name reads in full. A connector that is failing shows one faint mark, its state and reason in a muted line under its name, and its repair icons beside it; one connected, provided, optional, being checked or not carried shows none.
+Connectors, the header's third view, is one page of everything the running goblins can reach, laid out as Claude's own connectors page is: a list, and a page for each connector (`frontend/src/connectors-page.tsx`, `frontend/tests/connectors-page.spec.ts`, #2303).
+The list holds MCP servers, the default connectors every goblin carries, such as the [crawler](crawler.md), repository services and credentials present in a goblin's launch environment, one row for each however many goblins have it, with 16px or larger text.
+A row has the service's logo on a tile, a file of its own bundled with the board under `/assets/connectors` (Simple Icons marks, and Context7's own MIT icon) that loads only once its row is near the screen, or its initial where the board has none, then its name without a harness's prefix, its type and its status.
+The status is a check when every goblin that carries it reaches it, a warning mark and a word when one does not, Checking while a check runs, and a Connect button when no goblin carries it, which opens the connector's page, where the goblin to give it to is chosen.
+Yours lists the connectors at least one goblin carries and Discover those on offer that none does, a search box narrows either by name or type, and Browser logins is a third list where a goblin's project uses one.
+A row opens the connector's own page and Back returns to the list as it was left: the logo, name, type and one line on what a known service does, each goblin that can use it with its state, and the tools its harness reports, grouped as read-only and write, each group closed until opened.
+No harness reports a permission for a tool, so the page shows none.
+With no goblin running the page says so and lists nothing, since a connector is read from a goblin.
+The page has the canvas to itself while no panel has anything to show, with no placeholder asking for a task beside it; a goblin's or the CEO's panel that is open stays beside it, and on a phone, or maximized, it closes when the page is chosen.
+A goblin's row on that page offers Connect for a repository service the task does not carry or a project MCP server its harness was not given, and Disconnect for one the task's record names; a credential variable and an MCP server from outside the project's `.mcp.json` offer neither, and a credential variable no goblin carries has no row in the list, since its service's row offers it.
+Every name wraps whole, so a long name reads in full.
+A goblin whose connector is failing shows a warning mark with its state and reason under its name, and its repair buttons beside it; one connected, provided, optional, being checked or not carried shows no warning.
+Check details, closed until opened, holds what each goblin's check read of its session.
 Claude checks use its MCP health report and the goblin's strict/config-file arguments; Codex inventory preserves the goblin's disabled-server overrides, and enabled servers earn Connected only from a fresh app-server runtime report, never from stored auth or cached tools.
 Repository services reuse the auth manifest's probes and status words; a resolved token with no probe is Unverified, and a token present in the goblin's environment is Provided rather than Connected.
-A service the task does not carry is not probed, and its card offers + with nothing to store, since the value is stored and only kept from this task ([Credentials by need](contract/authentication.md#credentials-by-need)).
+A service the task does not carry is not probed, and its goblin's row offers Connect with nothing to store, since the value is stored and only kept from this task ([Credentials by need](contract/authentication.md#credentials-by-need)).
 Workspace says in one line which services' credentials the goblin's terminal carries, by name.
 Checks are cached for one minute, limited to two concurrent workers and 45 seconds per check, and return Checking immediately instead of blocking the board.
-Opening the dropdown starts a check only when the cached result is older than a minute; the refresh icon, a finished repair card and the first return to the board after each sign-in click always start one.
-The dropdown polls only while a check runs, so an open dropdown never rechecks on its own.
-A refresh or finished repair that arrives while a check runs queues one more check after it, and repair icons act on the shown result without starting a check.
+The page reads `GET /api/connections` once for each running goblin, two goblins at a time, so no check waits out its 45 seconds behind another's, and nothing reads it while the page is closed.
+Opening the page starts a goblin's check only when its cached result is older than a minute; Recheck and the first return to the board after each sign-in click always start one for every goblin, and a finished repair card, a Connect or a Disconnect has its own goblin read again.
+The page polls a goblin only while its check runs, so an open page never rechecks on its own.
+A recheck or finished repair that arrives while a goblin is being read has it read once more after that reading, and repair buttons act on the shown result without starting a check.
 Native environment reads verify the host, process ancestry, working folder and spawn generation; missing runtime evidence remains Unverified.
 Herdr environment reads first verify the pane's registered harness, working folder, foreground process and shell ancestry, then the spawn generation in the process itself.
-Project MCP servers omitted from the goblin's configuration show as cards with +, and a token action when the project names a token variable and they are failing.
+Project MCP servers omitted from the goblin's configuration show with Connect on that goblin's row, and a token action when the project names a token variable and they are failing.
 CLI sign-in is offered only when the service's declared credentials resolve, and launch-disabled MCP servers offer no sign-in.
-Sign-in icons open the manifest's HTTPS login page or a server-generated repair card using the existing Command Center run machinery; key icons create a store-from-clipboard card without reading the clipboard in the browser.
+Sign in opens the manifest's HTTPS login page and CLI sign-in a server-generated repair card using the existing Command Center run machinery; Store from clipboard creates a store-from-clipboard card without reading the clipboard in the browser.
 Fix requests accept connection and action identities only, require the board token and origin, and reject replaced tasks; repair cards verify the task again before running.
-`POST /api/connections/grant` takes a task, its spawn generation, a `service:`, `mcp:` or `withheld:` connection and `grant` or `revoke`, and does what `cfo auth grant` and `cfo auth revoke` (with `--mcp` for a server) do. Past the token and origin checks it takes only a board proven to be the Overlord's own, as AFK mode's switch does, since any program on the PC can read the token. The task's status credits his board, the CEO gets a notify wake, a live native goblin is told to load a granted service's credentials, and the response is the check that follows. The card shows his press at once and keeps it until a finished check shows it, or puts it back with the supervisor's reason.
+`POST /api/connections/grant` takes a task, its spawn generation, a `service:`, `mcp:` or `withheld:` connection and `grant` or `revoke`, and does what `cfo auth grant` and `cfo auth revoke` (with `--mcp` for a server) do. Past the token and origin checks it takes only a board proven to be the Overlord's own, as AFK mode's switch does, since any program on the PC can read the token. The task's status credits his board, the CEO gets a notify wake, a live native goblin is told to load a granted service's credentials, and the response is the check that follows. The goblin's row shows his press at once and keeps it until a finished check shows it, or puts it back with the supervisor's reason.
 Finishing a repair refreshes the cached status, and returning from a browser sign-in rechecks it.
-A stored token does not change an already running native process's environment, so its card keeps its Missing mark until the goblin receives it.
+A stored token does not change an already running native process's environment, so its goblin's row keeps its Missing state until the goblin receives it.
 Matching-generation native model evidence takes precedence; otherwise the model is explicitly labeled configured, including a configured default.
 Environment values, full process environments, dotenv, auth scripts, MCP commands and headers are never exposed.
 
@@ -1558,7 +1572,7 @@ Each message of his that the session's record holds, a slash or `!` command he t
 A slash or `!` command shows as typed with what it printed under it, a long line of the print scrolling sideways inside its own box.
 Harness queue entries appear at the conversation's end with the delivery labels described under [The message box](#the-message-box) (#2103).
 The pictures he sent show above his bubble, on his side, at a size he can read, as the Claude desktop app shows them (the Overlord, 2026-10-28: "see how claude includes pictures when pasted"): those the transcript holds, read back by id, and those the message box kept, whose path on a line of its own in his words shows as its picture instead and never as the path, read back through `GET /api/composer/file` ([The message box](#the-message-box)).
-Each picture loads only as its row nears the screen and decodes off the main thread, and once loaded changes nothing but itself; a click opens the message's pictures larger over the board in the board's picture gallery, where the arrow keys step between them, a click zooms, and Escape, Close or a click beside it puts it away.
+Each picture loads only as its row nears the screen and decodes off the main thread, and once loaded changes nothing but itself; a click opens it in the conversation's picture viewer, described with a call's pictures below.
 A long prompt, more than six lines or 600 characters, and a long print show their first lines fading out over Show more, which opens them whole, and Show less folds them again; a short one shows as it is (`frontend/src/long-text.tsx`, the Overlord, 2026-10-28: "pull with a lot of text need to be cleaned").
 A reply sits on the left as plain prose with no bubble.
 Its text has its bold, inline code, lists, tables and links as a question card draws them (`frontend/src/messageText.ts`), its headings in bold, and its code blocks as written in rounded cards under a quiet header with the language the fence names, Copy and Expand (`frontend/src/code-block.tsx`).
@@ -1581,13 +1595,26 @@ A call that writes a plan, Claude Code's TodoWrite or Codex's update_plan, shows
 A plan call that failed, was denied or was interrupted stays its row with its outcome, and so does an update_plan Codex refused, one with a step missing its words or its state or with a state other than pending, in_progress or completed.
 Each run of calls made one after another is one quiet stack of rows, and calls that finished as asked, two or more in a row, fold into one row, as Claude's own app shows them (#2191).
 That row has a list's icon and counts what the calls did by kind with their verbs, such as Ran 5 commands or Read 2 files, ran 3 commands, and a tap or Enter opens it to each call's own row (`frontend/src/message-calls.tsx`, `callRuns` in `frontend/src/session-messages.ts`, `callTally` in `frontend/src/call-words.ts`).
-A call still running stays one live row with its running verb beside the fold, and a failed, denied or interrupted call, a question, a call with pictures, a plan and a baby goblin are never folded, so they split the run they stand in.
+A call still running stays one live row with its running verb beside the fold, and a failed, denied or interrupted call, a question, a plan and a baby goblin are never folded, so they split the run they stand in.
 Reply text breaks a run.
 What is open is kept by call, by its call_id or else its place in the reply, never by fold, and a fold is open while any call in it was open, so a row he opened stays open in the fold it joins and a fold he opened stays open as a call on either side finishes and joins it (`frontend/tests/folded-tool-calls.spec.ts`).
 A call's row is one line: its tool's icon, the verb it is told by, as Read, Edited, Ran, Searched or Updated the plan for Claude Code's, Codex's and pi's tools (`frontend/src/call-words.ts`), what it was called on cut with an ellipsis, and at its end an edit's added and removed lines and the mark of its outcome, with Running, Failed, Denied or Interrupted for a screen reader.
+A connector's call, an MCP tool's, wears that connector's logo in place of an icon, or its initial on a tile where the board bundles none, and reads as the connector's name and its tool in words with no harness's prefix: `mcp__claude_ai_Supabase__execute_sql` is Supabase · Execute SQL (the Overlord, 2026-11-10: "the UI for connector should actually use the logo"; #2302, `frontend/src/connector-names.ts`).
+A tool search wears a wrench and says how many tools it loaded ("for tool search the icon should be the wrench tool"), and a fold of one connector's calls counts them by its name, as Used Supabase 3 times.
+What the call was called on is cut before its tool's words are, and the opened row keeps the call as its harness named it and a tool search's whole query (`frontend/tests/connector-call-rows.spec.ts`).
 A running call has a quiet static mark so the end of the reply in progress remains the conversation's one animation.
 A long command never wraps into a column (the Overlord's phone, 2026-10-28, showed one PowerShell row over 14 lines); a tap, or Enter, opens the row to all it was called on, a command in a code card named by its shell, then what came back in a code card, an edit's diff and its pictures (`frontend/tests/phone-text.spec.ts`).
-A picture a harness showed or made opens larger on a click as his own do.
+A row whose call read, took or made pictures ends in their thumbnails, as Claude's app shows them, and a fold in those of all its calls: at most three, then how many more, each loaded only as its row nears the screen (the Overlord, 2026-11-10: "in goblins modern chat there's no image viewer or previews like claude"; #2305; `frontend/src/call-pictures.tsx`).
+A pointer over a thumbnail shows the picture larger in a card over the board, with the verb of the call that holds it and its place among the row's, such as Read and 1 of 3 (`frontend/src/picture-hover-card.tsx`).
+The card takes no pointer and no keyboard, opens under its thumbnail where the window has no room above it, and goes when the pointer leaves, the list scrolls or he presses Escape, which then closes nothing else.
+A click, a tap or Enter on a thumbnail, or on a picture he sent, opens the conversation's one picture viewer over the whole window with the board dimmed behind it, and never opens the row (`frontend/src/picture-viewer.tsx`).
+Its counter, such as 38 of 40, runs across every picture in the messages the view holds, his own and his goblin's in the order their rows show them, so the pictures of an older page join as he reads up to it.
+Its arrows, the Left and Right keys and a swipe step one picture and rest at the first and the last, a click on the picture shows it at its own size and a second fits it to the window again, and Escape, Close or a click beside the picture puts the viewer away with the keyboard back on what opened it.
+The viewer reads a picture at full size only once it shows it, through the same two routes its row reads it by, so the page names no path the board would not already serve.
+A picture that is gone or cannot be read is a quiet mark in its row, its card and the viewer, never the browser's broken image (`frontend/src/picture-image.tsx`).
+An open row shows its pictures under what came back, at a size he can read, in place of its thumbnails.
+A message still waiting in the queue opens its pictures among its own.
+`frontend/tests/chat-pictures.spec.ts` checks these at a desktop's and a phone's width, and `frontend/tests/iphone-chat-pictures.spec.ts` by touch in WebKit at an iPhone 15's size.
 A call that started a sub-agent is its baby goblin's row, named as the canvas names it, with Open, which shows that baby goblin's terminal while its goblin's tree holds it.
 A compaction is folded to its summary, an interrupt is a plain Interrupted row, and a background task's notice is a quiet line.
 Each prompt he sent keeps a small row under it with Copy, which copies its words as written, and when it was sent; the row stays hidden until he taps the message or points at it where there is a pointer, and closes when he taps away.
@@ -2007,7 +2034,7 @@ A bridge keeps its page drawing whether or not anything drives it: three left on
 These rules hold for every board surface, and new work follows them.
 Recurring tool actions (open in VS Code, open folder, open pull request, refresh, zoom, fit, arrange, close, reconnect) are icon buttons, each naming itself with an accessible label and a tooltip on hover and keyboard focus.
 Decisions and one-off commands keep a short word, for example Send decision, Retry or Show the next 300 lines.
-Every connector, MCP server, credential, harness and model provider shows a mark beside its name: the brand's mark from Simple Icons where one exists, a plain glyph where the owner withholds its mark, the Model Context Protocol mark for an unknown MCP server and a key for an unknown credential.
+Every connector, harness and model provider shows a mark beside its name: a connector its service's logo, or its initial on a tile where the board bundles none, and a harness or a model provider its brand's mark from Simple Icons where one exists and a plain glyph where the owner withholds its mark.
 Delivery reads as a mark: one check once the supervisor accepted it or while it is sent and waits for its reader to take it, two checks once delivered; only a delivery that failed or never arrived is spelled out, with what to do.
 An answer to a question or on a review item, to a goblin or to a CEO, and a `cfo answer` to a goblin, that arrives while it is working, such as inside a long tool call, is held by its harness and handed over at its next tool call, never interrupting the call that runs, and nothing but the harness's own record of the conversation shows it taken (a prompt hook runs as the harness queues it), so it is sent until that record shows it; a `cfo send` steer to a working goblin prints `queued for <id>`, and its board receipt shows only once the goblin's record shows it, while a run result or a review request sent to a working CEO reads sent until the CEO's record shows it.
 A review answer's own action keeps one check, because it succeeds whether the answer reached the goblin or went to the CEO; only its review item says which.
@@ -2428,7 +2455,7 @@ A failed item's card says in one line why it failed and that the CEO, or the gob
 An item runs once and expires 24 hours after it was created; running it again needs a new item.
 The registered CEO withdraws an item nobody ran with `cfo run-request --withdraw <id> --reason "<why>"`, over the same pipe and proof: the item reads Withdrawn by the CEO with the reason, leaves the Command Center for the inbox's history, and `state/runs.audit` records the withdrawal on its own line (when, the item, its script digest, `withdrawn` and the reason); Run on it is refused with that reason from then on.
 Replacing an item is withdrawing it and publishing the new command under a new ID, and an item that already ran or expired cannot be withdrawn.
-A connection repair the Overlord asked for from a goblin's connections panel is the board's own item, not the CEO's, and cannot be withdrawn.
+A connection repair the Overlord asked for from the Connectors page is the board's own item, not the CEO's, and cannot be withdrawn.
 Nor can the terminal the Overlord opened for a credential request, which is the board's own item too.
 Run starts the command in a terminal of exactly the shell the item names: Windows PowerShell 5.1, PowerShell 7 (`pwsh` on `PATH`) or Git Bash (the `bash.exe` beside Git for Windows' `git.exe`, never the WSL `bash.exe`); a shell that is not installed fails the item with the reason.
 The supervisor starts `cfo host` for it as it does for a goblin, recorded under the item's own directory, `state/runs/<digest>/hosts/run.json`, apart from every goblin's and the CEO's, so nothing that counts, resumes or reaps goblins' terminals sees it.
@@ -2551,7 +2578,7 @@ This card carries the task, service and one-line reason, with Grant and Deny and
 Filing it grants nothing.
 Grant posts to `/api/connections/grant`, naming the card's ID and generation as `request` and `request_generation` beside the task generation and service; the existing owner-board check applies on the PC.
 His private board grants it too, as he decided on 2026-10-29 ("Allow it as is"), knowing the gate proves that board his only by Tailscale's headers, which a program on this PC can forge: a grant through the gate is recorded as from `his own private board (by Tailscale's headers, which a program on this PC can forge)`.
-Only a service grant card's Grant moves to the private board: granting or revoking a connector from the Connections panel, typing values and opening a browser sign-in window stay on the PC.
+Only a service grant card's Grant moves to the private board: granting or revoking a connector from the Connectors page, typing values and opening a browser sign-in window stay on the PC.
 The card closes as `granted` only after the grant lands, the task is told to re-source, and the CEO gets the existing grant wake.
 Deny, withdrawal, expiry, a stale task or card generation, a different project or a missing service declaration grants nothing.
 
@@ -2741,13 +2768,13 @@ A pi goblin starts with `--extension state\goblin-pi-extension.ts`, written anew
 Both seals look in the folder their session started in, which their payload names, and answer with exit 0 and the refusal as JSON on stdout: Codex runs a hook in the session's Windows PowerShell, which ends with 1 for every exit code but 0, so the exit 2 Claude Code reads never reaches it.
 The pi extension blocks the call too when the seal cannot start or answer within the native hooks' 30 seconds, as pi blocks a call whose handler throws.
 
-### Logins in a goblin's Connections
+### Logins on the Connectors page
 
-A goblin's **Connections** lists **Browser logins** as cards like its connectors': each login its project uses, signed in or out, the projects it serves, when he signed in and when it was last used.
+The **Connectors** page lists **Browser logins** as rows like its connectors': each login a running goblin's project uses, signed in or out, the projects it serves, when he signed in and when it was last used.
 Its **Sign out** button deletes the login's profile and keeps the login, so the next fetch brings his sign-in card.
 **Forget** asks first, then deletes the profile and the login.
 His account and its keys at the provider are not touched.
-Both act only from the board on this PC, only on a login of that goblin's project, and refuse while a browser of the login runs, closes or signs in, saying to try again once it closes.
+Both act only from the board on this PC, only on a login of a running goblin's project, and refuse while a browser of the login runs, closes or signs in, saying to try again once it closes.
 
 ### Proofs
 

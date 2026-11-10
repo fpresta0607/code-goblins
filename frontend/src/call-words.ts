@@ -1,4 +1,5 @@
-import type { IconName } from "./Icon";
+import { connectorName, toolWords } from "./connector-names.ts";
+import type { IconName } from "./Icon.tsx";
 
 // How a tool call reads as one row of a reply: its icon, and the verb it is
 // told by, as it runs and once it has run. The names are the tools of Claude
@@ -32,28 +33,60 @@ const TOOLS: Record<string, { icon: IconName; running: string; done: string; cou
   update_plan: { icon: "task", running: "Updating the plan", done: "Updated the plan" },
   exitplanmode: { icon: "task", running: "Planning", done: "Planned" },
   skill: { icon: "sparkle", running: "Using a skill", done: "Used a skill" },
+  toolsearch: { icon: "wrench", running: "Searching tools", done: "Searched tools", tally: "Loaded tools" },
 };
 
-// callWords is the icon and verb of a call to tool, running or run. An MCP
-// tool, mcp__server__tool, is called on its server; any other tool keeps its
-// own name.
-export function callWords(tool: string, isRunning: boolean): { icon: IconName; verb: string } {
-  const known = TOOLS[tool.toLowerCase()];
+// A connector's tool as its harness names it: mcp__server__tool.
+const CONNECTOR_TOOL = /^mcp__(.+?)__(.+)$/;
+
+// A subject the supervisor cut ends in three dots (fleettree's bounded).
+const CUT = "...";
+
+// A call's words: its icon and the verb it is told by. A connector's call
+// also names its connector, whose logo its row draws, and its tool in words
+// (action). A tool search that loaded tools by name lists them (loaded),
+// each as its own row would name it.
+export interface CallWords { icon: IconName; verb: string; connector?: string; action?: string; loaded?: string[] }
+
+// callWords is how a call to tool reads, running or run. A connector's tool,
+// mcp__server__tool, reads as its connector by name and the tool in words,
+// as Supabase and List projects, the same running and run, since its row's
+// mark says which. A tool search that loaded tools by name, as its query
+// (subject) select:first,second names them, says how many, unless the
+// supervisor cut the query, which then leaves out the name it broke off; a
+// search by words says it searched. Any other tool keeps its own name.
+export function callWords(tool: string, isRunning: boolean, subject = ""): CallWords {
+  const key = tool.toLowerCase();
+  const selected = key === "toolsearch" ? /^select:(.*)$/s.exec(subject.trim()) : null;
+  if (selected) {
+    const isCut = selected[1].endsWith(CUT);
+    const names = selected[1].split(",").map((name) => name.trim()).filter(Boolean).slice(0, isCut ? -1 : undefined);
+    const loaded = names.map((name) => {
+      const words = callWords(name, false);
+      return words.action ? words.verb + " · " + words.action : name;
+    });
+    return { icon: "wrench", verb: (isRunning ? "Loading " : "Loaded ") + (isCut ? "tools" : loaded.length + (loaded.length === 1 ? " tool" : " tools")), loaded };
+  }
+  const known = TOOLS[key];
   if (known) return { icon: known.icon, verb: isRunning ? known.running : known.done };
-  const mcp = /^mcp__(.+?)__(.+)$/.exec(tool);
-  if (mcp) return { icon: "plug", verb: (isRunning ? "Calling " : "Called ") + mcp[1] + " " + mcp[2] };
+  const connector = CONNECTOR_TOOL.exec(tool);
+  if (connector) {
+    const name = connectorName(connector[1]);
+    return { icon: "plug", verb: name, connector: name, action: toolWords(connector[2], name) };
+  }
   return { icon: "sparkle", verb: tool };
 }
 
 // callTally is what a folded run of calls says on its one row: each kind of
 // call counted with the verb its rows use, in the order the kinds first ran,
-// such as "Read 2 files, ran 3 commands" (#2191). A tool it does not know is
-// counted as used.
+// such as "Read 2 files, ran 3 commands" (#2191). A connector's calls are
+// counted together, as "used Supabase 3 times", and a tool it does not know
+// is counted as used.
 export function callTally(tools: string[]): string {
   const kinds = new Map<string, { verb: string; counted: [string, string]; count: number }>();
   for (const tool of tools) {
     const known = TOOLS[tool.toLowerCase()];
-    const verb = known?.tally ?? (known || tool.startsWith("mcp__") ? callWords(tool, false).verb : "Used " + tool);
+    const verb = known?.tally ?? (known ? callWords(tool, false).verb : "Used " + (callWords(tool, false).connector ?? tool));
     const counted = known?.counted ?? ["time", "times"];
     const kind = kinds.get(verb + " " + counted[0]) ?? { verb, counted, count: 0 };
     kind.count++;

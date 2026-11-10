@@ -97,6 +97,49 @@ func TestSpawnKeepsAnUnauthorizedNarrowerModeStrictAndSaysWhy(t *testing.T) {
 	}
 }
 
+// Issue 1925: the brief's Delivery mode is the one readiness validated, so a
+// spawn that asks for another starts nothing and names both.
+func TestSpawnRefusesAModeThatDiffersFromTheBriefsDeliveryMode(t *testing.T) {
+	for _, test := range []struct{ name, brief, asked, named string }{
+		{"narrower than the brief", completedCommandBrief, "direct-PR", "no-mistakes"},
+		{"stricter than the brief", strings.ReplaceAll(completedCommandBrief, "mode: no-mistakes", "mode: local-only"), "no-mistakes", "local-only"},
+		{"the mode a line of the task text names", strings.Replace(completedCommandBrief, "do the work\n", "do the work\nmode: direct-PR\n", 1), "direct-PR", "no-mistakes"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := testHome(t)
+			runtime := testCommandRuntimeForHome(h)
+			request := captureSpawn(&runtime, "spawned task")
+			path := project.Path(h.Data, "demo")
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(`{"project":"demo","delivery":{"posture":"direct-PR"},"verification":{"fast":[["git","status"]]}}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if test.brief == completedCommandBrief && test.named != "no-mistakes" || !strings.Contains(test.brief, "mode: "+test.named) {
+				t.Fatalf("the brief names no Delivery mode %s, so this test proves nothing: %q", test.named, test.brief)
+			}
+			brief := filepath.Join(t.TempDir(), "brief.md")
+			if err := os.WriteFile(brief, []byte(test.brief), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runSpawn([]string{"task", "--project", filepath.Join(t.TempDir(), "demo"), "--brief", brief, "--harness", "codex", "--mode", test.asked, "--delivery-exception", "the Overlord asked for it"}, &stdout, &stderr, runtime)
+
+			// Assert
+			if exit != 1 || request.ID != "" {
+				t.Fatalf("exit=%d request=%+v stderr=%s; want the spawn refused before anything starts", exit, request, &stderr)
+			}
+			if refusal := stderr.String(); !strings.Contains(refusal, "--mode "+test.asked) || !strings.Contains(refusal, "Delivery mode "+test.named) {
+				t.Fatalf("stderr=%q; want the refusal to name --mode %s and the brief's Delivery mode %s", refusal, test.asked, test.named)
+			}
+		})
+	}
+}
+
 func TestBriefKeepsAnUnauthorizedNarrowerModeStrictAndSaysWhy(t *testing.T) {
 	// Arrange
 	h := testHome(t)

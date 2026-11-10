@@ -166,14 +166,14 @@ func (h *HTTP) fixConnection(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, map[string]string{"run_id": run.ID, "message": "Your repair is ready in Command Center. Run it there to continue."})
 }
 
-// grantingBoard asks for a connector card's + or check: giving a goblin a
-// service or an MCP server, or taking it back, is the Overlord's from a board
-// of his own, or the CFO's with cfo auth.
+// grantingBoard asks for a connector's Connect or Disconnect: giving a goblin
+// a service or an MCP server, or taking it back, is the Overlord's from a
+// board of his own, or the CFO's with cfo auth.
 var grantingBoard = boardAsker("Giving a goblin a connector is the Supreme Overlord's", ": he presses it on a board of his own, or the CFO runs cfo auth grant or cfo auth revoke", "Change it in the Code Goblins window, or ask the CFO.", reopenTheWindow+"change it there.")
 
 // grantConnection gives a running task one of its project's services or MCP
-// servers from its connector card, or takes it back: what cfo auth grant and
-// cfo auth revoke do. Past the board's Host, Origin and token checks it takes
+// servers from the board's Connectors page, or takes it back: what cfo auth
+// grant and cfo auth revoke do. Past the board's Host, Origin and token checks it takes
 // only a board proven to be the Overlord's own, since a goblin can read the
 // token. The task's status names him, the CFO is told by a wake, and a running
 // terminal of the task is told to load a granted service's credentials, as cfo
@@ -203,7 +203,7 @@ func (h *HTTP) grantConnection(w http.ResponseWriter, r *http.Request) {
 		from, err = s.overlordsBoard(r, h.Host, asked, grantingBoard)
 	}
 	if err != nil {
-		h.refuse(w, http.StatusForbidden, "connections", "A press of a connector card on a board was refused", "", err)
+		h.refuse(w, http.StatusForbidden, "connections", "A press of a connector's button on a board was refused", "", err)
 		return
 	}
 	meta, err := s.connectionTask(input.Task, input.Generation)
