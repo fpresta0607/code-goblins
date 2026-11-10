@@ -493,7 +493,7 @@ cfo gate test: the change since 0123abcd reaches 3 package(s); CI runs every pac
 left to the affected level:
 - tests of example.com/m/internal/installscript (a slow package)
 changed files outside the Go checks:
-- README.md, docs/pipeline.md (documentation and housekeeping no Go check reads)
+- CONTRIBUTING.md, docs/pipeline.md (documentation and housekeeping no Go check reads)
 ```
 
 CI tests the level the change requires on the pull request, and every package in its merge train's run, whatever the local level was.
@@ -515,6 +515,7 @@ A file a package owns is that package's whatever a pattern says of it, and a con
 A policy that has `contracts` or `outside` says what every file is.
 Under it a changed file that is in no package, under no contract and not listed as outside is one nobody has said anything about, so the change requires `full` and the plan names the file.
 `TestTheRepositoryPolicyAccountsForEveryTrackedFile` in `internal/gatetest` fails when a tracked file is in that state, so a new kind of file gets its line in the policy in the change that adds it; that change is itself planned by the default branch's policy, which does not know the file yet, and so requires `full` once.
+`TestTheRepositoryPolicySelectsEveryPackageWhoseTestsReadAChangedFile` fails when a test names a tracked file, as a path from its package's directory, that does not select that package when it changes, so a file a test reads is never put outside the Go checks.
 A policy with neither field keeps the earlier rule: a file no package owns selects nothing and nothing is listed.
 
 The policy that applies is the default branch's, read from the commit where the branch left it and never from the branch's own copy, so a branch, or a fix commit under a gate, cannot loosen the policy it is checked by.
