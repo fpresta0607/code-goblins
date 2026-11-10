@@ -89,6 +89,34 @@ func TestSessionTranscriptFindsEachHarnessTranscript(t *testing.T) {
 	}
 }
 
+// A Codex session's rollout is the one whose name carries its whole id: a
+// newer rollout of a session whose id ends with it is another conversation
+// (#1901).
+func TestACodexSessionIsNotResolvedToASessionWhoseIdEndsWithIt(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	day := filepath.Join(home, ".codex", "sessions", "2026", "09", "26")
+	own := filepath.Join(day, "rollout-2026-09-26T09-00-00-document-task-session.jsonl")
+	other := filepath.Join(day, "rollout-2026-09-26T09-10-00-other-document-task-session.jsonl")
+	writeFile(t, own, "{}\n", at)
+	writeFile(t, other, "{}\n", at.Add(time.Hour))
+	for _, test := range []struct{ session, want string }{
+		{"document-task-session", own},
+		{"other-document-task-session", other},
+		{"task-session", ""},
+	} {
+		t.Run(test.session, func(t *testing.T) {
+			// Act
+			got := SessionTranscript(home, "codex", test.session)
+
+			// Assert
+			if got != test.want {
+				t.Errorf("SessionTranscript(codex, %q) = %q, want %q", test.session, got, test.want)
+			}
+		})
+	}
+}
+
 // A goblin's Claude Code conversation is read from the folder Claude Code
 // keeps for its worktree, and no other folder is looked in: on 2026-10-28 a
 // look in each of the 1,273 folders took 10,196 file operations, for each of

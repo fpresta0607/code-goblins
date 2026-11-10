@@ -119,7 +119,7 @@ func TestASteerIsFoundInEveryRecordAndEveryTextHandedOver(t *testing.T) {
 		home, worktree := t.TempDir(), t.TempDir()
 		opening := map[string]any{"type": "session_meta", "payload": map[string]any{"cwd": worktree}}
 		both := map[string]any{"timestamp": "2026-10-06T21:54:55Z", "type": "response_item", "payload": map[string]any{"type": "message", "role": "user", "content": []map[string]any{{"type": "input_text", "text": "CEO: main moved, merge it first."}, {"type": "input_text", "text": steer}}}}
-		transcriptLines(t, filepath.Join(home, ".codex", "sessions", "2026", "10", "06", "rollout-2026-10-06T16-53-30.jsonl"), time.Now(), opening, both)
+		transcriptLines(t, filepath.Join(home, ".codex", "sessions", "2026", "10", "06", "rollout-2026-10-06T16-53-30-session.jsonl"), time.Now(), opening, both)
 
 		if !(&HostProgress{Home: home}).Took(context.Background(), Conversation{Harness: "codex", Dir: worktree}, TextDigest(steer), sent) {
 			t.Error("Took = false, want the steer found among the texts one message handed over")
@@ -145,7 +145,7 @@ func TestOnlyRolloutsFiledSinceTheGoblinStartedAreRead(t *testing.T) {
 			// Arrange
 			home, worktree := t.TempDir(), t.TempDir()
 			opening := map[string]any{"type": "session_meta", "payload": map[string]any{"cwd": worktree}}
-			transcriptLines(t, filepath.Join(home, ".codex", "sessions", "2026", "10", test.day, "rollout-2026-10-"+test.day+"T16-53-39.jsonl"), time.Now(), opening, codexMessage("2026-10-06T21:54:55Z", "user", steer))
+			transcriptLines(t, filepath.Join(home, ".codex", "sessions", "2026", "10", test.day, "rollout-2026-10-"+test.day+"T16-53-39-session.jsonl"), time.Now(), opening, codexMessage("2026-10-06T21:54:55Z", "user", steer))
 
 			// Act
 			got := (&HostProgress{Home: home}).Took(context.Background(), Conversation{Harness: "codex", Dir: worktree, Started: time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)}, TextDigest(steer), sent)
@@ -177,6 +177,27 @@ func TestTheCEOsRecordIsFoundByItsSession(t *testing.T) {
 	}
 }
 
+// A Codex session's record is the rollout whose name carries its whole id,
+// never a newer one of a session whose id ends with it (#1901).
+func TestACodexSessionsRecordIsNotOneWhoseIdEndsWithIt(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	sent := time.Date(2026, 10, 6, 21, 51, 45, 0, time.UTC)
+	day := filepath.Join(home, ".codex", "sessions", "2026", "10", "06")
+	transcriptLines(t, filepath.Join(day, "rollout-2026-10-06T21-50-00-document-task-session.jsonl"), time.Now(), codexMessage("2026-10-06T21:50:00Z", "user", "an earlier text"))
+	transcriptLines(t, filepath.Join(day, "rollout-2026-10-06T21-50-30-other-document-task-session.jsonl"), time.Now().Add(time.Minute), codexMessage("2026-10-06T21:52:00Z", "user", steer))
+	progress := &HostProgress{Home: home}
+
+	// Act
+	own := progress.Took(context.Background(), Conversation{Harness: "codex", Session: "document-task-session"}, TextDigest(steer), sent)
+	other := progress.Took(context.Background(), Conversation{Harness: "codex", Session: "other-document-task-session"}, TextDigest(steer), sent)
+
+	// Assert
+	if own || !other {
+		t.Errorf("Took for the session = %v and for the one whose id ends with it = %v, want false and true", own, other)
+	}
+}
+
 // writeConversation writes entries where harness keeps the record of an
 // agent working in worktree, beside one for another folder that holds the
 // same entries, which must never count.
@@ -195,7 +216,7 @@ func writeConversation(t *testing.T, home, harness, worktree string, entries ...
 			transcriptLines(t, filepath.Join(claudeProjectFolder(home, dir), "conversation.jsonl"), written, entries...)
 		case "codex":
 			opening := map[string]any{"type": "session_meta", "payload": map[string]any{"cwd": dir}}
-			transcriptLines(t, filepath.Join(home, ".codex", "sessions", "2026", "10", "06", fmt.Sprintf("rollout-2026-10-06T16-53-3%d.jsonl", i)), written, append([]map[string]any{opening}, entries...)...)
+			transcriptLines(t, filepath.Join(home, ".codex", "sessions", "2026", "10", "06", fmt.Sprintf("rollout-2026-10-06T16-53-3%d-session-%d.jsonl", i, i)), written, append([]map[string]any{opening}, entries...)...)
 		case "pi":
 			folder := "--" + strings.NewReplacer(`\`, "-", ":", "-").Replace(dir) + "--"
 			opening := map[string]any{"type": "session", "cwd": dir}

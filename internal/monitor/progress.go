@@ -142,12 +142,15 @@ func (h *HostProgress) harness(ctx context.Context, meta state.TaskMeta, sample 
 // as globs under the user's home with {session} standing for the session id.
 // A Claude subagent writes its own transcript beside its parent's, and a
 // parent waiting on one writes nothing, so those count too.
+// Codex names a rollout rollout-<the second it started>-<session>.jsonl, and
+// the time is matched digit by digit so the session is the whole rest of the
+// name: rollout-*-{session} also matched a rollout of other-{session} (#1901).
 var transcriptPatterns = map[string][]string{
 	"claude": {
 		filepath.Join(".claude", "projects", "*", "{session}.jsonl"),
 		filepath.Join(".claude", "projects", "*", "{session}", "subagents", "*.jsonl"),
 	},
-	"codex": {filepath.Join(".codex", "sessions", "*", "*", "*", "rollout-*-{session}.jsonl")},
+	"codex": {filepath.Join(".codex", "sessions", "*", "*", "*", "rollout-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-{session}.jsonl")},
 	"pi":    {filepath.Join(".pi", "agent", "sessions", "*", "*_{session}.jsonl")},
 }
 
