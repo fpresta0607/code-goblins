@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { box, field, NAME, open, openGoblin, typed } from "./session-board";
+import { box, field, NAME, open, openGoblin, snapshot, typed } from "./session-board";
 
 // What Claude Code 2.1.322's terminal drew over its prompt line, read on a
 // disposable session on 2026-11-09, and its turn row while it retried (#2236).
@@ -9,7 +9,42 @@ const idle = { type: "screen", asking: false, open: false, working: false, submi
 const statusOf = (page: Parameters<typeof box>[0]) => box(page).getByRole("status", { name: "Terminal status" });
 const talkOf = (page: Parameters<typeof box>[0]) => page.getByRole("log", { name: "Messages of " + NAME });
 
-test("the chat shows the terminal's context gauge and notices over the box, and drops them when the terminal does", async ({ page }) => {
+// #2294 (the Overlord, 2026-11-10): "2% until auto-compact" sat above the box
+// he types in. The terminal draws it under its prompt, so the chat draws it
+// under the box, clear of it, on a desktop and on a phone, idle and working.
+const AUTO_COMPACT = { ...STATUS, gauge: "2% until auto-compact" };
+for (const [where, width, height] of [["a desktop", 1440, 1200], ["a phone", 393, 852]] as const) {
+  for (const state of ["idle", "working"] as const) {
+    test(`the terminal's gauge sits under the box on ${where} while the session is ${state}, clear of the box and with no sideways scroll`, async ({ page }, testInfo) => {
+      // Arrange
+      await page.setViewportSize({ width, height });
+      const relay = await open(page, snapshot({}, { phase: "idle" }));
+      await openGoblin(page);
+      await expect.poll(() => relay.views).toBeGreaterThan(0);
+
+      // Act
+      relay.say(state === "working" ? { ...idle, working: true, doing: "Rummaging", status: AUTO_COMPACT } : { ...idle, status: AUTO_COMPACT });
+
+      // Assert: the session shows as it is, and the gauge is whole on the
+      // screen, starting where the box ends or lower.
+      await expect(box(page).locator(".composer-send")).toHaveAccessibleName(state === "working" ? "Stop" : "Send");
+      await expect(talkOf(page).locator(".reply-working")).toHaveCount(state === "working" ? 1 : 0);
+      await expect(statusOf(page)).toContainText("2% until auto-compact");
+      await expect(statusOf(page)).toBeInViewport({ ratio: 1 });
+      const gauge = (await statusOf(page).boundingBox())!;
+      const input = (await box(page).locator(".composer-input").boundingBox())!;
+      expect(gauge.y, "the gauge is under the box").toBeGreaterThanOrEqual(input.y + input.height);
+      expect(gauge.x, "the gauge starts on the screen").toBeGreaterThanOrEqual(0);
+      expect(gauge.x + gauge.width, "the gauge ends on the screen").toBeLessThanOrEqual(width);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "no sideways scroll").toBe(true);
+      const shot = testInfo.outputPath(`composer-${where.replace("a ", "")}-${state}.png`);
+      await page.screenshot({ path: shot });
+      await testInfo.attach(`composer-${where.replace("a ", "")}-${state}`, { path: shot, contentType: "image/png" });
+    });
+  }
+}
+
+test("the chat shows the terminal's context gauge and notices under the box, and drops them when the terminal does", async ({ page }) => {
   // Arrange
   const relay = await open(page);
   await openGoblin(page);

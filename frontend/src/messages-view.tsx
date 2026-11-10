@@ -2,12 +2,15 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { flushSync } from "react-dom";
 import { message as errorText, reportToCfo, request } from "./api";
 import { copyText } from "./clipboard";
+import { conversationPictures } from "./conversation-pictures";
 import { Icon } from "./Icon";
 import { keptFileAddress } from "./kept-files";
 import { MessageRow } from "./message-row";
 import { MessageDocumentScope } from "./message-document-scope";
 import { drawnSpans, ESTIMATED_ROW_PX, messageRowAt, messageWindow, OVERSCAN_PX } from "./message-window";
 import { Notice } from "./notice";
+import { PictureOpener } from "./picture-opener";
+import { PictureViewer } from "./picture-viewer";
 import { ReplyWorking } from "./reply-working";
 import { changeMessages, isWrittenReply, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseSession, parseUsage, parseWaiting, storedMessageFont, storeMessageFont, turnEnds, viewStanding, type MessagePage, type SessionReport } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
@@ -63,14 +66,14 @@ type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 // open, absent for the CFO, terminal is the key of the session's terminal,
 // whose link reads what it is doing, sent is every message of his to the session the
 // board knows, pending those of them that still wait, and box is the message
-// box under the conversation. onAskSlot takes the conversation's last row,
+// box under the conversation, told whether the stream says a turn runs. onAskSlot takes the conversation's last row,
 // where the box draws what the harness's own screen asks (#2223).
 export function MessagesView({ query, instance, pages, name, task, terminal, harness, model, effort, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, onAskSlot, onOpenCommand, box }: {
   query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isCompacting: boolean;
   pages: Map<string, MessagePage>;
   sent: Action[]; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
-  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode, onSend: () => void) => ReactNode;
+  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode, onSend: () => void, isTurnRunning: boolean) => ReactNode;
   onComposerDock?: (node: HTMLDivElement | null) => void; onAskSlot?: (node: HTMLDivElement | null) => void;
   // onOpenCommand opens the Command Center on an item, as a block's Run does
   // on the run card it made.
@@ -102,6 +105,10 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // he reads up keeps still.
   const standing = viewStanding(report, held.messages);
   const isAtWork = standing.isWorking || phase === "live" && isCompacting;
+  // The box's Stop reads the same word of the stream, as the session is now
+  // however far up he reads, so no Stop shows for a turn that ended, whatever
+  // ended it (#2292).
+  const isTurnRunning = report?.state === "running" || phase === "live" && isCompacting;
   const [isReconnecting, setReconnecting] = useState(false);
   const [closedWhy, setClosedWhy] = useState("");
   const [attempt, setAttempt] = useState(0);
@@ -755,6 +762,14 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   const picture = useCallback((id: string) => address({ picture: id, conversation: held.conversation }), [address, held.conversation]);
   const taskID = task?.id;
   const keptPicture = useCallback((path: string) => keptFileAddress(instance, taskID, path), [instance, taskID]);
+  // The picture he opened from a row, by the address the row draws it from,
+  // shown in the one viewer of the conversation, which steps through every
+  // picture of the messages the view holds, drawn in the window or not. The
+  // set is read only while the viewer is open, so a streamed line draws
+  // nothing for it.
+  const [viewed, setViewed] = useState<string | null>(null);
+  const isViewing = viewed !== null;
+  const pictureSources = useMemo(() => isViewing ? conversationPictures(conversation, picture, keptPicture) : [], [isViewing, conversation, picture, keptPicture]);
   useEffect(() => { onChildValue.current = onChild; }, [onChild]);
   const taskValue = useRef(task);
   useLayoutEffect(() => { taskValue.current = task; }, [task]);
@@ -837,12 +852,12 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
         <div ref={items} className="conversation-items" style={{ paddingTop: `calc(${estimatedRoom}px + var(--room-shift, 0px))` }}>
           {/* One flat list keyed by message, so a row keeps its place in the
               page, its DOM and any selection in it as the window moves. */}
-          {spans.flatMap((span, at) => [
+          <PictureOpener value={setViewed}>{spans.flatMap((span, at) => [
             ...at > 0 ? [<div key="room-between" className="conversation-room" style={{ height: heightOf(spans[at - 1].end, span.start) }} />] : [],
             ...conversation.slice(span.start, span.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
               harness={harness} isTurnEnd={ends.has(message.id)} onRun={isWrittenReply(message, held.messages, held.isWorking) ? runCode : undefined}
               task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? held.task : undefined} picture={picture} keptPicture={keptPicture} onChild={openChild} />),
-          ])}
+          ])}</PictureOpener>
           <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, conversation.length) }} />
           {/* While the view connects it shows nothing that waits on the
               session's reading, the dither included (the Overlord,
@@ -901,8 +916,9 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
           box"), only once the view is live and holds a real reading, never
           while it connects ("connecting screens don't need to display the
           dither or usage unavailable"). */}
-      {box?.(composing.usage?.model || model, composing.history, composing.usage?.effort || effort, phase === "live" && <UsageBar readings={readings} />, sentFromBox)}
+      {box?.(composing.usage?.model || model, composing.history, composing.usage?.effort || effort, phase === "live" && <UsageBar readings={readings} />, sentFromBox, isTurnRunning)}
     </div>}
+    {viewed !== null && <PictureViewer sources={pictureSources} source={viewed} onSource={setViewed} onClose={() => setViewed(null)} />}
   </section></MessageDocumentScope>;
 }
 

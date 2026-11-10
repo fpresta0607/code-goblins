@@ -219,10 +219,10 @@ test("while the session works the dither takes the time's place at the reply in 
   await expect(row(page, "r5").locator("time")).toHaveCount(1);
 });
 
-// The dither is drawn from the fleet's stream alone: a terminal's screen and
-// the board's snapshot can each still say a turn works after it ended, and
-// neither draws it.
-test("a turn the stream says ended draws no dither while the terminal's screen and the board's snapshot say the session works", async ({ page }) => {
+// The dither and the box's Stop are drawn from the fleet's stream alone: a
+// terminal's screen and the board's snapshot can each still say a turn works
+// after it ended, and neither draws either (#2292).
+test("a turn the stream says ended draws no dither and no Stop while the terminal's screen and the board's snapshot say the session works", async ({ page }) => {
   // Arrange
   const relay = await open(page, snapshot({}, { phase: "working" }), "", TALK);
   await openGoblin(page);
@@ -231,9 +231,12 @@ test("a turn the stream says ended draws no dither while the terminal's screen a
   // Act
   relay.say(screen(true, "Cogitating"));
 
-  // Assert: the box heard the screen say its harness works, and the
-  // conversation draws the turn's end where the dither would be.
-  await expect(box(page).getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  // Assert: the box heard the screen say its harness works, since it holds a
+  // Send for the queue, and it offers Send, not Stop, while the conversation
+  // draws the turn's end where the dither would be.
+  await expect(box(page)).toHaveAttribute("data-queues", "");
+  await expect(box(page).locator(".composer-send")).toHaveAccessibleName("Send");
+  await expect(box(page).getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
   await expect(working(page)).toHaveCount(0);
   await expect(row(page, "r5").locator("time")).toHaveCount(1);
   await expect(page.getByRole("log")).not.toContainText("Cogitating");
@@ -346,15 +349,13 @@ test("a working session's dither carries the harness's own words for what it doe
 });
 
 // The words' animations start only once their room is measured, a frame or
-// more after the words are in the page (working-word.tsx), so a check that
-// holds them first waits for the shimmer's own animation to be there and
-// ready, rather than racing it (#1886). Under reduced motion there is none.
-const animated = (page: Page) => expect.poll(() => page.evaluate(async () => {
-  const shine = document.querySelector(".working-shine");
-  const animations = document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect && !!shine && animation.effect.target === shine);
-  await Promise.all(animations.map((animation) => animation.ready));
-  return animations.length;
-}), "the shimmer's animation has started").toBeGreaterThan(0);
+// more after the words are in the page (working-word.tsx). A check that holds
+// them waits in the page, a frame at a time, until they are there, and holds
+// them in the task that found them, so nothing comes between the two (#1886).
+// A hold with no wait read no word at all about once in twelve runs, and a
+// wait made in a round trip of its own left a gap before the hold (#1914).
+// Under reduced motion there is none. STARTED_MS is how long a check waits.
+const STARTED_MS = 5_000;
 
 // The Overlord, 2026-10-30: "make twitsting and teh verbs rotate in a type
 // writere hroiztonal shimmer". Each word shows in its turn by its own
@@ -363,38 +364,39 @@ const animated = (page: Page) => expect.poll(() => page.evaluate(async () => {
 // letters as drawn, the room the words take, the steps of its turn its window
 // slides through, from unseen to whole a letter at a time, and the properties
 // its typing and its shimmer move, which the compositor draws.
-const shownAt = async (page: Page, ms: number, isAnimated = true) => {
-  if (isAnimated) await animated(page);
-  return page.evaluate((ms) => {
-    const doing = document.querySelector(".reply-doing");
-    if (!doing) throw new Error("no words beside the dither");
-    const effects = document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".reply-doing"));
-    for (const animation of effects) {
-      animation.pause();
-      animation.currentTime = ms;
-    }
-    const room = doing.getBoundingClientRect();
-    const frame = [...doing.querySelectorAll(":scope > .working-word")].find((each) => {
-      const { left, right } = each.getBoundingClientRect();
-      return Math.min(right, room.right) - Math.max(left, room.left) > 0.5;
-    });
-    const letters = frame?.querySelector(":scope > span");
-    const effectOn = (target?: Element | null) => effects.map((animation) => animation.effect).find((effect): effect is KeyframeEffect => effect instanceof KeyframeEffect && !!target && effect.target === target);
-    const typing = effectOn(letters), shimmer = effectOn(frame?.nextElementSibling);
-    const moved = (effect?: KeyframeEffect) => [...new Set((effect?.getKeyframes() ?? []).flatMap((frame) => Object.keys(frame)))].filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key));
-    const range = document.createRange();
-    if (letters) range.selectNodeContents(letters);
-    return {
-      word: letters?.textContent ?? "",
-      drawn: letters ? range.getBoundingClientRect().width : 0,
-      room: room.width,
-      // Its last two keyframes take it away at its turn's end.
-      shifts: (typing?.getKeyframes() ?? []).slice(0, -2).map((frame) => Number(/translateX\((-?[\d.]+)px\)/.exec(String(frame.transform))?.[1])),
-      typingMoves: moved(typing),
-      shimmerMoves: moved(shimmer),
-    };
-  }, ms);
-};
+const shownAt = (page: Page, ms: number, isAnimated = true) => page.evaluate(async ({ ms, isAnimated, wait }) => {
+  const wordEffects = () => document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".reply-doing"));
+  for (const began = performance.now(); isAnimated && !wordEffects().length; await new Promise(requestAnimationFrame)) {
+    if (performance.now() - began > wait) throw new Error("the words' animations never started");
+  }
+  const doing = document.querySelector(".reply-doing");
+  if (!doing) throw new Error("no words beside the dither");
+  const effects = wordEffects();
+  for (const animation of effects) {
+    animation.pause();
+    animation.currentTime = ms;
+  }
+  const room = doing.getBoundingClientRect();
+  const frame = [...doing.querySelectorAll(":scope > .working-word")].find((each) => {
+    const { left, right } = each.getBoundingClientRect();
+    return Math.min(right, room.right) - Math.max(left, room.left) > 0.5;
+  });
+  const letters = frame?.querySelector(":scope > span");
+  const effectOn = (target?: Element | null) => effects.map((animation) => animation.effect).find((effect): effect is KeyframeEffect => effect instanceof KeyframeEffect && !!target && effect.target === target);
+  const typing = effectOn(letters), shimmer = effectOn(frame?.nextElementSibling);
+  const moved = (effect?: KeyframeEffect) => [...new Set((effect?.getKeyframes() ?? []).flatMap((frame) => Object.keys(frame)))].filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key));
+  const range = document.createRange();
+  if (letters) range.selectNodeContents(letters);
+  return {
+    word: letters?.textContent ?? "",
+    drawn: letters ? range.getBoundingClientRect().width : 0,
+    room: room.width,
+    // Its last two keyframes take it away at its turn's end.
+    shifts: (typing?.getKeyframes() ?? []).slice(0, -2).map((frame) => Number(/translateX\((-?[\d.]+)px\)/.exec(String(frame.transform))?.[1])),
+    typingMoves: moved(typing),
+    shimmerMoves: moved(shimmer),
+  };
+}, { ms, isAnimated, wait: STARTED_MS });
 
 test("the harness's words type out a letter at a time, a shimmer crosses them, and whimsical verbs follow in turn", async ({ page }) => {
   // Arrange
@@ -464,23 +466,24 @@ test("the next verb shows in its turn with nothing in the page changed", async (
 // much the shimmer lightens the letters there, and the ground, against the
 // same words with no shimmer and the ground with neither. The ground is what
 // lies a pixel or more from the letters' ink, past their smoothed edges.
-const shimmerAt = async (page: Page, share: number) => {
-  await animated(page);
-  await page.evaluate((share) => {
-    const words = document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".reply-doing"));
-    const shimmer = words.map((animation) => animation.effect).find((effect): effect is KeyframeEffect => effect instanceof KeyframeEffect && effect.target === document.querySelector(".working-shine"));
-    if (!shimmer) throw new Error("no shimmer crosses the words");
-    // It crosses in the one stretch of its rotation that eases.
-    const frames = shimmer.getKeyframes();
-    const crossing = frames.findIndex((frame) => frame.easing === "ease-in-out");
-    const [from, to] = [frames[crossing], frames[crossing + 1]].map((frame) => Number(frame.computedOffset));
-    const rotation = Number(shimmer.getComputedTiming().duration);
-    for (const animation of words) {
-      animation.pause();
-      animation.currentTime = rotation * (from + (to - from) * share);
-    }
-  }, share);
-};
+const shimmerAt = (page: Page, share: number) => page.evaluate(async ({ share, wait }) => {
+  const wordEffects = () => document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".reply-doing"));
+  for (const began = performance.now(); !wordEffects().length; await new Promise(requestAnimationFrame)) {
+    if (performance.now() - began > wait) throw new Error("the words' animations never started");
+  }
+  const words = wordEffects();
+  const shimmer = words.map((animation) => animation.effect).find((effect): effect is KeyframeEffect => effect instanceof KeyframeEffect && effect.target === document.querySelector(".working-shine"));
+  if (!shimmer) throw new Error("no shimmer crosses the words");
+  // It crosses in the one stretch of its rotation that eases.
+  const frames = shimmer.getKeyframes();
+  const crossing = frames.findIndex((frame) => frame.easing === "ease-in-out");
+  const [from, to] = [frames[crossing], frames[crossing + 1]].map((frame) => Number(frame.computedOffset));
+  const rotation = Number(shimmer.getComputedTiming().duration);
+  for (const animation of words) {
+    animation.pause();
+    animation.currentTime = rotation * (from + (to - from) * share);
+  }
+}, { share, wait: STARTED_MS });
 const lightOf = async (page: Page) => {
   const doing = working(page).locator(".reply-doing");
   const hide = (selectors: string[]) => doing.evaluate((element, selectors) => {

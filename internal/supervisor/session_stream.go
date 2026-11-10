@@ -41,12 +41,14 @@ func turnState(node Session, isTracked bool, messages []fleettree.Message) sessi
 		return sessionTurn{Why: "The board has not seen this session report a turn, so it does not draw one as working."}
 	}
 	// A session's report is about the turn it last heard of. Claude Code runs
-	// no hook for a turn the Overlord stops, and its record says where the turn
-	// was stopped: a report older than an interrupt after the turn's prompt is
-	// of the turn that stopped.
+	// no hook for a turn the Overlord stops, nor for one a usage limit or a
+	// failed request ends, and its record says where the turn ended: a report
+	// older than an interrupt, or than a reply the harness wrote itself, after
+	// the turn's prompt is of the turn that ended there. Work that goes on
+	// after either is reported after it, and the turn runs again.
 	prompt := fleettree.TurnPrompt(messages)
 	if slices.ContainsFunc(messages, func(message fleettree.Message) bool {
-		return message.Kind == fleettree.MessageInterrupt && message.Seq > prompt.Seq && node.UpdatedAt.Before(message.At)
+		return (message.Kind == fleettree.MessageInterrupt || message.IsHarnessReply()) && message.Seq > prompt.Seq && node.UpdatedAt.Before(message.At)
 	}) {
 		return sessionTurn{Ended: true, Known: true}
 	}
@@ -59,10 +61,30 @@ func turnState(node Session, isTracked bool, messages []fleettree.Message) sessi
 	switch node.Phase {
 	case "settled", "interrupted", "ended":
 		return sessionTurn{Ended: true, Known: true}
-	case "active", "started":
+	case "started":
+		// A session that started, or started again, runs no turn until a prompt
+		// begins one: the harness that ran the turn before it is gone. Only a
+		// compaction's start comes in the middle of a turn, which goes on,
+		// unless the Overlord asked for the compaction, which he can only
+		// between turns.
+		return sessionTurn{Ended: node.Source != "compact" || isCompactionAsked(messages, prompt), Known: true}
+	case "active":
 		return sessionTurn{Known: true}
 	}
 	return sessionTurn{Why: "This session's harness has not reported a turn yet, so the board does not draw one as working."}
+}
+
+// isCompactionAsked reports whether the newest compaction since prompt, the
+// one that began the session's newest turn, is one the Overlord asked for
+// rather than one its harness made. A start reported before its compaction is
+// written finds none since the prompt, and so none he asked for.
+func isCompactionAsked(messages []fleettree.Message, prompt fleettree.Message) bool {
+	for at := len(messages) - 1; at >= 0 && messages[at].Seq > prompt.Seq; at-- {
+		if messages[at].Kind == fleettree.MessageCompaction {
+			return messages[at].Trigger == "manual"
+		}
+	}
+	return false
 }
 
 // heldStream is one session's stream as the supervisor holds it: the appender

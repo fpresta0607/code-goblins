@@ -1,7 +1,9 @@
 import { BabyGoblin } from "./BabyGoblin";
+import { CallPictures } from "./call-pictures";
 import { callWords, commandLanguage } from "./call-words";
 import { CodeBlock } from "./code-block";
 import { ConnectorLogo } from "./connector-logo";
+import { callPictures } from "./conversation-pictures";
 import { Disclosure } from "./Disclosure";
 import { babyName } from "./fleet-tree";
 import { Icon, type IconName } from "./Icon";
@@ -16,7 +18,8 @@ const STATE_MARKS: Partial<Record<CallState, IconName>> = { running: "clock", do
 // A tool call in a reply, as one quiet line: its tool's icon, the verb it is
 // told by (Read, Edited, Ran, Searched), what it was called on cut with an
 // ellipsis, and at its end an edit's added and removed lines and the mark of
-// its outcome, a quiet static one while it runs so the end of the reply in
+// its outcome, before them the thumbnails of the pictures it read, took or
+// produced (CallPictures), a quiet static mark while it runs so the end of the reply in
 // progress stays the conversation's one animation, with its state's word for
 // a reader. A connector's call wears that connector's logo and reads as its
 // name and its tool in words, as Supabase · List projects, and a tool search
@@ -53,6 +56,7 @@ export function MessageCall({ call, task, picture, onChild, open, onOpenChange }
     <span className="call-icon">{words.connector ? <ConnectorLogo name={words.connector} isInline /> : <Icon name={words.icon} />}</span>
     <span className="call-what"><span className="call-verb">{words.verb}</span> {words.action && <><span className="call-action">· {words.action}</span> </>}{subject && <span className="call-subject">{subject}</span>}</span>
     <span className="call-end">
+      <CallPictures pictures={callPictures([call], picture)} />
       {call.edit && <><span className="call-added">+{call.edit.added}</span><span className="call-removed">−{call.edit.removed}</span></>}
       <span className={"call-mark " + call.state}>{mark && <Icon name={mark} />}</span>
       {STATE_WORDS[call.state] && <span className="sr-only">{STATE_WORDS[call.state]}</span>}
