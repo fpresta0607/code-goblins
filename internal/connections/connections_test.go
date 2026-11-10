@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -284,5 +285,66 @@ func waitChecked(t *testing.T, cache *Cache, key string) Snapshot {
 			t.Fatal(errors.New("check did not finish"))
 		case <-time.After(time.Millisecond): // stall-accepted: a pause between polls, whose running out only starts the next poll.
 		}
+	}
+}
+
+func TestClaudeStatusListsEachServersToolsByNameWithItsReadOnlyMark(t *testing.T) {
+	// Arrange: the report as Claude Code 2.1.322 sends it, each tool with its
+	// name and annotations, in the server's own order.
+	output := "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"1\",\"response\":{}}}\n" + `{"type":"control_response","response":{"subtype":"success","request_id":"2","response":{"mcpServers":[{"name":"claude.ai Supabase","status":"connected","tools":[{"name":"list_projects","annotations":{"readOnly":true}},{"name":"execute_sql","annotations":{"destructive":true}},{"name":"apply_migration","annotations":{}},{"name":"https://example.invalid/tool","annotations":{"readOnly":true}},{"name":"","annotations":{}}]},{"name":"login","status":"needs-auth"}]}}}` + "\n"
+	var input bytes.Buffer
+
+	// Act
+	entries, err := claudeReport(context.Background(), strings.NewReader(output), &input)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Tool{{Name: "apply_migration"}, {Name: "execute_sql"}, {Name: "list_projects", ReadOnly: true}}
+	if len(entries) != 2 || !slices.Equal(entries[0].Tools, want) {
+		t.Fatalf("tools = %+v, want %+v", entries, want)
+	}
+	if entries[1].Tools != nil {
+		t.Fatalf("a server that reported no tools lists %+v", entries[1].Tools)
+	}
+	data, _ := json.Marshal(entries[1])
+	if strings.Contains(string(data), "tools") {
+		t.Fatalf("an entry without tools carries the field: %s", data)
+	}
+}
+
+func TestCodexStatusListsEachServersToolsByNameWithItsReadOnlyMark(t *testing.T) {
+	// Arrange: one server of mcpServerStatus/list as Codex 0.160.0 sends it,
+	// its tools keyed by name with the protocol's own annotations.
+	var status codexStatus
+	report := `{"name":"docs","runtimeStatus":"connected","authStatus":"unsupported","tools":{"search_docs":{"name":"search_docs","annotations":{"readOnlyHint":true,"destructiveHint":false}},"write_page":{"name":"write_page","annotations":{"readOnlyHint":false}},"run":{"name":"run"}}}`
+	if err := json.Unmarshal([]byte(report), &status); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	entry := codexEntry(status)
+
+	// Assert
+	want := []Tool{{Name: "run"}, {Name: "search_docs", ReadOnly: true}, {Name: "write_page"}}
+	if !slices.Equal(entry.Tools, want) {
+		t.Fatalf("tools = %+v, want %+v", entry.Tools, want)
+	}
+}
+
+func TestAServersToolListIsBounded(t *testing.T) {
+	// Arrange
+	reported := make([]Tool, toolLimit+40)
+	for index := range reported {
+		reported[index] = Tool{Name: fmt.Sprintf("tool_%05d", index)}
+	}
+
+	// Act
+	listed := listedTools(reported)
+
+	// Assert
+	if len(listed) != toolLimit || listed[0].Name != "tool_00000" || listed[toolLimit-1].Name != fmt.Sprintf("tool_%05d", toolLimit-1) {
+		t.Fatalf("listed %d tools, first %q, last %q", len(listed), listed[0].Name, listed[len(listed)-1].Name)
 	}
 }

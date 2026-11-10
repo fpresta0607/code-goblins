@@ -1,0 +1,6 @@
+.connector-logo { display: grid; place-items: center; width: 36px; height: 36px; flex: none; border: 1px solid var(--border); border-radius: 10px; background: var(--field-bg); }
+.connector-logo img { display: block; width: 20px; height: 20px; }
+.connector-initial { color: var(--mint); font-size: 1rem; font-weight: 800; line-height: 1; }
+.connector-logo.is-inline { width: 1.1em; height: 1.1em; border: 0; border-radius: 0; background: none; }
+.connector-logo.is-inline img { width: 1.1em; height: 1.1em; }
+.connector-logo.is-inline .connector-initial { display: grid; place-items: center; width: 100%; height: 100%; border: 1px solid var(--border); border-radius: .28em; background: var(--field-bg); font-size: .72em; }

@@ -8,13 +8,18 @@ import type { MessageBlock, SessionMessage } from "./session-messages.ts";
 // the board's own routes, which answer only to its token, and no row names a
 // file by where it is on the disk.
 
-// A picture a call read, took or produced, with the verb its call is told by.
+// A picture a call read, took or produced, with the verb its call is told
+// by, which for a connector's call is its name and its tool in words.
 export interface CallPicture { src: string; verb: string }
 
 // callPictures is the pictures a row of calls shows at its end, in the order
 // the calls ran: one call's own, or those of every call folded into the row.
 export function callPictures(calls: MessageBlock[], picture: (id: string) => string): CallPicture[] {
-  return calls.flatMap((call) => call.pictures.map((each) => ({ src: picture(each.id), verb: callWords(call.tool, false).verb })));
+  return calls.flatMap((call) => {
+    const words = callWords(call.tool, false);
+    const verb = words.action ? words.verb + " · " + words.action : words.verb;
+    return call.pictures.map((each) => ({ src: picture(each.id), verb }));
+  });
 }
 
 // promptPictures is the pictures he sent with a prompt: those the transcript

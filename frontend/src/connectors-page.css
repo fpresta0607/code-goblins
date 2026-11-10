@@ -1,0 +1,114 @@
+/* The Connectors page (#2303), from the board's own tokens: one glass sheet
+   in the canvas, a list laid out as a table and a connector's own page.
+   Nothing on it moves by itself. The canvas is the container its narrow
+   layout answers to, so it holds beside an open panel and on a phone. */
+.connectors-page { display: grid; align-content: start; gap: 18px; box-sizing: border-box; width: min(100% - 32px, 920px); margin: 24px auto; padding: 28px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); font-size: 1rem; }
+.connectors-page > .notice { justify-self: start; }
+.connectors-list { display: grid; gap: 18px; min-width: 0; }
+.connectors-list[hidden] { display: none; }
+.connectors-head { display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 44px; }
+.connectors-head > :first-child { min-width: 0; margin-right: auto; }
+.connectors-head p { color: var(--muted); }
+.connectors-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.connectors-tabs { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.connectors-tabs button { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); font-weight: 700; }
+.connectors-tabs button:hover { color: #edf4f3; }
+.connectors-tabs button[aria-pressed="true"] { border-color: var(--glass-border-hover); background: var(--field-bg); color: #edf4f3; }
+.connector-count { color: var(--muted); font-family: var(--font-body); font-size: 1rem; font-weight: 500; }
+.connectors-search { display: flex; flex: 0 1 280px; align-items: center; gap: 8px; min-width: 0; padding: 0 14px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); }
+.connectors-search:focus-within { outline: var(--focus-ring); outline-offset: 3px; }
+.connectors-search .icon { flex: none; width: 18px; height: 18px; color: var(--muted); }
+.connectors-search input { flex: 1; min-width: 0; padding: 0; border: 0; background: none; outline: none; }
+.connectors-empty { color: var(--muted); }
+.connectors-empty:empty { display: none; }
+
+/* The list: Connector, Type and Status, each row one connector. */
+.connector-columns, .connector-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) minmax(0, 11rem) minmax(0, 8rem); align-items: center; gap: 4px 14px; padding: 12px 14px; }
+.connector-columns { padding-block: 0; color: var(--muted); font-size: 1rem; }
+.connector-columns > :first-child { grid-column: span 2; }
+.connector-rows, .connector-logins, .connector-goblins { display: grid; margin: 0; padding: 0; list-style: none; }
+.connector-rows, .connector-logins, .connector-goblins, .connector-tools { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ghost-bg); }
+.connector-row, .browser-login, .connector-goblin { border-top: 1px solid var(--border); }
+.connector-row:first-child, .browser-login:first-child, .connector-goblin:first-child { border-top: 0; }
+.connector-row { position: relative; min-width: 0; }
+.connector-row:hover { background: #ffffff08; }
+.connector-open { min-width: 0; min-height: 0; padding: 0; border: 0; background: none; font-size: 1.0625rem; font-weight: 700; text-align: left; overflow-wrap: anywhere; }
+.connector-open::after { content: ""; position: absolute; inset: 0; }
+.connector-open:focus-visible { outline: none; }
+.connector-row:has(.connector-open:focus-visible) { outline: var(--focus-ring); outline-offset: -3px; border-radius: var(--radius); }
+.connector-type { min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+.connector-status { display: flex; justify-content: flex-start; min-width: 0; }
+.connector-state { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--muted); }
+.connector-state .icon { flex: none; width: 20px; height: 20px; }
+.connector-state.is-connected { color: var(--accent-green); }
+.connector-state.is-trouble { color: var(--amber); }
+.connector-connect { position: relative; z-index: 1; padding: 6px 16px; border-color: var(--glass-border-hover); border-radius: 999px; font-weight: 700; }
+.connector-connect:hover { background: var(--field-bg); border-color: var(--accent-green); }
+
+/* A connector's own page. */
+.connector-detail { display: grid; gap: 18px; min-width: 0; }
+.connector-back { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; color: var(--muted); font-size: 1rem; }
+.connector-back .icon { width: 18px; height: 18px; }
+.connector-head { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.connector-head > div { min-width: 0; }
+.connector-head h2 { overflow-wrap: anywhere; }
+.connector-head .connector-logo { width: 56px; height: 56px; border-radius: 14px; }
+.connector-head .connector-logo img { width: 30px; height: 30px; }
+.connector-head .connector-initial { font-size: 1.5rem; }
+.connector-about { color: #c5d3df; overflow-wrap: anywhere; }
+.connector-detail h3 { margin-top: 6px; font-size: 1.1875rem; }
+.connector-goblin { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; min-width: 0; padding: 12px 14px; }
+.connector-goblin .goblin-avatar { width: 44px; height: 44px; }
+.connector-goblin-copy { display: grid; flex: 1 1 14rem; gap: 2px; min-width: 0; }
+.connector-goblin-copy strong { overflow-wrap: anywhere; }
+.connector-use { display: flex; align-items: flex-start; gap: 6px; min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+.connector-use > span { min-width: 0; }
+.connector-use .icon { flex: none; width: 18px; height: 18px; margin-top: 3px; color: var(--amber); }
+.connector-use.is-working .icon { color: var(--accent-green); }
+.connector-goblin-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; }
+.connector-goblin-actions button { display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px; border-radius: 999px; font-weight: 700; }
+.connector-goblin-actions .icon { flex: none; width: 18px; height: 18px; }
+.connector-tools > .disclosure:first-child { border-top: 0; }
+.connector-tools > .disclosure > summary { padding: 14px; font-family: var(--font-body); font-size: 1.0625rem; font-weight: 700; }
+.connector-tools > .disclosure > .disclosure-content { padding: 0 14px 16px 44px; }
+.connector-tools ul { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: 6px 18px; margin: 0; padding: 0; list-style: none; color: #c5d3df; overflow-wrap: anywhere; }
+.connector-checks > summary { padding: 14px 0; font-family: var(--font-body); font-size: 1rem; color: var(--muted); }
+.connector-checks > .disclosure-content { display: grid; gap: 8px; padding-bottom: 0; color: var(--muted); overflow-wrap: anywhere; }
+.connector-checks strong { color: #edf4f3; }
+.connector-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; min-width: 0; padding: 12px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--field-bg); }
+.connector-notice p { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
+
+/* A browser login's row, and the dialog that asks before one is forgotten. */
+.browser-login { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; min-width: 0; padding: 12px 14px; }
+.browser-login-copy { display: grid; flex: 1 1 14rem; gap: 2px; min-width: 0; }
+.browser-login-name { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-width: 0; }
+.browser-login-name strong { min-width: 0; font-size: 1.0625rem; overflow-wrap: anywhere; }
+.browser-login-about { color: var(--muted); overflow-wrap: anywhere; }
+.browser-login-state { display: inline-flex; align-items: center; flex: none; gap: 6px; font-weight: 700; white-space: nowrap; }
+.browser-login-state .icon { width: 18px; height: 18px; }
+.browser-login-state.is-signed-in { color: var(--mint); }
+.browser-login-state.is-signed-out { color: var(--amber); }
+.browser-login-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.browser-login-actions button { padding: 6px 16px; border-radius: 999px; font-weight: 700; }
+.forget-login { width: min(520px, calc(100vw - 28px)); padding: 28px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); color: #edf4f3; background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
+.forget-login::backdrop { background: #03050aba; backdrop-filter: blur(6px); }
+.forget-login h2 { margin: 0 0 10px; font-size: 1.5rem; }
+.forget-login p { margin: 0 0 22px; line-height: 1.55; overflow-wrap: anywhere; }
+.forget-login-choices { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.forget-login-choices button { display: inline-flex; align-items: center; gap: 8px; }
+.forget-login-choices .icon { width: 18px; height: 18px; }
+.forget-login-confirm { background: var(--amber); border-color: var(--amber); color: #2b1d02; font-weight: 700; }
+
+/* A narrow canvas, a phone's or one beside a wide panel: a connector's type
+   goes under its name and the column names go. */
+@container (max-width: 640px) {
+  .connectors-page { width: calc(100% - 16px); margin: 8px auto; padding: 18px 14px; }
+  .connector-columns { display: none; }
+  .connector-row { grid-template-columns: 36px minmax(0, 1fr) auto; grid-template-areas: "logo name status" "logo type status"; padding: 12px; }
+  .connector-row > .connector-logo { grid-area: logo; }
+  .connector-open { grid-area: name; }
+  .connector-type { grid-area: type; }
+  .connector-status { grid-area: status; justify-content: flex-end; }
+  .connectors-search { flex: 1 1 100%; }
+  .connector-tools > .disclosure > .disclosure-content { padding-left: 14px; }
+}

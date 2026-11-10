@@ -14,7 +14,13 @@ export function parseConnections(value: unknown) {
     entries: array(result.entries).map((value) => {
       const entry = object(value);
       const grant = string(entry.grant);
-      return { id: string(entry.id), name: string(entry.name), kind: string(entry.kind), status: string(entry.status), detail: string(entry.detail), source: string(entry.source), actions: strings(entry.actions), grant: grant === "grant" || grant === "revoke" ? grant : "", scope: string(entry.scope), liveStatus: string(entry.live_status) || "unknown", accountIdentity: string(entry.account_identity) || "unknown", targetIdentity: string(entry.target_identity) || "unknown", checkedAt: string(entry.checked_at), isRestartRequired: entry.restart_required === true, restartReason: string(entry.restart_reason) };
+      // The tools an MCP server's harness listed, each by name with whether
+      // it only reads.
+      const tools = array(entry.tools).map((value) => {
+        const tool = object(value);
+        return { name: string(tool.name), isReadOnly: tool.read_only === true };
+      });
+      return { id: string(entry.id), name: string(entry.name), kind: string(entry.kind), status: string(entry.status), detail: string(entry.detail), source: string(entry.source), actions: strings(entry.actions), grant: grant === "grant" || grant === "revoke" ? grant : "", scope: string(entry.scope), liveStatus: string(entry.live_status) || "unknown", accountIdentity: string(entry.account_identity) || "unknown", targetIdentity: string(entry.target_identity) || "unknown", checkedAt: string(entry.checked_at), isRestartRequired: entry.restart_required === true, restartReason: string(entry.restart_reason), tools };
     }),
     browserLogins: parseBrowserLogins(result.browser_logins),
   };
