@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -94,15 +95,29 @@ INSERT INTO runs VALUES('run','repo','main',` + sqlString(managed) + `,` + sqlSt
 }
 
 // A record whose checkout is not <root>/worktrees/<repo>/<run> names no run: a
-// caller that took it for one would read its folder as no gate's at all.
+// caller that took it for one would read its folder as no gate's at all. A
+// repository folder that is a junction to another drive, as a gate home moved
+// to a Dev Drive has, is still the gate's (issue #2277).
 func TestRunWorktreeReadsOnlyAManagedCheckoutOnRecord(t *testing.T) {
-	for _, name := range []string{"managed checkout", "unknown run", "invalid run identity", "outside the gate's worktrees", "repository with no identity", "duplicate record"} {
+	for _, name := range []string{"managed checkout", "checkout behind a junction", "physical spelling behind a junction", "unknown run", "invalid run identity", "outside the gate's worktrees", "repository with no identity", "duplicate record"} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			root := t.TempDir()
 			repository, asked := "repo", "run"
 			worktree := filepath.Join(root, "worktrees", repository, "run")
 			switch name {
+			case "checkout behind a junction", "physical spelling behind a junction":
+				physical := filepath.Join(t.TempDir(), repository)
+				if err := os.MkdirAll(filepath.Join(physical, "run"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.MkdirAll(filepath.Join(root, "worktrees"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				linkDirectory(t, filepath.Join(root, "worktrees", repository), physical)
+				if name == "physical spelling behind a junction" {
+					worktree = filepath.Join(physical, "run")
+				}
 			case "unknown run":
 				asked = "another-run"
 			case "invalid run identity":
@@ -130,7 +145,7 @@ func TestRunWorktreeReadsOnlyAManagedCheckoutOnRecord(t *testing.T) {
 			got, err := reader.RunWorktree(t.Context(), asked)
 
 			// Assert
-			if name == "managed checkout" {
+			if name == "managed checkout" || strings.HasSuffix(name, "behind a junction") {
 				if got != worktree || err != nil {
 					t.Fatalf("worktree=%q, err=%v; want the recorded %q", got, err, worktree)
 				}
@@ -138,6 +153,21 @@ func TestRunWorktreeReadsOnlyAManagedCheckoutOnRecord(t *testing.T) {
 				t.Fatalf("worktree=%q, err=%v; want no checkout from this record", got, err)
 			}
 		})
+	}
+}
+
+// linkDirectory links link at target: through a directory junction on
+// Windows, as a gate home moved to another drive has, and a symlink elsewhere.
+func linkDirectory(t *testing.T, link, target string) {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
+		t.Fatalf("mklink /J %s %s: %v: %s", link, target, err, out)
 	}
 }
 

@@ -12,7 +12,7 @@ None of the home's work is copied: a goblin already started keeps the folders it
 Run again with the same folder it changes nothing; a second move elsewhere is refused.
 
 Then it carries the gate's home, where no-mistakes keeps its database, the repositories it gates and a full checkout for each run, into `no-mistakes` in the folder, so every gate checkout lands on the Dev Drive too.
-The gate's home moves whole and `NM_HOME` at user scope names it, never a junction at the old path: Go's `filepath.EvalSymlinks` fails below a junction that crosses to another volume, which broke the gate's test preparation when the gate's home was linked into the Dev Drive by hand (no-mistakes #172).
+The gate's home moves whole and `NM_HOME` at user scope names it, never a junction at the old path: Go's `filepath.EvalSymlinks` fails below any directory junction, on the same volume or another, which broke the gate's test preparation when the gate's home was linked into the Dev Drive by hand (no-mistakes #172).
 It waits, up to half an hour, until no gate run is in flight and `no-mistakes daemon uninstall` stops the daemon by its own consent, never a forced stop, then holds the daemon's lock so none starts while it works.
 It copies the home, less the daemon's `socket`, `daemon.pid` and `daemon.lock`, and proves every copied file holds the same bytes by SHA-256.
 In the copy alone it points every text value of the database that names the old home at the new one, in any table and any spelling, and proves none is left; then `config.yaml` and each gated repository's `core.hooksPath`.
