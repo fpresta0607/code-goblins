@@ -577,7 +577,7 @@ func (s *Service) settleHisCards(now time.Time) error {
 	return errs
 }
 
-// afkDisk is free disk as the board's disk meter reads it now, which AFK mode
+// afkDisk is free disk as every start reads it now, which AFK mode
 // records when it turns on and when it turns off, or nil for a disk that
 // cannot be read: a reading not taken is left out of the report, never noted.
 func (s *Service) afkDisk() *disk.Reading {
@@ -753,10 +753,10 @@ func waitingOnOverlord(d Database) []heldItem {
 	}
 	for _, r := range d.Runs {
 		// A run the board made itself, for a credential card's terminal, a
-		// connection's repair or a Remote access fix, is ready only for the
-		// moment after his own click, and was never something that waited on
-		// him.
-		if r.State == "ready" && r.CredentialRequest == "" && r.ConnectionTask == "" && r.RemoteFix == "" {
+		// connection's repair, a Remote access fix or billing consent, is
+		// ready only for the moment after his own click, and was never
+		// something that waited on him.
+		if r.State == "ready" && r.CredentialRequest == "" && r.ConnectionTask == "" && r.RemoteFix == "" && r.Billing == nil {
 			items = append(items, heldItem{"run", r.ID, r.Task, r.Title, ""})
 		}
 	}

@@ -50,10 +50,11 @@ export function MessageCall({ call, task, picture, onChild, open, onOpenChange }
       {STATE_WORDS[call.state] && <span className="sr-only">{STATE_WORDS[call.state]}</span>}
     </span>
   </>;
-  if (!call.subject && !call.result && !call.edit?.diff.length && !call.pictures.length) return <div className="message-call">{head}</div>;
+  if (!call.subject && !call.input && !call.result && !call.edit?.diff.length && !call.pictures.length) return <div className="message-call">{head}</div>;
   const language = commandLanguage(call.tool);
+  const input = call.input || call.subject;
   return <Disclosure kind="disclosure-line message-call" title={head} open={open} onOpenChange={onOpenChange}>
-    {call.subject && (language ? <CodeBlock text={call.subject} language={language} /> : <p className="call-full">{call.subject}</p>)}
+    {input && (language ? <CodeBlock text={input} language={language} /> : <p className="call-full">{input}</p>)}
     {call.edit?.diff.length
       ? <div className="message-diff">{call.edit.diff.map((line, at) => <div key={at} className={line.startsWith("+") ? "line-added" : line.startsWith("-") ? "line-removed" : undefined}>{line}</div>)}</div>
       : call.result && <CodeBlock text={call.result} language="output" textClass="call-result" />}

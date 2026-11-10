@@ -9,7 +9,7 @@ import { MessageDocumentScope } from "./message-document-scope";
 import { drawnSpans, ESTIMATED_ROW_PX, messageRowAt, messageWindow, OVERSCAN_PX } from "./message-window";
 import { Notice } from "./notice";
 import { ReplyWorking } from "./reply-working";
-import { changeMessages, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseUsage, parseWaiting, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
+import { changeMessages, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseSession, parseUsage, parseWaiting, storedMessageFont, storeMessageFont, turnEnds, viewStanding, type MessagePage, type SessionReport } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { object, parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
 import { useTerminalLink } from "./terminal-link";
@@ -17,14 +17,12 @@ import { usageReadings } from "./session-usage";
 import { UsageBar } from "./usage-bar";
 import { harnessInk } from "./harness-ink";
 import { QueuedMessage } from "./queued-message";
+import { sameWords, withTakenCommands } from "./messages";
 import { usePendingSends, type PendingSend } from "./pending-sends";
 import "./messages-view.css";
 
 // A stream that keeps dropping stops retrying and says why.
 const MAX_RETRIES = 5;
-// The supervisor says alive while a stream has nothing to send, at least
-// every five seconds, so a stream silent this long stalled.
-const SILENT_MS = 15_000;
 // He reads the newest messages again once he scrolls back this close to the
 // list's end.
 const AT_END_PX = 24;
@@ -45,7 +43,7 @@ const NO_FOLDS: ReadonlySet<string> = new Set();
 const UNREAD = "The session's messages cannot be read";
 const RECENT_SESSIONS = 8;
 const RECENT_MESSAGES = 50;
-type PublishedMessages = MessagePage & { isWorking: boolean; said: string; isLive: boolean; task?: Task; sent: Action[]; pending: Action[]; sending: PendingSend[] };
+type PublishedMessages = MessagePage & { isWorking: boolean; said: string; task?: Task; sent: Action[]; pending: Action[]; sending: PendingSend[] };
 // What the box under the conversation shows of the session: what it spent and
 // the words he sent it.
 type Composing = Pick<MessagePage, "usage"> & { history: string[] };
@@ -65,14 +63,15 @@ type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 // open, absent for the CFO, terminal is the key of the session's terminal,
 // whose link reads what it is doing, sent is every message of his to the session the
 // board knows, pending those of them that still wait, and box is the message
-// box under the conversation.
-export function MessagesView({ query, instance, pages, name, task, terminal, harness, model, effort, isWorking, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
-  query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isWorking: boolean; isCompacting: boolean;
+// box under the conversation. onAskSlot takes the conversation's last row,
+// where the box draws what the harness's own screen asks (#2223).
+export function MessagesView({ query, instance, pages, name, task, terminal, harness, model, effort, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, onAskSlot, box }: {
+  query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isCompacting: boolean;
   pages: Map<string, MessagePage>;
   sent: Action[]; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
   shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode, onSend: () => void) => ReactNode;
-  onComposerDock?: (node: HTMLDivElement | null) => void;
+  onComposerDock?: (node: HTMLDivElement | null) => void; onAskSlot?: (node: HTMLDivElement | null) => void;
 }) {
   // What he sent that the board has not shown yet, drawn at once on its way.
   const sending = usePendingSends();
@@ -81,7 +80,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
   const pageKey = instance + "\0" + query;
-  const [held, setHeld] = useState<PublishedMessages>(() => ({ conversation: "", messages: [], more: false, waiting: [], ...pages.get(pageKey), isWorking, said, isLive: false, task, sent, pending, sending }));
+  const [held, setHeld] = useState<PublishedMessages>(() => ({ conversation: "", messages: [], more: false, waiting: [], ...pages.get(pageKey), isWorking: false, said, task, sent, pending, sending }));
   const heldValue = useRef(held);
   // The stream keeps one latest version while the displayed history stays
   // where he reads. Returning to the end publishes it once, without replay.
@@ -90,6 +89,16 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // it follows the stream while the history he reads holds still.
   const [composing, setComposing] = useState<Composing>(() => composerOf({ history: [] }, held));
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
+  // What the fleet's stream says of the session's turn, which alone draws the
+  // working indicator: never the board's snapshot of the terminal, which can
+  // say a finished turn still works.
+  const [report, setReport] = useState<SessionReport | null>(null);
+  // Behind and working are the stream's own words, and a compaction is the
+  // session's own state rather than a turn: both draw the one indicator, only
+  // once the view is live, and both are published with the messages so what
+  // he reads up keeps still.
+  const standing = viewStanding(report, held.messages);
+  const isAtWork = standing.isWorking || phase === "live" && isCompacting;
   const [isReconnecting, setReconnecting] = useState(false);
   const [closedWhy, setClosedWhy] = useState("");
   const [attempt, setAttempt] = useState(0);
@@ -213,29 +222,23 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     olderWaiting.current = null;
     const stream = new EventSource(address({ stream: "1" }));
     let failures = 0;
-    // A stream that stalled is opened again, which begins with the newest
-    // page, and says Reconnecting until it does: on 2026-10-29 the CFO's
-    // view showed a call Running at least 76 s after it ended, with no word
-    // that it was stale.
-    let silence: ReturnType<typeof setTimeout> | undefined;
-    const heard = () => {
-      clearTimeout(silence);
-      silence = setTimeout(() => {
-        stream.close();
-        setReconnecting(true);
-        setAttempt((prior) => prior + 1);
-      }, SILENT_MS);
-    };
+    // A stream that ends or drops is opened again, and says Reconnecting
+    // until it does. Nothing infers that the conversation is stale from how
+    // long the stream was quiet: the stream says itself what the session's
+    // turn is and where its head is, and a view that has drawn less than the
+    // head says it is behind.
     const close = (why: string) => {
-      clearTimeout(silence);
       stream.close();
       setReconnecting(false);
       setClosedWhy(why);
       setPhase("closed");
+      // The stream has ended, so nothing it last said of the turn is drawn: a
+      // closed view offers the Reconnect, never an indicator for a turn that
+      // is not running.
+      setReport(null);
     };
     const take = (change: (prior: MessagePage) => MessagePage) => {
       failures = 0;
-      heard();
       const next = { ...latest.current, ...change(latest.current) };
       latest.current = next;
       // Reopening a session paints its last page while its fresh stream
@@ -266,13 +269,23 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
       reportToCfo(where, "Invalid messages stream");
     };
     stream.addEventListener("page", (event: MessageEvent<string>) => {
-      try { const page = parsePage(JSON.parse(event.data)); olderFailures.current = { count: 0, at: 0 }; take((prior) => pageMessages(prior, page)); } catch { invalid(); }
+      try {
+        const page = parsePage(JSON.parse(event.data));
+        olderFailures.current = { count: 0, at: 0 };
+        // A page begins the state the session reports from, so no word of the
+        // turn before it is drawn over it; its own session event follows.
+        setReport(null);
+        take((prior) => pageMessages(prior, page));
+      } catch { invalid(); }
     });
     stream.addEventListener("messages", (event: MessageEvent<string>) => {
       try { const data = object(JSON.parse(event.data)); const conversation = parseConversation(data.conversation); const changed = parseMessages(data.messages); const waiting = parseWaiting(data.waiting); take((prior) => { if (prior.conversation !== conversation) throw new Error("Invalid conversation"); return { ...prior, messages: changeMessages(prior.messages, changed), waiting }; }); } catch { invalid(); }
     });
     stream.addEventListener("usage", (event: MessageEvent<string>) => {
       try { const data = object(JSON.parse(event.data)); const conversation = parseConversation(data.conversation); const usage = parseUsage(data.usage); take((prior) => { if (prior.conversation !== conversation) throw new Error("Invalid conversation"); return { ...prior, usage }; }); } catch { invalid(); }
+    });
+    stream.addEventListener("session", (event: MessageEvent<string>) => {
+      try { setReport(parseSession(JSON.parse(event.data))); } catch { invalid(); }
     });
     stream.addEventListener("unavailable", (event: MessageEvent<string>) => {
       let why = "";
@@ -285,10 +298,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
       if (stream.readyState === EventSource.CLOSED || ++failures >= MAX_RETRIES) close(UNREAD);
       else setReconnecting(true);
     };
-    stream.addEventListener("alive", heard);
-    heard();
     return () => {
-      clearTimeout(silence);
       stream.close();
     };
   }, [address, visible, attempt, where, pages, pageKey]);
@@ -437,12 +447,15 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
 
   // The rows drawn: those within reach of where he reads, or of the end while
   // he follows it, each row not measured yet taken at an estimate.
-  const rowIndices = useMemo(() => new Map(held.messages.map((message, index) => [message.id, index])), [held.messages]);
+  // The rows are the session's messages and the commands the board saw its
+  // harness take that the harness keeps no row of.
+  const conversation = useMemo(() => withTakenCommands(held.messages, held.sent, harness), [held.messages, held.sent, harness]);
+  const rowIndices = useMemo(() => new Map(conversation.map((message, index) => [message.id, index])), [conversation]);
   const offsets = useMemo(() => {
     const offsets = [0];
-    for (const message of held.messages) offsets.push(offsets[offsets.length - 1] + (rowHeights.get(message.id) ?? ESTIMATED_ROW_PX));
+    for (const message of conversation) offsets.push(offsets[offsets.length - 1] + (rowHeights.get(message.id) ?? ESTIMATED_ROW_PX));
     return offsets;
-  }, [held.messages, rowHeights]);
+  }, [conversation, rowHeights]);
   const windowAt = (place: typeof view, isEnd: boolean) => {
     const anchorAt = rowIndices.get(place.anchor);
     const readTop = anchorAt === undefined ? place.top : offsets[anchorAt] - place.offset;
@@ -490,8 +503,8 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     // at the top is read from the rows' heights, where the window places
     // each row.
     const at = (items.current?.getBoundingClientRect().top ?? top) - top + roomShift.current;
-    const index = Math.min(held.messages.length - 1, messageRowAt(offsets, -at));
-    const message = held.messages[index];
+    const index = Math.min(conversation.length - 1, messageRowAt(offsets, -at));
+    const message = conversation[index];
     return message ? { id: message.id, offset: at + offsets[index] } : null;
   };
   const placeOf = (box: HTMLElement, kept: { id: string; offset: number } | null) => ({ top: box.scrollTop, height: box.clientHeight, anchor: kept?.id ?? "", offset: kept?.offset ?? 0 });
@@ -565,10 +578,10 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     // Each snapshot of the board draws the panel again with new lists of the
     // same messages, so the view publishes only what changed, or it would
     // draw itself a second time for every snapshot.
-    const known = latest.current, isLive = phase === "live";
-    if (known.isWorking === isWorking && known.said === said && known.isLive === isLive && known.task === task && known.sending === sending
+    const known = latest.current;
+    if (known.isWorking === isAtWork && known.said === said && known.task === task && known.sending === sending
       && isSameList(known.sent, sent) && isSameList(known.pending, pending)) return;
-    latest.current = { ...known, isWorking, said, isLive, task, sent, pending, sending };
+    latest.current = { ...known, isWorking: isAtWork, said, task, sent, pending, sending };
     reconcile.current();
     if (following.current) setHeld(latest.current);
     else setHeld((prior) => {
@@ -576,7 +589,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
       const handedOff = sent.filter((action) => localIDs.has(action.id) && (action.status === "queued" || action.status === "running" || action.status === "succeeded") && !prior.pending.some((heldAction) => heldAction.id === action.id));
       return prior.sending === sending && !handedOff.length ? prior : { ...prior, sending, pending: [...prior.pending, ...handedOff] };
     });
-  }, [isWorking, said, phase, task, sent, pending, sending]);
+  }, [isAtWork, said, phase, task, sent, pending, sending]);
 
   // Each drawn row is measured as it lays out and again whenever it changes,
   // as a picture loads or a call unfolds; a row the hidden view lays out at
@@ -602,7 +615,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     const observer = new ResizeObserver(measure);
     for (const row of rows) observer.observe(row);
     return () => observer.disconnect();
-  }, [held.messages, drawn.start, drawn.end, selected, openFolds, font, shown]);
+  }, [conversation, drawn.start, drawn.end, selected, openFolds, font, shown]);
 
   useLayoutEffect(() => {
     heldValue.current = held;
@@ -693,6 +706,16 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   useLayoutEffect(() => {
     if (boxSends && list.current && !following.current) toEnd(list.current);
   }, [boxSends, toEnd]);
+  // A screen of the harness's own that opens or changes in the conversation's
+  // last row takes the list to its end, where it shows, so a key the empty box
+  // hands the screen never answers a prompt he cannot see (#2223).
+  useLayoutEffect(() => {
+    const slot = items.current?.querySelector(":scope > .conversation-ask");
+    if (!slot) return;
+    const observer = new MutationObserver(() => { if (slot.childElementCount && list.current && !following.current) toEnd(list.current); });
+    observer.observe(slot, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, [onAskSlot, toEnd]);
   const keys = (event: KeyboardEvent<HTMLElement>) => {
     // Shift+Escape leaves the messages for the panel's first control, as it
     // leaves a terminal.
@@ -735,9 +758,9 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     return () => document.removeEventListener("pointerdown", away);
   }, []);
   const readings = usageReadings(harness, composing.usage, subscriptions, spend);
-  const his = ownPrompts(held.messages);
-  const ends = turnEnds(held.messages, held.isWorking);
-  const reachesEnd = spans[spans.length - 1].end === held.messages.length;
+  const his = ownPrompts(conversation);
+  const ends = turnEnds(conversation, held.isWorking);
+  const reachesEnd = spans[spans.length - 1].end === conversation.length;
   // Once the session's record shows his words, written since the board took
   // them, its row is his message, and the board's copy goes, so it shows once
   // whichever of the two arrives first. Each row of his is one message, the
@@ -772,7 +795,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   const queuedIDs = [...held.waiting, ...queued].map((each) => each.id).join("\0");
   useLayoutEffect(() => {
     const observer = new ResizeObserver(settle);
-    for (const row of items.current?.querySelectorAll<HTMLElement>(":scope > .reply-working, :scope > [data-queued]") ?? []) observer.observe(row);
+    for (const row of items.current?.querySelectorAll<HTMLElement>(":scope > .reply-working, :scope > [data-queued], :scope > .conversation-ask") ?? []) observer.observe(row);
     settle();
     return () => observer.disconnect();
   }, [queuedIDs, held.isWorking, reachesEnd, phase, shown, settle]);
@@ -792,16 +815,16 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
               page, its DOM and any selection in it as the window moves. */}
           {spans.flatMap((span, at) => [
             ...at > 0 ? [<div key="room-between" className="conversation-room" style={{ height: heightOf(spans[at - 1].end, span.start) }} />] : [],
-            ...held.messages.slice(span.start, span.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
+            ...conversation.slice(span.start, span.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
               harness={harness} isTurnEnd={ends.has(message.id)}
               task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? held.task : undefined} picture={picture} keptPicture={keptPicture} onChild={openChild} />),
           ])}
-          <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, held.messages.length) }} />
+          <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, conversation.length) }} />
           {/* While the view connects it shows nothing that waits on the
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
-          {shown && held.isLive && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} />}
+          {shown && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} />}
           {/* His messages not yet in the session's record, at the
               conversation's end in its one scroll (the Overlord, 2026-10-29:
               "the double scrolls and having its own little scroll for queued
@@ -819,9 +842,13 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
               </div>;
           })}
           {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />)}
+          {/* What the harness's own screen asks, a question, a permission prompt
+              or a picker, is the conversation's last message, right above the
+              box that answers it, and never a popup over the box (#2223). */}
+          {onAskSlot && <div ref={onAskSlot} className="conversation-ask" />}
         </div>
       </div>
-      {phase === "live" && !held.messages.length && !queued.length && !held.waiting.length && <p className="messages-empty" role="status">No messages yet</p>}
+      {phase === "live" && !conversation.length && !queued.length && !held.waiting.length && <p className="messages-empty" role="status">No messages yet</p>}
       {/* A touch that stops the conversation gliding after a flick is one
           the browser gives no click, and the button shows the moment he
           leaves the end, while it glides, so a touch's lift takes him there
@@ -829,10 +856,16 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
           latest button mobile doesn't work"). */}
       {!isAtEnd && <button type="button" className="message-jump" onClick={jump} onPointerUp={(event) => { if (event.pointerType === "touch") jump(); }}><Icon name="arrow-down" />Jump to latest</button>}
       {isCopied && <Notice className="terminal-corner">Copied</Notice>}
-      {/* The one Reconnecting of the pane, for its stream and for the
-          terminal its box types through, which is not drawn here
-          (2026-11-04). */}
-      {phase !== "closed" && (isReconnecting || !visible || !!link?.isReconnecting) && <Notice tone="warning" className="terminal-corner">Reconnecting</Notice>}
+      {/* One notice in the corner at a time, the most pressing first: the one
+          Reconnecting of the pane, for its stream and for the terminal its box
+          types through, which is not drawn here (2026-11-04); why the
+          conversation drawn is not the session's current one; then a view
+          the stream has run past, which is behind, neither disconnected nor
+          ended, and no clock says it. */}
+      {phase !== "closed" && (isReconnecting || !visible || !!link?.isReconnecting) ? <Notice tone="warning" className="terminal-corner">Reconnecting</Notice>
+        : report?.stale || report?.problem ? <Notice tone="warning" className="terminal-corner">{report.stale || report.problem}</Notice>
+        : phase === "live" && standing.isBehind ? <Notice className="terminal-corner">Behind the session. Jump to latest catches up.</Notice>
+        : null}
       {phase === "closed" && <Notice form="box" icon="comment" className="terminal-foot"
         actions={<button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button>}>{closedWhy}</Notice>}
     </div>
@@ -864,10 +897,4 @@ function composerOf(prior: Composing, page: MessagePage): Composing {
 // isSameList says two lists hold the same items in the same order.
 function isSameList<T>(one: readonly T[], other: readonly T[]): boolean {
   return one.length === other.length && one.every((item, index) => item === other[index]);
-}
-
-// sameWords says two texts hold the same words, however a harness wrapped or
-// trimmed them.
-function sameWords(one: string, other: string): boolean {
-  return one.trim().split(/\s+/).join(" ") === other.trim().split(/\s+/).join(" ");
 }

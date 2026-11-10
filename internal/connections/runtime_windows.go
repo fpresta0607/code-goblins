@@ -15,13 +15,13 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-func nativeRuntime(ctx context.Context, stateDir string, meta state.TaskMeta) ([]string, []string, error) {
+func nativeRuntime(ctx context.Context, stateDir string, meta state.TaskMeta) (RuntimeObservation, error) {
 	var childPID, ownerPID int
 	var announced time.Time
 	if meta.Backend == "native" {
 		record, err := host.ReadRecord(stateDir, meta.ID)
 		if err != nil {
-			return nil, nil, errors.New("Goblin runtime is unavailable.")
+			return RuntimeObservation{}, errors.New("Goblin runtime is unavailable.")
 		}
 		childPID, ownerPID, announced = record.ChildPID, record.HostPID, record.Started
 	} else {
@@ -30,25 +30,25 @@ func nativeRuntime(ctx context.Context, stateDir string, meta state.TaskMeta) ([
 		if err != nil || !slices.ContainsFunc(snapshot.Agents, func(agent herdr.SnapshotAgent) bool {
 			return agent.PaneID == meta.HerdrPaneID && agent.TabID == meta.HerdrTabID && agent.WorkspaceID == meta.HerdrWorkspaceID && agent.Agent == meta.Harness && strings.EqualFold(filepath.Clean(agent.Cwd), filepath.Clean(meta.Worktree))
 		}) {
-			return nil, nil, errors.New("Goblin pane registration is unavailable.")
+			return RuntimeObservation{}, errors.New("Goblin pane registration is unavailable.")
 		}
 		info, err := client.PaneProcessInfo(ctx, herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID})
 		if err != nil || info.ShellPID == info.ForegroundProcessGroupID {
-			return nil, nil, errors.New("Goblin runtime is unavailable.")
+			return RuntimeObservation{}, errors.New("Goblin runtime is unavailable.")
 		}
 		childPID, ownerPID = info.ForegroundProcessGroupID, info.ShellPID
 	}
 	ancestry, err := proc.Ancestry(childPID, 16)
 	if err != nil || len(ancestry) < 2 || !slices.ContainsFunc(ancestry[1:], func(entry proc.Entry) bool { return entry.PID == ownerPID }) || (!announced.IsZero() && ancestry[0].Start.After(announced)) {
-		return nil, nil, errors.New("Goblin runtime changed. Refresh connections.")
+		return RuntimeObservation{}, errors.New("Goblin runtime changed. Refresh connections.")
 	}
 	directory, err := proc.WorkingDirectory(childPID)
 	if err != nil || !strings.EqualFold(filepath.Clean(directory), filepath.Clean(meta.Worktree)) {
-		return nil, nil, errors.New("Goblin working folder could not be verified.")
+		return RuntimeObservation{}, errors.New("Goblin working folder could not be verified.")
 	}
 	env, err := proc.Environment(childPID)
 	if err != nil {
-		return nil, nil, errors.New("Goblin credentials could not be checked.")
+		return RuntimeObservation{}, errors.New("Goblin credentials could not be checked.")
 	}
 	generation := ""
 	for _, entry := range env {
@@ -58,15 +58,15 @@ func nativeRuntime(ctx context.Context, stateDir string, meta state.TaskMeta) ([
 		}
 	}
 	if generation != meta.SpawnGen {
-		return nil, nil, errors.New("Goblin runtime changed. Refresh connections.")
+		return RuntimeObservation{}, errors.New("Goblin runtime changed. Refresh connections.")
 	}
 	args, err := proc.Arguments(childPID)
 	if err != nil {
-		return nil, nil, errors.New("Goblin launch settings are unavailable.")
+		return RuntimeObservation{}, errors.New("Goblin launch settings are unavailable.")
 	}
 	after, err := proc.Ancestry(childPID, 1)
 	if err != nil || len(after) != 1 || !after[0].Start.Equal(ancestry[0].Start) {
-		return nil, nil, errors.New("Goblin runtime changed. Refresh connections.")
+		return RuntimeObservation{}, errors.New("Goblin runtime changed. Refresh connections.")
 	}
-	return env, args, nil
+	return RuntimeObservation{Identity: RuntimeIdentity{ProcessID: childPID, StartedAt: ancestry[0].Start, Workspace: filepath.Clean(directory)}, Env: env, Args: args}, nil
 }

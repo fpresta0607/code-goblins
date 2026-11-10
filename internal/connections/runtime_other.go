@@ -9,6 +9,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-func nativeRuntime(ctx context.Context, stateDir string, meta state.TaskMeta) ([]string, []string, error) {
-	return nil, nil, errors.New("Native runtime checks require Windows.")
+func nativeRuntime(ctx context.Context, stateDir string, meta state.TaskMeta) (RuntimeObservation, error) {
+	return RuntimeObservation{}, errors.New("Native runtime checks require Windows.")
 }

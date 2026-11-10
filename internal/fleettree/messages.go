@@ -67,6 +67,7 @@ type Block struct {
 	CallID  string `json:"call_id,omitempty"`
 	Tool    string `json:"tool,omitempty"`
 	Subject string `json:"subject,omitempty"`
+	Input   string `json:"input,omitempty"`
 	State   string `json:"state,omitempty"`
 	Result  string `json:"result,omitempty"`
 	// Spilled is the size in bytes of a result too large for the
@@ -764,7 +765,65 @@ func (l *messageLog) entry(line []byte, offset int64) {
 		l.queueOperation(entry, id)
 	case entry.Type == "system" && entry.Subtype == "compact_boundary":
 		l.add(Message{ID: id, Seq: int(offset), Kind: MessageCompaction, At: entry.Timestamp, Trigger: entry.CompactMetadata.Trigger})
+	case entry.Type == "system" && (entry.Subtype == "local_command" || entry.Subtype == "bridge_status"):
+		l.localCommand(entry, id, offset)
 	}
+}
+
+// localCommand reads what Claude Code records of a slash command it ran
+// itself rather than handing it to its model. Some versions record no user
+// message for such a command: a system local_command record holds the
+// command and another what it printed (2.1.309), and /remote-control leaves
+// only a bridge_status record that opens with the command, as
+// "/remote-control is active · Continue here, …" (2.1.304 to 2.1.319). Either
+// is the command's row, so a command sent from the board takes its place in
+// the conversation rather than waiting under it (#2193).
+func (l *messageLog) localCommand(entry messageEntry, id string, offset int64) {
+	var text string
+	if json.Unmarshal(entry.Content, &text) != nil || l.commandOutput(text) {
+		return
+	}
+	if entry.Subtype == "local_command" {
+		if command, ok := TypedCommand(text); ok {
+			l.add(Message{ID: id, Seq: int(offset), Kind: MessagePrompt, At: entry.Timestamp, Source: FromSlash, Text: command})
+		}
+		return
+	}
+	command, ok := StatusCommand(text)
+	if !ok {
+		return
+	}
+	status := bounded(strings.TrimSpace(text), resultLimit)
+	// A status that follows its own command's row is what it printed.
+	if last := len(l.messages) - 1; last >= 0 && l.messages[last].Kind == MessagePrompt && l.messages[last].Source == FromSlash && l.messages[last].Text == command {
+		l.messages[last].Output = status
+		l.touch(last)
+		return
+	}
+	l.add(Message{ID: id, Seq: int(offset), Kind: MessagePrompt, At: entry.Timestamp, Source: FromSlash, Text: command, Output: status})
+}
+
+// leadingCommand is the slash command a line opens with.
+var leadingCommand = regexp.MustCompile(`^/[A-Za-z][\w:-]*`)
+
+// TypedCommand is the slash command text records as typed, as its tags or
+// as the command itself, and whether text is one.
+func TypedCommand(text string) (string, bool) {
+	text = strings.TrimSpace(text)
+	if source, words := promptSource(text); source == FromSlash {
+		return bounded(words, messageTextLimit), true
+	}
+	if leadingCommand.MatchString(text) {
+		return bounded(strings.Join(strings.Fields(text), " "), messageTextLimit), true
+	}
+	return "", false
+}
+
+// StatusCommand is the slash command a bridge_status record's text opens
+// with, and whether it opens with one.
+func StatusCommand(text string) (string, bool) {
+	command := leadingCommand.FindString(strings.TrimSpace(text))
+	return command, command != ""
 }
 
 func (l *messageLog) queueOperation(entry messageEntry, id string) {

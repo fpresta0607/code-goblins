@@ -10,11 +10,11 @@ import { MAX_FONT_SIZE, MIN_FONT_SIZE } from "./terminalStream.ts";
 export interface MessagePicture { id: string; media_type: string; bytes: number }
 
 // A block of a reply: its text, thinking Claude Code recorded the words of,
-// or a tool call with its outcome, what came back, an edit's counts and diff,
+// or a tool call with its id, its outcome, what came back, an edit's counts and diff,
 // the sub-agent it started and the plan it wrote.
 export interface MessageBlock {
   kind: "text" | "thinking" | "call";
-  text: string; tool: string; subject: string; state: CallState; result: string; spilled: number;
+  text: string; call_id: string; tool: string; subject: string; input: string; state: CallState; result: string; spilled: number;
   pictures: MessagePicture[]; edit: { added: number; removed: number; diff: string[] } | null; agent: { node: string; type: string } | null;
   plan: PlanStep[];
 }
@@ -52,7 +52,7 @@ function block(value: unknown): MessageBlock {
   const edit = each.edit == null ? null : object(each.edit);
   const agent = each.agent == null ? null : object(each.agent);
   return {
-    kind: choice(each.kind, BLOCK_KINDS, "message block"), text: string(each.text), tool: string(each.tool), subject: string(each.subject),
+    kind: choice(each.kind, BLOCK_KINDS, "message block"), text: string(each.text), call_id: string(each.call_id), tool: string(each.tool), subject: string(each.subject), input: string(each.input),
     state: each.state == null ? "" : choice(each.state, STATES, "call state"), result: string(each.result), spilled: number(each.spilled), pictures: pictures(each.pictures),
     edit: edit && { added: number(edit.added), removed: number(edit.removed), diff: array(edit.diff).map(string) },
     agent: agent && { node: string(agent.node), type: string(agent.type) },
@@ -113,6 +113,40 @@ export function parseUsage(value: unknown): SessionUsage | undefined {
   const each = object(value);
   return { input_tokens: number(each.input_tokens), output_tokens: number(each.output_tokens), cache_read_tokens: number(each.cache_read_tokens),
     cost_usd: number(each.cost_usd), context_tokens: number(each.context_tokens), context_window: number(each.context_window), model: string(each.model), effort: string(each.effort) };
+}
+
+// SessionReport is what the fleet's stream says of a session, as
+// /api/messages sends it in a session event: the newest turn, whether that
+// turn runs, ended, or was never reported by its harness, where the stream's
+// head is, and why the conversation the board reads is not the current one or
+// cannot be kept. It is the one thing the board draws a turn from, so a
+// finished turn never draws a working indicator whatever a snapshot says.
+export interface SessionReport {
+  turn: string; state: TurnState; why: string; newest: number; head: number; stale: string; problem: string;
+}
+export type TurnState = "running" | "ended" | "unknown" | "none";
+const TURN_STATES = ["running", "ended", "unknown", "none"] as const;
+
+export function parseSession(value: unknown): SessionReport {
+  const each = object(value);
+  return {
+    turn: string(each.turn), state: choice(each.state, TURN_STATES, "turn state"),
+    why: each.why == null ? "" : string(each.why), newest: number(each.newest), head: number(each.head),
+    stale: each.stale == null ? "" : string(each.stale), problem: each.problem == null ? "" : string(each.problem),
+  };
+}
+
+// How a view stands against the stream it draws. Behind means the stream holds
+// a message the view has not drawn, which is its own state: it is neither
+// disconnected nor ended, and no clock infers it. Working means the stream
+// says the newest turn runs and the view has drawn to the stream's head, so a
+// turn that ended never draws an indicator and a view that has not caught up
+// says it is behind instead.
+export function viewStanding(report: SessionReport | null, messages: SessionMessage[]): { isBehind: boolean; isWorking: boolean } {
+  if (!report) return { isBehind: false, isWorking: false };
+  const newest = messages.length ? messages[messages.length - 1].seq : -1;
+  const isBehind = report.newest > newest;
+  return { isBehind, isWorking: !isBehind && report.state === "running" };
 }
 
 export function parsePage(value: unknown): MessagePage {
@@ -214,6 +248,32 @@ export function copyText(message: SessionMessage): string {
 // that hold words, each where it was written, and each run of calls made one
 // after another as one stack. at is the first block's place in the reply.
 export type ReplyPart = { kind: "text" | "thinking"; at: number; text: string } | { kind: "calls"; at: number; calls: MessageBlock[] };
+
+// A run of a reply's calls as it shows: each call that finished as asked,
+// two or more in a row, folded into one row that opens to them (#2191), and
+// every other call its own row. A call still running, one that failed, was
+// denied or was interrupted, a question, one with pictures, a plan and a baby
+// goblin are never folded. at is where each starts in the run.
+export type CallRun = { kind: "fold"; at: number; calls: MessageBlock[] } | { kind: "call"; at: number; call: MessageBlock };
+const QUESTIONS = new Set(["askuserquestion", "request_user_input"]);
+const isFoldable = (call: MessageBlock) => (call.state === "done" || call.state === "") && !call.agent && !call.plan.length && !call.pictures.length && !QUESTIONS.has(call.tool.toLowerCase());
+
+export function callRuns(calls: MessageBlock[]): CallRun[] {
+  const runs: CallRun[] = [];
+  let start = 0;
+  while (start < calls.length) {
+    let end = start;
+    while (end < calls.length && isFoldable(calls[end])) end++;
+    if (end - start >= 2) {
+      runs.push({ kind: "fold", at: start, calls: calls.slice(start, end) });
+      start = end;
+      continue;
+    }
+    runs.push({ kind: "call", at: start, call: calls[start] });
+    start++;
+  }
+  return runs;
+}
 
 export function replyParts(blocks: MessageBlock[]): ReplyPart[] {
   const parts: ReplyPart[] = [];

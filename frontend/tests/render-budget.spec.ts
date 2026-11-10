@@ -367,6 +367,29 @@ test("a meter reading of its own moves its meter and draws no card", async ({ pa
   expect(counts.rendered["task-card-shell"] ?? 0, JSON.stringify(counts.rendered)).toBe(0);
 });
 
+// The disk meter shows a line for each drive the fleet writes to (#2196): a
+// reading that moves one drive redraws that drive's line alone.
+test("a disk reading redraws only the drive it moved", async ({ page }) => {
+  // Arrange
+  await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
+  const GB = 2 ** 30;
+  const drives = [{ drive: "C:", free: 331 * GB, total: 953 * GB }, { drive: "D:", free: 80 * GB, total: 200 * GB, dev_drive: true }];
+  const disk = { drive: "D:", free: 80 * GB, total: 200 * GB, floor: 15 * GB, wake: 10 * GB, drives };
+  await open(page, { ...fleet([...WORKING, ...RESTING]), disk });
+  const lines = page.getByRole("group", { name: "Disk" }).locator(".memory-line");
+  await expect(lines).toHaveText(["Disk free (C:)331.0 GB", "Disk free (D: Dev Drive)80.0 GB"]);
+  await reset(page);
+
+  // Act
+  await read(page, { keys: { revision: { value: 2 }, disk: { keys: { free: { value: 79 * GB }, drives: { value: [drives[0], { ...drives[1], free: 79 * GB }] } } } } });
+
+  // Assert
+  await expect(lines).toHaveText(["Disk free (C:)331.0 GB", "Disk free (D: Dev Drive)79.0 GB"]);
+  const counts = await counted(page);
+  expect(counts.rendered["disk-drive"] ?? 0, JSON.stringify(counts.rendered)).toBe(1);
+  expect(counts.rendered["task-card-shell"] ?? 0, JSON.stringify(counts.rendered)).toBe(0);
+});
+
 // The meters (memory, disk, processors, GPU and the pool) are read again for
 // nearly every snapshot, every three seconds on 2026-10-28, and their bars
 // eased each new width over 0.4 s: about 30 frames of layout and paint for

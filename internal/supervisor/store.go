@@ -309,6 +309,15 @@ func (s *Store) taskActions(id string) []Action {
 	return actions[max(0, len(actions)-20):]
 }
 
+// nativeSession is the session the store last committed for a harness
+// conversation, and whether it holds one at all.
+func (s *Store) nativeSession(harness, session string) (Session, bool) {
+	s.readers.RLock()
+	defer s.readers.RUnlock()
+	node, ok := s.committed.Sessions[harness+"/"+session]
+	return node, ok
+}
+
 // taskSession is the session the store last committed for the task's goblin.
 func (s *Store) taskSession(id string) Session {
 	s.readers.RLock()
@@ -933,7 +942,7 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 		switch {
 		case declined < 0:
 			return Action{}, errors.New("that run item is not on the board; refresh the board")
-		case s.db.Runs[declined].Update != nil || s.db.Runs[declined].CFOUnwoken != 0 || s.db.Runs[declined].CFOStopped || s.db.Runs[declined].CredentialRequest != "" || s.db.Runs[declined].ConnectionTask != "" || s.db.Runs[declined].RemoteFix != "":
+		case s.db.Runs[declined].Update != nil || s.db.Runs[declined].CFOUnwoken != 0 || s.db.Runs[declined].CFOStopped || s.db.Runs[declined].CredentialRequest != "" || s.db.Runs[declined].ConnectionTask != "" || s.db.Runs[declined].RemoteFix != "" || s.db.Runs[declined].Billing != nil:
 			return Action{}, errors.New("that item is the board's own, not a command someone asked you to run")
 		case s.db.Runs[declined].State != "ready" || !time.Now().Before(s.db.Runs[declined].ExpiresAt):
 			return Action{}, errors.New("that run item is no longer waiting on you; refresh the board")

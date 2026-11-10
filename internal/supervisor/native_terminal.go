@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/vtscreen"
 )
 
 // The sizes a view may give a terminal: a smaller one was measured while the
@@ -179,7 +180,8 @@ func (h *HTTP) announce(key string, cols, rows int) {
 // panel or that question, and working while a turn runs. While something is
 // open the report carries it as a panel: its rows, its choices with the one in
 // focus, and the keys its footer names (harness.ReadPanel), so the board offers
-// it as a list he picks from.
+// it as a list he picks from, and the terminal's columns as its screen was
+// read, where its words wrapped.
 // custodyProbeBudget is how long a custody check has. no-mistakes'
 // sync --check reads the whole branch state and takes several seconds, and a
 // probe shorter than it reports every check as a failure of the check rather
@@ -300,7 +302,11 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		}
 		state := screenState{Asking: screens.IsAsking(rows), Open: screens.IsOpen(rows), Working: screens.IsWorking(rows), Submission: observed, HasStarted: hasStarted}
 		if state.Open {
-			panel := harness.ReadPanel(rows)
+			cols := 0
+			for _, row := range rows {
+				cols = max(cols, vtscreen.Width(row))
+			}
+			panel := harness.ReadPanel(rows, cols)
 			state.Panel = &panel
 		}
 		state.Mode = screens.Mode(rows)
@@ -611,6 +617,8 @@ func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
 			localOnly = "Values are typed only on the board's own page on this PC."
 		case r.RemoteFix != "":
 			localOnly = "Remote access is mended only on the board's own page on this PC."
+		case r.Billing != nil:
+			localOnly = "GitHub billing consent is completed only on the board's own page on this PC."
 		}
 		return nativeBinding{id: runTerminal, name: "this command", dir: runDir(s.Store.Home.State, r), key: "run:" + id, localOnly: localOnly, check: func(context.Context) (error, error) {
 			if _, found := s.runOnCard(id, r.RunAction); !found {

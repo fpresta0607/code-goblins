@@ -27,14 +27,14 @@ func TestActionsSpendReadsAtMostHourlyAndKeepsFailedReadOld(t *testing.T) {
 	}}}
 	service.readActionsSpend(context.Background(), now)
 	for range 3 {
-		service.actionsSpendUsage(now.Add(time.Minute), "2026-10")
+		service.actionsSpendUsage(now.Add(time.Minute), "2026-10", nil)
 		service.readActionsSpend(context.Background(), now.Add(59*time.Minute))
 	}
 	if reads != 1 {
 		t.Fatalf("reads = %d, want 1", reads)
 	}
 	service.readActionsSpend(context.Background(), now.Add(time.Hour))
-	reading := service.actionsSpendUsage(now.Add(time.Hour), now.Add(time.Hour).Format("2006-01"))
+	reading := service.actionsSpendUsage(now.Add(time.Hour), now.Add(time.Hour).Format("2006-01"), nil)
 	if reads != 2 || reading.Status != "stale" || reading.Total == nil || *reading.Total != (actionsbilling.Usage{Minutes: 120, UsedUSD: 12, BilledUSD: total}) || len(reading.Repositories) != 1 || !reading.ReadAt.Equal(now) || reading.Detail == "" || !reading.CheckedAt.Equal(now.Add(time.Hour)) {
 		t.Fatalf("failed read = %+v, reads = %d", reading, reads)
 	}
@@ -52,12 +52,12 @@ func TestActionsSpendNeverCarriesLastMonthsTotal(t *testing.T) {
 				return actionsbilling.Reading{Status: "available", Month: "2026-11", ReadAt: at, CheckedAt: at, Total: &actionsbilling.Usage{}}
 			}}}
 			at := now.Add(30 * time.Minute)
-			reading := service.actionsSpendUsage(at, "2026-11")
+			reading := service.actionsSpendUsage(at, "2026-11", nil)
 			if reading.Total != nil || reading.Month != "2026-11" {
 				t.Fatalf("old month leaked = %+v", reading)
 			}
 			service.readActionsSpend(context.Background(), now.Add(time.Hour))
-			reading = service.actionsSpendUsage(now.Add(time.Hour), now.Add(time.Hour).Format("2006-01"))
+			reading = service.actionsSpendUsage(now.Add(time.Hour), now.Add(time.Hour).Format("2006-01"), nil)
 			if isFailed && (reading.Total != nil || reading.Status != "unavailable") || !isFailed && (reading.Total == nil || *reading.Total != (actionsbilling.Usage{})) {
 				t.Fatalf("new month = %+v", reading)
 			}
@@ -71,7 +71,7 @@ func TestActionsSpendFirstFailedReadHasNoFigure(t *testing.T) {
 	}}}
 	now := time.Now().UTC()
 	service.readActionsSpend(context.Background(), now)
-	reading := service.actionsSpendUsage(now, now.Format("2006-01"))
+	reading := service.actionsSpendUsage(now, now.Format("2006-01"), nil)
 	if reading.Total != nil || reading.Status != "unavailable" || reading.Detail != "Missing user scope." {
 		t.Fatalf("reading = %+v", reading)
 	}
@@ -127,7 +127,7 @@ func TestActionsSpendMarksAnAgedReadingOld(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	total := 8.5
 	service := &Service{actionsSpendReadings: map[string]*actionsSpendEntry{"2026-10": {reading: actionsbilling.Reading{Status: "available", Month: "2026-10", ReadAt: now, Total: &actionsbilling.Usage{BilledUSD: total}}}}}
-	if got := service.actionsSpendUsage(now.Add(2*time.Hour), "2026-10"); got.Status != "stale" || got.Total == nil || got.Detail != "" {
+	if got := service.actionsSpendUsage(now.Add(2*time.Hour), "2026-10", nil); got.Status != "stale" || got.Total == nil || got.Detail != "" {
 		t.Fatalf("reading = %+v", got)
 	}
 }

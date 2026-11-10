@@ -24,3 +24,12 @@ test("an unavailable Actions reading never becomes a guessed zero", () => {
 test("Actions spend keeps a measured net credit", () => {
   assert.equal(parseSnapshot({ healthy: true, actions_spend: { status: "available", total: { minutes: 0, used_usd: 0, billed_usd: -0.5 } } }).actions_spend?.total?.billed_usd, -0.5);
 });
+
+test("billing failures retain the selected account, credential and bounded recovery state", () => {
+  const problem = { kind: "permission", action: "allow", account: "example-user", credential: "gh" };
+  const recovery = { run_id: "billing-consent", state: "ready" };
+  const reading = parseSnapshot({ healthy: true, actions_spend: { status: "unavailable", problem, recovery } }).actions_spend;
+  assert.deepEqual(reading?.problem, problem);
+  assert.deepEqual(reading?.recovery, recovery);
+  assert.equal(reading?.total, null);
+});

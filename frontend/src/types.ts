@@ -275,10 +275,14 @@ export interface CIUsual { repository: string; kind: string; seconds: number }
 // CommitHolder is one app's commit: its first process and every process it
 // started.
 export interface CommitHolder { name: string; commit: number }
-// Disk is the free space of the home's drive in bytes beside the floor under
+// Disk is the free space in bytes of the least free of the home's drive and
+// the Dev Drive, which every start and wake reads, beside the floor under
 // which no goblin or gate test run starts and the lower mark at which the CFO
-// is woken.
-export interface Disk { drive: string; free: number; total: number; floor: number; wake: number }
+// is woken, and each drive the fleet writes to, which the disk meter shows.
+export interface Disk { drive: string; free: number; total: number; floor: number; wake: number; drives: DiskDrive[] }
+// DiskDrive is one drive the fleet writes to: its name, its free space and
+// size in bytes, whether it holds the Dev Drive, and why it could not be read.
+export interface DiskDrive { drive: string; free: number; total: number; dev_drive: boolean; error: string }
 // Processors is the machine's processor cores by kind and the shares of its
 // performance and its efficiency cores that sat idle, from 0 to 1, beside the
 // share of the performance cores that must be free for the supervisor to
@@ -405,6 +409,8 @@ export interface ActionsSpend {
   read_at: string;
   checked_at: string;
   detail: string;
+  problem?: { kind: string; action: string; account: string; credential: string };
+  recovery?: { run_id: string; state: string };
 }
 export interface Snapshot {
   actions_spend?: ActionsSpend;
@@ -956,8 +962,9 @@ export function parseReadings(v: Record<string, unknown>): Readings {
       floor: number(floor), next: number(next), slot_hold: string(slot_hold),
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
     }))(object(v.memory)),
-    disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
+    disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake, drives }) => ({
       drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),
+      drives: array(drives).map((value) => { const d = object(value); return { drive: string(d.drive), free: number(d.free), total: number(d.total), dev_drive: d.dev_drive === true, error: string(d.error) }; }),
     }))(object(v.disk)),
     processors: v.processors === undefined || v.processors === null ? null : (({ performance_cores, efficiency_cores, free, efficiency_free, next, busiest }) => ({
       performance_cores: number(performance_cores), efficiency_cores: number(efficiency_cores), free: number(free), efficiency_free: number(efficiency_free), next: number(next),
@@ -983,6 +990,8 @@ export function parseActionsSpend(value: unknown): ActionsSpend {
     month: string(usage.month), total: parseActionsTotal(usage.total),
     repositories: array(usage.repositories).map((value) => { const repository = object(value); return { name: string(repository.name), minutes: number(repository.minutes), used_usd: number(repository.used_usd), billed_usd: number(repository.billed_usd) }; }),
     read_at: string(usage.read_at), checked_at: string(usage.checked_at), detail: string(usage.detail),
+    ...(usage.problem == null ? {} : { problem: ((problem) => ({ kind: string(problem.kind), action: string(problem.action), account: string(problem.account), credential: string(problem.credential) }))(object(usage.problem)) }),
+    ...(usage.recovery == null ? {} : { recovery: ((recovery) => ({ run_id: string(recovery.run_id), state: string(recovery.state) }))(object(usage.recovery)) }),
   };
 }
 export function parseSnapshot(value: unknown): Snapshot {

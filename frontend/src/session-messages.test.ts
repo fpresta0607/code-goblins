@@ -1,12 +1,30 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { changeMessages, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, olderMessages, pageMessages, parseMessages, parsePage, parseWaiting, replyParts, textParts, turnEnds, type SessionMessage } from "./session-messages.ts";
+import { callRuns, changeMessages, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, olderMessages, pageMessages, parseMessages, parsePage, parseSession, parseWaiting, replyParts, textParts, turnEnds, viewStanding, type SessionMessage, type SessionReport } from "./session-messages.ts";
 import type { Task } from "./types.ts";
 
 // A message as the supervisor serves it (internal/fleettree/messages.go).
 const served = (seq: number, fields: Record<string, unknown> = {}) => ({ id: "m" + seq, seq, kind: "prompt", at: "2026-10-22T09:00:00Z", source: "overlord", text: "prompt " + seq, ...fields });
 const held = (...seqs: number[]): SessionMessage[] => parseMessages(seqs.map((seq) => served(seq)));
 const seqs = (messages: SessionMessage[]) => messages.map((message) => message.seq);
+
+test("structured tool updates retain full input and ordinary wrapper prose", () => {
+  const prose = "The expression text(await ...) is JavaScript.";
+  const input = 'text(await tools.exec_command({cmd:"git status"}));\ntext("second line");';
+  const call = { kind: "call", tool: "exec", subject: "exec", input, state: "running" };
+  const before = parseMessages([served(0, { text: prose }), served(1, { kind: "reply", blocks: [call, { kind: "text", text: prose }] })]);
+
+  const after = changeMessages(before, parseMessages([served(1, { kind: "reply", blocks: [{ ...call, state: "failed", result: "Script failed" }, { kind: "text", text: prose }] })]));
+
+  assert.deepEqual(after.map((message) => [message.id, message.seq]), [["m0", 0], ["m1", 1]]);
+  assert.equal(after[0].text, prose);
+  assert.deepEqual(after[1].blocks.map((block) => block.kind), ["call", "text"]);
+  assert.equal(after[1].blocks[0].input, input);
+  assert.equal(after[1].blocks[0].subject, "exec");
+  assert.equal(after[1].blocks[0].state, "failed");
+  assert.equal(after[1].blocks[0].result, "Script failed");
+  assert.equal(after[1].blocks[1].text, prose);
+});
 
 test("a reply's blocks keep their text, thinking and calls, with an edit's counts and a sub-agent's node", () => {
   const [reply] = parseMessages([served(3, { kind: "reply", source: undefined, text: undefined, blocks: [
@@ -218,4 +236,110 @@ test("a disjoint newest page replaces held history so older pagination can fill 
   assert.deepEqual(next, newest);
   const recovered = olderMessages(next, { conversation: "a", messages: held(...Array.from({ length: 50 }, (_, index) => index + 50)), more: true, waiting: [] });
   assert.deepEqual(seqs(recovered.messages), Array.from({ length: 100 }, (_, index) => index + 50));
+});
+
+// What the fleet's stream says of a session, as /api/messages sends it in a
+// session event: the newest turn, whether it runs, ended or was never
+// reported, and where the head of the stream is.
+const reported = (fields: Record<string, unknown> = {}) => ({ turn: "m0", state: "running", newest: 1, head: 3, ...fields });
+
+test("a session that produced a newer turn than the view drew is behind, not working", () => {
+  // Arrange: he drew the prompt and its first reply; the stream holds a later
+  // message the view has not drawn.
+  const messages = held(0, 1);
+
+  // Act
+  const standing = viewStanding(parseSession(reported({ newest: 4 })) as SessionReport, messages);
+
+  // Assert: behind is its own state, and no indicator is drawn on a turn the
+  // view has not caught up with.
+  assert.deepEqual(standing, { isBehind: true, isWorking: false });
+});
+
+test("a drawn turn the stream says ended never draws a working indicator, whatever the snapshot says", () => {
+  // Arrange
+  const messages = held(0, 1);
+
+  // Act
+  const standing = viewStanding(parseSession(reported({ state: "ended", newest: 1 })) as SessionReport, messages);
+
+  // Assert
+  assert.deepEqual(standing, { isBehind: false, isWorking: false });
+});
+
+test("a turn the stream says runs is working once the view has drawn to its end", () => {
+  const standing = viewStanding(parseSession(reported({ newest: 1 })) as SessionReport, held(0, 1));
+  assert.deepEqual(standing, { isBehind: false, isWorking: true });
+});
+
+test("a turn no harness reported draws no indicator and says why", () => {
+  const report = parseSession(reported({ state: "unknown", why: "no hooks", newest: 1 }));
+  assert.deepEqual(viewStanding(report as SessionReport, held(0, 1)), { isBehind: false, isWorking: false });
+  assert.equal((report as SessionReport).why, "no hooks");
+});
+
+test("a session the board hears nothing of yet is neither behind nor working", () => {
+  assert.deepEqual(viewStanding(null, held(0, 1)), { isBehind: false, isWorking: false });
+});
+
+test("a session event carries why its record is stale or its stream cannot be kept, and says neither when it omits them", () => {
+  // Arrange
+  const cases = [
+    { what: "a stale record", value: reported({ stale: "The record names cfo-9." }), stale: "The record names cfo-9.", problem: "" },
+    { what: "a stream that cannot be kept", value: reported({ problem: "disk full" }), stale: "", problem: "disk full" },
+    { what: "a current record", value: reported(), stale: "", problem: "" },
+  ];
+  for (const { what, value, stale, problem } of cases) {
+    // Act
+    const report = parseSession(value);
+
+    // Assert
+    assert.deepEqual({ stale: report.stale, problem: report.problem }, { stale, problem }, what);
+  }
+  assert.throws(() => parseSession(reported({ stale: 9 })), /Invalid/, "a stale reason that is not words");
+});
+
+test("a session event without the fields the board draws is refused", () => {
+  for (const [what, value] of [["an unknown turn state", reported({ state: "maybe" })], ["a newest that is not a number", reported({ newest: "4" })]] as const) {
+    assert.throws(() => parseSession(value), /Invalid/, what);
+  }
+});
+
+// A reply's blocks as the supervisor serves them, each call by its tool and
+// state, with any other fields it needs.
+const reply = (blocks: Record<string, unknown>[]) => parseMessages([served(9, { kind: "reply", blocks })])[0].blocks;
+const call = (tool = "Bash", state = "done", fields: Record<string, unknown> = {}) => ({ kind: "call", tool, subject: tool, state, ...fields });
+const shape = (blocks: ReturnType<typeof reply>) => callRuns(blocks).map((run) => run.kind === "fold" ? "fold " + run.at + "+" + run.calls.length : run.call.state + " " + run.at);
+
+for (const [name, blocks, want] of [
+  ["five finished commands fold into one row", [call(), call(), call(), call(), call()], ["fold 0+5"]],
+  ["one finished call stays its own row", [call("Read")], ["done 0"]],
+  ["the newest call still running stays a live row beside the folded ones", [call("Read"), call("Read"), call(), call(), call(), call("Bash", "running")], ["fold 0+5", "running 5"]],
+  ["a failed call is never folded and splits the run", [call(), call(), call("Bash", "failed"), call(), call()], ["fold 0+2", "failed 2", "fold 3+2"]],
+  ["denied and interrupted calls stay rows", [call("Bash", "denied"), call("Bash", "interrupted")], ["denied 0", "interrupted 1"]],
+  ["a call with pictures, a question, a plan or a baby goblin stays its row", [
+    call("view_image", "done", { pictures: [{ id: "p1", media_type: "image/png", bytes: 1 }] }), call("AskUserQuestion"), call("request_user_input"),
+    call("TodoWrite", "done", { plan: [{ text: "Read", status: "completed" }] }), call("Task", "done", { agent: { node: "subagent:a", type: "Explore" } }),
+  ], ["done 0", "done 1", "done 2", "done 3", "done 4"]],
+  ["a call whose outcome was never recorded folds with finished ones", [call("Read", "done", { state: undefined }), call("Read")], ["fold 0+2"]],
+] as const) {
+  test("calls: " + name, () => {
+    assert.deepEqual(shape(reply([...blocks])), want);
+  });
+}
+
+test("reply text breaks a run of calls, and a blank text between calls does not", () => {
+  const blocks = reply([call(), call(), { kind: "text", text: "Checked." }, call(), { kind: "text", text: "\n\n" }, call(), call()]);
+
+  const runs = replyParts(blocks).map((part) => part.kind === "calls" ? shape(part.calls) : [part.kind]);
+
+  assert.deepEqual(runs, [["fold 0+2"], ["text"], ["fold 0+3"]]);
+});
+
+test("a call keeps the id the supervisor served, and one served without an id has none", () => {
+  const blocks = reply([call("Bash", "done", { call_id: "toolu_9" }), call("Read")]);
+
+  const ids = blocks.map((block) => block.call_id);
+
+  assert.deepEqual(ids, ["toolu_9", ""]);
 });

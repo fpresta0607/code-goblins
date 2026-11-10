@@ -250,6 +250,7 @@ export function App() {
   });
   const [classicDock, setClassicDock] = useState<HTMLDivElement | null>(null);
   const [messageDock, setMessageDock] = useState<HTMLDivElement | null>(null);
+  const [askSlot, setAskSlot] = useState<HTMLDivElement | null>(null);
   const composerFocus = useRef<HTMLElement | null>(null);
   const [composerActivity, setComposerActivity] = useState({ terminal: "", isActive: false });
   const reportComposerActivity = useCallback((terminal: string, isActive: boolean) => {
@@ -583,10 +584,10 @@ export function App() {
         <div className="panel-stage" hidden={!terminalShown && !messagesShown}>
           {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={snapshot.instance + messagesSource} query={messagesSource} instance={snapshot.instance} pages={messagePages}
             name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} terminal={terminalKey} harness={panelHarness} model={panelModel} effort={panelEffort}
-            isWorking={isWorking} isCompacting={isCompacting} sent={panelSent} pending={panelPending}
+            isCompacting={isCompacting} sent={panelSent} pending={panelPending}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} shown={messagesShown} visible={connected}
-            onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock}
-            box={(model, history, effort, usage, onSend) => createPortal(<Composer isWorking={isWorking} isCompacting={isCompacting} history={history} usage={usage} onSend={onSend} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
+            onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock} onAskSlot={setAskSlot}
+            box={(model, history, effort, usage, onSend) => createPortal(<Composer isWorking={isWorking} isCompacting={isCompacting} history={history} usage={usage} onSend={onSend} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} askSlot={askSlot} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
               focus={boxOnScreen ? boxFocus : 0} />, composerTarget)} />}
           {snapshot && showsPanel && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
             <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} hasComposer={boxOnScreen} connected={connected} focus={switchFocus} onHistory={messagesSource ? readHistory : undefined}

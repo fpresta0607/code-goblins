@@ -171,6 +171,9 @@ type Options struct {
 	// the board's record of each goblin's conversation. Without it no card
 	// shows one, and nothing watches what the fleet starts.
 	Tree *fleettree.Reader
+	// PreparedOwnership re-reads ownership at prepared pause admission;
+	// nil uses Tree's existing process and harness readers.
+	PreparedOwnership func(context.Context, state.TaskMeta) (fleettree.Tree, error)
 	// Windows lists the processes that show a window on the desktop, and
 	// ConsoleShown says the console a process is attached to shows in one,
 	// for the start watch; nil reads the desktop.
@@ -207,6 +210,11 @@ type Service struct {
 	Started   time.Time
 	mu        sync.Mutex
 	lastError string
+	// sessionStreams holds each session's conversation stream as this
+	// supervisor has read it, so a board view renders what the fleet agrees
+	// on rather than reading the harness again for itself.
+	sessionStreamsMu sync.Mutex
+	sessionStreams   map[string]*heldStream
 	// boardErrors keeps an error the board would have shown the Overlord
 	// from waking the CFO more than once an hour (board_errors.go).
 	boardErrors          boardErrors
@@ -349,7 +357,7 @@ type Service struct {
 	signedIn time.Time
 	// credentialSaves takes one credential save at a time, and
 	// credentialWork waits for the refresh and the CFO's notice each save
-	// starts after it answers.
+	// starts after it answers, and for the reading a billing consent rereads.
 	credentialSaves sync.Mutex
 	credentialWork  sync.WaitGroup
 	// pages are the pages a poller watches now, by pageKey; pageSwept is when
@@ -411,8 +419,10 @@ type Service struct {
 	// reads is what the snapshot remembers of the fleet's files, and
 	// historyReads what the Completed column's rebuild remembers of each
 	// finished task's, kept apart so neither crowds the other past keptLimit.
-	reads                keptReads
-	historyReads         keptReads
+	reads        keptReads
+	historyReads keptReads
+	// memory is the keyword index of the memory files that recall reads.
+	memory               memoryIndex
 	subscriptionReadings map[string]quota.WeeklyReading
 	// quotaReadAt is when the supervisor last began a quota-axi read.
 	quotaReadAt time.Time
@@ -598,6 +608,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepHistory(ctx, historyRefresh, historyWatch)
 	}()
 	defer func() { s.cancel(); <-historyDone }()
+	memoryDone := make(chan struct{})
+	go func() {
+		defer close(memoryDone)
+		s.keepMemoryIndex(ctx)
+	}()
+	defer func() { s.cancel(); <-memoryDone }()
 	usageDone := make(chan struct{})
 	go func() {
 		defer close(usageDone)
@@ -867,6 +883,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		s.mu.Lock()
 		s.reconciled = time.Now().UTC()
 		s.mu.Unlock()
+		reconcileErr = errors.Join(reconcileErr, s.refreshCFOConversation(ctx))
 		reconcileErr = errors.Join(reconcileErr, finishTakenResumes(s.Store.Home.State))
 		reconcileErr = errors.Join(reconcileErr, handOverReplacedResumes(s.Store.Home.State))
 		reconcileErr = errors.Join(reconcileErr, s.reconcileTasks(time.Now()))
@@ -1827,7 +1844,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 				return r.Key == id && (r.Time.Before(spawned.Truncate(time.Second)) || supersedesQuestion(report) && !r.Time.Truncate(time.Second).After(reportedAt))
 			})
 		}
-		if !linked {
+		if !linked && !isGateHeld {
 			evaluation = fleetEvaluation(evaluation, meta, runtime, decisions)
 		}
 		if linked && !isGateHeld && (node.Phase == "active" || node.Phase == "started") && node.UpdatedAt.After(evaluation.At) {
@@ -2107,7 +2124,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			out.Memory = &memory
 		}
 		if dispatch.Disk != nil {
-			if disk, err := dispatch.Disk(); err == nil {
+			// A drive that cannot be read still shows, as its error line.
+			if disk, err := dispatch.Disk(); err == nil || len(disk.Drives) > 0 {
 				out.Disk = &disk
 			}
 		}
@@ -2222,7 +2240,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	out.Subscriptions = s.subscriptionUsage(cfo, out)
 	out.KeySpend = s.keySpendUsage(cfo, out)
 	if s.Options.ActionsSpend != nil && !s.Options.Example {
-		reading := s.actionsSpendUsage(out.At, out.At.UTC().Format("2006-01"))
+		reading := s.actionsSpendUsage(out.At, out.At.UTC().Format("2006-01"), d.Runs)
 		out.ActionsSpend = &reading
 	}
 	return out, nil
