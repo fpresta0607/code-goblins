@@ -51,6 +51,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | Memory | [AGENTS.md](../../AGENTS.md#memory) |
 | Startup memory and retrieval | [docs/contract/memory.md](memory.md#startup-memory-and-retrieval) |
 | Owners and startup | [docs/contract/memory.md](memory.md#owners-and-startup) |
+| Rulings by scope | [docs/contract/memory.md](memory.md#rulings-by-scope) |
 | Catalog schema | [docs/contract/memory.md](memory.md#catalog-schema) |
 | Budgets and exceptions | [docs/contract/memory.md](memory.md#budgets-and-exceptions) |
 | Lossless planning and pinned offload | [docs/contract/memory.md](memory.md#lossless-planning-and-pinned-offload) |

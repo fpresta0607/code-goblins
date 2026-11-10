@@ -76,7 +76,7 @@ func (catalog Catalog) selectEntries(query Query) (map[string]bool, error) {
 				continue
 			}
 			if entry.Location == "warm" {
-				selected[entry.ID] = true
+				selected[entry.ID] = !query.IsColdOnly
 				continue
 			}
 			if query.Search == "" {

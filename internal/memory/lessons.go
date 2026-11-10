@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -34,9 +33,9 @@ const (
 
 const lessonsDir = "lessons"
 
-// lessonLockName is the lock in the home's state that one decision on a
-// lesson holds across its read, its check and its writes, the memory
-// catalog's included, so two decisions at once take turns.
+// lessonLockName is the lock in the home's state that every writer of the
+// memory catalog holds, as lockCatalog says. One decision on a lesson holds
+// it across its read, its check and its writes, so two at once take turns.
 const lessonLockName = ".lessons.lock"
 
 // lessonLockWait is how long a decision waits for another, which reads and
@@ -259,18 +258,14 @@ type lessonFrontmatter struct {
 // lockLessons takes the lessons' lock, waiting out another decision, and
 // returns what gives it back.
 func lockLessons(stateDir string) (func() error, error) {
-	deciding.Lock()
-	if _, err := lock.AcquireNamedOwnerWithin(stateDir, lessonLockName, os.Getpid(), "lessons", lessonLockWait); err != nil {
-		deciding.Unlock()
-		if errors.Is(err, lock.ErrHeld) {
-			return nil, fmt.Errorf("another decision on a lesson is still under way, so nothing was decided: %w", err)
-		}
+	unlock, err := lockCatalog(stateDir, "lessons")
+	if errors.Is(err, lock.ErrHeld) {
+		return nil, fmt.Errorf("another decision on a lesson is still under way, so nothing was decided: %w", err)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("the lessons' lock could not be taken, so nothing was decided: %w", err)
 	}
-	return func() error {
-		defer deciding.Unlock()
-		return lock.ReleaseNamed(stateDir, lessonLockName)
-	}, nil
+	return unlock, nil
 }
 
 // AcceptLesson writes the lesson as a new fact file in the memory folder,
@@ -373,7 +368,7 @@ func AcceptLesson(dataDir, stateDir, id string, acceptance Acceptance) (name str
 // cover every memory file, as one cold fact routed to its repository and
 // triggered by the lesson's words, so a CEO session's startup memory leaves
 // it out and a retrieval for that repository carries it. A catalog that
-// would not load is put back.
+// would not load is never written.
 func catalogLesson(dataDir string, before []byte, name string, candidate LessonCandidate, content []byte, now time.Time) error {
 	var catalog Catalog
 	if err := Decode(before, &catalog); err != nil {
@@ -382,21 +377,7 @@ func catalogLesson(dataDir string, before []byte, name string, candidate LessonC
 	catalog.Sources = append(catalog.Sources, Source{Path: "memory/" + name + ".md", SHA256: Hash(content), Entries: []Entry{{
 		ID: candidate.ID, End: len(content), SHA256: Hash(content), Authority: "fact", Location: "cold", Trigger: candidate.Text, Projects: []string{candidate.Project},
 	}}})
-	var encoded bytes.Buffer
-	encoder := json.NewEncoder(&encoded)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(catalog); err != nil {
-		return err
-	}
-	path := filepath.Join(dataDir, filepath.FromSlash(CatalogPath))
-	if err := fsx.AtomicWriteFile(path, encoded.Bytes()); err != nil {
-		return err
-	}
-	if _, err := Load(dataDir, now); err != nil {
-		return errors.Join(err, fsx.AtomicWriteFile(path, before))
-	}
-	return nil
+	return replaceCatalog(dataDir, catalog, now)
 }
 
 // RejectLesson records the CEO's rejection and its reason, under the
