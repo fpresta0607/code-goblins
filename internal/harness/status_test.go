@@ -39,7 +39,7 @@ func TestAClaudeStatusIsReadAsItsGaugeAndNotices(t *testing.T) {
 		{"nothing over the composer", claudeOver(claudeIdleFooter, "● Fake reply.", ""), Status{}, false},
 		{"a retry's hint", claudeOver(claudeWorkingFooter, "✻ 529 Overloaded · Retrying in 3s · attempt 3/10", "  ⎿  If it persists, check your inference gateway (127.0.0.1:5000)."), Status{}, false},
 		{"the command list", claudeOver("  ⏸ manual mode on", "  ❯ /compact                    Free up context by summarizing the conversation so far", "    /autocompact                Set how full the context gets before auto-summarizing"), Status{}, false},
-		{"a reply that quotes it", []string{"● It said 83% context used · ✘ Auto-update failed", "", "❯ "}, Status{}, false},
+		{"a reply that quotes it", claudeOver(claudeIdleFooter, "● It said 83% context used · ✘ Auto-update failed"), Status{}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

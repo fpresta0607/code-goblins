@@ -29,6 +29,7 @@ import { readClipboard } from "./terminal-keys";
 import { keepFile } from "./terminal-image";
 import { TerminalStatus } from "./terminal-status";
 import { detachedHoldReason } from "./terminalInput";
+import type { ScreenState } from "./terminalStream";
 import { appendDictation, useDictation } from "./useDictation";
 import "./composer.css";
 
@@ -158,6 +159,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // What Send sends: his words, then the path of each file he added.
   const outgoing = [draft.trim(), ...attached].filter(Boolean).join("\n");
   const [isSending, setSending] = useState(false);
+  const [commandScreen, setCommandScreen] = useState<ScreenState | null>(null);
   const [isReplacing, setReplacing] = useState(false);
   const composerSection = useRef<HTMLElement>(null);
   // Why the last Send found no terminal to type into, or why a paste could
@@ -469,7 +471,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
         return;
       }
       if (live?.send(text)) {
-        if (!command) afterSend();
+        if (command) setCommandScreen(live.screen); else afterSend();
         onSend?.();
       } else setUnsent(unsentWhy);
       return;
@@ -817,7 +819,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
         </li>;
       })}
     </ol>}
-    {hasConversation && live?.screen?.status && <TerminalStatus status={live.screen.status} isSending={isSending} onAction={(command) => void send(command)} />}
+    {hasConversation && live?.screen?.status && <TerminalStatus status={live.screen.status} isSending={isSending || live.screen === commandScreen} onAction={(command) => void send(command)} />}
     <div ref={composerBox} className="composer-box" onKeyDown={(event) => {
       if (event.key !== "Escape") return;
       if (pane) { event.stopPropagation(); setPane(null); field.current?.focus(); }

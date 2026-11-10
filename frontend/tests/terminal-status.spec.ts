@@ -60,6 +60,9 @@ test("the doctor notice sends /doctor into a waiting session and leaves his word
   // Assert
   await expect.poll(() => typed(relay)).toContain("/doctor");
   await expect(field(page)).toHaveValue("half a thought");
+  await expect(statusOf(page).getByRole("button", { name: "Run claude doctor" })).toBeDisabled();
+  relay.say({ ...idle, status: STATUS });
+  await expect(statusOf(page).getByRole("button", { name: "Run claude doctor" })).toBeEnabled();
 });
 
 test("the doctor notice during a turn is held as his queued /doctor, not typed into the turn", async ({ page }) => {
