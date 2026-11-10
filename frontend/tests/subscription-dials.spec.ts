@@ -15,7 +15,7 @@ async function open(page: Page, subscriptions = [usage("claude", null, "auth_req
   await page.getByRole("button", { name: "Board", exact: true }).click();
   await expect(page.getByRole("region", { name: "Tasks", exact: true }).getByRole("group", { name: "Memory" })).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
-  return page.getByRole("group", { name: "CFO" });
+  return page.getByRole("group", { name: "CEO" });
 }
 
 for (const width of [1440, 390, 320]) {

@@ -29,14 +29,14 @@ export function RestartCfoButton({ snapshot }: { snapshot: Snapshot }) {
     showFeedback("");
     try {
       const answer = object(await request("/api/cfo/restart", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ harness: selection.harness }) }));
-      if (answer.resumed === false) showFeedback("The CFO restarted on a new conversation");
+      if (answer.resumed === false) showFeedback("The CEO restarted on a new conversation");
     } catch (error: unknown) { showFeedback(message(error)); } finally {
       setRestarting(false);
     }
   };
   return <div className="cfo-restart">
     {isOffered && <div className="cfo-restart-controls" role="group" aria-label="Restart" aria-busy={isRestarting}>
-      <button className="labelled-button cfo-restart-button" aria-label="Restart the CFO" disabled={isRestarting} onClick={() => void restart()}><Icon name="refresh" />Restart</button>
+      <button className="labelled-button cfo-restart-button" aria-label="Restart the CEO" disabled={isRestarting} onClick={() => void restart()}><Icon name="refresh" />Restart</button>
       <CfoHarnessSelector harness={selection.harness} isDisabled={isRestarting} onSelect={(harness) => setSelection({ currentHarness: snapshot.cfo_harness, harness })} />
     </div>}
     <ClickFeedback text={feedback} />

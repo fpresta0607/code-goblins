@@ -119,7 +119,7 @@ for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) 
     const isPhone = size.width === 390;
     await page.goto("/tests/fixtures/orchestration-card-text.html?crowded&view=" + (isPhone ? "lineage" : "canvas"));
     await page.evaluate(() => document.fonts.ready);
-    const cfo = page.locator(isPhone ? ".workflow-node.role-cfo" : ".flow-node").filter({ has: page.locator("strong", { hasText: /^CFO$/ }) });
+    const cfo = page.locator(isPhone ? ".workflow-node.role-cfo" : ".flow-node").filter({ has: page.locator("strong", { hasText: /^CEO$/ }) });
     await expect(cfo.locator(".subscription-dial")).toHaveCount(3);
 
     // Act
@@ -182,7 +182,7 @@ for (const [title, parts] of [
   ["Wilhelmina", ["browser", "title", "status", "project", "clock"]],
   ["Cornelius", ["browser", "title", "status", "project", "clock", "session"]],
   ["Bartholomew", ["title", "status", "project", "clock", "session"]],
-  ["CFO", ["title", "status", "dial", "AFK"]],
+  ["CEO", ["title", "status", "dial", "AFK"]],
 ] as const) {
   test(`${title}'s card paints none of its text beyond its border`, async ({ page }) => {
     // Arrange
@@ -373,7 +373,7 @@ for (const { view, width, height } of [
       await page.mouse.move(2, 2);
 
       // Assert
-      const cfo = page.locator(view === "canvas" ? ".flow-node" : ".workflow-node.role-cfo").filter({ has: page.locator("strong", { hasText: /^CFO$/ }) });
+      const cfo = page.locator(view === "canvas" ? ".flow-node" : ".workflow-node.role-cfo").filter({ has: page.locator("strong", { hasText: /^CEO$/ }) });
       const seen = await cfo.evaluate(fit, PARTS);
       expect(seen.spills).toEqual([]);
       expect(seen.cut).toEqual([]);
@@ -394,7 +394,7 @@ for (const { view, width, height } of [
 test("the CFO's canvas card opens its terminal and shows the usage dial", async ({ page }) => {
   // Arrange
   await open(page);
-  const cfo = card(page, "CFO");
+  const cfo = card(page, "CEO");
 
   // Act
   await cfo.getByRole("button", { name: CFO_DOOR }).click();

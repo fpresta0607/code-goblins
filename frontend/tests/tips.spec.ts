@@ -10,7 +10,7 @@ const since = "2026-10-02T09:00:00Z";
 const memory = { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 * GB, paged_pool: 0.6 * GB, nonpaged_pool: 0.4 * GB, available: 3.4 * GB, commit_available: 2.5 * GB };
 const LONG = "Paused goblins resume by themselves when the reason for the pause clears, and the board says which goblin each one was waiting on and for how long it has waited";
 // The longest title the queue held on 2026-10-02.
-const LONGEST = "An OpenClaw-style quick start in the goblins command: detect and install Claude Code, Codex and pi, walk through sign-in, pick the CFO's agent, clear Enter-to-continue steps, and a final screen with the board link or Enter for the CFO terminal";
+const LONGEST = "An OpenClaw-style quick start in the goblins command: detect and install Claude Code, Codex and pi, walk through sign-in, pick the CEO's agent, clear Enter-to-continue steps, and a final screen with the board link or Enter for the CEO terminal";
 const task = (id: string, phase: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "code-goblins", phase, verified: false, generation: id + "-1", since, ...fields });
 const TASKS = [
   task("queued-one", "queued", { title: LONG, generation: "", brief: true, queue_revision: "q1" }),

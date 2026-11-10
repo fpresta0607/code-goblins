@@ -117,7 +117,7 @@ test("controlled and persistent Disclosures share the caret while retaining only
   await expectDisclosure(page, "#controlled", false);
 });
 
-for (const who of ["goblin", "CFO"]) {
+for (const who of ["goblin", "CEO"]) {
   test(`${who}'s panel selector switches between its conversation and its task view and keeps an unsaved choice`, async ({ page }) => {
     const { posts } = await preparePanel(page, who);
     const switcher = page.locator(".panel-view-switch");

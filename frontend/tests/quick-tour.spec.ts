@@ -68,7 +68,7 @@ const tour = (page: Page) => page.getByRole("dialog");
 const board = (page: Page) => page.locator("main.canvas-region");
 const panel = (page: Page) => page.locator("aside.context-pane");
 const commandCenter = (page: Page) => page.locator(".command-center-menu > summary");
-const cfoBox = (page: Page) => page.getByRole("textbox", { name: "Message CFO", exact: true });
+const cfoBox = (page: Page) => page.getByRole("textbox", { name: "Message CEO", exact: true });
 const box = async (locator: Locator) => (await locator.boundingBox())!;
 
 // lights says the tour's step lights the part, dims around it, and keeps its
@@ -104,8 +104,8 @@ for (const [name, viewport, scale] of [
       // Assert: step 1, the CFO's panel, which the first open put beside the
       // board on its Chat view with no terminal drawn; the tour says how to
       // speak, so no voice hint repeats it.
-      await expect(tour(page).getByRole("heading", { name: "I'm the CFO. Tell me what to build." })).toBeVisible();
-      await expect(page.locator("#panel-title")).toHaveText("CFO");
+      await expect(tour(page).getByRole("heading", { name: "I'm the CEO. Tell me what to build." })).toBeVisible();
+      await expect(page.locator("#panel-title")).toHaveText("CEO");
       await expect(cfoBox(page)).toBeVisible();
       await expect(page.locator(".xterm")).toHaveCount(0);
       await expect(tour(page).getByRole("button", { name: "Next" })).toBeFocused();
@@ -164,7 +164,7 @@ test.describe("in the desktop window", () => {
 
       // Assert
       await expect(tour(page)).toHaveCount(0);
-      await expect(page.locator("#panel-title")).toHaveText("CFO");
+      await expect(page.locator("#panel-title")).toHaveText("CEO");
       await expect(cfoBox(page)).toBeFocused();
       await expect(board(page)).toBeVisible();
     });
@@ -195,8 +195,8 @@ test.describe("in the desktop window", () => {
     await page.getByRole("button", { name: "Replay the tour" }).click();
 
     // Assert: it begins at the CFO's terminal, wherever the panel was.
-    await expect(tour(page).getByRole("heading", { name: "I'm the CFO. Tell me what to build." })).toBeVisible();
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await expect(tour(page).getByRole("heading", { name: "I'm the CEO. Tell me what to build." })).toBeVisible();
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
     await lights(page, panel(page));
   });
 
@@ -210,7 +210,7 @@ test.describe("in the desktop window", () => {
     // Assert: the first open's layout, with no tour over it. A browser that
     // keeps nothing has no saved style either, so the CFO opens in Classic,
     // the default, with the keyboard in the CFO's terminal.
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
     await expect(tour(page)).toHaveCount(0);
 
@@ -218,7 +218,7 @@ test.describe("in the desktop window", () => {
     await page.getByRole("button", { name: "Replay the tour" }).click();
 
     // Assert
-    await expect(tour(page).getByRole("heading", { name: "I'm the CFO. Tell me what to build." })).toBeVisible();
+    await expect(tour(page).getByRole("heading", { name: "I'm the CEO. Tell me what to build." })).toBeVisible();
   });
 
   test("with no CFO the tour waits for the one the first-run page starts, through a reload", async ({ page }) => {
@@ -227,10 +227,10 @@ test.describe("in the desktop window", () => {
     await expect(page.getByRole("heading", { name: "Start Code Goblins" })).toBeVisible();
 
     // Act
-    await page.getByRole("button", { name: "Start the CFO" }).click();
+    await page.getByRole("button", { name: "Start the CEO" }).click();
 
     // Assert: the board, with no tour while the CFO is not running yet.
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
     await expect(tour(page)).toHaveCount(0);
 
     // Act: the page reloads before the CFO runs, then the CFO runs.
@@ -239,7 +239,7 @@ test.describe("in the desktop window", () => {
     await send(page, { ...running, revision: 2 });
 
     // Assert
-    await expect(tour(page).getByRole("heading", { name: "I'm the CFO. Tell me what to build." })).toBeVisible();
+    await expect(tour(page).getByRole("heading", { name: "I'm the CEO. Tell me what to build." })).toBeVisible();
     await lights(page, panel(page));
   });
 });
@@ -255,7 +255,7 @@ test.describe("in a narrow window", () => {
     await open(page);
 
     // Assert
-    await expect(tour(page).getByRole("heading", { name: "I'm the CFO. Tell me what to build." })).toBeVisible();
+    await expect(tour(page).getByRole("heading", { name: "I'm the CEO. Tell me what to build." })).toBeVisible();
     const card = await box(page.locator(".quick-tour-card"));
     expect(card.x).toBeGreaterThanOrEqual(0);
     expect(card.x + card.width).toBeLessThanOrEqual(390);

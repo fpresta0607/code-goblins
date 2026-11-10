@@ -42,7 +42,7 @@ test("an update's steps follow what it printed: done, the one under way, and tho
     // The card's one sentence is plain: nothing to paste, no semicolon, no dash.
     assert.doesNotMatch(progress.result, /PowerShell|\$env:|--recover|;|—/, name);
   }
-  assert.deepEqual(updateProgress(run({}), "").steps.map((step) => step.title), ["Download Code Goblins v0.5.0", "Check each file's SHA-256", "Restart the board on v0.5.0", "Bring the CFO's contract and skills up to date"]);
+  assert.deepEqual(updateProgress(run({}), "").steps.map((step) => step.title), ["Download Code Goblins v0.5.0", "Check each file's SHA-256", "Restart the board on v0.5.0", "Bring the CEO's contract and skills up to date"]);
 });
 
 test("an update's outcome reads as the update, not as a command's exit code", () => {

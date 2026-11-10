@@ -25,7 +25,7 @@ export const OPEN_AFK_REPORT = "cfo-afk-report";
 const yours = (from: string): string => from.replace(/^his own /, "your ").replace(/ \(.*\)$/, "");
 
 // AT_YOUR_ASK is who made a switch the CFO made at the Overlord's ask.
-const AT_YOUR_ASK = "by the CFO at your ask";
+const AT_YOUR_ASK = "by the CEO at your ask";
 
 // switchedBy says who made a switch, to follow "turned on" or "off": the
 // Overlord, from where he did it, or the CFO at his ask, with the words of

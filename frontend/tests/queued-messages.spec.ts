@@ -249,9 +249,12 @@ test.describe("his messages in the chat's one scroll", () => {
     for (const name of ["Send now", "Edit", "Cancel"]) await expect(entry(page).getByRole("button", { name, exact: true })).toBeVisible();
   });
 
-  test("a message waiting in a conversation that holds nothing yet shows with no No messages yet over it", async ({ page }) => {
+  for (const [state, fields] of [
+    ["waiting", {}],
+    ["not sent", { status: "failed", message: "The terminal closed before it took it." }],
+  ] as const) test(`a message ${state} in a conversation that holds nothing yet shows with no No messages yet over it`, async ({ page }) => {
     // Arrange
-    const relay = await open(page, snapshot({ actions: [queued()] }));
+    const relay = await open(page, snapshot({ actions: [queued(fields)] }));
     await openGoblin(page);
     relay.say({ type: "screen", asking: false, open: false, working: true });
 
@@ -267,17 +270,21 @@ test.describe("his messages in the chat's one scroll", () => {
   // The Overlord, 2026-10-29: a message he typed for the CFO the day before
   // still sat as queued, and its Cancel said "that queued message is no
   // longer waiting, so nothing was deleted". The board typed it and still
-  // watches for a late take, but it waits nowhere.
+  // watches for a late take, but it waits nowhere: it says it was never seen
+  // taken, with Send again, never that it is still on its way (#2242).
   test("a message from an earlier day the harness was not seen taking is not waiting on load, with nothing to cancel", async ({ page }) => {
     // Arrange and Act
     const advice = "Your answer was typed for the goblin, which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to the goblin.";
     await openWith(page, queued({ status: "uncertain", message: advice, advice, awaiting: { task: GOBLIN.id, since: "2026-10-21T22:04:16Z" } }));
 
     // Assert
+    const view = page.locator(".messages-view:not([hidden])");
+    const ended = view.locator(".queued-message.pane").filter({ hasText: "hold the merge" });
     await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
-    await expect(entry(page)).toHaveCount(0);
-    await expect(page.locator(".messages-view:not([hidden])")).not.toContainText("hold the merge");
-    await expect(page.locator(".messages-view:not([hidden])").getByRole("button", { name: "Cancel", exact: true })).toHaveCount(0);
+    await expect(ended).toContainText("Not confirmed");
+    await expect(ended).not.toContainText(WAITING);
+    await expect(ended.getByRole("button", { name: "Send again", exact: true })).toHaveCount(1);
+    await expect(view.getByRole("button", { name: "Cancel", exact: true })).toHaveCount(0);
   });
 });
 
@@ -382,7 +389,7 @@ test("his message to the CFO is Queued with its controls while held, Sent with n
   const held = queued({ id: "c1", task_id: "", generation: "", text: words, can_send_now: true, send_now_why: "", message: "Queued for a moment, so you can still edit or cancel it.", created_at: "2026-10-22T09:01:00Z", updated_at: "2026-10-22T09:01:00Z" });
   const relay = await open(page, snapshot({ actions: [held] }));
   await page.keyboard.press("Control+Alt+1");
-  await expect(page.locator("#panel-title")).toHaveText("CFO");
+  await expect(page.locator("#panel-title")).toHaveText("CEO");
   relay.say({ type: "screen", asking: false, open: false, working: true });
   const bubble = page.locator(".queued-message.pane").filter({ hasText: words });
 
@@ -414,7 +421,7 @@ test("his message to the CFO is Queued with its controls while held, Sent with n
 // and the board kept calling it Queued with Send now alone. AFK changes
 // nothing here: a message the board holds keeps all three controls, and one
 // typed into a turn reads Sent.
-for (const [whose, task] of [["the CFO", ""], ["a goblin", GOBLIN.id]] as const) {
+for (const [whose, task] of [["the CEO", ""], ["a goblin", GOBLIN.id]] as const) {
   test(`with AFK on, his message to ${whose} keeps Send now, Edit and Cancel while held, and one typed into the turn reads Sent`, async ({ page }) => {
     // Arrange
     const afk = { state: "on", since: new Date().toISOString(), from: "his own board (goblins-window.exe pid 4242)", decided: 0, held: [] };
@@ -426,7 +433,7 @@ for (const [whose, task] of [["the CFO", ""], ["a goblin", GOBLIN.id]] as const)
     if (task) await openGoblin(page);
     else {
       await page.keyboard.press("Control+Alt+1");
-      await expect(page.locator("#panel-title")).toHaveText("CFO");
+      await expect(page.locator("#panel-title")).toHaveText("CEO");
     }
 
     // Act: its turn runs, as the wake AFK sends the CFO starts one.
@@ -571,7 +578,7 @@ test("a queued message to the CFO has the same three icons, in the same order an
 
   // Act
   await page.keyboard.press("Control+Alt+1");
-  await expect(page.locator("#panel-title")).toHaveText("CFO");
+  await expect(page.locator("#panel-title")).toHaveText("CEO");
 
   // Assert
   const cfo = page.locator(".queued-message.pane").filter({ hasText: "wait for me" });

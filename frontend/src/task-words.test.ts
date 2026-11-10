@@ -172,7 +172,7 @@ test("Working, a pause that did not finish and a failure have no line under them
     ["working, already plain", task({ activity: "working: Writing the tests." }), "Working", { sentence: "", details: ["Writing the tests."], isFailure: false }],
     ["working with nothing to say", task({ activity: "" }), "Working", { sentence: "", details: [], isFailure: false }],
     ["a pause that did not finish", failed, "Working", { sentence: "", details: ["The pause did not finish, so the goblin is not paused. Its work is kept. Try Pause again.", "context deadline exceeded"], isFailure: false }],
-    ["a question to him keeps its line", task({ activity: raw }), "Waiting on the CFO", { sentence: "PRs 324 and 326 are green on main. Ready to pause.", details: [raw], isFailure: false }],
+    ["a question to him keeps its line", task({ activity: raw }), "Waiting on the CEO", { sentence: "PRs 324 and 326 are green on main. Ready to pause.", details: [raw], isFailure: false }],
     ["a failure", task({ phase: "failed", report: "failed", activity: "failed: go test timed out" }), "Failed", { sentence: "", details: ["Go test timed out."], isFailure: true }],
   ];
   for (const [name, item, status, said] of cases) assert.deepEqual(taskSummary(item, [item], status), said, name);

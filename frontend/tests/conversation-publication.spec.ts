@@ -97,12 +97,12 @@ for (const ordering of ["response first", "stream first"] as const) {
   });
 }
 
-for (const owner of ["CFO", "goblin"] as const) {
+for (const owner of ["CEO", "goblin"] as const) {
   test(`${owner} keeps its working word while reading, with no Stop beside it`, async ({ page }) => {
-    const tail = { id: "working-tail", kind: "message", task_id: owner === "CFO" ? "" : GOBLIN.id, status: "queued", text: "A queued message below the working indicator\nwith another line", created_at: at, updated_at: at };
+    const tail = { id: "working-tail", kind: "message", task_id: owner === "CEO" ? "" : GOBLIN.id, status: "queued", text: "A queued message below the working indicator\nwith another line", created_at: at, updated_at: at };
     const relay = await open(page, snapshot({ actions: [tail] }, { phase: "settled" }), "", pageOf());
-    if (owner === "CFO") await page.keyboard.press("Control+Alt+1"); else await openGoblin(page);
-    const name = owner === "CFO" ? "CFO" : NAME;
+    if (owner === "CEO") await page.keyboard.press("Control+Alt+1"); else await openGoblin(page);
+    const name = owner === "CEO" ? "CEO" : NAME;
     const talk = talkOf(page, name);
     await expect(talk).toBeVisible();
     await expect.poll(() => relay.views).toBeGreaterThan(0);
@@ -197,7 +197,7 @@ test("a current queued action still reaches the board while reading", async ({ p
   await expect.poll(() => posts.map(({ kind, target }) => ({ kind, target }))).toEqual([{ kind: "message_now", target: "q-live" }]);
 });
 
-for (const owner of ["CFO", "goblin"] as const) {
+for (const owner of ["CEO", "goblin"] as const) {
   for (const status of ["queued", "succeeded"] as const) test(`${owner} sees a local send through a ${status} board handoff while reading`, async ({ page }) => {
     const relay = await open(page, snapshot(), "", pageOf());
     let release = () => {};
@@ -208,8 +208,8 @@ for (const owner of ["CFO", "goblin"] as const) {
       await response;
       await route.fulfill({ status: 202, json: { status: "ok" } });
     });
-    if (owner === "CFO") await page.keyboard.press("Control+Alt+1"); else await openGoblin(page);
-    const name = owner === "CFO" ? "CFO" : NAME;
+    if (owner === "CEO") await page.keyboard.press("Control+Alt+1"); else await openGoblin(page);
+    const name = owner === "CEO" ? "CEO" : NAME;
     const talk = talkOf(page, name);
     await expect.poll(() => relay.views).toBeGreaterThan(0);
     relay.say({ type: "held", reason: "fixture hold" });
@@ -250,8 +250,8 @@ for (const owner of ["CFO", "goblin"] as const) {
       await response;
       await route.fulfill({ status: 500, json: { error: "Refused by fixture" } });
     });
-    if (owner === "CFO") await page.keyboard.press("Control+Alt+1"); else await openGoblin(page);
-    const name = owner === "CFO" ? "CFO" : NAME;
+    if (owner === "CEO") await page.keyboard.press("Control+Alt+1"); else await openGoblin(page);
+    const name = owner === "CEO" ? "CEO" : NAME;
     const talk = talkOf(page, name);
     await expect.poll(() => relay.views).toBeGreaterThan(0);
     relay.say({ type: "held", reason: "fixture hold" });

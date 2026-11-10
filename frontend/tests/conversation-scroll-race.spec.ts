@@ -70,7 +70,7 @@ for (const width of [1440, 390]) {
   });
 }
 
-for (const owner of ["CFO", "goblin"] as const) {
+for (const owner of ["CEO", "goblin"] as const) {
   for (const movement of ["keyboard", "wheel"] as const) {
     for (const update of ["stream", "board"] as const) {
       test(`${owner} keeps its place after ${movement} before scroll delivery during a ${update} update`, async ({ page }) => {

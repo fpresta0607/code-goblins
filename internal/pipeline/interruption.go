@@ -90,7 +90,7 @@ func (reader Reader) Interrupt(ctx context.Context, project, worktree, branch, r
 		}
 		run = current
 		if !terminalRunStatus[run.Status] {
-			result, err := reader.Commands.Run(ctx, execx.Request{Dir: worktree, Name: "no-mistakes", Args: []string{"axi", "abort", "--run", run.ID}})
+			result, err := reader.Commands.Run(ctx, execx.Request{Dir: worktree, Env: NativeEnv(reader.Root), Name: "no-mistakes", Args: []string{"axi", "abort", "--run", run.ID}})
 			if err != nil || result.ExitCode != 0 {
 				return run, fmt.Errorf("abort gate %s failed: %w", run.ID, errors.Join(err, errors.New(strings.TrimSpace(string(result.Stderr)))))
 			}

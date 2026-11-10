@@ -48,7 +48,7 @@ export type DeckView = { kind: "host"; query: string } | { kind: "herdr" } | { k
 export function cfoView(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_terminal_since" | "cfo_runs" | "cfo_closed">): DeckView {
   if (snapshot.cfo_terminal) return { kind: "host", query: new URLSearchParams({ cfo: snapshot.cfo_terminal, ...(snapshot.cfo_terminal_since ? { since: snapshot.cfo_terminal_since } : {}) }).toString() };
   if (snapshot.cfo_runs) return { kind: "herdr" };
-  return { kind: "empty", text: snapshot.cfo_closed ? "The CFO is closed." : "No CFO is running." };
+  return { kind: "empty", text: snapshot.cfo_closed ? "The CEO is closed." : "No CEO is running." };
 }
 
 // A goblin the comeback after a restart could not bring back has no

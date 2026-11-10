@@ -208,6 +208,40 @@ func claudeSystem(at, subtype, content string) map[string]any {
 	return map[string]any{"type": "system", "subtype": subtype, "timestamp": at, "content": content, "isMeta": false}
 }
 
+// A ! command typed during a turn is handed over once Claude Code's record
+// shows it run as a shell command at the turn's end, typed with or without a
+// space after the !; what it printed and another command are not (#2242).
+func TestAShellCommandClaudeCodeRanIsTaken(t *testing.T) {
+	sent := time.Date(2026, 11, 9, 21, 1, 19, 0, time.UTC)
+	after := "2026-11-09T21:01:48Z"
+	for _, tc := range []struct {
+		name  string
+		typed string
+		entry map[string]any
+		want  bool
+	}{
+		{name: "typed with a space", typed: "! claude doctor", entry: claudePrompt(after, "<bash-input>claude doctor</bash-input>"), want: true},
+		{name: "typed without a space", typed: "!claude doctor", entry: claudePrompt(after, "<bash-input>claude doctor</bash-input>"), want: true},
+		{name: "what it printed", typed: "! claude doctor", entry: claudePrompt(after, "<bash-stdout>Claude Code doctor</bash-stdout><bash-stderr></bash-stderr>"), want: false},
+		{name: "another command", typed: "! claude doctor", entry: claudePrompt(after, "<bash-input>claude update</bash-input>"), want: false},
+		{name: "only queued", typed: "! claude doctor", entry: claudeEnqueued(after, "claude doctor"), want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			home, worktree := t.TempDir(), t.TempDir()
+			transcriptLines(t, filepath.Join(claudeProjectFolder(home, worktree), "conversation.jsonl"), time.Now(), tc.entry)
+
+			// Act
+			took := (&HostProgress{Home: home}).Took(context.Background(), Conversation{Harness: "claude", Dir: worktree}, TextDigest(tc.typed), sent)
+
+			// Assert
+			if took != tc.want {
+				t.Errorf("Took = %t, want %t", took, tc.want)
+			}
+		})
+	}
+}
+
 // A slash command Claude Code runs itself is handed over once its record
 // shows the command: as its tags in a user message, as a system
 // local_command record (2.1.309), or for /remote-control as only the

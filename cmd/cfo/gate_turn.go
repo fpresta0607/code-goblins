@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
+	"github.com/fpresta0607/code-goblins/internal/sandbox"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
@@ -156,8 +157,8 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 	}
 	// A run whose task cannot be read stands in line all the same, under what
 	// is known of it.
-	task, err := gateTurnTask(ctx, dir, request.gateRun, runtime)
-	if err != nil {
+	task, taskErr := gateTurnTask(ctx, dir, request.gateRun, runtime)
+	if taskErr != nil {
 		task = ""
 	}
 	executor, err := measuredExecutor("cfo gate turn", gateTurnWho(as, command, dir, task, runtime), stderr, runtime.availableMemory)
@@ -189,6 +190,20 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 		fmt.Fprintf(stderr, "cfo gate turn: the command did not start: required test environment refused: %s\n", oneLine(err))
 		tell(exitNotStarted)
 		return exitNotStarted
+	}
+	run := command
+	if request.gateRun != "" {
+		engine := sandboxDocker(runtime, stderr)
+		contained, container, err := gateSandboxCommand(ctx, engine, dir, task, taskErr, command, runtime)
+		if err != nil {
+			fmt.Fprintf(stderr, "cfo gate turn: the command did not start: %s\n", oneLine(err))
+			tell(exitNotStarted)
+			return exitNotStarted
+		}
+		if container != "" {
+			run = contained
+			defer removeSandboxContainer(engine, container, "cfo gate turn", stderr)
+		}
 	}
 	environment := os.Environ()
 	for _, entry := range bound.environment {
@@ -243,7 +258,7 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 			}
 		}
 	}
-	result, record, runError := executor.RunWithin(waiting, execx.Request{Dir: dir, Name: command[0], Args: command[1:], Env: environment}, 0)
+	result, record, runError := executor.RunWithin(waiting, execx.Request{Dir: dir, Name: run[0], Args: run[1:], Env: environment}, 0)
 	// A command whose cleanup was not confirmed keeps the machine's line
 	// until it is, and this process is its only owner.
 	cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -367,6 +382,38 @@ func gateTurnTask(ctx context.Context, dir, runID string, runtime commandRuntime
 		return "", err
 	}
 	return gateTask(worktree, runtime)
+}
+
+// gateSandboxCommand is what a gate's Test step runs in dir for task: its
+// command, or, for a sandbox task, the docker run of the command in the
+// task's container, with dir alone mounted, and that container's name. A
+// step whose task cannot be read is refused unless its run is no fleet
+// task's (errNoFleetTask), since it could be a sandbox task's, whose code
+// never runs on this PC.
+func gateSandboxCommand(ctx context.Context, engine sandboxEngine, dir, task string, taskErr error, command []string, runtime commandRuntime) ([]string, string, error) {
+	if errors.Is(taskErr, errNoFleetTask) || taskErr == nil && task == "" {
+		return command, "", nil
+	}
+	if taskErr != nil {
+		return nil, "", fmt.Errorf("cannot tell whether the run's task runs its commands in a container: %w", taskErr)
+	}
+	h, err := runtime.resolveHome()
+	if err != nil {
+		return nil, "", fmt.Errorf("cannot tell whether task %s runs its commands in a container: %w", task, err)
+	}
+	meta, err := state.ReadTaskMeta(h.State, task)
+	if err != nil {
+		return nil, "", fmt.Errorf("cannot tell whether task %s runs its commands in a container: %w", task, err)
+	}
+	if meta.SandboxImage == "" {
+		return command, "", nil
+	}
+	name := sandboxContainerName(task) + "-gate"
+	contained, err := sandboxCommand(ctx, engine, sandbox.Run{Task: task, Name: name, Image: meta.SandboxImage, Checkout: dir, Cwd: dir, Command: sandbox.ShellCommand(command)})
+	if err != nil {
+		return nil, "", fmt.Errorf("task %s runs its commands in a container: %w", task, err)
+	}
+	return contained, name, nil
 }
 
 // oneLine is err's text on one line, the errors it joins separated by commas.

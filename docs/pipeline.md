@@ -170,7 +170,7 @@ An interrupted CI monitor is not a passed gate and requires no cancellation or d
 It takes the native daemon singleton lock throughout the database check, backup and replacement, preventing a concurrent daemon startup.
 It does not stop or restart anything, cancel a run, or repair stale state.
 The command currently supports Windows, using the native singleton lock contract retained by v1.75.1.
-Use `NM_HOME` to select the same native home as no-mistakes, otherwise both use `~/.no-mistakes`.
+Use `NM_HOME` to select the same native home as no-mistakes; without it in the process both use the user's `NM_HOME`, which `cfo dev-drive move` sets when it moves the gate's home onto the Dev Drive, and otherwise `~/.no-mistakes`.
 
 Before replacement, the original YAML is backed up beside the configuration with a unique timestamped name.
 The backup and staged replacement receive the credential store's owner-only file protection because unrelated settings may contain credentials.
@@ -875,7 +875,7 @@ A gate puts every run's test command behind the line, with no repository naming 
 On this machine that is `cfo gate turn -- cmd.exe /c <command string>`, started as an argument list with no shell in front, with the run's `--gate-run` and `--test-comparison-sha` identity and its `--as` name before the `--`, as the setting below gives them.
 The words go in front of the whole command as a list and are never joined to the command string, where `a && b` would put only `a` behind the turn.
 This is the contract the no-mistakes fork's wrapper setting is built against.
-The fork's side, as task cg-gate-fork-minutes built it, is a setting in the machine's `~/.no-mistakes/config.yaml`, on since the installed `cfo` has `cfo gate turn`, as an older `cfo` refuses `gate turn` with exit 2, which a gate reads as a failed test command:
+The fork's side, as task cg-gate-fork-minutes built it, is a setting in the machine's `config.yaml` in the gate's home (`NM_HOME`, else `~/.no-mistakes`), on since the installed `cfo` has `cfo gate turn`, as an older `cfo` refuses `gate turn` with exit 2, which a gate reads as a failed test command:
 
 ```yaml
 test_command_wrapper:

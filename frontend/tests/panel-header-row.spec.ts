@@ -18,7 +18,7 @@ const header = (page: Page) => page.locator(".goblin-panel > .panel-header");
 
 async function openCfo(page: Page) {
   await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
-  await expect(page.locator("#panel-title")).toHaveText("CFO");
+  await expect(page.locator("#panel-title")).toHaveText("CEO");
 }
 
 async function box(part: Locator) {
@@ -27,7 +27,7 @@ async function box(part: Locator) {
 }
 
 for (const width of [1440, 393, 360]) {
-  for (const who of ["goblin", "CFO"]) {
+  for (const who of ["goblin", "CEO"]) {
     test(`${who}'s panel header at ${width}px is one short row with the switch in or near its middle`, async ({ page }, testInfo) => {
       // Arrange
       await page.setViewportSize({ width, height: 900 });
@@ -41,7 +41,7 @@ for (const width of [1440, 393, 360]) {
       // than a control and its padding where its name is one line. A goblin's
       // longer name wraps in a taller header (panel-header-wrap.spec.ts).
       const row = await box(header(page));
-      if (who === "CFO") expect(row.height).toBeLessThanOrEqual(ROW_PX);
+      if (who === "CEO") expect(row.height).toBeLessThanOrEqual(ROW_PX);
       await expect(page.locator(".goblin-panel > .panel-top")).toHaveCount(0);
       await expect(header(page).locator(".panel-status")).toHaveCount(0);
       const parts = [".goblin-avatar", "#panel-title", ".panel-view-switch", ".panel-corner"];
@@ -77,7 +77,7 @@ for (const width of [1440, 393, 360]) {
       expect(Math.abs(offset) <= 2 || (isGivenWay && isAgainstControls), `the switch ${offset} px from the middle`).toBe(true);
       if (width === 1440) {
         await expect(header(page).getByRole("button", { name: "Chat style", exact: true })).toBeVisible();
-        if (who === "CFO") expect(await header(page).locator("#panel-title").evaluate((title) => title.scrollWidth - title.clientWidth)).toBe(0);
+        if (who === "CEO") expect(await header(page).locator("#panel-title").evaluate((title) => title.scrollWidth - title.clientWidth)).toBe(0);
         await expect(header(page).getByRole("button", { name: "More", exact: true })).toHaveCount(0);
       }
       await testInfo.attach(`header-${who}-${width}.png`, { body: await page.screenshot({ clip: { x: row.x, y: row.y, width: row.width, height: row.height } }), contentType: "image/png" });
@@ -90,14 +90,14 @@ for (const width of [1440, 393, 360]) {
 // grown out by its width and offset, lies inside the identity, and the menu
 // hangs from the header instead, drawn whole and over the panel, maximized or
 // not.
-for (const who of ["CFO", "goblin"] as const) {
+for (const who of ["CEO", "goblin"] as const) {
   test(`the ${who}'s picture draws its focus ring inside the identity and opens its chat style menu whole, maximized or not`, async ({ page }) => {
     // Arrange
     await page.setViewportSize({ width: 1440, height: 900 });
     await open(page);
     // Opened from the keyboard, so the picture's focus draws its ring.
-    await page.keyboard.press(who === "CFO" ? "Control+Alt+1" : "Control+Alt+2");
-    await expect(page.locator("#panel-title")).toHaveText(who === "CFO" ? "CFO" : NAME);
+    await page.keyboard.press(who === "CEO" ? "Control+Alt+1" : "Control+Alt+2");
+    await expect(page.locator("#panel-title")).toHaveText(who === "CEO" ? "CEO" : NAME);
     const picture = header(page).getByRole("button", { name: "Chat style", exact: true });
 
     // Act

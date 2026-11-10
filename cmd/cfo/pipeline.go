@@ -360,7 +360,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return pipelineAdmission(ctx, h, reader, meta, selection, gated, branch, args[0], admissionFile, out)
 	}
 	if isPreflight {
-		result, err := commands.Run(ctx, execx.Request{Dir: gated, Env: nativeEnv(root), Name: "no-mistakes", Args: []string{"axi", "terminal-preflight", "--predecessor", wantRun}})
+		result, err := commands.Run(ctx, execx.Request{Dir: gated, Env: pipeline.NativeEnv(root), Name: "no-mistakes", Args: []string{"axi", "terminal-preflight", "--predecessor", wantRun}})
 		fmt.Fprint(out, string(result.Stdout), string(result.Stderr))
 		if err != nil {
 			return fmt.Errorf("pipeline: native terminal-preflight failed: %w", err)
@@ -386,7 +386,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 				}
 			}
 		}
-		result, err := reader.Handback(ctx, meta.Project, gated, branch, wantRun, receipt, shouldRevalidatePublication, nativeEnv(root))
+		result, err := reader.Handback(ctx, meta.Project, gated, branch, wantRun, receipt, shouldRevalidatePublication, pipeline.NativeEnv(root))
 		fmt.Fprint(out, string(result.Stdout), string(result.Stderr))
 		if err != nil {
 			return fmt.Errorf("pipeline: native handback failed: %w", err)
@@ -400,7 +400,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return nil
 	}
 	if args[0] == "recover" {
-		result, err := reader.RecoverKeepLocal(ctx, meta.Project, gated, branch, nativeEnv(root))
+		result, err := reader.RecoverKeepLocal(ctx, meta.Project, gated, branch, pipeline.NativeEnv(root))
 		if len(result.NativeOutput) > 0 {
 			fmt.Fprint(out, string(result.NativeOutput))
 		}
@@ -452,7 +452,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			if err != nil {
 				return fmt.Errorf("pipeline: --scope-decision %d: %w", scopeDecisionSequence, err)
 			}
-			encoded, err := reader.ReviewScopeDecision(ctx, gated, nativeEnv(root), gate, response.Findings, scopeDecisionID, acceptedScope)
+			encoded, err := reader.ReviewScopeDecision(ctx, gated, pipeline.NativeEnv(root), gate, response.Findings, scopeDecisionID, acceptedScope)
 			if err != nil {
 				return err
 			}
@@ -511,7 +511,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			start = pipeline.Start{Args: []string{"axi", "run"}}
 			fmt.Fprintf(out, "pipeline: reattached to run %s on %s, which keeps its own intent and review budget; no new run starts\n", check.ReattachRun, branch)
 		} else {
-			start, err = pipeline.StartOf(ctx, commands, gated, nativeEnv(root), intent)
+			start, err = pipeline.StartOf(ctx, commands, gated, pipeline.NativeEnv(root), intent)
 			if err != nil {
 				return fmt.Errorf("pipeline: %w", err)
 			}
@@ -532,7 +532,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			nativeArgs = append(nativeArgs, launch...)
 		}
 	}
-	result, err := commands.Run(ctx, execx.Request{Dir: gated, Env: nativeEnv(root), Name: "no-mistakes", Args: nativeArgs})
+	result, err := commands.Run(ctx, execx.Request{Dir: gated, Env: pipeline.NativeEnv(root), Name: "no-mistakes", Args: nativeArgs})
 	if len(result.Stdout) > 0 {
 		fmt.Fprint(out, string(result.Stdout))
 	}
@@ -548,7 +548,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			// The durable record is required as well, so an acknowledged
 			// acceptance this controller cannot show is still refused rather
 			// than reported as delivered.
-			if confirmErr := reader.ConfirmReviewScope(ctx, gated, nativeEnv(root), scopeJournal.request); confirmErr != nil {
+			if confirmErr := reader.ConfirmReviewScope(ctx, gated, pipeline.NativeEnv(root), scopeJournal.request); confirmErr != nil {
 				return fmt.Errorf("pipeline: native did not confirm the accepted Review scope; the exact outcome is recorded in %s, so inspect its run before any explicit identical replay: %w", reviewScopeJournalFile, confirmErr)
 			}
 			if auditErr := state.AppendStatus(h.State, meta.ID, "pipeline-review-scope-confirmed: "+scopeJournal.describe()); auditErr != nil {
@@ -913,22 +913,4 @@ func hasPolicyMigrationAudit(stateDir, id, audit string) (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-// nativeEnv points the native engine at the resolved root while leaving it the
-// CFO's own environment. execx replaces rather than merges a non-nil Env, so a
-// bare NM_HOME entry would strip PATH, USERPROFILE and TEMP and the engine
-// could resolve neither its tools nor a home directory.
-func nativeEnv(root string) []string {
-	env := make([]string, 0, len(os.Environ())+1)
-	for _, entry := range os.Environ() {
-		// Windows matches environment names without case, so an existing
-		// NM_HOME has to be dropped rather than left beside the override.
-		name, _, ok := strings.Cut(entry, "=")
-		if ok && strings.EqualFold(name, "NM_HOME") {
-			continue
-		}
-		env = append(env, entry)
-	}
-	return append(env, "NM_HOME="+root)
 }

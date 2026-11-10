@@ -6,7 +6,7 @@ import { expect, test, type Page } from "./site";
 // his answers bounced because the CFO had answered first. His ruling: "The
 // Command Center should only give me questions that the CFO has for the
 // Overlord, for me", and one item is one signal.
-const CFO_ASKS = "The CFO asks: Merge pull request 240 now?";
+const CFO_ASKS = "The CEO asks: Merge pull request 240 now?";
 const AT_QUESTION = "opened the Command Center at question:merge-240";
 
 async function open(page: Page) {

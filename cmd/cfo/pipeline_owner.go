@@ -112,7 +112,7 @@ func ownerCorrection(ctx context.Context, h home.Home, reader pipeline.Reader, m
 	if err := reader.CheckCorrection(ctx, worktree, trusted, run); err != nil {
 		return fmt.Errorf("%w; %s", err, cfoAdmission)
 	}
-	file, err := reader.OwnerAdmission(ctx, worktree, trusted, meta.TaskTmp, run, selection, nativeEnv(reader.Root))
+	file, err := reader.OwnerAdmission(ctx, worktree, trusted, meta.TaskTmp, run, selection, pipeline.NativeEnv(reader.Root))
 	if err != nil {
 		return err
 	}

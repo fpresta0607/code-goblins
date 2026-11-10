@@ -22,10 +22,10 @@ export function RestartPcDialog({ pools, line, isPending, onRestart, onClose }: 
     <h2 id={title}>Restart the PC?</h2>
     <p id={description}>The kernel's pools hold {pools} GB, past the {line} GB line where free memory can no longer hold the fleet. A restart frees them.</p>
     <ol className="restart-pc-steps">
-      <li>The CFO is told first.</li>
+      <li>The CEO is told first.</li>
       <li>Every working goblin writes its handoff and pauses until the PC has restarted.</li>
       <li>The heavy runs end, then Windows restarts. An app with unsaved work asks you first.</li>
-      <li>After you sign in, the CFO and the goblins come back by themselves.</li>
+      <li>After you sign in, the CEO and the goblins come back by themselves.</li>
     </ol>
     <div className="stop-task-choices">
       <button className="primary" disabled={isPending} aria-busy={isPending} onClick={onRestart}>{isPending ? <><span className="card-start-spinner" aria-hidden="true" />Restarting the PC…</> : "Restart PC"}</button>

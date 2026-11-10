@@ -3,7 +3,7 @@ import { message, reportToCfo, request } from "./api";
 import { Icon } from "./Icon";
 import { keptFileAddress, keptPictures } from "./kept-files";
 import { MessagePictures } from "./message-pictures";
-import { messageState } from "./messages";
+import { isUndelivered, messageState } from "./messages";
 import type { Action } from "./types";
 
 // TAKE_BACK_MESSAGE names the event Edit sends with a queued message's ID, for
@@ -47,7 +47,7 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
   // Cancel taken takes the actions away. A Cancel's request ID is the
   // message's own, so one sent again from another screen withdraws nothing
   // twice.
-  const [asked, setAsked] = useState<"" | "now" | "withdrawn">("");
+  const [asked, setAsked] = useState<"" | "now" | "withdrawn" | "again">("");
   const post = (body: object) => request("/api/actions", undefined, {
     method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify(body),
   });
@@ -66,6 +66,20 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
     }
     finally { setSending(false); }
   };
+  // A message whose delivery ended with no take seen says so and offers Send
+  // again, which sends its words as a new message; once sent again its row
+  // gives way to the new one's (#2242).
+  const sendAgain = async () => {
+    if (isSending) return;
+    setSending(true);
+    try { await post({ id: crypto.randomUUID(), kind: "message", task_id: action.task_id, generation: "", text: action.text }); setAsked("again"); }
+    catch (error: unknown) {
+      refuse(message(error));
+      if (!(error instanceof Error && error.cause !== undefined)) reportToCfo("a message sent again to " + name, message(error));
+    }
+    finally { setSending(false); }
+  };
+  if (asked === "again") return null;
   const isHeld = !harnessState && (action.status === "queued" || action.status === "running" && !action.awaiting);
   const isTyped = action.status === "running" && !!action.awaiting;
   const state = harnessState ?? messageState(action);
@@ -100,6 +114,9 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
         onClick={() => { if (canActNow) window.dispatchEvent(new CustomEvent<string>(TAKE_BACK_MESSAGE, { detail: action.id })); else refuse(movedWhy); }}><Icon name="edit" /></button>
       <button type="button" className="icon-button" aria-label="Cancel" disabled={isSending} aria-disabled={!canActNow}
         onClick={() => { if (canActNow && current) void act({ kind: "message_withdraw", text: current.text }, () => { setAsked("withdrawn"); onDeleted?.(); }); else refuse(movedWhy); }}><Icon name="close" /></button>
+    </div>}
+    {!harnessState && isUndelivered(action) && <div className="queued-actions">
+      <button type="button" className="icon-button" aria-label="Send again" disabled={isSending} onClick={() => void sendAgain()}><Icon name="arrow-up" /></button>
     </div>}
   </div>;
 }, isSameQueued);

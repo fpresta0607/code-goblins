@@ -23,7 +23,7 @@ test("Start uses the picked agent, or the one the quick start remembered, or the
     ["a recorded folder without projects that he never looked at", setup({ checkouts: [], problem: noCheckout }), "", false, { agent: "claude", blocked: "" }],
     ["a folder he looked at that has no projects", setup({ checkouts: [], problem: noCheckout }), "", true, { agent: "claude", blocked: noCheckout }],
     ["a Claude Code it cannot start", setup({ agents: [{ ...claude, installed: false, reason: "Install Claude Code to start the CFO" }, ...others] }), "", false, { agent: "claude", blocked: "Install Claude Code to start the CFO" }],
-    ["a page that recommends none and remembers none", setup({ agents: others }), "", false, { agent: "", blocked: "This board offers no agent to start the CFO as." }],
+    ["a page that recommends none and remembers none", setup({ agents: others }), "", false, { agent: "", blocked: "This board offers no agent to start the CEO as." }],
     ["the recommended agent wherever it stands in the list", setup({ agents: [...others, claude] }), "", false, { agent: "claude", blocked: "" }],
   ];
   for (const [name, given, picked, lookedAtFolder, want] of cases) assert.deepEqual(startState(given, picked, lookedAtFolder), want, name);
@@ -31,14 +31,14 @@ test("Start uses the picked agent, or the one the quick start remembered, or the
 
 test("the board's root keeps configured homes out of quick start", () => {
   const cases: [string, Parameters<typeof showsFirstRun>[0], boolean][] = [
-    ["no CFO", { cfoRuns: false, cfoClosed: false, cfoConfigured: false, choice: "" }, true],
-    ["a CFO runs", { cfoRuns: true, cfoClosed: false, cfoConfigured: false, choice: "" }, false],
+    ["no CEO", { cfoRuns: false, cfoClosed: false, cfoConfigured: false, choice: "" }, true],
+    ["a CEO runs", { cfoRuns: true, cfoClosed: false, cfoConfigured: false, choice: "" }, false],
     ["just started, before the board sees it", { cfoRuns: false, cfoClosed: false, cfoConfigured: false, choice: "started" }, false],
-    ["the board without a CFO, by his choice", { cfoRuns: false, cfoClosed: false, cfoConfigured: false, choice: "board" }, false],
-    ["the board's Start the CFO, even after a start the board never saw run", { cfoRuns: false, cfoClosed: false, cfoConfigured: false, choice: "" }, true],
-    ["a CFO that was closed: the home has had one, so the board stays", { cfoRuns: false, cfoClosed: true, cfoConfigured: false, choice: "" }, false],
-    ["a configured home before its CFO registers", { cfoRuns: false, cfoClosed: false, cfoConfigured: true, choice: "" }, false],
-    ["a configured home whose CFO start failed", { cfoRuns: false, cfoClosed: false, cfoConfigured: true, choice: "started" }, false],
+    ["the board without a CEO, by his choice", { cfoRuns: false, cfoClosed: false, cfoConfigured: false, choice: "board" }, false],
+    ["the board's Start the CEO, even after a start the board never saw run", { cfoRuns: false, cfoClosed: false, cfoConfigured: false, choice: "" }, true],
+    ["a CEO that was closed: the home has had one, so the board stays", { cfoRuns: false, cfoClosed: true, cfoConfigured: false, choice: "" }, false],
+    ["a configured home before its CEO registers", { cfoRuns: false, cfoClosed: false, cfoConfigured: true, choice: "" }, false],
+    ["a configured home whose CEO start failed", { cfoRuns: false, cfoClosed: false, cfoConfigured: true, choice: "started" }, false],
     ["an active setup before the choice is saved", { cfoRuns: false, cfoClosed: false, cfoConfigured: false, choice: "setup" }, true],
     ["an active setup while the saved choice has not settled", { cfoRuns: false, cfoClosed: false, cfoConfigured: true, choice: "setup" }, true],
     ["an active setup while its launch has not settled", { cfoRuns: true, cfoClosed: false, cfoConfigured: true, choice: "setup" }, true],

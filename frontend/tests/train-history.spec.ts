@@ -477,8 +477,8 @@ test.describe("in his window", () => {
     await column(page, "Completed").locator(".train-card .train-title").click();
     await expect(page.locator("#panel-title")).toHaveText("Merge train");
 
-    await page.getByRole("button", { name: "Back to the CFO" }).click();
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await page.getByRole("button", { name: "Back to the CEO" }).click();
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
     await expect(column(page, "Completed").locator(".train-card")).not.toHaveClass(/selected/);
 
     await card(page, "Wes - Train Conductor").locator(".task-card").click();

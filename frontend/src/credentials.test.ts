@@ -129,8 +129,8 @@ test("a new request alerts once, naming who asks and what, and opens its card", 
     { key: "credential:" + filed.id + "@" + filed.created_at, speaker: "Add Stripe billing", text: "Add Stripe billing asks: Paste STRIPE_SECRET_KEY for precisiondocs", item: "credential:" + filed.id },
   ]);
   const [cfo] = boardAlerts(board([]), board([{ ...filed, by: "cfo", task: "" }]));
-  assert.equal(cfo.speaker, "CFO");
-  assert.equal(cfo.text, "The CFO asks: Paste STRIPE_SECRET_KEY for precisiondocs");
+  assert.equal(cfo.speaker, "CEO");
+  assert.equal(cfo.text, "The CEO asks: Paste STRIPE_SECRET_KEY for precisiondocs");
   assert.deepEqual(boardAlerts(board([filed]), board([filed])), [], "a request already there alerts nothing");
 });
 

@@ -161,12 +161,12 @@ test("Cancel takes a message held for the CFO's turn back, and its bubble goes",
     return route.fulfill({ status: 202, json: { status: body.kind === "message_withdraw" ? "succeeded" : "queued" } });
   });
   await page.keyboard.press("Control+Alt+1");
-  await expect(page.locator("#panel-title")).toHaveText("CFO");
+  await expect(page.locator("#panel-title")).toHaveText("CEO");
   await expect.poll(() => relay.views).toBeGreaterThan(0);
   relay.say({ type: "screen", asking: false, open: false, working: true });
   await expect(page.locator(".reply-working")).toBeVisible();
-  await field(page, "CFO").fill("stop and wait for me");
-  await field(page, "CFO").press("Enter");
+  await field(page, "CEO").fill("stop and wait for me");
+  await field(page, "CEO").press("Enter");
   await expect.poll(() => posts.length).toBe(1);
   const action = { id: posts[0].id, kind: "message", task_id: "", generation: "", status: "queued", text: "stop and wait for me", message: "Queued until the CFO's turn ends.", can_send_now: true, updated_at: at };
   await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, actions: [action] }));

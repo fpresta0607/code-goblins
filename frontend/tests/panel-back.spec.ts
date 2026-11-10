@@ -29,7 +29,7 @@ async function open(page: Page) {
 // A card on the board: the CFO's panel lists the queued tasks too.
 const card = (page: Page, id: string) => page.locator(".task-board .task-card-shell").filter({ has: page.locator(".card-title").getByText(id, { exact: true }) }).locator(".task-card");
 const title = (page: Page) => page.locator("#panel-title");
-const back = (page: Page) => page.getByRole("button", { name: "Back to the CFO", exact: true });
+const back = (page: Page) => page.getByRole("button", { name: "Back to the CEO", exact: true });
 const close = (page: Page) => page.getByRole("button", { name: "Close panel", exact: true });
 
 test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
@@ -43,7 +43,7 @@ for (const id of ["queued-one", "working-one", "paused-one", "done-one"]) {
     await expect(back(page).locator("svg")).toBeVisible();
     await expect(close(page)).toHaveCount(0);
     await back(page).click();
-    await expect(title(page)).toHaveText("CFO");
+    await expect(title(page)).toHaveText("CEO");
     await expect(close(page)).toBeVisible();
     await expect(back(page)).toHaveCount(0);
     // The keyboard is back on the card the panel was opened from.
@@ -56,7 +56,7 @@ test("Escape goes back from a task's panel, and closes the CFO's", async ({ page
   await card(page, "working-one").click();
   await expect(title(page)).toHaveText("working-one");
   await page.keyboard.press("Escape");
-  await expect(title(page)).toHaveText("CFO");
+  await expect(title(page)).toHaveText("CEO");
   await expect(page.locator(".context-pane")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.locator(".context-pane")).toBeHidden();
@@ -70,7 +70,7 @@ for (const id of ["working-one", "paused-one"]) {
     await expect(page.locator(".panel-pill")).toHaveCount(0);
     await expect(page.locator(".canvas-region")).toBeVisible();
     await back(page).click();
-    await expect(title(page)).toHaveText("CFO");
+    await expect(title(page)).toHaveText("CEO");
     await expect(page.locator(".panel-pill")).toHaveCount(0);
   });
 }
@@ -78,11 +78,11 @@ for (const id of ["working-one", "paused-one"]) {
 test("Back returns to the CFO's panel, and a maximized panel stays maximized", async ({ page }) => {
   await open(page);
   await page.keyboard.press("Control+Alt+1");
-  await expect(title(page)).toHaveText("CFO");
+  await expect(title(page)).toHaveText("CEO");
   await card(page, "working-one").click();
   await expect(title(page)).toHaveText("working-one");
   await back(page).click();
-  await expect(title(page)).toHaveText("CFO");
+  await expect(title(page)).toHaveText("CEO");
   await expect(page.locator(".canvas-region")).toBeVisible();
 
   // Now the CFO's panel is maximized over the board.
@@ -92,7 +92,7 @@ test("Back returns to the CFO's panel, and a maximized panel stays maximized", a
   await expect(title(page)).toHaveText("working-one");
   await expect(page.locator(".canvas-region")).toBeHidden();
   await back(page).click();
-  await expect(title(page)).toHaveText("CFO");
+  await expect(title(page)).toHaveText("CEO");
   await expect(page.locator(".canvas-region")).toBeHidden();
   await expect(close(page)).toBeVisible();
 });
@@ -104,7 +104,7 @@ test("on Orchestration a goblin's panel has Back, and the CFO's has Close", asyn
   await expect(title(page)).toHaveText("working-one");
   await expect(close(page)).toHaveCount(0);
   await back(page).click();
-  await expect(title(page)).toHaveText("CFO");
+  await expect(title(page)).toHaveText("CEO");
   await expect(close(page)).toBeVisible();
   await expect(back(page)).toHaveCount(0);
 });

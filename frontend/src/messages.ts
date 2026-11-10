@@ -17,6 +17,13 @@ export function isPendingMessage(action: Action): boolean {
   return action.kind === "message" && (action.status === "queued" || action.status === "running");
 }
 
+// isUndelivered says a message's delivery ended with no take seen: it failed,
+// or it was typed and its session was never seen taking it (#2242). One its
+// goblin could not take that the CFO has was handed on, not lost.
+export function isUndelivered(action: Action): boolean {
+  return action.kind === "message" && (action.status === "failed" && !action.message.includes("the CFO has it") || action.status === "uncertain");
+}
+
 // STARTING opens the supervisor's reason for a message that waits on a start
 // of its session (startingFor in internal/supervisor).
 const STARTING = /^Starting /;
@@ -27,7 +34,8 @@ const STARTING = /^Starting /;
 // it to the CFO.
 export function messageState(action: Action): string {
   if (action.status === "queued" || action.status === "running" && !action.awaiting) return STARTING.test(action.message) ? "Starting" : "Queued";
-  if (action.status === "failed") return action.message.includes("the CFO has it") ? "With the CFO" : "Not sent";
+  if (action.status === "failed") return action.message.includes("the CFO has it") ? "With the CEO" : "Not sent";
+  if (action.status === "uncertain") return "Not confirmed";
   return "Sent";
 }
 
@@ -65,7 +73,10 @@ export function withTakenCommands(messages: SessionMessage[], sent: Action[], ha
   return rows;
 }
 
-// sameWords says two texts are the same words, however each is spaced.
+// sameWords says two texts are the same words, however each is spaced, a !
+// command's ! included: Claude Code runs "! X" and "!X" alike, and its row
+// reads "!X" (#2242).
 export function sameWords(one: string, other: string): boolean {
-  return one.trim().split(/\s+/).join(" ") === other.trim().split(/\s+/).join(" ");
+  const words = (text: string) => text.trim().replace(/^!\s+/, "!").split(/\s+/).join(" ");
+  return words(one) === words(other);
 }

@@ -37,7 +37,7 @@ async function history(page: Page) {
   return disclosure.locator(".inbox-list li");
 }
 
-for (const [outcome, says, kept] of [["finished", "Complete", "Complete · exit 0"], ["errorLine", "Complete", "Complete · exit 0"], ["withdrawn", "Withdrawn by the CFO", "Withdrawn by the CFO"]] as const) {
+for (const [outcome, says, kept] of [["finished", "Complete", "Complete · exit 0"], ["errorLine", "Complete", "Complete · exit 0"], ["withdrawn", "Withdrawn by the CEO", "Withdrawn by the CEO"]] as const) {
   test(`a command that ends without trouble (${outcome}) finishes its card, the next item follows, and History says how it ended`, async ({ page }, testInfo) => {
     // Arrange
     const dialog = await runIt(page);
@@ -68,7 +68,7 @@ test("a command that failed keeps its card on screen with its output, and leaves
   // Assert
   await expect(dialog.getByRole("heading", { name: RUN })).toBeVisible();
   await expect(dialog.locator(".run-head .run-state")).toHaveText("Failed");
-  await expect(dialog.locator(".run-failure")).toHaveText("gh: release v0.5.2 already exists. The CFO has its output and takes the next step.");
+  await expect(dialog.locator(".run-failure")).toHaveText("gh: release v0.5.2 already exists. The CEO has its output and takes the next step.");
   await expect(dialog.locator(".run-output")).toContainText("Uploading assets");
   await dialog.getByRole("button", { name: "Close the Command Center" }).click();
   await expect((await history(page)).filter({ hasText: RUN })).toContainText("Failed: gh: release v0.5.2 already exists · exit 2");
