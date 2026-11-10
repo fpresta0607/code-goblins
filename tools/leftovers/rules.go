@@ -7,11 +7,11 @@ import (
 )
 
 // noise are the differences no install makes, each with why: what Windows,
-// PowerShell, .NET, git and the runner's own programs write by themselves
-// while the install, the session and the uninstall run. Each is as narrow as
-// it can be, since a rule that passes over too much passes over a leftover
-// too. Nothing whose path names Code Goblins or cfo is ever noise, wherever
-// it is.
+// PowerShell, .NET, git, Codex and the runner's own programs write by
+// themselves while the install, the session and the uninstall run. Each is
+// as narrow as it can be, since a rule that passes over too much passes over
+// a leftover too. Nothing whose path names Code Goblins or cfo is ever noise,
+// wherever it is.
 func noise() []rule {
 	local, roaming, profile := os.Getenv("LOCALAPPDATA"), os.Getenv("APPDATA"), os.Getenv("USERPROFILE")
 	files := func(folder, why string) rule {
