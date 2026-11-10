@@ -158,6 +158,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   useEffect(() => storeAttached(draftKey, attached), [draftKey, attached]);
   // What Send sends: his words, then the path of each file he added.
   const outgoing = [draft.trim(), ...attached].filter(Boolean).join("\n");
+  // A message that starts with ! is shell mode (#2051): the box wears the
+  // danger edge while it does, and Send hands it to the board, which runs the
+  // rest in Windows PowerShell 5.1 through the harness's own !.
+  const isShell = draft.trimStart().startsWith("!");
   const [isSending, setSending] = useState(false);
   const [commandScreen, setCommandScreen] = useState<ScreenState | null>(null);
   const [isReplacing, setReplacing] = useState(false);
@@ -461,7 +465,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       applyEngine(asked.setting === "model" ? { model: asked.value } : { effort: asked.value }, false, chosen);
       return;
     }
-    if (!savesThroughBoard && !sendID.current && !holdsForTurn) {
+    if (!savesThroughBoard && !sendID.current && !holdsForTurn && !isShell) {
       // A question of the harness's own takes what he wrote as one paste, on
       // one line and with no Enter, so no key a list binds acts on it before
       // he chose: the list's Enter confirms. It answers that question even
@@ -829,7 +833,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       {listOptions.length > 0 && <PopupList label={commandOptions.length ? "Commands" : "Files"} options={listOptions} pick={picked} onChoose={choose} />}
       {isRecentOpen && <RecentDictations where="the message" anchor={composerBox} model={dictation.model} look="pane" onPaste={(text) => { insert(text); setRecentOpen(false); }}
         onClose={closeRecent} onEngine={() => setEngine((count) => count + 1)} />}
-      <div className="composer-input" onDragOver={dragOver} onDrop={drop}>
+      <div className="composer-input" data-shell={isShell ? "" : undefined} onDragOver={dragOver} onDrop={drop}>
         {attached.length > 0 && <ComposerAttachments paths={attached} instance={snapshot.instance} task={task?.id}
           onRemove={(path) => { attach((prior) => prior.filter((each) => each !== path)); field.current?.focus(); }} />}
         <div className="composer-line">

@@ -109,6 +109,10 @@ type Run struct {
 	// DevDrive is the Dev Drive step the board made this item for: create,
 	// attach, trust or move.
 	DevDrive string `json:"dev_drive,omitempty"`
+	// Reply is where in a session's reply the board read the code block
+	// whose Run made this item: the session, the reply, its text block and
+	// the fence in it. A block whose run still runs is not run again.
+	Reply string `json:"reply,omitempty"`
 	// RemoteFix is the row of the Remote access setting, tailscale or
 	// scrawl, whose mending command the Overlord ran from it: the setting
 	// draws its terminal, and it is never a Command Center item.

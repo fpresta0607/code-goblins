@@ -207,7 +207,7 @@ export function messagesQuery(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_har
 // which messageText draws with its bold, code, lists, tables and links.
 export type TextPart = { kind: "prose"; text: string } | { kind: "heading"; text: string } | { kind: "code"; text: string; language: string };
 
-const FENCE = /^\s*(`{3,}|~{3,})\s*([\w+#.-]*)/;
+const FENCE = /^[ \t]*(`{3,}|~{3,})[ \t]*([\w+#.-]*)/;
 const HEADING = /^#{1,6}\s+(.+?)\s*#*\s*$/;
 
 export function textParts(text: string): TextPart[] {
@@ -226,7 +226,7 @@ export function textParts(text: string): TextPart[] {
       const code: string[] = [];
       // A fence closes on a line of the same mark at least as long; one left
       // open, as a reply cut short leaves it, runs to the end.
-      for (at++; at < lines.length && !new RegExp("^\\s*" + fence[1][0] + "{" + fence[1].length + ",}\\s*$").test(lines[at]); at++) code.push(lines[at]);
+      for (at++; at < lines.length && !new RegExp("^[ \\t]*" + fence[1][0] + "{" + fence[1].length + ",}[ \\t]*$").test(lines[at]); at++) code.push(lines[at]);
       parts.push({ kind: "code", text: code.join("\n"), language: fence[2] });
     } else if (heading) {
       flush();
@@ -235,6 +235,24 @@ export function textParts(text: string): TextPart[] {
   }
   flush();
   return parts;
+}
+
+// isPowerShellBlock says whether a reply's code block is a PowerShell command
+// its Run runs (#2051): its fence names powershell, pwsh or ps1, or, untagged,
+// it starts with powershell or pwsh, after an optional "! ", the harness's
+// shell-mode marker, accepted on purpose since #2051 asks for both forms. The
+// server reads the block back from the session and decides the same way
+// (powerShellCommand in internal/supervisor/code_run.go).
+export function isPowerShellBlock(language: string, text: string): boolean {
+  const command = text.replace(/^[ \t]*/, "").replace(/^! /, "");
+  const isTagged = ["powershell", "pwsh", "ps1"].includes(language.toLowerCase());
+  return !!command.trim() && (isTagged || !language && /^(powershell|pwsh)(\.exe)?([ \t\n]|$)/i.test(command));
+}
+
+// isWrittenReply says whether a reply's words are all written, so its code
+// blocks may run: any reply but the newest message while the session works.
+export function isWrittenReply(message: SessionMessage, messages: SessionMessage[], isWorking: boolean): boolean {
+  return message.kind === "reply" && (!isWorking || message !== messages.at(-1));
 }
 
 // copyText is what the Copy of a message that is not a reply copies: its
