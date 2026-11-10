@@ -147,7 +147,7 @@ func blockCommand(message fleettree.Message, block, fence int) (string, error) {
 // fenceOpen is the line that opens a fenced code block, as the message view
 // reads it (textParts in frontend/src/session-messages.ts): three or more
 // backticks or tildes and the language it names.
-var fenceOpen = regexp.MustCompile("^\\s*(`{3,}|~{3,})\\s*([\\w+#.-]*)")
+var fenceOpen = regexp.MustCompile("^[ \\t]*(`{3,}|~{3,})[ \\t]*([\\w+#.-]*)")
 
 type codeFence struct {
 	language, text string
@@ -165,7 +165,7 @@ func codeFences(text string) []codeFence {
 		if open == nil {
 			continue
 		}
-		closing := regexp.MustCompile(`^\s*` + regexp.QuoteMeta(open[1][:1]) + `{` + strconv.Itoa(len(open[1])) + `,}\s*$`)
+		closing := regexp.MustCompile(`^[ \t]*` + regexp.QuoteMeta(open[1][:1]) + `{` + strconv.Itoa(len(open[1])) + `,}[ \t]*$`)
 		var code []string
 		for at++; at < len(lines) && !closing.MatchString(lines[at]); at++ {
 			code = append(code, lines[at])
@@ -176,12 +176,12 @@ func codeFences(text string) []codeFence {
 }
 
 // leadingPowerShell is an untagged block's command that starts PowerShell.
-var leadingPowerShell = regexp.MustCompile(`(?i)^(powershell|pwsh)(\.exe)?(\s|$)`)
+var leadingPowerShell = regexp.MustCompile(`(?i)^(powershell|pwsh)(\.exe)?([ \t\n]|$)`)
 
 // powerShellCommand is the command a code block runs when it is PowerShell:
 // its fence names powershell, pwsh or ps1, or, untagged, it starts with
 // powershell or pwsh. A leading "! ", the harness's shell-mode marker, is
-// dropped.
+// dropped; #2051 asks for both forms, so it is accepted on purpose.
 func powerShellCommand(language, code string) (string, bool) {
 	command := strings.TrimPrefix(strings.TrimLeft(code, " \t"), "! ")
 	isTagged := slices.Contains([]string{"powershell", "pwsh", "ps1"}, strings.ToLower(language))

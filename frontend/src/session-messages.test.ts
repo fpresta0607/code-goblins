@@ -155,6 +155,20 @@ test("a reply's code blocks, headings and prose are drawn apart, a code block ex
   assert.deepEqual(textParts("#hashtag is prose"), [{ kind: "prose", text: "#hashtag is prose" }]);
 });
 
+// A fence the view counts is one the server counts (codeFences in
+// internal/supervisor/code_run.go), so the fence a Run names is the one the
+// server reads back: only spaces and tabs may stand before a fence's mark.
+test("only spaces and tabs indent a fence, so the view counts the fences the server counts", () => {
+  for (const indent of [" ", "\t", " \t "]) {
+    assert.deepEqual(textParts(indent + "```powershell\nGet-Date\n" + indent + "```"), [{ kind: "code", text: "Get-Date", language: "powershell" }], JSON.stringify(indent));
+  }
+  for (const indent of [" ", "\v", "　", "﻿"]) {
+    const text = indent + "```text\nfoo\n```\n```powershell\nA\n```\n```powershell\nB\n```";
+    const fences = textParts(text).filter((part) => part.kind === "code");
+    assert.deepEqual(fences, [{ kind: "code", text: "```powershell\nA", language: "" }, { kind: "code", text: "B", language: "powershell" }], JSON.stringify(indent));
+  }
+});
+
 test("a reply draws each run of calls as one stack between its words, and leaves out blocks with no words", () => {
   // Arrange
   const [reply] = parseMessages([served(0, { kind: "reply", blocks: [

@@ -1,8 +1,10 @@
 package supervisor
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -73,6 +75,102 @@ func TestHisShellMessageShowsAsHisCommandWhileItWaitsAndOnceItRan(t *testing.T) 
 	}
 	if strings.Contains(response.Body.String(), "shell-commands") {
 		t.Errorf("the page names a script: %s", response.Body)
+	}
+}
+
+// A shell row and a waiting prompt that reach an open view on its stream,
+// after its first page, show as his command too.
+func TestHisShellMessageShowsAsHisCommandOnTheStream(t *testing.T) {
+	// Arrange
+	stamp := time.Now().UTC().Format(time.RFC3339Nano)
+	_, meta, service := messagesBoard(t, messageEntries(stamp)...)
+	store, stateDir := service.Store, service.Store.Home.State
+	ran, _, err := shellMessageLine(stateDir, "ran", meta.ID, "! Get-Location")
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, _, err := shellMessageLine(stateDir, "queued", meta.ID, "! Get-Date | Select-Object -First 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := time.Now().UTC().Add(-time.Minute)
+	store.mu.Lock()
+	store.db.Actions = append(store.db.Actions,
+		Action{ID: "ran", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "! Get-Location", Status: "succeeded", CreatedAt: created, UpdatedAt: created},
+		Action{ID: "queued", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "! Get-Date | Select-Object -First 1", Status: "running", CreatedAt: created, UpdatedAt: created})
+	err = store.save()
+	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHTTP(service, "127.0.0.1:50000", nil)
+	handler.terminalTick = 100 * time.Millisecond
+	server := httptest.NewUnstartedServer(handler)
+	handler.Host = server.Listener.Addr().String()
+	server.Start()
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/messages?task="+meta.ID+"&generation="+meta.SpawnGen+"&token=board-token&stream=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	scanner := bufio.NewScanner(response.Body)
+	scanner.Buffer(nil, 1<<20)
+	read := func(want string) string {
+		t.Helper()
+		current := ""
+		for scanner.Scan() {
+			if name, isEvent := strings.CutPrefix(scanner.Text(), "event: "); isEvent {
+				current = name
+			}
+			if data, isData := strings.CutPrefix(scanner.Text(), "data: "); isData && current == want {
+				return data
+			}
+		}
+		t.Fatalf("no %s event: %v", want, scanner.Err())
+		return ""
+	}
+	read("page")
+	quoted := func(text string) string {
+		data, err := json.Marshal(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+
+	// Act: Claude Code records the line that ran and holds the one waiting.
+	appendEntries(t, fleettree.SessionTranscript(service.Options.Tree.Home, "claude", "talker-conversation"),
+		`{"type":"user","uuid":"u2","timestamp":"`+stamp+`","message":{"role":"user","content":`+quoted("<bash-input>"+strings.TrimPrefix(ran, "! ")+"</bash-input>")+`}}`,
+		`{"type":"queue-operation","operation":"enqueue","timestamp":"`+stamp+`","content":`+quoted(strings.TrimPrefix(queued, "! "))+`}`)
+
+	// Assert: each messages event names no script, and between them they show
+	// his shell row and his command still waiting, named by his message.
+	isRowShown, isWaitingShown := false, false
+	for !isRowShown || !isWaitingShown {
+		said := read("messages")
+		if strings.Contains(said, "shell-commands") {
+			t.Fatalf("the stream names a script: %s", said)
+		}
+		var event struct {
+			Messages []fleettree.Message       `json:"messages"`
+			Waiting  []fleettree.WaitingPrompt `json:"waiting"`
+		}
+		if err := json.Unmarshal([]byte(said), &event); err != nil {
+			t.Fatal(err)
+		}
+		for _, message := range event.Messages {
+			isRowShown = isRowShown || message.Source == fleettree.FromShell && message.Text == "Get-Location"
+		}
+		for _, prompt := range event.Waiting {
+			isWaitingShown = isWaitingShown || prompt.Source == fleettree.FromShell && prompt.Text == "Get-Date | Select-Object -First 1" && prompt.Action == "queued"
+		}
 	}
 }
 

@@ -3,10 +3,12 @@ package supervisor
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -71,6 +73,53 @@ func TestAShellMessageRunsItsCommandInWindowsPowerShellThroughTheHarnessesOwnBan
 			}
 			if action := actionOf(store, "shell-1"); action.Text != "  !  "+command {
 				t.Fatalf("the message's own text became %q; it keeps what he typed", action.Text)
+			}
+		})
+	}
+}
+
+// A shell message nothing types, one handed to the CFO for a stopped goblin or
+// kept for a paused goblin's resume, carries the command he typed: no line
+// naming powershell.exe and a script, and no script kept or audited for it.
+func TestAShellMessageNothingTypesKeepsHisCommand(t *testing.T) {
+	for _, test := range []struct {
+		phase, action string
+	}{
+		{"stopped", "stop"},
+		{"paused", "pause"},
+	} {
+		t.Run(test.phase, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta := gatedGoblin(t, h)
+			atPhase(t, h.State, meta, test.action, test.phase)
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: &gateFake{}}}
+			action := Action{ID: "shell-1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "!git status", Status: "queued", CreatedAt: time.Now()}
+
+			// Act
+			_, err := service.deliverMessage(context.Background(), action)
+
+			// Assert
+			record, readErr := state.ReadLifecycle(h.State, meta.ID)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			told := toldCFO(t, h.State, meta.ID)
+			switch test.phase {
+			case "stopped":
+				if !errors.Is(err, ErrRejected) || len(told) != 1 || !strings.HasSuffix(told[0], "The Overlord wrote: !git status") {
+					t.Fatalf("delivery = %v, the CFO was told %q; want his command handed over as he typed it", err, told)
+				}
+			case "paused":
+				if err != nil || record.ResumeNote != "!git status" || len(told) != 0 {
+					t.Fatalf("delivery = %v, resume note %q, the CFO was told %q; want his command kept for the resume", err, record.ResumeNote, told)
+				}
+			}
+			if _, statErr := os.Stat(filepath.Join(h.State, "shell-commands")); !os.IsNotExist(statErr) {
+				t.Fatalf("a shell message nothing typed kept a script: %v", statErr)
+			}
+			if _, statErr := os.Stat(filepath.Join(h.State, "runs.audit")); !os.IsNotExist(statErr) {
+				t.Fatalf("a shell message nothing typed was audited: %v", statErr)
 			}
 		})
 	}

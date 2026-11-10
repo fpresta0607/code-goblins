@@ -92,6 +92,7 @@ func TestRunStartsOnlyAFinishedPowerShellBlockTheReplyHolds(t *testing.T) {
 		{"an untagged powershell line", "```\npowershell -NoProfile -Command \"Get-Date\"\n```", "powershell -NoProfile -Command \"Get-Date\"", 0},
 		{"an untagged line behind the shell-mode marker", "```\n! pwsh -c 'Get-Date'\n```", "pwsh -c 'Get-Date'", 0},
 		{"a tagged block behind the shell-mode marker", "~~~powershell\n! Get-Date\n~~~", "Get-Date", 0},
+		{"the fence the view counts after a line a no-break space indents", "Here:\n ```text\nfoo\n```\n```powershell\nA\n```\n```powershell\nB\n```", "B", 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -207,23 +208,85 @@ func TestRunRefusesWhatIsNotAReplysOwnWords(t *testing.T) {
 	}
 }
 
-func TestRunStartsOneTerminalWhileTheBlocksFirstRunStillRuns(t *testing.T) {
-	// Arrange
+func TestRunStartsTheCFOsPowerShellBlockFromItsOwnSession(t *testing.T) {
+	// Arrange: the CFO's Codex session holds the reply.
 	board, meta, transcript := codeRunBoard(t, "```powershell\nGet-Date\n```")
+	registerNativeCFO(t, board.Service.Store.Home.State, "codex", meta.ID+"-session")
 	message, block := replyHolding(t, board, transcript, "```p")
-	if first := requestCodeRun(board, codeRunBody(meta, message.ID, block, 0)); first.Code != http.StatusOK {
-		t.Fatalf("first code run = %d %s", first.Code, first.Body)
-	}
+	body := map[string]any{"cfo": NativeCFOTerminal, "message": message.ID, "block": block, "fence": 0}
 
 	// Act
-	second := requestCodeRun(board, codeRunBody(meta, message.ID, block, 0))
+	response := requestCodeRun(board, body)
 
 	// Assert
-	if second.Code != http.StatusConflict || !strings.Contains(second.Body.String(), "still runs") {
-		t.Fatalf("second code run = %d %s", second.Code, second.Body)
+	if response.Code != http.StatusOK {
+		t.Fatalf("code run = %d %s", response.Code, response.Body)
 	}
-	if runs := board.Service.Store.Snapshot().Runs; len(runs) != 1 {
-		t.Fatalf("runs = %+v", runs)
+	runs := board.Service.Store.Snapshot().Runs
+	if len(runs) != 1 || runs[0].Title != "PowerShell from the CFO's reply" || runs[0].Command != "Get-Date" || runs[0].Reply != "cfo reply "+message.ID+" block 0 fence 0" {
+		t.Fatalf("runs = %+v, want the CFO's block run once, named by its reply", runs)
+	}
+	audit, err := os.ReadFile(filepath.Join(board.Service.Store.Home.State, "runs.audit"))
+	if err != nil || !strings.Contains(string(audit), runs[0].ID+" "+runs[0].ScriptSum+" started from cfo reply "+message.ID) {
+		t.Fatalf("audit = %q, %v", audit, err)
+	}
+}
+
+func TestRunOfTheCFOsReplyIsRefusedForAnotherTerminal(t *testing.T) {
+	// Arrange
+	board, meta, transcript := codeRunBoard(t, "```powershell\nGet-Date\n```")
+	registerNativeCFO(t, board.Service.Store.Home.State, "codex", meta.ID+"-session")
+	message, block := replyHolding(t, board, transcript, "```p")
+
+	// Act
+	response := requestCodeRun(board, map[string]any{"cfo": "another-terminal", "message": message.ID, "block": block, "fence": 0})
+
+	// Assert
+	assertNothingRan(t, board, response, http.StatusConflict)
+}
+
+func TestRunStartsOneTerminalWhileTheBlocksFirstRunStillRuns(t *testing.T) {
+	for _, test := range []struct {
+		firstState string
+		isRunAgain bool
+	}{
+		{"ready", false},
+		{"running", false},
+		{"succeeded", true},
+		{"failed", true},
+		{"stopped", true},
+	} {
+		t.Run(test.firstState, func(t *testing.T) {
+			// Arrange
+			board, meta, transcript := codeRunBoard(t, "```powershell\nGet-Date\n```")
+			message, block := replyHolding(t, board, transcript, "```p")
+			if first := requestCodeRun(board, codeRunBody(meta, message.ID, block, 0)); first.Code != http.StatusOK {
+				t.Fatalf("first code run = %d %s", first.Code, first.Body)
+			}
+			store := board.Service.Store
+			store.mu.Lock()
+			store.db.Runs[0].State = test.firstState
+			err := store.save()
+			store.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			second := requestCodeRun(board, codeRunBody(meta, message.ID, block, 0))
+
+			// Assert
+			runs := store.Snapshot().Runs
+			if test.isRunAgain {
+				if second.Code != http.StatusOK || len(runs) != 2 || runs[1].ID == runs[0].ID || runs[1].Command != "Get-Date" {
+					t.Fatalf("second code run = %d %s, runs %+v; want a second run once the first ended", second.Code, second.Body, runs)
+				}
+				return
+			}
+			if second.Code != http.StatusConflict || !strings.Contains(second.Body.String(), "still runs") || len(runs) != 1 {
+				t.Fatalf("second code run = %d %s, runs %+v; want it refused while the first still runs", second.Code, second.Body, runs)
+			}
+		})
 	}
 }
 

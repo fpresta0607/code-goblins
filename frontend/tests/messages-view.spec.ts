@@ -1284,7 +1284,7 @@ for (const { label, viewport, isTouch } of [
         await route.fulfill({ json: { run_id: CODE_RUN.id } });
       });
       await openCfo(page);
-      const talk = list(page, "CFO");
+      const talk = list(page, "CEO");
       await expect(talk).toContainText("Run this:");
       const runs = talk.getByRole("button", { name: "Run", exact: true });
 
@@ -1326,7 +1326,7 @@ for (const { label, viewport, isTouch } of [
       await page.evaluate((talk) => Object.assign(window, { fixtureCfoPage: talk }), CODE_TALK);
       await page.route("**/api/code-run", (route) => route.fulfill({ status: 409, json: { error: "That command still runs from this reply; wait for it to end." } }));
       await openCfo(page);
-      const block = list(page, "CFO").locator(".message-code").filter({ hasText: "Get-Date" });
+      const block = list(page, "CEO").locator(".message-code").filter({ hasText: "Get-Date" });
 
       // Act
       const run = block.getByRole("button", { name: "Run", exact: true });
@@ -1340,3 +1340,29 @@ for (const { label, viewport, isTouch } of [
     });
   });
 }
+
+test("the newest reply of a session that works has no Run until its turn ends, and an earlier reply keeps its Run", async ({ page }) => {
+  // Arrange: an earlier reply and the newest one each hold a PowerShell block.
+  await open(page);
+  const talk = { ...CODE_TALK, messages: [...CODE_TALK.messages, reply(2, { kind: "text", text: "Still writing:\n\n```powershell\nGet-Process\n```" })] };
+  await page.evaluate((each) => Object.assign(window, { fixtureCfoPage: each }), talk);
+  await openCfo(page);
+  const view = list(page, "CEO");
+  await expect(view).toContainText("Still writing:");
+  const newest = view.locator(".message-code").filter({ hasText: "Get-Process" });
+  const earlier = view.locator(".message-code").filter({ hasText: "Get-Date" });
+
+  // Act: the stream says the newest turn runs.
+  await send(page, "session", { conversation: "fixture-conversation", turn: "m2", state: "running", newest: 2, head: 2 });
+
+  // Assert
+  await expect(newest.getByRole("button", { name: "Run", exact: true })).toHaveCount(0);
+  await expect(newest.getByRole("button", { name: "Copy" })).toHaveCount(1);
+  await expect(earlier.getByRole("button", { name: "Run", exact: true })).toHaveCount(1);
+
+  // Act: the turn ends.
+  await send(page, "session", { conversation: "fixture-conversation", turn: "m2", state: "ended", newest: 2, head: 2 });
+
+  // Assert
+  await expect(newest.getByRole("button", { name: "Run", exact: true })).toHaveCount(1);
+});
