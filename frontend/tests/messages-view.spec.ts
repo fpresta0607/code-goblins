@@ -711,15 +711,20 @@ test("a prompt its harness holds before the board's snapshot shows its message t
 });
 
 // A message whose delivery ended with no take seen says what happened on its
-// own bubble, never that it is still on its way, and Send again sends its
-// words as a new message; one older than what he sent since and saw land is
-// not drawn (#2242).
-for (const [status, label] of [["failed", "Not sent"], ["uncertain", "Not confirmed"]] as const) {
-  test(`a message that ended ${status} reads ${label} on its bubble and Send again sends its words once more`, async ({ page }) => {
+// own bubble, never that it is still on its way. One typed and never seen
+// taken may have arrived, so Send again sends its words as a new message and
+// its row gives way to that one's; one that was not sent is still the
+// board's, so Send now sends that same message (#2306). One older than what
+// he sent since and saw land is not drawn (#2242).
+for (const [status, label, press, asks, rowsLeft] of [
+  ["failed", "Not sent", "Send now", { kind: "message_now", task_id: "cg-touch", target: "a1" }, 1],
+  ["uncertain", "Not confirmed", "Send again", { kind: "message", task_id: "cg-touch", text: "claude doctor" }, 0],
+] as const) {
+  test(`a message that ended ${status} reads ${label} on its bubble and ${press} sends it once more`, async ({ page }) => {
     // Arrange
-    const posted: { kind: string; task_id: string; text: string }[] = [];
+    const posted: object[] = [];
     await open(page);
-    await page.route("**/api/actions", (route) => { posted.push(route.request().postDataJSON() as { kind: string; task_id: string; text: string }); return route.fulfill({ status: 202, json: {} }); });
+    await page.route("**/api/actions", (route) => { posted.push(route.request().postDataJSON() as object); return route.fulfill({ status: 202, json: {} }); });
     await openGoblin(page);
     const talk = list(page, "Zeke - Touch Wrangler");
     const later = "2026-10-22T09:05:00Z", earlier = "2026-10-22T08:00:00Z";
@@ -736,12 +741,12 @@ for (const [status, label] of [["failed", "Not sent"], ["uncertain", "Not confir
     await expect(talk.locator(".queued-message.pane").filter({ hasText: "an old one" })).toHaveCount(0);
 
     // Act
-    await row.getByRole("button", { name: "Send again" }).click();
+    await row.getByRole("button", { name: press }).click();
 
     // Assert
     await expect.poll(() => posted.length).toBe(1);
-    expect(posted[0]).toMatchObject({ kind: "message", task_id: "cg-touch", text: "claude doctor" });
-    await expect(row).toHaveCount(0);
+    expect(posted[0]).toMatchObject(asks);
+    await expect(row).toHaveCount(rowsLeft);
   });
 }
 
@@ -769,7 +774,7 @@ for (const { why, action, others } of [
     // Assert
     await expect(talk.locator(".queued-message.pane").filter({ hasText: "the newest one" })).toContainText("Not sent");
     await expect(talk.locator(".queued-message.pane").filter({ hasText: "the put away one" })).toHaveCount(0);
-    await expect(talk.getByRole("button", { name: "Send again" })).toHaveCount(1);
+    await expect(talk.getByRole("button", { name: /^Send (now|again)$/ })).toHaveCount(1);
   });
 }
 
@@ -798,7 +803,7 @@ for (const { what, typed, row } of [
     // Assert
     const ending = talk.locator(".queued-message.pane").filter({ hasText: "the later one" });
     await expect(ending).toContainText("Not sent");
-    await expect(ending.getByRole("button", { name: "Send again" })).toHaveCount(1);
+    await expect(ending.getByRole("button", { name: "Send now" })).toHaveCount(1);
   });
 }
 
@@ -821,7 +826,7 @@ test("a later message still on its way whose row landed puts an earlier undelive
   // Assert
   await expect(talk.locator(".queued-message.pane").filter({ hasText: "the later one" })).toHaveCount(0);
   await expect(talk.locator(".queued-message.pane").filter({ hasText: "the ended one" })).toHaveCount(0);
-  await expect(talk.getByRole("button", { name: "Send again" })).toHaveCount(0);
+  await expect(talk.getByRole("button", { name: /^Send (now|again)$/ })).toHaveCount(0);
 });
 
 test("a prompt its harness holds before any snapshot carries its message is one row", async ({ page }) => {
