@@ -3,9 +3,9 @@
 // run, on the Dev Drive the fleet's worktrees, scratch and caches moved to.
 //
 // The home moves whole and NM_HOME names it, never a junction at the old
-// path: Go's filepath.EvalSymlinks fails below a junction that crosses to
-// another volume, which broke the gate's test preparation when the gate home
-// was linked into the Dev Drive by hand on 2026-11-09 (no-mistakes #172).
+// path: Go's filepath.EvalSymlinks fails below any directory junction, which
+// broke the gate's test preparation when the gate home was linked into the
+// Dev Drive by hand on 2026-11-09 (no-mistakes #172).
 package gatehome
 
 import (
