@@ -133,6 +133,13 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintf(stderr, "cfo spawn: %v: brief changed after the supervisor selected its launch choices\n", fleet.ErrBriefNotReady)
 		return 1
 	}
+	// The brief's Delivery mode is the one its readiness validated and its
+	// author chose, so a spawn that asks for another starts nothing: the mode
+	// is changed in the brief.
+	if named := fleet.BriefDelivery(briefText)["mode"]; *parent == "" && *mode != "" && *mode != named {
+		fmt.Fprintf(stderr, "cfo spawn: --mode %s differs from the brief's Delivery mode %s: change the mode: line under the brief's Delivery heading, or leave --mode out\n", *mode, named)
+		return 1
+	}
 	var delivery *projectcfg.DeliverySelection
 	if *parent == "" {
 		manifest, _, readErr := projectcfg.LoadForCheckout(h.Data, checkout)
