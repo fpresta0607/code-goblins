@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isPendingMessage, messageState, messagesTo, takesMessages, withTakenCommands } from "./messages.ts";
+import { isPendingMessage, messageState, messagesTo, sameWords, takesMessages, withTakenCommands } from "./messages.ts";
 import type { SessionMessage } from "./session-messages.ts";
 import { parseSnapshot, type Snapshot, type Task } from "./types.ts";
 
@@ -90,4 +90,17 @@ test("a slash command a harness records nothing of is drawn where it was taken",
   assert.deepEqual(drawn([taken], "pi", [...conversation, row("m4", "2026-11-09T14:01:01Z", "/status")]).filter((each) => each.endsWith("/status")), ["m4 /status"]);
   assert.deepEqual(drawn([{ ...taken, created_at: "2026-11-09T13:00:00Z", updated_at: "2026-11-09T13:00:02Z" }], "codex"), ["m1 check the build", "m2 It builds.", "m3 now the tests"]);
   assert.deepEqual(drawn([taken], "pi", []), []);
+});
+
+test("a ! command is the same words with or without a space after its !, and never its words alone", () => {
+  // Arrange
+  const cases = [
+    { one: "! claude doctor", other: "!claude doctor", isSame: true },
+    { one: "!  claude   doctor ", other: "!claude doctor", isSame: true },
+    { one: "! claude doctor", other: "claude doctor", isSame: false },
+    { one: "say ! loudly", other: "say !loudly", isSame: false },
+  ];
+
+  // Act and Assert
+  for (const { one, other, isSame } of cases) assert.equal(sameWords(one, other), isSame, `${one} | ${other}`);
 });

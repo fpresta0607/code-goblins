@@ -73,7 +73,10 @@ export function withTakenCommands(messages: SessionMessage[], sent: Action[], ha
   return rows;
 }
 
-// sameWords says two texts are the same words, however each is spaced.
+// sameWords says two texts are the same words, however each is spaced, a !
+// command's ! included: Claude Code runs "! X" and "!X" alike, and its row
+// reads "!X" (#2242).
 export function sameWords(one: string, other: string): boolean {
-  return one.trim().split(/\s+/).join(" ") === other.trim().split(/\s+/).join(" ");
+  const words = (text: string) => text.trim().replace(/^!\s+/, "!").split(/\s+/).join(" ");
+  return words(one) === words(other);
 }

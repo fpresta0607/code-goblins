@@ -775,24 +775,53 @@ for (const { why, action, others } of [
 
 // A message he sent before the one that ended, which the harness queued and
 // recorded only after it, landed later but was not sent after it, so the one
-// that ended still says so (#2242).
-test("a message sent earlier whose row lands later leaves a later undelivered message drawn", async ({ page }) => {
+// that ended still says so (#2242). A ! command he typed with a space after
+// its ! lands as a shell row of the words after it, which is still that
+// message's row.
+for (const { what, typed, row } of [
+  { what: "a message", typed: "the earlier one", row: { source: "overlord", text: "the earlier one" } },
+  { what: "a ! command", typed: "! claude doctor", row: { source: "shell", text: "claude doctor" } },
+] as const) {
+  test(`${what} sent earlier whose row lands later leaves a later undelivered message drawn`, async ({ page }) => {
+    // Arrange
+    await open(page);
+    await openGoblin(page);
+    const talk = list(page, "Zeke - Touch Wrangler");
+    await send(page, "page", { conversation: "fixture-conversation", messages: [message(0, { ...row, at: "2026-10-22T09:00:00Z" })], more: false });
+    await expect(talk.locator(".message-prompt .message-bubble").filter({ hasText: row.text })).toHaveCount(1);
+    const earlier = { id: "a1", kind: "message", task_id: "cg-touch", text: typed, status: "succeeded", message: "Taken.", awaiting: "", created_at: "2026-10-22T08:55:00Z", updated_at: "2026-10-22T09:00:30Z" };
+    const ended = { id: "a2", kind: "message", task_id: "cg-touch", text: "the later one", status: "failed", message: "The terminal closed before it took it.", awaiting: "", created_at: "2026-10-22T08:58:00Z", updated_at: "2026-10-22T08:58:30Z" };
+
+    // Act
+    await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [earlier, ended] });
+
+    // Assert
+    const ending = talk.locator(".queued-message.pane").filter({ hasText: "the later one" });
+    await expect(ending).toContainText("Not sent");
+    await expect(ending.getByRole("button", { name: "Send again" })).toHaveCount(1);
+  });
+}
+
+// A message he sent after the one that ended, still on its way, whose row
+// has landed, puts the one that ended away, as a landed row he typed in the
+// terminal does (#2242).
+test("a later message still on its way whose row landed puts an earlier undelivered message away", async ({ page }) => {
   // Arrange
   await open(page);
   await openGoblin(page);
   const talk = list(page, "Zeke - Touch Wrangler");
-  await send(page, "page", { conversation: "fixture-conversation", messages: [message(0, { source: "overlord", at: "2026-10-22T09:00:00Z", text: "the earlier one" })], more: false });
-  await expect(talk.locator(".message-prompt .message-bubble").filter({ hasText: "the earlier one" })).toHaveCount(1);
-  const earlier = { id: "a1", kind: "message", task_id: "cg-touch", text: "the earlier one", status: "succeeded", message: "Taken.", awaiting: "", created_at: "2026-10-22T08:55:00Z", updated_at: "2026-10-22T09:00:30Z" };
-  const ended = { id: "a2", kind: "message", task_id: "cg-touch", text: "the later one", status: "failed", message: "The terminal closed before it took it.", awaiting: "", created_at: "2026-10-22T08:58:00Z", updated_at: "2026-10-22T08:58:30Z" };
+  await send(page, "page", { conversation: "fixture-conversation", messages: [message(0, { source: "overlord", at: "2026-10-22T09:00:00Z", text: "the later one" })], more: false });
+  await expect(talk.locator(".message-prompt .message-bubble").filter({ hasText: "the later one" })).toHaveCount(1);
+  const ended = { id: "a1", kind: "message", task_id: "cg-touch", text: "the ended one", status: "failed", message: "The terminal closed before it took it.", awaiting: "", created_at: "2026-10-22T08:00:00Z", updated_at: "2026-10-22T08:00:30Z" };
+  const later = { id: "a2", kind: "message", task_id: "cg-touch", text: "the later one", status: "running", message: "Typed for Zeke.", awaiting: { task: "cg-touch" }, created_at: "2026-10-22T08:55:00Z", updated_at: "2026-10-22T08:55:00Z" };
 
   // Act
-  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [earlier, ended] });
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [ended, later] });
 
   // Assert
-  const row = talk.locator(".queued-message.pane").filter({ hasText: "the later one" });
-  await expect(row).toContainText("Not sent");
-  await expect(row.getByRole("button", { name: "Send again" })).toHaveCount(1);
+  await expect(talk.locator(".queued-message.pane").filter({ hasText: "the later one" })).toHaveCount(0);
+  await expect(talk.locator(".queued-message.pane").filter({ hasText: "the ended one" })).toHaveCount(0);
+  await expect(talk.getByRole("button", { name: "Send again" })).toHaveCount(0);
 });
 
 test("a prompt its harness holds before any snapshot carries its message is one row", async ({ page }) => {
