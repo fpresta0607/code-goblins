@@ -210,8 +210,10 @@ func startupRank(name string) int {
 // changed. The rulings and the fact index are one entry a line, since each
 // line is ruled, tiered and scoped by itself; any other file is one entry,
 // which keeps what the catalog said of it when it was one entry before. A
-// file that ends in a marker the contract keeps warm loads, whatever the
-// catalog said of it before, so no sync stops on a file nobody tagged.
+// file that ends in a marker the contract keeps warm loads, and so does one
+// its own marker pins unless its entry carries an approval of its own,
+// whatever the catalog said of either before, so no sync stops on a file
+// nobody tagged.
 func deriveEntries(name string, content []byte, previous []Entry, used map[string]bool, now time.Time) []Entry {
 	switch {
 	case len(content) == 0:
@@ -248,7 +250,7 @@ func deriveEntries(name string, content []byte, previous []Entry, used map[strin
 	}
 	entry.Start, entry.End, entry.SHA256 = 0, len(content), Hash(content)
 	// A marker that does not read is left for the load to report.
-	if status, err := statusOf(name, entry, content, literalBytes(content), now); err == nil && status.keepsWarm() {
+	if status, err := statusOf(name, entry, content, literalBytes(content), now); err == nil && (status.keepsWarm() || entry.Approval == nil && needsApproval(name, entry, status)) {
 		entry.Location = "warm"
 	}
 	return []Entry{entry}

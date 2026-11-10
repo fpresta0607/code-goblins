@@ -49,7 +49,8 @@ A ruling no scope has been ruled for loads at every start, and startup says how 
 Each line of `overlord.md` that is not a heading, a comment or blank is one entry, under the id `cfo memory recall` prints for that ruling; a repeated line takes `-2`, `-3` after its id.
 A heading and what follows it belong to the entry of the first ruling below, and blank lines and comments to the ruling above, so every byte is in one entry.
 Each line of `memory/MEMORY.md` is one warm entry, a fact file is one cold fact found by its description and its `metadata.type`, `memory-archive.md` is one cold history range and `projects.md` one warm entry.
-A fact file that ends in a pending-capture, grace or perishable marker is warm instead, when it is new to the catalog and when the one entry it had was cold, since those tiers stay loaded; ruling such an entry for a project is still refused, with the entry named.
+A fact file that ends in a pinned, pending-capture, grace or perishable marker is warm instead, when it is new to the catalog and when the one entry it had was cold, since those tiers stay loaded and a pinned item leaves startup only on its own approval.
+A pinned fact whose entry carries its own approval keeps the location the catalog gave it, the archive's history stays cold whatever its lines carry, and ruling a fact kept warm this way for a project is still refused, with the entry named.
 A fact the index pins loads unless that entry carries its own approval.
 A file that has not changed keeps its entries as they were set, a line that is still there keeps its scope by its id, and words the catalog has not seen load until a scope is ruled for them.
 A scope whose words are no longer in memory is named in the command's report.

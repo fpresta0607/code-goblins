@@ -640,11 +640,13 @@ func TestSyncKeepsALineFilesOnlyEntryUnderItsIDWhenALineJoinsIt(t *testing.T) {
 
 func TestSyncLoadsAFactFileWhoseMarkerTheContractKeepsWarm(t *testing.T) {
 	// Oracle: the catalog schema: pending capture, grace and perishable
-	// entries stay warm, so a sync derives them warm and stops on none.
-	for name, test := range map[string]struct{ marker, expiry string }{
-		"pending capture": {"<!--t:team-->", ""},
-		"grace":           {"<!--g-->", ""},
-		"perishable":      {"<!--p:2026-10-30-->", "until task-7 lands"},
+	// entries stay warm and a pinned item is cold only on its own approval,
+	// so a sync derives them warm and stops on none.
+	for name, test := range map[string]struct{ marker, expiry, refusal string }{
+		"pending capture": {"<!--t:team-->", "", "must remain warm"},
+		"grace":           {"<!--g-->", "", "must remain warm"},
+		"perishable":      {"<!--p:2026-10-30-->", "until task-7 lands", "must remain warm"},
+		"pinned":          {"<!--P-->", "", "pinned offload requires this named item's verbatim Overlord approval"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -674,7 +676,7 @@ func TestSyncLoadsAFactFileWhoseMarkerTheContractKeepsWarm(t *testing.T) {
 			}
 			before := agedCatalog(t, dataDir)
 			_, err = Scope(dataDir, stateDir, referenceDate, Tag{IDs: []string{"tide"}, Projects: []string{"harbor"}})
-			if err == nil || !strings.Contains(err.Error(), "memory tide: ") || !strings.Contains(err.Error(), "must remain warm") {
+			if err == nil || !strings.Contains(err.Error(), "memory tide: ") || !strings.Contains(err.Error(), test.refusal) {
 				t.Fatalf("ruling the fact for a project was not refused with the entry named: %v", err)
 			}
 			requireCatalogNeverWritten(t, dataDir, before)
@@ -683,38 +685,152 @@ func TestSyncLoadsAFactFileWhoseMarkerTheContractKeepsWarm(t *testing.T) {
 }
 
 func TestSyncLoadsAColdFactThatGainsAMarkerTheContractKeepsWarm(t *testing.T) {
-	// Arrange
+	for name, marker := range map[string]string{"grace": "<!--g-->", "pinned": "<!--P-->"} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dataDir, stateDir := scopedHome(t)
+			if _, err := Sync(dataDir, stateDir, referenceDate); err != nil {
+				t.Fatal(err)
+			}
+			synced, err := Load(dataDir, referenceDate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cache := entryOf(t, synced, "cache"); cache.Location != "cold" {
+				t.Fatalf("the fact was not synced cold, so this test proves nothing: %+v", cache)
+			}
+			cache, err := os.ReadFile(filepath.Join(dataDir, "memory", "cache.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeMemoryFile(t, dataDir, "memory/cache.md", append(cache, []byte(marker+"\n")...))
+
+			// Act
+			report, err := Sync(dataDir, stateDir, referenceDate)
+
+			// Assert
+			if err != nil || report.Added != 0 || len(report.Dropped) != 0 {
+				t.Fatalf("a fact that gained the marker stopped the sync or was taken for a new one: %+v, %v", report, err)
+			}
+			catalog, err := Load(dataDir, referenceDate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			startup, err := catalog.StartupMap()
+			if err != nil || !strings.Contains(startup, "Use the second drive.") {
+				t.Fatalf("the fact does not load at startup once it carries the marker: %q, %v", startup, err)
+			}
+		})
+	}
+}
+
+func TestSyncLoadsASelfPinnedFactFileOnItsFirstSyncAndLeavesTheArchiveCold(t *testing.T) {
+	// Oracle: the catalog schema: a pinned item is cold only on its own
+	// approval, and the archive's range is cold whatever its lines carry.
+	// Arrange: a fact that ends in the pinned marker, which no index line
+	// pins, and an archive whose last line was pinned when it was archived.
 	dataDir, stateDir := scopedHome(t)
-	if _, err := Sync(dataDir, stateDir, referenceDate); err != nil {
-		t.Fatal(err)
-	}
-	synced, err := Load(dataDir, referenceDate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cache := entryOf(t, synced, "cache"); cache.Location != "cold" {
-		t.Fatalf("the fact was not synced cold, so this test proves nothing: %+v", cache)
-	}
-	cache, err := os.ReadFile(filepath.Join(dataDir, "memory", "cache.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeMemoryFile(t, dataDir, "memory/cache.md", append(cache, []byte("<!--g-->\n")...))
+	const tide = "---\nname: tide\ndescription: The tide table is in the office\nmetadata:\n  type: reference\n---\n\nAsk the office for the tide table. <!--P-->\n"
+	writeMemoryFile(t, dataDir, "memory/tide.md", []byte(tide))
+	writeMemoryFile(t, dataDir, "memory-archive.md", []byte("## Archived 2026-09-01\n\n- An old port note <!--P-->\n"))
 
 	// Act
-	report, err := Sync(dataDir, stateDir, referenceDate)
+	_, err := Sync(dataDir, stateDir, referenceDate)
 
 	// Assert
-	if err != nil || report.Added != 0 || len(report.Dropped) != 0 {
-		t.Fatalf("a fact that gained a grace marker stopped the sync or was taken for a new one: %+v, %v", report, err)
+	if err != nil {
+		t.Fatalf("a self-pinned fact file stopped the first sync: %v", err)
 	}
 	catalog, err := Load(dataDir, referenceDate)
 	if err != nil {
 		t.Fatal(err)
 	}
 	startup, err := catalog.StartupMap()
-	if err != nil || !strings.Contains(startup, "Use the second drive.") {
-		t.Fatalf("the fact does not load at startup once it is in grace: %q, %v", startup, err)
+	if err != nil || !strings.Contains(startup, "[tide]\n"+tide) {
+		t.Fatalf("the startup map does not hold the fact's id and exact bytes: %q, %v", startup, err)
+	}
+	if archive := entryOf(t, catalog, "memory-archive"); archive.Location != "cold" || strings.Contains(startup, "An old port note") {
+		t.Fatalf("the archive did not sync cold: %+v, %q", archive, startup)
+	}
+}
+
+func TestSyncKeepsAPinnedFactColdWhenItsEntryCarriesItsOwnApproval(t *testing.T) {
+	// Arrange: the fixture's approved offload, as a fact whose file then
+	// gains the pinned marker.
+	dataDir, catalog := catalogFixture(t)
+	stateDir := t.TempDir()
+	catalog.Sources[3].Entries[0].Authority = "fact"
+	writeCatalog(t, dataDir, catalog)
+	if _, err := Load(dataDir, referenceDate); err != nil {
+		t.Fatalf("the fixture does not load, so this test proves nothing: %v", err)
+	}
+	const pinned = "A completed investigation. <!--P-->\n"
+	writeMemoryFile(t, dataDir, "memory/history.md", []byte(pinned))
+
+	// Act
+	_, err := Sync(dataDir, stateDir, referenceDate)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("an approved pinned offload stopped the sync: %v", err)
+	}
+	synced, err := Load(dataDir, referenceDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startup, err := synced.StartupMap()
+	if kept := entryOf(t, synced, "history"); err != nil || kept.Location != "cold" || kept.Approval == nil || strings.Contains(startup, "A completed investigation.") {
+		t.Fatalf("an approved pinned fact did not stay cold with its approval: %+v, %q, %v", kept, startup, err)
+	}
+	exact, err := synced.Retrieve(Query{ID: "history"})
+	if err != nil || !strings.Contains(exact, " tier=pinned ") || !strings.HasSuffix(exact, "\n"+pinned+"\n") {
+		t.Fatalf("the approved pinned fact is not retrievable verbatim by its id: %q, %v", exact, err)
+	}
+}
+
+func TestSyncNumbersANewFactWhoseNameAnotherFilesEntryAlreadyHas(t *testing.T) {
+	// Oracle: the catalog schema: an id is unique, so a second entry of the
+	// same name takes a number and the first keeps the id it is retrieved by.
+	for name, edited := range map[string]string{
+		"the first file unchanged": "",
+		"the first file edited":    "- lighthouse: the lighthouse service\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dataDir, stateDir := scopedHome(t)
+			const projects = "# Projects\n\n- harbor: the harbor service\n"
+			writeMemoryFile(t, dataDir, "projects.md", []byte(projects))
+			if _, err := Sync(dataDir, stateDir, referenceDate); err != nil {
+				t.Fatal(err)
+			}
+			writeMemoryFile(t, dataDir, "projects.md", []byte(projects+edited))
+			writeMemoryFile(t, dataDir, "memory/projects.md", []byte("---\nname: projects\ndescription: How the project map is kept\nmetadata:\n  type: reference\n---\n\nOne line a project.\n"))
+
+			// Act
+			report, err := Sync(dataDir, stateDir, referenceDate)
+
+			// Assert
+			if err != nil || report.Added != 1 || len(report.Dropped) != 0 {
+				t.Fatalf("the sync did not add the one new fact and drop nothing: %+v, %v", report, err)
+			}
+			catalog, err := Load(dataDir, referenceDate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids := map[string]string{}
+			for _, source := range catalog.Sources {
+				if len(source.Entries) == 1 {
+					ids[source.Path] = source.Entries[0].ID
+				}
+			}
+			if ids["projects.md"] != "projects" || ids["memory/projects.md"] != "projects-2" {
+				t.Fatalf("the project map did not keep its id with the new fact numbered after it: %v", ids)
+			}
+			exact, err := catalog.Retrieve(Query{ID: "projects"})
+			if err != nil || !strings.HasSuffix(exact, "\n"+projects+edited+"\n") {
+				t.Fatalf("the id no longer retrieves the project map: %q, %v", exact, err)
+			}
+		})
 	}
 }
 

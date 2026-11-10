@@ -359,6 +359,17 @@ func (status Status) keepsWarm() bool {
 	return status.PendingCapture != "" || status.IsGrace || status.Tier == "perishable"
 }
 
+// needsApproval reports an entry that leaves startup only on its own
+// approval: a pinned item, and a ruling of overlord.md. History the archive
+// already owns is cold without one, and so is a ruling routed to a project,
+// which stays verbatim at its range and one retrieval away, a class the
+// contract admits.
+func needsApproval(source string, entry Entry, status Status) bool {
+	isExistingArchive := source == "memory-archive.md" && entry.Authority == "history"
+	isProjectRuling := source == "overlord.md" && len(entry.Projects) > 0
+	return (status.Tier == "pinned" || source == "overlord.md") && !isExistingArchive && !isProjectRuling
+}
+
 func validateEntry(source string, entry Entry, content []byte, status Status, now time.Time) error {
 	if !slices.Contains([]string{"", "active", "held", "completed"}, entry.TaskState) {
 		return errors.New("invalid task_state; use active, held or completed")
@@ -389,12 +400,7 @@ func validateEntry(source string, entry Entry, content []byte, status Status, no
 		if status.keepsWarm() || status.IsLegacy && isLoadedWithoutACatalog {
 			return errors.New("pending capture, grace, legacy or perishable memory must remain warm")
 		}
-		isExistingArchive := source == "memory-archive.md" && entry.Authority == "history"
-		// A ruling routed to a project stays verbatim at its range and one
-		// retrieval away, which the contract admits as a class; every other
-		// cold ruling needs its own approval.
-		isProjectRuling := source == "overlord.md" && len(entry.Projects) > 0
-		if (status.Tier == "pinned" || source == "overlord.md") && !isExistingArchive && !isProjectRuling {
+		if needsApproval(source, entry, status) {
 			approval := entry.Approval
 			if approval == nil || approval.By != "Overlord" || approval.Destination != source+"#"+entry.ID {
 				return errors.New("pinned offload requires this named item's verbatim Overlord approval and live source destination")
