@@ -70,19 +70,29 @@ func TestProcessChildReadsInheritedCaptureWithoutAPathInItsCommand(t *testing.T)
 		Listeners:   func() (map[int][]int, error) { return nil, nil },
 		CommandLine: func(int) (string, error) { return "output-fixture.exe go test ./...", nil },
 	}
-	var got Output
-	for attempt := 0; attempt < 50; attempt++ {
-		_, err = reader.Read(context.Background(), Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "claude"}, HarnessPID: 100})
+	// The fixture is a program Windows meets at a new path, and it has been
+	// seen to take seconds to start and write (#1916). The wait is on the
+	// fixture having written, so a slow start never reads as a reader that
+	// misses inherited output.
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
+		written, err := os.ReadFile(output)
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, err = reader.ChildOutput("tree", fmt.Sprintf("process:%d:60", command.Process.Pid))
-		if slices.Contains(got.Lines, "inherited capture") {
-			return
+		if strings.Contains(string(written), "inherited capture\n") {
+			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		if !time.Now().Before(deadline) {
+			t.Fatalf("the fixture wrote %q within a minute, want %q", written, "inherited capture\n")
+		}
 	}
-	t.Fatalf("did not find inherited stdout: %q, %v", got.Lines, err)
+	if _, err := reader.Read(context.Background(), Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "claude"}, HarnessPID: 100}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := reader.ChildOutput("tree", fmt.Sprintf("process:%d:60", command.Process.Pid))
+	if err != nil || !slices.Contains(got.Lines, "inherited capture") {
+		t.Fatalf("did not find inherited stdout: %q, %v", got.Lines, err)
+	}
 }
 
 func TestProcessChildReadsItsOwnRedirectedOutputForEachHarness(t *testing.T) {
