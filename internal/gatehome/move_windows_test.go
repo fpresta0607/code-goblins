@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
@@ -386,9 +388,10 @@ func TestMoveRefusesBeforeTouchingTheDaemon(t *testing.T) {
 			want: "and the move carries only a junction to ",
 		},
 		{
-			name: "a link that leads elsewhere",
+			name: "a link into the Dev Drive's gate home that leads to another place there",
 			arrange: func(t *testing.T, s scratch) {
-				elsewhere := filepath.Join(s.devDrive, "elsewhere")
+				elsewhere := filepath.Join(s.target, "elsewhere")
+				mustMkdir(t, s.target)
 				if err := os.Rename(filepath.Join(s.old, "logs"), elsewhere); err != nil {
 					t.Fatal(err)
 				}
@@ -533,6 +536,159 @@ func TestAFailedStartOfAHomeThatIsAJunctionLeavesItAsItWas(t *testing.T) {
 	if got := gitOutput(t, s.checkout, "remote", "get-url", "no-mistakes"); got != s.repository {
 		t.Errorf("no-mistakes remote = %q, want it back at %q", got, s.repository)
 	}
+}
+
+// runLinks is a finished run's checkout in the scratch home, as pnpm and
+// Next.js leave one: a folder inside it that its links lead to, and a folder
+// beside the home that others lead out to.
+type runLinks struct {
+	checkout, inside, outside string
+}
+
+func newRunLinks(t *testing.T, s scratch) runLinks {
+	t.Helper()
+	checkout := filepath.Join(s.old, "worktrees", "a1", "r1")
+	links := runLinks{checkout: checkout, inside: filepath.Join(checkout, "node_modules", ".pnpm", "pkg"), outside: filepath.Join(filepath.Dir(s.checkout), "outside")}
+	writeFile(t, filepath.Join(links.inside, "index.js"), "inside\n")
+	writeFile(t, filepath.Join(links.outside, "package.json"), "outside\n")
+	return links
+}
+
+// withJunctions gives the checkout a junction to the folder inside it and
+// one to the folder outside the home.
+func (l runLinks) withJunctions(t *testing.T) {
+	t.Helper()
+	junction(t, filepath.Join(l.checkout, "node_modules", "pkg"), l.inside)
+	junction(t, filepath.Join(l.checkout, "linked-outside"), l.outside)
+}
+
+// symlinkOrSkip makes a folder's symbolic link, or skips the test on an
+// account without the privilege to make one.
+func symlinkOrSkip(t *testing.T, link, target string) {
+	t.Helper()
+	mustMkdir(t, filepath.Dir(link))
+	if err := os.Symlink(target, link); errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD) {
+		t.Skipf("this account may not make symbolic links: %v", err)
+	} else if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// assertLink fails unless path is a link of the kind given that leads to
+// target.
+func assertLink(t *testing.T, path, target string, isJunction bool) {
+	t.Helper()
+	linked, isLink := linkTarget(path)
+	if !isLink || linked != target {
+		t.Errorf("%s leads to %q (a link %v), want %q", path, linked, isLink, target)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isSymlink := info.Mode()&os.ModeSymlink != 0; isSymlink == isJunction {
+		t.Errorf("%s is a symbolic link %v, want a junction %v", path, isSymlink, isJunction)
+	}
+}
+
+func TestMoveCarriesTheJunctionsOfARunCheckoutAsJunctions(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	links := newRunLinks(t, s)
+	links.withJunctions(t)
+
+	// Act
+	_, _, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(s.target, "worktrees", "a1", "r1")
+	assertLink(t, filepath.Join(moved, "node_modules", "pkg"), filepath.Join(moved, "node_modules", ".pnpm", "pkg"), true)
+	assertLink(t, filepath.Join(moved, "linked-outside"), links.outside, true)
+	assertFile(t, filepath.Join(moved, "node_modules", "pkg", "index.js"), "inside\n")
+	assertFile(t, filepath.Join(links.outside, "package.json"), "outside\n")
+	if _, err := os.Lstat(s.old); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the old home is still there: %v", err)
+	}
+}
+
+func TestMoveCarriesTheSymbolicLinksOfARunCheckoutAsSymbolicLinks(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	links := newRunLinks(t, s)
+	relative := filepath.Join("..", "..", "node_modules", ".pnpm", "pkg")
+	symlinkOrSkip(t, filepath.Join(links.checkout, ".next", "node_modules", "pkg"), relative)
+	symlinkOrSkip(t, filepath.Join(links.checkout, "outside-link"), links.outside)
+
+	// Act
+	_, _, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(s.target, "worktrees", "a1", "r1")
+	assertLink(t, filepath.Join(moved, ".next", "node_modules", "pkg"), relative, false)
+	assertLink(t, filepath.Join(moved, "outside-link"), links.outside, false)
+	assertFile(t, filepath.Join(moved, ".next", "node_modules", "pkg", "index.js"), "inside\n")
+	assertFile(t, filepath.Join(moved, "outside-link", "package.json"), "outside\n")
+	assertFile(t, filepath.Join(links.outside, "package.json"), "outside\n")
+	if _, err := os.Lstat(s.old); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the old home is still there: %v", err)
+	}
+}
+
+func TestALinkThatCannotBeMadeAgainUndoesTheMove(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	links := newRunLinks(t, s)
+	links.withJunctions(t)
+	refused := filepath.Join(links.checkout, "linked-outside")
+	makeLink = func(path, target string, isJunction, isDirectory bool) error {
+		if filepath.Base(path) == "linked-outside" {
+			return errors.New("refused for the test")
+		}
+		return createLink(path, target, isJunction, isDirectory)
+	}
+	t.Cleanup(func() { makeLink = createLink })
+
+	// Act
+	_, isCarried, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err == nil || isCarried || !strings.Contains(err.Error(), "the link "+refused) || !strings.Contains(err.Error(), "refused for the test") {
+		t.Fatalf("carried %v, err = %v; want the link %s named", isCarried, err, refused)
+	}
+	if want := []string{"uninstall " + s.old, "hold " + s.old, "release " + s.old, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
+		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
+	}
+	assertUntouched(t, s)
+	assertLink(t, refused, links.outside, true)
+	assertFile(t, filepath.Join(links.outside, "package.json"), "outside\n")
+}
+
+func TestAFailedStartRemovesTheLinksMadeAgainAsLinks(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	links := newRunLinks(t, s)
+	links.withJunctions(t)
+	s.daemon.failStart = s.target
+
+	// Act
+	_, _, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "did not start on "+s.target) {
+		t.Fatalf("err = %v, want the failed start", err)
+	}
+	if _, err := os.Lstat(s.target); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the copy is still there: %v", err)
+	}
+	assertFile(t, filepath.Join(links.outside, "package.json"), "outside\n")
+	assertFile(t, filepath.Join(links.inside, "index.js"), "inside\n")
+	assertLink(t, filepath.Join(links.checkout, "linked-outside"), links.outside, true)
 }
 
 func TestMoveLeavesAHomeAlreadyOnTheDevDrive(t *testing.T) {

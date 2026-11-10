@@ -71,9 +71,10 @@ const (
 	PlaceLinked Place = "linked"
 	// PlaceSystem is a gate home on the system drive.
 	PlaceSystem Place = "system"
-	// PlaceStrayLink is a gate home that is, or holds, a junction or link
-	// to a folder other than its own place in the gate's home on the Dev
-	// Drive, which no move carries.
+	// PlaceStrayLink is a gate home that is itself a junction or link to a
+	// folder other than the gate's home on the Dev Drive, or holds one into
+	// that home that leads anywhere but its own place there, which no move
+	// carries.
 	PlaceStrayLink Place = "stray-link"
 )
 
@@ -87,8 +88,9 @@ type Placement struct {
 	// place in the gate's home on the Dev Drive, the home's own path among
 	// them.
 	Links []string
-	// Stray is a junction or link of the home that leads elsewhere, and
-	// StrayTo where it leads.
+	// Stray is the home itself when it is a link elsewhere, or a link of the
+	// home into the gate's home on the Dev Drive that leads anywhere but its
+	// own place there, and StrayTo where it leads.
 	Stray, StrayTo string
 }
 
@@ -140,7 +142,9 @@ func (p Placement) Line() string {
 
 // linksInto are root itself, its entries and their entries when they are
 // links to their own place in target, as a move by hand made them, and the
-// first link among them that leads anywhere else, with where it leads.
+// first that the move does not carry, with where it leads: root itself when
+// it is a link anywhere else, or a link into target that leads anywhere but
+// its own place there. A link that leads anywhere else is carried as a link.
 func linksInto(root, target string) (links []string, stray, strayTo string) {
 	isLinkAt := func(path string) bool {
 		linked, isLink := linkTarget(path)
@@ -151,6 +155,7 @@ func linksInto(root, target string) (links []string, stray, strayTo string) {
 		switch {
 		case err == nil && sameFolder(linked, filepath.Join(target, relative)):
 			links = append(links, path)
+		case path != root && !isUnder(linked, target):
 		case stray == "":
 			stray, strayTo = path, linked
 		}

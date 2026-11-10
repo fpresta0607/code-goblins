@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
 
@@ -207,12 +205,11 @@ func (m *moving) undo(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// finish removes the old home, its links as links so what they lead to on
-// the Dev Drive stays, and what a move by hand left aside, and says what the
-// move did.
+// finish removes the old home, its links as links so what they lead to
+// stays, and what a move by hand left aside, and says what the move did.
 func (m *moving) finish() string {
 	line := fmt.Sprintf("moved: the gate's home is %s on the Dev Drive, named by NM_HOME for every program started from now on, and its daemon runs there; %d gated checkout(s) push to it", m.target, len(m.remotes))
-	if err := removeHome(m.old); err != nil {
+	if err := removeTree(m.old); err != nil {
 		line += fmt.Sprintf("; the old home %s could not be removed (%v) and stays as a backup", m.old, err)
 	} else {
 		line += "; the old home " + m.old + " is gone"
@@ -231,7 +228,7 @@ func (m *moving) unlink(repositories []string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("gate home: the gate's home is %s, named by NM_HOME, but the junction %s could not be read: %w", m.target, m.old, err)
 	}
-	if info.Mode().Type()&(fs.ModeSymlink|fs.ModeIrregular) == 0 {
+	if !isLinkMode(info) {
 		return "", fmt.Errorf("gate home: the gate's home is %s, named by NM_HOME, but %s is no longer a junction, so it stays", m.target, m.old)
 	}
 	if err := os.Remove(m.old); err != nil {
@@ -247,16 +244,6 @@ func (m *moving) unlink(repositories []string) (string, error) {
 		return "", fmt.Errorf("gate home: the junction %s is gone, but the gate's home %s lacks %s", m.old, m.target, strings.Join(missing, ", "))
 	}
 	return fmt.Sprintf("moved: the gate's home is %s on the Dev Drive, named by NM_HOME for every program started from now on, and its daemon runs there; %d gated checkout(s) push to it; the junction %s is gone, removed as a link", m.target, len(m.remotes), m.old), nil
-}
-
-// removeHome removes each link in the old home, which leads to what the
-// moved home now holds, then the rest.
-func removeHome(old string) error {
-	err := walkLinks(old, func(path, _ string) error { return os.Remove(path) })
-	if err != nil {
-		return err
-	}
-	return fsx.RemoveAll(old)
 }
 
 func (m Mover) setEnv(target string) error {

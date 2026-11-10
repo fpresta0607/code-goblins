@@ -26,6 +26,9 @@ var runtimeFiles = map[string]bool{"socket": true, "daemon.pid": true, "daemon.l
 // ways, leaves a copy the next move knows for its own and replaces.
 const moveMarker = ".cfo-gate-home-move"
 
+// makeLink makes a link at path that leads to target, of the kind given.
+var makeLink = createLink
+
 // copyPlan is what a move copies from the home into the Dev Drive folder.
 type copyPlan struct {
 	old, target string
@@ -38,20 +41,24 @@ type copyPlan struct {
 	leftovers []string
 	aside     string
 	isAside   bool
-	// made are the places the copy made in target, which a failed move
-	// removes.
+	// made are the places the copy made in target, the links it made again
+	// among them, which a failed move removes.
 	made []string
 }
 
-// planCopy refuses, before the daemon is touched, a home with a link that
-// leads anywhere but the matching place in target, and a target that holds
-// something no link of the home explains.
+// planCopy refuses, before the daemon is touched, a home that is itself a
+// link, a link of the home into target that leads anywhere but its own place
+// there, and a target that holds something no link of the home explains.
+// Every other link of the home is carried as a link.
 func planCopy(old, target, devDrive string, now time.Time) (*copyPlan, error) {
 	if linked, isLink := linkTarget(old); isLink {
 		return nil, fmt.Errorf("gate home: %s is a junction to %s, and the move carries only a junction to %s; nothing moved", old, linked, target)
 	}
 	plan := &copyPlan{old: old, target: target, aside: filepath.Join(devDrive, DevDriveFolder+".left-"+now.UTC().Format("20060102T150405Z"))}
 	err := walkLinks(old, func(path, linked string) error {
+		if !isUnder(linked, target) {
+			return nil
+		}
 		relative, err := filepath.Rel(old, path)
 		if err != nil {
 			return err
@@ -129,7 +136,7 @@ func (p *copyPlan) restore() error {
 	if err := errors.Join(errs...); err != nil {
 		return err
 	}
-	return fsx.RemoveAll(p.aside)
+	return removeTree(p.aside)
 }
 
 // done removes the move's marker and the leftovers once the move is done.
@@ -138,12 +145,13 @@ func (p *copyPlan) done() error {
 	if !p.isAside {
 		return err
 	}
-	return errors.Join(err, fsx.RemoveAll(p.aside))
+	return errors.Join(err, removeTree(p.aside))
 }
 
-// copy copies the home into target, less the daemon's runtime files and what
-// its links lead to, then proves every copied file holds the same bytes. It
-// stops between files once ctx ends.
+// copy copies the home into target, less the daemon's runtime files and the
+// links a move by hand made into target, each link made again as its own
+// kind, then proves every copied file holds the same bytes and every link
+// leads where it should. It stops between files once ctx ends.
 func (p *copyPlan) copy(ctx context.Context) error {
 	if _, err := os.Lstat(p.target); errors.Is(err, os.ErrNotExist) {
 		if err := os.MkdirAll(p.target, 0o700); err != nil {
@@ -159,20 +167,23 @@ func (p *copyPlan) copy(ctx context.Context) error {
 	isMade := func(path string) bool {
 		return slices.ContainsFunc(p.made, func(made string) bool { return isUnder(path, made) })
 	}
-	err := p.walk(func(source, destination string, entry fs.DirEntry) error {
+	err := p.walk(func(source, destination string, entry fs.DirEntry, linked string, isLink bool) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if _, err := os.Lstat(destination); err == nil {
-			if entry.IsDir() {
+			if entry.IsDir() && !isLink {
 				return nil
 			}
 			return fmt.Errorf("%s is already there", destination)
 		}
-		if !isMade(destination) {
+		if isLink || !isMade(destination) {
 			p.made = append(p.made, destination)
 		}
-		if entry.IsDir() {
+		switch {
+		case isLink:
+			return p.copyLink(source, destination, linked)
+		case entry.IsDir():
 			return os.Mkdir(destination, 0o700)
 		}
 		return copyFile(source, destination)
@@ -180,17 +191,22 @@ func (p *copyPlan) copy(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return p.walk(func(source, destination string, entry fs.DirEntry) error {
-		if entry.IsDir() {
+	return p.walk(func(source, destination string, entry fs.DirEntry, linked string, isLink bool) error {
+		switch {
+		case isLink:
+			return p.sameLink(source, destination, linked)
+		case entry.IsDir():
 			return nil
 		}
 		return sameFile(source, destination)
 	})
 }
 
-// walk calls visit for each folder and file of the home the copy carries,
-// with where it goes in target.
-func (p *copyPlan) walk(visit func(source, destination string, entry fs.DirEntry) error) error {
+// walk calls visit for each folder, file and link of the home the copy
+// carries, with where it goes in target and, for a link, where it leads. It
+// never walks into a link, and leaves out the links a move by hand made into
+// target, which stay where they lead.
+func (p *copyPlan) walk(visit func(source, destination string, entry fs.DirEntry, linked string, isLink bool) error) error {
 	return filepath.WalkDir(p.old, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || path == p.old {
 			return err
@@ -202,23 +218,102 @@ func (p *copyPlan) walk(visit func(source, destination string, entry fs.DirEntry
 		if runtimeFiles[relative] {
 			return nil
 		}
-		if _, isLink := linkTarget(path); isLink {
-			if entry.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
+		linked, isLink := linkTarget(path)
+		if !isLink || !isUnder(linked, p.target) {
+			err = visit(path, filepath.Join(p.target, relative), entry, linked, isLink)
 		}
-		return visit(path, filepath.Join(p.target, relative), entry)
+		if err == nil && isLink && entry.IsDir() {
+			return fs.SkipDir
+		}
+		return err
 	})
+}
+
+// copyLink makes the link at source again at destination as its own kind.
+func (p *copyPlan) copyLink(source, destination, linked string) error {
+	isJunction, isDirectory, err := linkKind(source)
+	if err != nil {
+		return err
+	}
+	if err := makeLink(destination, p.carried(linked), isJunction, isDirectory); err != nil {
+		return fmt.Errorf("the link %s could not be made again at %s: %w", source, destination, err)
+	}
+	return nil
+}
+
+// carried is where a link that leads to linked leads once copied: a link to
+// a place in the home leads to the same place in target, and any other keeps
+// where it leads, a relative one as it is written.
+func (p *copyPlan) carried(linked string) string {
+	if filepath.IsAbs(linked) && isUnder(linked, p.old) {
+		if relative, err := filepath.Rel(p.old, linked); err == nil {
+			return filepath.Join(p.target, relative)
+		}
+	}
+	return linked
+}
+
+// sameLink proves destination is a link of source's kind that leads where
+// the copy carries source's.
+func (p *copyPlan) sameLink(source, destination, linked string) error {
+	want := p.carried(linked)
+	got, isLink := linkTarget(destination)
+	if !isLink || !sameFolder(got, want) {
+		return fmt.Errorf("%s does not lead to %s, where the copy carries the link %s", destination, want, source)
+	}
+	isSourceJunction, _, err := linkKind(source)
+	if err != nil {
+		return err
+	}
+	isJunction, _, err := linkKind(destination)
+	if err != nil {
+		return err
+	}
+	if isJunction != isSourceJunction {
+		return fmt.Errorf("%s is not the same kind of link as %s", destination, source)
+	}
+	return nil
 }
 
 // discard removes what the copy made in target.
 func (p *copyPlan) discard() error {
 	var errs []error
 	for _, made := range slices.Backward(p.made) {
-		errs = append(errs, fsx.RemoveAll(made))
+		errs = append(errs, removeTree(made))
 	}
 	return errors.Join(errs...)
+}
+
+// removeTree removes path and all below it without following a link: each
+// link, proved a link, goes as a link alone first, then the rest.
+func removeTree(path string) error {
+	if _, isLink := linkTarget(path); isLink {
+		return removeLink(path)
+	}
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err := walkLinks(path, func(link, _ string) error { return removeLink(link) }); err != nil {
+		return err
+	}
+	return fsx.RemoveAll(path)
+}
+
+// removeLink removes the link at path alone, once Lstat proves it a link.
+func removeLink(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !isLinkMode(info) {
+		return fmt.Errorf("%s is no link, so it is not removed as one", path)
+	}
+	return os.Remove(path)
+}
+
+// isLinkMode is a symbolic link, a junction or another reparse point.
+func isLinkMode(info fs.FileInfo) bool {
+	return info.Mode().Type()&(fs.ModeSymlink|fs.ModeIrregular) != 0
 }
 
 func copyFile(source, destination string) error {
