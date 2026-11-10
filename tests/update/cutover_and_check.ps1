@@ -32,7 +32,7 @@ if ($LASTEXITCODE -ne 0) { throw "$oldCommand stop exited with code $LASTEXITCOD
 foreach ($record in Get-ChildItem -LiteralPath (Join-Path $state "hosts") -Filter *.json) {
     $terminal = Get-Content -Raw -LiteralPath $record.FullName | ConvertFrom-Json
     foreach ($id in $terminal.child_pid, $terminal.host_pid) {
-        if (Get-Process -Id $id -ErrorAction SilentlyContinue) { Stop-Process -Id $id -Force }
+        if ($id -gt 0 -and (Get-Process -Id $id -ErrorAction SilentlyContinue)) { Stop-Process -Id $id -Force }
     }
 }
 # The cutover refuses while any program runs from the home's bin, naming each
