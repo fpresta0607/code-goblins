@@ -26,8 +26,21 @@ func testPolicy(t *testing.T) Policy {
 	return p
 }
 
+// versionFive is the policy the checked-in file held until version 7: Codex
+// gpt-6.1-sol xhigh first and Claude next for every gate role, with one
+// automatic follow-up each for test, lint, rebase and CI.
+func versionFive() Policy {
+	return Policy{
+		Version:  5,
+		Primary:  Reviewer{"codex", "gpt-6.1-sol", "xhigh"},
+		Fallback: Reviewer{Harness: "claude"},
+		AutoFix:  AutoFix{Review: 0, Test: 1, Lint: 1, Rebase: 1, CI: 1},
+		Classes:  Classes{Ordinary: Class{ReviewCycles: 2}, HighRisk: Class{ReviewCycles: 3}, Mechanical: Class{ReviewCycles: 2}},
+	}
+}
+
 func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
-	p := testPolicy(t)
+	p := versionFive()
 	before := []byte("# machine config\nagent: [claude]\nagent_args_override:\n  claude: [--model, opus, --effort, high]\nauto_fix:\n  review: 10\n  document: 4\nci_timeout: 168h\nprivate_token: sentinel-secret\n")
 	after, drift, err := Render(before, p)
 	if err != nil || len(drift) == 0 {
@@ -93,7 +106,7 @@ var gateAgentArgs = map[string][]string{
 // skips its own value for either one a raw argument already sets, so the
 // carried settings never name them.
 func TestVersionFiveCodexArgumentsLeaveTheGateItsModelAndEffort(t *testing.T) {
-	rendered, _, err := Render([]byte(machineConfig20261008), testPolicy(t))
+	rendered, _, err := Render([]byte(machineConfig20261008), versionFive())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,13 +133,13 @@ func TestVersionFiveCodexArgumentsLeaveTheGateItsModelAndEffort(t *testing.T) {
 
 func versionFour(t *testing.T) Policy {
 	t.Helper()
-	p := testPolicy(t)
+	p := versionFive()
 	p.Version = 4
 	return p
 }
 
 func TestVersionFiveStartsGateAgentsWithoutMCPServers(t *testing.T) {
-	after, drift, err := Render([]byte(machineConfig20261008), testPolicy(t))
+	after, drift, err := Render([]byte(machineConfig20261008), versionFive())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +159,7 @@ func TestVersionFiveStartsGateAgentsWithoutMCPServers(t *testing.T) {
 	if !strings.Contains(string(after), "# Prefer Codex at the user's request; retain Claude as an available fallback.") {
 		t.Fatalf("lost the operator's note on the chain:\n%s", after)
 	}
-	again, drift, err := Render(after, testPolicy(t))
+	again, drift, err := Render(after, versionFive())
 	if err != nil || len(drift) != 0 || string(again) != string(after) {
 		t.Fatalf("not idempotent: %v %v", drift, err)
 	}
@@ -154,7 +167,7 @@ func TestVersionFiveStartsGateAgentsWithoutMCPServers(t *testing.T) {
 
 func TestVersionFiveOwnsTheClaudeArguments(t *testing.T) {
 	for _, before := range []string{"agent_args_override:\n  claude: [--model, sonnet]\n", "agent_args_override:\n  claude: [--strict-mcp-config, --mcp-config, servers.json]\n"} {
-		after, drift, err := Render([]byte(before), testPolicy(t))
+		after, drift, err := Render([]byte(before), versionFive())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -236,6 +249,80 @@ func TestVersionFourReleasesReviewRolePinsIntoTheChain(t *testing.T) {
 	again, drift, err := Render(after, chain)
 	if err != nil || len(drift) != 0 || string(again) != string(after) {
 		t.Fatalf("not idempotent: %v %v", drift, err)
+	}
+}
+
+// versionSixMachine is a machine config.yaml version 6 was applied to: the
+// operator's own chain, profile and settings, and one automatic follow-up
+// each for test, lint, rebase and CI.
+func versionSixMachine(t *testing.T) string {
+	t.Helper()
+	applied, _, err := Render([]byte(machineConfig20261008), versionSix(t, Reviewer{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, drift, err := Render(applied, versionSix(t, Reviewer{})); err != nil || len(drift) != 0 {
+		t.Fatalf("the version 6 machine still drifts from version 6: %v %v", drift, err)
+	}
+	return string(applied)
+}
+
+func TestVersionSevenReportsAVersionSixMachineAsDrifted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	before := versionSixMachine(t)
+	if err := os.WriteFile(path, []byte(before), 0600); err != nil {
+		t.Fatal(err)
+	}
+	drift, err := Config{Path: path, Policy: testPolicy(t)}.Drift()
+	if err != nil || !reflect.DeepEqual(drift, []string{"auto_fix.test", "auto_fix.lint", "auto_fix.ci"}) {
+		t.Fatalf("drift=%v err=%v, want only the test, lint and ci follow-ups", drift, err)
+	}
+	if now, err := os.ReadFile(path); err != nil || string(now) != before {
+		t.Fatalf("drift wrote the config: %v", err)
+	}
+}
+
+func TestVersionSevenApplyWritesTestLintAndCIToZeroAndLeavesUnrelatedYAML(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	before := versionSixMachine(t)
+	if err := os.WriteFile(path, []byte(before), 0600); err != nil {
+		t.Fatal(err)
+	}
+	want := before
+	for _, line := range []string{"  test: 1\n", "  lint: 1\n", "  ci: 1\n"} {
+		if strings.Count(want, line) != 1 {
+			t.Fatalf("the version 6 machine holds %q %d times, want once:\n%s", line, strings.Count(want, line), want)
+		}
+		want = strings.Replace(want, line, strings.Replace(line, "1", "0", 1), 1)
+	}
+	c := Config{Path: path, Policy: testPolicy(t), Idle: func(context.Context) (func() error, error) {
+		return func() error { return nil }, nil
+	}}
+	result, err := c.Apply(context.Background())
+	if err != nil || !reflect.DeepEqual(result.Drift, []string{"auto_fix.test", "auto_fix.lint", "auto_fix.ci"}) {
+		t.Fatalf("apply=%+v err=%v", result, err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != want {
+		t.Fatalf("apply changed more than the three follow-ups:\n%s\nwant:\n%s", after, want)
+	}
+	var config struct {
+		AutoFix map[string]int `yaml:"auto_fix"`
+	}
+	if err := yaml.Unmarshal(after, &config); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(config.AutoFix, map[string]int{"review": 0, "test": 0, "lint": 0, "rebase": 1, "ci": 0, "document": 10}) {
+		t.Fatalf("auto_fix=%v, want test, lint and ci at 0 and the rest as they were", config.AutoFix)
+	}
+	if backup, err := os.ReadFile(result.Backup); err != nil || string(backup) != before {
+		t.Fatalf("backup is not the version 6 machine: %v", err)
+	}
+	if drift, err := c.Drift(); err != nil || len(drift) != 0 {
+		t.Fatalf("applied machine still drifts: %v %v", drift, err)
 	}
 }
 

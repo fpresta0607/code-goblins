@@ -12,6 +12,8 @@
 .reply-doing { display: grid; grid-template-columns: minmax(0, auto); min-width: 0; overflow: hidden; color: var(--muted); font-size: .9375em; white-space: nowrap; }
 .reply-doing > * { grid-area: 1 / 1; }
 .reply-working.compacting .reply-doing { color: var(--purple); }
+.reply-working.retrying .reply-doing { color: var(--amber); }
+.reply-retry { min-width: 0; overflow: hidden; color: var(--muted); font-size: .8125em; text-overflow: ellipsis; white-space: nowrap; }
 .reply-doing.is-alone .working-word, .reply-doing.is-alone .working-word > span { transform: none; }
 .reply-doing.is-alone .working-shine { display: none; }
 .working-shine > span::before { content: attr(data-word); }

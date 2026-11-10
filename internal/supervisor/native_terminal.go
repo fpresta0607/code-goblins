@@ -88,16 +88,21 @@ type nativeRelay struct {
 // which anything typed now would join, read as a delivery reads them, so the
 // board's box holds a message rather than typing it onto them. Doing is what its turn row says it is doing, as
 // Claude Code's whimsical verb, which the board shows beside its dither.
+// Status is the context gauge and notices it draws over its composer, and
+// Retry the failure and attempt its turn row shows while it waits to send a
+// request again, which the board's chat shows as the terminal does (#2236).
 type screenState struct {
-	Asking     bool           `json:"asking"`
-	Open       bool           `json:"open"`
-	Working    bool           `json:"working"`
-	Submission string         `json:"submission"`
-	HasStarted bool           `json:"started,omitempty"`
-	Panel      *harness.Panel `json:"panel,omitempty"`
-	Mode       string         `json:"mode,omitempty"`
-	HasDraft   bool           `json:"draft,omitempty"`
-	Doing      string         `json:"doing,omitempty"`
+	Asking     bool            `json:"asking"`
+	Open       bool            `json:"open"`
+	Working    bool            `json:"working"`
+	Submission string          `json:"submission"`
+	HasStarted bool            `json:"started,omitempty"`
+	Panel      *harness.Panel  `json:"panel,omitempty"`
+	Mode       string          `json:"mode,omitempty"`
+	HasDraft   bool            `json:"draft,omitempty"`
+	Doing      string          `json:"doing,omitempty"`
+	Status     *harness.Status `json:"status,omitempty"`
+	Retry      *harness.Retry  `json:"retry,omitempty"`
 }
 
 // relaySize is a size to tell the view once the output before it is sent.
@@ -312,6 +317,12 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		state.Mode = screens.Mode(rows)
 		state.HasDraft = screens.ComposerHoldsText(rows)
 		state.Doing = screens.WorkingWords(rows)
+		if status, isShown := screens.Status(rows); isShown {
+			state.Status = &status
+		}
+		if retry, isRetrying := screens.Retry(rows); isRetrying {
+			state.Retry = &retry
+		}
 		message, _ := json.Marshal(struct {
 			Type string `json:"type"`
 			screenState
