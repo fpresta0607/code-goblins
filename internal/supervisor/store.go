@@ -49,6 +49,7 @@ type Session struct {
 	Model        string          `json:"model,omitempty"`
 	AgentType    string          `json:"agent_type,omitempty"`
 	Phase        string          `json:"phase"`
+	Source       string          `json:"source,omitempty"` // what started it (startup, resume, clear or compact), while its start is the last it reported
 	TurnID       string          `json:"turn_id,omitempty"`
 	LastEventID  string          `json:"last_event_id"`
 	UpdatedAt    time.Time       `json:"updated_at"`
@@ -518,7 +519,7 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 			return fmt.Errorf("%w: %v", ErrDeferred, err)
 		}
 	}
-	node := Session{ID: key, NativeID: e.SessionID, Harness: e.Harness, Role: e.Role, TaskID: e.TaskID, Generation: e.Generation, Parent: parent, ReportedRoot: e.RootSessionID, Relation: e.Relation, Model: e.Model, AgentType: e.AgentType, Phase: e.Kind, TurnID: e.TurnID, HostID: e.HostID, LastEventID: e.ID, UpdatedAt: e.OccurredAt}
+	node := Session{ID: key, NativeID: e.SessionID, Harness: e.Harness, Role: e.Role, TaskID: e.TaskID, Generation: e.Generation, Parent: parent, ReportedRoot: e.RootSessionID, Relation: e.Relation, Model: e.Model, AgentType: e.AgentType, Phase: e.Kind, Source: e.Source, TurnID: e.TurnID, HostID: e.HostID, LastEventID: e.ID, UpdatedAt: e.OccurredAt}
 	if node.Model == "" {
 		node.Model = prior.Model
 	}

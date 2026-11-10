@@ -364,8 +364,10 @@ export function App() {
   // and a baby goblin's panel is its terminal alone.
   const shownView: PanelView = child ? "terminal" : views.includes("terminal") ? panelView : "task";
   // The session's own terminal, by the terminal deck's key, whether its
-  // harness works, which the box's working line shows, and that terminal's
-  // link, which says what it was last told of the harness's screen.
+  // harness works, which a box with no conversation reads for its Stop, and
+  // that terminal's link, which says what it was last told of the harness's
+  // screen. A conversation's box is told by the conversation, from the
+  // fleet's stream, since a snapshot can say a finished turn still works.
   const cfoSession = snapshot && liveCfoSession(snapshot);
   // A compaction its session's own hooks report is work, whatever its screen
   // shows.
@@ -587,7 +589,7 @@ export function App() {
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock} onAskSlot={setAskSlot}
             onOpenCommand={(key) => setCommandFocus({ key, at: Date.now() })}
-            box={(model, history, effort, usage, onSend) => createPortal(<Composer isWorking={isWorking} isCompacting={isCompacting} history={history} usage={usage} onSend={onSend} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CEO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} askSlot={askSlot} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
+            box={(model, history, effort, usage, onSend, isTurnRunning) => createPortal(<Composer isWorking={isTurnRunning} isCompacting={isCompacting} history={history} usage={usage} onSend={onSend} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CEO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} askSlot={askSlot} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
               focus={boxOnScreen ? boxFocus : 0} />, composerTarget)} />}
           {snapshot && showsPanel && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
             <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} hasComposer={boxOnScreen} connected={connected} focus={switchFocus} onHistory={messagesSource ? readHistory : undefined}
