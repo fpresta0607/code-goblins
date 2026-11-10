@@ -52,3 +52,42 @@ func shortName(t *testing.T, path string) string {
 	}
 	return syscall.UTF16ToString(buffer[:length])
 }
+
+// A folder the shell moves to by a short 8.3 name, as a hosted runner's
+// home is, stays as the command named it, so a refusal of a path read from
+// it names that path, and where it leads. The folder is on the system
+// drive, which makes short names where a Dev Drive makes none.
+func TestToolRefusalNamesAPathFromAMovedToFolderAsTheCommandReachesIt(t *testing.T) {
+	// Arrange
+	root, err := os.MkdirTemp(filepath.Join(os.Getenv("SystemRoot"), "..", "Users", "Public"), "pathguard-")
+	if err != nil {
+		t.Skipf("no folder on the system drive to make: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	long := filepath.Join(root, "a profile with a long name")
+	if err := os.MkdirAll(filepath.Join(long, ".ssh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	home := shortName(t, long)
+	if strings.EqualFold(home, long) {
+		t.Skipf("the volume of %s makes no short names", long)
+	}
+	worktree := filepath.Join(root, "worktree")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	boundary := Boundary{Writable: []string{worktree}, Secrets: Secrets(home, "", "", ""), Cwd: worktree, UserHome: home, Getenv: func(string) string { return "" }}
+	given := filepath.Join(home, ".ssh")
+	resolved, err := filepath.EvalSymlinks(given)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	refusal := boundary.ToolRefusal("Bash", toolInput(t, map[string]string{"command": "cd ~ && cp -r .ssh ./keys"}))
+
+	// Assert
+	if !strings.Contains(refusal, given) || !strings.Contains(refusal, resolved) {
+		t.Fatalf("refusal %q, want it to name %s and where it leads, %s", refusal, given, resolved)
+	}
+}

@@ -133,11 +133,14 @@ func (b Boundary) movedTo(segment []shellWord) (string, bool) {
 	case len(arguments) != 1 || strings.Contains(arguments[0], "$("):
 		return "", true
 	}
-	resolved, ok := b.resolve(arguments[0])
+	// The folder stays as the command named it, so a refusal of a path read
+	// from it names that path as the command would reach it; Refusal follows
+	// its links.
+	moved, ok := b.absolute(arguments[0])
 	if !ok {
 		return "", true
 	}
-	return resolved, true
+	return moved, true
 }
 
 // writeTargets are the files a segment, one command of a shell line,
