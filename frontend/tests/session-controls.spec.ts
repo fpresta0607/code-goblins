@@ -24,7 +24,9 @@ for (const width of [1440, 390]) {
   test.describe(`${width}px controls`, () => {
   test.use({ viewport: { width, height: 900 }, hasTouch: width === 390 });
   for (const who of ["CEO", "goblin"]) {
-    test(`${who} session controls use current data and open its window at ${width}px`, async ({ page }, testInfo) => {
+    // A phone has no Windows Terminal to open the session in (#2222).
+    const hasWindow = width === 1440;
+    test(`${who} session controls use current data and ${hasWindow ? "open its window" : "offer no window"} at ${width}px`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 900 });
       const relay = await open(page, snapshot({ cfo_harness: "codex" }, { harness: "codex" }), "", { ...PAGE, usage: USAGE });
       const posted: unknown[] = [];
@@ -52,8 +54,10 @@ for (const width of [1440, 390]) {
       await page.getByRole("dialog", { name: "Speech history", exact: true }).getByRole("button", { name: "Paste into the message: from speech", exact: true }).click();
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
 
-      await pressRow(page, "Open in Windows Terminal", "Open in terminal");
-      await expect.poll(() => posted).toEqual([who === "CEO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
+      if (hasWindow) {
+        await pressRow(page, "Open in Windows Terminal", "Open in terminal");
+        await expect.poll(() => posted).toEqual([who === "CEO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
+      }
       await expect(composer.getByRole("button", { name: "Open in Windows Terminal", exact: true })).toHaveCount(0);
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
       expect(typed(relay)).toBe("");
@@ -64,8 +68,13 @@ for (const width of [1440, 390]) {
       await expect(context(page)).toHaveAttribute("aria-valuenow", "24");
       await expect.poll(() => relay.addresses.some((address) => address.includes(who === "CEO" ? "cfo=new-cfo" : "generation=replacement"))).toBe(true);
       relay.say({ type: "screen", asking: false, open: false, working: false });
-      await pressRow(page, "Open in Windows Terminal", "Open in terminal");
-      await expect.poll(() => posted[1]).toEqual(who === "CEO" ? { native: "cfo=new-cfo" } : { native: `task=${GOBLIN.id}&generation=replacement` });
+      if (hasWindow) {
+        await pressRow(page, "Open in Windows Terminal", "Open in terminal");
+        await expect.poll(() => posted[1]).toEqual(who === "CEO" ? { native: "cfo=new-cfo" } : { native: `task=${GOBLIN.id}&generation=replacement` });
+      } else {
+        await expect(page.locator(".context-pane .panel-top").getByRole("button", { name: "Open in Windows Terminal", exact: true })).toHaveCount(0);
+        expect(posted).toEqual([]);
+      }
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
       await expect(composer.locator(".engine-control-model")).toHaveText("Recorded Model");
       await expect(composer.getByRole("button", { name: "Change model", exact: true })).toBeEnabled();

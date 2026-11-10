@@ -681,7 +681,7 @@ test.describe("AFK report layout", () => {
     await expect(frame.getByRole("heading", { name: "Record", exact: true })).toBeInViewport();
     await expect(report.getByRole("button", { name: "Go through what needs you" })).toBeInViewport();
     await page.screenshot({ path: testInfo.outputPath(`after-${width}-scrolled.png`) });
-    await frame.getByRole("button", { name: /^Answer The CEO: Review the complete migration/ }).click();
+    await frame.getByRole("button", { name: /^Answer The CFO: Review the complete migration/ }).click();
     await expect(report).toHaveCount(0);
     await expect(page.locator("dialog.question-modal")).toContainText(QUESTIONS[0].text);
   });

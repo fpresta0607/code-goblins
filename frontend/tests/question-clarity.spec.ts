@@ -10,7 +10,7 @@ import { expect, test, type Locator, type Page, type Route } from "./site";
 
 const RUN_ID = "01M6EASKNZ3NNDFC6PWCBFHY7R";
 const LOG_LINK = "https://github.com/example/project/actions/runs/38280093670/job/112233445566778899?check_suite_focus=true";
-const SCREENSHOT_END = "the separate CEO lock-only/read-only restriction is why this new scope needs your decision.";
+const SCREENSHOT_END = "the separate CFO lock-only/read-only restriction is why this new scope needs your decision.";
 
 async function openCard(page: Page, name: string) {
   await page.goto("/tests/fixtures/question-clarity.html");

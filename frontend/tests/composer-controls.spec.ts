@@ -11,10 +11,10 @@ test.use({ permissions: ["microphone"], launchOptions: { ignoreDefaultArgs: ["--
 // input cursor and text not at top of chat input box??"). The session's
 // picture in the panel's header switches the style both ways, and the
 // header's row opens the session in a Windows Terminal window of its own, or
-// its More does (#1987).
+// its More does (#1987), except on a phone, which has none to open (#2222).
 for (const who of ["CEO", "goblin"] as const) {
   for (const width of [1440, 390]) {
-    test(`Codex ${who} box adds a file and opens Speech history, and its header opens a terminal window and changes style at ${width}px`, async ({ page }) => {
+    test(`Codex ${who} box adds a file and opens Speech history, and its header ${width === 390 ? "offers no terminal window" : "opens a terminal window"} and changes style at ${width}px`, async ({ page }) => {
       // Arrange
       await page.setViewportSize({ width, height: 900 });
       const relay = await open(page, snapshot({ cfo_harness: "codex" }, { harness: "codex" }));
@@ -80,9 +80,12 @@ for (const who of ["CEO", "goblin"] as const) {
       await expect(speech).toBeFocused();
 
       // Act: opening a separate terminal from the header preserves the draft
-      // and view.
-      await pressRow(page, "Open in Windows Terminal", "Open in terminal");
-      await expect.poll(() => windows).toEqual([who === "CEO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
+      // and view; a phone offers none.
+      if (isPhone) await expect(page.locator(".context-pane .panel-top").getByRole("button", { name: "Open in Windows Terminal", exact: true })).toHaveCount(0);
+      else {
+        await pressRow(page, "Open in Windows Terminal", "Open in terminal");
+        await expect.poll(() => windows).toEqual([who === "CEO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
+      }
       await expect(attached).toContainText("example.txt");
 
       // Act: Terminal in the picture's menu opens the terminal alone, and

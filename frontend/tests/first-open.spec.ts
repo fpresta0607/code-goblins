@@ -135,7 +135,7 @@ test("reopening a configured home with no registered CFO stays on the board and 
   await page.getByRole("button", { name: "Reopen the CEO" }).click();
 
   // Assert
-  await expect(page.locator(".cfo-pin .notice")).toHaveText("The CEO could not be reopened.");
+  await expect(page.locator(".cfo-pin .notice")).toHaveText("The CFO could not be reopened.");
   await expect(page.getByRole("button", { name: "Reopen the CEO" })).toBeEnabled();
   expect(reopenRequests).toEqual([{ token: "fixture", body: "{}" }]);
   await page.reload();

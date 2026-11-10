@@ -22,7 +22,7 @@ test("a review answered on its page finishes its open card with a check and move
 
   // Assert
   await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Answered/));
-  for (const answered of (await doneCards(page)).filter((text) => text.startsWith("Answered"))) expect(answered).toContain("You answered on its page; the CEO relays it to the goblin.");
+  for (const answered of (await doneCards(page)).filter((text) => text.startsWith("Answered"))) expect(answered).toContain("You answered on its page; the CFO relays it to the goblin.");
   await expect(dialog.getByRole("heading", { name: "Look at the new icons" })).toBeVisible();
   await expect(dialog.getByText(/Withdrawn/)).toHaveCount(0);
   await expect(dialog.getByRole("alert")).toHaveCount(0);
