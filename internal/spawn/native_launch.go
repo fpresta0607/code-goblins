@@ -95,6 +95,53 @@ var ErrUnsentWords = errors.New("its prompt line holds words that were never sen
 // not be pressed, returns ErrQueuedForToolCall alone.
 var ErrSentNow = fmt.Errorf("its send-now key went: %w", fleet.ErrQueuedForToolCall)
 
+// ErrTakenBack says a delivery typed its text and ended before its submit
+// key, so it took the text back off the harness's prompt line: nothing was
+// submitted, and nothing typed is left for the next delivery to join.
+var ErrTakenBack = errors.New("it was taken back off the prompt line unsent")
+
+// ErrLeftTyped says a delivery that takes its text back (ShouldTakeBack)
+// typed it, ended before its submit key and never saw it leave the prompt
+// line: a harness that had not read it yet shows it there later.
+var ErrLeftTyped = errors.New("it may still be typed on the prompt line, unsent")
+
+// takeBackWait bounds how long TakeBack presses for an empty prompt line.
+var takeBackWait = 5 * time.Second
+
+// takeBackPoll spaces TakeBack's looks at the screen after each press.
+const takeBackPoll = 100 * time.Millisecond
+
+// TakeBack takes typed, which a delivery typed into a terminal whose harness
+// never took it as submitted, back off the harness's prompt line with
+// harness.ClearLine, so the words never join what is typed next (#2306).
+// While the prompt line holds words, or the screen still shows typed, it
+// presses the key and looks again, as often as a harness that takes one row
+// off at a time needs, for at most takeBackWait. It reports whether it
+// pressed and then read the prompt line empty. Nothing is pressed while a
+// dialog shows, which would take the key as its own, or for words the screen
+// does not show: a harness that has not read them yet takes a key typed
+// behind them as part of them, as Claude Code 2.1.322 did with words longer
+// than a row and with a paste, live, on 2026-11-10.
+func TakeBack(read func() ([]string, error), write func([]byte) error, screens harness.Screens, typed string) bool {
+	deadline := time.Now().Add(takeBackWait)
+	for hasPressed := false; ; hasPressed = true {
+		screen, err := read()
+		if err != nil {
+			return false
+		}
+		if _, hasDialog := screens.Dialog(screen); hasDialog {
+			return false
+		}
+		if !screens.ComposerHoldsText(screen) && !screens.Shows(screen, typed) {
+			return hasPressed && screens.ComposerEmpty(screen)
+		}
+		if time.Now().After(deadline) || write([]byte(harness.ClearLine)) != nil {
+			return false
+		}
+		time.Sleep(takeBackPoll)
+	}
+}
+
 // launchNativeHost starts the harness in a native terminal of its own, the
 // task's id, and returns its host's record, the zero record when it launched
 // none. It is the last step of a start's turn: from here the host counts as a
@@ -492,6 +539,9 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 	within := nativeAccepted
 	if busy {
 		within = nativeQueuedProof
+		if s.SubmittedIntoTurn != nil {
+			s.SubmittedIntoTurn()
+		}
 	}
 	deadline := time.Now().Add(within)
 	pressed, presses := time.Now(), 0
@@ -679,28 +729,28 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 		}
 	}
 	if err := s.awaitTyped(ctx, client, record, screens, instruction); err != nil {
-		return nil, fmt.Errorf("spawn: the instruction typed into native terminal %s never showed in its composer, so it was not submitted: %w", record.ID, err)
+		return nil, s.unsubmitted(client, record, screens, instruction, fmt.Errorf("spawn: the instruction typed into native terminal %s never showed in its composer, so it was not submitted: %w", record.ID, err))
 	}
 	if err := s.sleep(ctx, settle); err != nil {
-		return nil, err
+		return nil, s.unsubmitted(client, record, screens, instruction, err)
 	}
 	atPress, dismissed, err := s.DismissOffer(ctx, record, screens)
 	if err != nil {
-		return nil, err
+		return nil, s.leftTyped(err)
 	}
 	if dismissed {
 		if err := s.sleep(ctx, nativePoll); err != nil {
-			return nil, err
+			return nil, s.leftTyped(err)
 		}
 		if atPress, err = s.readNativeScreen(ctx, record); err != nil {
-			return nil, err
+			return nil, s.leftTyped(err)
 		}
 	}
 	if _, hasDialog := screens.Dialog(atPress); hasDialog {
-		return nil, errNativeStartupDialog
+		return nil, s.leftTyped(errNativeStartupDialog)
 	}
 	if !screens.Shows(atPress, instruction) {
-		return nil, fmt.Errorf("spawn: native terminal %s no longer shows the instruction, so it was not submitted", record.ID)
+		return nil, s.leftTyped(fmt.Errorf("spawn: native terminal %s no longer shows the instruction, so it was not submitted", record.ID))
 	}
 	submit := "\r"
 	if screens.PasteTakesEnter && !fleet.IsCommand(instruction) {
@@ -711,6 +761,34 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 		return nil, fmt.Errorf("spawn: submit the instruction in native terminal %s: %w", record.ID, err)
 	}
 	return atPress, nil
+}
+
+// unsubmitted is how a delivery that typed instruction, which its screen
+// showed or never did, ends before its submit key: with err as it is, or,
+// for one that takes its text back (ShouldTakeBack), as ErrTakenBack too
+// once the text is off the prompt line and as leftTyped has it otherwise.
+func (s Service) unsubmitted(client *host.Client, record host.Record, screens harness.Screens, instruction string, err error) error {
+	if !s.ShouldTakeBack {
+		return err
+	}
+	read := s.ReadScreen
+	if read == nil {
+		read = host.ReadScreen
+	}
+	if !TakeBack(func() ([]string, error) { return read(record) }, client.Input, screens, instruction) {
+		return s.leftTyped(err)
+	}
+	return fmt.Errorf("%w: %w", err, ErrTakenBack)
+}
+
+// leftTyped is err for a delivery that ended after typing and before its
+// submit key with its text not seen to leave the prompt line: ErrLeftTyped
+// too, for one that takes its text back.
+func (s Service) leftTyped(err error) error {
+	if !s.ShouldTakeBack {
+		return err
+	}
+	return fmt.Errorf("%w: %w", err, ErrLeftTyped)
 }
 
 // awaitTyped reads the terminal's screen until it shows typed, for at most

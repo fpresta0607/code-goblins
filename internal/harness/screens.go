@@ -267,6 +267,13 @@ func NativeScreens(kind Kind) (Screens, bool) {
 	return Screens{}, false
 }
 
+// ClearLine is the key that takes typed words back off a harness's prompt
+// line: Ctrl+U, in a turn or out of one. Codex 0.160 and pi 1.4 take the whole
+// prompt line off with it, and Claude Code 2.1.322 the one row its cursor is
+// in, so it is pressed until the prompt line reads empty; each does nothing
+// with it over an empty one (live, 2026-11-10, #2306).
+const ClearLine = "\x15"
+
 // trailingMention matches text that ends in a $ word.
 var trailingMention = regexp.MustCompile(`(^|\s)\$\S*$`)
 
