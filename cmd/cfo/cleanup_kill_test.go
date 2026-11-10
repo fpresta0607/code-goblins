@@ -202,14 +202,15 @@ func TestKillStillArchivesThroughItsOwnCleanup(t *testing.T) {
 // whatever state the worktree is in, --force-archive and an empty folder's
 // cleanup included. With no saved run, the run is read by the worktree's
 // branch only while the folder is still a Git worktree, so a worktree gone,
-// or a folder no longer a Git worktree, retires its task unread. The branch
-// is read beside a saved run too, so a goblin that ran again after its saved
-// run ended, as after a resume or a failed pause, is refused while its newer
-// run is open, and a saved run the gate no longer holds leaves the branch to
-// name the run. A resumed goblin's saved run is read by its id as a paused
-// one's is. A gate with no database names no run, as it names none to the
-// stop, while a lifecycle record that cannot be read refuses as a gate that
-// cannot be read does. A refusal where cfo kill cannot find the run, the
+// a folder no longer a Git worktree, or one whose .git file names a worktree
+// record the project checkout no longer holds, retires its task unread. The
+// branch is read beside a saved run too, so a goblin that ran again after its
+// saved run ended, as after a resume or a failed pause, is refused while its
+// newer run is open, and a saved run the gate no longer holds leaves the
+// branch to name the run. A resumed goblin's saved run is read by its id as a
+// paused one's is. A gate with no database names no run, as it names none to
+// the stop, while a lifecycle record that cannot be read refuses as a gate
+// that cannot be read does. A refusal where cfo kill cannot find the run, the
 // worktree gone or no longer a Git worktree, names the abort that ends it
 // (#2246).
 func TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt(t *testing.T) {
@@ -227,9 +228,9 @@ func TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt(t *testing.T) {
 	}
 	for _, caller := range callers {
 		for _, tc := range []struct {
-			name, status, head, phase, saved                                                                    string
-			want                                                                                                []string
-			isForceArchive, isWorktreeGone, isNotAWorktree, isGateUnreadable, isGateMissing, isRecordUnreadable bool
+			name, status, head, phase, saved                                                                                          string
+			want                                                                                                                      []string
+			isForceArchive, isWorktreeGone, isNotAWorktree, isWorktreeRecordGone, isGateUnreadable, isGateMissing, isRecordUnreadable bool
 		}{
 			{name: "a completed run", status: "completed"},
 			{name: "a cancelled run", status: "cancelled"},
@@ -241,6 +242,7 @@ func TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt(t *testing.T) {
 			{name: "a force archive of a task whose worktree is gone", status: "running", isForceArchive: true, isWorktreeGone: true},
 			{name: "a force archive of a folder no longer a Git worktree", status: "running", isForceArchive: true, isNotAWorktree: true},
 			{name: "an empty folder no longer a Git worktree", status: "running", isNotAWorktree: true},
+			{name: "a force archive of a folder whose worktree record Git no longer holds", status: "running", isForceArchive: true, isWorktreeRecordGone: true},
 			{name: "a paused task whose saved run completed", status: "completed", phase: "paused"},
 			{name: "a paused task whose saved run is still open", status: "running", phase: "paused", want: []string{"cfo kill g1"}},
 			{name: "a force archive of a paused task whose worktree is gone and whose saved run is open", status: "running", isForceArchive: true, isWorktreeGone: true, phase: "paused", want: []string{"cfo kill g1", "no-mistakes axi abort --run run-1"}},
@@ -326,6 +328,12 @@ INSERT INTO runs(id,repo_id,branch,status,head_sha,last_pushed_sha,intent,worktr
 					// The seed commit is empty, so the worktree holds only
 					// its .git link, and without it the folder is empty.
 					if err := os.Remove(filepath.Join(meta.Worktree, ".git")); err != nil {
+						t.Fatal(err)
+					}
+				case tc.isWorktreeRecordGone:
+					// The worktree keeps its .git file, while the record it
+					// names under the project checkout's .git/worktrees goes.
+					if err := os.RemoveAll(git("rev-parse", "--absolute-git-dir")); err != nil {
 						t.Fatal(err)
 					}
 				}

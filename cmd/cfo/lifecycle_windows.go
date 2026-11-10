@@ -259,16 +259,17 @@ func endLeftProcesses(ctx context.Context, h home.Home, meta state.TaskMeta) ([]
 }
 
 // openGateRun names the task's gate run while it is still open, for the
-// cleanup that refuses to retire a task around it. The run a pause saved is
-// read by its id, whatever state the worktree is in, since a pause leaves its
-// run running and a worktree gone or no longer a Git worktree names no branch
-// to find it by. The worktree's branch is read as well, and only while the
-// folder is still a Git worktree, since a goblin that runs again, as after a
-// resume or a failed pause, can start a newer run there; a folder gone or no
-// longer one with no saved run retires unread. Either run still open names
-// it. A task whose project checkout is gone names no run either way, as
-// lifecycle.TaskGate rules for the stop: its kill can abort nothing, and its
-// own retirement must still go through (issue #1578).
+// cleanup that refuses to retire a task around it. Before either run is read,
+// a task whose project checkout is gone, or whose gate holds no database,
+// names no run, as lifecycle.TaskGate rules for the stop: its kill can abort
+// nothing, and its own retirement must still go through (issue #1578). The
+// run a pause saved is read by its id, whatever state the worktree is in,
+// since a pause leaves its run running and a worktree gone or no longer a Git
+// worktree names no branch to find it by. The worktree's branch is read as
+// well, and only while the folder is still a Git worktree, since a goblin
+// that runs again, as after a resume or a failed pause, can start a newer run
+// there; a folder gone or no longer one with no saved run retires unread.
+// Either run still open names it.
 func openGateRun(h home.Home) func(context.Context, state.TaskMeta) (string, error) {
 	return func(ctx context.Context, meta state.TaskMeta) (string, error) {
 		root, err := pipeline.DefaultRoot()
@@ -280,13 +281,13 @@ func openGateRun(h home.Home) func(context.Context, state.TaskMeta) (string, err
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return "", err
 		}
+		if _, statErr := os.Stat(meta.Project); errors.Is(statErr, os.ErrNotExist) {
+			return "", nil
+		}
+		if _, statErr := os.Stat(filepath.Join(root, "state.sqlite")); errors.Is(statErr, os.ErrNotExist) {
+			return "", nil
+		}
 		if err == nil && record.GateRun != "" {
-			if _, err := os.Stat(meta.Project); errors.Is(err, os.ErrNotExist) {
-				return "", nil
-			}
-			if _, err := os.Stat(filepath.Join(root, "state.sqlite")); errors.Is(err, os.ErrNotExist) {
-				return "", nil
-			}
 			run, err := gate.Run(ctx, record.GateRun)
 			if err != nil && !errors.Is(err, pipeline.ErrNoProgress) {
 				return "", err
@@ -321,7 +322,7 @@ func isGitWorktree(ctx context.Context, commands execx.Runner, dir string) (bool
 		return false, err
 	}
 	if result.ExitCode != 0 {
-		if strings.Contains(string(result.Stderr), "not a git repository") {
+		if stderr := string(result.Stderr); strings.Contains(stderr, "not a git repository") || strings.Contains(stderr, "gitfile does not point to a valid repository") {
 			return false, nil
 		}
 		return false, fmt.Errorf("read whether %s is still a Git worktree: git exited %d: %s", dir, result.ExitCode, strings.TrimSpace(string(result.Stderr)))
