@@ -53,7 +53,7 @@ Once they are spent, the worker may accept that run's open review findings itsel
 The task's status log records it with the task as who accepted, and the CEO is told of it in a notify nothing waits on.
 The worker accepts as they stand only findings that are not correctness, security or regression defects: a real defect among them goes in one follow-up commit on the same pull request after its first CI, named in the done report.
 The Test step, `--reason` and every other step stay the CEO's.
-From pipeline policy version 7 the worker submits its own one-commit correction of a handed-back Test or Lint failure with `cfo pipeline validate-authored <its task> --run <run> --findings <ids>`, and of a CI failure with `cfo pipeline handback`; each is held to the failure's findings and the files they name, and a wider correction, and every `validate-terminal`, stays the CEO's admission.
+From pipeline policy version 7 the worker submits its own one-commit correction of a handed-back Test or Lint failure with `cfo pipeline validate-authored <its task> --run <run> --findings <ids>`, and of a CI failure with `cfo pipeline handback`; each is held to the failure's findings and the scope [The goblin fixes its own failures](../pipeline.md#the-goblin-fixes-its-own-failures) sets, and a wider correction, and every `validate-terminal`, stays the CEO's admission.
 The CEO reconstructs accepted intent, identifies what Fix would require, then names the decision's run, step, action, finding IDs, instructions and authority.
 Reviewer labels cannot amend the accepted contract.
 Routine corrections, restoring approved behavior, completing the approved design, equivalent tests and correcting final-diff delivery evidence are autonomous CEO decisions within that contract.

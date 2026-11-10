@@ -75,9 +75,9 @@ The operator names a fallback in the home's `config/pipeline.json`, with its har
 
 ```json
 {
-  "version": 6,
+  "version": 7,
   "fallback": {"harness": "codex", "model": "gpt-6.1-sol", "effort": "xhigh"},
-  "auto_fix": {"review": 0, "test": 1, "lint": 1, "rebase": 1, "ci": 1},
+  "auto_fix": {"review": 0, "test": 0, "lint": 0, "rebase": 1, "ci": 0},
   "classes": {
     "ordinary": {"review_cycles": 2},
     "high-risk": {"review_cycles": 3},
@@ -251,7 +251,7 @@ An approval `--reason` reaches it the same way, and the driver refuses one that 
 
 Commands operate in the recorded task worktree and use its frozen policy.
 A task that gates several branches from extra worktrees names one: `run`, `respond`, `recover`, `handback`, `validate-authored` and `validate-terminal` take `--branch <branch>`.
-`respond`, `recover` and `handback` take `--run <run-id>` instead; `terminal-preflight` requires `--run <predecessor>`.
+`respond`, `recover` and `handback` take `--run <run-id>` instead, and `validate-authored --findings` requires it; `terminal-preflight` requires `--run <predecessor>`.
 The command then acts in whichever of the task's recorded worktrees, its own or an extra one `cfo worktree add` made, has that branch checked out.
 For `respond`, `recover` and `handback`, a selected run must be its branch's latest run in the project.
 Preflight and admission bind the exact predecessor's project and branch; native owns latest-owner and replay checks for admission.
@@ -304,7 +304,7 @@ cfo pipeline validate-authored <id> --admission-file admission.json
 cfo pipeline validate-terminal <id> --branch fix/correction --admission-file admission.json
 ```
 
-Only the registered primary CEO may submit either admission, including accepting the committed source and choosing a terminal successor's fresh harness selection.
+Only the registered primary CEO may submit either admission, including accepting the committed source and choosing a terminal successor's fresh harness selection, except the goblin's own correction of a handed-back failure that [The goblin fixes its own failures](#the-goblin-fixes-its-own-failures) describes.
 The registered primary CEO or the task's own authenticated goblin may inspect `terminal-preflight`, which delegates read-only observations to native without fetching, recovering custody, preparing an admission or starting validation.
 Gate agents cannot submit admission or inspect preflight, even with inherited CEO or goblin terminal proof.
 Keep that output private: it holds local paths, source observations and recovery anchors.
