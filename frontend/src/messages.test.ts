@@ -18,7 +18,7 @@ test("a message says where it is: queued, sent or with the CFO", () => {
   assert.equal(messageState(snapshot([action({ status: "running", message: "Starting the CFO. The message goes in once it runs." })]).actions[0]), "Starting");
   assert.equal(messageState(snapshot([action({ status: "succeeded", message: "Accepted by the goblin in its native terminal." })]).actions[0]), "Sent");
   assert.equal(messageState(snapshot([action({ status: "running", awaiting: { task: "goblin-one" } })]).actions[0]), "Sent");
-  assert.equal(messageState(snapshot([action({ status: "failed", message: "goblin-one was stopped before it could take it; the CFO has it" })]).actions[0]), "With the CFO");
+  assert.equal(messageState(snapshot([action({ status: "failed", message: "goblin-one was stopped before it could take it; the CFO has it" })]).actions[0]), "With the CEO");
 });
 
 // The Overlord, 2026-10-29: a message he typed for the CFO the day before

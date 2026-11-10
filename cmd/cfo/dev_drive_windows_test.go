@@ -19,7 +19,7 @@ func TestDevDriveMoveKeepsTheFolderToTheOwnerSystemAndAdministrators(t *testing.
 	t.Setenv("CFO_HOME", t.TempDir())
 	t.Setenv("CFO_STATE_OVERRIDE", "")
 	folder := filepath.Join(accesstest.DriveRootLike(t), "CodeGoblins")
-	runtime := runtimeOn(machineWith(devdrive.Volume{Root: filepath.VolumeName(folder) + `\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted}))
+	runtime := runtimeOn(t, machineWith(devdrive.Volume{Root: filepath.VolumeName(folder) + `\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted}))
 
 	// Act
 	var stdout, stderr bytes.Buffer

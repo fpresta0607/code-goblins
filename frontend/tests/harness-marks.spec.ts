@@ -63,7 +63,7 @@ for (const cfo of CFO_ENGINES) {
 
     // Act
     await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
 
     // Assert
     await expect(page.locator(".goblin-panel > .panel-header .mark")).toHaveCount(0);

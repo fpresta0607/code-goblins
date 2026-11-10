@@ -23,7 +23,7 @@ async function open(page: Page, first: object) {
   });
   await page.goto("/");
   await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
-  await expect(page.locator("#panel-title")).toHaveText("CFO");
+  await expect(page.locator("#panel-title")).toHaveText("CEO");
   await openTaskList(page);
   await page.evaluate(() => document.fonts.ready);
 }
@@ -48,7 +48,7 @@ test("the CFO task panel omits runtime status with or without its registered ses
   for (const sessions of [[endedPi, live], [endedPi]] as const) {
     await open(page, snapshot({ cfo_session: "claude/live-cfo", sessions }));
     await expect(page.locator(".panel-header-details .panel-status")).toHaveCount(0);
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
   }
 });
 
@@ -72,7 +72,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       // Act
       await summary.focus();
       await page.keyboard.press("Enter");
-      await expect(workspace.getByText("CFO project root", { exact: true })).toBeVisible();
+      await expect(workspace.getByText("CEO project root", { exact: true })).toBeVisible();
       await panel.screenshot({ path: testInfo.outputPath(`cfo-task-workspace-${size}.png`) });
 
       // Assert
@@ -99,7 +99,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       await expect(remote).toBeFocused();
       await page.keyboard.press("Enter");
       await expect(panel.locator(".remote-access")).toHaveAttribute("open", "");
-      await expect(panel.getByRole("heading", { name: "CFO", exact: true })).toBeVisible();
+      await expect(panel.getByRole("heading", { name: "CEO", exact: true })).toBeVisible();
     });
 
     test("the CFO task view keeps its AFK report and pending update notice", async ({ page }) => {
@@ -123,7 +123,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       // Arrange
       await open(page, snapshot());
       const section = page.locator(".panel-content > .disclosure.harness");
-      const restart = section.getByRole("button", { name: "Restart the CFO" });
+      const restart = section.getByRole("button", { name: "Restart the CEO" });
       const selector = section.getByRole("button", { name: "Harness: Claude Code" });
 
       // Act
@@ -161,12 +161,12 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       // Assert
       await expect(page.getByRole("menu", { name: "Harness" })).toHaveCount(0);
       await expect(selector).toBeFocused();
-      await expect(page.locator("#panel-title")).toHaveText("CFO");
+      await expect(page.locator("#panel-title")).toHaveText("CEO");
       expect(asked).toEqual([]);
       await selector.click();
       await page.getByRole("menuitemradio", { name: "Codex", exact: true }).click();
       expect(asked).toEqual([]);
-      await section.getByRole("button", { name: "Restart the CFO" }).click();
+      await section.getByRole("button", { name: "Restart the CEO" }).click();
       await expect.poll(() => asked).toEqual([{ method: "POST", body: JSON.stringify({ harness: "codex" }) }]);
       await expect(page.getByRole("dialog")).toHaveCount(0);
     });
@@ -180,7 +180,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
 
       // Assert
       await expect(page.locator(".panel-header")).toHaveClass(/one-row/);
-      await expect(page.getByRole("button", { name: "Restart the CFO" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Restart the CEO" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: /^Harness:/ })).toHaveCount(0);
     });
 
@@ -197,7 +197,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       await page.locator(".panel-content > .disclosure.harness > summary").click();
 
       // Assert
-      await expect(page.getByText("CFO project root", { exact: true })).toBeVisible();
+      await expect(page.getByText("CEO project root", { exact: true })).toBeVisible();
       await expect(page.locator(".panel-content > .disclosure.harness").getByRole("button", { name: "Harness: Claude Code" })).toBeVisible();
       await expect(page.locator(".panel-content > .disclosure.connections")).toHaveCount(0);
       await expect(page.getByText("Choose a goblin to check its connections.", { exact: true })).toHaveCount(0);

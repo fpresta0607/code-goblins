@@ -31,7 +31,7 @@ test("the bar says since when AFK mode is on, who turned it on and how much the 
   const cases: [string, Afk, string][] = [
     ["off says nothing", afk({ state: "off", since: "" }), ""],
     ["on with nothing yet", afk(), "AFK since 2:10 AM, from your board. 0 decided."],
-    ["on by the CFO at his ask, without his words, which the offer and his page of the stretch quote", afk({ ...BY_THE_CFO, decided: 1 }), "AFK since 2:10 AM, turned on by the CFO at your ask. 1 decided."],
+    ["on by the CEO at his ask, without his words, which the offer and his page of the stretch quote", afk({ ...BY_THE_CFO, decided: 1 }), "AFK since 2:10 AM, turned on by the CEO at your ask. 1 decided."],
     ["on from his terminal, whatever waits", afk({ from: "his own terminal (powershell.exe pid 5151)", decided: 4, held: [held(), held({ item: "run:restart-db", waiting: false, now: "succeeded" }), held({ item: "review:waiting-task-1-7", task: "task-1" })] }), "AFK since 2:10 AM, from your terminal. 4 decided."],
     ["on with no word of where", afk({ from: "" }), "AFK since 2:10 AM. 0 decided."],
     ["a switch that cannot be read is not taken for on", afk({ state: "unreadable", since: "" }), ""],
@@ -65,10 +65,10 @@ test("a click or key is the Overlord coming back only after the board saw none f
 test("his first click or key after the CFO turned AFK mode on at his ask offers the switch back at once, and the next waits as usual", () => {
   const on = Date.parse("2026-10-02T02:10:00Z");
   const cases: [string, Afk, number, number, Occasion][] = [
-    ["his first click a moment after the CFO's switch", afk(BY_THE_CFO), 0, on + 20_000, "asked"],
+    ["his first click a moment after the CEO's switch", afk(BY_THE_CFO), 0, on + 20_000, "asked"],
     ["his first since the switch, after one of his from before it", afk(BY_THE_CFO), on - 60_000, on + 20_000, "asked"],
     ["his next click, a moment after his first", afk(BY_THE_CFO), on + 20_000, on + 60_000, ""],
-    ["his first click hours after the CFO's switch is his coming back", afk(BY_THE_CFO), 0, NOW, "back"],
+    ["his first click hours after the CEO's switch is his coming back", afk(BY_THE_CFO), 0, NOW, "back"],
     ["a switch he made himself waits as usual", afk(), 0, on + 20_000, ""],
     ["off", afk({ ...BY_THE_CFO, state: "off", since: "" }), 0, on + 20_000, ""],
   ];
@@ -81,5 +81,5 @@ test("who made a switch is said to the Overlord: his own board, private board or
   assert.equal(switchedBy("his own terminal (powershell.exe pid 5151)", ""), "from your terminal");
   assert.equal(switchedBy("the board", ""), "from the board");
   assert.equal(switchedBy("", ""), "");
-  assert.equal(switchedBy(BY_THE_CFO.from, ASKED), "by the CFO at your ask: “I'm stepping away, turn AFK on”");
+  assert.equal(switchedBy(BY_THE_CFO.from, ASKED), "by the CEO at your ask: “I'm stepping away, turn AFK on”");
 });

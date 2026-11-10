@@ -164,6 +164,7 @@ func TestOriginNamesTheTaskAndTheTestThatMadeAFile(t *testing.T) {
 		`D:\CodeGoblins\scratch\pd-billing\TestDevStartsAloneTheWindowItBuilt3943610803\002\built`:                                                      {Task: "pd-billing", Test: "TestDevStartsAloneTheWindowItBuilt"},
 		`C:\Users\o\AppData\Local\Temp\TestOneLineInstallRetriesTheNoMistakesDownloadThatFailsTwice1554438682\003\x\cfo.exe.download`:                   {Test: "TestOneLineInstallRetriesTheNoMistakesDownloadThatFailsTwice"},
 		`C:\Users\o\.no-mistakes\worktrees\a3a29a05a5f9\01M4DPXSR8JG7RFT43P3AC8AB0\install.ps1`:                                                         {Gate: "01M4DPXSR8JG7RFT43P3AC8AB0"},
+		`D:\CodeGoblins\no-mistakes\worktrees\a3a29a05a5f9\01M4DPXSR8JG7RFT43P3AC8AB0\install.ps1`:                                                      {Gate: "01M4DPXSR8JG7RFT43P3AC8AB0"},
 		`C:\dev\code-goblins\scratch\candidates\cand-v0.5.13\install.ps1`:                                                                               {},
 		`C:\dev\code-goblins\scratch\.tmp\go-build1\b001\pkg.test.exe`:                                                                                  {},
 		`C:\dev\code-goblins\bin\cfo.exe`: {},

@@ -15,7 +15,7 @@ async function open(page: Page, answer: { status: number; body: Record<string, u
     return route.fulfill({ status: answer.status, json: answer.body });
   });
   await page.goto("/tests/fixtures/closed-cfo.html");
-  await expect(page.getByRole("button", { name: "Reopen the CFO" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reopen the CEO" })).toBeVisible();
   return { requests, release };
 }
 
@@ -24,13 +24,13 @@ test.use({ viewport: { width: 1280, height: 420 } });
 test("a closed CFO is said to be closed in plain words, with Reopen as its one action", async ({ page }, testInfo) => {
   // Arrange
   const { requests, release } = await open(page, { status: 200, body: { reopened: true } });
-  const bar = page.getByRole("group", { name: "CFO" });
-  const reopen = page.getByRole("button", { name: "Reopen the CFO" });
+  const bar = page.getByRole("group", { name: "CEO" });
+  const reopen = page.getByRole("button", { name: "Reopen the CEO" });
 
   // Assert: plain words, one action, and nothing about a pid or a command.
-  await expect(bar.locator("p")).toHaveText("The CFO is closed.");
+  await expect(bar.locator("p")).toHaveText("The CEO is closed.");
   await expect(bar.getByRole("button")).toHaveCount(1);
-  await expect(page.getByText(/pid|cfo register|No CFO is running|Start the CFO/)).toHaveCount(0);
+  await expect(page.getByText(/pid|cfo register|No CEO is running|Start the CEO/)).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("closed-cfo.png") });
 
   // Act
@@ -38,7 +38,7 @@ test("a closed CFO is said to be closed in plain words, with Reopen as its one a
 
   // Assert: one request, carrying the board's token, and no second while it
   // is under way.
-  await expect(page.getByRole("button", { name: "Reopening the CFO…" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Reopening the CEO…" })).toBeDisabled();
   expect(requests).toEqual([{ token: "fixture", body: "{}" }]);
   release();
   await expect(reopen).toBeEnabled();
@@ -52,12 +52,12 @@ test("a CFO that could not come back says so in a few words beside Reopen, which
   release();
 
   // Act
-  await page.getByRole("button", { name: "Reopen the CFO" }).click();
+  await page.getByRole("button", { name: "Reopen the CEO" }).click();
 
   // Assert
   await expect(page.locator(".cfo-pin .notice")).toHaveText("The CFO could not be reopened: claude is not on PATH.");
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Reopen the CFO" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Reopen the CEO" })).toBeEnabled();
   expect(requests).toHaveLength(1);
 });
 
@@ -72,11 +72,11 @@ test.describe("at the desktop window's size", () => {
     // Arrange
     const { release } = await open(page, { status: 200, body: { reopened: true } });
     release();
-    const bar = page.getByRole("group", { name: "CFO" });
-    const reopen = page.getByRole("button", { name: "Reopen the CFO" });
+    const bar = page.getByRole("group", { name: "CEO" });
+    const reopen = page.getByRole("button", { name: "Reopen the CEO" });
 
     // Act
-    const said = bar.getByText("The CFO is closed.", { exact: true });
+    const said = bar.getByText("The CEO is closed.", { exact: true });
     const [words, button] = [await said.boundingBox(), await reopen.boundingBox()];
     const sideways = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
 

@@ -24,7 +24,7 @@ async function open(page: Page, harness: string) {
   await page.route("**/api/cfo/report", (route) => { reports.push(route.request().postDataJSON() as { where: string; text: string }); return route.fulfill({ status: 202, json: { reported: true } }); });
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
     const query = new URL(socket.url()).searchParams;
-    const name = query.get("cfo") ? "the CFO" : "this task";
+    const name = query.get("cfo") ? "the CEO" : "this task";
     socket.close({ code: 1013, reason: `The terminal of ${name} did not answer.` });
   });
   await page.goto("/");
@@ -35,7 +35,7 @@ for (const { harness } of RUNS) {
   test(`a terminal that did not answer is named to the CFO, its own and a goblin's, on a ${harness === "claude" ? "Claude Code goblin, behind its messages" : "Codex goblin"}`, async ({ page }) => {
     // Arrange: the board opens on the CFO's terminal.
     const reports = await open(page, harness);
-    await expect.poll(() => reports.map((report) => report.where), { timeout: 20_000 }).toContain("the CFO's terminal");
+    await expect.poll(() => reports.map((report) => report.where), { timeout: 20_000 }).toContain("the CEO's terminal");
 
     // Act: he opens the goblin's terminal.
     const boardTab = page.getByRole("button", { name: "Board", exact: true });

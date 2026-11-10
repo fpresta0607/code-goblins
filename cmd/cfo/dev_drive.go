@@ -2,21 +2,27 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/access"
 	"github.com/fpresta0607/code-goblins/internal/devdrive"
+	"github.com/fpresta0607/code-goblins/internal/gatehome"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
-// runDevDrive says what the home's Dev Drive is, or moves the home's
-// worktrees, scratch and package caches onto one:
+// runDevDrive says what the home's Dev Drive is and where the gate's home is,
+// or moves the home's worktrees, scratch and package caches onto one and the
+// gate's home with them:
 //
 //	cfo dev-drive
 //	cfo dev-drive setup
@@ -47,6 +53,7 @@ func runDevDrive(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	if report.File != "" {
 		fmt.Fprintln(stdout, "file: "+report.File)
 	}
+	fmt.Fprintln(stdout, gateHomeLine(runtime, h.DevDrive))
 	fmt.Fprintln(stdout, devdrive.Explain)
 	for _, v := range m.Volumes {
 		kind := v.FileSystem
@@ -106,27 +113,58 @@ func runDevDriveMove(args []string, stdout, stderr io.Writer, runtime commandRun
 	if narrowErr == nil && !isNarrow {
 		narrowErr = access.Narrow(folder)
 	}
-	if h.DevDrive == "" {
-		restartBoardOntoTheDrive(h, stdout)
+	isGateCarried, gateErr := carryGateHomeOnto(folder, stdout, runtime, gateHomeTries, gateHomeEvery)
+	if h.DevDrive == "" || isGateCarried {
+		runtime.restartBoard(h, stdout)
 	}
 	if narrowErr != nil {
 		fmt.Fprintf(stderr, "cfo dev-drive move: %s is not yet kept to you, SYSTEM and Administrators (%v); the next cfo install or move narrows it again\n", folder, narrowErr)
+	}
+	if gateErr != nil {
+		fmt.Fprintln(stderr, "cfo dev-drive move: "+gateErr.Error())
+	}
+	if narrowErr != nil || gateErr != nil {
 		return 1
 	}
 	return 0
 }
 
+// carryGateHomeOnto moves the gate's home into the Dev Drive folder, which an
+// interrupt such as Ctrl+C stops and undoes, and says where it is. A gate
+// home it moved or placed there is named by NM_HOME in this process too, so a
+// board it starts again gates in the moved home; it says whether it did.
+func carryGateHomeOnto(folder string, stdout io.Writer, runtime commandRuntime, tries int, every time.Duration) (bool, error) {
+	old, err := runtime.gateHome()
+	if err != nil {
+		return false, err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	line, isCarried, err := runtime.carryGateHome(ctx, old, folder, tries, every, stdout)
+	if isCarried {
+		if setErr := os.Setenv(gatehome.Variable, gatehome.Target(folder)); setErr != nil {
+			err = errors.Join(err, setErr)
+		}
+	}
+	if err != nil {
+		return isCarried, err
+	}
+	fmt.Fprintln(stdout, "gate home: "+line)
+	return isCarried, nil
+}
+
 // restartBoardOntoTheDrive restarts the supervisor serving h, if one does, on
-// the build it runs: it read the home when it started, so until it starts
-// again what it starts itself, a goblin it brings back included, would build
-// in the home's own folders. Every goblin's and the CFO's terminal keeps
+// the build it runs: it read the home and the gate's home when it started, so
+// until it starts again what it starts itself, a goblin it brings back
+// included, would build in the home's own folders, and it would read the gate
+// in the gate's old home. Every goblin's and the CFO's terminal keeps
 // running, as they do through cfo update.
 func restartBoardOntoTheDrive(h home.Home, stdout io.Writer) {
 	running, ok := homeSupervisor(h.State)
 	if !ok || provedHomeSupervisor(h, running) != nil {
 		return
 	}
-	keeps := "The board keeps the home's own folders for what it starts itself until it next starts"
+	keeps := "The board keeps the folders and the gate's home it started with until it next starts"
 	identity, err := proc.Identify(running.pid, running.start)
 	if err != nil {
 		fmt.Fprintf(stdout, "%s %s: %v.\n", notePrefix, keeps, err)

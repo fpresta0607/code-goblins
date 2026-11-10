@@ -28,6 +28,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/gatedb"
+	"github.com/fpresta0607/code-goblins/internal/gatehome"
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
 	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -252,6 +253,14 @@ type commandRuntime struct {
 	// readDevDrive reads what this machine says about Dev Drives, for cfo
 	// dev-drive and cfo doctor.
 	readDevDrive func(context.Context) (devdrive.Machine, error)
+	// gateHome is where the gate's home is now (gatehome.Root), and
+	// carryGateHome moves it into a Dev Drive folder (carryGateHome), for
+	// cfo dev-drive, cfo doctor, cfo install and the board's gate step.
+	gateHome      func() (string, error)
+	carryGateHome func(ctx context.Context, old, devDrive string, tries int, every time.Duration, out io.Writer) (string, bool, error)
+	// restartBoard restarts the supervisor serving a home onto what cfo
+	// dev-drive move changed (restartBoardOntoTheDrive).
+	restartBoard func(h home.Home, stdout io.Writer)
 	// readDefender reads what Microsoft Defender recorded since a time, for
 	// cfo defender.
 	readDefender func(context.Context, time.Time) (defender.Report, error)
@@ -495,8 +504,11 @@ func defaultCommandRuntime() commandRuntime {
 		keySpend: func(ctx context.Context, source openrouter.Source) openrouter.Reading {
 			return openrouter.Reader{Source: source}.Read(ctx)
 		},
-		projectsRoot: install.MachineProjectsRoot,
-		readDevDrive: func(ctx context.Context) (devdrive.Machine, error) { return devdrive.Read(ctx, execx.OSRunner{}) },
+		projectsRoot:  install.MachineProjectsRoot,
+		readDevDrive:  func(ctx context.Context) (devdrive.Machine, error) { return devdrive.Read(ctx, execx.OSRunner{}) },
+		gateHome:      gatehome.Root,
+		carryGateHome: carryGateHome,
+		restartBoard:  restartBoardOntoTheDrive,
 		readDefender: func(ctx context.Context, since time.Time) (defender.Report, error) {
 			return defender.Read(ctx, execx.OSRunner{}, since)
 		},

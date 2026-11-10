@@ -21,7 +21,7 @@ async function open(page: Page, spend: unknown = keySpend(), tasks: unknown[] = 
   await page.getByRole("button", { name: "Board", exact: true }).click();
   await expect(page.getByRole("region", { name: "Tasks", exact: true }).getByRole("group", { name: "Memory" })).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
-  return page.getByRole("group", { name: "CFO", exact: true });
+  return page.getByRole("group", { name: "CEO", exact: true });
 }
 
 // Dollars are the dial's value, with the limit and the window they count

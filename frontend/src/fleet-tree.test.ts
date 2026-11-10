@@ -417,7 +417,7 @@ test("a working helper keeps its card under the CFO while its paused or finished
 
     // Assert
     const drawn = nodes.find((node) => node.id === card);
-    assert.deepEqual(drawn && [drawn.parent, drawn.relation], isHeld ? undefined : [under, "Dispatched by the CFO"], "parent " + name + ", " + card);
+    assert.deepEqual(drawn && [drawn.parent, drawn.relation], isHeld ? undefined : [under, "Dispatched by the CEO"], "parent " + name + ", " + card);
   }
 });
 
@@ -440,10 +440,10 @@ test("a helper no family tree holds hangs under its parent's card while its pare
   ] as [string, object[], object[], string, string][]) {
     assert.deepEqual(parentOf(tasks, sessions)[card], [under, "Helper goblin"], name);
   }
-  assert.deepEqual(parentOf([parent, helper], [])["task:g"], ["cfo:primary", "Dispatched by the CFO"], "its parent still hangs under the CFO");
+  assert.deepEqual(parentOf([parent, helper], [])["task:g"], ["cfo:primary", "Dispatched by the CEO"], "its parent still hangs under the CEO");
   const paused = parentOf([{ ...parent, phase: "paused", session: "own" }, { ...helper, session: "helper" }], [cfo, own, helperSession]);
-  assert.deepEqual([paused["session:own"], paused["session:helper"]?.[0]], [undefined, "session:cfo"], "a paused parent's helper hangs under the CFO");
-  assert.equal(parentOf([helper], [])["task:g-h1"][0], "cfo:primary", "a helper whose parent is gone hangs under the CFO");
+  assert.deepEqual([paused["session:own"], paused["session:helper"]?.[0]], [undefined, "session:cfo"], "a paused parent's helper hangs under the CEO");
+  assert.equal(parentOf([helper], [])["task:g-h1"][0], "cfo:primary", "a helper whose parent is gone hangs under the CEO");
 });
 
 test("a goblin waiting on the helper hung under it draws no dashed line to it", () => {

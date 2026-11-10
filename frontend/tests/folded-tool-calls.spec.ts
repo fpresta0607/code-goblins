@@ -7,7 +7,7 @@ for (const width of [390, 1440]) {
     await page.setViewportSize({ width, height: 1100 });
     await open(page, snapshot(), undefined, CONVERSATION);
     await page.getByRole("button", { name: CFO_DOOR }).first().click();
-    const messages = page.getByRole("log", { name: "Messages of CFO" });
+    const messages = page.getByRole("log", { name: "Messages of CEO" });
     await expect(messages.getByText("One test fails.")).toBeVisible();
 
     const five = messages.locator("details.message-call-group", { hasText: "Ran 5 commands" });
@@ -41,7 +41,7 @@ test("a folded run stays open as the running call beside it finishes and joins i
   await page.setViewportSize({ width: 1440, height: 1100 });
   await open(page, snapshot(), undefined, CONVERSATION);
   await page.getByRole("button", { name: CFO_DOOR }).first().click();
-  const messages = page.getByRole("log", { name: "Messages of CFO" });
+  const messages = page.getByRole("log", { name: "Messages of CEO" });
   const fold = messages.locator("details.message-call-group").filter({ hasText: "Read 2 files" });
   await fold.locator("> summary").click();
   await expect(fold.locator(".disclosure-content details.message-call")).toHaveCount(5);
@@ -66,7 +66,7 @@ async function openReply(page: Page, reply: object) {
   await page.setViewportSize({ width: 1440, height: 1100 });
   await open(page, snapshot(), undefined, conversationOf(reply));
   await page.getByRole("button", { name: CFO_DOOR }).first().click();
-  return page.getByRole("log", { name: "Messages of CFO" });
+  return page.getByRole("log", { name: "Messages of CEO" });
 }
 
 for (const [name, reply] of [["with call ids", JOINS_RIGHT], ["without call ids", JOINS_RIGHT_WITHOUT_IDS]] as const) {

@@ -27,7 +27,7 @@ const STARTING = /^Starting /;
 // it to the CFO.
 export function messageState(action: Action): string {
   if (action.status === "queued" || action.status === "running" && !action.awaiting) return STARTING.test(action.message) ? "Starting" : "Queued";
-  if (action.status === "failed") return action.message.includes("the CFO has it") ? "With the CFO" : "Not sent";
+  if (action.status === "failed") return action.message.includes("the CFO has it") ? "With the CEO" : "Not sent";
   return "Sent";
 }
 

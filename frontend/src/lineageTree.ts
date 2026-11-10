@@ -42,7 +42,7 @@ export function sessionRole(node: Session): string {
 }
 
 export function sessionTitle(node: Session, task?: Task): string {
-  if (node.role === "cfo") return "CFO";
+  if (node.role === "cfo") return "CEO";
   if (node.role === "goblin") return task ? goblinName(task) : node.task_id || node.native_id;
   return node.agent_type || node.native_id || sessionRole(node);
 }

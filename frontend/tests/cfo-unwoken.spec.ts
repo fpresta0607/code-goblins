@@ -41,7 +41,7 @@ test("an untold CFO reaches the Overlord as one plain item whose action is Resta
   await expect(card.locator(".run-command")).toHaveCount(0);
 
   // Act: he restarts the CFO, which asks nothing more.
-  await card.getByRole("button", { name: "Restart the CFO" }).click();
+  await card.getByRole("button", { name: "Restart the CEO" }).click();
 
   // Assert: the board's own restart, and no run item started.
   await expect.poll(() => posted).toContain("/api/cfo/restart");

@@ -77,8 +77,8 @@ test("the same card offers the same choices over the CFO's Modern Chat", async (
   // Arrange
   await open(page);
   await page.keyboard.press("Control+Alt+1");
-  await expect(page.locator("#panel-title")).toHaveText("CFO");
-  await expect(page.getByRole("log", { name: "Messages of CFO" })).toBeVisible();
+  await expect(page.locator("#panel-title")).toHaveText("CEO");
+  await expect(page.getByRole("log", { name: "Messages of CEO" })).toBeVisible();
 
   // Act
   await openItem(page, DECISION);

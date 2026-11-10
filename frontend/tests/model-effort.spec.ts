@@ -46,7 +46,7 @@ test("the CFO's box shows the effort its engine was started at", async ({ page }
   await page.keyboard.press("Control+Alt+1");
 
   // Assert
-  await expect(box(page, "CFO").getByRole("button", { name: "Change model", exact: true }).locator(".effort-level")).toHaveText("high");
+  await expect(box(page, "CEO").getByRole("button", { name: "Change model", exact: true }).locator(".effort-level")).toHaveText("high");
 });
 
 // The server keeps a saved engine it did not apply, with pending false: one
@@ -67,7 +67,7 @@ for (const unapplied of UNAPPLIED) {
 
     // Assert: the session's record has arrived, and the model's button shows
     // no effort, not the saved engine's.
-    const model = box(page, "CFO").getByRole("button", { name: "Change model", exact: true });
+    const model = box(page, "CEO").getByRole("button", { name: "Change model", exact: true });
     await expect(model.locator(".engine-control-model")).toHaveText(unapplied.shown);
     await expect(model.locator(".effort-level")).toHaveCount(0);
   });

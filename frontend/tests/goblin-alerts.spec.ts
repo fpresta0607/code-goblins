@@ -30,7 +30,7 @@ test("the CFO's bar is a plain card at rest and the CFO's lantern box while some
   // The lantern box, with the CFO's name on its tab and none of the alert's
   // words: the line says only how many goblins the CFO supervises, and the
   // button how many things wait.
-  await expect(needs.locator(".dialogue-tab")).toHaveText("CFO");
+  await expect(needs.locator(".dialogue-tab")).toHaveText("CEO");
   await expect(needs.locator(".dialogue-tab")).toHaveCSS("color", LANTERN);
   await expect(needs.locator(".dialogue-text p")).toHaveText("3 goblins at work.");
   await expect(page.locator(".task-board .cfo-pin")).not.toContainText("Which layout should I keep?");
@@ -39,9 +39,9 @@ test("the CFO's bar is a plain card at rest and the CFO's lantern box while some
   expect(await filled(command(page))).toBe(LANTERN_FILL);
   await expect(command(page)).toHaveCSS("animation-name", "none");
   await needs.locator(".dialogue-actions").getByRole("button", { name: CFO_DOOR }).click();
-  await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its icon");
+  await expect(page.locator("output")).toHaveText("opened the CEO's terminal from its icon");
   await needs.locator("button.dialogue-portrait").click();
-  await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its portrait");
+  await expect(page.locator("output")).toHaveText("opened the CEO's terminal from its portrait");
   // At rest: no lantern box and no Open Command Center; only its terminal, on
   // the icon and the portrait, on the same card as the column under it.
   await expect(rest).toContainText("All quiet. 3 goblins at work.");
@@ -51,9 +51,9 @@ test("the CFO's bar is a plain card at rest and the CFO's lantern box while some
   const look = (locator: Locator) => locator.evaluate((element) => { const style = getComputedStyle(element); return [style.backgroundColor, style.borderTopColor, style.borderRadius].join(" "); });
   expect(await look(rest)).toBe(await look(page.locator(".board-column")));
   await rest.locator("button.icon-button").click();
-  await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its icon");
+  await expect(page.locator("output")).toHaveText("opened the CEO's terminal from its icon");
   await rest.locator("button.cfo-rest-portrait").click();
-  await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its portrait");
+  await expect(page.locator("output")).toHaveText("opened the CEO's terminal from its portrait");
 });
 
 test("the bar keeps its line and its buttons inside it on a phone, at rest and while something waits", async ({ page }) => {

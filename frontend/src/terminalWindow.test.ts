@@ -17,8 +17,8 @@ const snapshot = (changes: Partial<Snapshot> = {}) => ({ cfo_terminal: "", sessi
 
 test("Open in terminal names the terminal shown, as its own view names it", () => {
   const cases: [string, Snapshot, boolean, Task | undefined, object | null][] = [
-    ["the CFO in Herdr", snapshot(), true, undefined, {}],
-    ["the CFO in a native terminal", snapshot({ cfo_terminal: "cfo" }), true, undefined, { native: "cfo=cfo" }],
+    ["the CEO in Herdr", snapshot(), true, undefined, {}],
+    ["the CEO in a native terminal", snapshot({ cfo_terminal: "cfo" }), true, undefined, { native: "cfo=cfo" }],
     ["a goblin in Herdr, by its owning session", snapshot(), false, task(), { task: "task-1", session: "s1", generation: "g1" }],
     ["a goblin in a native terminal", snapshot(), false, task({ backend: "native" }), { native: "task=task-1&generation=g1" }],
     ["a task not started has no terminal", snapshot(), false, task({ generation: "" }), null],
