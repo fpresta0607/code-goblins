@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +27,8 @@ type fakeDaemon struct {
 	failStart string
 	// onHold runs when the home is held.
 	onHold func()
+	// onStart runs when a daemon is asked to start, before it answers.
+	onStart func(root string)
 }
 
 func (d *fakeDaemon) Uninstall(_ context.Context, root string) error {
@@ -47,6 +50,9 @@ func (d *fakeDaemon) Hold(_ context.Context, root string) (func() error, error) 
 
 func (d *fakeDaemon) Start(_ context.Context, root string) error {
 	d.calls = append(d.calls, "start "+root)
+	if d.onStart != nil {
+		d.onStart(root)
+	}
 	if root == d.failStart {
 		return errors.New("daemon did not answer")
 	}
@@ -112,11 +118,11 @@ func TestMoveCarriesTheHomeAndPointsEveryRecordAtIt(t *testing.T) {
 	s := newScratch(t)
 
 	// Act
-	line, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+	line, isCarried, err := s.mover().Move(context.Background(), s.old, s.devDrive)
 
 	// Assert
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || !isCarried {
+		t.Fatalf("carried %v, %v", isCarried, err)
 	}
 	if !strings.HasPrefix(line, "moved: the gate's home is "+s.target) {
 		t.Errorf("line = %q", line)
@@ -178,7 +184,7 @@ func TestMoveIsRefusedWhileAGateRunIsInFlight(t *testing.T) {
 	// Act
 	mover := s.mover()
 	mover.Waiting = func(error) { waits++ }
-	_, err := mover.Move(context.Background(), s.old, s.devDrive)
+	_, _, err := mover.Move(context.Background(), s.old, s.devDrive)
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "while gate runs stay in flight") {
@@ -199,7 +205,7 @@ func TestAnInterruptedCopyUndoesTheMove(t *testing.T) {
 	ctx := &endsAfter{Context: context.Background(), checks: 4}
 
 	// Act
-	_, err := s.mover().Move(ctx, s.old, s.devDrive)
+	_, _, err := s.mover().Move(ctx, s.old, s.devDrive)
 
 	// Assert
 	if !errors.Is(err, context.Canceled) {
@@ -220,7 +226,7 @@ func TestAFailedStartOnTheCopyUndoesTheSwitch(t *testing.T) {
 	}
 
 	// Act
-	_, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+	_, _, err := s.mover().Move(context.Background(), s.old, s.devDrive)
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "did not start on "+s.target) {
@@ -259,7 +265,7 @@ func TestMoveCarriesAHomeAMoveByHandLinkedIntoTheDevDrive(t *testing.T) {
 	writeFile(t, filepath.Join(s.target, "logs", "r0", "old.log"), "stale\n")
 
 	// Act
-	_, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+	_, _, err := s.mover().Move(context.Background(), s.old, s.devDrive)
 
 	// Assert
 	if err != nil {
@@ -308,7 +314,7 @@ func TestAFailedMoveOfAHomeLinkedByHandPutsTheDevDriveFolderBack(t *testing.T) {
 	s.daemon.failStart = s.target
 
 	// Act
-	_, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+	_, _, err := s.mover().Move(context.Background(), s.old, s.devDrive)
 
 	// Assert
 	if err == nil {
@@ -334,7 +340,7 @@ func TestMoveReplacesTheCopyOfAMoveEndedOutright(t *testing.T) {
 	writeFile(t, filepath.Join(s.target, "logs", "r1", "test.log"), "half")
 
 	// Act
-	_, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+	_, _, err := s.mover().Move(context.Background(), s.old, s.devDrive)
 
 	// Assert
 	if err != nil {
@@ -369,6 +375,17 @@ func TestMoveRefusesBeforeTouchingTheDaemon(t *testing.T) {
 			want: "does not copy over it",
 		},
 		{
+			name: "a home that is itself a junction to another folder",
+			arrange: func(t *testing.T, s scratch) {
+				elsewhere := filepath.Join(s.devDrive, "elsewhere")
+				if err := os.Rename(s.old, elsewhere); err != nil {
+					t.Fatal(err)
+				}
+				junction(t, s.old, elsewhere)
+			},
+			want: "and the move carries only a junction to ",
+		},
+		{
 			name: "a link that leads elsewhere",
 			arrange: func(t *testing.T, s scratch) {
 				elsewhere := filepath.Join(s.devDrive, "elsewhere")
@@ -386,7 +403,7 @@ func TestMoveRefusesBeforeTouchingTheDaemon(t *testing.T) {
 			test.arrange(t, s)
 
 			// Act
-			_, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+			_, _, err := s.mover().Move(context.Background(), s.old, s.devDrive)
 
 			// Assert
 			if err == nil || !strings.Contains(err.Error(), test.want) {
@@ -399,17 +416,136 @@ func TestMoveRefusesBeforeTouchingTheDaemon(t *testing.T) {
 	}
 }
 
+// sentinel is a file written under the Dev Drive folder before a move.
+const sentinel = "written under the Dev Drive before the move"
+
+// asJunctionToTheDevDrive puts the whole home in the Dev Drive folder and a
+// junction to it at the old home, as a move by hand of the whole home does.
+func asJunctionToTheDevDrive(t *testing.T, s scratch) {
+	t.Helper()
+	if err := os.Rename(s.old, s.target); err != nil {
+		t.Fatal(err)
+	}
+	junction(t, s.old, s.target)
+	writeFile(t, filepath.Join(s.target, "sentinel.txt"), sentinel)
+}
+
+// filesIn are the bytes of every file below folder, by its path there.
+func filesIn(t *testing.T, folder string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := filepath.WalkDir(folder, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(folder, path)
+		files[relative] = string(raw)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+func TestMoveCarriesAHomeThatIsItselfAJunctionToTheDevDriveInPlace(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	asJunctionToTheDevDrive(t, s)
+	var atStart map[string]string
+	s.daemon.onStart = func(root string) {
+		if root == s.target {
+			atStart = filesIn(t, s.target)
+		}
+	}
+
+	// Act
+	line, isCarried, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err != nil || !isCarried || !strings.Contains(line, "the junction "+s.old+" is gone, removed as a link") {
+		t.Fatalf("line = %q, carried %v, err = %v", line, isCarried, err)
+	}
+	if want := []string{"uninstall " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target}; !slices.Equal(s.daemon.calls, want) {
+		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
+	}
+	if _, err := os.Lstat(s.old); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the junction is still at the old home: %v", err)
+	}
+	if value, isSet, _ := s.env.Get(Variable); !isSet || value != s.target {
+		t.Errorf("user NM_HOME = %q (set %v), want %s", value, isSet, s.target)
+	}
+	after := filesIn(t, s.target)
+	for _, path := range []string{"state.sqlite", filepath.Join("repos", "a1.git", "HEAD"), "sentinel.txt"} {
+		if _, ok := after[path]; !ok {
+			t.Errorf("the Dev Drive folder lost %s", path)
+		}
+	}
+	if !maps.Equal(after, atStart) {
+		t.Errorf("the Dev Drive folder changed as the junction went: %d files after, %d at the daemon's start", len(after), len(atStart))
+	}
+	assertFile(t, filepath.Join(s.target, "sentinel.txt"), sentinel)
+	moved := filepath.Join(s.target, "repos", "a1.git")
+	if got := gitOutput(t, moved, "config", "--worktree", "core.hooksPath"); got != filepath.Join(moved, "hooks") {
+		t.Errorf("hooks path = %q, want %q", got, filepath.Join(moved, "hooks"))
+	}
+	if got := gitOutput(t, s.checkout, "remote", "get-url", "no-mistakes"); got != moved {
+		t.Errorf("no-mistakes remote = %q, want %q", got, moved)
+	}
+	db := openDB(t, filepath.Join(s.target, "state.sqlite"))
+	defer db.Close()
+	var worktree string
+	if err := db.QueryRow("SELECT worktree_dir FROM runs WHERE id = 'r1'").Scan(&worktree); err != nil || worktree != filepath.Join(s.target, "worktrees", "a1", "r1") {
+		t.Errorf("run r1 worktree_dir = %q (%v), want it in %s", worktree, err, s.target)
+	}
+}
+
+func TestAFailedStartOfAHomeThatIsAJunctionLeavesItAsItWas(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	asJunctionToTheDevDrive(t, s)
+	s.daemon.failStart = s.target
+	before := filesIn(t, s.target)
+
+	// Act
+	_, isCarried, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err == nil || isCarried || !strings.Contains(err.Error(), "did not start on "+s.target) {
+		t.Fatalf("carried %v, err = %v; want the failed start", isCarried, err)
+	}
+	if want := []string{"uninstall " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "uninstall " + s.target, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
+		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
+	}
+	if linked, isLink := linkTarget(s.old); !isLink || !sameFolder(linked, s.target) {
+		t.Errorf("the old home is %q (a link %v), want the junction to %s", linked, isLink, s.target)
+	}
+	if after := filesIn(t, s.target); !maps.Equal(after, before) {
+		t.Errorf("the Dev Drive folder changed: %d files after, %d before", len(after), len(before))
+	}
+	if _, isSet, _ := s.env.Get(Variable); isSet {
+		t.Error("user NM_HOME was set")
+	}
+	if got := gitOutput(t, s.checkout, "remote", "get-url", "no-mistakes"); got != s.repository {
+		t.Errorf("no-mistakes remote = %q, want it back at %q", got, s.repository)
+	}
+}
+
 func TestMoveLeavesAHomeAlreadyOnTheDevDrive(t *testing.T) {
 	// Arrange
 	s := newScratch(t)
 	mustMkdir(t, s.target)
 
 	// Act
-	line, err := s.mover().Move(context.Background(), s.target, s.devDrive)
+	line, isCarried, err := s.mover().Move(context.Background(), s.target, s.devDrive)
 
 	// Assert
-	if err != nil || !strings.HasPrefix(line, "already on the Dev Drive") {
-		t.Fatalf("line = %q, err = %v", line, err)
+	if err != nil || isCarried || !strings.HasPrefix(line, "already on the Dev Drive") {
+		t.Fatalf("line = %q, carried %v, err = %v", line, isCarried, err)
 	}
 	if len(s.daemon.calls) != 0 {
 		t.Errorf("daemon calls = %q, want none", s.daemon.calls)
@@ -422,11 +558,11 @@ func TestMovePlacesAHomeNotMadeYetOnTheDevDrive(t *testing.T) {
 	fresh := filepath.Join(filepath.Dir(s.old), ".no-mistakes-fresh")
 
 	// Act
-	line, err := s.mover().Move(context.Background(), fresh, s.devDrive)
+	line, isCarried, err := s.mover().Move(context.Background(), fresh, s.devDrive)
 
 	// Assert
-	if err != nil || !strings.HasPrefix(line, "placed:") {
-		t.Fatalf("line = %q, err = %v", line, err)
+	if err != nil || !isCarried || !strings.HasPrefix(line, "placed:") {
+		t.Fatalf("line = %q, carried %v, err = %v", line, isCarried, err)
 	}
 	if info, err := os.Stat(s.target); err != nil || !info.IsDir() {
 		t.Errorf("the home on the Dev Drive was not made: %v", err)

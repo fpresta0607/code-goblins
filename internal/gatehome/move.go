@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -58,37 +61,64 @@ type Mover struct {
 // yet is named on the Dev Drive from the start. A home whose folders a move by
 // hand put in the Dev Drive folder behind junctions moves around them: they
 // stay where they are, and what else that move left in the Dev Drive folder
-// is set aside and goes once the move is done. It returns what it did, in a
-// line for the person.
-func (m Mover) Move(ctx context.Context, old, devDrive string) (string, error) {
+// is set aside and goes once the move is done. A home that is itself a
+// junction to the gate's home on the Dev Drive is carried there in place.
+// It returns what it did, in a line for the person, and whether the user's
+// NM_HOME names the Dev Drive by this call, which an error after the switch
+// does not undo.
+func (m Mover) Move(ctx context.Context, old, devDrive string) (string, bool, error) {
 	if devDrive == "" {
-		return "", errors.New("gate home: the fleet has no Dev Drive folder to move it to")
+		return "", false, errors.New("gate home: the fleet has no Dev Drive folder to move it to")
 	}
 	target := Target(devDrive)
 	if isUnder(old, devDrive) {
-		return "already on the Dev Drive: the gate's home is " + old + ", named by NM_HOME; nothing changed", nil
+		return "already on the Dev Drive: the gate's home is " + old + ", named by NM_HOME; nothing changed", false, nil
 	}
 	if _, err := os.Lstat(old); errors.Is(err, os.ErrNotExist) {
 		if err := os.MkdirAll(target, 0o700); err != nil {
-			return "", err
+			return "", false, err
 		}
 		if err := m.setEnv(target); err != nil {
-			return "", err
+			return "", false, err
 		}
-		return fmt.Sprintf("placed: the gate's home is %s on the Dev Drive from the start, named by NM_HOME", target), nil
+		return fmt.Sprintf("placed: the gate's home is %s on the Dev Drive from the start, named by NM_HOME", target), true, nil
+	}
+	if linked, isLink := linkTarget(old); isLink && sameFolder(linked, target) {
+		return m.carryInPlace(ctx, old, target)
 	}
 	plan, err := planCopy(old, target, devDrive, m.Now())
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if err := m.stop(ctx, old); err != nil {
-		return "", err
+		return "", false, err
 	}
 	move := &moving{mover: m, old: old, target: target, plan: plan}
 	if err := move.run(ctx); err != nil {
-		return "", errors.Join(err, move.undo(context.WithoutCancel(ctx)))
+		return "", false, errors.Join(err, move.undo(context.WithoutCancel(ctx)))
 	}
-	return move.finish(), nil
+	return move.finish(), true, nil
+}
+
+// carryInPlace carries a home that is itself a junction to target without a
+// copy: the daemon stops and is held off, the records in target are pointed
+// at it, NM_HOME and each gated checkout's remote name it, and the daemon
+// starts there. Only then the junction goes, as a link alone, and target is
+// read again for the database and every repository it held before.
+func (m Mover) carryInPlace(ctx context.Context, old, target string) (string, bool, error) {
+	repositories, err := filepath.Glob(filepath.Join(target, "repos", "*.git"))
+	if err != nil {
+		return "", false, err
+	}
+	if err := m.stop(ctx, old); err != nil {
+		return "", false, err
+	}
+	move := &moving{mover: m, old: old, target: target}
+	if err := move.run(ctx); err != nil {
+		return "", false, errors.Join(err, move.undo(context.WithoutCancel(ctx)))
+	}
+	line, err := move.unlink(repositories)
+	return line, true, err
 }
 
 // moving is one move after the daemon stopped, with what it changed so far
@@ -96,6 +126,7 @@ func (m Mover) Move(ctx context.Context, old, devDrive string) (string, error) {
 type moving struct {
 	mover       Mover
 	old, target string
+	// plan is what the move copies, nil for a home carried in place.
 	plan        *copyPlan
 	release     func() error
 	edits       []edit
@@ -112,16 +143,18 @@ func (m *moving) run(ctx context.Context) error {
 		return fmt.Errorf("gate home: the daemon stopped but could not be held off, so nothing moved: %w", err)
 	}
 	m.release = release
-	if err := m.plan.setAside(); err != nil {
-		return fmt.Errorf("gate home: what a move by hand left in %s could not be set aside, so nothing moved: %w", m.target, err)
-	}
-	if err := m.plan.copy(ctx); err != nil {
-		return fmt.Errorf("gate home: the copy to %s failed, so nothing moved: %w", m.target, err)
+	if m.plan != nil {
+		if err := m.plan.setAside(); err != nil {
+			return fmt.Errorf("gate home: what a move by hand left in %s could not be set aside, so nothing moved: %w", m.target, err)
+		}
+		if err := m.plan.copy(ctx); err != nil {
+			return fmt.Errorf("gate home: the copy to %s failed, so nothing moved: %w", m.target, err)
+		}
 	}
 	edits, err := pointRecords(ctx, m.old, m.target)
 	m.edits = edits
 	if err != nil {
-		return fmt.Errorf("gate home: the copy's records could not be pointed at %s, so nothing moved: %w", m.target, err)
+		return fmt.Errorf("gate home: the records in %s could not be pointed at it, so nothing moved: %w", m.target, err)
 	}
 	if m.previous, m.hadPrevious, err = m.mover.Env.Get(Variable); err != nil {
 		return err
@@ -161,7 +194,10 @@ func (m *moving) undo(ctx context.Context) error {
 		}
 		errs = append(errs, m.mover.Env.Broadcast())
 	}
-	errs = append(errs, restoreEdits(m.edits), m.plan.discard(), m.plan.restore())
+	errs = append(errs, restoreEdits(m.edits))
+	if m.plan != nil {
+		errs = append(errs, m.plan.discard(), m.plan.restore())
+	}
 	if m.release != nil {
 		errs = append(errs, m.release())
 	}
@@ -185,6 +221,32 @@ func (m *moving) finish() string {
 		line += fmt.Sprintf("; what an earlier move left in the Dev Drive folder may stay in %s (%v)", m.plan.aside, err)
 	}
 	return line
+}
+
+// unlink removes the junction at the old home as a link alone, once the
+// daemon runs on target, then proves target still holds its database and
+// each repository it held before the move, and says what the move did.
+func (m *moving) unlink(repositories []string) (string, error) {
+	info, err := os.Lstat(m.old)
+	if err != nil {
+		return "", fmt.Errorf("gate home: the gate's home is %s, named by NM_HOME, but the junction %s could not be read: %w", m.target, m.old, err)
+	}
+	if info.Mode().Type()&(fs.ModeSymlink|fs.ModeIrregular) == 0 {
+		return "", fmt.Errorf("gate home: the gate's home is %s, named by NM_HOME, but %s is no longer a junction, so it stays", m.target, m.old)
+	}
+	if err := os.Remove(m.old); err != nil {
+		return "", fmt.Errorf("gate home: the gate's home is %s, named by NM_HOME, but the junction %s could not be removed: %w", m.target, m.old, err)
+	}
+	var missing []string
+	for _, path := range append([]string{filepath.Join(m.target, "state.sqlite")}, repositories...) {
+		if _, err := os.Stat(path); err != nil {
+			missing = append(missing, path)
+		}
+	}
+	if len(missing) > 0 {
+		return "", fmt.Errorf("gate home: the junction %s is gone, but the gate's home %s lacks %s", m.old, m.target, strings.Join(missing, ", "))
+	}
+	return fmt.Sprintf("moved: the gate's home is %s on the Dev Drive, named by NM_HOME for every program started from now on, and its daemon runs there; %d gated checkout(s) push to it; the junction %s is gone, removed as a link", m.target, len(m.remotes), m.old), nil
 }
 
 // removeHome removes each link in the old home, which leads to what the

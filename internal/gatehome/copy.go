@@ -47,8 +47,8 @@ type copyPlan struct {
 // leads anywhere but the matching place in target, and a target that holds
 // something no link of the home explains.
 func planCopy(old, target, devDrive string, now time.Time) (*copyPlan, error) {
-	if _, isLink := linkTarget(old); isLink {
-		return nil, fmt.Errorf("gate home: %s is itself a link; nothing moved", old)
+	if linked, isLink := linkTarget(old); isLink {
+		return nil, fmt.Errorf("gate home: %s is a junction to %s, and the move carries only a junction to %s; nothing moved", old, linked, target)
 	}
 	plan := &copyPlan{old: old, target: target, aside: filepath.Join(devDrive, DevDriveFolder+".left-"+now.UTC().Format("20060102T150405Z"))}
 	err := walkLinks(old, func(path, linked string) error {

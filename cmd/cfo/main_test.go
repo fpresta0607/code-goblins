@@ -196,6 +196,11 @@ func TestMain(m *testing.M) {
 	if report := os.Getenv(environmentReportVariable); report != "" {
 		os.Exit(reportEnvironment(report))
 	}
+	if log := os.Getenv(gateDaemonLogVariable); log != "" {
+		if self, err := os.Executable(); err == nil && strings.EqualFold(filepath.Base(self), "no-mistakes.exe") {
+			os.Exit(recordGateDaemonCall(log))
+		}
+	}
 	if len(os.Args) > 1 && os.Args[1] == attachTestTerminal {
 		attachTestProgram()
 		os.Exit(0)

@@ -78,15 +78,16 @@ func placeGateHome(root string, stdout io.Writer, runtime commandRuntime) {
 	if err != nil || config.Root == "" {
 		return
 	}
-	if err := carryGateHomeOnto(config.Root, stdout, runtime, 1, 0); err != nil {
+	if _, err := carryGateHomeOnto(config.Root, stdout, runtime, 1, 0); err != nil {
 		fmt.Fprintf(stdout, "%s The gate's home did not move to the Dev Drive (%v); the board's Dev Drive panel offers to move it.\n", notePrefix, err)
 	}
 }
 
 // carryGateHome moves the gate's home at old into the Dev Drive folder
 // devDrive, asking the daemon to stop up to tries times, every apart, and
-// saying on out each time it waits.
-func carryGateHome(ctx context.Context, old, devDrive string, tries int, every time.Duration, out io.Writer) (string, error) {
+// saying on out each time it waits. It says whether the gate's home moved or
+// was placed there.
+func carryGateHome(ctx context.Context, old, devDrive string, tries int, every time.Duration, out io.Writer) (string, bool, error) {
 	commands := execx.OSRunner{}
 	mover := gatehome.Mover{Daemon: gateDaemon{commands: commands}, Env: installbase.NewEnvStore(commands), Git: commands, Tries: tries, Every: every, Now: time.Now,
 		Waiting: func(err error) {

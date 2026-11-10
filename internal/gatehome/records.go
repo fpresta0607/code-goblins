@@ -15,7 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// edit is a text file pointRecords changed, with what it held before, for a
+// edit is a file pointRecords changed, with what it held before, for a
 // failed move to put back.
 type edit struct {
 	path     string
@@ -27,10 +27,15 @@ type edit struct {
 // path each gated repository pins in its config. A repository a move by hand
 // put on the Dev Drive is the old home's as well until the switch, and its
 // new hooks path is as good for the old home as for the new one. It returns
-// the files it changed.
+// the files it changed, the database among them.
 func pointRecords(ctx context.Context, old, target string) ([]edit, error) {
-	if err := pointDatabase(ctx, filepath.Join(target, "state.sqlite"), old, target); err != nil {
-		return nil, err
+	var edits []edit
+	database, err := pointDatabase(ctx, filepath.Join(target, "state.sqlite"), old, target)
+	if database != nil {
+		edits = append(edits, *database)
+	}
+	if err != nil {
+		return edits, err
 	}
 	files := []string{filepath.Join(target, "config.yaml")}
 	repositories, err := filepath.Glob(filepath.Join(target, "repos", "*.git"))
@@ -40,7 +45,6 @@ func pointRecords(ctx context.Context, old, target string) ([]edit, error) {
 	for _, repository := range repositories {
 		files = append(files, filepath.Join(repository, "config"), filepath.Join(repository, "config.worktree"))
 	}
-	var edits []edit
 	for _, path := range files {
 		original, err := fsx.ReadFile(path)
 		if errors.Is(err, os.ErrNotExist) {
@@ -77,29 +81,38 @@ func restoreEdits(edits []edit) error {
 // pointDatabase rewrites every text value of every table in the database at
 // path that names a place in old to name the same place in target, in one
 // transaction, and proves none is left. It knows no table of the gate's own:
-// a column no-mistakes adds later is carried too.
-func pointDatabase(ctx context.Context, path, old, target string) error {
+// a column no-mistakes adds later is carried too. It returns the database's
+// file as it was, its log checkpointed into it, once it may have changed it.
+func pointDatabase(ctx context.Context, path, old, target string) (*edit, error) {
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return nil
+		return nil, nil
 	}
 	db, err := sql.Open("sqlite", databaseURL(path, ""))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
+	if _, err := db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		return nil, err
+	}
+	original, err := fsx.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	before := &edit{path: path, original: original}
 	transaction, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := pointTables(ctx, transaction, old, target); err != nil {
-		return errors.Join(err, transaction.Rollback())
+		return nil, errors.Join(err, transaction.Rollback())
 	}
 	if err := transaction.Commit(); err != nil {
-		return err
+		return before, err
 	}
 	_, err = db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
-	return err
+	return before, err
 }
 
 func pointTables(ctx context.Context, transaction *sql.Tx, old, target string) error {

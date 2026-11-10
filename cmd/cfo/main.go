@@ -257,7 +257,10 @@ type commandRuntime struct {
 	// carryGateHome moves it into a Dev Drive folder (carryGateHome), for
 	// cfo dev-drive, cfo doctor, cfo install and the board's gate step.
 	gateHome      func() (string, error)
-	carryGateHome func(ctx context.Context, old, devDrive string, tries int, every time.Duration, out io.Writer) (string, error)
+	carryGateHome func(ctx context.Context, old, devDrive string, tries int, every time.Duration, out io.Writer) (string, bool, error)
+	// restartBoard restarts the supervisor serving a home onto what cfo
+	// dev-drive move changed (restartBoardOntoTheDrive).
+	restartBoard func(h home.Home, stdout io.Writer)
 	// readDefender reads what Microsoft Defender recorded since a time, for
 	// cfo defender.
 	readDefender func(context.Context, time.Time) (defender.Report, error)
@@ -505,6 +508,7 @@ func defaultCommandRuntime() commandRuntime {
 		readDevDrive:  func(ctx context.Context) (devdrive.Machine, error) { return devdrive.Read(ctx, execx.OSRunner{}) },
 		gateHome:      gatehome.Root,
 		carryGateHome: carryGateHome,
+		restartBoard:  restartBoardOntoTheDrive,
 		readDefender: func(ctx context.Context, since time.Time) (defender.Report, error) {
 			return defender.Read(ctx, execx.OSRunner{}, since)
 		},

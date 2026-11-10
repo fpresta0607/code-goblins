@@ -71,6 +71,10 @@ const (
 	PlaceLinked Place = "linked"
 	// PlaceSystem is a gate home on the system drive.
 	PlaceSystem Place = "system"
+	// PlaceStrayLink is a gate home that is, or holds, a junction or link
+	// to a folder other than its own place in the gate's home on the Dev
+	// Drive, which no move carries.
+	PlaceStrayLink Place = "stray-link"
 )
 
 // Placement is where the gate's home is.
@@ -79,9 +83,13 @@ type Placement struct {
 	// DevDrive is the fleet's Dev Drive folder, empty without one.
 	DevDrive string
 	Place    Place
-	// Links are the junctions or links in the home that cross into the Dev
-	// Drive, the home's own path among them.
+	// Links are the junctions or links in the home that lead to their own
+	// place in the gate's home on the Dev Drive, the home's own path among
+	// them.
 	Links []string
+	// Stray is a junction or link of the home that leads elsewhere, and
+	// StrayTo where it leads.
+	Stray, StrayTo string
 }
 
 // Read reads where the gate's home at root is against the fleet's Dev Drive
@@ -96,10 +104,14 @@ func Read(root, devDrive string) Placement {
 		placement.Place = PlaceDevDrive
 		return placement
 	}
-	placement.Links = linksInto(root, devDrive)
-	placement.Place = PlaceSystem
-	if len(placement.Links) > 0 {
+	placement.Links, placement.Stray, placement.StrayTo = linksInto(root, Target(devDrive))
+	switch {
+	case placement.Stray != "":
+		placement.Place = PlaceStrayLink
+	case len(placement.Links) > 0:
 		placement.Place = PlaceLinked
+	default:
+		placement.Place = PlaceSystem
 	}
 	return placement
 }
@@ -116,33 +128,44 @@ func (p Placement) Line() string {
 		return p.Root + ", on the Dev Drive, named by NM_HOME"
 	case PlaceLinked:
 		return fmt.Sprintf("WARNING: %s reaches the Dev Drive through junctions (%s), below which Go cannot resolve a path, so gate test preparation fails; %s", p.Root, strings.Join(p.Links, ", "), move)
+	case PlaceStrayLink:
+		carried := Target(p.DevDrive)
+		if relative, err := filepath.Rel(p.Root, p.Stray); err == nil {
+			carried = filepath.Join(carried, relative)
+		}
+		return fmt.Sprintf("WARNING: %s is a junction to %s, another folder, and cfo dev-drive move carries only a junction to %s, so the gate's home stays where it is", p.Stray, p.StrayTo, carried)
 	}
 	return fmt.Sprintf("WARNING: %s is not on the Dev Drive the fleet's worktrees, scratch and caches use, so every gate checkout lands where Defender scans it as it opens; %s", p.Root, move)
 }
 
 // linksInto are root itself, its entries and their entries when they are
-// links into devDrive, as a move by hand made them.
-func linksInto(root, devDrive string) []string {
-	var links []string
-	if target, isLink := linkTarget(root); isLink {
-		if isUnder(target, devDrive) {
-			links = append(links, root)
+// links to their own place in target, as a move by hand made them, and the
+// first link among them that leads anywhere else, with where it leads.
+func linksInto(root, target string) (links []string, stray, strayTo string) {
+	isLinkAt := func(path string) bool {
+		linked, isLink := linkTarget(path)
+		if !isLink {
+			return false
 		}
-		return links
+		relative, err := filepath.Rel(root, path)
+		switch {
+		case err == nil && sameFolder(linked, filepath.Join(target, relative)):
+			links = append(links, path)
+		case stray == "":
+			stray, strayTo = path, linked
+		}
+		return true
+	}
+	if isLinkAt(root) {
+		return links, stray, strayTo
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return nil
+		return links, stray, strayTo
 	}
 	for _, entry := range entries {
 		path := filepath.Join(root, entry.Name())
-		if target, isLink := linkTarget(path); isLink {
-			if isUnder(target, devDrive) {
-				links = append(links, path)
-			}
-			continue
-		}
-		if !entry.IsDir() {
+		if isLinkAt(path) || !entry.IsDir() {
 			continue
 		}
 		children, err := os.ReadDir(path)
@@ -150,12 +173,10 @@ func linksInto(root, devDrive string) []string {
 			continue
 		}
 		for _, child := range children {
-			if target, isLink := linkTarget(filepath.Join(path, child.Name())); isLink && isUnder(target, devDrive) {
-				links = append(links, filepath.Join(path, child.Name()))
-			}
+			isLinkAt(filepath.Join(path, child.Name()))
 		}
 	}
-	return links
+	return links, stray, strayTo
 }
 
 // linkTarget is the folder path links to, and whether it is a link at all.

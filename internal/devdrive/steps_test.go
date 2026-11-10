@@ -81,6 +81,7 @@ func TestAHomeOnItsDevDriveGetsTheGateStepWhileTheGateHomeIsNotThere(t *testing.
 		{gate: gatehome.PlaceSystem, isGateStep: true},
 		{gate: gatehome.PlaceLinked, isGateStep: true},
 		{gate: gatehome.PlaceDevDrive},
+		{gate: gatehome.PlaceStrayLink},
 		{gate: ""},
 	} {
 		t.Run(string(test.gate), func(t *testing.T) {
