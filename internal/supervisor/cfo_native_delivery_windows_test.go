@@ -2,11 +2,13 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -157,6 +159,59 @@ func TestHisLoneQuestionMarkReachesAClaudeCFOAsWords(t *testing.T) {
 			t.Errorf("once the CFO's record shows it = %+v; want it delivered, not left waiting", settled)
 		}
 	})
+}
+
+// His ! command sent while a Claude Code CFO is in a turn is queued by its
+// words alone and run at the turn's end as a shell command; its record's
+// bash-input row is the take, so the message is delivered rather than left
+// on its way for ever (#2242).
+func TestHisShellCommandToAClaudeCFOInATurnIsDeliveredWhenItRunsAtTheTurnsEnd(t *testing.T) {
+	// Arrange
+	records := useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCFOComposer(t, home.State, "claude-manual-busy")
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+	if _, err := store.Queue(Action{ID: "doctor", Kind: "message", Text: "! claude doctor"}); err != nil {
+		t.Fatal(err)
+	}
+	pastUndoWindow(t, store)
+
+	// Act: the turn queues it, then runs it once it ends.
+	if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+	lines := terminal.waitForLines(t, 2)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	var record []byte
+	for _, entry := range []map[string]any{
+		{"type": "queue-operation", "operation": "enqueue", "timestamp": now, "content": "claude doctor"},
+		{"type": "queue-operation", "operation": "dequeue", "timestamp": now},
+		{"type": "user", "timestamp": now, "message": map[string]any{"role": "user", "content": "<bash-input>claude doctor</bash-input>"}},
+	} {
+		line, err := json.Marshal(entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		record = append(append(record, line...), '\n')
+	}
+	path := filepath.Join(records, ".claude", "projects", "C--cfo-home", "session-1.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, record, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.settleDeliveries(time.Now().UTC(), service.lookAtTerminal); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if len(lines) != 2 || lines[1] != "queued ! claude doctor" {
+		t.Fatalf("terminal input = %q; want the command queued in the turn once", lines)
+	}
+	if settled := store.Snapshot().Actions[0]; settled.Status != "succeeded" || settled.Awaiting != nil {
+		t.Errorf("once the CFO's record shows the command run = %+v; want it delivered, not left on its way", settled)
+	}
 }
 
 // longMultiLineMessage is a message like the one #1740 lost the head of: a

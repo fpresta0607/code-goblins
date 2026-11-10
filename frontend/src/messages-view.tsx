@@ -17,7 +17,7 @@ import { usageReadings } from "./session-usage";
 import { UsageBar } from "./usage-bar";
 import { harnessInk } from "./harness-ink";
 import { QueuedMessage } from "./queued-message";
-import { sameWords, withTakenCommands } from "./messages";
+import { isUndelivered, sameWords, withTakenCommands } from "./messages";
 import { usePendingSends, type PendingSend } from "./pending-sends";
 import "./messages-view.css";
 
@@ -783,6 +783,12 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     read.add(action.id);
   }
   const queued = waiting.filter((action) => !read.has(action.id));
+  // His messages whose delivery ended with no take seen, failed or typed and
+  // never seen taken, stay at the end with what happened and Send again until
+  // something he sent after them lands, so none reads as on its way for ever
+  // (#2242).
+  const landed = his.reduce((latest, row) => Math.max(latest, Date.parse(row.at)), 0);
+  const undelivered = held.sent.filter((action) => isUndelivered(action) && Date.parse(action.updated_at) > landed);
   // A prompt its harness holds that names the board message which typed it
   // is that message's one row, whichever of the two the board drew first,
   // its send still reaching the board included, since a send keeps the id of
@@ -842,6 +848,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
               </div>;
           })}
           {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />)}
+          {undelivered.map((action) => <QueuedMessage key={"undelivered-" + action.id} action={action} liveAction={action} instance={instance} name={name} variant="pane" />)}
           {/* What the harness's own screen asks, a question, a permission prompt
               or a picker, is the conversation's last message, right above the
               box that answers it, and never a popup over the box (#2223). */}

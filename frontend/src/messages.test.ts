@@ -19,6 +19,8 @@ test("a message says where it is: queued, sent or with the CFO", () => {
   assert.equal(messageState(snapshot([action({ status: "succeeded", message: "Accepted by the goblin in its native terminal." })]).actions[0]), "Sent");
   assert.equal(messageState(snapshot([action({ status: "running", awaiting: { task: "goblin-one" } })]).actions[0]), "Sent");
   assert.equal(messageState(snapshot([action({ status: "failed", message: "goblin-one was stopped before it could take it; the CFO has it" })]).actions[0]), "With the CFO");
+  assert.equal(messageState(snapshot([action({ status: "failed", message: "The terminal is closed." })]).actions[0]), "Not sent");
+  assert.equal(messageState(snapshot([action({ status: "uncertain", message: "Typed, and not picked up." })]).actions[0]), "Not confirmed");
 });
 
 // The Overlord, 2026-10-29: a message he typed for the CFO the day before

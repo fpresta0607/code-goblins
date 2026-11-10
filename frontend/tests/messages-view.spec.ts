@@ -710,6 +710,41 @@ test("a prompt its harness holds before the board's snapshot shows its message t
   await expect(rows).toContainText("Queued");
 });
 
+// A message whose delivery ended with no take seen says what happened on its
+// own bubble, never that it is still on its way, and Send again sends its
+// words as a new message; one older than what he sent since and saw land is
+// not drawn (#2242).
+for (const [status, label] of [["failed", "Not sent"], ["uncertain", "Not confirmed"]] as const) {
+  test(`a message that ended ${status} reads ${label} on its bubble and Send again sends its words once more`, async ({ page }) => {
+    // Arrange
+    const posted: { kind: string; task_id: string; text: string }[] = [];
+    await open(page);
+    await page.route("**/api/actions", (route) => { posted.push(route.request().postDataJSON() as { kind: string; task_id: string; text: string }); return route.fulfill({ status: 202, json: {} }); });
+    await openGoblin(page);
+    const talk = list(page, "Zeke - Touch Wrangler");
+    const later = "2026-10-22T09:05:00Z", earlier = "2026-10-22T08:00:00Z";
+    const ended = { kind: "message", task_id: "cg-touch", status, message: "The terminal closed before it took it.", awaiting: "" };
+    await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [
+      { ...ended, id: "a1", text: "claude doctor", created_at: later, updated_at: later },
+      { ...ended, id: "a0", text: "an old one", created_at: earlier, updated_at: earlier },
+    ] });
+    const row = talk.locator(".queued-message.pane").filter({ hasText: "claude doctor" });
+
+    // Assert
+    await expect(row).toContainText(label);
+    await expect(row).not.toContainText("Sending");
+    await expect(talk.locator(".queued-message.pane").filter({ hasText: "an old one" })).toHaveCount(0);
+
+    // Act
+    await row.getByRole("button", { name: "Send again" }).click();
+
+    // Assert
+    await expect.poll(() => posted.length).toBe(1);
+    expect(posted[0]).toMatchObject({ kind: "message", task_id: "cg-touch", text: "claude doctor" });
+    await expect(row).toHaveCount(0);
+  });
+}
+
 test("a prompt its harness holds before any snapshot carries its message is one row", async ({ page }) => {
   // Arrange
   await open(page);
