@@ -56,3 +56,29 @@ func TestCanonicalResolvesThroughADirectoryJunction(t *testing.T) {
 		})
 	}
 }
+
+// ShortPath is the reverse of LongPath, name for name, so a path can be
+// matched to a folder under either spelling without being looked up itself.
+func TestShortPathSpellsTheFolderLongPathSpells(t *testing.T) {
+	// Arrange
+	long := LongPath(filepath.Join(t.TempDir(), "a folder with a long name"))
+	missing := filepath.Join(long, "never made")
+	if err := os.Mkdir(long, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	short, unchanged := ShortPath(long), ShortPath(missing)
+
+	// Assert
+	if unchanged != missing {
+		t.Errorf("ShortPath(%q) = %q, want a missing path as given", missing, unchanged)
+	}
+	if short == long {
+		t.Skipf("the volume keeps no 8.3 short name for %s", long)
+	}
+	separator := string(filepath.Separator)
+	if got := LongPath(short); !strings.EqualFold(got, long) || strings.Count(short, separator) != strings.Count(long, separator) {
+		t.Errorf("ShortPath(%q) = %q, which LongPath spells %q", long, short, got)
+	}
+}
