@@ -42,6 +42,37 @@ func TestExecGateProberReturnsWhenTheStatusCallLeavesAProcessHoldingItsOutput(t 
 	}
 }
 
+// A board started before the gate's home moved carries no NM_HOME of its
+// own, so the status call is given the home the user's environment names,
+// not no-mistakes' default.
+func TestExecGateProberAsksTheGateHomeTheUserNames(t *testing.T) {
+	// Arrange
+	fixture := newPollFixture(t)
+	fixture.standIn("no-mistakes.exe")
+	said := filepath.Join(fixture.root, "nm-home.txt")
+	const moved = `D:\CodeGoblins\no-mistakes`
+	t.Setenv("PATH", fixture.bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("CEO_POLL_STANDIN", "gate-home")
+	t.Setenv("CEO_GATE_HOME_FILE", said)
+	t.Setenv("NM_HOME", "")
+	userEnv := filepath.Join(fixture.root, "user-env.json")
+	t.Setenv("CEO_USER_ENV_FILE", userEnv)
+	if err := os.WriteFile(userEnv, []byte(`{"NM_HOME": "D:\\CodeGoblins\\no-mistakes"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, err := ExecGateProber{}.InspectGate(context.Background(), state.TaskMeta{Worktree: fixture.dir("work")})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(said); err != nil || string(got) != moved {
+		t.Errorf("the status call ran on NM_HOME %q (%v), want %s", got, err, moved)
+	}
+}
+
 // leftRunning reports whether the process whose pid the gate stand-in wrote
 // to pidFile still runs, and ends it when the test ends through the handle it
 // was checked by: opened again by pid once it had ended, the pid could name

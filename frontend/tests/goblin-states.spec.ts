@@ -11,7 +11,7 @@ const HEAD = "a".repeat(40);
 const now = Date.now();
 const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
 const pause = (reason: string, until = "") => ({ phase: "paused", at: ago(20),
-  lifecycle: { phase: "paused", action: "pause", at: ago(20), kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason, until, at: ago(20) } } });
+  lifecycle: { phase: "paused", action: "pause", at: ago(20), kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason, until, at: ago(20) } } });
 const landing = (number: number, head: string) => ({ phase: "idle", report: "done", pr: REPO + "/pull/" + number, hosted_checks: { head, state: "passed", checks: 9, at: ago(6) } });
 
 interface GoblinState { id: string; name: string; fields: Record<string, unknown>; text: string; isPaused: boolean }

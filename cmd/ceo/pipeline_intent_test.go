@@ -53,7 +53,7 @@ func intentFixture(t *testing.T) (home.Home, string, *intentFileRunner) {
 	if err := selection.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
 		t.Fatal(err)
 	}
-	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash, Harness: "codex", Model: "gpt-6.1-sol", Effort: "xhigh"}
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
 		t.Fatal(err)
 	}

@@ -38,8 +38,9 @@ function wholeWidth(name: HTMLElement): number {
 // sharedRoom is what a header's one row leaves its controls: its width less
 // its padding, the gaps between its parts, each part that keeps its width,
 // such as the Chat and Task switch, and for the part that gives way, the
-// session's picture and name, its floor (its min-width), the gap between its
-// picture and its name ("normal" in a flex row is none) and NAME_ROOM.
+// session's picture and name, its floor (its min-width), NAME_ROOM and the gap
+// between its picture and name, without which a name as short as CEO is cut
+// by that gap (#2222).
 function sharedRoom(controls: HTMLElement): number {
   const header = controls.parentElement!;
   const style = getComputedStyle(header);
@@ -47,8 +48,8 @@ function sharedRoom(controls: HTMLElement): number {
   const kept = parts.reduce((sum, part) => {
     const partStyle = getComputedStyle(part);
     const name = part.querySelector("h2");
-    const nameRoom = name ? Math.min(NAME_ROOM, wholeWidth(name)) : NAME_ROOM;
-    return sum + parseFloat(style.columnGap) + (partStyle.flexShrink === "0" ? part.offsetWidth : parseFloat(partStyle.minWidth) + (parseFloat(partStyle.columnGap) || 0) + nameRoom);
+    const nameRoom = name ? Math.min(NAME_ROOM, wholeWidth(name)) + parseFloat(partStyle.columnGap) : NAME_ROOM;
+    return sum + parseFloat(style.columnGap) + (partStyle.flexShrink === "0" ? part.offsetWidth : parseFloat(partStyle.minWidth) + nameRoom);
   }, 0);
   return header.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - kept;
 }

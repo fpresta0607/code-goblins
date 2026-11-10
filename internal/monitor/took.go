@@ -128,6 +128,12 @@ func handedText(harness string, entry []byte) ([]string, time.Time, bool) {
 				if command, isCommand := fleettree.TypedCommand(texts[i]); isCommand && strings.HasPrefix(texts[i], "<command-") {
 					texts[i] = command
 				}
+				// A shell command ran what was typed after its !, with or
+				// without a space between them (#2242).
+				if command, isShell := fleettree.ShellCommand(texts[i]); isShell {
+					texts[i] = "! " + command
+					texts = append(texts, "!"+command)
+				}
 			}
 			return texts, line.Timestamp, ok
 		}

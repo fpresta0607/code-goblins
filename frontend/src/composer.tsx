@@ -27,7 +27,9 @@ import { TOUCH_SCREEN } from "./small-screen";
 import { useTerminalLink, watchLink } from "./terminal-link";
 import { readClipboard } from "./terminal-keys";
 import { keepFile } from "./terminal-image";
+import { TerminalStatus } from "./terminal-status";
 import { detachedHoldReason } from "./terminalInput";
+import type { ScreenState } from "./terminalStream";
 import { appendDictation, useDictation } from "./useDictation";
 import "./composer.css";
 
@@ -157,6 +159,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // What Send sends: his words, then the path of each file he added.
   const outgoing = [draft.trim(), ...attached].filter(Boolean).join("\n");
   const [isSending, setSending] = useState(false);
+  const [commandScreen, setCommandScreen] = useState<ScreenState | null>(null);
   const [isReplacing, setReplacing] = useState(false);
   const composerSection = useRef<HTMLElement>(null);
   // Why the last Send found no terminal to type into, or why a paste could
@@ -436,8 +439,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     setAttached([]);
     setUnsent("");
   };
-  const send = async () => {
-    const text = sendable(harness, outgoing);
+  // command is one a notice of the terminal's offers, sent as it is, which
+  // leaves his words and files in the box.
+  const send = async (command?: string) => {
+    const text = command ?? sendable(harness, outgoing);
     if (!text || isSending || adding) return;
     // A setting the box has a control for opens the board's own pane, or is
     // set at once with the value typed after it, never the terminal's menu;
@@ -466,34 +471,39 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
         return;
       }
       if (live?.send(text)) {
-        afterSend();
+        if (command) setCommandScreen(live.screen); else afterSend();
         onSend?.();
       } else setUnsent(unsentWhy);
       return;
     }
-    sendID.current ||= crypto.randomUUID();
-    const id = sendID.current;
+    const id = command ? crypto.randomUUID() : sendID.current ||= crypto.randomUUID();
     // The conversation shows it at once as his queued bubble, and the box
     // empties, before the board has answered; a refusal takes the bubble
     // back and returns his words and pictures to the box as he left them.
     const written = draft, kept = attached;
     if (hasConversation) {
       addPendingSend({ id, task: task?.id || "", text });
-      setDraft("");
-      setAttached([]);
+      if (!command) {
+        setDraft("");
+        setAttached([]);
+      }
       onSend?.();
     }
     setSending(true);
     try {
       await post({ id, kind: "message", task_id: task?.id || "", generation: "", text });
-      sendID.current = "";
-      storeDraft(draftKey, "");
-      storeAttached(draftKey, []);
-      afterSend();
+      if (!command) {
+        sendID.current = "";
+        storeDraft(draftKey, "");
+        storeAttached(draftKey, []);
+        afterSend();
+      }
     } catch (error: unknown) {
       removePendingSend(id);
-      setDraft((prior) => prior || written);
-      setAttached((prior) => prior.length ? prior : kept);
+      if (!command) {
+        setDraft((prior) => prior || written);
+        setAttached((prior) => prior.length ? prior : kept);
+      }
       setUnsent("Not sent. " + message(error));
       reportToCeo("a message to " + name, message(error));
     } finally {
@@ -809,6 +819,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
         </li>;
       })}
     </ol>}
+    {hasConversation && live?.screen?.status && <TerminalStatus status={live.screen.status} isSending={isSending || live.screen === commandScreen} onAction={(command) => void send(command)} />}
     <div ref={composerBox} className="composer-box" onKeyDown={(event) => {
       if (event.key !== "Escape") return;
       if (pane) { event.stopPropagation(); setPane(null); field.current?.focus(); }

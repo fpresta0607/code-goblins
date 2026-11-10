@@ -26,7 +26,7 @@ function bernie(keptMessages: string[]) {
     tasks: [{
       id: "bernie", title: "Land the merge train", goblin_name: "Bernie", goblin_title: "Merge Maestro", project: "code-goblins", backend: "native", harness: "claude",
       generation: "s1", session: "claude/bernie", phase: "paused", verified: false, at: PAUSED_AT, report: "working",
-      lifecycle: { phase: "paused", action: "pause", at: PAUSED_AT, kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "overlord", until: "", at: PAUSED_AT }, kept_messages: keptMessages },
+      lifecycle: { phase: "paused", action: "pause", at: PAUSED_AT, kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason: "overlord", until: "", at: PAUSED_AT }, kept_messages: keptMessages },
     }],
     actions: [
       { id: "typed", kind: "message", task_id: "bernie", generation: "s1", status: "succeeded", message: "Accepted by the goblin in its native terminal.", text: "merge 512 first", updated_at: "2026-10-09T05:50:00Z" },

@@ -304,3 +304,47 @@ func TestTheWatchNoticesAnAnswerGivenElsewhere(t *testing.T) {
 		t.Errorf("items = %+v, want the create item", items)
 	}
 }
+
+// A home whose heavy folders are on the Dev Drive while the gate's home is
+// not, once the person asked for a Dev Drive, gets the gate step: this build's
+// ceo dev-drive move, which carries the gate's home. Once it is there, no
+// other item comes.
+func TestAHomeOnTheDevDriveGetsTheGateItemUntilTheGateHomeIsThere(t *testing.T) {
+	// Arrange
+	machine := devDriveMachine()
+	machine.Volumes = append(machine.Volumes, devdrive.Volume{Root: `D:\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted, Free: 199 << 30})
+	machine.Letters |= 1 << 3
+	s := devDriveService(t, &machine)
+	gateHome := `C:\Users\someone\.no-mistakes`
+	s.Options.DevDrive.GateHome = func() (string, error) { return gateHome, nil }
+	if err := s.askDevDrive(true); err != nil {
+		t.Fatal(err)
+	}
+	config, err := home.ReadDevDriveConfig(s.Store.Home.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Root = `D:\CodeGoblins`
+	if err := home.WriteDevDriveConfig(s.Store.Home.Root, config); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	s.keepDevDrive(context.Background())
+
+	// Assert
+	items := devDriveItems(s)
+	if len(items) != 1 || items[0].DevDrive != "gate" || items[0].Admin || !strings.Contains(items[0].Command, `dev-drive move --to 'D:\CodeGoblins'`) || !strings.Contains(items[0].Title, `Move the gate's home to D:\CodeGoblins\no-mistakes`) {
+		t.Fatalf("items = %+v, want one gate item that runs ceo dev-drive move", items)
+	}
+
+	// Act: it ran, and the gate's home is on the Dev Drive.
+	endDevDriveItem(t, s, 0)
+	gateHome = `D:\CodeGoblins\no-mistakes`
+	s.keepDevDrive(context.Background())
+
+	// Assert
+	if items := devDriveItems(s); len(items) != 1 {
+		t.Errorf("items = %+v, want no item past the gate step", items)
+	}
+}

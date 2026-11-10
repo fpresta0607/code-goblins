@@ -48,9 +48,10 @@ func HandOverEndedNote(stateDir string, meta state.TaskMeta, record state.Lifecy
 // task's lifecycle lock. It says whether the cleanup may go on: not once a
 // message could not be put on the CEO's notify wake, which leaves the note as
 // it was. The error of one that goes on is a warning: a record that cannot be
-// read hands nothing on, since a cleanup, a force archive above all, must
-// still retire such a task, and what a hand-off met after the messages went
-// to the CEO never hands them on twice.
+// read hands nothing on and refuses nothing here, since the cleanup's read of
+// the gate run a pause saves in it has already refused one it cannot read,
+// and what a hand-off met after the messages went to the CEO never hands them
+// on twice.
 func HandOverRetiredNote(stateDir string, meta state.TaskMeta) (isRetirable bool, err error) {
 	record, err := state.ReadLifecycle(stateDir, meta.ID)
 	if errors.Is(err, os.ErrNotExist) {

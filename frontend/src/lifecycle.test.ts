@@ -42,7 +42,7 @@ test("Start creates a missing brief but refuses a dependency block", () => {
 });
 
 test("snapshot preserves lifecycle results and queued adjustment revision", () => {
-  const lifecycle = { phase: "paused", action: "pause", at: "2026-09-28T12:00:00Z", kept: ["branch"], stopped: ["browser"], problems: ["No handoff saved"], handoff_saved: false, validation_restarts: true };
+  const lifecycle = { phase: "paused", action: "pause", at: "2026-09-28T12:00:00Z", kept: ["branch"], stopped: ["browser"], problems: ["No handoff saved"], handoff_saved: false, validation_kept: true };
   const task = parseSnapshot({ healthy: true, tasks: [{ id: "work", verified: false, lifecycle, teardown: ["chrome.exe pid 42"], detail: "Task detail", queue_revision: "revision", action_error: "Could not stop server" }] }).tasks[0];
   assert.deepEqual(task.lifecycle, lifecycle);
   const pause = { reason: "allowance", until: "2026-10-09T22:27:00Z", at: "2026-10-05T16:30:06Z" };

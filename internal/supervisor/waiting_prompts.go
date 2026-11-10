@@ -36,7 +36,9 @@ func (s *Store) namedWaiting(task string, waiting []fleettree.WaitingPrompt) []f
 			continue
 		}
 		at := slices.IndexFunc(typing, func(action Action) bool {
-			return !action.CreatedAt.After(prompt.At) && sameWords(action.Text, prompt.Text)
+			// Claude Code queues a ! command by the words after its ! (#2242).
+			command, isShell := strings.CutPrefix(strings.TrimSpace(action.Text), "!")
+			return !action.CreatedAt.After(prompt.At) && (sameWords(action.Text, prompt.Text) || isShell && sameWords(command, prompt.Text))
 		})
 		if at >= 0 {
 			named[i].Action = typing[at].ID

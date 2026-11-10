@@ -17,7 +17,7 @@ import { usageReadings } from "./session-usage";
 import { UsageBar } from "./usage-bar";
 import { harnessInk } from "./harness-ink";
 import { QueuedMessage } from "./queued-message";
-import { sameWords, withTakenCommands } from "./messages";
+import { isUndelivered, sameWords, withTakenCommands } from "./messages";
 import { usePendingSends, type PendingSend } from "./pending-sends";
 import "./messages-view.css";
 
@@ -783,6 +783,14 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     read.add(action.id);
   }
   const queued = waiting.filter((action) => !read.has(action.id));
+  // His messages whose delivery ended with no take seen, failed or typed and
+  // never seen taken, stay at the end with what happened and Send again until
+  // something he sent after them lands, a message of the board's whose row
+  // or take was seen, by when he sent it, or a row of his no board message
+  // owns, so none reads as on its way for ever (#2242).
+  const hasLandedSince = (sentAt: number) => rows.some((row) => Date.parse(row.at) > sentAt)
+    || held.sent.some((other) => (other.status === "succeeded" || read.has(other.id)) && Date.parse(other.created_at) > sentAt);
+  const undelivered = held.sent.filter((action) => isUndelivered(action) && !hasLandedSince(Date.parse(action.created_at)));
   // A prompt its harness holds that names the board message which typed it
   // is that message's one row, whichever of the two the board drew first,
   // its send still reaching the board included, since a send keeps the id of
@@ -824,7 +832,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
-          {shown && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} />}
+          {shown && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} retry={link?.screen?.retry} />}
           {/* His messages not yet in the session's record, at the
               conversation's end in its one scroll (the Overlord, 2026-10-29:
               "the double scrolls and having its own little scroll for queued
@@ -842,13 +850,14 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
               </div>;
           })}
           {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />)}
+          {undelivered.map((action) => <QueuedMessage key={"undelivered-" + action.id} action={action} liveAction={action} instance={instance} name={name} variant="pane" />)}
           {/* What the harness's own screen asks, a question, a permission prompt
               or a picker, is the conversation's last message, right above the
               box that answers it, and never a popup over the box (#2223). */}
           {onAskSlot && <div ref={onAskSlot} className="conversation-ask" />}
         </div>
       </div>
-      {phase === "live" && !conversation.length && !queued.length && !held.waiting.length && <p className="messages-empty" role="status">No messages yet</p>}
+      {phase === "live" && !conversation.length && !queued.length && !held.waiting.length && !undelivered.length && <p className="messages-empty" role="status">No messages yet</p>}
       {/* A touch that stops the conversation gliding after a flick is one
           the browser gives no click, and the button shows the moment he
           leaves the end, while it glides, so a touch's lift takes him there

@@ -9,7 +9,9 @@ import (
 	"testing"
 )
 
-func TestCheckedInPolicyNamesCodexThenClaudeForEveryGateRole(t *testing.T) {
+// The checked-in policy is version 7: a gate on its task's own harness, as
+// under version 6, that repairs no Test, Lint or CI failure and still rebases.
+func TestCheckedInPolicyIsVersionSevenWhoseGateOnlyChecks(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "config", "pipeline.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -18,21 +20,50 @@ func TestCheckedInPolicyNamesCodexThenClaudeForEveryGateRole(t *testing.T) {
 	if err := json.Unmarshal(data, &policy); err != nil {
 		t.Fatal(err)
 	}
-	var primary, fallback Reviewer
-	if err := json.Unmarshal(policy["primary"], &primary); err != nil {
+	var autoFix AutoFix
+	if err := json.Unmarshal(policy["auto_fix"], &autoFix); err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal(policy["fallback"], &fallback); err != nil {
-		t.Fatal(err)
+	if string(policy["version"]) != "7" || autoFix != (AutoFix{Review: 0, Test: 0, Lint: 0, Rebase: 1, CI: 0}) {
+		t.Fatalf("policy=%s, want v7 with review, test, lint and ci at 0 and rebase at 1", data)
 	}
-	if string(policy["version"]) != "5" || primary != (Reviewer{"codex", "gpt-6.1-sol", "xhigh"}) || fallback != (Reviewer{Harness: "claude"}) {
-		t.Fatalf("policy=%s, want v5 Codex gpt-6.1-sol xhigh first and Claude next", data)
-	}
-	// Every role runs the chain, so no role names a profile of its own.
-	for _, role := range []string{"reviewer", "fixer"} {
+	// A gate runs on its task's own harness, so no role names a profile.
+	for _, role := range []string{"primary", "reviewer", "fixer", "fallback"} {
 		if _, ok := policy[role]; ok {
-			t.Fatalf("policy pins the %s role outside the chain: %s", role, data)
+			t.Fatalf("policy names the %s role: %s", role, data)
 		}
+	}
+}
+
+func TestVersionSevenAcceptsOnlyAGateThatRepairsNothingButARebase(t *testing.T) {
+	policy := testPolicy(t)
+	if err := policy.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, change := range map[string]func(*Policy){
+		"a test follow-up":         func(p *Policy) { p.AutoFix.Test = 1 },
+		"a lint follow-up":         func(p *Policy) { p.AutoFix.Lint = 1 },
+		"a ci follow-up":           func(p *Policy) { p.AutoFix.CI = 1 },
+		"a review fixer":           func(p *Policy) { p.AutoFix.Review = 1 },
+		"no rebase follow-up":      func(p *Policy) { p.AutoFix.Rebase = 0 },
+		"version 6's follow-ups":   func(p *Policy) { p.AutoFix = versionSix(t, Reviewer{}).AutoFix },
+		"version 7's in v6":        func(p *Policy) { p.Version = 6 },
+		"a primary":                func(p *Policy) { p.Primary = Reviewer{"codex", "gpt-6.1-sol", "xhigh"} },
+		"a fallback with no model": func(p *Policy) { p.Fallback = Reviewer{Harness: "codex"} },
+		"an unknown version 8":     func(p *Policy) { p.Version = 8 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			changed := policy
+			change(&changed)
+			if err := changed.Validate(); err == nil {
+				t.Fatalf("unapproved policy accepted: %+v", changed)
+			}
+		})
+	}
+	named := policy
+	named.Fallback = Reviewer{"codex", "gpt-6.1-sol", "xhigh"}
+	if err := named.Validate(); err != nil {
+		t.Fatalf("a named fallback refused under version 7: %v", err)
 	}
 }
 
@@ -54,6 +85,10 @@ func TestMigrateSelectionPreservesClassAndReviewCycleCap(t *testing.T) {
 	chain := Policy{Version: 4, Primary: current.Primary, Fallback: Reviewer{Harness: "claude"}, AutoFix: legacy.AutoFix, Classes: legacy.Classes}
 	quiet := chain
 	quiet.Version = 5
+	own := versionSix(t, Reviewer{})
+	named := own
+	named.Fallback = Reviewer{"codex", "gpt-6.1-sol", "xhigh"}
+	checks := testPolicy(t)
 	for _, transition := range []struct {
 		name     string
 		from, to Policy
@@ -66,6 +101,11 @@ func TestMigrateSelectionPreservesClassAndReviewCycleCap(t *testing.T) {
 		{"v3-to-v4", current, chain},
 		{"v3-to-v5", current, quiet},
 		{"v4-to-v5", chain, quiet},
+		{"v1-to-v7", legacy, checks},
+		{"v5-to-v6", quiet, own},
+		{"v5-to-v7", quiet, checks},
+		{"v6-to-v7", own, checks},
+		{"v6-with-a-fallback-to-v7", named, checks},
 	} {
 		for _, class := range []string{"ordinary", "high-risk", "mechanical"} {
 			t.Run(transition.name+"/"+class, func(t *testing.T) {
@@ -93,7 +133,7 @@ func TestMigrateSelectionPreservesClassAndReviewCycleCap(t *testing.T) {
 }
 
 func TestVersionThreeRequiresTheAvailableProfileForEveryRole(t *testing.T) {
-	policy := testPolicy(t)
+	policy := versionFive()
 	policy.Version = 3
 	policy.Primary = Reviewer{"codex", "gpt-6.1-sol", "xhigh"}
 	policy.Reviewer, policy.Fixer = policy.Primary, policy.Primary
@@ -131,7 +171,7 @@ func TestVersionThreeRequiresTheAvailableProfileForEveryRole(t *testing.T) {
 func TestChainVersionsRequireCodexFirstAndClaudeNext(t *testing.T) {
 	for _, version := range []int{4, 5} {
 		t.Run(fmt.Sprintf("v%d", version), func(t *testing.T) {
-			policy := testPolicy(t)
+			policy := versionFive()
 			policy.Version = version
 			testChainPolicyRequiresCodexFirstAndClaudeNext(t, policy)
 		})
@@ -299,14 +339,20 @@ func TestPolicyRejectsInvalidInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, input := range []string{
-		string(data) + `{}`, strings.Replace(string(data), `"version": 5`, `"version": 6`, 1),
-		strings.Replace(string(data), `"version": 5`, `"typo": 5`, 1),
-		strings.Replace(string(data), `"fallback"`, `"fallbacks"`, 1),
+		string(data) + `{}`, strings.Replace(string(data), `"version": 7`, `"version": 6`, 1),
+		strings.Replace(string(data), `"version": 7`, `"typo": 7`, 1),
+		strings.Replace(string(data), `"auto_fix"`, `"fallbacks": {}, "auto_fix"`, 1),
+		strings.Replace(string(data), `"auto_fix"`, `"primary": {"harness": "codex", "model": "gpt-6.1-sol", "effort": "xhigh"}, "auto_fix"`, 1),
 		strings.Replace(string(data), `"review_cycles": 2`, `"review_cycles": 10`, 1),
 		strings.Replace(string(data), `"review": 0`, `"review": 10`, 1),
-		strings.Replace(string(data), `"effort": "xhigh"`, `"effort": "low"`, 1),
-		strings.Replace(string(data), `"harness": "codex"`, `"harness": "claude"`, 1),
+		strings.Replace(string(data), `"test": 0`, `"test": 1`, 1),
+		strings.Replace(string(data), `"lint": 0`, `"lint": 1`, 1),
+		strings.Replace(string(data), `"ci": 0`, `"ci": 1`, 1),
+		strings.Replace(string(data), `"rebase": 1`, `"rebase": 0`, 1),
 	} {
+		if input == string(data) {
+			t.Fatal("a case changed nothing in the checked-in policy, so it tests nothing")
+		}
 		path := filepath.Join(t.TempDir(), "policy.json")
 		if err := os.WriteFile(path, []byte(input), 0600); err != nil {
 			t.Fatal(err)

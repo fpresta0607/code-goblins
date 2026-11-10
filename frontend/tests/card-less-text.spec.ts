@@ -17,7 +17,7 @@ const WORKING = task("working-one", "working", { pr: "https://github.com/o/r/pul
 const PAUSED = task("paused-one", "paused", {
   at: ago(30),
   pending_engine: { harness: "claude", model: "claude-sonnet-5-5", effort: "high", when: "resume" },
-  lifecycle: { phase: "paused", action: "pause", at: ago(30), kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "dependency", until: "task:working-one", at: ago(30) } },
+  lifecycle: { phase: "paused", action: "pause", at: ago(30), kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason: "dependency", until: "task:working-one", at: ago(30) } },
 });
 const SESSIONS = [WORKING, PAUSED].map((goblin) => ({ id: goblin.session, native_id: goblin.id, harness: "claude", role: "goblin", task_id: goblin.id, generation: goblin.generation, phase: goblin.phase === "paused" ? "ended" : "active" }));
 

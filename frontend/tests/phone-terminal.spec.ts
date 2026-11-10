@@ -219,8 +219,8 @@ test("a connecting terminal's loader sits outside its box and covers no part of 
 
 // A window on the PC means little on a phone, so there the CEO's terminal,
 // drawn in Classic with no box under it, has no Open in terminal; the desktop
-// keeps it. A phone offers it only while the box shows, as the box's own menu
-// did before the header took it (#1987, tests/panel-header-wrap.spec.ts). The
+// keeps it. A phone never shows it, box or no box (#2222,
+// tests/panel-header-wrap.spec.ts). The
 // board is stacked there, so the panel takes half the window and its row
 // holds every control.
 for (const [size, viewport, isShown] of [["a phone", { width: 390, height: 844 }, false], ["the desktop", { width: 1440, height: 900 }, true]] as const) {

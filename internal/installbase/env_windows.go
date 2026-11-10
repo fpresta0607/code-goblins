@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 
+	"golang.org/x/sys/windows/registry"
+
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
@@ -46,6 +48,30 @@ func NewEnvStore(commands execx.Runner) EnvStore {
 }
 
 const envKey = `HKCU:\Environment`
+
+// UserVariable reads one user-scope variable straight from the registry,
+// starting no program, for a reader that runs often, such as the one that
+// finds the gate's home: a process started before an install or a move set
+// the variable does not carry it in its own environment. The file
+// UserEnvFileVariable names stands in for the user scope as for NewEnvStore.
+func UserVariable(name string) (string, bool, error) {
+	if path := os.Getenv(UserEnvFileVariable); path != "" {
+		return fileEnvStore{path: path}.Get(name)
+	}
+	key, err := registry.OpenKey(registry.CURRENT_USER, "Environment", registry.QUERY_VALUE)
+	if err != nil {
+		return "", false, fmt.Errorf("install: read user %s: %w", name, err)
+	}
+	defer key.Close()
+	value, _, err := key.GetStringValue(name)
+	if errors.Is(err, registry.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("install: read user %s: %w", name, err)
+	}
+	return value, true, nil
+}
 
 func (s registryEnvStore) Get(name string) (string, bool, error) {
 	script := fmt.Sprintf(`$item = Get-Item -LiteralPath '%s'

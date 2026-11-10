@@ -483,10 +483,7 @@ func TestAcceptLessonLeavesAStartupCatalogAsItFindsItWhenItCannotJoinIt(t *testi
 			if err != nil {
 				t.Fatal(err)
 			}
-			before, err := os.ReadFile(filepath.Join(dataDir, "memory", "startup.json"))
-			if err != nil {
-				t.Fatal(err)
-			}
+			before := agedCatalog(t, dataDir)
 			files, err := GovernedFiles(dataDir)
 			if err != nil {
 				t.Fatal(err)
@@ -494,11 +491,11 @@ func TestAcceptLessonLeavesAStartupCatalogAsItFindsItWhenItCannotJoinIt(t *testi
 
 			_, err = AcceptLesson(dataDir, stateDir, ids[0], Acceptance{Now: referenceDate})
 
-			after, readErr := os.ReadFile(filepath.Join(dataDir, "memory", "startup.json"))
 			filesAfter, filesErr := GovernedFiles(dataDir)
-			if err == nil || !strings.Contains(err.Error(), test.want) || readErr != nil || string(after) != string(before) || filesErr != nil || !reflect.DeepEqual(filesAfter, files) {
-				t.Fatalf("got %v, want %q, the catalog and memory files unchanged; files %v then %v", err, test.want, files, filesAfter)
+			if err == nil || !strings.Contains(err.Error(), test.want) || filesErr != nil || !reflect.DeepEqual(filesAfter, files) {
+				t.Fatalf("got %v, want %q and the memory files unchanged; files %v then %v", err, test.want, files, filesAfter)
 			}
+			requireCatalogNeverWritten(t, dataDir, before)
 			if pending, _, _ := PendingLessons(stateDir); len(pending) != 1 {
 				t.Fatalf("a refused acceptance decided the lesson: %+v", pending)
 			}

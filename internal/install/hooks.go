@@ -170,13 +170,20 @@ func CEOSettings(root, stateDir string) ([]byte, error) {
 	return file.render()
 }
 
+// GoblinSealMatcher names the tools a Claude Code goblin's seal runs
+// before: those that run a command and those that read or write a file by
+// its path.
+const GoblinSealMatcher = "Bash|PowerShell|Monitor|Read|Write|Edit|MultiEdit|NotebookEdit|Glob|Grep"
+
 // GoblinHooks are every hook a Claude Code goblin of the home at root, with
 // its state in stateDir, starts with, and the single place they are defined.
 // goblin-seal refuses the goblin's browser commands while a key fetch reads
 // in its browser, and every command while its worktree's Python
 // environments hold code that runs at every Python start that no known
-// package ships, and so runs only before a call that runs a command: Bash,
-// PowerShell, and Monitor, which watches one in the background. Then come its native
+// package ships, which it checks only before a call that runs a command: Bash,
+// PowerShell, and Monitor, which watches one in the background. It runs before
+// the file tools too, GoblinSealMatcher, since every call it is shown is held
+// to the task's path boundary (internal/pathguard). Then come its native
 // session hooks, and the one after every tool call also raises the key
 // alarm, which wakes the CEO when the tool's output holds a secret key: a key
 // read from a file is as exposed as one a command printed.
@@ -189,7 +196,7 @@ func CEOSettings(root, stateDir string) ([]byte, error) {
 // subagents stay commands: they run seldom, and SessionStart takes no HTTP
 // hook.
 func GoblinHooks(root, stateDir, board string) []Hook {
-	hooks := []Hook{{Name: "goblin-seal", Event: "PreToolUse", Matcher: "Bash|PowerShell|Monitor", URL: board + GoblinSealPath, Timeout: KeyAlarmSeconds, ShouldBlockOnFailure: true}}
+	hooks := []Hook{{Name: "goblin-seal", Event: "PreToolUse", Matcher: GoblinSealMatcher, URL: board + GoblinSealPath, Timeout: KeyAlarmSeconds, ShouldBlockOnFailure: true}}
 	for _, hook := range NativeHooks(root, stateDir) {
 		if hook.Event == "PostToolUse" {
 			hook = Hook{Name: "native-hook", Event: "PostToolUse", URL: board + GoblinToolPath, Timeout: KeyAlarmSeconds}
@@ -222,8 +229,9 @@ func GoblinSettings(root, stateDir, board string) ([]byte, error) {
 // GoblinPiExtension is the pi extension a pi goblin starts with, beside the
 // native one every pi session of the machine loads: its goblin seal, which
 // runs program, the home's hook program (HookCommand), as ceo hook
-// goblin-seal-pi before each bash call, the one pi tool that runs a command,
-// and blocks the call with the reason the seal gives on stdout. A seal that
+// goblin-seal-pi before each tool call, which checks a bash call's command
+// and every call's paths, and blocks the call with the reason the seal gives
+// on stdout. A seal that
 // cannot run or answer within the native hooks' limit blocks the call too,
 // as pi blocks one whose handler throws, since the seal refuses what it
 // cannot read. It is plain JavaScript, which pi loads as it loads
@@ -234,9 +242,8 @@ func GoblinPiExtension(program string) string {
 import { spawnSync } from "node:child_process";
 export default function (pi) {
   pi.on("tool_call", (event, ctx) => {
-    if (event.toolName !== "bash") return;
     const result = spawnSync(` + string(exe) + `, ["hook", "goblin-seal-pi"], {
-      input: JSON.stringify({cwd: ctx.cwd, tool_name: "bash", tool_input: {command: event.input.command}}),
+      input: JSON.stringify({cwd: ctx.cwd, tool_name: event.toolName, tool_input: event.input}),
       encoding: "utf8", windowsHide: true, timeout: ` + strconv.Itoa(nativehook.TimeoutSeconds*1000) + `,
     });
     if (result.error || result.status !== 0) {

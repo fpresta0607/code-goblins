@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -434,41 +435,65 @@ func TestResumeGivesAWorkerWithoutARecordedBriefItsRealBriefUnderTheHome(t *test
 // .git file names a repository that no longer exists, with its files, and its
 // record. Before, the kill refused with "read the task branch before
 // identifying its gate", so the task could never be retired (issue #1578).
+// The run its pause saved, still open in the gate, does not hold the kill's
+// own retirement either: with the checkout gone the kill can abort nothing,
+// so a cleanup that refused around that run would leave the task for good.
 func TestKillRetiresATaskWhoseProjectCheckoutIsGone(t *testing.T) {
-	// Arrange
-	h, meta := killedTask(t)
-	gateRoot := t.TempDir()
-	if err := os.WriteFile(filepath.Join(gateRoot, "state.sqlite"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("NM_HOME", gateRoot)
-	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
-	at := time.Now().UTC().Add(-time.Hour)
-	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", Started: at, Updated: at, Pause: &state.PauseCondition{Reason: "overlord", At: at}, NoticeSent: true}); err != nil {
-		t.Fatal(err)
-	}
-	leftover := filepath.Join(meta.Worktree, "README.md")
-	if err := os.WriteFile(leftover, []byte("the goblin's work"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.RemoveAll(meta.Project); err != nil {
-		t.Fatal(err)
-	}
+	for _, tc := range []struct {
+		name           string
+		isSavedRunOpen bool
+	}{
+		{name: "a pause that saved no run"},
+		{name: "a pause whose saved run is still open", isSavedRunOpen: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h, meta := killedTask(t)
+			gateRoot := t.TempDir()
+			gateDatabase := filepath.Join(gateRoot, "state.sqlite")
+			savedRun := ""
+			if tc.isSavedRunOpen {
+				savedRun = "run-1"
+				schema := fmt.Sprintf(`CREATE TABLE repos(id TEXT,working_path TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,last_pushed_sha TEXT,intent TEXT,worktree_dir TEXT,created_at INTEGER,submitted_head_sha TEXT,custody_returned_at INTEGER,review_approved_head_sha TEXT,pr_url TEXT,pr_state TEXT,ci_ready_at INTEGER,terminal_head_verified_at INTEGER);
+INSERT INTO repos VALUES('repo-1','%s');
+INSERT INTO runs(id,repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,created_at) VALUES('run-1','repo-1','fix/g1','running','%s','','','',1);`, strings.ReplaceAll(filepath.ToSlash(meta.Project), "'", "''"), strings.Repeat("a", 40))
+				if output, err := exec.Command("sqlite3", gateDatabase, schema).CombinedOutput(); err != nil {
+					t.Fatalf("create gate fixture: %v %s", err, output)
+				}
+			} else if err := os.WriteFile(gateDatabase, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("NM_HOME", gateRoot)
+			t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+			at := time.Now().UTC().Add(-time.Hour)
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", Started: at, Updated: at, Pause: &state.PauseCondition{Reason: "overlord", At: at}, GateRun: savedRun, NoticeSent: true}); err != nil {
+				t.Fatal(err)
+			}
+			leftover := filepath.Join(meta.Worktree, "README.md")
+			if err := os.WriteFile(leftover, []byte("the goblin's work"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.RemoveAll(meta.Project); err != nil {
+				t.Fatal(err)
+			}
 
-	// Act
-	record, err := defaultTaskLifecycle(t.Context(), h, lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "kill-1", Action: "stop", Reason: "Requested by the operator", IsWatched: true}, "")
+			// Act
+			record, err := defaultTaskLifecycle(t.Context(), h, lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "kill-1", Action: "stop", Reason: "Requested by the operator", IsWatched: true}, "")
 
-	// Assert
-	if err != nil || record.Phase != "stopped" {
-		t.Fatalf("the kill = phase %q, %v, want the task retired\nproblems: %s", record.Phase, err, strings.Join(record.Problems, "; "))
-	}
-	if _, err := state.ReadTaskMeta(h.State, meta.ID); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("the task record after the kill: %v, want it retired", err)
-	}
-	if content, err := os.ReadFile(leftover); err != nil || string(content) != "the goblin's work" {
-		t.Errorf("the worktree's file after the kill = %q, %v, want it kept", content, err)
-	}
-	if kept := strings.Join(record.Kept, "; "); !strings.Contains(kept, meta.Worktree) || !strings.Contains(kept, "project checkout "+meta.Project+" is gone") {
-		t.Errorf("the kill kept %q, want it to name the worktree it left in place and that its project checkout is gone", record.Kept)
+			// Assert
+			if err != nil || record.Phase != "stopped" {
+				t.Fatalf("the kill = phase %q, %v, want the task retired\nproblems: %s", record.Phase, err, strings.Join(record.Problems, "; "))
+			}
+			if _, err := state.ReadTaskMeta(h.State, meta.ID); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("the task record after the kill: %v, want it retired", err)
+			}
+			if content, err := os.ReadFile(leftover); err != nil || string(content) != "the goblin's work" {
+				t.Errorf("the worktree's file after the kill = %q, %v, want it kept", content, err)
+			}
+			if kept := strings.Join(record.Kept, "; "); !strings.Contains(kept, meta.Worktree) || !strings.Contains(kept, "project checkout "+meta.Project+" is gone") {
+				t.Errorf("the kill kept %q, want it to name the worktree it left in place and that its project checkout is gone", record.Kept)
+			}
+		})
 	}
 }

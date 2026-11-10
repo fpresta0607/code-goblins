@@ -22,7 +22,7 @@ const goblin = (id: string, name: string, title: string, task: string, fields: R
   id, title: task, goblin_name: name, goblin_title: title, project: "northwind-api", phase: "idle", report: "done", verified: false,
   generation: id + "-1", harness: "claude", model: "claude-opus-5-5", since: ago(95), ...fields,
 });
-const pause = (reason: string, until: string) => ({ phase: "paused", action: "pause", at: ago(20), kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason, until, at: ago(20) } });
+const pause = (reason: string, until: string) => ({ phase: "paused", action: "pause", at: ago(20), kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason, until, at: ago(20) } });
 const SNAPSHOT = {
   healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [],
   sessions: [{ id: "ceo-1", harness: "claude", role: "ceo", model: "claude-opus-5-5" }],

@@ -245,7 +245,7 @@ test("Next sits on the card the supervisor's order for a free slot takes first",
   // Arrange
   const now = Date.parse("2026-10-06T12:00:00Z");
   const paused = (id: string, reason: string, until: string, at: string) => ({ id, phase: "paused", generation: id + "-1", verified: false,
-    lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason, until, at } } });
+    lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason, until, at } } });
   const queued = (id: string, fields: Record<string, unknown> = {}) => ({ id, phase: "queued", brief: true, verified: false, ...fields });
   const board = (machine: Memory, tasks: Record<string, unknown>[]) => parseSnapshot({ healthy: true, memory: machine, tasks });
   const cases: [string, Snapshot, ReturnType<typeof nextInOrder>][] = [
@@ -281,7 +281,7 @@ test("the Paused group runs in resume order: Next up first, then by time, then w
   // Arrange
   const now = Date.parse("2026-10-17T18:00:00Z");
   const paused = (id: string, reason: string, until: string, fields: Record<string, unknown> = {}) => ({ id, phase: "paused", generation: id + "-1", verified: false, ...fields,
-    lifecycle: { phase: "paused", action: "pause", at: "2026-10-17T12:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason, until, at: "2026-10-17T12:00:00Z" } } });
+    lifecycle: { phase: "paused", action: "pause", at: "2026-10-17T12:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason, until, at: "2026-10-17T12:00:00Z" } } });
   const order = (tasks: Record<string, unknown>[], machine = memory(4.2)) => {
     const snapshot = parseSnapshot({ healthy: true, memory: machine, tasks });
     const group = snapshot.tasks.filter((task) => task.phase !== "working");

@@ -30,7 +30,7 @@ const board = (fields: Record<string, unknown> = {}) => ({ healthy: true, instan
 // which waits in the Command Center without an alert.
 const news = () => board({ at: "2026-10-07T15:09:11Z", questions: [{ ...question("theme-asks", "Which accent colour should the board use?", "2026-10-07T14:59:11Z"), task: "cg-theme" }], tasks: [
   task("pd-small-cleanups", RETIRED, { project: "PrecisionDocs-AI", phase: "paused", report: "", pr: "https://github.com/fpresta0607/PrecisionDocs-AI/pull/1507", reason: LIFECYCLE_SAID, activity: LIFECYCLE_SAID,
-    lifecycle: { phase: "paused", action: "pause", at: "2026-10-07T14:49:11Z", kept: ["worktree C:\\dev\\PrecisionDocs-AI\\.worktrees\\gb-pd-small-cleanups"], stopped: [], problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"], handoff_saved: false, validation_restarts: false } }),
+    lifecycle: { phase: "paused", action: "pause", at: "2026-10-07T14:49:11Z", kept: ["worktree C:\\dev\\PrecisionDocs-AI\\.worktrees\\gb-pd-small-cleanups"], stopped: [], problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"], handoff_saved: false, validation_kept: false } }),
   task("cg-probe", "Probe the DNS", { phase: "failed", report: "failed", activity: "failed: go test timed out at 9f3c2a1e" }),
   task("cg-theme", "Board theme", { phase: "blocked", reason: "Pipeline decision required at review; use ceo pipeline respond" }),
 ] });

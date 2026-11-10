@@ -31,6 +31,17 @@ type Screens struct {
 	Ready *regexp.Regexp
 	// Working matches a row while a turn runs.
 	Working *regexp.Regexp
+	// Retrying matches the row a turn shows while the harness waits to send
+	// a request that failed again, its groups the failure, the attempt and
+	// the attempts it makes. Working matches it too.
+	Retrying *regexp.Regexp
+	// StatusLine matches the status a harness draws at the end of the row
+	// over its composer's top rule, its first group the context gauge and its
+	// second the notices after it, each after a mark. Actions are the
+	// commands that take, in the session, what a notice names, by the
+	// notice's words.
+	StatusLine *regexp.Regexp
+	Actions    map[string]string
 	// Starting matches the row a harness shows when it turned a submitted
 	// prompt away because its startup has not finished, and put the prompt
 	// back in its composer.
@@ -141,8 +152,21 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Modes: claudeModes,
 			// A spinner glyph, then a verb that ends in an ellipsis, as in
 			// "✽ Reticulating…". Claude Code draws the spinner from one of
-			// three glyph lists; one has "*" where the others have "✳".
-			Working:   regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
+			// three glyph lists; one has "*" where the others have "✳". While
+			// it waits to send a request that failed again, Claude Code
+			// 2.1.322 draws the failure and its attempt there with no
+			// ellipsis, as in "✻ 529 Overloaded · Retrying in 3s · attempt
+			// 3/10", and its turn still runs (#2236).
+			Working:  regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*(…| · Retrying in .+ · attempt \d+/\d+)`),
+			Retrying: regexp.MustCompile(`^[·✢✳*✶✻✽] (\S.*?) · Retrying in .+? · attempt (\d+)/(\d+)`),
+			// Over its composer, at the right, Claude Code 2.1.322 draws the
+			// context gauge once the context fills, as "83% context used",
+			// and its notices, as "✘ Auto-update failed · Run claude doctor";
+			// 2.1.321 drew "0% until auto-compact · × Auto-update failed ·
+			// Run claude do…" in a narrower terminal. Its /doctor is the
+			// health check claude doctor runs (#2236).
+			StatusLine: regexp.MustCompile(`^(?:(\d+% (?:context used|until auto-compact))(?: · |$))?([✘×] .+)?$`),
+			Actions:    map[string]string{"Run claude doctor": "/doctor"},
 			Pasted:    []string{"[Pasted text #"},
 			Resubmits: 1,
 			// Claude Code 2.1.288 encloses its bare prompt between rules, and
@@ -356,23 +380,33 @@ const workingWordsMax = 48
 // is doing, with its spinner, its timer and its interrupt hint cut away:
 // Claude Code's verb, as "Cogitating" from "✻ Cogitating… (12s · esc to
 // interrupt)", the heading Codex names its step by, as "Working" or
-// "Exploring the tests", and pi's "Working". It is "" while no turn shows.
+// "Exploring the tests", and pi's "Working". It is "" while no turn shows,
+// and while the turn waits to retry, which Retry reads.
 func (s Screens) WorkingWords(screen []string) string {
-	for i := len(screen) - 1; i >= 0 && s.Working != nil; i-- {
-		if !s.Working.MatchString(screen[i]) {
-			continue
-		}
-		words := strings.TrimLeftFunc(screen[i], func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
-		if cut := strings.IndexAny(words, "…(─"); cut >= 0 {
-			words = words[:cut]
-		}
-		words = strings.TrimSpace(words)
-		if runes := []rune(words); len(runes) > workingWordsMax {
-			words = strings.TrimSpace(string(runes[:workingWordsMax])) + "…"
-		}
-		return words
+	row, isTurn := s.turnRow(screen)
+	if !isTurn || s.Retrying != nil && s.Retrying.MatchString(row) {
+		return ""
 	}
-	return ""
+	words := strings.TrimLeftFunc(row, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+	if cut := strings.IndexAny(words, "…(─"); cut >= 0 {
+		words = words[:cut]
+	}
+	words = strings.TrimSpace(words)
+	if runes := []rune(words); len(runes) > workingWordsMax {
+		words = strings.TrimSpace(string(runes[:workingWordsMax])) + "…"
+	}
+	return words
+}
+
+// turnRow is the last row of screen that shows a turn in progress, and false
+// when none does.
+func (s Screens) turnRow(screen []string) (string, bool) {
+	for i := len(screen) - 1; i >= 0 && s.Working != nil; i-- {
+		if s.Working.MatchString(screen[i]) {
+			return screen[i], true
+		}
+	}
+	return "", false
 }
 
 // IsAsking reports whether screen shows the harness waiting on an answer at
@@ -615,6 +649,16 @@ func (s Screens) TookEnterAsNewLine(atPress, screen []string) bool {
 // ruledComposer returns the rows between screen's last two composer rules,
 // and false when there are no such rows.
 func (s Screens) ruledComposer(screen []string) ([]string, bool) {
+	top, bottom, isRuled := s.composerRules(screen)
+	if !isRuled {
+		return nil, false
+	}
+	return screen[top+1 : bottom], true
+}
+
+// composerRules returns the rows of screen's last two composer rules, and
+// false when there are no rows between them.
+func (s Screens) composerRules(screen []string) (int, int, bool) {
 	var rules []int
 	for i, row := range screen {
 		if s.isComposerRule(row) {
@@ -622,9 +666,9 @@ func (s Screens) ruledComposer(screen []string) ([]string, bool) {
 		}
 	}
 	if len(rules) < 2 || rules[len(rules)-1]-rules[len(rules)-2] < 2 {
-		return nil, false
+		return 0, 0, false
 	}
-	return screen[rules[len(rules)-2]+1 : rules[len(rules)-1]], true
+	return rules[len(rules)-2], rules[len(rules)-1], true
 }
 
 // isComposerRule reports whether row is one of the rules that bound the

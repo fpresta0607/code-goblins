@@ -100,5 +100,5 @@ test("ended sessions retain a Terminal view for their summary", () => {
 test("cleanup retirement stays distinct from an explicit lifecycle stop", () => {
   const task = parseSnapshot({ healthy: true, tasks: [{ id: "finished:t", archived: true, phase: "stopped", retired_at: "2026-09-30T12:00:00Z", verified: false }] }).tasks[0];
   assert.equal(sessionEnd(task), "retired");
-  assert.equal(sessionEnd({ ...task, lifecycle: { phase: "stopped", action: "stop", at: "2026-09-30T12:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false } }), "stopped");
+  assert.equal(sessionEnd({ ...task, lifecycle: { phase: "stopped", action: "stop", at: "2026-09-30T12:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: false, validation_kept: false } }), "stopped");
 });

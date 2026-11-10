@@ -504,11 +504,10 @@ export function App() {
       else setSwitchFocus((prior) => prior + 1);
     },
   } : undefined;
-  // Open in Windows Terminal is in the panel's row wherever a session shows;
-  // on a small screen only while its box shows, as the box's own menu offered
-  // it there before (#1987).
+  // Open in Windows Terminal is in the panel's row wherever a session shows,
+  // except on a phone, which has no Windows Terminal to open it in (#2222).
   const controls: PanelControl[] = [];
-  if (shownWindow && (!compact || boxOnScreen)) controls.push({ id: "window", name: "Open in terminal", label: "Open in Windows Terminal", icon: "external", importance: PANEL_IMPORTANCE.window, onPress: () => void openWindow() });
+  if (shownWindow && !compact) controls.push({ id: "window", name: "Open in terminal", label: "Open in Windows Terminal", icon: "external", importance: PANEL_IMPORTANCE.window, onPress: () => void openWindow() });
   if (!compact) controls.push({ id: "maximize", name: maximized ? "Restore" : "Maximize", label: maximized ? "Restore the panel" : "Maximize the panel", icon: maximized ? "restore" : "maximize", importance: PANEL_IMPORTANCE.maximize, onPress: toggleMaximized });
   const row = {
     controls,

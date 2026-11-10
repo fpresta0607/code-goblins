@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/gatehome"
 )
 
 // speedTableSQL measures count plus average and maximum invocation minutes
@@ -49,16 +50,13 @@ type Querier struct {
 	DBPath   string
 }
 
-// DefaultDBPath is the no-mistakes state database under the user's home.
+// DefaultDBPath is the no-mistakes state database in the gate's home.
 func DefaultDBPath() string {
-	if root := os.Getenv("NM_HOME"); root != "" {
-		return filepath.Join(root, "state.sqlite")
-	}
-	home, err := os.UserHomeDir()
+	root, err := gatehome.Root()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".no-mistakes", "state.sqlite")
+	return filepath.Join(root, "state.sqlite")
 }
 
 // SpeedTable returns the measured validation timing, one row per agent, model,

@@ -136,6 +136,10 @@ export function parseHeld(text: string): string | null {
 // and empty while none shows. hasDraft says the prompt line holds words never
 // sent, which anything typed now would join, and doing is what the turn's row
 // says the harness is doing, as Claude Code's "Cogitating", empty with no turn.
+// status is the context gauge and notices the harness draws over its prompt
+// line, and retry the failure and attempt its turn row shows while it waits
+// to send a request again; each is absent while the terminal shows none
+// (#2236).
 export interface ScreenState {
   isAsking: boolean;
   isOpen: boolean;
@@ -146,7 +150,15 @@ export interface ScreenState {
   mode: string;
   hasDraft: boolean;
   doing: string;
+  status?: HarnessStatus;
+  retry?: HarnessRetry;
 }
+
+// A notice's action is the command that takes, in the session, what it names,
+// as Run claude doctor names /doctor, and empty for a notice that names none.
+export interface HarnessStatus { gauge: string; notices: HarnessNotice[] }
+export interface HarnessNotice { text: string; action: string }
+export interface HarnessRetry { reason: string; attempt: number; attempts: number }
 
 // What a harness draws in its input line's place: the rows that ask or show,
 // the choices it lists with the one its focus is on, the keys its footer
@@ -173,15 +185,41 @@ function parsePanel(value: unknown): HarnessPanel | null | undefined {
   return { rows: parsedRows, choices: parsedChoices, hints: parsedHints, ...typeof cols === "number" && cols > 0 ? { cols } : {} };
 }
 
+// parseStatus and parseRetry are undefined for what the relay did not send,
+// and null for what it sent malformed.
+function parseStatus(value: unknown): HarnessStatus | null | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null) return null;
+  const { gauge, notices } = value as Record<string, unknown>;
+  const listed = notices === undefined ? [] : Array.isArray(notices) ? notices : null;
+  if (gauge !== undefined && typeof gauge !== "string" || !listed) return null;
+  const parsed: HarnessNotice[] = [];
+  for (const notice of listed) {
+    if (typeof notice !== "object" || notice === null) return null;
+    const { text, action } = notice as Record<string, unknown>;
+    if (typeof text !== "string" || action !== undefined && typeof action !== "string") return null;
+    parsed.push({ text, action: action ?? "" });
+  }
+  return { gauge: gauge ?? "", notices: parsed };
+}
+
+function parseRetry(value: unknown): HarnessRetry | null | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null) return null;
+  const { reason, attempt, attempts } = value as Record<string, unknown>;
+  return typeof reason === "string" && typeof attempt === "number" && typeof attempts === "number" ? { reason, attempt, attempts } : null;
+}
+
 // The relay says what it read of the harness's screen each time that changes.
 export function parseScreen(text: string): ScreenState | null {
   try {
     const value: unknown = JSON.parse(text);
     if (typeof value !== "object" || value === null) return null;
-    const { type, asking, open, working, submission, started, panel, mode, draft, doing } = value as Record<string, unknown>;
-    const parsedPanel = parsePanel(panel);
-    return type === "screen" && typeof asking === "boolean" && typeof open === "boolean" && typeof working === "boolean" && typeof submission === "string" && (started === undefined || typeof started === "boolean") && (mode === undefined || typeof mode === "string") && (draft === undefined || typeof draft === "boolean") && (doing === undefined || typeof doing === "string") && parsedPanel !== undefined
-      ? { isAsking: asking, isOpen: open, isWorking: working, submission, hasStarted: started === true, panel: parsedPanel, mode: mode ?? "", hasDraft: draft === true, doing: doing ?? "" } : null;
+    const { type, asking, open, working, submission, started, panel, mode, draft, doing, status, retry } = value as Record<string, unknown>;
+    const parsedPanel = parsePanel(panel), parsedStatus = parseStatus(status), parsedRetry = parseRetry(retry);
+    return type === "screen" && typeof asking === "boolean" && typeof open === "boolean" && typeof working === "boolean" && typeof submission === "string" && (started === undefined || typeof started === "boolean") && (mode === undefined || typeof mode === "string") && (draft === undefined || typeof draft === "boolean") && (doing === undefined || typeof doing === "string") && parsedPanel !== undefined && parsedStatus !== null && parsedRetry !== null
+      ? { isAsking: asking, isOpen: open, isWorking: working, submission, hasStarted: started === true, panel: parsedPanel, mode: mode ?? "", hasDraft: draft === true, doing: doing ?? "",
+        ...parsedStatus ? { status: parsedStatus } : {}, ...parsedRetry ? { retry: parsedRetry } : {} } : null;
   } catch {
     return null;
   }

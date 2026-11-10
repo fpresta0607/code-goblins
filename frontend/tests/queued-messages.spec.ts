@@ -249,9 +249,12 @@ test.describe("his messages in the chat's one scroll", () => {
     for (const name of ["Send now", "Edit", "Cancel"]) await expect(entry(page).getByRole("button", { name, exact: true })).toBeVisible();
   });
 
-  test("a message waiting in a conversation that holds nothing yet shows with no No messages yet over it", async ({ page }) => {
+  for (const [state, fields] of [
+    ["waiting", {}],
+    ["not sent", { status: "failed", message: "The terminal closed before it took it." }],
+  ] as const) test(`a message ${state} in a conversation that holds nothing yet shows with no No messages yet over it`, async ({ page }) => {
     // Arrange
-    const relay = await open(page, snapshot({ actions: [queued()] }));
+    const relay = await open(page, snapshot({ actions: [queued(fields)] }));
     await openGoblin(page);
     relay.say({ type: "screen", asking: false, open: false, working: true });
 
@@ -267,17 +270,21 @@ test.describe("his messages in the chat's one scroll", () => {
   // The Overlord, 2026-10-29: a message he typed for the CEO the day before
   // still sat as queued, and its Cancel said "that queued message is no
   // longer waiting, so nothing was deleted". The board typed it and still
-  // watches for a late take, but it waits nowhere.
+  // watches for a late take, but it waits nowhere: it says it was never seen
+  // taken, with Send again, never that it is still on its way (#2242).
   test("a message from an earlier day the harness was not seen taking is not waiting on load, with nothing to cancel", async ({ page }) => {
     // Arrange and Act
     const advice = "Your answer was typed for the goblin, which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to the goblin.";
     await openWith(page, queued({ status: "uncertain", message: advice, advice, awaiting: { task: GOBLIN.id, since: "2026-10-21T22:04:16Z" } }));
 
     // Assert
+    const view = page.locator(".messages-view:not([hidden])");
+    const ended = view.locator(".queued-message.pane").filter({ hasText: "hold the merge" });
     await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
-    await expect(entry(page)).toHaveCount(0);
-    await expect(page.locator(".messages-view:not([hidden])")).not.toContainText("hold the merge");
-    await expect(page.locator(".messages-view:not([hidden])").getByRole("button", { name: "Cancel", exact: true })).toHaveCount(0);
+    await expect(ended).toContainText("Not confirmed");
+    await expect(ended).not.toContainText(WAITING);
+    await expect(ended.getByRole("button", { name: "Send again", exact: true })).toHaveCount(1);
+    await expect(view.getByRole("button", { name: "Cancel", exact: true })).toHaveCount(0);
   });
 });
 

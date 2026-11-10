@@ -13,7 +13,7 @@ const GB = 2 ** 30;
 const memoryWith = (available: number) => ({ next: 5 * GB, floor: 4 * GB, total: 32 * GB, available: available * GB, commit_limit: 48 * GB, commit_available: 40 * GB, paged_pool: GB / 2, nonpaged_pool: GB / 4 });
 const task = (id: string, phase: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "code-goblins", phase, verified: false, generation: id + "-1", since, ...fields });
 const QUEUED = task("queued-one", "queued", { generation: "", brief: true, queue_revision: "q1" });
-const PAUSED = task("paused-one", "paused", { lifecycle: { phase: "paused", action: "pause", at: since, kept: ["worktree"], stopped: [], problems: [], handoff_saved: true, validation_restarts: false } });
+const PAUSED = task("paused-one", "paused", { lifecycle: { phase: "paused", action: "pause", at: since, kept: ["worktree"], stopped: [], problems: [], handoff_saved: true, validation_kept: false } });
 
 const events = (available: number) => `event: snapshot\ndata: ${JSON.stringify({ healthy: true, instance: "fixture", ceo_runs: true, revision: 1, attention: [], memory: memoryWith(available), tasks: [QUEUED, PAUSED] })}\n\n`;
 

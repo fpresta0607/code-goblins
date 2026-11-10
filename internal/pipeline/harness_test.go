@@ -16,10 +16,11 @@ var (
 )
 
 // versionSix is the policy whose gate runs on its task's own harness, with
-// the fallback the operator named, if any.
+// the fallback the operator named, if any, and one automatic follow-up each
+// for test, lint, rebase and CI.
 func versionSix(t *testing.T, fallback Reviewer) Policy {
 	t.Helper()
-	policy := testPolicy(t)
+	policy := versionFive()
 	policy.Version, policy.Primary, policy.Reviewer, policy.Fixer, policy.Fallback = 6, Reviewer{}, Reviewer{}, Reviewer{}, fallback
 	if err := policy.Validate(); err != nil {
 		t.Fatal(err)
@@ -138,7 +139,7 @@ func TestGateChainRefusesWhatAGateCannotProve(t *testing.T) {
 			t.Fatalf("%s got a gate chain: %+v", name, chain)
 		}
 	}
-	chain := testPolicy(t)
+	chain := versionFive()
 	if _, err := chain.GateChain(claudeTask, nobodyAsked(t)); err == nil {
 		t.Fatalf("a version %d policy, which fixes its own chain, handed out a task's", chain.Version)
 	}

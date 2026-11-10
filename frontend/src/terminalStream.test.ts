@@ -98,6 +98,25 @@ test("the relay says when the harness asks at a screen only its terminal takes, 
   for (const text of ['{"type":"screen","asking":false,"open":false,"working":true}', '{"type":"screen","asking":false,"open":false,"working":true,"submission":1}', '{"type":"screen","asking":false,"open":false}', '{"type":"screen","asking":false,"open":false,"working":1}', '{"type":"screen"}', '{"type":"screen","asking":true}', '{"type":"screen","asking":1,"open":true,"working":false,"submission":""}', '{"type":"screen","asking":false,"open":1,"working":false,"submission":""}', '{"type":"unread","unread":true}', '{"type":"held","reason":""}', "null", "nope"]) assert.equal(parseScreen(text), null, text);
 });
 
+test("the relay says the status and retry the terminal shows, and nothing of them once it shows none (#2236)", () => {
+  // Arrange
+  const screen = { type: "screen", asking: false, open: false, working: true, submission: "" };
+  const status = { gauge: "83% context used", notices: [{ text: "Auto-update failed" }, { text: "Run claude doctor", action: "/doctor" }] };
+  const retry = { reason: "529 Overloaded", attempt: 3, attempts: 10 };
+
+  // Act
+  const shown = parseScreen(JSON.stringify({ ...screen, status, retry }));
+  const cleared = parseScreen(JSON.stringify(screen));
+
+  // Assert
+  assert.deepEqual(shown?.status, { gauge: "83% context used", notices: [{ text: "Auto-update failed", action: "" }, { text: "Run claude doctor", action: "/doctor" }] });
+  assert.deepEqual(shown?.retry, retry);
+  assert.equal(parseScreen(JSON.stringify({ ...screen, status: { notices: [{ text: "Auto-update failed" }] } }))?.status?.gauge, "");
+  assert.ok(cleared && !("status" in cleared) && !("retry" in cleared));
+  for (const malformed of [{ status: null }, { status: "full" }, { status: { gauge: 83 } }, { status: { notices: {} } }, { status: { notices: [{ text: 1 }] } }, { status: { notices: [{ text: "a", action: 1 }] } },
+    { retry: null }, { retry: { reason: "529" } }, { retry: { reason: "529", attempt: "3", attempts: 10 } }]) assert.equal(parseScreen(JSON.stringify({ ...screen, ...malformed })), null, JSON.stringify(malformed));
+});
+
 test("the relay says what an open screen asks, its choices with the focused one, and its keys", () => {
   // Arrange
   const panel = { rows: ["Do you want to create nine.txt?"], choices: [{ text: "Yes", number: 1, focused: true }, { text: "No", number: 2 }], hints: ["Esc to cancel"] };

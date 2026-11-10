@@ -35,6 +35,10 @@ func TestMain(m *testing.M) {
 		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); {
 		}
 		os.Exit(0)
+	case "gate-home":
+		// A no-mistakes that says which gate home it was started on.
+		_ = os.WriteFile(os.Getenv("CEO_GATE_HOME_FILE"), []byte(os.Getenv("NM_HOME")), 0o644)
+		os.Exit(0)
 	case "gate":
 		// A no-mistakes whose status call exits but leaves a process of its
 		// own holding the output pipe, the way a daemon it starts would.

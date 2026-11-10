@@ -710,6 +710,120 @@ test("a prompt its harness holds before the board's snapshot shows its message t
   await expect(rows).toContainText("Queued");
 });
 
+// A message whose delivery ended with no take seen says what happened on its
+// own bubble, never that it is still on its way, and Send again sends its
+// words as a new message; one older than what he sent since and saw land is
+// not drawn (#2242).
+for (const [status, label] of [["failed", "Not sent"], ["uncertain", "Not confirmed"]] as const) {
+  test(`a message that ended ${status} reads ${label} on its bubble and Send again sends its words once more`, async ({ page }) => {
+    // Arrange
+    const posted: { kind: string; task_id: string; text: string }[] = [];
+    await open(page);
+    await page.route("**/api/actions", (route) => { posted.push(route.request().postDataJSON() as { kind: string; task_id: string; text: string }); return route.fulfill({ status: 202, json: {} }); });
+    await openGoblin(page);
+    const talk = list(page, "Zeke - Touch Wrangler");
+    const later = "2026-10-22T09:05:00Z", earlier = "2026-10-22T08:00:00Z";
+    const ended = { kind: "message", task_id: "cg-touch", status, message: "The terminal closed before it took it.", awaiting: "" };
+    await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [
+      { ...ended, id: "a1", text: "claude doctor", created_at: later, updated_at: later },
+      { ...ended, id: "a0", text: "an old one", created_at: earlier, updated_at: earlier },
+    ] });
+    const row = talk.locator(".queued-message.pane").filter({ hasText: "claude doctor" });
+
+    // Assert
+    await expect(row).toContainText(label);
+    await expect(row).not.toContainText("Sending");
+    await expect(talk.locator(".queued-message.pane").filter({ hasText: "an old one" })).toHaveCount(0);
+
+    // Act
+    await row.getByRole("button", { name: "Send again" }).click();
+
+    // Assert
+    await expect.poll(() => posted.length).toBe(1);
+    expect(posted[0]).toMatchObject({ kind: "message", task_id: "cg-touch", text: "claude doctor" });
+    await expect(row).toHaveCount(0);
+  });
+}
+
+// What he sent after a message that ended with no take seen and saw land puts
+// that message away, by when he sent it, whenever the board last touched its
+// record and whether or not the row that landed is in the page loaded, and a
+// message handed to the CEO was never lost (#2242). The fixture's rows of his
+// are at 09:00.
+const TAKEN_LATER = { id: "a2", kind: "message", task_id: "cg-touch", text: "a later one", status: "succeeded", message: "Taken.", awaiting: "", created_at: "2026-10-22T09:06:00Z", updated_at: "2026-10-22T09:06:30Z" };
+for (const { why, action, others } of [
+  { why: "an uncertain message sent before a row of his that landed, its record touched since", action: { status: "uncertain", message: "Typed and never seen taken.", created_at: "2026-10-22T08:00:00Z", updated_at: "2026-10-22T09:30:00Z" }, others: [] },
+  { why: "a failed message sent before one the board saw taken whose row is not loaded", action: { status: "failed", message: "The terminal closed before it took it.", created_at: "2026-10-22T09:05:00Z", updated_at: "2026-10-22T09:05:00Z" }, others: [TAKEN_LATER] },
+  { why: "a message its goblin could not take that the CEO has", action: { status: "failed", message: "Zeke was stopped before it could take it; the CEO has it", created_at: "2026-10-22T09:05:00Z", updated_at: "2026-10-22T09:05:00Z" }, others: [] },
+]) {
+  test(`${why} is not drawn as undelivered`, async ({ page }) => {
+    // Arrange
+    await open(page);
+    await openGoblin(page);
+    const talk = list(page, "Zeke - Touch Wrangler");
+    const control = { id: "a9", kind: "message", task_id: "cg-touch", text: "the newest one", status: "failed", message: "The terminal closed before it took it.", awaiting: "", created_at: "2026-10-22T09:20:00Z", updated_at: "2026-10-22T09:20:00Z" };
+
+    // Act
+    await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ ...action, id: "a1", kind: "message", task_id: "cg-touch", text: "the put away one", awaiting: "" }, ...others, control] });
+
+    // Assert
+    await expect(talk.locator(".queued-message.pane").filter({ hasText: "the newest one" })).toContainText("Not sent");
+    await expect(talk.locator(".queued-message.pane").filter({ hasText: "the put away one" })).toHaveCount(0);
+    await expect(talk.getByRole("button", { name: "Send again" })).toHaveCount(1);
+  });
+}
+
+// A message he sent before the one that ended, which the harness queued and
+// recorded only after it, landed later but was not sent after it, so the one
+// that ended still says so (#2242). A ! command he typed with a space after
+// its ! lands as a shell row of the words after it, which is still that
+// message's row.
+for (const { what, typed, row } of [
+  { what: "a message", typed: "the earlier one", row: { source: "overlord", text: "the earlier one" } },
+  { what: "a ! command", typed: "! claude doctor", row: { source: "shell", text: "claude doctor" } },
+] as const) {
+  test(`${what} sent earlier whose row lands later leaves a later undelivered message drawn`, async ({ page }) => {
+    // Arrange
+    await open(page);
+    await openGoblin(page);
+    const talk = list(page, "Zeke - Touch Wrangler");
+    await send(page, "page", { conversation: "fixture-conversation", messages: [message(0, { ...row, at: "2026-10-22T09:00:00Z" })], more: false });
+    await expect(talk.locator(".message-prompt .message-bubble").filter({ hasText: row.text })).toHaveCount(1);
+    const earlier = { id: "a1", kind: "message", task_id: "cg-touch", text: typed, status: "succeeded", message: "Taken.", awaiting: "", created_at: "2026-10-22T08:55:00Z", updated_at: "2026-10-22T09:00:30Z" };
+    const ended = { id: "a2", kind: "message", task_id: "cg-touch", text: "the later one", status: "failed", message: "The terminal closed before it took it.", awaiting: "", created_at: "2026-10-22T08:58:00Z", updated_at: "2026-10-22T08:58:30Z" };
+
+    // Act
+    await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [earlier, ended] });
+
+    // Assert
+    const ending = talk.locator(".queued-message.pane").filter({ hasText: "the later one" });
+    await expect(ending).toContainText("Not sent");
+    await expect(ending.getByRole("button", { name: "Send again" })).toHaveCount(1);
+  });
+}
+
+// A message he sent after the one that ended, still on its way, whose row
+// has landed, puts the one that ended away, as a landed row he typed in the
+// terminal does (#2242).
+test("a later message still on its way whose row landed puts an earlier undelivered message away", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await openGoblin(page);
+  const talk = list(page, "Zeke - Touch Wrangler");
+  await send(page, "page", { conversation: "fixture-conversation", messages: [message(0, { source: "overlord", at: "2026-10-22T09:00:00Z", text: "the later one" })], more: false });
+  await expect(talk.locator(".message-prompt .message-bubble").filter({ hasText: "the later one" })).toHaveCount(1);
+  const ended = { id: "a1", kind: "message", task_id: "cg-touch", text: "the ended one", status: "failed", message: "The terminal closed before it took it.", awaiting: "", created_at: "2026-10-22T08:00:00Z", updated_at: "2026-10-22T08:00:30Z" };
+  const later = { id: "a2", kind: "message", task_id: "cg-touch", text: "the later one", status: "running", message: "Typed for Zeke.", awaiting: { task: "cg-touch" }, created_at: "2026-10-22T08:55:00Z", updated_at: "2026-10-22T08:55:00Z" };
+
+  // Act
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [ended, later] });
+
+  // Assert
+  await expect(talk.locator(".queued-message.pane").filter({ hasText: "the later one" })).toHaveCount(0);
+  await expect(talk.locator(".queued-message.pane").filter({ hasText: "the ended one" })).toHaveCount(0);
+  await expect(talk.getByRole("button", { name: "Send again" })).toHaveCount(0);
+});
+
 test("a prompt its harness holds before any snapshot carries its message is one row", async ({ page }) => {
   // Arrange
   await open(page);

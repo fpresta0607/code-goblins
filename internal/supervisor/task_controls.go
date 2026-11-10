@@ -18,15 +18,15 @@ import (
 )
 
 type LifecycleStatus struct {
-	Phase              string                `json:"phase"`
-	Action             string                `json:"action"`
-	At                 time.Time             `json:"at"`
-	Kept               []string              `json:"kept"`
-	Stopped            []string              `json:"stopped"`
-	Problems           []string              `json:"problems"`
-	HandoffSaved       bool                  `json:"handoff_saved"`
-	ValidationRestarts bool                  `json:"validation_restarts"`
-	Pause              *state.PauseCondition `json:"pause,omitempty"`
+	Phase          string                `json:"phase"`
+	Action         string                `json:"action"`
+	At             time.Time             `json:"at"`
+	Kept           []string              `json:"kept"`
+	Stopped        []string              `json:"stopped"`
+	Problems       []string              `json:"problems"`
+	HandoffSaved   bool                  `json:"handoff_saved"`
+	ValidationKept bool                  `json:"validation_kept"`
+	Pause          *state.PauseCondition `json:"pause,omitempty"`
 	// WithParent is a helper's pause or stop its parent's made: paused, the
 	// scheduler resumes it once its parent runs again.
 	WithParent bool `json:"with_parent,omitempty"`
@@ -37,7 +37,7 @@ type LifecycleStatus struct {
 }
 
 func lifecycleStatus(record state.Lifecycle) *LifecycleStatus {
-	status := &LifecycleStatus{Phase: record.Phase, Action: record.Action, At: record.Updated, Kept: record.Kept, Stopped: record.Stopped, Problems: record.Problems, HandoffSaved: record.HandoffSaved, Pause: record.Pause, ValidationRestarts: record.GateRun != "" && (record.Phase == "paused" || record.Action == "resume" && record.Phase != "running"), WithParent: state.IsHelperOperation(record.Operation)}
+	status := &LifecycleStatus{Phase: record.Phase, Action: record.Action, At: record.Updated, Kept: record.Kept, Stopped: record.Stopped, Problems: record.Problems, HandoffSaved: record.HandoffSaved, Pause: record.Pause, ValidationKept: record.GateRun != "" && (record.Phase == "paused" || record.Action == "resume" && record.Phase != "running"), WithParent: state.IsHelperOperation(record.Operation)}
 	if waitsForResume(record) {
 		_, status.KeptMessages = keptMessages(record.ResumeNote)
 	}

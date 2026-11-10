@@ -20,7 +20,7 @@ const PR = REPO + "/pull/512";
 const TRAIN_PR = REPO + "/pull/900";
 const RUN = REPO + "/actions/runs/77/job/770";
 const HEAD = "a".repeat(40);
-const lifecycle = (pause: Record<string, unknown>, phase = "paused") => ({ phase, action: "pause", at: "2026-10-08T18:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { at: "2026-10-08T18:00:00Z", ...pause } });
+const lifecycle = (pause: Record<string, unknown>, phase = "paused") => ({ phase, action: "pause", at: "2026-10-08T18:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { at: "2026-10-08T18:00:00Z", ...pause } });
 const sid = (fields: Record<string, unknown> = {}) => ({ id: "cg-sid", title: "Memory keeper", goblin_name: "Sid", goblin_title: "Memory Keeper", project: "code-goblins", phase: "idle", report: "done", pr: PR, generation: "cg-sid-1", verified: false, ...fields });
 const pausedUntilMerge = (fields: Record<string, unknown> = {}) => sid({ phase: "paused", lifecycle: lifecycle({ reason: "dependency", until: "pr:" + PR }), ...fields });
 const pausedForCI = (fields: Record<string, unknown> = {}) => sid({ phase: "paused", lifecycle: lifecycle({ reason: "ci", until: "pr:" + PR + "@" + HEAD }), ...fields });

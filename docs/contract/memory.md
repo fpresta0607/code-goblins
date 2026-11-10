@@ -14,9 +14,9 @@ A fact file starts with frontmatter `name`, `description` and `metadata.type`, w
 Do not copy history into task briefs or duplicate facts already owned by a project or conditional procedure.
 Keep private preferences and fleet delivery posture out of public project memory.
 
-`data/memory/startup.json` is an explicitly curated, versioned map of exact source ranges.
+`data/memory/startup.json` is a versioned map of exact source ranges, derived from the memory files by `ceo memory sync` and curated by `ceo memory scope` or by hand.
 It never replaces the original ruling bytes with a summary.
-The digest delivers warm ranges, a bounded cold routing index and a bounded fleet/backlog projection.
+The digest delivers warm ranges, each after its id, a bounded count of what each scope holds cold and a bounded fleet/backlog projection.
 State bounds also apply without a catalog, independently of the full legacy authority bytes.
 One current-state sample is reused by all startup renderings, with a shared two-second terminal-read budget and explicit unknown state when it expires.
 It reports omitted state and directs current-state reads to `ceo fleet-view`, `ceo drain` and the existing recovery owners.
@@ -27,7 +27,7 @@ Claude's hook preview validates current sources on every start, resume, reload a
 Codex and Pi run `ceo session-start` at startup and after resume or compaction; a saved digest alone never validates current authority.
 An unchanged resumed conversation skips source bytes only if it actually read and still holds them; a prior composition or completion marker is not proof of delivery.
 Changed authority must be read again before dependent action, and current state still requires reconciliation.
-Every role retrieves cold memory relevant to the project, task and topic before dependent action, even when the bounded routing index omitted its line.
+Every role retrieves cold memory relevant to the project, task and topic before dependent action, even when the bounded scope counts omitted its line.
 Only the exact displayed ranges count as read; a selected range is never described as its whole source file.
 
 An absent catalog is explicitly uncurated legacy memory, with the directives and index still loaded in full.
@@ -35,7 +35,34 @@ That is an authority-preservation boundary until the owner approves curation, no
 A present but invalid catalog never selects a silent legacy fallback.
 Missing sources, checksum changes, uncovered bytes, overlapping ranges, conflicting ids, duplicate JSON keys, unknown fields and cyclic or missing supersession references are errors.
 Do not act on affected authority until its diagnostic is resolved.
+Memory that changed after the catalog was written is such an error until `ceo memory sync` derives the catalog again; no startup and no retrieval rewrites the catalog.
 Stale facts remain visible with a Stow diagnostic; reading never reinforces, archives or advances a grace cycle.
+
+### Rulings by scope
+
+Startup loads the rulings of the whole fleet, the fact index and the warm facts.
+A ruling ruled for a project is cold: startup leaves it out, counts it under that project's scope, and `ceo memory retrieve --project <name> --cold` prints it.
+Every ruling stays verbatim in `overlord.md` and retrievable by its id, whatever its scope.
+A ruling no scope has been ruled for loads at every start, and startup says how many there are, so nothing is left out for want of a decision.
+
+`ceo memory sync` derives the catalog from the memory files, which stay the source of truth.
+Each line of `overlord.md` that is not a heading, a comment or blank is one entry, under the id `ceo memory recall` prints for that ruling; a repeated line takes `-2`, `-3` after its id.
+A heading and what follows it belong to the entry of the first ruling below, and blank lines and comments to the ruling above, so every byte is in one entry.
+Each line of `memory/MEMORY.md` is one warm entry, a fact file is one cold fact found by its description and its `metadata.type`, `memory-archive.md` is one cold history range and `projects.md` one warm entry.
+A fact file that ends in a pinned, pending-capture, grace or perishable marker is warm instead, when it is new to the catalog and when the one entry it had was cold, since those tiers stay loaded and a pinned item leaves startup only on its own approval.
+A pinned fact whose entry carries its own approval keeps the location the catalog gave it, the archive's history stays cold whatever its lines carry, and ruling a fact kept warm this way for a project is still refused, with the entry named.
+A fact the index pins loads unless that entry carries its own approval.
+A fact file loads only for a reason a sync can read: one of those markers, an index pin, an active or held task state, or a ruling for the whole fleet.
+When its words change and none of them holds, it comes by scope again with the routing it had, so a fact a marker loaded leaves startup once the marker is gone; `ceo memory scope --fleet <id>` is the way to keep a fact loaded.
+A fact with no trigger or no routing key stays loaded, since no scope would find it, and an entry set by hand as anything but a fact stays as it was set.
+A file that has not changed keeps its entries as they were set, a line that is still there keeps its scope by its id, and words the catalog has not seen load until a scope is ruled for them.
+A scope whose words are no longer in memory is named in the command's report.
+A catalog that would not load is never written: it is checked against the memory files before it replaces the one on disk, so a refusal leaves the catalog file as it was, or absent.
+A perishable entry with no expiry named is such a refusal, which names every one of them and the single `ceo memory scope --expiry <id>="<words>"` command, one pair for each, that names them all.
+
+`ceo memory scope --project <name>` rules the entries it names for that project and `ceo memory scope --fleet` for the whole fleet; neither changes a byte of a memory file.
+Writing the catalog is the CEO's alone, since it decides what a CEO session reads at its start.
+Every writer of the catalog, a decision on a lesson included, holds one lock, so two never write at once.
 
 ### Catalog schema
 
@@ -53,17 +80,20 @@ Each entry has:
 | `id` | Unique stable ASCII name starting with a letter or digit, followed only by letters, digits, underscores or hyphens; also the exact retrieval key. |
 | `start`, `end`, `sha256` | Half-open byte range and hash of exactly those bytes. |
 | `authority` | `ruling`, `fact`, `project` or `history`; classification never authorizes discarding a ruling. |
-| `location` | `warm` or `cold`; pending capture, legacy grace and perishable entries stay warm. |
+| `location` | `warm` or `cold`; pending capture, legacy grace and perishable entries stay warm, and so does an unmarked fact in `overlord.md`, `projects.md` or `memory/MEMORY.md`, which startup loaded whole before a catalog. |
 | `trigger` | Required relevance cue for a cold item. |
 | `projects`, `tasks`, `topics` | Exact nonblank routing-key arrays; a cold item needs at least one key. |
 | `expiry` | A checkable condition quoted in a perishable entry's own text. |
 | `supersedes` | Earlier item ids; they remain retrievable and are candidates for review, not automatically retired. |
 | `task_state` | Optional `active`, `held` or `completed` classification; active and held entries must remain warm. |
-| `approval` | Required per-item approval for a pinned cold item or any cold range from `overlord.md`. |
+| `approval` | Required per-item approval for a pinned cold item or any cold range from `overlord.md`, except a range of `overlord.md` routed to at least one project. |
 
 `approval` holds `by: "Overlord"`, the verbatim `quote` naming this entry's exact, separately delimited id, a `date` in `YYYY-MM-DD` format and `destination` equal to the live source-range owner `path#id`.
 The catalog records an approval already given; it cannot create one.
+A range of `overlord.md` routed to a project needs no approval of its own, by the Overlord's ruling that project rulings come by scope: leaving startup moves no byte, and the ruling stays verbatim in `overlord.md` and retrievable by its id.
+That ruling covers the selection alone; a cold ruling routed only by task or topic, a pinned item of any other file, and any move or deletion of a ruling still need their own approval.
 Existing history already owned by `memory-archive.md` may remain cold without inventing a new offload; this grants no permission to move a ruling into that archive.
+The archive's tier markers are history as well and tier nothing now, so its range is cold whatever its lines carry.
 Broad approval, an uncreated destination or a proposed project change is insufficient.
 The original file remains the live retrieval owner in this catalog; migration to a different owner needs a new approved plan and discoverability proof.
 No command here moves or deletes history.
@@ -76,6 +106,7 @@ Tier markers in source text are interpreted by the shared `stow` skill, the sing
 Only trailing annotations carry tier metadata; literal examples in prose and code remain source content.
 Use separate catalog entries for separately tiered facts.
 Unmarked rulings and history are pinned; unmarked facts are legacy aging entries of unknown age.
+An unmarked fact file was never loaded at startup, only its index line was, so it may be cold and keeps its Stow diagnostic wherever it is counted or printed.
 Future dates, malformed or conflicting markers are explicit errors.
 Only the native date markers are accepted; unsupported marker bytes remain unchanged in the read-only inventory with an explicit classification error.
 
@@ -88,9 +119,9 @@ If a tier is renamed or retired, Stow retargets the pending marker to the new ow
 
 ### Budgets and exceptions
 
-`ceo memory budget` measures the combined always-loaded memory, including bookkeeping and cold routing lines.
+`ceo memory budget` measures the combined always-loaded memory: with a catalog, exactly the text startup prints, its ids, scope counts and count of unclassified rulings included.
 Before a catalog exists it counts the legacy directives, project map and fact index and says which are absent.
-`config/startup-memory-budget`, when present, is a positive integer estimated-token allowance; otherwise it is 10,000.
+`config/startup-memory-budget`, when present, is a positive integer estimated-token allowance; otherwise it is 15,000.
 An invalid setting is an exception, never an inferred default.
 An overrun retains all authority and requires a concrete budget or named-offload decision.
 It is never budget relief or a reset-safe result.

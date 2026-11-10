@@ -7,6 +7,35 @@ Print all exact warm ranges plus cold ranges matching any supplied project, task
 Source provenance, checksums and stale or pending-capture diagnostics accompany the original bytes.
 `ceo memory routes` lists every cold trigger and routing key without loading its body into the response.
 
+`ceo memory retrieve [scope or search flags] --cold`
+
+Print only the cold ranges the scope or search selects, for a conversation that already holds the startup map.
+They come in the map's own form: each source named once, then each entry as its id in brackets and its exact bytes, with a line naming the heading a ruling stands under when another entry holds that heading.
+A stale, legacy, grace or pending-capture entry says so inside its brackets, and a scope that holds nothing cold says that.
+`--cold` needs a scope or a search and takes neither `--id` nor `--seen`; `--id` still prints one entry with its full provenance.
+
+`ceo memory sync`
+
+Derive `data/memory/startup.json` again from the memory files, as [rulings by scope](../contract/memory.md#rulings-by-scope) defines, and report how many entries load at startup, how many come by scope, how many are new and the startup estimate against its budget.
+Run it after memory changes: until then startup, `retrieve`, `routes` and `scope --list` report the change as `MEMORY UNREADABLE` and name this command.
+A home with no catalog gets its first one, which loads every ruling and every index line, so the estimate drops only as scopes are ruled.
+A fact file that loaded for a marker comes by scope again at the first sync after its words change with the marker gone; `ceo memory scope --fleet <id>` is the way to keep a fact loaded.
+A perishable entry needs its expiry named before the catalog loads; the refusal names every such entry and the one command that names them all, `ceo memory scope --expiry <id>="<words>"` once for each, where the words are that entry's own.
+A catalog that would not load is never written: it is checked against the memory files before it replaces the one on disk, so a refused `sync`, `scope` or lesson acceptance leaves the catalog file untouched, and a home with none still has none.
+
+`ceo memory scope --project <name>... [--ids <file>] [<id>...]`, `ceo memory scope --fleet [--ids <file>] [<id>...]`, `ceo memory scope --expiry <id>="<words>"...` and `ceo memory scope --list`
+
+Rule whose the named entries are, after a sync.
+`--project` makes them cold and routes them to each project named, with the heading each stands under as its trigger; `--fleet` makes them warm and marks them classified.
+`--expiry <id>=<words>` names when a perishable entry ends, in words that entry holds, and repeats, one pair for each entry.
+An id named in a pair needs no id argument besides, so `--expiry` pairs alone are a whole command; beside `--project` or `--fleet`, that scope is ruled for the pair's entry too.
+A pair with no `=`, a blank id or blank words, and an id given two expiries are refused, and nothing is written.
+An id is only ever spelled bare, as an argument and in a file alike.
+`--ids` reads one bare id from each line of a file and ignores blank lines; a line holding anything more refuses the whole command, naming the line's number, and nothing is tagged.
+`--list` prints the rulings no scope is ruled for yet, in the map's form, and writes nothing.
+An id no entry has refuses the whole command, and nothing is tagged.
+`sync` and every `scope` are the CEO's alone, but for the one spelled exactly `ceo memory scope --list`: a goblin, a gate agent and an agent session that is not [the CEO's own](../contract/supervision.md#the-ceos-own-session) are refused, and they act only on the resolved CEO home.
+
 `ceo memory retrieve --search "cache port" [--project <name>] [--task <id>] [--topic <topic>] [--limit 5] [--include-completed]`
 
 Discover cold source ranges by case-insensitive whole-word keywords in their id, trigger, topics and exact body.
@@ -101,5 +130,5 @@ Existing version-1 catalogs remain valid, and `task_state` is optional.
 Before rolling back to an older binary, remove only the new optional `task_state` metadata from a backed-up catalog, since older decoders reject unknown fields; keep all canonical source bytes and original approvals.
 Discard caller-created delivery lists across rollback or conversation reset.
 
-Every operation accepts `--data <directory>` for an explicit private data source; otherwise it uses the resolved CEO home's `data` folder.
+Every operation but `sync`, `scope` and `lesson` accepts `--data <directory>` for an explicit private data source; otherwise it uses the resolved CEO home's `data` folder.
 No operation grants consent, moves history, calls a model or alters task state.

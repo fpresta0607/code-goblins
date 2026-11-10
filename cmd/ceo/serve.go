@@ -210,7 +210,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		restartWindows = supervisor.RestartWindows
 		// The board's Dev Drive setting reads this machine; an example board
 		// shows none.
-		devDrive = &supervisor.DevDrive{Read: runtime.readDevDrive}
+		devDrive = &supervisor.DevDrive{Read: runtime.readDevDrive, GateHome: runtime.gateHome}
 		// The board's Start at login is the setting the install, the setup
 		// and the desktop window's tray change.
 		login := boardStartAtLogin(h)

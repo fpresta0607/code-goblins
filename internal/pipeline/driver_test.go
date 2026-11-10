@@ -676,3 +676,34 @@ func TestRequiredEnvironmentRefusalRequiresRetryInsteadOfApproval(t *testing.T) 
 		})
 	}
 }
+
+// Every no-mistakes the fleet starts runs on the gate's home it resolved: a
+// process started before the gate's home moved carries the old NM_HOME, or
+// none, which NativeEnv replaces with the one root, keeping the rest.
+func TestNativeEnvNamesTheGateHomeOnce(t *testing.T) {
+	for _, inherited := range []string{"", `C:\Users\someone\.no-mistakes`} {
+		t.Run("inherited "+inherited, func(t *testing.T) {
+			// Arrange
+			t.Setenv("NM_HOME", inherited)
+			t.Setenv("nm_home", inherited)
+			const root = `D:\CodeGoblins\no-mistakes`
+
+			// Act
+			env := NativeEnv(root)
+
+			// Assert
+			var homes []string
+			hasPath := false
+			for _, entry := range env {
+				name, value, _ := strings.Cut(entry, "=")
+				if strings.EqualFold(name, "NM_HOME") {
+					homes = append(homes, value)
+				}
+				hasPath = hasPath || strings.EqualFold(name, "PATH")
+			}
+			if !slices.Equal(homes, []string{root}) || !hasPath {
+				t.Errorf("NM_HOME entries = %q, PATH kept %v; want only %s and PATH", homes, hasPath, root)
+			}
+		})
+	}
+}

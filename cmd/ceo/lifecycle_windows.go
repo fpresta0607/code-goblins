@@ -69,7 +69,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			return stopped, err
 		},
 		Checkpoint: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) error {
-			if resources.Gate.ID == "" || resources.Gate.IsTerminal() || record.Action == "pause" && record.Pause != nil && record.Pause.Reason == "memory" {
+			if resources.Gate.ID == "" || resources.Gate.IsTerminal() || record.Action == "pause" {
 				return nil
 			}
 			preserved, err := gate.Interrupt(ctx, meta.Project, meta.Worktree, resources.Gate.Branch, resources.Gate.ID)
@@ -256,4 +256,76 @@ func pauseWithdrawal(runtime commandRuntime, h home.Home) func(context.Context, 
 // cleanup that closed it.
 func endLeftProcesses(ctx context.Context, h home.Home, meta state.TaskMeta) ([]string, error) {
 	return lifecycle.EndLeft(ctx, h, meta)
+}
+
+// openGateRun names the task's gate run while it is still open, for the
+// cleanup that refuses to retire a task around it. Before either run is read,
+// a task whose project checkout is gone, or whose gate holds no database,
+// names no run, as lifecycle.TaskGate rules for the stop: its kill can abort
+// nothing, and its own retirement must still go through (issue #1578). The
+// run a pause saved is read by its id, whatever state the worktree is in,
+// since a pause leaves its run running and a worktree gone or no longer a Git
+// worktree names no branch to find it by. The worktree's branch is read as
+// well, and only while the folder is still a Git worktree, since a goblin
+// that runs again, as after a resume or a failed pause, can start a newer run
+// there; a folder gone or no longer one with no saved run retires unread.
+// Either run still open names it.
+func openGateRun(h home.Home) func(context.Context, state.TaskMeta) (string, error) {
+	return func(ctx context.Context, meta state.TaskMeta) (string, error) {
+		root, err := pipeline.DefaultRoot()
+		if err != nil {
+			return "", err
+		}
+		gate := pipeline.Reader{Root: root, Commands: gatedb.Runner{Next: execx.OSRunner{}}}
+		record, err := state.ReadLifecycle(h.State, meta.ID)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		if _, statErr := os.Stat(meta.Project); errors.Is(statErr, os.ErrNotExist) {
+			return "", nil
+		}
+		if _, statErr := os.Stat(filepath.Join(root, "state.sqlite")); errors.Is(statErr, os.ErrNotExist) {
+			return "", nil
+		}
+		if err == nil && record.GateRun != "" {
+			run, err := gate.Run(ctx, record.GateRun)
+			if err != nil && !errors.Is(err, pipeline.ErrNoProgress) {
+				return "", err
+			}
+			if err == nil && !run.IsTerminal() {
+				return run.RunID, nil
+			}
+		}
+		isWorktree, err := isGitWorktree(ctx, gate.Commands, meta.Worktree)
+		if err != nil || !isWorktree {
+			return "", err
+		}
+		run, err := lifecycle.TaskGate(ctx, meta, gate)
+		if err != nil || run.ID == "" || run.IsTerminal() {
+			return "", err
+		}
+		return run.ID, nil
+	}
+}
+
+// isGitWorktree reports whether dir is still a Git worktree: it holds the
+// .git link Git reads it by, and Git still resolves that link. A folder gone,
+// one whose link went, or one whose link names a worktree Git pruned is none.
+func isGitWorktree(ctx context.Context, commands execx.Runner, dir string) (bool, error) {
+	if _, err := os.Stat(filepath.Join(dir, ".git")); errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	result, err := commands.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: []string{"rev-parse", "--git-dir"}})
+	if err != nil {
+		return false, err
+	}
+	if result.ExitCode != 0 {
+		if stderr := string(result.Stderr); strings.Contains(stderr, "not a git repository") || strings.Contains(stderr, "gitfile does not point to a valid repository") {
+			return false, nil
+		}
+		return false, fmt.Errorf("read whether %s is still a Git worktree: git exited %d: %s", dir, result.ExitCode, strings.TrimSpace(string(result.Stderr)))
+	}
+	return true, nil
 }

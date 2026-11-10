@@ -84,7 +84,8 @@ Every invocation performs the whole pass, even with no new finding.
    Archive eligible completed chronology, expired workarounds and low-utility unique facts with provenance.
    A duplicate leaves only when its fact survives at a stronger live owner or in a preserving consolidation.
    Pending capture and pinned authority stay protected on every reduction rung.
-   Revalidate the updated catalog against changed sources; checksum drift is an error, never permission to bypass coverage.
+   After the last write to a source, run `ceo memory sync`, which derives the catalog again and keeps each scope ruled for words still in memory; checksum drift left behind is an error, never permission to bypass coverage.
+   Ruling whether a ruling is a project's or the whole fleet's is `ceo memory scope`, and moves no byte of it.
 8. When still over allowance, first archive eligible stale, superseded and low-utility non-pinned entries, consolidate tighter, then offload eligible current conditional non-pinned facts to an already-existing allowed live owner.
    Evaluate staleness before scope.
    Perishable, grace and pending-capture entries cannot be offloaded.

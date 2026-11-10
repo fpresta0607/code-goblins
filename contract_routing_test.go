@@ -95,7 +95,7 @@ func TestRoutedContractKeepsAuthorityAndCustodyBoundaries(t *testing.T) {
 		"docs/contract/afk.md":            {"AFK mode"},
 		"docs/contract/root-issues.md":    {"Root issues"},
 		"docs/contract/home.md":           {"The CEO home", "The janitor"},
-		"docs/contract/memory.md":         {"Startup memory and retrieval", "Owners and startup", "Catalog schema", "Budgets and exceptions", "Lossless planning and pinned offload"},
+		"docs/contract/memory.md":         {"Startup memory and retrieval", "Owners and startup", "Rulings by scope", "Catalog schema", "Budgets and exceptions", "Lossless planning and pinned offload"},
 	} {
 		for _, section := range sections {
 			want[section] = contractReference{file, headingAnchor(section)}

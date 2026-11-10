@@ -261,7 +261,7 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 	// names the two files a session must not go without beside the command.
 	fallback := fmt.Sprintf("read %s and %s themselves; \"ceo session-start\" prints the long digest, which is too long for a tool to hand back whole.", filepath.Join(h.Data, "overlord.md"), filepath.Join(h.Data, filepath.FromSlash(layout.MemoryIndex)))
 	if hasCatalog {
-		fallback = "ceo session-start prints the verified warm map read-only; use ceo memory retrieve --project <name> --task <id> --topic <topic> for relevant cold authority and facts, resolving any memory diagnostic before dependent action."
+		fallback = "ceo session-start prints the verified warm map read-only; use ceo memory retrieve --project <name> --task <id> --topic <topic> --cold for relevant cold authority and facts, resolving any memory diagnostic before dependent action."
 	}
 	if memoryErr != nil {
 		fallback = "no warm map was verified; resolve the MEMORY UNREADABLE diagnostic below before dependent action, then run ceo session-start again."
@@ -283,7 +283,7 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 			hasUnchangedContext = isResumed && isSameContext
 			next = path + " holds what this digest leaves out: the bounded canonical state projection and data\\projects.md, data\\overlord.md and data\\memory\\MEMORY.md in full. Detailed metadata, backlog, status history and omitted wakes require targeted retrieval. "
 			if hasCatalog {
-				next = path + " holds the verified warm operating map, memory diagnostics and bounded canonical state summary. Before dependent work use ceo memory retrieve --project <name> --task <id> --topic <topic> for relevant cold authority and facts. It does not embed the full history or cold fact files. "
+				next = path + " holds the verified warm operating map, memory diagnostics and bounded canonical state summary. Before dependent work use ceo memory retrieve --project <name> --task <id> --topic <topic> --cold for relevant cold authority and facts. It does not embed the full history or cold fact files. "
 			}
 			if memoryErr != nil {
 				next = path + " holds the MEMORY UNREADABLE diagnostic below and the bounded canonical state summary; its warm map failed validation. Resolve the diagnostic before dependent work. "
@@ -320,7 +320,7 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 			ew.println("== READ-ONCE CONTRACT ==")
 			writePrintedInFull(nil, ew)
 			if memoryErr != nil {
-				ew.printf("MEMORY UNREADABLE: %s. This preview delivers no source memory and no warm map was verified; do not act without resolving source authority.\n", cutError(memoryErr, briefErrorWidth))
+				ew.printf("MEMORY UNREADABLE: %s. This preview delivers no source memory and no warm map was verified; do not act without resolving source authority. When memory changed after the catalog was written, ceo memory sync derives the catalog again.\n", cutError(memoryErr, briefErrorWidth))
 			} else {
 				ew.println("This preview does not deliver source memory. Follow READ THIS NEXT for the freshly validated warm map; retrieve cold ranges by relevance before dependent action.")
 			}
@@ -795,8 +795,9 @@ func writeOrphans(stateDir string, ew *werr) {
 	ew.printf("%s", text)
 }
 
-// writeContext emits verified warm source ranges and cold routes when a
-// catalog is present. Only an absent catalog permits full legacy context;
+// writeContext emits verified warm source ranges and a count of what each
+// scope holds cold when a catalog is present. Only an absent catalog permits
+// full legacy context;
 // an invalid catalog remains an explicit authority error, which it returns.
 // The returned list names only legacy files actually printed in full for the
 // read-once contract. Both modes report the budget memory.MemoryReport measures.
@@ -807,16 +808,15 @@ func writeContext(dataDir string, ew *werr) ([]string, error) {
 		catalog, err := memory.Load(dataDir, time.Now())
 		text := ""
 		if err == nil {
-			text, err = catalog.Retrieve(memory.Query{})
+			text, err = catalog.StartupMap()
 		}
 		if err != nil {
-			ew.printf("MEMORY UNREADABLE: %s. Do not act without resolving source authority; no legacy fallback was selected.\n", err)
+			ew.printf("MEMORY UNREADABLE: %s. Do not act without resolving source authority; no legacy fallback was selected. When memory changed after the catalog was written, ceo memory sync derives the catalog again.\n", err)
 			return nil, err
 		}
-		ew.println("Verified warm operating map; quoted source ranges follow. No source file is claimed read in full.")
+		ew.println("Verified warm operating map; quoted source ranges follow, each after its id in brackets. No source file is claimed read in full.")
 		ew.printf("%s", text)
-		ew.println("Before work, retrieve relevant cold authority and project facts with ceo memory retrieve --project <name> --task <id> --topic <topic>; retrieve a named item with --id <id>.")
-		ew.printf("%s", catalog.Routes(2000))
+		ew.println("Before work, retrieve relevant cold authority and project facts with ceo memory retrieve --project <name> --task <id> --topic <topic> --cold, which prints what those scopes hold beyond this map; retrieve a named item with --id <id>.")
 	} else {
 		for _, name := range []string{"projects.md", "overlord.md", filepath.FromSlash(layout.MemoryIndex)} {
 			if writeContextFile(dataDir, name, ew) {
@@ -831,7 +831,7 @@ func writeContext(dataDir string, ew *werr) ([]string, error) {
 	case report.IsLegacy:
 		ew.printf("LEGACY MEMORY UNCURATED: %d source bytes, %d estimated tokens, budget %d. No authority was offloaded; ceo memory migration-plan inventories named proposals.\n", report.Bytes, report.EstimatedTokens, report.Budget)
 	default:
-		ew.printf("Warm memory and routes: %d bytes, %d estimated tokens (bytes/4 rounded up), budget %d estimated tokens.\n", report.Bytes, report.EstimatedTokens, report.Budget)
+		ew.printf("Warm memory and scope counts: %d bytes, %d estimated tokens (bytes/4 rounded up), budget %d estimated tokens.\n", report.Bytes, report.EstimatedTokens, report.Budget)
 	}
 	if err == nil && report.IsOverBudget {
 		ew.println("MEMORY OVER BUDGET: retained all authority. Open a concrete budget or named-offload decision; an exception is not relief or reset-safe.")

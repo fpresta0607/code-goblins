@@ -127,8 +127,45 @@ Its next relaunch withholds every server whose entry holds a value: the relaunch
 Its running harness keeps the servers it started with until then.
 
 This is a gate on what `ceo` puts into a terminal, not a sandbox.
-A goblin runs as the Supreme Overlord's Windows user, so the credential store, a CLI's own login and the task's own record stay within its reach.
+A goblin runs as the Supreme Overlord's Windows user, so a CLI's own login and the task's own record stay within its reach.
 What the gate ends is a test run, a gate step or a one-off script spending with a credential its task never named.
+
+Beside it, a path boundary holds a goblin's tool calls before each runs: Claude Code's and pi's file tools and shell commands, and a Codex goblin's shell commands.
+A Codex goblin's file edits, made with its `apply_patch` tool, are outside the boundary until #2255 lands, so untrusted work run on a Codex goblin cannot rely on the boundary for its file edits.
+A call that names a path in the credential store, which is `ceo`'s file store and Windows' `Credentials`, `Protect` and `Vault` folders, or in `~/.ssh`, is refused, as is a credential program such as `cmdkey`.
+A call that writes outside the goblin's worktree, its scratch folder, the temporary folder goblins share and the caches its terminal names is refused too.
+The refusal names the path, and a refused call never ran, so it wrote nothing.
+The boundary reads the paths a call names: those of the file tools, and the words and redirects of a shell command.
+What a program the command starts opens is not seen, so the boundary keeps a goblin's own reach in line and is no wall against code that sets out to cross it: such code runs in a container, as the next paragraph says.
+A gate's agents run without the goblin's hooks and are not held to it yet.
+
+A brief whose code is not to be trusted adds `sandbox: needed` under `## Authentication`.
+Any other value, or a second line, refuses the brief at `ceo brief ready` and at the spawn, and every task without the line runs as an ordinary process.
+The project names the container's image in its devcontainer, `.devcontainer/devcontainer.json` or `.devcontainer.json`, as an `image` field.
+A devcontainer that builds its image, with `build`, `dockerFile` or `dockerComposeFile`, is refused, since the build would run the untrusted Dockerfile on the engine outside the line; the project names a built image instead.
+A spawn is refused before anything starts when `docker` is not on PATH or the project names no image, and a helper of a sandbox task is a sandbox task too.
+The task keeps its worktree, branch and delivery, and the task's record keeps the image and the worktree's `.git` link (`sandbox_image` and `sandbox_git` in `state/<id>.meta`).
+Its goblin's harness runs on the host, where its shell runs only `ceo`, `git` and `gh`, from its worktree, by name or by an absolute path outside the worktree and scratch folder.
+A host command is simple commands joined by `&&`, each of plain words and quoted text, so Bash and PowerShell read it alike.
+A plain word holds letters, digits, `.`, `_`, `/`, `:`, `=`, `@`, `%`, `+`, `-` and `~`, so a path is written with `/`.
+Quoted text holds no backslash, `$`, backtick, parenthesis, quote of the other kind or typographic quote.
+Anything else is refused, naming the character, so a pipe, a redirection, a `;`, a variable and a command of its own all run in the container.
+What the two shells would read as different words is refused too: a backslash outside quotes, which Bash takes off and PowerShell keeps; a word that starts with quoted text and goes on after it; an empty quoted word, which Windows PowerShell drops; a `,`, which PowerShell reads as a list; an `@` that starts a word; an unquoted word that starts with `-` and holds a `.`, which Windows PowerShell splits; and `--%`.
+Host git runs only `status`, `diff`, `log`, `show`, `add`, `commit`, `push`, `fetch`, `pull`, `switch`, `checkout`, `branch`, `rebase`, `merge`, `reset`, `restore`, `stash`, `tag`, `rev-parse`, `ls-files` and `blame`, with no option before its command.
+It is refused `rebase -x`, and `--exec`, `--upload-pack`, `--receive-pack`, `--recurse-submodules` and `--recursive` or any start of them, each of which starts a program or reaches a submodule.
+Host gh is refused `alias` and `extension`, which run a command or program of their own, and those options too.
+`ceo gate test`, `ceo verify`, `ceo security`, `ceo deploy` and `ceo services` are refused there, and the goblin runs what they run in the container with [`ceo sandbox run`](../commands/sandbox.md), in the machine's heavy line.
+Its gate's Test step runs its command in the same image, with the gate's checkout alone mounted.
+A run that cannot start Docker runs nowhere, never on the host instead.
+Code in the container can write the worktree, so the task's host git reads hooks from an empty folder, runs with its fsmonitor off, takes no folder it finds for a bare repository, and reads attributes from the empty tree, so no filter, diff or merge driver the worktree names runs.
+A sandbox task's project cannot use submodules: every host command is refused while the worktree holds a `.gitmodules`, whose `ignore` lines would have host git recurse into a submodule the container made, or the worktree's index names a gitlink or a sparse directory, which could hold one.
+`ceo` reads the index itself, without running git, and refuses an index split across a shared index too.
+Every host command is also refused while the worktree's `.git` link differs from the one its spawn recorded, and the container sees the `.git` link read-only.
+Every host command but `ceo sandbox run` and `ceo notify` waits while a `.git` other than the worktree's own link is anywhere in the worktree, since host git would read that repository from a folder under it or once a checkout brings in its gitlink.
+The refusal names the `.git` it found and how to remove it in the container.
+`ceo` walks the whole worktree for it before each such command, which took 2.2 to 2.9 seconds on a warm worktree of 77,160 entries with its `node_modules`, and 27 seconds on the first, cold walk.
+Those commands wait too while a container of the task may run, from the moment `ceo sandbox run` records it until it removed it, since the container could make a repository between the walk and the command.
+The gate's prepare, lint and format commands and its agents' own shells still run on the host.
 
 ### The credential store
 

@@ -18,7 +18,7 @@ const SNAPSHOT = {
   tasks: [{
     id: "bernie", title: "Land the merge train", goblin_name: "Bernie", goblin_title: "Merge Maestro", project: "code-goblins", backend: "native", harness: "claude",
     generation: "s1", session: "claude/bernie", phase: "paused", verified: false, at: AT, report: "working",
-    lifecycle: { phase: "paused", action: "pause", at: AT, kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "overlord", until: "", at: AT }, kept_messages: [] },
+    lifecycle: { phase: "paused", action: "pause", at: AT, kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason: "overlord", until: "", at: AT }, kept_messages: [] },
   }],
 };
 

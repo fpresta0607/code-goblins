@@ -551,16 +551,22 @@ func TestPublicResumeRestoresSourceWithoutReplacingValidation(t *testing.T) {
 	standin.RemoveAtCleanup(t, bin)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	for _, test := range []struct {
-		name, status, refusal, finalStatus                                         string
-		isForeign, isUnreadable, isLowMemory, isAllowanceDenied, isProviderRefused bool
+		name, status, reason, until, liveStep, refusal, finalStatus                          string
+		isForeign, isUnreadable, isLowMemory, isAllowanceDenied, isProviderRefused, isKilled bool
 	}{
 		{name: "cancelled", status: "cancelled"},
 		{name: "failed", status: "failed"},
 		{name: "completed", status: "completed"},
 		{name: "interrupted CI monitor", status: "ci_monitor_interrupted"},
+		{name: "live original paused for memory", status: "running", reason: "memory"},
 		{name: "live original", status: "running"},
+		{name: "live original killed while paused", status: "running", isKilled: true},
 		{name: "pending original", status: "pending"},
+		{name: "live original in Review paused for a dependency", status: "running", reason: "dependency", until: "date:2099-01-01T00:00:00Z", liveStep: "review"},
+		{name: "live original in Test paused for a dependency", status: "running", reason: "dependency", until: "date:2099-01-01T00:00:00Z", liveStep: "test"},
+		{name: "live original in Test paused for a question", status: "running", reason: "question", until: "question-1", liveStep: "test"},
 		{name: "live original finishes while paused", status: "running", finalStatus: "failed"},
+		{name: "live original in Test a daemon restart ends while paused", status: "running", reason: "dependency", until: "date:2099-01-01T00:00:00Z", liveStep: "test", finalStatus: "failed"},
 		{name: "foreign run with identical intent", status: "running", isForeign: true, refusal: "another validation run owns"},
 		{name: "unreadable gate state", status: "cancelled", isUnreadable: true, refusal: "state query failed"},
 		{name: "memory admission", status: "failed", isLowMemory: true, refusal: "Resume needs at least 5 GB"},
@@ -605,6 +611,10 @@ func TestPublicResumeRestoresSourceWithoutReplacingValidation(t *testing.T) {
 			git("worktree", "add", "-b", "fix/source-resume", worktree)
 			workingDir = worktree
 			head := git("rev-parse", "HEAD")
+			// The gate repository holds the run's head, as the daemon's does,
+			// so anything that set out to interrupt the run would reach its
+			// abort.
+			git("clone", "--bare", "--quiet", worktree, filepath.Join(nativeRoot, "repos", "repo-1.git"))
 			unfinished := filepath.Join(worktree, "unfinished.txt")
 			if err := os.WriteFile(unfinished, []byte("author repair in progress"), 0o600); err != nil {
 				t.Fatal(err)
@@ -630,14 +640,23 @@ func TestPublicResumeRestoresSourceWithoutReplacingValidation(t *testing.T) {
 				t.Fatal(err)
 			}
 			database := filepath.Join(nativeRoot, "state.sqlite")
+			// Review spent its three cycles; a run in Review is still on
+			// them, and one in Test has spent its one test repair too.
+			steps := "INSERT INTO step_results VALUES('original-run','review','completed',3,3);"
+			switch test.liveStep {
+			case "review":
+				steps = "INSERT INTO step_results VALUES('original-run','review','running',3,3);"
+			case "test":
+				steps += "\nINSERT INTO step_results VALUES('original-run','test','running',1,1);"
+			}
 			schema := fmt.Sprintf(`CREATE TABLE repos(id TEXT,working_path TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,last_pushed_sha TEXT,intent TEXT,worktree_dir TEXT,created_at INTEGER);
-CREATE TABLE step_results(run_id TEXT,step_name TEXT,round INTEGER,spent INTEGER);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,last_pushed_sha TEXT,intent TEXT,worktree_dir TEXT,created_at INTEGER,submitted_head_sha TEXT,custody_returned_at INTEGER,review_approved_head_sha TEXT,pr_url TEXT,pr_state TEXT,ci_ready_at INTEGER,terminal_head_verified_at INTEGER);
+CREATE TABLE step_results(run_id TEXT,step_name TEXT,status TEXT,round INTEGER,spent INTEGER);
 CREATE TABLE findings(run_id TEXT,id TEXT,resolution TEXT);
 INSERT INTO repos VALUES('repo-1','%s');
-INSERT INTO runs VALUES('original-run','repo-1','fix/source-resume','%s','%s','%s','retain validation history','',1);
-INSERT INTO step_results VALUES('original-run','review',3,3);
-INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.ReplaceAll(filepath.ToSlash(h.Root), "'", "''"), test.status, head, head)
+INSERT INTO runs(id,repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,created_at) VALUES('original-run','repo-1','fix/source-resume','%s','%s','%s','retain validation history','',1);
+%s
+INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.ReplaceAll(filepath.ToSlash(h.Root), "'", "''"), test.status, head, head, steps)
 			result, err := commands.Run(t.Context(), execx.Request{Name: "sqlite3", Args: []string{database, schema}})
 			if err != nil || result.ExitCode != 0 {
 				t.Fatalf("create gate fixture: %v %s", err, result.Stderr)
@@ -648,7 +667,7 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 			}
 			launches := 0
 			var resumed spawn.SwitchRequest
-			runtime := commandRuntime{resolveHome: func() (home.Home, error) { return h, nil }, switchTask: func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+			runtime := commandRuntime{resolveHome: func() (home.Home, error) { return h, nil }, cleanup: defaultCleanup, switchTask: func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
 				if test.isProviderRefused {
 					return spawn.SwitchResult{}, errors.New("provider refused this session")
 				}
@@ -675,7 +694,7 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 				Notify: func(state.Lifecycle) error { return nil },
 			}}
 			runtime.taskLifecycle = func(ctx context.Context, _ home.Home, request lifecycle.Request, _ string) (state.Lifecycle, error) {
-				if request.Action == "pause" {
+				if request.Action == "pause" || request.Action == "stop" {
 					request.IsWatched = true
 					return defaultTaskLifecycle(ctx, h, request, "")
 				}
@@ -683,10 +702,14 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 			}
 			var output, failure bytes.Buffer
 			reason := "overlord"
-			if test.status == "running" || test.status == "pending" {
-				reason = "memory"
+			if test.reason != "" {
+				reason = test.reason
 			}
-			if code := runWithRuntime([]string{"pause", "task", "--operation", "pause-source", "--reason", reason}, &output, &failure, runtime); code != 0 {
+			pause := []string{"pause", "task", "--operation", "pause-source", "--reason", reason}
+			if test.until != "" {
+				pause = append(pause, "--until", test.until)
+			}
+			if code := runWithRuntime(pause, &output, &failure, runtime); code != 0 {
 				t.Fatalf("public pause exit %d: %s", code, &failure)
 			}
 			paused, err := state.ReadLifecycle(h.State, meta.ID)
@@ -696,10 +719,42 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 			if after, err := os.ReadFile(database); err != nil || !bytes.Equal(before, after) {
 				t.Fatalf("production pause changed validation history: %v", err)
 			}
+			// Whatever the reason, a pause leaves the run to go on: it neither
+			// aborts it nor fails trying (issue 2089).
+			if calls, err := os.ReadFile(nativeRecord); err != nil && !errors.Is(err, os.ErrNotExist) || strings.Contains(string(calls), "no-mistakes") || slices.ContainsFunc(paused.Problems, func(problem string) bool { return strings.Contains(problem, "gate") }) || slices.ContainsFunc(paused.Stopped, func(stopped string) bool { return strings.Contains(stopped, "original-run") }) {
+				t.Fatalf("a %s pause reached into the validation run: native calls %q, problems %q, stopped %q, %v", reason, calls, paused.Problems, paused.Stopped, err)
+			}
+			if test.isKilled {
+				// A cleanup retires no task around the run its pause left
+				// running: it is refused with nothing changed, naming the kill
+				// that ends the run.
+				if code := runWithRuntime([]string{"cleanup", meta.ID}, &output, &failure, runtime); code != 1 || !strings.Contains(failure.String(), "ceo kill "+meta.ID) {
+					t.Fatalf("cleanup of a goblin paused with an open run exit %d: %s", code, &failure)
+				}
+				current, err := state.ReadLifecycle(h.State, meta.ID)
+				if _, metaErr := state.ReadTaskMeta(h.State, meta.ID); metaErr != nil || err != nil || !reflect.DeepEqual(current, paused) {
+					t.Fatalf("refused cleanup changed the task: %+v, %v, %v", current, err, metaErr)
+				}
+				if content, err := os.ReadFile(unfinished); err != nil || string(content) != "author repair in progress" {
+					t.Fatalf("refused cleanup touched the unfinished repair: %q, %v", content, err)
+				}
+				// A stop is what aborts the run, and the stop reports the
+				// abort's refusal.
+				failure.Reset()
+				if code := runWithRuntime([]string{"kill", meta.ID, "--operation", "kill-source"}, &output, &failure, runtime); code != 1 || !strings.Contains(failure.String(), "validation must be requested explicitly") {
+					t.Fatalf("kill of a goblin paused with an open run exit %d: %s", code, &failure)
+				}
+				if calls, err := os.ReadFile(nativeRecord); err != nil || !strings.Contains(string(calls), "no-mistakes axi abort --run original-run") {
+					t.Fatalf("the kill did not abort the validation run: native calls %q, %v", calls, err)
+				}
+				return
+			}
 			if test.isForeign || test.finalStatus != "" {
-				update := "INSERT INTO runs SELECT 'foreign-run',repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,2 FROM runs WHERE id='original-run';"
+				update := "INSERT INTO runs(id,repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,created_at) SELECT 'foreign-run',repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,2 FROM runs WHERE id='original-run';"
 				if test.finalStatus != "" {
-					update = fmt.Sprintf("UPDATE runs SET status='%s' WHERE id='original-run';", test.finalStatus)
+					// The run ends on its own, as a daemon restart ends a run
+					// whose step was executing, and its spending stays as it was.
+					update = fmt.Sprintf("UPDATE runs SET status='%[1]s' WHERE id='original-run'; UPDATE step_results SET status='%[1]s' WHERE status='running';", test.finalStatus)
 				}
 				result, err := commands.Run(t.Context(), execx.Request{Name: "sqlite3", Args: []string{database, update}})
 				if err != nil || result.ExitCode != 0 {
@@ -731,7 +786,7 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 			}
 
 			// Assert
-			if calls, err := os.ReadFile(nativeRecord); err != nil && !errors.Is(err, os.ErrNotExist) || strings.Contains(string(calls), "no-mistakes.exe") {
+			if calls, err := os.ReadFile(nativeRecord); err != nil && !errors.Is(err, os.ErrNotExist) || strings.Contains(string(calls), "no-mistakes") {
 				t.Fatalf("production pause invoked native mutation: %s, %v", calls, err)
 			}
 			after, err := os.ReadFile(database)

@@ -43,7 +43,7 @@ test("a retired goblin's pause that did not finish raises no alert", () => {
   // Arrange
   const title = "Unused admin route removed; macro-security test can fail (issues 1432, 1273)";
   const said = "Requested by the operator; worktree C:\\dev\\PrecisionDocs-AI\\.worktrees\\gb-pd-small-cleanups; task session and branch";
-  const lifecycle = { phase: "failed", action: "pause", at: "2026-10-07T14:49:11Z", kept: [], stopped: [], problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"], handoff_saved: false, validation_restarts: false };
+  const lifecycle = { phase: "failed", action: "pause", at: "2026-10-07T14:49:11Z", kept: [], stopped: [], problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"], handoff_saved: false, validation_kept: false };
   const done = task("pd-small-cleanups", "done", { title, report: "done", pr: "https://github.com/fpresta0607/PrecisionDocs-AI/pull/1507" });
   const pausing = { ...done, phase: "pausing", reason: "Requested by the operator" };
   const failed = { ...done, phase: "failed", report: "", reason: "Waiting on the CEO: " + said, activity: said, lifecycle } as Task;

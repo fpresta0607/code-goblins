@@ -100,6 +100,14 @@ type TaskMeta struct {
 	// IsCrawlerLeftOut says the task's brief left the crawler connector out
 	// with connectors: none, so its terminal carries no goblin-crawl.
 	IsCrawlerLeftOut bool
+	// SandboxImage is the image a sandbox task's container runs, its
+	// project's devcontainer's, which its spawn read because its brief
+	// carries sandbox: needed. It is empty for every other task.
+	SandboxImage string
+	// SandboxGitLink is the text of the sandbox task's worktree's .git link
+	// as its spawn found it, which every host command of the task checks
+	// the link still says (sandbox.CheckGitLink).
+	SandboxGitLink string
 }
 
 // CarriedServices names, for a table, the services whose credentials the
@@ -349,6 +357,8 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 		GoblinName:       kv["goblin_name"],
 		GoblinTitle:      kv["goblin_title"],
 		Scratch:          kv["scratch"],
+		SandboxImage:     kv["sandbox_image"],
+		SandboxGitLink:   kv["sandbox_git"],
 		Parent:           kv["parent"],
 	}
 	if extras := kv["extras"]; extras != "" {
@@ -451,6 +461,8 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"goblin_name":        meta.GoblinName,
 		"goblin_title":       meta.GoblinTitle,
 		"scratch":            meta.Scratch,
+		"sandbox_image":      meta.SandboxImage,
+		"sandbox_git":        meta.SandboxGitLink,
 		"extras":             strings.Join(meta.Extras, extrasSeparator),
 		"parent":             meta.Parent,
 		"mcp":                strings.Join(meta.MCPServers, credentialsSeparator),

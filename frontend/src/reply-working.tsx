@@ -1,3 +1,4 @@
+import type { HarnessRetry } from "./terminalStream";
 import { WorkingIndicator } from "./working-indicator";
 import { WorkingWord } from "./working-word";
 import "./reply-working.css";
@@ -15,11 +16,15 @@ import "./reply-working.css";
 // again every second, 83 times in 20 s on an idle panel. While the session's
 // own hooks say it compacts the conversation, it reads Compacting alone, with
 // no whimsical verb after it, since the session is not at work on his ask
-// (the Overlord, 2026-11-04).
-export function ReplyWorking({ ink, said, isCompacting }: { ink: string; said: string; isCompacting: boolean }) {
-  const words = isCompacting ? "Compacting" : said;
-  return <div className={"reply-working" + (isCompacting ? " compacting" : "")}>
+// (the Overlord, 2026-11-04). While the terminal's turn row says it waits to
+// send a request that failed again, it reads Retrying alone, with the attempt
+// and the failure the terminal names after it, as long as the terminal shows
+// them (#2236).
+export function ReplyWorking({ ink, said, isCompacting, retry }: { ink: string; said: string; isCompacting: boolean; retry?: HarnessRetry }) {
+  const words = isCompacting ? "Compacting" : retry ? "Retrying" : said;
+  return <div className={"reply-working" + (isCompacting ? " compacting" : retry ? " retrying" : "")}>
     <WorkingIndicator ink={isCompacting ? "var(--purple)" : ink} label={words || "Working"} />
-    <WorkingWord said={words} isAlone={isCompacting} />
+    <WorkingWord said={words} isAlone={isCompacting || !!retry} />
+    {retry && <span className="reply-retry">{"attempt " + retry.attempt + " of " + retry.attempts + " · " + retry.reason}</span>}
   </div>;
 }

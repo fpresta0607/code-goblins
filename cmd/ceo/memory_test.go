@@ -163,7 +163,7 @@ func TestMemoryMigrationPlanRetainsEveryByteWithoutWriting(t *testing.T) {
 
 func TestMemoryBudgetReportsLegacyOverrunWithoutDroppingAuthority(t *testing.T) {
 	dataDir := t.TempDir()
-	content := strings.Repeat("A pinned ruling.\n", 3000)
+	content := strings.Repeat("A pinned ruling.\n", 4000)
 	if err := os.WriteFile(filepath.Join(dataDir, "overlord.md"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -465,16 +465,14 @@ func TestStartupBudgetLineAgreesWithMemoryBudget(t *testing.T) {
 			if err := json.Unmarshal([]byte(budgeted), &report); err != nil || budgetCode != 0 {
 				t.Fatalf("budget exit=%d, %s%s: %v", budgetCode, budgeted, budgetErrors, err)
 			}
-			const header = "Verified warm operating map; quoted source ranges follow. No source file is claimed read in full.\n"
+			const header = "Verified warm operating map; quoted source ranges follow, each after its id in brackets. No source file is claimed read in full.\n"
 			ranges := strings.Index(startup, header)
 			guidance := strings.Index(startup, "Before work, retrieve relevant cold authority")
-			routes := guidance + strings.Index(startup[guidance:], "\n") + 1
-			line := strings.Index(startup, "Warm memory and routes: ")
-			if startupCode != 0 || ranges < 0 || guidance < ranges || line < routes {
-				t.Fatalf("startup did not deliver warm memory and its budget line: %s", startup)
+			if startupCode != 0 || ranges < 0 || guidance < ranges || !strings.Contains(startup[ranges:guidance], "project northwind: history 1\n") {
+				t.Fatalf("startup did not deliver warm memory and what each scope holds: %s", startup)
 			}
-			delivered := guidance - (ranges + len(header)) + line - routes
-			want := fmt.Sprintf("Warm memory and routes: %d bytes, %d estimated tokens (bytes/4 rounded up), budget %d estimated tokens.\n", delivered, (delivered+3)/4, test.allowance)
+			delivered := guidance - (ranges + len(header))
+			want := fmt.Sprintf("Warm memory and scope counts: %d bytes, %d estimated tokens (bytes/4 rounded up), budget %d estimated tokens.\n", delivered, (delivered+3)/4, test.allowance)
 			if !strings.Contains(startup, want) || strings.Contains(startup, "MEMORY OVER BUDGET") != test.isOverBudget {
 				t.Fatalf("startup budget line disagrees with the delivered bytes, want %q: %s", want, startup)
 			}

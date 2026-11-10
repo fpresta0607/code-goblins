@@ -557,6 +557,9 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	mergeProvisionEnv(launch.Env, redirects)
 	mergeProvisionEnv(launch.Env, preflight.Caches)
 	mergeProvisionEnv(launch.Env, cooldown)
+	if err := containEnvironment(launch.Env, meta); err != nil {
+		return "", false, host.Record{}, "", err
+	}
 	s.nativeEnvironment(launch.Env, meta)
 
 	if resumed {
@@ -590,7 +593,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	launch.Instruction += packInstruction
 	// What the task carries is said before any note the relaunch is given,
 	// so the note stays the instruction's last word.
-	launch.Instruction += credentialsInstruction(meta.Project, preflight.Grant) + mcpInstruction(mcpHeld)
+	launch.Instruction += credentialsInstruction(meta.Project, preflight.Grant) + mcpInstruction(mcpHeld) + sandboxInstruction(meta)
 	launch.Instruction += launch.SubagentInstruction
 	if request.IsResume {
 		recovery := "Resume now. This current CEO instruction supersedes the earlier pause request: that pause has ended, and you are authorized to continue the unfinished task. Do not repeat the pause handoff or stop because the retained context says to pause. Preserve unfinished work and existing decisions. Check interrupted commands and verification results before continuing; do not assume they completed or restart work that is still running."

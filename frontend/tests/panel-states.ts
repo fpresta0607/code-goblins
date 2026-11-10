@@ -24,7 +24,7 @@ export const WAITING = live("cg-board-theme", "SIQstack colors and a clean brows
 export const PAUSED = live("cg-subscription-dials", "Memory and subscription dials in one header; Claude Code", {
   phase: "paused", at, reason: "Paused by the Overlord; resumes on Resume", activity: "Paused by the Overlord; resumes on Resume",
   last_report: "working: both dials sit in one header at frontend/src/usage-header.tsx; the phone width is next",
-  lifecycle: { phase: "paused", action: "pause", at, kept: ["worktree C:\\dev\\code-goblins\\.worktrees\\gb-cg-subscription-dials", "task session and branch"], stopped: ["Claude Code pid 18004"], problems: ["Stopping-point deadline reached or request failed; no new handoff was saved"], handoff_saved: false, validation_restarts: false, pause: { reason: "overlord", at } },
+  lifecycle: { phase: "paused", action: "pause", at, kept: ["worktree C:\\dev\\code-goblins\\.worktrees\\gb-cg-subscription-dials", "task session and branch"], stopped: ["Claude Code pid 18004"], problems: ["Stopping-point deadline reached or request failed; no new handoff was saved"], handoff_saved: false, validation_kept: false, pause: { reason: "overlord", at } },
 });
 
 // The goblin of his screenshot: the CEO asked it to pause, the pause ran out
@@ -32,7 +32,7 @@ export const PAUSED = live("cg-subscription-dials", "Memory and subscription dia
 export const PAUSE_FAILED = live("cg-fleet-auto-resume", "Paused goblins resume by themselves when the reason for the pause clears; Claude Code", {
   phase: "working", report: "working", pr: "https://github.com/fpresta0607/code-goblins/pull/326",
   activity: "working: PRs 324 and 326 are green 10 of 10 on main 13f9e0be (main has since moved to ffa7c0c5); the board-display handoff with five mockup prompts is at state/tasktmp/cg-fleet-auto-resume/board-display-handoff.md, so this task is ready to pause until 2026-10-09 22:27 UTC.",
-  lifecycle: { phase: "failed", action: "pause", at, kept, stopped: [], problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"], handoff_saved: false, validation_restarts: false },
+  lifecycle: { phase: "failed", action: "pause", at, kept, stopped: [], problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"], handoff_saved: false, validation_kept: false },
 });
 
 export const FAILED = live("pd-ci-minutes", "PrecisionDocs-AI uses far fewer GitHub Actions minutes; Claude Code", {

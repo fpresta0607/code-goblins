@@ -132,6 +132,17 @@ func (c CLI) RunningContainers(ctx context.Context) ([]string, error) {
 	return lines(out), nil
 }
 
+// RemoveContainer ends and removes the container named name, running or
+// not, and does nothing when there is none.
+func (c CLI) RemoveContainer(ctx context.Context, name string) error {
+	out, err := c.run(ctx, "", "ps", "--all", "--quiet", "--filter", "name=^/"+name+"$")
+	if err != nil || len(lines(out)) == 0 {
+		return err
+	}
+	_, err = c.run(ctx, "", "rm", "--force", name)
+	return err
+}
+
 // Running names the stack's running services.
 func (c CLI) Running(ctx context.Context, compose Compose) ([]string, error) {
 	out, err := c.run(ctx, compose.Dir, compose.args("ps", "--services", "--status", "running")...)

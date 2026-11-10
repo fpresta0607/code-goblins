@@ -16,6 +16,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/gatehome"
 	"gopkg.in/yaml.v3"
 )
 
@@ -33,15 +34,29 @@ type Reader struct {
 	Custody *CustodyCache
 }
 
+// DefaultRoot is the gate's home (gatehome.Root).
 func DefaultRoot() (string, error) {
-	if root := os.Getenv("NM_HOME"); root != "" {
-		return filepath.Abs(root)
+	return gatehome.Root()
+}
+
+// NativeEnv points the native engine at the resolved root while leaving it the
+// caller's own environment. execx replaces rather than merges a non-nil Env, so
+// a bare NM_HOME entry would strip PATH, USERPROFILE and TEMP and the engine
+// could resolve neither its tools nor a home directory. A process started
+// before the gate's home moved carries no NM_HOME or the old one, so every
+// no-mistakes it starts is given the root.
+func NativeEnv(root string) []string {
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, entry := range os.Environ() {
+		// Windows matches environment names without case, so an existing
+		// NM_HOME has to be dropped rather than left beside the override.
+		name, _, ok := strings.Cut(entry, "=")
+		if ok && strings.EqualFold(name, gatehome.Variable) {
+			continue
+		}
+		env = append(env, entry)
 	}
-	dir, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, ".no-mistakes"), nil
+	return append(env, gatehome.Variable+"="+root)
 }
 
 // stateQueryTimeout bounds one read of the gate's database, so a wedged read

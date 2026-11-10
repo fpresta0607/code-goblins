@@ -240,23 +240,25 @@ func reportLongPaths(stdout io.Writer) {
 // reportDevDrive says whether the home's worktrees, scratch and caches are on
 // a Dev Drive, and on one that is absent, untrusted or not attached what
 // fixes it. It never counts against the health verdict: a Dev Drive is
-// optional, and a machine without one works as it always has.
+// optional, and a machine without one works as it always has. Then it says
+// where the gate's home is, and warns when it is not on the Dev Drive the
+// heavy folders are on.
 func reportDevDrive(stdout io.Writer, runtime commandRuntime) {
 	h, err := runtime.resolveHome()
 	if err != nil {
 		return
 	}
-	m, err := runtime.readDevDrive(context.Background())
-	if err != nil {
+	if m, err := runtime.readDevDrive(context.Background()); err != nil {
 		fmt.Fprintf(stdout, "dev drive: unreadable (%v)\n", err)
-		return
+	} else {
+		report := devdrive.Describe(m, h)
+		line := "dev drive: " + report.Line
+		if report.File != "" {
+			line += " (file: " + report.File + ")"
+		}
+		fmt.Fprintln(stdout, line)
 	}
-	report := devdrive.Describe(m, h)
-	line := "dev drive: " + report.Line
-	if report.File != "" {
-		line += " (file: " + report.File + ")"
-	}
-	fmt.Fprintln(stdout, line)
+	fmt.Fprintln(stdout, gateHomeLine(runtime, h.DevDrive))
 }
 
 // reportRemoteAccess says whether private phone access is off or on and what

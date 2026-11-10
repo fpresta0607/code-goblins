@@ -2,16 +2,19 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 )
@@ -157,6 +160,102 @@ func TestHisLoneQuestionMarkReachesAClaudeCEOAsWords(t *testing.T) {
 			t.Errorf("once the CEO's record shows it = %+v; want it delivered, not left waiting", settled)
 		}
 	})
+}
+
+// His message to a Claude Code CEO is delivered, and drawn as his row with
+// nothing left waiting, in each shape Claude Code records it (#2242): sent
+// between turns, as a user record once dequeued; sent during a turn, as a
+// queued_command attachment its model takes in that turn; and a ! command,
+// queued by its words alone and run at the turn's end as a bash-input row.
+func TestHisMessageToAClaudeCEOIsDeliveredAndDrawnInEachShapeItsRecordTakes(t *testing.T) {
+	for _, shape := range []struct {
+		name   string
+		typed  string
+		record func(at string) []map[string]any
+		source string
+		drawn  string
+		queued bool
+	}{
+		{name: "between turns", typed: "check the gate", source: fleettree.FromOverlord, drawn: "check the gate",
+			record: func(at string) []map[string]any {
+				return []map[string]any{
+					{"type": "queue-operation", "operation": "enqueue", "timestamp": at, "content": "check the gate"},
+					{"type": "queue-operation", "operation": "dequeue", "timestamp": at},
+					{"type": "user", "uuid": "u1", "timestamp": at, "message": map[string]any{"role": "user", "content": "check the gate"}},
+				}
+			}},
+		{name: "during a turn", typed: "check the gate", source: fleettree.FromOverlord, drawn: "check the gate", queued: true,
+			record: func(at string) []map[string]any {
+				return []map[string]any{
+					{"type": "queue-operation", "operation": "enqueue", "timestamp": at, "content": "check the gate"},
+					{"type": "attachment", "uuid": "a1", "timestamp": at, "attachment": map[string]any{"type": "queued_command", "prompt": "check the gate", "commandMode": "prompt"}},
+					{"type": "queue-operation", "operation": "remove", "timestamp": at, "content": "check the gate"},
+				}
+			}},
+		{name: "a ! command run at the turn's end", typed: "! claude doctor", source: fleettree.FromShell, drawn: "claude doctor",
+			record: func(at string) []map[string]any {
+				return []map[string]any{
+					{"type": "queue-operation", "operation": "enqueue", "timestamp": at, "content": "claude doctor"},
+					{"type": "queue-operation", "operation": "dequeue", "timestamp": at},
+					{"type": "user", "uuid": "u1", "timestamp": at, "message": map[string]any{"role": "user", "content": "<bash-input>claude doctor</bash-input>"}},
+				}
+			}},
+	} {
+		t.Run(shape.name, func(t *testing.T) {
+			// Arrange
+			records := useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, "claude-manual-busy")
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
+			if _, err := store.Queue(Action{ID: "sent", Kind: "message", Text: shape.typed}); err != nil {
+				t.Fatal(err)
+			}
+			pastUndoWindow(t, store)
+
+			// Act: the board types it, then the CEO's record shows it taken.
+			if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+				t.Fatal(err)
+			}
+			lines := terminal.waitForLines(t, 2)
+			var record []byte
+			for _, entry := range shape.record(time.Now().UTC().Format(time.RFC3339Nano)) {
+				line, err := json.Marshal(entry)
+				if err != nil {
+					t.Fatal(err)
+				}
+				record = append(append(record, line...), '\n')
+			}
+			path := filepath.Join(records, ".claude", "projects", "C--ceo-home", "session-1.jsonl")
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, record, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.settleDeliveries(time.Now().UTC(), service.lookAtTerminal); err != nil {
+				t.Fatal(err)
+			}
+			var reader fleettree.Reader
+			page, _, err := reader.MessagePage(path, -1)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			if len(lines) != 2 || lines[1] != "queued "+shape.typed {
+				t.Fatalf("terminal input = %q; want the message typed once", lines)
+			}
+			if settled := store.Snapshot().Actions[0]; settled.Status != "succeeded" || settled.Awaiting != nil {
+				t.Errorf("once the CEO's record shows it taken = %+v; want it delivered, not left on its way", settled)
+			}
+			if len(page.Messages) != 1 || page.Messages[0].Kind != fleettree.MessagePrompt || page.Messages[0].Source != shape.source || page.Messages[0].Text != shape.drawn || page.Messages[0].IsQueued != shape.queued {
+				t.Errorf("conversation = %+v; want his one row, %s %q, queued %v", page.Messages, shape.source, shape.drawn, shape.queued)
+			}
+			if len(page.Waiting) != 0 {
+				t.Errorf("waiting = %+v; want nothing left Sending", page.Waiting)
+			}
+		})
+	}
 }
 
 // longMultiLineMessage is a message like the one #1740 lost the head of: a

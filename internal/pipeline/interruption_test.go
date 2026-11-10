@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,6 +22,7 @@ type interruptionRunner struct {
 	gateDirty    bool
 	editsCommit  string
 	committedFor string
+	abortEnv     []string
 }
 
 func (runner *interruptionRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
@@ -28,6 +30,7 @@ func (runner *interruptionRunner) Run(_ context.Context, request execx.Request) 
 	runner.commands = append(runner.commands, command)
 	if strings.Contains(command, "axi abort --run") {
 		runner.run.Status = "cancelled"
+		runner.abortEnv = request.Env
 	}
 	if request.Name == "sqlite3" {
 		data, _ := json.Marshal([]InterruptedRun{runner.run})
@@ -251,6 +254,9 @@ func TestInterruptPinsAndImportsGateCommitsBeforeAbortingOnlyItsRun(t *testing.T
 			abort := strings.Index(joined, "axi abort --run run-1")
 			if pin < 0 || fetch < pin || merge < fetch || !failed && abort < merge || failed && abort >= 0 {
 				t.Fatalf("unsafe sequence:\n%s", joined)
+			}
+			if !failed && !slices.Contains(runner.abortEnv, "NM_HOME="+root) {
+				t.Errorf("the abort ran without NM_HOME=%s, so a board started before the gate's home moved aborts in the old home", root)
 			}
 			for _, forbidden := range []string{"--amend", "reset ", "--force", "abort --all"} {
 				if strings.Contains(joined, forbidden) {

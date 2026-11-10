@@ -25,7 +25,7 @@ func pipelineAdmission(ctx context.Context, h home.Home, reader pipeline.Reader,
 			return err
 		}
 	}
-	result, digest, nativeErr := reader.Admit(ctx, meta.Project, worktree, branch, operation, file, selection, nativeEnv(reader.Root))
+	result, digest, nativeErr := reader.Admit(ctx, meta.Project, worktree, branch, operation, file, selection, pipeline.NativeEnv(reader.Root))
 	fmt.Fprint(out, string(result.Stdout), string(result.Stderr))
 	if digest == "" {
 		return nativeErr

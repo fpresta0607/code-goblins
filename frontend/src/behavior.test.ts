@@ -957,7 +957,7 @@ test("a run item states its progress in plain words, never its exit code", () =>
 // doing, and the supervisor serves one whose session ended as paused.
 test("an action that did not finish is the task's one status, and in-flight work wins over it", () => {
   const failed = (action: string, phase = "working") => parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "A; Claude Code", phase, generation: "s1", verified: false,
-    lifecycle: { phase: "failed", action, at: "2026-10-05T16:30:06Z", kept: [], stopped: [], problems: ["context deadline exceeded"], handoff_saved: false, validation_restarts: false } }] }).tasks[0];
+    lifecycle: { phase: "failed", action, at: "2026-10-05T16:30:06Z", kept: [], stopped: [], problems: ["context deadline exceeded"], handoff_saved: false, validation_kept: false } }] }).tasks[0];
   const cases: [string, ReturnType<typeof failed>, string, string][] = [
     ["a pause that ran out of time, whose goblin still reports working", failed("pause"), "Working", "working"],
     ["a pause that ran out of time, whose session ended", failed("pause", "paused"), "Paused", "paused"],

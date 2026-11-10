@@ -19,16 +19,24 @@ const cleanupUsage = `usage: ceo cleanup <id> [--force-archive]
 
 Close the task tab and return one clean, proven-inactive task worktree,
 removing the worktree and pruning its Git administrative entry.
-Refuses dirty worktrees, active agents, ambiguous identity, and the primary
-checkout. It holds the task against every other command while it runs, so a
-pause, a resume, a kill or a switch of the task that starts meanwhile is
-refused, and it is refused itself, before it removes anything, while one of
-those is in flight.
+Refuses dirty worktrees, active agents, ambiguous identity, the primary
+checkout, and a task whose gate run, which a pause leaves running, is still
+open or cannot be read: ceo kill <id> aborts that run after keeping its
+commits and retires the task. While the task's worktree is gone or no longer
+a Git worktree, ceo kill cannot find the run (issue #2246), so end it with
+no-mistakes axi abort --run <run> and run the cleanup again. It holds the
+task against every other command while it runs, so a pause, a resume, a
+kill or a switch of the task that starts meanwhile is refused, and it is
+refused itself, before it removes anything, while one of those is in flight.
 
 --force-archive retires a task whose worktree can no longer be validated (a
 directory pinned by a dead handle, or already gone). It archives the task
 record and leaves the directory untouched - nothing on disk is deleted - and
-still refuses a pane with a live agent.
+still refuses a pane with a live agent and a gate run that is still open or
+cannot be read, as cleanup does. A paused task's run is the one its pause
+saved, read whatever state the worktree is in; the worktree's branch's run
+is read as well while the folder is still a Git worktree, so a worktree gone,
+or a folder no longer a Git worktree, with no saved run names no run.
 `
 
 // runCleanup returns one validated task's worktree through the guarded
@@ -104,6 +112,7 @@ func defaultCleanup(ctx context.Context, h home.Home, id string, forceArchive bo
 		HandOver: func(meta state.TaskMeta) (bool, error) {
 			return supervisor.HandOverRetiredNote(h.State, meta)
 		},
+		OpenGateRun: openGateRun(h),
 	}
 	result, err := service.Cleanup(ctx, id)
 	if err != nil {

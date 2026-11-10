@@ -470,6 +470,13 @@
     # ceo install set both at user scope; this session needs them now.
     $env:CEO_HOME = $InstallDir
     $env:Path = "$(Join-Path $InstallDir "bin");$env:Path"
+    # ceo install names the gate's home at user scope when it put it on the
+    # home's Dev Drive, and every no-mistakes this install runs gates there.
+    # One this session names already wins, as it does for ceo.
+    $gateHome = Get-UserEnvironment "NM_HOME"
+    if ($gateHome -and -not $env:NM_HOME) {
+        $env:NM_HOME = $gateHome
+    }
     # What follows runs the build the home now holds.
     $dest = Join-Path $InstallDir "bin\ceo.exe"
 

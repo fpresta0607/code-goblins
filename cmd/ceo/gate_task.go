@@ -60,8 +60,12 @@ func gateTask(root string, runtime commandRuntime) (string, error) {
 			return gateWorktreeTask(h, source.Project, worktree)
 		}
 	}
-	return "", fmt.Errorf("no source worktree holds the gate's branch %q", source.Branch)
+	return "", fmt.Errorf("%w: no source worktree holds the gate's branch %q", errNoFleetTask, source.Branch)
 }
+
+// errNoFleetTask says a gate run's source is no fleet task's, as the
+// Overlord's own repositories' runs are: gateTask read it, and found none.
+var errNoFleetTask = errors.New("the gate's source is no fleet task's")
 
 // taskLabel names a fleet task to whoever reads the line of turns: its
 // goblin as Name (id), as the fleet names a goblin everywhere, or the id
@@ -109,7 +113,7 @@ func gateWorktreeTask(h home.Home, project, worktree string) (string, error) {
 		return "", err
 	}
 	if !known {
-		return "", errors.New("the gate's source worktree belongs to no fleet task")
+		return "", fmt.Errorf("%w: its source worktree belongs to no fleet task", errNoFleetTask)
 	}
 	// A name alone is no proof: the owner's record must name its own
 	// worktree where spawn puts it, in one of the home's worktree folders or
