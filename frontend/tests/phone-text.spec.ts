@@ -35,7 +35,7 @@ const TALK = { messages: [
 
 const log = (page: Page) => page.getByRole("log");
 const row = (page: Page, id: string) => log(page).locator(`[data-message="${id}"]`);
-const toolRow = (page: Page, tool: string) => row(page, "r1").locator(".disclosure.message-call").filter({ hasText: tool });
+const toolRow = (page: Page, tool: string) => row(page, "r1").locator(".disclosure.message-call:not(.message-call-group)").filter({ hasText: tool });
 const height = async (locator: Locator) => (await locator.boundingBox())!.height;
 
 async function openTalk(page: Page, width: number) {
@@ -43,6 +43,9 @@ async function openTalk(page: Page, width: number) {
   await open(page, snapshot({}, { phase: "settled" }), "", TALK);
   await openGoblin(page);
   await expect(row(page, "r3")).toBeVisible();
+  // The reply's two finished calls fold into one row (#2191), opened here to
+  // reach each call's own row.
+  await row(page, "r1").locator("details.message-call-group > summary", { hasText: "Ran 1 command, read 1 file" }).click();
 }
 
 for (const width of [360, 393, 430, 1440]) {

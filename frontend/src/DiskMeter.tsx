@@ -1,21 +1,13 @@
 import type { Disk } from "./types";
-import { diskMarks, diskScale, diskState, freeGigabytes } from "./start";
+import { DiskDriveMeter } from "./disk-drive-meter";
 
-// Free disk on the home's drive, the second meter in the memory meter's box,
-// on a bar marked with the mark under which the CEO is woken and the floor
-// under which no goblin or gate test run starts (see diskScale), whose tip
-// says what each mark means; the fill's colour says which side of them the
-// disk is on, and the same in words is for a screen reader. It shares the
-// memory meter's look.
+// Free disk on each drive the fleet writes to, the home's, the Dev Drive's and
+// the gate home's, one line and bar for each (see DiskDriveMeter), the second
+// meter in the memory meter's box. Two folders on one drive are one line, and
+// every start and wake still reads the least free of the home's drive and the
+// Dev Drive. It shares the memory meter's look.
 export function DiskMeter({ disk }: { disk: Disk }) {
-  const state = diskState(disk), scale = diskScale(disk);
   return <div className="disk-meter" role="group" aria-label="Disk">
-    <div className="memory-line"><span>Disk free{disk.drive ? ` (${disk.drive})` : ""}</span><strong>{freeGigabytes(disk.free)} GB</strong></div>
-    <div className="memory-bar" data-tip={diskMarks(disk)}>
-      <span className={"memory-fill " + state.tone} style={{ width: `${scale.fill}%` }} />
-      <span className="memory-mark floor" style={{ left: `${scale.wake}%` }} />
-      <span className="memory-mark" style={{ left: `${scale.floor}%` }} />
-    </div>
-    <p className="sr-only">{state.text} {diskMarks(disk)}</p>
+    {disk.drives.map((drive) => <DiskDriveMeter key={drive.drive} drive={drive.drive} isDevDrive={drive.dev_drive} free={drive.free} total={drive.total} floor={disk.floor} wake={disk.wake} error={drive.error} />)}
   </div>;
 }

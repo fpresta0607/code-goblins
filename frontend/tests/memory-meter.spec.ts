@@ -108,7 +108,7 @@ for (const width of [1440, 390]) {
         test(`the ${state} meters hold no text but their names and values when the scheduler ${said}`, async ({ page }) => {
           // Arrange
           const scheduling = { at: "2026-10-09T16:05:00Z", text, waiting: [{ id: "polish-settings", why: "its last start failed" }] };
-          const disk = { drive: "C:", free: 330.3 * GB, total: 900 * GB, floor: 15 * GB, wake: 10 * GB };
+          const disk = { drive: "C:", free: 330.3 * GB, total: 900 * GB, floor: 15 * GB, wake: 10 * GB, drives: [{ drive: "C:", free: 330.3 * GB, total: 900 * GB }] };
 
           // Act
           const column = await tasksColumn(page, memory, scheduling, disk);

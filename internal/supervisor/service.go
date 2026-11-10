@@ -2124,7 +2124,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			out.Memory = &memory
 		}
 		if dispatch.Disk != nil {
-			if disk, err := dispatch.Disk(); err == nil {
+			// A drive that cannot be read still shows, as its error line.
+			if disk, err := dispatch.Disk(); err == nil || len(disk.Drives) > 0 {
 				out.Disk = &disk
 			}
 		}
