@@ -18,14 +18,15 @@ func AbsClean(path string) (string, error) {
 }
 
 // Canonical returns the absolute, cleaned physical path after resolving
-// symlinks. Failure to resolve the path is returned so callers cannot use an
-// unresolved spelling as proof of identity.
+// symlinks and, on Windows, directory junctions. Failure to resolve the path
+// is returned so callers cannot use an unresolved spelling as proof of
+// identity.
 func Canonical(path string) (string, error) {
 	abs, err := AbsClean(path)
 	if err != nil {
 		return "", err
 	}
-	resolved, err := filepath.EvalSymlinks(abs)
+	resolved, err := resolve(abs)
 	if err != nil {
 		return "", fmt.Errorf("fsx: resolve %q: %w", path, err)
 	}
