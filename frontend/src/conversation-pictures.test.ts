@@ -20,7 +20,7 @@ test("a row's pictures carry the verb of the call that holds each, in the order 
 
   // Assert
   assert.deepEqual(pictures, [
-    { src: "id:a", verb: "Read" }, { src: "id:b", verb: "Read" }, { src: "id:c", verb: "Viewed" }, { src: "id:d", verb: "Called chrome take_screenshot" },
+    { src: "id:a", verb: "Read" }, { src: "id:b", verb: "Read" }, { src: "id:c", verb: "Viewed" }, { src: "id:d", verb: "Chrome · Take screenshot" },
   ]);
 });
 

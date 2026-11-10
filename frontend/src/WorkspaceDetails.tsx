@@ -1,12 +1,11 @@
 import { useResource } from "./api";
-import { object, string, strings, type Run, type Session, type Snapshot, type Task } from "./types";
+import { object, string, strings, type Session, type Snapshot, type Task } from "./types";
 import { harnessName } from "./workflow";
 import { ownsTaskSession, sessionModel } from "./lineageTree";
 import { harnessMark, modelMark } from "./connectors";
 import { ConnectorMark } from "./ConnectorMark";
 import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
-import { ConnectionsPanel } from "./connections-panel";
 import { EngineSelector } from "./engine-selector";
 import { CfoEngineSelector } from "./cfo-engine-selector";
 import { DevDriveSetting } from "./dev-drive-setting";
@@ -21,11 +20,12 @@ function parse(value: unknown) {
   return { project: string(v.project), repository: string(v.repository), root: string(v.root), branch: string(v.branch), harness: string(v.harness), notes: strings(v.notes) };
 }
 
-// Where the work lives, what it runs on and what it reaches: the Workspace,
-// Harness and Connections sections of a panel, each closed until it is
-// opened, like the sections below them. Harness holds every harness control,
-// the CFO's Restart among them, and Connections names no harness.
-export function WorkspaceDetails({ task, node, runs, snapshot, connected, onRepair }: { task?: Task; node?: Session; runs?: Run[]; snapshot: Snapshot; connected: boolean; onRepair?: (key: string) => void }) {
+// Where the work lives and what it runs on: the Workspace and Harness
+// sections of a panel, each closed until it is opened, like the sections
+// below them. Harness holds every harness control, the CFO's Restart among
+// them. What a goblin reaches is no section here: its panel links to the
+// Connectors page, which lists every goblin's connectors once (#2303).
+export function WorkspaceDetails({ task, node, snapshot, connected, onConnectors }: { task?: Task; node?: Session; snapshot: Snapshot; connected: boolean; onConnectors: () => void }) {
   const child = !!node && !ownsTaskSession(node, task);
   const queued = !!task && !task.generation;
   const isArchived = !!task?.archived;
@@ -39,7 +39,7 @@ export function WorkspaceDetails({ task, node, runs, snapshot, connected, onRepa
   const model = details && child ? sessionModel(node, task) : "";
   const provider = modelMark(model);
   const isCfo = !task && !node;
-  const hasConnections = child || !!task && !queued && !isArchived;
+  const hasConnectors = !child && !!task && !queued && !isArchived;
   // The Chat choice matters only where the board reads the session as messages.
   const hasChat = !child && (task ? !queued && !isArchived && !!messagesQuery(snapshot, task) : !!messagesQuery(snapshot));
   return <>
@@ -62,8 +62,6 @@ export function WorkspaceDetails({ task, node, runs, snapshot, connected, onRepa
         {isCfo && <CfoEngineSelector snapshot={snapshot} />}
       </>}
     </Disclosure>
-    {hasConnections && <Disclosure kind="connections" title="Connections">
-      {child ? <p>No separate connections were reported for this child.</p> : task && <ConnectionsPanel key={task.id + task.generation} task={task} runs={runs} onRepair={onRepair} />}
-    </Disclosure>}
+    {hasConnectors && <button type="button" className="connectors-link" onClick={onConnectors}><Icon name="plug" />Connectors<Icon name="next" /></button>}
   </>;
 }

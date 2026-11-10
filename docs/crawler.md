@@ -55,7 +55,7 @@ It exits 0 when it crawled, 1 with one line saying why when nothing could be cra
   A connector it cannot set up never fails the install: a `Note:` line says goblins go without `goblin-crawl` until `cfo crawler setup` succeeds, and on a machine without Node.js the install script's closing note names `crawler`.
 - `cfo spawn` puts `caches\crawler\bin` on every goblin's PATH, after its codex guard folder and before the user's PATH, whichever harness it runs, with no word of it in the brief.
   It is a command rather than an MCP server because Claude Code goblins are the only goblins given MCP servers: a command reaches Codex and pi goblins too.
-- Each goblin's **Connections** on the board lists `crawler` under **Default connectors**: provided when its terminal finds `goblin-crawl`, disabled when its brief left it out, and missing when the home never set it up, or set it up after the goblin's terminal started, which a resume, switch or respawn carries.
+- The board's **Connectors** page lists `crawler` as a **Built in** connector and says of each goblin on its page: provided when its terminal finds `goblin-crawl`, disabled when its brief left it out, and missing when the home never set it up, or set it up after the goblin's terminal started, which a resume, switch or respawn carries.
 - `cfo doctor` says whether the home's connector is ready, older than the build, or not set up, with the fix.
 
 ## Leaving it out

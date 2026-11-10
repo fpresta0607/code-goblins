@@ -6,7 +6,6 @@ const CATALOG = { harnesses: [{ id: "claude", name: "Claude Code", models: [
   { id: GOBLIN.model, name: "Current model", efforts: ["xhigh"], default_effort: "xhigh" },
   { id: "next-model", name: "Next model", efforts: ["high"], default_effort: "high" },
 ] }] };
-const LOGIN = { id: "review-login", provider: "Stripe", account: "Review account", projects: ["code-goblins"], signed_in: true };
 
 async function expectDisclosure(page: Page, selector: string, isOpen: boolean) {
   const disclosure = page.locator(selector);
@@ -44,10 +43,9 @@ async function preparePanel(page: Page, who = "goblin", fields: Record<string, u
     if (route.request().method() === "POST") {
       posts.push({ path, body: route.request().postDataJSON() });
       if (path === "/api/credentials/save") return route.fulfill({ json: { saved: ["REVIEW_VALUE"] } });
-      return route.fulfill({ json: { revision: 2, browser_logins: [] } });
+      return route.fulfill({ json: { revision: 2 } });
     }
     if (path === "/api/engines") return route.fulfill({ json: CATALOG });
-    if (path === "/api/connections") return route.fulfill({ json: { instance: "fixture", checking: false, entries: [], browser_logins: [LOGIN] } });
     if (path === "/api/workspace") return route.fulfill({ json: { repository: "code-goblins", harness: "claude", notes: [] } });
     return route.fulfill({ json: {} });
   });
@@ -155,55 +153,51 @@ for (const who of ["goblin", "CEO"]) {
   });
 }
 
-for (const kind of ["stop", "forget"] as const) {
-  for (const width of [800, 1000]) {
-    for (const dismissal of ["Cancel", "Escape"] as const) {
-      test(`${kind} stays modal across ${width}px to ${1800 - width}px and ${dismissal} preserves its task`, async ({ page }) => {
-        const { relay, posts } = await preparePanel(page);
-        await openChat(page);
-        await field(page).fill("Keep my message draft");
-        await openTaskList(page);
-        await resizePanel(page, width);
-        const harness = page.locator("details.harness");
-        await harness.locator("> summary").click();
-        const model = harness.getByRole("combobox", { name: "Model", exact: true });
-        await model.selectOption("next-model");
-        if (kind === "forget") await page.locator("details.connections > summary").click();
-        const trigger = kind === "stop" ? page.locator(".task-controls").getByRole("button", { name: /^Stop / }) : page.getByRole("button", { name: /^Forget Stripe/ });
-        await trigger.click();
-        const dialog = page.getByRole("dialog", { name: kind === "stop" ? "Stop this task?" : "Forget this login?", exact: true });
-        const identity = kind === "stop" ? "Swipes scroll the phone terminal" : "Stripe · Review account";
-        await expect(dialog).toContainText(identity);
-        await expectModal(page, dialog);
-        const mounted = await dialog.elementHandle();
+// The panel's one portalled question. The question before a browser login is
+// forgotten left the panel with its connectors (#2303) and is proved on the
+// Connectors page (connectors-page-checks.spec.ts).
+for (const width of [800, 1000]) {
+  for (const dismissal of ["Cancel", "Escape"] as const) {
+    test(`stop stays modal across ${width}px to ${1800 - width}px and ${dismissal} preserves its task`, async ({ page }) => {
+      const { relay, posts } = await preparePanel(page);
+      await openChat(page);
+      await field(page).fill("Keep my message draft");
+      await openTaskList(page);
+      await resizePanel(page, width);
+      const harness = page.locator("details.harness");
+      await harness.locator("> summary").click();
+      const model = harness.getByRole("combobox", { name: "Model", exact: true });
+      await model.selectOption("next-model");
+      const trigger = page.locator(".task-controls").getByRole("button", { name: /^Stop / });
+      await trigger.click();
+      const dialog = page.getByRole("dialog", { name: "Stop this task?", exact: true });
+      const identity = "Swipes scroll the phone terminal";
+      await expect(dialog).toContainText(identity);
+      await expectModal(page, dialog);
+      const mounted = await dialog.elementHandle();
 
-        await resizePanel(page, 1800 - width);
+      await resizePanel(page, 1800 - width);
 
-        await expectModal(page, dialog);
-        expect(await mounted!.evaluate((element) => element.isConnected && element.matches(":modal"))).toBe(true);
-        await expect(dialog).toContainText(identity);
-        if (dismissal === "Cancel") await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
-        else await page.keyboard.press("Escape");
-        await expect(dialog).toHaveCount(0);
-        await expect(trigger).toBeFocused();
-        await openTaskList(page);
-        await expect(model).toHaveValue("next-model");
-        await openChat(page);
-        await expect(field(page)).toHaveValue("Keep my message draft");
-        expect(posts).toEqual([]);
-        expect(typed(relay)).toBe("");
-        await openTaskList(page);
-        await trigger.click();
-        const action = kind === "forget" ? "Forget" : dismissal === "Cancel" ? "Stop and delete" : "Pause instead (Recommended)";
-        await dialog.getByRole("button", { name: action, exact: true }).click();
-        await expect(dialog).toHaveCount(0);
-        await expect.poll(() => posts.length).toBe(1);
-        expect(posts[0]).toMatchObject({ path: kind === "forget" ? "/api/browser-logins/forget" : "/api/tasks/lifecycle", body: {
-          task: GOBLIN.id, generation: GOBLIN.generation,
-          ...(kind === "forget" ? { login: LOGIN.id } : { action: dismissal === "Cancel" ? "stop" : "pause" }),
-        } });
-      });
-    }
+      await expectModal(page, dialog);
+      expect(await mounted!.evaluate((element) => element.isConnected && element.matches(":modal"))).toBe(true);
+      await expect(dialog).toContainText(identity);
+      if (dismissal === "Cancel") await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+      else await page.keyboard.press("Escape");
+      await expect(dialog).toHaveCount(0);
+      await expect(trigger).toBeFocused();
+      await openTaskList(page);
+      await expect(model).toHaveValue("next-model");
+      await openChat(page);
+      await expect(field(page)).toHaveValue("Keep my message draft");
+      expect(posts).toEqual([]);
+      expect(typed(relay)).toBe("");
+      await openTaskList(page);
+      await trigger.click();
+      await dialog.getByRole("button", { name: dismissal === "Cancel" ? "Stop and delete" : "Pause instead (Recommended)", exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      await expect.poll(() => posts.length).toBe(1);
+      expect(posts[0]).toMatchObject({ path: "/api/tasks/lifecycle", body: { task: GOBLIN.id, generation: GOBLIN.generation, action: dismissal === "Cancel" ? "stop" : "pause" } });
+    });
   }
 }
 
@@ -252,27 +246,24 @@ for (const action of ["save", "run"] as const) {
   }
 }
 
-for (const kind of ["stop", "forget"]) {
-  test(`${kind}'s portal is removed when its task generation leaves`, async ({ page }) => {
-    const { relay, posts } = await preparePanel(page);
-    if (kind === "forget") await page.locator("details.connections > summary").click();
-    const trigger = kind === "stop" ? page.locator(".task-controls").getByRole("button", { name: /^Stop / }) : page.getByRole("button", { name: /^Forget Stripe/ });
-    await trigger.click();
-    const dialog = page.getByRole("dialog", { name: kind === "stop" ? "Stop this task?" : "Forget this login?", exact: true });
-    await expectModal(page, dialog);
-    const mounted = await dialog.elementHandle();
+test("stop's portal is removed when its task generation leaves", async ({ page }) => {
+  const { relay, posts } = await preparePanel(page);
+  const trigger = page.locator(".task-controls").getByRole("button", { name: /^Stop / });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "Stop this task?", exact: true });
+  await expectModal(page, dialog);
+  const mounted = await dialog.elementHandle();
 
-    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({}, { generation: "replacement-generation" }));
+  await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({}, { generation: "replacement-generation" }));
 
-    await expect(dialog).toHaveCount(0);
-    expect(await mounted!.evaluate((element) => element.isConnected)).toBe(false);
-    await expect(page.locator("dialog:modal")).toHaveCount(0);
-    await openTaskList(page);
-    await expect(page.locator(".task-controls")).toBeVisible();
-    expect(posts).toEqual([]);
-    expect(typed(relay)).toBe("");
-  });
-}
+  await expect(dialog).toHaveCount(0);
+  expect(await mounted!.evaluate((element) => element.isConnected)).toBe(false);
+  await expect(page.locator("dialog:modal")).toHaveCount(0);
+  await openTaskList(page);
+  await expect(page.locator(".task-controls")).toBeVisible();
+  expect(posts).toEqual([]);
+  expect(typed(relay)).toBe("");
+});
 
 test("a queued task's portalled Remove confirmation cancels safely and removes only on confirmation", async ({ page }) => {
   await open(page, snapshot({}, { phase: "queued", generation: "", queue_revision: "queued-revision" }));

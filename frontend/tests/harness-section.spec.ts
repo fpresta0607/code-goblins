@@ -2,8 +2,8 @@ import { CFO_DOOR, expect, openTaskList, taskList, type Page, test } from "./sit
 
 // The Overlord, 2026-10-13: every harness control belongs in a category of
 // its own named Harness, for queued tasks, active goblins and the CFO.
-// Connections lists no harness, nothing stands below the selectors, and an
-// active goblin gets the CFO's Restart with its harness, model and effort.
+// Nothing stands below the selectors, and an active goblin gets the CFO's
+// Restart with its harness, model and effort.
 const catalog = { harnesses: [
   { id: "codex", name: "Codex", models: [
     { id: "current-model", name: "Current model", efforts: ["low", "high", "xhigh"], default_effort: "high" },
@@ -34,7 +34,6 @@ async function open(page: Page, tasks: object[], overrides: object = {}) {
       return route.fulfill({ status: 202, json: { accepted: true } });
     }
     if (path === "/api/workspace") return route.fulfill({ json: { repository: "code-goblins", harness: "codex", root: "C:/work", branch: "main", notes: [] } });
-    if (path === "/api/connections") return route.fulfill({ json: { connections: [] } });
     return route.fulfill({ json: {} });
   });
   await page.goto("/");
@@ -56,7 +55,6 @@ async function openCfo(page: Page) {
 }
 
 const harness = (page: Page) => page.locator("details.harness");
-const connections = (page: Page) => page.locator("details.connections");
 
 test("the CFO engine is saved for a safe turn without restarting on selection", async ({ page }) => {
   const posts = await open(page, []);
@@ -172,7 +170,7 @@ for (const who of ["goblin", "CEO"] as const) {
 }
 
 for (const phase of ["queued", "paused"]) {
-  test(`a ${phase} task's selectors are under Harness, with nothing under them and no harness in Connections`, async ({ page }) => {
+  test(`a ${phase} task's selectors are under Harness, with nothing under them`, async ({ page }) => {
     // Arrange
     await open(page, [task(phase)]);
     await openTask(page);
@@ -187,11 +185,6 @@ for (const phase of ["queued", "paused"]) {
     await expect(engine.getByRole("combobox", { name: "Effort", exact: true })).toHaveValue("xhigh");
     await expect(engine.getByRole("button")).toHaveCount(0);
     await expect(taskList(page)).not.toContainText("No changes yet");
-    if (await connections(page).count()) {
-      await connections(page).locator("> summary").click();
-      await expect(connections(page)).not.toContainText("Codex");
-      await expect(connections(page).getByRole("combobox")).toHaveCount(0);
-    }
   });
 }
 
@@ -217,12 +210,9 @@ test("an active goblin's Harness has Restart beside its selectors: unchanged it 
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect.poll(() => posts.length).toBe(2);
   expect(posts[1]).toEqual({ path: "/api/tasks/engine", body: { task: "engine-task", generation: "s1", revision: "q1", harness: "codex", model: "next-model", effort: "low", when: "now" } });
-  await connections(page).locator("> summary").click();
-  await expect(connections(page)).not.toContainText("Codex");
-  await expect(connections(page).getByRole("combobox")).toHaveCount(0);
 });
 
-test("the CFO's Restart and harness are under Harness in its panel, not in its header, and Connections names no harness", async ({ page }) => {
+test("the CFO's Restart and harness are under Harness in its panel, not in its header", async ({ page }) => {
   // Arrange
   const posts = await open(page, []);
   await openCfo(page);
@@ -237,5 +227,4 @@ test("the CFO's Restart and harness are under Harness in its panel, not in its h
   // Assert
   await expect(harness(page).getByRole("button", { name: "Harness: Codex" })).toBeVisible();
   await expect.poll(() => posts).toEqual([{ path: "/api/cfo/restart", body: { harness: "codex" } }]);
-  await expect(connections(page)).toHaveCount(0);
 });

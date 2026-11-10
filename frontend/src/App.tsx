@@ -7,6 +7,7 @@ import { useItemState } from "./use-item-state";
 import { useTaskClicks } from "./use-task-clicks";
 import { withClicks } from "./task-clicks";
 import { Board, type BoardLayout } from "./Board";
+import { ConnectorsPage } from "./connectors-page";
 import { CommandCenterMenu } from "./command-center-menu";
 import type { CommandFocus } from "./CommandCenter";
 import { ComebackBanner } from "./ComebackBanner";
@@ -111,7 +112,7 @@ export function App() {
   const clicks = useTaskClicks();
   const snapshot = useMemo(() => held && withClicks(held, clicks), [held, clicks]);
   const afkToggle = useAfkToggle(snapshot?.instance ?? "");
-  const [view, setView] = useState<"Board" | "Orchestration">("Board");
+  const [view, setView] = useState<"Board" | "Orchestration" | "Connectors">("Board");
   const [boardLayout, setBoardLayout] = useState<BoardLayout>(() => stored(BOARD_LAYOUT_KEY) === "stacked" ? "stacked" : "kanban");
   const nextLayout: BoardLayout = boardLayout === "kanban" ? "stacked" : "kanban";
   const [commandFocus, setCommandFocus] = useState<CommandFocus | null>(null);
@@ -434,7 +435,10 @@ export function App() {
   if ((terminalShown || messagesShown) && !terminalOpened) setTerminalOpened(true);
   if (boxOnScreen && messagesSource && messagesSource !== messagesOpened) setMessagesOpened(messagesSource);
   useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
-  const maximizeView = maximizedView(view, shownView);
+  // The panel beside the Connectors page keeps the choices it has beside the
+  // Board.
+  const paneBeside = view === "Orchestration" ? "Orchestration" : "Board";
+  const maximizeView = maximizedView(paneBeside, shownView);
   const maximized = maximizedFor(maximizedChoice[maximizeView]);
   // Only a panel that shows something is maximized: with nothing chosen it
   // shows the review placeholder, which takes no view's choice, so a
@@ -456,7 +460,7 @@ export function App() {
   // when that is out of sight behind it.
   const backShown = showsPanel && !!selected;
   const back = () => {
-    if (maximized) setMaximizedChoice((prior) => ({ ...prior, [maximizedView(view, "terminal")]: "true" }));
+    if (maximized) setMaximizedChoice((prior) => ({ ...prior, [maximizedView(paneBeside, "terminal")]: "true" }));
     setSelected(null);
     setCfoOpen(true);
     requestAnimationFrame(() => {
@@ -464,8 +468,19 @@ export function App() {
       if (document.activeElement !== returnFocus.current) pane.current?.focus({ preventScroll: true });
     });
   };
-  const divided = paneOpen && !panelWide && !compact;
-  const layout: CSSProperties | undefined = panelWide ? { gridTemplateColumns: "minmax(0, 1fr)" } : paneOpen && paneSize && !compact ? { gridTemplateColumns: `minmax(0, 1fr) 10px ${paneTrack(paneSize)}` } : undefined;
+  // The Connectors page, from the top bar or from a goblin's task panel. A
+  // panel that covers the canvas, maximized or filling a phone, is closed so
+  // the page shows.
+  const openConnectors = () => {
+    setView("Connectors");
+    if (panelWide || fillsPhone) setPaneOpen(false);
+  };
+  // The Connectors page has no task to choose, so the placeholder that asks
+  // for one is not drawn beside it: the page keeps the canvas whole until a
+  // panel has something to show.
+  const paneShown = paneOpen && (view !== "Connectors" || showsPanel);
+  const divided = paneShown && !panelWide && !compact;
+  const layout: CSSProperties | undefined = panelWide ? { gridTemplateColumns: "minmax(0, 1fr)" } : paneShown && paneSize && !compact ? { gridTemplateColumns: `minmax(0, 1fr) 10px ${paneTrack(paneSize)}` } : undefined;
   // Open in terminal shows the terminal in a Windows Terminal window of its
   // own, beside the board; a refusal says so beside the control for a moment.
   const shownWindow = snapshot && (terminalShown || messagesShown) && !child ? windowTarget(snapshot, cfoShown, selected ? task : undefined) : null;
@@ -519,7 +534,7 @@ export function App() {
     notice: windowFeedback && <span className="window-feedback"><ClickFeedback text={windowFeedback} /></span>,
   };
   return <AfkBoard snapshot={snapshot} now={now} onOpenCommand={(key) => setCommandFocus({ key, at: Date.now() })}><div className={"app-shell" + (fillsPhone ? " fills-phone" : "")} onKeyDown={(event) => {
-    if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); if (backShown && !fillsPhone) back(); else close(); }
+    if (event.key === "Escape" && paneShown && !event.defaultPrevented) { event.preventDefault(); if (backShown && !fillsPhone) back(); else close(); }
   }}>
     <header className="topbar" hidden={fillsPhone}>
       <a className="brand" href="/" aria-label="Code Goblins home">
@@ -528,6 +543,7 @@ export function App() {
       </a>
       <div className="view-switch" role="group" aria-label="Workspace view">
         {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={!firstRun && view === name} onClick={() => { if (firstRun) setFirstRunChoice("board"); setView(name); }}>{name}</button>)}
+        <button aria-pressed={!firstRun && view === "Connectors"} onClick={() => { if (firstRun) setFirstRunChoice("board"); openConnectors(); }}>Connectors</button>
       </div>
       <div className="topbar-controls">
         {/* A small screen has no room for the tour's button, nor for the
@@ -548,7 +564,7 @@ export function App() {
             corner of desktop", and his mobile corrections of 2026-11-04). */}
         {!connected && <Notice tone="warning">{connection}</Notice>}
         {snapshot && <CommandCenterMenu snapshot={snapshot} connected={connected} presentations={presentations} now={freshNow} focus={commandFocus} onUnsent={setHasUnsentAnswers} onSent={sent} />}
-        {!paneOpen && !compact && <button onClick={() => setPaneOpen(true)}>Open {selected ? "details" : "CEO"}</button>}
+        {!paneOpen && !compact && (view !== "Connectors" || !!task || !!train || cfoOpen) && <button onClick={() => setPaneOpen(true)}>Open {selected ? "details" : "CEO"}</button>}
       </div>
     </header>
     {updated && <Notice form="box" actions={<button className="primary" onClick={() => location.reload()}>Reload</button>}>The board was updated.</Notice>}
@@ -556,9 +572,10 @@ export function App() {
     {snapshot && <Alerts snapshot={snapshot} onOpen={(key) => setCommandFocus({ key, at: Date.now() })} />}
     {firstRun ? <main className="first-run-region" aria-label="First run">
       {snapshot && <FirstRun instance={snapshot.instance} devDrive={snapshot.dev_drive} onStarting={() => setFirstRunChoice("setup")} onStarted={() => { setFirstRunChoice("started"); setView("Board"); switchTo(CFO_KEY); }} onBoard={() => setFirstRunChoice("board")} />}
-    </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (view === "Board" && boardLayout === "kanban" ? " kanban" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
+    </main> : <div ref={workspace} className={"workspace" + (paneShown ? " with-pane" : "") + (view === "Board" && boardLayout === "kanban" ? " kanban" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
       <main ref={canvas} className="canvas-region" aria-label={view} hidden={panelWide || fillsPhone}>
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
+          : view === "Connectors" ? <ConnectorsPage snapshot={snapshot} onRepair={(key) => setCommandFocus({ key, at: Date.now() })} />
           : view === "Board" ? <Board afkToggle={afkToggle} presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} selectedTrain={train?.id} now={now} freshNow={freshNow} onSelect={selectTask} onSelectTrain={(train, source) => select({ train: train.id }, source)} onOpenCfo={openCfo} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} />
             : <Suspense fallback={<p className="loading" role="status">Loading Orchestration…</p>}>{compact ? <Lineage onOpenCfo={openCfo} afkToggle={afkToggle} presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} project="" selected={!child && selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
               : <Orchestration afkToggle={afkToggle} presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} connected={connected}
@@ -567,15 +584,15 @@ export function App() {
                 onChild={(task, baby, source) => select(childSelection(task, baby), source)} onOpenCfo={openCfo} />}</Suspense>}
       </main>
       {divided && <PaneDivider workspace={workspace} pane={pane} width={paneSize} onWidth={setPaneSize} onResizing={setResizing} onDone={(width) => store(PANE_WIDTH_KEY, String(width))} />}
-      <aside ref={pane} className="context-pane" hidden={!paneOpen} tabIndex={-1} aria-label={view === "Board" ? "Task review" : "Goblin panel"}>
-        {snapshot && cardStart && paneOpen && (!showsPanel
+      <aside ref={pane} className="context-pane" hidden={!paneShown} tabIndex={-1} aria-label={view === "Orchestration" ? "Goblin panel" : "Task review"}>
+        {snapshot && cardStart && paneShown && (!showsPanel
           ? <><PanelRow {...row} />
             <section className="review-placeholder"><Avatar persona="reviewer" /><h2>Review the work</h2><p>Select a task to see what it is doing and what changed.</p></section></>
           : train ? <TrainPanel key={selectionEpoch + ":train:" + train.id} train={train} tasks={snapshot.tasks} row={row} />
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "") + ":" + (child?.id || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} snapshot={snapshot} connected={connected} reviews={reviews}
             view={shownView} views={views} onView={setPanelView} maximized={panelWide} side={side} isBoardShown={view === "Board" && !panelWide && !fillsPhone} now={now} presentations={presentations} cardStart={cardStart} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
-            onOpenTask={openTask} styleChoice={styleChoice} />)}
+            onOpenTask={openTask} onConnectors={openConnectors} styleChoice={styleChoice} />)}
         {/* The stage, the Messages view and the terminal deck in one box,
             beside the column the panel's task list is drawn into. */}
         <div className="panel-body" hidden={!terminalShown && !messagesShown}>
