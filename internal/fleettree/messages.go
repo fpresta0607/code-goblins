@@ -1084,8 +1084,8 @@ func promptSource(text string) (string, string) {
 		}
 		return FromSlash, strings.TrimSpace(match[1] + " " + args)
 	}
-	if match := bashInput.FindStringSubmatch(text); match != nil {
-		return FromShell, strings.TrimSpace(match[1])
+	if command, isShell := ShellCommand(text); isShell {
+		return FromShell, command
 	}
 	words, isStamped := strings.CutPrefix(text, routing.SteerPrefix)
 	if isStamped {

@@ -745,6 +745,34 @@ for (const [status, label] of [["failed", "Not sent"], ["uncertain", "Not confir
   });
 }
 
+// What he sent after a message that ended with no take seen and saw land puts
+// that message away, by when he sent it, whenever the board last touched its
+// record and whether or not the row that landed is in the page loaded, and a
+// message handed to the CFO was never lost (#2242). The fixture's rows of his
+// are at 09:00.
+const TAKEN_LATER = { id: "a2", kind: "message", task_id: "cg-touch", text: "a later one", status: "succeeded", message: "Taken.", awaiting: "", created_at: "2026-10-22T09:06:00Z", updated_at: "2026-10-22T09:06:30Z" };
+for (const { why, action, others } of [
+  { why: "an uncertain message sent before a row of his that landed, its record touched since", action: { status: "uncertain", message: "Typed and never seen taken.", created_at: "2026-10-22T08:00:00Z", updated_at: "2026-10-22T09:30:00Z" }, others: [] },
+  { why: "a failed message sent before one the board saw taken whose row is not loaded", action: { status: "failed", message: "The terminal closed before it took it.", created_at: "2026-10-22T09:05:00Z", updated_at: "2026-10-22T09:05:00Z" }, others: [TAKEN_LATER] },
+  { why: "a message its goblin could not take that the CFO has", action: { status: "failed", message: "Zeke was stopped before it could take it; the CFO has it", created_at: "2026-10-22T09:05:00Z", updated_at: "2026-10-22T09:05:00Z" }, others: [] },
+]) {
+  test(`${why} is not drawn as undelivered`, async ({ page }) => {
+    // Arrange
+    await open(page);
+    await openGoblin(page);
+    const talk = list(page, "Zeke - Touch Wrangler");
+    const control = { id: "a9", kind: "message", task_id: "cg-touch", text: "the newest one", status: "failed", message: "The terminal closed before it took it.", awaiting: "", created_at: "2026-10-22T09:20:00Z", updated_at: "2026-10-22T09:20:00Z" };
+
+    // Act
+    await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ ...action, id: "a1", kind: "message", task_id: "cg-touch", text: "the put away one", awaiting: "" }, ...others, control] });
+
+    // Assert
+    await expect(talk.locator(".queued-message.pane").filter({ hasText: "the newest one" })).toContainText("Not sent");
+    await expect(talk.locator(".queued-message.pane").filter({ hasText: "the put away one" })).toHaveCount(0);
+    await expect(talk.getByRole("button", { name: "Send again" })).toHaveCount(1);
+  });
+}
+
 test("a prompt its harness holds before any snapshot carries its message is one row", async ({ page }) => {
   // Arrange
   await open(page);

@@ -249,9 +249,12 @@ test.describe("his messages in the chat's one scroll", () => {
     for (const name of ["Send now", "Edit", "Cancel"]) await expect(entry(page).getByRole("button", { name, exact: true })).toBeVisible();
   });
 
-  test("a message waiting in a conversation that holds nothing yet shows with no No messages yet over it", async ({ page }) => {
+  for (const [state, fields] of [
+    ["waiting", {}],
+    ["not sent", { status: "failed", message: "The terminal closed before it took it." }],
+  ] as const) test(`a message ${state} in a conversation that holds nothing yet shows with no No messages yet over it`, async ({ page }) => {
     // Arrange
-    const relay = await open(page, snapshot({ actions: [queued()] }));
+    const relay = await open(page, snapshot({ actions: [queued(fields)] }));
     await openGoblin(page);
     relay.say({ type: "screen", asking: false, open: false, working: true });
 

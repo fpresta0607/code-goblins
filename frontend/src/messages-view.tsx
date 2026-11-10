@@ -785,10 +785,11 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   const queued = waiting.filter((action) => !read.has(action.id));
   // His messages whose delivery ended with no take seen, failed or typed and
   // never seen taken, stay at the end with what happened and Send again until
-  // something he sent after them lands, so none reads as on its way for ever
-  // (#2242).
-  const landed = his.reduce((latest, row) => Math.max(latest, Date.parse(row.at)), 0);
-  const undelivered = held.sent.filter((action) => isUndelivered(action) && Date.parse(action.updated_at) > landed);
+  // something he sent after them lands, a row of his in the record or a
+  // message the board saw taken, so none reads as on its way for ever (#2242).
+  const hasLandedSince = (sentAt: number) => his.some((row) => Date.parse(row.at) > sentAt)
+    || held.sent.some((other) => other.status === "succeeded" && Date.parse(other.created_at) > sentAt);
+  const undelivered = held.sent.filter((action) => isUndelivered(action) && !hasLandedSince(Date.parse(action.created_at)));
   // A prompt its harness holds that names the board message which typed it
   // is that message's one row, whichever of the two the board drew first,
   // its send still reaching the board included, since a send keeps the id of
@@ -855,7 +856,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
           {onAskSlot && <div ref={onAskSlot} className="conversation-ask" />}
         </div>
       </div>
-      {phase === "live" && !conversation.length && !queued.length && !held.waiting.length && <p className="messages-empty" role="status">No messages yet</p>}
+      {phase === "live" && !conversation.length && !queued.length && !held.waiting.length && !undelivered.length && <p className="messages-empty" role="status">No messages yet</p>}
       {/* A touch that stops the conversation gliding after a flick is one
           the browser gives no click, and the button shows the moment he
           leaves the end, while it glides, so a touch's lift takes him there
