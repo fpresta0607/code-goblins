@@ -211,7 +211,7 @@ At each fleet reading the supervisor reconciles that record and pauses the gobli
 The prerequisite must be readable too: an unknown target task, a cycle of prepared or dependency-paused waits, or a pull request that closed without merging or reads as unknown pauses nothing.
 Nothing of that is guessed: evidence that cannot be read or is stale, a message still queued for the goblin, or a terminal that does not read idle leaves the signal for the next reading.
 A changed generation, worktree, session, branch, head or handoff, a newer report, prompt or working activity, worker-owned work, or another lifecycle operation on the goblin invalidates the signal for good, so only a new signal authorizes a pause again.
-Each refusal wakes you once with a `check` wake that names its reason, and since a gate run that is active or parked refuses it, this pause never aborts a gate run.
+Each refusal wakes you once with a `check` wake that names its reason.
 When the prerequisite has already cleared, the record reads `cleared`, the goblin keeps running, and one `check` wake says so.
 Otherwise the supervisor checks the prerequisite and every piece of evidence once more right before it calls the existing `cfo pause` with `--reason dependency`, the condition and the signal's stable operation id, and it records the admission before the call.
 So repeated readings, a replayed signal and a supervisor restart pause the goblin at most once, and the pause keeps its worktree, branch, session and handoff as any dependency pause does.

@@ -7,9 +7,10 @@ A task whose gate run is still open is refused before anything changes, as a pau
 `cfo kill <id>` aborts that run after keeping its commits and retires the task.
 While the task's worktree is gone or no longer a Git worktree, `cfo kill` cannot find the run (issue #2246), so the refusal also names `no-mistakes axi abort --run <run>` with the refused run's id, after which the cleanup is run again.
 A paused task's run is the one its pause saved, read by its id whatever state the task's worktree is in, so `--force-archive`, for a worktree that cannot be validated, and the cleanup of an empty folder refuse it the same way.
+A task whose lifecycle record, where a pause saves its run, cannot be read is refused as one whose gate cannot be read is.
 The run of the worktree's branch is read as well while that folder is still a Git worktree, since a goblin that runs again can start a newer run there, and either run still open refuses.
 A worktree already gone, or a folder no longer a Git worktree, names no branch, so a task with no saved run retires without its run being read.
-A task whose project checkout is gone names no run either way, as its kill aborts none (issue #1578), so the kill's own retirement goes through.
+A task whose project checkout is gone (issue #1578), or whose gate holds no database, names no run either way, as its kill aborts none, so the kill's own retirement goes through.
 A task any of whose worktrees holds uncommitted work is refused before anything changes, never destroyed. cfo removes a worktree's files itself, by the removal every goblin folder goes through, which removes a link as a link and never walks into what it points at: a junction pnpm makes in `node_modules`, which can lead into the store every project on the machine shares, or one into the checkout.
 A path past 260 characters and a read-only file go the same way.
 It never runs `git worktree remove`, because Git for Windows takes a junction for a folder: it deletes what the junction points at, and it stopped with "Directory not empty" at a junction its own deletion had left dangling, having already deleted the worktree's `.git` link and its record of the worktree.
