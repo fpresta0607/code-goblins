@@ -241,7 +241,8 @@ type MessagePage struct {
 }
 
 // WaitingPrompt keeps a Claude Code prompt visible from enqueue through its
-// handoff until its delivered Message appears. It has no delivery offset yet,
+// handoff until its delivered Message appears, or the session answers after
+// the handoff with none that is it. It has no delivery offset yet,
 // so it stays separate from messages; IsSending marks the handoff, and Action
 // names the board message that typed it, which the supervisor fills in.
 type WaitingPrompt struct {
@@ -409,6 +410,8 @@ type messageState struct {
 	usage   Usage
 	window  int64
 	waiting []WaitingPrompt
+	// handed is when Claude Code last took a waiting prompt off its queue.
+	handed time.Time
 }
 
 type blockAt struct {
@@ -864,6 +867,7 @@ func (l *messageLog) queueOperation(entry messageEntry, id string) {
 			l.waiting = slices.Delete(l.waiting, at, at+1)
 		} else {
 			l.waiting[at].IsSending = true
+			l.handed = entry.Timestamp
 		}
 	}
 }
@@ -903,7 +907,18 @@ func (l *messageLog) touch(index int) {
 // an answer as an entry of its own under the answer's id, a tool's result
 // sometimes between them. Thinking it kept only the signature of shows
 // nothing. A reply's seq is the offset of its first entry that shows.
+//
+// An answer written after the last handoff is the session going on from it,
+// so a prompt still sending by then has no delivered row to wait for: the
+// record holds it in words the log does not read as it, as Claude Code's own
+// prompt after a usage limit, which it records for its model alone, or not at
+// all. Its wait ends here, so nothing reads Sending for good (#2327). An
+// answer stamped before the handoff and recorded after it, as a notice Claude
+// Code writes itself can be, ends none.
 func (l *messageLog) reply(entry messageEntry, id string, offset int64) {
+	if entry.Timestamp.After(l.handed) {
+		l.waiting = slices.DeleteFunc(l.waiting, func(prompt WaitingPrompt) bool { return prompt.IsSending })
+	}
 	var blocks []messageBlock
 	if json.Unmarshal(entry.Message.Content, &blocks) != nil {
 		return
