@@ -63,6 +63,12 @@ func claudeReport(ctx context.Context, output io.Reader, input io.Writer) ([]Ent
 			Servers []struct {
 				Name   string `json:"name"`
 				Status string `json:"status"`
+				Tools  []struct {
+					Name        string `json:"name"`
+					Annotations struct {
+						ReadOnly bool `json:"readOnly"`
+					} `json:"annotations"`
+				} `json:"tools"`
 			} `json:"mcpServers"`
 		}
 		if err := call("mcp_status", &report); err != nil {
@@ -79,7 +85,11 @@ func claudeReport(ctx context.Context, output io.Reader, input io.Writer) ([]Ent
 				status = "unverified"
 			}
 			isPending = isPending || status == "checking"
-			entries = append(entries, Entry{ID: "mcp:" + server.Name, Name: server.Name, Kind: "mcp", Status: status, Source: "Claude", Detail: statusDetail(status)})
+			reported := make([]Tool, 0, len(server.Tools))
+			for _, tool := range server.Tools {
+				reported = append(reported, Tool{Name: tool.Name, ReadOnly: tool.Annotations.ReadOnly})
+			}
+			entries = append(entries, Entry{ID: "mcp:" + server.Name, Name: server.Name, Kind: "mcp", Status: status, Source: "Claude", Detail: statusDetail(status), Tools: listedTools(reported)})
 		}
 		if !isPending {
 			return entries, nil

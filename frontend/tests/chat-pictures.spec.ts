@@ -41,7 +41,7 @@ for (const width of [1440, 390]) {
 
     // Assert: the folded row says what its calls did and ends in their three
     // pictures, each loaded lazily and drawn inside the row's one line.
-    await expect(row).toContainText("Read 2 files, ran 1 command, called chrome take_screenshot 1 time");
+    await expect(row).toContainText("Read 2 files, ran 1 command, used Chrome 1 time");
     await expect(thumbnails).toHaveCount(3);
     await row.scrollIntoViewIfNeeded();
     const line = await row.boundingBox();
@@ -71,7 +71,7 @@ for (const width of [1440, 390]) {
     await thumbnails.nth(2).hover();
 
     // Assert
-    await expect(hoverCard(page).locator("p > span")).toHaveText(["Called chrome take_screenshot", "3 of 3"]);
+    await expect(hoverCard(page).locator("p > span")).toHaveText(["Chrome · Take screenshot", "3 of 3"]);
 
     // Act + Assert: Escape puts the card away with the mouse still there, and
     // only the card: the conversation stays open.
