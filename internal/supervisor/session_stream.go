@@ -64,12 +64,27 @@ func turnState(node Session, isTracked bool, messages []fleettree.Message) sessi
 	case "started":
 		// A session that started, or started again, runs no turn until a prompt
 		// begins one: the harness that ran the turn before it is gone. Only a
-		// compaction's start comes in the middle of a turn, which goes on.
-		return sessionTurn{Ended: node.Source != "compact", Known: true}
+		// compaction's start comes in the middle of a turn, which goes on,
+		// unless the Overlord asked for the compaction, which he can only
+		// between turns.
+		return sessionTurn{Ended: node.Source != "compact" || isCompactionAsked(messages, prompt), Known: true}
 	case "active":
 		return sessionTurn{Known: true}
 	}
 	return sessionTurn{Why: "This session's harness has not reported a turn yet, so the board does not draw one as working."}
+}
+
+// isCompactionAsked reports whether the newest compaction since prompt, the
+// one that began the session's newest turn, is one the Overlord asked for
+// rather than one its harness made. A start reported before its compaction is
+// written finds none since the prompt, and so none he asked for.
+func isCompactionAsked(messages []fleettree.Message, prompt fleettree.Message) bool {
+	for at := len(messages) - 1; at >= 0 && messages[at].Seq > prompt.Seq; at-- {
+		if messages[at].Kind == fleettree.MessageCompaction {
+			return messages[at].Trigger == "manual"
+		}
+	}
+	return false
 }
 
 // heldStream is one session's stream as the supervisor holds it: the appender

@@ -144,6 +144,35 @@ func TestWhatASessionsOwnReportSaysOfItsTurn(t *testing.T) {
 	}
 }
 
+// TestACompactionsStartLeavesItsTurnRunningUnlessHeAskedForIt is a session
+// that reports its start after a compaction: one its harness made comes in the
+// middle of a turn, which goes on, and one the Overlord asked for comes between
+// turns, so nothing runs after it (#2293).
+func TestACompactionsStartLeavesItsTurnRunningUnlessHeAskedForIt(t *testing.T) {
+	asked := fleettree.Message{ID: "c0", Seq: 1, Kind: fleettree.MessageCompaction, Trigger: "manual"}
+	for name, tc := range map[string]struct {
+		after []fleettree.Message
+		ended bool
+	}{
+		"a compaction the Overlord asked for":                         {nil, true},
+		"a compaction the harness made":                               {[]fleettree.Message{{ID: "c1", Seq: 2, Kind: fleettree.MessageCompaction, Trigger: "auto"}}, false},
+		"a compaction not written yet, a turn after one he asked for": {[]fleettree.Message{{ID: "p2", Seq: 2, Kind: fleettree.MessagePrompt}}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			messages := append([]fleettree.Message{{ID: "p1", Seq: 0, Kind: fleettree.MessagePrompt}, asked}, tc.after...)
+
+			// Act
+			got := turnState(Session{Phase: "started", Source: "compact"}, true, messages)
+
+			// Assert
+			if !got.Known || got.Ended != tc.ended {
+				t.Fatalf("%+v; want a known turn, ended %t", got, tc.ended)
+			}
+		})
+	}
+}
+
 // TestAHarnesssOwnReplyEndsTheTurnItsReportIsOlderThan is the turn a usage
 // limit or a failed request ended: Claude Code writes the reply itself and
 // runs no hook, so the session's last report still says the turn runs. That
