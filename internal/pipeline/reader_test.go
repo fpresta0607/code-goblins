@@ -91,7 +91,7 @@ INSERT INTO runs VALUES('old','repo','fix/connections',1,'failed'),('current','r
 }
 
 func TestRepoPolicyCannotRaiseCapsAndDoesNotOwnReviewAgents(t *testing.T) {
-	p := testPolicy(t)
+	p := versionFive()
 	for _, source := range []string{"auto_fix: {review: 10}", "auto_fix: {test: 2}", "auto_fix: {review: 0, review: 10}", "agent: [claude]\n---\nagent: [pi]"} {
 		if err := CheckRepoConfig([]byte(source), p); err == nil {
 			t.Errorf("unsafe override accepted: %s", source)
@@ -114,7 +114,7 @@ func TestRepoPolicyCannotRaiseCapsAndDoesNotOwnReviewAgents(t *testing.T) {
 // decision, so each is refused.
 func TestRepoPolicyMayLowerAnAutomaticFixButNeverRaiseOne(t *testing.T) {
 	// Arrange
-	p := testPolicy(t)
+	p := versionFive()
 
 	for _, source := range []string{"auto_fix: {ci: 0}", "auto_fix: {test: 0, lint: 0, rebase: 0, ci: 0}", "auto_fix: {babysit: 0}", "auto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}"} {
 		// Act
@@ -134,10 +134,19 @@ func TestRepoPolicyMayLowerAnAutomaticFixButNeverRaiseOne(t *testing.T) {
 			t.Errorf("a raised, negative or ungoverned automatic fix was accepted: %s", source)
 		}
 	}
+	checks := testPolicy(t)
+	if err := CheckRepoConfig([]byte("auto_fix: {review: 0, test: 0, lint: 0, rebase: 1, ci: 0}"), checks); err != nil {
+		t.Errorf("version %d refused its own counts: %v", checks.Version, err)
+	}
+	for _, source := range []string{"auto_fix: {test: 1}", "auto_fix: {lint: 1}", "auto_fix: {ci: 1}"} {
+		if err := CheckRepoConfig([]byte(source), checks); err == nil {
+			t.Errorf("version %d accepted a follow-up its gate no longer takes: %s", checks.Version, source)
+		}
+	}
 }
 
 func TestRepoAgentCannotAlterRenderedGlobalReviewAgents(t *testing.T) {
-	chain := testPolicy(t)
+	chain := versionFive()
 	pinned := chain
 	pinned.Version, pinned.Fallback = 3, Reviewer{}
 	pinned.Reviewer, pinned.Fixer = pinned.Primary, pinned.Primary
@@ -285,7 +294,7 @@ INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'ma
 		t.Fatalf("fixture: %s %v", out, err)
 	}
 	reader := Reader{Root: state, Commands: fixtureCommands{execx.OSRunner{}}}
-	_, err := reader.CheckStart(context.Background(), project, project, "feature", "ship safely", testPolicy(t))
+	_, err := reader.CheckStart(context.Background(), project, project, "feature", "ship safely", versionFive())
 	if err == nil || !strings.Contains(err.Error(), "stale") {
 		t.Fatalf("CheckStart error=%v, want stale trusted primary refusal", err)
 	}
@@ -328,7 +337,7 @@ INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'ma
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			reader := Reader{Root: dir, Commands: &primaryRoutingRunner{task: []byte(test.task), trusted: []byte(test.trusted)}}
-			_, err := reader.CheckStart(context.Background(), project, filepath.Join(project, "worktree"), "feature", "ship safely", testPolicy(t))
+			_, err := reader.CheckStart(context.Background(), project, filepath.Join(project, "worktree"), "feature", "ship safely", versionFive())
 			if test.wantErr {
 				if err == nil || !strings.Contains(err.Error(), "agent overrides") {
 					t.Fatalf("CheckStart error=%v, want trusted primary refusal", err)
@@ -520,10 +529,11 @@ INSERT INTO step_rounds VALUES('disabledstep',1,NULL),('automaticstep',1,NULL);`
 	}
 }
 
-// This repository's own committed .no-mistakes.yaml is what bounds the initial
-// rollout gate, and CheckStart reads it through checkRepoConfig. Editing either
+// This repository's own committed .no-mistakes.yaml bounds every gate run of
+// it, and CheckStart reads it through checkRepoConfig. Editing either
 // checked-in artifact out of agreement would only surface as a refused gate
-// run, so assert the real consumer accepts the real pair.
+// run, so assert the real consumer accepts the real pair, and the version 6
+// policy a home keeps until it moves to version 7.
 func TestCommittedRepoConfigSatisfiesTheCheckedInPolicy(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", ".no-mistakes.yaml"))
 	if err != nil {
@@ -531,6 +541,9 @@ func TestCommittedRepoConfigSatisfiesTheCheckedInPolicy(t *testing.T) {
 	}
 	if err := CheckRepoConfig(data, testPolicy(t)); err != nil {
 		t.Fatalf("committed gate config conflicts with config/pipeline.json: %v", err)
+	}
+	if err := CheckRepoConfig(data, versionSix(t, Reviewer{})); err != nil {
+		t.Fatalf("committed gate config conflicts with a version 6 home: %v", err)
 	}
 	var config struct {
 		Agent yaml.Node `yaml:"agent"`
