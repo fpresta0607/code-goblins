@@ -62,7 +62,7 @@ func (h *HTTP) codeRun(w http.ResponseWriter, r *http.Request) {
 		query.Set("generation", request.Generation)
 		source = request.Task + " " + request.Generation
 	}
-	transcript, err := codeRunTranscript(h, query)
+	transcript, err := codeRunTranscript(r.Context(), h, query)
 	if err != nil {
 		var refused messagesRefused
 		if errors.As(err, &refused) {
@@ -95,16 +95,16 @@ func (h *HTTP) codeRun(w http.ResponseWriter, r *http.Request) {
 	}{run.ID})
 }
 
-func codeRunTranscript(h *HTTP, query url.Values) (string, error) {
-	locate, err := h.messagesLocator(query)
+func codeRunTranscript(ctx context.Context, h *HTTP, query url.Values) (string, error) {
+	locate, err := h.messagesLocator(ctx, query)
 	if err != nil {
 		return "", err
 	}
-	transcript, err := locate()
-	if err == nil && transcript == "" {
+	located, err := locate()
+	if err == nil && located.Path == "" {
 		err = messagesRefused{http.StatusConflict, "That session has written no reply yet."}
 	}
-	return transcript, err
+	return located.Path, err
 }
 
 // replyCommand reads back the command the request names from the session's

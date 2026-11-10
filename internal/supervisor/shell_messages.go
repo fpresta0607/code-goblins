@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
@@ -21,6 +24,10 @@ const shellCommandsDir = "shell-commands"
 // Bash, PowerShell and cmd alike: a drive, forward slashes and no space,
 // quote or character a shell splits on or expands.
 var shellWord = regexp.MustCompile(`^[A-Za-z]:/[A-Za-z0-9_./-]+$`)
+
+// shellLine matches the line shellMessageLine delivers, with or without the
+// harness's !, as a session records it, its group the script it runs.
+var shellLine = regexp.MustCompile(`^(?:!\s*)?[A-Za-z]:/[A-Za-z0-9_./-]+ -NoProfile -ExecutionPolicy Bypass -File ([A-Za-z]:/[A-Za-z0-9_./-]+/[0-9a-f]{32}\.ps1)$`)
 
 // shellScriptName is the script a message's command is kept in, named after
 // the message, so a delivery tried again keeps the same one.
@@ -71,4 +78,42 @@ func shellMessageLine(stateDir, actionID, task, text string) (line string, isShe
 		}
 	}
 	return "! " + program + " -NoProfile -ExecutionPolicy Bypass -File " + file, true, nil
+}
+
+// shellCommandOf is the command a shell-mode line runs, read back from the
+// script it names in the board's own folder of them, and false for any other
+// text or a script that folder no longer holds.
+func shellCommandOf(stateDir, text string) (string, bool) {
+	match := shellLine.FindStringSubmatch(strings.TrimSpace(text))
+	if match == nil || !strings.EqualFold(path.Dir(match[1]), filepath.ToSlash(filepath.Join(stateDir, shellCommandsDir))) {
+		return "", false
+	}
+	data, err := os.ReadFile(filepath.FromSlash(match[1]))
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(strings.TrimPrefix(string(data), "\xef\xbb\xbf")), true
+}
+
+// shownShellCommands is messages and waiting with each of his shell-mode
+// messages shown as the command he typed rather than the line that ran it,
+// whose powershell.exe and script path say nothing he wrote (#2051): a shell
+// row the session recorded, and a prompt its harness holds, which is his
+// shell command still waiting. What the reader returned is left as it was.
+func shownShellCommands(stateDir string, messages []fleettree.Message, waiting []fleettree.WaitingPrompt) ([]fleettree.Message, []fleettree.WaitingPrompt) {
+	messages, waiting = slices.Clone(messages), slices.Clone(waiting)
+	for i := range messages {
+		if messages[i].Kind != fleettree.MessagePrompt || messages[i].Source != fleettree.FromShell {
+			continue
+		}
+		if command, isShell := shellCommandOf(stateDir, messages[i].Text); isShell {
+			messages[i].Text = command
+		}
+	}
+	for i := range waiting {
+		if command, isShell := shellCommandOf(stateDir, waiting[i].Text); isShell {
+			waiting[i].Source, waiting[i].Text = fleettree.FromShell, command
+		}
+	}
+	return messages, waiting
 }
