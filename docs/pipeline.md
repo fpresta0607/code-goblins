@@ -1031,7 +1031,9 @@ The list reporter marks a case by its status alone, so a case declared with `tes
 So a case that failed before the cutoff fails the push, named, rather than being left to CI as a case that never ran, and a check whose cases all passed before the cutoff is still left to CI.
 On 2026-10-27 a prepush run of 141 specs reported three assertion failures, the limit ended it after 465 of 1603 cases, and the run said it passed what it ran (#1542).
 A case a retry then passed is no failure, since the gate's reporter writes a row for each try that failed and one for the retry that passed it, and a case is what its last row said.
-That failure's line names the cases the check reached:
+The case the limit itself ended is no failure either: ending the check ends the browser and the worker running a case, Playwright closes that case as failed when either goes before its runner does, and the gate's reporter writes a row for it.
+So the run reads no row once the limit has passed, and that case is left to CI with the cases that never ran (#1927).
+The line of a case that failed before the cutoff names the cases the check reached:
 
 ```text
 cfo gate prepush: failed at check 4 of 4, 1 browser spec: 2 browser cases failed before the time limit ended the check: [board] tests/afk.spec.ts:12:7 › a title, [board] tests/afk.spec.ts:19:3 › another title. CI would fail on them too, so fix them before you push.

@@ -337,6 +337,13 @@ func boardChange(t *testing.T) string {
 // boardRun is a runtime whose three quick board checks pass and whose browser
 // check writes rows and then runs until the time limit ends it.
 func boardRun(rows ...string) commandRuntime {
+	return boardRunEnded(rows)
+}
+
+// boardRunEnded is boardRun whose browser check also writes the rows of
+// ended as the time limit ends it, as Playwright's runner does of the case
+// whose browser or worker the limit ended before the runner itself.
+func boardRunEnded(rows []string, ended ...string) commandRuntime {
 	runtime := defaultCommandRuntime()
 	runtime.availableMemory = plenty
 	runtime.gateDisk = roomy
@@ -348,6 +355,9 @@ func boardRun(rows ...string) commandRuntime {
 			fmt.Fprintln(stdout, row)
 		}
 		<-ctx.Done()
+		for _, row := range ended {
+			fmt.Fprintln(stdout, row)
+		}
 		return -1, ctx.Err()
 	}
 	return runtime
@@ -383,6 +393,68 @@ func TestGatePrepushFailsABrowserCaseThatFailedBeforeTheTimeLimit(t *testing.T) 
 		if strings.Contains(stdout.String(), unwanted) {
 			t.Errorf("the run says %q, which hides the failure it knows\nstdout=%s", unwanted, stdout.String())
 		}
+	}
+}
+
+// The case the time limit itself ended is no failure before it. Ending the
+// check's processes ends the browser and the worker running a case,
+// Playwright closes that case as failed when either goes before its runner
+// does, and the gate's reporter writes its row. A prepush whose 17 browser
+// cases had all passed failed the push on case 18, which the limit had ended
+// and which passes by itself (issue 1927).
+func TestGatePrepushLeavesTheBrowserCaseTheTimeLimitEndedToCI(t *testing.T) {
+	// Arrange
+	boardChange(t)
+	runtime := boardRunEnded(
+		[]string{`  ok  17 [board] › tests\run-terminal.spec.ts:4:1 › a case that passed (1.2s)`},
+		`  x   18 [board] › tests\run-terminal.spec.ts:12:1 › a case the limit ended (2ms)`,
+		`cfo gate case: unexpected [board] tests/run-terminal.spec.ts:12:1 › a case the limit ended`,
+	)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gatePrepushWith(runtime, &stdout, &stderr, "--limit", "2s")
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{
+		"left to CI, since the time limit of 2s passed while check 4 ran:\n- 1 browser spec (the change touched or names them)\n",
+		"cfo gate prepush: passed what it ran. 3 of 4 checks ran in ",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("stdout %q lacks %q", stdout.String(), want)
+		}
+	}
+}
+
+// A case that failed before the time limit still fails the push when the
+// limit then ends another, and the line names only the one that failed before
+// it (issues 1542 and 1927).
+func TestGatePrepushNamesOnlyTheBrowserCaseThatFailedBeforeTheTimeLimit(t *testing.T) {
+	// Arrange
+	boardChange(t)
+	runtime := boardRunEnded(
+		[]string{
+			`  x   17 [board] › tests\run-terminal.spec.ts:4:1 › a case that failed (23ms)`,
+			`cfo gate case: unexpected [board] tests/run-terminal.spec.ts:4:1 › a case that failed`,
+		},
+		`  x   18 [board] › tests\run-terminal.spec.ts:12:1 › a case the limit ended (2ms)`,
+		`cfo gate case: unexpected [board] tests/run-terminal.spec.ts:12:1 › a case the limit ended`,
+	)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gatePrepushWith(runtime, &stdout, &stderr, "--limit", "2s")
+
+	// Assert
+	if exit != 1 {
+		t.Fatalf("exit = %d, want 1; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	want := "cfo gate prepush: failed at check 4 of 4, 1 browser spec: 1 browser case failed before the time limit ended the check: [board] tests/run-terminal.spec.ts:4:1 › a case that failed. CI would fail on it too, so fix it before you push."
+	if got := lastLine(stdout.String()); got != want {
+		t.Errorf("the run ends with %q, want %q\nstdout=%s", got, want, stdout.String())
 	}
 }
 
