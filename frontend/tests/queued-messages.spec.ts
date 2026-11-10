@@ -405,6 +405,29 @@ for (const [press, kind, text] of [["Send now", "message_now", ""], ["Cancel", "
   });
 }
 
+// A Send now he asked for is spent once the board has tried the message
+// again, so one that was not sent a second time can be sent now once more
+// rather than left with Cancel alone.
+test("a message not sent again after its Send now can be sent now once more", async ({ page }) => {
+  // Arrange
+  const unsent = queued({ status: "failed", message: NOT_SENT, send_now_why: "" });
+  const posts = await openWith(page, unsent);
+  const sendNow = entry(page).getByRole("button", { name: "Send now", exact: true });
+  const show = (revision: number, action: object) => page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision, actions: [action] }));
+  await sendNow.click();
+  await expect.poll(() => posts.length).toBe(1);
+
+  // Act: the board queues it again, tries it, and it is not sent again.
+  await show(2, queued({ can_send_now: true, send_now_why: "", message: "Queued.", updated_at: "2026-10-22T09:00:05Z" }));
+  await expect(entry(page).locator(".queued-state")).toHaveText(WAITING);
+  await show(3, { ...unsent, updated_at: "2026-10-22T09:00:40Z" });
+  await expect(entry(page).locator(".queued-state")).toHaveText("Not sent");
+  await sendNow.click();
+
+  // Assert
+  await expect.poll(() => posts).toEqual([{ kind: "message_now", target: "q1", text: "" }, { kind: "message_now", target: "q1", text: "" }]);
+});
+
 // His message to the CFO waits out a short undo window on the board, where
 // Edit and Cancel work, and is then typed into the CFO's turn, where they go
 // (the CFO, 2026-11-02: "The bubble shows each real state: held (Edit and

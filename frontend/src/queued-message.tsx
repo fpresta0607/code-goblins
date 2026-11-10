@@ -48,6 +48,10 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
   // message's own, so one sent again from another screen withdraws nothing
   // twice.
   const [asked, setAsked] = useState<"" | "now" | "withdrawn" | "again">("");
+  // The failure a Send now was asked of, by when it ended: Send now stays
+  // pressed for that one alone, so a message not sent again since can be
+  // sent now once more.
+  const [resent, setResent] = useState("");
   const post = (body: object) => request("/api/actions", undefined, {
     method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify(body),
   });
@@ -120,8 +124,8 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
         onClick={() => { if (canActNow && current) void act({ kind: "message_withdraw", text: current.text }, () => { setAsked("withdrawn"); onDeleted?.(); }); else refuse(movedWhy); }}><Icon name="close" /></button>
     </div>}
     {isUnsent && asked !== "withdrawn" && <div className="queued-actions">
-      <button type="button" className="icon-button" aria-label="Send now" disabled={isSending || asked === "now"}
-        onClick={() => void act({ kind: "message_now" }, () => setAsked("now"))}><Icon name="arrow-up" /></button>
+      <button type="button" className="icon-button" aria-label="Send now" disabled={isSending || resent === action.updated_at}
+        onClick={() => void act({ kind: "message_now" }, () => { setAsked("now"); setResent(action.updated_at); })}><Icon name="arrow-up" /></button>
       <button type="button" className="icon-button" aria-label="Cancel" disabled={isSending}
         onClick={() => void act({ kind: "message_withdraw", text: action.text }, () => { setAsked("withdrawn"); onDeleted?.(); })}><Icon name="close" /></button>
     </div>}
