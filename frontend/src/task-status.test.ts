@@ -193,7 +193,7 @@ test("a goblin whose spawn ended reads Starting until the supervisor has evidenc
 });
 
 test("a paused goblin reads what resumes it, the same words on every surface", () => {
-  const snapshot = board({ phase: "paused", generation: "s1", lifecycle: { phase: "paused", action: "pause", at: "2026-10-08T11:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "memory", until: "", at: "2026-10-08T11:00:00Z" } } });
+  const snapshot = board({ phase: "paused", generation: "s1", lifecycle: { phase: "paused", action: "pause", at: "2026-10-08T11:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason: "memory", until: "", at: "2026-10-08T11:00:00Z" } } });
   assert.deepEqual(taskStatus(zane(snapshot), snapshot), { text: "Paused until memory frees", phase: "paused" });
 });
 
@@ -208,7 +208,7 @@ test("every phase and wait of a goblin reads one state, in its column, and only 
   const TRAIN_PR = "https://github.com/o/code-goblins/pull/900", PR = "https://github.com/o/code-goblins/pull/512";
   const nina = { id: "nina-task", title: "Other work", phase: "working", generation: "n1", goblin_name: "Nina", goblin_title: "Bug Hunter", verified: false };
   const tree = (place: number) => ({ tree: { task_id: "zane", generation: "s1", harness: "claude", memory: 0, own_memory: 0, children: [], line_place: place } });
-  const pause = (fields: Record<string, unknown>) => ({ phase: "paused", lifecycle: { phase: "paused", action: "pause", at: "2026-11-02T19:47:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { until: "", at: "2026-11-02T19:47:00Z", ...fields } } });
+  const pause = (fields: Record<string, unknown>) => ({ phase: "paused", lifecycle: { phase: "paused", action: "pause", at: "2026-11-02T19:47:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { until: "", at: "2026-11-02T19:47:00Z", ...fields } } });
   const done = (fields: Record<string, unknown>) => ({ phase: "idle", report: "done", pr: PR, ...fields });
   const checks = (state: string) => ({ hosted_checks: { head: "a".repeat(40), state, checks: 9, failed: state === "failed" ? ["test"] : [] } });
   const riding = { id: "t1", repository: "o/code-goblins", base: "main", pr: TRAIN_PR, state: "testing", runs: 1, started: "2026-11-02T19:00:00Z", finished: "", note: "",

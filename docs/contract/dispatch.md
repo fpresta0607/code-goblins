@@ -177,7 +177,7 @@ Its terminal's mark, a value every process started in the terminal inherits and 
 Its place, at work in the task's folders or running a program from them.
 Or its parent, when that is the task's own.
 So a browser bridge with its browser, a server left in the background, a watcher, a pipeline or an MCP server ends with its goblin though it detached from the terminal.
-What a pause keeps is named, never guessed: the worktree, the branch, the session and the handoff, the open gate run of a memory pause, the machine services, and the desktop programs.
+What a pause keeps is named, never guessed: the worktree, the branch, the session and the handoff, the open gate run, the machine services, and the desktop programs.
 The machine services are Docker Desktop with what it runs, the no-mistakes daemon with every other gate's agents, and the Scrawl server that keeps every goblin's review page, whichever goblin started them.
 The desktop programs are the ones the Overlord uses himself though a goblin started them, as when a sign-in opens his browser: a program that shows a window, a browser no tool drives, a packaged desktop app and Explorer, each with what it started.
 A gate's agent carries the mark of whichever goblin started the daemon, so it is a task's only while it works in that task's own gate run.
@@ -201,14 +201,17 @@ One whose goblin then reports from that session, working, waiting, asking or don
 A resume and a `cfo cleanup` of the same task never run together: whichever starts first holds the task, and the other is refused before it changes anything, with one line saying what holds it.
 A resume the scheduler started that the task's cleanup refused is no failure of the goblin's: the task is gone, or goes once the cleanup ends, so the board shows no failed resume and nobody is woken, and a cleanup that was refused in its turn leaves the goblin paused for the scheduler's next reading.
 A relaunch also looks at its task once more after its wait for the spawn lock, and one whose task record or worktree went meanwhile stops there, with nothing written and no terminal started.
-A memory pause leaves the goblin's open gate run running.
-Any other pause aborts the run after keeping its commits.
+A pause, whatever its reason, leaves the goblin's open gate run running, and the resumed goblin carries on from it.
+Only a stop aborts the run, after keeping its commits.
+So a `cfo cleanup` of a paused goblin whose run is still open, or whose gate cannot be read, is refused before it changes anything, with or without `--force-archive` and whatever state its worktree is in, naming `cfo kill <id>`, which aborts the run after keeping its commits and retires the task.
+While the task's worktree is gone or no longer a Git worktree, `cfo kill` cannot find the run (issue #2246), so the refusal also names `no-mistakes axi abort --run <run>` with the refused run's id, after which the cleanup is run again.
+While only a memory pause left the run alone, pauses for every other reason ended 29 of 147 runs in three days, each of which then started again from its first step (issue #2089).
 A goblin authorizes one dependency pause of its own with `cfo notify <id> --prepared-wait task:<id>|pr:<GitHub PR URL> --generation <generation> --handoff <handoff-file>` ([cfo notify](../commands/notify.md)) once its preparation is complete and no worker-owned work remains; a plain `--waiting-on` never authorizes one.
 At each fleet reading the supervisor reconciles that record and pauses the goblin only while every piece of evidence still matches the signal: the task's generation, project and worktree, its saved session, its newest report, no prompt since the signal and no message queued for it, its branch and clean head, the saved handoff's digest, no active or parked gate run and no gate custody held, a fresh ownership reading with no job, no wait, no unfinished or newer child and no helper, and a fresh idle reading of its terminal.
 The prerequisite must be readable too: an unknown target task, a cycle of prepared or dependency-paused waits, or a pull request that closed without merging or reads as unknown pauses nothing.
 Nothing of that is guessed: evidence that cannot be read or is stale, a message still queued for the goblin, or a terminal that does not read idle leaves the signal for the next reading.
 A changed generation, worktree, session, branch, head or handoff, a newer report, prompt or working activity, worker-owned work, or another lifecycle operation on the goblin invalidates the signal for good, so only a new signal authorizes a pause again.
-Each refusal wakes you once with a `check` wake that names its reason, and since a gate run that is active or parked refuses it, this pause never aborts a gate run.
+Each refusal wakes you once with a `check` wake that names its reason.
 When the prerequisite has already cleared, the record reads `cleared`, the goblin keeps running, and one `check` wake says so.
 Otherwise the supervisor checks the prerequisite and every piece of evidence once more right before it calls the existing `cfo pause` with `--reason dependency`, the condition and the signal's stable operation id, and it records the admission before the call.
 So repeated readings, a replayed signal and a supervisor restart pause the goblin at most once, and the pause keeps its worktree, branch, session and handoff as any dependency pause does.

@@ -185,20 +185,7 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 		CPU:      proc.CPUTime,
 		Kill:     func(ctx context.Context, pid int) error { return killTree(ctx, commands, pid) },
 		Clean: func(ctx context.Context, id string, forceArchive bool) (string, error) {
-			result, err := cleanup.Service{
-				StateDir:     h.State,
-				Data:         h.Data,
-				Commands:     commands,
-				Terminal:     client,
-				Worktrees:    worktree.Service{Commands: commands},
-				ForceArchive: forceArchive,
-
-				LeaveRunningTerminals: true,
-				HandOver: func(meta state.TaskMeta) (bool, error) {
-					return supervisor.HandOverRetiredNote(h.State, meta)
-				},
-			}.Cleanup(ctx, id)
-			return result.Output, err
+			return reapCleanup(ctx, h, client, id, forceArchive)
 		},
 		Return: func(ctx context.Context, project, path string) error {
 			return worktree.Service{Commands: commands}.Return(ctx, project, path)
@@ -208,6 +195,27 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 		return service.Apply(ctx, options)
 	}
 	return service.Audit(ctx, options)
+}
+
+// reapCleanup retires one task the sweep found through the guarded cleanup,
+// leaving every running terminal and process alone.
+func reapCleanup(ctx context.Context, h home.Home, client *herdr.Client, id string, forceArchive bool) (string, error) {
+	commands := execx.OSRunner{}
+	result, err := cleanup.Service{
+		StateDir:     h.State,
+		Data:         h.Data,
+		Commands:     commands,
+		Terminal:     client,
+		Worktrees:    worktree.Service{Commands: commands},
+		ForceArchive: forceArchive,
+
+		LeaveRunningTerminals: true,
+		HandOver: func(meta state.TaskMeta) (bool, error) {
+			return supervisor.HandOverRetiredNote(h.State, meta)
+		},
+		OpenGateRun: openGateRun(h),
+	}.Cleanup(ctx, id)
+	return result.Output, err
 }
 
 // killTree ends a process and everything under it. taskkill /T is what reaches

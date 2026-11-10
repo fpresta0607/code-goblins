@@ -4,7 +4,7 @@ import { finishedEvidence, goblinName, listItem, pausedWithParent, pauseStatus, 
 import { parseSnapshot, type CIUsual, type PauseCondition, type Task } from "./types.ts";
 
 const task = (fields: Record<string, unknown>): Task => parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "a", phase: "working", generation: "s1", verified: false, ...fields }] }).tasks[0];
-const lifecycle = (fields: Record<string, unknown>) => ({ phase: "paused", action: "pause", at: "2026-10-05T16:30:06Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, ...fields });
+const lifecycle = (fields: Record<string, unknown>) => ({ phase: "paused", action: "pause", at: "2026-10-05T16:30:06Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, ...fields });
 
 test("a title or a note loses the harness a backlog row names after a semicolon, and nothing else", () => {
   const cases: [string, string][] = [

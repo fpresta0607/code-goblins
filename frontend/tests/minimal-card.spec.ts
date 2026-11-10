@@ -15,7 +15,7 @@ const goblin = (id: string, name: string, title: string, task: string, fields: R
   id, title: task, goblin_name: name, goblin_title: title, project: "code-goblins", phase: "working", report: "working", verified: false,
   generation: id + "-1", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", since: ago(210), ...fields,
 });
-const pause = (until: string, minutes: number) => ({ phase: "paused", action: "pause", at: ago(minutes), kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "dependency", until, at: ago(minutes) } });
+const pause = (until: string, minutes: number) => ({ phase: "paused", action: "pause", at: ago(minutes), kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason: "dependency", until, at: ago(minutes) } });
 const LONG = "Teach the board to read every harness's own session record instead of its screen, for the waiting and working status";
 const SNAPSHOT = {
   healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],

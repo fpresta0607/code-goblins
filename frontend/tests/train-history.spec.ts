@@ -22,7 +22,7 @@ const goblin = (id: string, name: string, title: string, task: string, fields: R
   id, title: task, goblin_name: name, goblin_title: title, project: "code-goblins", phase: "idle", report: "done", verified: false,
   generation: id + "-1", harness: "claude", model: "claude-opus-5-5", since: ago(95), ...fields,
 });
-const pause = (reason: string, until: string) => ({ phase: "paused", action: "pause", at: ago(20), kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason, until, at: ago(20) } });
+const pause = (reason: string, until: string) => ({ phase: "paused", action: "pause", at: ago(20), kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason, until, at: ago(20) } });
 const untilMerged = (id: string, name: string, title: string, task: string, number: number) => goblin(id, name, title, task, { phase: "paused", at: ago(20), pr: REPO + "/pull/" + number, lifecycle: pause("dependency", "pr:" + REPO + "/pull/" + number), hosted_checks: { head: HEAD, state: "passed", checks: 9 } });
 const car = (number: number, task: string, name: string, title: string, state: string, note = "") => ({ number, url: REPO + "/pull/" + number, title, task, goblin: name, goblin_title: title, head: HEAD, state, note });
 const run = (number: number, riders: number[], result: string, minutes: number) => ({ number, riders, base: "b".repeat(40), head: "c".repeat(40), pushed: ago(minutes), result });

@@ -26,7 +26,7 @@ const FRANK = {
   ticket: { number: 88, url: REPO + "/issues/88", state: "in progress" }, pr: REPO + "/pull/91",
 };
 const WANDA = { id: "ha-pantry-map", title: "The pantry map shows each shelf", project: "household-assistant", goblin_name: "Wanda", goblin_title: "Map Maker", harness: "claude", phase: "working", verified: false, generation: "s-ha-pantry-map", since: at };
-const pause = { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "overlord", at } };
+const pause = { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason: "overlord", at } };
 const STATES: [string, Record<string, unknown>, string, string][] = [
   ["working", {}, "Working", "working"],
   ["waiting on CI", { phase: "waiting", waiting_on: "ci" }, "Waiting on CI", "waiting"],

@@ -49,7 +49,7 @@ test("a goblin's messages are its own, never one that names no goblin", () => {
 test("a message kept for a resume shows from the resume note, never from its action", () => {
   const shown = snapshot([action({ id: "a", status: "succeeded", message: "Kept for its resume." }), action({ id: "b", status: "succeeded", message: "Accepted by the goblin in its native terminal." })]);
   assert.deepEqual(messagesTo(shown, "goblin-one").map((sent) => sent.id), ["b"]);
-  const lifecycle = { phase: "paused", action: "pause", at: "", kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false };
+  const lifecycle = { phase: "paused", action: "pause", at: "", kept: [], stopped: [], problems: [], handoff_saved: false, validation_kept: false };
   assert.deepEqual(task({ phase: "paused", lifecycle: { ...lifecycle, kept_messages: ["i can message?", "go on\nand rebase"] } }).lifecycle?.kept_messages, ["i can message?", "go on\nand rebase"]);
   assert.equal(task({ phase: "paused", lifecycle }).lifecycle?.kept_messages, undefined, "a lifecycle with none names none");
 });
