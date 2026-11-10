@@ -17,6 +17,7 @@ A goblin started before this keeps the `TMP` it was started with until it is res
 - The brief's Authentication section decides what the goblin can reach under [Credentials by need](authentication.md#credentials-by-need).
 - The brief's Verification section assigns project checks, tier execution and reuse to the [selected validation owner](delivery.md#delivery).
 - `--mode` is `no-mistakes`, `direct-PR`, or `local-only`; omitted, [delivery intake](delivery.md#delivery) resolves project posture and concrete change risk, with no-mistakes for missing or uncertain inputs.
+  Given, it is the mode the brief's Delivery section names, and a spawn that asks for another is refused.
 - Every goblin starts in a native terminal of its own.
   A pi goblin starts with `--approve` where its pi advertises it, trusting the folder's project files for that run only, so it never asks.
 - Every goblin's terminal names a browser session of its own, `CHROME_DEVTOOLS_AXI_SESSION` set to its task id, and the CEO's is `cfo`. chrome-devtools-axi keeps one bridge and one browser for each session name, so a bridge belongs to one owner and is never the tool's unnamed session, which every program of the user shares.
