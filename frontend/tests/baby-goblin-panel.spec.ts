@@ -94,7 +94,7 @@ test("clicking a sub-agent opens its own transcript live, under its name and its
   await expect(terminal).toBeVisible();
   for (const line of DRAWN) await expect(terminal).toContainText(line);
   expect((await terminal.boundingBox())!.y, "under its name and task").toBeGreaterThan((await title(page).boundingBox())!.y);
-  await expect(page.getByRole("button", { name: "Back to the CFO", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Back to the CEO", exact: true })).toBeVisible();
 });
 
 test("clicking a helper goblin opens that helper's own panel", async ({ page }) => {
@@ -194,7 +194,7 @@ test("dragging from a baby goblin moves the canvas and opens nothing, and a key 
   await page.mouse.up();
   const after = (await baby(page, "Kip Jr. - Export Tracer").boundingBox())!;
   expect(after.x - before.x).toBeCloseTo(120, 0);
-  await expect(title(page)).toHaveText("CFO");
+  await expect(title(page)).toHaveText("CEO");
   // A key still opens it after the pan.
   await baby(page, "Kip Jr. - Export Tracer").focus();
   await page.keyboard.press("Enter");
@@ -237,7 +237,7 @@ test("working subagents open their panels and processes have no baby card", asyn
   for (const child of await page.locator(".tree-branches .tree-child").all()) expect(await child.evaluate((node) => getComputedStyle(node).opacity), await child.locator("strong").textContent() || "").toBe("1");
   await baby(page, "Grub IV - Server Reviewer").click();
   await expect(title(page)).toHaveText(/^Grub IV - Server Reviewer.*Review the development server/);
-  await page.getByRole("button", { name: "Back to the CFO", exact: true }).click();
+  await page.getByRole("button", { name: "Back to the CEO", exact: true }).click();
   await expect(baby(page, "Grub V - Process Wrangler")).toHaveCount(0)
 });
 

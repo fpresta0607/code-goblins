@@ -48,9 +48,9 @@ test("no sentence the board shows joins two clauses with a semicolon", () => {
 
 test("the check finds a semicolon in a sentence and leaves code alone", () => {
   for (const [text, expected] of [
-    ["The CFO has not answered 1 question; the oldest has waited 17 minutes.", true],
+    ["The CEO has not answered 1 question; the oldest has waited 17 minutes.", true],
     ["Paged pool 15.6 GB: memory no goblin can use; restarting the PC frees it.", true],
-    ["1 question waits for the CFO (17 min).", false],
+    ["1 question waits for the CEO (17 min).", false],
     [".tip { pointer-events: auto; }", false],
     ["width: 10px; height: 4px;", false],
     ["&amp;", false],

@@ -49,7 +49,7 @@ export function WorkspaceDetails({ task, node, runs, snapshot, connected, onRepa
   return <>
     <Disclosure kind="workspace-details" title="Workspace">
       {unlinked ? <p className="muted">No working folder.</p> : isArchived ? <p className="workspace-project">{task?.project || "Project not recorded"}</p> : queued ? <p className="workspace-project">{task.project || "Project not specified"}</p> : resource.error ? <button className="icon-button raised" aria-label="Retry" onClick={resource.reload}><Icon name="refresh" /></button> : !details ? <p className="loading" role="status">Reading workspace…</p> : <>
-        <dl>{[["Repository", details.repository], ["Branch", details.branch], [child ? "Owning task folder" : task ? "Working folder" : "CFO project root", details.root]].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+        <dl>{[["Repository", details.repository], ["Branch", details.branch], [child ? "Owning task folder" : task ? "Working folder" : "CEO project root", details.root]].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
         {details.notes.map((note) => <p key={note}>{note}</p>)}
       </>}
       {hasChat && <ChatStyleSetting />}

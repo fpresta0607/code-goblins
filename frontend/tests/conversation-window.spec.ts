@@ -122,15 +122,15 @@ for (const reset of ["before request", "during old response", "during new respon
   });
 }
 
-for (const owner of ["CFO", "goblin"]) {
+for (const owner of ["CEO", "goblin"]) {
   for (const isWorking of [true, false]) {
     test(`${owner}: working metadata stays frozen near the end when ${isWorking ? "finishing" : "starting"}`, async ({ page }) => {
-      const action = { id: "working-tail", kind: "message", task_id: owner === "CFO" ? "" : GOBLIN.id, text: "Waiting for this turn", status: "running", awaiting: { task: owner === "CFO" ? "" : GOBLIN.id }, can_send_now: true, at };
+      const action = { id: "working-tail", kind: "message", task_id: owner === "CEO" ? "" : GOBLIN.id, text: "Waiting for this turn", status: "running", awaiting: { task: owner === "CEO" ? "" : GOBLIN.id }, can_send_now: true, at };
       const board = (isBusy: boolean, revision: number) => snapshot({ revision, actions: [action], cfo_session: "cfo-1", sessions: [{ id: "cfo-1", role: "cfo", harness: "claude", phase: isBusy ? "working" : "idle" }] }, { phase: isBusy ? "working" : "idle" });
       await open(page, board(isWorking, 1), "", LONG);
-      if (owner === "CFO") await page.keyboard.press("Control+Alt+1");
+      if (owner === "CEO") await page.keyboard.press("Control+Alt+1");
       else await openGoblin(page);
-      const talk = page.getByRole("log", { name: "Messages of " + (owner === "CFO" ? "CFO" : NAME) });
+      const talk = page.getByRole("log", { name: "Messages of " + (owner === "CEO" ? "CEO" : NAME) });
       await expect(talk).toContainText("Answer 999");
       await expect(talk.locator(".reply-working")).toHaveCount(isWorking ? 1 : 0);
       await reading(talk);
@@ -193,14 +193,14 @@ test("following settles queued rows, delayed pictures and working-indicator geom
   await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
 });
 
-for (const owner of ["CFO", "goblin"]) {
+for (const owner of ["CEO", "goblin"]) {
   for (const resume of ["jump", "scroll"]) {
     test(`${owner}: streaming leaves the history untouched after a fast scroll, then coalesces on ${resume}`, async ({ page }, info) => {
       // Arrange
       await open(page, snapshot(), "", LONG);
-      if (owner === "CFO") await page.keyboard.press("Control+Alt+1");
+      if (owner === "CEO") await page.keyboard.press("Control+Alt+1");
       else await openGoblin(page);
-      const talk = page.getByRole("log", { name: "Messages of " + (owner === "CFO" ? "CFO" : NAME) });
+      const talk = page.getByRole("log", { name: "Messages of " + (owner === "CEO" ? "CEO" : NAME) });
       await expect(talk).toContainText("Answer 999");
       await talk.hover();
       for (let step = 0; step < 4; step++) await page.mouse.wheel(0, -700);

@@ -39,7 +39,7 @@ test("a CFO that kept ending reaches the Overlord as one plain item whose action
   await expect(card.locator(".run-command")).toHaveCount(0);
 
   // Act: he reopens the CFO.
-  await card.getByRole("button", { name: "Reopen the CFO" }).click();
+  await card.getByRole("button", { name: "Reopen the CEO" }).click();
 
   // Assert: the board's own reopen, and no run item started.
   await expect.poll(() => posted).toContain("/api/cfo/reopen");

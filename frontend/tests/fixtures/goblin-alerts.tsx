@@ -35,16 +35,16 @@ function Page() {
   const [snapshot, setSnapshot] = useState(quiet);
   const [focus, setFocus] = useState<CommandFocus | null>(null);
   useEffect(() => { const timer = setTimeout(() => setSnapshot(later), 50); return () => clearTimeout(timer); }, []);
-  const terminal = (source: HTMLElement) => setSaid("opened the CFO's terminal from its " + (source.className.includes("portrait") ? "portrait" : "icon"));
+  const terminal = (source: HTMLElement) => setSaid("opened the CEO's terminal from its " + (source.className.includes("portrait") ? "portrait" : "icon"));
   const center = () => { setSaid("opened the Command Center"); setFocus({ key: "", at: Date.now() }); };
   return <main style={{ display: "grid", alignContent: "start", gap: 28, minHeight: "100vh", boxSizing: "border-box", padding: 24, background: "linear-gradient(#07101565, #07101565), url('/assets/goblin-workshop.webp') right bottom / cover" }}>
     <div className="canvas-region">
       <section className="task-board" aria-label="Task board">
-        <CfoPin afkToggle={RESTING_AFK_TOGGLE} snapshot={asking} now={Date.now()} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CFO")} />
+        <CfoPin afkToggle={RESTING_AFK_TOGGLE} snapshot={asking} now={Date.now()} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CEO")} />
         <section className="board-column" aria-label="Working"><h2>Working</h2></section>
       </section>
     </div>
-    <CfoPin afkToggle={RESTING_AFK_TOGGLE} snapshot={quiet} now={Date.now()} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CFO")} />
+    <CfoPin afkToggle={RESTING_AFK_TOGGLE} snapshot={quiet} now={Date.now()} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CEO")} />
     <output aria-label="Opened">{said}</output>
     <Alerts snapshot={snapshot} onOpen={(key) => setSaid("opened the Command Center at " + key)} />
     <CommandCenterMenu snapshot={reviewing} connected presentations={[]} now={Date.now()} focus={focus} onUnsent={ignore} />

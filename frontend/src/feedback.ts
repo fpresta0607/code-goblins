@@ -35,10 +35,10 @@ export function deliveryMark(action: Action, goblin = "the goblin"): { icon: Ico
       if (action.kind.endsWith("_clear")) return { icon: "check", label: "Cleared", trouble: false };
       // A review answer for a replaced goblin goes to the CFO, so the action
       // alone cannot say it was delivered; the review item's flag does.
-      if (action.kind === "review_answer") return { icon: "check", label: "Sent to the goblin or the CFO", trouble: false };
-      return { icon: "check-double", label: cfo ? "CFO received" : action.kind === "goblin_answer" ? "Delivered to " + goblin : "Done", trouble: false };
+      if (action.kind === "review_answer") return { icon: "check", label: "Sent to the goblin or the CEO", trouble: false };
+      return { icon: "check-double", label: cfo ? "CEO received" : action.kind === "goblin_answer" ? "Delivered to " + goblin : "Done", trouble: false };
     case "failed": return { icon: "close", label: "Could not deliver", trouble: true };
-    case "uncertain": return { icon: "warning", label: action.advice || "Not confirmed. Check " + (cfo ? "the CFO's terminal" : "the goblin's terminal") + " before sending it again.", trouble: true };
+    case "uncertain": return { icon: "warning", label: action.advice || "Not confirmed. Check " + (cfo ? "the CEO's terminal" : "the goblin's terminal") + " before sending it again.", trouble: true };
     case "queued": return { icon: "check", label: action.message || "Queued", trouble: false };
     default: return { icon: "check", label: action.awaiting && action.message ? action.message : "Sending", trouble: false };
   }
@@ -64,7 +64,7 @@ export function runMark(run: Run): { icon: IconName; label: string; trouble: boo
     // One he skipped or answered in words from its card reads as his.
   case "withdrawn": return run.reason.startsWith("The Overlord skipped") ? { icon: "close", label: "Skipped", trouble: false }
     : run.reason.startsWith("The Overlord answered instead") ? { icon: "check-double", label: "Answered", trouble: false }
-    : { icon: "close", label: run.task ? "Withdrawn" : "Withdrawn by the CFO", trouble: false };
+    : { icon: "close", label: run.task ? "Withdrawn" : "Withdrawn by the CEO", trouble: false };
     default: return { icon: "clock", label: "Waiting", trouble: false };
   }
 }
@@ -75,7 +75,7 @@ export function runMark(run: Run): { icon: IconName; label: string; trouble: boo
 export function runFailure(run: Run): string {
   if (run.state !== "failed") return "";
   const why = (run.exit_code === null ? run.reason : lastLine(run.output)) || "It exited with code " + run.exit_code;
-  const asker = run.task ? "The goblin that asked" : "The CFO";
+  const asker = run.task ? "The goblin that asked" : "The CEO";
   const next = /could not be told/.test(run.reason) ? asker + " may not have its output yet: telling it failed." : asker + " has its output and takes the next step.";
   return why.replace(/\.$/, "") + ". " + next;
 }

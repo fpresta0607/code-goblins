@@ -9,7 +9,7 @@ interface Step { part: string; side: Side; title: string; text: ReactNode }
 // Each step lights one part of the board, found by its selector, and the CFO
 // says one line about it from the side named.
 const STEPS: Step[] = [
-  { part: ".context-pane", side: "left", title: "I'm the CFO. Tell me what to build.", text: "Type in my terminal, or hold Ctrl+Shift+Space and speak." },
+  { part: ".context-pane", side: "left", title: "I'm the CEO. Tell me what to build.", text: "Type in my terminal, or hold Ctrl+Shift+Space and speak." },
   { part: ".canvas-region", side: "right", title: "Goblins do the work.", text: "Each card is one job. Click a card to watch it." },
   { part: ".command-center-menu > summary", side: "under", title: "When I need you, it waits here.",
     text: <>Replay this tour with <span className="quick-tour-icon"><Icon name="question" /></span><span className="sr-only">the question mark button</span>.</> },

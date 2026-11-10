@@ -15,7 +15,7 @@ async function open(page: Page, answer: { status: number; body: Record<string, u
     return route.fulfill({ status: answer.status, json: answer.body });
   });
   await page.goto("/tests/fixtures/restart-cfo.html" + hash);
-  await expect(page.getByRole("group", { name: "CFO" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "CEO" })).toBeVisible();
   return { requests, release };
 }
 
@@ -26,16 +26,16 @@ test("the CFO's bar has no Restart, and the CFO's panel has it", async ({ page }
   await open(page, { status: 200, body: {} });
 
   // Assert
-  await expect(page.getByRole("group", { name: "CFO" }).getByRole("button", { name: /Restart/ })).toHaveCount(0);
-  await expect(page.getByRole("group", { name: "CFO" }).getByRole("button", { name: /^Harness:/ })).toHaveCount(0);
-  await expect(page.getByRole("region", { name: "CFO panel" }).getByRole("button", { name: "Restart the CFO" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "CEO" }).getByRole("button", { name: /Restart/ })).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "CEO" }).getByRole("button", { name: /^Harness:/ })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "CEO panel" }).getByRole("button", { name: "Restart the CEO" })).toBeVisible();
 });
 
 test("choosing a harness sends nothing and Restart sends it directly", async ({ page }, testInfo) => {
   // Arrange
   const { requests, release } = await open(page, { status: 200, body: { restarted: true, resumed: true, session: "a1b2c3d4-session" } });
   await page.screenshot({ path: testInfo.outputPath("restart-cfo-bar.png") });
-  const restart = page.getByRole("button", { name: "Restart the CFO" });
+  const restart = page.getByRole("button", { name: "Restart the CEO" });
   const selector = page.getByRole("button", { name: "Harness: Claude Code" });
   await expect(selector).toBeVisible();
   await expect(restart).toHaveText("Restart");
@@ -66,7 +66,7 @@ test("choosing a harness sends nothing and Restart sends it directly", async ({ 
 test("Enter on Restart sends the running harness once with the board token", async ({ page }) => {
   // Arrange
   const { requests, release } = await open(page, { status: 200, body: { restarted: true, resumed: true, session: "a1b2c3d4-session" } });
-  const restart = page.getByRole("button", { name: "Restart the CFO" });
+  const restart = page.getByRole("button", { name: "Restart the CEO" });
   await restart.focus();
 
   // Act
@@ -78,7 +78,7 @@ test("Enter on Restart sends the running harness once with the board token", asy
   await page.keyboard.press("Enter");
   await expect.poll(() => requests).toEqual([{ token: "fixture", body: JSON.stringify({ harness: "claude" }) }]);
   release();
-  await expect(page.getByRole("button", { name: "Restart the CFO" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Restart the CEO" })).toBeEnabled();
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
@@ -91,12 +91,12 @@ test("a CFO that could not be restarted says so in a few words beside its Restar
   // Act
   await page.getByRole("button", { name: "Harness: Claude Code" }).click();
   await page.getByRole("menuitemradio", { name: "Codex", exact: true }).click();
-  await page.getByRole("button", { name: "Restart the CFO" }).click();
+  await page.getByRole("button", { name: "Restart the CEO" }).click();
 
   // Assert
   await expect(page.locator(".notice")).toHaveText("The chosen harness is not installed.");
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Restart the CFO" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Restart the CEO" })).toBeEnabled();
   await expect(page.getByRole("button", { name: "Harness: Codex" })).toBeEnabled();
 });
 
@@ -111,11 +111,11 @@ test("a CFO restarted on a new conversation says so in one plain line", async ({
   release();
 
   // Act
-  await page.getByRole("button", { name: "Restart the CFO" }).click();
+  await page.getByRole("button", { name: "Restart the CEO" }).click();
 
   // Assert
-  await expect(page.locator(".notice")).toHaveText("The CFO restarted on a new conversation.");
-  await expect(page.getByRole("button", { name: "Restart the CFO" })).toHaveCount(0);
+  await expect(page.locator(".notice")).toHaveText("The CEO restarted on a new conversation.");
+  await expect(page.getByRole("button", { name: "Restart the CEO" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^Harness:/ })).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("restart-cfo-new-conversation.png") });
@@ -126,8 +126,8 @@ test("a CFO still starting offers no Restart", async ({ page }) => {
   await open(page, { status: 200, body: {} }, "#starting");
 
   // Assert
-  await expect(page.getByRole("group", { name: "CFO" })).toContainText("Starting: answer anything it asks in its terminal.");
-  await expect(page.getByRole("button", { name: "Restart the CFO" })).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "CEO" })).toContainText("Starting: answer anything it asks in its terminal.");
+  await expect(page.getByRole("button", { name: "Restart the CEO" })).toHaveCount(0);
 });
 
 for (const [harness, name, width] of [["codex", "Codex", 1280], ["pi", "pi", 390]] as const) {
@@ -152,10 +152,10 @@ for (const [harness, name, width] of [["codex", "Codex", 1280], ["pi", "pi", 390
     await controls.screenshot({ path: testInfo.outputPath(`restart-as-${harness}.png`) });
     expect(await controls.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
     expect(requests).toEqual([]);
-    await page.getByRole("button", { name: "Restart the CFO" }).click();
+    await page.getByRole("button", { name: "Restart the CEO" }).click();
     await expect.poll(() => requests).toEqual([{ token: "fixture", body: JSON.stringify({ harness }) }]);
     release();
-    await expect(page.locator(".notice")).toHaveText("The CFO restarted on a new conversation.");
+    await expect(page.locator(".notice")).toHaveText("The CEO restarted on a new conversation.");
   });
 }
 
@@ -200,7 +200,7 @@ test("outside clicks and Tab dismiss the harness menu without sending a request"
 
   // Act
   await selector.click();
-  await page.getByRole("heading", { name: "CFO", exact: true }).click();
+  await page.getByRole("heading", { name: "CEO", exact: true }).click();
 
   // Assert
   await expect(page.getByRole("menu")).toHaveCount(0);
@@ -217,11 +217,11 @@ for (const [harness, name] of [["claude", "Claude Code"], ["codex", "Codex"], ["
     await expect(page.getByRole("button", { name: `Harness: ${name}` })).toBeVisible();
 
     // Act
-    await page.getByRole("button", { name: "Restart the CFO" }).click();
+    await page.getByRole("button", { name: "Restart the CEO" }).click();
 
     // Assert
     await expect.poll(() => requests).toEqual([{ token: "fixture", body: JSON.stringify({ harness }) }]);
     release();
-    await expect(page.getByRole("button", { name: "Restart the CFO" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Restart the CEO" })).toBeEnabled();
   });
 }

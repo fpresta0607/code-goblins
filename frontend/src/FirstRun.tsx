@@ -48,8 +48,8 @@ export function FirstRun({ instance, devDrive, onStarting, onStarted, onBoard }:
   if (!setup.data) return <section className="first-run"><p className="loading" role="status">Reading this machine…</p></section>;
   const data = setup.data;
   if (data.cfo_runs) return <section className="first-run" aria-labelledby="first-run-title">
-    <header className="first-run-head"><Avatar persona="cfo" /><div><h2 id="first-run-title">The CFO is running</h2><p className="muted">Open its terminal to talk to it.</p></div></header>
-    <div className="first-run-actions"><span /><button className="primary" onClick={onStarted}><Icon name="terminal" />Open the CFO's terminal</button></div>
+    <header className="first-run-head"><Avatar persona="cfo" /><div><h2 id="first-run-title">The CEO is running</h2><p className="muted">Open its terminal to talk to it.</p></div></header>
+    <div className="first-run-actions"><span /><button className="primary" onClick={onStarted}><Icon name="terminal" />Open the CEO's terminal</button></div>
   </section>;
   const { agent, blocked } = startState(data, picked, asked !== null);
   const shown = data.agents.find((each) => each.id === agent);
@@ -103,7 +103,7 @@ export function FirstRun({ instance, devDrive, onStarting, onStarted, onBoard }:
     document.getElementById("agent-tab-" + next.id)?.focus();
   };
   return <section className="first-run" aria-labelledby="first-run-title">
-    <header className="first-run-head"><Avatar persona="cfo" /><div><h2 id="first-run-title">Start Code Goblins</h2><p className="muted">Start the CFO. It opens in the board's terminal and works across every project from its home.</p></div></header>
+    <header className="first-run-head"><Avatar persona="cfo" /><div><h2 id="first-run-title">Start Code Goblins</h2><p className="muted">Start the CEO. It opens in the board's terminal and works across every project from its home.</p></div></header>
     <ul className="first-run-done" aria-label="Already set up">
       <li><Icon name="check" /><strong>Home</strong><span className="first-run-path">{data.home}</span></li>
       {remembered && <li><Icon name="check" /><strong>Agent</strong><span>{remembered.name}, remembered for this home</span></li>}
@@ -143,9 +143,9 @@ export function FirstRun({ instance, devDrive, onStarting, onStarted, onBoard }:
     {offer === "unavailable" && devDrive && <p className="muted">Dev Drive: {devDrive.line}.</p>}
     <div className="first-run-actions">
       <span className="muted">{blocked}</span>
-      <button className="primary" disabled={!!blocked || starting || isChoosingFolder} onClick={start}><Icon name="play" />{starting ? "Starting the CFO…" : "Start the CFO"}</button>
+      <button className="primary" disabled={!!blocked || starting || isChoosingFolder} onClick={start}><Icon name="play" />{starting ? "Starting the CEO…" : "Start the CEO"}</button>
       <ClickFeedback text={failure} />
     </div>
-    <button type="button" className="quiet-link" onClick={onBoard}>Open the board without a CFO</button>
+    <button type="button" className="quiet-link" onClick={onBoard}>Open the board without a CEO</button>
   </section>;
 }

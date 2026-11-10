@@ -19,7 +19,7 @@ test("a question he answered in chat finishes its open card, recorded by the CFO
 
   // Assert
   await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Answered/));
-  for (const answered of (await doneCards(page)).filter((text) => text.startsWith("Answered"))) expect(answered).toContain("You answered in chat · recorded by the CFO");
+  for (const answered of (await doneCards(page)).filter((text) => text.startsWith("Answered"))) expect(answered).toContain("You answered in chat · recorded by the CEO");
   await expect(dialog.getByText("May I build the layout switch as drawn?")).toBeVisible();
 });
 

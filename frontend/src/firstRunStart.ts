@@ -12,7 +12,7 @@ export function startState(setup: Setup, picked: string, lookedAtFolder: boolean
   const known = (id: string) => setup.agents.some((agent) => agent.id === id);
   const agent = known(picked) ? picked : known(setup.agent) ? setup.agent : setup.agents.find((each) => each.recommended)?.id ?? "";
   const chosen = setup.agents.find((each) => each.id === agent);
-  const blocked = !chosen ? "This board offers no agent to start the CFO as."
+  const blocked = !chosen ? "This board offers no agent to start the CEO as."
     : chosen.reason ? chosen.reason
       : lookedAtFolder ? setup.problem
         : "";

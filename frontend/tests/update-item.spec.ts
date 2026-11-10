@@ -227,7 +227,7 @@ for (const draft of ["answer", "changed answer", "diff comment"] as const) {
       await page.getByRole("button", { name: "Comment on new line 1" }).click();
     }
     if (draft !== "diff comment") await page.getByRole("radio", { name: /^Other/ }).check();
-    const written = page.getByRole("textbox", { name: draft === "diff comment" ? "Comment to the CFO on New line 1" : "Your written answer", exact: true });
+    const written = page.getByRole("textbox", { name: draft === "diff comment" ? "Comment to the CEO on New line 1" : "Your written answer", exact: true });
     await written.fill("Please keep my draft");
 
     snapshot.build = "new-build";

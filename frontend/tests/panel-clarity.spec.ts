@@ -37,7 +37,7 @@ async function select(page: Page, title: string) {
   const back = page.getByRole("button", { name: "Back to Board", exact: true });
   if (await back.count()) await back.click();
   await page.locator(".task-card").filter({ has: page.locator(".card-title").filter({ hasText: title }) }).first().click();
-  await expect(page.locator("#panel-title")).not.toHaveText("CFO");
+  await expect(page.locator("#panel-title")).not.toHaveText("CEO");
   await expect(panel(page)).toContainText(title);
   return openTaskList(page);
 }

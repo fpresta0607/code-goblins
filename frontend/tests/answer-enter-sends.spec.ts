@@ -28,7 +28,7 @@ const CARDS = [
     open: async (page: Page) => {
       await page.locator(".command-center-menu > summary").click();
       await page.locator(".command-center-updates").getByText("History").click();
-      await page.getByRole("button", { name: /^Change the answer to The CFO: Merge PocketPiggies 125/ }).click();
+      await page.getByRole("button", { name: /^Change the answer to The CEO: Merge PocketPiggies 125/ }).click();
     } },
   { name: "review card", fixture: "answer-dictation", choose: "", box: "Your answer",
     open: (page: Page) => openItem(page, "Does the Other box read right?") },

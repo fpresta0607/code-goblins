@@ -95,7 +95,7 @@ test("the conversation draws no speaker name and no harness icon above a message
   await expect(log.locator(".message-from")).toHaveCount(0);
   await expect(log.locator(".message header")).toHaveCount(0);
   await expect(log).not.toContainText("You");
-  await expect(log).not.toContainText("CFO");
+  await expect(log).not.toContainText("CEO");
   // The sides and bubbles still say who spoke, and the words still read.
   await expect(log.locator(".message-prompt .message-bubble")).toContainText("Read the brief");
   await expect(log.locator(".message-reply")).toContainText("On it.");

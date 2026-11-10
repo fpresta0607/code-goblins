@@ -23,7 +23,7 @@ async function openCfo(page: Page, style: "classic" | "modern") {
   await servePages(page.context(), PRIVATE);
   await open(page);
   await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().tap();
-  await expect(header(page).locator("#panel-title")).toHaveText("CFO");
+  await expect(header(page).locator("#panel-title")).toHaveText("CEO");
   if (style === "classic") await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
   else await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
 }

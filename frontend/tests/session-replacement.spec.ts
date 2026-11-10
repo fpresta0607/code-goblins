@@ -190,7 +190,7 @@ for (const style of ["classic", "modern"] as const) {
   test(`${style} follows an ended CFO host into Codex without reload or losing its draft`, async ({ page }) => {
     await page.addInitScript((style) => {
       localStorage.setItem("cfo-chat-style", style);
-      sessionStorage.setItem("cfo-draft:cfo", "keep the CFO draft");
+      sessionStorage.setItem("cfo-draft:cfo", "keep the CEO draft");
     }, style);
     const oldSince = "2026-10-22T09:00:00Z", newSince = "2026-10-22T10:00:00Z";
     const cfoPending = { ...pending, task_id: "" };
@@ -205,18 +205,18 @@ for (const style of ["classic", "modern"] as const) {
     await expect(page.locator(".terminal-foot.box")).toHaveCount(0);
     if (style === "modern") {
       await expect(page.locator(".deck-slot:not([hidden]) .terminal-view:not(.staged)")).toHaveCount(1);
-      await expect(field(page, "CFO")).toHaveValue("keep the CFO draft");
+      await expect(field(page, "CEO")).toHaveValue("keep the CEO draft");
       await expect(page.locator(".messages-view:not([hidden]) [role=log] .queued-message").getByText(pending.text, { exact: true })).toBeVisible();
       // The queue pinned above the box already lists what waits, so the box does not repeat it.
-      await expect(box(page, "CFO").locator(".composer-sent-text")).toHaveCount(0);
-      await field(page, "CFO").press("Enter");
-      await expect.poll(() => typed(relay)).toContain(pasted("keep the CFO draft") + "\r");
+      await expect(box(page, "CEO").locator(".composer-sent-text")).toHaveCount(0);
+      await field(page, "CEO").press("Enter");
+      await expect.poll(() => typed(relay)).toContain(pasted("keep the CEO draft") + "\r");
     } else {
-      relay.write("\r\nThe CFO keeps working in Codex\r\n");
-      await expect(page.locator(".deck-slot:not([hidden]) .terminal-view:not(.staged) > .xterm .xterm-rows")).toContainText("The CFO keeps working in Codex");
+      relay.write("\r\nThe CEO keeps working in Codex\r\n");
+      await expect(page.locator(".deck-slot:not([hidden]) .terminal-view:not(.staged) > .xterm .xterm-rows")).toContainText("The CEO keeps working in Codex");
       await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Shift+Tab");
       await expect.poll(() => typed(relay)).toBe("\x1b[Z");
-      expect(await page.evaluate(() => sessionStorage.getItem("cfo-draft:cfo"))).toBe("keep the CFO draft");
+      expect(await page.evaluate(() => sessionStorage.getItem("cfo-draft:cfo"))).toBe("keep the CEO draft");
     }
     expect(relay.inputs.every((input) => new URL(input.address).searchParams.get("since") === newSince)).toBe(true);
   });

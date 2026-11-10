@@ -77,7 +77,7 @@ test("a queued task with no terminal has a Task view only; a started one and the
   const task = (generation: string) => ({ id: "t", generation }) as Task;
   assert.deepEqual(panelViews(task(""), undefined), ["task"]);
   assert.deepEqual(panelViews(task("s1"), undefined), ["task", "terminal"]);
-  assert.deepEqual(panelViews(undefined, undefined), ["task", "terminal"], "the CFO");
+  assert.deepEqual(panelViews(undefined, undefined), ["task", "terminal"], "the CEO");
   assert.deepEqual(panelViews(task(""), { id: "child" } as Session), ["task", "terminal"], "a reported child session has its own terminal view");
 });
 

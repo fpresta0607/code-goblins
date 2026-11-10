@@ -39,8 +39,8 @@ const nameOf = (tasks: Task[], id: string) => { const task = tasks.find((candida
 const itemAlertKey = (item: Item) => item.key + "@" + publishedAt(item);
 
 function itemAlert(item: Item, tasks: Task[]): BoardAlert {
-  const alert = (task: string, text: string): BoardAlert => ({ key: itemAlertKey(item), says: "item:" + (task || "cfo") + ":" + text, speaker: task ? nameOf(tasks, task) : "CFO", text: shortened(text), item: item.key });
-  const asker = (task: string) => task ? shortened(nameOf(tasks, task), NAME_LIMIT) : "The CFO";
+  const alert = (task: string, text: string): BoardAlert => ({ key: itemAlertKey(item), says: "item:" + (task || "cfo") + ":" + text, speaker: task ? nameOf(tasks, task) : "CEO", text: shortened(text), item: item.key });
+  const asker = (task: string) => task ? shortened(nameOf(tasks, task), NAME_LIMIT) : "The CEO";
   if (item.kind === "question") {
     // A question says its lead: the first paragraph or bullet, without the
     // details or tables of values around it.

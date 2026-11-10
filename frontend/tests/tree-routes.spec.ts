@@ -89,7 +89,7 @@ test("on a canvas as narrow as the one beside an open panel, where the goblins t
   await page.goto("/tests/fixtures/tree-routes.html?view=narrow");
   await expect(page.locator(".tree-branches > li")).toHaveCount(14);
   const rows = await page.locator(".flow-node").evaluateAll((cards) => new Set(cards.map((card) => Math.round(card.getBoundingClientRect().top))).size);
-  expect(rows, "the CFO above two rows of goblins").toBeGreaterThan(2);
+  expect(rows, "the CEO above two rows of goblins").toBeGreaterThan(2);
   expect(await wrongLines(page)).toEqual([]);
 });
 

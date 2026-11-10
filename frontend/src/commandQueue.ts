@@ -241,17 +241,17 @@ export function answeredLabel(question: Question): string {
     // Superseded is a replaced asker; the backend's message says which.
     case "superseded": return question.message || "Superseded. The asker was replaced.";
     case "cleared": return question.message || "Closed without an answer";
-    case "failed": return "Your answer did not reach " + (question.task ? "the goblin" : "the CFO");
-    case "uncertain": return "Not confirmed: check " + (question.task ? "the goblin's" : "the CFO's") + " terminal";
+    case "failed": return "Your answer did not reach " + (question.task ? "the goblin" : "the CEO");
+    case "uncertain": return "Not confirmed: check " + (question.task ? "the goblin's" : "the CEO's") + " terminal";
   }
-  const who = question.answered_by === "cfo" ? "The CFO" : "You";
+  const who = question.answered_by === "cfo" ? "The CEO" : "You";
   if (question.answered_in === "page") return who + " answered on its page" + (question.answer ? ": " + question.answer : "");
-  if (question.answered_in) return "You answered in " + question.answered_in + " · recorded by the CFO";
+  if (question.answered_in) return "You answered in " + question.answered_in + " · recorded by the CEO";
   // A question the CFO answered and retired with --ack-blocking closed
   // without the board learning which choice.
   if (!question.answer) return who + " answered it";
   // A board answer still on its way says so until its reader has it.
-  const onItsWay = question.status === "succeeded" ? "" : " (not yet delivered to " + (question.task ? "the goblin" : "the CFO") + ")";
+  const onItsWay = question.status === "succeeded" ? "" : " (not yet delivered to " + (question.task ? "the goblin" : "the CEO") + ")";
   return (question.answer_kind === "other" ? who + " wrote: " + question.answer : who + " chose " + (cfoReason(question) ? question.answered_option : question.answer)) + onItsWay;
 }
 
@@ -322,7 +322,7 @@ export function standingWho(question: Question, draft: SentDraft & { sentAt?: st
   const kind = sent ? sent.answer_kind : question.answer_kind;
   const yours = kind === "other" ? "You wrote this" : "You chose this";
   if (sent) return { mark: "you", label: yours, at: draft.sentAt || "" };
-  if (question.answered_by === "cfo") return { mark: question.answered_away ? "away" : "cfo", label: !question.answer ? "The CFO answered it" : question.answered_away ? "The CFO chose this while you were away" : "The CFO chose this", at: question.answered_at };
+  if (question.answered_by === "cfo") return { mark: question.answered_away ? "away" : "cfo", label: !question.answer ? "The CEO answered it" : question.answered_away ? "The CEO chose this while you were away" : "The CEO chose this", at: question.answered_at };
   if (question.answered_in && question.answered_in !== "page") return { mark: "you", label: "You answered in " + question.answered_in, at: question.answered_at };
   return { mark: "you", label: yours, at: question.answered_at };
 }
@@ -369,7 +369,7 @@ export function settledLabel(item: Item, actions: Action[]): string {
     return label + (item.run.reason && item.run.state !== "stopped" && !label.includes(item.run.reason) ? ": " + item.run.reason : "");
   }
   const { state, answer, reason, task } = item.review;
-  const asker = task ? "the goblin" : "the CFO";
+  const asker = task ? "the goblin" : "the CEO";
   if (state === "withdrawn") return "Withdrawn: " + reason;
   if (state !== "answered") return reason || "Cleared";
   if (answeredElsewhere(item)) return answer ? reason + " You wrote: " + answer : reason;
@@ -377,8 +377,8 @@ export function settledLabel(item: Item, actions: Action[]): string {
     case "failed": return "Your answer did not reach " + asker;
     case "uncertain": return advice(item.review.answer_id) || "Not confirmed: check " + asker + "'s terminal before answering again";
     case "pending": return "You wrote: " + answer + " (not yet delivered to " + asker + ")";
-    case "handing": return "You wrote: " + answer + " (not yet delivered to the CFO)";
-    case "handed": return "Sent to the CFO: " + answer;
+    case "handing": return "You wrote: " + answer + " (not yet delivered to the CEO)";
+    case "handed": return "Sent to the CEO: " + answer;
     case "unrecorded": return "You wrote: " + answer + " (delivery no longer recorded)";
     case "delivered": return "You wrote: " + answer;
   }
@@ -409,5 +409,5 @@ export function chosenOption(question: Question): string {
 }
 
 export function answeredBy(question: Question): string {
-  return "Answered by " + (question.answered_by === "cfo" ? "the CFO" : "you");
+  return "Answered by " + (question.answered_by === "cfo" ? "the CEO" : "you");
 }

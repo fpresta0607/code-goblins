@@ -25,7 +25,7 @@ test("while something waits on the Overlord the bar counts it and says nothing o
   }));
   assert.deepEqual(needs, { waiting: 2, line: "1 goblin at work." });
   assert.deepEqual(cfoSummary(snapshot({ runs: [run("fix", "Restart the dev database")] })), { waiting: 1, line: "No goblins are at work." });
-  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("goblin-a")], questions: [question("goblin", "Which layout should I use?", { task: "goblin-a" })] })), { waiting: 0, line: "All quiet. 1 goblin at work." }, "only a goblin's question waits, and it waits on the CFO");
+  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("goblin-a")], questions: [question("goblin", "Which layout should I use?", { task: "goblin-a" })] })), { waiting: 0, line: "All quiet. 1 goblin at work." }, "only a goblin's question waits, and it waits on the CEO");
 });
 
 test("what was answered or closed no longer counts", () => {
@@ -68,10 +68,10 @@ test("questions the CFO has left unanswered for ten minutes are said on its bar,
   const at = "2026-10-02T12:21:00Z";
   const goblins = (...ages: number[]) => ages.map((minutes, i) => question("g" + i, "Which layout?", { task: "goblin-a", created_at: new Date(Date.parse(at) - minutes * 60_000).toISOString() }));
   const cases: [string, Partial<Snapshot>, { waiting: number; line: string }][] = [
-    ["three questions, nothing else waiting on him", { at, tasks: [task("a"), task("b")], questions: goblins(11, 10.5, 10) }, { waiting: 3, line: "3 questions wait for the CFO (11 min). 2 goblins at work." }],
-    ["one question, beside an item waiting on him", { at, tasks: [task("a")], questions: [question("own", "Merge PR 91 now?"), ...goblins(10)] }, { waiting: 2, line: "1 question waits for the CFO (10 min). 1 goblin at work." }],
-    ["a question the CFO has had for nine minutes", { at, tasks: [task("a")], questions: goblins(9) }, { waiting: 0, line: "All quiet. 1 goblin at work." }],
-    ["a question the CFO answered", { at, tasks: [task("a")], questions: goblins(30).map((asked) => ({ ...asked, status: "succeeded" })) }, { waiting: 0, line: "All quiet. 1 goblin at work." }],
+    ["three questions, nothing else waiting on him", { at, tasks: [task("a"), task("b")], questions: goblins(11, 10.5, 10) }, { waiting: 3, line: "3 questions wait for the CEO (11 min). 2 goblins at work." }],
+    ["one question, beside an item waiting on him", { at, tasks: [task("a")], questions: [question("own", "Merge PR 91 now?"), ...goblins(10)] }, { waiting: 2, line: "1 question waits for the CEO (10 min). 1 goblin at work." }],
+    ["a question the CEO has had for nine minutes", { at, tasks: [task("a")], questions: goblins(9) }, { waiting: 0, line: "All quiet. 1 goblin at work." }],
+    ["a question the CEO answered", { at, tasks: [task("a")], questions: goblins(30).map((asked) => ({ ...asked, status: "succeeded" })) }, { waiting: 0, line: "All quiet. 1 goblin at work." }],
   ];
   for (const [name, changes, summary] of cases) assert.deepEqual(cfoSummary(snapshot(changes)), summary, name);
 });

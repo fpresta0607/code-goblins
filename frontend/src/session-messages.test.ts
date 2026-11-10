@@ -130,14 +130,14 @@ test("supported native sessions have messages for the current goblin generation 
   assert.equal(messagesQuery(cfo, task({ phase: "paused" })), "task=cg-one&generation=s1", "a paused goblin's conversation still reads");
   assert.equal(messagesQuery(cfo), "cfo=t-7");
   assert.equal(messagesQuery({ ...cfo, cfo_terminal_since: "restart-2" }), "cfo=t-7&since=restart-2");
-  assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "pi" }), "cfo=t-7", "a pi CFO");
+  assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "pi" }), "cfo=t-7", "a pi CEO");
   assert.equal(messagesQuery(cfo, task({ harness: "codex" })), "task=cg-one&generation=s1", "a Codex goblin reads its rollout without hooks");
   for (const [why, other] of [["a goblin in Herdr", task({ backend: "herdr" })], ["a task not started", task({ generation: "" })], ["a stopped goblin", task({ phase: "stopped" })], ["a retired goblin", task({ archived: true })]] as const) {
     assert.equal(messagesQuery(cfo, other), "", why);
   }
-  assert.equal(messagesQuery({ cfo_terminal: "", cfo_harness: "claude" }), "", "the CFO in Herdr");
-  assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "codex" }), "cfo=t-7", "a Codex CFO reads its rollout without hooks");
-  assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "" }), "", "a CFO that has not registered its harness");
+  assert.equal(messagesQuery({ cfo_terminal: "", cfo_harness: "claude" }), "", "the CEO in Herdr");
+  assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "codex" }), "cfo=t-7", "a Codex CEO reads its rollout without hooks");
+  assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "" }), "", "a CEO that has not registered its harness");
 });
 
 test("a reply's code blocks, headings and prose are drawn apart, a code block exactly as written with the language its fence names", () => {

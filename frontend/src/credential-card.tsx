@@ -96,7 +96,7 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
   // The terminal runs on this card, on the board on his PC alone.
   const terminal = local ? (snapshot.runs || []).find((run) => run.credential_request === request.id && run.state === "running" && run.terminal) : undefined;
   const task = snapshot.tasks.find((candidate) => candidate.id === request.task);
-  const asker = request.task ? task ? goblinName(task) : request.task : "The CFO";
+  const asker = request.task ? task ? goblinName(task) : request.task : "The CEO";
   const typeable = terminalNames(request, []).filter((name) => !answered.includes(name));
   const commands = (typeable.length ? typeable : needed).map((name) => storeCommand(request.project, name));
   const headers = { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance };
@@ -295,7 +295,7 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
     {(pager || feedback || open) && <div className="card-actions">
       <ClickFeedback text={feedback} />
       {pager}
-      {open && !request.grant_service && <SkipWithNote asker={request.task ? asker : "the CFO"} task={request.task} instance={snapshot.instance} disabled={!connected || !!pressing}
+      {open && !request.grant_service && <SkipWithNote asker={request.task ? asker : "the CEO"} task={request.task} instance={snapshot.instance} disabled={!connected || !!pressing}
         onSkip={() => void press("/api/credentials/close", { action: "dismiss" }, "dismiss")} onAnswer={answer} />}
       {open && request.grant_service && <>
         <button type="button" disabled={!connected || !!pressing} onClick={() => void press("/api/credentials/close", { action: "dismiss" }, "dismiss")}>Deny</button>

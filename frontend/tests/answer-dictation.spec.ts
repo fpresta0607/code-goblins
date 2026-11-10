@@ -42,7 +42,7 @@ async function open(page: Page, { card, choose, box }: (typeof BOXES)[number]) {
   else {
     await page.locator(".command-center-menu > summary").click();
     await page.locator(".command-center-updates").getByText("History").click();
-    await page.getByRole("button", { name: /^Change the answer to The CFO: Merge PocketPiggies 125/ }).click();
+    await page.getByRole("button", { name: /^Change the answer to The CEO: Merge PocketPiggies 125/ }).click();
   }
   const dialog = page.getByRole("dialog");
   if (choose) await dialog.getByRole("radio", { name: new RegExp("^" + choose) }).check();
