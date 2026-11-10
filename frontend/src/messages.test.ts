@@ -43,13 +43,13 @@ test("a message waits only while the board or its harness holds it", () => {
 // so Send now and Cancel act on it (#2306); one handed to the CFO was
 // delivered there, and one typed and never seen taken may have arrived.
 for (const [what, fields, isUnsent, isEnded] of [
-  ["failed with nobody given its words", { status: "failed", message: "Not sent. It was taken back off its prompt line." }, true, true],
-  ["handed to the CFO", { status: "failed", message: "goblin-one was stopped before it could take it; the CFO has it" }, false, false],
-  ["typed and never seen taken", { status: "uncertain", message: "Typed, and not picked up." }, false, true],
-  ["still queued", { status: "queued" }, false, false],
+  ["a message that failed with nobody given its words", { status: "failed", message: "Not sent. It was taken back off its prompt line." }, true, true],
+  ["a message handed to the CFO", { status: "failed", message: "goblin-one was stopped before it could take it; the CFO has it" }, false, false],
+  ["a message typed and never seen taken", { status: "uncertain", message: "Typed, and not picked up." }, false, true],
+  ["a message still queued", { status: "queued" }, false, false],
   ["an answer that failed", { kind: "goblin_answer", status: "failed", message: "The terminal is closed." }, false, false],
 ] as const) {
-  test(`a message ${what} is ${isUnsent ? "" : "not "}one that was not sent`, () => {
+  test(`${what} is ${isUnsent ? "" : "not "}one that was not sent`, () => {
     const sent = snapshot([action(fields)]).actions[0];
     assert.equal(isNotSent(sent), isUnsent);
     assert.equal(isUndelivered(sent), isEnded);
