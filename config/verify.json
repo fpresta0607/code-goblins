@@ -128,6 +128,11 @@
       "why": "a test runs the acceptance script's self-tests"
     },
     {
+      "paths": ["tests/pre_rename_build.ps1"],
+      "packages": ["."],
+      "why": "the role-name guard lists it among the files that keep the old names, and fails when a listed file is gone"
+    },
+    {
       "paths": ["**/*.go"],
       "packages": ["internal/fsx", "internal/execx"],
       "why": "the read and process-start guards scan every Go file"
