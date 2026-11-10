@@ -39,8 +39,16 @@ func TestCanonicalResolvesThroughADirectoryJunction(t *testing.T) {
 			if err != nil || wantErr != nil || !strings.EqualFold(got, want) {
 				t.Fatalf("Canonical(%q) = %q, %v; want %q, %v", linked, got, err, want, wantErr)
 			}
-			if !strings.EqualFold(got, LongPath(physical)) {
-				t.Errorf("Canonical(%q) = %q, want the physical path %q", linked, got, physical)
+			// The temporary root may itself sit behind a junction, as a gate
+			// home moved to a Dev Drive has, so the physical path is spelled
+			// from the root's own canonical identity.
+			canonicalRoot, err := Canonical(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantPhysical := filepath.Join(canonicalRoot, "target", below)
+			if !strings.EqualFold(got, wantPhysical) {
+				t.Errorf("Canonical(%q) = %q, want the physical path %q", linked, got, wantPhysical)
 			}
 			if !SamePath(linked, physical) {
 				t.Errorf("SamePath(%q, %q) = false, want true", linked, physical)
