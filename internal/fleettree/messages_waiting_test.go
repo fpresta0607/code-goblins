@@ -413,6 +413,70 @@ func TestMessagesSinceEndsAHandoffWithTheAnswerAfterIt(t *testing.T) {
 	}
 }
 
+// takenBack is Claude Code moving one line of its queue back to the prompt
+// line when Up is pressed there: it writes one such entry for each line it
+// moved, in the queue's order (2.1.322, live, 2026-11-10).
+func takenBack(text string) object {
+	return object{"type": "queue-operation", "operation": "popAll", "content": text, "timestamp": at.Format(time.RFC3339Nano)}
+}
+
+func TestALineTakenBackToThePromptLineWaitsInNoQueue(t *testing.T) {
+	const notice = "<task-notification>\n<summary>Background command ended</summary>\n</task-notification>"
+	tests := []struct {
+		name    string
+		entries []any
+		sending []string
+		queued  []string
+	}{
+		{
+			name:    "every line he queued, taken back with Up",
+			entries: []any{queued("first", at), queued("second", at), takenBack("first"), takenBack("second")},
+		},
+		{
+			name:    "a command taken back with the words around it",
+			entries: []any{queued("first", at), queued("/context", at), takenBack("first"), takenBack("/context")},
+		},
+		{
+			name:    "lines typed again after the take-back wait as they were typed",
+			entries: []any{queued("first", at), queued("second", at), takenBack("first"), takenBack("second"), queued("first", at), queued("second, changed", at)},
+			queued:  []string{"first", "second, changed"},
+		},
+		{
+			// The notice is the queue's head once his line left it, so the
+			// handoff is the notice's and marks nothing of his sending.
+			name:    "the handoff after a take-back is the notice's the queue still holds",
+			entries: []any{queued(notice, at), queued("first", at), queued("second", at), takenBack("first"), dequeued()},
+			queued:  []string{"second"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			path := conversation(t, t.TempDir(), test.entries...)
+
+			// Act
+			var reader Reader
+			page, _, err := reader.MessagePage(path, -1)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			sending, queued := []string{}, []string{}
+			for _, prompt := range page.Waiting {
+				if prompt.IsSending {
+					sending = append(sending, prompt.Text)
+				} else {
+					queued = append(queued, prompt.Text)
+				}
+			}
+			if !reflect.DeepEqual(sending, append([]string{}, test.sending...)) || !reflect.DeepEqual(queued, append([]string{}, test.queued...)) {
+				t.Fatalf("sending = %q and queued = %q; want %q and %q", sending, queued, test.sending, test.queued)
+			}
+		})
+	}
+}
+
 func TestSuccessiveQueueHandoffsKeepTheirOwnDelivery(t *testing.T) {
 	path := conversation(t, t.TempDir(), queued("continue", at), queued(WakePrefix+"look at the board", at), queued("CFO: continue", at), dequeued(), dequeued(), dequeued())
 	var reader Reader
