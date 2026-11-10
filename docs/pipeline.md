@@ -1059,6 +1059,7 @@ cfo gate prepush: 3 files changed since 3301d7c9, which picks 9 checks to run wi
 3. guard tests of internal/gatetest (they read every tracked file against this policy)
    - TestTheRepositoryPolicyAccountsForEveryTrackedFile
    - TestTheRepositoryPolicyNamesOnlyFieldsAndPackagesThatExist
+   - TestTheRepositoryPolicySelectsEveryPackageWhoseTestsReadAChangedFile
 4. tests of internal/execx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
 5. tests of internal/fsx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
 6. tests of internal/supervisor but for 179 slower ones (changed)
