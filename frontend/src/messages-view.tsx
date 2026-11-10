@@ -9,7 +9,7 @@ import { MessageDocumentScope } from "./message-document-scope";
 import { drawnSpans, ESTIMATED_ROW_PX, messageRowAt, messageWindow, OVERSCAN_PX } from "./message-window";
 import { Notice } from "./notice";
 import { ReplyWorking } from "./reply-working";
-import { changeMessages, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseSession, parseUsage, parseWaiting, storedMessageFont, storeMessageFont, turnEnds, viewStanding, type MessagePage, type SessionReport } from "./session-messages";
+import { changeMessages, isWrittenReply, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseSession, parseUsage, parseWaiting, storedMessageFont, storeMessageFont, turnEnds, viewStanding, type MessagePage, type SessionReport } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { object, parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
 import { useTerminalLink } from "./terminal-link";
@@ -65,13 +65,16 @@ type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 // board knows, pending those of them that still wait, and box is the message
 // box under the conversation. onAskSlot takes the conversation's last row,
 // where the box draws what the harness's own screen asks (#2223).
-export function MessagesView({ query, instance, pages, name, task, terminal, harness, model, effort, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, onAskSlot, box }: {
+export function MessagesView({ query, instance, pages, name, task, terminal, harness, model, effort, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, onAskSlot, onOpenCommand, box }: {
   query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isCompacting: boolean;
   pages: Map<string, MessagePage>;
   sent: Action[]; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
   shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode, onSend: () => void) => ReactNode;
   onComposerDock?: (node: HTMLDivElement | null) => void; onAskSlot?: (node: HTMLDivElement | null) => void;
+  // onOpenCommand opens the Command Center on an item, as a block's Run does
+  // on the run card it made.
+  onOpenCommand?: (key: string) => void;
 }) {
   // What he sent that the board has not shown yet, drawn at once on its way.
   const sending = usePendingSends();
@@ -186,6 +189,19 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // row that leaves the window and comes back opens as he left it, and a row
   // is drawn again only when its own folds change.
   const [openFolds, setOpenFolds] = useState<ReadonlyMap<string, ReadonlySet<string>>>(() => new Map());
+  // runCode asks the board to run a PowerShell block of a reply, named by
+  // where it is in this session's conversation and never by its text, and
+  // opens the run card whose terminal runs it.
+  const openCommand = useRef(onOpenCommand);
+  useLayoutEffect(() => { openCommand.current = onOpenCommand; });
+  const runCode = useCallback(async (message: string, block: number, fence: number) => {
+    const session = new URLSearchParams(query);
+    const answer = object(await request("/api/code-run", undefined, {
+      method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance },
+      body: JSON.stringify({ task: session.get("task") ?? "", generation: session.get("generation") ?? "", ceo: session.get("ceo") ?? "", message, block, fence }),
+    }));
+    openCommand.current?.("run:" + string(answer.run_id));
+  }, [query, instance]);
   const foldRow = useCallback((message: string, fold: string, isOpen: boolean) => setOpenFolds((prior) => {
     const folds = new Set(prior.get(message));
     if (isOpen === folds.has(fold)) return prior;
@@ -824,7 +840,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
           {spans.flatMap((span, at) => [
             ...at > 0 ? [<div key="room-between" className="conversation-room" style={{ height: heightOf(spans[at - 1].end, span.start) }} />] : [],
             ...conversation.slice(span.start, span.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
-              harness={harness} isTurnEnd={ends.has(message.id)}
+              harness={harness} isTurnEnd={ends.has(message.id)} onRun={isWrittenReply(message, held.messages, held.isWorking) ? runCode : undefined}
               task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? held.task : undefined} picture={picture} keptPicture={keptPicture} onChild={openChild} />),
           ])}
           <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, conversation.length) }} />

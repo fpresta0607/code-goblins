@@ -125,6 +125,28 @@ test("Shift+Enter starts a new line, and the lines go as one paste", async ({ pa
   await expect.poll(() => typed(relay)).toContain(pasted("first line\rsecond line") + "\r");
 });
 
+test("a message that starts with ! wears the danger edge while it does, and Send hands it to the board rather than the terminal", async ({ page }) => {
+  const relay = await open(page);
+  await openGoblin(page);
+  const actions: object[] = [];
+  await page.route("**/api/actions", (route) => { actions.push(route.request().postDataJSON()); return route.fulfill({ status: 202, json: {} }); });
+  const edge = box(page).locator(".composer-input");
+  const plain = await edge.evaluate((element) => getComputedStyle(element).borderTopColor);
+
+  await field(page).fill("  ! Get-ChildItem -Name");
+  await expect(edge).toHaveCSS("border-top-color", "rgb(239, 142, 131)");
+  await field(page).fill("Get-ChildItem ! -Name");
+  await expect(edge).toHaveCSS("border-top-color", plain);
+  await field(page).fill("! Get-ChildItem -Name");
+  await send(page).click();
+
+  await expect.poll(() => actions.length).toBe(1);
+  expect(actions[0]).toMatchObject({ kind: "message", task_id: GOBLIN.id, text: "! Get-ChildItem -Name" });
+  expect(typed(relay)).not.toContain("Get-ChildItem");
+  await expect(field(page)).toHaveValue("");
+  await expect(edge).toHaveCSS("border-top-color", plain);
+});
+
 test("busy, held and reconnecting sessions save messages in the durable queue", async ({ page }) => {
   const relay = await open(page);
   await openGoblin(page);
@@ -634,19 +656,6 @@ for (const harness of ["claude", "codex", "pi"] as const) {
     await expect(field(page)).toBeFocused();
   });
 }
-
-test("a leading ! command is typed into the session as the harness's own shell command", async ({ page }) => {
-  // Arrange
-  const relay = await open(page);
-  await openGoblin(page);
-
-  // Act
-  await field(page).fill("!git status --short");
-  await field(page).press("Enter");
-
-  // Assert
-  await expect.poll(() => typed(relay)).toContain(pasted("!git status --short") + "\r");
-});
 
 test("a delivered message appears once in Modern chat, every pending message waits at its end, and the box has no queue control", async ({ page }) => {
   const actions = Array.from({ length: 8 }, (_, index) => ({ id: "q" + index, kind: "message", task_id: "cg-touch", text: "queued request " + index, status: "queued" }));

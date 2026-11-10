@@ -53,9 +53,12 @@ function sentAt(at: string): string {
 // openFolds are the folds of this message he opened, kept by the view so
 // they stay open when the row leaves the window and comes back, and onFold is
 // told of each one he opens or closes.
-export const MessageRow = memo(function MessageRow({ message, task, harness, picture, keptPicture, onChild, openFolds, onFold, isTurnEnd }: {
+// onRun, given for a reply whose words are written, runs a PowerShell block
+// of its text by the reply, the text block and the block's place in it.
+export const MessageRow = memo(function MessageRow({ message, task, harness, picture, keptPicture, onChild, openFolds, onFold, isTurnEnd, onRun }: {
   message: SessionMessage; task?: Task; harness: string; picture: (id: string) => string; keptPicture: (path: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
   openFolds: ReadonlySet<string>; onFold: (message: string, fold: string, isOpen: boolean) => void; isTurnEnd: boolean;
+  onRun?: (message: string, block: number, fence: number) => Promise<void>;
 }) {
   const fold = (key: string) => ({ open: openFolds.has(key), onOpenChange: (isOpen: boolean) => onFold(message.id, key, isOpen) });
   const [isActionsOpen, setActionsOpen] = useState(false);
@@ -84,7 +87,7 @@ export const MessageRow = memo(function MessageRow({ message, task, harness, pic
       {parts.map((part) => part.kind === "calls"
         ? <MessageCalls key={part.at} calls={part.calls} at={part.at} task={task} picture={picture} onChild={onChild} fold={fold} />
         : part.kind === "text" ? <Fragment key={part.at}>
-          <MessageText text={part.text} />
+          <MessageText text={part.text} onRun={onRun && ((fence) => onRun(message.id, part.at, fence))} />
           {(part !== last || !isTurnEnd) && <div className="message-reply-actions"><MessageCopy text={part.text} /></div>}
         </Fragment>
           : <Disclosure key={part.at} {...fold("thinking:" + part.at)} kind="disclosure-line message-thinking" title={<><span className="thinking-label">Thinking</span><span className="thinking-preview">{inlineElements(part.text.trim().split("\n")[0])}</span></>}>

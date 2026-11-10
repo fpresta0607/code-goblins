@@ -210,10 +210,10 @@ func TestProgressReadsExactLatestBranchFromSQLite(t *testing.T) {
 	database := filepath.Join(root, "state.sqlite")
 	sql := `CREATE TABLE repos(id TEXT,working_path TEXT);
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT,head_sha TEXT,submitted_head_sha TEXT,review_approved_head_sha TEXT,last_pushed_sha TEXT,pr_url TEXT,pr_state TEXT,ci_ready_at INTEGER,terminal_head_verified_at INTEGER,custody_returned_at INTEGER);
-CREATE TABLE step_results(run_id TEXT,step_name TEXT,status TEXT,step_order INTEGER);
+CREATE TABLE step_results(run_id TEXT,step_name TEXT,status TEXT,step_order INTEGER,findings_json TEXT);
 INSERT INTO repos VALUES('repo','C:\project');
 INSERT INTO runs(id,repo_id,branch,created_at,status,head_sha) VALUES('old','repo','feat',1,'completed','old'),('latest','repo','feat',2,'running','latest'),('other','repo','other',3,'completed','other');
-INSERT INTO step_results VALUES('latest','review','awaiting_approval',1);`
+INSERT INTO step_results VALUES('latest','review','completed',1,NULL),('latest','test','awaiting_approval',2,'{"findings":[{"id":"test-failure"}]}');`
 	result, err := (execx.OSRunner{}).Run(context.Background(), execx.Request{Name: "sqlite3", Args: []string{database, sql}})
 	if err != nil {
 		t.Skipf("sqlite3 unavailable: %v", err)
@@ -223,8 +223,11 @@ INSERT INTO step_results VALUES('latest','review','awaiting_approval',1);`
 	}
 	r := Reader{Root: root, Commands: fixtureCommands{execx.OSRunner{}}}
 	p, err := r.Progress(context.Background(), "C:/project", "feat")
-	if err != nil || p.RunID != "latest" || len(p.Steps) != 1 {
+	if err != nil || p.RunID != "latest" || len(p.Steps) != 2 {
 		t.Fatalf("wrong branch evidence %+v %v", p, err)
+	}
+	if p.Steps[0].Findings != "" || p.Steps[1].Findings != `{"findings":[{"id":"test-failure"}]}` {
+		t.Fatalf("steps = %+v, want each step's findings document, empty where it recorded none", p.Steps)
 	}
 	if _, err := r.Progress(context.Background(), "C:/other", "feat"); err == nil {
 		t.Fatal("wrong project matched")

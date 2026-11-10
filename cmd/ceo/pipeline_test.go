@@ -36,19 +36,19 @@ import (
 )
 
 type pipelineRunner struct {
-	gate         pipeline.Gate
-	native       []execx.Request
-	rounds       []byte
-	roundsAfter  []byte
-	roundsReads  int
+	gate        pipeline.Gate
+	native      []execx.Request
+	rounds      []byte
+	roundsAfter []byte
+	roundsReads int
 	// scopeDecision is the scope decision file the scoped native response was
 	// handed, with the run it named, read while the command was still running.
 	scopeDecision []byte
 	scopeRun      string
 	worktree      string
-	activeRuns   int
-	nativeResult *execx.Result
-	nativeError  error
+	activeRuns    int
+	nativeResult  *execx.Result
+	nativeError   error
 }
 
 type pipelineStartRunner struct {
@@ -2088,9 +2088,16 @@ func registeredCEOStage(t *testing.T, caller string, gate pipeline.Gate) (home.H
 	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	// The registered CEO is this test process, or for the goblin a separate
-	// live process this one does not run under.
+	registeredPrimary(t, h, caller)
+	return h, nm, &pipelineRunner{worktree: wt, gate: gate}
+}
+
+// registeredPrimary registers the home's primary CEO as this test process, or
+// for the goblin a separate live process this one does not run under.
+func registeredPrimary(t *testing.T, h home.Home, caller string) {
+	t.Helper()
 	var registered *lock.Info
+	var err error
 	if caller == "ceo" {
 		registered, err = lock.Acquire(h.State)
 		t.Cleanup(func() { _ = lock.Release(h.State) })
@@ -2128,7 +2135,6 @@ func registeredCEOStage(t *testing.T, caller string, gate pipeline.Gate) (home.H
 	if err := os.WriteFile(filepath.Join(h.State, "hosts", "ceo.json"), record, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return h, nm, &pipelineRunner{worktree: wt, gate: gate}
 }
 
 // Taking a gate's open findings as they stand is the CEO's decision, and a
@@ -2577,6 +2583,8 @@ func TestPipelineFixTranslatesCurrentNoOpsWithoutArbitraryIgnores(t *testing.T) 
 			// Arrange
 			gate := pipeline.Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 2, Findings: report}
 			h, nm, runner := registeredCEOStage(t, "ceo", gate)
+			// A Test fix round is version 6's, as version 7 starts none.
+			atVersionSix(t, h, nm, "task")
 			runner.nativeResult = test.result
 			arguments := append([]string{"respond", "task", "--action", "fix", "--findings", "test-1,test-4"}, test.extra...)
 			var out bytes.Buffer

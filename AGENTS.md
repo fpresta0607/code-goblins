@@ -122,6 +122,7 @@ Load `ceo-delivery` at task intake and scout completion, when starting or superv
 Read the [complete delivery contract](docs/contract/delivery.md), or `ceo help contract delivery`, before the dependent action.
 Once its run's review repair cycles are spent, a goblin may accept that run's open review findings itself with `ceo pipeline respond <its task> --action approve --accept <ids>`, naming every open one, and the CEO is told of each such accept; the Test step, `--reason` and every other step stay the CEO's.
 It accepts as they stand only findings that are not correctness, security or regression defects: a real defect among them goes in one follow-up commit on the same pull request after its first CI, named in the done report.
+From pipeline policy version 7 the gate repairs no Test, Lint or CI failure: the goblin that owns the branch commits one correction of exactly the findings `ceo pipeline run` hands back and submits it itself with `ceo pipeline validate-authored <its task> --run <run> --findings <ids>`, or for CI with `ceo pipeline handback`, and any wider correction stays the CEO's admission.
 
 ## Supervision
 

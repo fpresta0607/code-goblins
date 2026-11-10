@@ -15,7 +15,9 @@ import (
 // recorded from a board message finds it here, whatever order the board's
 // snapshot and the session's messages reach a view in. A prompt typed in the
 // terminal, or one recorded before the board took the message, names none,
-// so a separate message of the same words keeps its own row. task is the
+// so a separate message of the same words keeps its own row. A shell command
+// still waiting is named by the message that typed it, its words after its !.
+// task is the
 // goblin's task, or empty for the CEO, whose messages name no task.
 func (s *Store) namedWaiting(task string, waiting []fleettree.WaitingPrompt) []fleettree.WaitingPrompt {
 	if len(waiting) == 0 {
@@ -32,12 +34,15 @@ func (s *Store) namedWaiting(task string, waiting []fleettree.WaitingPrompt) []f
 	}
 	slices.SortStableFunc(typing, func(one, other Action) int { return one.CreatedAt.Compare(other.CreatedAt) })
 	for i, prompt := range named {
-		if prompt.Source != fleettree.FromOverlord {
+		if prompt.Source != fleettree.FromOverlord && prompt.Source != fleettree.FromShell {
 			continue
 		}
 		at := slices.IndexFunc(typing, func(action Action) bool {
 			// Claude Code queues a ! command by the words after its ! (#2242).
 			command, isShell := strings.CutPrefix(strings.TrimSpace(action.Text), "!")
+			if prompt.Source == fleettree.FromShell {
+				return isShell && !action.CreatedAt.After(prompt.At) && sameWords(command, prompt.Text)
+			}
 			return !action.CreatedAt.After(prompt.At) && (sameWords(action.Text, prompt.Text) || isShell && sameWords(command, prompt.Text))
 		})
 		if at >= 0 {

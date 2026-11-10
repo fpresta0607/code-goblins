@@ -76,8 +76,16 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		// Overlord, 2026-10-28: "It should just be a direct message that gets
 		// queued up and sent with the clawed code session. The terminal
 		// already handles this."). What keeps it from the CEO's terminal keeps
-		// it from Send now too.
-		result, err := s.Options.CEO.sendNative(ctx, identity, strings.TrimSpace(a.Text), a.IsSentNow, true)
+		// it from Send now too. A message in shell mode is typed as the line
+		// that runs its command in Windows PowerShell; the action, and any
+		// hand-off of it, keeps what he typed.
+		typed := strings.TrimSpace(a.Text)
+		if line, isShell, err := shellMessageLine(s.Store.Home.State, a.ID, a.TaskID, a.Text); err != nil {
+			return Evaluation{}, err
+		} else if isShell {
+			typed = line
+		}
+		result, err := s.Options.CEO.sendNative(ctx, identity, typed, a.IsSentNow, true)
 		if errors.Is(err, ErrDeferred) {
 			result.SendNowWhy = "Its terminal is not ready to take it yet."
 		}
@@ -157,6 +165,12 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		return result, err
 	default:
 		if NativeTerminalRuns(stateDir, a.TaskID) {
+			typed := text
+			if line, isShell, err := shellMessageLine(stateDir, a.ID, a.TaskID, a.Text); err != nil {
+				return Evaluation{}, err
+			} else if isShell {
+				typed = line
+			}
 			sent := time.Now().UTC()
 			// His words go into a goblin's turn at once, as they go into the
 			// CEO's, for its harness to take at its next tool call. One held for
@@ -165,16 +179,16 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 			// Overlord, 2026-11-04: "Modern shat goblins that are not the CFO.
 			// Never pick up their cube message when I send them."). A command
 			// still waits for the turn to end, when its harness would run it.
-			result, err := s.Options.CEO.sendGoblin(ctx, a.TaskID, goblinIdentity(meta), text, isHarnessCommand(a.Text), a.IsSentNow, true)
+			result, err := s.Options.CEO.sendGoblin(ctx, a.TaskID, goblinIdentity(meta), typed, isHarnessCommand(a.Text), a.IsSentNow, true)
 			// A message whose harness's send-now key went is taken at once;
 			// one whose key never went, or whose harness has none, at its next
 			// tool call.
 			screens, _ := harness.NativeScreens(harness.Kind(meta.Harness))
 			if errors.Is(err, fleet.ErrQueuedForToolCall) {
 				if !errors.Is(err, spawn.ErrSentNow) {
-					return s.behindGoblinsTurn(a.TaskID, sent, text, "Typed while it was working; it takes the message at its next tool call, or as its current turn ends."), nil
+					return s.behindGoblinsTurn(a.TaskID, sent, typed, "Typed while it was working; it takes the message at its next tool call, or as its current turn ends."), nil
 				}
-				result := s.behindGoblinsTurn(a.TaskID, sent, text, sentNowInTurn)
+				result := s.behindGoblinsTurn(a.TaskID, sent, typed, sentNowInTurn)
 				result.Reason = sentNowInTurn
 				return result, nil
 			}

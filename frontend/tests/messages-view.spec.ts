@@ -1360,3 +1360,123 @@ test.describe("on a phone", () => {
     expect(fill).toBe(await page.locator(".messages-view:not([hidden]) .composer-input").evaluate((element) => getComputedStyle(element).backgroundColor));
   });
 });
+
+// Run beside Copy on a PowerShell block (#2051). The Overlord: "when there's a
+// PowerShell command in line here, there should be a play button on it that
+// runs that PowerShell in its own terminal ... right next to the copy
+// button." Run shows only on a PowerShell block in a reply's own words, names
+// the block by where it is and never by its text, starts one run however
+// often it is pressed while the run starts, and opens the run's card.
+const CODE_RUN = { id: "code-run-0a1b2c3d4e5f6a7b", identity: "c".repeat(64), title: "PowerShell from the CEO's reply", shell: "powershell", admin: false, command: "! powershell -NoProfile -Command Get-Location", cwd: "C:\\home", state: "running", output: "", reason: "", created_at: at, expires_at: at, terminal: true };
+const CODE_TALK = {
+  messages: [
+    message(0, { source: "overlord", text: "Pasted:\n```powershell\nStop-Computer\n```" }),
+    reply(1, { kind: "thinking", text: "```powershell\nStop-Computer\n```" },
+      { kind: "text", text: "Run this:\n\n```powershell\nGet-Date\n```\n\nNot this:\n\n```bash\nls\n```\n\nOr:\n\n```\n! powershell -NoProfile -Command Get-Location\n```" },
+      { kind: "call", tool: "Bash", subject: "type notes.md", state: "done", result: "```powershell\nStop-Computer\n```" }),
+  ],
+  conversation: "fixture-conversation", more: false,
+};
+
+for (const { label, viewport, isTouch } of [
+  { label: "a desktop", viewport: { width: 1440, height: 900 }, isTouch: false },
+  { label: "a phone", viewport: { width: 390, height: 844 }, isTouch: true },
+]) {
+  test.describe(`Run on ${label}`, () => {
+    test.use({ viewport, hasTouch: isTouch, isMobile: isTouch });
+
+    test("a PowerShell block of a reply runs once from its Run beside Copy, named by its place, and opens its run card", async ({ page }) => {
+      // Arrange
+      await open(page);
+      await page.evaluate((talk) => Object.assign(window, { fixtureCeoPage: talk }), CODE_TALK);
+      const asked: Record<string, unknown>[] = [];
+      let answer = () => {};
+      const answered = new Promise<void>((resolve) => { answer = resolve; });
+      await page.route("**/api/code-run", async (route) => {
+        asked.push(route.request().postDataJSON());
+        await answered;
+        await route.fulfill({ json: { run_id: CODE_RUN.id } });
+      });
+      await openCeo(page);
+      const talk = list(page, "CEO");
+      await expect(talk).toContainText("Run this:");
+      const runs = talk.getByRole("button", { name: "Run", exact: true });
+
+      // Assert: Run on the reply's PowerShell blocks alone, beside Copy, as
+      // tall as Copy.
+      await expect(runs).toHaveCount(2);
+      const blocks = talk.locator(".message-code");
+      await expect(blocks.filter({ hasText: "Get-Date" }).getByRole("button", { name: "Run", exact: true })).toHaveCount(1);
+      await expect(blocks.filter({ hasText: "ls" }).filter({ hasNotText: "Get" }).getByRole("button", { name: "Run", exact: true })).toHaveCount(0);
+      await expect(talk.locator(".message-prompt").getByRole("button", { name: "Run", exact: true })).toHaveCount(0);
+      await talk.getByText("type notes.md").click();
+      await expect(talk.locator(".message-steps")).toContainText("Stop-Computer");
+      await expect(talk.locator(".message-steps").getByRole("button", { name: "Run", exact: true })).toHaveCount(0);
+      const untagged = blocks.filter({ hasText: "Get-Location" });
+      const [run, copy] = await Promise.all([untagged.getByRole("button", { name: "Run", exact: true }).boundingBox(), untagged.getByRole("button", { name: "Copy" }).boundingBox()]);
+      expect(run && copy && Math.abs(run.height - copy.height) < 1 && Math.abs(run.y - copy.y) < 1, "Run sits beside Copy at its size").toBe(true);
+      expect(asked, "nothing runs on render").toEqual([]);
+
+      // Act: he presses Run, and again while its terminal starts.
+      const press = untagged.getByRole("button", { name: /^(Run|Starting)$/ });
+      if (isTouch) await press.tap();
+      else await press.click();
+      await expect(untagged.getByRole("button", { name: "Starting" })).toBeDisabled();
+      await untagged.getByRole("button", { name: "Starting" }).click({ force: true });
+      answer();
+
+      // Assert: one run, of the block named by the reply, its text block and
+      // its place, and its card opens on the run.
+      await expect.poll(() => asked.length).toBe(1);
+      expect(asked[0]).toEqual({ task: "", generation: "", ceo: "ceo-term", message: "m1", block: 1, fence: 2 });
+      await send(page, "snapshot", { ...SNAPSHOT, revision: 2, runs: [CODE_RUN] });
+      await expect(page.getByRole("dialog")).toContainText("PowerShell from the CEO's reply");
+      expect(asked).toHaveLength(1);
+    });
+
+    test("a Run the board refuses says why on its block and runs nothing", async ({ page }) => {
+      // Arrange
+      await open(page);
+      await page.evaluate((talk) => Object.assign(window, { fixtureCeoPage: talk }), CODE_TALK);
+      await page.route("**/api/code-run", (route) => route.fulfill({ status: 409, json: { error: "That command still runs from this reply; wait for it to end." } }));
+      await openCeo(page);
+      const block = list(page, "CEO").locator(".message-code").filter({ hasText: "Get-Date" });
+
+      // Act
+      const run = block.getByRole("button", { name: "Run", exact: true });
+      if (isTouch) await run.tap();
+      else await run.click();
+
+      // Assert
+      await expect(block.getByRole("status")).toContainText("still runs from this reply");
+      await expect(block.getByRole("button", { name: "Run", exact: true })).toBeEnabled();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+    });
+  });
+}
+
+test("the newest reply of a session that works has no Run until its turn ends, and an earlier reply keeps its Run", async ({ page }) => {
+  // Arrange: an earlier reply and the newest one each hold a PowerShell block.
+  await open(page);
+  const talk = { ...CODE_TALK, messages: [...CODE_TALK.messages, reply(2, { kind: "text", text: "Still writing:\n\n```powershell\nGet-Process\n```" })] };
+  await page.evaluate((each) => Object.assign(window, { fixtureCeoPage: each }), talk);
+  await openCeo(page);
+  const view = list(page, "CEO");
+  await expect(view).toContainText("Still writing:");
+  const newest = view.locator(".message-code").filter({ hasText: "Get-Process" });
+  const earlier = view.locator(".message-code").filter({ hasText: "Get-Date" });
+
+  // Act: the stream says the newest turn runs.
+  await send(page, "session", { conversation: "fixture-conversation", turn: "m2", state: "running", newest: 2, head: 2 });
+
+  // Assert
+  await expect(newest.getByRole("button", { name: "Run", exact: true })).toHaveCount(0);
+  await expect(newest.getByRole("button", { name: "Copy" })).toHaveCount(1);
+  await expect(earlier.getByRole("button", { name: "Run", exact: true })).toHaveCount(1);
+
+  // Act: the turn ends.
+  await send(page, "session", { conversation: "fixture-conversation", turn: "m2", state: "ended", newest: 2, head: 2 });
+
+  // Assert
+  await expect(newest.getByRole("button", { name: "Run", exact: true })).toHaveCount(1);
+});

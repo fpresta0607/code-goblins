@@ -16,6 +16,8 @@
    writes in it or not (the Overlord, 2026-10-28: "remove the chat input
    lighter green border so it matches tool tips and models"). */
 .composer-input { display: grid; gap: 4px; min-width: 0; padding: 10px 6px 4px; border: 1px solid var(--glass-border-hover); border-radius: 18px; background: var(--field-bg); box-shadow: 0 4px 16px #0002; }
+/* Shell mode: a message that starts with ! runs in PowerShell once sent. */
+.composer-input[data-shell] { border-color: var(--red); }
 /* The caret is as tall as the line, so the line is the text's own height
    (line-height normal) and the room around it is padding: the caret is the
    height of the letters he types (the Overlord, 2026-10-27: "the cursor

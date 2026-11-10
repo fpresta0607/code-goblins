@@ -222,8 +222,10 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch, inten
 			return StartCheck{}, err
 		}
 		if !run.sameHead(head) {
-			if err := r.checkAcceptedHandbackReattachment(ctx, project, worktree, branch, run, head); err != nil {
-				return StartCheck{}, fmt.Errorf("%w; run %s is %s on %s and started at %s, not the head this start has; accepted handback reattachment refused: %v; read it with no-mistakes axi status --run %s", ErrUnresolved, run.ID, run.Status, branch, run.submittedOrHead(), err, run.ID)
+			if publishedErr := r.checkPublishedHeadReattachment(ctx, project, worktree, branch, run, head); publishedErr != nil {
+				if handbackErr := r.checkAcceptedHandbackReattachment(ctx, project, worktree, branch, run, head); handbackErr != nil {
+					return StartCheck{}, fmt.Errorf("%w; run %s is %s on %s and started at %s, not the head %s this start has; published head reattachment refused: %v; accepted handback reattachment refused: %v; read it with no-mistakes axi status --run %s", ErrUnresolved, run.ID, run.Status, branch, run.submittedOrHead(), head, publishedErr, handbackErr, run.ID)
+				}
 			}
 		}
 		// A reattachment starts nothing and carries no launch selection, so the
@@ -347,22 +349,7 @@ func (r Reader) checkAcceptedHandbackReattachment(ctx context.Context, project, 
 	if !fsx.SamePath(caller, state.CallerDir) {
 		return errors.New("accepted handback belongs to another caller worktree")
 	}
-	checkCaller := func() error {
-		actualBranch, err := r.runGit(ctx, caller, false, "symbolic-ref", "--quiet", "--short", "HEAD")
-		if err != nil || actualBranch.ExitCode != 0 || strings.TrimSpace(string(actualBranch.Stdout)) != branch {
-			return errors.New("accepted handback caller branch changed")
-		}
-		actualHead, err := r.branchHead(ctx, caller)
-		if err != nil || actualHead != head {
-			return errors.New("accepted handback caller head changed")
-		}
-		clean, err := r.runGit(ctx, caller, false, "status", "--porcelain", "--untracked-files=all")
-		if err != nil || clean.ExitCode != 0 || len(strings.TrimSpace(string(clean.Stdout))) != 0 {
-			return errors.New("accepted handback requires a clean caller worktree")
-		}
-		return nil
-	}
-	if err := checkCaller(); err != nil {
+	if err := r.checkReattachingCaller(ctx, caller, branch, head); err != nil {
 		return err
 	}
 	fresh, err := read()
@@ -372,7 +359,83 @@ func (r Reader) checkAcceptedHandbackReattachment(ctx context.Context, project, 
 	if fresh != state {
 		return errors.New("accepted handback binding changed during reattachment")
 	}
-	return checkCaller()
+	return r.checkReattachingCaller(ctx, caller, branch, head)
+}
+
+// publishedHeadState is the branch's latest run with what it last published,
+// as a published head reattachment reads it.
+type publishedHeadState struct {
+	ID              string `json:"id"`
+	Status          string `json:"status"`
+	Head            string `json:"head"`
+	Intent          string `json:"intent"`
+	PublishedHead   string `json:"published_head"`
+	PushRef         string `json:"push_ref"`
+	PRState         string `json:"pr_state"`
+	PushActive      int    `json:"push_active"`
+	CustodyReturned int    `json:"custody_returned"`
+}
+
+// checkPublishedHeadReattachment lets a caller that adopted the head its live
+// run produced and published, through the engine's guarded `axi sync`,
+// reattach to that run (issue 1889). The run still holds custody of the
+// branch, has no push in flight, and its current head is the one it last
+// published to the task branch's open pull request; the clean caller is on
+// that branch at exactly that commit. Any other caller head is other work.
+func (r Reader) checkPublishedHeadReattachment(ctx context.Context, project, worktree, branch string, run previousRun, head string) error {
+	query := `SELECT runs.id AS id,runs.status AS status,runs.head_sha AS head,COALESCE(runs.intent,'') AS intent,COALESCE(runs.last_pushed_sha,'') AS published_head,COALESCE(runs.push_ref,'') AS push_ref,COALESCE(runs.pr_state,'') AS pr_state,COALESCE(runs.push_active,-1) AS push_active,CASE WHEN runs.custody_returned_at IS NULL THEN 0 ELSE 1 END AS custody_returned FROM runs JOIN repos ON repos.id=runs.repo_id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(` + sqlString(filepath.ToSlash(project)) + `) AND runs.branch=` + sqlString(branch) + ` ORDER BY runs.created_at DESC,runs.id DESC LIMIT 1`
+	read := func() (publishedHeadState, error) {
+		var rows []publishedHeadState
+		if err := r.query(ctx, query, &rows); err != nil {
+			return publishedHeadState{}, err
+		}
+		if len(rows) != 1 {
+			return publishedHeadState{}, errors.New("expected exactly one latest run")
+		}
+		return rows[0], nil
+	}
+	state, err := read()
+	if err != nil {
+		return err
+	}
+	if state.ID != run.ID || state.Status != "running" || state.Status != run.Status || state.Head != run.Head || state.Intent != run.Intent || state.PushActive != 0 || state.CustodyReturned != 0 {
+		return errors.New("a published continuation requires the same running run, holding custody with no push in flight")
+	}
+	if state.Head != head || state.PublishedHead != head {
+		return errors.New("caller and current run head must equal the run's published head")
+	}
+	if state.PRState != "open" || state.PushRef != "refs/heads/"+branch {
+		return errors.New("run publication is not the task branch's open pull request")
+	}
+	if err := r.checkReattachingCaller(ctx, worktree, branch, head); err != nil {
+		return err
+	}
+	fresh, err := read()
+	if err != nil {
+		return err
+	}
+	if fresh != state {
+		return errors.New("published head binding changed during reattachment")
+	}
+	return r.checkReattachingCaller(ctx, worktree, branch, head)
+}
+
+// checkReattachingCaller requires the caller worktree to be clean, on the
+// task branch, at exactly the head a reattachment binds.
+func (r Reader) checkReattachingCaller(ctx context.Context, caller, branch, head string) error {
+	actualBranch, err := r.runGit(ctx, caller, false, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil || actualBranch.ExitCode != 0 || strings.TrimSpace(string(actualBranch.Stdout)) != branch {
+		return errors.New("caller branch changed")
+	}
+	actualHead, err := r.branchHead(ctx, caller)
+	if err != nil || actualHead != head {
+		return errors.New("caller head changed")
+	}
+	clean, err := r.runGit(ctx, caller, false, "status", "--porcelain", "--untracked-files=all")
+	if err != nil || clean.ExitCode != 0 || len(strings.TrimSpace(string(clean.Stdout))) != 0 {
+		return errors.New("reattachment requires a clean caller worktree")
+	}
+	return nil
 }
 
 // previousRun is the branch's latest run as CheckStart reads it.

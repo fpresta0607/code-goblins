@@ -41,6 +41,7 @@ The CEO still inspects the concrete change and relevant proof before delivery.
 Once validation starts, new product requirements normally become follow-up work.
 Corrections needed for accepted behavior, equivalent behavioral test replacements and accurate documentation remain in scope, including their smallest downstream changes.
 The worker never hand-edits, commits, pushes or starts another run while the active pipeline owns the branch.
+The one exception is a failure the task's frozen policy hands back: from pipeline policy version 7 the gate repairs no Test, Lint or CI failure, and the worker commits one correction of exactly the findings `ceo pipeline run` returns on the run's head.
 An explicit instruction invalidating the entire change uses the existing supported custody procedure under the CEO's direction, preserving history and spent allowances.
 This contract adds no native recovery procedure or authority over another task's run.
 
@@ -52,6 +53,7 @@ Once they are spent, the worker may accept that run's open review findings itsel
 The task's status log records it with the task as who accepted, and the CEO is told of it in a notify nothing waits on.
 The worker accepts as they stand only findings that are not correctness, security or regression defects: a real defect among them goes in one follow-up commit on the same pull request after its first CI, named in the done report.
 The Test step, `--reason` and every other step stay the CEO's.
+From pipeline policy version 7 the worker submits its own one-commit correction of a handed-back Test or Lint failure with `ceo pipeline validate-authored <its task> --run <run> --findings <ids>`, and of a CI failure with `ceo pipeline handback`; each is held to the failure's findings and the scope [The goblin fixes its own failures](../pipeline.md#the-goblin-fixes-its-own-failures) sets, and a wider correction, and every `validate-terminal`, stays the CEO's admission.
 The CEO reconstructs accepted intent, identifies what Fix would require, then names the decision's run, step, action, finding IDs, instructions and authority.
 Reviewer labels cannot amend the accepted contract.
 Routine corrections, restoring approved behavior, completing the approved design, equivalent tests and correcting final-diff delivery evidence are autonomous CEO decisions within that contract.
