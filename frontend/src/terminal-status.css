@@ -1,4 +1,4 @@
-/* The terminal's status over the box (terminal-status.tsx): one quiet row,
+/* The terminal's status under the box (terminal-status.tsx): one quiet row,
    its parts apart as the terminal's dots set them, wrapping on a phone. */
 .terminal-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 12px; color: var(--muted); font-size: .8125rem; }
 .terminal-notice { color: var(--amber); }

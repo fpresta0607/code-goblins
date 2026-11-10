@@ -129,7 +129,8 @@ func TestWhatASessionsOwnReportSaysOfItsTurn(t *testing.T) {
 		"a settled turn":                {Session{Phase: "settled"}, true, true, true},
 		"an interrupted turn":           {Session{Phase: "interrupted"}, true, true, true},
 		"a running turn":                {Session{Phase: "active"}, true, false, true},
-		"a turn it began":               {Session{Phase: "started"}, true, false, true},
+		"a session that started again":  {Session{Phase: "started", Source: "resume"}, true, true, true},
+		"a start after a compaction":    {Session{Phase: "started", Source: "compact"}, true, false, true},
 		"a session untracked":           {Session{}, false, false, false},
 		"a phase the board cannot read": {Session{Phase: "queued"}, true, false, false},
 	} {
@@ -140,6 +141,36 @@ func TestWhatASessionsOwnReportSaysOfItsTurn(t *testing.T) {
 		if !got.Known && got.Why == "" {
 			t.Fatalf("%s: an unknown turn says nothing of why", name)
 		}
+	}
+}
+
+// TestAHarnesssOwnReplyEndsTheTurnItsReportIsOlderThan is the turn a usage
+// limit or a failed request ended: Claude Code writes the reply itself and
+// runs no hook, so the session's last report still says the turn runs. That
+// report is of the turn only once it is newer than the reply, as the report of
+// work that went on after it is.
+func TestAHarnesssOwnReplyEndsTheTurnItsReportIsOlderThan(t *testing.T) {
+	now := time.Now().UTC()
+	messages := []fleettree.Message{
+		{ID: "p1", Seq: 0, Kind: fleettree.MessagePrompt, At: now.Add(-time.Minute)},
+		{ID: "n1", Seq: 1, Kind: fleettree.MessageReply, Model: "<synthetic>", At: now.Add(-30 * time.Second)},
+	}
+	for name, tc := range map[string]struct {
+		reported time.Duration
+		ended    bool
+	}{
+		"a report older than the reply":                 {-45 * time.Second, true},
+		"a report of work that went on after the reply": {-10 * time.Second, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			got := turnState(Session{Phase: "active", UpdatedAt: now.Add(tc.reported)}, true, messages)
+
+			// Assert
+			if !got.Known || got.Ended != tc.ended {
+				t.Fatalf("%+v; want a known turn, ended %t", got, tc.ended)
+			}
+		})
 	}
 }
 
@@ -606,9 +637,14 @@ func openMessagesStream(t *testing.T, service *Service, meta state.TaskMeta) fun
 // TestACommandOrAnInterruptLeavesNoTurnRunning is a session's record holding
 // what no hook of its harness reports, told through the board's stream: a
 // slash command Claude Code ran itself after the turn ended, which begins no
-// turn, and an interrupt while the turn ran, which ended it, so the board is
-// told the turn ended after either.
+// turn, and an interrupt while the turn ran, which ended it, as did the reply
+// Claude Code wrote itself in the model's place, a usage limit's or a failed
+// request's (#2292, #2293), so the board is told the turn ended after each.
 func TestACommandOrAnInterruptLeavesNoTurnRunning(t *testing.T) {
+	// ownReply is a reply Claude Code wrote itself, as its record holds one.
+	ownReply := func(stamp, text string) []string {
+		return []string{`{"type":"assistant","uuid":"s1","timestamp":"` + stamp + `","isApiErrorMessage":true,"message":{"id":"notice_1","model":"<synthetic>","role":"assistant","stop_reason":"stop_sequence","content":[{"type":"text","text":"` + text + `"}],"usage":{"input_tokens":0,"output_tokens":0}}}`}
+	}
 	for name, tc := range map[string]struct {
 		phase   string
 		landed  func(stamp string) []string
@@ -623,6 +659,12 @@ func TestACommandOrAnInterruptLeavesNoTurnRunning(t *testing.T) {
 		"an interrupt while the turn ran": {"active", func(stamp string) []string {
 			return []string{`{"type":"user","uuid":"i1","timestamp":"` + stamp + `","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}`}
 		}, "Request interrupted by user"},
+		"a usage-limit reply while the turn ran": {"active", func(stamp string) []string {
+			return ownReply(stamp, "You've hit your weekly limit · resets 9am (America/Chicago)")
+		}, "hit your weekly limit"},
+		"a failed request's reply while the turn ran": {"active", func(stamp string) []string {
+			return ownReply(stamp, "API Error: 529 Overloaded")
+		}, "529 Overloaded"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange: the turn's prompt a minute ago, and the session's own

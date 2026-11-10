@@ -1,10 +1,10 @@
 import type { HarnessStatus } from "./terminalStream";
 import "./terminal-status.css";
 
-// What the session's terminal draws over its prompt line, its context gauge
+// What the session's terminal draws by its prompt line, its context gauge
 // and its notices, as Claude Code's "83% context used · ✘ Auto-update failed ·
-// Run claude doctor", over the box for as long as the terminal shows it
-// (#2236). A notice that names something to do is a button that sends the
+// Run claude doctor", under the box for as long as the terminal shows it
+// (#2236, #2294). A notice that names something to do is a button that sends the
 // command that does it, as Run claude doctor sends /doctor, whose result the
 // conversation then shows.
 export function TerminalStatus({ status, isSending, onAction }: { status: HarnessStatus; isSending: boolean; onAction: (command: string) => void }) {

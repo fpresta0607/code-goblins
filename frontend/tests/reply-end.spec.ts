@@ -219,10 +219,10 @@ test("while the session works the dither takes the time's place at the reply in 
   await expect(row(page, "r5").locator("time")).toHaveCount(1);
 });
 
-// The dither is drawn from the fleet's stream alone: a terminal's screen and
-// the board's snapshot can each still say a turn works after it ended, and
-// neither draws it.
-test("a turn the stream says ended draws no dither while the terminal's screen and the board's snapshot say the session works", async ({ page }) => {
+// The dither and the box's Stop are drawn from the fleet's stream alone: a
+// terminal's screen and the board's snapshot can each still say a turn works
+// after it ended, and neither draws either (#2292).
+test("a turn the stream says ended draws no dither and no Stop while the terminal's screen and the board's snapshot say the session works", async ({ page }) => {
   // Arrange
   const relay = await open(page, snapshot({}, { phase: "working" }), "", TALK);
   await openGoblin(page);
@@ -231,9 +231,12 @@ test("a turn the stream says ended draws no dither while the terminal's screen a
   // Act
   relay.say(screen(true, "Cogitating"));
 
-  // Assert: the box heard the screen say its harness works, and the
-  // conversation draws the turn's end where the dither would be.
-  await expect(box(page).getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  // Assert: the box heard the screen say its harness works, since it holds a
+  // Send for the queue, and it offers Send, not Stop, while the conversation
+  // draws the turn's end where the dither would be.
+  await expect(box(page)).toHaveAttribute("data-queues", "");
+  await expect(box(page).locator(".composer-send")).toHaveAccessibleName("Send");
+  await expect(box(page).getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
   await expect(working(page)).toHaveCount(0);
   await expect(row(page, "r5").locator("time")).toHaveCount(1);
   await expect(page.getByRole("log")).not.toContainText("Cogitating");
