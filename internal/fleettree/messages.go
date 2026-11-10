@@ -273,6 +273,13 @@ type Usage struct {
 // itself rather than the model, such as a usage limit's notice.
 const syntheticModel = "<synthetic>"
 
+// IsHarnessReply reports whether message is a reply its harness wrote itself
+// in the model's place, as Claude Code does where a usage limit or a failed
+// request ends a turn, which no hook of it reports.
+func (message Message) IsHarnessReply() bool {
+	return message.Kind == MessageReply && message.Model == syntheticModel
+}
+
 // add folds one request's usage into the session's.
 func (u *Usage) add(input, output, cacheRead int64, model string) {
 	u.InputTokens += input
