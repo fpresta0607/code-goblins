@@ -237,15 +237,19 @@ A repository's `agent` field continues to select only its native primary path an
 An earlier unresolved run cannot be restarted to reset its budget.
 A run that is still working is reattached to instead: repeating `cfo pipeline run` with the same branch, submitted head (or current head when no submitted head is recorded) and nonblank retained intent reattaches to it, so no new run starts and no review budget resets.
 This original head comparison remains independent of the handback schema and skips the new-start checks: a clean worktree, the committed gate files, and origin's default branch with its tracking ref, which a merge landing while the hold lasts leaves stale until the next fetch (issue 1586).
-Only when that head comparison fails does the driver inspect the latest CI-handback receipt for the latest run of the exact repository and branch, without filtering out a newer unaccepted receipt.
+Only when that head comparison fails does the driver look for a published head the caller adopted, and then for an accepted CI handback.
+A run that produced and published a later head, which the caller adopted through guarded `axi sync`, keeps working in CI, so the same nonblank retained intent may reattach to it (issue 1889).
+That published head rule requires the branch's latest run to be running, keep custody and have no push in flight, its current head to equal its last published head on the task branch's own push ref with an open PR, and the clean caller to be on that branch at exactly that head.
+The driver re-reads the run and the caller before reattaching, and a caller head that is not that published head, including a later unpublished native descendant, stays refused.
+Otherwise the driver inspects the latest CI-handback receipt for the latest run of the exact repository and branch, without filtering out a newer unaccepted receipt.
 After an accepted CI handback, the same nonblank retained intent may also reattach to a running run when that receipt's accepted head, candidate head, current run head and clean caller HEAD all match exactly.
 This exception requires complete valid receipt and candidate checkpoint identities, the canonical recorded caller and its actual symbolic branch, no returned custody or active push, a matching open PR URL, nonempty matching persisted target fingerprints, the canonical push ref and matching candidate upstream and fork identities against the registered repository.
 It permits the released publication at the receipt's generation or the accepted publication at exactly the next generation; missing, unreadable, malformed, ambiguous, changed or unaccepted evidence refuses.
 The driver re-reads the binding and caller before returning the original run with no trusted launch head and dispatching one bare `axi run`, without intent, launch selection, synchronization, handback, response, retry or new-start fallback.
-A later native descendant of the accepted head remains outside this exception, and the final re-read is a cooperative check, not an atomic native expected-run assertion.
+A later native descendant of the accepted head remains outside this exception unless the published head rule admits it, and each final re-read is a cooperative check, not an atomic native expected-run assertion.
 Reattachment grants no finding approval, custody change or repair allowance.
 Native `axi run` bounds its hold so a harness tool cap cannot hang it, and a hold that ends with no decision is not a gate failure: `cfo pipeline run` then says the run keeps working and names the reattachment, never only the native exit code.
-A start whose intent or head names other work than the live run's or its verified accepted handback is still refused, with that run named.
+A start whose intent or head names other work than the live run's, its adopted published head or its verified accepted handback is still refused, with that run and the caller's head named.
 Use native read-only `axi status` and `axi logs` to inspect progress; the engine's guarded `axi sync` remains the branch synchronization interface after validation.
 
 For eligible published CI failures with automatic CI repair disabled, `handback` explicitly returns the work to its contributor through the native handback protocol.
