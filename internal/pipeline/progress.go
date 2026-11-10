@@ -28,6 +28,9 @@ type Progress struct {
 type ProgressStep struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
+	// Findings is the step's findings document, which HandedBackFindings
+	// reads; it is empty for a step that recorded none.
+	Findings string `json:"findings"`
 }
 
 var ErrNoProgress = errors.New("no gate evidence for this task branch")
@@ -37,7 +40,7 @@ func (r Reader) Progress(ctx context.Context, project, branch string) (Progress,
 	if err != nil {
 		return Progress{}, err
 	}
-	if err := r.query(ctx, `SELECT step_name AS name,status FROM step_results WHERE run_id=`+sqlString(p.RunID)+` ORDER BY step_order`, &p.Steps); err != nil {
+	if err := r.query(ctx, `SELECT step_name AS name,status,COALESCE(findings_json,'') AS findings FROM step_results WHERE run_id=`+sqlString(p.RunID)+` ORDER BY step_order`, &p.Steps); err != nil {
 		return Progress{}, err
 	}
 	return p, nil

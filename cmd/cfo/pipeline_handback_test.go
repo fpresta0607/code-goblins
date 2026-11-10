@@ -119,6 +119,9 @@ func TestPipelineHandbackRefusesInvalidOrStaleEvidenceWithoutRetry(t *testing.T)
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			h, root, branches := extraWorktreeTask(t)
+			// Version 6 lets any caller resume, so each refusal is the
+			// evidence's own.
+			atVersionSix(t, h, root, "task")
 			worktree := filepath.Join(h.Root, "worktrees", "project", "task-connections")
 			caller, err := fsx.Canonical(worktree)
 			if err != nil {
@@ -384,72 +387,89 @@ INSERT INTO ci_handbacks VALUES('native-receipt','original-run','%s','%s',7);`, 
 	}
 }
 
+// Under version 6 any caller hands back, and under version 7 the registered
+// CFO resumes a correction with no check that its goblin owns it.
 func TestPipelineHandbackBindsTheNativeOperationToTheRecordedTask(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "fixture-github-credential")
-	for _, shouldResume := range []bool{false, true} {
-		for _, selector := range []string{"--branch", "--run"} {
-			t.Run(fmt.Sprintf("resume=%t/%s", shouldResume, selector), func(t *testing.T) {
-				// Arrange
-				h, root, branches := extraWorktreeTask(t)
-				worktree := filepath.Join(h.Root, "worktrees", "project", "task-connections")
-				caller, err := fsx.Canonical(worktree)
-				if err != nil {
-					t.Fatal(err)
-				}
-				published := strings.Repeat("a", 40)
-				head := published
-				if shouldResume {
-					head = strings.Repeat("b", 40)
-				}
-				commands := &handbackCommands{worktree: worktree, branch: branches[worktree], callerHead: head}
-				commands.rows = fmt.Sprintf(`[{"repo_id":"repo-1","run_id":"original-run","branch":%q,"caller_dir":%q,"current_head":%q,"published_head":%q,"push_generation":7}]`, commands.branch, caller, published, published)
-				args := []string{"handback", "task", selector, commands.branch}
-				if selector == "--run" {
-					args[3] = "original-run"
-				}
-				if shouldResume {
-					args = append(args, "--resume", "--receipt", "native-receipt")
-				}
-				var output bytes.Buffer
-
-				// Act
-				err = pipelineCommand(t.Context(), h, root, commands, args, &output)
-
-				// Assert
-				if err != nil || len(commands.native) != 1 {
-					t.Fatalf("handback = %v, native calls = %d", err, len(commands.native))
-				}
-				request := commands.native[0]
-				wantArgs := []string{"axi", "handback", "--expect", commands.expectationPath}
-				if shouldResume {
-					wantArgs = append(wantArgs, "--resume", "--receipt", "native-receipt")
-				}
-				if !reflect.DeepEqual(request.Args, wantArgs) || !fsx.SamePath(request.Dir, caller) {
-					t.Fatalf("native argv = %q in %s, want %q in %s", request.Args, request.Dir, wantArgs, caller)
-				}
-				want := map[string]string{"repo_id": "repo-1", "run_id": "original-run", "branch": commands.branch, "caller_dir": caller, "caller_head": head, "current_head": published, "published_head": published, "push_generation": "7"}
-				if len(commands.expectation) != len(want) {
-					t.Fatalf("expectation = %v, want exactly the eight native identity keys", commands.expectation)
-				}
-				for key, value := range want {
-					encoded := string(commands.expectation[key])
-					if key != "push_generation" {
-						if err := json.Unmarshal(commands.expectation[key], &encoded); err != nil {
-							t.Fatal(err)
-						}
-					}
-					if encoded != value {
-						t.Errorf("expectation %s = %s, want %s", key, encoded, value)
-					}
-				}
-				if _, err := os.Stat(commands.expectationPath); !os.IsNotExist(err) {
-					t.Fatalf("expectation file was not removed: %v", err)
-				}
-				if !strings.Contains(output.String(), "native-receipt") {
-					t.Fatalf("native receipt was not delivered: %q", &output)
-				}
-			})
+	for _, version := range []int{6, 7} {
+		for _, shouldResume := range []bool{false, true} {
+			for _, selector := range []string{"--branch", "--run"} {
+				t.Run(fmt.Sprintf("version=%d/resume=%t/%s", version, shouldResume, selector), func(t *testing.T) {
+					testHandbackBinding(t, version, shouldResume, selector)
+				})
+			}
 		}
+	}
+}
+
+func testHandbackBinding(t *testing.T, version int, shouldResume bool, selector string) {
+	// Arrange
+	h, root, branches := extraWorktreeTask(t)
+	if version == 6 {
+		atVersionSix(t, h, root, "task")
+	} else {
+		if runtime.GOOS != "windows" {
+			t.Skip("the primary CFO registration is verified on Windows only")
+		}
+		outsideGoblinTerminal(t)
+		registeredPrimary(t, h, "cfo")
+	}
+	worktree := filepath.Join(h.Root, "worktrees", "project", "task-connections")
+	caller, err := fsx.Canonical(worktree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	published := strings.Repeat("a", 40)
+	head := published
+	if shouldResume {
+		head = strings.Repeat("b", 40)
+	}
+	commands := &handbackCommands{worktree: worktree, branch: branches[worktree], callerHead: head}
+	commands.rows = fmt.Sprintf(`[{"repo_id":"repo-1","run_id":"original-run","branch":%q,"caller_dir":%q,"current_head":%q,"published_head":%q,"push_generation":7}]`, commands.branch, caller, published, published)
+	args := []string{"handback", "task", selector, commands.branch}
+	if selector == "--run" {
+		args[3] = "original-run"
+	}
+	if shouldResume {
+		args = append(args, "--resume", "--receipt", "native-receipt")
+	}
+	var output bytes.Buffer
+
+	// Act
+	err = pipelineCommand(t.Context(), h, root, commands, args, &output)
+
+	// Assert
+	if err != nil || len(commands.native) != 1 {
+		t.Fatalf("handback = %v, native calls = %d", err, len(commands.native))
+	}
+	request := commands.native[0]
+	wantArgs := []string{"axi", "handback", "--expect", commands.expectationPath}
+	if shouldResume {
+		wantArgs = append(wantArgs, "--resume", "--receipt", "native-receipt")
+	}
+	if !reflect.DeepEqual(request.Args, wantArgs) || !fsx.SamePath(request.Dir, caller) {
+		t.Fatalf("native argv = %q in %s, want %q in %s", request.Args, request.Dir, wantArgs, caller)
+	}
+	want := map[string]string{"repo_id": "repo-1", "run_id": "original-run", "branch": commands.branch, "caller_dir": caller, "caller_head": head, "current_head": published, "published_head": published, "push_generation": "7"}
+	if len(commands.expectation) != len(want) {
+		t.Fatalf("expectation = %v, want exactly the eight native identity keys", commands.expectation)
+	}
+	for key, value := range want {
+		encoded := string(commands.expectation[key])
+		if key != "push_generation" {
+			if err := json.Unmarshal(commands.expectation[key], &encoded); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if encoded != value {
+			t.Errorf("expectation %s = %s, want %s", key, encoded, value)
+		}
+	}
+	if _, err := os.Stat(commands.expectationPath); !os.IsNotExist(err) {
+		t.Fatalf("expectation file was not removed: %v", err)
+	}
+	if !strings.Contains(output.String(), "native-receipt") {
+		t.Fatalf("native receipt was not delivered: %q", &output)
 	}
 }
 

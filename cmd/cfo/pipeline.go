@@ -100,7 +100,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	}
 	flags := flag.NewFlagSet("pipeline", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var intent, intentFile, wantBranch, wantRun, admissionFile, scopeDecision string
+	var intent, intentFile, wantBranch, wantRun, admissionFile, scopeDecision, correctedFindings string
 	isAdmission := args[0] == "validate-authored" || args[0] == "validate-terminal"
 	isPreflight := args[0] == "terminal-preflight"
 	var shouldResume, shouldRevalidatePublication bool
@@ -118,6 +118,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		flags.StringVar(&scopeDecision, "scope-decision", "", "with a Review fix: an answered task decision sequence whose exact accepted scope reaches native; a blank one is refused")
 	} else if isAdmission {
 		flags.StringVar(&admissionFile, "admission-file", "", "controller-owned native validation admission JSON")
+		if args[0] == "validate-authored" {
+			flags.StringVar(&correctedFindings, "findings", "", "with --run, every finding of the run's handed-back Test or Lint step that the task's own goblin's one commit corrects")
+		}
 	} else if args[0] == "handback" {
 		flags.BoolVar(&shouldResume, "resume", false, "submit the authored correction to the same native run")
 		flags.StringVar(&receipt, "receipt", "", "the native release receipt required with --resume")
@@ -126,7 +129,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if args[0] == "run" || args[0] == "respond" || args[0] == "recover" || args[0] == "handback" || isAdmission {
 		flags.StringVar(&wantBranch, "branch", "", "the branch, checked out in one of the task's worktrees, to act on")
 	}
-	if args[0] == "respond" || args[0] == "recover" || args[0] == "handback" || isPreflight {
+	if args[0] == "respond" || args[0] == "recover" || args[0] == "handback" || isPreflight || args[0] == "validate-authored" {
 		flags.StringVar(&wantRun, "run", "", "the run, the latest of a branch checked out in one of the task's worktrees, to act on")
 	}
 	if err := flags.Parse(args[2:]); err != nil {
@@ -135,13 +138,21 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if flags.NArg() != 0 {
 		return errors.New("pipeline: unexpected arguments")
 	}
-	if isAdmission && strings.TrimSpace(admissionFile) == "" {
+	isOwnerCorrection := correctedFindings != ""
+	if isAdmission && (isOwnerCorrection != (wantRun != "") || isOwnerCorrection && admissionFile != "") {
+		return errors.New("pipeline: validate-authored takes --admission-file, or --run <run> with --findings <ids> for its own goblin's correction of a handed-back step")
+	}
+	if isAdmission && !isOwnerCorrection && strings.TrimSpace(admissionFile) == "" {
 		return errors.New("pipeline: --admission-file is required")
 	}
 	if isPreflight && wantRun == "" {
 		return errors.New("pipeline: terminal-preflight requires --run <predecessor>")
 	}
-	if isAdmission || isPreflight || shouldRevalidatePublication {
+	if isOwnerCorrection {
+		if err := ownGoblin(h.State, id); err != nil {
+			return fmt.Errorf("pipeline: validate-authored --findings is task %s's own goblin's submission of its correction (%v); the CFO admits any other correction with cfo pipeline validate-authored %s --admission-file <file>", id, err, id)
+		}
+	} else if isAdmission || isPreflight || shouldRevalidatePublication {
 		cfo := supervisor.CFOConnection{State: h.State}
 		var release func()
 		err := errors.New("gate agents and goblins cannot act as the registered primary CFO")
@@ -342,6 +353,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if args[0] == "migrate" {
 		return migratePipelinePolicy(h, root, meta, selection, out)
 	}
+	if isOwnerCorrection {
+		return ownerCorrection(ctx, h, reader, meta, selection, gated, branch, wantRun, correctedFindings, out)
+	}
 	if isAdmission {
 		return pipelineAdmission(ctx, h, reader, meta, selection, gated, branch, args[0], admissionFile, out)
 	}
@@ -357,6 +371,21 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return nil
 	}
 	if args[0] == "handback" {
+		if shouldResume && selection.Policy.HandsBack("ci") {
+			isCFO := false
+			if os.Getenv(gateAgentVariable) == "" && os.Getenv(harness.RoleVariable) != harness.RoleGoblin {
+				cfo := supervisor.CFOConnection{State: h.State}
+				if _, release, err := cfo.CallerIdentity(); err == nil {
+					release()
+					isCFO = true
+				}
+			}
+			if !isCFO {
+				if err := checkOwnerCIResume(ctx, h, reader, meta, selection, gated, branch); err != nil {
+					return err
+				}
+			}
+		}
 		result, err := reader.Handback(ctx, meta.Project, gated, branch, wantRun, receipt, shouldRevalidatePublication, pipeline.NativeEnv(root))
 		fmt.Fprint(out, string(result.Stdout), string(result.Stderr))
 		if err != nil {
@@ -401,6 +430,12 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			case !pipeline.ReviewCyclesSpent(selection, gate):
 				return fmt.Errorf("pipeline: a goblin accepts its run's open review findings only once its %d review repair cycles are spent, and run %s's review is in round %d with %d left: fix its auto-fix findings with --action fix --findings <ids>, and ask the CFO about its ask-user ones with cfo notify %s --blocked \"<question>\"", selection.ReviewCycles, gate.RunID, gate.Round, selection.ReviewCycles-gate.Round+1, id)
 			}
+		}
+		// A fix of nothing but a test command that was given no turn runs
+		// that command again and asks no repair agent, so it stays the retry
+		// of a repaired environment.
+		if response.Action == "fix" && selection.Policy.HandsBack(gate.Step) && !(gate.Step == "test" && response.Findings == "test-command-no-turn") {
+			return fmt.Errorf("pipeline: under policy version %d the gate repairs no %s failure, so no fix round starts: run %s's findings are task %s's own to fix in one commit, which it submits with cfo pipeline validate-authored %s --run %s --findings <ids>, or for CI with cfo pipeline handback %s --run %s", selection.Policy.Version, gate.Step, gate.RunID, id, id, gate.RunID, id, gate.RunID)
 		}
 		nativeArgs, err = pipeline.ResponseArgs(selection, gate, response)
 		if errors.Is(err, pipeline.ErrUnresolved) && response.Accept == "" && pipeline.ReviewCyclesSpent(selection, gate) {
@@ -549,6 +584,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			return fmt.Errorf("pipeline: the gate's bounded hold ended with no decision, which is not a gate failure and leaves %s working on %s. Repeat this command to reattach to that run on the same branch, head and intent, starting no new run and resetting no review budget, or read it with %s and answer its next gate with cfo pipeline respond %s", where, branch, statusCommand, meta.ID)
 		}
 		return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
+	}
+	if selection.Policy.Version >= 7 {
+		return reportHandback(ctx, h, reader, meta, selection, gated, branch, out)
 	}
 	return nil
 }
