@@ -754,37 +754,200 @@ func TestSyncLoadsASelfPinnedFactFileOnItsFirstSyncAndLeavesTheArchiveCold(t *te
 	}
 }
 
-func TestSyncKeepsAPinnedFactColdWhenItsEntryCarriesItsOwnApproval(t *testing.T) {
-	// Arrange: the fixture's approved offload, as a fact whose file then
-	// gains the pinned marker.
-	dataDir, catalog := catalogFixture(t)
-	stateDir := t.TempDir()
-	catalog.Sources[3].Entries[0].Authority = "fact"
-	writeCatalog(t, dataDir, catalog)
-	if _, err := Load(dataDir, referenceDate); err != nil {
-		t.Fatalf("the fixture does not load, so this test proves nothing: %v", err)
-	}
-	const pinned = "A completed investigation. <!--P-->\n"
-	writeMemoryFile(t, dataDir, "memory/history.md", []byte(pinned))
+func TestSyncKeepsAPinnedFactWhereTheCatalogPutItWhenItsEntryCarriesItsOwnApproval(t *testing.T) {
+	for _, location := range []string{"cold", "warm"} {
+		t.Run(location, func(t *testing.T) {
+			// Arrange: the fixture's approved offload, as a fact whose file
+			// then gains the pinned marker.
+			dataDir, catalog := catalogFixture(t)
+			stateDir := t.TempDir()
+			catalog.Sources[3].Entries[0].Authority, catalog.Sources[3].Entries[0].Location = "fact", location
+			writeCatalog(t, dataDir, catalog)
+			if _, err := Load(dataDir, referenceDate); err != nil {
+				t.Fatalf("the fixture does not load, so this test proves nothing: %v", err)
+			}
+			const pinned = "A completed investigation. <!--P-->\n"
+			writeMemoryFile(t, dataDir, "memory/history.md", []byte(pinned))
 
-	// Act
-	_, err := Sync(dataDir, stateDir, referenceDate)
+			// Act
+			_, err := Sync(dataDir, stateDir, referenceDate)
 
-	// Assert
-	if err != nil {
-		t.Fatalf("an approved pinned offload stopped the sync: %v", err)
+			// Assert
+			if err != nil {
+				t.Fatalf("an approved pinned fact stopped the sync: %v", err)
+			}
+			synced, err := Load(dataDir, referenceDate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			startup, err := synced.StartupMap()
+			if kept := entryOf(t, synced, "history"); err != nil || kept.Location != location || kept.Approval == nil || strings.Contains(startup, "A completed investigation.") != (location == "warm") {
+				t.Fatalf("an approved pinned fact did not stay %s with its approval: %+v, %q, %v", location, kept, startup, err)
+			}
+			exact, err := synced.Retrieve(Query{ID: "history"})
+			if err != nil || !strings.Contains(exact, " tier=pinned ") || !strings.HasSuffix(exact, "\n"+pinned+"\n") {
+				t.Fatalf("the approved pinned fact is not retrievable verbatim by its id: %q, %v", exact, err)
+			}
+		})
 	}
-	synced, err := Load(dataDir, referenceDate)
-	if err != nil {
-		t.Fatal(err)
+}
+
+func TestSyncSendsAFactBackToItsScopeOnceTheMarkerThatLoadedItIsGone(t *testing.T) {
+	// Oracle: rulings by scope: a fact file loads only for a reason a sync
+	// can read, so one a marker loaded comes by scope again, with the
+	// routing it had, once its words change and the marker is gone.
+	for name, test := range map[string]struct{ loaded, left, expiry string }{
+		"pending capture": {"<!--a:2026-10-30--><!--t:team-->", "<!--a:2026-10-30-->", ""},
+		"grace":           {"<!--g-->", "<!--a:2026-10-30-->", ""},
+		"perishable":      {"<!--p:2026-10-30-->", "<!--a:2026-10-30-->", "the second drive"},
+		"pinned":          {"<!--P-->", "", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange: a fact synced cold, then loaded for its marker.
+			dataDir, stateDir := scopedHome(t)
+			if _, err := Sync(dataDir, stateDir, referenceDate); err != nil {
+				t.Fatal(err)
+			}
+			synced, err := Load(dataDir, referenceDate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			routed := entryOf(t, synced, "cache")
+			cache, err := os.ReadFile(filepath.Join(dataDir, "memory", "cache.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeMemoryFile(t, dataDir, "memory/cache.md", append(slices.Clone(cache), []byte(test.loaded+"\n")...))
+			_, err = Sync(dataDir, stateDir, referenceDate)
+			if test.expiry != "" {
+				_, err = Scope(dataDir, stateDir, referenceDate, Tag{Expiries: map[string]string{"cache": test.expiry}})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			marked, err := Load(dataDir, referenceDate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if held := entryOf(t, marked, "cache"); routed.Location != "cold" || held.Location != "warm" {
+				t.Fatalf("the fact was not synced cold and then loaded for its marker, so this test proves nothing: %+v, %+v", routed, held)
+			}
+			writeMemoryFile(t, dataDir, "memory/cache.md", append(slices.Clone(cache), []byte(test.left+"\n")...))
+
+			// Act
+			report, err := Sync(dataDir, stateDir, referenceDate)
+
+			// Assert
+			if err != nil || report.Added != 0 || len(report.Dropped) != 0 {
+				t.Fatalf("the fact whose marker left stopped the sync or was taken for a new one: %+v, %v", report, err)
+			}
+			catalog, err := Load(dataDir, referenceDate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			back := entryOf(t, catalog, "cache")
+			if back.Location != "cold" || back.Trigger != routed.Trigger || !slices.Equal(back.Topics, routed.Topics) || !slices.Equal(back.Projects, routed.Projects) {
+				t.Fatalf("the fact did not come by scope again with the routing it had: %+v, which was %+v", back, routed)
+			}
+			startup, err := catalog.StartupMap()
+			if err != nil || strings.Contains(startup, "Use the second drive.") {
+				t.Fatalf("the fact still loads at startup once its marker is gone: %q, %v", startup, err)
+			}
+			scoped, err := catalog.Retrieve(Query{Topic: "project", IsColdOnly: true})
+			if err != nil || !strings.Contains(scoped, "Use the second drive.") {
+				t.Fatalf("the fact does not come with its scope: %q, %v", scoped, err)
+			}
+		})
 	}
-	startup, err := synced.StartupMap()
-	if kept := entryOf(t, synced, "history"); err != nil || kept.Location != "cold" || kept.Approval == nil || strings.Contains(startup, "A completed investigation.") {
-		t.Fatalf("an approved pinned fact did not stay cold with its approval: %+v, %q, %v", kept, startup, err)
+}
+
+func TestSyncKeepsAChangedFactLoadedWhileASyncCanReadWhy(t *testing.T) {
+	// Oracle: rulings by scope: a ruling for the whole fleet, an index pin
+	// and an active or held task state each keep a fact loaded when its
+	// words change, and so does having nothing a scope would find it by; an
+	// entry set by hand as something other than a fact stays as it was set.
+	setByHand := func(t *testing.T, dataDir, id string, change func(*Entry)) {
+		t.Helper()
+		content, err := os.ReadFile(filepath.Join(dataDir, filepath.FromSlash(CatalogPath)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var catalog Catalog
+		if err := Decode(content, &catalog); err != nil {
+			t.Fatal(err)
+		}
+		for _, source := range catalog.Sources {
+			for position := range source.Entries {
+				if source.Entries[position].ID == id {
+					change(&source.Entries[position])
+				}
+			}
+		}
+		writeCatalog(t, dataDir, catalog)
 	}
-	exact, err := synced.Retrieve(Query{ID: "history"})
-	if err != nil || !strings.Contains(exact, " tier=pinned ") || !strings.HasSuffix(exact, "\n"+pinned+"\n") {
-		t.Fatalf("the approved pinned fact is not retrievable verbatim by its id: %q, %v", exact, err)
+	for name, test := range map[string]struct {
+		fact, words string
+		hold        func(t *testing.T, dataDir, stateDir string)
+	}{
+		"ruled for the whole fleet": {"cache", "Use the second drive.", func(t *testing.T, dataDir, stateDir string) {
+			if _, err := Scope(dataDir, stateDir, referenceDate, Tag{IDs: []string{"cache"}, IsFleet: true}); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		"pinned by the index": {"owner", "He approves each release.", func(*testing.T, string, string) {}},
+		"an active task's constraint": {"cache", "Use the second drive.", func(t *testing.T, dataDir, _ string) {
+			setByHand(t, dataDir, "cache", func(entry *Entry) { entry.Location, entry.TaskState = "warm", "active" })
+		}},
+		"a held task's constraint": {"cache", "Use the second drive.", func(t *testing.T, dataDir, _ string) {
+			setByHand(t, dataDir, "cache", func(entry *Entry) { entry.Location, entry.TaskState = "warm", "held" })
+		}},
+		"a project note set to load by hand": {"cache", "Use the second drive.", func(t *testing.T, dataDir, _ string) {
+			setByHand(t, dataDir, "cache", func(entry *Entry) { entry.Location, entry.Authority = "warm", "project" })
+		}},
+		"no trigger to find it by": {"cache", "Use the second drive.", func(t *testing.T, dataDir, _ string) {
+			setByHand(t, dataDir, "cache", func(entry *Entry) { entry.Location, entry.Trigger = "warm", "" })
+		}},
+		"no routing key to find it by": {"cache", "Use the second drive.", func(t *testing.T, dataDir, _ string) {
+			setByHand(t, dataDir, "cache", func(entry *Entry) { entry.Location, entry.Topics = "warm", nil })
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dataDir, stateDir := scopedHome(t)
+			if _, err := Sync(dataDir, stateDir, referenceDate); err != nil {
+				t.Fatal(err)
+			}
+			test.hold(t, dataDir, stateDir)
+			held, err := Load(dataDir, referenceDate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if entry := entryOf(t, held, test.fact); entry.Location != "warm" {
+				t.Fatalf("the fact does not load before its words change, so this test proves nothing: %+v", entry)
+			}
+			path := filepath.Join(dataDir, "memory", test.fact+".md")
+			content, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeMemoryFile(t, dataDir, "memory/"+test.fact+".md", append(content, []byte("Checked again in November.\n")...))
+
+			// Act
+			_, err = Sync(dataDir, stateDir, referenceDate)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("the changed fact stopped the sync: %v", err)
+			}
+			catalog, err := Load(dataDir, referenceDate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			startup, err := catalog.StartupMap()
+			if entry := entryOf(t, catalog, test.fact); err != nil || entry.Location != "warm" || !strings.Contains(startup, test.words) || !strings.Contains(startup, "Checked again in November.") {
+				t.Fatalf("the fact left startup when its words changed: %+v, %q, %v", entry, startup, err)
+			}
+		})
 	}
 }
 

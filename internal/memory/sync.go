@@ -213,7 +213,8 @@ func startupRank(name string) int {
 // file that ends in a marker the contract keeps warm loads, and so does one
 // its own marker pins unless its entry carries an approval of its own,
 // whatever the catalog said of either before, so no sync stops on a file
-// nobody tagged.
+// nobody tagged. A fact file loads only for a reason a sync can read, so one
+// that was loaded comes by scope again once its words change and none holds.
 func deriveEntries(name string, content []byte, previous []Entry, used map[string]bool, now time.Time) []Entry {
 	switch {
 	case len(content) == 0:
@@ -242,16 +243,29 @@ func deriveEntries(name string, content []byte, previous []Entry, used map[strin
 		if kinds := stringsOf(front.Metadata["type"]); len(kinds) > 0 {
 			entry.Topics = kinds[:1]
 		}
-		// Entries set by hand no longer fit the file, so it loads until they
-		// are set again.
+		// Entries set by hand no longer fit the file, so it loads until a
+		// scope is ruled for it or its words change again.
 		if len(previous) > 1 {
 			entry.Location = "warm"
 		}
 	}
 	entry.Start, entry.End, entry.SHA256 = 0, len(content), Hash(content)
 	// A marker that does not read is left for the load to report.
-	if status, err := statusOf(name, entry, content, literalBytes(content), now); err == nil && (status.keepsWarm() || entry.Approval == nil && needsApproval(name, entry, status)) {
+	status, err := statusOf(name, entry, content, literalBytes(content), now)
+	if err != nil {
+		return []Entry{entry}
+	}
+	// A fact file loads only for a reason a sync can read. Besides its
+	// marker those are a ruling for the whole fleet, an active or held task
+	// and an approval that left a pinned fact where it is; the index pin is
+	// the caller's. A fact nothing would find by scope stays loaded.
+	isHeld := slices.Contains(entry.Topics, FleetTopic) || entry.TaskState == "active" || entry.TaskState == "held" || needsApproval(name, entry, status)
+	isFound := strings.TrimSpace(entry.Trigger) != "" && len(entry.Projects)+len(entry.Tasks)+len(entry.Topics) > 0
+	switch {
+	case status.keepsWarm() || entry.Approval == nil && needsApproval(name, entry, status):
 		entry.Location = "warm"
+	case len(previous) == 1 && entry.Authority == "fact" && !isHeld && isFound:
+		entry.Location = "cold"
 	}
 	return []Entry{entry}
 }

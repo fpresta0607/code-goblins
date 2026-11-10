@@ -52,6 +52,9 @@ Each line of `memory/MEMORY.md` is one warm entry, a fact file is one cold fact 
 A fact file that ends in a pinned, pending-capture, grace or perishable marker is warm instead, when it is new to the catalog and when the one entry it had was cold, since those tiers stay loaded and a pinned item leaves startup only on its own approval.
 A pinned fact whose entry carries its own approval keeps the location the catalog gave it, the archive's history stays cold whatever its lines carry, and ruling a fact kept warm this way for a project is still refused, with the entry named.
 A fact the index pins loads unless that entry carries its own approval.
+A fact file loads only for a reason a sync can read: one of those markers, an index pin, an active or held task state, or a ruling for the whole fleet.
+When its words change and none of them holds, it comes by scope again with the routing it had, so a fact a marker loaded leaves startup once the marker is gone; `cfo memory scope --fleet <id>` is the way to keep a fact loaded.
+A fact with no trigger or no routing key stays loaded, since no scope would find it, and an entry set by hand as anything but a fact stays as it was set.
 A file that has not changed keeps its entries as they were set, a line that is still there keeps its scope by its id, and words the catalog has not seen load until a scope is ruled for them.
 A scope whose words are no longer in memory is named in the command's report.
 A catalog that would not load is never written: it is checked against the memory files before it replaces the one on disk, so a refusal leaves the catalog file as it was, or absent.
