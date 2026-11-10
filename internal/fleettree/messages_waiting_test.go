@@ -64,6 +64,14 @@ func TestAPromptClaudeCodeHoldsWaitsInThePageUntilItIsDelivered(t *testing.T) {
 			prompts: []string{"second"},
 		},
 		{
+			// Claude Code queues a ! command typed during a turn by its words
+			// alone and runs it at the turn's end as a shell command (#2242).
+			name:    "a shell command queued by its words is delivered by the row that runs it",
+			entries: []any{queued("claude doctor", at), dequeued(), prompted("u1", "<bash-input>claude doctor</bash-input>")},
+			waiting: []string{},
+			prompts: []string{"claude doctor"},
+		},
+		{
 			name:    "two of the same words each wait for their own delivery",
 			entries: []any{queued("again", at), queued("again", at), dequeued(), prompted("u1", "again")},
 			waiting: []string{"again"},

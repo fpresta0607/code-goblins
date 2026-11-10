@@ -30,7 +30,10 @@ const goblinSealRefusal = "A key fetch is reading in your login's browser now, s
 // seal the goblin's harness runs: Claude Code's goblin-seal names the folder
 // it started in and reads a refusal on stderr, and Codex's goblin-seal-codex
 // and pi's goblin-seal-pi name their session's folder in the payload and
-// read one on stdout.
+// read one on stdout. Every tool call it is shown is held to its task's
+// path boundary too (goblinPathRefusal), and every command of a sandbox task
+// to its host rule (sandboxRefusal), and a call waits when its task record
+// cannot be read, since what it may reach is then unknown.
 func hookGoblinSeal(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	payload, ok := claudehook.ReadPayload(stdin)
 	if !ok {
@@ -40,7 +43,24 @@ func hookGoblinSeal(name string, stdin io.Reader, stdout, stderr io.Writer) int 
 	if name == "goblin-seal" {
 		worktree, deny = os.Getenv("CLAUDE_PROJECT_DIR"), func(message string) int { return claudehook.DenyPreTool(stderr, message) }
 	}
-	if refusal := goblinSeal(worktree, os.Getenv("CFO_TASK_ID"), payload.Command); refusal != "" {
+	task := os.Getenv("CFO_TASK_ID")
+	if isShellTool(payload.ToolName) {
+		if refusal := goblinSeal(worktree, task, payload.Command); refusal != "" {
+			return deny(refusal)
+		}
+	}
+	h, err := home.Resolve()
+	if err != nil {
+		return deny("This call waits: the check cfo makes before each tool call could not find its home (" + err.Error() + "), so the paths it may reach are unknown.")
+	}
+	meta, err := state.ReadTaskMeta(h.State, task)
+	if err != nil {
+		return deny("This call waits: the check cfo makes before each tool call could not read your task's record (" + err.Error() + "), so the paths it may reach are unknown.")
+	}
+	if refusal := sandboxRefusal(meta, payload); refusal != "" {
+		return deny(refusal)
+	}
+	if refusal := goblinPathRefusal(h, meta, payload); refusal != "" {
 		return deny(refusal)
 	}
 	return 0
