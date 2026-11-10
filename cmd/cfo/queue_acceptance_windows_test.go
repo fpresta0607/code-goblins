@@ -188,6 +188,7 @@ func proveQueuedMessages(t *testing.T, p *wakeProof, scenario string) {
 		}
 		stalled := time.Now()
 		p.say("the harness, pid %d, reads nothing from now", cfo.ChildPID)
+		// stall-accepted: it is how long the harness reads nothing, which the proof means to run out.
 		for time.Since(stalled) < queueStall {
 			time.Sleep(250 * time.Millisecond)
 		}
@@ -339,7 +340,7 @@ func (p *wakeProof) watchQueuedDelivery(ctx context.Context, cfo host.Record) {
 		}
 		select {
 		case <-ctx.Done():
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(200 * time.Millisecond): // stall-accepted: it spaces the looks at the screen and the board, and times nothing.
 		}
 	}
 }

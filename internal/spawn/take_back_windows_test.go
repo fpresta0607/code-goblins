@@ -102,12 +102,12 @@ func TestTakeBackGivesUpOnWordsThatNeverLeave(t *testing.T) {
 	line := claudePromptLine{words: "stop and rebase", row: 100, isStuck: true}
 
 	// Act
-	began := time.Now()
 	isTaken := TakeBack(line.read, line.press, screens, "stop and rebase")
 
-	// Assert
-	if isTaken || line.presses == 0 || time.Since(began) > 5*time.Second {
-		t.Errorf("TakeBack = %t after %d presses in %s; want it to press, then give up soon", isTaken, line.presses, time.Since(began))
+	// Assert: a press every takeBackPoll for takeBackWait is a handful, where
+	// pressing for as long as it does outside a test is fifty.
+	if isTaken || line.presses == 0 || line.presses > 10 {
+		t.Errorf("TakeBack = %t after %d presses; want it to press a few times, then give up", isTaken, line.presses)
 	}
 }
 

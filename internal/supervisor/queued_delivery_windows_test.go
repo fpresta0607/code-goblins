@@ -71,6 +71,7 @@ func TestHisQueuedMessageReachesACFOThatReadsItLateExactlyOnce(t *testing.T) {
 			if err := os.WriteFile(stall, nil, 0o600); err != nil {
 				t.Fatal(err)
 			}
+			// stall-accepted: it is how long the harness reads nothing, which the test means to run out; the delivery waits for it in time the machine ran.
 			reads := time.AfterFunc(nativeConfirm+2*time.Second, func() { _ = os.Remove(stall) })
 			t.Cleanup(func() { reads.Stop() })
 
@@ -201,7 +202,7 @@ func TestAMessageInAGoblinsTurnLeavesTheQueueTheMomentItsSubmitKeyWent(t *testin
 	isStillDelivering := false
 	select {
 	case <-delivered:
-	case <-time.After(time.Second):
+	case <-time.After(time.Second): // stall-accepted: nothing is meant to arrive, since the delivery still waits to see the message taken.
 		isStillDelivering = true
 	}
 	cancel := pressOnQueued(service, "message_withdraw", meta.ID, "message-1", "stop and rebase")
@@ -261,6 +262,7 @@ func TestAPressOnAQueuedMessageDuringATryActsOnHowTheTryEnded(t *testing.T) {
 			tried := make(chan error, 1)
 			go func() { tried <- store.ProcessOne(context.Background(), service.execute) }()
 			<-trying
+			// stall-accepted: it ends the try once the press has landed; a press a stall lands after the try ended is answered the same.
 			time.AfterFunc(300*time.Millisecond, func() { close(ends) })
 
 			// Act
