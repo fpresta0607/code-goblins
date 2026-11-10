@@ -55,7 +55,9 @@ func shellMessageLine(stateDir, actionID, task, text string) (line string, isShe
 	if err != nil {
 		return "", true, fmt.Errorf("%w: nothing ran: %v", ErrRejected, err)
 	}
-	script := filepath.Join(stateDir, shellCommandsDir, shellScriptName(actionID))
+	// An 8.3 short name such as RUNNER~1 is spelled out, so a state folder
+	// named by one is judged by the path it is.
+	script := filepath.Join(fsx.LongPath(stateDir), shellCommandsDir, shellScriptName(actionID))
 	program, file := filepath.ToSlash(powershell), filepath.ToSlash(script)
 	if !shellWord.MatchString(program) || !shellWord.MatchString(file) {
 		return "", true, fmt.Errorf("%w: nothing ran: the path of Windows PowerShell or of the board's state folder holds a space or a character a shell splits on, so no ! line can name it", ErrRejected)
@@ -85,10 +87,10 @@ func shellMessageLine(stateDir, actionID, task, text string) (line string, isShe
 // text or a script that folder no longer holds.
 func shellCommandOf(stateDir, text string) (string, bool) {
 	match := shellLine.FindStringSubmatch(strings.TrimSpace(text))
-	if match == nil || !strings.EqualFold(path.Dir(match[1]), filepath.ToSlash(filepath.Join(stateDir, shellCommandsDir))) {
+	if match == nil || !strings.EqualFold(path.Dir(match[1]), filepath.ToSlash(filepath.Join(fsx.LongPath(stateDir), shellCommandsDir))) {
 		return "", false
 	}
-	data, err := os.ReadFile(filepath.FromSlash(match[1]))
+	data, err := fsx.ReadFile(filepath.FromSlash(match[1]))
 	if err != nil {
 		return "", false
 	}

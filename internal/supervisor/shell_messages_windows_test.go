@@ -7,9 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -52,7 +54,7 @@ func TestAShellMessageRunsItsCommandInWindowsPowerShellThroughTheHarnessesOwnBan
 			if err != nil {
 				t.Fatal(err)
 			}
-			script := filepath.Join(h.State, "shell-commands", shellScriptName("shell-1"))
+			script := filepath.Join(fsx.LongPath(h.State), "shell-commands", shellScriptName("shell-1"))
 			powershell := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 			want := "! " + filepath.ToSlash(powershell) + " -NoProfile -ExecutionPolicy Bypass -File " + filepath.ToSlash(script)
 			if len(typed) != 1 || typed[0] != want {
@@ -158,5 +160,40 @@ func TestAShellMessageIsRefusedWhenItsScriptsFolderHoldsACharacterAShellSplitsOn
 	}
 	if _, statErr := os.Stat(filepath.Join(stateDir, "shell-commands")); !os.IsNotExist(statErr) {
 		t.Fatalf("a refused shell message kept a script: %v", statErr)
+	}
+}
+
+// A state folder named by its 8.3 short name, as a GitHub runner's temp
+// folder is (C:\Users\RUNNER~1), holds no character a shell splits on once
+// spelled out, so his ! message runs and reads back as his command.
+func TestAShellMessageRunsWhenItsStateFolderIsNamedByItsShortName(t *testing.T) {
+	// Arrange
+	long := filepath.Join(t.TempDir(), "board-state-folder")
+	if err := os.Mkdir(long, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	longName, err := syscall.UTF16PtrFromString(long)
+	if err != nil {
+		t.Fatal(err)
+	}
+	short := make([]uint16, syscall.MAX_PATH)
+	n, err := syscall.GetShortPathName(longName, &short[0], uint32(len(short)))
+	if err != nil || n == 0 || int(n) > len(short) {
+		t.Fatalf("GetShortPathName(%q) = %d, %v", long, n, err)
+	}
+	stateDir := syscall.UTF16ToString(short[:n])
+	if !strings.Contains(stateDir, "~") {
+		t.Skipf("the volume of %q makes no 8.3 short names", long)
+	}
+
+	// Act
+	line, isShell, err := shellMessageLine(stateDir, "message-1", "", "! Get-Date")
+
+	// Assert
+	if err != nil || !isShell || strings.Contains(line, "~") {
+		t.Fatalf("shellMessageLine in %q = %q, %v, %v; want the line naming the folder's long path", stateDir, line, isShell, err)
+	}
+	if command, isShell := shellCommandOf(stateDir, line); command != "Get-Date" || !isShell {
+		t.Errorf("shellCommandOf(%q) = %q, %v; want his command read back", line, command, isShell)
 	}
 }

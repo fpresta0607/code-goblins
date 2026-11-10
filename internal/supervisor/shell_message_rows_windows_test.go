@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // His ! message runs as a line naming powershell.exe and a script the board
@@ -183,7 +184,7 @@ func TestOnlyALineNamingTheBoardsOwnScriptReadsAsHisCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	elsewhere := strings.Replace(line, filepath.ToSlash(stateDir), "C:/elsewhere", 1)
+	elsewhere := strings.Replace(line, filepath.ToSlash(fsx.LongPath(stateDir)), "C:/elsewhere", 1)
 	for _, test := range []struct {
 		name, text, want string
 		isShell          bool
