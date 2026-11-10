@@ -102,6 +102,9 @@ func TestNativeTerminalProgram(t *testing.T) {
 	// footer is a line Claude Code's footer adds under its mode, such as the
 	// one saying an update of it waits for a restart.
 	footer := ""
+	// status is what Claude Code draws at the right of the row over its
+	// composer, its context gauge and notices, and turnRow its turn row.
+	status, turnRow := "", "✽ Pondering… (esc to interrupt)"
 	// said is the last line the harness took, which it shows in its
 	// conversation above the composer, as Claude Code does, never on the
 	// prompt line it empties for the turn.
@@ -124,7 +127,7 @@ func TestNativeTerminalProgram(t *testing.T) {
 			rows = append(rows, "> "+said)
 		}
 		if isWorking {
-			rows = append(rows, "✽ Pondering… (esc to interrupt)")
+			rows = append(rows, turnRow)
 		}
 		rule := strings.Repeat("─", 80)
 		prompt, column := 0, 0
@@ -142,6 +145,9 @@ func TestNativeTerminalProgram(t *testing.T) {
 			prompt, column = len(rows)+1, 1+len([]rune(text))
 			rows = append(rows, rule, text, rule, "0.0%/1.0M (auto)")
 		default:
+			if status != "" {
+				rows = append(rows, strings.Repeat(" ", 80-len([]rune(status)))+status)
+			}
 			prompt, column = len(rows)+1, 3+len([]rune(text))
 			rows = append(rows, rule, "❯ "+text, rule, mode)
 			if footer != "" {
@@ -221,6 +227,15 @@ func TestNativeTerminalProgram(t *testing.T) {
 				fmt.Print("\x1b[H" + string([]rune("·✢✳✶✻✽")[frame%6]))
 			}
 			record("turn ended")
+		case strings.HasPrefix(line, "status"):
+			status = strings.TrimSpace(strings.TrimPrefix(line, "status"))
+			drawComposer("", false)
+		case strings.HasPrefix(line, "retry "):
+			// Claude Code 2.1.322's turn row while it waits to send a
+			// request that failed again.
+			turnRow = "✻ 529 Overloaded · Retrying in 3s · attempt " + strings.TrimPrefix(line, "retry ")
+			drawComposer("", true)
+			turnRow = "✽ Pondering… (esc to interrupt)"
 		case line == "update installed":
 			footer = "✓ Update installed · Restart to update"
 			drawComposer("", false)
@@ -1179,6 +1194,34 @@ func TestANativeViewDistinguishesBackgroundWorkFromAHarnessTurn(t *testing.T) {
 	if slices.Contains(terminal.lines(t), "turn ended") {
 		t.Error("the view learned of the turn only after its spinner stopped")
 	}
+}
+
+// A view is told the context gauge and notices Claude Code draws over its
+// composer and the attempt its turn row shows while it retries, and told
+// again without them once the terminal no longer shows them (#2236).
+func TestANativeViewIsToldTheStatusAndRetryTheTerminalShows(t *testing.T) {
+	// Arrange
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	status := `"status":{"gauge":"83% context used","notices":[{"text":"Auto-update failed"},{"text":"Run claude doctor","action":"/doctor"}]}`
+
+	// Act and Assert: the status shows, then a retry under it, then neither.
+	v.send(t, websocket.MessageBinary, "status 83% context used · ✘ Auto-update failed · Run claude doctor\r")
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"his","mode":"bypass permissions",`+status+`}`)
+	v.send(t, websocket.MessageBinary, "retry 3/10\r")
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":true,"submission":"his","mode":"bypass permissions",`+status+`,"retry":{"reason":"529 Overloaded","attempt":3,"attempts":10}}`)
+	v.send(t, websocket.MessageBinary, "status\r")
+	v.waitForAfter(t, `"retry":`, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"his","mode":"bypass permissions"}`)
 }
 
 func TestANativeViewCorrelatesScreensWithSubmittedInput(t *testing.T) {

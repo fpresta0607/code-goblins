@@ -110,3 +110,46 @@ func TestPipelineRunTellsABuildWithoutLaunchSelectionsFromARefusedSelection(t *t
 		})
 	}
 }
+
+// A branch's own .no-mistakes.yaml may lower an automatic fix and never raise
+// one, so from version 7, whose gate repairs no Test failure, a branch that
+// sets auto_fix.test to 1 starts no gate, while version 6 still takes it.
+func TestPipelineRunHoldsABranchTestFixToTheFrozenPolicysCount(t *testing.T) {
+	versionSix := versionSixPolicy(t, pipeline.Reviewer{})
+	versionSeven := pipeline.Policy{Version: 7, AutoFix: pipeline.AutoFix{Rebase: 1}, Classes: versionSix.Classes}
+	if err := versionSeven.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name    string
+		policy  pipeline.Policy
+		refusal string
+	}{
+		{"version 6 takes it", versionSix, ""},
+		{"version 7 refuses it", versionSeven, "repository auto_fix.test is 1, outside 0 to the task policy's 0"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h, nm := gateHome(t, test.policy, operatorMachineConfig)
+			wt, _ := gatedTask(t, h, "task", test.policy, claudeGoblin)
+			runner := &gateStartRunner{pipelineStartRunner: pipelineStartRunner{worktree: wt, repoConfig: "auto_fix: {test: 1}\n"}}
+
+			// Act
+			err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
+
+			// Assert
+			if test.refusal == "" {
+				if err != nil || len(runner.native) != 1 {
+					t.Fatalf("error = %v, native launches = %+v, want one launch", err, runner.native)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.refusal) {
+				t.Fatalf("error = %v, want one naming %q", err, test.refusal)
+			}
+			if len(runner.native) != 0 {
+				t.Fatalf("a refused start launched the gate: %+v", runner.native)
+			}
+		})
+	}
+}

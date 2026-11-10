@@ -47,7 +47,8 @@ type Policy struct {
 	// From version 4 every role runs that chain, primary first, and from
 	// version 5 both start without the operator's MCP servers. From version 6
 	// the policy names no primary: a gate runs on its task's own harness, and
-	// the fallback is there only when the operator names one, in full.
+	// the fallback is there only when the operator names one, in full. Version
+	// 7 is version 6 whose gate repairs no Test, Lint or CI failure.
 	Fallback Reviewer `json:"fallback,omitzero"`
 	AutoFix  AutoFix  `json:"auto_fix"`
 	Classes  Classes  `json:"classes"`
@@ -110,7 +111,7 @@ func (p Policy) Validate() error {
 		if p.Primary != (Reviewer{"codex", "gpt-6.1-sol", "xhigh"}) || p.Fallback != (Reviewer{Harness: "claude"}) || p.Reviewer != (Reviewer{}) || p.Fixer != (Reviewer{}) {
 			return errors.New("pipeline: every role runs Codex gpt-6.1-sol xhigh first and Claude next, so no role names a profile of its own")
 		}
-	case 6:
+	case 6, 7:
 		if p.Primary != (Reviewer{}) || p.Reviewer != (Reviewer{}) || p.Fixer != (Reviewer{}) {
 			return errors.New("pipeline: from version 6 a gate runs on its task's own harness, so the policy names no primary, reviewer or fixer")
 		}
@@ -120,10 +121,16 @@ func (p Policy) Validate() error {
 			}
 		}
 	default:
-		return errors.New("pipeline: policy version must be 1, 2, 3, 4, 5 or 6")
+		return errors.New("pipeline: policy version must be 1, 2, 3, 4, 5, 6 or 7")
 	}
-	if p.AutoFix != (AutoFix{Review: 0, Test: 1, Lint: 1, Rebase: 1, CI: 1}) {
+	// From version 7 the gate only checks: a Test, Lint or CI failure goes
+	// back to the goblin that owns the branch, and only a rebase keeps its
+	// automatic follow-up.
+	if p.Version < 7 && p.AutoFix != (AutoFix{Review: 0, Test: 1, Lint: 1, Rebase: 1, CI: 1}) {
 		return errors.New("pipeline: automatic review must be 0 and test/lint/rebase/ci follow-ups must be 1")
+	}
+	if p.Version >= 7 && p.AutoFix != (AutoFix{Review: 0, Test: 0, Lint: 0, Rebase: 1, CI: 0}) {
+		return errors.New("pipeline: from version 7 automatic review, test, lint and ci must be 0 and the rebase follow-up must be 1")
 	}
 	if p.Classes != (Classes{Class{2}, Class{3}, Class{2}}) {
 		return errors.New("pipeline: review repair budgets must be ordinary 2, high-risk 3, mechanical 2")
