@@ -64,7 +64,7 @@ export async function play(page: Page, supervisor: Supervisor): Promise<void> {
         : supervisor.logins.map((login) => login.id === body?.login ? { ...login, signed_in: false, signed_in_at: "" } : login);
       return route.fulfill({ json: { browser_logins: supervisor.logins } });
     }
-    if (path === "/api/workspace") return route.fulfill({ json: { repository: "code-goblins", root: "C:/scratch/work", branch: "main", harness: "claude", model: "Reported: claude-opus-5-5", notes: [] } });
+    if (path === "/api/workspace") return route.fulfill({ json: { repository: "code-goblins", root: "C:/scratch/work", branch: "main", harness: "claude", notes: [] } });
     if (path === "/api/engines") return route.fulfill({ json: { harnesses: [] } });
     return route.fulfill({ json: {} });
   });

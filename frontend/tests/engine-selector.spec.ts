@@ -30,7 +30,7 @@ async function open(page: Page, phase: string, posts: unknown[], error = "", val
       posts.push(route.request().postDataJSON());
       return route.fulfill({ status: error ? 409 : 200, json: error ? { error } : { saved: true, revision: "q2" } });
     }
-    if (path === "/api/workspace") return route.fulfill({ json: { repository: "code-goblins", harness: "codex", model: "current-model", root: "C:/work", notes: [] } });
+    if (path === "/api/workspace") return route.fulfill({ json: { repository: "code-goblins", harness: "codex", root: "C:/work", notes: [] } });
     return route.fulfill({ json: {} });
   });
   await page.goto("/");

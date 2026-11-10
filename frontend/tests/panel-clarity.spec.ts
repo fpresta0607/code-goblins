@@ -13,7 +13,7 @@ async function open(page: Page, calls: string[] = []) {
     const url = new URL(route.request().url());
     if (url.pathname !== "/api/events") calls.push(url.pathname + url.search);
     if (url.pathname === "/api/events") return route.fulfill({ contentType: "text/event-stream", body: events() });
-    if (url.pathname === "/api/workspace") return route.fulfill({ json: { project: "code-goblins", repository: "code-goblins", branch: "feat/resume-and-closed-cfo", root: "C:\\dev\\code-goblins\\.worktrees\\gb-cg-goblins-quickstart", harness: "claude", model: "Reported: claude-opus-5-5", notes: [] } });
+    if (url.pathname === "/api/workspace") return route.fulfill({ json: { project: "code-goblins", repository: "code-goblins", branch: "feat/resume-and-closed-cfo", root: "C:\\dev\\code-goblins\\.worktrees\\gb-cg-goblins-quickstart", harness: "claude", notes: [] } });
     if (url.pathname.endsWith("/files")) return route.fulfill({ json: [{ path: "internal/lifecycle/service.go", status: "modified" }, { path: "frontend/src/workflow.ts", status: "modified" }] });
     if (url.pathname.endsWith("/diff")) return route.fulfill({ json: { path: url.searchParams.get("path"), patch: PATCH, code: "", head: "h", revision: "", fingerprint: "f", binary: false, code_omitted: false } });
     if (url.pathname.endsWith("/activity")) return route.fulfill({ json: ["2026-10-05T16:30:06Z failed: go test ./internal/billing failed at 9f3c2a1e"] });
