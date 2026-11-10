@@ -65,15 +65,16 @@ func TestReadSaysWhereTheGateHomeIsForEachPlacement(t *testing.T) {
 		name, root, devDrive string
 		want                 Place
 		line                 string
+		shouldMove           bool
 	}{
 		{name: "no Dev Drive", root: system, want: PlaceNoDevDrive, line: "as the fleet has no Dev Drive"},
 		{name: "on the Dev Drive", root: filepath.Join(devDrive, "no-mistakes"), devDrive: devDrive, want: PlaceDevDrive, line: "on the Dev Drive, named by NM_HOME"},
-		{name: "on the system drive", root: system, devDrive: devDrive, want: PlaceSystem, line: "WARNING: " + system + " is not on the Dev Drive"},
-		{name: "linked into the Dev Drive", root: linked, devDrive: devDrive, want: PlaceLinked, line: "through junctions (" + filepath.Join(linked, "repos") + ")"},
-		{name: "itself a junction to its place on the Dev Drive", root: whole, devDrive: devDrive, want: PlaceLinked, line: "through junctions (" + whole + ")"},
+		{name: "on the system drive", root: system, devDrive: devDrive, want: PlaceSystem, line: "WARNING: " + system + " is not on the Dev Drive", shouldMove: true},
+		{name: "linked into the Dev Drive", root: linked, devDrive: devDrive, want: PlaceLinked, line: "through junctions (" + filepath.Join(linked, "repos") + ")", shouldMove: true},
+		{name: "itself a junction to its place on the Dev Drive", root: whole, devDrive: devDrive, want: PlaceLinked, line: "through junctions (" + whole + ")", shouldMove: true},
 		{name: "itself a junction to another folder", root: elsewhere, devDrive: devDrive, want: PlaceStrayLink, line: "WARNING: " + elsewhere + " is a junction to " + other + ", another folder, and cfo dev-drive move carries only a junction to " + filepath.Join(devDrive, "no-mistakes") + ","},
 		{name: "a junction of the home to another place in the gate's home on the Dev Drive", root: strayEntry, devDrive: devDrive, want: PlaceStrayLink, line: "WARNING: " + filepath.Join(strayEntry, "repos") + " is a junction to " + misplaced + ", another folder, and cfo dev-drive move carries only a junction to " + filepath.Join(devDrive, "no-mistakes", "repos") + ","},
-		{name: "a junction of the home to a folder outside the gate's home on the Dev Drive", root: carriedEntry, devDrive: devDrive, want: PlaceSystem, line: "WARNING: " + carriedEntry + " is not on the Dev Drive"},
+		{name: "a junction of the home to a folder outside the gate's home on the Dev Drive", root: carriedEntry, devDrive: devDrive, want: PlaceSystem, line: "WARNING: " + carriedEntry + " is not on the Dev Drive", shouldMove: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Act
@@ -86,9 +87,11 @@ func TestReadSaysWhereTheGateHomeIsForEachPlacement(t *testing.T) {
 			if line := placement.Line(); !strings.Contains(line, test.line) {
 				t.Errorf("line = %q, want it to say %q", line, test.line)
 			}
-			isOffered := test.want == PlaceSystem || test.want == PlaceLinked
-			if move := "cfo dev-drive move --to " + devDrive; isOffered != strings.Contains(placement.Line(), move) {
-				t.Errorf("line = %q, want it to name %q %v", placement.Line(), move, isOffered)
+			if move := "cfo dev-drive move --to " + devDrive; test.shouldMove != strings.Contains(placement.Line(), move) {
+				t.Errorf("line = %q, want it to name %q %v", placement.Line(), move, test.shouldMove)
+			}
+			if placement.ShouldMove() != test.shouldMove {
+				t.Errorf("ShouldMove() = %v, want %v", placement.ShouldMove(), test.shouldMove)
 			}
 		})
 	}

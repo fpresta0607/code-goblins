@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/devdrive"
 	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
 
@@ -23,7 +24,7 @@ const Variable = "NM_HOME"
 
 // DevDriveFolder is the folder on the Dev Drive the gate's home moves to,
 // beside the fleet's own there.
-const DevDriveFolder = "no-mistakes"
+const DevDriveFolder = devdrive.GateHomeFolder
 
 // Root is the gate's home: NM_HOME in this process, else the user's
 // persistent NM_HOME, which a move onto the Dev Drive sets and which a process
@@ -116,6 +117,13 @@ func Read(root, devDrive string) Placement {
 		placement.Place = PlaceSystem
 	}
 	return placement
+}
+
+// ShouldMove says the gate's home is not in the Dev Drive folder and a move
+// carries it there: it is on the system drive, or reaches the Dev Drive
+// through junctions.
+func (p Placement) ShouldMove() bool {
+	return p.Place == PlaceSystem || p.Place == PlaceLinked
 }
 
 // Line says where the gate's home is, for cfo doctor and cfo dev-drive, and

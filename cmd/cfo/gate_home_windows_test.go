@@ -16,11 +16,12 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/gatehome"
 	"github.com/fpresta0607/code-goblins/internal/installbase"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
 // gateDaemonScratch is a scratch gate home with the tables the daemon's hold
 // reads, a scratch Dev Drive folder, a scratch user environment, and a
-// stand-in no-mistakes.exe first on PATH that records each call.
+// stand-in no-mistakes.exe first on PATH that records each call's arguments.
 type gateDaemonScratch struct {
 	old, devDrive, log string
 }
@@ -33,18 +34,17 @@ func newGateDaemonScratch(t *testing.T) gateDaemonScratch {
 	t.Setenv("CFO_STATE_OVERRIDE", "")
 	t.Setenv(installbase.UserEnvFileVariable, filepath.Join(root, "user-env.json"))
 	t.Setenv(gatehome.Variable, "")
-	t.Setenv(gateDaemonLogVariable, s.log)
 	bin := filepath.Join(root, "bin")
 	for _, folder := range []string{bin, s.old, s.devDrive} {
 		if err := os.MkdirAll(folder, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
+	standin.Put(t, filepath.Join(bin, "no-mistakes.exe"))
+	for _, variable := range standin.Env(s.log) {
+		name, value, _ := strings.Cut(variable, "=")
+		t.Setenv(name, value)
 	}
-	copyFile(t, self, filepath.Join(bin, "no-mistakes.exe"))
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(filepath.Join(s.old, "state.sqlite")))
 	if err != nil {
@@ -75,17 +75,13 @@ func (s gateDaemonScratch) calls(t *testing.T) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return strings.Split(strings.TrimSpace(string(raw)), "\n")
-}
-
-func gateDaemonCall(args, root string) string {
-	return args + " | NM_HOME=" + root + " | NO_MISTAKES_NO_UPDATE_CHECK=1"
+	return strings.Split(strings.TrimSpace(string(raw)), "\r\n")
 }
 
 // The real carry asks no-mistakes to uninstall the daemon of the old home,
-// never to stop it by force, and starts it on the moved home, each with that
-// home as NM_HOME and without no-mistakes' update check; the user's NM_HOME
-// then names the moved home.
+// never to stop it by force, then to start it once the home moved; the
+// user's NM_HOME then names the moved home. Which home each call names, and
+// how, TestGateDaemonRunsNoMistakesWithTheHomeAsNMHomeAndNoUpdateCheck proves.
 func TestCarryGateHomeUninstallsTheOldDaemonAndStartsItOnTheMovedHome(t *testing.T) {
 	// Arrange
 	s := newGateDaemonScratch(t)
@@ -99,7 +95,7 @@ func TestCarryGateHomeUninstallsTheOldDaemonAndStartsItOnTheMovedHome(t *testing
 	if err != nil || !isCarried || !strings.HasPrefix(line, "moved: the gate's home is "+target) {
 		t.Fatalf("carry = %q, %v, %v; want it moved to %s", line, isCarried, err, target)
 	}
-	if want := []string{gateDaemonCall("daemon uninstall", s.old), gateDaemonCall("daemon start", target)}; !slices.Equal(s.calls(t), want) {
+	if want := []string{"no-mistakes daemon uninstall", "no-mistakes daemon start"}; !slices.Equal(s.calls(t), want) {
 		t.Errorf("no-mistakes calls = %q, want %q", s.calls(t), want)
 	}
 	if value, isSet, err := installbase.UserVariable(gatehome.Variable); err != nil || !isSet || value != target {
@@ -131,7 +127,7 @@ func TestCarryGateHomeHoldsTheOldHomesDaemonLockBeforeItCopies(t *testing.T) {
 	if !errors.Is(err, pipeline.ErrBusy) || isCarried {
 		t.Fatalf("carry = %v, %v; want it refused while the old home's daemon lock is held", isCarried, err)
 	}
-	if want := []string{gateDaemonCall("daemon uninstall", s.old), gateDaemonCall("daemon start", s.old)}; !slices.Equal(s.calls(t), want) {
+	if want := []string{"no-mistakes daemon uninstall", "no-mistakes daemon start"}; !slices.Equal(s.calls(t), want) {
 		t.Errorf("no-mistakes calls = %q, want %q", s.calls(t), want)
 	}
 	if _, err := os.Lstat(gatehome.Target(s.devDrive)); !errors.Is(err, os.ErrNotExist) {
@@ -139,5 +135,55 @@ func TestCarryGateHomeHoldsTheOldHomesDaemonLockBeforeItCopies(t *testing.T) {
 	}
 	if _, isSet, err := installbase.UserVariable(gatehome.Variable); err != nil || isSet {
 		t.Errorf("user NM_HOME set %v (%v), want it unset", isSet, err)
+	}
+}
+
+// gateDaemonRunner records each command the gate daemon runs and answers it
+// with exit 0.
+type gateDaemonRunner struct{ requests []execx.Request }
+
+func (r *gateDaemonRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
+	r.requests = append(r.requests, request)
+	return execx.Result{}, nil
+}
+
+// The gate daemon runs no-mistakes for each home with that home as NM_HOME,
+// any NM_HOME of its own process dropped, and without no-mistakes' update
+// check.
+func TestGateDaemonRunsNoMistakesWithTheHomeAsNMHomeAndNoUpdateCheck(t *testing.T) {
+	// Arrange
+	t.Setenv(gatehome.Variable, `C:\elsewhere\no-mistakes`)
+	old, target := `C:\Users\someone\.no-mistakes`, `D:\CodeGoblins\no-mistakes`
+	runner := &gateDaemonRunner{}
+	daemon := gateDaemon{commands: runner}
+
+	// Act
+	uninstallErr := daemon.Uninstall(context.Background(), old)
+	startErr := daemon.Start(context.Background(), target)
+
+	// Assert
+	if uninstallErr != nil || startErr != nil {
+		t.Fatalf("uninstall %v, start %v", uninstallErr, startErr)
+	}
+	if len(runner.requests) != 2 {
+		t.Fatalf("requests = %+v, want an uninstall and a start", runner.requests)
+	}
+	for index, want := range []struct{ args, root string }{{"daemon uninstall", old}, {"daemon start", target}} {
+		request := runner.requests[index]
+		if request.Name != "no-mistakes" || strings.Join(request.Args, " ") != want.args {
+			t.Errorf("request %d = %s %q, want no-mistakes %s", index, request.Name, request.Args, want.args)
+		}
+		var homes []string
+		for _, variable := range request.Env {
+			if name, value, _ := strings.Cut(variable, "="); strings.EqualFold(name, gatehome.Variable) {
+				homes = append(homes, value)
+			}
+		}
+		if !slices.Equal(homes, []string{want.root}) {
+			t.Errorf("request %d NM_HOME = %q, want only %s", index, homes, want.root)
+		}
+		if !slices.Contains(request.Env, "NO_MISTAKES_NO_UPDATE_CHECK=1") {
+			t.Errorf("request %d lacks NO_MISTAKES_NO_UPDATE_CHECK=1", index)
+		}
 	}
 }

@@ -42,24 +42,6 @@ func runtimeOn(t *testing.T, m devdrive.Machine) commandRuntime {
 	return runtime
 }
 
-// gateDaemonLogVariable makes this test binary, copied as no-mistakes.exe,
-// append each call's arguments, NM_HOME and NO_MISTAKES_NO_UPDATE_CHECK to
-// the file it names, one line a call, and exit 0.
-const gateDaemonLogVariable = "CFO_TEST_GATE_DAEMON_LOG"
-
-func recordGateDaemonCall(log string) int {
-	file, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return 1
-	}
-	line := strings.Join(os.Args[1:], " ") + " | NM_HOME=" + os.Getenv(gatehome.Variable) + " | NO_MISTAKES_NO_UPDATE_CHECK=" + os.Getenv("NO_MISTAKES_NO_UPDATE_CHECK") + "\n"
-	_, writeErr := file.WriteString(line)
-	if errors.Join(writeErr, file.Close()) != nil {
-		return 1
-	}
-	return 0
-}
-
 // cfo dev-drive move carries the gate's home onto the folder, waiting the
 // half hour for the gate runs in flight, and says where it went; a gate home
 // that does not move fails the command once the heavy folders moved.

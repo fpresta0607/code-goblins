@@ -148,15 +148,15 @@ func (s *Service) devDriveStep(ctx context.Context) (*DevDriveView, bool, error)
 		view.Waiting = waiting
 		return view, true, nil
 	}
-	var gate gatehome.Place
+	var shouldMoveGateHome bool
 	if s.Options.DevDrive.GateHome != nil {
 		gateRoot, err := s.Options.DevDrive.GateHome()
 		if err != nil {
 			return nil, false, err
 		}
-		gate = gatehome.Read(gateRoot, config.Root).Place
+		shouldMoveGateHome = gatehome.Read(gateRoot, config.Root).ShouldMove()
 	}
-	plan, needed := devdrive.Next(m, h, config, gate)
+	plan, needed := devdrive.Next(m, h, config, shouldMoveGateHome)
 	if !needed {
 		return view, false, nil
 	}

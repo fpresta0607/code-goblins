@@ -235,19 +235,20 @@ func (p *copyPlan) copyLink(source, destination, linked string) error {
 	if err != nil {
 		return err
 	}
-	if err := makeLink(destination, p.carried(linked), isJunction, isDirectory); err != nil {
+	if err := makeLink(destination, carried(p.old, p.target, linked), isJunction, isDirectory); err != nil {
 		return fmt.Errorf("the link %s could not be made again at %s: %w", source, destination, err)
 	}
 	return nil
 }
 
-// carried is where a link that leads to linked leads once copied: a link to
-// a place in the home leads to the same place in target, and any other keeps
-// where it leads, a relative one as it is written.
-func (p *copyPlan) carried(linked string) string {
-	if filepath.IsAbs(linked) && isUnder(linked, p.old) {
-		if relative, err := filepath.Rel(p.old, linked); err == nil {
-			return filepath.Join(p.target, relative)
+// carried is where a link that leads to linked leads once the home at old is
+// carried to target: a link to a place in the home leads to the same place in
+// target, and any other keeps where it leads, a relative one as it is
+// written.
+func carried(old, target, linked string) string {
+	if filepath.IsAbs(linked) && isUnder(linked, old) {
+		if relative, err := filepath.Rel(old, linked); err == nil {
+			return filepath.Join(target, relative)
 		}
 	}
 	return linked
@@ -256,7 +257,7 @@ func (p *copyPlan) carried(linked string) string {
 // sameLink proves destination is a link of source's kind that leads where
 // the copy carries source's.
 func (p *copyPlan) sameLink(source, destination, linked string) error {
-	want := p.carried(linked)
+	want := carried(p.old, p.target, linked)
 	got, isLink := linkTarget(destination)
 	if !isLink || !sameFolder(got, want) {
 		return fmt.Errorf("%s does not lead to %s, where the copy carries the link %s", destination, want, source)

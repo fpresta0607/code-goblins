@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -61,7 +62,9 @@ type Mover struct {
 // stay where they are, and what else that move left in the Dev Drive folder
 // is set aside and goes once the move is done. A home that is itself a
 // junction to the gate's home on the Dev Drive is carried there in place.
-// It returns what it did, in a line for the person, and whether the user's
+// What either carries without a copy keeps its links, and each one that
+// leads into the old home is made again to lead to the same place in the new
+// one, as the copy makes its links. It returns what it did, in a line for the person, and whether the user's
 // NM_HOME names the Dev Drive by this call, which an error after the switch
 // does not undo.
 func (m Mover) Move(ctx context.Context, old, devDrive string) (string, bool, error) {
@@ -100,7 +103,8 @@ func (m Mover) Move(ctx context.Context, old, devDrive string) (string, bool, er
 
 // carryInPlace carries a home that is itself a junction to target without a
 // copy: the daemon stops and is held off, the records in target are pointed
-// at it, NM_HOME and each gated checkout's remote name it, and the daemon
+// at it, its links into the old home are made again to lead into target,
+// NM_HOME and each gated checkout's remote name it, and the daemon
 // starts there. Only then the junction goes, as a link alone, and target is
 // read again for the database and every repository it held before.
 func (m Mover) carryInPlace(ctx context.Context, old, target string) (string, bool, error) {
@@ -128,6 +132,7 @@ type moving struct {
 	plan        *copyPlan
 	release     func() error
 	edits       []edit
+	relinks     []relink
 	previous    string
 	hadPrevious bool
 	isEnvSet    bool
@@ -153,6 +158,15 @@ func (m *moving) run(ctx context.Context) error {
 	m.edits = edits
 	if err != nil {
 		return fmt.Errorf("gate home: the records in %s could not be pointed at it, so nothing moved: %w", m.target, err)
+	}
+	inPlace := []string{m.target}
+	if m.plan != nil {
+		inPlace = m.plan.kept
+	}
+	for _, folder := range inPlace {
+		if err := walkLinks(folder, m.rebase); err != nil {
+			return fmt.Errorf("gate home: the links in %s that lead through %s could not be pointed at it, so nothing moved: %w", folder, m.old, err)
+		}
 	}
 	if m.previous, m.hadPrevious, err = m.mover.Env.Get(Variable); err != nil {
 		return err
@@ -192,6 +206,9 @@ func (m *moving) undo(ctx context.Context) error {
 		}
 		errs = append(errs, m.mover.Env.Broadcast())
 	}
+	for _, relink := range slices.Backward(m.relinks) {
+		errs = append(errs, relink.restore())
+	}
 	errs = append(errs, restoreEdits(m.edits))
 	if m.plan != nil {
 		errs = append(errs, m.plan.discard(), m.plan.restore())
@@ -203,6 +220,49 @@ func (m *moving) undo(ctx context.Context) error {
 		errs = append(errs, fmt.Errorf("gate home: the daemon did not start again on %s: %w", m.old, err))
 	}
 	return errors.Join(errs...)
+}
+
+// relink is a link the move made again to lead where it carried what it led
+// to, with where it led before, for the undo.
+type relink struct {
+	path, linked            string
+	isJunction, isDirectory bool
+}
+
+// rebase makes the link at path, which leads to linked, again as its own
+// kind to lead to the same place in target when linked is in the old home,
+// and proves at once it leads there. Any other link stays as it is.
+func (m *moving) rebase(path, linked string) error {
+	want := carried(m.old, m.target, linked)
+	if want == linked {
+		return nil
+	}
+	isJunction, isDirectory, err := linkKind(path)
+	if err != nil {
+		return err
+	}
+	if err := removeLink(path); err != nil {
+		return err
+	}
+	m.relinks = append(m.relinks, relink{path: path, linked: linked, isJunction: isJunction, isDirectory: isDirectory})
+	if err := makeLink(path, want, isJunction, isDirectory); err != nil {
+		return fmt.Errorf("the link %s could not be made again to lead to %s: %w", path, want, err)
+	}
+	if got, isLink := linkTarget(path); !isLink || !sameFolder(got, want) {
+		return fmt.Errorf("%s does not lead to %s, where the move carries the link", path, want)
+	}
+	return nil
+}
+
+// restore makes the link again as its own kind to lead where it led before
+// the move, removing the link the move made in its place.
+func (r relink) restore() error {
+	if _, err := os.Lstat(r.path); err == nil {
+		if err := removeLink(r.path); err != nil {
+			return err
+		}
+	}
+	return makeLink(r.path, r.linked, r.isJunction, r.isDirectory)
 }
 
 // finish removes the old home, its links as links so what they lead to

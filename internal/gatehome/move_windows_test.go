@@ -563,11 +563,14 @@ func (l runLinks) withJunctions(t *testing.T) {
 }
 
 // symlinkOrSkip makes a folder's symbolic link, or skips the test on an
-// account without the privilege to make one.
+// account without the privilege to make one, outside CI alone.
 func symlinkOrSkip(t *testing.T, link, target string) {
 	t.Helper()
 	mustMkdir(t, filepath.Dir(link))
 	if err := os.Symlink(target, link); errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD) {
+		if os.Getenv("CI") == "true" {
+			t.Fatalf("CI must be able to make symbolic links, so the move's symbolic-link cases are proven there: %v", err)
+		}
 		t.Skipf("this account may not make symbolic links: %v", err)
 	} else if err != nil {
 		t.Fatal(err)
@@ -689,6 +692,97 @@ func TestAFailedStartRemovesTheLinksMadeAgainAsLinks(t *testing.T) {
 	assertFile(t, filepath.Join(links.outside, "package.json"), "outside\n")
 	assertFile(t, filepath.Join(links.inside, "index.js"), "inside\n")
 	assertLink(t, filepath.Join(links.checkout, "linked-outside"), links.outside, true)
+}
+
+// throughTheOldHome gives the run checkout a junction to the folder inside it
+// spelled through the old home's path, as a gate run that used that path
+// made it, and returns where the junction is below the Dev Drive folder.
+func (l runLinks) throughTheOldHome(t *testing.T, s scratch) string {
+	t.Helper()
+	relative, err := filepath.Rel(s.old, l.checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(s.target, relative, "node_modules", "pkg")
+	junction(t, link, l.inside)
+	return link
+}
+
+// assertRebased fails unless link is a junction to the folder inside the run
+// checkout at its place in the moved home, and the file in it reads whole.
+func assertRebased(t *testing.T, s scratch, l runLinks, link string) {
+	t.Helper()
+	relative, err := filepath.Rel(s.old, l.inside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLink(t, link, filepath.Join(s.target, relative), true)
+	assertFile(t, filepath.Join(link, "index.js"), "inside\n")
+}
+
+func TestMoveInPlaceRebasesTheLinksSpelledThroughTheOldHome(t *testing.T) {
+	// Arrange: the whole home is a junction to the Dev Drive folder, and a run
+	// that used the old path left a junction spelled through it.
+	s := newScratch(t)
+	links := newRunLinks(t, s)
+	asJunctionToTheDevDrive(t, s)
+	link := links.throughTheOldHome(t, s)
+
+	// Act
+	_, _, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRebased(t, s, links, link)
+}
+
+func TestMoveOfAHomeLinkedByHandRebasesTheLinksSpelledThroughTheOldHome(t *testing.T) {
+	// Arrange: a move by hand put the repository's worktrees on the Dev Drive
+	// behind a junction, and a run that used the old path left a junction in
+	// them spelled through it.
+	s := newScratch(t)
+	links := newRunLinks(t, s)
+	kept := filepath.Join("worktrees", "a1")
+	mustMkdir(t, filepath.Dir(filepath.Join(s.target, kept)))
+	if err := os.Rename(filepath.Join(s.old, kept), filepath.Join(s.target, kept)); err != nil {
+		t.Fatal(err)
+	}
+	junction(t, filepath.Join(s.old, kept), filepath.Join(s.target, kept))
+	link := links.throughTheOldHome(t, s)
+
+	// Act
+	_, _, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(s.old); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the old home is still there: %v", err)
+	}
+	assertRebased(t, s, links, link)
+}
+
+func TestAFailedStartPutsTheRebasedLinksBack(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	links := newRunLinks(t, s)
+	asJunctionToTheDevDrive(t, s)
+	link := links.throughTheOldHome(t, s)
+	s.daemon.failStart = s.target
+
+	// Act
+	_, _, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "did not start on "+s.target) {
+		t.Fatalf("err = %v, want the failed start", err)
+	}
+	assertLink(t, link, links.inside, true)
+	assertFile(t, filepath.Join(link, "index.js"), "inside\n")
+	assertFile(t, filepath.Join(links.inside, "index.js"), "inside\n")
 }
 
 func TestMoveLeavesAHomeAlreadyOnTheDevDrive(t *testing.T) {
