@@ -130,7 +130,8 @@ This is a gate on what `cfo` puts into a terminal, not a sandbox.
 A goblin runs as the Supreme Overlord's Windows user, so a CLI's own login and the task's own record stay within its reach.
 What the gate ends is a test run, a gate step or a one-off script spending with a credential its task never named.
 
-Beside it, a path boundary holds every goblin's tool calls, whatever its harness, before each runs.
+Beside it, a path boundary holds a goblin's tool calls before each runs: Claude Code's and pi's file tools and shell commands, and a Codex goblin's shell commands.
+A Codex goblin's file edits, made with its `apply_patch` tool, are outside the boundary until #2255 lands, so untrusted work run on a Codex goblin cannot rely on the boundary for its file edits.
 A call that names a path in the credential store, which is `cfo`'s file store and Windows' `Credentials`, `Protect` and `Vault` folders, or in `~/.ssh`, is refused, as is a credential program such as `cmdkey`.
 A call that writes outside the goblin's worktree, its scratch folder, the temporary folder goblins share and the caches its terminal names is refused too.
 The refusal names the path, and a refused call never ran, so it wrote nothing.
