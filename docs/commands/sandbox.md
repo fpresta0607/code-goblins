@@ -2,7 +2,7 @@
 
 `cfo sandbox run -- <program> [<argument>...]`
 
-Run one command of a task whose brief carries `sandbox: needed` in a container, as [Untrusted code](../contract/authentication.md#untrusted-code) says.
+Run one command of a task whose brief carries `sandbox: needed` in a container, as [Credentials by need](../contract/authentication.md#credentials-by-need) says.
 It runs from the task's terminal, which names the task in `CFO_TASK_ID`, from a folder of its worktree.
 The container runs the task's image, the `image` its project's devcontainer named at the spawn.
 It mounts the worktree at `/work`, with its `.git` link read-only, and the task's scratch folder at `/scratch`, which `TMPDIR` names, and nothing else of the host.

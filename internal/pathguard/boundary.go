@@ -1,5 +1,5 @@
-// Package pathguard is the filesystem rule a goblin's tool calls and a gate
-// agent's are held to: they never read or write the credential store or
+// Package pathguard is the filesystem rule a goblin's tool calls are held
+// to: they never read or write the credential store or
 // ~/.ssh, and they write only inside their worktree, their scratch folder and
 // the caches they were given. It is a boundary check on the paths a tool call
 // names, made before the call runs, so a refused call writes nothing. It is

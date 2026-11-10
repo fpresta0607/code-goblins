@@ -135,10 +135,8 @@ A call that names a path in the credential store, which is `cfo`'s file store an
 A call that writes outside the goblin's worktree, its scratch folder, the temporary folder goblins share and the caches its terminal names is refused too.
 The refusal names the path, and a refused call never ran, so it wrote nothing.
 The boundary reads the paths a call names: those of the file tools, and the words and redirects of a shell command.
-What a program the command starts opens is not seen, so the boundary keeps a goblin's own reach in line and is no wall against code that sets out to cross it: such code runs in a container, as [Untrusted code](#untrusted-code) says.
+What a program the command starts opens is not seen, so the boundary keeps a goblin's own reach in line and is no wall against code that sets out to cross it: such code runs in a container, as the next paragraph says.
 A gate's agents run without the goblin's hooks and are not held to it yet.
-
-### Untrusted code
 
 A brief whose code is not to be trusted adds `sandbox: needed` under `## Authentication`.
 Any other value, or a second line, refuses the brief at `cfo brief ready` and at the spawn, and every task without the line runs as an ordinary process.
@@ -158,7 +156,7 @@ Host gh is refused `alias` and `extension`, which run a command or program of th
 Its gate's Test step runs its command in the same image, with the gate's checkout alone mounted.
 A run that cannot start Docker runs nowhere, never on the host instead.
 Code in the container can write the worktree, so the task's host git reads hooks from an empty folder, runs with its fsmonitor off, and reads attributes from the empty tree, so no filter, diff or merge driver the worktree names runs.
-A sandbox task's project cannot use submodules: every host command is refused while the worktree holds a `.gitmodules`, whose `ignore` lines would have host git recurse into a submodule the container made, or the worktree's index names a gitlink.
+A sandbox task's project cannot use submodules: every host command is refused while the worktree holds a `.gitmodules`, whose `ignore` lines would have host git recurse into a submodule the container made, or the worktree's index names a gitlink or a sparse directory, which could hold one.
 `cfo` reads the index itself, without running git, and refuses an index split across a shared index too.
 Every host command is also refused while the worktree's `.git` link differs from the one its spawn recorded, or while the folder it runs in, or one between that folder and the worktree, holds a `.git` of its own, and the container sees the `.git` link read-only.
 The gate's prepare, lint and format commands and its agents' own shells still run on the host.
