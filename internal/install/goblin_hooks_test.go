@@ -32,7 +32,7 @@ func TestAGoblinsToolCallsStartNoProcessForItsHooks(t *testing.T) {
 
 	// Assert
 	want := map[string]registeredHook{
-		"PreToolUse":  {Event: "PreToolUse", Matcher: "Bash|PowerShell|Monitor", URL: board + GoblinSealPath, Timeout: KeyAlarmSeconds, OnFailure: "block"},
+		"PreToolUse":  {Event: "PreToolUse", Matcher: GoblinSealMatcher, URL: board + GoblinSealPath, Timeout: KeyAlarmSeconds, OnFailure: "block"},
 		"PostToolUse": {Event: "PostToolUse", URL: board + GoblinToolPath, Timeout: KeyAlarmSeconds},
 	}
 	for _, event := range []string{"PreToolUse", "PostToolUse"} {

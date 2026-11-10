@@ -8,6 +8,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/crawler"
+	"github.com/fpresta0607/code-goblins/internal/sandbox"
 )
 
 var ErrBriefNotReady = errors.New("brief is not ready")
@@ -71,6 +72,9 @@ func ValidateBriefReadiness(content []byte) error {
 		return fmt.Errorf("%w: explicitly name credentials and mcp in Authentication, or write none", ErrBriefNotReady)
 	}
 	if _, err := crawler.IsLeftOutBy(text); err != nil {
+		return fmt.Errorf("%w: %v", ErrBriefNotReady, err)
+	}
+	if _, err := sandbox.IsNeededBy(text); err != nil {
 		return fmt.Errorf("%w: %v", ErrBriefNotReady, err)
 	}
 	if !isReadySeen {

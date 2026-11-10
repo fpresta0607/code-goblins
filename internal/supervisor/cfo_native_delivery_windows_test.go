@@ -2,16 +2,19 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 )
@@ -57,18 +60,29 @@ func TestNativeCFOLeavesAnUnreadyComposerUntouched(t *testing.T) {
 }
 
 func TestBoardCommandsReachTheCFOWithoutAProsePrefix(t *testing.T) {
-	for _, command := range []string{"/status", "!git status --short"} {
-		t.Run(command, func(t *testing.T) {
+	for _, test := range []struct{ name, command string }{
+		{name: "a slash command", command: "/status"},
+		{name: "a shell command", command: "!git status --short"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			store, home := testStore(t)
 			terminal := nativeCFOComposer(t, home.State, "ready")
 			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 
-			_, err := service.deliverMessage(ctx, Action{Kind: "message", Text: command})
+			_, err := service.deliverMessage(ctx, Action{Kind: "message", Text: test.command})
 
 			if err != nil {
 				t.Fatal(err)
+			}
+			// A ! command goes as the line that runs it in Windows PowerShell (#2051).
+			command, isShell, err := shellMessageLine(home.State, "", "", test.command)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !isShell {
+				command = test.command
 			}
 			lines := terminal.lines(t)
 			if len(lines) != 2 || lines[1] != "accepted "+command {
@@ -157,6 +171,112 @@ func TestHisLoneQuestionMarkReachesAClaudeCFOAsWords(t *testing.T) {
 			t.Errorf("once the CFO's record shows it = %+v; want it delivered, not left waiting", settled)
 		}
 	})
+}
+
+// His message to a Claude Code CFO is delivered, and drawn as his row with
+// nothing left waiting, in each shape Claude Code records it (#2242): sent
+// between turns, as a user record once dequeued; sent during a turn, as a
+// queued_command attachment its model takes in that turn; and a ! command,
+// queued by its words alone and run at the turn's end as a bash-input row.
+func TestHisMessageToAClaudeCFOIsDeliveredAndDrawnInEachShapeItsRecordTakes(t *testing.T) {
+	for _, shape := range []struct {
+		name   string
+		typed  string
+		record func(at, recorded string) []map[string]any
+		source string
+		drawn  string
+		queued bool
+	}{
+		{name: "between turns", typed: "check the gate", source: fleettree.FromOverlord, drawn: "check the gate",
+			record: func(at, _ string) []map[string]any {
+				return []map[string]any{
+					{"type": "queue-operation", "operation": "enqueue", "timestamp": at, "content": "check the gate"},
+					{"type": "queue-operation", "operation": "dequeue", "timestamp": at},
+					{"type": "user", "uuid": "u1", "timestamp": at, "message": map[string]any{"role": "user", "content": "check the gate"}},
+				}
+			}},
+		{name: "during a turn", typed: "check the gate", source: fleettree.FromOverlord, drawn: "check the gate", queued: true,
+			record: func(at, _ string) []map[string]any {
+				return []map[string]any{
+					{"type": "queue-operation", "operation": "enqueue", "timestamp": at, "content": "check the gate"},
+					{"type": "attachment", "uuid": "a1", "timestamp": at, "attachment": map[string]any{"type": "queued_command", "prompt": "check the gate", "commandMode": "prompt"}},
+					{"type": "queue-operation", "operation": "remove", "timestamp": at, "content": "check the gate"},
+				}
+			}},
+		// Claude Code records a ! line by its words after the !, and the board
+		// draws its own shell-mode line as the command he typed (#2051).
+		{name: "a ! command run at the turn's end", typed: "! claude doctor", source: fleettree.FromShell, drawn: "claude doctor",
+			record: func(at, recorded string) []map[string]any {
+				return []map[string]any{
+					{"type": "queue-operation", "operation": "enqueue", "timestamp": at, "content": recorded},
+					{"type": "queue-operation", "operation": "dequeue", "timestamp": at},
+					{"type": "user", "uuid": "u1", "timestamp": at, "message": map[string]any{"role": "user", "content": "<bash-input>" + recorded + "</bash-input>"}},
+				}
+			}},
+	} {
+		t.Run(shape.name, func(t *testing.T) {
+			// Arrange
+			records := useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCFOComposer(t, home.State, "claude-manual-busy")
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+			if _, err := store.Queue(Action{ID: "sent", Kind: "message", Text: shape.typed}); err != nil {
+				t.Fatal(err)
+			}
+			pastUndoWindow(t, store)
+
+			// Act: the board types it, then the CFO's record shows it taken.
+			if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+				t.Fatal(err)
+			}
+			lines := terminal.waitForLines(t, 2)
+			typed, isShell, err := shellMessageLine(home.State, "sent", "", shape.typed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !isShell {
+				typed = shape.typed
+			}
+			var record []byte
+			for _, entry := range shape.record(time.Now().UTC().Format(time.RFC3339Nano), strings.TrimPrefix(typed, "! ")) {
+				line, err := json.Marshal(entry)
+				if err != nil {
+					t.Fatal(err)
+				}
+				record = append(append(record, line...), '\n')
+			}
+			path := filepath.Join(records, ".claude", "projects", "C--cfo-home", "session-1.jsonl")
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, record, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.settleDeliveries(time.Now().UTC(), service.lookAtTerminal); err != nil {
+				t.Fatal(err)
+			}
+			var reader fleettree.Reader
+			page, _, err := reader.MessagePage(path, -1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			page.Messages, page.Waiting = shownShellCommands(home.State, page.Messages, page.Waiting)
+
+			// Assert
+			if len(lines) != 2 || lines[1] != "queued "+typed {
+				t.Fatalf("terminal input = %q; want the message typed once", lines)
+			}
+			if settled := store.Snapshot().Actions[0]; settled.Status != "succeeded" || settled.Awaiting != nil {
+				t.Errorf("once the CFO's record shows it taken = %+v; want it delivered, not left on its way", settled)
+			}
+			if len(page.Messages) != 1 || page.Messages[0].Kind != fleettree.MessagePrompt || page.Messages[0].Source != shape.source || page.Messages[0].Text != shape.drawn || page.Messages[0].IsQueued != shape.queued {
+				t.Errorf("conversation = %+v; want his one row, %s %q, queued %v", page.Messages, shape.source, shape.drawn, shape.queued)
+			}
+			if len(page.Waiting) != 0 {
+				t.Errorf("waiting = %+v; want nothing left Sending", page.Waiting)
+			}
+		})
+	}
 }
 
 // longMultiLineMessage is a message like the one #1740 lost the head of: a

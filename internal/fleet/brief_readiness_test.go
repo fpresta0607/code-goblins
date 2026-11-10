@@ -87,6 +87,8 @@ func TestBriefReadinessRequiresAuthoredRequirementsAndFinalLaunchChoices(t *test
 		{name: "finalized choices", content: authoredBrief, isReady: true},
 		{name: "CRLF", content: strings.ReplaceAll(authoredBrief, "\n", "\r\n"), isReady: true},
 		{name: "the crawler left out", content: strings.ReplaceAll(authoredBrief, "mcp: none\n", "mcp: none\nconnectors: none\n"), isReady: true},
+		{name: "a container asked for", content: strings.ReplaceAll(authoredBrief, "mcp: none\n", "mcp: none\nsandbox: needed\n"), isReady: true},
+		{name: "a sandbox that is no choice", content: strings.ReplaceAll(authoredBrief, "mcp: none\n", "mcp: none\nsandbox: maybe\n")},
 		{name: "task text is not metadata", content: strings.ReplaceAll(authoredBrief, "Build the requested change.", "Explain ready: false."), isReady: true},
 		{name: "quoted issue example is not a placeholder", content: strings.ReplaceAll(authoredBrief, "Build the requested change.", "Fix the issue reporting this example:\n> {TASK - describe work}"), isReady: true},
 	}

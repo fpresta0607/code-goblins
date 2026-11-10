@@ -13,20 +13,25 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // goblinHookHome is a scratch home whose goblin pd-keys runs the goblin
 // hooks, as its terminal names them, in a worktree of its own that holds
-// nothing yet.
+// nothing yet, which its task record names.
 func goblinHookHome(t *testing.T) string {
 	t.Helper()
 	root := useScratchHome(t)
+	worktree := t.TempDir()
 	t.Setenv(harness.RoleVariable, harness.RoleGoblin)
 	t.Setenv("CFO_TASK_ID", "pd-keys")
-	t.Setenv("CLAUDE_PROJECT_DIR", t.TempDir())
+	t.Setenv("CLAUDE_PROJECT_DIR", worktree)
 	stateDir := filepath.Join(root, "state")
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: "pd-keys", Worktree: worktree, Scratch: filepath.Join(root, "scratch", "pd-keys")}); err != nil {
 		t.Fatal(err)
 	}
 	return stateDir
@@ -79,24 +84,30 @@ func TestGoblinSealRefusesBrowserCommandsOnlyWhileItsTaskIsSealed(t *testing.T) 
 }
 
 // The goblin hooks run on a goblin's tool calls all day, so a call that is
-// no browser command, or whose output holds no key, costs them no file read
-// and no look at the machine's processes.
+// no browser command costs the seal no look at the machine's processes, and
+// one whose output holds no key costs the key alarm no file read either.
+// The seal reads the task record its path boundary is drawn from.
 func TestGoblinHooksReadNothingForAnOrdinaryCall(t *testing.T) {
 	// Arrange
 	goblinHookHome(t)
-	opened, listed := fsx.Opens(), proc.Lists()
+	listed := proc.Lists()
 	var stdout, stderr bytes.Buffer
 
 	// Act
 	seal := runHook("goblin-seal", shellCall(t, "git status"), &stdout, &stderr)
+	sealListed := proc.Lists() - listed
+	opened, listed := fsx.Opens(), proc.Lists()
 	alarm := runHook("goblin-key-alarm", toolOutput(t, "toolu_1", "commit 9f67ba752f1e637b1d58a0e13e1c07a692648c2c"), &stdout, &stderr)
 
 	// Assert
 	if seal != 0 || alarm != 0 {
 		t.Fatalf("seal = %d, alarm = %d, want both calls left as they were", seal, alarm)
 	}
+	if sealListed != 0 {
+		t.Fatalf("the seal listed processes %d time(s), want none", sealListed)
+	}
 	if opened, listed = fsx.Opens()-opened, proc.Lists()-listed; opened != 0 || listed != 0 {
-		t.Fatalf("the hooks opened %d file(s) and listed processes %d time(s), want neither", opened, listed)
+		t.Fatalf("the key alarm opened %d file(s) and listed processes %d time(s), want neither", opened, listed)
 	}
 }
 

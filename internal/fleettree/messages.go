@@ -819,6 +819,16 @@ func TypedCommand(text string) (string, bool) {
 	return "", false
 }
 
+// ShellCommand is the command a shell-mode prompt's text ran, the words typed
+// after its !, and whether text is one.
+func ShellCommand(text string) (string, bool) {
+	match := bashInput.FindStringSubmatch(strings.TrimSpace(text))
+	if match == nil {
+		return "", false
+	}
+	return strings.TrimSpace(match[1]), true
+}
+
 // StatusCommand is the slash command a bridge_status record's text opens
 // with, and whether it opens with one.
 func StatusCommand(text string) (string, bool) {
@@ -851,12 +861,17 @@ func (l *messageLog) queueOperation(entry messageEntry, id string) {
 	}
 }
 
+// stopWaiting ends the wait a delivered prompt of source and text answers. A
+// shell command answers a wait for his words too: Claude Code queues a !
+// command typed during a turn by its words alone and runs it at the turn's
+// end as a shell command (#2242).
 func (l *messageLog) stopWaiting(source, text string) {
-	at := slices.IndexFunc(l.waiting, func(prompt WaitingPrompt) bool {
-		return prompt.IsSending && prompt.Source == source && prompt.Text == text
-	})
+	isFor := func(prompt WaitingPrompt) bool {
+		return prompt.Text == text && (prompt.Source == source || source == FromShell && prompt.Source == FromOverlord)
+	}
+	at := slices.IndexFunc(l.waiting, func(prompt WaitingPrompt) bool { return prompt.IsSending && isFor(prompt) })
 	if at < 0 {
-		at = slices.IndexFunc(l.waiting, func(prompt WaitingPrompt) bool { return prompt.Source == source && prompt.Text == text })
+		at = slices.IndexFunc(l.waiting, isFor)
 	}
 	if at >= 0 {
 		l.waiting = slices.Delete(l.waiting, at, at+1)
@@ -1069,8 +1084,8 @@ func promptSource(text string) (string, string) {
 		}
 		return FromSlash, strings.TrimSpace(match[1] + " " + args)
 	}
-	if match := bashInput.FindStringSubmatch(text); match != nil {
-		return FromShell, strings.TrimSpace(match[1])
+	if command, isShell := ShellCommand(text); isShell {
+		return FromShell, command
 	}
 	words, isStamped := strings.CutPrefix(text, routing.SteerPrefix)
 	if isStamped {

@@ -73,7 +73,7 @@ func (g goblinHookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if event, ok := claudehook.ReadPayload(bytes.NewReader(payload)); ok {
-			if refusal := goblinSeal(meta.Worktree, task, event.Command); refusal != "" {
+			if refusal := goblinToolRefusal(g.home, meta, meta.Worktree, event); refusal != "" {
 				exit = claudehook.DenyPreToolOnStdout(&stdout, refusal)
 			}
 		}
