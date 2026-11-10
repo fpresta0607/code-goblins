@@ -16,9 +16,12 @@ import (
 
 // transcriptPatterns are where each harness writes its session transcript,
 // as globs under the user's home with {session} standing for the session id.
+// Codex names a rollout rollout-<the second it started>-<session>.jsonl, and
+// the time is matched digit by digit so the session is the whole rest of the
+// name: rollout-*-{session} also matched a rollout of other-{session} (#1901).
 var transcriptPatterns = map[string]string{
 	"claude": filepath.Join(".claude", "projects", "*", "{session}.jsonl"),
-	"codex":  filepath.Join(".codex", "sessions", "*", "*", "*", "rollout-*-{session}.jsonl"),
+	"codex":  filepath.Join(".codex", "sessions", "*", "*", "*", "rollout-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-{session}.jsonl"),
 	"pi":     filepath.Join(".pi", "agent", "sessions", "*", "*_{session}.jsonl"),
 }
 
