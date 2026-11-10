@@ -61,7 +61,7 @@ func TestCanonicalResolvesThroughADirectoryJunction(t *testing.T) {
 // matched to a folder under either spelling without being looked up itself.
 func TestShortPathSpellsTheFolderLongPathSpells(t *testing.T) {
 	// Arrange
-	long := LongPath(filepath.Join(t.TempDir(), "a folder with a long name"))
+	long := filepath.Join(LongPath(t.TempDir()), "a folder with a long name")
 	missing := filepath.Join(long, "never made")
 	if err := os.Mkdir(long, 0o755); err != nil {
 		t.Fatal(err)

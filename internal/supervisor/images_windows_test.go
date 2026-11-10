@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http/httptest"
 	"path/filepath"
 	"syscall"
@@ -67,8 +68,9 @@ func TestOpenInsideLooksUpOnlyItsRootsOnDisk(t *testing.T) {
 }
 
 // A file opens under a root folder's long or its 8.3 short name, whichever of
-// the two the root itself is recorded under, and a folder beside the root
-// matches under neither.
+// the two the root itself is recorded under, a file that is not there is
+// reported missing under either, and a folder beside the root matches under
+// neither.
 func TestOpenInsideMatchesEitherSpellingOfARootFolder(t *testing.T) {
 	long := filepath.Join(fsx.LongPath(t.TempDir()), "a root with a long name")
 	writePNG(t, filepath.Join(long, "shots", "a.png"))
@@ -84,6 +86,13 @@ func TestOpenInsideMatchesEitherSpellingOfARootFolder(t *testing.T) {
 				t.Fatalf("root %s: %s refused: %v", root, spelling, err)
 			}
 			f.Close()
+			f, err = openInside([]string{root}, filepath.Join(spelling, "shots", "missing.png"))
+			if !errors.Is(err, fs.ErrNotExist) {
+				if f != nil {
+					f.Close()
+				}
+				t.Fatalf("root %s: a missing file under %s: err = %v, want the file reported missing", root, spelling, err)
+			}
 		}
 		f, err := openInside([]string{root}, filepath.Join(fsx.ShortPath(long+" beside"), "shots", "a.png"))
 		if !errors.Is(err, errOutsideRoots) {
@@ -97,7 +106,8 @@ func TestOpenInsideMatchesEitherSpellingOfARootFolder(t *testing.T) {
 
 // A task whose worktree is recorded under its 8.3 short name still reviews
 // and serves an image spelled under the short name, the long name, or a mix
-// of the two, as GitHub runners spell their temp directory.
+// of the two, as GitHub runners spell their temp directory, and reports an
+// image that is not there as missing under each of them.
 func TestReviewImagesAcceptEitherSpellingOfTheRoot(t *testing.T) {
 	store, h := testStore(t)
 	meta, err := state.ReadTaskMeta(h.State, "task-1")
@@ -137,6 +147,11 @@ func TestReviewImagesAcceptEitherSpellingOfTheRoot(t *testing.T) {
 	images, err := ReviewImages(h, meta.ID, paths)
 	if err != nil {
 		t.Fatalf("an image under the task's own worktree refused: %v", err)
+	}
+	for _, spelling := range []string{short, long, mixed} {
+		if _, err := ReviewImages(h, meta.ID, []string{filepath.Join(spelling, "missing.png")}); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("a missing image under %s: err = %v, want the image reported missing", spelling, err)
+		}
 	}
 	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", "", images, nil); err != nil {
 		t.Fatal(err)
