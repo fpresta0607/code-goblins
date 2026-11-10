@@ -148,10 +148,10 @@ for (const width of [1440, 390]) {
       // Assert
       await expect(pools.locator(".memory-line")).toHaveText("Kernel pools11.0 GB");
       await expect(pools.locator(".memory-fill")).toHaveClass(/under/);
-      await expect(pools.locator(".memory-bar")).toHaveAttribute("data-tip", "Paged 7.6 GB, nonpaged 3.4 GB. Red mark: 7.5 GB, past which free memory cannot hold the fleet and the CFO's panel offers Restart PC. Grew most since sign-in: Toke 3.2 GB paged.");
+      await expect(pools.locator(".memory-bar")).toHaveAttribute("data-tip", "Paged 7.6 GB, nonpaged 3.4 GB. Red mark: 7.5 GB, past which free memory cannot hold the fleet and the CEO's panel offers Restart PC. Grew most since sign-in: Toke 3.2 GB paged.");
       await expect(column.getByRole("group", { name: "Memory" }).locator(":scope > .memory-bar")).not.toHaveAttribute("data-tip", /pool/i);
       // A screen reader hears the meter's state and tip in its hidden line.
-      await expect(pools.locator(".sr-only")).toHaveText(/^The kernel's pools hold 11\.0 GB, past the 7\.5 GB line: Restart PC in the CFO's panel frees them\. Paged 7\.6 GB/);
+      await expect(pools.locator(".sr-only")).toHaveText(/^The kernel's pools hold 11\.0 GB, past the 7\.5 GB line: Restart PC in the CEO's panel frees them\. Paged 7\.6 GB/);
       await column.locator(".task-meters").screenshot({ path: testInfo.outputPath(`pools-past-the-line-${width}.png`) });
     });
 

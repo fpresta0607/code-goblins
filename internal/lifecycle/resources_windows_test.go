@@ -89,13 +89,13 @@ func TestTaskResourcesRetainsIdentityAndSweepsOnlyAnOpenGateRun(t *testing.T) {
 	}
 }
 
-// A memory pause leaves its goblin's open gate run alone: the run is no part
-// of what the pause ends, so nothing sweeps its worktree, aborts it or
-// records it for a restart, and it runs on for the goblin to pick back up.
-// Any other pause interrupts it as before, and so does a stop, of a goblin
-// paused for memory too. On 2026-10-09 Murray's memory pause tried to abort
-// his live run, the abort failed, and no resume could bring him back.
-func TestAMemoryPauseLeavesAnOpenGateRunAlone(t *testing.T) {
+// A pause leaves its goblin's open gate run alone, whatever its reason: the
+// run is no part of what the pause ends, so nothing sweeps its worktree,
+// aborts it or records it for a restart, and it runs on for the goblin to
+// pick back up. A stop interrupts it, of a goblin paused for memory too.
+// While only a memory pause did so, pauses for every other reason ended 29 of
+// 147 runs in three days (issue 2089).
+func TestAPauseLeavesAnOpenGateRunAlone(t *testing.T) {
 	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	memory := &state.PauseCondition{Reason: "memory", At: time.Now().UTC()}
 	for _, testCase := range []struct {
@@ -104,7 +104,9 @@ func TestAMemoryPauseLeavesAnOpenGateRunAlone(t *testing.T) {
 		isInterrupted bool
 	}{
 		{name: "a pause for memory", action: "pause", pause: memory},
-		{name: "a pause by the Overlord", action: "pause", pause: &state.PauseCondition{Reason: "overlord", At: time.Now().UTC()}, isInterrupted: true},
+		{name: "a pause by the Overlord", action: "pause", pause: &state.PauseCondition{Reason: "overlord", At: time.Now().UTC()}},
+		{name: "a pause for a dependency", action: "pause", pause: &state.PauseCondition{Reason: "dependency", Until: "task:other", At: time.Now().UTC()}},
+		{name: "a pause for a question", action: "pause", pause: &state.PauseCondition{Reason: "question", Until: "question-1", At: time.Now().UTC()}},
 		{name: "a stop", action: "stop", isInterrupted: true},
 		{name: "a stop of a goblin paused for memory", action: "stop", pause: memory, isInterrupted: true},
 	} {

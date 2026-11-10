@@ -36,14 +36,14 @@ async function modernShown(page: Page, name: string): Promise<void> {
   await expect(page.getByRole("group", { name: "Chat style", exact: true })).toHaveCount(0);
 }
 
-for (const who of ["CFO", "goblin"] as const) {
+for (const who of ["CEO", "goblin"] as const) {
   test(`the ${who}'s panel opens in Classic with no saved choice, and the picture in its header switches it both ways at once`, async ({ page }) => {
     // Arrange
     const relay = await open(page);
-    const name = who === "CFO" ? "CFO" : NAME;
+    const name = who === "CEO" ? "CEO" : NAME;
 
     // Act
-    if (who === "CFO") await page.keyboard.press("Control+Alt+1");
+    if (who === "CEO") await page.keyboard.press("Control+Alt+1");
     else await card(page, NAME).click();
 
     // Assert: the terminal alone, and opening it saved nothing.
@@ -76,8 +76,8 @@ for (const who of ["CFO", "goblin"] as const) {
   test(`the ${who}'s picture opens its chat style menu from the keyboard on the style shown`, async ({ page }) => {
     // Arrange
     const relay = await open(page);
-    const name = who === "CFO" ? "CFO" : NAME;
-    if (who === "CFO") await page.keyboard.press("Control+Alt+1");
+    const name = who === "CEO" ? "CEO" : NAME;
+    if (who === "CEO") await page.keyboard.press("Control+Alt+1");
     else await card(page, NAME).click();
     await classicShown(page, name);
     const menu = header(page).getByRole("menu", { name: "Chat style", exact: true });
@@ -178,7 +178,7 @@ for (const style of ["classic", "modern"] as const) {
       await page.addInitScript((chosen) => { if (!localStorage.getItem("cfo-chat-style")) localStorage.setItem("cfo-chat-style", chosen); }, style);
       const relay = await open(page);
       const shown = (name: string) => style === "classic" ? classicShown(page, name) : modernShown(page, name);
-      const visits = [["1", "CFO"], ["2", NAME], ["3", IVY], ["1", "CFO"], ["2", NAME], ["3", IVY]] as const;
+      const visits = [["1", "CEO"], ["2", NAME], ["3", IVY], ["1", "CEO"], ["2", NAME], ["3", IVY]] as const;
 
       // Act and Assert: each lands in the chosen style, and in Modern each
       // finds the draft it was left with.
@@ -197,7 +197,7 @@ for (const style of ["classic", "modern"] as const) {
       await field(page, NAME).fill("Zeke's own draft");
       await pickStyle(page, "Terminal");
       await classicShown(page, NAME);
-      for (const [key, name] of [["3", IVY], ["1", "CFO"], ["2", NAME]] as const) {
+      for (const [key, name] of [["3", IVY], ["1", "CEO"], ["2", NAME]] as const) {
         await page.keyboard.press("Control+Alt+" + key);
         await expect(page.locator("#panel-title")).toHaveText(name);
         await classicShown(page, name);
@@ -236,7 +236,7 @@ for (const width of [1440, 390]) {
     await readBack();
 
     // Act and Assert: the CFO and Ivy, then Zeke again.
-    for (const [key, name] of [["1", "CFO"], ["3", IVY], ["2", NAME]] as const) {
+    for (const [key, name] of [["1", "CEO"], ["3", IVY], ["2", NAME]] as const) {
       await page.keyboard.press("Control+Alt+" + key);
       await expect(page.locator("#panel-title")).toHaveText(name);
       await classicShown(page, name);
@@ -246,7 +246,7 @@ for (const width of [1440, 390]) {
     await readBack();
     if (width === 390) await page.getByRole("button", { name: "Back to Board", exact: true }).click();
     else {
-      await page.getByRole("button", { name: "Back to the CFO", exact: true }).click();
+      await page.getByRole("button", { name: "Back to the CEO", exact: true }).click();
       await page.getByRole("button", { name: "Close panel", exact: true }).click();
     }
     await expect(page.locator(".context-pane")).toBeHidden();
@@ -264,13 +264,13 @@ for (const width of [1440, 390]) {
 // its box but for those only one has, each named here with why. Both are idle,
 // since a turn's Stop is what any session offers while it works.
 const CFO_ONLY: Record<string, string> = {
-  "Close panel": "The CFO's pane is the panel's home, so its corner closes the panel.",
+  "Close panel": "The CEO's pane is the panel's home, so its corner closes the panel.",
 };
 const GOBLIN_ONLY: Record<string, string> = {
-  "Back to the CFO": "A goblin's corner returns the panel to its home, in the place Close panel holds there.",
+  "Back to the CEO": "A goblin's corner returns the panel to its home, in the place Close panel holds there.",
 };
 // A phone's pane fills the screen, so both corners go back to the board alike.
-const DESKTOP_CORNERS = ["Close panel", "Back to the CFO"];
+const DESKTOP_CORNERS = ["Close panel", "Back to the CEO"];
 // paneControls names every control shown in the panel's header and its box,
 // by its accessible name, the session's own name taken out.
 const paneControls = (page: Page, name: string) => page.locator(".context-pane").evaluate((pane, name) => [...pane.querySelectorAll<HTMLElement>(".panel-header button, .composer button, .panel-header [role=tab]")]
@@ -286,8 +286,8 @@ for (const style of ["Modern chat", "Terminal"] as const) {
         // Arrange
         await page.addInitScript((saved) => localStorage.setItem("cfo-chat-style", saved), style === "Terminal" ? "classic" : "modern");
         await open(page, snapshot({}, { phase: "idle" }));
-        const shown = async (who: "CFO" | "goblin") => {
-          const name = who === "CFO" ? "CFO" : NAME;
+        const shown = async (who: "CEO" | "goblin") => {
+          const name = who === "CEO" ? "CEO" : NAME;
           if (style === "Modern chat") await expect(page.getByRole("log", { name: "Messages of " + name })).toContainText("On it.");
           else await expect(page.locator(".terminal-view:not(.staged) > .xterm")).toBeVisible();
           await page.evaluate(() => document.fonts.ready);
@@ -298,8 +298,8 @@ for (const style of ["Modern chat", "Terminal"] as const) {
 
         // Act
         await page.keyboard.press("Control+Alt+1");
-        await expect(page.locator("#panel-title")).toHaveText("CFO");
-        const cfo = await shown("CFO");
+        await expect(page.locator("#panel-title")).toHaveText("CEO");
+        const cfo = await shown("CEO");
         await (isPhone ? page.getByRole("button", { name: "Back to Board", exact: true }).tap() : Promise.resolve());
         await (isPhone ? card(page, NAME).tap() : card(page, NAME).click());
         await expect(page.locator("#panel-title")).toHaveText(NAME);
@@ -307,7 +307,7 @@ for (const style of ["Modern chat", "Terminal"] as const) {
 
         // Assert
         const named = (only: Record<string, string>) => Object.keys(only).filter((control) => !isPhone || !DESKTOP_CORNERS.includes(control)).sort();
-        expect(cfo.filter((control) => !goblin.includes(control)), "only the CFO's").toEqual(named(CFO_ONLY));
+        expect(cfo.filter((control) => !goblin.includes(control)), "only the CEO's").toEqual(named(CFO_ONLY));
         expect(goblin.filter((control) => !cfo.includes(control)), "only the goblin's").toEqual(named(GOBLIN_ONLY));
       });
     });

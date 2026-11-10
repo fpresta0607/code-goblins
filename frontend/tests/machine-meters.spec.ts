@@ -77,7 +77,7 @@ test.describe("in the Overlord's window, 1707 px wide", () => {
   test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
 
   for (const [state, processors] of Object.entries(states)) {
-    for (const beside of ["as the board opens", "the CFO's Task view open beside the board"]) {
+    for (const beside of ["as the board opens", "the CEO's Task view open beside the board"]) {
       test(`CPU and GPU are rows under disk in the same box, ${state === "roomy" ? "with room" : "under the mark"}, ${beside}`, async ({ page }, testInfo) => {
         // Arrange
         const column = await board(page, { processors, gpu });

@@ -37,7 +37,7 @@ export function CfoEngineSelector({ snapshot }: { snapshot: Snapshot }) {
     } catch (failure: unknown) { showFeedback(message(failure)); }
     finally { setSaving(false); }
   };
-  return <div className="engine-selector" role="group" aria-label="CFO engine">
+  return <div className="engine-selector" role="group" aria-label="CEO engine">
     {catalog.error ? <button className="icon-button raised" aria-label="Retry" onClick={catalog.reload}><Icon name="refresh" /></button> : !catalog.data ? <p className="loading" role="status">Reading engines…</p> : <>
       <div className="engine-fields">
         <label htmlFor={label + "-harness"}>Harness<span className="engine-harness"><ConnectorMark mark={harnessMark(choice.harness)} label={harnessName(choice.harness)} /><select id={label + "-harness"} value={choice.harness} disabled={isSaving} onChange={(event) => {

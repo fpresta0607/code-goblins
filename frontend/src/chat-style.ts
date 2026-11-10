@@ -26,7 +26,7 @@ export function chatStyle(saved?: string | null): ChatStyle {
 // 2026-11-05: "Make the terminal button the chat icon as well with the modern
 // chat being used").
 export function cfoDoor(style: ChatStyle, hasMessages: boolean): { label: string; icon: "comment" | "terminal" } {
-  return style === "modern" && hasMessages ? { label: "Open the CFO's chat", icon: "comment" } : { label: "Open the CFO's terminal", icon: "terminal" };
+  return style === "modern" && hasMessages ? { label: "Open the CEO's chat", icon: "comment" } : { label: "Open the CEO's terminal", icon: "terminal" };
 }
 
 // storedChatStyle is the choice this browser holds.

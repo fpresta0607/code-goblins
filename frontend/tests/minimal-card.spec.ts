@@ -15,7 +15,7 @@ const goblin = (id: string, name: string, title: string, task: string, fields: R
   id, title: task, goblin_name: name, goblin_title: title, project: "code-goblins", phase: "working", report: "working", verified: false,
   generation: id + "-1", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", since: ago(210), ...fields,
 });
-const pause = (until: string, minutes: number) => ({ phase: "paused", action: "pause", at: ago(minutes), kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "dependency", until, at: ago(minutes) } });
+const pause = (until: string, minutes: number) => ({ phase: "paused", action: "pause", at: ago(minutes), kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason: "dependency", until, at: ago(minutes) } });
 const LONG = "Teach the board to read every harness's own session record instead of its screen, for the waiting and working status";
 const SNAPSHOT = {
   healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
@@ -27,7 +27,7 @@ const SNAPSHOT = {
     goblin("cg-wade", "Wade", "Waiter", "Wait on a long task", { phase: "paused", at: ago(40), lifecycle: pause("task:cg-long", 40) }),
     { id: "cg-long", title: LONG, project: "code-goblins", phase: "queued", verified: false, generation: "", brief: true, since: ago(30) },
     goblin("cg-bart", "Bartholomew", "Distinguished Infrastructure Archivist", "Archive the old gate logs", { since: ago(5) }),
-    goblin("finished:cg-ivy", "Ivy", "Merge Maven", "Read the CFO's status from the live CFO", { phase: "done", archived: true, merged: true, verified: true, at: ago(35), pr: REPO + "/pull/1036", branch: "fix/cfo-status-from-registration", generation: "" }),
+    goblin("finished:cg-ivy", "Ivy", "Merge Maven", "Read the CEO's status from the live CEO", { phase: "done", archived: true, merged: true, verified: true, at: ago(35), pr: REPO + "/pull/1036", branch: "fix/cfo-status-from-registration", generation: "" }),
   ],
 };
 
@@ -104,7 +104,7 @@ test("a finished goblin's row leads with its name, with its task in the name's t
 
   // Assert
   await expect(row).toBeVisible();
-  await expect(page.getByRole("tooltip")).toHaveText("Read the CFO's status from the live CFO");
+  await expect(page.getByRole("tooltip")).toHaveText("Read the CEO's status from the live CEO");
   await expect(row.locator(".card-status-text")).toHaveText("Merged");
 });
 

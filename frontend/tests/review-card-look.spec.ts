@@ -55,7 +55,7 @@ test("the CFO's delivered picture shows as its page with one button", async ({ p
 
   // Assert
   await expect(heading).toBeVisible();
-  await expect(card.locator(".asker strong")).toHaveText("The CFO");
+  await expect(card.locator(".asker strong")).toHaveText("The CEO");
   await expect(card.locator(".page-preview iframe")).toHaveAttribute("src", "/api/reviews/board-card-text-fits-20261010/preview");
   await expect(card.getByRole("link", { name: /^Open review/ })).toHaveCount(1);
 });

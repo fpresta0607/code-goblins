@@ -30,7 +30,7 @@ const board = (fields: Record<string, unknown> = {}) => ({ healthy: true, instan
 // which waits in the Command Center without an alert.
 const news = () => board({ at: "2026-10-07T15:09:11Z", questions: [{ ...question("theme-asks", "Which accent colour should the board use?", "2026-10-07T14:59:11Z"), task: "cg-theme" }], tasks: [
   task("pd-small-cleanups", RETIRED, { project: "PrecisionDocs-AI", phase: "paused", report: "", pr: "https://github.com/fpresta0607/PrecisionDocs-AI/pull/1507", reason: LIFECYCLE_SAID, activity: LIFECYCLE_SAID,
-    lifecycle: { phase: "paused", action: "pause", at: "2026-10-07T14:49:11Z", kept: ["worktree C:\\dev\\PrecisionDocs-AI\\.worktrees\\gb-pd-small-cleanups"], stopped: [], problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"], handoff_saved: false, validation_restarts: false } }),
+    lifecycle: { phase: "paused", action: "pause", at: "2026-10-07T14:49:11Z", kept: ["worktree C:\\dev\\PrecisionDocs-AI\\.worktrees\\gb-pd-small-cleanups"], stopped: [], problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"], handoff_saved: false, validation_kept: false } }),
   task("cg-probe", "Probe the DNS", { phase: "failed", report: "failed", activity: "failed: go test timed out at 9f3c2a1e" }),
   task("cg-theme", "Board theme", { phase: "blocked", reason: "Pipeline decision required at review; use cfo pipeline respond" }),
 ] });
@@ -119,7 +119,7 @@ test.describe("on the board, in a browser tab", () => {
       expect(asked).toEqual([]);
       await expect(page.getByRole("button", { name: "Turn on", exact: true })).toHaveCount(permission === "default" ? 1 : 0);
       await send(allowed, board({ questions: [RELEASE] }));
-      await expect.poll(() => notes(allowed)).toEqual([{ title: "CFO", body: "The CFO asks: " + ASKS, tag: "question:" + RELEASE.id + "@" + RELEASE.created_at, closed: false }]);
+      await expect.poll(() => notes(allowed)).toEqual([{ title: "CEO", body: "The CEO asks: " + ASKS, tag: "question:" + RELEASE.id + "@" + RELEASE.created_at, closed: false }]);
       await send(allowed, board({ questions: [RELEASE] }));
       await send(allowed, board({ instance: "board-2" }));
       await send(allowed, board({ instance: "board-2", questions: [RELEASE] }));
@@ -183,7 +183,7 @@ test.describe("on the board, in a browser tab", () => {
     await testInfo.attach("goblins' news on the board", { body: await page.screenshot(), contentType: "image/png" });
 
     // Assert
-    await expect(bar(page)).toContainText("1 question waits for the CFO (10 min).");
+    await expect(bar(page)).toContainText("1 question waits for the CEO (10 min).");
     expect(await notes(page)).toEqual([]);
     expect(asked).toEqual([]);
     await expect(page.locator(".toasts")).toHaveCount(0);
@@ -207,13 +207,13 @@ test.describe("on the board, in a browser tab", () => {
 
     // Assert
     const alert = "question:" + RELEASE.id + "@" + RELEASE.created_at;
-    await expect.poll(() => notes(page)).toEqual([{ title: "CFO", body: "The CFO asks: " + ASKS, tag: alert, closed: false }]);
+    await expect.poll(() => notes(page)).toEqual([{ title: "CEO", body: "The CEO asks: " + ASKS, tag: alert, closed: false }]);
     expect(asked).toEqual(["alert:" + alert]);
     await expect(card(page)).toBeHidden();
     await page.evaluate(() => (window as unknown as { notes: { onclick: () => void }[] }).notes[0].onclick());
     await expect(card(page)).toContainText(ASKS);
     await testInfo.attach("the notification opened its question", { body: await page.screenshot(), contentType: "image/png" });
-    expect(await notes(page)).toEqual([{ title: "CFO", body: "The CFO asks: " + ASKS, tag: alert, closed: true }]);
+    expect(await notes(page)).toEqual([{ title: "CEO", body: "The CEO asks: " + ASKS, tag: alert, closed: true }]);
   });
 });
 
@@ -266,12 +266,12 @@ window.addEventListener("DOMContentLoaded", () => { ${notesScript} });`;
     // the page was handed reached it in its asker's words.
     expect(quiet).toEqual([]);
     const fromPage = "question:" + RELEASE.id + "@" + RELEASE.created_at;
-    await expect.poll(() => posted(page)).toEqual([{ id: fromPage, title: "CFO", body: "The CFO asks: " + ASKS }]);
+    await expect.poll(() => posted(page)).toEqual([{ id: fromPage, title: "CEO", body: "The CEO asks: " + ASKS }]);
     await send(page, { ...news(), questions: [RELEASE, second] });
     await send(page, board({ instance: "board-2" }));
     await send(page, board({ instance: "board-2", questions: [RELEASE, second] }));
     await page.waitForTimeout(ANNOUNCED_BY_MS);
-    expect(await posted(page)).toEqual([{ id: fromPage, title: "CFO", body: "The CFO asks: " + ASKS }]);
+    expect(await posted(page)).toEqual([{ id: fromPage, title: "CEO", body: "The CEO asks: " + ASKS }]);
     await testInfo.attach("one item posted to Windows, in the window's size", { body: await page.screenshot(), contentType: "image/png" });
     await clicked(page, fromPage);
     await expect(card(page)).toContainText(ASKS);

@@ -86,7 +86,7 @@ test("the check finds an error box, an error sentence and an explanatory line, a
   const cases: [string, number][] = [
     ['export const A = () => <p className="warning-text" role="alert">x</p>;', 2],
     ["export const B = () => <p>The workspace could not be read.</p>;", 1],
-    ['export const C = () => <p>{"Your answer did not reach the CFO."}</p>;', 1],
+    ['export const C = () => <p>{"Your answer did not reach the CEO."}</p>;', 1],
     ["export const D = () => <p>Read 22s ago from the goblin's records and processes.</p>;", 1],
     ['export const E = () => <span className="plain-status">Failed</span>;', 0],
     ['export const F = () => <button data-tip="Resume failed: the goblin could not start">x</button>;', 0],

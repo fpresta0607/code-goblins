@@ -11,8 +11,8 @@ const task = (id: string, phase: string, fields: Record<string, unknown> = {}) =
 const QUEUED = task("queued-one", "queued", { generation: "", brief: true, queue_revision: "q1", detail: "Its detail." });
 const BLOCKED = task("queued-blocked", "queued", { generation: "", brief: true, queue_revision: "q1", waits: [{ kind: "task", target: "queued-one" }], reason: "after queued-one" });
 const WORKING = task("working-one", "working", { harness: "codex" });
-const PAUSED = task("paused-one", "paused", { lifecycle: { phase: "paused", action: "pause", at: since, kept: ["worktree", "session"], stopped: [], problems: [], handoff_saved: true, validation_restarts: false } });
-const REMOVED = task("finished:queued-one", "stopped", { title: "queued-one", generation: "", archived: true, at: since, lifecycle: { phase: "stopped", action: "stop", at: since, kept: ["task brief"], stopped: [], problems: [], handoff_saved: false, validation_restarts: false } });
+const PAUSED = task("paused-one", "paused", { lifecycle: { phase: "paused", action: "pause", at: since, kept: ["worktree", "session"], stopped: [], problems: [], handoff_saved: true, validation_kept: false } });
+const REMOVED = task("finished:queued-one", "stopped", { title: "queued-one", generation: "", archived: true, at: since, lifecycle: { phase: "stopped", action: "stop", at: since, kept: ["task brief"], stopped: [], problems: [], handoff_saved: false, validation_kept: false } });
 // A delivered goblin whose session is still up, in Completed.
 const DELIVERED = task("delivered-one", "done", { verified: true, merged: true, pr: "https://github.com/o/r/pull/9" });
 const BOARD = [QUEUED, BLOCKED, WORKING, PAUSED];
@@ -307,12 +307,12 @@ for (const where of ["pencil", "text"] as const) {
 // under it. Its title shows once, on the line that edits it.
 test("a queued task with no goblin named yet shows its title once, on its task line, and is headed by its id", async ({ page }) => {
   // Arrange
-  const title = "Tailscale remote access toggle in the CFO task panel with a very long title that wraps past two lines";
+  const title = "Tailscale remote access toggle in the CEO task panel with a very long title that wraps past two lines";
   await open(page, [], [task("queued-unnamed", "queued", { generation: "", brief: true, queue_revision: "q1", title }), WORKING]);
 
   // Act
   await page.locator(".task-board .task-card-shell").filter({ hasText: title }).locator(".task-card").click();
-  await expect(page.locator("#panel-title")).not.toHaveText("CFO");
+  await expect(page.locator("#panel-title")).not.toHaveText("CEO");
   await openTaskList(page);
 
   // Assert

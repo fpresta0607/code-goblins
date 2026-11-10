@@ -318,7 +318,7 @@ test("a paused Herdr goblin resumed in the background takes no stream until it i
 
 for (const backend of ["native", "herdr"] as const) {
   test(`${backend}: a failed resume opens no transport and Resume from the Task view connects only the resumed generation`, async ({ page }) => {
-    const lifecycle = { action: "resume", phase: "failed", at: "2026-09-30T09:58:00Z", kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false };
+    const lifecycle = { action: "resume", phase: "failed", at: "2026-09-30T09:58:00Z", kept: [], stopped: [], problems: [], handoff_saved: false, validation_kept: false };
     const snapshot = parseSnapshot({ healthy: true, instance: "resume-proof", cfo_runs: true, revision: 1,
       tasks: [{ id: "input-proof", title: "Terminal fixes and handoff", project: "code-goblins", backend, harness: "codex", generation: "s2-9d41", queue_revision: "q7", phase: "unavailable", verified: false,
         runtime: { state: "unavailable" }, lifecycle, action_error: "The resumed harness exited before it was ready." }],

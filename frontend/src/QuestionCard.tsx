@@ -44,7 +44,7 @@ export function QuestionCard({ question, snapshot, connected, now, draft, review
   const chosen = chosenOption(question);
   const displayed = questionSelection(question, draft, outcome);
   const task = snapshot.tasks.find((candidate) => candidate.id === question.task);
-  const asker = question.task ? task ? goblinName(task) : question.task : "The CFO";
+  const asker = question.task ? task ? goblinName(task) : question.task : "The CEO";
   const payload = questionAnswer(question, displayed.selection, displayed.written, pending ? draft.attached : []);
   const canSend = connected && !!payload && !draft.sending && !draft.adding;
   const files: AnswerFiles | undefined = pending ? {
@@ -76,7 +76,7 @@ export function QuestionCard({ question, snapshot, connected, now, draft, review
       </label>)}
       {closed ? question.answer_kind === "other" && <label className="question-choice chosen"><span className="choice-mark"><Icon name="check" /></span><span className="question-option"><span>Other</span><small>{question.answer}</small></span></label>
         : <label className="question-choice"><input type="radio" name={"answer-" + question.id} checked={displayed.selection === "other"} onChange={() => onDraft({ selection: "other", error: "", receipt: undefined })} /><span className="question-option"><span>Other</span><small>Write your own answer.</small></span></label>}
-      {displayed.selection === "other" && <DictatedAnswer label="Your written answer" placeholder={"Tell " + (question.task ? asker : "the CFO") + " what you prefer..."} value={displayed.written} instance={snapshot.instance} files={files} onText={(written) => onDraft({ written, error: "", receipt: undefined })} onSubmit={() => { if (canSend) onSend(); }} />}
+      {displayed.selection === "other" && <DictatedAnswer label="Your written answer" placeholder={"Tell " + (question.task ? asker : "the CEO") + " what you prefer..."} value={displayed.written} instance={snapshot.instance} files={files} onText={(written) => onDraft({ written, error: "", receipt: undefined })} onSubmit={() => { if (canSend) onSend(); }} />}
     </fieldset>
     {mark ? <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>
       // An answer the board never saw marks no choice, so its line carries the check.

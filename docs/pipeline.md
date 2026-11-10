@@ -138,7 +138,7 @@ An interrupted CI monitor is not a passed gate and requires no cancellation or d
 It takes the native daemon singleton lock throughout the database check, backup and replacement, preventing a concurrent daemon startup.
 It does not stop or restart anything, cancel a run, or repair stale state.
 The command currently supports Windows, using the native singleton lock contract retained by v1.75.1.
-Use `NM_HOME` to select the same native home as no-mistakes, otherwise both use `~/.no-mistakes`.
+Use `NM_HOME` to select the same native home as no-mistakes; without it in the process both use the user's `NM_HOME`, which `cfo dev-drive move` sets when it moves the gate's home onto the Dev Drive, and otherwise `~/.no-mistakes`.
 
 Before replacement, the original YAML is backed up beside the configuration with a unique timestamped name.
 The backup and staged replacement receive the credential store's owner-only file protection because unrelated settings may contain credentials.
@@ -183,11 +183,12 @@ Migration never changes a worktree, native run row, gate ref, origin ref, or rev
 ## Resuming a paused task
 
 Resume restores the contributor's terminal and retains its original validation run, source, findings and repair history.
-Pause persists that run's identity before process teardown, including terminal runs and live runs left alone by a memory pause.
+Pause persists that run's identity before process teardown, including terminal runs and the live runs every pause leaves running.
 Resume reads the saved run identity without recovering branch custody, starting validation or replacing the run.
 A different current run, unreadable state or a run without a saved pause identity refuses the resume instead of adopting another run.
 A direct-PR task whose current branch has no gate can resume even when its saved pause names an earlier branch's run.
 A still-live original run is named in the contributor's resume instruction, so it continues that run without starting another beside it.
+A run that ended while its goblin was paused, as a daemon restart ends a run whose step was executing, is named with its terminal status.
 Resume does not select validation agents or migrate the frozen policy; an older policy alone does not block contributor restoration.
 Actual validation requires an explicit supported pipeline command, which still enforces the frozen policy and launch selection.
 Continuing retained terminal work requires its supported source-bound continuation, not a replacement run with fresh repair allowance.
@@ -388,9 +389,9 @@ Pipeline-owned recorded-head repair requires strict ancestry or that proof of a 
 After native has already returned clean user-owned custody, the registered identity, unpublished-run state, stale-head anchor, and compare-and-swap guards are the authorized boundary, so the driver does not reject legitimate rebases or follow-up commits by comparing them with the stale head.
 
 A gate's fixer works in the run's worktree, which no-mistakes removes with force once the run is over, so the driver keeps what the fixer left uncommitted before anything takes that worktree away.
-Before unpublished recovery runs any native command, and before a pause aborts a live run, every tracked and untracked change in the run's worktree is committed and pinned under `refs/no-mistakes/recovery/<run>/worktree` in the gate repository, and that commit's parent is the head the run ended at.
+Before unpublished recovery runs any native command, and before a stop aborts a live run, every tracked and untracked change in the run's worktree is committed and pinned under `refs/no-mistakes/recovery/<run>/worktree` in the gate repository, and that commit's parent is the head the run ended at.
 The commit is made from an index of the driver's own, so the goblin's staged and unstaged work is exactly as it left it, and a first capture stands rather than being replaced by a later one a goblin may already be restoring.
-The commit is named in the branch-sync evidence the recovery reads, in `cfo pipeline recover`'s output, and in the lifecycle record of a pause, so an interrupted fixer's repairs stay recoverable with `git cherry-pick -n <commit>` after the worktree is gone.
+The commit is named in the branch-sync evidence the recovery reads, in `cfo pipeline recover`'s output, and in the lifecycle record of a stop, so an interrupted fixer's repairs stay recoverable with `git cherry-pick -n <commit>` after the worktree is gone.
 On 2026-10-23 an allowance-interrupted review repair lost its frontend changes exactly this way: the step failed, custody returned at the submitted head, and native recovery swept the worktree before anything read it (issue 1416).
 
 This repository's committed automatic-fix overrides remain authoritative for a new submitted branch.
@@ -842,7 +843,7 @@ A gate puts every run's test command behind the line, with no repository naming 
 On this machine that is `cfo gate turn -- cmd.exe /c <command string>`, started as an argument list with no shell in front, with the run's `--gate-run` and `--test-comparison-sha` identity and its `--as` name before the `--`, as the setting below gives them.
 The words go in front of the whole command as a list and are never joined to the command string, where `a && b` would put only `a` behind the turn.
 This is the contract the no-mistakes fork's wrapper setting is built against.
-The fork's side, as task cg-gate-fork-minutes built it, is a setting in the machine's `~/.no-mistakes/config.yaml`, on since the installed `cfo` has `cfo gate turn`, as an older `cfo` refuses `gate turn` with exit 2, which a gate reads as a failed test command:
+The fork's side, as task cg-gate-fork-minutes built it, is a setting in the machine's `config.yaml` in the gate's home (`NM_HOME`, else `~/.no-mistakes`), on since the installed `cfo` has `cfo gate turn`, as an older `cfo` refuses `gate turn` with exit 2, which a gate reads as a failed test command:
 
 ```yaml
 test_command_wrapper:

@@ -8,7 +8,7 @@ export function treeFleet(now: number) {
   const child = (fields: Record<string, unknown>) => ({ parent: "", detail: "", task: "", last_line: "", memory: 0, finished: "", started: ago(10), last_activity: ago(1), source_updated_at: ago(1), fetched_at: ago(0), ...fields });
   const tree = (task: string, children: Record<string, unknown>[]) => ({ task_id: task, generation: "g1", harness: "claude", memory: 2 ** 30, own_memory: 2 ** 29, children, source_updated_at: ago(0), fetched_at: ago(0.1) });
   const task = (id: string, title: string, fields: Record<string, unknown> = {}) => ({ id, title, project: "code-goblins", phase: "working", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", verified: false, generation: "g1", session: "s-" + id, backend: "native", since: ago(90), ...fields });
-  const session = (id: string, role: string, parent: string, taskID = "") => ({ id, native_id: id, harness: "claude", role, task_id: taskID, generation: taskID ? "g1" : "", parent, relation: parent ? "Dispatched by the CFO" : "", phase: "working", updated_at: ago(0) });
+  const session = (id: string, role: string, parent: string, taskID = "") => ({ id, native_id: id, harness: "claude", role, task_id: taskID, generation: taskID ? "g1" : "", parent, relation: parent ? "Dispatched by the CEO" : "", phase: "working", updated_at: ago(0) });
   return {
     healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
     sessions: [

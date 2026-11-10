@@ -230,7 +230,7 @@ export interface Overlap extends Person { what: string; url: string }
 export interface ProjectPeople { name: string; repository: string; contributors: Person[] }
 export interface LifecycleStatus {
   phase: string; action: string; at: string; kept: string[]; stopped: string[]; problems: string[];
-  handoff_saved: boolean; validation_restarts: boolean;
+  handoff_saved: boolean; validation_kept: boolean;
   // with_parent is a helper's pause or stop its parent's made: paused, it
   // resumes once its parent runs again.
   with_parent?: boolean;
@@ -749,7 +749,7 @@ export function decisionText(detail: string): string {
     }
     return `${file} · ${side} ${first === last ? "line " + first : "lines " + first + "–" + last}\n${text}`;
   } catch {
-    return "Review request metadata is invalid. Inspect the durable CFO queue.";
+    return "Review request metadata is invalid. Inspect the durable CEO queue.";
   }
 }
 
@@ -1049,7 +1049,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
       return {
-        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts),
+        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_kept: boolean(record.validation_kept),
           ...(record.with_parent === undefined ? {} : { with_parent: boolean(record.with_parent) }),
           ...(record.kept_messages == null ? {} : { kept_messages: strings(record.kept_messages) }),
           ...(record.pause == null ? {} : { pause: ((pause) => ({ reason: string(pause.reason), until: string(pause.until), at: string(pause.at) }))(object(record.pause)) }) }))(object(t.lifecycle)),

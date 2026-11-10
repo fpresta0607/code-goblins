@@ -39,7 +39,7 @@ function Page() {
       <CfoPin afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} now={Date.now()} onOpen={() => setSaid("opened the CFO's terminal")} onCommand={() => setSaid("opened the Command Center")} onStart={() => setSaid("opened the first-run page")} />
       <section className="board-column" aria-label="Working"><h2>Working</h2></section>
     </section>
-    <section className="goblin-panel" aria-label="CFO panel"><PanelHeader snapshot={snapshot} onAnswer={() => {}} onOpenTask={() => {}} onOpenLog={() => {}} /><RestartCfoButton snapshot={snapshot} /></section>
+    <section className="goblin-panel" aria-label="CEO panel"><PanelHeader snapshot={snapshot} onAnswer={() => {}} onOpenTask={() => {}} onOpenLog={() => {}} /><RestartCfoButton snapshot={snapshot} /></section>
     <output aria-label="Opened">{said}</output>
   </main>;
 }

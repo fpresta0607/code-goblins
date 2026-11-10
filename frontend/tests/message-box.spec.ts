@@ -26,7 +26,7 @@ function bernie(keptMessages: string[]) {
     tasks: [{
       id: "bernie", title: "Land the merge train", goblin_name: "Bernie", goblin_title: "Merge Maestro", project: "code-goblins", backend: "native", harness: "claude",
       generation: "s1", session: "claude/bernie", phase: "paused", verified: false, at: PAUSED_AT, report: "working",
-      lifecycle: { phase: "paused", action: "pause", at: PAUSED_AT, kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "overlord", until: "", at: PAUSED_AT }, kept_messages: keptMessages },
+      lifecycle: { phase: "paused", action: "pause", at: PAUSED_AT, kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason: "overlord", until: "", at: PAUSED_AT }, kept_messages: keptMessages },
     }],
     actions: [
       { id: "typed", kind: "message", task_id: "bernie", generation: "s1", status: "succeeded", message: "Accepted by the goblin in its native terminal.", text: "merge 512 first", updated_at: "2026-10-09T05:50:00Z" },
@@ -354,17 +354,17 @@ test("a message sent to a goblin waiting to start is not its draft again after a
 // why it has no terminal, and its box takes a message that starts it, which
 // reads Starting until it goes in.
 for (const { state, first, says } of [
-  { state: "it is closed, as it is for a moment while it restarts", first: CLOSED_CFO, says: "The CFO is closed." },
-  { state: "none runs", first: NO_CFO, says: "No CFO is running." },
+  { state: "it is closed, as it is for a moment while it restarts", first: CLOSED_CFO, says: "The CEO is closed." },
+  { state: "none runs", first: NO_CFO, says: "No CEO is running." },
 ]) {
   test(`his message to the CFO reads Starting until it goes in while ${state}`, async ({ page }) => {
     // Arrange: Orchestration opens on the CFO's terminal.
     const { posted, publish } = await open(page, first);
-    if (!first.cfo_closed) await page.getByRole("button", { name: "Open the board without a CFO" }).click();
+    if (!first.cfo_closed) await page.getByRole("button", { name: "Open the board without a CEO" }).click();
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
     const deck = page.locator(".terminal-deck");
-    const box = deck.getByRole("region", { name: "Messages to CFO" });
-    const draft = box.getByRole("textbox", { name: "Message CFO" });
+    const box = deck.getByRole("region", { name: "Messages to CEO" });
+    const draft = box.getByRole("textbox", { name: "Message CEO" });
     await expect(deck).toContainText(says);
 
     // Act

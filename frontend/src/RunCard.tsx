@@ -38,7 +38,7 @@ export function RunCard({ run, goblin, connected, now, instance, sending, error,
   const running = run.state === "running";
   const mark = runMark(run);
   const failure = runFailure(run);
-  const asker = run.task ? goblin ? goblinName(goblin) : run.task : "the CFO";
+  const asker = run.task ? goblin ? goblinName(goblin) : run.task : "the CEO";
   const copy = () => copyText(run.command).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => {});
   const card: PathCard = { kind: "run", id: run.id, instance };
   return <article className={"run-card" + (running && run.terminal ? " live" : "")} aria-labelledby={"run-" + run.id}>

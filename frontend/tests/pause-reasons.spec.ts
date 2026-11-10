@@ -12,7 +12,7 @@ const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
 const head = "@" + "a".repeat(40);
 const task = (id: string, phase: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "code-goblins", phase, verified: false, generation: id + "-1", since: ago(95), ...fields });
 const paused = (id: string, reason: string, until: string, minutes: number) => task(id, "paused", { at: ago(minutes),
-  lifecycle: { phase: "paused", action: "pause", at: ago(minutes), kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason, until, at: ago(minutes) } } });
+  lifecycle: { phase: "paused", action: "pause", at: ago(minutes), kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason, until, at: ago(minutes) } } });
 const PAUSED = [
   paused("paused-memory", "memory", "", 50),
   paused("paused-pull", "dependency", "pr:https://github.com/o/r/pull/331", 40),

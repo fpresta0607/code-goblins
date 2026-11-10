@@ -20,7 +20,7 @@ const BERNIE = {
   goblin_name: "Bernie", goblin_title: "Merge Maestro", harness: "claude", model: "claude-opus-5-5", backend: "native",
   phase: "paused", verified: false, generation: "s-pd-whats-new-connectors", since: "2026-10-08T22:00:00Z", at,
   reason: "Paused by the Overlord; resumes on Resume",
-  lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "overlord", at } },
+  lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason: "overlord", at } },
   ticket: { number: 1516, url: REPO + "/issues/1516", state: "pr open" },
   pr: REPO + "/pull/1523",
   hosted_checks: { head: "5f52309400", state: "passed", checks: 9, at },
@@ -248,24 +248,25 @@ async function styleOffers(page: Page): Promise<{ modern: string; terminal: stri
   return offers;
 }
 
-// The CFO and two goblins in both styles, on a phone, a narrow panel and a
+// The CEO and two goblins in both styles, on a phone, a narrow panel and a
 // wide one (#1987): the name keeps the header's one row, every control there
 // is a named 44 px target with no tip, the picture offers both styles with
-// the one shown checked, Open in Windows Terminal is in the row or its More,
-// and the Chat icon is Modern chat's message bubble (2026-11-04).
+// the one shown checked, Open in Windows Terminal is in the row or its More
+// off a phone and nowhere on one (#2222), the supervisor is named CEO, and
+// the Chat icon is Modern chat's message bubble (2026-11-04).
 const IVY = OTHER.goblin_name + " - " + OTHER.goblin_title;
 const LAYOUTS = [["a phone", { width: 390, height: 844 }, 0], ["a narrow panel", { width: 1440, height: 900 }, 360], ["a wide panel", { width: 1707, height: 1067 }, 1000]] as const;
 for (const style of ["modern", "classic"] as const) {
   test.describe(`in ${style}`, () => {
     test.use({ chatStyle: style });
     for (const [where, viewport, pane] of LAYOUTS) {
-      test(`in ${where} the CFO and both goblins keep their name on the header's one row, with both styles on the picture and Open in Windows Terminal at hand`, async ({ page }) => {
+      test(`in ${where} the CEO and both goblins keep their name on the header's one row, with both styles on the picture and Open in Windows Terminal at hand off a phone`, async ({ page }) => {
         // Arrange
         await page.setViewportSize(viewport);
         if (pane) await page.addInitScript((width) => localStorage.setItem("cfo-pane-width", String(width)), pane);
         await openBoard(page);
 
-        for (const [key, name] of [["1", "CFO"], ["2", NAME], ["3", IVY], ["1", "CFO"]] as const) {
+        for (const [key, name] of [["1", "CEO"], ["2", NAME], ["3", IVY], ["1", "CEO"]] as const) {
           // Act
           await page.keyboard.press("Control+Alt+" + key);
           await expect(page.locator("#panel-title")).toHaveText(name);
@@ -279,7 +280,7 @@ for (const style of ["modern", "classic"] as const) {
           const chatIcon = await page.locator(".panel-header").getByRole("button", { name: "Chat", exact: true }).locator("path").first().getAttribute("d");
 
           // Assert
-          if (name === "CFO") expect(report.nameLines, name).toBe(1);
+          if (name === "CEO") expect(report.nameLines, name).toBe(1);
           expect(report.broken, name).toEqual([]);
           expect(report.isOneRow, name).toBe(true);
           expect(report.cut, name).toEqual([]);
@@ -291,9 +292,8 @@ for (const style of ["modern", "classic"] as const) {
           expect(styles.colours.checked, name + "'s checked style is drawn apart from the other").not.toBe(styles.colours.other);
           expect(styles.modern, name + "'s styles are drawn apart").not.toBe(styles.terminal);
           expect(chatIcon, name + "'s Chat is Modern chat's message bubble").toBe(styles.modern);
-          // A phone offers Windows Terminal only while the box shows, as the
-          // box's own menu did before.
-          expect(windowIcon !== "", name + " offers Open in Windows Terminal").toBe(style === "modern" || where !== "a phone");
+          // A phone has no Windows Terminal to open the session in.
+          expect(windowIcon !== "", name + " offers Open in Windows Terminal").toBe(where !== "a phone");
         }
       });
     }

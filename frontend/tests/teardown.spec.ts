@@ -9,7 +9,7 @@ test("paused, resumed, stopped and restarted cards leave Windows teardown to the
     id: phase === "stopped" ? "finished:teardown-stop" : `teardown-${phase}`,
     title: `${phase} teardown fixture`, project: "fixture", phase,
     verified: false, archived: phase === "stopped", generation: "generation-1", teardown: ["chrome.exe pid 42"],
-    lifecycle: { phase: phase === "working" ? "running" : phase, action: phase === "paused" ? "pause" : phase === "working" ? "resume" : "stop", at: "2026-09-30T07:00:00Z", kept: ["worktree"], stopped: ["chrome.exe pid 42"], problems: [], handoff_saved: true, validation_restarts: false },
+    lifecycle: { phase: phase === "working" ? "running" : phase, action: phase === "paused" ? "pause" : phase === "working" ? "resume" : "stop", at: "2026-09-30T07:00:00Z", kept: ["worktree"], stopped: ["chrome.exe pid 42"], problems: [], handoff_saved: true, validation_kept: false },
   })), { id: "teardown-restarted", title: "restarted teardown fixture", project: "fixture", phase: "working", verified: false, generation: "generation-2", teardown: ["chrome.exe pid 42"] }];
   await page.route("**/api/**", async (route) => {
     if (new URL(route.request().url()).pathname === "/api/events") {
@@ -51,6 +51,6 @@ test("paused, resumed, stopped and restarted cards leave Windows teardown to the
       await expect(details.getByRole("region", { name: "Task lifecycle" })).toHaveCount(0);
       await expect(details.getByRole("button", { name: "Pause restarted teardown fixture", exact: true })).toBeEnabled();
     }
-    await page.getByRole("button", { name: "Back to the CFO", exact: true }).click();
+    await page.getByRole("button", { name: "Back to the CEO", exact: true }).click();
   }
 });

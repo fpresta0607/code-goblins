@@ -11,14 +11,14 @@ test.use({ permissions: ["microphone"], launchOptions: { ignoreDefaultArgs: ["--
 // input cursor and text not at top of chat input box??"). The session's
 // picture in the panel's header switches the style both ways, and the
 // header's row opens the session in a Windows Terminal window of its own, or
-// its More does (#1987).
-for (const who of ["CFO", "goblin"] as const) {
+// its More does (#1987), except on a phone, which has none to open (#2222).
+for (const who of ["CEO", "goblin"] as const) {
   for (const width of [1440, 390]) {
-    test(`Codex ${who} box adds a file and opens Speech history, and its header opens a terminal window and changes style at ${width}px`, async ({ page }) => {
+    test(`Codex ${who} box adds a file and opens Speech history, and its header ${width === 390 ? "offers no terminal window" : "opens a terminal window"} and changes style at ${width}px`, async ({ page }) => {
       // Arrange
       await page.setViewportSize({ width, height: 900 });
       const relay = await open(page, snapshot({ cfo_harness: "codex" }, { harness: "codex" }));
-      const name = who === "CFO" ? "CFO" : NAME;
+      const name = who === "CEO" ? "CEO" : NAME;
       const kept = "C:/session-files/example.txt";
       const uploads: { task: string; name: string; text: string }[] = [];
       const windows: unknown[] = [];
@@ -29,7 +29,7 @@ for (const who of ["CFO", "goblin"] as const) {
         uploads.push({ task: query.get("task") ?? "", name: query.get("name") ?? "", text: route.request().postDataBuffer()?.toString() ?? "" });
         await route.fulfill({ status: 201, json: { path: kept } });
       });
-      if (who === "CFO") await page.keyboard.press("Control+Alt+1");
+      if (who === "CEO") await page.keyboard.press("Control+Alt+1");
       else await openGoblin(page);
       const composer = box(page, name);
 
@@ -55,7 +55,7 @@ for (const who of ["CFO", "goblin"] as const) {
       const attached = composer.getByRole("list", { name: "Attached files" });
       await expect(attached).toContainText("example.txt");
       await expect(field(page, name)).toHaveValue("");
-      expect(uploads).toEqual([{ task: who === "CFO" ? "" : GOBLIN.id, name: "example.txt", text: "read this attachment" }]);
+      expect(uploads).toEqual([{ task: who === "CEO" ? "" : GOBLIN.id, name: "example.txt", text: "read this attachment" }]);
       expect(typed(relay)).toBe("");
 
       // Assert: the row leads with Add files and Speech history, then Clear
@@ -80,9 +80,12 @@ for (const who of ["CFO", "goblin"] as const) {
       await expect(speech).toBeFocused();
 
       // Act: opening a separate terminal from the header preserves the draft
-      // and view.
-      await pressRow(page, "Open in Windows Terminal", "Open in terminal");
-      await expect.poll(() => windows).toEqual([who === "CFO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
+      // and view; a phone offers none.
+      if (isPhone) await expect(page.locator(".context-pane .panel-top").getByRole("button", { name: "Open in Windows Terminal", exact: true })).toHaveCount(0);
+      else {
+        await pressRow(page, "Open in Windows Terminal", "Open in terminal");
+        await expect.poll(() => windows).toEqual([who === "CEO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
+      }
       await expect(attached).toContainText("example.txt");
 
       // Act: Terminal in the picture's menu opens the terminal alone, and
@@ -135,12 +138,12 @@ test.describe("while he dictates", () => {
     test.describe(`on ${label}`, () => {
       test.use({ viewport: { width, height }, hasTouch: isTouch, isMobile: isTouch });
 
-      for (const who of ["CFO", "goblin"] as const) {
+      for (const who of ["CEO", "goblin"] as const) {
         test(`the ${who}'s row lies inside the box with its usage pies, its recording control and every button whole`, async ({ page }) => {
           // Arrange: a session whose usage is known.
-          const name = who === "CFO" ? "CFO" : NAME;
+          const name = who === "CEO" ? "CEO" : NAME;
           await open(page, snapshot({ subscriptions: [WEEK] }), "rebase onto main", { ...PAGE, usage: USAGE });
-          if (who === "CFO") await page.keyboard.press("Control+Alt+1");
+          if (who === "CEO") await page.keyboard.press("Control+Alt+1");
           else await openGoblin(page);
           const composer = box(page, name);
           await expect(composer.locator(".usage-pie").first()).toBeVisible();
@@ -242,13 +245,13 @@ const POPOVERS = [
 const DRAFT = "keep this draft";
 // A session's pane once its terminal has connected, so what the relay says
 // reaches it.
-async function openConnected(page: Page, relay: Relay, who: "CFO" | "goblin") {
+async function openConnected(page: Page, relay: Relay, who: "CEO" | "goblin") {
   const views = relay.views;
-  if (who === "CFO") await page.keyboard.press("Control+Alt+1");
+  if (who === "CEO") await page.keyboard.press("Control+Alt+1");
   else await openGoblin(page);
   await expect.poll(() => relay.views).toBeGreaterThan(views);
 }
-for (const who of ["CFO", "goblin"] as const) {
+for (const who of ["CEO", "goblin"] as const) {
   for (const width of [1440, 390]) {
     test.describe(`the ${who}'s Modern chat at ${width}px`, () => {
       const isTouch = width === 390;
@@ -258,7 +261,7 @@ for (const who of ["CFO", "goblin"] as const) {
           test(`${way} closes ${popover.what} with nothing changed`, async ({ page }) => {
             // Arrange
             const relay = await open(page);
-            const name = who === "CFO" ? "CFO" : NAME;
+            const name = who === "CEO" ? "CEO" : NAME;
             await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [] } }));
             await page.route("**/api/engines", (route) => route.fulfill({ json: { harnesses: [] } }));
             const sent: string[] = [];
@@ -296,7 +299,7 @@ for (const who of ["CFO", "goblin"] as const) {
       test("the list of the harness's own screen sends its Escape alone on Cancel, keeps the draft, and goes once the screen closes", async ({ page }) => {
         // Arrange
         const relay = await open(page);
-        const name = who === "CFO" ? "CFO" : NAME;
+        const name = who === "CEO" ? "CEO" : NAME;
         await openConnected(page, relay, who);
         await field(page, name).fill(DRAFT);
         relay.say({ type: "screen", asking: true, open: true, working: false, submission: "menu-1", panel: { rows: ["Select model"], choices: [{ text: "Default", number: 1, focused: true }, { text: "Opus", number: 2 }], hints: ["Enter to confirm · Esc to exit"] } });
@@ -316,7 +319,7 @@ for (const who of ["CFO", "goblin"] as const) {
       });
       test("a local login dialog shows its instructions and result, and Continue sends Enter without touching the draft", async ({ page }) => {
         const relay = await open(page);
-        const name = who === "CFO" ? "CFO" : NAME;
+        const name = who === "CEO" ? "CEO" : NAME;
         await openConnected(page, relay, who);
         await field(page, name).fill(DRAFT);
         const before = typed(relay);
@@ -336,7 +339,7 @@ for (const who of ["CFO", "goblin"] as const) {
       test("a menu the harness drew for something other than his own input is not shown and takes no keys", async ({ page }) => {
         // Arrange
         const relay = await open(page);
-        const name = who === "CFO" ? "CFO" : NAME;
+        const name = who === "CEO" ? "CEO" : NAME;
         await openConnected(page, relay, who);
         const list = page.getByRole("group", { name: name + " asks", exact: true });
         const before = typed(relay);

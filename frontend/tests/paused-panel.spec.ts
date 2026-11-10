@@ -28,7 +28,7 @@ const BERNIE = {
   phase: "paused", verified: false, generation: "s1791515797213332900", since: "2026-10-08T22:00:00Z", at,
   reason: "Paused by the Overlord; resumes on Resume", activity: "lifecycle-paused: overlord; worktree C:\\dev\\code-goblins\\worktrees\\PrecisionDocs-AI\\pd-whats-new; task session and branch",
   last_report: "working: PR 1523 is green at 5f52309400; answering the two review notes on the connector page",
-  lifecycle: { phase: "paused", action: "pause", at, handoff_saved: false, validation_restarts: true,
+  lifecycle: { phase: "paused", action: "pause", at, handoff_saved: false, validation_kept: true,
     kept: ["worktree C:\\dev\\code-goblins\\worktrees\\PrecisionDocs-AI\\pd-whats-new", "task session and branch"],
     stopped: ["terminal host pid 27236"],
     problems: [...PROBLEMS, "gate commits are pinned locally but could not merge into the task branch; worktree and run are kept for conflict resolution"],
@@ -45,7 +45,7 @@ const paused = (name: string, pause?: { reason: string; until?: string }) => ({
   harness: "claude", phase: "paused", verified: false, generation: "s-" + name.toLowerCase(), since: at, at,
   activity: "lifecycle-paused: " + (pause?.reason || "paused") + "; worktree C:\\dev\\code-goblins\\worktrees\\code-goblins\\" + name.toLowerCase() + "; task session and branch",
   last_report: `working: ${name} wrote the tests at frontend/tests/${name.toLowerCase()}.spec.ts; the fixes come next`,
-  lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: PROBLEMS, handoff_saved: false, validation_restarts: false, ...(pause && { pause: { until: "", at, ...pause } }) },
+  lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: PROBLEMS, handoff_saved: false, validation_kept: false, ...(pause && { pause: { until: "", at, ...pause } }) },
 });
 // What that goblin's Details says it did.
 const did = (name: string) => `${name} wrote the tests at ${name.toLowerCase()}.spec.ts. The fixes come next.`;
@@ -220,4 +220,26 @@ test("a screen reader hears Stopped resources as a closed disclosure that opens"
 
   // Assert
   await expect.poll(() => announced(page, selector)).toEqual({ role: "DisclosureTriangle", name: "Stopped resources (1)", expanded: true });
+});
+
+// The Overlord, 2026-11-09: a paused goblin's lifecycle reads "Its validation
+// run is kept, and Resume carries on from it." when its pause kept a gate run,
+// since a pause of any reason leaves the run running, and says nothing of one
+// when it kept none (issue #2089).
+test("a paused goblin whose validation run is kept says Resume carries on from it, and one whose pause kept none says nothing of it", async ({ page }) => {
+  // Arrange: Bernie's pause kept his validation run; Mabel's kept her
+  // session and branch but no run.
+  const mabel = paused("Mabel", { reason: "memory" });
+  await open(page, [BERNIE, { ...mabel, lifecycle: { ...mabel.lifecycle, kept: ["task session and branch"] } }], "Bernie");
+  const lifecycle = panel(page).getByRole("region", { name: "Task lifecycle" });
+
+  // Assert
+  await expect(lifecycle.locator(".preservation-notice")).toHaveText("Its validation run is kept, and Resume carries on from it.");
+
+  // Act
+  await select(page, "Mabel");
+
+  // Assert: her lifecycle names what it kept and no validation run.
+  await expect(lifecycle).toContainText("Task session and branch");
+  await expect(lifecycle.locator(".preservation-notice")).toHaveCount(0);
 });

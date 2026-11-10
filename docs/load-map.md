@@ -169,7 +169,7 @@ The gate trusts this file from the default branch, so a pushed branch can neithe
 
 **What a gate agent reads.**
 
-1. `~/.no-mistakes/config.yaml`: the agent chain, each agent's arguments, automatic fix limits and timeouts. From pipeline policy v6 a run the CEO drives carries its own chain as a launch selection, and this file's chain serves only the other runs.
+1. `config.yaml` in the gate's home (`NM_HOME`, else `~/.no-mistakes`; [cfo dev-drive move](commands/dev-drive.md) moves it): the agent chain, each agent's arguments, automatic fix limits and timeouts. From pipeline policy v6 a run the CEO drives carries its own chain as a launch selection, and this file's chain serves only the other runs.
 2. The repository's `.no-mistakes.yaml`, from the trusted default branch.
 3. For a CEO-managed task, `cfo pipeline run` first checks the task's frozen policy snapshot (`state/tasktmp/<id>/pipeline.json`, taken from `config/pipeline.json` at spawn) against the live configuration and refuses on drift.
 4. The agent then runs in the gate's own worktree with `NO_MISTAKES_GATE=1`, and with project instructions neutralized: Claude through `--setting-sources`, Codex through `project_doc_max_bytes=0`, and Pi through `--no-context-files`.

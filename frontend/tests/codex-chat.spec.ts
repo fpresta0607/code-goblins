@@ -3,13 +3,13 @@ import { at, card, field, GOBLIN, NAME, open, openGoblin, PAGE, pasted, snapshot
 
 test.use({ launchOptions: { args: ["--disable-webgl"] } });
 
-for (const who of ["CFO", "goblin"] as const) {
+for (const who of ["CEO", "goblin"] as const) {
   test(`Codex ${who} reads and updates Modern chat without hooks or a reload`, async ({ page }, testInfo) => {
     const data = snapshot({ cfo_harness: "codex" }, { harness: "codex", model: "gpt-6", runtime: { state: "working", at } });
     const relay = await open(page, data);
     if (who === "goblin") await openGoblin(page);
     else await page.keyboard.press("Control+Alt+1");
-    const name = who === "CFO" ? "CFO" : NAME;
+    const name = who === "CEO" ? "CEO" : NAME;
     const log = page.getByRole("log", { name: "Messages of " + name, exact: true });
     await expect(log).toContainText("On it.");
     await field(page, name).fill("continue from this draft");

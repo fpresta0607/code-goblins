@@ -20,7 +20,7 @@ const PR = REPO + "/pull/512";
 const TRAIN_PR = REPO + "/pull/900";
 const RUN = REPO + "/actions/runs/77/job/770";
 const HEAD = "a".repeat(40);
-const lifecycle = (pause: Record<string, unknown>, phase = "paused") => ({ phase, action: "pause", at: "2026-10-08T18:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { at: "2026-10-08T18:00:00Z", ...pause } });
+const lifecycle = (pause: Record<string, unknown>, phase = "paused") => ({ phase, action: "pause", at: "2026-10-08T18:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { at: "2026-10-08T18:00:00Z", ...pause } });
 const sid = (fields: Record<string, unknown> = {}) => ({ id: "cg-sid", title: "Memory keeper", goblin_name: "Sid", goblin_title: "Memory Keeper", project: "code-goblins", phase: "idle", report: "done", pr: PR, generation: "cg-sid-1", verified: false, ...fields });
 const pausedUntilMerge = (fields: Record<string, unknown> = {}) => sid({ phase: "paused", lifecycle: lifecycle({ reason: "dependency", until: "pr:" + PR }), ...fields });
 const pausedForCI = (fields: Record<string, unknown> = {}) => sid({ phase: "paused", lifecycle: lifecycle({ reason: "ci", until: "pr:" + PR + "@" + HEAD }), ...fields });
@@ -200,8 +200,8 @@ test("a goblin at work, blocked or asking after its pull request rode says so, a
   const riding = train("testing", "riding");
   for (const [name, goblin, status] of [
     ["working on its next change", sid({ phase: "working", report: "working" }), "Working"],
-    ["blocked", sid({ phase: "blocked", report: "blocked", reason: "Needs a key" }), "Waiting on the CFO"],
-    ["asking the CFO", sid({ phase: "blocked", reason: "Waiting on the CFO: which key?" }), "Waiting on the CFO"],
+    ["blocked", sid({ phase: "blocked", report: "blocked", reason: "Needs a key" }), "Waiting on the CEO"],
+    ["asking the CEO", sid({ phase: "blocked", reason: "Waiting on the CFO: which key?" }), "Waiting on the CEO"],
     ["waiting on another goblin", sid({ phase: "waiting", report: "waiting", waiting_on: "cg-other" }), "Waiting on cg-other"],
   ] as const) {
     const read = surfaces(board(goblin, [riding]));

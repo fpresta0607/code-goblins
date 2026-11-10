@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -53,8 +54,13 @@ func (ExecGateProber) InspectGate(ctx context.Context, meta state.TaskMeta) (Gat
 	}
 	ctx, cancel := context.WithTimeout(ctx, gateStatusBudget)
 	defer cancel()
+	root, err := pipeline.DefaultRoot()
+	if err != nil {
+		return sample, err
+	}
 	cmd := execx.CommandContext(ctx, "no-mistakes", "axi", "status")
 	cmd.Dir = meta.Worktree
+	cmd.Env = pipeline.NativeEnv(root)
 	// A process the status call leaves running, such as a daemon it starts,
 	// inherits the output pipe; without a delay Wait holds until that process
 	// exits, which for a daemon is never.

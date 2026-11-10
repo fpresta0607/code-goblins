@@ -1,7 +1,7 @@
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 
-const WORDS = { you: "You answered", cfo: "The CFO answered", away: "The CFO answered while you were away" } as const;
+const WORDS = { you: "You answered", cfo: "The CEO answered", away: "The CEO answered while you were away" } as const;
 
 // Who answered a question, told apart at a glance: the crown for the
 // Overlord, the CFO's face for the CFO, and the CFO's face with a moon for an

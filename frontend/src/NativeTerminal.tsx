@@ -46,7 +46,7 @@ type Connection = { sized: boolean; abort: AbortController; lease: string; frame
 // it is never resent, and reconnecting starts from a fresh full screen.
 export function NativeTerminal({ task, node, harness, instance, visible, shown, focus = 0 }: { task?: Task; node?: Session; harness: string; instance: string; visible: boolean; shown: boolean; focus?: number }) {
   // What the CFO is told this terminal is, read when a report goes.
-  const named = task ? terminalOf(task) : "the CFO's terminal";
+  const named = task ? terminalOf(task) : "the CEO's terminal";
   const reportAs = useRef(named);
   useEffect(() => { reportAs.current = named; }, [named]);
   const host = useRef<HTMLDivElement>(null);
@@ -625,7 +625,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
         if (!response.ok) {
           const failure = object(await response.json());
           if (!replacing && failure.code === "terminal_unavailable") setUnavailable(true);
-          if (!replacing && failure.code === "registration_stale") { stop(string(failure.error)); setStatus("CFO registration stale"); return; }
+          if (!replacing && failure.code === "registration_stale") { stop(string(failure.error)); setStatus("CEO registration stale"); return; }
           throw new Error(string(failure.error));
         }
         if (!response.body) throw new Error("The pane's stream is unavailable.");
@@ -682,7 +682,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
     return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); jumper.cancel(); resize.disconnect(); window.removeEventListener(PANEL_RESIZED, dropped); window.removeEventListener("focus", focused); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); element.removeEventListener("wheel", liveBeside); pastElement.removeEventListener("wheel", historyBeside); stopSwiping(); stopSwipingHistory(); window.removeEventListener("pointerup", release); detachDictatedInput(); detachPastDictatedInput(); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; pressImageKey.current = null; setInHistory(false); };
   }, [taskID, generation, session, instance, visible, attempt, unavailable, dictate, showFeedback]);
   if (unavailable) return <TerminalEmpty text="Terminal unavailable" />;
-  return <section className="native-terminal" aria-label={cfo ? "CFO terminal" : "Goblin terminal"}>
+  return <section className="native-terminal" aria-label={cfo ? "CEO terminal" : "Goblin terminal"}>
     <div className="terminal-surface" ref={host} />
     <div className={"terminal-surface terminal-history" + (inHistory && live ? "" : " away")} ref={pastHost} aria-hidden={!(inHistory && live)} />
     {/* Connecting is a plain line under the terminal's box, never a cover over

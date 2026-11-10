@@ -184,8 +184,8 @@ test("the pools' bar puts the line at its middle and its tip names each pool and
   // Assert
   assert.deepEqual(scale, { fill: 73.06666666666666, line: 50 });
   assert.equal(poolScale({ ...pools, paged_pool: 30 * GB }).fill, 100, "pools far past the line fill the bar");
-  assert.equal(tip, "Paged 7.6 GB, nonpaged 3.4 GB. Red mark: 7.5 GB, past which free memory cannot hold the fleet and the CFO's panel offers Restart PC. Grew most since sign-in: Toke 3.2 GB paged, Mdl 40 MB nonpaged.");
-  assert.equal(poolState(pools).text, "The kernel's pools hold 11.0 GB, past the 7.5 GB line: Restart PC in the CFO's panel frees them.");
+  assert.equal(tip, "Paged 7.6 GB, nonpaged 3.4 GB. Red mark: 7.5 GB, past which free memory cannot hold the fleet and the CEO's panel offers Restart PC. Grew most since sign-in: Toke 3.2 GB paged, Mdl 40 MB nonpaged.");
+  assert.equal(poolState(pools).text, "The kernel's pools hold 11.0 GB, past the 7.5 GB line: Restart PC in the CEO's panel frees them.");
   assert.doesNotMatch(poolMarks(memory(7)), /Grew most/, "nothing grew, nothing named");
 });
 
@@ -245,7 +245,7 @@ test("Next sits on the card the supervisor's order for a free slot takes first",
   // Arrange
   const now = Date.parse("2026-10-06T12:00:00Z");
   const paused = (id: string, reason: string, until: string, at: string) => ({ id, phase: "paused", generation: id + "-1", verified: false,
-    lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason, until, at } } });
+    lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason, until, at } } });
   const queued = (id: string, fields: Record<string, unknown> = {}) => ({ id, phase: "queued", brief: true, verified: false, ...fields });
   const board = (machine: Memory, tasks: Record<string, unknown>[]) => parseSnapshot({ healthy: true, memory: machine, tasks });
   const cases: [string, Snapshot, ReturnType<typeof nextInOrder>][] = [
@@ -281,7 +281,7 @@ test("the Paused group runs in resume order: Next up first, then by time, then w
   // Arrange
   const now = Date.parse("2026-10-17T18:00:00Z");
   const paused = (id: string, reason: string, until: string, fields: Record<string, unknown> = {}) => ({ id, phase: "paused", generation: id + "-1", verified: false, ...fields,
-    lifecycle: { phase: "paused", action: "pause", at: "2026-10-17T12:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason, until, at: "2026-10-17T12:00:00Z" } } });
+    lifecycle: { phase: "paused", action: "pause", at: "2026-10-17T12:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason, until, at: "2026-10-17T12:00:00Z" } } });
   const order = (tasks: Record<string, unknown>[], machine = memory(4.2)) => {
     const snapshot = parseSnapshot({ healthy: true, memory: machine, tasks });
     const group = snapshot.tasks.filter((task) => task.phase !== "working");
@@ -344,7 +344,7 @@ test("the disk meter says when no goblin starts and when the CFO is woken", () =
   assert.equal(diskState(disk(48)).tone, "ready");
   assert.deepEqual(diskState(disk(14.9)), { tone: "waiting", text: "Under the 15 GB floor: no goblin or gate test run starts until disk frees." });
   assert.equal(diskState(disk(15)).tone, "ready");
-  assert.deepEqual(diskState(disk(9.9)), { tone: "under", text: "Under the 10 GB mark: the CFO is woken, and nothing starts until disk frees." });
+  assert.deepEqual(diskState(disk(9.9)), { tone: "under", text: "Under the 10 GB mark: the CEO is woken, and nothing starts until disk frees." });
 });
 
 test("the disk bar spans twice the floor, with the mark and the floor inside it", () => {

@@ -51,20 +51,20 @@ export function CfoPin({ snapshot, now, afkToggle, onOpen, onCommand, onStart }:
   const isClosed = snapshot.cfo_closed || snapshot.cfo_configured && !snapshot.cfo_runs;
   const absent = !snapshot.cfo_runs;
   const unreachable = !absent && !snapshot.cfo_starting && !!snapshot.registration;
-  const shown = absent ? "No CFO is running." : snapshot.cfo_starting ? "Starting: answer anything it asks in its terminal." : unreachable ? "The board cannot reach the CFO." : line;
+  const shown = absent ? "No CEO is running." : snapshot.cfo_starting ? "Starting: answer anything it asks in its terminal." : unreachable ? "The board cannot reach the CEO." : line;
   const command = "Open Command Center";
   const away = snapshot.afk.state === "on";
   const status = <p {...unreachable ? { "data-tip": snapshot.registration } : {}}>{shown}</p>;
   const dials = !absent && <SubscriptionDials snapshot={snapshot} now={now} />;
   const waits = command + ": " + waiting + " waiting on you";
   return <div className="cfo-pin">
-    {isClosed ? <div className="cfo-rest" role="group" aria-label="CFO">
+    {isClosed ? <div className="cfo-rest" role="group" aria-label="CEO">
       <span className="cfo-rest-portrait"><Avatar persona="cfo" /></span>
-      <p>{snapshot.cfo_closed ? "The CFO is closed." : "The CFO is not running."}</p>
+      <p>{snapshot.cfo_closed ? "The CEO is closed." : "The CEO is not running."}</p>
       <ReopenCfoButton snapshot={snapshot} />
       <ActionsSpendHeader usage={snapshot.actions_spend} month={month} instance={snapshot.instance} now={now} />
       {shouldKeepSwitch && afkSwitch}
-    </div> : !absent && waiting > 0 && !away ? <DialogueBox persona="cfo" speaker="CFO" label="CFO" portrait={{ label: door.label, onClick: onOpen }}
+    </div> : !absent && waiting > 0 && !away ? <DialogueBox persona="cfo" speaker="CEO" label="CEO" portrait={{ label: door.label, onClick: onOpen }}
       actions={<>
         {dials}
         <ActionsSpendHeader usage={snapshot.actions_spend} month={month} instance={snapshot.instance} now={now} />
@@ -75,14 +75,14 @@ export function CfoPin({ snapshot, now, afkToggle, onOpen, onCommand, onStart }:
         </div>
       </>}>
       {status}
-    </DialogueBox> : <div className="cfo-rest" role="group" aria-label="CFO">
+    </DialogueBox> : <div className="cfo-rest" role="group" aria-label="CEO">
       {absent
         ? <span className="cfo-rest-portrait"><Avatar persona="cfo" /></span>
         : <button className="cfo-rest-portrait" aria-label={door.label} data-tip={door.label} onClick={(event) => onOpen(event.currentTarget)}><Avatar persona="cfo" /></button>}
       {status}
       {dials}
       <ActionsSpendHeader usage={snapshot.actions_spend} month={month} instance={snapshot.instance} now={now} />
-      {absent && <button className="labelled-button primary" onClick={onStart}><Icon name="play" />Start the CFO</button>}
+      {absent && <button className="labelled-button primary" onClick={onStart}><Icon name="play" />Start the CEO</button>}
       {absent && shouldKeepSwitch && afkSwitch}
       {!absent && waiting > 0 && <button className="pixel-button outline cfo-command" aria-label={waits} onClick={onCommand}>{command}<span className="cfo-command-count" aria-hidden="true">{waiting}</span></button>}
       {!absent && <div className="cfo-pin-end">

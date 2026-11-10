@@ -17,7 +17,7 @@ export function BrowserSignInCard({ signin, snapshot, connected, now, isOpening,
 }) {
   const isLocal = onThisMachine(window.location.hostname);
   const task = snapshot.tasks.find((candidate) => candidate.id === signin.task);
-  const asker = signin.task ? task ? goblinName(task) : signin.task : "The CFO";
+  const asker = signin.task ? task ? goblinName(task) : signin.task : "The CEO";
   if (signin.state === "expired") return <div className="done-card signin-closed" role="status">
     <Icon name="clock" /><h3>Closed</h3><p>{signInOutcome(signin)}</p>
     {pager && <div className="card-actions">{pager}</div>}
