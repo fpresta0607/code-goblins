@@ -33,9 +33,9 @@ const (
 
 const lessonsDir = "lessons"
 
-// lessonLockName is the lock in the home's state that one decision on a
-// lesson holds across its read, its check and its writes, the memory
-// catalog's included, so two decisions at once take turns.
+// lessonLockName is the lock in the home's state that every writer of the
+// memory catalog holds, as lockCatalog says. One decision on a lesson holds
+// it across its read, its check and its writes, so two at once take turns.
 const lessonLockName = ".lessons.lock"
 
 // lessonLockWait is how long a decision waits for another, which reads and

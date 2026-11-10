@@ -17,7 +17,7 @@ A stale, legacy, grace or pending-capture entry says so inside its brackets, and
 `cfo memory sync`
 
 Derive `data/memory/startup.json` again from the memory files, as [rulings by scope](../contract/memory.md#rulings-by-scope) defines, and report how many entries load at startup, how many come by scope, how many are new and the startup estimate against its budget.
-Run it after memory changes: until then every reader of the catalog reports the change as `MEMORY UNREADABLE` and names this command.
+Run it after memory changes: until then startup, `retrieve`, `routes` and `scope --list` report the change as `MEMORY UNREADABLE` and name this command.
 A home with no catalog gets its first one, which loads every ruling and every index line, so the estimate drops only as scopes are ruled.
 A perishable entry needs its expiry named before the catalog loads; the refusal names every such entry and the one command that names them all, `cfo memory scope --expiry <id>="<words>"` once for each, where the words are that entry's own.
 A catalog that would not load is never written: it is checked against the memory files before it replaces the one on disk, so a refused `sync`, `scope` or lesson acceptance leaves the catalog file untouched, and a home with none still has none.
