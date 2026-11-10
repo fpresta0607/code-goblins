@@ -2360,8 +2360,12 @@ func TestMessagesHeldForAGoblinsTurnAreDeliveredInTheOrderSent(t *testing.T) {
 		}
 	}
 
-	// Assert
-	if len(*received) != 2 || (*received)[0] != "!git status" || !strings.Contains((*received)[1], "second, merge it") {
+	// Assert: the command goes as the line that runs it in Windows PowerShell (#2051).
+	command, _, err := shellMessageLine(h.State, "message-1", meta.ID, "!git status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(*received) != 2 || (*received)[0] != command || !strings.Contains((*received)[1], "second, merge it") {
 		t.Fatalf("delivered %q, want the command and then the message", *received)
 	}
 }
