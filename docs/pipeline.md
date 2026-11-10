@@ -829,7 +829,7 @@ A gate puts every run's test command behind the line, with no repository naming 
 On this machine that is `cfo gate turn -- cmd.exe /c <command string>`, started as an argument list with no shell in front, with the run's `--gate-run` and `--test-comparison-sha` identity and its `--as` name before the `--`, as the setting below gives them.
 The words go in front of the whole command as a list and are never joined to the command string, where `a && b` would put only `a` behind the turn.
 This is the contract the no-mistakes fork's wrapper setting is built against.
-The fork's side, as task cg-gate-fork-minutes built it, is a setting in the machine's `~/.no-mistakes/config.yaml`, on since the installed `cfo` has `cfo gate turn`, as an older `cfo` refuses `gate turn` with exit 2, which a gate reads as a failed test command:
+The fork's side, as task cg-gate-fork-minutes built it, is a setting in the machine's `config.yaml` in the gate's home (`NM_HOME`, else `~/.no-mistakes`), on since the installed `cfo` has `cfo gate turn`, as an older `cfo` refuses `gate turn` with exit 2, which a gate reads as a failed test command:
 
 ```yaml
 test_command_wrapper:
