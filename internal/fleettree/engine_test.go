@@ -1,8 +1,11 @@
 package fleettree
 
 import (
+	"context"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // modelCommand is Claude Code's record of /model typed with args, and
@@ -195,5 +198,46 @@ func TestASessionsEngineIsReadFromTheConversationItIsIn(t *testing.T) {
 	}
 	if want := (Engine{Model: "acme/thinker-1", ModelAt: at}); got != want {
 		t.Fatalf("engine = %+v, want %+v", got, want)
+	}
+}
+
+// A read of a goblin's tree carries the engine its own conversation names,
+// whichever harness wrote it: the supervisor keeps the task's record on it,
+// so a Codex or pi goblin's record follows its terminal as a Claude Code
+// goblin's does.
+func TestAGoblinsTreeCarriesTheEngineItsOwnConversationNames(t *testing.T) {
+	for name, test := range map[string]struct {
+		goblin func(t *testing.T, home string) Goblin
+		want   Engine
+	}{
+		"Codex": {func(t *testing.T, home string) Goblin {
+			worktree := t.TempDir()
+			turn := codexTurnContext("gpt-6-astra")
+			turn["payload"].(object)["effort"] = "xhigh"
+			turn["timestamp"] = at.Format(time.RFC3339Nano)
+			codexRollout(t, home, "engine", codexMeta("engine", worktree), turn)
+			return Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "codex", Backend: "native", Worktree: worktree}}
+		}, Engine{Model: "gpt-6-astra", ModelAt: at, Effort: "xhigh", EffortAt: at}},
+		"pi": {func(t *testing.T, home string) Goblin {
+			piSession(t, home, piHeader(),
+				piEntry("model_change", "m1", "", object{"provider": "openrouter", "modelId": "z-ai/glm-5.3-flash"}),
+				piEntry("thinking_level_change", "e1", "m1", object{"thinkingLevel": "high"}))
+			return Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "pi"}, Session: "pi-1"}
+		}, Engine{Model: "openrouter/z-ai/glm-5.3-flash", ModelAt: at, Effort: "high", EffortAt: at}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			goblin := test.goblin(t, home)
+			reader := Reader{Home: home, Now: func() time.Time { return at }}
+
+			// Act
+			tree, _ := reader.Read(context.Background(), goblin)
+
+			// Assert
+			if tree.Engine != test.want {
+				t.Fatalf("the tree's engine = %+v, want %+v", tree.Engine, test.want)
+			}
+		})
 	}
 }
