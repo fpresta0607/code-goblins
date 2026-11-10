@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { callRuns, changeMessages, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, olderMessages, pageMessages, parseMessages, parsePage, parseSession, parseWaiting, replyParts, textParts, turnEnds, viewStanding, type SessionMessage, type SessionReport } from "./session-messages.ts";
+import { callRuns, changeMessages, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, isPowerShellBlock, isWrittenReply, olderMessages, pageMessages, parseMessages, parsePage, parseSession, parseWaiting, replyParts, textParts, turnEnds, viewStanding, type SessionMessage, type SessionReport } from "./session-messages.ts";
 import type { Task } from "./types.ts";
 
 // A message as the supervisor serves it (internal/fleettree/messages.go).
@@ -153,6 +153,20 @@ test("a reply's code blocks, headings and prose are drawn apart, a code block ex
   assert.deepEqual(textParts("``` c++ \nint a;\n```"), [{ kind: "code", text: "int a;", language: "c++" }], "a language with symbols, spaced from its fence");
   assert.deepEqual(textParts(""), []);
   assert.deepEqual(textParts("#hashtag is prose"), [{ kind: "prose", text: "#hashtag is prose" }]);
+});
+
+// A fence the view counts is one the server counts (codeFences in
+// internal/supervisor/code_run.go), so the fence a Run names is the one the
+// server reads back: only spaces and tabs may stand before a fence's mark.
+test("only spaces and tabs indent a fence, so the view counts the fences the server counts", () => {
+  for (const indent of [" ", "\t", " \t "]) {
+    assert.deepEqual(textParts(indent + "```powershell\nGet-Date\n" + indent + "```"), [{ kind: "code", text: "Get-Date", language: "powershell" }], JSON.stringify(indent));
+  }
+  for (const indent of [" ", "\v", "　", "﻿"]) {
+    const text = indent + "```text\nfoo\n```\n```powershell\nA\n```\n```powershell\nB\n```";
+    const fences = textParts(text).filter((part) => part.kind === "code");
+    assert.deepEqual(fences, [{ kind: "code", text: "```powershell\nA", language: "" }, { kind: "code", text: "B", language: "powershell" }], JSON.stringify(indent));
+  }
 });
 
 test("a reply draws each run of calls as one stack between its words, and leaves out blocks with no words", () => {
@@ -342,4 +356,46 @@ test("a call keeps the id the supervisor served, and one served without an id ha
   const ids = blocks.map((block) => block.call_id);
 
   assert.deepEqual(ids, ["toolu_9", ""]);
+});
+
+for (const [language, text, isPowerShell] of [
+  ["powershell", "Get-Date", true],
+  ["pwsh", "Get-ChildItem", true],
+  ["PS1", "Write-Output ok", true],
+  ["powershell", "! Get-Date", true],
+  ["", "powershell -NoProfile -Command Get-Date", true],
+  ["", "pwsh.exe -c 'Get-Date'", true],
+  ["", "! powershell -NoProfile", true],
+  ["", "  ! pwsh", true],
+  ["", "Get-Date", false],
+  ["", "powershellish --help", false],
+  ["bash", "powershell -c ls", false],
+  ["python", "powershell = 1", false],
+  ["powershell", "  ", false],
+  ["", "", false],
+] as const) {
+  test(`a ${language || "untagged"} block holding ${JSON.stringify(text)} ${isPowerShell ? "is" : "is not"} a PowerShell command a reply's Run runs`, () => {
+    // Act
+    const isRunnable = isPowerShellBlock(language, text);
+
+    // Assert
+    assert.equal(isRunnable, isPowerShell);
+  });
+}
+
+test("only a reply whose words are all written may run its code blocks: never the newest message while the session works", () => {
+  // Arrange
+  const message = (id: string, kind: "prompt" | "reply"): SessionMessage => ({ id, seq: 0, kind, at: "2026-11-09T12:00:00Z", source: "", queued: false, text: "", output: "", errors: "", trigger: "", blocks: [], pictures: [] });
+  const earlier = message("r1", "reply"), asked = message("p1", "prompt"), newest = message("r2", "reply");
+  const talk = [earlier, asked, newest];
+
+  // Act
+  const working = talk.map((each) => isWrittenReply(each, talk, true));
+  const stopped = talk.map((each) => isWrittenReply(each, talk, false));
+  const askedLast = [earlier, asked].map((each, _, all) => isWrittenReply(each, all, true));
+
+  // Assert
+  assert.deepEqual(working, [true, false, false]);
+  assert.deepEqual(stopped, [true, false, true]);
+  assert.deepEqual(askedLast, [true, false]);
 });

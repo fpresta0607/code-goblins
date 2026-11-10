@@ -187,6 +187,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.pasteTerminalImage(w, r)
 	case r.URL.Path == "/api/messages" && r.Method == "GET":
 		h.messages(w, r)
+	case r.URL.Path == "/api/code-run" && r.Method == "POST":
+		h.codeRun(w, r)
 	case r.URL.Path == "/api/workspace" && r.Method == "GET":
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		defer cancel()

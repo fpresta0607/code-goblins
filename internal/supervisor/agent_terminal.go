@@ -309,6 +309,7 @@ func (h *HTTP) messagePage(path string, before int, task string) (fleettree.Mess
 		return fleettree.MessagePage{Conversation: cursor.Conversation(), Messages: []fleettree.Message{}}, cursor, nil
 	}
 	page, cursor, err := h.Service.Options.Tree.MessagePage(path, before)
+	page.Messages, page.Waiting = shownShellCommands(h.Service.Store.Home.State, page.Messages, page.Waiting)
 	page.Waiting = h.Service.Store.namedWaiting(task, page.Waiting)
 	return page, cursor, err
 }
@@ -547,6 +548,7 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 				continue
 			}
 			messages, waiting, now, isAnew, err := h.Service.Options.Tree.MessagesSince(session.Path, cursor)
+			messages, waiting = shownShellCommands(h.Service.Store.Home.State, messages, waiting)
 			waiting = h.Service.Store.namedWaiting(task, waiting)
 			switch {
 			case err != nil:
