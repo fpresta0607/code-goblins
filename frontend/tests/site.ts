@@ -150,7 +150,7 @@ export async function roomForATest({ free, limit, pause, ci }: Room = MACHINE): 
 // says otherwise.
 // The board's button to the CFO, named for what it opens in the saved chat
 // style.
-export const CFO_DOOR = /^Open the CFO's (chat|terminal)$/;
+export const CFO_DOOR = /^Open the CEO's (chat|terminal)$/;
 
 export const test = base.extend<{ room: Room; paced: void; hadTour: boolean; chatStyle: string | null; isSteppedIn: boolean }>({
   room: [MACHINE, { option: true }],

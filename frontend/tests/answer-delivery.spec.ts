@@ -43,7 +43,7 @@ test("an answer typed for a busy CFO reads sent, then delivered, and never warns
   await expect(dialog).toBeHidden();
   await expect(page.getByText(/unconfirmed|Inspect the CFO queue|Not confirmed/)).toHaveCount(0);
   const list = await history(page);
-  await expect(list).toContainText("You chose Lift it (not yet delivered to the CFO)");
+  await expect(list).toContainText("You chose Lift it (not yet delivered to the CEO)");
   await expect(list.locator(".history-mark.queued .mark-badge")).toHaveCount(1);
 
   // Act

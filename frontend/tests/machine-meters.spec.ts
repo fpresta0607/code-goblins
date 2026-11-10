@@ -7,7 +7,7 @@ const tasks = [
   { id: "working-one", title: "working-one", project: "example", phase: "working", verified: false, generation: "working-one-1", since },
 ];
 const memory = { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 * GB, available: 9.4 * GB, commit_available: 20 * GB, paged_pool: 0.6 * GB, nonpaged_pool: 0.4 * GB };
-const disk = { drive: "C:", total: 953 * GB, floor: 15 * GB, wake: 10 * GB, free: 331.3 * GB };
+const disk = { drive: "C:", total: 953 * GB, floor: 15 * GB, wake: 10 * GB, free: 331.3 * GB, drives: [{ drive: "C:", total: 953 * GB, free: 331.3 * GB, dev_drive: false, error: "" }] };
 // The Overlord's processor on 2026-10-09: six performance cores, four
 // efficiency cores kept full by two programs outside the fleet.
 const cores = { performance_cores: 6, efficiency_cores: 4, efficiency_free: 0, next: 0.25, busiest: ["WmiPrvSE", "MsMpEng"] };
@@ -44,14 +44,15 @@ async function board(page: Page, machine: object) {
 // The four meters' layout: each a row of its own in the memory meter's box,
 // in the order memory, disk, CPU, GPU, every visible label at body size and
 // the same look as disk's, nothing written under any bar, and nothing
-// scrolling sideways or leaving the box.
+// scrolling sideways or leaving the box. Disk's row holds a line and bar for
+// each drive, so its bar is the one drive's here.
 async function layout(column: ReturnType<Page["getByRole"]>) {
   return column.evaluate((tasks) => {
     const memoryBox = tasks.querySelector<HTMLElement>('[aria-label="Memory"]')!;
     const box = memoryBox.getBoundingClientRect();
     const rows = ["Disk", "CPU", "GPU"].map((name) => tasks.querySelector<HTMLElement>(`[aria-label="${name}"]`)!);
     const memoryBar = memoryBox.querySelector<HTMLElement>(":scope > .memory-bar")!;
-    const bars = [memoryBar, ...rows.map((row) => row.querySelector<HTMLElement>(":scope > .memory-bar")!)];
+    const bars = [memoryBar, ...rows.map((row) => row.querySelector<HTMLElement>(":scope > .memory-bar, :scope > .disk-drive > .memory-bar")!)];
     const look = (row: HTMLElement) => { const style = getComputedStyle(row); const line = getComputedStyle(row.querySelector(".memory-line")!); return [style.display, style.rowGap, style.paddingTop, style.borderTopWidth, line.fontSize, line.justifyContent].join(" "); };
     const tops = [memoryBar.getBoundingClientRect().bottom, ...rows.map((row) => row.getBoundingClientRect().top)];
     return {
@@ -76,7 +77,7 @@ test.describe("in the Overlord's window, 1707 px wide", () => {
   test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
 
   for (const [state, processors] of Object.entries(states)) {
-    for (const beside of ["as the board opens", "the CFO's Task view open beside the board"]) {
+    for (const beside of ["as the board opens", "the CEO's Task view open beside the board"]) {
       test(`CPU and GPU are rows under disk in the same box, ${state === "roomy" ? "with room" : "under the mark"}, ${beside}`, async ({ page }, testInfo) => {
         // Arrange
         const column = await board(page, { processors, gpu });

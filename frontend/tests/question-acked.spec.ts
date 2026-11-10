@@ -28,6 +28,6 @@ test("a goblin's question the CFO answered and acked was never his to answer, an
   await expect(menu).toBeVisible();
   await history.locator("summary").click();
   await expect(history).toContainText("Which accent should the board use?");
-  await expect(history).toContainText("The CFO answered it");
-  await expect(history.getByRole("img", { name: "The CFO answered", exact: true })).toHaveCount(1);
+  await expect(history).toContainText("The CEO answered it");
+  await expect(history.getByRole("img", { name: "The CEO answered", exact: true })).toHaveCount(1);
 });

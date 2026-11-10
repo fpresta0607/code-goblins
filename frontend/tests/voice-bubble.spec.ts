@@ -501,7 +501,7 @@ test("a hint dismissed in one pane stays dismissed in a pane already open", asyn
   await expect(page.getByRole("note")).toHaveCount(1);
   await page.getByRole("region", { name: "Goblin terminal" }).getByRole("button", { name: "Dismiss hint" }).click();
   await page.getByRole("button", { name: "Switch pane" }).click();
-  await expect(page.getByRole("region", { name: "CFO terminal" }).locator(".voice-bubble")).toBeVisible();
+  await expect(page.getByRole("region", { name: "CEO terminal" }).locator(".voice-bubble")).toBeVisible();
   await expect(page.getByRole("note")).toHaveCount(0);
 });
 

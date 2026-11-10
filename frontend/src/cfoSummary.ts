@@ -28,6 +28,6 @@ export function cfoSummary(snapshot: Snapshot, now = Date.now()): { waiting: num
   const at = Date.parse(snapshot.at);
   const left = (snapshot.questions || []).filter((question) => leftByTheCFO(question, at));
   const oldest = Math.min(...left.map((question) => Date.parse(question.created_at)));
-  const behind = left.length ? `${left.length} question${left.length === 1 ? " waits" : "s wait"} for the CFO (${Math.floor((at - oldest) / 60_000)} min). ` : "";
+  const behind = left.length ? `${left.length} question${left.length === 1 ? " waits" : "s wait"} for the CEO (${Math.floor((at - oldest) / 60_000)} min). ` : "";
   return { waiting, line: behind ? behind + fleet : waiting ? fleet : "All quiet. " + fleet };
 }

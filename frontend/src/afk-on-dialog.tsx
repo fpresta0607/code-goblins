@@ -23,7 +23,7 @@ export function AfkOnDialog({ pending, problem, onTurnOn, onClose }: {
   return <dialog ref={dialog} className="stop-task-dialog afk-dialog" aria-labelledby={title} aria-describedby={description} onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onClose(); }}>
     <Avatar persona="cfo" />
     <h2 id={title}>Go AFK?</h2>
-    <p id={description}>The CFO runs the fleet under your authority until you turn AFK off, and logs every decision it makes. Nothing on the board prompts you meanwhile.</p>
+    <p id={description}>The CEO runs the fleet under your authority until you turn AFK off, and logs every decision it makes. Nothing on the board prompts you meanwhile.</p>
     <p className="preservation-notice"><Icon name="shield" />What is yours alone is held for you, never decided.</p>
     <AfkRefusal on problem={problem} />
     <div className="stop-task-choices">

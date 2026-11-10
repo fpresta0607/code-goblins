@@ -20,7 +20,7 @@ function CommandTyping() {
   const [snapshot, setSnapshot] = useState(() => parseSnapshot(base));
   window.ask = (id) => setSnapshot((prior) => parseSnapshot({ ...base, revision: prior.revision + 1, questions: [...(prior.questions || []), question(id)] }));
   return <main>
-    <label>Comment to the CFO <textarea aria-label="Comment to the CFO" rows={3} /></label>
+    <label>Comment to the CEO <textarea aria-label="Comment to the CEO" rows={3} /></label>
     <CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={null} onUnsent={() => {}} />
   </main>;
 }

@@ -4,7 +4,7 @@ const GB = 2 ** 30;
 const snapshot = {
   instance: "empty-tasks-fixture", revision: 1, healthy: true, cfo_runs: true, attention: [], tasks: [],
   memory: { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 * GB, available: 9.4 * GB, commit_available: 20 * GB, paged_pool: 0.6 * GB, nonpaged_pool: 0.4 * GB },
-  disk: { drive: "C:", total: 953 * GB, floor: 15 * GB, wake: 10 * GB, free: 331.3 * GB },
+  disk: { drive: "C:", total: 953 * GB, floor: 15 * GB, wake: 10 * GB, free: 331.3 * GB, drives: [{ drive: "C:", total: 953 * GB, free: 331.3 * GB }] },
   processors: { performance_cores: 6, efficiency_cores: 4, efficiency_free: 0, next: 0.25, busiest: ["WmiPrvSE"], free: 0.55 },
   gpu: { adapters: [{ name: "Intel(R) Graphics", busy: 0.2, busiest: "siqshift-desktop" }] },
 };

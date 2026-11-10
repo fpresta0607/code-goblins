@@ -389,7 +389,7 @@ test("his message to the CFO is Queued with its controls while held, Sent with n
   const held = queued({ id: "c1", task_id: "", generation: "", text: words, can_send_now: true, send_now_why: "", message: "Queued for a moment, so you can still edit or cancel it.", created_at: "2026-10-22T09:01:00Z", updated_at: "2026-10-22T09:01:00Z" });
   const relay = await open(page, snapshot({ actions: [held] }));
   await page.keyboard.press("Control+Alt+1");
-  await expect(page.locator("#panel-title")).toHaveText("CFO");
+  await expect(page.locator("#panel-title")).toHaveText("CEO");
   relay.say({ type: "screen", asking: false, open: false, working: true });
   const bubble = page.locator(".queued-message.pane").filter({ hasText: words });
 
@@ -421,7 +421,7 @@ test("his message to the CFO is Queued with its controls while held, Sent with n
 // and the board kept calling it Queued with Send now alone. AFK changes
 // nothing here: a message the board holds keeps all three controls, and one
 // typed into a turn reads Sent.
-for (const [whose, task] of [["the CFO", ""], ["a goblin", GOBLIN.id]] as const) {
+for (const [whose, task] of [["the CEO", ""], ["a goblin", GOBLIN.id]] as const) {
   test(`with AFK on, his message to ${whose} keeps Send now, Edit and Cancel while held, and one typed into the turn reads Sent`, async ({ page }) => {
     // Arrange
     const afk = { state: "on", since: new Date().toISOString(), from: "his own board (goblins-window.exe pid 4242)", decided: 0, held: [] };
@@ -433,7 +433,7 @@ for (const [whose, task] of [["the CFO", ""], ["a goblin", GOBLIN.id]] as const)
     if (task) await openGoblin(page);
     else {
       await page.keyboard.press("Control+Alt+1");
-      await expect(page.locator("#panel-title")).toHaveText("CFO");
+      await expect(page.locator("#panel-title")).toHaveText("CEO");
     }
 
     // Act: its turn runs, as the wake AFK sends the CFO starts one.
@@ -578,7 +578,7 @@ test("a queued message to the CFO has the same three icons, in the same order an
 
   // Act
   await page.keyboard.press("Control+Alt+1");
-  await expect(page.locator("#panel-title")).toHaveText("CFO");
+  await expect(page.locator("#panel-title")).toHaveText("CEO");
 
   // Assert
   const cfo = page.locator(".queued-message.pane").filter({ hasText: "wait for me" });

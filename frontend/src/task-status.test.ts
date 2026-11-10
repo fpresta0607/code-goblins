@@ -23,11 +23,11 @@ const board = (task: Record<string, unknown>, available = 9): Snapshot => parseS
 const zane = (snapshot: Snapshot) => snapshot.tasks[0];
 
 for (const [phase, step, reason, runtime, text] of [
-  ["blocked", "rebase", "Pipeline decision required at rebase; use cfo pipeline respond", "busy", "Waiting on the CFO: rebase gate"],
-  ["blocked", "rebase", "Pipeline decision required at rebase; use cfo pipeline respond", "parked", "Waiting on the CFO: rebase gate"],
+  ["blocked", "rebase", "Pipeline decision required at rebase; use cfo pipeline respond", "busy", "Waiting on the CEO: rebase gate"],
+  ["blocked", "rebase", "Pipeline decision required at rebase; use cfo pipeline respond", "parked", "Waiting on the CEO: rebase gate"],
   ["review", "test", "Pipeline evidence is incomplete or belongs to a different HEAD", "busy", "In review gate: tests"],
   ["review", "test", "Pipeline evidence is incomplete or belongs to a different HEAD", "parked", "In review gate: tests"],
-  ["blocked", "test", "Waiting on the CFO: Which source should ship?", "busy", "Waiting on the CFO"],
+  ["blocked", "test", "Waiting on the CFO: Which source should ship?", "busy", "Waiting on the CEO"],
 ] as const) {
   test(`gate ${step}/${phase} keeps its gate status beside a ${runtime} terminal`, () => {
     const snapshot = board({ phase, gate_step: step, reason, report: "working", runtime: { state: runtime } });
@@ -40,9 +40,9 @@ for (const [phase, step, reason, runtime, text] of [
 }
 
 for (const [name, reason, text] of [
-  ["a gate", "Review gate needs approval before continuing", "Waiting on the CFO"],
-  ["a dependency", "Wait for the dependency task to land before continuing", "Waiting on the CFO"],
-  ["the CFO", "Waiting on the CFO: Which dependency should land first?", "Waiting on the CFO"],
+  ["a gate", "Review gate needs approval before continuing", "Waiting on the CEO"],
+  ["a dependency", "Wait for the dependency task to land before continuing", "Waiting on the CEO"],
+  ["the CEO", "Waiting on the CFO: Which dependency should land first?", "Waiting on the CEO"],
 ]) {
   test(`a blocked goblin awaiting ${name} reads Waiting on the CFO, who answers it, and keeps its reason and phase`, () => {
     // Arrange
@@ -193,7 +193,7 @@ test("a goblin whose spawn ended reads Starting until the supervisor has evidenc
 });
 
 test("a paused goblin reads what resumes it, the same words on every surface", () => {
-  const snapshot = board({ phase: "paused", generation: "s1", lifecycle: { phase: "paused", action: "pause", at: "2026-10-08T11:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "memory", until: "", at: "2026-10-08T11:00:00Z" } } });
+  const snapshot = board({ phase: "paused", generation: "s1", lifecycle: { phase: "paused", action: "pause", at: "2026-10-08T11:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason: "memory", until: "", at: "2026-10-08T11:00:00Z" } } });
   assert.deepEqual(taskStatus(zane(snapshot), snapshot), { text: "Paused until memory frees", phase: "paused" });
 });
 
@@ -208,7 +208,7 @@ test("every phase and wait of a goblin reads one state, in its column, and only 
   const TRAIN_PR = "https://github.com/o/code-goblins/pull/900", PR = "https://github.com/o/code-goblins/pull/512";
   const nina = { id: "nina-task", title: "Other work", phase: "working", generation: "n1", goblin_name: "Nina", goblin_title: "Bug Hunter", verified: false };
   const tree = (place: number) => ({ tree: { task_id: "zane", generation: "s1", harness: "claude", memory: 0, own_memory: 0, children: [], line_place: place } });
-  const pause = (fields: Record<string, unknown>) => ({ phase: "paused", lifecycle: { phase: "paused", action: "pause", at: "2026-11-02T19:47:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { until: "", at: "2026-11-02T19:47:00Z", ...fields } } });
+  const pause = (fields: Record<string, unknown>) => ({ phase: "paused", lifecycle: { phase: "paused", action: "pause", at: "2026-11-02T19:47:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { until: "", at: "2026-11-02T19:47:00Z", ...fields } } });
   const done = (fields: Record<string, unknown>) => ({ phase: "idle", report: "done", pr: PR, ...fields });
   const checks = (state: string) => ({ hosted_checks: { head: "a".repeat(40), state, checks: 9, failed: state === "failed" ? ["test"] : [] } });
   const riding = { id: "t1", repository: "o/code-goblins", base: "main", pr: TRAIN_PR, state: "testing", runs: 1, started: "2026-11-02T19:00:00Z", finished: "", note: "",
@@ -222,12 +222,12 @@ test("every phase and wait of a goblin reads one state, in its column, and only 
     ["eleventh in line", { phase: "waiting", waiting_on: "memory", ...tree(11) }, {}, "11th in line for the machine", "waiting", "In progress"],
     ["twenty-third in line", { phase: "waiting", waiting_on: "memory", ...tree(23) }, {}, "23rd in line for the machine", "waiting", "In progress"],
     ["its heavy step holding the turn, or none of its runs in line", { phase: "waiting", waiting_on: "memory", ...tree(0) }, {}, "Working", "working", "In progress"],
-    ["idle, nothing in line", { phase: "idle" }, {}, "Waiting on the CFO", "idle", "In progress"],
-    ["idle, its tree read with nothing in line", { phase: "idle", ...tree(0) }, {}, "Waiting on the CFO", "idle", "In progress"],
-    ["asking a question", { phase: "blocked", report: "blocked", reason: "Which key?" }, {}, "Waiting on the CFO", "blocked", "In progress"],
+    ["idle, nothing in line", { phase: "idle" }, {}, "Waiting on the CEO", "idle", "In progress"],
+    ["idle, its tree read with nothing in line", { phase: "idle", ...tree(0) }, {}, "Waiting on the CEO", "idle", "In progress"],
+    ["asking a question", { phase: "blocked", report: "blocked", reason: "Which key?" }, {}, "Waiting on the CEO", "blocked", "In progress"],
     ["a helper asking its parent", { phase: "blocked", report: "blocked", reason: "Which key?", parent: "nina-task" }, {}, "Waiting on Nina", "blocked", "In progress"],
     ["an idle helper whose parent left the board", { phase: "idle", parent: "gone-task" }, {}, "Waiting on its parent", "idle", "In progress"],
-    ["waiting on the Overlord through the CFO", { phase: "waiting", waiting_on: "overlord" }, {}, "Waiting on the CFO", "waiting", "In progress"],
+    ["waiting on the Overlord through the CEO", { phase: "waiting", waiting_on: "overlord" }, {}, "Waiting on the CEO", "waiting", "In progress"],
     ["waiting on the Overlord in his Command Center", { phase: "waiting", waiting_on: "overlord" }, asksYou, "Waiting on you", "waiting", "In progress"],
     ["waiting on CI", { phase: "waiting", waiting_on: "ci" }, {}, "Waiting on CI", "waiting", "In progress"],
     ["waiting on its deploy", { phase: "waiting", waiting_on: "deploy" }, {}, "Waiting on its deploy", "waiting", "In progress"],

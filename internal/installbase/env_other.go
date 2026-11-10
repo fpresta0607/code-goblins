@@ -20,6 +20,15 @@ func NewEnvStore(execx.Runner) EnvStore {
 	return unsupportedEnvStore{}
 }
 
+// UserVariable reads one user-scope variable from the file
+// UserEnvFileVariable names, and finds none without it.
+func UserVariable(name string) (string, bool, error) {
+	if path := os.Getenv(UserEnvFileVariable); path != "" {
+		return fileEnvStore{path: path}.Get(name)
+	}
+	return "", false, nil
+}
+
 type unsupportedEnvStore struct{}
 
 var errUnsupported = errors.New("install: user-scope environment variables are Windows-only")

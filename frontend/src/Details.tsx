@@ -145,7 +145,7 @@ function Activity({ task, snapshot, now }: { task?: Task; snapshot: Snapshot; no
   // checks, and its own copy of each other action is the newest.
   const read = useResource(task?.generation ? "/api/tasks/" + encodeURIComponent(task.id) + "/actions" : null, parseActions, task?.actions_at);
   const actions = (read.data || []).map((action) => snapshot.actions.find((each) => each.id === action.id) || action).reverse();
-  const actionLabel = (kind: string) => ({ review: "Review comment", feedback: "Task instruction", evaluate: "Progress check", cfo_message: "CFO message", cfo_answer: "Question answer", goblin_answer: "Question answer" })[kind] || "Action";
+  const actionLabel = (kind: string) => ({ review: "Review comment", feedback: "Task instruction", evaluate: "Progress check", cfo_message: "CEO message", cfo_answer: "Question answer", goblin_answer: "Question answer" })[kind] || "Action";
   return <>
     {activity.error ? <RetryRead retry={activity.reload} /> :
       activity.data?.length ? <ol className="activity-list">

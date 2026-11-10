@@ -18,7 +18,7 @@ test("a message says where it is: queued, sent or with the CFO", () => {
   assert.equal(messageState(snapshot([action({ status: "running", message: "Starting the CFO. The message goes in once it runs." })]).actions[0]), "Starting");
   assert.equal(messageState(snapshot([action({ status: "succeeded", message: "Accepted by the goblin in its native terminal." })]).actions[0]), "Sent");
   assert.equal(messageState(snapshot([action({ status: "running", awaiting: { task: "goblin-one" } })]).actions[0]), "Sent");
-  assert.equal(messageState(snapshot([action({ status: "failed", message: "goblin-one was stopped before it could take it; the CFO has it" })]).actions[0]), "With the CFO");
+  assert.equal(messageState(snapshot([action({ status: "failed", message: "goblin-one was stopped before it could take it; the CFO has it" })]).actions[0]), "With the CEO");
   assert.equal(messageState(snapshot([action({ status: "failed", message: "The terminal is closed." })]).actions[0]), "Not sent");
   assert.equal(messageState(snapshot([action({ status: "uncertain", message: "Typed, and not picked up." })]).actions[0]), "Not confirmed");
 });
@@ -51,7 +51,7 @@ test("a goblin's messages are its own, never one that names no goblin", () => {
 test("a message kept for a resume shows from the resume note, never from its action", () => {
   const shown = snapshot([action({ id: "a", status: "succeeded", message: "Kept for its resume." }), action({ id: "b", status: "succeeded", message: "Accepted by the goblin in its native terminal." })]);
   assert.deepEqual(messagesTo(shown, "goblin-one").map((sent) => sent.id), ["b"]);
-  const lifecycle = { phase: "paused", action: "pause", at: "", kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false };
+  const lifecycle = { phase: "paused", action: "pause", at: "", kept: [], stopped: [], problems: [], handoff_saved: false, validation_kept: false };
   assert.deepEqual(task({ phase: "paused", lifecycle: { ...lifecycle, kept_messages: ["i can message?", "go on\nand rebase"] } }).lifecycle?.kept_messages, ["i can message?", "go on\nand rebase"]);
   assert.equal(task({ phase: "paused", lifecycle }).lifecycle?.kept_messages, undefined, "a lifecycle with none names none");
 });

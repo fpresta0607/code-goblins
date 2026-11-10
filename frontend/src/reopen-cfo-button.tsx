@@ -21,7 +21,7 @@ export function ReopenCfoButton({ snapshot }: { snapshot: Snapshot }) {
     }
   };
   return <>
-    <button className="labelled-button primary" disabled={isReopening} onClick={() => void reopen()}><Icon name="play" />{isReopening ? "Reopening the CFO…" : "Reopen the CFO"}</button>
+    <button className="labelled-button primary" disabled={isReopening} onClick={() => void reopen()}><Icon name="play" />{isReopening ? "Reopening the CEO…" : "Reopen the CEO"}</button>
     <ClickFeedback text={feedback} />
   </>;
 }

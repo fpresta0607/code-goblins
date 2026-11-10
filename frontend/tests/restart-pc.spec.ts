@@ -43,7 +43,7 @@ async function open(page: Page, memory: object, { origin = "", refusal = "" } = 
     await page.goto(origin + "/");
   } else await page.goto("/");
   await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
-  await expect(page.locator(".panel-header #panel-title")).toHaveText("CFO");
+  await expect(page.locator(".panel-header #panel-title")).toHaveText("CEO");
   const push = (snapshot: object) => page.evaluate((data) => (window as unknown as { pushSnapshot: (data: string) => void }).pushSnapshot(data), JSON.stringify({ ...BOARD, revision: 2, ...snapshot }));
   return { sent, push, header: page.locator(".panel-header"), line: page.locator(".cfo-header-line") };
 }
@@ -75,10 +75,10 @@ for (const [width, height] of [[1280, 800], [390, 844]]) {
       await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
       await expect(dialog).toContainText("The kernel's pools hold 11.0 GB, past the 7.5 GB line where free memory can no longer hold the fleet.");
       await expect(dialog.getByRole("listitem")).toHaveText([
-        "The CFO is told first.",
+        "The CEO is told first.",
         "Every working goblin writes its handoff and pauses until the PC has restarted.",
         "The heavy runs end, then Windows restarts. An app with unsaved work asks you first.",
-        "After you sign in, the CFO and the goblins come back by themselves.",
+        "After you sign in, the CEO and the goblins come back by themselves.",
       ]);
       await dialog.getByRole("button", { name: "Restart PC" }).click();
 
@@ -112,7 +112,7 @@ test("under the line there is no Restart PC", async ({ page }) => {
   const { header, line } = await open(page, UNDER);
 
   // Assert: and the line under the header's row takes no room.
-  await expect(header.locator("#panel-title")).toHaveText("CFO");
+  await expect(header.locator("#panel-title")).toHaveText("CEO");
   await expect(line.getByRole("button", { name: "Restart the PC" })).toHaveCount(0);
   await expect(line).toBeHidden();
 });
@@ -125,7 +125,7 @@ test("his private board never offers Restart PC", async ({ page }) => {
   await push({ memory: PAST, pc_restart: { state: "stopped", problem: "not every working goblin paused: second-goblin (failed)", at: "2026-10-18T22:30:00Z" } });
 
   // Assert
-  await expect(header.locator("#panel-title")).toHaveText("CFO");
+  await expect(header.locator("#panel-title")).toHaveText("CEO");
   await expect(line.getByRole("button", { name: /Restart the PC|Restarting/ })).toHaveCount(0);
   await expect(line.getByText(/The PC did not restart/)).toHaveCount(0);
 });
@@ -161,6 +161,6 @@ test("a restart that stopped short says so under the button and offers Restart P
   await push({ memory: PAST, pc_restart: { state: "stopped", problem: "not every working goblin paused: second-goblin (failed)", at: "2026-10-18T22:30:00Z" } });
 
   // Assert
-  await expect(line.locator(".notice")).toHaveText("The PC did not restart, and the CFO knows why.");
+  await expect(line.locator(".notice")).toHaveText("The PC did not restart, and the CEO knows why.");
   await expect(line.getByRole("button", { name: "Restart the PC" })).toBeEnabled();
 });

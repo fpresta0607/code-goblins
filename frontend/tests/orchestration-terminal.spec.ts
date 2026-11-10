@@ -236,7 +236,7 @@ test("a session he leaves keeps no terminal connection, and coming back connects
 
   // Act
   await page.keyboard.press("Control+Alt+1");
-  await expect(page.locator("#panel-title")).toHaveText("CFO");
+  await expect(page.locator("#panel-title")).toHaveText("CEO");
 
   // Assert
   await expect.poll(liveTerminals).toEqual([CFO_TERMINAL]);
@@ -262,7 +262,7 @@ for (const view of ["Board", "Orchestration"] as const) {
     const liveTerminals = await watchTerminals(page);
     if (view === "Orchestration") await page.getByRole("button", { name: "Orchestration", exact: true }).click();
     else await page.keyboard.press("Control+Alt+1");
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
     await expect.poll(liveTerminals).toEqual([CFO_TERMINAL]);
     const views = relay.views;
 
@@ -274,7 +274,7 @@ for (const view of ["Board", "Orchestration"] as const) {
     await expect(page.locator(".host-terminal")).toHaveCount(0);
 
     // Act
-    await page.getByRole("button", { name: "Open CFO", exact: true }).click();
+    await page.getByRole("button", { name: "Open CEO", exact: true }).click();
 
     // Assert
     await expect.poll(liveTerminals).toEqual([CFO_TERMINAL]);

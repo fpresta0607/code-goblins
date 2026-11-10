@@ -91,6 +91,19 @@ test("a Start or Resume that waits its turn says what it waits for on its card",
   assert.equal(turnStatus(task({ starting: true }), memory(4.2), disk(30)), "", "a start under way needs no wait");
 });
 
+// A snapshot whose free disk cannot be read still carries the drives beside an
+// empty reading, as the supervisor sends it. The supervisor refuses that start
+// rather than holding it for disk, so its card names no wait for disk.
+test("a Start that waits its turn while free disk cannot be read does not say it waits for disk", () => {
+  // Arrange
+  const asked = task({ starting: true, asked: true });
+  const unreadable: Disk = { drive: "", free: 0, total: 0, floor: 15 * GB, wake: 10 * GB, drives: [{ drive: "D:", free: 0, total: 0, dev_drive: true, error: "the device is not ready" }] };
+
+  // Act and assert
+  assert.equal(diskBlock(unreadable), "");
+  assert.equal(turnStatus(asked, memory(8), unreadable), "");
+});
+
 test("a queued task that already finished offers no Start, and its card says so and why", () => {
   // Arrange
   const why = "Already finished: its last report was done (2026-10-06 11:59Z: done: PR 9); it never starts again by itself. Move its row to ## Done, or queue new work under a new id";
@@ -171,8 +184,8 @@ test("the pools' bar puts the line at its middle and its tip names each pool and
   // Assert
   assert.deepEqual(scale, { fill: 73.06666666666666, line: 50 });
   assert.equal(poolScale({ ...pools, paged_pool: 30 * GB }).fill, 100, "pools far past the line fill the bar");
-  assert.equal(tip, "Paged 7.6 GB, nonpaged 3.4 GB. Red mark: 7.5 GB, past which free memory cannot hold the fleet and the CFO's panel offers Restart PC. Grew most since sign-in: Toke 3.2 GB paged, Mdl 40 MB nonpaged.");
-  assert.equal(poolState(pools).text, "The kernel's pools hold 11.0 GB, past the 7.5 GB line: Restart PC in the CFO's panel frees them.");
+  assert.equal(tip, "Paged 7.6 GB, nonpaged 3.4 GB. Red mark: 7.5 GB, past which free memory cannot hold the fleet and the CEO's panel offers Restart PC. Grew most since sign-in: Toke 3.2 GB paged, Mdl 40 MB nonpaged.");
+  assert.equal(poolState(pools).text, "The kernel's pools hold 11.0 GB, past the 7.5 GB line: Restart PC in the CEO's panel frees them.");
   assert.doesNotMatch(poolMarks(memory(7)), /Grew most/, "nothing grew, nothing named");
 });
 
@@ -232,7 +245,7 @@ test("Next sits on the card the supervisor's order for a free slot takes first",
   // Arrange
   const now = Date.parse("2026-10-06T12:00:00Z");
   const paused = (id: string, reason: string, until: string, at: string) => ({ id, phase: "paused", generation: id + "-1", verified: false,
-    lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason, until, at } } });
+    lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason, until, at } } });
   const queued = (id: string, fields: Record<string, unknown> = {}) => ({ id, phase: "queued", brief: true, verified: false, ...fields });
   const board = (machine: Memory, tasks: Record<string, unknown>[]) => parseSnapshot({ healthy: true, memory: machine, tasks });
   const cases: [string, Snapshot, ReturnType<typeof nextInOrder>][] = [
@@ -268,7 +281,7 @@ test("the Paused group runs in resume order: Next up first, then by time, then w
   // Arrange
   const now = Date.parse("2026-10-17T18:00:00Z");
   const paused = (id: string, reason: string, until: string, fields: Record<string, unknown> = {}) => ({ id, phase: "paused", generation: id + "-1", verified: false, ...fields,
-    lifecycle: { phase: "paused", action: "pause", at: "2026-10-17T12:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason, until, at: "2026-10-17T12:00:00Z" } } });
+    lifecycle: { phase: "paused", action: "pause", at: "2026-10-17T12:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason, until, at: "2026-10-17T12:00:00Z" } } });
   const order = (tasks: Record<string, unknown>[], machine = memory(4.2)) => {
     const snapshot = parseSnapshot({ healthy: true, memory: machine, tasks });
     const group = snapshot.tasks.filter((task) => task.phase !== "working");
@@ -325,13 +338,13 @@ test("the Tasks column runs in start order: Next up first, then what can start, 
 });
 
 // disk is a drive with free GB of 900 free, the fleet's 15 GB floor and 10 GB mark.
-const disk = (free: number): Disk => ({ drive: "C:", free: free * GB, total: 900 * GB, floor: 15 * GB, wake: 10 * GB });
+const disk = (free: number): Disk => ({ drive: "C:", free: free * GB, total: 900 * GB, floor: 15 * GB, wake: 10 * GB, drives: [] });
 
 test("the disk meter says when no goblin starts and when the CFO is woken", () => {
   assert.equal(diskState(disk(48)).tone, "ready");
   assert.deepEqual(diskState(disk(14.9)), { tone: "waiting", text: "Under the 15 GB floor: no goblin or gate test run starts until disk frees." });
   assert.equal(diskState(disk(15)).tone, "ready");
-  assert.deepEqual(diskState(disk(9.9)), { tone: "under", text: "Under the 10 GB mark: the CFO is woken, and nothing starts until disk frees." });
+  assert.deepEqual(diskState(disk(9.9)), { tone: "under", text: "Under the 10 GB mark: the CEO is woken, and nothing starts until disk frees." });
 });
 
 test("the disk bar spans twice the floor, with the mark and the floor inside it", () => {
@@ -347,7 +360,8 @@ test("a start under the disk floor names the floor and the free disk", () => {
 });
 
 test("a snapshot carries the disk reading, and none when the board cannot read it", () => {
-  assert.deepEqual(parseSnapshot({ healthy: true, disk: { drive: "C:", free: 1, total: 2, floor: 3, wake: 4 } }).disk, { drive: "C:", free: 1, total: 2, floor: 3, wake: 4 });
+  const drives = [{ drive: "C:", free: 1, total: 2 }, { drive: "D:", free: 0, total: 0, dev_drive: true, error: "the device is not ready" }];
+  assert.deepEqual(parseSnapshot({ healthy: true, disk: { drive: "C:", free: 1, total: 2, floor: 3, wake: 4, drives } }).disk, { drive: "C:", free: 1, total: 2, floor: 3, wake: 4, drives: [{ drive: "C:", free: 1, total: 2, dev_drive: false, error: "" }, { drive: "D:", free: 0, total: 0, dev_drive: true, error: "the device is not ready" }] });
   assert.equal(parseSnapshot({ healthy: true }).disk, null);
 });
 

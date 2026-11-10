@@ -504,18 +504,17 @@ export function App() {
       else setSwitchFocus((prior) => prior + 1);
     },
   } : undefined;
-  // Open in Windows Terminal is in the panel's row wherever a session shows;
-  // on a small screen only while its box shows, as the box's own menu offered
-  // it there before (#1987).
+  // Open in Windows Terminal is in the panel's row wherever a session shows,
+  // except on a phone, which has no Windows Terminal to open it in (#2222).
   const controls: PanelControl[] = [];
-  if (shownWindow && (!compact || boxOnScreen)) controls.push({ id: "window", name: "Open in terminal", label: "Open in Windows Terminal", icon: "external", importance: PANEL_IMPORTANCE.window, onPress: () => void openWindow() });
+  if (shownWindow && !compact) controls.push({ id: "window", name: "Open in terminal", label: "Open in Windows Terminal", icon: "external", importance: PANEL_IMPORTANCE.window, onPress: () => void openWindow() });
   if (!compact) controls.push({ id: "maximize", name: maximized ? "Restore" : "Maximize", label: maximized ? "Restore the panel" : "Maximize the panel", icon: maximized ? "restore" : "maximize", importance: PANEL_IMPORTANCE.maximize, onPress: toggleMaximized });
   const row = {
     controls,
     corner: fillsPhone
       ? <button className="icon-button" aria-label={"Back to " + view} onClick={close}><Icon name="back" /></button>
       : backShown
-      ? <button className="icon-button" aria-label="Back to the CFO" onClick={back}><Icon name="back" /></button>
+      ? <button className="icon-button" aria-label="Back to the CEO" onClick={back}><Icon name="back" /></button>
       : <button className="icon-button" aria-label="Close panel" onClick={close}><Icon name="close" /></button>,
     notice: windowFeedback && <span className="window-feedback"><ClickFeedback text={windowFeedback} /></span>,
   };
@@ -549,7 +548,7 @@ export function App() {
             corner of desktop", and his mobile corrections of 2026-11-04). */}
         {!connected && <Notice tone="warning">{connection}</Notice>}
         {snapshot && <CommandCenterMenu snapshot={snapshot} connected={connected} presentations={presentations} now={freshNow} focus={commandFocus} onUnsent={setHasUnsentAnswers} onSent={sent} />}
-        {!paneOpen && !compact && <button onClick={() => setPaneOpen(true)}>Open {selected ? "details" : "CFO"}</button>}
+        {!paneOpen && !compact && <button onClick={() => setPaneOpen(true)}>Open {selected ? "details" : "CEO"}</button>}
       </div>
     </header>
     {updated && <Notice form="box" actions={<button className="primary" onClick={() => location.reload()}>Reload</button>}>The board was updated.</Notice>}
@@ -583,11 +582,11 @@ export function App() {
         <div className="panel-main">
         <div className="panel-stage" hidden={!terminalShown && !messagesShown}>
           {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={snapshot.instance + messagesSource} query={messagesSource} instance={snapshot.instance} pages={messagePages}
-            name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} terminal={terminalKey} harness={panelHarness} model={panelModel} effort={panelEffort}
+            name={cfoShown || !task ? "CEO" : goblinName(task)} task={cfoShown ? undefined : task} terminal={terminalKey} harness={panelHarness} model={panelModel} effort={panelEffort}
             isCompacting={isCompacting} sent={panelSent} pending={panelPending}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock} onAskSlot={setAskSlot}
-            box={(model, history, effort, usage, onSend) => createPortal(<Composer isWorking={isWorking} isCompacting={isCompacting} history={history} usage={usage} onSend={onSend} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} askSlot={askSlot} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
+            box={(model, history, effort, usage, onSend) => createPortal(<Composer isWorking={isWorking} isCompacting={isCompacting} history={history} usage={usage} onSend={onSend} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CEO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} askSlot={askSlot} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
               focus={boxOnScreen ? boxFocus : 0} />, composerTarget)} />}
           {snapshot && showsPanel && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
             <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} hasComposer={boxOnScreen} connected={connected} focus={switchFocus} onHistory={messagesSource ? readHistory : undefined}
@@ -595,7 +594,7 @@ export function App() {
           </Suspense>}
         </div>
         <div ref={setClassicDock} className="classic-queue" hidden={!queuedBox} />
-        {snapshot && !messagesSource && !deckOwnsBox && createPortal(<Composer key={terminalKey} isWorking={isWorking} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} onActive={reportComposerActivity} isShown={boxOnScreen} isTerminalShown={terminalShown}
+        {snapshot && !messagesSource && !deckOwnsBox && createPortal(<Composer key={terminalKey} isWorking={isWorking} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CEO" : goblinName(task)} terminal={terminalKey} onActive={reportComposerActivity} isShown={boxOnScreen} isTerminalShown={terminalShown}
           focus={boxOnScreen ? boxFocus : 0} />, composerTarget)}
         </div>
         {panelWide && !child && <div ref={setSide} className="panel-side" />}

@@ -77,7 +77,7 @@ test("a queued task with no terminal has a Task view only; a started one and the
   const task = (generation: string) => ({ id: "t", generation }) as Task;
   assert.deepEqual(panelViews(task(""), undefined), ["task"]);
   assert.deepEqual(panelViews(task("s1"), undefined), ["task", "terminal"]);
-  assert.deepEqual(panelViews(undefined, undefined), ["task", "terminal"], "the CFO");
+  assert.deepEqual(panelViews(undefined, undefined), ["task", "terminal"], "the CEO");
   assert.deepEqual(panelViews(task(""), { id: "child" } as Session), ["task", "terminal"], "a reported child session has its own terminal view");
 });
 
@@ -100,5 +100,5 @@ test("ended sessions retain a Terminal view for their summary", () => {
 test("cleanup retirement stays distinct from an explicit lifecycle stop", () => {
   const task = parseSnapshot({ healthy: true, tasks: [{ id: "finished:t", archived: true, phase: "stopped", retired_at: "2026-09-30T12:00:00Z", verified: false }] }).tasks[0];
   assert.equal(sessionEnd(task), "retired");
-  assert.equal(sessionEnd({ ...task, lifecycle: { phase: "stopped", action: "stop", at: "2026-09-30T12:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false } }), "stopped");
+  assert.equal(sessionEnd({ ...task, lifecycle: { phase: "stopped", action: "stop", at: "2026-09-30T12:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: false, validation_kept: false } }), "stopped");
 });

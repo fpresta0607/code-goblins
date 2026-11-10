@@ -35,7 +35,7 @@ function Deck() {
   return <>
     <button onClick={() => setSecond((prior) => !prior)}>Switch pane</button>
     <Pane label="Goblin terminal" shown={!second} />
-    <Pane label="CFO terminal" shown={second} />
+    <Pane label="CEO terminal" shown={second} />
   </>;
 }
 

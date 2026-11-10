@@ -22,8 +22,8 @@ const key = (code: string, changes: Partial<{ ctrlKey: boolean; altKey: boolean;
 
 test("a slot with no terminal shows an empty state that belongs to no backend", () => {
   const cases: [string, DeckView, string][] = [
-    ["no CFO runs", cfoView({ cfo_terminal: "", cfo_terminal_since: "", cfo_runs: false, cfo_closed: false }), "No CFO is running."],
-    ["the CFO was closed", cfoView({ cfo_terminal: "", cfo_terminal_since: "", cfo_runs: false, cfo_closed: true }), "The CFO is closed."],
+    ["no CEO runs", cfoView({ cfo_terminal: "", cfo_terminal_since: "", cfo_runs: false, cfo_closed: false }), "No CEO is running."],
+    ["the CEO was closed", cfoView({ cfo_terminal: "", cfo_terminal_since: "", cfo_runs: false, cfo_closed: true }), "The CEO is closed."],
     ["a queued task", idleView(task("queued", { generation: "" }), undefined, "Queued"), "Queued"],
     ["a child of a task", idleView(task("alpha"), { id: "child" } as Session), "This child has no separate terminal."],
     ["a child with no task", idleView(undefined, { id: "child" } as Session), "This child has no separate terminal."],
@@ -57,7 +57,7 @@ test("a resuming or stopping goblin shows its transition instead of connecting t
 });
 
 test("a failed resume shows no terminal until a retry is resuming", () => {
-  const failed = { phase: "failed", action: "resume", at: "", kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false };
+  const failed = { phase: "failed", action: "resume", at: "", kept: [], stopped: [], problems: [], handoff_saved: false, validation_kept: false };
   for (const backend of ["native", "herdr"]) {
     assert.deepEqual(goblinView(task("alpha", { backend, phase: "unavailable", lifecycle: failed })), { kind: "empty", text: "Resume failed." });
     assert.deepEqual(goblinView(task("alpha", { backend, phase: "resuming", lifecycle: failed })), { kind: "empty", text: "Resuming session..." });

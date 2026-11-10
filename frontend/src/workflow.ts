@@ -185,7 +185,7 @@ export function waitingTarget(snapshot: Snapshot, task: Task): Task | undefined 
 // question to him, unless its wait is an item in his Command Center, which
 // says Waiting on you as that list does. A wait on memory is a turn in the
 // machine's heavy line, which says its place instead (isInLine).
-const WAITS: Record<string, string> = { overlord: "the CFO", ci: "CI", deploy: "its deploy" };
+const WAITS: Record<string, string> = { overlord: "the CEO", ci: "CI", deploy: "its deploy" };
 
 // The heading of the Command Center's list of what waits on the Overlord,
 // and what a goblin whose wait is in that list reads.
@@ -292,13 +292,13 @@ export function nodeStatus(node: WorkflowNode, isWaitingOnYou = false, tasks: Ta
     if (isWaitingOnYou) return WAITING_ON_YOU;
     if (isInLine(node.task)) return inLineStatus(node.task.tree?.line_place || 0);
     if (isPastLine(node.task)) return statusText("working");
-    if (phase === "blocked" && node.task.gate_step && reason.startsWith("Pipeline decision required at ")) return "Waiting on the CFO: " + (GATE_STEPS[node.task.gate_step] || node.task.gate_step) + " gate";
-    if ((phase === "blocked" || phase === "failed") && reason.startsWith("Waiting on the CFO")) return "Waiting on the CFO";
+    if (phase === "blocked" && node.task.gate_step && reason.startsWith("Pipeline decision required at ")) return "Waiting on the CEO: " + (GATE_STEPS[node.task.gate_step] || node.task.gate_step) + " gate";
+    if ((phase === "blocked" || phase === "failed") && reason.startsWith("Waiting on the CFO")) return "Waiting on the CEO";
     // A question it asked or a session gone quiet waits on whoever answers
     // it: a helper's parent, which its reports reach, else the CFO.
     if (phase === "blocked" || phase === "idle") {
       const helped = parent ? tasks.find((candidate) => candidate.id === parent) : undefined;
-      return "Waiting on " + (helped ? named(helped) : parent ? "its parent" : "the CFO");
+      return "Waiting on " + (helped ? named(helped) : parent ? "its parent" : "the CEO");
     }
     if (phase === "waiting" && target) {
       const awaited = tasks.find((candidate) => candidate.id === target);
@@ -404,10 +404,10 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
   if (dispatched.length) {
     let cfo = nodes.find((node) => node.session?.role === "cfo");
     if (!cfo) {
-      cfo = { id: CFO_ROOT, title: "CFO", relation: "Supervisor", cfo: true, status: snapshot.registration ? "Registration stale" : "Supervising" };
+      cfo = { id: CFO_ROOT, title: "CEO", relation: "Supervisor", cfo: true, status: snapshot.registration ? "Registration stale" : "Supervising" };
       nodes.unshift(cfo);
     }
-    for (const node of dispatched) { node.parent = cfo.id; node.relation = "Dispatched by the CFO"; }
+    for (const node of dispatched) { node.parent = cfo.id; node.relation = "Dispatched by the CEO"; }
   }
   const byID = new Map(nodes.map((node) => [node.id, node]));
   const cyclic = new Set<string>();

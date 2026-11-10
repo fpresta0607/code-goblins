@@ -230,7 +230,7 @@ export interface Overlap extends Person { what: string; url: string }
 export interface ProjectPeople { name: string; repository: string; contributors: Person[] }
 export interface LifecycleStatus {
   phase: string; action: string; at: string; kept: string[]; stopped: string[]; problems: string[];
-  handoff_saved: boolean; validation_restarts: boolean;
+  handoff_saved: boolean; validation_kept: boolean;
   // with_parent is a helper's pause or stop its parent's made: paused, it
   // resumes once its parent runs again.
   with_parent?: boolean;
@@ -275,10 +275,14 @@ export interface CIUsual { repository: string; kind: string; seconds: number }
 // CommitHolder is one app's commit: its first process and every process it
 // started.
 export interface CommitHolder { name: string; commit: number }
-// Disk is the free space of the home's drive in bytes beside the floor under
+// Disk is the free space in bytes of the least free of the home's drive and
+// the Dev Drive, which every start and wake reads, beside the floor under
 // which no goblin or gate test run starts and the lower mark at which the CFO
-// is woken.
-export interface Disk { drive: string; free: number; total: number; floor: number; wake: number }
+// is woken, and each drive the fleet writes to, which the disk meter shows.
+export interface Disk { drive: string; free: number; total: number; floor: number; wake: number; drives: DiskDrive[] }
+// DiskDrive is one drive the fleet writes to: its name, its free space and
+// size in bytes, whether it holds the Dev Drive, and why it could not be read.
+export interface DiskDrive { drive: string; free: number; total: number; dev_drive: boolean; error: string }
 // Processors is the machine's processor cores by kind and the shares of its
 // performance and its efficiency cores that sat idle, from 0 to 1, beside the
 // share of the performance cores that must be free for the supervisor to
@@ -745,7 +749,7 @@ export function decisionText(detail: string): string {
     }
     return `${file} · ${side} ${first === last ? "line " + first : "lines " + first + "–" + last}\n${text}`;
   } catch {
-    return "Review request metadata is invalid. Inspect the durable CFO queue.";
+    return "Review request metadata is invalid. Inspect the durable CEO queue.";
   }
 }
 
@@ -958,8 +962,9 @@ export function parseReadings(v: Record<string, unknown>): Readings {
       floor: number(floor), next: number(next), slot_hold: string(slot_hold),
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
     }))(object(v.memory)),
-    disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
+    disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake, drives }) => ({
       drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),
+      drives: array(drives).map((value) => { const d = object(value); return { drive: string(d.drive), free: number(d.free), total: number(d.total), dev_drive: d.dev_drive === true, error: string(d.error) }; }),
     }))(object(v.disk)),
     processors: v.processors === undefined || v.processors === null ? null : (({ performance_cores, efficiency_cores, free, efficiency_free, next, busiest }) => ({
       performance_cores: number(performance_cores), efficiency_cores: number(efficiency_cores), free: number(free), efficiency_free: number(efficiency_free), next: number(next),
@@ -1044,7 +1049,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
       return {
-        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts),
+        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_kept: boolean(record.validation_kept),
           ...(record.with_parent === undefined ? {} : { with_parent: boolean(record.with_parent) }),
           ...(record.kept_messages == null ? {} : { kept_messages: strings(record.kept_messages) }),
           ...(record.pause == null ? {} : { pause: ((pause) => ({ reason: string(pause.reason), until: string(pause.until), at: string(pause.at) }))(object(record.pause)) }) }))(object(t.lifecycle)),

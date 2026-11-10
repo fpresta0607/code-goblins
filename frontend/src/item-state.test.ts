@@ -88,7 +88,7 @@ test("an ID published again shows open, and an item whose identity moved stays h
   const publications: [string, Record<string, unknown>, boolean][] = [
     ["the same publication", {}, true],
     ["a later created_at", { created_at: "2026-10-12T09:00:00Z" }, false],
-    ["another identity and the same created_at, as when the CFO registers again", { identity: "another" }, true],
+    ["another identity and the same created_at, as when the CEO registers again", { identity: "another" }, true],
   ];
   const memories: [string, ReadonlyMap<string, Item>, ReadonlyMap<string, Sent>, string[]][] = [
     ["seen closed", memory, unsent, all],

@@ -395,7 +395,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
   const release = (candidate: Item) => candidate.kind === "run" ? candidate.run.update : null;
   const askerOf = (candidate: Item) => {
     const goblin = snapshot.tasks.find((task) => task.id === taskOf(candidate));
-    return release(candidate) ? "Code Goblins" : taskOf(candidate) ? goblin ? goblinName(goblin) : taskOf(candidate) : "The CFO";
+    return release(candidate) ? "Code Goblins" : taskOf(candidate) ? goblin ? goblinName(goblin) : taskOf(candidate) : "The CEO";
   };
   const textOf = (candidate: Item) => candidate.kind === "browser-signin" ? signInHeading(candidate.signin) : candidate.kind === "question" ? plainMessage(candidate.question.text) : candidate.kind === "review" ? reviewLine(candidate.review) : candidate.kind === "credential" ? credentialAsk(candidate.request) : candidate.run.update ? "Update to " + candidate.run.update.to + " from " + candidate.run.update.from : candidate.run.title;
   const created = (candidate: Item) => candidate.kind === "browser-signin" ? candidate.signin.created_at : candidate.kind === "question" ? candidate.question.created_at : candidate.kind === "review" ? candidate.review.created_at : candidate.kind === "credential" ? candidate.request.created_at : candidate.run.created_at;
@@ -406,7 +406,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
     : reviewImages(item.review).map((src, n) => ({ src, value: "Image " + (n + 1), text: "Image " + (n + 1) }));
   const presenter = (event: BoardActivity) => {
     const goblin = snapshot.tasks.find((task) => task.id === event.task_id);
-    return event.cfo_identity ? "The CFO" : goblin ? goblinName(goblin) : event.task_id;
+    return event.cfo_identity ? "The CEO" : goblin ? goblinName(goblin) : event.task_id;
   };
   const settled = settledItems(shown).slice(0, 20);
   // An accepted click stays pending until the broker reports progress, even
@@ -462,7 +462,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
           <ul className="inbox-list">{settled.map((candidate) => {
             const mark = settledIcon(candidate, snapshot.actions);
             const who = candidate.kind === "question" ? answerMark(candidate.question) : "";
-            const label = who === "you" ? "You answered" : who === "cfo" ? "The CFO answered" : who === "away" ? "The CFO answered while you were away" : settledLabel(candidate, snapshot.actions);
+            const label = who === "you" ? "You answered" : who === "cfo" ? "The CEO answered" : who === "away" ? "The CEO answered while you were away" : settledLabel(candidate, snapshot.actions);
             const reason = candidate.kind === "question" ? answerReason(candidate.question) : "";
             const changeBlock = candidate.kind === "question" ? canChange(candidate.question) ? "" : "It has no answer to change"
               : candidate.kind === "credential" ? candidate.request.state === "saved" ? "Its values are stored"
@@ -490,7 +490,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
               <span className="inbox-text">
                 <span className="history-head"><strong>{asker}</strong><span className="inbox-summary">{linkedText(textOf(candidate))}</span></span>
                 <span className="history-detail" id={detail} hidden={!isUnfolded}><small>{linkedText(settledLabel(candidate, snapshot.actions))}</small>{reason && <small className="answer-reason">{linkedText(reason)}</small>}{changeBlock && <small id={why} className="answer-reason">{changeBlock}</small>}
-                  {candidate.kind === "credential" && candidate.request.state === "saved" && <HistoryStoredCard request={candidate.request} asker={candidate.request.task ? askerOf(candidate) : "the CFO"} to={goblin ? goblin.id : ""} connected={connected} instance={snapshot.instance} />}</span>
+                  {candidate.kind === "credential" && candidate.request.state === "saved" && <HistoryStoredCard request={candidate.request} asker={candidate.request.task ? askerOf(candidate) : "the CEO"} to={goblin ? goblin.id : ""} connected={connected} instance={snapshot.instance} />}</span>
                 <ClickFeedback text={reopenError} />
               </span>
               <time>{rowAge(closedAt(candidate), now)}</time>

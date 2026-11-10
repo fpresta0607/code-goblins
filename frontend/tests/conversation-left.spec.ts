@@ -26,10 +26,10 @@ test("the board names the conversation the CFO could not resume in the CFO's pan
   await board(page, snapshot);
 
   // Assert
-  const bar = page.getByRole("group", { name: "CFO" });
+  const bar = page.getByRole("group", { name: "CEO" });
   await expect(bar).toBeVisible();
   await expect(page.getByText(/could not be resumed|not registered/).filter({ visible: true })).toHaveCount(0);
-  await expect(bar.locator("p")).toHaveText("The board cannot reach the CFO.");
+  await expect(bar.locator("p")).toHaveText("The board cannot reach the CEO.");
   await expect(bar.locator("p")).toHaveAttribute("data-tip", UNREGISTERED);
   await bar.getByRole("button", { name: CFO_DOOR }).last().click();
   await openTaskList(page);

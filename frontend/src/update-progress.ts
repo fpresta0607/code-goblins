@@ -3,7 +3,7 @@ import type { Run, Snapshot } from "./types.ts";
 
 // The four steps goblins update says as it begins each ("[2/4] Check the
 // download"), in the card's own words.
-const STEP_TITLES = (to: string) => ["Download Code Goblins " + to, "Check each file's SHA-256", "Restart the board on " + to, "Bring the CFO's contract and skills up to date"];
+const STEP_TITLES = (to: string) => ["Download Code Goblins " + to, "Check each file's SHA-256", "Restart the board on " + to, "Bring the CEO's contract and skills up to date"];
 const STEP_LINE = /^\[(\d)\/4\] /;
 // The line goblins update ends on: how it went, and why.
 const RESULT_LINE = /^(Updated|Rolled back|Failed): (.*)$/;

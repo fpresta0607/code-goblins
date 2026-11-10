@@ -16,7 +16,7 @@ const messages = (page: Page) => page.getByRole("region", { name: "Messages", ex
 
 async function openCfo(page: Page) {
   await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
-  await expect(page.locator("#panel-title")).toHaveText("CFO");
+  await expect(page.locator("#panel-title")).toHaveText("CEO");
 }
 
 // The selector is two icons with no words and no tip, inside the panel's
@@ -42,7 +42,7 @@ async function expectIconsInTheHeaderRow(page: Page) {
   await onTheRow(":scope > .panel-view-switch");
 }
 
-for (const who of ["goblin", "CFO"]) {
+for (const who of ["goblin", "CEO"]) {
   test(`${who}'s panel switches between its conversation and its task view, with no fold`, async ({ page }, testInfo) => {
     // Arrange
     await open(page);
@@ -81,7 +81,7 @@ for (const who of ["goblin", "CFO"]) {
 }
 
 for (const width of [360, 393, 430]) {
-  for (const who of ["goblin", "CFO"]) {
+  for (const who of ["goblin", "CEO"]) {
     test(`${who}'s panel on a ${width}px phone has the same selector, its icons in the header's one row`, async ({ page }, testInfo) => {
       // Arrange
       await page.setViewportSize({ width, height: 844 });

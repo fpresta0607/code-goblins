@@ -33,9 +33,9 @@ for (const width of [390, 1707]) {
     // Arrange
     await page.setViewportSize({ width, height: 1000 });
     const waits = [
-      { id: "gate-wait", reason: "Review gate needs approval before continuing", status: "Waiting on the CFO" },
-      { id: "dependency-wait", reason: "Wait for the dependency task to land before continuing", status: "Waiting on the CFO" },
-      { id: "cfo-wait", reason: "Waiting on the CFO: Which dependency should land first?", status: "Waiting on the CFO" },
+      { id: "gate-wait", reason: "Review gate needs approval before continuing", status: "Waiting on the CEO" },
+      { id: "dependency-wait", reason: "Wait for the dependency task to land before continuing", status: "Waiting on the CEO" },
+      { id: "cfo-wait", reason: "Waiting on the CFO: Which dependency should land first?", status: "Waiting on the CEO" },
     ];
     await open(page, waits.map(({ id, reason }) => task(id, "blocked", { report: "blocked", reason })));
     if (width === 1707) await page.getByRole("button", { name: "Close panel" }).click();

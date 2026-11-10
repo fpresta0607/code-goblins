@@ -8,6 +8,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/memory"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -106,9 +107,28 @@ func runDrain(h home.Home, args []string, stdout, stderr io.Writer) int {
 // session-start digest's WAKE QUEUE section. See wake.Render's doc comment
 // for the four output shapes it prints. While AFK mode is on its notice
 // comes first, so every wake tells the CFO it is on and what its authority
-// covers, and the drain still ends with its ack line.
+// covers, then every lesson a done report proposed that still waits for the
+// CFO's word, one line each, and the drain still ends with its ack line.
 func renderDrain(stateDir string, records []wake.Record, episode wake.Episode, stdout io.Writer) error {
-	for _, line := range afk.NoticeFor(stateDir) {
+	lines := afk.NoticeFor(stateDir)
+	pending, problems, err := memory.PendingLessons(stateDir)
+	if err != nil {
+		problems = append(problems, err.Error())
+	}
+	if len(pending) > 0 {
+		lines = append(lines, fmt.Sprintf("LESSONS WAITING FOR YOUR WORD: %d; accept with cfo memory lesson accept <id> [--incident] [--supersedes <fact-id>], or reject with cfo memory lesson reject <id> --reason \"<why>\"", len(pending)))
+	}
+	for _, lesson := range pending {
+		goblin := lesson.Task
+		if lesson.Goblin != "" {
+			goblin = lesson.Goblin + " (" + lesson.Task + ")"
+		}
+		lines = append(lines, fmt.Sprintf("  %s  %s in %s: %s [cites %d status lines]", lesson.ID, goblin, lesson.Project, lesson.Text, len(lesson.Cites)))
+	}
+	for _, problem := range problems {
+		lines = append(lines, "  a proposed lesson could not be read: "+problem)
+	}
+	for _, line := range lines {
 		if _, err := fmt.Fprintln(stdout, line); err != nil {
 			return err
 		}

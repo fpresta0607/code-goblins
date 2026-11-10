@@ -12,7 +12,7 @@ const COMMAND = { left: 1430, top: 14, width: 44, height: 44 };
 
 test("the card sits on its step's side of the part when it fits there", () => {
   const cases: [string, typeof PANEL, Side, { left: number; top: number }][] = [
-    ["left of the CFO's panel, centered on it", PANEL, "left", { left: 915 - 16 - 460, top: 90 + 855 / 2 - 190 / 2 }],
+    ["left of the CEO's panel, centered on it", PANEL, "left", { left: 915 - 16 - 460, top: 90 + 855 / 2 - 190 / 2 }],
     ["right of the board, centered on it", BOARD, "right", { left: 10 + 893 + 16, top: 90 + 855 / 2 - 190 / 2 }],
     ["under the Command Center, centered on it", COMMAND, "under", { left: 1430 + 22 - 230, top: 14 + 44 + 16 }],
   ];

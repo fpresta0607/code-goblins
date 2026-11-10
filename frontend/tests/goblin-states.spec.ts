@@ -11,7 +11,7 @@ const HEAD = "a".repeat(40);
 const now = Date.now();
 const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
 const pause = (reason: string, until = "") => ({ phase: "paused", at: ago(20),
-  lifecycle: { phase: "paused", action: "pause", at: ago(20), kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason, until, at: ago(20) } } });
+  lifecycle: { phase: "paused", action: "pause", at: ago(20), kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason, until, at: ago(20) } } });
 const landing = (number: number, head: string) => ({ phase: "idle", report: "done", pr: REPO + "/pull/" + number, hosted_checks: { head, state: "passed", checks: 9, at: ago(6) } });
 
 interface GoblinState { id: string; name: string; fields: Record<string, unknown>; text: string; isPaused: boolean }
@@ -21,7 +21,7 @@ const STATES: GoblinState[] = [
   { id: "nw-lars", name: "Lars - Load Tester", fields: { phase: "waiting", waiting_on: "memory",
     tree: { task_id: "nw-lars", generation: "nw-lars-1", harness: "claude", memory: 0, own_memory: 0, children: [], line_place: 2 } }, text: "2nd in line for the machine", isPaused: false },
   { id: "nw-vera", name: "Vera - Vault Keeper", fields: { phase: "waiting", waiting_on: "overlord" }, text: "Waiting on you", isPaused: false },
-  { id: "nw-cole", name: "Cole - Config Clerk", fields: { phase: "blocked", report: "blocked", reason: "Which port should the API listen on?" }, text: "Waiting on the CFO", isPaused: false },
+  { id: "nw-cole", name: "Cole - Config Clerk", fields: { phase: "blocked", report: "blocked", reason: "Which port should the API listen on?" }, text: "Waiting on the CEO", isPaused: false },
   { id: "nw-cid", name: "Cid - Check Chaser", fields: { phase: "waiting", waiting_on: "ci" }, text: "Waiting on CI", isPaused: false },
   { id: "nw-dot", name: "Dot - Deploy Driver", fields: { phase: "waiting", waiting_on: "deploy" }, text: "Waiting on its deploy", isPaused: false },
   { id: "nw-nell", name: "Nell - Schema Sculptor", fields: { phase: "waiting", waiting_on: "nw-wren" }, text: "Waiting on Wren", isPaused: false },

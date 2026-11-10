@@ -14,7 +14,7 @@ test("while the fleet comes back the line says what is back, and a waiting card 
 
   // Assert
   const line = page.getByRole("status").filter({ hasText: "after a restart" });
-  await expect(line).toHaveText("Coming back after a restart: the CFO is back, 1 of 6 goblins is back.");
+  await expect(line).toHaveText("Coming back after a restart: the CEO is back, 1 of 6 goblins is back.");
   await expect(line.getByRole("button")).toHaveCount(0);
   await expect(page.getByText("Comes back when memory frees")).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("restart-coming.png") });
@@ -26,7 +26,7 @@ test("once all is back the line says what resumed, the card of one that did not 
   const line = page.getByRole("status").filter({ hasText: "after a restart" });
 
   // Assert
-  await expect(line).toContainText("Resumed the CFO and 5 of 6 goblins after a restart.");
+  await expect(line).toContainText("Resumed the CEO and 5 of 6 goblins after a restart.");
   await expect(line).not.toContainText("cg-site-hero");
   await expect(page.getByText("Did not come back after the restart", { exact: true })).toBeVisible();
   await expect(page.getByText("Codex is not signed in")).toHaveCount(0);
