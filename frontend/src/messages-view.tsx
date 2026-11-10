@@ -824,7 +824,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
-          {shown && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} />}
+          {shown && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} retry={link?.screen?.isWorking ? link.screen.retry : undefined} />}
           {/* His messages not yet in the session's record, at the
               conversation's end in its one scroll (the Overlord, 2026-10-29:
               "the double scrolls and having its own little scroll for queued
