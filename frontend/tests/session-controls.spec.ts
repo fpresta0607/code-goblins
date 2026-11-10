@@ -165,7 +165,7 @@ for (const harness of ["codex", "claude", "pi"] as const) {
         await expect.poll(() => typed(relay)).toBe(pasted("/model") + "\r" + (setting === "model" ? "2" : "1"));
         relay.say({ type: "screen", asking: true, open: true, working: false, panel: CODEX_EFFORTS });
         await expect.poll(() => typed(relay)).toBe(pasted("/model") + "\r" + (setting === "model" ? "22" : "13"));
-        await expect(box(page, name).getByRole("group", { name: name + " asks", exact: true }), "Codex's own picker is never drawn").toHaveCount(0);
+        await expect(page.getByRole("group", { name: name + " asks", exact: true }), "Codex's own picker is never drawn").toHaveCount(0);
         relay.say({ type: "screen", asking: false, open: false, working: false });
       } else {
         const command = setting === "model" ? "/model " : harness === "claude" ? "/effort " : "/thinking ";

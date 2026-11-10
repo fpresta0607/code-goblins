@@ -5,6 +5,8 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/disk"
 )
 
 // The Overlord asked on 2026-10-09 for CPU and GPU meters beside memory and
@@ -77,6 +79,41 @@ func TestSnapshotLeavesOutTheProcessorsAndGraphicsAdaptersItCannotRead(t *testin
 			}
 			if snapshot.Memory == nil || snapshot.Disk == nil {
 				t.Fatalf("memory = %+v and disk = %+v, want both still shown", snapshot.Memory, snapshot.Disk)
+			}
+		})
+	}
+}
+
+// The disk meter shows each drive the fleet writes to: a Dev Drive that
+// cannot be read reaches the board as its error line beside the home's
+// drive, where a disk that cannot be read at all shows no meter.
+func TestSnapshotShowsEachDriveAndAnUnreadableOneAsItsError(t *testing.T) {
+	unreadable := errors.New("the device is not ready")
+	drives := []disk.Drive{{Reading: disk.Reading{Drive: "C:", Free: 300 * gigabyte, Total: 900 * gigabyte}}, {Reading: disk.Reading{Drive: "D:"}, IsDevDrive: true, Error: unreadable.Error()}}
+	for _, test := range []struct {
+		name string
+		read func() (Disk, error)
+		want string
+	}{
+		{"an unreadable Dev Drive", func() (Disk, error) {
+			return Disk{Floor: 15 * gigabyte, Wake: 10 * gigabyte, Drives: drives}, unreadable
+		}, `{"drive":"","free":0,"total":0,"floor":16106127360,"wake":10737418240,"drives":[{"drive":"C:","free":322122547200,"total":966367641600},{"drive":"D:","free":0,"total":0,"dev_drive":true,"error":"the device is not ready"}]}`},
+		{"no drive read", func() (Disk, error) { return Disk{}, unreadable }, `null`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			handler, _ := startBoard(t, 9*gigabyte, &spawnRecorder{})
+			handler.Service.Options.Dispatch.Disk = test.read
+
+			// Act
+			snapshot, err := handler.Service.Snapshot()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, err := json.Marshal(snapshot.Disk); err != nil || string(got) != test.want {
+				t.Errorf("disk reaches the board as %s (%v), want %s", got, err, test.want)
 			}
 		})
 	}

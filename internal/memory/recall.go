@@ -3,6 +3,7 @@ package memory
 import (
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -65,8 +66,14 @@ func scoped(keys []string, wanted string) bool {
 	return wanted == "" || len(keys) == 0 || slices.ContainsFunc(keys, func(key string) bool { return strings.EqualFold(key, wanted) })
 }
 
-// Recall ranks the items that pass query's filters by BM25 and returns the
-// best Limit of them, newest first among equal scores.
+// IncidentHalfLife is the age at which an incident, a done report or a fact
+// marked incident, counts half in recall. Rulings and other facts are rules:
+// they never fade, and only a fact that supersedes one hides it.
+const IncidentHalfLife = 30 * 24 * time.Hour
+
+// Recall ranks the items that pass query's filters by BM25, with incidents
+// faded by age, and returns the best Limit of them, newest first among equal
+// scores.
 func (index *Index) Recall(query RecallQuery) (RecallResult, error) {
 	if err := query.validate(); err != nil {
 		return RecallResult{}, err
@@ -103,6 +110,10 @@ func (index *Index) Recall(query RecallQuery) (RecallResult, error) {
 	scores := index.score(Terms(query.Question), isEligible)
 	positions := make([]int, 0, len(scores))
 	for position := range scores {
+		item := index.Items[position]
+		if (item.Kind == KindDone || item.IsIncident) && !item.Date.IsZero() && item.Date.Before(index.BuiltAt) {
+			scores[position] *= math.Pow(0.5, float64(index.BuiltAt.Sub(item.Date))/float64(IncidentHalfLife))
+		}
 		positions = append(positions, position)
 	}
 	slices.SortFunc(positions, func(left, right int) int {

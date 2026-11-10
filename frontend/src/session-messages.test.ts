@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { changeMessages, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, olderMessages, pageMessages, parseMessages, parsePage, parseSession, parseWaiting, replyParts, textParts, turnEnds, viewStanding, type SessionMessage, type SessionReport } from "./session-messages.ts";
+import { callRuns, changeMessages, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, olderMessages, pageMessages, parseMessages, parsePage, parseSession, parseWaiting, replyParts, textParts, turnEnds, viewStanding, type SessionMessage, type SessionReport } from "./session-messages.ts";
 import type { Task } from "./types.ts";
 
 // A message as the supervisor serves it (internal/fleettree/messages.go).
@@ -303,4 +303,43 @@ test("a session event without the fields the board draws is refused", () => {
   for (const [what, value] of [["an unknown turn state", reported({ state: "maybe" })], ["a newest that is not a number", reported({ newest: "4" })]] as const) {
     assert.throws(() => parseSession(value), /Invalid/, what);
   }
+});
+
+// A reply's blocks as the supervisor serves them, each call by its tool and
+// state, with any other fields it needs.
+const reply = (blocks: Record<string, unknown>[]) => parseMessages([served(9, { kind: "reply", blocks })])[0].blocks;
+const call = (tool = "Bash", state = "done", fields: Record<string, unknown> = {}) => ({ kind: "call", tool, subject: tool, state, ...fields });
+const shape = (blocks: ReturnType<typeof reply>) => callRuns(blocks).map((run) => run.kind === "fold" ? "fold " + run.at + "+" + run.calls.length : run.call.state + " " + run.at);
+
+for (const [name, blocks, want] of [
+  ["five finished commands fold into one row", [call(), call(), call(), call(), call()], ["fold 0+5"]],
+  ["one finished call stays its own row", [call("Read")], ["done 0"]],
+  ["the newest call still running stays a live row beside the folded ones", [call("Read"), call("Read"), call(), call(), call(), call("Bash", "running")], ["fold 0+5", "running 5"]],
+  ["a failed call is never folded and splits the run", [call(), call(), call("Bash", "failed"), call(), call()], ["fold 0+2", "failed 2", "fold 3+2"]],
+  ["denied and interrupted calls stay rows", [call("Bash", "denied"), call("Bash", "interrupted")], ["denied 0", "interrupted 1"]],
+  ["a call with pictures, a question, a plan or a baby goblin stays its row", [
+    call("view_image", "done", { pictures: [{ id: "p1", media_type: "image/png", bytes: 1 }] }), call("AskUserQuestion"), call("request_user_input"),
+    call("TodoWrite", "done", { plan: [{ text: "Read", status: "completed" }] }), call("Task", "done", { agent: { node: "subagent:a", type: "Explore" } }),
+  ], ["done 0", "done 1", "done 2", "done 3", "done 4"]],
+  ["a call whose outcome was never recorded folds with finished ones", [call("Read", "done", { state: undefined }), call("Read")], ["fold 0+2"]],
+] as const) {
+  test("calls: " + name, () => {
+    assert.deepEqual(shape(reply([...blocks])), want);
+  });
+}
+
+test("reply text breaks a run of calls, and a blank text between calls does not", () => {
+  const blocks = reply([call(), call(), { kind: "text", text: "Checked." }, call(), { kind: "text", text: "\n\n" }, call(), call()]);
+
+  const runs = replyParts(blocks).map((part) => part.kind === "calls" ? shape(part.calls) : [part.kind]);
+
+  assert.deepEqual(runs, [["fold 0+2"], ["text"], ["fold 0+3"]]);
+});
+
+test("a call keeps the id the supervisor served, and one served without an id has none", () => {
+  const blocks = reply([call("Bash", "done", { call_id: "toolu_9" }), call("Read")]);
+
+  const ids = blocks.map((block) => block.call_id);
+
+  assert.deepEqual(ids, ["toolu_9", ""]);
 });

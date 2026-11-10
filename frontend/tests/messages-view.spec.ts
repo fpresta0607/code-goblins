@@ -1095,7 +1095,7 @@ test("a held goblin keeps its queued message past a picker, and what he types at
   // The picker is bound to his own input, as the relay marks every key he
   // types in that terminal, so it is drawn and takes his keys here.
   await board.sayTo("cg-pi", { type: "screen", asking: true, open: true, working: false, submission: "his", panel: { rows: ["Select model"], choices: [{ text: "z-ai/glm-5.3-flash", focused: true }, { text: "deepseek-v4.1-flash" }] } });
-  await expect(messageBox(page, who).getByRole("group", { name: who + " asks" })).toBeVisible();
+  await expect(page.getByRole("group", { name: who + " asks", exact: true })).toBeVisible();
   await boxField(page, who).fill("typed at a picker");
 
   // Assert: what he types at a picker open in the harness is typed into it,
