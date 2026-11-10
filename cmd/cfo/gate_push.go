@@ -202,7 +202,7 @@ func runPushStep(ctx context.Context, step gatetest.Step, root, project string, 
 		output := stdout
 		var cases *gatetest.BrowserReport
 		if step.Browser {
-			cases = gatetest.NewBrowserReport(stdout)
+			cases = gatetest.NewBrowserReport(ctx, stdout)
 			output = cases
 		}
 		exit, err = runtime.pushRun(ctx, step.Command, dir, env, output, stderr)
