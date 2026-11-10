@@ -252,18 +252,36 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     expect(supervisor.posts).toEqual([{ path: "/api/browser-logins/sign-out", token: "connections-proof", body: { task: PROOF, generation: "first", login: "stripe-precisiondocs" } }]);
 
     // Act: Forget asks first, and Cancel leaves the login as it is.
-    await siqstack.getByRole("button", { name: "Forget Stripe · SIQstack" }).click();
+    const forget = siqstack.getByRole("button", { name: "Forget Stripe · SIQstack" });
+    await forget.click();
     const dialog = page.getByRole("dialog", { name: "Forget this login?" });
 
-    // Assert
+    // Assert: the question holds the keyboard, and Cancel hands it back.
     await expect(dialog).toContainText("Stripe · SIQstack. Its browser profile is deleted, so the next fetch for SIQshift and code-goblins asks you to sign in again. Your Stripe account and its keys are not touched.");
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+    expect(await dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
+    await page.keyboard.press("Tab");
+    await expect(dialog.getByRole("button", { name: "Forget" })).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
     await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toHaveCount(0);
+    await expect(forget).toBeFocused();
+    expect(supervisor.posts).toHaveLength(1);
+
+    // Act: Escape answers as Cancel does.
+    await forget.click();
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    // Assert
+    await expect(dialog).toHaveCount(0);
+    await expect(forget).toBeFocused();
+    await expect(siqstack).toBeVisible();
     expect(supervisor.posts).toHaveLength(1);
 
     // Act
-    await siqstack.getByRole("button", { name: "Forget Stripe · SIQstack" }).click();
+    await forget.click();
     await page.getByRole("dialog", { name: "Forget this login?" }).getByRole("button", { name: "Forget" }).click();
 
     // Assert
@@ -271,6 +289,29 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     expect(supervisor.posts[1]).toEqual({ path: "/api/browser-logins/forget", token: "connections-proof", body: { task: PROOF, generation: "first", login: "stripe-siqstack" } });
   });
 }
+
+test("the question to forget a login goes when the goblin it would act through restarts, and nothing is forgotten", async ({ page }) => {
+  // Arrange
+  await page.clock.install({ time: now });
+  const supervisor = supervisorWith({ [PROOF]: [] });
+  supervisor.logins = [own];
+  await open(page, supervisor);
+  await page.getByRole("group", { name: "Connectors shown" }).getByRole("button", { name: /^Browser logins/ }).click();
+  await page.getByRole("button", { name: "Forget Stripe · PrecisionDocs" }).click();
+  const dialog = page.getByRole("dialog", { name: "Forget this login?" });
+  await expect(dialog).toBeVisible();
+  const mounted = await dialog.elementHandle();
+
+  // Act: the goblin restarts on a new session.
+  await page.evaluate(() => (window as unknown as { restartGoblins: () => void }).restartGoblins());
+
+  // Assert: the question is gone for good, though the new session lists the login again.
+  await expect(dialog).toHaveCount(0);
+  expect(await mounted!.evaluate((element) => element.isConnected)).toBe(false);
+  await expect(page.getByRole("list", { name: "Browser logins" }).getByRole("listitem")).toHaveCount(1);
+  await expect(page.locator("dialog:modal")).toHaveCount(0);
+  expect(supervisor.posts).toEqual([]);
+});
 
 test("a login whose browser is in use waits for it to close before it signs out or is forgotten", async ({ page }) => {
   // Arrange

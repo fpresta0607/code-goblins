@@ -61,6 +61,9 @@ export function ConnectorsPage({ snapshot, onRepair }: { snapshot: Snapshot; onR
   const shown: Tab = tab === "logins" && logins.size === 0 ? "yours" : tab;
   const count = shown === "logins" ? foundLogins.length : lists[shown].length;
   const open = connectors.find((connector) => connector.key === opened);
+  // The question goes with the goblin it would act through: one that
+  // restarted or left is refused by the supervisor.
+  const forgotten = forgetting && byKey.has(goblinKey(forgetting.task)) ? forgetting : undefined;
   const openConnector = (connector: Connector, source: HTMLElement) => { returnFocus.current = source; setOpened(connector.key); };
   const back = () => {
     setOpened("");
@@ -99,6 +102,6 @@ export function ConnectorsPage({ snapshot, onRepair }: { snapshot: Snapshot; onR
       {count === 0 && <p className="connectors-empty">{goblins.length === 0 ? "No goblin is running. Connectors are read from the goblins that run."
         : search.trim() ? "Nothing matches \"" + search.trim() + "\"." : isChecking ? "" : EMPTY[shown]}</p>}
     </div>
-    {forgetting && <ForgetLoginDialog login={forgetting.login} onCancel={() => setForgetting(undefined)} onForget={() => { setForgetting(undefined); void endLogin(forgetting.task, forgetting.login, "forget"); }} />}
+    {forgotten && <ForgetLoginDialog login={forgotten.login} onCancel={() => setForgetting(undefined)} onForget={() => { setForgetting(undefined); void endLogin(forgotten.task, forgotten.login, "forget"); }} />}
   </div>;
 }

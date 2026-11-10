@@ -323,6 +323,37 @@ for (const width of [1440, 390]) {
   });
 }
 
+// The top bar's switch gained its third view here, and at 320px it was wider
+// than the bar, so the whole board scrolled sideways.
+for (const width of [320, 360]) {
+  test(`the top bar's three views fit a ${width}px screen, each name whole`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width, height: 800 });
+    await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+    await holdStream(page, BOARD);
+    await play(page, fleet());
+
+    // Act
+    await page.goto("/");
+    const views = page.getByRole("group", { name: "Workspace view" });
+    await expect(views.getByRole("button")).toHaveText(["Board", "Orchestration", "Connectors"]);
+    await page.evaluate(() => document.fonts.ready);
+
+    // Assert
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), "the board does not scroll sideways").toBe(true);
+    const fit = await views.evaluate((group) => {
+      const bar = group.closest(".topbar")!.getBoundingClientRect(), box = group.getBoundingClientRect();
+      const cut = [...group.querySelectorAll("button")].filter((button) => {
+        const words = document.createRange();
+        words.selectNodeContents(button);
+        return words.getBoundingClientRect().width > button.clientWidth + 0.5 || parseFloat(getComputedStyle(button).fontSize) < 15;
+      }).map((button) => button.textContent);
+      return { isInsideItsBar: box.left >= bar.left && box.right <= bar.right, cut };
+    });
+    expect(fit).toEqual({ isInsideItsBar: true, cut: [] });
+  });
+}
+
 test("with no goblin running the page says it has nothing to read, and asks the supervisor nothing", async ({ page }) => {
   // Arrange
   const supervisor = fleet();

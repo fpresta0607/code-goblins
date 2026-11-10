@@ -678,9 +678,15 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 @media (max-width: 40rem) {
   .topbar { min-height: 0; padding: 8px 12px; }
   .brand { flex-wrap: wrap; gap: 4px 10px; }
-  /* Three views fit a phone's width with less room around each name. */
-  .view-switch button { padding-inline: 10px; font-size: 1rem; }
+  /* Three views share a phone's width: the switch is never wider than the
+     bar, each name keeps its own width and the room left over is split
+     between them, down to a 320px screen. */
+  .view-switch { width: 100%; max-width: 21.5rem; }
+  .view-switch button { flex: 1 1 auto; padding-inline: 2px; font-size: 1rem; }
   .fills-phone .view-switch { display: none; }
+}
+@media (max-width: 21.25rem) {
+  .view-switch button { padding-inline: 0; font-size: 0.9375rem; }
 }
 /* On a small screen a panel opened on anything is the whole view below the
    top bar, and the shell is held to the visual viewport, which a phone's
