@@ -311,12 +311,14 @@ const endJobFor = 5 * time.Second
 // one Windows no longer lists included (jobEntries), within endJobFor or
 // ctx's deadline. It returns the processes the job held as it ended them,
 // and the services it spared with what runs under them, each sorted by pid,
-// and an end that fails beside a service still returns the services. A job
-// that ends its processes when its last handle closes still does: its
-// caller stops that (KeepJobOnClose) once the service is to outlive the
-// job, so a caller that dies first still ends the rest.
+// and an end that fails beside a service still returns the services. An end
+// whose bound runs out also names the members it could not read, which it can
+// neither end nor see exit (issue 1898). A job that ends its processes when
+// its last handle closes still does: its caller stops that (KeepJobOnClose)
+// once the service is to outlive the job, so a caller that dies first still
+// ends the rest.
 func EndJob(ctx context.Context, job windows.Handle) (ended, spared []Entry, err error) {
-	members, err := jobEntries([]syscall.Handle{syscall.Handle(job)})
+	members, unread, _, err := readJobEntries([]syscall.Handle{syscall.Handle(job)})
 	if err != nil {
 		return nil, nil, errors.Join(err, windows.TerminateJobObject(job, 1))
 	}
@@ -330,7 +332,7 @@ func EndJob(ctx context.Context, job windows.Handle) (ended, spared []Entry, err
 		}
 		return members, nil, nil
 	}
-	ended, spared, err = endEachBut(ctx, job, members, services)
+	ended, spared, err = endEachBut(ctx, job, members, unread, services)
 	sort.Slice(ended, func(i, j int) bool { return ended[i].PID < ended[j].PID })
 	return ended, spared, err
 }
@@ -339,12 +341,13 @@ func EndJob(ctx context.Context, job windows.Handle) (ended, spared []Entry, err
 // read, but the machine services and what runs under them, until none else
 // is left, within endJobFor or ctx's deadline, and returns the processes it
 // ended and the services it spared. A failure returns the services last
-// seen with it. It reads the job again only once each process it ended has
-// exited: on a machine whose cores other work fills, those exits take a
+// seen with it, and a bound that runs out names the members the last read
+// could not read (unread). It reads the job again only once each process it
+// ended has exited: on a machine whose cores other work fills, those exits take a
 // while, and each read of the machine's processes can take seconds, so a
 // read begun before they were done found them still there and the next
 // began past the bound, which then named them as outliving it (issue 1275).
-func endEachBut(ctx context.Context, job windows.Handle, members []Entry, services map[int]Service) (ended, spared []Entry, err error) {
+func endEachBut(ctx context.Context, job windows.Handle, members []Entry, unread []uint32, services map[int]Service) (ended, spared []Entry, err error) {
 	ctx, cancel := awake.WithTimeout(ctx, endJobFor)
 	defer cancel()
 	seen := servicesIn(members, services)
@@ -371,11 +374,11 @@ func endEachBut(ctx context.Context, job windows.Handle, members []Entry, servic
 		if hasEachExited := awaitExits(ctx, exits); !hasEachExited || len(exits) < len(rest) {
 			select {
 			case <-ctx.Done():
-				return ended, seen, fmt.Errorf("proc: the job's processes %v outlived it beside the machine services it keeps running: %w", rest, ctx.Err())
+				return ended, seen, fmt.Errorf("proc: the job's processes %v outlived it, and it could not read %v, beside the machine services it keeps running: %w", rest, unread, ctx.Err())
 			case <-time.After(50 * time.Millisecond):
 			}
 		}
-		if members, err = jobEntries([]syscall.Handle{syscall.Handle(job)}); err != nil {
+		if members, unread, _, err = readJobEntries([]syscall.Handle{syscall.Handle(job)}); err != nil {
 			return ended, seen, err
 		}
 		if services, err = RunningServicesAmong(members); err != nil {
