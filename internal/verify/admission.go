@@ -331,17 +331,22 @@ func lightRemaining(dir string) (uint64, error) {
 
 // lightFloor is the memory, physical and commit alike, a light run expected
 // to use estimate needs free to take its turn in dir beside a desktop reserve
-// of reserve: what the light runs already holding a turn may still use, its
-// own estimate and the reserve, the store's, which reserve may raise and never
-// lower. What the slots' holders may still use is not in it: a light run is
-// bounded and short, and the monitor of every run keeps the desktop reserve
-// free whatever grows. The light runs before it are, so two light runs never
-// both take the memory one of them saw free.
+// of reserve: what the slots' holders and the light runs already holding a
+// turn may still use, each one's estimate less what it commits now, its own
+// estimate and the reserve, the store's, which reserve may raise and never
+// lower. A light run admitted on memory a heavy holder is still growing into
+// would have that holder's monitor end it at the reserve, and two light runs
+// never both take the memory one of them saw free.
 func lightFloor(dir string, estimate, reserve uint64) (uint64, error) {
-	remaining, err := lightRemaining(dir)
+	remaining, err := holdersRemaining(dir)
 	if err != nil {
 		return 0, err
 	}
+	light, err := lightRemaining(dir)
+	if err != nil {
+		return 0, err
+	}
+	remaining += light
 	stored, err := DesktopReserve(dir)
 	if err != nil {
 		return 0, err

@@ -3,6 +3,7 @@ package verify
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -18,9 +19,9 @@ func lightAdmission(a Admission, estimate, available uint64) Admission {
 	return a
 }
 
-// A light run takes its turn beside the slots once free memory covers its own
-// estimate and the desktop reserve, while two heavy runs hold both slots, and
-// waits while memory does not.
+// A light run takes its turn beside the slots once free memory covers what
+// the two heavy runs holding both slots may still use, its own estimate and
+// the desktop reserve, and waits while memory does not.
 func TestALightRunTakesItsTurnBesideTwoHeavyRunsWhenMemoryCoversItsEstimate(t *testing.T) {
 	for _, row := range []struct {
 		name        string
@@ -28,9 +29,9 @@ func TestALightRunTakesItsTurnBesideTwoHeavyRunsWhenMemoryCoversItsEstimate(t *t
 		isAdmitted  bool
 		description string
 	}{
-		{"memory over its estimate", 3*gigabyte + 1, true, "1 GiB estimate and 2 GiB reserve covered"},
-		{"memory exactly its estimate", 3 * gigabyte, true, "1 GiB estimate and 2 GiB reserve covered"},
-		{"memory under its estimate", 3*gigabyte - 1, false, "one byte short of its estimate and the reserve"},
+		{"memory over its floor", 8*gigabyte + 1, true, "the holders' 5 GiB, its 1 GiB estimate and the 2 GiB reserve covered"},
+		{"memory exactly its floor", 8 * gigabyte, true, "the holders' 5 GiB, its 1 GiB estimate and the 2 GiB reserve covered"},
+		{"memory under its floor", 8*gigabyte - 1, false, "one byte short of the holders' growth, its estimate and the reserve"},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			// Arrange
@@ -71,6 +72,55 @@ func TestALightRunTakesItsTurnBesideTwoHeavyRunsWhenMemoryCoversItsEstimate(t *t
 				t.Fatalf("Line = %+v, %+v, %v; want the light run apart from the two slot holders", holding, waiting, err)
 			}
 		})
+	}
+}
+
+// A light run weighs what the heavy runs holding the slots may still use,
+// each one's estimate less what it commits now: memory that covers its own
+// estimate and the reserve but not the holders' growth leaves it waiting, so
+// their monitors never end one of them at the reserve for memory it took, and
+// it takes its turn once their growth is covered too.
+func TestALightRunWaitsForWhatTheHeavyHoldersMayStillUse(t *testing.T) {
+	// Arrange
+	heavy := admissionWithCapacity(t, 2)
+	heavy.Estimate = 4 * gigabyte
+	first := within(t, take(t, heavy), "first heavy run")
+	defer first.Release()
+	second := within(t, take(t, heavy), "second heavy run")
+	defer second.Release()
+	first.Measure(gigabyte)
+	second.Measure(gigabyte)
+	var available atomic.Uint64
+	available.Store(gigabyte + 2*gigabyte)
+	light := lightAdmission(heavy, gigabyte, 0)
+	light.Available = func() (uint64, error) { return available.Load(), nil }
+	isWaiting := make(chan string, 1)
+	light.Waiting = func(_ time.Duration, why string) {
+		select {
+		case isWaiting <- why:
+		default:
+		}
+	}
+
+	// Act
+	taken := take(t, light)
+	var why string
+	select {
+	case why = <-isWaiting:
+	case early := <-taken:
+		early.Release()
+		t.Fatalf("a light run took %q on 3 GiB free, memory the heavy holders' 6 GiB of growth still needs", early.Token())
+	case <-time.After(time.Minute):
+		t.Fatal("the light run neither took a turn nor said it waits within a minute")
+	}
+	notYet(t, taken, "a light run on memory the heavy holders still grow into")
+	available.Store(6*gigabyte + gigabyte + 2*gigabyte)
+	turn := within(t, taken, "a light run once the holders' 6 GiB of growth, its 1 GiB and the 2 GiB reserve are covered")
+	defer turn.Release()
+
+	// Assert
+	if !strings.Contains(why, "a light run waits beside the line for memory") || !strings.HasPrefix(turn.Token(), lightPlace) {
+		t.Fatalf("waited saying %q and took %q; want a light turn after a wait for memory", why, turn.Token())
 	}
 }
 

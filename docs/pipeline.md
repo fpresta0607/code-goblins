@@ -621,7 +621,8 @@ An unavailable reading or an hour of floor waiting refuses admission and starts 
 #### Light runs beside the line
 
 A light run takes a turn of its own beside the slots, however many runs hold them or wait for them, once free physical memory and free commit cover its floor.
-Its floor is what each light run beside it may still use, its own expected memory and the desktop reserve.
+Its floor is what each run holding a slot and each light run beside it may still use, its expected memory less what it commits now, then its own expected memory and the desktop reserve.
+A heavy run still grows toward its expected memory, so a light run admitted on memory a heavy run is about to use would have that run ended at the desktop reserve.
 It is admitted by free memory, never by a count, so any number of light runs go beside the slots while memory covers them.
 A light run names its expected memory and its bound, as `cfo gate turn --light --memory 1GiB --execution-limit 15m` does, or takes no turn.
 At its bound it is ended with everything it started, and exits 124 with a last line that says the light run outlived its bound.
