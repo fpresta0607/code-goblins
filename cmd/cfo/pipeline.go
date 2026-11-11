@@ -599,7 +599,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			return fmt.Errorf("pipeline: the gate's bounded hold ended with no decision, which is not a gate failure and leaves %s working on %s. Repeat this command to reattach to that run on the same branch, head and intent, starting no new run and resetting no review budget, or read it with %s and answer its next gate with cfo pipeline respond %s", where, branch, statusCommand, meta.ID)
 		}
 		if pipeline.IsDaemonReplyMissed(result) {
-			return daemonReplyMissed(ctx, reader, meta, branch, args[0])
+			return daemonReplyMissed(ctx, reader, meta, branch, args[0], pipeline.IsDaemonHealthMissed(result))
 		}
 		return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
 	}
@@ -657,8 +657,10 @@ func liveRunCount(runs int) string {
 // daemonReplyMissed says what a daemon's missed reply means for this
 // command. A live daemon is busy, never stopped, whatever native's own hint
 // says, and the run the branch already holds is the one a repeat reaches, so
-// a lost or late reply to a start never becomes a second run.
-func daemonReplyMissed(ctx context.Context, reader pipeline.Reader, meta state.TaskMeta, branch, command string) error {
+// a lost or late reply to a start never becomes a second run. A missed health
+// reply stopped the command before its request reached the daemon, and any
+// other miss came after it, when the request may still land.
+func daemonReplyMissed(ctx context.Context, reader pipeline.Reader, meta state.TaskMeta, branch, command string, isHealthMissed bool) error {
 	daemon, err := reader.Daemon(ctx)
 	if daemon.State != pipeline.DaemonAlive {
 		read := ""
@@ -668,6 +670,9 @@ func daemonReplyMissed(ctx context.Context, reader pipeline.Reader, meta state.T
 		return fmt.Errorf("pipeline: the gate daemon missed its reply and its process reads %s%s. It serves every goblin, so never start or restart it: ask the CEO with cfo notify %s --blocked \"<question>\"", daemon.State, read, meta.ID)
 	}
 	busy := fmt.Sprintf("pipeline: the gate daemon (pid %d) is alive and serving %s and missed its reply, so it is busy, not stopped: whatever native's hint above says, never start or restart it", daemon.PID, liveRunCount(daemon.LiveRuns))
+	if isHealthMissed && command == "respond" {
+		return fmt.Errorf("%s. Your answer never reached it, so repeating this command in a few minutes answers the gate", busy)
+	}
 	run, err := reader.Interruption(ctx, meta.Project, branch)
 	if err != nil && !errors.Is(err, pipeline.ErrNoProgress) {
 		return fmt.Errorf("%s. The run on %s could not be read (%v), so check it with no-mistakes axi status before you act again", busy, branch, err)
@@ -678,8 +683,10 @@ func daemonReplyMissed(ctx context.Context, reader pipeline.Reader, meta state.T
 		return fmt.Errorf("%s. Your answer may have reached run %s, so read it with no-mistakes axi status --run %s before you answer again", busy, run.ID, run.ID)
 	case isLive:
 		return fmt.Errorf("%s. Run %s already holds %s, so repeating this command in a few minutes reattaches to it and starts no second run", busy, run.ID, branch)
-	case command == "run":
+	case command == "run" && isHealthMissed:
 		return fmt.Errorf("%s. No run was created on %s, so repeating this command in a few minutes starts it", busy, branch)
+	case command == "run":
+		return fmt.Errorf("%s. No run is on %s yet, but the lost start may still create one, so repeating this command in a few minutes reattaches to it if it did and starts it if it did not", busy, branch)
 	}
 	return fmt.Errorf("%s. %s holds no live run now, so read it with no-mistakes axi status before you act again", busy, branch)
 }

@@ -150,6 +150,15 @@ func TestPipelineReadsABusyDaemonsMissedReplyByItsProcess(t *testing.T) {
 			wantErr:      "busy, not stopped: whatever native's hint above says, never start or restart it. Run " + pendingBranchID + " already holds feat/policy, so repeating this command in a few minutes reattaches to it and starts no second run",
 		},
 		{
+			name:         "a lost start reply with no run on the branch yet says the start may still land",
+			command:      "run",
+			pidFile:      alive,
+			liveRuns:     2,
+			outcomes:     []execx.Result{{ExitCode: 1, Stdout: []byte(startFreshLost)}},
+			wantLaunches: 1,
+			wantErr:      "busy, not stopped: whatever native's hint above says, never start or restart it. No run is on feat/policy yet, but the lost start may still create one, so repeating this command in a few minutes reattaches to it if it did and starts it if it did not",
+		},
+		{
 			name:         "a lost start reply over an unreadable run claims no run either way",
 			command:      "run",
 			pidFile:      alive,
@@ -212,6 +221,17 @@ func TestPipelineReadsABusyDaemonsMissedReplyByItsProcess(t *testing.T) {
 			wantLaunches: 2,
 			wantSleeps:   1,
 			wantSaid:     "missed its short health reply before this respond reached it, so it is busy, not stopped; waiting 30s for its turn (try 2 of 4)",
+		},
+		{
+			name:         "a respond turned away at its health reply on every try says its answer never arrived",
+			command:      "respond",
+			pidFile:      alive,
+			liveRuns:     2,
+			outcomes:     []execx.Result{{ExitCode: 1, Stdout: []byte(healthMissed)}},
+			branchRun:    pendingRun,
+			wantLaunches: 4,
+			wantSleeps:   3,
+			wantErr:      "busy, not stopped: whatever native's hint above says, never start or restart it. Your answer never reached it, so repeating this command in a few minutes answers the gate",
 		},
 		{
 			name:         "a respond whose reply was lost names the run it may have reached",

@@ -285,6 +285,8 @@ A daemon serving other runs on a loaded machine can miss its 250 ms health reply
 `cfo pipeline run` and `cfo pipeline respond` read the daemon by its `daemon.pid` and that process, and by the runs its database holds open, never by a reply deadline, and send it nothing to do so.
 A native command a live daemon turned away at its health reply never reached it, so the same command is made again 30 seconds later, four times in all, each wait said as the daemon's turn.
 Any other missed reply is not repeated, because its request may have landed: the command says the daemon is busy, not stopped, and names the run the branch already holds, which repeating `cfo pipeline run` reattaches to, so a lost or late reply to a start never becomes a second run.
+When every try missed the health reply, nothing reached the daemon: a start with no run on its branch says no run was created, and an answer says it never reached the gate.
+After any other miss with no live run on the branch, a start says the lost request may still create one, which repeating it a few minutes later reattaches to.
 Neither ever starts or restarts the shared daemon, whatever native's own hint says, and a daemon whose process reads stopped or unreadable is a question for the CEO.
 A start whose intent or head names other work than the live run's, its adopted published head or its verified accepted handback is still refused, with that run and the caller's head named.
 Use native read-only `axi status` and `axi logs` to inspect progress; the engine's guarded `axi sync` remains the branch synchronization interface after validation.
