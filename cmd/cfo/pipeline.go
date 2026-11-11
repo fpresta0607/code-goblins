@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -532,7 +533,21 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			nativeArgs = append(nativeArgs, launch...)
 		}
 	}
-	result, err := commands.Run(ctx, execx.Request{Dir: gated, Env: pipeline.NativeEnv(root), Name: "no-mistakes", Args: nativeArgs})
+	native := execx.Request{Dir: gated, Env: pipeline.NativeEnv(root), Name: "no-mistakes", Args: nativeArgs}
+	result, err := commands.Run(ctx, native)
+	// A missed health reply stops native before its request reaches the
+	// daemon, so repeating it changes nothing twice. A live daemon that missed
+	// it is busy serving other runs, not stopped, so this waits its turn
+	// instead of handing the goblin a restart hint and a retry loop of its own.
+	for turn := 2; err == nil && pipeline.IsDaemonHealthMissed(result) && turn <= daemonTurns; turn++ {
+		daemon, readErr := reader.Daemon(ctx)
+		if readErr != nil || daemon.State != pipeline.DaemonAlive {
+			break
+		}
+		fmt.Fprintf(out, "pipeline: the gate daemon (pid %d) is alive and serving %s, and missed its short health reply before this %s reached it, so it is busy, not stopped; waiting %s for its turn (try %d of %d), and never starting or restarting it\n", daemon.PID, liveRunCount(daemon.LiveRuns), args[0], daemonTurnWait, turn, daemonTurns)
+		daemonTurnSleep(daemonTurnWait)
+		result, err = commands.Run(ctx, native)
+	}
 	if len(result.Stdout) > 0 {
 		fmt.Fprint(out, string(result.Stdout))
 	}
@@ -583,6 +598,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			}
 			return fmt.Errorf("pipeline: the gate's bounded hold ended with no decision, which is not a gate failure and leaves %s working on %s. Repeat this command to reattach to that run on the same branch, head and intent, starting no new run and resetting no review budget, or read it with %s and answer its next gate with cfo pipeline respond %s", where, branch, statusCommand, meta.ID)
 		}
+		if pipeline.IsDaemonReplyMissed(result) {
+			return daemonReplyMissed(ctx, reader, meta, branch, args[0])
+		}
 		return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
 	}
 	if selection.Policy.Version >= 7 {
@@ -614,6 +632,52 @@ func ownGoblin(stateDir, id string) error {
 		return fmt.Errorf("this process carries no proof task %s's terminal was given", id)
 	}
 	return nil
+}
+
+// A native command a live daemon turned away at its health reply is made
+// again daemonTurnWait later, daemonTurns times in all, so a busy daemon's
+// next free moment starts it. daemonTurnSleep is how that wait is made.
+var (
+	daemonTurns     = 4
+	daemonTurnWait  = 30 * time.Second
+	daemonTurnSleep = time.Sleep
+)
+
+// liveRunCount names how many runs the gate daemon serves.
+func liveRunCount(runs int) string {
+	switch {
+	case runs < 0:
+		return "runs its database could not count"
+	case runs == 1:
+		return "1 run"
+	}
+	return fmt.Sprintf("%d runs", runs)
+}
+
+// daemonReplyMissed says what a daemon's missed reply means for this
+// command. A live daemon is busy, never stopped, whatever native's own hint
+// says, and the run the branch already holds is the one a repeat reaches, so
+// a lost or late reply to a start never becomes a second run.
+func daemonReplyMissed(ctx context.Context, reader pipeline.Reader, meta state.TaskMeta, branch, command string) error {
+	daemon, err := reader.Daemon(ctx)
+	if daemon.State != pipeline.DaemonAlive {
+		read := ""
+		if err != nil {
+			read = ": " + err.Error()
+		}
+		return fmt.Errorf("pipeline: the gate daemon missed its reply and its process reads %s%s. It serves every goblin, so never start or restart it: ask the CEO with cfo notify %s --blocked \"<question>\"", daemon.State, read, meta.ID)
+	}
+	busy := fmt.Sprintf("pipeline: the gate daemon (pid %d) is alive and serving %s and missed its reply, so it is busy, not stopped: whatever native's hint above says, never start or restart it", daemon.PID, liveRunCount(daemon.LiveRuns))
+	live := stillRunningGateRun(ctx, reader, meta.Project, branch)
+	switch {
+	case command == "respond" && live != "":
+		return fmt.Errorf("%s. Your answer may have reached run %s, so read it with no-mistakes axi status --run %s before you answer again", busy, live, live)
+	case live != "":
+		return fmt.Errorf("%s. Run %s already holds %s, so repeating this command in a few minutes reattaches to it and starts no second run", busy, live, branch)
+	case command == "run":
+		return fmt.Errorf("%s. No run was created on %s, so repeating this command in a few minutes starts it", busy, branch)
+	}
+	return fmt.Errorf("%s. %s holds no live run now, so read it with no-mistakes axi status before you act again", busy, branch)
 }
 
 // stillRunningGateRun is the gate run still working on the branch, and empty
