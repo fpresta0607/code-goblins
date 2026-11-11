@@ -2001,7 +2001,7 @@ func TestHisMessageToAGoblinInATurnIsTypedIntoItAtOnce(t *testing.T) {
 
 	// Assert
 	sent := actionOf(store, "message-1")
-	if err != nil || sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentToGoblin {
+	if err != nil || sent.Status != "running" || sent.Awaiting == nil || sent.Message != heldByGoblin {
 		t.Fatalf("delivery = %v, action = %+v; want it typed into the turn and awaiting the goblin's next tool call", err, sent)
 	}
 	if typed := goblin.waitForLines(t, 1); len(typed) != 1 || !strings.Contains(typed[0], "stop and rebase") {
@@ -2159,10 +2159,10 @@ func TestAHeldGoblinMessageSaysWhatSendNowDoesForItsHarness(t *testing.T) {
 		queued                            error
 	}{
 		{name: "claude", harness: "claude", queued: spawn.ErrSentNow, wantHeld: "Queued until task-1's turn ends. Send now has it take the message at once.", wantSent: "Typed while it was working and sent now."},
-		{name: "claude whose key never went", harness: "claude", queued: fleet.ErrQueuedForToolCall, wantHeld: "Queued until task-1's turn ends. Send now has it take the message at once.", wantSent: sentToGoblin},
+		{name: "claude whose key never went", harness: "claude", queued: fleet.ErrQueuedForToolCall, wantHeld: "Queued until task-1's turn ends. Send now has it take the message at once.", wantSent: heldByGoblin},
 		{name: "codex", harness: "codex", queued: spawn.ErrSentNow, wantHeld: "Queued until task-1's turn ends. Send now has it take the message at once.", wantSent: "Typed while it was working and sent now."},
 		{name: "pi", harness: "pi", queued: spawn.ErrSentNow, wantHeld: "Queued until task-1's turn ends. Send now has it take the message at once.", wantSent: "Typed while it was working and sent now."},
-		{name: "pi whose key never went", harness: "pi", queued: fleet.ErrQueuedForToolCall, wantHeld: "Queued until task-1's turn ends. Send now has it take the message at once.", wantSent: sentToGoblin},
+		{name: "pi whose key never went", harness: "pi", queued: fleet.ErrQueuedForToolCall, wantHeld: "Queued until task-1's turn ends. Send now has it take the message at once.", wantSent: heldByGoblin},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

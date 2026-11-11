@@ -259,8 +259,8 @@ func TestACFOThatIsBusyOrRestartingGetsTheAnswersOnceWhenItsInputIsReady(t *test
 		wantTheSittingAsOneMessage(t, typed)
 		awaited := map[string]bool{}
 		for _, a := range sent {
-			if a.Status != "running" || a.Awaiting == nil || a.Message != sentToCFO {
-				t.Errorf("behind the CFO's turn the answer to %s reads %s (%s), want it sent and awaiting the CFO", a.QuestionID, a.Status, a.Message)
+			if a.Status != "running" || a.Awaiting == nil || a.Message != heldByCFO {
+				t.Errorf("behind the CFO's turn the answer to %s reads %s (%s), want it queued in the CFO's session and awaiting the CFO", a.QuestionID, a.Status, a.Message)
 				continue
 			}
 			awaited[a.Awaiting.Digest] = true

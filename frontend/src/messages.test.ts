@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isNotSent, isPendingMessage, isUndelivered, messageState, messagesTo, sameWords, takesMessages, withTakenCommands } from "./messages.ts";
+import { isHarnessHeld, isNotSent, isPendingMessage, isUndelivered, messageState, messagesTo, sameWords, takesMessages, withTakenCommands } from "./messages.ts";
 import type { SessionMessage } from "./session-messages.ts";
 import { parseSnapshot, type Snapshot, type Task } from "./types.ts";
 
@@ -21,6 +21,21 @@ test("a message says where it is: queued, sent or with the CFO", () => {
   assert.equal(messageState(snapshot([action({ status: "failed", message: "goblin-one was stopped before it could take it; the CFO has it" })]).actions[0]), "With the CEO");
   assert.equal(messageState(snapshot([action({ status: "failed", message: "The terminal is closed." })]).actions[0]), "Not sent");
   assert.equal(messageState(snapshot([action({ status: "uncertain", message: "Typed, and not picked up." })]).actions[0]), "Not confirmed");
+});
+
+// The Overlord, 2026-11-10 (#2332): a message the harness still holds in its
+// own queue read Sent. Sent means the harness has taken it into a turn, so
+// one typed into a turn under way reads Queued until its harness takes it.
+test("a message typed into a turn under way reads Queued while its harness holds it", () => {
+  const typed = (fields: Record<string, unknown>) => snapshot([action({ status: "running", ...fields })]).actions[0];
+  const held = typed({ awaiting: { task: "goblin-one", is_held: true } });
+  assert.equal(isHarnessHeld(held), true);
+  assert.equal(messageState(held), "Queued");
+  assert.equal(messageState(typed({ awaiting: { host: "cfo", is_held: true } })), "Queued");
+  for (const other of [typed({ awaiting: { task: "goblin-one" } }), typed({}), typed({ status: "uncertain", awaiting: { task: "goblin-one", is_held: true } }), typed({ status: "succeeded" })]) {
+    assert.equal(isHarnessHeld(other), false);
+  }
+  assert.equal(messageState(typed({ awaiting: { task: "goblin-one" } })), "Sent");
 });
 
 // The Overlord, 2026-10-29: a message he typed for the CFO the day before

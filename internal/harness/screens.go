@@ -37,11 +37,12 @@ type Screens struct {
 	Retrying *regexp.Regexp
 	// StatusLine matches the status a harness draws at the end of the row
 	// over its composer's top rule, its first group the context gauge and its
-	// second the notices after it, each after a mark. Actions are the
-	// commands that take, in the session, what a notice names, by the
-	// notice's words.
+	// second the notices after it, each after a mark. Checks are the checks
+	// of the harness's own that the supervisor runs outside the session for
+	// a notice, by the notice's words and by the words that tell him what to
+	// run in the terminal for it.
 	StatusLine *regexp.Regexp
-	Actions    map[string]string
+	Checks     map[string]string
 	// Starting matches the row a harness shows when it turned a submitted
 	// prompt away because its startup has not finished, and put the prompt
 	// back in its composer.
@@ -103,6 +104,14 @@ type Screens struct {
 	// in internal/supervisor). A harness with none would take a line typed
 	// during a turn only at its next tool call.
 	SendNow string
+	// EditQueue is the key that, at an empty prompt line, takes every line
+	// the harness holds in its queue back onto that line, a row each, and
+	// Queued matches the empty prompt line's row while the harness offers
+	// it: Claude Code 2.1.322's Up under "Press up to edit queued messages"
+	// (live, 2026-11-10, #2332). A harness with none gives a queued line up
+	// only to a turn.
+	EditQueue string
+	Queued    *regexp.Regexp
 }
 
 // Dialog is one startup prompt. A spawn answers it only while one of Markers
@@ -163,12 +172,13 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// context gauge once the context fills, as "83% context used",
 			// and its notices, as "✘ Auto-update failed · Run claude doctor";
 			// 2.1.321 drew "0% until auto-compact · × Auto-update failed ·
-			// Run claude do…" in a narrower terminal. Its /doctor is the
-			// health check claude doctor runs (#2236).
+			// Run claude do…" in a narrower terminal (#2236). Its /doctor is a
+			// prompt that starts a turn of its own in the session, so the board
+			// offers claude update, the check that failed, outside it (#2333).
 			StatusLine: regexp.MustCompile(`^(?:(\d+% (?:context used|until auto-compact))(?: · |$))?([✘×] .+)?$`),
-			Actions:    map[string]string{"Run claude doctor": "/doctor"},
-			Pasted:    []string{"[Pasted text #"},
-			Resubmits: 1,
+			Checks:     map[string]string{"Auto-update failed": "update", "Run claude doctor": "update"},
+			Pasted:     []string{"[Pasted text #"},
+			Resubmits:  1,
 			// Claude Code 2.1.288 encloses its bare prompt between rules, and
 			// 2.1.314 draws a hint on it while a message waits in its queue.
 			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*(` + cutShort("Press up to edit queued messages") + `)?$`),
@@ -183,7 +193,9 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// Claude Code 2.1.275's chat:sendNow chord, Ctrl+X Ctrl+S: a
 			// message it queued during a turn is sent "right away, as its key
 			// does" (its changelog for the click on that hint).
-			SendNow: "\x18\x13",
+			SendNow:   "\x18\x13",
+			EditQueue: "\x1b[A",
+			Queued:    regexp.MustCompile(`^[>❯][ \x{00a0}]*(` + cutShort("Press up to edit queued messages") + `)$`),
 		}, true
 	case Codex:
 		hookMenu := `(?m)^[ \t]*(?:› )?1\. Review hooks[ \t]*\n[ \t]*(?:› )?2\. Trust all and continue[ \t]*\n[ \t]*(?:› )?3\. Continue without trusting(?: \(hooks won't run\))?[ \t]*\n[ \t\n]*`
@@ -525,6 +537,17 @@ func (s Screens) ComposerEmpty(screen []string) bool {
 		}
 	}
 	return true
+}
+
+// OffersQueue reports whether screen shows the harness's prompt line empty
+// and offering the lines its queue holds back with EditQueue. A harness that
+// has no such key offers none.
+func (s Screens) OffersQueue(screen []string) bool {
+	if s.EditQueue == "" || s.Queued == nil || !s.ComposerEmpty(screen) {
+		return false
+	}
+	composer, _ := s.composer(screen)
+	return s.Queued.MatchString(strings.TrimSpace(composer[0]))
 }
 
 // TookCommand reports whether screen shows the harness took typed, a slash

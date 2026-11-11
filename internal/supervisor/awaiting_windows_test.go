@@ -239,9 +239,9 @@ func TestASecondAnswerIsRefusedWhileTheFirstIsSent(t *testing.T) {
 }
 
 // A goblin's harness takes what was typed during its turn at its next tool
-// call, so its delivery is sent, awaiting the goblin's record of exactly the
-// line typed; a task whose record is gone names nothing the board can wait
-// on, so its delivery reads as it did.
+// call, so its delivery waits in the goblin's own queue, awaiting the goblin's
+// record of exactly the line typed; a task whose record is gone names nothing
+// the board can wait on, so its delivery reads as it did.
 func TestAGoblinsDeliveryInItsTurnAwaitsItsRecord(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
@@ -254,8 +254,8 @@ func TestAGoblinsDeliveryInItsTurnAwaitsItsRecord(t *testing.T) {
 	gone := s.behindGoblinsTurn("task-9", since, "Use the grid.", "Submitted while it was working.")
 
 	// Assert
-	if sent.Awaiting == nil || sent.Awaiting.Task != "task-1" || sent.Awaiting.Generation != meta.SpawnGen || sent.Awaiting.Digest != monitor.TextDigest("CFO: Use the grid.") || sent.Reason != sentToGoblin {
-		t.Errorf("a goblin's delivery = %+v, want it sent and awaiting the goblin's record of the line typed", sent)
+	if sent.Awaiting == nil || sent.Awaiting.Task != "task-1" || sent.Awaiting.Generation != meta.SpawnGen || sent.Awaiting.Digest != monitor.TextDigest("CFO: Use the grid.") || !sent.Awaiting.IsHeld || sent.Reason != heldByGoblin {
+		t.Errorf("a goblin's delivery = %+v, want it queued in the goblin's session and awaiting the goblin's record of the line typed", sent)
 	}
 	if gone.Awaiting != nil || gone.Reason != "Submitted while it was working." {
 		t.Errorf("the delivery of a task with no record = %+v, want it to read as it did", gone)

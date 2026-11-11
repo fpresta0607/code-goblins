@@ -42,13 +42,21 @@ type Awaiting struct {
 	// QuietSince is the last time the terminal's screen showed a turn under
 	// way, or Since when it has shown none.
 	QuietSince time.Time `json:"quiet_since"`
+	// IsHeld says the line was submitted into a turn under way, so its
+	// harness holds it in its own queue until that turn takes it: his
+	// message reads Queued until then, never Sent (#2332).
+	IsHeld bool `json:"is_held,omitempty"`
 }
 
 // sentToCFO and sentToGoblin are what a delivery that awaits its reader says,
-// and sentNowInTurn what one says once its harness's send-now key went.
+// heldByCFO and heldByGoblin what one submitted into a turn under way says
+// while its harness holds it in its own queue, and sentNowInTurn what one
+// says once its harness's send-now key went.
 const (
 	sentToCFO     = "Sent. The CFO takes it at its next tool call, or as its current turn ends."
 	sentToGoblin  = "Sent. The goblin takes it at its next tool call, or as its current turn ends."
+	heldByCFO     = "Queued in the CFO's session. The CFO takes it at its next tool call, or as its current turn ends."
+	heldByGoblin  = "Queued in the goblin's session. The goblin takes it at its next tool call, or as its current turn ends."
 	sentNowInTurn = "Typed while it was working and sent now."
 )
 
@@ -179,7 +187,9 @@ func (s *Service) behindGoblinsTurn(task string, since time.Time, text, unwatche
 	if err != nil {
 		return Evaluation{Reason: unwatched}
 	}
-	return Evaluation{Reason: sentToGoblin, Awaiting: awaitingGoblinDelivery(meta, since, text)}
+	held := awaitingGoblinDelivery(meta, since, text)
+	held.IsHeld = true
+	return Evaluation{Reason: heldByGoblin, Awaiting: held}
 }
 
 // awaitingGoblinDelivery is the delivery of text, typed into meta's native

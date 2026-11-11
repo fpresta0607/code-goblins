@@ -630,11 +630,21 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string, s
 		return Evaluation{Reason: "The CFO's input is not empty and ready. Your answer is queued; nothing was sent."}, ErrDeferred
 	}
 	instruction := oneLine(line)
-	// Claude Code queues a command typed during a turn and records it once
-	// it runs. Codex and pi record none, and can drop one typed into a turn
-	// with nothing to show it, so it waits for the turn to end (#2193).
-	if busy && isHarnessCommand(instruction) && harness.Kind(primary.Agent) != harness.Claude {
-		return Evaluation{Reason: "Queued until the CFO's turn ends. " + commandWaits}, ErrDeferred
+	// A command waits on the board for the turn to end, as a goblin's does.
+	// Codex and pi record none, and can drop one typed into a turn with
+	// nothing to show it (#2193). Claude Code queues one, ahead of what is
+	// typed after it, and its send-now key then takes that command alone, as
+	// a turn of its own that leaves his message behind it queued: the CFO's
+	// did with three ahead of his message on 2026-11-10 (#2332). A message
+	// behind it can be sent now, which types it into the turn ahead of it:
+	// holdCommand takes Send now off the command, and what is said here is
+	// for the words queued behind it.
+	if busy && isHarnessCommand(instruction) {
+		sendNow := "Send now types it for the CFO to take at its next tool call."
+		if screens.SendNow != "" {
+			sendNow = "Send now has it take the message at once."
+		}
+		return Evaluation{Reason: "Queued until the CFO's turn ends. " + sendNow, CanSendNow: true}, ErrDeferred
 	}
 	typed := screens.Submittable(instruction)
 	// A "?" typed at an empty prompt line opens Claude Code's and Codex's
@@ -655,7 +665,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string, s
 	// takes them back off it: left there, they would join whatever is typed
 	// next, or hold it back for good. It says they were not sent once it saw
 	// them leave, and otherwise leaves them to be taken back when they show.
-	waiting := &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Digest: monitor.TextDigest(instruction), Session: cfoSession(c.State, primary), Typed: instruction, Pasted: isPasted}
+	waiting := &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Digest: monitor.TextDigest(instruction), Session: cfoSession(c.State, primary), Typed: instruction, Pasted: isPasted, IsHeld: busy}
 	unsent := func(why string) (Evaluation, error) {
 		if spawn.TakeBack(func() ([]string, error) { return read(record) }, delivery.Write, screens, instruction) {
 			return Evaluation{}, fmt.Errorf("%w. %s It was taken back off the CFO's prompt line, so nothing of it is left typed there.", ErrNotSent, why)
@@ -741,7 +751,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string, s
 				}
 			}
 		}
-		return Evaluation{Reason: sentToCFO, Awaiting: waiting}, nil
+		return Evaluation{Reason: heldByCFO, Awaiting: waiting}, nil
 	}
 	taken, cancelTaken := awake.WithTimeout(context.Background(), nativeConfirm)
 	defer cancelTaken()

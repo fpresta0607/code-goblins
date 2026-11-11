@@ -61,7 +61,12 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			os.Exit(2)
 		}
 	}
+	// A goblin's terminal registers no CFO.
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		if os.Getenv(host.IDVariable) != "cfo" {
+			record("registered as no CFO")
+			break
+		}
 		registered, err := Register(stateDir, "", "session-1")
 		if err == nil {
 			record("registered " + registered)
@@ -91,6 +96,10 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 	// until Escape interrupts it and, as Claude Code, Codex and pi do, puts
 	// what its queue held back on the prompt line, unsent.
 	isBusy, hasQueued, held := mode == "busy", false, ""
+	// Claude Code 2.1.322 keeps each line queued, gives them all back to the
+	// prompt line, a row each, for Up at an empty one, and sends them with
+	// its send-now chord, live on 2026-11-10 (#2332).
+	var queue []string
 	composer := func() string { return typedBefore + paste + readAsPaste + line }
 	draw := func(isWorking bool) {
 		rows := []string{}
@@ -131,7 +140,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			case isManual:
 				footer = "⏸ manual mode on · ? for shortcuts"
 			}
-			rows = append(rows, rule, "❯ "+shown, rule, footer)
+			rows = append(rows, rule, "❯ "+strings.ReplaceAll(shown, "\n", "\r\n  "), rule, footer)
 		} else {
 			text := typedBefore + line
 			if text == "" {
@@ -169,8 +178,12 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			switch {
 			case harness != "claude":
 				line, paste, readAsPaste, typedBefore = "", "", "", ""
+			case strings.HasSuffix(line, "\n"):
+				// The row above the cursor's emptied one joins it.
+				line = strings.TrimSuffix(line, "\n")
 			case line != "":
-				line = string([]rune(line)[:max(0, len([]rune(line))-claudeRow)])
+				row := line[strings.LastIndex(line, "\n")+1:]
+				line = strings.TrimSuffix(line, row) + string([]rune(row)[:max(0, len([]rune(row))-claudeRow)])
 			case paste != "" || readAsPaste != "":
 				paste, readAsPaste = "", ""
 			default:
@@ -185,7 +198,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			// turn has queued at once.
 			if next, _, err := reader.ReadRune(); err == nil && next == '\x13' {
 				record("sent now")
-				hasQueued = false
+				hasQueued, queue = false, nil
 				draw(false)
 			}
 		case '\x1b':
@@ -212,6 +225,13 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 				case "[201~":
 					isPasting = false
 					draw(false)
+				case "[A":
+					// Up at an empty prompt line takes the queue back onto it.
+					if harness == "claude" && composer() == "" && len(queue) > 0 {
+						record("took back " + strings.Join(queue, " | "))
+						line, hasQueued, queue, held = strings.Join(queue, "\n"), false, nil, ""
+						draw(false)
+					}
 				default:
 					hasPasteEnded = true
 				}
@@ -219,7 +239,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			}
 			if isBusy && hasQueued {
 				record("interrupted")
-				isBusy, hasQueued, line, held = false, false, held, ""
+				isBusy, hasQueued, line, held, queue = false, false, held, "", nil
 				draw(false)
 				continue
 			}
@@ -253,7 +273,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			if isBusy {
 				queued := typedBefore + paste + line
 				record("queued " + queued)
-				hasQueued, held = true, queued
+				hasQueued, held, queue = true, queued, append(queue, queued)
 				go func(text string) {
 					for {
 						if _, err := os.Stat(events + ".accept"); err == nil {
@@ -316,6 +336,13 @@ var codexMention = regexp.MustCompile(`(^|\s)\$\S*$`)
 
 func nativeCFOComposer(t *testing.T, stateDir, mode string) hostedTerminal {
 	t.Helper()
+	return nativeComposer(t, stateDir, "cfo", mode)
+}
+
+// nativeComposer hosts the fixture harness of mode as terminal id: the CFO's,
+// or a goblin's, which registers no CFO.
+func nativeComposer(t *testing.T, stateDir, id, mode string) hostedTerminal {
+	t.Helper()
 	program, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -332,12 +359,12 @@ func nativeCFOComposer(t *testing.T, stateDir, mode string) hostedTerminal {
 	}
 	t.Setenv("HERDR_PANE_ID", "")
 	t.Setenv("PATH", shims+string(os.PathListSeparator)+os.Getenv("PATH"))
-	terminal := hostProgram(t, stateDir, "cfo", events, os.Getenv("ComSpec"), "/c", harness)
+	terminal := hostProgram(t, stateDir, id, events, os.Getenv("ComSpec"), "/c", harness)
 	if lines := terminal.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
 		t.Fatalf("fixture registration = %q", lines)
 	}
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
-		record, err := host.ReadRecord(stateDir, "cfo")
+		record, err := host.ReadRecord(stateDir, id)
 		if err != nil {
 			t.Fatal(err)
 		}
