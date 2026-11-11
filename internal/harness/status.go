@@ -12,11 +12,12 @@ type Status struct {
 	Notices []Notice `json:"notices,omitempty"`
 }
 
-// Notice is one notice of a status, without its mark, and the command that
-// takes in the session what it names, if it names one.
+// Notice is one notice of a status, without its mark, and the check of the
+// harness's own that the supervisor runs for it outside the session, if it
+// has one, as "update" for a failed update (#2333).
 type Notice struct {
-	Text   string `json:"text"`
-	Action string `json:"action,omitempty"`
+	Text  string `json:"text"`
+	Check string `json:"check,omitempty"`
 }
 
 // Retry is a turn waiting to send a request that failed again: the failure,
@@ -45,21 +46,29 @@ func (s Screens) Status(screen []string) (Status, bool) {
 	}
 	status := Status{Gauge: match[1]}
 	for part := range strings.SplitSeq(match[2], " · ") {
-		if text := strings.TrimSpace(strings.TrimLeft(part, "✘× ")); text != "" {
-			status.Notices = append(status.Notices, Notice{Text: text, Action: s.action(text)})
+		text := strings.TrimSpace(strings.TrimLeft(part, "✘× "))
+		if text == "" {
+			continue
 		}
+		notice := Notice{Text: text, Check: s.check(text)}
+		// What the terminal says to do about a failure the supervisor checks
+		// itself is that failure's own, and no second notice.
+		if last := len(status.Notices) - 1; notice.Check != "" && last >= 0 && status.Notices[last].Check == notice.Check {
+			continue
+		}
+		status.Notices = append(status.Notices, notice)
 	}
 	return status, true
 }
 
-// action is the command that takes what notice names, also when the terminal
+// check is the check the supervisor runs for notice, also when the terminal
 // cut the notice short with an ellipsis, as "Run claude do…", once most of
 // its words show.
-func (s Screens) action(notice string) string {
+func (s Screens) check(notice string) string {
 	cut, isCut := strings.CutSuffix(notice, "…")
-	for words, command := range s.Actions {
+	for words, check := range s.Checks {
 		if notice == words || isCut && len(cut) >= len(words)*2/3 && strings.HasPrefix(words, cut) {
-			return command
+			return check
 		}
 	}
 	return ""

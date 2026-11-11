@@ -19,10 +19,12 @@ const (
 )
 
 // The status Claude Code draws over its composer reaches the board as its
-// gauge and its notices, and a notice that names claude doctor carries
-// /doctor, also cut short (#2236).
+// gauge and its notices (#2236). A failed update is one notice that names the
+// update check the supervisor runs for it outside the session, with the
+// terminal's own advice to run claude doctor, whole or cut short, no second
+// notice and no command: /doctor is a prompt that starts a turn (#2333).
 func TestAClaudeStatusIsReadAsItsGaugeAndNotices(t *testing.T) {
-	doctor := []Notice{{Text: "Auto-update failed"}, {Text: "Run claude doctor", Action: "/doctor"}}
+	doctor := []Notice{{Text: "Auto-update failed", Check: "update"}}
 	for _, test := range []struct {
 		name   string
 		screen []string
@@ -33,9 +35,9 @@ func TestAClaudeStatusIsReadAsItsGaugeAndNotices(t *testing.T) {
 		{"the gauge and a notice", claudeOver(claudeIdleFooter, strings.Repeat(" ", 58)+"83% context used · ✘ Auto-update failed · Run claude doctor  "), Status{Gauge: "83% context used", Notices: doctor}, true},
 		{"the gauge alone", claudeOver(claudeIdleFooter, strings.Repeat(" ", 100)+"100% context used  "), Status{Gauge: "100% context used"}, true},
 		{"2.1.321's words, cut short", claudeOver(claudeIdleFooter, " 0% until auto-compact · × Auto-update failed · Run claude do…"),
-			Status{Gauge: "0% until auto-compact", Notices: []Notice{{Text: "Auto-update failed"}, {Text: "Run claude do…", Action: "/doctor"}}}, true},
+			Status{Gauge: "0% until auto-compact", Notices: doctor}, true},
 		{"beside a turn row", claudeOver(claudeWorkingFooter, "✽ Compacting conversation… (5s)         0% until auto-compact · × Auto-update failed"),
-			Status{Gauge: "0% until auto-compact", Notices: []Notice{{Text: "Auto-update failed"}}}, true},
+			Status{Gauge: "0% until auto-compact", Notices: doctor}, true},
 		{"nothing over the composer", claudeOver(claudeIdleFooter, "● Fake reply.", ""), Status{}, false},
 		{"a retry's hint", claudeOver(claudeWorkingFooter, "✻ 529 Overloaded · Retrying in 3s · attempt 3/10", "  ⎿  If it persists, check your inference gateway (127.0.0.1:5000)."), Status{}, false},
 		{"the command list", claudeOver("  ⏸ manual mode on", "  ❯ /compact                    Free up context by summarizing the conversation so far", "    /autocompact                Set how full the context gets before auto-summarizing"), Status{}, false},

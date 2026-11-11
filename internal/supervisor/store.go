@@ -191,6 +191,9 @@ type Store struct {
 	changed       chan struct{}
 	inboxCursor   string
 	deferredUntil map[string]time.Time
+	// trying is each action whose delivery the worker runs now, from the
+	// moment it is picked until its outcome is recorded.
+	trying []string
 	// inboxRead is each inbox event as the last intake read it, by file
 	// name, so an unchanged event deferred again is not read and parsed
 	// again; inboxFillingWake is the identity of the wake for an inbox near
@@ -620,12 +623,13 @@ var tryWait = 10 * time.Second
 // it or finding within a moment that its session cannot take it yet, so a
 // press that lands inside a try acts on how the try ended rather than being
 // turned away for it (#1915: "Send now, Edit and Cancel on a queued message
-// do not work while a Claude turn runs").
+// do not work while a Claude turn runs"). A try that typed the message into
+// a goblin's turn still runs while it waits to see the message taken.
 func (s *Store) awaitTry(ctx context.Context, id, task string) {
 	for deadline := time.Now().Add(tryWait); ; {
 		s.mu.Lock()
 		at := slices.IndexFunc(s.db.Actions, func(a Action) bool { return a.ID == id && a.TaskID == task && a.Kind == "message" })
-		isTried := at >= 0 && s.db.Actions[at].Status == "running" && s.db.Actions[at].Awaiting == nil
+		isTried := at >= 0 && (s.db.Actions[at].Status == "running" && s.db.Actions[at].Awaiting == nil || slices.Contains(s.trying, id))
 		s.mu.Unlock()
 		if !isTried || time.Now().After(deadline) {
 			return
@@ -685,10 +689,11 @@ func (s *Store) SendQueuedMessageNow(id, task string) (Action, error) {
 }
 
 // markTyped records, the moment its submit key went, that message id to task
-// was typed into its session, while its delivery still waits to see the
-// harness take it: from then it is the harness's to take, so it reads Sent,
-// with nothing left to send now, edit or cancel, rather than Queued with
-// controls that could only fail for the seconds that wait lasts (#1915).
+// was typed into its session's turn, while its delivery still waits to see
+// the harness take it: from then its harness holds it in its own queue, so
+// it reads Queued there, with the controls that act on that queue, rather
+// than Queued on the board with controls that could only fail for the
+// seconds that wait lasts (#1915, #2332).
 func (s *Store) markTyped(id, task string, awaiting *Awaiting) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -701,7 +706,8 @@ func (s *Store) markTyped(id, task string, awaiting *Awaiting) error {
 		waiting.QuietSince = waiting.Since
 	}
 	a := &s.db.Actions[at]
-	a.Awaiting, a.Message, a.CanSendNow, a.SendNowWhy, a.UpdatedAt = &waiting, sentToGoblin, false, "", time.Now().UTC()
+	waiting.IsHeld = true
+	a.Awaiting, a.Message, a.CanSendNow, a.SendNowWhy, a.UpdatedAt = &waiting, heldByGoblin, false, "", time.Now().UTC()
 	return s.save()
 }
 
@@ -1105,10 +1111,12 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 		s.mu.Unlock()
 		return err
 	}
+	s.trying = append(s.trying, ran...)
 	s.mu.Unlock()
 	result, runErr := execute(ctx, a)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.trying = slices.DeleteFunc(s.trying, func(id string) bool { return slices.Contains(ran, id) })
 	for _, id := range ran {
 		// Queue append/retention can move indices while the action is running.
 		i = slices.IndexFunc(s.db.Actions, func(current Action) bool { return current.ID == id })

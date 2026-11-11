@@ -50,8 +50,8 @@ func pressOnQueued(service *Service, kind, task, id, text string) *httptest.Resp
 // up on seeing its words after five left them on the prompt line unsubmitted,
 // where every later message waited behind them for good (#2306). His message
 // queued while the CFO works is typed once and submitted once its words show,
-// here seven seconds late, so it reads Sent with the prompt line empty, and
-// it is delivered once the turn takes it.
+// here seven seconds late, so it reads Queued in the CFO's session with the
+// prompt line empty, and it is delivered once the turn takes it.
 func TestHisQueuedMessageReachesACFOThatReadsItLateExactlyOnce(t *testing.T) {
 	for _, test := range []struct{ mode, kind string }{
 		{mode: "claude-busy-stalls", kind: "claude"},
@@ -80,8 +80,8 @@ func TestHisQueuedMessageReachesACFOThatReadsItLateExactlyOnce(t *testing.T) {
 			sent := actionOf(store, "m1")
 
 			// Assert
-			if err != nil || sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentToCFO {
-				t.Fatalf("delivery = %v, action = %+v; want it typed into the turn and reading Sent", err, sent)
+			if err != nil || sent.Status != "running" || sent.Awaiting == nil || sent.Message != heldByCFO {
+				t.Fatalf("delivery = %v, action = %+v; want it typed into the turn and reading Queued in the CFO's session", err, sent)
 			}
 			if lines := terminal.waitForLines(t, 2); len(lines) != 2 || lines[1] != "queued stop and rebase" {
 				t.Fatalf("terminal input = %q; want his message submitted into the turn once", lines)
@@ -179,9 +179,12 @@ func TestSendNowOnAMessageThatWasNotSentSendsItAgain(t *testing.T) {
 // #1915: "A queued message keeps its "Queued" bubble after the session has
 // already taken it." A message typed into a goblin's turn is its harness's
 // from the moment its submit key went, while its delivery still waits a few
-// seconds to see it taken, so it reads Sent from then rather than Queued, and
-// a Cancel pressed meanwhile says where it went rather than to press again.
-func TestAMessageInAGoblinsTurnLeavesTheQueueTheMomentItsSubmitKeyWent(t *testing.T) {
+// seconds to see it taken, so from then it reads Queued in the goblin's
+// session, with the controls that act on that queue (#2332), rather than
+// Queued on the board, and a Cancel pressed meanwhile acts once that wait
+// ends: here it says the goblin's harness gives its queue back to no key,
+// rather than to press again.
+func TestAMessageInAGoblinsTurnLeavesTheBoardsQueueTheMomentItsSubmitKeyWent(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	meta := makeNative(t, h.State, "task-1")
@@ -208,19 +211,19 @@ func TestAMessageInAGoblinsTurnLeavesTheQueueTheMomentItsSubmitKeyWent(t *testin
 	cancel := pressOnQueued(service, "message_withdraw", meta.ID, "message-1", "stop and rebase")
 
 	// Assert
-	if !isStillDelivering || typed.Status != "running" || typed.Awaiting == nil || typed.Message != sentToGoblin {
-		t.Errorf("still delivering = %t, action = %+v; want it to read Sent while its delivery still waits to see it taken", isStillDelivering, typed)
+	if !isStillDelivering || typed.Status != "running" || typed.Awaiting == nil || !typed.Awaiting.IsHeld || typed.Message != heldByGoblin {
+		t.Errorf("still delivering = %t, action = %+v; want it to read Queued in the goblin's session while its delivery still waits to see it taken", isStillDelivering, typed)
 	}
-	if cancel.Code != 409 || !strings.Contains(cancel.Body.String(), "It was already typed into task-1's turn.") {
-		t.Errorf("Cancel = %d %s; want it to say the message was typed into the turn", cancel.Code, cancel.Body)
+	if cancel.Code != 409 || !strings.Contains(cancel.Body.String(), "It waits in task-1's own queue, which its harness gives back to no key. Send now has it taken at once.") {
+		t.Errorf("Cancel = %d %s; want it to say the goblin's harness gives its queue back to no key", cancel.Code, cancel.Body)
 	}
 	if isStillDelivering {
 		if err := <-delivered; err != nil {
 			t.Errorf("delivery = %v", err)
 		}
 	}
-	if sent := actionOf(store, "message-1"); sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentToGoblin {
-		t.Errorf("after its delivery = %+v; want it still Sent, awaiting the goblin's next tool call", sent)
+	if sent := actionOf(store, "message-1"); sent.Status != "running" || sent.Awaiting == nil || sent.Message != heldByGoblin {
+		t.Errorf("after its delivery = %+v; want it still queued in the goblin's session, awaiting the goblin's next tool call", sent)
 	}
 	if lines := goblin.lines(t); len(lines) != 1 || !strings.Contains(lines[0], "stop and rebase") {
 		t.Errorf("the goblin received %q, want his message once", lines)

@@ -191,6 +191,12 @@ type Options struct {
 	ReadScreen       func(host.Record) ([]string, error)
 	ProgramInstalled func(harness.Kind) (string, time.Time, error)
 	CFOJobActivity   func(host.Record) (string, error)
+	// UpdateCheck runs a harness's own update check and returns what it
+	// said, as its error why it failed, and HarnessCurrent reads whether a
+	// harness's install is the newest its publisher offers; nil runs and
+	// reads the machine's.
+	UpdateCheck    func(context.Context, harness.Kind) (string, error)
+	HarnessCurrent func(context.Context, harness.Kind) (bool, error)
 	// KeyPages are the reviewed key page recipes the binary carries; the
 	// browser broker lends a login's browser only for a provider they name.
 	KeyPages keypages.Recipes
@@ -290,6 +296,9 @@ type Service struct {
 	harnessUpdates   map[string]harnessUpdateRead
 	cfoUpdating      bool
 	cfoUpdateProblem string
+	// updateChecks is what the board knows of each harness's own update
+	// check, by harness.
+	updateChecks map[string]UpdateCheck
 	// release is the newest release as the banner shows it, kept by the
 	// release watch, which releaseNow asks for another look.
 	release    *ReleaseView
@@ -1647,6 +1656,10 @@ type Snapshot struct {
 	// CFOUpdate is an update of the harness the CFO runs, installed since it
 	// started, for the Update button on its header; absent while none waits.
 	CFOUpdate *CFOUpdate `json:"cfo_update,omitempty"`
+	// UpdateChecks is what the board knows of each harness's own update
+	// check, by harness, for a session's notice of a failed update; absent
+	// while it knows of none.
+	UpdateChecks map[string]UpdateCheck `json:"update_checks,omitempty"`
 	// Comeback is what the supervisor brings back after the last restart or
 	// sign-out, for the board's line; absent when it brings nothing back.
 	Comeback *state.Comeback `json:"comeback,omitempty"`
@@ -1753,6 +1766,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	if cfo.registered {
 		out.CFOUpdate = s.cfoUpdateView(cfo.since)
 	}
+	out.UpdateChecks = s.updateCheckView()
 	out.Comeback = s.comebackView()
 	out.PCRestart = s.pcRestartView()
 	if view, issue := s.startAtLoginView(); issue != "" {

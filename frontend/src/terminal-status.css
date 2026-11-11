@@ -1,7 +1,11 @@
 /* The terminal's status under the box (terminal-status.tsx): one quiet row,
    its parts apart as the terminal's dots set them, wrapping on a phone. */
 .terminal-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 12px; color: var(--muted); font-size: .8125rem; }
-.terminal-notice { color: var(--amber); }
+.terminal-notice { color: var(--amber); overflow-wrap: anywhere; }
+/* A notice the supervisor checks: its words, how the last check ended and
+   Retry, kept together and wrapping as one on a phone. */
+.terminal-check { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 8px; min-width: 0; }
+.terminal-check-result { overflow-wrap: anywhere; }
 .terminal-notice-action { min-height: 28px; padding: 2px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ghost-bg); color: var(--bone); font: inherit; cursor: pointer; }
 .terminal-notice-action:hover:not(:disabled) { border-color: var(--glass-border-hover); }
 .terminal-notice-action:disabled { cursor: default; opacity: .6; }
