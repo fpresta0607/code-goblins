@@ -59,7 +59,7 @@ A Claude Code goblin's settings file, `state\goblin-claude-settings.json`, sets 
 A Claude Code resume of a transcript past 5 MiB loads only what follows its last compaction, so a CEO comes back on its conversation by the context that resume loads, at most 400K tokens, whatever the transcript's size on disk.
 `goblins install` takes out the ones a build before 2026-10 merged into `~/.claude/settings.json`, where every Claude Code session on the machine ran them.
 Every goblin pane carries `GOBLINS_ROLE=goblin`, and the CEO's hooks do nothing when they see it.
-They do nothing in any other session either: only [the CEO's own session](contract/supervision.md#the-ceos-own-session), the agent native terminal `goblins` runs, gets the digest, the guards and the rewakes, so a Claude Code session you open yourself is never given the fleet's wakes.
+They do nothing in any other session either: only [the CEO's own session](contract/supervision.md#the-ceos-own-session), the agent native terminal `ceo` runs, gets the digest, the guards and the rewakes, so a Claude Code session you open yourself is never given the fleet's wakes.
 On a machine where the hooks are still in the user's settings, such a session pays one start of `goblins.exe` for each hook it fires, which leaves on its environment before it reads the home: about 0.1 second each with a dozen sessions firing at once on 2026-10-09.
 Once an install has taken them out it starts nothing.
 In the CEO's own session each hook is one start of `goblins.exe`, which is started at its harness's priority: on 2026-10-10 it took 0.02 seconds to come to exist beside ten busy threads kept to the goblins' cores, and about 0.7 where goblin work had every core.
@@ -126,7 +126,7 @@ The first skill with a name wins and later ones raise a collision warning; a lin
 **Prompts, hooks and MCP.**
 Prompt templates come from `~/.pi/agent/prompts` and a trusted `.pi/prompts`.
 Pi has no hooks file: extensions play that role, from `~/.pi/agent/extensions`, a trusted `.pi/extensions`, settings and packages.
-`goblins hooks install pi` writes the CEO's extension to `~/.pi/agent/extensions/ceo-native.ts`.
+`goblins hooks install pi` writes the CEO's extension to `~/.pi/agent/extensions/goblins-native.ts`.
 Pi has no MCP support.
 
 **Trust.**

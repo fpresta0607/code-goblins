@@ -60,7 +60,7 @@ Write-UTF8 "$fixtureHome\state\board-fixture.meta" (@(
 ) -join "`n")
 Write-UTF8 "$fixtureHome\state\board-fixture.status" ((Get-Date).ToUniversalTime().ToString('o') + ' working: Build review panel' + "`n")
 Write-UTF8 "$fixtureHome\data\backlog.md" "## Queued`n- [ ] board-fixture - Build review panel (repo: example)`n- [ ] follow-up - Polish settings (repo: example)`n"
-$config = @{ root=$root; home=$fixtureHome; project=$project; session=$session; pane=$pane; hook="$root\codex\ceo-native-hook.ps1"; binary=$goblins; herdr_pid=$server.Id; parentHarness='codex' }
+$config = @{ root=$root; home=$fixtureHome; project=$project; session=$session; pane=$pane; hook="$root\codex\goblins-native-hook.ps1"; binary=$goblins; herdr_pid=$server.Id; parentHarness='codex' }
 Write-UTF8 "$root\fixture.json" ($config | ConvertTo-Json)
 $ceoTab = (Checked 'herdr' @('--session',$session,'tab','create','--workspace',$workspace.workspace.workspace_id,'--cwd',$project,'--label','example-ceo','--no-focus') | ConvertFrom-Json).result
 $ceoConfig = $config.Clone()

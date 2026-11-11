@@ -31,7 +31,7 @@ disable_project_settings: true
 # machine and ran the slowest packages twice. An agent-chosen step ran the
 # whole suite here, where supervisor alone takes about 22 minutes, and hit
 # the 30-minute test agent limit with no failing test. It runs the installed
-# ceo, so activation needs an installed build with both `goblins gate test` and
+# goblins, so activation needs an installed build with both `goblins gate test` and
 # `goblins gate prepare` after this configuration lands on the default branch.
 #
 # The lint step reuses the affected-check planner for go vet, without running
@@ -139,7 +139,7 @@ auto_fix:
 # fix restores the test. A gate commit under the head of an earlier park a
 # person approved or skipped, read from the gate's database, is left out on
 # any branch carrying it; one the rebase step rewrote after the approval is a
-# new commit and parks once more. It runs the installed ceo, the trusted
+# new commit and parks once more. It runs the installed goblins, the trusted
 # binary, so it works once the CEO installs a build that has `goblins gate`.
 gates:
   - name: tests-kept

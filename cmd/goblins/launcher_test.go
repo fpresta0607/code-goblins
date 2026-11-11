@@ -982,7 +982,7 @@ func TestOpenWindowAnswersNoWindowWithoutOneBesideGoblins(t *testing.T) {
 // terminal's id and proof value, and is told which goblins started it, which
 // Start at login then runs.
 func TestTheWindowStartsWithoutItsTerminalsProofAndKnowsItsGoblins(t *testing.T) {
-	environment := []string{`PATH=C:\Windows`, "GOBLINS_HOST_ID=ceo", "ceo_host_proof=a-secret", "GOBLINS_HOME=C:\\home"}
+	environment := []string{`PATH=C:\Windows`, "GOBLINS_HOST_ID=ceo", "goblins_host_proof=a-secret", "GOBLINS_HOME=C:\\home"}
 
 	got := windowEnvironment(environment, `C:\home\goblins.exe`)
 

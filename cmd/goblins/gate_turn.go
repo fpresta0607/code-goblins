@@ -649,7 +649,7 @@ func detachGateTurn(request gateTurnRequest, dir string, stdout, stderr io.Write
 // decision, through every agent step before it.
 var gateWaits = []string{
 	"no-mistakes axi run", "no-mistakes axi respond", "no-mistakes axi answer",
-	"goblins pipeline run", "goblins pipeline respond", "goblins pipeline run", "goblins pipeline respond",
+	"goblins pipeline run", "goblins pipeline respond",
 }
 
 // gateWait names the command of gateWaits that command holds, or is empty.

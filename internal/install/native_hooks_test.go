@@ -95,7 +95,7 @@ func TestInstallBringsTheBoardsPiExtensionUpToItsBuild(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			f := newFixture(t, "", nil)
-			path := filepath.Join(f.profile, ".pi", "agent", "extensions", "ceo-native.ts")
+			path := filepath.Join(f.profile, ".pi", "agent", "extensions", "goblins-native.ts")
 			if test.before != "" {
 				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 					t.Fatal(err)

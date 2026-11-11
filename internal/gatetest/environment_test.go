@@ -10,7 +10,7 @@ import (
 // while the rest stay.
 func TestEnvironmentDropsTheFleetVariablesInAnySpelling(t *testing.T) {
 	// Arrange
-	env := []string{"PATH=C:\\bin", "GOBLINS_HOME=C:\\fleet", "ceo_state_override=C:\\fleet\\state", "Ceo_Home=C:\\other", "GOBLINS_HOMELY=kept", "no_mistakes_gate=1", "GOFLAGS=-mod=mod"}
+	env := []string{"PATH=C:\\bin", "GOBLINS_HOME=C:\\fleet", "goblins_state_override=C:\\fleet\\state", "Goblins_Home=C:\\other", "GOBLINS_HOMELY=kept", "no_mistakes_gate=1", "GOFLAGS=-mod=mod"}
 
 	// Act
 	kept := Environment(env)

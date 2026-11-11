@@ -82,14 +82,14 @@ func contractSkillRoute(skill, topic string) ([]string, error) {
 	var routes [][]string
 	for _, command := range regexp.MustCompile("`([^`\n]+)`").FindAllStringSubmatch(skill, -1) {
 		words := strings.Fields(command[1])
-		if len(words) >= 3 && slices.Equal(words[:3], []string{"ceo", "help", "contract"}) {
+		if len(words) >= 3 && slices.Equal(words[:3], []string{"goblins", "help", "contract"}) {
 			routes = append(routes, words)
 		}
 	}
 	if len(routes) != 1 {
 		return nil, fmt.Errorf("ceo-%s declares %d procedure routes, want one", topic, len(routes))
 	}
-	if !slices.Equal(routes[0], []string{"ceo", "help", "contract", topic}) {
+	if !slices.Equal(routes[0], []string{"goblins", "help", "contract", topic}) {
 		return nil, fmt.Errorf("ceo-%s has incorrect procedure route %q", topic, routes[0])
 	}
 	return routes[0][1:], nil

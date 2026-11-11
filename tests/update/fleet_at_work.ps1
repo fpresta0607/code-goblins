@@ -79,7 +79,7 @@ while (-not (Test-Path -LiteralPath (Join-Path $state "hosts\$ceoTerminal.json")
 
 $before = Get-FleetFacts -Project $Project -PreRename:$PreRename
 $before | Format-Table -AutoSize -Wrap | Out-String -Width 400 | Write-Host
-foreach ($running in "board", "goblins host", "ceo harness", "demo-goblin host", "demo-goblin harness") {
+foreach ($running in "board", "ceo host", "ceo harness", "demo-goblin host", "demo-goblin harness") {
     if ($before[$running] -match "not running") { throw "before the update the $running is not running: $($before[$running])" }
 }
 if ($before.credentials -notmatch "DEMO_TOKEN") { throw "the stored credential is not listed before the update: $($before.credentials)" }

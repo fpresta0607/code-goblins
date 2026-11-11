@@ -108,7 +108,7 @@ func TestOnlyATerminalOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 		{name: "a goblin's terminal", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"GOBLINS_ROLE=goblin"}, refusal: "a goblin's terminal"},
 		{name: "a gate agent", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"NO_MISTAKES_GATE=1"}, refusal: "a gate agent"},
 		{name: "the registered CEO", ancestry: shell(ceo), refusal: "under the registered CEO"},
-		{name: "a native terminal of the fleet", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"ceo_host_id=ceo"}, refusal: "native terminal ceo"},
+		{name: "a native terminal of the fleet", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"goblins_host_id=ceo"}, refusal: "native terminal ceo"},
 		{name: "a Herdr pane", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"HERDR_PANE_ID=w1:p2"}, refusal: "a Herdr pane"},
 		{name: "under Claude Code", ancestry: shell(above("claude.exe")), refusal: "an agent harness (claude.exe pid 900)"},
 		{name: "under a harness that runs on node", ancestry: shell(above("node.exe")), refusal: "an agent harness (node.exe pid 900)"},

@@ -72,7 +72,7 @@ func Install(c InstallConfig) (string, error) {
 		return "", errors.New("unsupported native hook harness")
 	}
 	if c.Harness == "pi" {
-		path := filepath.Join(c.ConfigDir, "extensions", "ceo-native.ts")
+		path := filepath.Join(c.ConfigDir, "extensions", "goblins-native.ts")
 		return path, writeOwned(path, piExtension(c))
 	}
 	path := settingsPath(c.Harness, c.ConfigDir)
@@ -120,7 +120,7 @@ func Install(c InstallConfig) (string, error) {
 		return "", err
 	}
 	if len(original) > 0 && !bytes.Equal(original, append(data, '\n')) {
-		backup, err := os.OpenFile(path+".ceo-native.backup", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		backup, err := os.OpenFile(path+".goblins-native.backup", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 		if err == nil {
 			_, werr := backup.Write(original)
 			if err := errors.Join(werr, backup.Close()); err != nil {
@@ -183,7 +183,7 @@ func writeOwned(path, content string) error {
 // nothing.
 func RefreshPi(c InstallConfig) (bool, error) {
 	c.Harness = "pi"
-	prior, err := fsx.ReadFile(filepath.Join(c.ConfigDir, "extensions", "ceo-native.ts"))
+	prior, err := fsx.ReadFile(filepath.Join(c.ConfigDir, "extensions", "goblins-native.ts"))
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -210,7 +210,7 @@ func owned(content []byte) bool {
 func Uninstall(harness, configDir string) (bool, error) {
 	switch harness {
 	case "pi":
-		return removeOwned(filepath.Join(configDir, "extensions", "ceo-native.ts"))
+		return removeOwned(filepath.Join(configDir, "extensions", "goblins-native.ts"))
 	case "claude", "codex":
 	default:
 		return false, errors.New("unsupported native hook harness")
@@ -262,7 +262,7 @@ func Uninstall(harness, configDir string) (bool, error) {
 func Installed(harness, configDir string) (bool, error) {
 	switch harness {
 	case "pi":
-		return ownedThere(filepath.Join(configDir, "extensions", "ceo-native.ts"))
+		return ownedThere(filepath.Join(configDir, "extensions", "goblins-native.ts"))
 	case "claude", "codex":
 	default:
 		return false, errors.New("unsupported native hook harness")
@@ -304,7 +304,7 @@ func settingsPath(harness, configDir string) string {
 // helperCommand is the helper script Install writes under configDir and the
 // exact hook command that runs it, which is how its entries are recognised.
 func helperCommand(configDir string) (helper, command string) {
-	helper = filepath.Join(configDir, "ceo-native-hook.ps1")
+	helper = filepath.Join(configDir, "goblins-native-hook.ps1")
 	return helper, `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "` + filepath.ToSlash(helper) + `"`
 }
 

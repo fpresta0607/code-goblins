@@ -42,7 +42,7 @@ func windowIdentity(stateDir, profile string, userEnv []string) identity {
 	return window
 }
 
-// usersOwnState is the state folder of the home userEnv names, as ceo
+// usersOwnState is the state folder of the home userEnv names, as goblins
 // resolves one: GOBLINS_STATE_OVERRIDE, or else the state folder of GOBLINS_HOME, or
 // else of the per-user home under LOCALAPPDATA. It is empty when userEnv
 // names no home at all.

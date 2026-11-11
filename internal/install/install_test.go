@@ -486,7 +486,7 @@ func TestUninstallRemovesTheBoardNativeHooks(t *testing.T) {
 			t.Errorf("the uninstall output is missing %q:\n%s", want, output)
 		}
 	}
-	for _, left := range []string{filepath.Join(claude, "ceo-native-hook.ps1"), filepath.Join(pi, "extensions", "ceo-native.ts")} {
+	for _, left := range []string{filepath.Join(claude, "goblins-native-hook.ps1"), filepath.Join(pi, "extensions", "goblins-native.ts")} {
 		if _, err := os.Stat(left); !os.IsNotExist(err) {
 			t.Errorf("%s survived the uninstall: %v", left, err)
 		}
@@ -702,7 +702,7 @@ func TestUninstallBacksUpTheSharedClaudeSettingsAsTheyWereBeforeIt(t *testing.T)
 	}
 	commands := hookCommands(t, f.user)
 	for _, command := range commands {
-		if isCEOCommand(command) || strings.Contains(command, "ceo-native-hook.ps1") {
+		if isCEOCommand(command) || strings.Contains(command, "goblins-native-hook.ps1") {
 			t.Errorf("CEO hook %q survived the uninstall", command)
 		}
 	}

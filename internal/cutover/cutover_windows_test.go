@@ -113,7 +113,7 @@ func read(t *testing.T, path string) string {
 
 // theOldBuilds respells what the new build's native hook install writes as a
 // build before the rename wrote it: its program, its marker and its files.
-var theOldBuilds = strings.NewReplacer(newCommand+".exe", oldName+".exe", "CEO native hooks", oldSpelling("CEO native hooks"), newName+"-native", oldName+"-native")
+var theOldBuilds = strings.NewReplacer(newCommand+".exe", oldName+".exe", "CEO native hooks", oldSpelling("CEO native hooks"), newCommand+"-native", oldName+"-native")
 
 // asTheOldBuildSpelled is text of this build's as a build before the rename
 // spelled it, which named its command and the role alike.
@@ -426,7 +426,7 @@ func TestTheDryRunListsEveryChangeAndChangesNothing(t *testing.T) {
 		filepath.Join(shared, "lavish", "SKILL.md") + ": this build's", filepath.Join(shared, "lavish", ".code-goblins") + ": this build's",
 		filepath.Join(f.machine.LocalAppData, oldName) + ": the old build's caches outside the home, left for you to delete",
 		KindSetting + ":", strings.ToUpper(oldName) + "_HOME=" + root + " becomes " + strings.ToUpper(newCommand) + "_HOME",
-		KindHook + ":", filepath.Join(user, ".claude", "settings.json") + ": ", "renamed " + newName + "-native.ts", filepath.Join(root, "state", oldName+"-wake-skips.jsonl") + ": renamed",
+		KindHook + ":", filepath.Join(user, ".claude", "settings.json") + ": ", "renamed " + newCommand + "-native.ts", filepath.Join(root, "state", oldName+"-wake-skips.jsonl") + ": renamed",
 		KindSkill + ":", filepath.Join(user, ".agents", "skills", oldName+"-afk") + ": becomes",
 		KindJob + ":", `\` + oldName + `-stall-watchdog: becomes \` + newCommand + `-stall-watchdog`, `\Code Goblins\Resume: its definition rewritten`,
 		KindCredential + ":", oldName + ":GITHUB_TOKEN becomes " + newName + ":GITHUB_TOKEN", filepath.Join(user, "."+oldName) + ": the credential file store's folder",
@@ -442,7 +442,7 @@ func TestTheDryRunListsEveryChangeAndChangesNothing(t *testing.T) {
 			t.Errorf("the dry run does not say %q:\n%s", want, listing)
 		}
 	}
-	for _, unwanted := range []string{"cg-" + oldName + "-wakes", "archive", "overlord.md", "cg-x.status", "run.log", "CLAUDE.md", "untracked.md", filepath.Join("code-goblins", "README.md"), oldName + "-native-board", "someone-else", "Unrelated", "their-own", "my-notes.md", filepath.Join(f.machine.LocalAppData, newName)} {
+	for _, unwanted := range []string{"cg-" + oldName + "-wakes", "archive", "overlord.md", "cg-x.status", "run.log", "CLAUDE.md", "untracked.md", filepath.Join("code-goblins", "README.md"), oldName + "-native-board", "someone-else", "Unrelated", "their-own", "my-notes.md", filepath.Join(f.machine.LocalAppData, newCommand)} {
 		if strings.Contains(listing, unwanted) {
 			t.Errorf("the dry run names %q, which it never changes:\n%s", unwanted, listing)
 		}
@@ -574,7 +574,7 @@ func TestTheCutoverLeavesTheHomeWorkingUnderTheNewName(t *testing.T) {
 	if !exists(filepath.Join(root, "."+newName+"-home")) || !exists(filepath.Join(user, "."+newName, "credentials", "x")) {
 		t.Errorf("the home's marker or the credential folder were not renamed")
 	}
-	if exists(filepath.Join(f.machine.LocalAppData, newName)) {
+	if exists(filepath.Join(f.machine.LocalAppData, newCommand)) {
 		t.Errorf("the old build's caches outside the home were moved")
 	}
 	if owner := read(t, filepath.Join(user, ".agents", "skills", "lavish", ".code-goblins")); owner == lavishOwnerText || !strings.Contains(owner, "SKILL.md") {

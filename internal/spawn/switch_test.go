@@ -818,7 +818,7 @@ func TestSwitchReappliesTheProjectEnvironmentRedirects(t *testing.T) {
 			"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
 			"GOTMPDIR":                 `C:\hijacked`,
 			"gotmpdir":                 `C:\hijacked-lower`,
-			"ceo_state_override":       `C:\hijacked-state`,
+			"goblins_state_override":   `C:\hijacked-state`,
 		},
 	})
 

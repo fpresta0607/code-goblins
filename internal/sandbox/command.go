@@ -9,7 +9,7 @@ import (
 // hostPrograms are the programs a sandbox task's goblin runs on the host:
 // goblins to report, gate and contain its work, and git and gh to deliver it.
 // Everything else runs in its container, through goblins sandbox run.
-var hostPrograms = map[string]bool{"ceo": true, "git": true, "gh": true}
+var hostPrograms = map[string]bool{"goblins": true, "git": true, "gh": true}
 
 // hostRefusedCommands are the goblins commands that run the project's own code
 // on the host, which a sandbox task runs in its container instead: the gate
@@ -51,7 +51,7 @@ var whyNotPlain = map[byte]string{
 // is about to run on the host from cwd, is refused, or empty when it runs.
 // It allows what Bash and PowerShell read alike, and refuses everything
 // else: simple commands joined by &&, each of words of plain characters and
-// quoted strings (hostCommands), that start ceo, git or gh by name or by an
+// quoted strings (hostCommands), that start goblins, git or gh by name or by an
 // absolute path outside worktree and scratch, the folders the container
 // writes. Git runs only the commands a goblin delivers with (gitRefusal),
 // and gh no alias or extension (ghRefusal). goblins sandbox run, and goblins gate
@@ -60,12 +60,12 @@ var whyNotPlain = map[byte]string{
 func HostCommandRefusal(command, cwd, worktree, scratch string) string {
 	commands, refusal := hostCommands(command)
 	if refusal != "" {
-		return "this command holds " + refusal + ", and a sandbox task's host runs only ceo, git and gh commands of plain words and quoted text joined by &&: run anything else in its container with goblins sandbox run -- <command>"
+		return "this command holds " + refusal + ", and a sandbox task's host runs only goblins, git and gh commands of plain words and quoted text joined by &&: run anything else in its container with goblins sandbox run -- <command>"
 	}
 	for _, words := range commands {
 		program := programName(words[0])
 		if !hostPrograms[program] {
-			return "a sandbox task runs " + words[0] + " only in its container, since its code is the adversary: run it with goblins sandbox run -- <command>, and only ceo, git and gh on the host"
+			return "a sandbox task runs " + words[0] + " only in its container, since its code is the adversary: run it with goblins sandbox run -- <command>, and only goblins, git and gh on the host"
 		}
 		if refusal := programPathRefusal(words[0], cwd, worktree, scratch); refusal != "" {
 			return refusal
@@ -209,7 +209,7 @@ func programPathRefusal(word, cwd, worktree, scratch string) string {
 	if !isWritable {
 		return ""
 	}
-	return "a sandbox task never runs " + word + " on the host, since the container can write it: run ceo, git and gh by name or from where they are installed"
+	return "a sandbox task never runs " + word + " on the host, since the container can write it: run goblins, git and gh by name or from where they are installed"
 }
 
 // isWithin reports whether path is root or a path inside it.
@@ -303,7 +303,7 @@ func sandboxTurnProgram(arguments []string) string {
 	for index, argument := range arguments {
 		if argument == "--" {
 			rest := arguments[index+1:]
-			if len(rest) >= 3 && programName(rest[0]) == "ceo" && rest[1] == "sandbox" && rest[2] == "run" {
+			if len(rest) >= 3 && programName(rest[0]) == "goblins" && rest[1] == "sandbox" && rest[2] == "run" {
 				return rest[0]
 			}
 			return ""

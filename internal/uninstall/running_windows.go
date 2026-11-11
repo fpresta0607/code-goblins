@@ -36,7 +36,7 @@ func (m Machine) running(ctx context.Context) ([]Item, error) {
 	for _, owner := range owners {
 		terminals = append(terminals, Terminal{ID: owner.ID, HostPID: owner.HostPID, Marks: owner.Marks, Directories: owner.Directories})
 	}
-	folders := []string{m.Home.Root, filepath.Join(m.LocalAppData, "ceo"), filepath.Join(m.LocalAppData, "CodeGoblinsWindow")}
+	folders := []string{m.Home.Root, filepath.Join(m.LocalAppData, "goblins"), filepath.Join(m.LocalAppData, "CodeGoblinsWindow")}
 	if m.Home.DevDrive != "" {
 		folders = append(folders, m.Home.DevDrive)
 	}

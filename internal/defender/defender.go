@@ -138,7 +138,7 @@ func (report Report) Under(folders []string) Report {
 func Folders(root, devDrive string) []string {
 	folders := []string{root, devDrive}
 	if local := os.Getenv("LOCALAPPDATA"); local != "" {
-		folders = append(folders, filepath.Join(local, "ceo"), filepath.Join(local, "CodeGoblins"))
+		folders = append(folders, filepath.Join(local, "goblins"), filepath.Join(local, "CodeGoblins"))
 	}
 	if profile, err := os.UserHomeDir(); err == nil {
 		folders = append(folders, filepath.Join(profile, ".no-mistakes"))

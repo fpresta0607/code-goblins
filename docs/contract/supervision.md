@@ -172,7 +172,7 @@ Git keeps every checkout in the worktree's own reflog, so a goblin that goes on 
 
 ## The CEO's own session
 
-One session on the machine is the CEO's own: the agent that native terminal `goblins` of this home runs.
+One session on the machine is the CEO's own: the agent that native terminal `ceo` of this home runs.
 `goblins`, the board's first-run page, Reopen, Restart, the comeback after a restart and the comeback after the CEO's terminal ended unasked each start the CEO in that terminal, in the home, and nothing starts it anywhere else, on a first run, with the desktop app or with `goblins` in a terminal alone.
 Each of those starts hands a Claude Code CEO its hooks (`claude --settings`, the file `state\ceo-claude-settings.json`, written anew at every start), so the hooks are this terminal's alone and no other Claude Code session on the machine runs one.
 The same file gives Claude Code a 400K-token auto-compact window, so you compact at about 342K tokens, long before your model's 1M window fills; a Codex CEO starts with Codex's own compaction limit at 360K, and pi has no setting for one.
@@ -209,7 +209,7 @@ The Stop hook that takes the lock over rewakes you with that notice at once, and
 Tell the Overlord which session it was.
 
 Two sessions cannot both be the CEO's own.
-The host refuses a second terminal `goblins` while the first answers, and the terminal's record names one program, so only that program's processes pass the proof.
+The host refuses a second terminal `ceo` while the first answers, and the terminal's record names one program, so only that program's processes pass the proof.
 A CEO whose terminal was replaced under it no longer passes: its hooks go quiet and the new terminal's program takes the lock over, so custody follows the terminal the board shows.
 
 On 2026-10-09 the machine restarted, and the Overlord's desktop app reopened a Claude Code session of his own in another project 22 seconds before the comeback brought the CEO back.

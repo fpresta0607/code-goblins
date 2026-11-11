@@ -53,7 +53,7 @@ func TestGatePrepareConfiguredCommandReadiesFrontendBeforeTest(t *testing.T) {
 
 	// Act: consume the configured native preparation command, before Test.
 	command := strings.Fields(config.Commands.Prepare)
-	if len(command) < 2 || command[0] != "ceo" {
+	if len(command) < 2 || command[0] != "goblins" {
 		t.Fatalf("first Test would receive no prepared dependencies: prepare=%q", config.Commands.Prepare)
 	}
 	exit := runWithRuntime(command[1:], &stdout, &stderr, runtime)

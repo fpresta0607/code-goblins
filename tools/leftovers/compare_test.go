@@ -207,8 +207,8 @@ func TestNoiseNeverPassesOverCodeGoblins(t *testing.T) {
 		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Temp\CodeGoblinsSetup`},
 		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Temp\code-goblins-1234`},
 		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Microsoft\Windows\Explorer\goblins-window.png`},
-		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Temp\jiti\extensions-ceo-native.291f97c5.mjs`},
-		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\ceo\conpty\OpenConsole.exe`},
+		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Temp\jiti\extensions-goblins-native.291f97c5.mjs`},
+		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\goblins\conpty\OpenConsole.exe`},
 		{Change: changeLeft, Kind: kindProcess, Identity: `C:\Windows\goblins.exe`},
 	}
 
@@ -549,7 +549,7 @@ func TestNoisePassesOverCodexOwnTemporaryFolderButNotWhatTheInstallLeaves(t *tes
 		{"the Codex hooks the install changed", difference{Change: changeChanged, Kind: kindFile, Identity: `C:\Users\a\.codex\hooks.json`, Before: "sha256 1", After: "sha256 2"}, true},
 		{"the person's Codex settings taken", difference{Change: changeGone, Kind: kindFile, Identity: `C:\Users\a\.codex\config.toml`, Before: "sha256 1"}, true},
 		{"a folder beside the temporary folder", difference{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\.codex\.tmp-kept\note.txt`}, true},
-		{"a file of ours in the temporary folder", difference{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\.codex\.tmp\ceo-native-hook.ps1`}, true},
+		{"a file of ours in the temporary folder", difference{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\.codex\.tmp\goblins-native-hook.ps1`}, true},
 		{"a temporary folder in another tool's home", difference{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\.pi\.tmp\plugins-clone-Qw3rTy`, After: "folder"}, true},
 		{"a temporary folder of the same name outside the Codex home", difference{Change: changeGone, Kind: kindFile, Identity: `C:\Users\a\source\demo\.codex\.tmp\notes.txt`}, true},
 	}

@@ -93,7 +93,7 @@ type Outside struct {
 }
 
 // StoreDir is the folder verification runs record into: the one
-// GOBLINS_VERIFY_DIR names, else ceo/verify in the user's cache folder, beside
+// GOBLINS_VERIFY_DIR names, else goblins/verify in the user's cache folder, beside
 // the fleet's Go temporary directories. A test binary that names none is
 // refused, as internal/home refuses the inherited fleet home, so no test
 // writes into the store real runs read.
@@ -113,7 +113,7 @@ func storeDir(override string, testBinary bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("verify: resolve user cache directory: %w", err)
 	}
-	return filepath.Join(cache, "ceo", "verify"), nil
+	return filepath.Join(cache, "goblins", "verify"), nil
 }
 
 // Begin makes a run's log in the store, open for the run's output, and

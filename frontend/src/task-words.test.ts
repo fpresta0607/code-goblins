@@ -64,7 +64,7 @@ test("plain text is sentence case with no semicolon chains, hashes, paths or lin
     ["a hash alone in brackets goes with its brackets", "merged (ce7db967) and installed", "Merged and installed."],
     ["a path becomes the name it ends with", "the board-display handoff is at state/tasktmp/cg-fleet-auto-resume/board-display-handoff.md, so this task can pause",
       "The board-display handoff is at board-display-handoff.md, so this task can pause."],
-    ["a Windows path too", "log at C:\\Users\\fpres\\AppData\\Local\\ceo\\verify\\reports\\run-12.log.", "Log at run-12.log."],
+    ["a Windows path too", "log at C:\\Users\\fpres\\AppData\\Local\\goblins\\verify\\reports\\run-12.log.", "Log at run-12.log."],
     ["a pull request link reads as the pull request", "opened https://github.com/fpresta0607/code-goblins/pull/326 for review", "Opened PR #326 for review."],
     ["a pull request named before its link is named once", "delivered as PR https://github.com/fpresta0607/code-goblins/pull/326", "Delivered as PR #326."],
     ["an issue link reads as the issue", "closed https://github.com/o/r/issues/1450 (decision 7: close it)", "Closed issue #1450 (decision 7: close it)."],

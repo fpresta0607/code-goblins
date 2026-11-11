@@ -75,7 +75,7 @@ go test ./...
 
 A test that needs some program to start uses the one stand-in program, `internal/standin/program`: `standin.Put` writes it to a path and `standin.Bytes` gives its content to serve or pack.
 `standin.Env` says what it does for a command: record it, print something, exit with a code, keep running, or copy itself into a home as an install does.
-It is built once for each Go toolchain into `ceo\standin` in the user's cache folder and reused by every test run from every checkout, and two builds of it are the same bytes.
+It is built once for each Go toolchain into `goblins\standin` in the user's cache folder and reused by every test run from every checkout, and two builds of it are the same bytes.
 
 A test never serves or runs a copy of its own test binary where the stand-in would do.
 A test binary is a new unsigned program at every build, and Microsoft Defender asks its cloud about a program it has never met before it lets it start: 0.7 to 5 s on the Overlord's PC on 2026-10-10, and 39 s under load, which is past a launch deadline.

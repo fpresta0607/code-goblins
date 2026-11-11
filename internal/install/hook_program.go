@@ -73,7 +73,7 @@ func HookCommand(bin string) string {
 }
 
 // sameBuild says whether the programs at a and b were built from the same
-// source, with the same Go and the same modules. The hook program is ceo
+// source, with the same Go and the same modules. The hook program is goblins
 // built with -H windowsgui, which its build settings record and which is all
 // they may differ by.
 func sameBuild(a, b string) bool {

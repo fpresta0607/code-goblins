@@ -109,7 +109,7 @@ func EmptyJSON(path string) bool {
 func SettingsBackups(files ...string) []string {
 	var backups []string
 	for _, file := range files {
-		for _, suffix := range []string{backupSuffix, ".ceo-native.backup"} {
+		for _, suffix := range []string{backupSuffix, ".goblins-native.backup"} {
 			if _, err := os.Lstat(file + suffix); err == nil || !errors.Is(err, fs.ErrNotExist) {
 				backups = append(backups, file+suffix)
 			}

@@ -207,7 +207,7 @@ func TestRenderMarkdownSaysASharedStackIsNotCEOsToStop(t *testing.T) {
 // home's: a store whose folder could not be named reads as not measured,
 // never as nothing, and one read in part says so apart from the home.
 func TestRenderMarkdownShowsTheVerificationStoreApartFromTheHome(t *testing.T) {
-	const store = `C:\Users\o\AppData\Local\ceo\verify`
+	const store = `C:\Users\o\AppData\Local\goblins\verify`
 	for name, row := range map[string]struct {
 		folder      string
 		incomplete  []string

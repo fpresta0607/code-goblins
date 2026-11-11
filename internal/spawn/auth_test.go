@@ -160,9 +160,9 @@ func TestSpawnStartsAGoblinWithNoBillingKeyWhenAProjectDeclaresNothing(t *testin
 func TestSpawnKeepsTheLaunchContractOverItsCredentials(t *testing.T) {
 	for name, env := range map[string]map[string]string{
 		"exact names":     {"GOTMPDIR": `C:\hijacked`, "GOBLINS_HOME": `C:\hijacked`, "GOBLINS_STATE_OVERRIDE": `C:\hijacked`, "FIXTURE_TOKEN": "t0ken"},
-		"case-aliased":    {"gotmpdir": `C:\hijacked`, "ceo_home": `C:\hijacked`, "ceo_state_override": `C:\hijacked`, "FIXTURE_TOKEN": "t0ken"},
-		"the goblin role": {"Ceo_Role": "ceo", "FIXTURE_TOKEN": "t0ken"},
-		"the task's own":  {"ceo_task_id": "another-task", "FIXTURE_TOKEN": "t0ken"},
+		"case-aliased":    {"gotmpdir": `C:\hijacked`, "goblins_home": `C:\hijacked`, "goblins_state_override": `C:\hijacked`, "FIXTURE_TOKEN": "t0ken"},
+		"the goblin role": {"Goblins_Role": "ceo", "FIXTURE_TOKEN": "t0ken"},
+		"the task's own":  {"goblins_task_id": "another-task", "FIXTURE_TOKEN": "t0ken"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newQuickFixture(t)

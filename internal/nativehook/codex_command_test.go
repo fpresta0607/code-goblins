@@ -73,7 +73,7 @@ func TestCodexHooksRunCeoWithoutAHelperShell(t *testing.T) {
 			t.Errorf("%s handlers = %+v, want only %q with the %d-second limit", event, handlers[event], want, TimeoutSeconds)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dir, "ceo-native-hook.ps1")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "goblins-native-hook.ps1")); !os.IsNotExist(err) {
 		t.Errorf("a helper script was written for hooks that do not run it: %v", err)
 	}
 }
@@ -98,7 +98,7 @@ func TestCodexHooksKeepTheHelperWhereAPathNeedsQuoting(t *testing.T) {
 			t.Errorf("%s handlers = %+v, want only the helper's %q", event, handlers[event], want)
 		}
 	}
-	script, err := os.ReadFile(filepath.Join(dir, "ceo-native-hook.ps1"))
+	script, err := os.ReadFile(filepath.Join(dir, "goblins-native-hook.ps1"))
 	if err != nil || !strings.Contains(string(script), config.Executable) {
 		t.Errorf("the helper does not run %s (%v): %s", config.Executable, err, script)
 	}
@@ -142,7 +142,7 @@ func TestCodexReinstallReplacesEitherCommandShape(t *testing.T) {
 					t.Errorf("%s handlers = %+v, want only %q", event, handlers[event], want)
 				}
 			}
-			if _, err := os.Stat(filepath.Join(dir, "ceo-native-hook.ps1")); usesHelper == os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(dir, "goblins-native-hook.ps1")); usesHelper == os.IsNotExist(err) {
 				t.Errorf("helper script present = %v, want %v", !os.IsNotExist(err), usesHelper)
 			}
 		})

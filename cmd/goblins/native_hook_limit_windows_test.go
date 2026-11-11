@@ -50,7 +50,7 @@ func TestANativeHookHeldAtItsStartRecordsItsEventByItsLimit(t *testing.T) {
 			// The CEO's own hook: no goblin's or gate's markers, and hidden as
 			// Claude Code starts a hook.
 			for _, variable := range os.Environ() {
-				if !strings.HasPrefix(strings.ToUpper(variable), "CEO_") {
+				if !strings.HasPrefix(strings.ToUpper(variable), "GOBLINS_") {
 					hook.Env = append(hook.Env, variable)
 				}
 			}

@@ -53,7 +53,7 @@ In order, it:
 3. Sets up the CEO home it picked, as [the table above](#which-home-it-installs) says, normally `%LOCALAPPDATA%\CodeGoblins`: the CEO's contract, the default policy, the program as `bin\goblins.exe`, and the desktop window beside them as `goblins-window.exe` and the hook program as `goblins-hook.exe` where the release ships them, with the `state`, `data`, `worktrees`, `scratch` and `caches` folders beside `bin`.
    The skills Code Goblins ships go once into `~\.agents\skills`, which Codex and Pi read, with a junction to each from Claude Code's skills folder, and `state\harnesses.json` records where each harness keeps its configuration; nothing in a harness folder that Code Goblins did not put there is changed.
    `GOBLINS_HOME` and the home's `bin` on your PATH are set for your user.
-   The CEO's hooks go into no settings file of yours: [the CEO's own session](contract/supervision.md#the-ceos-own-session), the one `goblins` starts in native terminal `goblins`, starts with them, so a Claude Code session you open yourself, in the desktop app or a terminal, runs none of them and never holds the fleet.
+   The CEO's hooks go into no settings file of yours: [the CEO's own session](contract/supervision.md#the-ceos-own-session), the one `goblins` starts in native terminal `ceo`, starts with them, so a Claude Code session you open yourself, in the desktop app or a terminal, runs none of them and never holds the fleet.
    Where an older build merged them into your `~/.claude/settings.json`, the install takes them out, backing the file up first and keeping your own hooks.
    The same write adds allow rules for the commands that only put an item in front of you in the Command Center (`goblins question`, `goblins run-request`, `goblins review`, `goblins present`, `goblins deliver` and `goblins auth request`), so Claude Code's auto mode approves them without its classifier unless `autoMode.classifyAllShell` is on ([Safety model](../README.md#safety-model) says why these and no others); `settings.json.ceo-install.rules` beside the file records which ones it added, for the uninstall.
    Windows then starts Code Goblins at login, in the tray, which brings back what a restart ended, unless Start at login was turned off: the setup's box, `-NoStartAtLogin` given to `install.ps1` run as a file, or `goblins install --start-at-login off`; `-StartAtLogin` and `--start-at-login on` turn it back on.
@@ -168,7 +168,7 @@ Only you press it, from a board of your own; `"check_for_updates": false` in the
 [Update Code Goblins](native-board.md#update-code-goblins) says all it does.
 
 `goblins update`, run in a terminal of your own, does the same: it updates the home to the newest published release without touching your goblins or the CEO.
-It runs only as the home's own `goblins` or `goblins`, and it says four steps as it goes:
+It runs only as the home's own `goblins`, and it says four steps as it goes:
 
 1. `[1/4] Download Code Goblins <version>`: it reads the newest release from GitHub's `/releases/latest`, refuses a pre-release or a draft, and downloads its `goblins.exe`, its desktop window `goblins-window.exe` and its hook program `goblins-hook.exe` where the release ships them, its `SHA256SUMS` and its `install.ps1` into the home's `state\update`.
 2. `[2/4] Check the download`: it keeps a program only when it matches the release's `SHA256SUMS`, and, for a release whose `install.ps1` names a publisher, only when Windows reports it validly signed by that publisher, the same checks the one-line install makes.

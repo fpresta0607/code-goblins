@@ -1263,10 +1263,10 @@ func TestGateTurnRunsACommandThatOnlyNamesAGate(t *testing.T) {
 	for name, given := range map[string][]string{
 		"a status":                         {"no-mistakes", "axi", "status"},
 		"a step's logs":                    {"no-mistakes", "axi", "logs", "--step", "test"},
-		"a recovery":                       {"ceo", "pipeline", "recover", "cg-example"},
+		"a recovery":                       {"goblins", "pipeline", "recover", "cg-example"},
 		"a subcommand with no program":     {"axi", "run"},
 		"a test of the gate's code":        {"go", "test", "./internal/pipeline", "-run", "TestRespond"},
-		"a program named like ceo":         {"myceo", "pipeline", "run"},
+		"a program named like goblins":     {"mygoblins", "pipeline", "run"},
 		"a program named like no-mistakes": {"no-mistakes-helper", "axi", "run"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -1901,13 +1901,13 @@ func TestGateTurnMemoryIsReadAndCarriedDetached(t *testing.T) {
 	} {
 		t.Run(row.given, func(t *testing.T) {
 			// Act
-			request, err := parseGateTurn([]string{"--as", "desktop CI", "--wait", "30s", "--memory", row.given, "--", "ceo", "ci-runner", "job"})
+			request, err := parseGateTurn([]string{"--as", "desktop CI", "--wait", "30s", "--memory", row.given, "--", "goblins", "ci-runner", "job"})
 
 			// Assert
 			if err != nil || request.memory != row.want {
 				t.Fatalf("parseGateTurn = %+v, %v; want %d bytes", request, err, row.want)
 			}
-			want := []string{"--detached", "--as=desktop CI", "--wait=30s", "--memory=" + row.given, "--", "ceo", "ci-runner", "job"}
+			want := []string{"--detached", "--as=desktop CI", "--wait=30s", "--memory=" + row.given, "--", "goblins", "ci-runner", "job"}
 			if got := detachedArguments(request); !slices.Equal(got, want) {
 				t.Errorf("detachedArguments = %q; want %q", got, want)
 			}

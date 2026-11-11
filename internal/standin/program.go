@@ -78,11 +78,11 @@ var program = sync.OnceValues(func() (string, error) {
 	if startCacheErr != nil {
 		return "", startCacheErr
 	}
-	return ensure(filepath.Join(startCache, "ceo", "standin"))
+	return ensure(filepath.Join(startCache, "goblins", "standin"))
 })
 
 // Program returns the stand-in program: internal/standin/program, built once
-// for each Go toolchain into one folder of the user's cache (ceo\standin) and
+// for each Go toolchain into one folder of the user's cache (goblins\standin) and
 // reused by every test run from every checkout. Do not write to it or start
 // it where it is: Put it where the test needs a program.
 func Program(t testing.TB) string {

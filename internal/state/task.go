@@ -274,7 +274,7 @@ func GoTmpDir(stateDir, id string) (string, error) {
 	}
 	sum := sha256.Sum256([]byte(fleetKey))
 	fleet := hex.EncodeToString(sum[:])[:8]
-	return filepath.Join(cache, "ceo", "gotmp", fleet, id), nil
+	return filepath.Join(cache, "goblins", "gotmp", fleet, id), nil
 }
 
 // TaskScratch is the folder a task's pane's TEMP, TMPDIR and GOTMPDIR name: the

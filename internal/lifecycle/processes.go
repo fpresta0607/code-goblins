@@ -195,7 +195,7 @@ func isAtWorkIn(process Process, directories []string) bool {
 			isClaimed = true
 		}
 		name := strings.TrimSuffix(strings.ToLower(process.Name), ".exe")
-		isRuntime := name == "node" || strings.HasPrefix(name, "python") || name == "pwsh" || name == "powershell" || name == "bash" || name == "sh" || name == "go" || name == "ceo"
+		isRuntime := name == "node" || strings.HasPrefix(name, "python") || name == "pwsh" || name == "powershell" || name == "bash" || name == "sh" || name == "go" || name == "goblins"
 		isBrowser := name == "chrome" || name == "msedge"
 		for index, argument := range process.Arguments {
 			flag, value, hasValue := strings.Cut(argument, "=")

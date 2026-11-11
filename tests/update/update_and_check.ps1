@@ -62,7 +62,7 @@ else {
     }
 }
 if ($after.board -match "not running") { $problems += "the board's supervisor is not running: $($after.board)" }
-foreach ($kept in "home", "goblins host", "ceo harness", "demo-goblin host", "demo-goblin harness", "allowanceFloor", "claudeSetting", "project", "credentials", "goblinWork") {
+foreach ($kept in "home", "ceo host", "ceo harness", "demo-goblin host", "demo-goblin harness", "allowanceFloor", "claudeSetting", "project", "credentials", "goblinWork") {
     if ($after[$kept] -ne $before.$kept) { $problems += "$kept changed across the update: '$($before.$kept)' became '$($after[$kept])'" }
 }
 if ($after.claudeSetting -ne "kept") { $problems += "the person's own Claude Code setting is '$($after.claudeSetting)', want 'kept'" }

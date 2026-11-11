@@ -37,7 +37,7 @@ export const PAUSE_FAILED = live("cg-fleet-auto-resume", "Paused goblins resume 
 
 export const FAILED = live("pd-ci-minutes", "PrecisionDocs-AI uses far fewer GitHub Actions minutes; Claude Code", {
   phase: "failed", report: "failed", project: "PrecisionDocs-AI",
-  activity: "failed: go test ./internal/billing failed at 9f3c2a1e: TestMeteredUsage timed out after 10m0s; log at C:\\Users\\fpres\\AppData\\Local\\ceo\\verify\\reports\\report.log",
+  activity: "failed: go test ./internal/billing failed at 9f3c2a1e: TestMeteredUsage timed out after 10m0s; log at C:\\Users\\fpres\\AppData\\Local\\goblins\\verify\\reports\\report.log",
 });
 
 const queued = (id: string, title: string, fields: Record<string, unknown> = {}) => ({

@@ -58,8 +58,8 @@ var names = []string{
 	"ceo-harness", "ceo-harness.pid", ".ceo-rewoken", ".ceo-wake-typed", ".ceo-launch", ".ceo-launch.lock",
 	// The home's markers.
 	".ceo-home", ".ceo-narrowing-unfinished",
-	// What the install and the native hooks write in a harness's folder.
-	"ceo-native.ts", "ceo-native-hook.ps1", ".ceo-native.backup", ".ceo-install.bak", ".ceo-install.rules",
+	// What the install writes in a harness's folder.
+	".ceo-install.bak", ".ceo-install.rules",
 	// Identifiers the state's records hold as values.
 	"ceo_answer", "ceo_message", "ceo_wait", "primary-ceo", "board-ceo",
 	// The schemas of the state's records, which the new build reads only
@@ -68,13 +68,17 @@ var names = []string{
 	"ceo-reap.v2", "ceo-update.v1",
 }
 
-// programs are the old build's programs, and the names its update gave the
-// copy it kept as its way back, each with the command's name it takes.
+// programs are the old build's programs, the names its update gave the copy
+// it kept as its way back, and the files its native hooks write in a
+// harness's folder, each with the command's name it takes.
 var programs = map[string]string{
-	oldName + ".exe":               newCommand + ".exe",
-	oldName + "-hook.exe":          newCommand + "-hook.exe",
-	"previous-" + oldName:          "previous-" + newCommand,
-	"previous-" + oldName + ".exe": "previous-" + newCommand + ".exe",
+	oldName + ".exe":                 newCommand + ".exe",
+	oldName + "-hook.exe":            newCommand + "-hook.exe",
+	"previous-" + oldName:            "previous-" + newCommand,
+	"previous-" + oldName + ".exe":   "previous-" + newCommand + ".exe",
+	oldName + "-native.ts":           newCommand + "-native.ts",
+	oldName + "-native-hook.ps1":     newCommand + "-native-hook.ps1",
+	"." + oldName + "-native.backup": "." + newCommand + "-native.backup",
 }
 
 // prefixes begin the names of a kind of file or record the new build names
@@ -182,6 +186,11 @@ func (r rules) renamedFile(name string) string {
 		old := oldSpelling(known)
 		if strings.HasPrefix(known, ".") && strings.HasSuffix(strings.ToLower(name), old) {
 			return name[:len(name)-len(old)] + known
+		}
+	}
+	for old, program := range programs {
+		if strings.HasPrefix(old, ".") && strings.HasSuffix(strings.ToLower(name), old) {
+			return name[:len(name)-len(old)] + program
 		}
 	}
 	return name

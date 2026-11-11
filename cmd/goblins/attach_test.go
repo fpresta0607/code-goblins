@@ -473,7 +473,7 @@ func TestCtrlCloseBracketLeavesTheTerminalInEitherEncoding(t *testing.T) {
 // browser session is its own whatever session the user's environment names.
 func TestANativeCEOStartsFromTheUsersEnvironmentInThisHome(t *testing.T) {
 	userEnv := []string{
-		`Path=C:\bin`, "USERS_OWN_SETTING=kept", `GOBLINS_HOME=C:\installed-home`, `ceo_projects_root=C:\dev`,
+		`Path=C:\bin`, "USERS_OWN_SETTING=kept", `GOBLINS_HOME=C:\installed-home`, `goblins_projects_root=C:\dev`,
 		"CLAUDECODE=1", "CLAUDE_CODE_CHILD_SESSION=1", "HERDR_PANE_ID=w1:p1", "HERDR_SESSION=users", "ANTHROPIC_API_KEY=sk-billed",
 		"chrome_devtools_axi_session=the-users-own",
 		"LAVISH_AXI_HOST=100.64.1.2", "lavish_axi_link_url=https://old.example.ts.net:4388", "LAVISH_AXI_ALLOWED_HOSTS=*",

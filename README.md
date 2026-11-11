@@ -212,7 +212,6 @@ See [conversation recovery and fresh starts](docs/native-board.md#a-ceo-whose-te
 
 ### Core commands
 
-`goblins` and `goblins` name the same CLI.
 Use `goblins help` to list topics, then ask for one command, such as `goblins help auth request`.
 The [help reference](docs/commands/help.md), [operator contract](AGENTS.md) and [pipeline guide](docs/pipeline.md) cover fleet operation and verification levels.
 See the [update command reference](docs/commands/update.md) for installing a candidate build and recovering an update.

@@ -1160,7 +1160,7 @@ type fixtureOrigin struct {
 // goTestTask is the task whose Go temporary directory process's program runs
 // from: its scratch folder, <scratch root>\<task id> under any of the home's
 // scratch roots, or for a goblin an older build spawned
-// %LOCALAPPDATA%\ceo\gotmp\<fleet>\<task id> (state.GoTmpDir). A goblin's Go
+// %LOCALAPPDATA%\goblins\gotmp\<fleet>\<task id> (state.GoTmpDir). A goblin's Go
 // test builds its test binary there, and the stand-ins it starts run from the
 // test's own temporary directory under it, so the path names the goblin the
 // test may be; runsForTask decides whether it is.
@@ -1179,7 +1179,7 @@ func goTestTask(process Process, scratchRoots []string) (string, bool) {
 	}
 	parts := strings.FieldsFunc(args[0], func(r rune) bool { return r == '\\' || r == '/' })
 	for index := 1; index+3 < len(parts); index++ {
-		if strings.EqualFold(parts[index-1], "ceo") && strings.EqualFold(parts[index], "gotmp") {
+		if strings.EqualFold(parts[index-1], "goblins") && strings.EqualFold(parts[index], "gotmp") {
 			return parts[index+2], true
 		}
 	}
@@ -1601,7 +1601,7 @@ func overlordsSessions(processes []Process) map[int]bool {
 		parent, ok := byPID[process.ParentPID]
 		return ok && executableName(parent.Name) == "explorer" && !process.Start.Before(parent.Start) && slices.Contains(explorerShells, name)
 	}))
-	for pid := range descendants(processes, rootsMatching(processes, func(process Process) bool { return executableName(process.Name) == "ceo" })) {
+	for pid := range descendants(processes, rootsMatching(processes, func(process Process) bool { return executableName(process.Name) == "goblins" })) {
 		delete(sessions, pid)
 	}
 	return sessions

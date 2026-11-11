@@ -12,7 +12,7 @@ It prints nothing to paste, and `--recover` stays for recovery by hand ([docs/na
 
 `goblins update [--check] [--to <tag> [--run <item>]]`
 
-The Supreme Overlord's alone, never yours, in AFK mode or out of it: run as the home's own `goblins` or `goblins`, it updates the home from the newest published release of Code Goblins.
+The Supreme Overlord's alone, never yours, in AFK mode or out of it: run as the home's own `goblins`, it updates the home from the newest published release of Code Goblins.
 It downloads the release's `goblins.exe` and desktop window into `state\update`, keeps each only when it matches the release's `SHA256SUMS` and, for a release whose `install.ps1` names a publisher, carries that publisher's valid signature, runs the downloaded build's own `update` above, then that build's `install` to bring the home's contract, skills and hooks up to date where the machine's install names this home, and ends on `Updated:`, `Rolled back:` or `Failed:` with why.
 Exit 6 means the new build serves but the home refresh failed, or the machine's installed home could not be read: it keeps that build, ends on `Updated:` with what remains to do, and says to run `goblins install` to finish; deliberately skipping another home's refresh exits 0.
 It refuses under the registered CEO, in a goblin's or a gate agent's terminal, under an agent harness and where its parents do not reach the desktop.

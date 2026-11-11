@@ -18,7 +18,7 @@ func TestTheUsersOwnHomesWindowKeepsTheOneInstanceAndItsNotifications(t *testing
 		stateDir string
 	}{
 		"named by GOBLINS_HOME":                     {[]string{"GOBLINS_HOME=" + usersHome, "LOCALAPPDATA=" + usersLocal}, usersHome + `\state`},
-		"named by GOBLINS_HOME, spelled in caps":    {[]string{"ceo_home=" + usersHome}, `C:\DEV\Code-Goblins\state\`},
+		"named by GOBLINS_HOME, spelled in caps":    {[]string{"goblins_home=" + usersHome}, `C:\DEV\Code-Goblins\state\`},
 		"the per-user home":                         {[]string{"LOCALAPPDATA=" + usersLocal}, usersLocal + `\CodeGoblins\state`},
 		"its state named by GOBLINS_STATE_OVERRIDE": {[]string{"GOBLINS_HOME=" + usersHome, `GOBLINS_STATE_OVERRIDE=D:\fleet-state`}, `D:\fleet-state`},
 	} {

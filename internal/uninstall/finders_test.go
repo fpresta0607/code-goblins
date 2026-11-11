@@ -75,12 +75,12 @@ func TestFoldersFindsCodeGoblinsOwnFilesOutsideTheHomeAndNothingElse(t *testing.
 	// Arrange
 	m := testMachine(t)
 	for _, path := range []string{
-		filepath.Join(m.LocalAppData, "ceo", "conpty", "OpenConsole.exe"),
+		filepath.Join(m.LocalAppData, "goblins", "conpty", "OpenConsole.exe"),
 		filepath.Join(m.AppData, "goblins-window.exe", "EBWebView", "Local State"),
 		filepath.Join(m.Temp, "CodeGoblinsInstall.log"),
 		filepath.Join(m.Temp, "code-goblins-1234", "SHA256SUMS"),
 		filepath.Join(m.Temp, "Code Goblins{ABC}.png"),
-		filepath.Join(m.Temp, "jiti", "extensions-ceo-native.291f97c5.mjs"),
+		filepath.Join(m.Temp, "jiti", "extensions-goblins-native.291f97c5.mjs"),
 		filepath.Join(m.Temp, "jiti", "someone-elses.mjs"),
 		filepath.Join(m.Temp, "unrelated.log"),
 	} {

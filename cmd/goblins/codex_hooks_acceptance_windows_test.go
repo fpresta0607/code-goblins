@@ -103,11 +103,11 @@ func TestInstalledCodexHooksReportTurnsAndWatcherReceipts(t *testing.T) {
 	if err := json.Unmarshal(after, &installed); err != nil {
 		t.Fatal(err)
 	}
-	// Codex hooks run ceo directly, or through the helper where a path would
+	// Codex hooks run goblins directly, or through the helper where a path would
 	// need quoting.
 	commands := []string{
 		filepath.ToSlash(binary) + " native-hook codex --home " + filepath.ToSlash(p.home.Root) + " --state " + filepath.ToSlash(p.home.State),
-		`powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "` + filepath.ToSlash(filepath.Join(configDir, "ceo-native-hook.ps1")) + `"`,
+		`powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "` + filepath.ToSlash(filepath.Join(configDir, "goblins-native-hook.ps1")) + `"`,
 	}
 	for _, event := range []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop", "Interrupt"} {
 		owned := 0

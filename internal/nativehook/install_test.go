@@ -49,7 +49,7 @@ func TestInstallPreservesOtherHooksAndIsIdempotent(t *testing.T) {
 			if (name == "codex") != (len(doc.Hooks["Interrupt"]) == 1) {
 				t.Fatal("Interrupt must be installed only for the verified Codex contract")
 			}
-			backup, _ := os.ReadFile(path + ".ceo-native.backup")
+			backup, _ := os.ReadFile(path + ".goblins-native.backup")
 			if string(backup) != string(original) {
 				t.Fatal("original backup not preserved")
 			}

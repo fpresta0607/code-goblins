@@ -80,7 +80,7 @@ func classify(j job, facts jobFacts) (Group, string, string) {
 // heavyLineRun is a run in the machine's heavy line, which waits there for
 // its turn, holds it while its command runs, and tells its goblin how it
 // ended.
-var heavyLineRun = regexp.MustCompile(`(?i)\b(ceo|goblins)(\.exe)?"?\s+gate\s+turn\b`)
+var heavyLineRun = regexp.MustCompile(`(?i)\bgoblins(\.exe)?"?\s+gate\s+turn\b`)
 
 // isHeavyRun says a job is or runs a run in the machine's heavy line, by its
 // processes' command lines.

@@ -23,6 +23,8 @@ func TestTheRulesRenameTheCommandAndKeepEveryOtherWord(t *testing.T) {
 		{"a task's id", "task cg-" + oldName + "-wakes and " + oldName + "-native-board", "task cg-" + oldName + "-wakes and " + oldName + "-native-board"},
 		{"a state file", `state\` + oldName + `-engine.json.`, `state\` + newName + `-engine.json.`},
 		{"a handoff note", oldName + "-handoff-2026-11-05.md", newName + "-handoff-2026-11-05.md"},
+		{"the native hooks' helper", `-File "C:/Users/o/.codex/` + oldName + `-native-hook.ps1"`, `-File "C:/Users/o/.codex/` + newCommand + `-native-hook.ps1"`},
+		{"pi's extension", `extensions\` + oldName + `-native.ts`, `extensions\` + newCommand + `-native.ts`},
 		{"the hooks' marker", "# " + upper + " native hooks v1", "# " + strings.ToUpper(newName) + " native hooks v1"},
 		{"the last update's copy", `bin\previous-` + oldName + `.exe`, `bin\previous-` + newCommand + `.exe`},
 		{"identifiers side by side", "primary-" + oldName + " previous-" + oldName, "primary-" + newName + " previous-" + newCommand},
@@ -38,6 +40,21 @@ func TestTheRulesRenameTheCommandAndKeepEveryOtherWord(t *testing.T) {
 				t.Fatalf("rewrote %q as %q, want %q", test.text, got, test.want)
 			}
 		})
+	}
+}
+
+func TestTheFilesTheOldBuildWroteInAHarnessTakeTheirNewNames(t *testing.T) {
+	r := newRules(nil, nil)
+	for _, test := range []struct{ old, want string }{
+		{oldName + "-native-hook.ps1", newCommand + "-native-hook.ps1"},
+		{oldName + "-native.ts", newCommand + "-native.ts"},
+		{"settings.json." + oldName + "-native.backup", "settings.json." + newCommand + "-native.backup"},
+		{"settings.json." + oldName + "-install.bak", "settings.json." + newName + "-install.bak"},
+		{"settings.json", "settings.json"},
+	} {
+		if got := r.renamedFile(test.old); got != test.want {
+			t.Errorf("renamedFile(%q) = %q, want %q", test.old, got, test.want)
+		}
 	}
 }
 

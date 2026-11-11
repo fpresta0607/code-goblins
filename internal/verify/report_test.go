@@ -263,7 +263,7 @@ func TestBeginKeepsAnyProjectNameInsideTheStore(t *testing.T) {
 	}
 }
 
-// The store is the folder GOBLINS_VERIFY_DIR names, else ceo/verify in the
+// The store is the folder GOBLINS_VERIFY_DIR names, else goblins/verify in the
 // user's cache folder; a test binary that names none is refused, so no test
 // writes into the store real runs read.
 func TestStoreDirIsTheOverrideElseTheUsersCacheAndNeverThatFromATest(t *testing.T) {

@@ -52,7 +52,7 @@ func admissionDir(named string, isTest bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("verify: resolve canonical admission store: %w", err)
 	}
-	canonical := filepath.Join(cache, "ceo", "verify", "slots")
+	canonical := filepath.Join(cache, "goblins", "verify", "slots")
 	if named != "" {
 		absolute, err := fsx.AbsClean(named)
 		if err != nil {

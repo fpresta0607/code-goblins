@@ -118,7 +118,7 @@ func (line *countedLine) Free() error {
 }
 
 func (line *countedLine) Wrap(who string, command []string) []string {
-	return append([]string{"ceo", "gate", "turn", "--as", who, "--wait", "30s", "--"}, command...)
+	return append([]string{"goblins", "gate", "turn", "--as", who, "--wait", "30s", "--"}, command...)
 }
 
 func has(items []Item, path string) (Item, bool) {

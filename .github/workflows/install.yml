@@ -314,7 +314,7 @@ jobs:
           # whole line. The CEO's hooks are goblins.exe with args hook <name>, and the
           # install writes none of them here: the CEO's terminal starts with its
           # own, and in the user's settings every Claude Code session would run them.
-          $ceoHooks = @(@($settings.hooks.PSObject.Properties.Value.hooks | ForEach-Object { @($_.command) + @($_.args) -join " " }) -match "ceo\.exe hook ")
+          $ceoHooks = @(@($settings.hooks.PSObject.Properties.Value.hooks | ForEach-Object { @($_.command) + @($_.args) -join " " }) -match "goblins\.exe hook ")
           if ($ceoHooks.Count -gt 0) { throw "the install wrote the CEO's hooks into the Claude Code user settings, where every session runs them: $($ceoHooks -join '; ')" }
           # Each harness gets its own copy of each skill: a symlink needs a
           # right an ordinary Windows user may not have. Codex and pi each read
@@ -414,7 +414,7 @@ jobs:
           }
           $settings = Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json
           $commands = @($settings.hooks.SessionStart.hooks | ForEach-Object { @($_.command) + @($_.args) -join " " })
-          foreach ($hook in @{ match = "ceo\.exe hook session-start"; want = 0 }, @{ match = "ceo-native-hook\.ps1"; want = 0 }) {
+          foreach ($hook in @{ match = "goblins\.exe hook session-start"; want = 0 }, @{ match = "goblins-native-hook\.ps1"; want = 0 }) {
             $count = @($commands -match $hook.match).Count
             if ($count -ne $hook.want) { throw "after a second install SessionStart holds $count hooks matching $($hook.match), want $($hook.want)" }
           }
@@ -551,8 +551,8 @@ jobs:
             if ((Get-Item -LiteralPath (Join-Path $env:USERPROFILE ".claude\skills\$skill") -Force).LinkType -ne "Junction") { throw "~\.claude\skills\$skill is not a junction to ~\.agents\skills\$skill" }
           }
           $commands = @((Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json).hooks.SessionStart.hooks | ForEach-Object { @($_.command) + @($_.args) -join " " })
-          if ($commands -match "ceo-native-hook\.ps1") { throw "-Dev wrote the native hooks into the Claude Code user settings, where every session runs them" }
-          if ($commands -match "ceo\.exe hook ") { throw "-Dev wrote the CEO's hooks into the Claude Code user settings, where every session runs them" }
+          if ($commands -match "goblins-native-hook\.ps1") { throw "-Dev wrote the native hooks into the Claude Code user settings, where every session runs them" }
+          if ($commands -match "goblins\.exe hook ") { throw "-Dev wrote the CEO's hooks into the Claude Code user settings, where every session runs them" }
           # tests/acceptance/install_left_out.ps1 owns the rule and its fixtures:
           # a tool the install's closing note names is an environment result on
           # a runner that could not reach it, never a failure of the change.
@@ -631,7 +631,7 @@ jobs:
   # as its notes say, updates with goblins update while the CEO and a goblin
   # work. Each release here predates the rename, which its update cannot cross,
   # so its home moves to goblins by this commit's goblins cutover first, with the fleet
-  # paused, and the CEO and the goblin are brought back to work under ceo.
+  # paused, and the CEO and the goblin are brought back to work under goblins.
   # This commit's build is served as the newest release, and so is a build of
   # it whose board exits as it starts: the update to that one rolls back, the
   # update to this commit installs it, and each keeps the home, the running

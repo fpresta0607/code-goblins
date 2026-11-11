@@ -749,7 +749,7 @@ func TestSnapshotSaysWhyNothingStartsWhileTheHeavyLineKeepsTheMemory(t *testing.
 }
 
 func TestSnapshotNamesTheTopCommitHoldersOnlyWhileCommitIsTheTighter(t *testing.T) {
-	holders := []CommitHolder{{Name: "ChatGPT", Commit: 11 * gigabyte}, {Name: "ceo", Commit: 6 * gigabyte}}
+	holders := []CommitHolder{{Name: "ChatGPT", Commit: 11 * gigabyte}, {Name: "goblins", Commit: 6 * gigabyte}}
 	tests := []struct {
 		name              string
 		available, commit uint64

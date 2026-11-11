@@ -487,8 +487,8 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 		Project: "primary",
 		Env: map[string]string{
 			"gotmpdir":                 `C:\hijacked-gotmpdir`,
-			"ceo_state_override":       `C:\hijacked-state`,
-			"Ceo_Role":                 "overlord",
+			"goblins_state_override":   `C:\hijacked-state`,
+			"Goblins_Role":             "overlord",
 			"localappdata":             `C:\hijacked-cache`,
 			"XDG_Cache_Home":           "/hijacked-cache",
 			"Home":                     "/hijacked-cache-home",

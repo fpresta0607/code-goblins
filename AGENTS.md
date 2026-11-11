@@ -183,7 +183,7 @@ What Defender recorded is read with `Get-MpThreatDetection`, `Get-MpThreat`, `Ge
 
 What keeps the work quiet:
 
-- A test that needs some program to start uses the one stand-in program of `internal/standin`, built once for each Go toolchain into `ceo\standin` in the user's cache folder and reused, so the file Defender meets is one it has met.
+- A test that needs some program to start uses the one stand-in program of `internal/standin`, built once for each Go toolchain into `goblins\standin` in the user's cache folder and reused, so the file Defender meets is one it has met.
   A test never serves or runs a copy of its own test binary where the stand-in would do, and no stand-in is named after a program Windows ships.
   `internal/standin`'s tests fail on either, and the repository's CONTRIBUTING.md says how to use it.
 - No stand-in carries the name of a program Windows ships, a script first on PATH included.

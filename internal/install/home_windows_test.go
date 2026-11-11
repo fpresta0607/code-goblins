@@ -120,7 +120,7 @@ func TestARootCopyStillRunningMovesIntoBinUnderItsProgramsName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(moved) != 1 || !regexp.MustCompile(`^ceo\.exe\.[A-Za-z0-9]+\.old$`).MatchString(filepath.Base(moved[0])) || readFile(t, moved[0]) != string(ping) {
+	if len(moved) != 1 || !regexp.MustCompile(`^goblins\.exe\.[A-Za-z0-9]+\.old$`).MatchString(filepath.Base(moved[0])) || readFile(t, moved[0]) != string(ping) {
 		t.Fatalf("copies moved into bin = %v, want the running copy alone, named goblins.exe.<text>.old:\n%s", moved, output)
 	}
 	if _, err := os.Stat(running); !os.IsNotExist(err) {

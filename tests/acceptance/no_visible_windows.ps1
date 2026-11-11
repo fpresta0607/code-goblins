@@ -326,7 +326,7 @@ New-Item -ItemType Directory -Force $env:GOBLINS_HOME, $env:GOBLINS_STATE_OVERRI
 # names, so it shares the scratch home too.
 . (Join-Path $PSScriptRoot '..\pre_rename_build.ps1')
 foreach ($name in 'HOME', 'STATE_OVERRIDE', 'PROJECTS_ROOT') {
-    Set-Item -LiteralPath "env:$PreRenameSettingPrefix$name" -Value (Get-Item -LiteralPath "env:CEO_$name").Value
+    Set-Item -LiteralPath "env:$PreRenameSettingPrefix$name" -Value (Get-Item -LiteralPath "env:GOBLINS_$name").Value
 }
 
 $watchFor = 10

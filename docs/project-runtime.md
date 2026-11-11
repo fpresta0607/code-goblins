@@ -25,7 +25,7 @@ Code Goblins keeps secrets in the existing auth store and keeps infrastructure s
     "changed_only":true,
     "max_fast_seconds":90,
     "max_full_seconds":900,
-    "reuse":{"tiers":["fast"],"inputs":["internal/boardweb/dist"],"tools":[["go","version"],["ceo","version"]],"environment":["GOFLAGS"],"max_age_hours":24}
+    "reuse":{"tiers":["fast"],"inputs":["internal/boardweb/dist"],"tools":[["go","version"],["goblins","version"]],"environment":["GOFLAGS"],"max_age_hours":24}
   },
   "security": {
     "mode":"risk",
@@ -127,7 +127,7 @@ Taking a pass at the turn saves a run only when the pass is there by then: ident
 A taken pass is saved with each result naming it under `reused`, with `reused_at` and `reused_for`, the task that took it, while the result's other fields are the original run's, and the tier says so on standard error.
 A record without `reuse` runs every time, and so does an unstamped `goblins` build, an incomplete source, an input that is a link or a junction, a tool command that fails, or a worktree with no default branch to measure against, which the tier says.
 What the key does not hold can change a check's result unseen: files outside the worktree, the network and services, the time of day, every variable not declared, line endings, modes and the case of a name as docs/pipeline.md says, the Windows build, and a change made and undone between the two reads of the key.
-A `goblins` a tier's command starts from its PATH is another build than the one that verifies, so a tier that runs `goblins` declares `["ceo","version"]` among its tools.
+A `goblins` a tier's command starts from its PATH is another build than the one that verifies, so a tier that runs `goblins` declares `["goblins","version"]` among its tools.
 Files git ignores by `.git/info/exclude` or a user's `core.excludesFile`, as the dependencies and `.env` copies goblins links into a worktree, are no part of the source, so a check that reads them declares them as inputs.
 A dependency folder goblins links in is a junction, which no key reads, so a record declares a file inside it instead, as a lockfile or an install marker.
 A pass is kept for a week at most, and taken only while the execution records it names are kept.

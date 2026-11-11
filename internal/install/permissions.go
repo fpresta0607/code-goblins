@@ -48,7 +48,7 @@ func PermissionRules() []string {
 	rules := make([]string, 0, len(shellTools)*len(boardCommands))
 	for _, tool := range shellTools {
 		for _, command := range boardCommands {
-			rules = append(rules, tool+"(ceo "+command+" *)")
+			rules = append(rules, tool+"(goblins "+command+" *)")
 		}
 	}
 	return rules

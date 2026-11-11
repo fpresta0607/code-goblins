@@ -12,7 +12,7 @@ import (
 // the temp folder.
 func (m Machine) folders(context.Context) ([]Item, error) {
 	named := []struct{ what, path string }{
-		{"its console host and verify reports", filepath.Join(m.LocalAppData, "ceo")},
+		{"its console host and verify reports", filepath.Join(m.LocalAppData, "goblins")},
 		{"the window's browser profile", filepath.Join(m.AppData, "goblins-window.exe")},
 		{"the window an earlier install kept", filepath.Join(m.LocalAppData, "CodeGoblinsWindow")},
 		{"the install's log", filepath.Join(m.Temp, "CodeGoblinsInstall.log")},
@@ -41,7 +41,7 @@ func (m Machine) folders(context.Context) ([]Item, error) {
 	globs := []struct{ what, pattern string }{
 		{"a download of the install", filepath.Join(m.Temp, "code-goblins-*")},
 		{"a notification's picture", filepath.Join(m.Temp, "Code Goblins{*}.png")},
-		{"pi's compiled copy of the board's extension", filepath.Join(m.Temp, "jiti", "extensions-ceo-native.*")},
+		{"pi's compiled copy of the board's extension", filepath.Join(m.Temp, "jiti", "extensions-goblins-native.*")},
 	}
 	for _, g := range globs {
 		matches, err := filepath.Glob(g.pattern)

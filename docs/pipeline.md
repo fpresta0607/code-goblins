@@ -524,9 +524,9 @@ A build ignores a field it does not know, so the build a gate has installed keep
 A file that does not parse, or a version the build does not know, makes the change require `full`.
 A repository with no policy file has no slow packages.
 
-Every `goblins gate test` run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\ceo\verify\reports\<project>\`, and its verdict line names the report.
+Every `goblins gate test` run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\goblins\verify\reports\<project>\`, and its verdict line names the report.
 A run at a level narrower than the change requires ends with one more line naming the level the change requires, which CI's run checks.
-`GOBLINS_VERIFY_DIR` names a folder to use in place of `<user cache folder>\ceo\verify`, so they go under its `reports\<project>\`.
+`GOBLINS_VERIFY_DIR` names a folder to use in place of `<user cache folder>\goblins\verify`, so they go under its `reports\<project>\`.
 The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, `over_budget` when a check passed but ran past its budget, or `not_run` when admission or an earlier command failed.
 For the test command it also holds what became of each package: `passed`, `failed`, `build_failed` when it did not compile, `no_tests`, or `unfinished` when its tests were still running as the run ended, with its time, how many tests it ran, the tests that failed and the tests that started and never finished, which is how a test that hangs shows.
 
@@ -553,7 +553,7 @@ Any other command stands in the same line behind `goblins gate turn`, described 
 The janitor's prunes of the package caches stand in it too, each as its own `goblins gate turn --wait 30s`, started only while the line has one slot that no run holds or waits for, so a run that takes the line first defers the prune rather than queue it.
 Each command releases its turn when execution ends and joins the common line again before its next command.
 The default remains one, which keeps heavy commands from competing for the same machine's resources.
-Production admission always uses the operating system's user cache folder under `ceo/verify/slots`, regardless of report or process environment redirects.
+Production admission always uses the operating system's user cache folder under `goblins/verify/slots`, regardless of report or process environment redirects.
 The shared `capacity.json` setting accepts only `{"capacity":1}` or `{"capacity":2}`; absence means one.
 Activating capacity two requires a separately reviewed quiet window with no legacy command executing or queued.
 An unreadable or invalid setting, or any nonempty `GOBLINS_VERIFY_SLOTS` process setting, refuses admission.
@@ -839,7 +839,7 @@ Interruption requests Ctrl+Break only for the command's own process group, then 
 A command that shares its caller's console group, as `goblins gate turn`'s does, is sent no Ctrl+Break, since that event reaches only a whole group, its caller's included: an interrupt reaches it from the console itself, and pressure ends its job at once.
 Each custody record prevents slot release until its execution confirms cleanup, including when a parent wrapper tries to release a nested command's turn.
 A custody record names its execution's Windows job and the process that controls the execution, and it is written before the job or any worker exists.
-The job is named `Global\ceo-verify-` followed by the execution's random run ID, in the machine's global namespace so a run in any logon session finds it, its creation refuses a name that already exists, and no child inherits its handle.
+The job is named `Global\goblins-verify-` followed by the execution's random run ID, in the machine's global namespace so a run in any logon session finds it, its creation refuses a name that already exists, and no child inherits its handle.
 When that controller is verifiably gone, the next admission, or the release of the turn it ran inside, recovers its custody instead of refusing every later run.
 Recovery ends whatever still runs in the job and waits until Windows counts it empty, or finds that no job of that name exists, which means nothing runs in it.
 It still refuses while a process the controller started after recording custody runs outside the job, as a worker created suspended and never assigned to its job would.
@@ -1025,7 +1025,7 @@ Most specs open the whole board, so what a spec imports does not say what it cov
 Where `frontend/node_modules` is missing the run starts none of the board's checks and says so, because npm can exit 0 where it found no program to run.
 
 A package the policy lists as slow runs without its slowest tests.
-The run reads this machine's own record of the shortest time each test has passed in, under `ceo\verify\times` in the user's cache folder, and leaves out, with `go test -skip`, the tests the record has at 2 seconds or longer.
+The run reads this machine's own record of the shortest time each test has passed in, under `goblins\verify\times` in the user's cache folder, and leaves out, with `go test -skip`, the tests the record has at 2 seconds or longer.
 The record keeps a test's fastest pass because a test left out is not run and so is never timed again: in two hours of replays on a busy machine 13 tests of `internal/supervisor` and 3 of `cmd/goblins` passed in over 2 seconds that had passed in under 2 before, and a record of the latest time would have left each of them out from then on.
 A test that grows slower keeps its old time and keeps running, which costs time and loses nothing.
 On 2026-10-07 and 2026-10-08 the tests under 2 seconds were 81 to 88 percent of the tests of `cmd/goblins` and `internal/supervisor` and 9 to 28 percent of their time.

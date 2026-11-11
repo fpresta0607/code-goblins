@@ -115,7 +115,7 @@ Write-Host $dictation
 
 $after = Get-FleetFacts -Project $Project
 $after | Format-Table -AutoSize -Wrap | Out-String -Width 400 | Write-Host
-foreach ($running in "board", "goblins host", "ceo harness", "demo-goblin host", "demo-goblin harness") {
+foreach ($running in "board", "ceo host", "ceo harness", "demo-goblin host", "demo-goblin harness") {
     if ($after[$running] -match "not running") { $problems += "after the cutover the $running is not running: $($after[$running])" }
 }
 if ($after.version -notmatch '^goblins ') { $problems += "goblins version prints '$($after.version)', want goblins'" }

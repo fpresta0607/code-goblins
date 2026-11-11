@@ -58,7 +58,7 @@ A start measures the drop in free memory while the stack, and the engine when it
 A start cut short, as the floor ends one part way through a build or as its process is ended from outside, never measures itself, and Docker's virtual machine gives its memory back slowly, so the stop that follows also measures the drop from the memory read before that start began.
 A first start builds the images the stack lacks inside that start, which can take many minutes and more memory than the stack runs on: PrecisionDocs' backend build took 6.6 GB with the engine on 2026-10-08, where redis and qdrant with the engine took 3.4 GB.
 The cost it measures guards every later start, and a later start that finds the images measures what the running stack takes instead.
-A stack that was already running when goblins came is shared and never stopped by ceo, and beside one that runs part of the stack goblins stops only the services it started.
+A stack that was already running when goblins came is shared and never stopped by goblins, and beside one that runs part of the stack goblins stops only the services it started.
 `goblins services down <project> --task <id>` releases the hold, and the last release stops what goblins started, keeping named volumes, and the engine when goblins started it and nothing it did not start runs on it.
 
 `goblins cleanup`, which `goblins kill` runs too, releases every stack the task held.
