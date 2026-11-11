@@ -22,6 +22,17 @@ func commandPrinted(uuid, printed string) object {
 	return prompted(uuid, "<local-command-stdout>"+printed+"</local-command-stdout>")
 }
 
+// ranCommand is Claude Code 2.1.312's record of a command it ran itself with
+// args typed after it, and ranPrinted of what that command printed: a system
+// local_command record each, with no user message.
+func ranCommand(uuid, command, args string) object {
+	return system(uuid, "local_command", object{"content": "<command-name>/" + command + "</command-name>\n            <command-message>" + command + "</command-message>\n            <command-args>" + args + "</command-args>", "level": "info", "isMeta": false})
+}
+
+func ranPrinted(uuid, command, args, printed string) object {
+	return system(uuid, "local_command", object{"content": "<local-command-stdout>" + printed + "</local-command-stdout>", "level": "info", "isMeta": false, "commandRun": object{"command": command, "args": args}})
+}
+
 // ranOn is an answer of model at effort.
 func ranOn(uuid, id, model, effort string) object {
 	ran := answer(uuid, id, textBlock("done"))
@@ -122,6 +133,28 @@ func TestASessionReadsTheEngineItsHarnessLastNamed(t *testing.T) {
 		{"Claude Code's latest answer, after /effort", "claude", func(t *testing.T, home string) string {
 			return conversation(t, home, effortCommand("c1", "max"), commandPrinted("o1", "Set effort level to max"), writtenAt(ranOn("a2", "reply-2", "claude-opus-5-5", "low"), at.Add(time.Minute)))
 		}, Engine{Model: "claude-opus-5-5", ModelAt: at.Add(time.Minute), Effort: "low", EffortAt: at.Add(time.Minute)}},
+		{"Claude Code's /model with a model typed after it, recorded as system entries", "claude", func(t *testing.T, home string) string {
+			return conversation(t, home, prompted("u1", "work"), ranOn("a1", "reply-1", "claude-opus-5-5", "high"),
+				writtenAt(ranCommand("c1", "model", "claude-fable-5-2[1m]"), at.Add(time.Minute)),
+				writtenAt(ranPrinted("o1", "model", "claude-fable-5-2[1m]", "Set model to `Fable 5.2` and saved as your default for new sessions"), at.Add(time.Minute)))
+		}, Engine{Model: "claude-opus-5-5", ModelAt: at, ModelTyped: "claude-fable-5-2[1m]", ModelTypedAt: at.Add(time.Minute), Effort: "high", EffortAt: at}},
+		{"Claude Code's /model picker, recorded as system entries", "claude", func(t *testing.T, home string) string {
+			return conversation(t, home, prompted("u1", "work"),
+				writtenAt(ranCommand("c1", "model", ""), at.Add(time.Minute)),
+				writtenAt(ranPrinted("o1", "model", "", "Kept model as `Opus 5.5`"), at.Add(time.Minute)))
+		}, Engine{ModelName: "Opus 5.5", ModelAt: at.Add(time.Minute)}},
+		{"Claude Code's cancelled /model, recorded as system entries", "claude", func(t *testing.T, home string) string {
+			return conversation(t, home, ranOn("a1", "reply-1", "claude-opus-5-5", ""), writtenAt(ranCommand("c1", "model", ""), at.Add(time.Minute)), writtenAt(ranPrinted("o1", "model", "", "Cancelled"), at.Add(time.Minute)))
+		}, Engine{Model: "claude-opus-5-5", ModelAt: at}},
+		{"Claude Code's /effort with a level, recorded as system entries", "claude", func(t *testing.T, home string) string {
+			return conversation(t, home, ranOn("a1", "reply-1", "claude-opus-5-5", "high"), writtenAt(ranCommand("c1", "effort", "max"), at.Add(time.Minute)), writtenAt(ranPrinted("o1", "effort", "max", "Set effort level to max"), at.Add(time.Minute)))
+		}, Engine{Model: "claude-opus-5-5", ModelAt: at, Effort: "max", EffortAt: at.Add(time.Minute)}},
+		{"Claude Code's command recorded as a user message, with what it printed as a system entry", "claude", func(t *testing.T, home string) string {
+			return conversation(t, home, modelCommand("c1", ""), writtenAt(ranPrinted("o1", "model", "", "Set model to `Fable 5.2`"), at.Add(time.Minute)))
+		}, Engine{ModelName: "Fable 5.2", ModelAt: at.Add(time.Minute)}},
+		{"a system entry that is no command's record sets nothing", "claude", func(t *testing.T, home string) string {
+			return conversation(t, home, ranCommand("c1", "model", ""), system("s1", "informational", object{"content": "<local-command-stdout>Set model to `Fable 5.2`</local-command-stdout>", "level": "info"}))
+		}, Engine{}},
 		{"Codex's turn context", "codex", func(t *testing.T, home string) string {
 			first := codexTurnContext("gpt-6-luna")
 			first["payload"].(object)["effort"] = "high"

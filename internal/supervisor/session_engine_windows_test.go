@@ -44,6 +44,18 @@ func typedCommand(t *testing.T, when time.Time, command, value, printed string) 
 	}
 }
 
+// ranCommand is a command Claude Code ran itself and what it printed, as
+// Claude Code 2.1.312 records the two: a system local_command record each,
+// with no user message.
+func ranCommand(t *testing.T, when time.Time, command, value, printed string) []string {
+	t.Helper()
+	name := strings.TrimPrefix(command, "/")
+	return []string{
+		engineEntry(t, when, map[string]any{"type": "system", "subtype": "local_command", "level": "info", "isMeta": false, "content": "<command-name>" + command + "</command-name>\n            <command-message>" + name + "</command-message>\n            <command-args>" + value + "</command-args>"}),
+		engineEntry(t, when, map[string]any{"type": "system", "subtype": "local_command", "level": "info", "isMeta": false, "content": "<local-command-stdout>" + printed + "</local-command-stdout>", "commandRun": map[string]any{"command": name, "args": value}}),
+	}
+}
+
 // answeredOn is an answer of a Claude Code session, which names the model
 // and the effort it ran at.
 func answeredOn(t *testing.T, when time.Time, model, effort string) string {
@@ -135,6 +147,23 @@ func TestAnEngineChangedInAGoblinsTerminalBecomesItsTasksRecord(t *testing.T) {
 			entries:   typedCommand(t, now, "/model", "default", "Set model to `Default (recommended)`"),
 			wantModel: "claude-opus-5-5", wantEffort: "high",
 		},
+		"a model typed with its id, recorded as system entries": {
+			entries:   ranCommand(t, now, "/model", "claude-fable-5-2", "Set model to `claude-fable-5-2`"),
+			wantModel: "claude-fable-5-2", wantEffort: "high",
+		},
+		"a model picked by its name, recorded as system entries": {
+			entries:   ranCommand(t, now, "/model", "", "Kept model as `Fable 5.2`"),
+			catalog:   `{"additionalModelOptionsCache":[{"value":"claude-fable-5-2","label":"Fable 5.2"}]}`,
+			wantModel: "claude-fable-5-2", wantEffort: "high",
+		},
+		"an effort typed, recorded as system entries": {
+			entries:   ranCommand(t, now, "/effort", "xhigh", "Set effort level to xhigh (this session only): Deepest reasoning"),
+			wantModel: "claude-opus-5-5", wantEffort: "xhigh",
+		},
+		"a model typed, recorded as a user message with what it printed as a system entry": {
+			entries:   []string{typedCommand(t, now, "/model", "claude-fable-5-2", "")[0], ranCommand(t, now, "/model", "claude-fable-5-2", "Set model to `claude-fable-5-2`")[1]},
+			wantModel: "claude-fable-5-2", wantEffort: "high",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -210,6 +239,11 @@ func TestARecordedAliasOutlivesAnswersOnTheModelItNames(t *testing.T) {
 		"an alias and its window typed, then an answer on its model": {
 			recorded: "claude-opus-5-5",
 			entries:  append(typedCommand(t, now, "/model", "opus[1m]", "Set model to `Opus 5.5 (1M context)`"), answeredOn(t, now, "claude-opus-5-5", "high")),
+			want:     "opus[1m]",
+		},
+		"an alias and its window typed and recorded as system entries, then an answer on its model": {
+			recorded: "claude-opus-5-5",
+			entries:  append(ranCommand(t, now, "/model", "opus[1m]", "Set model to `Opus 5.5 (1M context)`"), answeredOn(t, now, "claude-opus-5-5", "high")),
 			want:     "opus[1m]",
 		},
 		"an id and its window typed over an alias of that model": {
@@ -467,6 +501,7 @@ func TestAnEngineChangedInTheCFOsTerminalBecomesItsEngineRecord(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		saved   string
 		entries []string
+		catalog string
 		want    CFOEngine
 		isKept  bool
 	}{
@@ -488,10 +523,41 @@ func TestAnEngineChangedInTheCFOsTerminalBecomesItsEngineRecord(t *testing.T) {
 			entries: typedCommand(t, now, "/effort", "max", "Set effort level to max"),
 			want:    CFOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "max"},
 		},
+		"a model typed over an applied selection, recorded as system entries": {
+			saved:   `{"harness":"claude","model":"claude-opus-5-5","effort":"high"}`,
+			entries: ranCommand(t, now, "/model", "claude-fable-5-2", "Set model to `claude-fable-5-2`"),
+			want:    CFOEngine{Harness: "claude", Model: "claude-fable-5-2", Effort: "high"},
+		},
+		"a model picked by its name over an applied selection, recorded as system entries": {
+			saved:   `{"harness":"claude","model":"claude-opus-5-5","effort":"high"}`,
+			entries: ranCommand(t, now, "/model", "", "Kept model as `Fable 5.2`"),
+			catalog: `{"additionalModelOptionsCache":[{"value":"claude-fable-5-2","label":"Fable 5.2"}]}`,
+			want:    CFOEngine{Harness: "claude", Model: "claude-fable-5-2", Effort: "high"},
+		},
+		"an effort typed over an applied selection, recorded as system entries": {
+			saved:   `{"harness":"claude","model":"claude-opus-5-5","effort":"high"}`,
+			entries: ranCommand(t, now, "/effort", "max", "Set effort level to max"),
+			want:    CFOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "max"},
+		},
+		"a model typed over an applied selection, recorded as a user message with what it printed as a system entry": {
+			saved:   `{"harness":"claude","model":"claude-opus-5-5","effort":"high"}`,
+			entries: []string{typedCommand(t, now, "/model", "claude-fable-5-2", "")[0], ranCommand(t, now, "/model", "claude-fable-5-2", "Set model to `claude-fable-5-2`")[1]},
+			want:    CFOEngine{Harness: "claude", Model: "claude-fable-5-2", Effort: "high"},
+		},
 		"a CFO started as another harness than its selection, once it names its engine": {
 			saved:   `{"harness":"codex","model":"gpt-6-astra","effort":"high","problem":"The CFO started as claude","overridden":"claude"}`,
 			entries: []string{answeredOn(t, now, "claude-fable-5-2", "xhigh")},
 			want:    CFOEngine{Harness: "claude", Model: "claude-fable-5-2", Effort: "xhigh"},
+		},
+		"a selection for another harness that a problem holds for the next start": {
+			saved:   `{"harness":"codex","model":"gpt-6-astra","effort":"high","problem":"The selection could not be applied"}`,
+			entries: []string{answeredOn(t, now, "claude-opus-5-5", "high")},
+			isKept:  true,
+		},
+		"a selection for another harness that a start as a third harness overrode": {
+			saved:   `{"harness":"codex","model":"gpt-6-astra","effort":"high","problem":"The selection could not be applied","overridden":"pi"}`,
+			entries: []string{answeredOn(t, now, "claude-opus-5-5", "high")},
+			isKept:  true,
 		},
 		"a selection that waits to be applied": {
 			saved:   `{"harness":"claude","model":"claude-fable-5-2","effort":"max","pending":true}`,
@@ -548,6 +614,9 @@ func TestAnEngineChangedInTheCFOsTerminalBecomesItsEngineRecord(t *testing.T) {
 			path := filepath.Join(h.State, "cfo-engine.json")
 			if testCase.saved != "" {
 				writeFile(t, path, testCase.saved)
+			}
+			if testCase.catalog != "" {
+				writeFile(t, filepath.Join(service.Options.Tree.Home, ".claude.json"), testCase.catalog)
 			}
 			written(t, conversation, testCase.entries...)
 			sent := service.revision

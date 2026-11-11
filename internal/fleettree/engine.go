@@ -178,13 +178,17 @@ func (l *engineLog) entry(line []byte) {
 
 // claudeEntry folds one entry of a Claude Code conversation: an answer of
 // the session's own, which names its model and the effort it ran at, and a
-// /model or /effort with what it printed.
+// /model or /effort with what it printed. Claude Code records such a command
+// and what it printed each as a user message or, with no user message, as a
+// system local_command record that holds the same text (2.1.312).
 func (l *engineLog) claudeEntry(line []byte) {
 	var entry struct {
-		Type        string    `json:"type"`
-		Timestamp   time.Time `json:"timestamp"`
-		IsSidechain bool      `json:"isSidechain"`
-		Effort      string    `json:"effort"`
+		Type        string          `json:"type"`
+		Subtype     string          `json:"subtype"`
+		Timestamp   time.Time       `json:"timestamp"`
+		IsSidechain bool            `json:"isSidechain"`
+		Effort      string          `json:"effort"`
+		Content     json.RawMessage `json:"content"`
 		Message     struct {
 			Model   string          `json:"model"`
 			Content json.RawMessage `json:"content"`
@@ -204,9 +208,16 @@ func (l *engineLog) claudeEntry(line []byte) {
 			l.model(entry.Message.Model, entry.Timestamp)
 			l.effort(entry.Effort, entry.Timestamp)
 		}
-	case "user":
+	case "user", "system":
+		content := entry.Message.Content
+		if entry.Type == "system" {
+			if entry.Subtype != "local_command" {
+				return
+			}
+			content = entry.Content
+		}
 		var text string
-		if json.Unmarshal(entry.Message.Content, &text) != nil {
+		if json.Unmarshal(content, &text) != nil {
 			return
 		}
 		text = strings.TrimSpace(text)
