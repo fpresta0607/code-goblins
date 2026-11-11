@@ -593,6 +593,53 @@ func TestAHandedBackLineMatchesOnlyAComposerHoldingItAlone(t *testing.T) {
 	}
 }
 
+// A delivery takes its own words back off a prompt line only while they are
+// all the line holds: every word, the part its harness has read or still
+// shows, what is left as it gives them up a row at a time, or the placeholder
+// of a paste. Words of his before or after them, his words alone, an empty
+// line and one that cannot be read are never the delivery's (#2306).
+func TestAPromptLineIsADeliverysOwnOnlyWhileItHoldsNothingButItsWords(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	claudeFooter := "⏵⏵ bypass permissions on (shift+tab to cycle)"
+	codexFooter := "100% context left"
+	piFooter := "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)"
+	for name, test := range map[string]struct {
+		kind   Kind
+		screen []string
+		typed  string
+		isOwn  bool
+	}{
+		"claude every word":            {Claude, []string{rule, "❯ stop and rebase", rule, claudeFooter}, "stop and rebase", true},
+		"claude the part read so far":  {Claude, []string{rule, "❯ stop and re", rule, claudeFooter}, "stop and rebase", true},
+		"claude the rows left":         {Claude, []string{rule, "❯ check the tests", rule, claudeFooter}, "check the tests\nstop and rebase", true},
+		"claude the end still in view": {Claude, []string{rule, "❯ and rebase", rule, claudeFooter}, "stop and rebase", true},
+		"claude a paste's placeholder": {Claude, []string{rule, "❯ [Pasted text #1 +3 lines]", rule, claudeFooter}, "stop and rebase", true},
+		"claude his words after":       {Claude, []string{rule, "❯ stop and rebase and the", rule, claudeFooter}, "stop and rebase", false},
+		"claude his words before":      {Claude, []string{rule, "❯ and then stop and rebase", rule, claudeFooter}, "stop and rebase", false},
+		"claude his words alone":       {Claude, []string{rule, "❯ wait for me", rule, claudeFooter}, "stop and rebase", false},
+		"claude an empty line":         {Claude, []string{rule, "❯ ", rule, claudeFooter}, "stop and rebase", false},
+		"claude composer unreadable":   {Claude, []string{"❯ stop and rebase"}, "stop and rebase", false},
+		"codex every word":             {Codex, []string{"› stop and rebase", "", codexFooter}, "stop and rebase", true},
+		"codex his words after":        {Codex, []string{"› stop and rebase and the", "", codexFooter}, "stop and rebase", false},
+		"codex an empty line it names": {Codex, []string{"› Ask Codex to do anything", "", codexFooter}, "Ask Codex to do anything about the build", false},
+		"pi every word":                {Pi, []string{rule, "stop and rebase", rule, piFooter}, "stop and rebase", true},
+		"pi his words after the paste": {Pi, []string{rule, "[paste #1 +12 lines] and the", rule, piFooter}, "stop and rebase", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+
+			// Act
+			isOwn := screens.ComposerHoldsPartOf(test.screen, test.typed)
+
+			// Assert
+			if isOwn != test.isOwn {
+				t.Errorf("ComposerHoldsPartOf(%q, %q) = %v, want %v", test.screen, test.typed, isOwn, test.isOwn)
+			}
+		})
+	}
+}
+
 // A line typed as a paste can come back as its harness's placeholder, which
 // is handed back only while that one placeholder is all the composer holds:
 // words or a second paste beside it are somebody else's.

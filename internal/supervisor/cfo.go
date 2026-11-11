@@ -516,15 +516,28 @@ const nativeSubmitSettle = 300 * time.Millisecond
 // keys, and a bracketed path alone becomes an image.
 const claudeTypedUpTo = 512
 
-// nativeConfirm bounds how long a delivery to the native CFO waits for its
-// text to show, and one to an idle CFO waits after submission to be shown
-// taken before the delivery is left sent and awaiting that, in time the
-// machine ran (awake), since a pause of the whole machine stops the CFO's
-// harness too; nativeConfirmPoll spaces the looks.
+// nativeConfirm bounds how long a delivery to an idle native CFO waits after
+// submission to be shown taken before the delivery is left sent and awaiting
+// that, in time the machine ran (awake), since a pause of the whole machine
+// stops the CFO's harness too; nativeConfirmPoll spaces the looks.
 const (
 	nativeConfirm     = 5 * time.Second
 	nativeConfirmPoll = 250 * time.Millisecond
 )
+
+// nativeShown bounds how long a delivery to the native CFO waits for the
+// text it typed to show on the CFO's prompt line, in time the machine ran. A
+// harness busy in a turn reads its input late: on 2026-11-10 the live CFO's
+// Claude Code left typed input unread for more than three seconds again and
+// again, and a delivery that gave up after five left its words on the prompt
+// line unsubmitted, where they held back every message after them (#2306).
+var nativeShown = 30 * time.Second
+
+// ErrNotSent says a delivery typed its words into a terminal that never took
+// them as submitted and took them back off its prompt line, so they reached
+// nobody and none are left typed there: the message reads Not sent, with Send
+// now and Cancel, rather than as one that may have arrived (#2306).
+var ErrNotSent = errors.New("Not sent")
 
 // sendNative types line, as it is, to the primary CFO identity names. It
 // waits for an empty composer, types once and confirms the text before
@@ -637,7 +650,19 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string, s
 	if err := delivery.Write([]byte(typed)); err != nil {
 		return Evaluation{}, fmt.Errorf("the message may have reached the CFO's native terminal only in part: %w", err)
 	}
-	shown, cancelShown := awake.WithTimeout(context.Background(), nativeConfirm)
+	// From here the CFO's prompt line holds the words, or will once its
+	// harness reads them, so a delivery that ends with no submit key taken
+	// takes them back off it: left there, they would join whatever is typed
+	// next, or hold it back for good. It says they were not sent once it saw
+	// them leave, and otherwise leaves them to be taken back when they show.
+	waiting := &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Digest: monitor.TextDigest(instruction), Session: cfoSession(c.State, primary), Typed: instruction, Pasted: isPasted}
+	unsent := func(why string) (Evaluation, error) {
+		if spawn.TakeBack(func() ([]string, error) { return read(record) }, delivery.Write, screens, instruction) {
+			return Evaluation{}, fmt.Errorf("%w. %s It was taken back off the CFO's prompt line, so nothing of it is left typed there.", ErrNotSent, why)
+		}
+		return Evaluation{LeftTyped: waiting}, errors.New(why + " Nothing was submitted, and it is taken back off the CFO's prompt line if it shows there.")
+	}
+	shown, cancelShown := awake.WithTimeout(context.Background(), nativeShown)
 	defer cancelShown()
 	for {
 		screen, err := read(record)
@@ -645,31 +670,31 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string, s
 			return Evaluation{}, fmt.Errorf("the message was typed but the CFO's input cannot be read: %w", err)
 		}
 		if _, shown := screens.Dialog(screen); shown {
-			return Evaluation{}, errors.New("The answer was typed but a dialog opened before submission. Inspect the CFO's terminal; nothing was submitted.")
+			return unsent("The answer was typed but a dialog opened before submission.")
 		}
 		if screens.Shows(screen, instruction) {
 			break
 		}
 		if shown.Err() != nil {
-			return Evaluation{}, errors.New("The answer was typed but never showed in the CFO's input. Inspect its terminal; nothing was submitted.")
+			return unsent("The answer was typed but never showed in the CFO's input.")
 		}
 		select {
 		case <-time.After(nativeConfirmPoll):
 		case <-ctx.Done():
-			return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal but not submitted: %w", ctx.Err())
+			return unsent("The answer was typed into the CFO's terminal, and the wait to see it there ended before it showed.")
 		}
 	}
 	select {
 	case <-time.After(nativeSubmitSettle):
 	case <-ctx.Done():
-		return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal but not submitted: %w", ctx.Err())
+		return unsent("The answer was typed into the CFO's terminal, and the delivery ended before its submit key.")
 	}
 	screen, err := read(record)
 	if err != nil {
 		return Evaluation{}, fmt.Errorf("the message was typed but the CFO's input cannot be read: %w", err)
 	}
 	if _, shown := screens.Dialog(screen); shown || !screens.Shows(screen, instruction) {
-		return Evaluation{}, errors.New("The CFO's input changed before submission. Inspect its terminal; nothing was submitted.")
+		return Evaluation{LeftTyped: waiting}, errors.New("The CFO's input changed before submission. Inspect its terminal; nothing was submitted.")
 	}
 	submit := "\r"
 	if screens.PasteTakesEnter {
@@ -686,7 +711,6 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string, s
 	// hook runs as its harness queues the answer, before the CFO has it, so
 	// only its own record of the conversation proves it taken: the answer is
 	// sent once its submit key went, and settleDeliveries reads that record.
-	waiting := &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Digest: monitor.TextDigest(instruction), Session: cfoSession(c.State, primary), Typed: instruction, Pasted: isPasted}
 	if busy {
 		// A Send now he asked for interrupts the turn through the key the
 		// CFO's own harness binds to that, as a goblin's does, once its
@@ -737,8 +761,21 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string, s
 			return Evaluation{Reason: "Taken by the CFO in its native terminal, which ran your command."}, nil
 		}
 		if taken.Err() != nil {
-			if dialog || !screens.IsWorking(screen) && !screens.ComposerEmpty(screen) {
-				return Evaluation{}, errors.New("The answer remains in the CFO's input without confirmation that it was submitted. Inspect its terminal before sending again.")
+			if dialog {
+				return Evaluation{LeftTyped: waiting}, errors.New("The answer remains in the CFO's input without confirmation that it was submitted. Inspect its terminal before sending again.")
+			}
+			if !screens.IsWorking(screen) && !screens.ComposerEmpty(screen) {
+				// Its submit key was not taken, so the words are taken back.
+				// A harness that took the key late shows a turn or reports
+				// the prompt by then, and has the answer after all.
+				left, failure := unsent("The answer remained in the CFO's input after its submit key.")
+				if taken, err := NativeHostPromptSince(c.State, primary.Host, submitted); err == nil && taken {
+					return Evaluation{Reason: "Taken by the CFO in its native terminal, as its hook reported."}, nil
+				}
+				if screen, err := read(record); err == nil && screens.IsWorking(screen) && screens.ComposerEmpty(screen) {
+					return Evaluation{Reason: "Taken by the CFO in its native terminal, which started working on your answer."}, nil
+				}
+				return left, failure
 			}
 			return Evaluation{Reason: sentToCFO, Awaiting: waiting}, nil
 		}

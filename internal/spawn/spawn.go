@@ -169,6 +169,15 @@ type Service struct {
 	// his harness draws from it is his to answer: a board message, not a
 	// spawn's briefing or a wake line.
 	His bool
+	// ShouldTakeBack takes the text a delivery typed back off its harness's
+	// prompt line when the delivery ends before its submit key, and says so
+	// with ErrTakenBack: a board delivery, whose words left there unsent
+	// would hold every later one back.
+	ShouldTakeBack bool
+	// SubmittedIntoTurn is told once the submit key of a delivery into a
+	// turn under way went: from then the text waits in its harness's queue,
+	// while the delivery still waits to see it taken. Nil is told nothing.
+	SubmittedIntoTurn func()
 	// EndLeft ends the processes a task's ended terminal left running, for a
 	// relaunch, once no terminal runs for the task and before its next
 	// harness starts, and names them: lifecycle.EndLeft in production. Nil

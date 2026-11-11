@@ -17,11 +17,18 @@ export function isPendingMessage(action: Action): boolean {
   return action.kind === "message" && (action.status === "queued" || action.status === "running");
 }
 
-// isUndelivered says a message's delivery ended with no take seen: it failed,
-// or it was typed and its session was never seen taking it (#2242). One its
-// goblin could not take that the CFO has was handed on, not lost.
+// isNotSent says a message's delivery failed with its words given to nobody:
+// one its goblin could not take that the CFO has was handed on, not lost. The
+// board still holds it, so Send now sends that same message and Cancel takes
+// it off the board (#2306).
+export function isNotSent(action: Action): boolean {
+  return action.kind === "message" && action.status === "failed" && !action.message.includes("the CFO has it");
+}
+
+// isUndelivered says a message's delivery ended with no take seen: it was not
+// sent, or it was typed and its session was never seen taking it (#2242).
 export function isUndelivered(action: Action): boolean {
-  return action.kind === "message" && (action.status === "failed" && !action.message.includes("the CFO has it") || action.status === "uncertain");
+  return isNotSent(action) || action.kind === "message" && action.status === "uncertain";
 }
 
 // STARTING opens the supervisor's reason for a message that waits on a start
