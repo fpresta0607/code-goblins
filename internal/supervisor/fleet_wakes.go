@@ -170,6 +170,11 @@ type fleetWakes struct {
 	// origin, a goblin's progress, a paused goblin's condition, and the pull
 	// request a queued row waits on.
 	Failing map[string]int `json:"failing,omitempty"`
+	// SharedRaised names each shared service whose outage woke the CFO for
+	// the goblins waiting on it, and SharedTold the goblins the CFO was asked
+	// to tell, once, that a service they wait on is usable again.
+	SharedRaised map[string]bool     `json:"shared_raised,omitempty"`
+	SharedTold   map[string][]string `json:"shared_told,omitempty"`
 	// SameArea holds, by task, the teammates' open work each live goblin's
 	// area meets, for its card.
 	SameArea map[string]sameArea `json:"same_area,omitempty"`
@@ -300,7 +305,7 @@ func (s *Service) keepFleetWakes(ctx context.Context, every time.Duration) {
 // reading met once, however many readings met it, and each repository whose
 // CI cannot be read at every cycle until a poll reads it again.
 func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
-	if (s.Options.Dispatch == nil || s.Options.Dispatch.Memory == nil) && s.Options.CI == nil && s.Options.Progress == nil && s.Options.Defender == nil {
+	if (s.Options.Dispatch == nil || s.Options.Dispatch.Memory == nil) && s.Options.CI == nil && s.Options.Progress == nil && s.Options.Defender == nil && s.Options.Shared == nil {
 		return nil
 	}
 	readingStarted := time.Now()
@@ -309,7 +314,7 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	w, readErr := readFleetWakes(stateDir)
 	err := errors.Join(readErr, s.pauseAtAllowanceFloor(ctx, &w, now), s.pollCI(ctx, &w, now, currentTime))
 	err = errors.Join(err, s.reconcilePreparedWaits(ctx, &w, now))
-	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCFOWaits(&w, now))
+	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCFOWaits(&w, now), s.checkSharedServices(ctx, &w, now))
 	w.RootReadings = s.currentRootReadings()
 	if s.Options.Progress != nil {
 		w.ProgressPassAt = currentTime()

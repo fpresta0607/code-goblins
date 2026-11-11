@@ -39,7 +39,7 @@ const PREPARED_NOTIFY_TIMEOUT = 10 * time.Second
 //	cfo notify <task-id> --failed "<reason>"
 //	cfo notify <task-id> --working "<what>"
 //	cfo notify <task-id> --prepared-wait task:<id>|pr:<URL> --generation <generation> --handoff <data/task/handoff.md>
-//	cfo notify <task-id> --waiting-on <task-id|run-id|overlord|ci|deploy|memory> "<why>"
+//	cfo notify <task-id> --waiting-on <task-id|run-id|overlord|ci|deploy|memory|gate-daemon|docker> "<why>"
 //	cfo notify <task-id> --waiting-on overlord "<why>" --lavish <html-file>
 //	cfo notify <task-id> --waiting-on overlord "<why>" --link <https-url>
 //	cfo notify <task-id> --waiting-on overlord "<why>" --run <command.ps1|command.sh>
@@ -116,7 +116,7 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	blocked := fs.String("blocked", "", "report a question the goblin is blocked on: one short sentence that is the question, details on lines starting with \"- \" that give the recommendation and what each choice does, **bold** only on the verdict or the blocking item, and run IDs, findings and other evidence after a line that reads only Details:, which the board folds away")
 	failed := fs.String("failed", "", "report a failure reason")
 	working := fs.String("working", "", "report what you are working on now")
-	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, a gate run's ID, overlord, ci, deploy or memory, followed by why. For overlord, lead with one sentence; values he must enter somewhere go in a Markdown table on the lines after it, a header row, a separator row and one row each (\"| Type | Name |\", \"| --- | --- |\", \"| CNAME | `mcp` |\"), each value in backticks so his card copies it with one click")
+	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, a gate run's ID, overlord, ci, deploy, memory, gate-daemon or docker (the last three as cfo shared names them), followed by why. For overlord, lead with one sentence; values he must enter somewhere go in a Markdown table on the lines after it, a header row, a separator row and one row each (\"| Type | Name |\", \"| --- | --- |\", \"| CNAME | `mcp` |\"), each value in backticks so his card copies it with one click")
 	preparedWait := fs.String("prepared-wait", "", "authorize one dependency pause: task:<id> delivery or pr:<URL> merge; preparation is complete and no worker-owned work remains")
 	preparedGeneration := fs.String("generation", "", "with --prepared-wait, the exact current spawn generation")
 	preparedHandoff := fs.String("handoff", "", "with --prepared-wait, the saved data/<task>/handoff.md file")
@@ -204,7 +204,7 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	default:
 		target := *waitingOn
 		if len(positional) != 1 || strings.TrimSpace(positional[0]) == "" || target != "overlord" && target != "ci" && target != "deploy" && target != "memory" && (state.ValidTaskID(target) != nil || target == id) {
-			fmt.Fprintln(stderr, "cfo notify: --waiting-on takes another task's ID, a gate run's ID, overlord, ci, deploy or memory, then why: --waiting-on <task-id|run-id|overlord|ci|deploy|memory> \"<why>\"")
+			fmt.Fprintln(stderr, "cfo notify: --waiting-on takes another task's ID, a gate run's ID, overlord, ci, deploy, memory, gate-daemon or docker, then why: --waiting-on <task-id|run-id|overlord|ci|deploy|memory|gate-daemon|docker> \"<why>\"")
 			return 2
 		}
 		verb, detail = "waiting on "+target, positional[0]

@@ -268,6 +268,11 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if !*example {
 		remoteSetting = remote
 	}
+	// An example home shows no machine's shared services.
+	var shared *supervisor.SharedProbes
+	if !*example {
+		shared = sharedProbes()
+	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
 		HoldsWatchLock:   true,
 		RemoteAccess:     remoteSetting,
@@ -302,6 +307,8 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		// The Defender wakes only read what Defender recorded, as cfo
 		// defender does.
 		Defender: runtime.readDefender,
+		// The shared services' check only reads them, as cfo shared does.
+		Shared: shared,
 		// A credential request's card saves through the store cfo auth store
 		// writes, and its refresh is cfo auth store's own.
 		Credentials:        auth.OpenStore,
