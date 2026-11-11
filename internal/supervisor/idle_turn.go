@@ -96,7 +96,7 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 		if next == "" {
 			next = id
 		}
-		steps = append(steps, "start "+id+" with ceo "+commandLine(plan.args()))
+		steps = append(steps, "start "+id+" with goblins "+commandLine(plan.args()))
 	}
 	if next == "" {
 		return "", nil

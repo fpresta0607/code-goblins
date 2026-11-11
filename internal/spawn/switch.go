@@ -304,7 +304,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		// The start this relaunch can race is a spawn of the same task: it
 		// publishes the task's record before its terminal runs and holds its
 		// turn until it does. A relaunch that read the record in between, as
-		// ceo goblins resume does for every recorded task whose terminal is
+		// goblins goblins resume does for every recorded task whose terminal is
 		// not running, finds that terminal running once its own turn comes,
 		// and must leave it alone.
 		if nativeTerminalRuns(s.StateDir, meta.ID) {

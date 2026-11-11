@@ -102,7 +102,7 @@ func (l *hookLoad) table() string {
 // command it ends with.
 var (
 	drainedLine = regexp.MustCompile(`(?m)^  (\d+)  \S+`)
-	requiredAck = regexp.MustCompile(`(?m)^WAKE_ACK_REQUIRED: ceo (drain .+)$`)
+	requiredAck = regexp.MustCompile(`(?m)^WAKE_ACK_REQUIRED: goblins (drain .+)$`)
 )
 
 // The Overlord asked on 2026-10-09 whether the hooks handle many sessions
@@ -302,7 +302,7 @@ func TestEveryWakeReachesTheCEOOnceWhileADozenSessionsFireTheirHooks(t *testing.
 				}
 			}
 			if response := <-acknowledged; response.Exit != 0 {
-				t.Fatalf("round %d: ceo %s: exit = %d, stderr = %q", round, ack[1], response.Exit, response.Stderr)
+				t.Fatalf("round %d: goblins %s: exit = %d, stderr = %q", round, ack[1], response.Exit, response.Stderr)
 			}
 		}
 	}

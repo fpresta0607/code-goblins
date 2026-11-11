@@ -936,7 +936,7 @@ On Windows it invokes npm through `cmd.exe /d /c npm ci`, so standard `npm.cmd` 
 An unreadable plan fails preparation before an installer starts; missing tooling and installer failures also fail preparation, with no fallback to an unlocked install.
 Missing or invalid lockfiles are rejected by `npm ci`, not independently validated by this command.
 The command reports the locked install's elapsed time; its isolated regression fixtures are in `cmd/goblins/gate_prepare_test.go`.
-Activation requires this configuration on the default branch, from which the gate trusts it, and a reviewed installed CEO build supporting both `goblins gate prepare` and `goblins gate test`.
+Activation requires this configuration on the default branch, from which the gate trusts it, and a reviewed installed goblins build supporting both `goblins gate prepare` and `goblins gate test`.
 
 An existing verified Python environment can be required by the project's machine-local `data/projects/<checkout folder>/project.json`:
 
@@ -967,7 +967,7 @@ An unavailable, invalid or mismatched required binding refuses execution with ex
 Repair and verify the existing environment or its project setting, then request the same Test command again through `goblins pipeline respond <task> --action fix --findings test-command-no-turn`.
 `goblins pipeline respond` refuses approval of a recorded required-environment refusal, even with `--accept` or `--reason` and after the project setting changes; a successful Test retry is required.
 Projects with no `test_environment` keep their existing runner environment: the wrapper reads only their project and recorded checkout from the native run and checks no checkout provenance, so a changed local origin never stops their Test or costs it its place in line.
-The machine must have the `test_command_wrapper` configuration above pointing at the reviewed CEO build, including both native identity arguments; the managed preflight refuses a required binding when either is absent or uses another placeholder.
+The machine must have the `test_command_wrapper` configuration above pointing at the reviewed goblins build, including both native identity arguments; the managed preflight refuses a required binding when either is absent or uses another placeholder.
 The native build must support the `{test_comparison_sha}` contract delivered by [native pull request 46](https://github.com/fpresta0607/no-mistakes/pull/46).
 The CEO activates that native build and the reviewed wrapper setting together through its normal idle configuration window.
 The isolated real-daemon acceptance fixture is `tests/acceptance/test_environment.py`.

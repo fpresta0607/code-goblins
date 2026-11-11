@@ -1,4 +1,4 @@
-CEO Native Board
+Goblins Native Board
 
 This product includes adapted portions of Cline Kanban, Copyright 2026 Cline Bot Inc.
 Licensed under the Apache License, Version 2.0.
@@ -10,13 +10,13 @@ Board.tsx adapts kanban-board.tsx grouping into evidence-backed Tasks, In progre
 diff.ts and syntax.tsx adapt patch parsing and language selection from shared/diff-renderer.tsx.
 Details.tsx adapts on-demand commit selection and diff presentation from git-history-view.tsx, plus contextual line feedback from detail-panels/diff-viewer-panel.tsx.
 stream.ts adapts bounded reconnection from runtime/use-runtime-state-stream.ts.
-CEO removes drag-to-progress, automation creation and destructive Git controls; adds durable Go actions, pipeline custody checks, two-sided line coordinates, safe text-token rendering, full SSE snapshots, and evidence-backed lineage.
+Goblins removes drag-to-progress, automation creation and destructive Git controls; adds durable Go actions, pipeline custody checks, two-sided line coordinates, safe text-token rendering, full SSE snapshots, and evidence-backed lineage.
 The pinned upstream tree contains LICENSE and no NOTICE file.
 
 Design tokens and card/ghost/focus primitives are adapted from the inspected local SIQshift packages/shared/styles/brand.css.
 Rounded rectangle controls, the native select chevron/skin, and native details/summary styling are adapted from SIQshift apps/desktop/src/styles.css and the matching apps/web/src/styles.css controls.
-Disclosure.tsx adapts load-on-open and release-on-close disclosure behavior from packages/shared/src/ui.tsx ShiftGroups, using the existing CEO resource hook with stale-response cancellation.
-CEO uses its own self-hosted typography, layered card surfaces, mutually exclusive Board/Orchestration views and one contextual pane; SIQshift reporting labels, charts, WebGL and API contracts are not included.
+Disclosure.tsx adapts load-on-open and release-on-close disclosure behavior from packages/shared/src/ui.tsx ShiftGroups, using the existing Goblins resource hook with stale-response cancellation.
+Goblins uses its own self-hosted typography, layered card surfaces, mutually exclusive Board/Orchestration views and one contextual pane; SIQshift reporting labels, charts, WebGL and API contracts are not included.
 The app icon and three transparent goblin sprite atlases were generated with the built-in image generation tool for this project and approved by the user on 2026-09-22.
 They were copied from the approved production assets and, on 2026-10-06, scaled down to three times the largest size the board shows them at (96 pixels), each atlas cell on its own; role-specific artwork is chosen deterministically from reported role or task wording, never presented as inferred runtime telemetry.
 Runtime dependencies: React and React DOM (MIT), PrismJS (MIT), xterm.js and its WebGL addon (MIT).

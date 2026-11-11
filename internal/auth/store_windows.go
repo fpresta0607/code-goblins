@@ -233,7 +233,7 @@ func restrictToOwner(path string) error {
 // VaultTargets lists every Windows Credential Manager entry Code Goblins
 // stored: each credential and each fingerprint of what a .env last offered.
 // An entry counts only as this package writes it, a generic credential for
-// the user goblins whose target is a key this package could have written, so an
+// the user ceo whose target is a key this package could have written, so an
 // uninstall that removes them never reaches another program's entry.
 func VaultTargets() ([]string, error) {
 	entries, err := VaultEntries(credentialTarget)

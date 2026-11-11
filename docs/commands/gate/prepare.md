@@ -18,6 +18,6 @@ Missing tooling and a nonzero installer exit refuse with exit 1 after naming the
 A missing or invalid lockfile is rejected by `npm ci` itself rather than validated here.
 No failure falls back to an unlocked install, to a resolved version the lock does not name, or to a later Test agent invocation that installs its own dependencies.
 
-Activation requires the `commands.prepare: "goblins gate prepare"` entry on the default branch, from which the gate trusts it, and a reviewed installed CEO build that supports both `goblins gate prepare` and `goblins gate test`.
+Activation requires the `commands.prepare: "goblins gate prepare"` entry on the default branch, from which the gate trusts it, and a reviewed installed goblins build that supports both `goblins gate prepare` and `goblins gate test`.
 Its isolated regression fixtures are `cmd/goblins/gate_prepare_test.go`, with the short-temporary-root Windows case in `cmd/goblins/gate_prepare_windows_test.go`.
 See [Driving a task](../../pipeline.md#driving-a-task) for the prepare step's place in the line, and [Verification levels](../../pipeline.md#verification-levels) for the plan the test step behind it runs.

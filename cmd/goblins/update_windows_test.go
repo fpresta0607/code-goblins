@@ -770,7 +770,7 @@ func TestARollbackItCannotRecordKeepsItsFilesAndStaysRecoverable(t *testing.T) {
 }
 
 // Recovery removes the files its journal says were moved aside, so a journal
-// that names any other file, outside the home, under another alias's name or
+// that names any other file, outside the home, under another program's name or
 // without a number, is refused before anything changes, and that file and
 // everything under state\update stay as they are.
 func TestRecoverRefusesAJournalNamingAFileAnUpdateNeverMovedAside(t *testing.T) {
@@ -779,7 +779,7 @@ func TestRecoverRefusesAJournalNamingAFileAnUpdateNeverMovedAside(t *testing.T) 
 		aside func(u *updateHome) string
 	}{
 		{"outside the home", func(u *updateHome) string { return filepath.Join(u.t.TempDir(), "sentinel.txt") }},
-		{"another alias's", func(u *updateHome) string { return filepath.Join(u.bin, "goblins.exe.1.update-old") }},
+		{"another program's", func(u *updateHome) string { return filepath.Join(u.bin, "goblins-hook.exe.1.update-old") }},
 		{"no number", func(u *updateHome) string { return filepath.Join(u.bin, "goblins.exe.abc.update-old") }},
 	} {
 		t.Run(test.name, func(t *testing.T) {

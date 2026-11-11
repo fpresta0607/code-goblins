@@ -243,7 +243,7 @@ func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, 
 	fmt.Fprintf(s.Out, "goblins services: starting %s's %s and what they depend on, which builds any image they lack first and can take many minutes\n", project, strings.Join(manifest.Services, ", "))
 	if isEnded, err := s.upHoldingTheFloor(ctx, project, compose, manifest.Services); err != nil {
 		upErr := fmt.Errorf("services: start %s's services: %w", project, err)
-		// A start goblins ended itself failed for ceo's reason, not a service's,
+		// A start goblins ended itself failed for its own reason, not a service's,
 		// and gives its memory back at once.
 		if !isEnded {
 			saved, saveErr := s.saveFailures(ctx, compose, project, task, upErr)

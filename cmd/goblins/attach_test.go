@@ -510,7 +510,7 @@ func TestANativeCEOLeavesUnsetWhatTheSupervisorDoesNotSet(t *testing.T) {
 func TestANativeCEOKeepsTheCodexGuardItsLauncherRunsUnder(t *testing.T) {
 	// Arrange
 	userEnv := []string{`Path=C:\bin`, "USERS_OWN_SETTING=kept"}
-	launcherEnv := []string{`Path=C:\launcher`, `ceo_codex_guard=C:\fleet\state\codex-guard\g1;C:\fleet\state\codex-guard\g1`}
+	launcherEnv := []string{`Path=C:\launcher`, `goblins_codex_guard=C:\fleet\state\codex-guard\g1;C:\fleet\state\codex-guard\g1`}
 
 	// Act
 	got := nativeCEOEnvironment(userEnv, launcherEnv, home.Home{Root: `C:\scratch`, State: `C:\scratch\state`}, "")

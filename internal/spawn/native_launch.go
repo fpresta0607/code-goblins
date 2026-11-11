@@ -1133,5 +1133,5 @@ func containedNotice(record host.Record) string {
 	if !record.Contained {
 		return ""
 	}
-	return "warning: native terminal " + record.ID + " could not leave the job of the process that ran ceo, so it ends when that job closes (see its host log)"
+	return "warning: native terminal " + record.ID + " could not leave the job of the process that ran goblins, so it ends when that job closes (see its host log)"
 }

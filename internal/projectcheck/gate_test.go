@@ -21,7 +21,7 @@ func TestAGateCommandThatDoesNotExistIsReported(t *testing.T) {
 	})
 
 	// Act
-	report := f.check("python", "ceo")
+	report := f.check("python", "goblins")
 
 	// Assert
 	finding := only(t, report, "gate-command-missing")
@@ -45,7 +45,7 @@ func TestAGateWhoseCommandsExistPasses(t *testing.T) {
 	})
 
 	// Act
-	report := f.check("python", "ceo")
+	report := f.check("python", "goblins")
 
 	// Assert
 	none(t, report, "gate-command-missing")

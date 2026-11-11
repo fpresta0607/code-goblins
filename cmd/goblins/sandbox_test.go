@@ -177,7 +177,7 @@ func TestGateTestStepOfASandboxTaskRunsInItsContainer(t *testing.T) {
 	if engine.started != 1 {
 		t.Fatalf("the engine was started %d times, want once, as it did not answer", engine.started)
 	}
-	if !strings.HasPrefix(container, "ceo-sandbox-cg-x-") || !strings.HasSuffix(container, "-gate") {
+	if !strings.HasPrefix(container, "goblins-sandbox-cg-x-") || !strings.HasSuffix(container, "-gate") {
 		t.Fatalf("container = %q, want a gate container of cg-x", container)
 	}
 	want := []string{"docker", "run", "--rm", "--init", "--name", container}
@@ -280,7 +280,7 @@ func TestSandboxRunRunsTheCommandInItsContainerAndRemovesIt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(filepath.Dir(record), "docker.bat"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	holdSandboxRun(t, meta, "ceo-sandbox-cg-x-left", false)
+	holdSandboxRun(t, meta, "goblins-sandbox-cg-x-left", false)
 	makeNestedGit(t, meta.Worktree)
 	stdout, err := os.Create(filepath.Join(t.TempDir(), "stdout"))
 	if err != nil {
@@ -303,7 +303,7 @@ func TestSandboxRunRunsTheCommandInItsContainerAndRemovesIt(t *testing.T) {
 	}
 	arguments, name := dockerRun(t, record)
 	for _, want := range []string{
-		"run --rm --init --name ceo-sandbox-cg-x-",
+		"run --rm --init --name goblins-sandbox-cg-x-",
 		"type=bind,source=" + meta.Worktree + ",target=/work ",
 		"type=bind,source=" + filepath.Join(meta.Worktree, ".git") + ",target=/work/.git,readonly",
 		"type=bind,source=" + meta.Scratch + ",target=/scratch ",
@@ -313,7 +313,7 @@ func TestSandboxRunRunsTheCommandInItsContainerAndRemovesIt(t *testing.T) {
 			t.Fatalf("docker %s, want %q in it", arguments, want)
 		}
 	}
-	if !slices.Equal(engine.removed, []string{"ceo-sandbox-cg-x-left", name}) {
+	if !slices.Equal(engine.removed, []string{"goblins-sandbox-cg-x-left", name}) {
 		t.Fatalf("removed containers %q, want the one an ended run left, then the run's own, %q", engine.removed, name)
 	}
 	recorded, err := os.ReadFile(listing)
@@ -356,7 +356,7 @@ func TestGateTurnRunsASandboxTasksTestStepInItsContainer(t *testing.T) {
 		t.Fatalf("exit = %d, want 3, the docker run's; stderr: %s", exit, stderr.String())
 	}
 	arguments, name := dockerRun(t, record)
-	for _, want := range []string{"run --rm --init --name ceo-sandbox-cg-example-", "type=bind,source=" + worktree + ",target=/work ", ` node:22 sh -c "npm test"`} {
+	for _, want := range []string{"run --rm --init --name goblins-sandbox-cg-example-", "type=bind,source=" + worktree + ",target=/work ", ` node:22 sh -c "npm test"`} {
 		if !strings.Contains(arguments, want) {
 			t.Fatalf("docker %s, want %q in it", arguments, want)
 		}

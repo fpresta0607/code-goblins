@@ -105,9 +105,7 @@ func TestRunRuntimeReportsACollectionFailureOnStderr(t *testing.T) {
 // The command must appear in the usage text, or a CEO that does not already
 // know about it never finds it.
 func TestUsageNamesTheRuntimeCommand(t *testing.T) {
-	var out, errOut bytes.Buffer
-	runWithRuntime(nil, &out, &errOut, defaultCommandRuntime())
-	if !strings.Contains(errOut.String(), "goblins runtime") {
-		t.Errorf("usage does not name the command:\n%s", errOut.String())
+	if !strings.Contains(usage, "goblins runtime") {
+		t.Errorf("usage does not name the command:\n%s", usage)
 	}
 }

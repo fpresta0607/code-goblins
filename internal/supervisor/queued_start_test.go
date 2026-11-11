@@ -155,10 +155,10 @@ func TestStartAfterAFailedSpawnKeepsTheDeliveryChoicesOverTheTaskDetail(t *testi
 	spawn := []string{"spawn", "next-task", "--project", "code-goblins", "--brief", path}
 	revision := []string{"--brief-revision", fmt.Sprintf("brief:%x", sha256.Sum256(data))}
 	if first := slices.Concat(spawn, revision); !slices.Equal(calls[0], first) {
-		t.Errorf("first start ran ceo %q, want ceo %q", calls[0], first)
+		t.Errorf("first start ran goblins %q, want goblins %q", calls[0], first)
 	}
 	if again := slices.Concat(spawn, []string{"--mode", "no-mistakes"}, revision); !slices.Equal(calls[1], again) {
-		t.Errorf("the start after the failed spawn ran ceo %q, want ceo %q", calls[1], again)
+		t.Errorf("the start after the failed spawn ran goblins %q, want goblins %q", calls[1], again)
 	}
 	if card.Mode != "no-mistakes" || card.Harness != "" || card.Model != "" || card.Effort != "" {
 		t.Errorf("queued card shows %s on %s/%s/%s, want no-mistakes on the routed engine", card.Mode, card.Harness, card.Model, card.Effort)

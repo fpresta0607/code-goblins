@@ -1,6 +1,7 @@
 package update
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -128,8 +129,8 @@ func TestRestoreAfterASwapThatStoppedPartWay(t *testing.T) {
 }
 
 // The counter-example from 2026-10-01: an error during the swap itself must
-// still leave the way back. A swap that fails on the second alias returns
-// the error, and the restore after it puts both back.
+// still leave the way back. A swap that fails after it moved the previous
+// build aside returns the error, and the restore after it puts it back.
 func TestASwapThatFailsPartWayIsRestored(t *testing.T) {
 	root, stateDir, candidate := installedHome(t)
 	journal, err := Prepare(root, stateDir, candidate)
@@ -141,9 +142,11 @@ func TestASwapThatFailsPartWayIsRestored(t *testing.T) {
 	}
 
 	if err := Swap(journal); err == nil {
-		t.Fatal("a swap whose second candidate was gone reported success")
+		t.Fatal("a swap whose candidate was gone reported success")
 	}
-	holds(t, filepath.Join(root, "goblins.exe"), "candidate build")
+	if _, err := os.Stat(filepath.Join(root, "goblins.exe")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("after the failed swap, goblins.exe: %v; want it moved aside and nothing in its place", err)
+	}
 
 	if err := Restore(journal); err != nil {
 		t.Fatal(err)
@@ -263,7 +266,7 @@ func TestValidateAcceptsOnlyTheFilesAnUpdateMovesAside(t *testing.T) {
 		{"as moved aside", journal.Aliases[0].Aside[0], true},
 		{"the root in other case", filepath.Join(strings.ToUpper(root), "goblins.exe.1.update-old"), true},
 		{"outside the home", filepath.Join(t.TempDir(), "goblins.exe.1.update-old"), false},
-		{"another alias's", filepath.Join(root, "goblins.exe.1.update-old"), false},
+		{"another program's", filepath.Join(root, "goblins-hook.exe.1.update-old"), false},
 		{"no number", filepath.Join(root, "goblins.exe..update-old"), false},
 		{"a word for the number", filepath.Join(root, "goblins.exe.abc.update-old"), false},
 		{"an extra suffix", filepath.Join(root, "goblins.exe.1.update-old.txt"), false},

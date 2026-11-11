@@ -21,7 +21,7 @@ var shells = []string{"bash", "sh", "cmd", "powershell", "pwsh", "conhost", "tim
 // a script of the goblin's own starts it: @playwright/test/cli.js test,
 // npm/bin/npm-cli.js test, pnpm.cjs test (#1617).
 var (
-	testCommands  = regexp.MustCompile(`(?i)(\bgo(\.exe)?"?\s+test\b|\bgo(\.exe)?"?\s+vet\b|\bvitest\b|\bjest\b|\bplaywright(\.cmd|([\\/]test)?[\\/]cli\.js)?"?\s+test\b|\bpytest\b|\b(npm|pnpm|yarn)(\.cmd|-cli\.js|\.c?js)?"?\s+(run\s+)?test\b|\bcargo\s+test\b|\bdotnet\s+test\b|\bceo(\.exe)?"?\s+gate\s+test\b)`)
+	testCommands  = regexp.MustCompile(`(?i)(\bgo(\.exe)?"?\s+test\b|\bgo(\.exe)?"?\s+vet\b|\bvitest\b|\bjest\b|\bplaywright(\.cmd|([\\/]test)?[\\/]cli\.js)?"?\s+test\b|\bpytest\b|\b(npm|pnpm|yarn)(\.cmd|-cli\.js|\.c?js)?"?\s+(run\s+)?test\b|\bcargo\s+test\b|\bdotnet\s+test\b|\bgoblins(\.exe)?"?\s+gate\s+test\b)`)
 	buildCommands = regexp.MustCompile(`(?i)(\bgo(\.exe)?"?\s+build\b|\b(npm|pnpm|yarn)(\.cmd)?"?\s+(run\s+)?build\b|\bvite(\.cmd)?"?\s+build\b|\btsc(\.cmd)?"?(\s|$)|\bcargo\s+build\b|\bdotnet\s+build\b|\bmsbuild\b|\bwebpack\b)`)
 )
 

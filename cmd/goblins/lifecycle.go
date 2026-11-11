@@ -24,7 +24,7 @@ func runLifecycle(command string, args []string, stdout, stderr io.Writer, runti
 		action = "stop"
 	}
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		fmt.Fprintf(stderr, "goblins %s: the task ID comes first: ceo %s <task-id> [flags]\n", command, command)
+		fmt.Fprintf(stderr, "goblins %s: the task ID comes first: goblins %s <task-id> [flags]\n", command, command)
 		return 2
 	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)

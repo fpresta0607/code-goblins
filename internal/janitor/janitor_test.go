@@ -679,10 +679,8 @@ func TestSweepKeepsTheBuildsOfAHomeWhoseBuildIsAtItsRoot(t *testing.T) {
 		age         time.Duration
 	}{
 		{"goblins.exe", "build 4", 0},
-		{"goblins.exe", "build 4", 0},
 		{"goblins.exe.3.update-old", "build 3", time.Hour},
 		{"goblins.exe.2.update-old", "build 2", 2 * time.Hour},
-		{"goblins.exe.1.update-old", "build 1", 3 * time.Hour},
 		{"goblins.exe.1.update-old", "build 1", 3 * time.Hour},
 	}
 	for _, b := range builds {
@@ -705,8 +703,8 @@ func TestSweepKeepsTheBuildsOfAHomeWhoseBuildIsAtItsRoot(t *testing.T) {
 			t.Errorf("%s (%s) gone = %v, want every copy moved aside gone and the current build 4 kept", b.name, b.build, gone)
 		}
 	}
-	if item, ok := has(record.Removed, f.home.Root); !ok || item.Bytes != int64(4*len("build 1")) {
-		t.Errorf("removed = %+v, want the four copies moved aside from %s", record.Removed, f.home.Root)
+	if item, ok := has(record.Removed, f.home.Root); !ok || item.Bytes != int64(3*len("build 1")) {
+		t.Errorf("removed = %+v, want the three copies moved aside from %s", record.Removed, f.home.Root)
 	}
 }
 

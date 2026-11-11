@@ -416,7 +416,7 @@ try {
     Assert-ContainedPath -Root $fixtureRoot -Path $ceoHome -Description 'CEO home'
     Assert-ContainedPath -Root $fixtureRoot -Path $origin -Description 'fixture Git origin'
     Assert-ContainedPath -Root $fixtureRoot -Path $project -Description 'fixture Git project'
-    Assert-ContainedPath -Root $fixtureRoot -Path $goblins -Description 'CEO binary'
+    Assert-ContainedPath -Root $fixtureRoot -Path $goblins -Description 'goblins binary'
     Initialize-DisposablePrimaryCeoHome -Root $fixtureRoot -CeoHome $ceoHome
 
     Push-Location $repoRoot

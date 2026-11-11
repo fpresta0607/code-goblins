@@ -99,21 +99,21 @@ func TestEverySealHoldsASandboxTasksShellToItsHostRule(t *testing.T) {
 		{
 			name: "host git while a container of the task runs", command: "git status",
 			arrange: func(t *testing.T, meta state.TaskMeta) {
-				holdSandboxRun(t, meta, "ceo-sandbox-x-running", true)
+				holdSandboxRun(t, meta, "goblins-sandbox-x-running", true)
 			},
-			refusal: "ceo-sandbox-x-running of this task runs",
+			refusal: "goblins-sandbox-x-running of this task runs",
 		},
 		{
 			name: "host git after a run ended without removing its container", command: "git status",
 			arrange: func(t *testing.T, meta state.TaskMeta) {
-				holdSandboxRun(t, meta, "ceo-sandbox-x-left", false)
+				holdSandboxRun(t, meta, "goblins-sandbox-x-left", false)
 			},
 			refusal: "the next goblins sandbox run removes it",
 		},
 		{
 			name: "a report while a container of the task runs", command: "goblins notify x --working y",
 			arrange: func(t *testing.T, meta state.TaskMeta) {
-				holdSandboxRun(t, meta, "ceo-sandbox-x-running", true)
+				holdSandboxRun(t, meta, "goblins-sandbox-x-running", true)
 			},
 		},
 	} {

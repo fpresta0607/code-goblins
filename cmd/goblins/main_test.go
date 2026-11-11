@@ -33,8 +33,7 @@ func TestRun(t *testing.T) {
 		wantStdout string
 		wantStderr string
 	}{
-		{name: "no args prints usage", args: nil, wantExit: 2, wantStderr: "usage: goblins"},
-		{name: "unknown command", args: []string{"nonsense"}, wantExit: 2, wantStderr: `unknown command "nonsense"`},
+		{name: "unknown command prints usage", args: []string{"nonsense"}, wantExit: 2, wantStderr: "goblins: unknown command \"nonsense\"\nusage: goblins <command>"},
 		{name: "version", args: []string{"version"}, wantExit: 0, wantStdout: "goblins dev"},
 		{name: "doctor runs and reports each tool", args: []string{"doctor"}, wantExit: -1, wantStdout: "git"},
 		{name: "drain empty queue", args: []string{"drain"}, env: map[string]string{"GOBLINS_HOME": drainHome}, wantExit: 0, wantStdout: "WAKE QUEUE: empty"},
@@ -64,23 +63,17 @@ func TestRun(t *testing.T) {
 	}
 }
 
+// goblins with no command is the board's launcher, so the usage tests read the
+// text an unknown command prints.
 func TestRunUsageListsAllRequiredDoctorTools(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	if exit := run(nil, &stdout, &stderr); exit != 2 {
-		t.Fatalf("exit = %d, want 2", exit)
-	}
 	for _, tool := range []string{"codex", "pi"} {
-		if !strings.Contains(stderr.String(), tool) {
-			t.Errorf("usage = %q, want it to contain %q", stderr.String(), tool)
+		if !strings.Contains(usage, tool) {
+			t.Errorf("usage = %q, want it to contain %q", usage, tool)
 		}
 	}
 }
 
 func TestRunUsageListsFleetCommands(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	if exit := run(nil, &stdout, &stderr); exit != 2 {
-		t.Fatalf("exit = %d, want 2", exit)
-	}
 	for _, command := range []string{
 		"goblins spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi>]",
 		"goblins send <target> [--key <key>] <text...>",
@@ -88,8 +81,8 @@ func TestRunUsageListsFleetCommands(t *testing.T) {
 		"goblins fleet-view [--json]",
 		"goblins tickets <project> [--brief <file>] [--files <paths>] [--json]",
 	} {
-		if !strings.Contains(stderr.String(), command) {
-			t.Errorf("usage = %q, want it to contain %q", stderr.String(), command)
+		if !strings.Contains(usage, command) {
+			t.Errorf("usage = %q, want it to contain %q", usage, command)
 		}
 	}
 }

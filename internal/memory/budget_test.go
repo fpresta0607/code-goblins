@@ -113,7 +113,7 @@ func TestMemoryReportCountsTheStartupMapWithItsScopeCounts(t *testing.T) {
 	}}
 	writeCatalog(t, dir, catalog)
 	// 13 bytes name the source, 13 hold the ruling, 67 and 25 count the cold
-	// scope and 94 the ruling still to classify: 212 bytes, 53 tokens.
+	// scope and 98 the ruling still to classify: 216 bytes, 54 tokens.
 	expected := "\noverlord.md\n[rule] Keep.\n" +
 		"Left out above, by scope; each entry stays verbatim in its source:\ntopic history: history 1\n" +
 		"Rulings not classified yet, which load until they are: 1; goblins memory scope --list shows them.\n"
@@ -128,17 +128,17 @@ func TestMemoryReportCountsTheStartupMapWithItsScopeCounts(t *testing.T) {
 	for _, test := range []struct {
 		allowance    string
 		isOverBudget bool
-	}{{"53", false}, {"52", true}} {
+	}{{"54", false}, {"53", true}} {
 		t.Run(test.allowance, func(t *testing.T) {
 			writeMemoryFile(t, root, "config/startup-memory-budget", []byte(test.allowance))
 
 			report, err := MemoryReport(dir, referenceDate)
 
-			if err != nil || report.IsLegacy || report.Bytes != 212 || report.EstimatedTokens != 53 || report.IsOverBudget != test.isOverBudget || len(report.Inputs) != 1 {
-				t.Fatalf("warm accounting disagrees with 212-byte fixture: %+v, %v", report, err)
+			if err != nil || report.IsLegacy || report.Bytes != 216 || report.EstimatedTokens != 54 || report.IsOverBudget != test.isOverBudget || len(report.Inputs) != 1 {
+				t.Fatalf("warm accounting disagrees with 216-byte fixture: %+v, %v", report, err)
 			}
 			input := report.Inputs[0]
-			if input.Bytes != 212 || input.EstimatedTokens != 53 || input.SHA256 != Hash([]byte(expected)) {
+			if input.Bytes != 216 || input.EstimatedTokens != 54 || input.SHA256 != Hash([]byte(expected)) {
 				t.Fatalf("warm memory or its scope counts were omitted: %+v", input)
 			}
 		})

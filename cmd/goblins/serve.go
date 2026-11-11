@@ -351,7 +351,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		defer stop()
 		_ = server.Shutdown(shutdownCtx)
 	}()
-	fmt.Fprintf(stdout, "CEO native board: http://%s\nSupervisor PID %d; browser-independent; Ctrl-C stops this process.\n", listener.Addr(), os.Getpid())
+	fmt.Fprintf(stdout, "Goblins native board: http://%s\nSupervisor PID %d; browser-independent; Ctrl-C stops this process.\n", listener.Addr(), os.Getpid())
 	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fmt.Fprintln(stderr, err)
 		return 1

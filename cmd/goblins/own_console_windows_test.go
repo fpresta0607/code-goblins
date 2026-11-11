@@ -117,12 +117,12 @@ func TestACommandStartedAloneInANewConsoleClosesItsWindow(t *testing.T) {
 			}
 			if c.isWindowed {
 				if len(shown) == 0 || strings.HasPrefix(string(got), "window=0 ") {
-					t.Fatalf("with %s as the default terminal, ceo %s reported %s and the desktop shows no new window; want its console's window shown", terminal, strings.Join(c.args, " "), got)
+					t.Fatalf("with %s as the default terminal, goblins %s reported %s and the desktop shows no new window; want its console's window shown", terminal, strings.Join(c.args, " "), got)
 				}
 				return
 			}
 			if !strings.HasPrefix(string(got), "window=0 failed=0 ") || len(shown) != 0 {
-				t.Fatalf("with %s as the default terminal, ceo %s reported %s and a second after it the desktop still shows %q; want no console, every start of a program working and no window", terminal, strings.Join(c.args, " "), got, shown)
+				t.Fatalf("with %s as the default terminal, goblins %s reported %s and a second after it the desktop still shows %q; want no console, every start of a program working and no window", terminal, strings.Join(c.args, " "), got, shown)
 			}
 		})
 	}

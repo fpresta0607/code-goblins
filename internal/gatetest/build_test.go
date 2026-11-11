@@ -218,7 +218,7 @@ func TestBuildFindsASlowPackageByItsDirectoryFromTheRoot(t *testing.T) {
 	// Arrange
 	found := branch("home.go", "cmd/goblins/main.go", "internal/tickets/read.go")
 	found.packages = []Package{{ImportPath: "example.com/repo", Dir: root}, pkg("cmd/goblins"), pkg("internal/tickets")}
-	found.policy, found.hasPolicy = `{"version": 1, "slow_packages": [".", "CMD/ceo"]}`, true
+	found.policy, found.hasPolicy = `{"version": 1, "slow_packages": [".", "CMD/goblins"]}`, true
 
 	// Act
 	plan := build(found, Fast)

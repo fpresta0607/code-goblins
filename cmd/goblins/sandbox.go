@@ -151,7 +151,7 @@ func sandboxCommand(ctx context.Context, engine sandboxEngine, r sandbox.Run) ([
 // sandboxContainerName is the name of one run's container of task, which no
 // other run's has.
 func sandboxContainerName(task string) string {
-	return "ceo-sandbox-" + task + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	return "goblins-sandbox-" + task + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 }
 
 // removeSandboxContainer ends and removes the container name, which its
