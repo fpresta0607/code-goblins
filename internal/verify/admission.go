@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -75,6 +76,12 @@ type Admission struct {
 	// Priority is the priority on the backlog row of the task whose run this
 	// is, which priorityPlaces orders, and empty for a run with no task.
 	Priority string
+	// IsLight has the run take a turn of its own beside the slots instead of
+	// standing in the line for one (waitLight): a run bounded in memory, by
+	// its Estimate, and in time, by its Budget, which its caller ends it at.
+	// How many runs hold the slots or wait for them does not hold it back;
+	// free memory alone does.
+	IsLight bool
 	// overdueAfter is overdueLimit, which a test shortens.
 	overdueAfter time.Duration
 }
@@ -216,10 +223,10 @@ func (a Admission) weighedFloor() (uint64, error) {
 // free to take a slot, for a run expected to use estimate, zero for the
 // default, beside a desktop reserve of reserve. A line of one slot has its
 // flat floor. A line of two weighs what each holder may still use, its
-// estimate less what it commits now, then the run's own estimate and the
-// reserve, and never asks less than one slot's 4 GiB. The reserve is the
-// one the run's monitor keeps: the store's, which reserve may raise and
-// never lower.
+// estimate less what it commits now, the light runs beside the slots
+// included, then the run's own estimate and the reserve, and never asks less
+// than one slot's 4 GiB. The reserve is the one the run's monitor keeps: the
+// store's, which reserve may raise and never lower.
 func HeadFloor(dir string, estimate, reserve uint64) (uint64, error) {
 	capacity, floor, err := AdmissionLimits(dir)
 	if err != nil || capacity == 1 {
@@ -229,6 +236,11 @@ func HeadFloor(dir string, estimate, reserve uint64) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
+	light, err := lightRemaining(dir)
+	if err != nil {
+		return 0, err
+	}
+	remaining += light
 	stored, err := DesktopReserve(dir)
 	if err != nil {
 		return 0, err
@@ -272,6 +284,163 @@ func holdersRemaining(dir string) (uint64, error) {
 // arrivals keeps the places of runs that join the line from one process
 // apart.
 var arrivals atomic.Int64
+
+// lightPlace begins the name of the lock file a light run holds its turn by,
+// which stands in the store beside the slots and never in the line. The rest
+// of the name is the moment it took the turn, as a place in line is named, so
+// no two light runs share one.
+const lightPlace = "light-"
+
+// lightName matches the lock file of a light run's turn, and nothing that
+// could reach outside the store.
+var lightName = regexp.MustCompile(`^light-[0-9]{20}-[0-9]+-[0-9]+$`)
+
+// lightRemaining is what the light runs holding a turn in dir may still use:
+// each one's estimate less what it commits now, never below nothing.
+func lightRemaining(dir string) (uint64, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var remaining uint64
+	for _, entry := range entries {
+		name := entry.Name()
+		if !lightName.MatchString(name) {
+			continue
+		}
+		holder, err := lock.ReadNamedStrict(dir, name)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return 0, err
+		}
+		if !holder.Alive() {
+			continue
+		}
+		says := readCard(filepath.Join(dir, name))
+		if says.UsedBytes < says.EstimateBytes {
+			remaining += says.EstimateBytes - says.UsedBytes
+		}
+	}
+	return remaining, nil
+}
+
+// lightFloor is the memory, physical and commit alike, a light run expected
+// to use estimate needs free to take its turn in dir beside a desktop reserve
+// of reserve: what the light runs already holding a turn may still use, its
+// own estimate and the reserve, the store's, which reserve may raise and never
+// lower. What the slots' holders may still use is not in it: a light run is
+// bounded and short, and the monitor of every run keeps the desktop reserve
+// free whatever grows. The light runs before it are, so two light runs never
+// both take the memory one of them saw free.
+func lightFloor(dir string, estimate, reserve uint64) (uint64, error) {
+	remaining, err := lightRemaining(dir)
+	if err != nil {
+		return 0, err
+	}
+	stored, err := DesktopReserve(dir)
+	if err != nil {
+		return 0, err
+	}
+	return remaining + estimate + max(reserve, stored.PhysicalAvailable, stored.CommitAvailable), nil
+}
+
+// waitLight is Wait for a light run. It stands in no line and takes no slot:
+// as soon as free physical memory and free commit both reach its floor
+// (lightFloor) it takes a turn of its own beside the slots, however many runs
+// hold them or wait for them. Its wait for memory is bounded by its Limit and
+// its LineLimit as a run's at the head of the line is.
+func (a Admission) waitLight(ctx context.Context, start time.Time) (Turn, error) {
+	var told time.Time
+	for {
+		if err := ctx.Err(); err != nil {
+			return Turn{Waited: time.Since(start)}, err
+		}
+		turn, short, err := a.takeLight()
+		switch {
+		case errors.Is(err, errCustodyBusy):
+			short = "the line's lock is busy"
+		case err != nil:
+			return Turn{Waited: time.Since(start)}, err
+		case turn.release != nil:
+			turn.Waited = time.Since(start)
+			return turn, nil
+		}
+		waited := time.Since(start)
+		if waited >= a.Limit {
+			return Turn{Waited: waited}, fmt.Errorf("verify: memory floor wait expired: %s", short)
+		}
+		if a.LineLimit > 0 && waited >= a.LineLimit {
+			return Turn{Waited: waited}, fmt.Errorf("%w of %s", ErrLineLimit, a.LineLimit)
+		}
+		if a.Waiting != nil && (told.IsZero() || time.Since(told) >= time.Minute) {
+			a.Waiting(waited, "a light run waits beside the line for memory: "+short)
+			told = time.Now()
+		}
+		select {
+		case <-ctx.Done():
+			return Turn{Waited: time.Since(start)}, ctx.Err()
+		case <-time.After(a.Poll):
+		}
+	}
+}
+
+// takeLight takes a light turn when free memory reaches the run's floor, and
+// otherwise says how memory is short and takes none. The floor is read and
+// the turn taken under the line's lock, which every other light run takes to
+// do the same. A light run whose process is verifiably gone leaves its lock
+// file behind, which no later run's name reuses, so it is taken away here,
+// once its workers' custody has been recovered.
+func (a Admission) takeLight() (turn Turn, short string, failure error) {
+	unlock, err := custodyMutation(a.Dir)
+	if err != nil {
+		return Turn{}, "", err
+	}
+	defer func() { failure = errors.Join(failure, unlock()) }()
+	if err := a.checkWorkerCustody(); err != nil {
+		return Turn{}, "", err
+	}
+	entries, err := os.ReadDir(a.Dir)
+	if err != nil {
+		return Turn{}, "", err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !lightName.MatchString(name) {
+			continue
+		}
+		if holder, err := lock.ReadNamedStrict(a.Dir, name); err == nil && !holder.Alive() {
+			if err := os.Remove(filepath.Join(a.Dir, name+".run")); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return Turn{}, "", err
+			}
+			if err := os.Remove(filepath.Join(a.Dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return Turn{}, "", err
+			}
+		}
+	}
+	floor, err := lightFloor(a.Dir, a.estimate(), max(a.Reserve.PhysicalAvailable, a.Reserve.CommitAvailable))
+	if err != nil {
+		return Turn{}, "", err
+	}
+	if short, err := a.short(floor); err != nil || short != "" {
+		return Turn{}, short, err
+	}
+	name := lightPlace + fmt.Sprintf("%020d-%d-%d", time.Now().UTC().UnixNano(), os.Getpid(), arrivals.Add(1))
+	owner, err := lock.AcquireExclusiveNamedStrict(a.Dir, name)
+	if err != nil {
+		return Turn{}, "", err
+	}
+	says := card{Who: a.Who, BudgetSeconds: a.Budget.Seconds(), EstimateBytes: a.estimate()}
+	if err := a.leave(a.Dir, name, says); err != nil {
+		lock.ReleaseExclusiveNamed(a.Dir, name)
+		return Turn{}, "", err
+	}
+	return a.held(name, owner, says), "", nil
+}
 
 // A run's place in line is a file named for its tier and then the moment it
 // joined, so runs of one tier keep the order they asked in. Every build orders
@@ -355,6 +524,9 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	if a.Available != nil && a.Headroom != nil {
 		return Turn{}, errors.New("verify: admission requires one memory reader")
 	}
+	if a.IsLight && (a.Estimate == 0 || a.Budget <= 0) {
+		return Turn{}, errors.New("verify: a light run names the memory it is expected to use and the bound it is ended at")
+	}
 	if err := os.MkdirAll(a.Dir, 0o755); err != nil {
 		return Turn{}, err
 	}
@@ -378,6 +550,9 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	}
 	if turn, isInside := a.inside(); isInside {
 		return turn, nil
+	}
+	if a.IsLight {
+		return a.waitLight(ctx, start)
 	}
 	line := filepath.Join(a.Dir, "line")
 	if err := os.MkdirAll(line, 0o755); err != nil {
@@ -643,8 +818,9 @@ func (a Admission) heldBy() string {
 	return "the turn is held by " + strings.Join(holders, ", and by ")
 }
 
-// inside returns the turn this run was started inside, when its environment
-// names one and the process that took it holds it still. Such a run takes no
+// inside returns the turn this run was started inside, a slot's or a light
+// run's, when its environment names one and the process that took it holds
+// it still. Such a run takes no
 // slot and gives none back: what it says goes beside the holder's turn, and
 // its release takes that back. A token that names no held turn, as one a
 // process inherited from a run that has ended, is no turn, and the run joins
@@ -652,7 +828,7 @@ func (a Admission) heldBy() string {
 func (a Admission) inside() (Turn, bool) {
 	token := os.Getenv(TurnVariable)
 	name, _, _ := strings.Cut(token, ":")
-	if name != "slot-1" && name != "slot-2" {
+	if name != "slot-1" && name != "slot-2" && !lightName.MatchString(name) {
 		return Turn{}, false
 	}
 	if !a.isHeldAs(name, token) {
@@ -768,79 +944,87 @@ func (a Admission) take(capacity int) (turn Turn, failure error) {
 		if err != nil {
 			return Turn{}, err
 		}
-		if err := a.leave(a.Dir, name, card{Who: a.Who, BudgetSeconds: a.Budget.Seconds(), EstimateBytes: a.estimate()}); err != nil {
+		says := card{Who: a.Who, BudgetSeconds: a.Budget.Seconds(), EstimateBytes: a.estimate()}
+		if err := a.leave(a.Dir, name, says); err != nil {
 			lock.ReleaseExclusiveNamed(a.Dir, name)
 			return Turn{}, err
 		}
-		var mu sync.Mutex
-		isReleased := false
-		release := func(ctx context.Context, busyLimit time.Duration) (failure error) {
-			if err := lockBefore(ctx, &mu); err != nil {
-				return err
-			}
-			defer mu.Unlock()
-			// A run that took its turn gives it back through a busy moment
-			// of the line's lock, as it took it.
-			unlock, err := custodyReleaseWhileBusy(ctx, a.Dir, busyLimit)
+		return a.held(name, owner, says), nil
+	}
+	return Turn{}, nil
+}
+
+// held is the turn of the lock file name in the store, a slot's or a light
+// run's, that owner has just taken and written the card says beside. Once
+// release has run, say writes nothing, so a progress note can never land
+// beside a turn the run has given back.
+func (a Admission) held(name string, owner *lock.Info, says card) Turn {
+	var mu sync.Mutex
+	isReleased := false
+	release := func(ctx context.Context, busyLimit time.Duration) (failure error) {
+		if err := lockBefore(ctx, &mu); err != nil {
+			return err
+		}
+		defer mu.Unlock()
+		// A run that took its turn gives it back through a busy moment
+		// of the line's lock, as it took it.
+		unlock, err := custodyReleaseWhileBusy(ctx, a.Dir, busyLimit)
+		if err != nil {
+			return err
+		}
+		defer func() { failure = errors.Join(failure, unlock()) }()
+		if !isReleased {
+			guards, err := a.workerCustodyContext(ctx)
 			if err != nil {
 				return err
 			}
-			defer func() { failure = errors.Join(failure, unlock()) }()
-			if !isReleased {
-				guards, err := a.workerCustodyContext(ctx)
-				if err != nil {
+			// A nested controller that ended inside this turn leaves its
+			// custody to be recovered before the slot can go back.
+			var abandoned []Custody
+			for _, guard := range guards {
+				if guard.Token != turnToken(name, owner) {
+					continue
+				}
+				if !guard.isAbandoned() {
+					return fmt.Errorf("verify: execution %s still holds worker custody", guard.RunID)
+				}
+				abandoned = append(abandoned, guard)
+			}
+			if len(abandoned) > 0 {
+				if err := recoverAbandoned(ctx, abandoned); err != nil {
 					return err
 				}
-				// A nested controller that ended inside this turn leaves its
-				// custody to be recovered before the slot can go back.
-				var abandoned []Custody
-				for _, guard := range guards {
-					if guard.Token != turnToken(name, owner) {
-						continue
-					}
-					if !guard.isAbandoned() {
-						return fmt.Errorf("verify: execution %s still holds worker custody", guard.RunID)
-					}
-					abandoned = append(abandoned, guard)
-				}
-				if len(abandoned) > 0 {
-					if err := recoverAbandoned(ctx, abandoned); err != nil {
-						return err
-					}
-				}
-				if err := ctx.Err(); err != nil {
-					return err
-				}
-				if err := a.removeContext(ctx, a.Dir, name, owner); err != nil {
-					return err
-				}
-				isReleased = true
 			}
-			return nil
-		}
-		// says is what the card says now. A use within 64 MiB of the one on
-		// the card is not written again, so a run measured every second is
-		// not a file write every second.
-		says := card{Who: a.Who, BudgetSeconds: a.Budget.Seconds(), EstimateBytes: a.estimate()}
-		say := func(now string) {
-			mu.Lock()
-			defer mu.Unlock()
-			if !isReleased {
-				says.Now = now
-				a.say(name, owner, says)
+			if err := ctx.Err(); err != nil {
+				return err
 			}
-		}
-		measure := func(used uint64) {
-			mu.Lock()
-			defer mu.Unlock()
-			if !isReleased && max(used, says.UsedBytes)-min(used, says.UsedBytes) >= 64<<20 {
-				says.UsedBytes = used
-				a.say(name, owner, says)
+			if err := a.removeContext(ctx, a.Dir, name, owner); err != nil {
+				return err
 			}
+			isReleased = true
 		}
-		return Turn{token: turnToken(name, owner), dir: a.Dir, slot: name, release: release, say: say, measure: measure, busyLimit: a.Limit}, nil
+		return nil
 	}
-	return Turn{}, nil
+	// says is what the card says now. A use within 64 MiB of the one on
+	// the card is not written again, so a run measured every second is
+	// not a file write every second.
+	say := func(now string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if !isReleased {
+			says.Now = now
+			a.say(name, owner, says)
+		}
+	}
+	measure := func(used uint64) {
+		mu.Lock()
+		defer mu.Unlock()
+		if !isReleased && max(used, says.UsedBytes)-min(used, says.UsedBytes) >= 64<<20 {
+			says.UsedBytes = used
+			a.say(name, owner, says)
+		}
+	}
+	return Turn{token: turnToken(name, owner), dir: a.Dir, slot: name, release: release, say: say, measure: measure, busyLimit: a.Limit}
 }
 
 // say rewrites the card of the slot this run holds with says, while the
@@ -916,6 +1100,8 @@ type Standing struct {
 	Now    string
 	// IsLowPriority says a waiting run waits at the lowest priority.
 	IsLowPriority bool
+	// IsLight says a run holds a light turn beside the slots, not a slot.
+	IsLight bool
 	// Estimate is the most memory it is expected to use, and Used what it
 	// commits now, as a run that holds a turn last measured it.
 	Estimate uint64
@@ -954,8 +1140,9 @@ func priorityName(priority string) string {
 	return "task priority " + priority
 }
 
-// Line reads who holds the turns kept in dir, slot by slot, and who waits, in
-// the order they take their turns. A run whose process is gone is left out.
+// Line reads who holds the turns kept in dir, the light runs beside the
+// slots and then slot by slot, and who waits, in the order they take their
+// turns. A run whose process is gone is left out.
 func Line(dir string) (holding, waiting []Standing, err error) {
 	// read lists the runs on record in dir, in the order of their files'
 	// names, which for the line is the order of its places.
@@ -986,12 +1173,12 @@ func Line(dir string) (holding, waiting []Standing, err error) {
 				if !says.Joined.IsZero() {
 					since = says.Joined
 				}
-				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: since, Budget: time.Duration(says.BudgetSeconds * float64(time.Second)), Now: says.Now, IsLowPriority: strings.HasPrefix(name, lowPriorityPlace), Estimate: says.EstimateBytes, Used: says.UsedBytes, place: name, priority: says.Priority})
+				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: since, Budget: time.Duration(says.BudgetSeconds * float64(time.Second)), Now: says.Now, IsLowPriority: strings.HasPrefix(name, lowPriorityPlace), IsLight: lightName.MatchString(name), Estimate: says.EstimateBytes, Used: says.UsedBytes, place: name, priority: says.Priority})
 			}
 		}
 		return runs, nil
 	}
-	if holding, err = read(dir, func(name string) bool { return strings.HasPrefix(name, "slot-") }); err != nil {
+	if holding, err = read(dir, func(name string) bool { return strings.HasPrefix(name, "slot-") || lightName.MatchString(name) }); err != nil {
 		return nil, nil, err
 	}
 	if waiting, err = read(filepath.Join(dir, "line"), func(string) bool { return true }); err != nil {
