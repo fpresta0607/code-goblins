@@ -64,10 +64,14 @@ Each area names what it does on Windows, what does it on Linux, and the layer th
 - **Windows:** `internal/conpty` runs each goblin's harness in a pseudo console (`CreatePseudoConsole`), started suspended inside a job object, with the console host the release ships (`conpty.dll`, `OpenConsole.exe`) and the system's `conhost.exe` behind it.
   An input waker works around a console host bug that leaves typed keys unread, and reads the screen back with `ReadConsoleOutputCharacterW`.
   `internal/host` is the detached process that owns that console and serves viewers.
+  It starts outside its launcher's job, so it outlives whatever launched it, or inside it, marked `Contained`, where the job forbids that; the launcher starts the supervisor the same way.
   It keeps the terminal and everything it starts off the performance cores left to the Overlord's own apps (`--leave-cores-for-apps`), with the mask of threads `internal/processor` makes from each core's efficiency class.
   `goblins attach` puts the console in virtual terminal input mode and sends win32-input-mode.
   The onboarding menu reads keys with `ReadConsoleInputW`.
 - **Linux:** a pseudo terminal from `openpty`, sized with `TIOCSWINSZ`, the harness in its own session (`setsid`) and process group.
+  A session or process group stays in the cgroup it started in, and a systemd unit that stops ends everything in its cgroup, so each host, and the supervisor the launcher starts, starts in a transient user scope of its own (`systemd-run --user --scope`).
+  A crash, restart or update of the supervisor then ends no host.
+  Where no user manager answers, each starts where it is, a host marked `Contained`, as on Windows where the job forbids breaking away.
   The screen comes from the host's own emulator, which `internal/host` already keeps for its history (`internal/vtscreen`), so nothing reads it back from a console.
   The terminal's process group keeps off the same cores through `sched_setaffinity`, set on its first process and inherited by everything it starts, and `internal/processor` reads the cores' kinds and threads from `/sys`.
   `attach` and the menu use the terminal's raw mode and `SIGWINCH`.
@@ -87,6 +91,7 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
 - **Linux:** a Unix domain socket, with `SO_PEERCRED` giving each side the other's process id.
   The sockets sit in a folder only the user can open (0700) under `$XDG_RUNTIME_DIR`, or under `/tmp` when that is unset, named by a short hash of the home.
   A folder under `/tmp` is used only once it is checked to be the user's own and 0700.
+  Install turns on lingering (`loginctl enable-linger`), so the user manager and `$XDG_RUNTIME_DIR`, and the sockets in it, outlive the user's last logout.
   A socket's path must fit `sun_path`, 108 bytes on Linux, which a path in a long home or a test's temporary folder can exceed, so the sockets are not in the home's `state` folder.
   The primary transport is an open file held with `flock`.
 - **Not needed:** Herdr's pipe.
@@ -101,7 +106,7 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
   A tree's memory and processor use is the sum over its members in `/proc`.
   The gate's run is found again by the group id it records; Ctrl+Break becomes `SIGINT`, then `SIGTERM`.
   Process groups work the same on macOS, which is why they come before cgroups; a cgroup per tree stays an option if the memory floor needs a hard limit.
-- **Not needed:** starting suspended, breakaway flags, adopting another process's job.
+- **Not needed:** starting suspended and adopting another process's job; the host and the supervisor, which break away from their launcher's job on Windows, take a scope of their own on Linux instead (see [The native terminal](#the-native-terminal)).
 - **Layer:** 3.
 
 ### Process identity
@@ -120,6 +125,9 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
 - **Linux:** `flock`, with the line of waiters kept in the lock's own file so the first-come order survives; `rename` followed by `fsync` of the file and its folder; an open file is never busy, since unlinking it succeeds.
 - **Must change, not only port:** code that builds on every system compares paths without regard to case, as Windows does.
   `fsx.SamePath` folds case for its 24 callers in program files, and about 50 more program files compare paths with `strings.EqualFold`, among them `internal/gatehome`, `internal/home`, `internal/harnessmap`, `internal/pipeline`, `internal/update`, `internal/uninstall`, `internal/codexguard`, `internal/fleettree`, `internal/pathguard` and `cmd/goblins`.
+  10 more lower a whole path with `strings.ToLower` to compare it or use it as a key: `cmd/goblins/gate_run_end.go`, `internal/lock/lock.go`, `internal/lifecycle/processes.go`, `internal/supervisor/pages.go`, `internal/janitor/worktrees.go`, `internal/watch/janitor.go`, `internal/gatetest/select.go` and `match.go`, `internal/cleanup/outcome.go` and `internal/doctor/fix.go`.
+  Some of the `strings.EqualFold` files do the same beside it, among them `internal/monitor/polls.go`, `internal/janitor/temp.go`, `internal/homemove/homemove.go` and `internal/supervisor/runs.go`.
+  None of these fails a Linux build, so the compiler does not find them; on Linux `internal/supervisor/pages.go`, for one, would make `Report.html` and `report.html` one page.
   On Linux two paths that differ only in case are two folders, so all of them compare exactly there.
   `internal/connections` folds case only in its Windows file, so its Linux file compares exactly from the start.
   About 80 program files spell a program as `name.exe`; each gets the system's own name.
@@ -171,8 +179,9 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
   git and gh come from the system's package manager, which the script names rather than runs.
   `PATH` is added in the shell's profile when `~/.local/bin` is not on it already.
   A `.desktop` entry opens the board, and start at sign-in is a systemd user unit, which also runs on a server with no desktop.
+  Install turns on lingering (`loginctl enable-linger`), so the user manager, and the unit with it, starts at boot and stays up after the last logout, which a server reached over SSH needs.
   `goblins update` replaces a program by renaming the new file over it, which Linux allows while it runs.
-  The uninstaller removes the programs, the `.desktop` entry and the unit.
+  The uninstaller removes the programs, the `.desktop` entry and the unit, and turns lingering off again if install turned it on.
 - **Not needed:** the setup window, the registry, Installed apps, shortcuts, elevation, Authenticode (the checksums remain; a signature for the archive can follow).
 - **Layer:** 8.
 
@@ -265,11 +274,12 @@ A layer's Linux code sits beside the Windows code under a build tag.
    Windows-only tests take the `_windows_test.go` name, and the Linux job runs `go vet` and `go test` on every package.
 3. **Processes, trees, locks and files.**
    `internal/proc` on `/proc`, `internal/execx` and the gate's executor on process groups, the lock on `flock`, the file replacements, and the default home under `$XDG_DATA_HOME`, kept to the user with mode 0700.
-4. **Transport.** Unix sockets for the host, the run requests and the primary transport, in the user's 0700 folder under `$XDG_RUNTIME_DIR` (or `/tmp`) named by a short hash of the home so each path fits `sun_path`, exact path comparison in `fsx.SamePath` and every other place that folds case on a path, and the folders `internal/pathguard` guards.
-5. **The native terminal.** `internal/host` on a pseudo terminal, kept off the cores left to the Overlord's own apps with `sched_setaffinity` and the core kinds read from `/sys`, `attach` and the onboarding menu in raw mode, and `spawn` launching on Linux.
+4. **Transport.** Unix sockets for the host, the run requests and the primary transport, in the user's 0700 folder under `$XDG_RUNTIME_DIR` (or `/tmp`) named by a short hash of the home so each path fits `sun_path`, exact path comparison in `fsx.SamePath`, the `strings.EqualFold` calls and the paths lowered with `strings.ToLower`, and the folders `internal/pathguard` guards.
+   Until layer 8 turns lingering on, the socket folder lasts only while the user is signed in.
+5. **The native terminal.** `internal/host` on a pseudo terminal, each host and the supervisor the launcher starts in a transient user scope of its own, the terminal kept off the cores left to the Overlord's own apps with `sched_setaffinity` and the core kinds read from `/sys`, `attach` and the onboarding menu in raw mode, and `spawn` launching on Linux.
 6. **Watching and readings.** `inotify`, the memory and processor readings, priorities, the janitor's processes, the browser sign-in and the clipboard.
 7. **End to end.** The hooks without PowerShell, card commands and `!` messages in bash, folders opened with `xdg-open`, and a goblin run on Linux in CI under Claude Code, Codex and pi: spawn, send, peek, wake, pause, resume, gate and cleanup.
-8. **Installer and updater.** The release's Linux archives and `install.sh`, update and uninstall, the `.desktop` entry and the user unit, the board opening in the browser, and the README's download control and the install guide offering Linux beside Windows.
+8. **Installer and updater.** The release's Linux archives and `install.sh`, update and uninstall, the `.desktop` entry, the user unit and lingering, the board opening in the browser, and the README's download control and the install guide offering Linux beside Windows.
 9. **Dictation.** The speech engine's Linux library, pinned in `config/voice.json` beside the Windows one, and loaded through cgo or a pure-Go loader such as purego, whichever this layer chooses.
    If it takes cgo, the release's Linux build from layer 8 turns cgo on with it.
 10. **The desktop CI runner.** The runner as a systemd system unit running private repositories' CI in a KVM machine.
@@ -281,7 +291,7 @@ Layers 3 to 5 hold most of the work; layer 7 is where a goblin first works on Li
 macOS takes the pseudo terminal, Unix sockets, process groups, signals and `flock` from the Linux layers.
 It differs where Linux reads `/proc` and `/sys`: process identity and the cores' kinds come from `libproc` and `sysctl`, folder watching from FSEvents or kqueue, memory from `host_statistics64`, start at sign-in from a launchd agent, the credential store from the Keychain, and the window from WKWebView, which Wails already supports.
 Its sockets always take the user's folder under `/tmp`, since it has no `$XDG_RUNTIME_DIR` and its own `$TMPDIR` already takes about half of its 104-byte `sun_path`.
-It also differs where the Linux layers call what only Linux has: the socket's peer comes from `LOCAL_PEERPID` instead of `SO_PEERCRED`, it has no `PR_SET_CHILD_SUBREAPER`, no `pidfd_open` and no `sched_setaffinity`, the creation time comes from `stat` instead of `statx`, and the disk priority from `setiopolicy_np` instead of `ioprio_set`.
+It also differs where the Linux layers call what only Linux has: the socket's peer comes from `LOCAL_PEERPID` instead of `SO_PEERCRED`, it has no `PR_SET_CHILD_SUBREAPER`, no `pidfd_open`, no `sched_setaffinity` and no systemd scope or lingering, the creation time comes from `stat` instead of `statx`, and the disk priority from `setiopolicy_np` instead of `ioprio_set`.
 Its default file system ignores case, as Windows does, so exact path comparison is not enough there either.
 A release for it needs an Apple developer account for signing and notarization, and Mac runners.
 It is filed as its own issue from this inventory once the Linux layers it reuses have landed.
