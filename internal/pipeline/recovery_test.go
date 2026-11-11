@@ -500,6 +500,7 @@ func TestRecoverKeepLocalReturnsCustodyOnlyFromAGateRebaseOrMergeOfTheSubmittedH
 		isMerged      bool
 		isConflicting bool
 		hasFixCommit  bool
+		isAmended     bool
 		remoteHolds   string
 		isRecovered   bool
 	}{
@@ -511,6 +512,7 @@ func TestRecoverKeepLocalReturnsCustodyOnlyFromAGateRebaseOrMergeOfTheSubmittedH
 		{name: "merge of a base no remote holds", isMerged: true, remoteHolds: "base"},
 		{name: "merge with a gate fix commit", isMerged: true, hasFixCommit: true, remoteHolds: "upstream"},
 		{name: "merge whose conflict the gate resolved", isMerged: true, isConflicting: true, remoteHolds: "upstream"},
+		{name: "clean merge amended with a gate change", isMerged: true, isAmended: true, remoteHolds: "upstream"},
 		{name: "gate fix commit on the submitted head", hasFixCommit: true, remoteHolds: "upstream"},
 		{name: "recorded head a remote already holds", hasFixCommit: true, remoteHolds: "recorded", isRecovered: true},
 	} {
@@ -564,6 +566,13 @@ func TestRecoverKeepLocalReturnsCustodyOnlyFromAGateRebaseOrMergeOfTheSubmittedH
 				runPipelineGit(t, work, "-c", "core.editor=true", "rebase", "--continue")
 			} else if test.isRebased {
 				runPipelineGit(t, work, "rebase", "--quiet", "main")
+			}
+			if test.isAmended {
+				if err := os.WriteFile(filepath.Join(work, "gate-fix.txt"), []byte("gate fix\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				runPipelineGit(t, work, "add", "gate-fix.txt")
+				runPipelineGit(t, work, "commit", "--quiet", "--amend", "--no-edit")
 			}
 			if test.hasFixCommit {
 				commit("gate-fix.txt", "gate fix\n")
