@@ -155,7 +155,7 @@ func (r Reader) recoverRun(ctx context.Context, project, worktree, branch string
 			return RecoveryResult{}, err
 		}
 		if !safe {
-			return RecoveryResult{}, fmt.Errorf("pipeline: recorded head is neither an ancestor of the submitted head nor the gate's rebase of it onto a published base; to keep the gate's commits, put the clean task branch at the recorded head %s and recover again", run.RecordedHead)
+			return RecoveryResult{}, fmt.Errorf("pipeline: recorded head is neither an ancestor of the submitted head nor the gate's rebase of it onto a published base or merge of one into it; to keep the gate's commits, put the clean task branch at the recorded head %s and recover again", run.RecordedHead)
 		}
 		anchor := "refs/no-mistakes/recovery/" + run.RunID + "/recorded"
 		if err := r.preserveRecoveryHead(ctx, bare, anchor, run.RecordedHead); err != nil {
@@ -812,7 +812,11 @@ func (r Reader) safeRecoveryRelation(ctx context.Context, repo, recorded, submit
 	if ancestry.ExitCode != 1 {
 		return false, errors.New("pipeline: could not establish recovery ancestry")
 	}
-	return r.gateRebase(ctx, repo, recorded, submitted)
+	isRebase, err := r.gateRebase(ctx, repo, recorded, submitted)
+	if err != nil || isRebase {
+		return isRebase, err
+	}
+	return r.gateMerge(ctx, repo, recorded, submitted)
 }
 
 // gateRebase reports whether recorded is the gate's rebase of submitted: its
@@ -838,6 +842,32 @@ func (r Reader) gateRebase(ctx context.Context, repo, recorded, submitted string
 	}
 	recordedTree, isSuccess, err := r.gitOutput(ctx, repo, "rev-parse", recorded+"^{tree}")
 	return isSuccess && replayedTree == recordedTree, err
+}
+
+// gateMerge reports whether recorded is the gate's merge of a published base
+// into submitted: a two-parent commit whose first parent is submitted, whose
+// second a remote-tracking ref holds, and whose tree is their clean merge.
+// Keeping submitted then drops no change that is neither in submitted nor
+// already published.
+func (r Reader) gateMerge(ctx context.Context, repo, recorded, submitted string) (bool, error) {
+	parents, isSuccess, err := r.gitOutput(ctx, repo, "rev-parse", recorded+"^@")
+	if err != nil || !isSuccess {
+		return false, err
+	}
+	parentList := strings.Fields(parents)
+	if len(parentList) != 2 || parentList[0] != submitted {
+		return false, nil
+	}
+	unpublished, isSuccess, err := r.gitOutput(ctx, repo, "rev-list", "--count", parentList[1], "--not", "--remotes")
+	if err != nil || !isSuccess || unpublished != "0" {
+		return false, err
+	}
+	mergedTree, isSuccess, err := r.gitOutput(ctx, repo, "merge-tree", "--write-tree", submitted, parentList[1])
+	if err != nil || !isSuccess {
+		return false, err
+	}
+	recordedTree, isSuccess, err := r.gitOutput(ctx, repo, "rev-parse", recorded+"^{tree}")
+	return isSuccess && mergedTree == recordedTree, err
 }
 
 // gitOutput runs git in the bare repository. Exit 1 is git's no, such as a

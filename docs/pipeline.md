@@ -398,11 +398,12 @@ The separate native admission, restart, recovery and continuation journey keeps 
 For an unpublished run, `recover` can repair a stale recorded head that blocks native recovery.
 It first preserves whatever the run's worktree still holds uncommitted, as described below, and names that commit in its output.
 For pipeline-owned recovery that keeps the submitted head, it requires a clean worktree whose head exactly matches both the submitted head and native gate branch.
-The stale recorded commit must be an ancestor of that preserved head, or the gate's own rebase of it.
+The stale recorded commit must be an ancestor of that preserved head, or the gate's own rebase or merge of it.
 A run whose rebase step moved its recorded head and that then failed before it pushed leaves that rebase unverified, and native recovery refuses it with `blocked_recover_unverified_head`, with or without `--keep-local`.
-The driver accepts such a head only as a pure rebase: its first-parent commits that no remote-tracking ref of the gate repository holds, laid on the first commit one does, must carry the submitted head's changes and nothing else.
-A gate fix commit or conflict resolution on the rebase, or content from a base no remote-tracking ref holds, is refused, so keeping the submitted head drops nothing that neither it nor a remote-tracking ref holds.
-A run under `rebase.strategy: merge` integrates with a merge commit instead, which this proof does not cover, and is refused.
+The driver accepts such a head only as a pure rebase or a pure merge.
+A rebase's first-parent commits that no remote-tracking ref of the gate repository holds, laid on the first commit one does, must carry the submitted head's changes and nothing else.
+A run under `rebase.strategy: merge` integrates with a merge commit instead, which must have exactly two parents, the submitted head first and a commit a remote-tracking ref holds second, and the tree `git merge-tree --write-tree` gives for those two.
+A gate fix commit or conflict resolution on the rebase or merge, or content from a base no remote-tracking ref holds, is refused, so keeping the submitted head drops nothing that neither it nor a remote-tracking ref holds.
 Before a compare-and-swap repairs the stale database field, the old commit is anchored under `refs/no-mistakes/recovery/<run>/recorded`.
 The driver then invokes native `sync --recover --keep-local` and verifies that custody was durably returned without moving the local or gate head.
 A recorded head that holds the gate's own commits, such as a rebase followed by review fixes, would lose them if the submitted head were kept, so it is recovered at the recorded head instead, and the refusal from the submitted head names that head.
