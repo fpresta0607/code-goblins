@@ -16,7 +16,7 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
 import { SkipWithNote } from "./skip-with-note";
 import { CardMail } from "./card-mail";
-import { inlineElements } from "./messageText";
+import { inlineElements, linkedText } from "./messageText";
 import { copyValues } from "./CopyValue";
 import { pathLinks } from "./path-link";
 
@@ -223,10 +223,10 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
         ? <button type="button" className="primary" disabled={!connected || !!pressing || request.window_state !== ""} onClick={() => void press("/api/credentials/window", {}, "window")}><Icon name="external" />Open the browser window</button>
         : <p className="credential-remote"><Icon name="lock" />Open the browser window from the board on your PC.</p>}
       {windowNote && <p className="signin-waiting" role="status"><span className="credential-ring storing" aria-hidden="true" />{windowNote}</p>}
-      {request.window_state === "" && request.reason && <Notice tone="warning" icon="warning">{request.reason}</Notice>}
+      {request.window_state === "" && request.reason && <Notice tone="warning" icon="warning">{linkedText(request.reason)}</Notice>}
     </div>}
     {open && !local && !request.grant_service && <p className="credential-remote"><Icon name="lock" />Values can only be typed on the board on your PC. Here, copy the terminal command instead.</p>}
-    {!open && <p className="credential-outcome"><Icon name={request.state === "done" ? "check" : "clock"} /><strong>{request.state === "done" ? "Done" : request.state === "dismissed" ? "Dismissed" : "Closed"}</strong>{request.reason && <span className="muted">{request.reason}</span>}</p>}
+    {!open && <p className="credential-outcome"><Icon name={request.state === "done" ? "check" : "clock"} /><strong>{request.state === "done" ? "Done" : request.state === "dismissed" ? "Dismissed" : "Closed"}</strong>{request.reason && <span className="muted">{linkedText(request.reason)}</span>}</p>}
     {open && terminalOpen && <p className="credential-terminal-open" role="status"><Icon name="terminal" />{!local ? "A terminal is open on the board on your PC: type each value there, where nothing you type is shown." : terminal ? "Type each value in the terminal below, where nothing you type is shown." : "A terminal is open on this PC: type each value there, where nothing you type is shown."}</p>}
     {open && terminal && <RunTerminal run={terminal} instance={snapshot.instance} connected={connected} />}
     {offer && <div className="credential-fetch">
@@ -234,7 +234,7 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
       {offer.state === "fetching"
         ? <p className="credential-fetching" role="status"><Icon name="refresh" />Fetching from {offer.provider}'s page</p>
         : <button type="button" className="primary" disabled={!connected || isFetching || terminalOpen} onClick={() => void fetchKeys()}><Icon name="download" />Fetch it for me</button>}
-      {offer.reason && offer.state !== "fetching" && <span className="credential-fetch-stopped"><Icon name="warning" />Fetch stopped<span className="muted">{offer.reason}</span></span>}
+      {offer.reason && offer.state !== "fetching" && <span className="credential-fetch-stopped"><Icon name="warning" />Fetch stopped<span className="muted">{linkedText(offer.reason)}</span></span>}
     </div>}
     {request.names.length > 0 && <p className="muted credential-where">{whereItGoes(request)}</p>}
     {inputs.length > 0 && <table className="credential-table">

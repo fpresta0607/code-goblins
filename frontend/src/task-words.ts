@@ -89,6 +89,22 @@ export function plainText(raw: string): string {
   return tidy(raw).split(/;\s+/).map(sentence).filter(Boolean).join(" ");
 }
 
+// A link a plain sentence says by a word or two: the words plainText put in
+// place of an address, and the address, which the panel links them to.
+export interface SaidLink { label: string; address: string }
+
+// saidLinks are raw text's addresses, each with the words plainText says it
+// by, in the order the text names them. The punctuation that ends a sentence
+// after an address is not its own.
+export function saidLinks(raw: string): SaidLink[] {
+  return [...raw.replace(/\s+options:\s[\s\S]*$/, "").matchAll(LINK)].map((match) => {
+    const address = match[0].replace(/[.,;:!?\]}]+$/, "");
+    const item = /^https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/(pull|issues|actions\/runs)\/(\d+)/.exec(address);
+    const label = !item ? match[1] : item[1] === "pull" ? "PR #" + item[2] : item[1] === "issues" ? "issue #" + item[2] : "a CI run";
+    return { label, address };
+  });
+}
+
 // finishedEvidence is what says a queued task already finished, as one plain
 // sentence under its status. The supervisor writes it for the CFO,
 // as "Already finished: its pull request merged (...); it never starts again
@@ -251,15 +267,18 @@ const same = (one: string, other: string) => {
 
 // reportSaid is a goblin's report as the panel says it, and the report as
 // written when the sentence leaves anything out.
-export function reportSaid(report: string): { sentence: string; details: string[] } {
+export function reportSaid(report: string): { sentence: string; details: string[]; links: SaidLink[] } {
   const body = reportBody(report);
   const sentence = summary(plainText(body));
-  return { sentence, details: same(sentence, body) ? [] : [report] };
+  return { sentence, details: same(sentence, body) ? [] : [report], links: saidLinks(body) };
 }
 
 export interface Summary {
   // sentence is what the panel says under the task's status.
   sentence: string;
+  // links are the addresses of the report the sentence says, which it links
+  // by the words it says them with.
+  links?: SaidLink[];
   // details are the raw words behind Details, empty when the sentence
   // already says them.
   details: string[];
@@ -269,6 +288,9 @@ export interface Summary {
   // goblin's is, which reads as the panel's prose and not as a record.
   isPlain?: boolean;
 }
+
+// linksOf gives a summary the links of the report it says, when it has any.
+const linksOf = (said: { links: SaidLink[] }) => said.links.length ? { links: said.links } : {};
 
 // taskSummary is the one sentence the panel says under a task's status, which
 // never repeats the status: why it failed and what to do, or its goblin's
@@ -305,8 +327,9 @@ function summaryOf(task: Task, tasks: Task[]): Summary {
   // pause's own report, and never the panel's to show.
   if (task.phase === "paused") {
     const waits = resumes(record?.pause, tasks, pausedWithParent(task, tasks));
-    const description = join(reportSaid(task.last_report || "").sentence, waits, teardown);
-    return { sentence: "", details: description ? [description] : [], isFailure: false, isPlain: true };
+    const report = reportSaid(task.last_report || "");
+    const description = join(report.sentence, waits, teardown);
+    return { sentence: "", details: description ? [description] : [], isFailure: false, isPlain: true, ...linksOf(report) };
   }
   if (["pausing", "resuming", "stopping", "stopped"].includes(task.phase)) return { sentence: "", details: task.teardown, isFailure: false };
   // A queued task's status says it all; the Overlord wants no wait line. Why
@@ -314,5 +337,5 @@ function summaryOf(task: Task, tasks: Task[]): Summary {
   if (task.phase === "queued") return { sentence: "", details: task.start_error && !task.starting ? [task.start_error] : [], isFailure: false };
   // A failed or blocked task with no report of its own says its evidence.
   const said = reportSaid(reportBody(task.activity) || !["failed", "blocked"].includes(task.phase) ? task.activity : task.reason);
-  return { sentence: join(said.sentence, teardown), details: [...said.details, ...task.teardown], isFailure: task.phase === "failed" };
+  return { sentence: join(said.sentence, teardown), details: [...said.details, ...task.teardown], isFailure: task.phase === "failed", ...linksOf(said) };
 }

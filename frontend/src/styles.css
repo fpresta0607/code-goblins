@@ -111,6 +111,9 @@ textarea { resize: vertical; line-height: 1.6; }
 a { color: var(--mint); text-decoration: none; }
 /* An address in a message reads as a link. */
 .message-link { text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+/* A pull request, issue, CI run or review page by its short name. */
+.message-chip { padding: 1px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--field-bg); text-decoration: none; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.message-chip:hover { border-color: var(--mint); }
 code, pre, .mono { font-family: var(--font-mono); }
 h1, h2, h3, p { margin: 0; }
 /* Pixelify Sans stays at 400: heavier weights close its C and G into O. */

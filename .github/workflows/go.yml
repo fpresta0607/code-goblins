@@ -86,7 +86,7 @@ env:
         "packages": ["./internal/boardweb", "./tools/notices"]
       },
       "browser": {
-        "paths": ["frontend/**", "internal/boardweb/dist/index.html", "cmd/goblins-window/notes.go"],
+        "paths": ["frontend/**", "internal/boardweb/dist/index.html", "cmd/goblins-window/links.go", "cmd/goblins-window/notes.go"],
         "packages": ["./internal/afk"]
       },
       "go": [

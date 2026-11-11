@@ -4,6 +4,7 @@ import { copyText } from "./clipboard";
 import { CopyValue } from "./CopyValue";
 import { Icon } from "./Icon";
 import type { Mail } from "./types";
+import { linkedText, literalLinks } from "./messageText";
 import "./card-mail.css";
 
 const COPIED_MS = 1400;
@@ -25,8 +26,8 @@ export function CardMail({ mail }: { mail: Mail }) {
   return <section className="card-mail" aria-label="Message to send">
     {mail.to && <p className="card-mail-line"><span className="card-mail-label">To</span>
       {mail.to.startsWith("https://") ? <a href={mail.to} target="_blank" rel="noreferrer"><span>{mail.to}</span><Icon name="external" /></a> : <CopyValue value={mail.to} />}</p>}
-    {mail.subject && <p className="card-mail-line"><span className="card-mail-label">Subject</span><span>{mail.subject}</span></p>}
-    <pre className="card-mail-body" tabIndex={0} aria-label="Message body">{mail.body}</pre>
+    {mail.subject && <p className="card-mail-line"><span className="card-mail-label">Subject</span><span>{linkedText(mail.subject)}</span></p>}
+    <pre className="card-mail-body" tabIndex={0} aria-label="Message body">{literalLinks(mail.body)}</pre>
     <div className="card-mail-actions">
       <ClickFeedback text={feedback} />
       {mail.subject && <button type="button" className="icon-button raised pill-link" onClick={() => void copy("subject", mail.subject)}><Icon name={copied === "subject" ? "check" : "copy"} /><span>{copied === "subject" ? "Copied" : "Copy subject"}</span></button>}

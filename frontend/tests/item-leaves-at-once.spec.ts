@@ -534,20 +534,22 @@ test("the CFO's bar names only a goblin's question his Command Center shows him,
 // and that question no longer shows." A goblin's question asked on its Scrawl
 // page, which the CFO left long enough that it waits on him, leaves Waiting on
 // you within a second of the supervisor reading his answer on the page, on
-// local host or the tailnet, and its open card finishes with his answer.
-for (const [where, link] of [["local host", "http://127.0.0.1:4387/session/030284fb3915be1f"], ["the tailnet", "https://pc.example.ts.net:4388/session/030284fb3915be1f"]]) {
+// local host or the tailnet, and its open card finishes with his answer. A
+// review page's session on this PC reads as its short name (#2360).
+for (const [where, link, shown] of [["local host", "http://127.0.0.1:4387/session/030284fb3915be1f", "Review page"], ["the tailnet", "https://pc.example.ts.net:4388/session/030284fb3915be1f", "https://pc.example.ts.net:4388/session/030284fb3915be1f"]]) {
   test(`his Send and end on a goblin's page on ${where} takes its question off Waiting on you within a second`, async ({ page, context }) => {
     // Arrange
     await standInStream(context);
     await announcer(context);
     const ASKED = "Approve the three mockups (page " + link + ")";
+    const SHOWN = "Approve the three mockups (page " + shown + ")";
     const asked = { ...question, id: "notify-cg-probe-1000231", task: "cg-probe", generation: "g1", seq: 1000231, text: ASKED, options: ["Build it as shown", "Change it"], recommended: "Build it as shown" };
     const at = "2026-10-02T11:11:00Z";
     await page.goto("/");
     await send(page, "snapshot", quiet);
     await send(page, "snapshot", { ...asking({ questions: [asked] }), at });
     await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
-    await openCard(page, ASKED);
+    await openCard(page, SHOWN, ASKED);
     await recordDoneCards(page);
 
     // Act

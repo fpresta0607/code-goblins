@@ -15,6 +15,7 @@ import { clipboardInput, imageKey, readClipboard, terminalKey } from "./terminal
 import { putImage } from "./terminal-image";
 import { TerminalTextSheet } from "./terminal-text-sheet";
 import { attachTouchScroll, terminalText } from "./terminal-touch";
+import { linkTerminalAddresses, openWebAddress } from "./terminal-links";
 import { TerminalTouchTools } from "./terminal-touch-tools";
 import { useDictation } from "./useDictation";
 import { VoiceBubble } from "./VoiceBubble";
@@ -107,14 +108,16 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
     const element = host.current, pastElement = pastHost.current;
     const abort = new AbortController();
     const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || "";
-    const look = { documentOverride: terminalDocument(nonce), fontSize: 15, fontFamily: FALLBACK_FONT, cursorBlink: false, theme: { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" }, linkHandler: { activate: () => {} } };
+    const look = { documentOverride: terminalDocument(nonce), fontSize: 15, fontFamily: FALLBACK_FONT, cursorBlink: false, theme: { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" }, linkHandler: { activate: (_event: MouseEvent, address: string) => openWebAddress(address) } };
     const term = new Terminal({ ...look, scrollback: 0, disableStdin: true });
+    linkTerminalAddresses(term);
     term.open(element);
     terminal.current = term;
     // The pane's history, in a terminal of its own over the live screen, drawn
     // at the live screen's size and font.
     const past = new Terminal({ ...look, scrollback: HISTORY_LINES, disableStdin: false, cursorInactiveStyle: "none" });
     past.open(pastElement);
+    linkTerminalAddresses(past);
     history.current = past;
     past.textarea?.setAttribute("aria-label", "Terminal history");
     past.parser.registerOscHandler(52, () => true);

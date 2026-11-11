@@ -7,6 +7,7 @@ import { age } from "./presentation";
 import { object, string, type ReleaseOffer, type Run } from "./types";
 import { updateOutcome, updateProgress } from "./update-progress";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
+import { linkedText, literalLinks } from "./messageText";
 
 // How often the card reads what a running update printed, as a run card does,
 // while the page shows: a page hidden in the tray or a background tab reads
@@ -69,7 +70,7 @@ export function UpdateCard({ run, offer, connected, now, sending, error, onRun, 
       <span className="to">{offer.to}</span>
     </div>
     {run.state === "ready" && <>
-      {offer.notes.length > 0 && <ul className="update-notes">{offer.notes.map((note) => <li key={note}>{note}</li>)}</ul>}
+      {offer.notes.length > 0 && <ul className="update-notes">{offer.notes.map((note) => <li key={note}>{linkedText(note)}</li>)}</ul>}
       {offer.page && <a className="update-notes-link" href={offer.page} target="_blank" rel="noreferrer">What's new<Icon name="external" /></a>}
       <p className="update-trust"><Icon name="shield" /><span>{trustLine(offer.signing, offer.publisher)}{offer.sum && <>, such as cfo.exe <code>{offer.sum.slice(0, 8) + "…" + offer.sum.slice(-6)}</code></>}.</span></p>
       <p className="update-effect">The board restarts for a few seconds. Goblins and the CEO keep running. A build that does not start is rolled back.</p>
@@ -78,9 +79,9 @@ export function UpdateCard({ run, offer, connected, now, sending, error, onRun, 
       <Icon name={step.state === "done" ? "check" : step.state === "now" ? "refresh" : step.state === "failed" ? "warning" : "clock"} />{step.title}
     </li>)}</ol>}
     {running && <p className="update-effect">{connected ? "The board restarts and is away for under a minute. This page reconnects by itself." : "The board is restarting. This page reconnects by itself, and a build that does not start is rolled back."}</p>}
-    {progress.result && !running && <p className={"update-result " + (updated ? "ok" : "back")}>{updated ? offer.to + " runs. The board reloads on it now." : progress.result}</p>}
-    {run.state === "withdrawn" && run.reason && <p className="update-effect">{run.reason[0].toUpperCase() + run.reason.slice(1)}.</p>}
-    {(running || output) && <Disclosure kind="disclosure-line update-output" title="Output"><pre className="run-output">{output || "Waiting for output"}</pre></Disclosure>}
+    {progress.result && !running && <p className={"update-result " + (updated ? "ok" : "back")}>{updated ? offer.to + " runs. The board reloads on it now." : linkedText(progress.result)}</p>}
+    {run.state === "withdrawn" && run.reason && <p className="update-effect">{linkedText(run.reason[0].toUpperCase() + run.reason.slice(1) + ".")}</p>}
+    {(running || output) && <Disclosure kind="disclosure-line update-output" title="Output"><pre className="run-output">{output ? literalLinks(output) : "Waiting for output"}</pre></Disclosure>}
     {(run.state === "ready" || pager || onRetry) && <div className="card-actions">
       <ClickFeedback text={feedback} />
       {pager}

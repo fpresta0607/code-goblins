@@ -10,6 +10,7 @@ import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, followFontSize
 import { PinnedLine } from "./pinned-line";
 import { attachZoomGesture } from "./terminal-zoom";
 import { attachTouchScroll, terminalText } from "./terminal-touch";
+import { linkTerminalAddresses, openWebAddress } from "./terminal-links";
 
 export const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
 export const THEME = { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" };
@@ -131,7 +132,8 @@ export class TerminalView {
     this.element.className = "terminal-view staged";
     container.append(this.element);
     const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || "";
-    this.term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize, fontFamily: FALLBACK_FONT, lineHeight: LINE_HEIGHT, scrollback: 5000, cursorBlink: false, theme: THEME, linkHandler: { activate: () => {} } });
+    this.term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize, fontFamily: FALLBACK_FONT, lineHeight: LINE_HEIGHT, scrollback: 5000, cursorBlink: false, theme: THEME, linkHandler: { activate: (_event, address) => openWebAddress(address) } });
+    linkTerminalAddresses(this.term);
     this.term.parser.registerOscHandler(52, () => true);
     this.pin = new PinnedLine(this.element);
     for (const [final, isShown] of [["h", true], ["l", false]] as const) {

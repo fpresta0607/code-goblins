@@ -8,6 +8,7 @@ import { harnessMark } from "./connectors";
 import { harnessName, taskColumn } from "./workflow";
 import { goblinName } from "./task-words";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
+import { linkedText } from "./messageText";
 
 export function EngineSelector({ task, instance }: { task: Task; instance: string }) {
   const label = useId();
@@ -57,7 +58,7 @@ export function EngineSelector({ task, instance }: { task: Task; instance: strin
           }}>{isQueued && <option value="">Automatic</option>}{!model && !isAutomaticModel && <option value={choice.model} disabled>{choice.model}{isAutomaticHarness ? "" : " (unavailable)"}</option>}{harness?.models.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label htmlFor={label + "-effort"}>Effort<select id={label + "-effort"} value={choice.effort} disabled={isDisabled || !model && (!isQueued || !choice.effort)} onChange={(event) => { setDraft({ ...choice, effort: event.target.value }); setOutcome(""); }}><option value="default">Default</option>{isQueued && <option value="">Automatic</option>}{!isAutomaticEffort && choice.effort !== "default" && !model?.efforts.includes(choice.effort) && <option value={choice.effort} disabled>{choice.effort}{isAutomaticHarness || isAutomaticModel ? "" : " (unavailable)"}</option>}{model?.efforts.map((effort) => <option key={effort} value={effort}>{effort}</option>)}</select></label>
         </div>
-        {unavailable && <p className="muted">{unavailable}</p>}
+        {unavailable && <p className="muted">{linkedText(unavailable)}</p>}
         {isQueued || isPaused ? draft && <button disabled={isDisabled || !!unavailable} onClick={() => void send("")}>{isQueued ? "Save" : "Save for Resume"}</button>
           : <button className="labelled-button cfo-restart-button" aria-label={"Restart " + goblinName(task)} disabled={isDisabled || !!draft && !!unavailable} onClick={() => void send(draft ? "now" : "restart")}><Icon name="refresh" />Restart</button>}
       </>}

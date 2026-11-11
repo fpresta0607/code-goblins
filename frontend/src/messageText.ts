@@ -1,6 +1,7 @@
 import { createElement, Fragment, type ReactNode } from "react";
 import { documentLinks, type DocumentLink } from "./document-links.ts";
 import { scrawlLink } from "./scrawl-link.ts";
+import type { SaidLink } from "./task-words.ts";
 
 // A question or message as its asker wrote it, with the little structure the
 // question contract allows: **bold** for the verdict or the blocking item,
@@ -11,7 +12,8 @@ import { scrawlLink } from "./scrawl-link.ts";
 // Overlord, 2026-10-17: "I should be able to click it as a hyperlink to
 // navigate to it"). Everything else is text, so markup in a message is shown,
 // never run.
-export interface Span { text: string; bold: boolean; code?: true; link?: true; italic?: true }
+// A link span's text is what it reads and link is the address it opens.
+export interface Span { text: string; bold: boolean; code?: true; link?: string; italic?: true }
 export type Block = { kind: "paragraph"; spans: Span[] } | { kind: "list"; items: Span[][]; start?: number } | { kind: "table"; header: Span[][]; rows: Span[][][] };
 
 // A mark opens only before text and closes only after it, so "5 ** 2" and a
@@ -26,13 +28,43 @@ const TABLE_SEPARATOR = /^\|(\s*:?-{3,}:?\s*\|)+$/;
 // An address ends at a space or a quote, and the punctuation that ends its
 // sentence after it is not its own.
 const WEB_LINK = /\bhttps?:\/\/[^\s<>"'`]*[^\s<>"'`.,;:!?)\]}]/g;
+// A Markdown link whose target is an http or https address, with parentheses
+// in the address only in balanced pairs.
+const MARKDOWN_WEB_LINK = /(?<!!)\[([^\]\n]+)\]\((https?:\/\/[^\s<>"'`()]+(?:\([^\s<>"'`()]*\)[^\s<>"'`()]*)*)\)/g;
 
 export const isWebLink = (value: string) => /^https?:\/\/[^\s<>"'`]+$/.test(value);
 
+// webAddresses finds each http or https address in plain text, such as a
+// terminal's line, by where it starts and ends.
+export const webAddresses = (text: string) => [...text.matchAll(WEB_LINK)].map((match) => ({ start: match.index, end: match.index + match[0].length, address: match[0] }));
+
+// A pull request, issue or CI run on GitHub, any page of it.
+const GITHUB_ITEM = /^https:\/\/github\.com\/[^/\s]+\/([^/\s]+)\/(pull|issues|actions\/runs)\/(\d+)(?:[/?#]\S*)?$/;
+const GITHUB_ITEM_WORDS: Record<string, string> = { pull: " PR #", issues: " issue #", "actions/runs": " CI run " };
+// A review page's session on this PC, as the review tool writes its address.
+const REVIEW_SESSION = /^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d+\/session\/[^/?#\s]+(?:[?#]\S*)?$/;
+
+// webLinkName is what a link to an address reads: a pull request, issue or
+// CI run by its short name, such as "code-goblins PR #2358", a review page's
+// session as Review page, and any other address as written (the Overlord,
+// 2026-11-11: "Should be clickable links or buttons"). Each is known by its
+// exact host and path, so a look-alike host keeps its own words.
+export function webLinkName(address: string): string {
+  const match = GITHUB_ITEM.exec(address);
+  if (match) return match[1] + GITHUB_ITEM_WORDS[match[2]] + match[3];
+  return REVIEW_SESSION.test(address) ? "Review page" : address;
+}
+
 // webLink opens an address in a new tab, which the desktop window hands to
-// his default browser. A phone validates a Scrawl session's private route;
-// the displayed and copied address stays as the asker wrote it.
-export const webLink = (address: string, key: number): ReactNode => createElement("a", { key, className: "message-link", href: scrawlLink(address), target: "_blank", rel: "noreferrer" }, address);
+// his default browser, so the board is never navigated away. A phone
+// validates a Scrawl session's private route; the shown address stays as the
+// asker wrote it. An address the board knows reads as a chip with its short
+// name, and a link shown by a name holds the whole address in its tip.
+export function webLink(address: string, key: number, label?: string): ReactNode {
+  const name = label ?? webLinkName(address);
+  const isChip = label === undefined && name !== address;
+  return createElement("a", { key, className: isChip ? "message-link message-chip" : "message-link", href: scrawlLink(address), target: "_blank", rel: "noreferrer", ...name !== address ? { title: address } : {} }, name);
+}
 
 // A document link that starts inside a web address is part of the address.
 function documentsOutsideWebLinks(text: string): DocumentLink[] {
@@ -47,14 +79,21 @@ function coverDocuments(text: string, hasDocuments: boolean): string {
   return covered;
 }
 
-// Text with each address in it a link span of its own.
+// Text with each address in it a link span of its own. A Markdown link to an
+// address is one span that reads as its label.
 function linkSpans(text: string, bold: boolean, hasDocuments = false): Span[] {
+  const covered = coverDocuments(text, hasDocuments);
+  const found = [...covered.matchAll(MARKDOWN_WEB_LINK)].map((match) => ({ start: match.index, end: match.index + match[0].length, label: text.slice(match.index + 1, match.index + 1 + match[1].length), address: match[2] }));
+  for (const match of covered.matchAll(WEB_LINK)) {
+    if (!found.some((link) => match.index >= link.start && match.index < link.end)) found.push({ start: match.index, end: match.index + match[0].length, label: match[0], address: match[0] });
+  }
+  found.sort((a, b) => a.start - b.start);
   const out: Span[] = [];
   let at = 0;
-  for (const match of coverDocuments(text, hasDocuments).matchAll(WEB_LINK)) {
-    if (match.index > at) out.push({ text: text.slice(at, match.index), bold });
-    out.push({ text: text.slice(match.index, match.index + match[0].length), bold, link: true });
-    at = match.index + match[0].length;
+  for (const link of found) {
+    if (link.start > at) out.push({ text: text.slice(at, link.start), bold });
+    out.push({ text: link.label, bold, link: link.address });
+    at = link.end;
   }
   if (at < text.length) out.push({ text: text.slice(at), bold });
   return out;
@@ -204,7 +243,7 @@ function inline(parts: Span[], code: CodeRenderer, path?: PathRenderer, document
   const out: ReactNode[] = [];
   const content = (at: number) => parts[at].code
     ? path && CODE_PATH.test(parts[at].text) ? createElement(Fragment, { key: at }, code(parts[at].text, 0), path(parts[at].text, 1, true)) : code(parts[at].text, at)
-    : parts[at].link ? webLink(parts[at].text, at)
+    : parts[at].link ? webLink(parts[at].link, at, parts[at].text === parts[at].link ? undefined : parts[at].text)
     : document ? createElement(Fragment, { key: at }, ...documentElements(parts[at].text, document))
     : path ? createElement(Fragment, { key: at }, ...pathElements(parts[at].text, path)) : parts[at].text;
   const piece = (at: number) => parts[at].italic ? createElement("em", { key: at }, content(at)) : content(at);
@@ -257,6 +296,38 @@ export const inlineElements = (text: string, code: CodeRenderer = plainCode, pat
 
 // Plain text, such as a History row's line, with each address in it a link.
 export const linkedText = (text: string): ReactNode => createElement(Fragment, null, ...inline(linkSpans(text, false), plainCode));
+
+// Text exactly as written, such as a code block or a command's output, with
+// each address in it a link that reads as written.
+export function literalLinks(text: string): ReactNode {
+  const out: ReactNode[] = [];
+  let at = 0;
+  for (const { start, end, address } of webAddresses(text)) {
+    if (start > at) out.push(text.slice(at, start));
+    out.push(webLink(address, out.length, address));
+    at = end;
+  }
+  if (at < text.length) out.push(text.slice(at));
+  return createElement(Fragment, null, ...out);
+}
+
+// A sentence the board wrote from a report, with the words it says each of
+// the report's addresses by, such as "PR #12", a link to that address, in
+// the order the report names them. Words a summary cut stay unlinked.
+export function linkedSentence(sentence: string, links: SaidLink[]): ReactNode {
+  const out: ReactNode[] = [];
+  const lower = sentence.toLowerCase();
+  let at = 0;
+  for (const link of links) {
+    const index = lower.indexOf(link.label.toLowerCase(), at);
+    if (index < 0) continue;
+    if (index > at) out.push(sentence.slice(at, index));
+    out.push(webLink(link.address, out.length, sentence.slice(index, index + link.label.length)));
+    at = index + link.label.length;
+  }
+  if (at < sentence.length) out.push(sentence.slice(at));
+  return createElement(Fragment, null, ...out);
+}
 
 // The message on one line, for a list row: marks dropped, each bullet a
 // sentence of its own, and a table left out, since its values only read in

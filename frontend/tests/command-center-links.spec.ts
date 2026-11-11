@@ -62,10 +62,11 @@ test("phone links in prose, link values and History open the private Scrawl rout
   await page.goto(origin + "/tests/fixtures/command-center-links.html");
   await openItem(page, "Review the private Scrawl page");
   const card = page.getByRole("dialog").locator(".question-card");
-  const links = card.getByRole("link", { name: review, exact: true });
+  const links = card.getByRole("link", { name: "Review page", exact: true });
   await expect(links).toHaveCount(2);
   for (const link of await links.all()) {
     await expect(link).toHaveAttribute("href", privateLink);
+    await expect(link).toHaveAttribute("title", review);
     const opened = page.waitForEvent("popup");
     await link.click();
     const tab = await opened;
@@ -80,7 +81,7 @@ test("phone links in prose, link values and History open the private Scrawl rout
   await panel.getByText("History").click();
   const row = panel.locator(".inbox-history li").filter({ hasText: "Private Scrawl feedback" });
   await row.locator(".history-open").click();
-  const history = row.locator(".inbox-summary").getByRole("link", { name: review, exact: true });
+  const history = row.locator(".inbox-summary").getByRole("link", { name: "Review page", exact: true });
   await expect(history).toHaveAttribute("href", privateLink);
   const opened = page.waitForEvent("popup");
   await history.click();

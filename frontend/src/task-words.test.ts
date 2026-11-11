@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { finishedEvidence, goblinName, listItem, pausedWithParent, pauseStatus, plainText, reportBody, summary, taskName, taskSummary, withoutHarness, teardownSentence, type Summary } from "./task-words.ts";
+import { finishedEvidence, goblinName, listItem, pausedWithParent, pauseStatus, plainText, reportBody, saidLinks, summary, taskName, taskSummary, withoutHarness, teardownSentence, type Summary } from "./task-words.ts";
 import { parseSnapshot, type CIUsual, type PauseCondition, type Task } from "./types.ts";
 
 const task = (fields: Record<string, unknown>): Task => parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "a", phase: "working", generation: "s1", verified: false, ...fields }] }).tasks[0];
@@ -301,4 +301,39 @@ test("a helper paused with its parent says it resumes with its parent, in its st
     assert.equal(pauseStatus(helper.lifecycle?.pause, tasks, [], pausedWithParent(helper, tasks)), card);
     assert.deepEqual(taskSummary(helper, tasks), { sentence: "", details: [details], isFailure: false, isPlain: true });
   }
+});
+
+for (const [name, raw, labels] of [
+  ["a pull request, an issue, a CI run and a page", "working: opened PR https://github.com/o/r/pull/12, see https://docs.example.com/a. Issue https://github.com/o/r/issues/7 and run https://github.com/o/r/actions/runs/99/job/3",
+    [["PR #12", "https://github.com/o/r/pull/12"], ["docs.example.com", "https://docs.example.com/a"], ["issue #7", "https://github.com/o/r/issues/7"], ["a CI run", "https://github.com/o/r/actions/runs/99/job/3"]]],
+  ["a Scrawl page in brackets", "waiting on overlord: his review (http://127.0.0.1:4387/session/f26e)", [["127.0.0.1:4387", "http://127.0.0.1:4387/session/f26e"]]],
+  ["an address after the options", "blocked: which one? options: Keep https://a.example | Drop it", []],
+  ["no address", "working: writing the tests", []],
+] as const) {
+  test(`a report's links name ${name} by the words its plain sentence says them with, in order`, () => {
+    // Arrange, act
+    const links = saidLinks(raw);
+    const sentence = plainText(reportBody(raw)).toLowerCase();
+
+    // Assert
+    assert.deepEqual(links.map((link) => [link.label, link.address]), labels);
+    let at = 0;
+    for (const link of links) {
+      const found = sentence.indexOf(link.label.toLowerCase(), at);
+      assert.ok(found >= 0, `${link.label} is in "${sentence}" after ${at}`);
+      at = found + link.label.length;
+    }
+  });
+}
+
+test("a goblin's summary carries the links of the report it says, and none for a report with no address", () => {
+  // Arrange
+  const linked = task({ activity: "working: opened PR https://github.com/o/r/pull/12 for review" });
+  const plain = task({ activity: "working: writing the tests" });
+
+  // Act
+  const said = [taskSummary(linked, [linked], "Ready for review"), taskSummary(plain, [plain], "Ready for review")];
+
+  // Assert
+  assert.deepEqual(said.map((summary) => summary.links), [[{ label: "PR #12", address: "https://github.com/o/r/pull/12" }], undefined]);
 });

@@ -20,6 +20,7 @@ import type { ReviewControls } from "./review";
 import { pullRequestBadge, safePullRequest } from "./workflow";
 import { hasChildren, running } from "./fleet-tree";
 import { WhatsWorking } from "./WhatsWorking";
+import { linkedText } from "./messageText";
 
 // A file's diff, with the syntax colouring it draws, arrives the first time
 // one is opened.
@@ -149,7 +150,7 @@ function Activity({ task, snapshot, now }: { task?: Task; snapshot: Snapshot; no
   return <>
     {activity.error ? <RetryRead retry={activity.reload} /> :
       activity.data?.length ? <ol className="activity-list">
-        {activity.data.slice().reverse().map((line, i) => <li key={i}>{line}</li>)}
+        {activity.data.slice().reverse().map((line, i) => <li key={i}>{linkedText(line)}</li>)}
       </ol> : task?.generation && !activity.data ? <p className="loading" role="status">Loading activity…</p> : <p className="muted">No activity yet.</p>}
     {read.error && <RetryRead retry={read.reload} />}
     {actions.length > 0 && <section className="action-history">
@@ -158,7 +159,7 @@ function Activity({ task, snapshot, now }: { task?: Task; snapshot: Snapshot; no
         const delivery = deliveryMark(action);
         return <li key={action.id}>
           <div><strong>{actionLabel(action.kind)}</strong><span className={"delivery " + action.status} role="img" aria-label={delivery.label}><Icon name={delivery.icon} /></span><time>{age(action.updated_at, now)}</time></div>
-          {action.text && <p className="action-text">{action.text}</p>}
+          {action.text && <p className="action-text">{linkedText(action.text)}</p>}
           {delivery.trouble && <p className="muted">{delivery.label}</p>}
         </li>;
       })}</ol>

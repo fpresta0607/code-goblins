@@ -5,6 +5,7 @@ import { keptFileAddress, keptPictures } from "./kept-files";
 import { MessagePictures } from "./message-pictures";
 import { isHarnessHeld, isNotSent, messageState } from "./messages";
 import type { Action } from "./types";
+import { linkedText } from "./messageText";
 
 // TAKE_BACK_MESSAGE names the event Edit sends with a queued message's ID, for
 // the box of its session to take it back (composer.tsx).
@@ -114,9 +115,9 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
   const why = "queued-why-" + action.id;
   return <div className={"queued-message " + variant} data-queued={action.id}>
     {variant === "pane" && <MessagePictures sources={kept.paths.map((path) => keptFileAddress(instance, action.task_id || undefined, path))} />}
-    {variant === "pane" && kept.text && <div className={"message-bubble queued-bubble" + (isHeld ? " waiting" : "")} aria-describedby={why}>{kept.text}</div>}
+    {variant === "pane" && kept.text && <div className={"message-bubble queued-bubble" + (isHeld ? " waiting" : "")} aria-describedby={why}>{linkedText(kept.text)}</div>}
     {variant === "pane" && <p className="queued-state">{state}</p>}
-    {variant === "queue" && <span className="composer-sent-text" aria-describedby={why}>{action.text}</span>}
+    {variant === "queue" && <span className="composer-sent-text" aria-describedby={why}>{linkedText(action.text)}</span>}
     {variant === "queue" && <p className="queued-line"><strong>{state}</strong></p>}
     <p className="sr-only" id={why}>{reason || state}</p>
     {isHeld && asked !== "withdrawn" && <div className="queued-actions">

@@ -146,14 +146,18 @@ func main() {
 		// fatal one it exits on, go to the window's log.
 		ErrorHandler: func(err error) { log.Print(err) },
 		// What the board's page asks of the window: that it is there, each
-		// link it would open in a new tab, and each notification it raises.
+		// link it would open off the board, and each notification it raises.
+		// A link that cannot be opened is said in the page, with its address.
 		RawMessageHandler: func(_ application.Window, message string, sender *application.OriginInfo) {
 			if message == shownMessage && fromBoard(sender.Origin) {
 				page.Shown()
 			} else if address, ok := linkToOpen(message, sender.Origin); ok {
 				if err := openInBrowser(address); err != nil {
 					log.Printf("open %s in the browser: %v", address, err)
+					window.ExecJS(linkFailed(address))
 				}
+			} else if address, ok := refusedLink(message, sender.Origin); ok {
+				window.ExecJS(linkFailed(address))
 			} else if note, ok := noteToRaise(message, sender.Origin); ok && notifier != nil {
 				notifier.FromPage(note)
 			}
