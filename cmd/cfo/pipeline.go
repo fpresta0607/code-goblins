@@ -539,6 +539,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	// daemon, so repeating it changes nothing twice. A live daemon that missed
 	// it is busy serving other runs, not stopped, so this waits its turn
 	// instead of handing the goblin a restart hint and a retry loop of its own.
+	tries := 1
 	for turn := 2; err == nil && pipeline.IsDaemonHealthMissed(result) && turn <= daemonTurns; turn++ {
 		daemon, _ := reader.Daemon(ctx)
 		if daemon.State != pipeline.DaemonAlive {
@@ -547,6 +548,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		fmt.Fprintf(out, "pipeline: the gate daemon (pid %d) is alive and serving %s, and missed its short health reply before this %s reached it, so it is busy, not stopped; waiting %s for its turn (try %d of %d), and never starting or restarting it\n", daemon.PID, liveRunCount(daemon.LiveRuns), args[0], daemonTurnWait, turn, daemonTurns)
 		daemonTurnSleep(daemonTurnWait)
 		result, err = commands.Run(ctx, native)
+		tries = turn
 	}
 	if len(result.Stdout) > 0 {
 		fmt.Fprint(out, string(result.Stdout))
@@ -579,7 +581,14 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	}
 	if result.ExitCode != 0 {
 		if scopeJournal != nil {
-			return fmt.Errorf("pipeline: native scope response exited %d; its exact outcome is recorded in %s and no ordinary response or retry was attempted", result.ExitCode, reviewScopeJournalFile)
+			recorded := fmt.Sprintf("pipeline: native scope response exited %d; its exact outcome is recorded in %s", result.ExitCode, reviewScopeJournalFile)
+			if pipeline.IsDaemonReplyMissed(result) {
+				return fmt.Errorf("%s: %w", recorded, daemonReplyMissed(ctx, reader, meta, branch, args[0], pipeline.IsDaemonHealthMissed(result)))
+			}
+			if tries > 1 {
+				return fmt.Errorf("%s after %d tries a busy gate daemon turned away, and no ordinary response was attempted", recorded, tries)
+			}
+			return fmt.Errorf("%s and no ordinary response or retry was attempted", recorded)
 		}
 		if args[0] == "run" && selection.Policy.Version > 5 && isLaunchSelectionUnknown(result) {
 			return fmt.Errorf("pipeline: native command exited %d. This no-mistakes build takes no launch selection, which policy version %d needs to run a gate on its task's own harness. See docs/pipeline.md for the build that does", result.ExitCode, selection.Policy.Version)
@@ -686,7 +695,7 @@ func daemonReplyMissed(ctx context.Context, reader pipeline.Reader, meta state.T
 	case command == "run" && isHealthMissed:
 		return fmt.Errorf("%s. No run was created on %s, so repeating this command in a few minutes starts it", busy, branch)
 	case command == "run":
-		return fmt.Errorf("%s. No run is on %s yet, but the lost start may still create one, so repeating this command in a few minutes reattaches to it if it did and starts it if it did not", busy, branch)
+		return fmt.Errorf("%s. No run is on %s yet, but the lost start may still wait in the daemon and create one later, and a second start would then replace the first, so do not repeat this command now: read no-mistakes axi status until a run is on %s and then repeat it to reattach, and start again only once the daemon answers its health reply and still no run is there", busy, branch, branch)
 	}
 	return fmt.Errorf("%s. %s holds no live run now, so read it with no-mistakes axi status before you act again", busy, branch)
 }

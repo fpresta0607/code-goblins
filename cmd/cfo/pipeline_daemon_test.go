@@ -156,7 +156,7 @@ func TestPipelineReadsABusyDaemonsMissedReplyByItsProcess(t *testing.T) {
 			liveRuns:     2,
 			outcomes:     []execx.Result{{ExitCode: 1, Stdout: []byte(startFreshLost)}},
 			wantLaunches: 1,
-			wantErr:      "busy, not stopped: whatever native's hint above says, never start or restart it. No run is on feat/policy yet, but the lost start may still create one, so repeating this command in a few minutes reattaches to it if it did and starts it if it did not",
+			wantErr:      "busy, not stopped: whatever native's hint above says, never start or restart it. No run is on feat/policy yet, but the lost start may still wait in the daemon and create one later, and a second start would then replace the first, so do not repeat this command now: read no-mistakes axi status until a run is on feat/policy and then repeat it to reattach, and start again only once the daemon answers its health reply and still no run is there",
 		},
 		{
 			name:         "a lost start reply over an unreadable run claims no run either way",

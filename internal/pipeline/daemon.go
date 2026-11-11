@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // DaemonState is whether the gate daemon runs, as its pid file and process
@@ -39,7 +40,7 @@ type Daemon struct {
 // database holds open. It sends the daemon nothing, so it adds no load to a
 // busy one.
 func (r Reader) Daemon(ctx context.Context) (Daemon, error) {
-	data, err := os.ReadFile(filepath.Join(r.Root, "daemon.pid"))
+	data, err := fsx.ReadFileContext(ctx, filepath.Join(r.Root, "daemon.pid"))
 	if errors.Is(err, os.ErrNotExist) {
 		return Daemon{State: DaemonStopped}, nil
 	}

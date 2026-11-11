@@ -1433,6 +1433,44 @@ func TestPipelineScopeDecisionRecordsANativeRefusalWithoutFallback(t *testing.T)
 	}
 }
 
+// A scope response a busy gate daemon turns away at its health reply on every
+// try is waited on as any response is, and its refusal says the daemon is
+// busy, not stopped, and that the answer never reached it, rather than that no
+// retry was attempted after four tries (#2158).
+func TestPipelineScopeDecisionTurnedAwayByABusyDaemonSaysItWasTriedAndNeverArrived(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	// Arrange
+	h, meta, nativeRoot, runner := scopeStage(t)
+	runner.nativeResult = &execx.Result{ExitCode: 1, Stdout: []byte(healthMissed)}
+	serveScopeRun(t, nativeRoot, scopeRunInfo())
+	if err := os.WriteFile(filepath.Join(nativeRoot, "daemon.pid"), []byte(fmt.Sprintf(`{"pid":%d,"started_at":"2026-11-11T12:57:48Z"}`, os.Getpid())), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var waits []time.Duration
+	previousSleep := daemonTurnSleep
+	daemonTurnSleep = func(wait time.Duration) { waits = append(waits, wait) }
+	t.Cleanup(func() { daemonTurnSleep = previousSleep })
+
+	// Act
+	err := scopeRespond(t, h, nativeRoot, runner)
+
+	// Assert
+	if len(runner.native) != daemonTurns || len(waits) != daemonTurns-1 {
+		t.Fatalf("native calls=%d waits=%v, want %d tries and %d waits", len(runner.native), waits, daemonTurns, daemonTurns-1)
+	}
+	if err == nil || !strings.Contains(err.Error(), "recorded in review-scope-decisions.jsonl") || !strings.Contains(err.Error(), "busy, not stopped") || !strings.Contains(err.Error(), "Your answer never reached it") {
+		t.Fatalf("err=%v, want the journal named, the daemon read as busy and the answer as never arrived", err)
+	}
+	if strings.Contains(err.Error(), "no ordinary response or retry was attempted") {
+		t.Fatalf("err=%v claims no retry after %d tries", err, len(runner.native))
+	}
+	if journal, readErr := os.ReadFile(scopeJournalPath(meta)); readErr != nil || !bytes.Contains(journal, []byte(`"exit_code":1`)) {
+		t.Fatalf("scope journal=%s, %v; want the last try's outcome kept", journal, readErr)
+	}
+}
+
 // A clean native exit with no durable record of this decision is an uncertain
 // acknowledgement: the controller refuses instead of reporting delivery.
 func TestPipelineScopeDecisionRefusesAnUnconfirmedAcknowledgement(t *testing.T) {
