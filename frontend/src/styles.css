@@ -628,11 +628,10 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .workflow-space .workflow-children > .workflow-branch:last-child::before { bottom: auto; height: 26px; }
 .workflow-children > .workflow-branch > .node-group { padding-top: 14px; }
 .workflow-children > .workflow-branch > .node-group > .workflow-node::after { content: ""; position: absolute; left: -17px; top: -9px; box-sizing: border-box; width: calc(50% + 17px); height: 8px; border: solid var(--glass-border-hover); border-width: 1px 1px 0 0; border-top-right-radius: 8px; pointer-events: none; }
-.compact-communication-pulse { --effect-length: 40px; position: absolute; left: -17px; top: -20px; width: 2px; height: var(--effect-length); overflow: hidden; background: #57e5bf55; animation: effect-life ease-in-out forwards; }
+.compact-communication-pulse { position: absolute; left: -17px; top: -20px; width: 2px; height: 26px; overflow: hidden; background: #57e5bf55; animation: effect-life ease-in-out forwards; }
 .compact-communication-pulse::after { content: ""; position: absolute; left: -2px; top: -12px; width: 6px; height: 12px; border-radius: 999px; background: #86ffe0; animation: compact-guidance 1.2s ease-out infinite; }
-.compact-creation-highlight { --effect-length: 40px; position: absolute; left: -18px; top: -20px; width: 3px; height: var(--effect-length); background: #70bfa9; box-shadow: 0 0 8px #67e8b744; animation: effect-life ease-in-out forwards; }
-.workflow-space .workflow-children > .workflow-branch:last-child > :is(.compact-communication-pulse, .compact-creation-highlight) { --effect-length: 26px; }
-@keyframes compact-guidance { to { transform: translateY(calc(var(--effect-length) + 12px)); } }
+.compact-creation-highlight { position: absolute; left: -18px; top: -20px; width: 3px; height: 26px; background: #70bfa9; box-shadow: 0 0 8px #67e8b744; animation: effect-life ease-in-out forwards; }
+@keyframes compact-guidance { to { transform: translateY(38px); } }
 .workflow-children .workflow-children { margin-left: 0; }
 .workflow-children .workflow-children .workflow-children { padding-left: 0; }
 .workflow-children .workflow-children .workflow-children > .workflow-branch::before,

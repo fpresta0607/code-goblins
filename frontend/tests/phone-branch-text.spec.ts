@@ -68,18 +68,20 @@ test.describe("on a phone", () => {
     await expect(list.getByText(BRANCH_WORDS)).toHaveCount(0);
   });
 
-  test("each child's rail reaches its turn, the last child's rail and activity end there, and the turn runs clear of the parent's disclosure button", async ({ page }) => {
-    // Arrange: Mabel spawns Pip, her only child, and writes to it, which
-    // lights Pip's branch. It is measured once Pip's card has come in.
+  test("each child's rail reaches its turn, the last child's rail and every branch's activity end there, and the turn runs clear of the parent's disclosure button", async ({ page }) => {
+    // Arrange: the CEO spawns Mabel, between Jerry and Otis, and writes to
+    // her, and Mabel spawns Pip, her only child, and writes to it, which
+    // lights a middle branch and a last one. They are measured once both
+    // cards have come in.
     const publish = await openOrchestration(page);
     const list = page.getByRole("region", { name: "Reported workflow" });
     await expect(list.locator(".workflow-node")).toHaveCount(5);
     const at = new Date(Date.now() - 1000).toISOString();
-    const receipt = (id: string, kind: string) => ({ id, kind, task_id: "nw-fixtures", generation: "g1", source: "s-export", target: "s-fixtures", state: "accepted", at });
-    await publish({ ...SNAPSHOT, revision: 2, activity: [receipt("pip-born", "created"), receipt("pip-told", "message")] });
-    const effects = list.locator(".workflow-children > .workflow-branch:last-child > :is(.compact-creation-highlight, .compact-communication-pulse)");
-    await expect(effects).toHaveCount(2);
-    await list.locator(".node-enter").evaluate((card) => Promise.all(card.getAnimations().map((animation) => animation.finished)));
+    const lit = (source: string, target: string, taskID: string) => ["created", "message"].map((kind) => ({ id: `${kind}:${target}`, kind, task_id: taskID, generation: "g1", source, target, state: "accepted", at }));
+    await publish({ ...SNAPSHOT, revision: 2, activity: [...lit("s-cfo", "s-export", "nw-export"), ...lit("s-export", "s-fixtures", "nw-fixtures")] });
+    const effects = list.locator(".workflow-children > .workflow-branch > :is(.compact-creation-highlight, .compact-communication-pulse)");
+    await expect(effects).toHaveCount(4);
+    await list.locator(".node-enter").evaluateAll((cards) => Promise.all(cards.flatMap((card) => card.getAnimations().map((animation) => animation.finished))));
 
     // Act
     const misses = await list.locator(".workflow-children > .workflow-branch").evaluateAll((branches) => branches.flatMap((branch) => {
@@ -91,7 +93,7 @@ test.describe("on a phone", () => {
       const disclosure = branch.parentElement!.closest(".workflow-branch")!.querySelector(":scope > .node-group .node-disclosure")!.getBoundingClientRect();
       const isFirst = !branch.previousElementSibling, isLast = !branch.nextElementSibling;
       const effectsPastTurn = [...branch.querySelectorAll(":scope > .compact-creation-highlight, :scope > .compact-communication-pulse")]
-        .filter((effect) => isLast && effect.getBoundingClientRect().bottom > turnTop + 1.5);
+        .filter((effect) => effect.getBoundingClientRect().bottom > turnTop + 1.5);
       return [
         ...(rail.content === "none" || railEnd < turnTop ? [`${name}: its rail stops above its turn`] : []),
         ...(isLast && railEnd > turnTop + 1.5 ? [`${name}: its rail runs on past its turn`] : []),
@@ -102,7 +104,7 @@ test.describe("on a phone", () => {
 
     // Assert
     expect(misses).toEqual([]);
-    await expect(effects, "Pip's branch is still lit after it was measured").toHaveCount(2);
+    await expect(effects, "Mabel's and Pip's branches are still lit after they were measured").toHaveCount(4);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   });
 });
