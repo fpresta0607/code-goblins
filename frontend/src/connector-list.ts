@@ -21,9 +21,11 @@ export interface ConnectorUse { goblin: string; entry: ConnectionEntry; isCarrie
 // variables", #2358).
 export type ConnectorTone = "verified" | "trouble" | "quiet";
 
-// A connector is listed in a tone once a goblin carries it, and is
-// available when none does.
-export type ConnectorStatus = ConnectorTone | "available";
+// A connector is listed in a tone once a goblin carries it, as sign-in when
+// the goblin whose check says least must sign in and can, since where he
+// must act is a button in the board's look and not coloured words (the
+// Overlord, 2026-11-11), and is available when none carries it.
+export type ConnectorStatus = ConnectorTone | "sign-in" | "available";
 
 export interface Connector {
   key: string;
@@ -79,6 +81,9 @@ const rank = (entry: ConnectionEntry): number => {
   return tone === "trouble" ? -1 : tone === "verified" ? QUIET.length : QUIET.indexOf(entry.status);
 };
 
+// Whether a goblin's check asks for a sign-in he can start from the board.
+const isSignIn = (entry: ConnectionEntry): boolean => entry.status === "unauthorized" && entry.actions.length > 0;
+
 // Whether the goblin carries the connector: what he last asked, else what
 // the check found. A connector with nothing to give or take back is carried
 // unless the check says it is withheld.
@@ -109,7 +114,7 @@ export function listConnectors(readings: GoblinReading[], asked: ReadonlyMap<str
     if (!carried.length) continue;
     const least = carried.reduce((found, use) => rank(use.entry) < rank(found.entry) ? use : found);
     const { tone, word } = entryState(least.entry);
-    connector.status = tone;
+    connector.status = isSignIn(least.entry) ? "sign-in" : tone;
     connector.word = word;
   }
   return connectors.sort((first, second) => first.name.localeCompare(second.name) || first.type.localeCompare(second.type));
@@ -124,15 +129,23 @@ export function matchesConnector(connector: Connector, search: string): boolean 
 
 // usageState is what one goblin's use of a connector says under the goblin's
 // name on the connector's page: Not connected, or its state in a word and
-// its tone, with the reason the check gave, and for a verified or set one
-// what its check did and did not prove.
+// its tone, with the reason the check gave. Verified is its word alone, and a
+// sign-in he can start is its reason and its button, with no word.
 export function usageState(use: ConnectorUse): { tone: ConnectorTone; word: string; reason: string } {
   if (!use.isCarried) return { tone: "quiet", word: "Not connected", reason: "" };
   const { entry } = use;
   const { tone, word } = entryState(entry);
-  if (word === "Checking") return { tone, word, reason: "" };
-  const isEvidence = tone === "verified" || (entry.status === "provided" && !entry.detail);
-  return { tone, word, reason: isEvidence ? connectionEvidence(entry) : entry.detail };
+  if (tone === "verified" || word === "Checking") return { tone, word, reason: "" };
+  return { tone, word: isSignIn(entry) ? "" : word, reason: entry.detail };
+}
+
+// checkEvidence is what a goblin's check did and did not prove, for the
+// connector page's check details, when the goblin carries the connector and
+// its check found it Verified, or Set with no reason of its own.
+export function checkEvidence(use: ConnectorUse): string {
+  const { tone } = entryState(use.entry);
+  const isEvidence = tone === "verified" || (use.entry.status === "provided" && !use.entry.detail);
+  return use.isCarried && isEvidence ? connectionEvidence(use.entry) : "";
 }
 
 // The words for what a goblin's terminal holds of a CLI variable.

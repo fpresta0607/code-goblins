@@ -23,8 +23,9 @@
 .connectors-empty:empty { display: none; }
 
 /* The list: Connector, Type and Status, each row one connector. Only
-   Verified is green and only trouble is amber; every other state, and a
-   change waiting for a goblin's next terminal, is quiet. */
+   Verified is green and only a failed check is amber; Sign in and Connect
+   are buttons; every other state, and a change waiting for a goblin's next
+   terminal, is quiet. */
 .connector-columns, .connector-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) minmax(0, 12rem) minmax(0, 8rem); align-items: center; gap: 4px 14px; padding: 12px 14px; }
 .connector-columns { padding-block: 0; color: var(--muted); font-size: 1rem; }
 .connector-columns > :first-child { grid-column: span 2; }

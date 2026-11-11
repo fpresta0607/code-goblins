@@ -1,5 +1,5 @@
 import { ConnectorGoblin } from "./connector-goblin";
-import { askKey, cliVariables, toolGroups, type Connector, type ConnectorUse } from "./connector-list";
+import { askKey, checkEvidence, cliVariables, toolGroups, type Connector, type ConnectorUse } from "./connector-list";
 import { ConnectorLogo } from "./connector-logo";
 import { connectorName } from "./connector-names";
 import { connectorAbout } from "./connectors";
@@ -16,9 +16,9 @@ import type { Reading } from "./use-connectors";
 // two groups, those that only read and those that can write, each named in
 // words (#2303), and a service's or a variable's CLI variables part names
 // them, never a value. A harness reports no permission for a tool, so none is
-// shown. What each goblin's check was run against, its process and its
-// workspace, waits closed at the end. The way back to the list is the page's,
-// above it.
+// shown. What each goblin's check proved and did not, when it ran, and what
+// it was run against, its process and its workspace, waits closed at the end.
+// The way back to the list is the page's, above it.
 export function ConnectorDetail({ connector, goblins, readings, asked, isBusy, onFix, onGive }: {
   connector: Connector; goblins: ReadonlyMap<string, Task>; readings: ReadonlyMap<string, Reading>; asked: ReadonlyMap<string, boolean>; isBusy: boolean;
   onFix: (task: Task, use: ConnectorUse, action: string) => void; onGive: (task: Task, use: ConnectorUse, isGiving: boolean) => void;
@@ -28,7 +28,7 @@ export function ConnectorDetail({ connector, goblins, readings, asked, isBusy, o
   const tools = toolGroups(connector);
   const uses = connector.uses.flatMap((use) => {
     const task = goblins.get(use.goblin);
-    return task ? [{ use, task, connections: readings.get(use.goblin)?.connections }] : [];
+    return task ? [{ use, task, connections: readings.get(use.goblin)?.connections, evidence: checkEvidence(use) }] : [];
   });
   const variables = cliVariables(connector, uses.map(({ task, connections }) => ({ goblin: goblinName(task), entries: connections?.entries ?? [] })));
   // What a variable's goblins hold of it: one word when every goblin's
@@ -65,7 +65,9 @@ export function ConnectorDetail({ connector, goblins, readings, asked, isBusy, o
       </ul>}
     </section>}
     <Disclosure kind="connector-checks" title="Check details">
-      {uses.map(({ use, task, connections }) => <p key={use.goblin}><strong>{goblinName(task)}</strong> {connections?.generation ? <>Generation {connections.generation}. </> : null}
+      {uses.map(({ use, task, connections, evidence }) => <p key={use.goblin}><strong>{goblinName(task)}</strong> {evidence && <>{evidence} </>}
+        {use.entry.checkedAt && <>Checked <time dateTime={use.entry.checkedAt}>{use.entry.checkedAt}</time>. </>}
+        {connections?.generation ? <>Generation {connections.generation}. </> : null}
         {connections && connections.runtime.processId > 0 ? <>Verified process {connections.runtime.processId}, started {connections.runtime.startedAt}, workspace {connections.runtime.workspace}.</> : "Process and workspace identity unknown."}</p>)}
     </Disclosure>
   </article>;

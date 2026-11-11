@@ -63,10 +63,13 @@ test("a failing connector's repair opens its Command Center card, and the goblin
   const supervisor = supervisorWith({ [PROOF]: [GITHUB, CONTEXT7] });
   supervisor.repaired = { message: "Login card is ready in the Command Center.", run_id: "connections-login-fixture" };
   await open(page, supervisor);
-  await expect(page.locator(".connector-row").filter({ hasText: "Context7" }).locator(".connector-state.is-trouble")).toHaveText("Sign in");
-  const detail = await openConnector(page, "Context7");
+  // The list's Sign in is a button that opens the connector's page, where
+  // the goblin that must sign in has its own Sign in beside its reason.
+  await page.locator(".connector-row").getByRole("button", { name: "Sign in to Context7", exact: true }).click();
+  const detail = page.getByRole("article", { name: "Context7" });
   const goblin = detail.getByRole("listitem").filter({ hasText: NAME });
-  await expect(goblin.locator(".connector-use")).toHaveText("Sign in. Sign-in required.");
+  await expect(goblin.locator(".connector-use")).toHaveText("Sign-in required.");
+  await expect(goblin.locator(".connector-word")).toHaveCount(0);
 
   // Act
   await goblin.getByRole("button", { name: "Sign in to Context7 for " + NAME, exact: true }).click();
@@ -77,7 +80,7 @@ test("a failing connector's repair opens its Command Center card, and the goblin
   await expect(page.locator(".connector-notice")).toContainText("Login card is ready in the Command Center.");
   await expect(page.locator(".connector-notice").getByRole("button", { name: "Open repair card" })).toBeVisible();
   await page.clock.runFor(5 * 60 * 1000);
-  await expect(goblin.locator(".connector-use")).toHaveText("Sign in. Sign-in required.");
+  await expect(goblin.locator(".connector-use")).toHaveText("Sign-in required.");
   expect(supervisor.reads).toEqual({ [PROOF]: 1 });
 
   // Act: the repair ends.

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { askKey, cliVariables, goblinKey, listConnectors, matchesConnector, toolGroups, usageState } from "./connector-list.ts";
+import { askKey, checkEvidence, cliVariables, goblinKey, listConnectors, matchesConnector, toolGroups, usageState } from "./connector-list.ts";
 import { parseConnections } from "./connections.ts";
 
 const entries = (...list: object[]) => parseConnections({ entries: list }).entries;
@@ -51,7 +51,9 @@ test("a row's state is one word, Verified only when every goblin's check confirm
   const docs = (status: string, more: object = {}) => ({ id: "mcp:docs", name: "docs", kind: "mcp", status, ...more });
   const cases: [string, object[][], string, string][] = [
     ["every goblin's check confirmed it", [[docs("connected")], [docs("probe_succeeded")]], "verified", "Verified"],
-    ["one goblin's needs a sign-in", [[docs("connected")], [docs("unauthorized", { detail: "Sign-in required." })]], "trouble", "Sign in"],
+    ["one goblin's needs a sign-in he can start, a button", [[docs("connected")], [docs("unauthorized", { detail: "Sign-in required.", actions: ["login"] })]], "sign-in", "Sign in"],
+    ["one goblin's needs a sign-in the board cannot start", [[docs("connected")], [docs("unauthorized", { detail: "Sign-in required." })]], "trouble", "Sign in"],
+    ["one goblin's has expired, which keeps reading so though he can sign in", [[docs("expired", { actions: ["login"] })]], "trouble", "Expired"],
     ["one goblin's has expired", [[docs("expired")]], "trouble", "Expired"],
     ["a check ran and did not confirm it", [[docs("unverified")]], "trouble", "Unverified"],
     ["a status the board does not know", [[docs("mystery")]], "trouble", "Unknown"],
@@ -124,17 +126,32 @@ test("a search finds a connector by its name as shown or as reported, or by its 
   }
 });
 
-test("what a goblin's use says: not connected, or its state in a word with its reason in plain words", () => {
+// The Overlord, 2026-11-11: the words on how a check was made, next to
+// Verified, were "really messy", and the check details at the bottom say them.
+test("what a goblin's use says: not connected, or its state in a word with its reason in plain words, Verified alone, and a sign-in he can start as its reason with no word", () => {
   const cases: [object, { tone: string; word: string; reason: string }][] = [
     [{ id: "service:a", name: "a", kind: "service", status: "withheld", grant: "grant" }, { tone: "quiet", word: "Not connected", reason: "" }],
     [{ id: "mcp:a", name: "a", kind: "mcp", status: "checking" }, { tone: "quiet", word: "Checking", reason: "" }],
+    [{ id: "mcp:a", name: "a", kind: "mcp", status: "unauthorized", detail: "Sign-in required.", actions: ["login"] }, { tone: "trouble", word: "", reason: "Sign-in required." }],
     [{ id: "mcp:a", name: "a", kind: "mcp", status: "unauthorized", detail: "Sign-in required." }, { tone: "trouble", word: "Sign in", reason: "Sign-in required." }],
-    [{ id: "mcp:a", name: "a", kind: "mcp", status: "probe_succeeded", scope: "separate_probe" }, { tone: "verified", word: "Verified", reason: "A separate check with its credentials succeeded. " + UNSEEN }],
-    [{ id: "credential:A", name: "A", kind: "credential", status: "provided", scope: "launch_environment" }, { tone: "quiet", word: "Set", reason: "The goblin's environment has it. " + UNSEEN }],
+    [{ id: "mcp:a", name: "a", kind: "mcp", status: "probe_succeeded", scope: "separate_probe" }, { tone: "verified", word: "Verified", reason: "" }],
+    [{ id: "credential:A", name: "A", kind: "credential", status: "provided", scope: "launch_environment" }, { tone: "quiet", word: "Set", reason: "" }],
     [{ id: "service:a", name: "a", kind: "service", status: "provided", detail: "Credentials resolved. This account declares no connection check." }, { tone: "quiet", word: "Set", reason: "Credentials resolved. This account declares no connection check." }],
     [{ id: "service:a", name: "a", kind: "service", status: "unchecked", detail: "Not checked: the credential store could not be opened." }, { tone: "quiet", word: "Not checked", reason: "Not checked: the credential store could not be opened." }],
   ];
   for (const [entry, want] of cases) assert.deepEqual(usageState(listConnectors([{ goblin: ZEKE, entries: entries(entry) }])[0].uses[0]), want, JSON.stringify(entry));
+});
+
+test("a goblin's check details say what a Verified or a reasonless Set check did and did not prove, and nothing for any other state", () => {
+  const cases: [object, string][] = [
+    [{ id: "mcp:a", name: "a", kind: "mcp", status: "probe_succeeded", scope: "separate_probe" }, "A separate check with its credentials succeeded. " + UNSEEN],
+    [{ id: "mcp:a", name: "a", kind: "mcp", status: "connected" }, "How it was checked is unknown. " + UNSEEN],
+    [{ id: "credential:A", name: "A", kind: "credential", status: "provided", scope: "launch_environment" }, "The goblin's environment has it. " + UNSEEN],
+    [{ id: "service:a", name: "a", kind: "service", status: "provided", detail: "Credentials resolved. This account declares no connection check." }, ""],
+    [{ id: "mcp:a", name: "a", kind: "mcp", status: "unauthorized", detail: "Sign-in required.", actions: ["login"] }, ""],
+    [{ id: "service:a", name: "a", kind: "service", status: "withheld", grant: "grant" }, ""],
+  ];
+  for (const [entry, want] of cases) assert.equal(checkEvidence(listConnectors([{ goblin: ZEKE, entries: entries(entry) }])[0].uses[0]), want, JSON.stringify(entry));
 });
 
 test("a service's CLI variables are those its manifest declares, by name, with what each goblin's terminal holds of them, never a value", () => {
