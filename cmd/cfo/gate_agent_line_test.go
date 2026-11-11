@@ -22,6 +22,11 @@ import (
 // it no turn.
 const agentNoTurn = "no turn came within 300ms, which is as long as a run a gate's agent starts waits in line, since its gate counts the wait against the agent's invocation budget. Go on without this run and start nothing heavy outside the line: commit the work, and the gate runs the project's checks in a turn of its own"
 
+// linePoll is how often cfo gate turn looks at the line again while it waits.
+// A run reads its line limit once each time it looks, so a test that says a
+// run still waits past a limit lets two looks go by first.
+const linePoll = time.Second
+
 // heldLine is a line of the test's own whose turn another run holds until
 // the test lets the command "held" of the returned folder go.
 func heldLine(t *testing.T) (slots, dir string, holder *turnRun) {
@@ -91,7 +96,7 @@ func TestARunNoGateAgentStartedWaitsInLinePastAGateAgentsLimit(t *testing.T) {
 	eventually(t, "the goblin's run says that it waits", func() bool {
 		return strings.Contains(stderr.String(), "cfo gate turn: waiting for its turn (")
 	})
-	time.Sleep(4 * runtime.agentLineLimit)
+	time.Sleep(2*linePoll + runtime.agentLineLimit)
 
 	// Assert
 	if len(exited) != 0 || left(dir, "suite", "started") {
@@ -101,6 +106,40 @@ func TestARunNoGateAgentStartedWaitsInLinePastAGateAgentsLimit(t *testing.T) {
 	holder.exit(t, "the run that held the turn")
 	if exit := ended(t, exited, "the goblin's run, once the turn was free,"); exit != 3 || !left(dir, "suite", "ended") {
 		t.Errorf("exit = %d, ended = %v; want its command's own 3; stderr=%q", exit, left(dir, "suite", "ended"), stderr.String())
+	}
+}
+
+// Nor is the limit the gate's own Test step's, which its wrapper's --gate-run
+// names: the gate waits on it under no agent's budget, so it waits on past
+// the limit whatever its environment says, and runs its command once the turn
+// is free. A Test step cut at the limit would leave its run with no checks.
+func TestAGatesTestStepWaitsInLinePastAGateAgentsLimit(t *testing.T) {
+	// Arrange
+	_, comparison := gateEnvironmentFixture(t)
+	_, dir, holder := heldLine(t)
+	t.Setenv(gateAgentVariable, "1")
+	runtime := turnRuntime()
+	runtime.agentLineLimit = 100 * time.Millisecond
+	var stdout, stderr lockedBuffer
+	exited := make(chan int, 1)
+
+	// Act
+	go func() {
+		exited <- gateTurn(runtime, &stdout, &stderr, append([]string{"--gate-run", "run", "--test-comparison-sha", comparison}, turnCommand(dir, "step", 3, false)...)...)
+	}()
+	eventually(t, "the Test step says that it waits", func() bool {
+		return strings.Contains(stderr.String(), "cfo gate turn: waiting for its turn (")
+	})
+	time.Sleep(2*linePoll + runtime.agentLineLimit)
+
+	// Assert
+	if len(exited) != 0 || left(dir, "step", "started") {
+		t.Fatalf("the Test step ended or started its command while the turn was held; stderr=%q", stderr.String())
+	}
+	letGo(t, dir, "held")
+	holder.exit(t, "the run that held the turn")
+	if exit := ended(t, exited, "the Test step, once the turn was free,"); exit != 3 || !left(dir, "step", "ended") {
+		t.Errorf("exit = %d, ended = %v; want its command's own 3; stderr=%q", exit, left(dir, "step", "ended"), stderr.String())
 	}
 }
 
@@ -166,9 +205,9 @@ func TestAGateAgentsCfoGatePrepushLeavesTheLineAndRunsNoCheck(t *testing.T) {
 	holder.exit(t, "the run that held the turn")
 }
 
-// Only a run a gate's agent started has the limit. The gate's own Test step
-// has none, whatever its environment says, since the gate waits on it under
-// no agent's budget.
+// Only a run a gate's agent started has the limit, which is three minutes on
+// the machine's own runtime. The gate's own Test step has none, whatever its
+// environment says, since the gate waits on it under no agent's budget.
 func TestOnlyARunAGateAgentStartedHasALineLimit(t *testing.T) {
 	runtime := defaultCommandRuntime()
 	for name, test := range map[string]struct {
@@ -177,7 +216,7 @@ func TestOnlyARunAGateAgentStartedHasALineLimit(t *testing.T) {
 		want       time.Duration
 	}{
 		"a goblin's own run":                  {"", false, 0},
-		"a gate agent's run":                  {"1", false, gateAgentLineLimit},
+		"a gate agent's run":                  {"1", false, 3 * time.Minute},
 		"the gate's Test step":                {"", true, 0},
 		"the gate's Test step under an agent": {"1", true, 0},
 	} {

@@ -584,6 +584,35 @@ func TestARunLeavesTheLineAtItsLineLimit(t *testing.T) {
 	}
 }
 
+// The line limit bounds the run's first look at the line as well. A run that
+// finds the line's lock busy before it joins the line, and still busy at its
+// line limit, leaves there, rather than trying the lock again for as long as
+// its admission's limit lasts, which is no limit at all for cfo gate turn.
+func TestARunLeavesABusyLockAtItsLineLimitBeforeItJoinsTheLine(t *testing.T) {
+	// Arrange
+	a := admission(t)
+	a.Limit = NoLimit
+	a.LineLimit = 300 * time.Millisecond
+	shortCustodyBudget(t)
+	release := holdLineLock(t, a.Dir, "in this process")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Act
+	turn, err := a.Wait(ctx)
+
+	// Assert
+	defer turn.Release()
+	if !errors.Is(err, ErrLineLimit) || turn.release != nil || turn.Waited < a.LineLimit {
+		t.Fatalf("the run that found the lock busy past its line limit returned %+v, %v; want no turn, ErrLineLimit and the recorded wait", turn, err)
+	}
+	release()
+	holding, waiting, err := Line(a.Dir)
+	if err != nil || len(holding) != 0 || len(waiting) != 0 {
+		t.Fatalf("the line holds %+v and %+v (%v); want it empty, since the run never joined it", holding, waiting, err)
+	}
+}
+
 // The line limit ends only a wait: a run whose turn is free takes it at once,
 // however short its limit, and keeps it.
 func TestARunWithALineLimitTakesATurnThatIsFree(t *testing.T) {

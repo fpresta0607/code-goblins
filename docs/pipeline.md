@@ -701,7 +701,7 @@ The wait counts in the wrapper's wall time, so a caller that budgets its test co
 
 **A gate agent's wait.**
 A gate ends an agent whose invocation ran past its budget, and it counts the agent's wait for a turn in that budget, since it cannot tell a run that waits in line from one that hangs.
-So a run that a gate's agent started, which the `NO_MISTAKES_GATE` the gate sets in the agent's environment says, waits three minutes at most for its turn, behind other runs and for memory alike, in `cfo gate turn`, `cfo gate test` and `cfo gate prepush`.
+So a run that a gate's agent started, which the `NO_MISTAKES_GATE` the gate sets in the agent's environment says, waits three minutes at most for its turn, behind other runs, for memory and for the line's lock alike, in `cfo gate turn`, `cfo gate test` and `cfo gate prepush`.
 Three minutes outlasts a short check ahead and a dip of memory under the floor, and is a tenth of the 30 minutes a gate gives an agent unless its machine says otherwise.
 A shorter `--wait` still ends the wait first, a longer one does not lengthen it, and a turn taken within it is never cut.
 A run that takes no turn in that time starts nothing and leaves the line: `cfo gate turn` exits 125 and `cfo gate test` and `cfo gate prepush` exit 1, each with a line that tells the agent to go on without the run:

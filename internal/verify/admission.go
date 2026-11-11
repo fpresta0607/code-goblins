@@ -50,11 +50,11 @@ type Admission struct {
 	// Limit bounds the floor wait at the head of the line, and how long a run
 	// tries again while the line's lock is busy. Expiry refuses a turn.
 	Limit time.Duration
-	// LineLimit bounds the whole wait for a turn, behind other runs and for
-	// memory alike, and zero sets none. A run that has waited that long with
-	// no turn leaves the line with ErrLineLimit. It is for a run whose caller
-	// counts the wait against a budget of its own, as a gate counts it against
-	// its agent's invocation.
+	// LineLimit bounds the whole wait for a turn, behind other runs, for
+	// memory and for the line's lock alike, and zero sets none. A run that
+	// has waited that long with no turn leaves the line with ErrLineLimit. It
+	// is for a run whose caller counts the wait against a budget of its own,
+	// as a gate counts it against its agent's invocation.
 	LineLimit time.Duration
 	// Poll is how often a waiting run looks again.
 	Poll time.Duration
@@ -358,7 +358,16 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	if err := os.MkdirAll(a.Dir, 0o755); err != nil {
 		return Turn{}, err
 	}
-	unlock, err := custodyMutationWhileBusy(ctx, a.Dir, a.Limit)
+	// A run with a line limit tries a busy lock again no longer than that
+	// limit, which bounds its whole wait, this first look at the line included.
+	busyLimit := a.Limit
+	if a.LineLimit > 0 {
+		busyLimit = min(busyLimit, a.LineLimit)
+	}
+	unlock, err := custodyMutationWhileBusy(ctx, a.Dir, busyLimit)
+	if errors.Is(err, errCustodyBusy) && a.LineLimit > 0 && time.Since(start) >= a.LineLimit {
+		return Turn{Waited: time.Since(start)}, fmt.Errorf("%w of %s: %v", ErrLineLimit, a.LineLimit, err)
+	}
 	if err != nil {
 		return Turn{}, err
 	}
