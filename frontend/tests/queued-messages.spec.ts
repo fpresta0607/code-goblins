@@ -378,6 +378,56 @@ test("Send now and Cancel each reach the board once, however often he presses th
   expect(posts.map((post) => post.kind)).toEqual(["message_now", "message_withdraw"]);
 });
 
+// The Overlord, 2026-11-10: "queued messages in modern chat get stuck in input
+// box in terminal chat and never send" (#2306). A message the board typed
+// that its harness never took as submitted is taken back off the terminal's
+// prompt line and reads Not sent on its bubble, why as its description. The
+// board still holds it, so Send now sends that same message, never a copy,
+// and Cancel takes it off the board, each once however often he presses.
+const NOT_SENT = "Not sent. It was typed for " + GOBLIN.id + " and never submitted. It was taken back off its prompt line, so nothing of it is left typed there.";
+for (const [press, kind, text] of [["Send now", "message_now", ""], ["Cancel", "message_withdraw", "hold the merge until the gate lets go"]] as const) {
+  test(`a message that was not sent says so on its bubble, with Send now and Cancel, and ${press} reaches the board once`, async ({ page }) => {
+    // Arrange
+    const posts = await openWith(page, queued({ status: "failed", message: NOT_SENT, send_now_why: "" }));
+    const bubble = entry(page);
+
+    // Assert
+    await expect(bubble.locator(".queued-state")).toHaveText("Not sent");
+    await expect(bubble.locator(".queued-bubble")).toHaveAccessibleDescription(/taken back off its prompt line/);
+    await expect(bubble.locator(".queued-actions button")).toHaveCount(2);
+    for (const name of ["Send now", "Cancel"]) await expect(bubble.getByRole("button", { name, exact: true })).toBeVisible();
+
+    // Act
+    await bubble.getByRole("button", { name: press, exact: true }).dblclick();
+
+    // Assert
+    await expect.poll(() => posts).toEqual([{ kind, target: "q1", text }]);
+  });
+}
+
+// A Send now he asked for is spent once the board has tried the message
+// again, so one that was not sent a second time can be sent now once more
+// rather than left with Cancel alone.
+test("a message not sent again after its Send now can be sent now once more", async ({ page }) => {
+  // Arrange
+  const unsent = queued({ status: "failed", message: NOT_SENT, send_now_why: "" });
+  const posts = await openWith(page, unsent);
+  const sendNow = entry(page).getByRole("button", { name: "Send now", exact: true });
+  const show = (revision: number, action: object) => page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision, actions: [action] }));
+  await sendNow.click();
+  await expect.poll(() => posts.length).toBe(1);
+
+  // Act: the board queues it again, tries it, and it is not sent again.
+  await show(2, queued({ can_send_now: true, send_now_why: "", message: "Queued.", updated_at: "2026-10-22T09:00:05Z" }));
+  await expect(entry(page).locator(".queued-state")).toHaveText(WAITING);
+  await show(3, { ...unsent, updated_at: "2026-10-22T09:00:40Z" });
+  await expect(entry(page).locator(".queued-state")).toHaveText("Not sent");
+  await sendNow.click();
+
+  // Assert
+  await expect.poll(() => posts).toEqual([{ kind: "message_now", target: "q1", text: "" }, { kind: "message_now", target: "q1", text: "" }]);
+});
+
 // His message to the CFO waits out a short undo window on the board, where
 // Edit and Cancel work, and is then typed into the CFO's turn, where they go
 // (the CFO, 2026-11-02: "The bubble shows each real state: held (Edit and

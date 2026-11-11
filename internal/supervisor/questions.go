@@ -289,10 +289,22 @@ var readAnswerRecipient = state.ReadTaskMeta
 // in a turn when it should send it now. It is a variable so a test can act
 // while a delivery is in flight.
 var typeIntoGoblin = func(ctx context.Context, stateDir string, meta state.TaskMeta, text string, shouldRefuseTurn, shouldSendNow, his bool) error {
-	sender := spawn.Service{StateDir: stateDir, ShouldRefuseTurn: shouldRefuseTurn, ShouldSendNow: shouldSendNow, His: his, PromptSince: func(taskID, generation string, since time.Time) (bool, error) {
+	submitted, _ := ctx.Value(submittedKey{}).(func())
+	sender := spawn.Service{StateDir: stateDir, ShouldRefuseTurn: shouldRefuseTurn, ShouldSendNow: shouldSendNow, His: his, ShouldTakeBack: true, SubmittedIntoTurn: submitted, PromptSince: func(taskID, generation string, since time.Time) (bool, error) {
 		return NativePromptSince(stateDir, taskID, generation, since)
 	}, Took: NativeTook}
 	return sender.SendNative(ctx, meta, text)
+}
+
+// submittedKey names, in a delivery's context, what the delivery tells once
+// its submit key went into a turn under way.
+type submittedKey struct{}
+
+// tellingSubmitted is ctx for a delivery into a goblin's terminal that calls
+// told once its submit key went into a turn under way, before it waits to see
+// the text taken.
+func tellingSubmitted(ctx context.Context, told func()) context.Context {
+	return context.WithValue(ctx, submittedKey{}, told)
 }
 
 // answerGoblin returns the Overlord's board answer to the goblin that asked.

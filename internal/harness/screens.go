@@ -267,6 +267,13 @@ func NativeScreens(kind Kind) (Screens, bool) {
 	return Screens{}, false
 }
 
+// ClearLine is the key that takes typed words back off a harness's prompt
+// line: Ctrl+U, in a turn or out of one. Codex 0.160 and pi 1.4 take the whole
+// prompt line off with it, and Claude Code 2.1.322 the one row its cursor is
+// in, so it is pressed until the prompt line reads empty; each does nothing
+// with it over an empty one (live, 2026-11-10, #2306).
+const ClearLine = "\x15"
+
 // trailingMention matches text that ends in a $ word.
 var trailingMention = regexp.MustCompile(`(^|\s)\$\S*$`)
 
@@ -558,6 +565,20 @@ func (s Screens) ComposerMatches(screen []string, typed string) bool {
 	held, isRead := s.draft(screen)
 	want := compactScreen([]string{typed})
 	return isRead && want != "" && held == want
+}
+
+// ComposerHoldsPartOf reports whether all screen's composer holds is typed
+// or one run of it, whitespace aside, or one paste's placeholder: the words
+// of one delivery as far as its harness has read them, as much of them as it
+// shows, or what is left while it gives them up a row at a time, with nobody
+// else's words beside them. An empty composer holds none of them, and neither
+// does one behind a dialog or one that cannot be read.
+func (s Screens) ComposerHoldsPartOf(screen []string, typed string) bool {
+	if !s.ComposerHoldsText(screen) {
+		return false
+	}
+	held, _ := s.draft(screen)
+	return strings.Contains(compactScreen([]string{typed}), held) || s.ComposerHoldsOnePaste(screen)
 }
 
 // ComposerHoldsOnePaste reports whether all screen's composer holds is one

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isPendingMessage, messageState, messagesTo, sameWords, takesMessages, withTakenCommands } from "./messages.ts";
+import { isNotSent, isPendingMessage, isUndelivered, messageState, messagesTo, sameWords, takesMessages, withTakenCommands } from "./messages.ts";
 import type { SessionMessage } from "./session-messages.ts";
 import { parseSnapshot, type Snapshot, type Task } from "./types.ts";
 
@@ -38,6 +38,23 @@ test("a message waits only while the board or its harness holds it", () => {
   assert.equal(waits({ status: "succeeded" }), false);
   assert.equal(waits({ status: "failed" }), false);
 });
+
+// A message that failed with its words given to nobody is still the board's,
+// so Send now and Cancel act on it (#2306); one handed to the CFO was
+// delivered there, and one typed and never seen taken may have arrived.
+for (const [what, fields, isUnsent, isEnded] of [
+  ["a message that failed with nobody given its words", { status: "failed", message: "Not sent. It was taken back off its prompt line." }, true, true],
+  ["a message handed to the CFO", { status: "failed", message: "goblin-one was stopped before it could take it; the CFO has it" }, false, false],
+  ["a message typed and never seen taken", { status: "uncertain", message: "Typed, and not picked up." }, false, true],
+  ["a message still queued", { status: "queued" }, false, false],
+  ["an answer that failed", { kind: "goblin_answer", status: "failed", message: "The terminal is closed." }, false, false],
+] as const) {
+  test(`${what} is ${isUnsent ? "" : "not "}one that was not sent`, () => {
+    const sent = snapshot([action(fields)]).actions[0];
+    assert.equal(isNotSent(sent), isUnsent);
+    assert.equal(isUndelivered(sent), isEnded);
+  });
+}
 
 test("a goblin's messages are its own, never one that names no goblin", () => {
   const shown = snapshot([action({ id: "a" }), action({ id: "b", task_id: "" }), action({ id: "c", kind: "goblin_answer" })]);
