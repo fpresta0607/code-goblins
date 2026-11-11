@@ -5,7 +5,7 @@ import { CFO_ROOT, isHelperHeld, isInProgress, lineageFamily, nodeStatus } from 
 import { Avatar } from "./Avatar";
 import { Chevron } from "./Chevron";
 import { personaFor } from "./workflow";
-import { childSelection, lineageRoots, ownsTaskSession, sessionRole, sessionTitle, tasksWithoutSession, taskSessionDetails, type Selection } from "./lineageTree";
+import { childSelection, lineageRoots, ownsTaskSession, sessionRole, sessionTitle, tasksWithoutSession, type Selection } from "./lineageTree";
 import { goblinName, withoutHarness } from "./task-words";
 import { hasRunningChildren } from "./fleet-tree";
 import { TreeUnder } from "./TreeUnder";
@@ -47,7 +47,6 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkT
   const isHelperItem = (task?: Task) => !!task?.parent && hasItem(task.parent);
   const helperSessions = sessions.filter((node) => ownsTaskSession(node, taskOf(node)) && isHelperItem(taskOf(node)));
   const helperTasks = taskOnly.filter(isHelperItem);
-  const byID = new Map(sessions.map((node) => [node.id, node]));
   const children = new Map<string, Session[]>();
   for (const node of sessions) if (node.parent && !helperSessions.includes(node)) {
     const siblings = children.get(node.parent) || [];
@@ -61,10 +60,10 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkT
   });
   // helpersOf are the helpers that hang under task id's item.
   const helpersOf = (id: string, ancestors: Set<string>) => [
-    ...helperSessions.filter((node) => taskOf(node)?.parent === id).map((node) => render(node, ancestors, true)),
-    ...helperTasks.filter((task) => task.parent === id).map((task) => renderTask(task, true)),
+    ...helperSessions.filter((node) => taskOf(node)?.parent === id).map((node) => render(node, ancestors)),
+    ...helperTasks.filter((task) => task.parent === id).map((task) => renderTask(task)),
   ];
-  const render = (node: Session, ancestors: Set<string>, isHelper = false) => {
+  const render = (node: Session, ancestors: Set<string>) => {
     if (ancestors.has(node.id)) return null;
     const seen = new Set([...ancestors, node.id]);
     const task = snapshot.tasks.find((task) => task.id === node.task_id);
@@ -75,16 +74,10 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkT
     const activity = activityDisplay(effects,node.id,node.parent);
     const glow = activity.received || activity.created;
     const isCollapsed = collapsed.has(node.id);
-    const parent = byID.get(node.parent);
-    const relation = isHelper ? "Helper goblin" : node.parent
-      ? byID.has(node.parent) ? node.relation || "Reported child"
-        : snapshot.retired.includes(node.parent) ? "Retired parent" : "Parent unreported"
-      : node.role === "cfo" ? "" : "Parent unknown / unlinked";
     return <li key={node.id} className="workflow-branch">
       {activity.communication && <span key={activity.communication.id} ref={playFrom(activity.communication.expires - EFFECT_MS)} className="compact-communication-pulse" style={{ animationDuration: EFFECT_MS + "ms" }} aria-hidden="true" />}
       {activity.creation && <span key={activity.creation.id} ref={playFrom(activity.creation.expires - EFFECT_MS)} className="compact-creation-highlight" style={{ animationDuration: EFFECT_MS + "ms" }} aria-hidden="true" />}
       <div className="node-group">
-        {relation && <p className="node-relation">{relation}{ancestors.size >= 3 && parent && " · Parent: " + sessionTitle(parent, snapshot.tasks.find((task) => task.id === parent.task_id))}</p>}
         <div className={"workflow-node role-" + node.role + (owner && task ? " has-task" : "") + (activity.created ? " node-enter" : "") + (selected?.session === node.id ? " selected" : "")}>
           {glow && <span key={glow.id} ref={playFrom(glow.expires - EFFECT_MS)} className="activity-glow" aria-hidden="true" />}
           {owner && task ? <TaskCard task={task} {...cardFacts(task, snapshot, presentations)} selected={selected?.session === node.id || selected?.task === task.id} now={now}
@@ -93,7 +86,7 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkT
             <Avatar persona={personaFor(task, node)} small /><span className="node-role">{sessionRole(node)}</span>
             <strong>{title}</strong>{presentations.some(a=>presentationShownOn(a,node,task))&&<span className="browser-indicator">Browser active</span>}{task?.project && <span className="project-label">{task.project}</span>}
             {(!owner || task?.goblin_name) && node.role !== "cfo" && task?.title && <span className="node-task">Task: {withoutHarness(task.title)}</span>}
-            <span className="node-status">{nodeStatus(node.id === CFO_ROOT && family.cfo ? family.cfo : { id: node.id, title, task, session: node, relation }, false, snapshot.tasks, snapshot.merge_trains)}</span>
+            <span className="node-status">{nodeStatus(node.id === CFO_ROOT && family.cfo ? family.cfo : { id: node.id, title, task, session: node, relation: node.relation }, false, snapshot.tasks, snapshot.merge_trains)}</span>
           </button>}
           {node.role === "cfo" && snapshot.cfo_runs && !snapshot.cfo_closed && <div className="node-facts"><CfoCardFacts snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpenCfo={onOpenCfo} /></div>}
           {descendants.length > 0 && <button className="node-disclosure" aria-expanded={!isCollapsed}
@@ -108,12 +101,11 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, afkT
       </ul>}
     </li>;
   };
-  const renderTask = (task: Task, isHelper = false) => {
+  const renderTask = (task: Task) => {
     const title = goblinName(task);
     const helpers = helpersOf(task.id, new Set());
     return <li className="workflow-branch" key={"task:" + task.id}>
       <div className="node-group">
-        <p className="node-relation">{isHelper ? "Helper goblin · " : ""}{taskSessionDetails(task)}</p>
         <div className={"workflow-node has-task" + (selected?.task === task.id ? " selected" : "")}>
           <TaskCard task={task} {...cardFacts(task, snapshot, presentations)} selected={selected?.task === task.id} now={now} onSelect={selectTask} />
         </div>

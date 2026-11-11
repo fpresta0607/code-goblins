@@ -683,7 +683,7 @@ Replayed, stale, reparenting, or cyclic input cannot silently change the tree.
 Task dependencies are rendered separately from spawned/delegated links.
 Unreported child models remain unreported even when their owning task declares a model and effort.
 A goblin's card on the canvas and in the lineage list is its board card, drawn by the same `TaskCard` from the same status, without the baby goblins the canvas draws under it: its name and title, its status, its project, its clock, its ticket, its pull request and its harness mark (`frontend/src/TaskCard.tsx`).
-A goblin whose task names no session of its own says so beside its card: Native terminal running, session details unavailable while its native terminal reports busy, active, idle or parked, else Session details unavailable, so a terminal the board can see is never mistaken for a missing one and an unknown identity is never drawn healthy.
+On the canvas, a goblin whose task names no session of its own says so beside its card: Native terminal running, session details unavailable while its native terminal reports busy, active, idle or parked, else Session details unavailable, so a terminal the board can see is never mistaken for a missing one and an unknown identity is never drawn healthy.
 The CEO's card has its weekly allowance dials and the OpenRouter key's spend and the button that opens it, as the board's CEO bar has, with the brand inside each dial, and keeps its harness mark, which the bar does not wear.
 On the canvas its dials wrap with gaps, and below 70% zoom a card with multiple dials hides the subscription percentages and key-spend budget labels, keeping the rings and dollar amount (`frontend/tests/orchestration-card-text.spec.ts`).
 Every card on the canvas, a baby goblin's included, holds all it says inside its border at any length, since each part keeps to its own lines and ends in an ellipsis past them (`frontend/tests/orchestration-card-text.spec.ts`).
@@ -702,7 +702,7 @@ Only a card the Overlord moves is saved, so the canvas keeps arranging every car
 A card he placed stays where he put it, and an arranged card whose place it covers takes the nearest free place, along its row first and then the rows below, so the canvas never arranges a card onto another.
 A connector pulses for a few seconds when its goblin reports a new status line or files a wake record; a report that lands while the board is hidden never plays later.
 Arrange resets positions and opens every folded card, then frames the tree again; storage failures remain visible.
-Narrow screens use a collapsible nested list that names the actual parent when indentation is capped.
+Narrow screens use a collapsible nested list whose branches carry no words (the Overlord, 2026-11-11); past the third level it stops indenting, and a card there shows no parent.
 
 ### The family tree
 
