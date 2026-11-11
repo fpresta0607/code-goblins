@@ -66,8 +66,10 @@ const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
 // takes the place of the button the board drew until then
 // (CommandCenterMenu), which counts what waits on him, needing, in the tab's
 // title and the app's badge: isInboxOpen is whether he opened its inbox with
-// that button, and hasFocus whether the button had the focus.
-export function CommandCenter({ snapshot, connected, presentations, now, focus, needing, isInboxOpen, hasFocus, onUnsent, onSent }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; now: number; focus: CommandFocus | null; needing: number; isInboxOpen: boolean; hasFocus: boolean; onUnsent: (unsent: boolean) => void; onSent?: (key: string, sent: Sent | null) => void }) {
+// that button, and hasFocus whether the button had the focus. It tells
+// onInboxOpen each time its inbox opens, so a board whose header banner is
+// put away, where the inbox sits, can show it.
+export function CommandCenter({ snapshot, connected, presentations, now, focus, needing, isInboxOpen, hasFocus, onUnsent, onSent, onInboxOpen }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; now: number; focus: CommandFocus | null; needing: number; isInboxOpen: boolean; hasFocus: boolean; onUnsent: (unsent: boolean) => void; onSent?: (key: string, sent: Sent | null) => void; onInboxOpen?: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const menu = useRef<HTMLDetailsElement>(null);
@@ -95,6 +97,11 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
   useLayoutEffect(() => {
     if (hasFocus) menu.current?.querySelector("summary")?.focus({ preventScroll: true });
   }, [hasFocus]);
+  const inboxOpened = useRef(onInboxOpen);
+  useLayoutEffect(() => { inboxOpened.current = onInboxOpen; });
+  useEffect(() => {
+    if (inbox) inboxOpened.current?.();
+  }, [inbox]);
   const [sent, setSent] = useState<Set<string>>(new Set());
   const [leaving, setLeaving] = useState("");
   const [allDone, setAllDone] = useState(false);

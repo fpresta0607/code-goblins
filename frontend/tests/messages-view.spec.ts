@@ -1462,6 +1462,31 @@ for (const { label, viewport, isTouch } of [
   });
 }
 
+// A Run whose run the snapshot no longer carries, as one that ended before
+// its answer came, falls back to the Command Center's inbox. The inbox sits in
+// the header banner, which the CEO's panel puts away while it fills a phone,
+// so the panel steps back to the board, where the inbox shows (#1816).
+test.describe("Run on a phone whose run no longer waits", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+  test("the CEO's panel steps back to the board with the Command Center's inbox open", async ({ page }) => {
+    // Arrange
+    await open(page);
+    await page.evaluate((talk) => Object.assign(window, { fixtureCfoPage: talk }), CODE_TALK);
+    await page.route("**/api/code-run", (route) => route.fulfill({ json: { run_id: CODE_RUN.id } }));
+    await openCfo(page);
+    await expect(page.locator(".topbar"), "the CEO's panel fills the phone").toBeHidden();
+    const run = list(page, "CEO").locator(".message-code").filter({ hasText: "Get-Date" }).getByRole("button", { name: "Run", exact: true });
+
+    // Act
+    await run.tap();
+
+    // Assert
+    await expect(page.locator(".topbar")).toBeVisible();
+    await expect(page.getByRole("region", { name: "Waiting on you" })).toBeVisible();
+  });
+});
+
 test("the newest reply of a session that works has no Run until its turn ends, and an earlier reply keeps its Run", async ({ page }) => {
   // Arrange: an earlier reply and the newest one each hold a PowerShell block.
   await open(page);
