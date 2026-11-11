@@ -20,10 +20,11 @@ Names follow the rename in #2227: the command is `goblins`, built from `cmd/gobl
   The six Ubuntu jobs are bookkeeping: draft state, the summary that requires every job, and the record that lets a push reuse a passing pull request run, which runs `tools/pushreuse`, the only Go that runs on Linux in CI today.
   A release builds `windows/amd64` only.
 - The dependencies are pure Go and build on Linux, SQLite included (`modernc.org/sqlite`), with one exception: Wails v3, which the desktop window and the setup window use, draws with WebView2 on Windows and with WebKitGTK through cgo on Linux.
+  Dictation needs cgo or a new dependency as well: on Windows it loads the speech engine's library with `LoadLibraryEx` and no cgo, but on Linux Go loads a shared library only through cgo or a pure-Go loader such as purego, which layer 9 chooses between.
 
 ### What a Linux build rejects today
 
-About 101 program files in 23 packages, and about 95 test files, call something that exists only on Windows.
+About 101 program files in 23 packages, and about 80 test files, call something that exists only on Windows.
 Without cgo the `main.go` of the setup window and of the desktop window fail as well, since Wails builds on Linux only through cgo.
 Two packages carry most of it:
 
@@ -63,10 +64,12 @@ Each area names what it does on Windows, what does it on Linux, and the layer th
 - **Windows:** `internal/conpty` runs each goblin's harness in a pseudo console (`CreatePseudoConsole`), started suspended inside a job object, with the console host the release ships (`conpty.dll`, `OpenConsole.exe`) and the system's `conhost.exe` behind it.
   An input waker works around a console host bug that leaves typed keys unread, and reads the screen back with `ReadConsoleOutputCharacterW`.
   `internal/host` is the detached process that owns that console and serves viewers.
+  It keeps the terminal and everything it starts off the performance cores left to the Overlord's own apps (`--leave-cores-for-apps`), with the mask of threads `internal/processor` makes from each core's efficiency class.
   `goblins attach` puts the console in virtual terminal input mode and sends win32-input-mode.
   The onboarding menu reads keys with `ReadConsoleInputW`.
 - **Linux:** a pseudo terminal from `openpty`, sized with `TIOCSWINSZ`, the harness in its own session (`setsid`) and process group.
   The screen comes from the host's own emulator, which `internal/host` already keeps for its history (`internal/vtscreen`), so nothing reads it back from a console.
+  The terminal's process group keeps off the same cores through `sched_setaffinity`, set on its first process and inherited by everything it starts, and `internal/processor` reads the cores' kinds and threads from `/sys`.
   `attach` and the menu use the terminal's raw mode and `SIGWINCH`.
 - **Not needed:** the input waker, the shipped console host, conhost selection, power throttling, hidden console windows.
 - **Layer:** 5.
@@ -81,7 +84,10 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
   - the CEO's primary transport, a file opened so no one else can write it;
   - Herdr's pipe, for a fleet that runs Herdr panes;
   - the desktop CI runner's pipe.
-- **Linux:** a Unix domain socket under the home's `state` folder, in a folder only the user can open (0700), with `SO_PEERCRED` giving each side the other's process id.
+- **Linux:** a Unix domain socket, with `SO_PEERCRED` giving each side the other's process id.
+  The sockets sit in a folder only the user can open (0700) under `$XDG_RUNTIME_DIR`, or under `/tmp` when that is unset, named by a short hash of the home.
+  A folder under `/tmp` is used only once it is checked to be the user's own and 0700.
+  A socket's path must fit `sun_path`, 108 bytes on Linux, which a path in a long home or a test's temporary folder can exceed, so the sockets are not in the home's `state` folder.
   The primary transport is an open file held with `flock`.
 - **Not needed:** Herdr's pipe.
 - **Layer:** 4.
@@ -124,10 +130,13 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
 - **Windows:** code that builds on every system finds the user's folders through Windows variables.
   `home.DefaultRoot` puts the home under `%LOCALAPPDATA%` and fails when it is unset, so on Linux every command fails unless `GOBLINS_HOME` names a home.
   `goblins install` from a clone, `goblins update` when it reads the home of a running server, and the uninstaller each find that folder through `LOCALAPPDATA` themselves.
+  Install narrows the home and the Dev Drive folder (`internal/access`) so that only the user, SYSTEM and Administrators can open them.
+  Off Windows `internal/access` narrows nothing and reports every folder narrowed, while install makes the home's folders with mode 0755, so on Linux install would report a home other accounts can read as narrowed.
   `internal/pathguard` guards the Credential Manager's folders under `APPDATA` and `LOCALAPPDATA` beside `~/.ssh` and the file store, and reads a path that starts with a drive letter folder such as `/c/`, or with `/tmp`, as Git Bash would.
 - **Linux:** the home defaults to `$XDG_DATA_HOME/code-goblins`, or `~/.local/share/code-goblins` when that is unset, and install, update and the uninstaller follow the same rule.
+  The home and its folders are made 0700, and `access.IsNarrow` reads the mode, so install reports what is true.
   `internal/pathguard` guards `~/.ssh` and the file store, and reads a path as it is written.
-- **Layer:** 3 for the default home, 4 for the guarded folders, 8 for install, update and the uninstaller.
+- **Layer:** 3 for the default home and its access, 4 for the guarded folders, 8 for install, update and the uninstaller.
 
 ### Watching and machine readings
 
@@ -199,8 +208,8 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
 
 ### Dictation and the clipboard
 
-- **Windows:** dictation loads the sherpa speech engine's Windows x64 library; the clipboard is the Win32 clipboard.
-- **Linux:** the sherpa engine's Linux library, with a pin of its own beside the Windows one in `config/voice.json`; `wl-copy` or `xclip` for the clipboard.
+- **Windows:** dictation loads the sherpa speech engine's Windows x64 library with `LoadLibraryEx` and calls it without cgo; the clipboard is the Win32 clipboard.
+- **Linux:** the sherpa engine's Linux library, with a pin of its own beside the Windows one in `config/voice.json`, loaded through cgo or a pure-Go loader such as purego, which layer 9 chooses; `wl-copy` or `xclip` for the clipboard.
 - **Layer:** 9 for dictation, 6 for the clipboard.
 
 ### The desktop CI runner
@@ -255,22 +264,24 @@ A layer's Linux code sits beside the Windows code under a build tag.
 2. **Unit tests on Linux.**
    Windows-only tests take the `_windows_test.go` name, and the Linux job runs `go vet` and `go test` on every package.
 3. **Processes, trees, locks and files.**
-   `internal/proc` on `/proc`, `internal/execx` and the gate's executor on process groups, the lock on `flock`, the file replacements, and the default home under `$XDG_DATA_HOME`.
-4. **Transport.** Unix sockets for the host, the run requests and the primary transport, exact path comparison in `fsx.SamePath` and every other place that folds case on a path, and the folders `internal/pathguard` guards.
-5. **The native terminal.** `internal/host` on a pseudo terminal, `attach` and the onboarding menu in raw mode, and `spawn` launching on Linux.
+   `internal/proc` on `/proc`, `internal/execx` and the gate's executor on process groups, the lock on `flock`, the file replacements, and the default home under `$XDG_DATA_HOME`, kept to the user with mode 0700.
+4. **Transport.** Unix sockets for the host, the run requests and the primary transport, in the user's 0700 folder under `$XDG_RUNTIME_DIR` (or `/tmp`) named by a short hash of the home so each path fits `sun_path`, exact path comparison in `fsx.SamePath` and every other place that folds case on a path, and the folders `internal/pathguard` guards.
+5. **The native terminal.** `internal/host` on a pseudo terminal, kept off the cores left to the Overlord's own apps with `sched_setaffinity` and the core kinds read from `/sys`, `attach` and the onboarding menu in raw mode, and `spawn` launching on Linux.
 6. **Watching and readings.** `inotify`, the memory and processor readings, priorities, the janitor's processes, the browser sign-in and the clipboard.
 7. **End to end.** The hooks without PowerShell, card commands and `!` messages in bash, folders opened with `xdg-open`, and a goblin run on Linux in CI under Claude Code, Codex and pi: spawn, send, peek, wake, pause, resume, gate and cleanup.
 8. **Installer and updater.** The release's Linux archives and `install.sh`, update and uninstall, the `.desktop` entry and the user unit, the board opening in the browser, and the README's download control and the install guide offering Linux beside Windows.
-9. **Dictation.** The speech engine's Linux library, pinned in `config/voice.json` beside the Windows one.
+9. **Dictation.** The speech engine's Linux library, pinned in `config/voice.json` beside the Windows one, and loaded through cgo or a pure-Go loader such as purego, whichever this layer chooses.
+   If it takes cgo, the release's Linux build from layer 8 turns cgo on with it.
 10. **The desktop CI runner.** The runner as a systemd system unit running private repositories' CI in a KVM machine.
 
 Layers 3 to 5 hold most of the work; layer 7 is where a goblin first works on Linux, and layer 8 is where someone else can install it.
 
 ## macOS after Linux
 
-macOS takes the pseudo terminal, Unix sockets, process groups, signals and `flock` from the Linux layers unchanged.
-It differs where Linux reads `/proc`: process identity comes from `libproc` and `sysctl`, folder watching from FSEvents or kqueue, memory from `host_statistics64`, start at sign-in from a launchd agent, the credential store from the Keychain, and the window from WKWebView, which Wails already supports.
-It also differs where the Linux layers call what only Linux has: the socket's peer comes from `LOCAL_PEERPID` instead of `SO_PEERCRED`, it has no `PR_SET_CHILD_SUBREAPER` and no `pidfd_open`, the creation time comes from `stat` instead of `statx`, and the disk priority from `setiopolicy_np` instead of `ioprio_set`.
+macOS takes the pseudo terminal, Unix sockets, process groups, signals and `flock` from the Linux layers.
+It differs where Linux reads `/proc` and `/sys`: process identity and the cores' kinds come from `libproc` and `sysctl`, folder watching from FSEvents or kqueue, memory from `host_statistics64`, start at sign-in from a launchd agent, the credential store from the Keychain, and the window from WKWebView, which Wails already supports.
+Its sockets always take the user's folder under `/tmp`, since it has no `$XDG_RUNTIME_DIR` and its own `$TMPDIR` already takes about half of its 104-byte `sun_path`.
+It also differs where the Linux layers call what only Linux has: the socket's peer comes from `LOCAL_PEERPID` instead of `SO_PEERCRED`, it has no `PR_SET_CHILD_SUBREAPER`, no `pidfd_open` and no `sched_setaffinity`, the creation time comes from `stat` instead of `statx`, and the disk priority from `setiopolicy_np` instead of `ioprio_set`.
 Its default file system ignores case, as Windows does, so exact path comparison is not enough there either.
 A release for it needs an Apple developer account for signing and notarization, and Mac runners.
 It is filed as its own issue from this inventory once the Linux layers it reuses have landed.
