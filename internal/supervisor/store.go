@@ -74,6 +74,14 @@ type Evaluation struct {
 	At         time.Time `json:"at"`
 	// GateStep is the no-mistakes step the task's gate is on, such as test.
 	GateStep string `json:"gate_step,omitempty"`
+	// Decision is the gate run on the task's own branch that waits on a
+	// decision, which holds the card at Blocked only while it parked no
+	// earlier than the goblin's newest report.
+	Decision *ParkedRun `json:"decision,omitempty"`
+	// ParkedRuns are the gate runs waiting on a decision that hold no card:
+	// those on the branches of the task's extra worktrees and, in a snapshot,
+	// one on its own branch that parked before the goblin's newest report.
+	ParkedRuns []ParkedRun `json:"parked_runs,omitempty"`
 	// WaitingOn is what a waiting task waits on: another task's ID,
 	// overlord, ci or deploy.
 	WaitingOn string `json:"waiting_on,omitempty"`
@@ -88,6 +96,16 @@ type Evaluation struct {
 	// on a retry, and SendNowWhy says why not when it could not.
 	CanSendNow bool   `json:"-"`
 	SendNowWhy string `json:"-"`
+}
+
+// ParkedRun is a gate run that waits on a decision at one of its steps, on
+// one branch of a task, with that run's own pull request.
+type ParkedRun struct {
+	Branch   string    `json:"branch"`
+	RunID    string    `json:"run_id"`
+	Step     string    `json:"step"`
+	ParkedAt time.Time `json:"parked_at"`
+	PR       string    `json:"pr,omitempty"`
 }
 
 type Action struct {

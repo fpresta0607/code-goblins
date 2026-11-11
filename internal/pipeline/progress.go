@@ -31,6 +31,10 @@ type ProgressStep struct {
 	// Findings is the step's findings document, which HandedBackFindings
 	// reads; it is empty for a step that recorded none.
 	Findings string `json:"findings"`
+	// MovedAt is when the step last moved, in Unix seconds: its last
+	// activity, else when its round or the step started. A step that waits on
+	// a decision has not moved since it parked.
+	MovedAt int64 `json:"moved_at"`
 }
 
 var ErrNoProgress = errors.New("no gate evidence for this task branch")
@@ -40,7 +44,7 @@ func (r Reader) Progress(ctx context.Context, project, branch string) (Progress,
 	if err != nil {
 		return Progress{}, err
 	}
-	if err := r.query(ctx, `SELECT step_name AS name,status,COALESCE(findings_json,'') AS findings FROM step_results WHERE run_id=`+sqlString(p.RunID)+` ORDER BY step_order`, &p.Steps); err != nil {
+	if err := r.query(ctx, `SELECT step_name AS name,status,COALESCE(findings_json,'') AS findings,COALESCE(NULLIF(last_activity_at,0),NULLIF(round_started_at,0),started_at,0) AS moved_at FROM step_results WHERE run_id=`+sqlString(p.RunID)+` ORDER BY step_order`, &p.Steps); err != nil {
 		return Progress{}, err
 	}
 	return p, nil
@@ -159,8 +163,8 @@ type StepDetail struct {
 }
 
 // StepDetails reads a run's steps in order with what each is doing. It is a
-// query of its own so a no-mistakes database without these columns costs
-// only this read, never Progress.
+// query of its own so Progress, which the supervisor reads for every task,
+// carries none of what each step last did or which agent works it.
 func (r Reader) StepDetails(ctx context.Context, runID string) ([]StepDetail, error) {
 	var steps []StepDetail
 	q := `SELECT step_name AS name,status,COALESCE(started_at,0) AS started_at,COALESCE(round_started_at,0) AS round_started_at,COALESCE(last_activity_at,0) AS last_activity_at,COALESCE(last_activity,'') AS last_activity,COALESCE(agent_pid,0) AS agent_pid FROM step_results WHERE run_id=` + sqlString(runID) + ` ORDER BY step_order`

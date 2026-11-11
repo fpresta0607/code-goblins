@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
@@ -183,6 +184,199 @@ func TestAGateRunThatMovesMidTurnIsReadAgain(t *testing.T) {
 			}
 			if got.Phase != test.wantPhase || got.GateStep != test.wantGateStep {
 				t.Errorf("card reads phase %q at gate step %q (%s), want %q at %q", got.Phase, got.GateStep, got.Reason, test.wantPhase, test.wantGateStep)
+			}
+		})
+	}
+}
+
+// branchGate is a gate whose newest run on each branch is the one runs
+// names, with none on any other branch.
+type branchGate struct {
+	fakeProgress
+	runs map[string]pipeline.Progress
+}
+
+func (g branchGate) Progress(_ context.Context, _, branch string) (pipeline.Progress, error) {
+	if run, ok := g.runs[branch]; ok {
+		return run, nil
+	}
+	return pipeline.Progress{}, pipeline.ErrNoProgress
+}
+
+// parkedAtTest is a run that has waited on a decision at its test step since
+// parkedAt, with no pull request yet.
+func parkedAtTest(runID string, parkedAt time.Time) pipeline.Progress {
+	return pipeline.Progress{RunID: runID, Status: "running", Steps: []pipeline.ProgressStep{{Name: "intent", Status: "completed"}, {Name: "review", Status: "completed"}, {Name: "test", Status: "awaiting_approval", MovedAt: parkedAt.Unix()}, {Name: "push", Status: "pending"}}}
+}
+
+// gateCardFixture is task-1, a no-mistakes goblin on branch feat/primary
+// whose turn ended after its reports, each line ten minutes after the one
+// before and the last ten minutes ago, with its evaluation read from gate as
+// the supervisor reads it.
+func gateCardFixture(t *testing.T, gate ProgressReader, extras []string, reports ...string) (*Service, home.Home) {
+	t.Helper()
+	store, h := atWorkFixture(t, "claude", "task-1")
+	meta, err := state.ReadTaskMeta(h.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Mode, meta.Extras = "no-mistakes", extras
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	gitFixture(t, meta.Worktree)
+	boardGit(t, meta.Worktree, "checkout", "-q", "-b", "feat/primary")
+	now := time.Now().UTC()
+	harnessHook(t, store, h, "claude", "task-1", "start", now.Add(-4*time.Hour))
+	harnessHook(t, store, h, "claude", "task-1", "prompt", now.Add(-4*time.Hour))
+	var log strings.Builder
+	for i, report := range reports {
+		log.WriteString(now.Add(time.Duration(i-len(reports))*10*time.Minute).Format(time.RFC3339) + " " + report + "\n")
+	}
+	writeFile(t, state.StatusPath(h.State, "task-1"), log.String())
+	harnessHook(t, store, h, "claude", "task-1", "settle", now.Add(-5*time.Minute))
+	seeTerminal(t, h, "task-1", monitor.HealthIdle)
+	service := &Service{Store: store, Options: Options{Gate: gate}}
+	evaluation, err := service.execute(context.Background(), Action{Kind: "evaluate", TaskID: "task-1", Generation: "g1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evaluation.Generation, evaluation.At = "g1", now.Add(-4*time.Minute)
+	store.mu.Lock()
+	store.db.Tasks["task-1"] = evaluation
+	err = store.save()
+	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service, h
+}
+
+// parkedRunWakes are the parked_run wakes the CFO holds for task-1.
+func parkedRunWakes(t *testing.T, h home.Home) []wake.Record {
+	t.Helper()
+	records, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return slices.DeleteFunc(records, func(record wake.Record) bool {
+		return record.Kind != "check" || record.Key != "task-1" || !strings.HasPrefix(record.Detail, "parked_run: ")
+	})
+}
+
+// On 2026-10-28 Oscar's card read Blocked at the test step under the pull
+// request of a branch that had merged, while his newest report waited on CI.
+// The run behind it had parked the day before on an older branch of his task
+// and held the card over every report since (#1677). A gate decision holds
+// the card only while the goblin has reported nothing since the run parked;
+// an older one is an item of its own, which the CFO is woken to once.
+func TestAGateRunParkedBeforeTheNewestReportHoldsNoCard(t *testing.T) {
+	const runID = "01M5YTMPMZGYMPFFN9T08BRKMZ"
+	reports := []string{"done: PR https://github.com/o/r/pull/1671 ready", "waiting on ci: #1672 checks are running"}
+	for _, test := range []struct {
+		name         string
+		parkedAgo    time.Duration
+		wantPhase    string
+		wantGateStep string
+		wantParked   []ParkedRun
+		wantWakes    int
+		isRunsPR     bool
+	}{
+		{"parked before the goblin's newest report", 3 * time.Hour, "waiting", "", []ParkedRun{{Branch: "feat/primary", RunID: runID, Step: "test"}}, 1, false},
+		{"parked after the goblin's newest report", 5 * time.Minute, "blocked", "test", nil, 0, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			parkedAt := time.Now().UTC().Add(-test.parkedAgo).Truncate(time.Second)
+			gate := branchGate{runs: map[string]pipeline.Progress{"feat/primary": parkedAtTest(runID, parkedAt)}}
+			service, h := gateCardFixture(t, gate, nil, reports...)
+			for i := range test.wantParked {
+				test.wantParked[i].ParkedAt = parkedAt
+			}
+
+			// Act: the board reads the card, and two recovery cycles run.
+			got := snapshotTask(t, service, "task-1")
+			first := service.tellParkedRuns()
+			second := service.tellParkedRuns()
+
+			// Assert
+			if first != nil || second != nil {
+				t.Fatalf("telling the parked runs failed: %v, %v", first, second)
+			}
+			if got.Phase != test.wantPhase || got.GateStep != test.wantGateStep {
+				t.Errorf("card reads phase %q at gate step %q (%s), want %q at %q", got.Phase, got.GateStep, got.Reason, test.wantPhase, test.wantGateStep)
+			}
+			if !slices.Equal(got.ParkedRuns, test.wantParked) {
+				t.Errorf("parked runs %+v, want %+v", got.ParkedRuns, test.wantParked)
+			}
+			if test.isRunsPR && got.PR != "" {
+				t.Errorf("the card a run with no pull request holds names %q, another branch's", got.PR)
+			}
+			wakes := parkedRunWakes(t, h)
+			if len(wakes) != test.wantWakes {
+				t.Fatalf("%d parked_run wakes %+v, want %d", len(wakes), wakes, test.wantWakes)
+			}
+			for _, record := range wakes {
+				for _, want := range []string{runID, "feat/primary", "test step", parkedAt.Format(time.RFC3339), "cfo pipeline respond task-1 --branch feat/primary", "no-mistakes axi status --run " + runID} {
+					if !strings.Contains(record.Detail, want) {
+						t.Errorf("wake %q does not name %q", record.Detail, want)
+					}
+				}
+			}
+		})
+	}
+}
+
+// A task's extra worktree runs its own gate on its own branch. A run parked
+// there is an item on the task's card naming that branch, its step and that
+// run's pull request, never the task's own, and the task's phase stays its
+// own branch's and its goblin's. One parked before the goblin's newest
+// report wakes the CFO once, as a run on its own branch would.
+func TestAGateRunParkedOnAnExtraWorktreesBranchIsAnItemOfItsOwn(t *testing.T) {
+	const sidePR = "https://github.com/o/r/pull/1584"
+	for _, test := range []struct {
+		name      string
+		parkedAgo time.Duration
+		wantWakes int
+	}{
+		{"parked since the goblin's newest report", time.Minute, 0},
+		{"parked before the goblin's newest report", 3 * time.Hour, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			extra := gitFixture(t)
+			boardGit(t, extra, "checkout", "-q", "-b", "fix/side")
+			parkedAt := time.Now().UTC().Add(-test.parkedAgo).Truncate(time.Second)
+			side := parkedAtTest("01JZTESTRUNOFTHESIDEBRANCH", parkedAt)
+			side.PR = sidePR
+			own := pipeline.Progress{RunID: "01JZTESTRUNOFTHISBRANCH00", Status: "running", PR: "https://github.com/o/r/pull/1700", Steps: []pipeline.ProgressStep{{Name: "intent", Status: "completed"}, {Name: "review", Status: "running"}}}
+			gate := branchGate{runs: map[string]pipeline.Progress{"feat/primary": own, "fix/side": side}}
+			service, h := gateCardFixture(t, gate, []string{extra}, "working: reviewing the gate's findings")
+
+			// Act
+			got := snapshotTask(t, service, "task-1")
+			first := service.tellParkedRuns()
+			second := service.tellParkedRuns()
+
+			// Assert
+			if first != nil || second != nil {
+				t.Fatalf("telling the parked runs failed: %v, %v", first, second)
+			}
+			if got.Phase != "review" || got.GateStep != "review" || got.PR != own.PR {
+				t.Errorf("card reads phase %q at gate step %q with %q (%s), want its own run's review with %q", got.Phase, got.GateStep, got.PR, got.Reason, own.PR)
+			}
+			want := []ParkedRun{{Branch: "fix/side", RunID: side.RunID, Step: "test", ParkedAt: parkedAt, PR: sidePR}}
+			if !slices.Equal(got.ParkedRuns, want) {
+				t.Errorf("parked runs %+v, want %+v", got.ParkedRuns, want)
+			}
+			wakes := parkedRunWakes(t, h)
+			if len(wakes) != test.wantWakes {
+				t.Fatalf("%d parked_run wakes %+v, want %d", len(wakes), wakes, test.wantWakes)
+			}
+			for _, record := range wakes {
+				if !strings.Contains(record.Detail, "cfo pipeline respond task-1 --branch fix/side") {
+					t.Errorf("wake %q does not say how to act on the run on fix/side", record.Detail)
+				}
 			}
 		})
 	}

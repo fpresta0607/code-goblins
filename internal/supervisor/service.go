@@ -878,7 +878,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
 		s.checkRegistration()
-		reconcileErr = errors.Join(reconcileErr, s.tellWaitCycles())
+		reconcileErr = errors.Join(reconcileErr, s.tellWaitCycles(), s.tellParkedRuns())
 		s.mu.Lock()
 		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr, s.pushErr)
 		s.cfoWakeErr, s.fleetErr, s.pushErr = nil, nil, nil
@@ -1332,6 +1332,11 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		}
 	}
 	result := Evaluation{Phase: "review", Reason: "Task awaits independent review and delivery evidence", Head: head, Base: base}
+	if meta.Mode == "no-mistakes" && s.Options.Gate != nil {
+		if result.ParkedRuns, err = s.parkedExtraRuns(ctx, meta); err != nil {
+			return Evaluation{}, err
+		}
+	}
 	if !clean {
 		result.Phase = "working"
 		result.Reason = "Worktree has uncommitted changes"
@@ -1369,28 +1374,19 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 			result.GateStep = p.Steps[i].Name
 		}
 		for _, step := range p.Steps {
-			if step.Status != "awaiting_approval" && step.Status != "fix_review" && step.Status != "failed" {
+			if !awaitsDecision(step) {
 				continue
 			}
 			result.Phase = "blocked"
 			result.Reason = "Pipeline decision required at " + step.Name + "; use cfo pipeline respond"
-			// From policy version 7 the gate repairs no Test, Lint or CI
-			// failure: it is the goblin's to fix, not a decision to wait on,
-			// by the rule cfo pipeline run reads to hand it back, which hands
-			// back no step whose findings it cannot read. A task spawned with
-			// no frozen policy, as outside no-mistakes delivery, has none of
-			// version 7 to hand anything back.
-			if step.Name == "test" || step.Name == "lint" || step.Name == "ci" {
-				selection, err := pipeline.LoadSelection(filepath.Join(meta.TaskTmp, "pipeline.json"))
-				if err != nil && !errors.Is(err, os.ErrNotExist) {
-					return result, fmt.Errorf("task %s's frozen pipeline policy: %w", meta.ID, err)
-				}
-				if err == nil {
-					if findings, err := selection.Policy.HandedBackFindings(step.Name, step.Findings); err == nil && len(findings) != 0 {
-						result.Phase = "working"
-						result.Reason = fmt.Sprintf("The gate handed its %s failure back to the goblin, which fixes it under pipeline policy version %d", step.Name, selection.Policy.Version)
-					}
-				}
+			result.Decision = parkedRun(branch, p, step)
+			version, err := handedBackUnder(meta, step)
+			if err != nil {
+				return result, err
+			}
+			if version != 0 {
+				result.Phase, result.Decision = "working", nil
+				result.Reason = fmt.Sprintf("The gate handed its %s failure back to the goblin, which fixes it under pipeline policy version %d", step.Name, version)
 			}
 			return result, nil
 		}
@@ -1422,6 +1418,84 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		result.Reason = "Pipeline evidence is incomplete or belongs to a different HEAD"
 	}
 	return result, nil
+}
+
+// awaitsDecision says a step of a run that has not ended waits on a
+// decision.
+func awaitsDecision(step pipeline.ProgressStep) bool {
+	return step.Status == "awaiting_approval" || step.Status == "fix_review" || step.Status == "failed"
+}
+
+// parkedRun is run p on branch, parked at step since the step last moved. A
+// step with no recorded time parked at no known moment, so no report is
+// newer than it.
+func parkedRun(branch string, p pipeline.Progress, step pipeline.ProgressStep) *ParkedRun {
+	run := &ParkedRun{Branch: branch, RunID: p.RunID, Step: step.Name, PR: p.PR}
+	if step.MovedAt > 0 {
+		run.ParkedAt = time.Unix(step.MovedAt, 0).UTC()
+	}
+	return run
+}
+
+// handedBackUnder is the pipeline policy version under which the gate handed
+// step's failure back to the goblin, and zero when it did not. From policy
+// version 7 the gate repairs no Test, Lint or CI failure: it is the goblin's
+// to fix, not a decision to wait on, by the rule cfo pipeline run reads to
+// hand it back, which hands back no step whose findings it cannot read. A
+// task spawned with no frozen policy, as outside no-mistakes delivery, has
+// none of version 7 to hand anything back.
+func handedBackUnder(meta state.TaskMeta, step pipeline.ProgressStep) (int, error) {
+	if step.Name != "test" && step.Name != "lint" && step.Name != "ci" {
+		return 0, nil
+	}
+	selection, err := pipeline.LoadSelection(filepath.Join(meta.TaskTmp, "pipeline.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("task %s's frozen pipeline policy: %w", meta.ID, err)
+	}
+	if findings, err := selection.Policy.HandedBackFindings(step.Name, step.Findings); err == nil && len(findings) != 0 {
+		return selection.Policy.Version, nil
+	}
+	return 0, nil
+}
+
+// parkedExtraRuns are the gate runs waiting on a decision on the branches the
+// task's extra worktrees have checked out, each with its own run's pull
+// request. They hold no card: on 2026-10-28 a run parked the day before on
+// an older branch of a task held its card at Blocked under the pull request
+// of another branch, over the goblin's newer report (#1677).
+func (s *Service) parkedExtraRuns(ctx context.Context, meta state.TaskMeta) ([]ParkedRun, error) {
+	var parked []ParkedRun
+	for _, extra := range meta.Extras {
+		branch, err := s.Git.Branch(ctx, extra)
+		if errors.Is(err, errDetachedHead) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("extra worktree %s: %w", extra, err)
+		}
+		p, err := s.Options.Gate.Progress(ctx, meta.Project, branch)
+		if errors.Is(err, pipeline.ErrNoProgress) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("gate run on %s: %w", branch, err)
+		}
+		i := slices.IndexFunc(p.Steps, awaitsDecision)
+		if p.IsTerminal() || i < 0 {
+			continue
+		}
+		version, err := handedBackUnder(meta, p.Steps[i])
+		if err != nil {
+			return nil, err
+		}
+		if version == 0 {
+			parked = append(parked, *parkedRun(branch, p, p.Steps[i]))
+		}
+	}
+	return parked, nil
 }
 
 func (s *Service) validateTerminalControl(ctx context.Context, meta state.TaskMeta) error {
@@ -1577,6 +1651,9 @@ type Task struct {
 	// isBackAtWork marks a live goblin whose turn runs on a prompt it took
 	// after its latest done report, which no merge completes.
 	isBackAtWork bool
+	// parkedBeforeReport are its ParkedRuns that parked before the goblin's
+	// newest report, which tellParkedRuns wakes the CFO to.
+	parkedBeforeReport []ParkedRun
 	Evaluation
 }
 
@@ -1867,9 +1944,27 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if evaluation.Generation != meta.SpawnGen {
 			evaluation = Evaluation{}
 		}
-		isGateHeld := evaluation.GateStep != "" || evaluation.Phase == "blocked" || evaluation.Phase == "failed" || evaluation.Phase == "ready" || evaluation.Phase == "merged" || evaluation.Phase == "done"
 		lines, _ := s.statusTail(id)
 		spawned := spawnTime(meta.SpawnGen)
+		standingAt, standing := standingReport(lines, spawned)
+		// A decision the gate waits on holds the card only while the goblin
+		// has reported nothing since the run parked. On 2026-10-28 a run
+		// parked the day before on a branch the goblin had left held its card
+		// at Blocked over its newer wait on CI (#1677): such a run is an item
+		// of its own, which the CFO is woken to, and the report says what the
+		// goblin does.
+		if decision := evaluation.Decision; decision != nil && !decision.ParkedAt.IsZero() && decision.ParkedAt.Before(standingAt) {
+			evaluation.ParkedRuns = append(slices.Clone(evaluation.ParkedRuns), *decision)
+			evaluation.Decision, evaluation.GateStep = nil, ""
+			evaluation.Phase, evaluation.Reason = "review", "Gate run "+decision.RunID+" on "+decision.Branch+" waits on a decision at "+decision.Step+" since before the goblin's newest report"
+		}
+		var parkedBeforeReport []ParkedRun
+		for _, run := range evaluation.ParkedRuns {
+			if !run.ParkedAt.IsZero() && run.ParkedAt.Before(standingAt) {
+				parkedBeforeReport = append(parkedBeforeReport, run)
+			}
+		}
+		isGateHeld := evaluation.GateStep != "" || evaluation.Phase == "blocked" || evaluation.Phase == "failed" || evaluation.Phase == "ready" || evaluation.Phase == "merged" || evaluation.Phase == "done"
 		reportedAt, report := latestReport(lines, spawned)
 		decisions := out.Decisions
 		if !spawned.IsZero() || supersedesQuestion(report) {
@@ -1909,7 +2004,6 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// A goblin's own newer report says what it is doing, unless a question
 		// or the gate holds it or its work already merged. A question asked
 		// beside a dependency wait replaces no such wait.
-		standingAt, standing := standingReport(lines, spawned)
 		phase, reason, target, isReported := reportedProgress(s.statusTail, id, d.Reviews, standingAt, standing)
 		if isReported && phase == "waiting" && isAtWork {
 			isReported = false
@@ -1953,7 +2047,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = verb, "Waiting on the CFO: "+detail, ""
 			activity = detail
 		}
-		if evaluation.PR == "" {
+		// A card a gate decision holds names that run's pull request, or none.
+		if evaluation.PR == "" && evaluation.Decision == nil {
 			evaluation.PR = pr
 		}
 		title := meta.Title
@@ -1961,7 +2056,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: named.ID, Runtime: runtime, Activity: activity, LastReport: lastReport, ClosedIssue: state.DoneClosed(lastReport), ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), isBackAtWork: isBackAtWork, Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: named.ID, Runtime: runtime, Activity: activity, LastReport: lastReport, ClosedIssue: state.DoneClosed(lastReport), ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), isBackAtWork: isBackAtWork, parkedBeforeReport: parkedBeforeReport, Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}

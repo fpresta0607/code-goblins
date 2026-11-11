@@ -102,3 +102,16 @@ test("cleanup retirement stays distinct from an explicit lifecycle stop", () => 
   assert.equal(sessionEnd(task), "retired");
   assert.equal(sessionEnd({ ...task, lifecycle: { phase: "stopped", action: "stop", at: "2026-09-30T12:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: false, validation_kept: false } }), "stopped");
 });
+
+test("a task's parked gate runs reach its card with their branch, step and own pull request", () => {
+  // Arrange
+  const parked = { branch: "fix/side", run_id: "01JZTESTRUNOFTHESIDEBRANCH", step: "test", parked_at: "2026-10-27T16:09:00Z", pr: "https://github.com/o/r/pull/1584" };
+  const tasks = [{ id: "t", generation: "s1", phase: "waiting", verified: false, parked_runs: [parked] }, { id: "u", generation: "s1", phase: "working", verified: false }];
+
+  // Act
+  const [withParked, without] = parseSnapshot({ healthy: true, tasks }).tasks;
+
+  // Assert
+  assert.deepEqual(withParked.parked_runs, [parked]);
+  assert.equal(without.parked_runs, undefined);
+});

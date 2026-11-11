@@ -214,7 +214,7 @@ export function inLineStatus(place: number): string {
   const suffix = place % 100 >= 11 && place % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][place % 10] || "th";
   return place + suffix + " in line for the machine";
 }
-const GATE_STEPS: Record<string, string> = { review: "code review", lint: "lint", push: "push", test: "tests", ci: "CI", pr: "PR", document: "docs" };
+export const GATE_STEPS: Record<string, string> = { review: "code review", lint: "lint", push: "push", test: "tests", ci: "CI", pr: "PR", document: "docs" };
 
 // A resume or stop that did not finish is the task's state until the next
 // one starts, whatever its goblin last reported, drawn as that action under

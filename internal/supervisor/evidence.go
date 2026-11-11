@@ -540,6 +540,32 @@ func (s *Service) tellWaitCycles() error {
 	return err
 }
 
+// tellParkedRuns tells the CFO, once for each, of a gate run that waits on a
+// decision since before its goblin's newest report, which holds no card. The
+// run parking again, at another step or in a later round, is a new one.
+func (s *Service) tellParkedRuns() error {
+	snapshot, err := s.Snapshot()
+	if err != nil {
+		return err
+	}
+	isTold := false
+	for _, task := range snapshot.Tasks {
+		for _, run := range task.parkedBeforeReport {
+			parkedAt := run.ParkedAt.UTC().Format(time.RFC3339)
+			detail := fmt.Sprintf("parked_run: %s (%s) has gate run %s on branch %s waiting on a decision at its %s step since %s, before the goblin's newest report, so it holds no card. Act on it with cfo pipeline respond %s --branch %s, or read it with no-mistakes axi status --run %s", cmp.Or(task.GoblinName, task.ID), task.ID, run.RunID, run.Branch, run.Step, parkedAt, task.ID, run.Branch, run.RunID)
+			_, isNew, err := wake.AppendFirst(s.Store.Home.State, "parked-run/"+task.ID+"/"+run.RunID+"/"+run.Step+"/"+parkedAt, "check", task.ID, detail)
+			if err != nil {
+				return err
+			}
+			isTold = isTold || isNew
+		}
+	}
+	if isTold {
+		_, err = wake.PublishEpisode(s.Store.Home.State)
+	}
+	return err
+}
+
 // statusActivity is a task's own latest status line, the one-line answer to
 // what it is doing now, and the pull request it last reported done. A known
 // spawn time limits both to lines its own generation wrote, because a reused

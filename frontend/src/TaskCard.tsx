@@ -3,7 +3,7 @@ import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { HarnessMark } from "./harness-mark";
 import type { NextUp } from "./start";
-import { harnessTip, personaFor, pullRequestIcon } from "./workflow";
+import { GATE_STEPS, harnessTip, personaFor, pullRequestIcon } from "./workflow";
 import { goblinName, taskName } from "./task-words";
 import { taskStatus } from "./task-status";
 import { TicketLink } from "./ticket-link";
@@ -61,12 +61,16 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
   const terminal = task.runtime?.state ?? "";
   const activity = task.gate_step && ["blocked", "review"].includes(task.phase)
     ? [(TERMINAL_ACTIVITY[terminal] || (terminal ? "Terminal: " + terminal : "Terminal state unreported")), task.report && "Last report: " + task.report].filter(Boolean).join(" · ") : "";
+  // A gate run that waits on a decision and holds no card, as one on a branch
+  // of its extra worktrees, is named by its branch and step (#1677).
+  const parked = (task.parked_runs ?? []).map((run) => "Gate on " + run.branch + " waits at " + (GATE_STEPS[run.step] || run.step));
+  const line = [activity, ...parked].filter(Boolean).join(" · ");
   const content = <>
     <Avatar persona={personaFor(task)} />
     <span className="card-copy"><span className="card-head">{isPresenting && <span className="browser-indicator">Browser active</span>}{nextText && <span className={"next-chip" + (nextTone ? " " + nextTone : "")}>{nextText}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>
       {rank && <span className="sr-only">, {rank}</span>}
       <span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text" data-tip={task.gate_step && task.reason ? task.reason : undefined}>{status}</span></span>
-      {activity && <span className="card-activity">{activity}</span>}
+      {line && <span className="card-activity">{line}</span>}
     </span>
   </>;
   return <div className={"task-card-shell" + (selected ? " selected" : "")}>
