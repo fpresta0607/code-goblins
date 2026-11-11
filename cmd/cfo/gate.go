@@ -326,7 +326,7 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 		check := verify.Result{Command: command, Scope: report.Level, Status: "not_run", ExitCode: -1}
 		if report.Status == "passed" {
 			budget := runtime.gateBudget(plan.Level)
-			turn, admissionErr := takeGateTurn(context.Background(), label, stdout, stderr, runtime.availableMemory, who, priority, budget, runtime.gateWaitLimit)
+			turn, admissionErr := takeGateTurn(context.Background(), label, stdout, stderr, runtime.availableMemory, who, priority, budget, runtime.gateWaitLimit, gateLineLimit(runtime, os.Getenv, false))
 			report.QueueSeconds += turn.Waited.Seconds()
 			if admissionErr != nil {
 				report.Status, report.QueueNote = "failed", admissionErr.Error()
@@ -455,6 +455,35 @@ func runGateCommand(command []string, dir string, env []string, stdout, stderr i
 	return process.ProcessState.ExitCode(), err
 }
 
+// gateAgentLineLimit is the longest a run that a gate's agent started waits
+// in line. A gate ends an agent whose invocation ran past its budget, and
+// counts the agent's wait for a turn in it: on 2026-11-02 two review fixers
+// each spent their whole hour in line behind six heavy steps, on a machine
+// short of memory, and were ended with their repairs written and not
+// committed (issue 1932). Three minutes outlasts a short check ahead and a
+// dip of memory under the floor, and is a tenth of the 30 minutes a gate
+// gives an agent unless its machine says otherwise.
+const gateAgentLineLimit = 3 * time.Minute
+
+// gateLineLimit is how long this run may wait in line: runtime's limit when a
+// gate's agent started it, which the gate's variable in its environment says,
+// and no limit otherwise. A gate's own Test step has none whatever its
+// environment says, since the gate waits on it under no agent's budget.
+func gateLineLimit(runtime commandRuntime, getenv func(string) string, isTestStep bool) time.Duration {
+	if isTestStep || getenv(gateAgentVariable) == "" {
+		return 0
+	}
+	return runtime.agentLineLimit
+}
+
+// agentLeftLine is what a run a gate's agent started says once it has waited
+// limit with no turn: why it left the line, and what its agent does instead.
+// The gate's Test step checks the agent's work in a turn of its own, so the
+// agent's own heavy run is one it can go without.
+func agentLeftLine(limit time.Duration) string {
+	return fmt.Sprintf("no turn came within %s, which is as long as a run a gate's agent starts waits in line, since its gate counts the wait against the agent's invocation budget. Go on without this run and start nothing heavy outside the line: commit the work, and the gate runs the project's checks in a turn of its own", limit)
+}
+
 // takeGateTurn waits in the machine's common line, for cfo gate test and for
 // cfo gate turn alike, each under its own label. Both physical and commit
 // availability must reach the floor before a run starts. It writes to says
@@ -463,8 +492,10 @@ func runGateCommand(command []string, dir string, env []string, stdout, stderr i
 // which run holds the turn, for how long and under what budget, and where
 // this run stands in line. An unavailable or expired floor reading, a store
 // failure, or a wait that ctx ended, prevents execution, and is written to
-// stderr. Budget expiry never displaces custody.
-func takeGateTurn(ctx context.Context, label string, says, stderr io.Writer, available func() (supervisor.Memory, error), who, priority string, budget, limit time.Duration) (verify.Turn, error) {
+// stderr, as is a wait that lineLimit ended, which is the whole wait's bound
+// for a run a gate's agent started (gateLineLimit) and zero for any other.
+// Budget expiry never displaces custody.
+func takeGateTurn(ctx context.Context, label string, says, stderr io.Writer, available func() (supervisor.Memory, error), who, priority string, budget, limit, lineLimit time.Duration) (verify.Turn, error) {
 	store, err := verify.AdmissionDir()
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: this run takes no turn: %v\n", label, err)
@@ -485,13 +516,17 @@ func takeGateTurn(ctx context.Context, label string, says, stderr io.Writer, ava
 		Priority:  priority,
 		Budget:    budget,
 		Limit:     limit,
+		LineLimit: lineLimit,
 		Poll:      time.Second,
 		Waiting: func(waited time.Duration, why string) {
 			fmt.Fprintf(says, "%s: waiting for its turn (%s so far): %s\n", label, waited.Round(time.Second), why)
 		},
 	}.Wait(ctx)
-	if errors.Is(err, context.Canceled) {
+	switch {
+	case errors.Is(err, context.Canceled):
 		err = errors.New("it was interrupted while it waited")
+	case errors.Is(err, verify.ErrLineLimit):
+		err = errors.New(agentLeftLine(lineLimit))
 	}
 	switch {
 	case err != nil:

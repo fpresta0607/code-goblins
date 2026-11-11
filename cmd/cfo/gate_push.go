@@ -324,7 +324,8 @@ func sayEnded(stdout io.Writer, cause, what string, err error) {
 
 // takePushTurn waits in the machine's common line, the one cfo gate test
 // runs wait in, so a push's checks and a gate's tests never run together.
-// The turn's budget is the run's time limit, which the run keeps itself.
+// The turn's budget is the run's time limit, which the run keeps itself. A
+// run a gate's agent started leaves the line at its limit (gateLineLimit).
 func takePushTurn(stdout io.Writer, runtime commandRuntime, who, priority string, budget time.Duration) (verify.Turn, error) {
 	store, err := verify.AdmissionDir()
 	if err != nil {
@@ -337,7 +338,8 @@ func takePushTurn(stdout io.Writer, runtime commandRuntime, who, priority string
 			return min(memory.Available, memory.CommitAvailable), err
 		}
 	}
-	return verify.Admission{
+	lineLimit := gateLineLimit(runtime, os.Getenv, false)
+	turn, err := verify.Admission{
 		Dir:       store,
 		Floor:     supervisor.MemoryFloor,
 		Available: available,
@@ -345,11 +347,16 @@ func takePushTurn(stdout io.Writer, runtime commandRuntime, who, priority string
 		Priority:  priority,
 		Budget:    budget,
 		Limit:     runtime.gateWaitLimit,
+		LineLimit: lineLimit,
 		Poll:      time.Second,
 		Waiting: func(waited time.Duration, why string) {
 			fmt.Fprintf(stdout, "cfo gate prepush: waiting for its turn on the machine, %s so far: %s\n", waited.Round(time.Second), strings.ReplaceAll(why, "; ", ", "))
 		},
 	}.Wait(context.Background())
+	if errors.Is(err, verify.ErrLineLimit) {
+		err = errors.New(agentLeftLine(lineLimit))
+	}
+	return turn, err
 }
 
 // waitForPushMemory lets check number start only once the machine has the

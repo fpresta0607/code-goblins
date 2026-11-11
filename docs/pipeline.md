@@ -604,6 +604,7 @@ Every take, protection and release of a turn goes through the line's lock, which
 A run that finds the lock busy for all five seconds, as a loaded machine can keep it, as it first checks the line, takes its turn at the head of the line, or protects the turn it took, keeps its place and tries again.
 At the head of the line it says `the line's lock is busy` as the lock turns busy.
 It tries again within its admission's limit, an hour for `cfo gate test` and `cfo gate prepush`, past which it gives up with why, and for as long as it waits for `cfo gate turn` and `cfo verify`, which set none.
+A run that a gate's agent started waits three minutes at most for its turn, as [A gate agent's wait](#any-command-in-the-line) says.
 On 2026-10-14 a run that had waited an hour and fourteen minutes reached the head of the line and ended with no turn on one busy change of the lock.
 
 A gate shows a step's output only once the step has ended, so `cfo gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they take their turns, a low-priority run marked, each after the first with why it stands behind the one before it, as `behind run 1: a gate's Test step goes ahead of a goblin's own turn` or `behind run 2: it asked first`, and the memory when the machine is short of it.
@@ -693,10 +694,25 @@ Since no harness waits on a detached run, its end is told to the goblin of any h
 
 **What it waits for.**
 It waits while another run holds the turn, and at the head of the line while free physical memory or free commit is under the floor.
-It sets no limit of its own on either wait.
+It sets no limit of its own on either wait, but for a run that a gate's agent started, as below.
 Where `cfo gate test` refuses a run after an hour of memory under the floor, `cfo gate turn` waits for as long as memory is short unless `--wait` bounds admission.
 Its execution limit never counts that wait.
 The wait counts in the wrapper's wall time, so a caller that budgets its test command should start the budget at `took its turn`, or allow for the wait.
+
+**A gate agent's wait.**
+A gate ends an agent whose invocation ran past its budget, and it counts the agent's wait for a turn in that budget, since it cannot tell a run that waits in line from one that hangs.
+So a run that a gate's agent started, which the `NO_MISTAKES_GATE` the gate sets in the agent's environment says, waits three minutes at most for its turn, behind other runs and for memory alike, in `cfo gate turn`, `cfo gate test` and `cfo gate prepush`.
+Three minutes outlasts a short check ahead and a dip of memory under the floor, and is a tenth of the 30 minutes a gate gives an agent unless its machine says otherwise.
+A shorter `--wait` still ends the wait first, a longer one does not lengthen it, and a turn taken within it is never cut.
+A run that takes no turn in that time starts nothing and leaves the line: `cfo gate turn` exits 125 and `cfo gate test` and `cfo gate prepush` exit 1, each with a line that tells the agent to go on without the run:
+
+```text
+cfo gate turn: this run takes no turn: no turn came within 3m0s, which is as long as a run a gate's agent starts waits in line, since its gate counts the wait against the agent's invocation budget. Go on without this run and start nothing heavy outside the line: commit the work, and the gate runs the project's checks in a turn of its own
+```
+
+The agent loses nothing by it, since the gate's Test step runs the project's checks in a turn of its own, which no agent's budget counts.
+The gate's own Test step, which its wrapper's `--gate-run` names, has no such limit whatever its environment says, and neither has a goblin's own run or any other.
+On 2026-11-02 two review fixers each spent their whole hour in line behind six heavy steps on a machine short of memory, and were ended with their repairs written and not committed, which failed both runs in Review (issue 1932).
 
 **What it prints.**
 Every line of its own goes to standard error and starts with `cfo gate turn: `.
