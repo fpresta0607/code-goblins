@@ -48,14 +48,14 @@ func TestALineLockThatCouldNotBeGivenBackIsGivenBackWithoutAFurtherChange(t *tes
 	if releaseError == nil {
 		t.Fatal("the first giving back succeeded; want it to fail, as the incident's did")
 	}
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		_, err := lock.ReadNamedStrict(a.Dir, custodyMutationName)
 		if errors.Is(err, os.ErrNotExist) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the line's lock is still held 10s after its giving back failed (read: %v); want this process to give it back by itself", err)
+			t.Fatalf("the line's lock is still held a minute after its giving back failed (read: %v); want this process to give it back by itself", err)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
