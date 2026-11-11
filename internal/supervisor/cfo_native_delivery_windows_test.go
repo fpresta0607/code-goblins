@@ -177,7 +177,9 @@ func TestHisLoneQuestionMarkReachesAClaudeCFOAsWords(t *testing.T) {
 // nothing left waiting, in each shape Claude Code records it (#2242): sent
 // between turns, as a user record once dequeued; sent during a turn, as a
 // queued_command attachment its model takes in that turn; and a ! command,
-// queued by its words alone and run at the turn's end as a bash-input row.
+// queued by its words alone and run as a bash-input row. The board types a
+// command only once the CFO's turn has ended (#2332), so that one reaches
+// an idle CFO.
 func TestHisMessageToAClaudeCFOIsDeliveredAndDrawnInEachShapeItsRecordTakes(t *testing.T) {
 	for _, shape := range []struct {
 		name   string
@@ -186,6 +188,7 @@ func TestHisMessageToAClaudeCFOIsDeliveredAndDrawnInEachShapeItsRecordTakes(t *t
 		source string
 		drawn  string
 		queued bool
+		isIdle bool
 	}{
 		{name: "between turns", typed: "check the gate", source: fleettree.FromOverlord, drawn: "check the gate",
 			record: func(at, _ string) []map[string]any {
@@ -205,7 +208,7 @@ func TestHisMessageToAClaudeCFOIsDeliveredAndDrawnInEachShapeItsRecordTakes(t *t
 			}},
 		// Claude Code records a ! line by its words after the !, and the board
 		// draws its own shell-mode line as the command he typed (#2051).
-		{name: "a ! command run at the turn's end", typed: "! claude doctor", source: fleettree.FromShell, drawn: "claude doctor",
+		{name: "a ! command typed once the turn has ended", typed: "! claude doctor", source: fleettree.FromShell, drawn: "claude doctor", isIdle: true,
 			record: func(at, recorded string) []map[string]any {
 				return []map[string]any{
 					{"type": "queue-operation", "operation": "enqueue", "timestamp": at, "content": recorded},
@@ -218,7 +221,11 @@ func TestHisMessageToAClaudeCFOIsDeliveredAndDrawnInEachShapeItsRecordTakes(t *t
 			// Arrange
 			records := useConversations(t)
 			store, home := testStore(t)
-			terminal := nativeCFOComposer(t, home.State, "claude-manual-busy")
+			mode, taken := "claude-manual-busy", "queued "
+			if shape.isIdle {
+				mode, taken = "claude-manual", "accepted "
+			}
+			terminal := nativeCFOComposer(t, home.State, mode)
 			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
 			if _, err := store.Queue(Action{ID: "sent", Kind: "message", Text: shape.typed}); err != nil {
 				t.Fatal(err)
@@ -263,7 +270,7 @@ func TestHisMessageToAClaudeCFOIsDeliveredAndDrawnInEachShapeItsRecordTakes(t *t
 			page.Messages, page.Waiting = shownShellCommands(home.State, page.Messages, page.Waiting)
 
 			// Assert
-			if len(lines) != 2 || lines[1] != "queued "+typed {
+			if len(lines) != 2 || lines[1] != taken+typed {
 				t.Fatalf("terminal input = %q; want the message typed once", lines)
 			}
 			if settled := store.Snapshot().Actions[0]; settled.Status != "succeeded" || settled.Awaiting != nil {
@@ -1145,15 +1152,18 @@ func TestNativeCFOCannotCallAnAnswerSentWhileItRemainsInTheIdleComposer(t *testi
 func TestASlashCommandReachesTheCFOInItsTrueState(t *testing.T) {
 	for _, test := range []struct {
 		mode      string
+		command   string
 		isTaken   bool
 		isWaiting bool
 	}{
-		{mode: "claude-ready", isTaken: true},
-		{mode: "ready", isTaken: true},
-		{mode: "claude-busy", isWaiting: true},
-		{mode: "busy", isWaiting: true},
+		{mode: "claude-ready", command: "/remote-control", isTaken: true},
+		{mode: "ready", command: "/remote-control", isTaken: true},
+		{mode: "claude-busy", command: "/remote-control", isWaiting: true},
+		{mode: "busy", command: "/remote-control", isWaiting: true},
+		// A ! command waits as a slash command does.
+		{mode: "claude-busy", command: "! claude doctor", isWaiting: true},
 	} {
-		t.Run(test.mode, func(t *testing.T) {
+		t.Run(test.mode+" "+strings.TrimLeft(test.command, "/! "), func(t *testing.T) {
 			// Arrange
 			useConversations(t)
 			store, home := testStore(t)
@@ -1163,7 +1173,7 @@ func TestASlashCommandReachesTheCFOInItsTrueState(t *testing.T) {
 			defer cancel()
 
 			// Act
-			result, err := service.deliverMessage(ctx, Action{Kind: "message", Text: "/remote-control"})
+			result, err := service.deliverMessage(ctx, Action{ID: "command", Kind: "message", Text: test.command})
 
 			// Assert
 			lines := terminal.lines(t)
@@ -1176,7 +1186,7 @@ func TestASlashCommandReachesTheCFOInItsTrueState(t *testing.T) {
 					t.Errorf("deliverMessage = %+v, %v, terminal input %q; want it held for the turn's end, nothing typed, with Send now for the words behind it", result, err, lines)
 				}
 			default:
-				if err != nil || result.Awaiting != nil || !strings.Contains(result.Reason, "Taken by the CFO") || len(lines) != 2 || lines[1] != "accepted /remote-control" {
+				if err != nil || result.Awaiting != nil || !strings.Contains(result.Reason, "Taken by the CFO") || len(lines) != 2 || lines[1] != "accepted "+test.command {
 					t.Errorf("deliverMessage = %+v, %v, terminal input %q; want it typed once and taken", result, err, lines)
 				}
 			}
