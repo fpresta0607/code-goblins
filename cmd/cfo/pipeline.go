@@ -540,8 +540,8 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	// it is busy serving other runs, not stopped, so this waits its turn
 	// instead of handing the goblin a restart hint and a retry loop of its own.
 	for turn := 2; err == nil && pipeline.IsDaemonHealthMissed(result) && turn <= daemonTurns; turn++ {
-		daemon, readErr := reader.Daemon(ctx)
-		if readErr != nil || daemon.State != pipeline.DaemonAlive {
+		daemon, _ := reader.Daemon(ctx)
+		if daemon.State != pipeline.DaemonAlive {
 			break
 		}
 		fmt.Fprintf(out, "pipeline: the gate daemon (pid %d) is alive and serving %s, and missed its short health reply before this %s reached it, so it is busy, not stopped; waiting %s for its turn (try %d of %d), and never starting or restarting it\n", daemon.PID, liveRunCount(daemon.LiveRuns), args[0], daemonTurnWait, turn, daemonTurns)
@@ -668,12 +668,16 @@ func daemonReplyMissed(ctx context.Context, reader pipeline.Reader, meta state.T
 		return fmt.Errorf("pipeline: the gate daemon missed its reply and its process reads %s%s. It serves every goblin, so never start or restart it: ask the CEO with cfo notify %s --blocked \"<question>\"", daemon.State, read, meta.ID)
 	}
 	busy := fmt.Sprintf("pipeline: the gate daemon (pid %d) is alive and serving %s and missed its reply, so it is busy, not stopped: whatever native's hint above says, never start or restart it", daemon.PID, liveRunCount(daemon.LiveRuns))
-	live := stillRunningGateRun(ctx, reader, meta.Project, branch)
+	run, err := reader.Interruption(ctx, meta.Project, branch)
+	if err != nil && !errors.Is(err, pipeline.ErrNoProgress) {
+		return fmt.Errorf("%s. The run on %s could not be read (%v), so check it with no-mistakes axi status before you act again", busy, branch, err)
+	}
+	isLive := err == nil && !run.IsTerminal()
 	switch {
-	case command == "respond" && live != "":
-		return fmt.Errorf("%s. Your answer may have reached run %s, so read it with no-mistakes axi status --run %s before you answer again", busy, live, live)
-	case live != "":
-		return fmt.Errorf("%s. Run %s already holds %s, so repeating this command in a few minutes reattaches to it and starts no second run", busy, live, branch)
+	case command == "respond" && isLive:
+		return fmt.Errorf("%s. Your answer may have reached run %s, so read it with no-mistakes axi status --run %s before you answer again", busy, run.ID, run.ID)
+	case isLive:
+		return fmt.Errorf("%s. Run %s already holds %s, so repeating this command in a few minutes reattaches to it and starts no second run", busy, run.ID, branch)
 	case command == "run":
 		return fmt.Errorf("%s. No run was created on %s, so repeating this command in a few minutes starts it", busy, branch)
 	}

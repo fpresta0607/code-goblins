@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,20 +18,25 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
+// Native no-mistakes prints a failed axi run or axi respond as the error
+// field of the document it writes on stdout, and exits 1.
 const (
 	healthMissed    = "error: \"start daemon: read response: daemon health did not reply within 250ms (run 'no-mistakes daemon start' to recover)\"\n"
 	startFreshLost  = "error: \"start fresh run: read response: daemon start_fresh_run did not reply within 30s\"\n"
+	gateContextLost = "error: \"respond: read response: daemon gate_context did not reply within 30s\"\n"
 	pendingBranchID = "01M75EC3X25Z07CEQP6R93VJVR"
 )
 
-// busyDaemonRunner is a task start whose native command answers with
-// outcomes in order, the last repeating, while the gate's database shows two
-// runs live on the daemon and, when branchRun is set, the run the task's
-// branch already holds.
+// busyDaemonRunner is a task's gate whose native command answers with
+// outcomes in order, the last repeating, while the gate's database shows
+// liveRuns runs on the daemon, or cannot be read when liveRuns is -1, and
+// branchRun is the latest run of the task's branch.
 type busyDaemonRunner struct {
-	pipelineStartRunner
+	execx.Runner
 	outcomes  []execx.Result
+	liveRuns  int
 	branchRun string
+	native    []execx.Request
 }
 
 func (r *busyDaemonRunner) Run(ctx context.Context, q execx.Request) (execx.Result, error) {
@@ -38,30 +44,43 @@ func (r *busyDaemonRunner) Run(ctx context.Context, q execx.Request) (execx.Resu
 		sql := q.Args[len(q.Args)-1]
 		switch {
 		case strings.Contains(sql, "NOT IN ('completed','failed','cancelled','ci_monitor_interrupted')"):
-			return execx.Result{Stdout: []byte(`[{"id":"01OTHERA","branch":"fix/a","status":"running","repo":"C:/a"},{"id":"01OTHERB","branch":"fix/b","status":"running","repo":"C:/b"}]`)}, nil
-		case strings.Contains(sql, "runs.worktree_dir"):
+			if r.liveRuns < 0 {
+				return execx.Result{}, errors.New("database is locked")
+			}
+			runs := make([]string, r.liveRuns)
+			for i := range runs {
+				runs[i] = fmt.Sprintf(`{"id":"01OTHER%d","branch":"fix/%d","status":"running","repo":"C:/%d"}`, i, i, i)
+			}
+			return execx.Result{Stdout: []byte("[" + strings.Join(runs, ",") + "]")}, nil
+		case strings.Contains(sql, "AS worktree FROM runs JOIN repos"):
 			if r.branchRun == "" {
 				return execx.Result{Stdout: []byte(`[]`)}, nil
 			}
 			return execx.Result{Stdout: []byte(r.branchRun)}, nil
 		}
 	}
-	result, err := r.pipelineStartRunner.Run(ctx, q)
-	if q.Name != "no-mistakes" || slices.Equal(q.Args, []string{"help", "axi", "run"}) {
+	result, err := r.Runner.Run(ctx, q)
+	if q.Name != "no-mistakes" || q.Args[0] == "help" {
 		return result, err
 	}
-	return r.outcomes[min(len(r.native)-1, len(r.outcomes)-1)], nil
+	r.native = append(r.native, q)
+	return r.outcomes[min(len(r.native), len(r.outcomes))-1], nil
 }
 
 // Issue 2158: a gate daemon busy serving other runs on a loaded machine
-// misses its 250 ms health reply, or the reply to a start, while it is alive.
-// cfo pipeline run used to stop on the first miss with native's hint to start
-// the daemon, so goblins looped on retries of their own and could not tell
-// whether a start had left a run behind.
-func TestPipelineRunReadsABusyDaemonsMissedReplyByItsProcess(t *testing.T) {
+// misses its 250 ms health reply, or the reply to a start or an answer, while
+// it is alive. cfo pipeline run used to stop on the first miss with native's
+// hint to start the daemon, so goblins looped on retries of their own and
+// could not tell whether a start had left a run behind.
+func TestPipelineReadsABusyDaemonsMissedReplyByItsProcess(t *testing.T) {
+	alive := fmt.Sprintf(`{"pid":%d,"started_at":"2026-11-11T12:57:48Z"}`, os.Getpid())
+	pendingRun := `[{"id":"` + pendingBranchID + `","repo_id":"repo1","branch":"feat/policy","status":"pending","head":"0123456789abcdef0123456789abcdef01234567"}]`
+	finishedRun := strings.Replace(pendingRun, `"pending"`, `"completed"`, 1)
 	for _, scenario := range []struct {
 		name         string
-		isAlive      bool
+		command      string
+		pidFile      string
+		liveRuns     int
 		outcomes     []execx.Result
 		branchRun    string
 		wantLaunches int
@@ -71,53 +90,165 @@ func TestPipelineRunReadsABusyDaemonsMissedReplyByItsProcess(t *testing.T) {
 	}{
 		{
 			name:         "a missed health reply waits its turn and starts",
-			isAlive:      true,
-			outcomes:     []execx.Result{{ExitCode: 1, Stderr: []byte(healthMissed)}, {}},
+			command:      "run",
+			pidFile:      alive,
+			liveRuns:     2,
+			outcomes:     []execx.Result{{ExitCode: 1, Stdout: []byte(healthMissed)}, {}},
 			wantLaunches: 2,
 			wantSleeps:   1,
 			wantSaid:     "is alive and serving 2 runs, and missed its short health reply before this run reached it, so it is busy, not stopped; waiting 30s for its turn (try 2 of 4)",
 		},
 		{
+			name:         "a missed health reply on stderr is read the same",
+			command:      "run",
+			pidFile:      alive,
+			liveRuns:     1,
+			outcomes:     []execx.Result{{ExitCode: 1, Stderr: []byte(healthMissed)}, {}},
+			wantLaunches: 2,
+			wantSleeps:   1,
+			wantSaid:     "is alive and serving 1 run, and missed",
+		},
+		{
+			name:         "a live daemon whose database cannot be read is still waited on",
+			command:      "run",
+			pidFile:      alive,
+			liveRuns:     -1,
+			outcomes:     []execx.Result{{ExitCode: 1, Stdout: []byte(healthMissed)}, {}},
+			wantLaunches: 2,
+			wantSleeps:   1,
+			wantSaid:     "is alive and serving runs its database could not count, and missed",
+		},
+		{
 			name:         "health missed on every turn names no run left behind",
-			isAlive:      true,
-			outcomes:     []execx.Result{{ExitCode: 1, Stderr: []byte(healthMissed)}},
+			command:      "run",
+			pidFile:      alive,
+			liveRuns:     2,
+			outcomes:     []execx.Result{{ExitCode: 1, Stdout: []byte(healthMissed)}},
 			wantLaunches: 4,
 			wantSleeps:   3,
 			wantErr:      "is alive and serving 2 runs and missed its reply, so it is busy, not stopped: whatever native's hint above says, never start or restart it. No run was created on feat/policy, so repeating this command in a few minutes starts it",
 		},
 		{
+			name:         "health missed on every turn after a finished run names no run left behind",
+			command:      "run",
+			pidFile:      alive,
+			liveRuns:     2,
+			outcomes:     []execx.Result{{ExitCode: 1, Stdout: []byte(healthMissed)}},
+			branchRun:    finishedRun,
+			wantLaunches: 4,
+			wantSleeps:   3,
+			wantErr:      "No run was created on feat/policy",
+		},
+		{
 			name:         "a lost start reply names the run it left on the branch",
-			isAlive:      true,
-			outcomes:     []execx.Result{{ExitCode: 1, Stderr: []byte(startFreshLost)}},
-			branchRun:    `[{"id":"` + pendingBranchID + `","repo_id":"repo1","branch":"feat/policy","status":"pending","head":"0123456789abcdef0123456789abcdef01234567"}]`,
+			command:      "run",
+			pidFile:      alive,
+			liveRuns:     2,
+			outcomes:     []execx.Result{{ExitCode: 1, Stdout: []byte(startFreshLost)}},
+			branchRun:    pendingRun,
 			wantLaunches: 1,
 			wantErr:      "busy, not stopped: whatever native's hint above says, never start or restart it. Run " + pendingBranchID + " already holds feat/policy, so repeating this command in a few minutes reattaches to it and starts no second run",
 		},
 		{
+			name:         "a lost start reply over an unreadable run claims no run either way",
+			command:      "run",
+			pidFile:      alive,
+			liveRuns:     2,
+			outcomes:     []execx.Result{{ExitCode: 1, Stdout: []byte(startFreshLost)}},
+			branchRun:    strings.Replace(pendingRun, "0123456789abcdef0123456789abcdef01234567", "not-a-commit", 1),
+			wantLaunches: 1,
+			wantErr:      "busy, not stopped: whatever native's hint above says, never start or restart it. The run on feat/policy could not be read (gate identity could not be verified), so check it with no-mistakes axi status before you act again",
+		},
+		{
 			name:         "a health miss after the run was created is not repeated",
-			isAlive:      true,
-			outcomes:     []execx.Result{{ExitCode: 1, Stderr: []byte("error: \"drive run: reconcile run " + pendingBranchID + ": get_run timed out and daemon health probe failed: read response: daemon health did not reply within 250ms\"\n")}},
-			branchRun:    `[{"id":"` + pendingBranchID + `","repo_id":"repo1","branch":"feat/policy","status":"pending","head":"0123456789abcdef0123456789abcdef01234567"}]`,
+			command:      "run",
+			pidFile:      alive,
+			liveRuns:     2,
+			outcomes:     []execx.Result{{ExitCode: 1, Stdout: []byte("error: \"drive run: reconcile run " + pendingBranchID + ": get_run timed out and daemon health probe failed: read response: daemon health did not reply within 250ms\"\n")}},
+			branchRun:    pendingRun,
 			wantLaunches: 1,
 			wantErr:      "Run " + pendingBranchID + " already holds feat/policy, so repeating this command in a few minutes reattaches to it and starts no second run",
 		},
 		{
+			name:         "a successful run that quotes the health miss in its document is not repeated",
+			command:      "run",
+			pidFile:      alive,
+			liveRuns:     2,
+			outcomes:     []execx.Result{{Stdout: []byte("findings[1]:\n  - description: \"" + strings.TrimSpace(healthMissed) + "\"\n")}},
+			wantLaunches: 1,
+		},
+		{
+			name:         "a failed run that quotes a missed reply in a finding keeps native's own failure",
+			command:      "run",
+			pidFile:      alive,
+			liveRuns:     2,
+			outcomes:     []execx.Result{{ExitCode: 1, Stdout: []byte("error: \"review found blocking findings\"\nfindings[1]:\n  - description: \"" + strings.TrimSpace(healthMissed) + "\"\n")}},
+			wantLaunches: 1,
+			wantErr:      "pipeline: native command exited 1",
+		},
+		{
 			name:         "a daemon with no process is not waited on or restarted",
-			outcomes:     []execx.Result{{ExitCode: 1, Stderr: []byte(healthMissed)}},
+			command:      "run",
+			liveRuns:     2,
+			outcomes:     []execx.Result{{ExitCode: 1, Stdout: []byte(healthMissed)}},
 			wantLaunches: 1,
 			wantErr:      "the gate daemon missed its reply and its process reads stopped. It serves every goblin, so never start or restart it: ask the CEO with cfo notify task --blocked",
+		},
+		{
+			name:         "a pid file that names no process is a question, not a wait",
+			command:      "run",
+			pidFile:      `{"pid":"daemon"}`,
+			liveRuns:     2,
+			outcomes:     []execx.Result{{ExitCode: 1, Stdout: []byte(healthMissed)}},
+			wantLaunches: 1,
+			wantErr:      "the gate daemon missed its reply and its process reads unknown: pipeline: the gate daemon's pid file names no process. It serves every goblin, so never start or restart it: ask the CEO with cfo notify task --blocked",
+		},
+		{
+			name:         "a respond turned away at its health reply waits its turn and answers",
+			command:      "respond",
+			pidFile:      alive,
+			liveRuns:     2,
+			outcomes:     []execx.Result{{ExitCode: 1, Stdout: []byte(healthMissed)}, {}},
+			wantLaunches: 2,
+			wantSleeps:   1,
+			wantSaid:     "missed its short health reply before this respond reached it, so it is busy, not stopped; waiting 30s for its turn (try 2 of 4)",
+		},
+		{
+			name:         "a respond whose reply was lost names the run it may have reached",
+			command:      "respond",
+			pidFile:      alive,
+			liveRuns:     2,
+			outcomes:     []execx.Result{{ExitCode: 1, Stdout: []byte(gateContextLost)}},
+			branchRun:    pendingRun,
+			wantLaunches: 1,
+			wantErr:      "busy, not stopped: whatever native's hint above says, never start or restart it. Your answer may have reached run " + pendingBranchID + ", so read it with no-mistakes axi status --run " + pendingBranchID + " before you answer again",
+		},
+		{
+			name:         "a respond whose reply was lost on a finished run says the branch holds none",
+			command:      "respond",
+			pidFile:      alive,
+			liveRuns:     2,
+			outcomes:     []execx.Result{{ExitCode: 1, Stdout: []byte(gateContextLost)}},
+			branchRun:    finishedRun,
+			wantLaunches: 1,
+			wantErr:      "busy, not stopped: whatever native's hint above says, never start or restart it. feat/policy holds no live run now, so read it with no-mistakes axi status before you act again",
 		},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			// Arrange
 			h, nm, worktree := busyDaemonTask(t)
-			if scenario.isAlive {
-				record := fmt.Sprintf(`{"pid":%d,"started_at":"2026-11-11T12:57:48Z"}`, os.Getpid())
-				if err := os.WriteFile(filepath.Join(nm, "daemon.pid"), []byte(record), 0o600); err != nil {
+			if scenario.pidFile != "" {
+				if err := os.WriteFile(filepath.Join(nm, "daemon.pid"), []byte(scenario.pidFile), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
-			runner := &busyDaemonRunner{pipelineStartRunner: pipelineStartRunner{worktree: worktree}, outcomes: scenario.outcomes, branchRun: scenario.branchRun}
+			gate := execx.Runner(&pipelineStartRunner{worktree: worktree})
+			args := []string{"run", "task", "--intent", "ship safely"}
+			if scenario.command == "respond" {
+				gate = &pipelineRunner{worktree: worktree, gate: pipeline.Gate{RunID: pendingBranchID, StepID: "step", Step: "review", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[{"id":"style","action":"no-op"}]}`}}
+				args = []string{"respond", "task", "--action", "approve"}
+			}
+			runner := &busyDaemonRunner{Runner: gate, outcomes: scenario.outcomes, liveRuns: scenario.liveRuns, branchRun: scenario.branchRun}
 			var waits []time.Duration
 			previousSleep := daemonTurnSleep
 			daemonTurnSleep = func(wait time.Duration) { waits = append(waits, wait) }
@@ -125,7 +256,7 @@ func TestPipelineRunReadsABusyDaemonsMissedReplyByItsProcess(t *testing.T) {
 			var out bytes.Buffer
 
 			// Act
-			err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &out)
+			err := pipelineCommand(context.Background(), h, nm, runner, args, &out)
 
 			// Assert
 			if len(runner.native) != scenario.wantLaunches || len(waits) != scenario.wantSleeps {
@@ -133,7 +264,7 @@ func TestPipelineRunReadsABusyDaemonsMissedReplyByItsProcess(t *testing.T) {
 			}
 			for _, launch := range runner.native[1:] {
 				if !slices.Equal(launch.Args, runner.native[0].Args) {
-					t.Fatalf("a repeated start changed its request: %q then %q", runner.native[0].Args, launch.Args)
+					t.Fatalf("a repeated %s changed its request: %q then %q", scenario.command, runner.native[0].Args, launch.Args)
 				}
 			}
 			if scenario.wantErr == "" {
