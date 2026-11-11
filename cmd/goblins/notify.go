@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -34,6 +35,7 @@ const PREPARED_NOTIFY_TIMEOUT = 10 * time.Second
 //	goblins notify <task-id> --done --pr <url>
 //	goblins notify <task-id> --done --pr <url> --lesson "<one line>" --cites "<stamp or words of a status line>"
 //	goblins notify <task-id> --done --closed <issue-url> --decision <sequence>
+//	goblins notify <task-id> --done --report <file>
 //	goblins notify <task-id> --blocked "<question>"
 //	goblins notify <task-id> --blocked "<question> options: <answer> (Recommended) | <answer>" --image a.png --image b.png
 //	goblins notify <task-id> --failed "<reason>"
@@ -96,6 +98,11 @@ const PREPARED_NOTIFY_TIMEOUT = 10 * time.Second
 // rather than the goblin's account of it, so whoever reads the report sees
 // what was decided: the record proves an answer was given, and only its words
 // say that it approved this.
+//
+// A task spawned local-only opens no pull request, such as a scout or an
+// operations task with no commit, so it reports done with its report, which
+// the home keeps as data/<id>/report.md, where cleanup reads it as the task's
+// delivery.
 func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "goblins notify: task ID is required")
@@ -110,9 +117,10 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	fs := flag.NewFlagSet("notify", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	done := fs.Bool("done", false, "report completion")
-	pr := fs.String("pr", "", "PR URL, required with --done unless --closed says what you closed in its place")
+	pr := fs.String("pr", "", "PR URL, required with --done unless --closed says what you closed in its place or --report gives a local-only task's report")
 	closed := fs.String("closed", "", "with --done and --decision, the https link of the GitHub issue you closed in place of a pull request")
 	decision := fs.String("decision", "", "with --closed, the wake sequence of your answered question that ruled the task finished with no pull request, which its --blocked notify printed")
+	report := fs.String("report", "", "with --done, for a task spawned local-only, which opens no pull request, the file of its report, which the home keeps as data/<id>/report.md")
 	blocked := fs.String("blocked", "", "report a question the goblin is blocked on: one short sentence that is the question, details on lines starting with \"- \" that give the recommendation and what each choice does, **bold** only on the verdict or the blocking item, and run IDs, findings and other evidence after a line that reads only Details:, which the board folds away")
 	failed := fs.String("failed", "", "report a failure reason")
 	working := fs.String("working", "", "report what you are working on now")
@@ -212,6 +220,32 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	if len(lessons) > 0 && !*done {
 		fmt.Fprintln(stderr, "goblins notify: --lesson goes with --done: a done report carries what the task taught")
 		return 2
+	}
+	// A local-only task's report is read before anything is recorded, so a
+	// report that is not there fails the notify instead of a done that
+	// delivers nothing.
+	var reportContent []byte
+	if *report != "" {
+		if !*done || *pr != "" || *closed != "" || *decision != "" {
+			fmt.Fprintf(stderr, "goblins notify: --report goes alone with --done, on the done of a task spawned local-only: goblins notify %s --done --report <file>\n", id)
+			return 2
+		}
+		info, err := os.Stat(*report)
+		switch {
+		case err != nil:
+			fmt.Fprintf(stderr, "goblins notify: --report %v\n", err)
+			return 2
+		case !info.Mode().IsRegular():
+			fmt.Fprintf(stderr, "goblins notify: --report %s is not a file\n", *report)
+			return 2
+		case info.Size() == 0:
+			fmt.Fprintf(stderr, "goblins notify: --report %s is empty\n", *report)
+			return 2
+		}
+		if reportContent, err = fsx.ReadFile(*report); err != nil {
+			fmt.Fprintf(stderr, "goblins notify: --report %v\n", err)
+			return 2
+		}
 	}
 	decisionSeq := 0
 	if *closed != "" || *decision != "" {
@@ -426,8 +460,43 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			return 2
 		}
 		detail = fmt.Sprintf("closed %s (decision %d: %s)", *closed, decisionSeq, answer)
+	case *report != "" && metaErr != nil:
+		fmt.Fprintf(stderr, "goblins notify: --report cannot be checked, since %s's task record cannot be read: %v\n", id, metaErr)
+		return 1
+	case *report != "" && parent != "":
+		fmt.Fprintf(stderr, "goblins notify: a helper's done goes to its parent %s and needs no --report: run goblins notify %s --done\n", parent, id)
+		return 2
+	case *report != "" && meta.Mode != "local-only":
+		fmt.Fprintf(stderr, "goblins notify: --report is the done of a task spawned local-only, which opens no pull request, and %s's record says mode %q: report its pull request with --pr <url>\n", id, meta.Mode)
+		return 2
+	case *report != "":
+		// Cleanup reads the report the home keeps for the task, so a report
+		// written elsewhere is kept there, and one kept there already is never
+		// replaced by a different one.
+		kept := filepath.Join(h.Data, id, "report.md")
+		if !fsx.SamePath(*report, kept) {
+			existing, err := fsx.ReadFile(kept)
+			switch {
+			case err == nil && !bytes.Equal(existing, reportContent):
+				fmt.Fprintf(stderr, "goblins notify: the home already keeps a different report for %s at %s: give --report %s if it is yours, or write yours there first\n", id, kept, kept)
+				return 2
+			case err != nil && !errors.Is(err, os.ErrNotExist):
+				fmt.Fprintf(stderr, "goblins notify: the report the home keeps for %s cannot be read: %v\n", id, err)
+				return 1
+			case err != nil:
+				if err := os.MkdirAll(filepath.Dir(kept), 0o700); err != nil {
+					fmt.Fprintf(stderr, "goblins notify: keep your report: %v\n", err)
+					return 1
+				}
+				if err := fsx.AtomicWriteFile(kept, reportContent); err != nil {
+					fmt.Fprintf(stderr, "goblins notify: keep your report: %v\n", err)
+					return 1
+				}
+			}
+		}
+		detail = "report " + kept
 	case verb == "done" && *pr == "" && parent == "":
-		fmt.Fprintln(stderr, "goblins notify: --done requires --pr <url>, or, once your answered question ruled the task finished with no pull request, --closed <issue-url> --decision <sequence>")
+		fmt.Fprintln(stderr, "goblins notify: --done requires --pr <url>, or, once your answered question ruled the task finished with no pull request, --closed <issue-url> --decision <sequence>, or, for a task spawned local-only, which opens no pull request, --report <file>")
 		return 2
 	case verb == "done" && *pr == "":
 		detail = "ready for " + parent + " to merge"

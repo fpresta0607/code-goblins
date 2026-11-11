@@ -1605,6 +1605,61 @@ func TestNotifyInstructionTellsAGoblinNeverToPushWhileItsPullRequestsCIRuns(t *t
 	}
 }
 
+// A top-level local-only task opens no pull request, so its first
+// instruction asks for neither a pipeline run nor a pull request: it reports
+// done with its report. An operations task with no commit was told to drive
+// goblins pipeline run and report --done --pr, which could not hold (#1675). A
+// gated task and a helper keep their own done.
+func TestSpawnInstructionTellsALocalOnlyTaskToReportDoneWithItsReport(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskTmp := filepath.Join(`C:\home\state`, "tasktmp", "task-7")
+	for _, test := range []struct {
+		name     string
+		meta     state.TaskMeta
+		wanted   []string
+		unwanted []string
+	}{
+		{
+			name:     "a local-only task",
+			meta:     state.TaskMeta{ID: "task-7", Kind: "ship", Mode: "local-only", DeliveryHash: "h", TaskTmp: taskTmp},
+			wanted:   []string{exe + " notify task-7 --done --report <file>", "data/task-7/report.md"},
+			unwanted: []string{"--pr <url>", "pipeline run", "opens the pull request", "on completion with a PR"},
+		},
+		{
+			name:     "a gated task",
+			meta:     state.TaskMeta{ID: "task-7", Kind: "ship", Mode: "no-mistakes", DeliveryHash: "h", TaskTmp: taskTmp},
+			wanted:   []string{"on completion with a PR run: " + exe + " notify task-7 --done --pr <url>", "goblins pipeline run task-7", "you stay the one who opens the pull request"},
+			unwanted: []string{"--report"},
+		},
+		{
+			name:     "a local-only helper",
+			meta:     state.TaskMeta{ID: "task-7-h1", Kind: "ship", Mode: "local-only", Parent: "task-7", DeliveryHash: "h", TaskTmp: taskTmp},
+			wanted:   []string{exe + " notify task-7-h1 --done."},
+			unwanted: []string{"--report", "--pr <url>"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			instruction := spawnInstruction(`C:\home\data\task-7\brief.md`, test.meta, nil, "")
+
+			// Assert
+			for _, want := range test.wanted {
+				if !strings.Contains(instruction, want) {
+					t.Errorf("instruction lacks %q:\n%s", want, instruction)
+				}
+			}
+			for _, unwanted := range test.unwanted {
+				if strings.Contains(instruction, unwanted) {
+					t.Errorf("instruction says %q:\n%s", unwanted, instruction)
+				}
+			}
+		})
+	}
+}
+
 // A goblin's pull request names its task's ticket, which the supervisor
 // opens after the goblin starts and names in the goblin's tasktmp folder.
 func TestNotifyInstructionTellsAShipGoblinWhereItsTicketIsNamed(t *testing.T) {
