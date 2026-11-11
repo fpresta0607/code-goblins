@@ -568,6 +568,11 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// A press on a queued message that lands while the board tries it acts
+	// on how that try ended.
+	if (a.Kind == "message_now" || a.Kind == "message_withdraw") && a.Target != "" {
+		h.Service.Store.awaitTry(r.Context(), a.Target, a.TaskID)
+	}
 	// A queued message's Send now asks for it where it waits, and is never
 	// queued as a delivery of its own.
 	if a.Kind == "message_now" {
