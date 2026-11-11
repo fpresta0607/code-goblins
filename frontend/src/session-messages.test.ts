@@ -111,7 +111,7 @@ test("an older page goes before the first message held, and what it repeats is d
 
 test("a newest page clears abandoned usage while older pagination keeps current usage", () => {
   const before = parsePage({ conversation: "a", messages: [served(0), served(1, { kind: "reply" })], more: false,
-    usage: { input_tokens: 12000, context_tokens: 24000, context_window: 100000, model: "recorded-model" } });
+    usage: { input_tokens: 12000, context_tokens: 24000, context_window: 100000 } });
   const reset = parsePage({ conversation: "b", messages: [served(0)], more: false });
 
   const next = pageMessages(before, reset);

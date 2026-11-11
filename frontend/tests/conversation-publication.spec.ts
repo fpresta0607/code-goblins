@@ -317,10 +317,11 @@ test("the box follows the session while he reads up: its model, what it spent an
   const place = await readNearEnd(talk, page);
   const rows = await captureRows(talk);
 
-  // Act: he sends a message from another screen, and the session records
-  // another model and what it spent, while he reads up.
+  // Act: he sends a message from another screen, the session says what it
+  // spent and its record names another model, while he reads up.
   await page.evaluate((changed) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages: [changed] } } })), prompt(1000, "Sent while reading up"));
-  await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage } } })), { input_tokens: 12000, output_tokens: 800, context_tokens: 72000, context_window: 100000, model: "changed-model" });
+  await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage } } })), { input_tokens: 12000, output_tokens: 800, context_tokens: 72000, context_window: 100000 });
+  await sendBoard(page, snapshot({ revision: 2 }, { model: "changed-model" }));
 
   // Assert: the box shows them at once, and the history he reads stays put.
   await expect(box(page).locator(".engine-control-model")).toHaveText("Changed Model");

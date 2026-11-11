@@ -76,15 +76,14 @@ export function parseMessages(value: unknown): SessionMessage[] {
 }
 
 // SessionUsage is what a session's own conversation records it spent: its
-// input, output and cached tokens, the dollars it named, the context its last
-// request carried against the model's window, and that model. A field the
-// conversation does not record is 0 or empty, and the board leaves that stat
-// out rather than inventing it.
+// input, output and cached tokens, the dollars it named, and the context its
+// last request carried against the model's window. A field the conversation
+// does not record is 0, and the board leaves that stat out rather than
+// inventing it. The model and effort the session runs are no part of it: the
+// session's one record names them.
 export interface SessionUsage {
   input_tokens: number; output_tokens: number; cache_read_tokens: number;
-  cost_usd: number; context_tokens: number; context_window: number; model: string;
-  // effort is the reasoning effort the session last set, as its record says.
-  effort: string;
+  cost_usd: number; context_tokens: number; context_window: number;
 }
 
 // A prompt its harness recorded and holds for a later turn. It has no place
@@ -112,7 +111,7 @@ export function parseUsage(value: unknown): SessionUsage | undefined {
   if (value == null) return undefined;
   const each = object(value);
   return { input_tokens: number(each.input_tokens), output_tokens: number(each.output_tokens), cache_read_tokens: number(each.cache_read_tokens),
-    cost_usd: number(each.cost_usd), context_tokens: number(each.context_tokens), context_window: number(each.context_window), model: string(each.model), effort: string(each.effort) };
+    cost_usd: number(each.cost_usd), context_tokens: number(each.context_tokens), context_window: number(each.context_window) };
 }
 
 // SessionReport is what the fleet's stream says of a session, as

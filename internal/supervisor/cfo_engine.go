@@ -31,7 +31,9 @@ type CFOEngine struct {
 	Waiting string    `json:"waiting,omitempty"`
 	// Overridden is the harness an explicit start chose over this selection,
 	// which every later start that names no harness keeps until the CFO
-	// starts as the selection's own harness or a selection is saved again.
+	// starts as the selection's own harness, a selection is saved again, or
+	// the CFO that runs names its own engine, which the record then holds
+	// (keepCFOEngine).
 	Overridden string `json:"overridden,omitempty"`
 }
 
@@ -189,12 +191,15 @@ func (s *Service) applyCFOEngine(ctx context.Context) {
 	s.notify()
 }
 
-// ReadCFOEngine reads the engine the CFO was selected to run. It checks what
-// it hands a harness's command line: a known harness, and a model and effort
-// that are text rather than switches. Which models and efforts a harness
-// offers is the installed catalog's to say, and is checked when the selection
-// is saved, since a harness's own catalog can offer one the fleet's shared
-// list does not.
+// ReadCFOEngine reads the CFO's one record of its engine: the harness, model
+// and effort it was selected to run, which its next start uses, kept on what
+// its own session says it runs since (keepCFOEngine). It checks what it hands
+// a harness's command line: a known harness, and a model and effort that are
+// text rather than switches. The effort alone may be default, the harness's
+// own, which a session that names no level a start takes is recorded with.
+// Which models and efforts a harness offers is the installed catalog's to
+// say, and is checked when the selection is saved, since a harness's own
+// catalog can offer one the fleet's shared list does not.
 func ReadCFOEngine(stateDir string) (CFOEngine, error) {
 	path := filepath.Join(stateDir, "cfo-engine.json")
 	data, err := fsx.ReadFile(path)
@@ -206,7 +211,7 @@ func ReadCFOEngine(stateDir string) (CFOEngine, error) {
 		return CFOEngine{}, fmt.Errorf("the CFO's selected engine in %s is unreadable: %w", path, err)
 	}
 	harnesses := []string{"claude", "codex", "pi"}
-	if !slices.Contains(harnesses, choice.Harness) || !engineValue(choice.Model) || !engineValue(choice.Effort) || (choice.Overridden != "" && !slices.Contains(harnesses, choice.Overridden)) {
+	if !slices.Contains(harnesses, choice.Harness) || !engineValue(choice.Model) || choice.Effort != "default" && !engineValue(choice.Effort) || (choice.Overridden != "" && !slices.Contains(harnesses, choice.Overridden)) {
 		return CFOEngine{}, fmt.Errorf("the CFO's selected engine in %s names no harness, model and effort the fleet can start: choose the CFO's engine again on the board, or delete it", path)
 	}
 	return choice, nil
@@ -224,9 +229,10 @@ func engineValue(value string) bool {
 // harness does and which the board reports beside the selection, and keeps
 // started as the harness a later start that names none runs, so a harness
 // Update or goblins resume brings the CFO back on its own conversation. The
-// selection stays saved for when the CFO runs as its own harness again, and
-// nothing is written when it already names started or when no selection is
-// saved.
+// selection stays saved until the CFO that started names the engine it runs,
+// which the record then holds in its place (keepCFOEngine), so a CFO started
+// as the selection's own harness before then runs it. Nothing is written
+// when it already names started or when no selection is saved.
 func NoteCFOEngineOverridden(stateDir, started string) error {
 	choice, err := ReadCFOEngine(stateDir)
 	if err != nil {
@@ -238,7 +244,7 @@ func NoteCFOEngineOverridden(stateDir, started string) error {
 		return nil
 	}
 	choice.Pending, choice.Overridden = false, started
-	choice.Problem = fmt.Sprintf("The CFO started as %s, not as the %s its saved engine names; the selection is used when the CFO runs as %s again", started, choice.Harness, choice.Harness)
+	choice.Problem = fmt.Sprintf("The CFO started as %s, not as the %s its saved engine names; what the %s CFO runs replaces the saved engine once its conversation names it", started, choice.Harness, started)
 	return writeCFOEngine(stateDir, choice)
 }
 

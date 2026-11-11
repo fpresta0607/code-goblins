@@ -19,7 +19,9 @@ const CATALOG = { harnesses: [{ id: "claude", name: "Claude Code", models: [
   { id: "claude-opus-5-5", name: "Opus 5.5", efforts: ["low", "medium", "high", "xhigh", "max"], default_effort: "xhigh" },
   { id: "claude-haiku-5-5", name: "Haiku 5.5", efforts: ["low", "medium", "high"], default_effort: "medium" },
 ] }] };
-const RECORD = { input_tokens: 1200, output_tokens: 80, context_tokens: 2400, context_window: 100000, model: "claude-opus-5-5", effort: "xhigh" };
+const USAGE = { input_tokens: 1200, output_tokens: 80, context_tokens: 2400, context_window: 100000 };
+// What the goblin's task record names, which the box reads.
+const RECORD = { model: "claude-opus-5-5", effort: "xhigh" };
 const BACK_TAB = "\x1b[Z";
 
 // idle tells the box's terminal view the harness waits at its prompt, its
@@ -29,7 +31,7 @@ const idle = (mode = "bypass permissions") => ({ type: "screen", asking: false, 
 // setUp opens the goblin's box with the harness idle, running what record
 // says, and its catalog answered, counting the catalog's reads.
 async function setUp(page: Page, record = RECORD) {
-  const relay = await open(page, snapshot({}, { phase: "settled" }), "", { ...PAGE, usage: record });
+  const relay = await open(page, snapshot({}, { phase: "settled", ...record }), "", { ...PAGE, usage: USAGE });
   const reads: number[] = [];
   await page.route("**/api/engines", (route) => {
     reads.push(Date.now());
@@ -134,7 +136,7 @@ for (const [label, width, isTouch] of [["the desktop", 1280, false], ["a phone",
 for (const [name, id, effort] of [["Opus 5.5", "claude-opus-5-5", "xhigh"], ["Haiku 5.5", "claude-haiku-5-5", "medium"]] as const) {
   test(`${name} picked by itself goes in at its default effort, ${effort}`, async ({ page }) => {
     // Arrange: the session runs Sonnet 5.5 at high.
-    const { relay, control, pane } = await setUp(page, { ...RECORD, model: "claude-sonnet-5-5", effort: "high" });
+    const { relay, control, pane } = await setUp(page, { model: "claude-sonnet-5-5", effort: "high" });
     await control.click();
 
     // Act
@@ -220,7 +222,7 @@ test("the keyboard reaches a model's efforts with the right arrow and comes back
 test("each effort wears in the pane the colour it wears on the model button once picked", async ({ page }) => {
   // Arrange
   const { control, flyout } = await setUp(page);
-  const record = (effort: string) => page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage: data } } })), { ...RECORD, effort });
+  const record = (effort: string) => page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: data })), snapshot({}, { phase: "settled", ...RECORD, effort }));
   const look = (element: Element) => [getComputedStyle(element).color, getComputedStyle(element).backgroundImage].join(" ");
 
   for (const level of ["low", "medium", "high", "xhigh", "max"]) {

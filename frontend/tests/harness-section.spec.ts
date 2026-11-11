@@ -33,7 +33,7 @@ async function open(page: Page, tasks: object[], overrides: object = {}) {
       posts.push({ path, body: route.request().postDataJSON() });
       return route.fulfill({ status: 202, json: { accepted: true } });
     }
-    if (path === "/api/workspace") return route.fulfill({ json: { repository: "code-goblins", harness: "codex", model: "Reported: gpt-6-astra", root: "C:/work", branch: "main", notes: [] } });
+    if (path === "/api/workspace") return route.fulfill({ json: { repository: "code-goblins", harness: "codex", root: "C:/work", branch: "main", notes: [] } });
     return route.fulfill({ json: {} });
   });
   await page.goto("/");
@@ -79,6 +79,26 @@ test("a CFO engine the CFO cannot take yet shows as pending with its reason", as
   await expect(engine.getByRole("combobox", { name: "Model" })).toHaveValue("next-model");
   await expect(engine.getByRole("combobox", { name: "Effort" })).toHaveValue("low");
   await expect(engine.locator(".engine-pending")).toHaveText("Pending: next-model low · " + waiting);
+});
+
+// The CFO's engine record names the effort default where its session named
+// no level a start takes (internal/supervisor/session_engine.go): the
+// selector shows it as Default, as a task's selector does, never as an effort
+// the model lacks.
+test("a CFO engine at the harness's own effort shows Default, not an unavailable effort", async ({ page }) => {
+  // Arrange
+  await open(page, [], { cfo_engine: { harness: "codex", model: "current-model", effort: "default", pending: false, problem: "", waiting: "" } });
+
+  // Act
+  await openCfo(page);
+  await harness(page).locator("> summary").click();
+
+  // Assert
+  const engine = harness(page).getByRole("group", { name: "CEO engine" });
+  const effort = engine.getByRole("combobox", { name: "Effort" });
+  await expect(effort).toHaveValue("default");
+  await expect(effort.locator("option:checked")).toHaveText("Default");
+  await expect(engine).not.toContainText("unavailable");
 });
 
 // The server takes harness, model and effort only and refuses any other key,

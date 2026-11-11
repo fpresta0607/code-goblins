@@ -43,7 +43,7 @@ func TestAPiSessionRecordsWhatItSpent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Usage{InputTokens: 1_400_000, OutputTokens: 289_000, CacheReadTokens: 208_000_000, CostUSD: 3.209, ContextTokens: 593_000, ContextWindow: 1_000_000, Model: "acme/thinker-1"}
+	want := Usage{InputTokens: 1_400_000, OutputTokens: 289_000, CacheReadTokens: 208_000_000, CostUSD: 3.209, ContextTokens: 593_000, ContextWindow: 1_000_000}
 	if page.Usage == nil || *page.Usage != want {
 		t.Fatalf("usage = %+v, want %+v", page.Usage, want)
 	}
@@ -83,7 +83,7 @@ func TestAPiSessionUsesItsProvidersFullModelIDForContext(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if page.Usage == nil || page.Usage.ContextWindow != test.window || page.Usage.Model != test.provider+"/"+test.model {
+			if page.Usage == nil || page.Usage.ContextWindow != test.window {
 				t.Fatalf("usage = %+v, want context window %d for %s/%s", page.Usage, test.window, test.provider, test.model)
 			}
 		})
@@ -108,7 +108,7 @@ func TestAClaudeConversationCountsItsRequestsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Usage{InputTokens: 12, OutputTokens: 5, CacheReadTokens: 3, ContextTokens: 20, ContextWindow: 1_000_000, Model: "claude-opus-5-5"}
+	want := Usage{InputTokens: 12, OutputTokens: 5, CacheReadTokens: 3, ContextTokens: 20, ContextWindow: 1_000_000}
 	if page.Usage == nil || *page.Usage != want {
 		t.Fatalf("usage = %+v, want %+v", page.Usage, want)
 	}
@@ -132,124 +132,11 @@ func TestASessionThatRecordsNoUsageHasNone(t *testing.T) {
 	}
 }
 
-// A session's effort is what its harness says it last set: Claude Code's
-// /effort, from its own result, or the level its latest answer ran at,
-// Codex's turn context and pi's thinking level change, so Modern Chat shows
-// a change made in either view (the Overlord, 2026-10-27: "they should
-// control the same interfaces. Same session").
-func TestASessionReadsTheEffortItsHarnessLastSet(t *testing.T) {
-	command := func(uuid, args string) object {
-		return prompted(uuid, "<command-name>/effort</command-name>\n            <command-message>effort</command-message>\n            <command-args>"+args+"</command-args>")
-	}
-	used := answer("a1", "reply-1", textBlock("done"))
-	used["message"].(object)["usage"] = object{"input_tokens": 10, "output_tokens": 5}
-	// Claude Code 2.1.316 names on each answer the effort it ran at, which
-	// for a session started with no --effort and never given /effort is the
-	// only place its effort is written (the Overlord, 2026-11-02: "I can't see
-	// the effort level next to the model").
-	ranAt := func(uuid, id, effort string) object {
-		ran := answer(uuid, id, textBlock("done"))
-		ran["message"].(object)["usage"] = object{"input_tokens": 10, "output_tokens": 5}
-		ran["effort"] = effort
-		return ran
-	}
-	for _, test := range []struct {
-		name string
-		path func(t *testing.T, home string) string
-		want string
-	}{
-		{"Claude Code's /effort with a level", func(t *testing.T, home string) string {
-			return conversation(t, home, prompted("u1", "work"), used, command("c1", "max"), prompted("o1", "<local-command-stdout>Set effort level to max</local-command-stdout>"))
-		}, "max"},
-		{"Claude Code's /effort picker", func(t *testing.T, home string) string {
-			return conversation(t, home, prompted("u1", "work"), used, command("c1", ""), prompted("o1", "<local-command-stdout>Set effort level to xhigh (this session only)</local-command-stdout>"))
-		}, "xhigh"},
-		{"Claude Code's cancelled /effort", func(t *testing.T, home string) string {
-			return conversation(t, home, prompted("u1", "work"), used, command("c1", ""), prompted("o1", "<local-command-stdout>Cancelled</local-command-stdout>"))
-		}, ""},
-		{"Claude Code's refused /effort, which lists every level", func(t *testing.T, home string) string {
-			return conversation(t, home, prompted("u1", "work"), used, command("c1", "hgih"), prompted("o1", "<local-command-stdout>Invalid argument: hgih. Valid options are: low, medium, high, xhigh, max, auto</local-command-stdout>"))
-		}, ""},
-		{"Claude Code's /effort auto", func(t *testing.T, home string) string {
-			return conversation(t, home, prompted("u1", "work"), used, command("c1", "auto"), prompted("o1", "<local-command-stdout>Effort level set to auto</local-command-stdout>"))
-		}, "auto"},
-		{"Claude Code's /effort with its description", func(t *testing.T, home string) string {
-			return conversation(t, home, prompted("u1", "work"), used, command("c1", "high"), prompted("o1", "<local-command-stdout>Set effort level to high: Deeper reasoning for harder problems</local-command-stdout>"))
-		}, "high"},
-		{"Claude Code's answer, which names the effort it ran at", func(t *testing.T, home string) string {
-			return conversation(t, home, prompted("u1", "work"), ranAt("a1", "reply-1", "xhigh"))
-		}, "xhigh"},
-		{"Claude Code's /effort after an answer at another level", func(t *testing.T, home string) string {
-			return conversation(t, home, prompted("u1", "work"), ranAt("a1", "reply-1", "xhigh"), command("c1", "max"), prompted("o1", "<local-command-stdout>Set effort level to max</local-command-stdout>"))
-		}, "max"},
-		{"Claude Code's latest answer, after /effort", func(t *testing.T, home string) string {
-			return conversation(t, home, prompted("u1", "work"), command("c1", "max"), prompted("o1", "<local-command-stdout>Set effort level to max</local-command-stdout>"), prompted("u2", "more"), ranAt("a2", "reply-2", "low"))
-		}, "low"},
-		{"Codex's turn context", func(t *testing.T, home string) string {
-			turn := codexTurnContext("gpt-6-astra")
-			turn["payload"].(object)["effort"] = "xhigh"
-			return codexRollout(t, home, "effort", codexMeta("effort", workDir), turn,
-				codexLine("token_usage_record", object{"usage": object{"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}, "thread_token_usage": object{"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}}))
-		}, "xhigh"},
-		{"pi's thinking level change", func(t *testing.T, home string) string {
-			return piSession(t, home, piHeader(),
-				piEntry("model_change", "m1", "", object{"provider": "openrouter", "modelId": "z-ai/glm-5.3-flash"}),
-				piEntry("thinking_level_change", "e1", "m1", object{"thinkingLevel": "high"}),
-				piMessageEntry("u1", "e1", "user", object{"content": "work"}))
-		}, "high"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			// Arrange
-			home := t.TempDir()
-			path := test.path(t, home)
-			reader := Reader{Home: home}
-
-			// Act
-			page, _, err := reader.MessagePage(path, -1)
-
-			// Assert
-			if err != nil {
-				t.Fatal(err)
-			}
-			got := ""
-			if page.Usage != nil {
-				got = page.Usage.Effort
-			}
-			if got != test.want {
-				t.Fatalf("effort = %q, want %q (usage %+v)", got, test.want, page.Usage)
-			}
-		})
-	}
-}
-
-// A pi session's model is the one its last model change set, before any
-// reply of the new model's has said so.
-func TestAPiSessionReadsTheModelItLastChangedTo(t *testing.T) {
-	// Arrange
-	home := t.TempDir()
-	path := piSession(t, home, piHeader(),
-		piMessageEntry("u1", "", "user", object{"content": "work"}),
-		piMessageEntry("a1", "u1", "assistant", object{"provider": "acme", "model": "thinker-1", "usage": object{"input": 200, "output": 50, "totalTokens": 250}, "content": []object{{"type": "text", "text": "done"}}}),
-		piEntry("model_change", "m1", "a1", object{"provider": "openrouter", "modelId": "deepseek/deepseek-v4.1-flash"}))
-	reader := Reader{Home: home}
-
-	// Act
-	page, _, err := reader.MessagePage(path, -1)
-
-	// Assert
-	if err != nil {
-		t.Fatal(err)
-	}
-	if page.Usage == nil || page.Usage.Model != "openrouter/deepseek/deepseek-v4.1-flash" {
-		t.Fatalf("usage = %+v, want the model it changed to", page.Usage)
-	}
-}
-
 // A usage limit's notice is an entry Claude Code writes itself, under the
-// model "<synthetic>" with no usage: the session keeps the model it runs and
+// model "<synthetic>" with no usage: the session keeps its model's window and
 // how full its context is (the Overlord, 2026-10-28: the box showed
 // "<synthetic>").
-func TestAClaudeLimitNoticeKeepsTheModelAndTheContext(t *testing.T) {
+func TestAClaudeLimitNoticeKeepsTheWindowAndTheContext(t *testing.T) {
 	// Arrange
 	home := t.TempDir()
 	worked := answer("a1", "reply-1", textBlock("done"))
@@ -267,7 +154,7 @@ func TestAClaudeLimitNoticeKeepsTheModelAndTheContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Usage{InputTokens: 10, OutputTokens: 5, CacheReadTokens: 3, ContextTokens: 18, ContextWindow: 1_000_000, Model: "claude-opus-5-5"}
+	want := Usage{InputTokens: 10, OutputTokens: 5, CacheReadTokens: 3, ContextTokens: 18, ContextWindow: 1_000_000}
 	if page.Usage == nil || *page.Usage != want {
 		t.Fatalf("usage = %+v, want %+v", page.Usage, want)
 	}

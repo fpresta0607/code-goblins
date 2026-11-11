@@ -18,7 +18,7 @@ const snapshot = (fields: Record<string, unknown> = {}) => ({
 async function open(page: Page, first: object) {
   await holdStream(page, first);
   await page.route("**/api/**", (route) => {
-    if (new URL(route.request().url()).pathname === "/api/workspace") return route.fulfill({ json: { project: "", repository: "code-goblins", root: "C:\\dev\\code-goblins", branch: "", harness: "claude", model: "Reported: claude-opus-5-5", notes: [] } });
+    if (new URL(route.request().url()).pathname === "/api/workspace") return route.fulfill({ json: { project: "", repository: "code-goblins", root: "C:\\dev\\code-goblins", branch: "", harness: "claude", notes: [] } });
     return route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   await page.goto("/");
