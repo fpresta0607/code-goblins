@@ -1,9 +1,10 @@
 # This repository's settings for the no-mistakes gate, the local pipeline
 # (review, test, document, lint, push, PR, CI) every change here passes
 # through before it merges. The gate reads this file from the default branch.
-# It exists for three reasons: gate agents must never load AGENTS.md or
-# CLAUDE.md, automatic fix rounds stay bounded, and the review step asks
-# whether a change is reached by its tests through the real caller.
+# It exists for four reasons: gate agents must never load AGENTS.md or
+# CLAUDE.md, automatic fix rounds stay bounded, the review step asks
+# whether a change is reached by its tests through the real caller, and the
+# rebase step never rewrites a published branch.
 # docs/load-map.md places it among everything else the gate's agents read.
 
 # AGENTS.md installs a CEO identity. Disable project-level agent settings and
@@ -127,6 +128,18 @@ auto_fix:
   review: 0
   rebase: 1
   ci: 0
+
+# A goblin keeps a published pull request current by merging main in, since
+# published commits are never rebased or force-pushed. The rebase step's
+# default strategy replays the branch onto main, which drops the resolution
+# that merge carried: on 2026-11-02 two fresh runs conflicted on README.md
+# while the branch head merged cleanly with main, and the only fix the gate
+# offered rewrote the published commits (issue 1949). Merging main in keeps
+# the reviewed head as the first parent, so publication is a fast-forward,
+# and a real conflict with main still stops the run. The gate reads this only
+# from the default branch.
+rebase:
+  strategy: merge
 
 # A gate fix must never delete or skip a test unseen: on 2026-09-24 a test
 # step fixed a failing test on PrecisionDocs #1272 by deleting it, and no
