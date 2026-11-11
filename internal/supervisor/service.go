@@ -2154,6 +2154,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 					memory.Holders = holders
 				}
 			}
+			if dispatch.TopHandleHolder != nil {
+				if holder, err := dispatch.TopHandleHolder(); err == nil {
+					memory.HandleHolder = &holder
+				}
+			}
 			out.Memory = &memory
 		}
 		if dispatch.Disk != nil {

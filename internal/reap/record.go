@@ -128,12 +128,12 @@ func Summary(findings []Finding) string {
 	if len(findings) == 0 {
 		return "no orphans"
 	}
-	counts := make(map[Class]int, 6)
+	counts := make(map[Class]int, 7)
 	for _, finding := range findings {
 		counts[finding.Class]++
 	}
 	var parts []string
-	for _, class := range []Class{OrphanProcess, StaleServer, OrphanWorktree, OrphanDirectory, OrphanMeta, OrphanStatus} {
+	for _, class := range []Class{OrphanProcess, StaleServer, DetachedProcess, OrphanWorktree, OrphanDirectory, OrphanMeta, OrphanStatus} {
 		if counts[class] > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", counts[class], class))
 		}

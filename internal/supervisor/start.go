@@ -60,6 +60,9 @@ type Dispatch struct {
 	Disk func() (Disk, error)
 	// CommitHolders names the apps holding the most commit.
 	CommitHolders func() ([]CommitHolder, error)
+	// TopHandleHolder names the process holding the most handles open; nil
+	// reads none, and no process past the handle line wakes the CFO.
+	TopHandleHolder func() (HandleHolder, error)
 	// Processors reads how free the machine's performance cores are; nil
 	// reads none, and nothing waits on them.
 	Processors func() (Processors, error)
@@ -84,7 +87,8 @@ type Dispatch struct {
 // do the apps holding the most commit once commit is the tighter of the two.
 // SlotHold is why the supervisor starts and resumes no goblin by itself at
 // this reading, keeping the test slots open, or empty when it may or the
-// machine's heavy line is not read.
+// machine's heavy line is not read. HandleHolder is the process holding the
+// most handles open, whose leak fills the kernel's paged pool.
 type Memory struct {
 	Available       uint64         `json:"available"`
 	Total           uint64         `json:"total"`
@@ -98,6 +102,7 @@ type Memory struct {
 	Next            uint64         `json:"next"`
 	SlotHold        string         `json:"slot_hold"`
 	Holders         []CommitHolder `json:"holders,omitempty"`
+	HandleHolder    *HandleHolder  `json:"handle_holder,omitempty"`
 }
 
 // shortfall says how much of memory, of commit or of both is free when it is

@@ -362,7 +362,7 @@ func holdNotAWorktreeOfItsOwn(finding *Finding) {
 
 func (s Service) act(ctx context.Context, finding Finding) (string, error) {
 	switch finding.Class {
-	case OrphanProcess, StaleServer:
+	case OrphanProcess, StaleServer, DetachedProcess:
 		if s.Kill == nil {
 			return "", errors.New("no process killer configured")
 		}

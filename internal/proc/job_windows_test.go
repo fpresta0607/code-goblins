@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -296,5 +297,31 @@ func TestEndJobEndsAJobThatCountsAProcessStillExiting(t *testing.T) {
 	}
 	if event, err := windows.WaitForSingleObject(process, 30000); err != nil || event != windows.WAIT_OBJECT_0 {
 		t.Fatalf("the member still runs after the job's end: %d, %v", event, err)
+	}
+}
+
+// A handle table past its bound names the process holding the most handles,
+// so a pause that cannot read a goblin's job says what to end: on 2026-11-11
+// it said only that the table exceeded its bound, while one recursive search
+// held 6.7 million of the machine's 6.9 million handles.
+func TestTheHandleTableBoundNamesTheProcessHoldingTheMostHandles(t *testing.T) {
+	// Arrange
+	holdHandles(t, heldHandleCount)
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, err = handleTable(1 << 10)
+
+	// Assert
+	if err == nil {
+		t.Fatal("a handle table read within 1 KiB succeeded, want the bound refused")
+	}
+	for _, want := range []string{"exceeds its bound", fmt.Sprintf("pid %d", os.Getpid()), strings.ToLower(filepath.Base(self))} {
+		if !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(want)) {
+			t.Errorf("bound error %q does not name %q", err, want)
+		}
 	}
 }

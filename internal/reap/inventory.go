@@ -165,7 +165,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 				return Inventory{}, notes, fmt.Errorf("reap: read process table: %w", err)
 			}
 		}
-		inv.Processes, inv.SelfPIDs = processes, c.Processes.SelfAncestry()
+		inv.At, inv.Processes, inv.SelfPIDs = time.Now().UTC(), processes, c.Processes.SelfAncestry()
 		if err := c.sight(ctx, &inv, &notes); err != nil {
 			return Inventory{}, notes, err
 		}
@@ -934,7 +934,7 @@ type CIMProcesses struct {
 // their command line to decide what may be killed.
 const utf8OutputPrelude = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; `
 
-const cimProcessScript = utf8OutputPrelude + `Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId; name = $_.Name; cmd = $_.CommandLine; path = $_.ExecutablePath; start =$(if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('o') } else { '' }) } } | ConvertTo-Json -Compress -Depth 3`
+const cimProcessScript = utf8OutputPrelude + `Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId; name = $_.Name; cmd = $_.CommandLine; path = $_.ExecutablePath; handles = [int64]$_.HandleCount; cpu = [int64]$_.KernelModeTime + [int64]$_.UserModeTime; start =$(if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('o') } else { '' }) } } | ConvertTo-Json -Compress -Depth 3`
 
 // List runs the CIM query and decodes it. ConvertTo-Json emits a bare object
 // rather than an array when the pipeline yields exactly one item, so a single
@@ -966,19 +966,22 @@ func decodeProcesses(stdout []byte) ([]Process, error) {
 		trimmed = "[" + trimmed + "]"
 	}
 	var rows []struct {
-		PID   int    `json:"pid"`
-		PPID  int    `json:"ppid"`
-		Name  string `json:"name"`
-		Cmd   string `json:"cmd"`
-		Path  string `json:"path"`
-		Start string `json:"start"`
+		PID     int    `json:"pid"`
+		PPID    int    `json:"ppid"`
+		Name    string `json:"name"`
+		Cmd     string `json:"cmd"`
+		Path    string `json:"path"`
+		Handles int64  `json:"handles"`
+		CPU     int64  `json:"cpu"`
+		Start   string `json:"start"`
 	}
 	if err := json.Unmarshal([]byte(trimmed), &rows); err != nil {
 		return nil, fmt.Errorf("reap: decode process listing: %w", err)
 	}
 	processes := make([]Process, 0, len(rows))
 	for _, row := range rows {
-		process := Process{PID: row.PID, ParentPID: row.PPID, Name: row.Name, CommandLine: row.Cmd, Path: row.Path}
+		// Win32_Process counts processor time in units of 100 nanoseconds.
+		process := Process{PID: row.PID, ParentPID: row.PPID, Name: row.Name, CommandLine: row.Cmd, Path: row.Path, Handles: row.Handles, Processor: time.Duration(row.CPU) * 100}
 		if row.Start != "" {
 			if parsed, err := time.Parse(time.RFC3339Nano, row.Start); err == nil {
 				process.Start = parsed.UTC()

@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -58,6 +59,15 @@ const (
 	OrphanMeta Class = "orphan_meta"
 	// OrphanStatus is a state/<id>.status log with no matching meta.
 	OrphanStatus Class = "orphan_status"
+	// DetachedProcess is a process a terminal of this home started, by its
+	// mark, its task's folders or its parents, whose parent has exited: what
+	// a tool call's shell started and left running when it ended, such as a
+	// recursive search of the whole drive that walked it for hours, which
+	// holds on until its terminal ends. It is listed with how long it has
+	// run, the processor time it has used and the handles it holds, and
+	// ended only by naming its pid, since a command Git Bash still runs for
+	// a tool call can show a gone parent too.
+	DetachedProcess Class = "detached_process"
 	// OrphanDirectory is a directory among the fleet's worktrees that the
 	// project does not register as a worktree: the empty shell a task that
 	// died leaves behind. It is a separate class because it is not a worktree,
@@ -94,6 +104,14 @@ type Finding struct {
 	// neither key answers for the other. The rendered hold is Hold(), a
 	// function of these and never a second copy kept beside them.
 	Holds []Refusal `json:"holds,omitempty"`
+	// Running, Processor and Handles are what one reading measured of a
+	// detached process: how long it has run, the processor time it has used
+	// and how many handles it holds open. They change from one sweep to the
+	// next, so they stay out of Detail and out of the finding's identity
+	// (ReportKeys).
+	Running   time.Duration `json:"running,omitempty"`
+	Processor time.Duration `json:"processor,omitempty"`
+	Handles   int64         `json:"handles,omitempty"`
 	// Shape names a harness nothing ties to the fleet by what it is rather
 	// than by which process it is: the image it runs and the image name of
 	// the living process that started it. Such a harness is some other
@@ -251,6 +269,9 @@ func (f Finding) Line() string {
 		b.WriteString(" " + f.Path)
 	}
 	b.WriteString(": " + f.Detail)
+	if f.Class == DetachedProcess {
+		fmt.Fprintf(&b, "; running %s, %s of processor time, %d handles", f.Running, f.Processor, f.Handles)
+	}
 	if hold := f.Hold(); hold != "" {
 		b.WriteString(" | HELD: " + hold)
 		return b.String()
@@ -270,6 +291,10 @@ type Process struct {
 	// read it. A command line need not say: a program started by a bare name
 	// carries no folder there.
 	Path string `json:"path,omitempty"`
+	// Handles is how many handles the process holds open and Processor the
+	// processor time it has used, as the listing read them.
+	Handles   int64         `json:"handles,omitempty"`
+	Processor time.Duration `json:"processor,omitempty"`
 	// Cwd is the directory the process runs in. It is read only for the
 	// harness-shaped processes and their ancestors, the one place it decides
 	// anything, and is empty wherever it was not read or could not be.
@@ -407,6 +432,9 @@ type WorktreeDir struct {
 // is a plain value with no I/O so the classification is a pure function over
 // synthetic fixtures; Collector builds the production one.
 type Inventory struct {
+	// At is when the processes were listed, which a detached process's age
+	// is measured from.
+	At time.Time
 	// Session is the fleet's own Herdr session. A Herdr server for any other
 	// session is a test fixture some goblin or gate started, not the fleet.
 	Session string
@@ -540,6 +568,7 @@ func Classify(inv Inventory) []Finding {
 	}
 
 	findings := classifyProcesses(inv, supervised, fleet, tasks, panes, unreadable)
+	findings = append(findings, classifyDetached(inv, hosts)...)
 	findings = append(findings, classifyWorktrees(inv, supervised, tasks, panes, unreadable)...)
 	findings = append(findings, classifyMetas(inv, panes, supervised, fleet)...)
 	for _, id := range inv.OrphanStatusIDs {
@@ -750,6 +779,64 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 			finding.refuseUnlessForced(killNeedsItsOwnPID, strconv.Itoa(process.PID))
 			findings = append(findings, finding)
 		}
+	}
+	return findings
+}
+
+// classifyDetached lists each process a terminal of this home started, by
+// its mark, its task's folders or its parents, whose parent has exited: what
+// a tool call's shell left running when it ended. Git Bash starts a tool
+// call's programs outside the terminal's job, so nothing ends such a process
+// until its terminal does, and on 2026-11-11 one recursive grep of the whole
+// drive went on for 1 hour 50 minutes and held 6.7 million handles. Each is
+// listed with what it costs and ended only by naming its pid: a command Git
+// Bash runs can show a gone parent while its tool call still waits on it, as
+// MSYS replaces a process to run a program, so its age, its processor time
+// and its goblin decide, never the sweep. A harness and a server have their
+// own classes, and a terminal's host, a gate's agent, a
+// process under a verification controller's custody, a machine service and
+// the fleet's own programs are never listed.
+func classifyDetached(inv Inventory, hosts map[string]int) []Finding {
+	byPID := make(map[int]Process, len(inv.Processes))
+	for _, process := range inv.Processes {
+		byPID[process.PID] = process
+	}
+	spared := descendants(inv.Processes, inv.SelfPIDs)
+	for _, pid := range hosts {
+		spared[pid] = true
+	}
+	gates := descendants(inv.Processes, rootsMatching(inv.Processes, isGateProcess))
+	var findings []Finding
+	for _, process := range inv.Processes {
+		terminal := process.Owner
+		if terminal == "" {
+			terminal = process.Terminal
+		}
+		if terminal == "" || spared[process.PID] || gates[process.PID] || process.HasExecutionCustody {
+			continue
+		}
+		if parent, running := byPID[process.ParentPID]; running && !parent.Start.After(process.Start) {
+			continue
+		}
+		name := executableName(process.Name)
+		arguments := commandArgs(process.CommandLine)
+		if isHarness(process) || isServer(process) || name == "cfo" || name == "herdr" || proc.ServiceOf(process.Name, arguments) != proc.NoService {
+			continue
+		}
+		finding := Finding{
+			Class:     DetachedProcess,
+			TaskID:    terminal,
+			PID:       process.PID,
+			Detail:    fmt.Sprintf("%s started %s by terminal %s, whose parent pid %d has exited: %s", process.Name, process.Start.UTC().Format(time.RFC3339), terminal, process.ParentPID, proc.ShownCommand(arguments)),
+			Action:    "kill the process tree",
+			Processor: process.Processor,
+			Handles:   process.Handles,
+		}
+		if !inv.At.IsZero() {
+			finding.Running = inv.At.Sub(process.Start).Round(time.Second)
+		}
+		finding.refuseUnlessForced(killNeedsItsOwnPID, strconv.Itoa(process.PID))
+		findings = append(findings, finding)
 	}
 	return findings
 }
