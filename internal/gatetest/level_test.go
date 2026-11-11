@@ -6,18 +6,18 @@ import (
 	"testing"
 )
 
-// A level is named by one of three words, and anything else is refused with
-// the three, so a mistyped level never runs as some other one.
-func TestParseLevelKnowsTheThreeLevels(t *testing.T) {
-	for name, want := range map[string]Level{"fast": Fast, "affected": Affected, "full": Full} {
+// A level is named by one of four words, and anything else is refused with
+// the four, so a mistyped level never runs as some other one.
+func TestParseLevelKnowsTheFourLevels(t *testing.T) {
+	for name, want := range map[string]Level{"changed": Changed, "fast": Fast, "affected": Affected, "full": Full} {
 		if got, err := ParseLevel(name); err != nil || got != want {
 			t.Errorf("ParseLevel(%q) = %q, %v; want %q", name, got, err, want)
 		}
 	}
 	for _, name := range []string{"", "quick", "Full", "all"} {
 		_, err := ParseLevel(name)
-		if err == nil || !strings.Contains(err.Error(), "fast, affected or full") {
-			t.Errorf("ParseLevel(%q) error = %v; want a refusal naming fast, affected or full", name, err)
+		if err == nil || !strings.Contains(err.Error(), "changed, fast, affected or full") {
+			t.Errorf("ParseLevel(%q) error = %v; want a refusal naming changed, fast, affected or full", name, err)
 		}
 	}
 }
@@ -28,7 +28,8 @@ func TestALevelCoversItselfAndTheNarrowerLevels(t *testing.T) {
 		ran, required Level
 		want          bool
 	}{
-		{Fast, Fast, true}, {Fast, Affected, false}, {Fast, Full, false},
+		{Changed, Changed, true}, {Changed, Fast, false}, {Changed, Affected, false},
+		{Fast, Changed, true}, {Fast, Fast, true}, {Fast, Affected, false}, {Fast, Full, false},
 		{Affected, Fast, true}, {Affected, Affected, true}, {Affected, Full, false},
 		{Full, Fast, true}, {Full, Affected, true}, {Full, Full, true},
 	} {
