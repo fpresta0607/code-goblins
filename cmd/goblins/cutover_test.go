@@ -120,8 +120,8 @@ func TestCutoverMakesOnlyThePlanItsDryRunPrintedAndUndoesIt(t *testing.T) {
 	if code != 0 || digest == nil || !strings.Contains(stdout, filepath.Join(root, "bin", "goblins.exe")+": this build") {
 		t.Fatalf("dry run: exit %d, %q, %q", code, stdout, stderr)
 	}
-	if _, err := os.Stat(filepath.Join(root, "bin", "goblins.exe")); !os.IsNotExist(err) {
-		t.Fatalf("the dry run changed the home: %v", err)
+	if content, err := os.ReadFile(filepath.Join(root, "bin", "goblins.exe")); err != nil || string(content) != "the old build" {
+		t.Fatalf("the dry run changed the home: bin\\goblins.exe is %q, %v", content, err)
 	}
 
 	// Act
@@ -137,7 +137,7 @@ func TestCutoverMakesOnlyThePlanItsDryRunPrintedAndUndoesIt(t *testing.T) {
 		t.Fatalf("apply: exit %d, %q, %q", appliedCode, applied, appliedErr)
 	}
 	if program != machine.Program {
-		t.Fatalf("the undo command runs %s; want this build, %s, since the undo removes the home's bin\\goblins.exe", program, machine.Program)
+		t.Fatalf("the undo command runs %s; want this build, %s, since the undo writes the home's bin\\goblins.exe back", program, machine.Program)
 	}
 	if content, err := os.ReadFile(filepath.Join(root, "bin", "goblins.exe")); err != nil || string(content) != "this build" {
 		t.Fatalf("bin\\goblins.exe is %q, %v; want this build", content, err)
@@ -150,10 +150,8 @@ func TestCutoverMakesOnlyThePlanItsDryRunPrintedAndUndoesIt(t *testing.T) {
 	if err != nil || string(content) != "the old build" {
 		t.Fatalf("after the undo bin\\goblins.exe is %q, %v; want the old build", content, err)
 	}
-	for _, gone := range []string{filepath.Join(root, "bin", "goblins.exe"), filepath.Join(root, "state")} {
-		if _, err := os.Stat(gone); !os.IsNotExist(err) {
-			t.Errorf("after the undo %s is still there: %v", gone, err)
-		}
+	if _, err := os.Stat(filepath.Join(root, "state")); !os.IsNotExist(err) {
+		t.Errorf("after the undo the state folder is still there: %v", err)
 	}
 }
 
