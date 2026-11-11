@@ -87,6 +87,37 @@ func TestTheProjectCheckSkillNamesNoToolOfOneHarness(t *testing.T) {
 	}
 }
 
+// Issue #1936: a terminal can hold a credential its brief and its task's
+// record do not name, after a revoke while it runs or from an older build's
+// spawn. A rule that lists where credentials come from then clears a test
+// that reaches production, so the skill decides by the variable itself.
+func TestTheProjectCheckSkillDecidesWhatItsTerminalCarriesByTheVariable(t *testing.T) {
+	// Arrange
+	skill := shipped(t, "project-check")
+	const opening = "   - Run no test while the report holds a `terminal-reaches-production` line"
+	_, after, isFound := strings.Cut(skill, opening)
+	if !isFound {
+		t.Fatal("the skill has no rule against running a test under a terminal-reaches-production line")
+	}
+
+	// Act
+	rule, _, _ := strings.Cut(after, "\n   - ")
+
+	// Assert
+	for _, want := range []string{
+		"is set in your terminal's environment now",
+		"whatever your brief or your task's record says",
+		"by whether it is set, never by printing its value",
+	} {
+		if !strings.Contains(rule, want) {
+			t.Errorf("the rule does not say %q:\n%s", want, rule)
+		}
+	}
+	if strings.Contains(rule, "carries the services") {
+		t.Errorf("the rule says which services the terminal carries by where they come from, which a revoke or an older build's spawn makes wrong:\n%s", rule)
+	}
+}
+
 // The Overlord, 2026-10-14: every browser and computer-use automation that
 // reaches a step only he can take sends him one card and picks up the moment
 // it closes. The skill a goblin loads for that work says so, in one text for
