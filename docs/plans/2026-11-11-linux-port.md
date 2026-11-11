@@ -11,42 +11,43 @@ Names follow the rename in #2227: the command is `goblins`, built from `cmd/gobl
 
 ## Where the code stands
 
-- 2,142 Go files, of which 492 are Windows-only by file name: 127 program files and 365 tests.
-- 233 files import `golang.org/x/sys/windows`.
-  19 of them, 11 program files and 8 tests, carry no build constraint, so a Linux build reads them and fails.
+- 2,142 Go files, of which 493 are Windows-only by file name: 128 program files and 365 tests.
+- 230 files import `golang.org/x/sys/windows`.
+  18 of them, 11 program files and 7 tests, carry no build constraint, so a Linux build reads them and fails.
 - 58 files are built only off Windows (`//go:build !windows`).
   None is written for Linux in particular, and most of them return an error or do nothing.
 - No CI job builds the command or runs a Go test on Linux.
   The six Ubuntu jobs are bookkeeping: draft state, the summary that requires every job, and the record that lets a push reuse a passing pull request run, which runs `tools/pushreuse`, the only Go that runs on Linux in CI today.
   A release builds `windows/amd64` only.
-- The dependencies are pure Go and build on Linux, SQLite included (`modernc.org/sqlite`), with one exception: the desktop window's Wails v3 draws with WebView2 on Windows and with WebKitGTK through cgo on Linux.
+- The dependencies are pure Go and build on Linux, SQLite included (`modernc.org/sqlite`), with one exception: Wails v3, which the desktop window and the setup window use, draws with WebView2 on Windows and with WebKitGTK through cgo on Linux.
 
 ### What a Linux build rejects today
 
-119 program files in 30 packages, and 178 test files, call something that exists only on Windows.
+About 101 program files in 23 packages, and about 95 test files, call something that exists only on Windows.
+Without cgo the `main.go` of the setup window and of the desktop window fail as well, since Wails builds on Linux only through cgo.
 Two packages carry most of it:
 
 | Package | Program files in other packages that use a name it defines only on Windows |
 | --- | --- |
 | `internal/host`, the native terminal's host | 43 |
-| `internal/proc`, process identity and enumeration | 35 |
+| `internal/proc`, process identity and enumeration | 36 |
 | `internal/herdr` | 5 |
 | `internal/janitor` | 4 |
 | `internal/lifecycle` | 3 |
 | `internal/supervisor`, `internal/browserlogin` | 2 each |
 | `internal/verify`, `internal/cirunner`, `internal/update`, `internal/fsx`, `internal/lock`, `internal/watch` | 1 each |
 
-68 files use one of the first two, so porting `internal/proc` and `internal/host` removes most of the list, and they come early.
-Inside their own packages, 19 supervisor files call its Windows-only functions, mostly the pipe calls (`sendPipeRequest`, `askPipe`, `serveRunRequests`, `Reported`) and the run launcher, and the lock calls its Windows-only waiter line; the rest are single names such as `cirunner.Ask`, `update.Hold` and `writeSynced`, `fsx.RemoveFileWhen` and `watch.NewDirWaiter`.
-The untagged files that import `golang.org/x/sys/windows` are the desktop window's six, `cmd/goblins/attach.go` and `update.go`, `internal/doctor/doctor.go` and `harness_versions.go`, and `internal/spawn/native_launch.go`; `cmd/goblins/banner.go` and `launcher.go` use `syscall` fields that exist only on Windows.
+About 69 files use one of the first two, so porting `internal/proc` and `internal/host` removes most of the list, and they come early.
+Inside their own packages, about 13 supervisor files call its Windows-only functions, all but one of them the pipe calls (`sendPipeRequest`, `askPipe`, `serveRunRequests`, `Reported`) and the last one the call that hides a console (`hideConsoleOnDesktop`), and the lock calls its Windows-only process checks and waiter line; the rest are single names such as `cirunner.Ask`, `update.Hold` and `writeSynced`, `fsx.RemoveFileWhen` and `watch.NewDirWaiter`.
+The untagged files that import `golang.org/x/sys/windows` are the desktop window's six, `cmd/goblins/attach.go` and `update.go`, `internal/doctor/doctor.go` and `harness_versions.go`, and `internal/spawn/native_launch.go`; `cmd/goblins/banner.go` and `launcher.go`, and `internal/reap/inventory.go`, use `syscall` names that exist only on Windows.
 
 ### Off Windows already
 
-These `!windows` files already do the Linux job and need no new work:
+These `!windows` files already do the Linux job and need no new work of their own:
 
 - `internal/disk` reads free space with `statfs`.
-- `internal/gatehome` links with `os.Symlink`.
-- `internal/fsx` opens, renames, resolves and removes with the plain calls, everything but `RemoveFileWhen`.
+- `internal/gatehome` links with `os.Symlink`, though its link check (`sameFolder`), which builds everywhere, still folds case (see [Locks, files and paths](#locks-files-and-paths)).
+- `internal/fsx` opens, renames, resolves and removes with the plain calls, everything but `RemoveFileWhen`, though `fsx.SamePath`, which builds everywhere, still folds case.
 - `internal/auth` keeps each secret in its own file with mode 0600 when there is no Credential Manager.
 - `internal/pipeline` checks that an agent's process is alive with `kill(pid, 0)`.
 - `internal/verify` keeps its admission cache under `~/.cache`.
@@ -109,10 +110,22 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
 
 - **Windows:** the lock keeps a first-come line of waiters with overlapped `LockFileEx` and `CancelIoEx`; the gate's idle lock and the update's hold keep a file open so no one can replace it; `ReplaceFileW` and `MoveFileEx` with write-through replace files; a file another process holds counts as busy.
 - **Linux:** `flock`, with the line of waiters kept in the lock's own file so the first-come order survives; `rename` followed by `fsync` of the file and its folder; an open file is never busy, since unlinking it succeeds.
-- **Must change, not only port:** `internal/pathguard` and `internal/connections` compare paths without case, as Windows does.
-  On Linux two paths that differ only in case are two folders, so they compare exactly there.
+- **Must change, not only port:** code that builds on every system compares paths without regard to case, as Windows does.
+  `fsx.SamePath` folds case for its 24 callers in program files, and about 50 more program files compare paths with `strings.EqualFold`, among them `internal/gatehome`, `internal/home`, `internal/harnessmap`, `internal/pipeline`, `internal/update`, `internal/uninstall`, `internal/codexguard`, `internal/fleettree`, `internal/pathguard` and `cmd/goblins`.
+  On Linux two paths that differ only in case are two folders, so all of them compare exactly there.
+  `internal/connections` folds case only in its Windows file, so its Linux file compares exactly from the start.
   About 80 program files spell a program as `name.exe`; each gets the system's own name.
 - **Layer:** 3 for the locks and files, 4 for the path comparison.
+
+### The home and the user's folders
+
+- **Windows:** code that builds on every system finds the user's folders through Windows variables.
+  `home.DefaultRoot` puts the home under `%LOCALAPPDATA%` and fails when it is unset, so on Linux every command fails unless `GOBLINS_HOME` names a home.
+  `goblins install` from a clone, `goblins update` when it reads the home of a running server, and the uninstaller each find that folder through `LOCALAPPDATA` themselves.
+  `internal/pathguard` guards the Credential Manager's folders under `APPDATA` and `LOCALAPPDATA` beside `~/.ssh` and the file store, and reads a path that starts with a drive letter folder such as `/c/`, or with `/tmp`, as Git Bash would.
+- **Linux:** the home defaults to `$XDG_DATA_HOME/code-goblins`, or `~/.local/share/code-goblins` when that is unset, and install, update and the uninstaller follow the same rule.
+  `internal/pathguard` guards `~/.ssh` and the file store, and reads a path as it is written.
+- **Layer:** 3 for the default home, 4 for the guarded folders, 8 for install, update and the uninstaller.
 
 ### Watching and machine readings
 
@@ -155,12 +168,15 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
 ### Harness hooks and PowerShell
 
 - **Windows:** the goblins' hooks run a second copy of the command built as a windowed program, so no console flashes for each hook.
-  The native hooks for Claude Code and Codex run a PowerShell helper script.
+  Claude Code's native hooks run a PowerShell helper script; Codex's run `goblins native-hook codex` directly, and fall back to the helper only when a path would need quoting.
   The commands the Overlord runs from a card (credentials, connections, releases, remote access, a wake, a code run, Dev Drive) are written for PowerShell.
+  The run requests find Windows PowerShell under `SystemRoot` and bash beside Git for Windows (`runShellPath`), and a message to a goblin that starts with `!` runs in that Windows PowerShell.
+  A card opens a folder or a path in File Explorer, found under `SystemRoot`, and only for a path on a drive.
   Other programs start Windows PowerShell themselves: the harness version probe, the quickstart, the machine readings of `goblins runtime`, the reaper's process list, the release signature check, the Defender check, the uninstaller's Dev Drive step and the CI runner.
   18 PowerShell scripts install, release and prove the install on CI.
 - **Linux:** the hooks call `goblins` itself, so there is one program and no helper script.
   A card's command is written for bash, which the run requests already accept beside PowerShell.
+  bash and `pwsh` come from `PATH`, a message that starts with `!` runs in bash, and a card opens a folder or a path with `xdg-open`.
   The version probe runs the harness directly, the machine readings and the process list read `/proc`, and the rest sit in areas Linux does not need.
   The installer's proofs get shell counterparts with the installer.
 - **Layer:** 7 for the hooks and the cards, and each other caller's own layer.
@@ -174,6 +190,7 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
 ### The desktop window
 
 - **Windows:** `cmd/goblins-window` is a Wails v3 window on WebView2, with the registry for start at sign-in and the notification identity, Win32 drawing for its notices and a message box.
+  After an update the supervisor opens the new window through File Explorer, found under `SystemRoot`.
 - **Linux, first:** the board opens in the user's browser, which it already serves; the `.desktop` entry opens it there.
 - **Linux, later:** Wails draws the same window with WebKitGTK, which needs cgo and the GTK and WebKitGTK development packages on the build runner.
 - **Layer:** 8 for the browser, a later pull request for the window.
@@ -225,16 +242,16 @@ A layer's Linux code sits beside the Windows code under a build tag.
 
 1. **This inventory, then the build compiling on Linux.**
    Every Windows-only name gets a Linux file beside it that, until its own layer, returns an error naming what is missing, and every untagged file that reaches Windows calls moves its Windows part into a `_windows.go` file.
-   The desktop window and the CI runner's service build only on Windows until their own layers.
+   The setup window builds only on Windows, and the desktop window and the CI runner's service do too until their own layers.
    A Linux job in CI builds every package (`GOOS=linux go build ./...`), so a change that breaks the Linux build fails there.
 2. **Unit tests on Linux.**
    Windows-only tests take the `_windows_test.go` name, and the Linux job runs `go vet` and `go test` on every package.
 3. **Processes, trees, locks and files.**
-   `internal/proc` on `/proc`, `internal/execx` and the gate's executor on process groups, the lock on `flock`, and the file replacements.
-4. **Transport.** Unix sockets for the host, the run requests and the primary transport, and exact path comparison.
+   `internal/proc` on `/proc`, `internal/execx` and the gate's executor on process groups, the lock on `flock`, the file replacements, and the default home under `$XDG_DATA_HOME`.
+4. **Transport.** Unix sockets for the host, the run requests and the primary transport, exact path comparison in `fsx.SamePath` and every other place that folds case on a path, and the folders `internal/pathguard` guards.
 5. **The native terminal.** `internal/host` on a pseudo terminal, `attach` and the onboarding menu in raw mode, and `spawn` launching on Linux.
 6. **Watching and readings.** `inotify`, the memory and processor readings, priorities, the janitor's processes, the browser sign-in and the clipboard.
-7. **End to end.** The hooks without PowerShell, card commands in bash, and a goblin run on Linux in CI under Claude Code, Codex and pi: spawn, send, peek, wake, pause, resume, gate and cleanup.
+7. **End to end.** The hooks without PowerShell, card commands and `!` messages in bash, folders opened with `xdg-open`, and a goblin run on Linux in CI under Claude Code, Codex and pi: spawn, send, peek, wake, pause, resume, gate and cleanup.
 8. **Installer and updater.** The release's Linux archives and `install.sh`, update and uninstall, the `.desktop` entry and the user unit, the board opening in the browser, and the README's download control and the install guide offering Linux beside Windows.
 9. **Dictation.** The speech engine's Linux library.
 
@@ -242,13 +259,17 @@ Layers 3 to 5 hold most of the work; layer 7 is where a goblin first works on Li
 
 ## macOS after Linux
 
-macOS takes the pseudo terminal, Unix sockets, process groups, signals, `flock` and the paths from the Linux layers unchanged.
+macOS takes the pseudo terminal, Unix sockets, process groups, signals and `flock` from the Linux layers unchanged.
 It differs where Linux reads `/proc`: process identity comes from `libproc` and `sysctl`, folder watching from FSEvents or kqueue, memory from `host_statistics64`, start at sign-in from a launchd agent, the credential store from the Keychain, and the window from WKWebView, which Wails already supports.
+It also differs where the Linux layers call what only Linux has: the socket's peer comes from `LOCAL_PEERPID` instead of `SO_PEERCRED`, it has no `PR_SET_CHILD_SUBREAPER` and no `pidfd_open`, the creation time comes from `stat` instead of `statx`, and the disk priority from `setiopolicy_np` instead of `ioprio_set`.
+Its default file system ignores case, as Windows does, so exact path comparison is not enough there either.
 A release for it needs an Apple developer account for signing and notarization, and Mac runners.
 It is filed as its own issue from this inventory once the Linux layers it reuses have landed.
 
 ## How it was measured
 
 Every tracked Go file was classed by its file name and its `//go:build` line as Windows-only, built only off Windows, or built everywhere.
-For each package, the names declared only in its Windows-only files were matched against the files built everywhere, in the same package and through its importers, and the untagged files were searched for Windows-only imports and `syscall` fields.
-Names that collide with ordinary words can count a file twice or miss one, which is why the first Linux build in CI is the measure that counts.
+Every package and its tests were then type-checked as Linux (`GOOS=linux`, `CGO_ENABLED=0`) with the standard library's `go/types`, and each file with a type error was counted.
+The type checker reports a failed import only once per package, so the untagged files that import `golang.org/x/sys/windows` were added by their imports, and a string that only mentions that path does not count as an import.
+The table counts, for each package, the program files in other packages with an error that names something it defines.
+It is still a static reading, not a build, which is why the first Linux build in CI is the measure that counts.
