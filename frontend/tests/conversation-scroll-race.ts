@@ -534,7 +534,7 @@ async function phoneTalk(page: Page, isStreaming: boolean) {
   await expect.poll(() => distanceToEnd(opened.talk)).toBeLessThanOrEqual(1);
   if (isStreaming) {
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation",
-      usage: { input_tokens: 1000, output_tokens: 100, cache_read_tokens: 3000, cost_usd: .01, context_tokens: 1000, context_window: 200000, model: "claude-opus-5-5", effort: "xhigh" } } } })));
+      usage: { input_tokens: 1000, output_tokens: 100, cache_read_tokens: 3000, cost_usd: .01, context_tokens: 1000, context_window: 200000 } } } })));
     await settled(opened.talk);
     await opened.start(400);
     await expect.poll(() => distanceToEnd(opened.talk)).toBeLessThanOrEqual(1);

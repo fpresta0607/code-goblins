@@ -259,8 +259,8 @@ func TestACEOThatIsBusyOrRestartingGetsTheAnswersOnceWhenItsInputIsReady(t *test
 		wantTheSittingAsOneMessage(t, typed)
 		awaited := map[string]bool{}
 		for _, a := range sent {
-			if a.Status != "running" || a.Awaiting == nil || a.Message != sentToCEO {
-				t.Errorf("behind the CEO's turn the answer to %s reads %s (%s), want it sent and awaiting the CEO", a.QuestionID, a.Status, a.Message)
+			if a.Status != "running" || a.Awaiting == nil || a.Message != heldByCEO {
+				t.Errorf("behind the CEO's turn the answer to %s reads %s (%s), want it queued in the CEO's session and awaiting the CEO", a.QuestionID, a.Status, a.Message)
 				continue
 			}
 			awaited[a.Awaiting.Digest] = true

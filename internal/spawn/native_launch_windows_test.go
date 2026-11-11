@@ -344,6 +344,14 @@ func fakeHarness() {
 					time.Sleep(8 * time.Second)
 					composer("Ask Codex to do anything")
 				}
+			case key == harness.ClearLine:
+				// As Codex 0.160 does, Ctrl+U takes the whole line back off
+				// the composer.
+				if line.Len() > 0 {
+					record(codexEvent{Event: "cleared", Text: line.String()})
+				}
+				line.Reset()
+				composer("Ask Codex to do anything")
 			case key == "\x1b[F":
 				// End ends a paste and leaves the text as it is.
 				hasPasteEnded = true

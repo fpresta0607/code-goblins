@@ -241,7 +241,9 @@ type MessagePage struct {
 }
 
 // WaitingPrompt keeps a Claude Code prompt visible from enqueue through its
-// handoff until its delivered Message appears. It has no delivery offset yet,
+// handoff until its delivered Message appears, or the session answers after
+// the handoff with none that is it, and no longer once Up takes it back to
+// the prompt line. It has no delivery offset yet,
 // so it stays separate from messages; IsSending marks the handoff, and Action
 // names the board message that typed it, which the supervisor fills in.
 type WaitingPrompt struct {
@@ -254,10 +256,11 @@ type WaitingPrompt struct {
 }
 
 // Usage is what a session has spent, read from its own conversation: its
-// input, output and cached tokens, the dollars it recorded, the context its
-// last request carried against the model's window, that model, and the
-// effort the session last set. A field a conversation does not record is left
-// zero, and the board leaves that stat out rather than inventing it.
+// input, output and cached tokens, the dollars it recorded, and the context
+// its last request carried against the model's window. A field a
+// conversation does not record is left zero, and the board leaves that stat
+// out rather than inventing it. The model and effort a session runs are no
+// part of it: its one record says them (SessionEngine reads the harness's).
 type Usage struct {
 	InputTokens     int64   `json:"input_tokens,omitempty"`
 	OutputTokens    int64   `json:"output_tokens,omitempty"`
@@ -265,8 +268,6 @@ type Usage struct {
 	CostUSD         float64 `json:"cost_usd,omitempty"`
 	ContextTokens   int64   `json:"context_tokens,omitempty"`
 	ContextWindow   int64   `json:"context_window,omitempty"`
-	Model           string  `json:"model,omitempty"`
-	Effort          string  `json:"effort,omitempty"`
 }
 
 // syntheticModel is what Claude Code names as the model of an entry it writes
@@ -281,14 +282,11 @@ func (message Message) IsHarnessReply() bool {
 }
 
 // add folds one request's usage into the session's.
-func (u *Usage) add(input, output, cacheRead int64, model string) {
+func (u *Usage) add(input, output, cacheRead int64) {
 	u.InputTokens += input
 	u.OutputTokens += output
 	u.CacheReadTokens += cacheRead
 	u.ContextTokens = input + output + cacheRead
-	if model != "" {
-		u.Model = model
-	}
 }
 
 // MessageCursor is where a reader of a session's messages stands: the read
@@ -409,6 +407,8 @@ type messageState struct {
 	usage   Usage
 	window  int64
 	waiting []WaitingPrompt
+	// handed is when Claude Code last took a waiting prompt off its queue.
+	handed time.Time
 }
 
 type blockAt struct {
@@ -465,8 +465,6 @@ type messageEntry struct {
 		} `json:"usage"`
 	} `json:"message"`
 	ToolUseResult json.RawMessage `json:"toolUseResult"`
-	// Effort is the level an answer ran at, which Claude Code names on each.
-	Effort string `json:"effort"`
 }
 
 type messageBlock struct {
@@ -854,16 +852,19 @@ func (l *messageLog) queueOperation(entry messageEntry, id string) {
 		l.waiting = append(l.waiting, WaitingPrompt{ID: id, At: entry.Timestamp, Source: source, Text: text})
 	case "dequeue":
 		at = slices.IndexFunc(l.waiting, func(prompt WaitingPrompt) bool { return !prompt.IsSending })
-	case "remove":
+	case "remove", "popAll":
 		at = slices.IndexFunc(l.waiting, func(prompt WaitingPrompt) bool {
 			return !prompt.IsSending && prompt.Source == source && prompt.Text == text
 		})
 	}
 	if at >= 0 {
-		if l.waiting[at].Source == FromNotice || l.waiting[at].Text == "" {
+		// A line Up took back is on the prompt line, his to change, and in
+		// no queue: it waits for nothing until it is submitted again (#2332).
+		if entry.Operation == "popAll" || l.waiting[at].Source == FromNotice || l.waiting[at].Text == "" {
 			l.waiting = slices.Delete(l.waiting, at, at+1)
 		} else {
 			l.waiting[at].IsSending = true
+			l.handed = entry.Timestamp
 		}
 	}
 }
@@ -903,7 +904,18 @@ func (l *messageLog) touch(index int) {
 // an answer as an entry of its own under the answer's id, a tool's result
 // sometimes between them. Thinking it kept only the signature of shows
 // nothing. A reply's seq is the offset of its first entry that shows.
+//
+// An answer written after the last handoff is the session going on from it,
+// so a prompt still sending by then has no delivered row to wait for: the
+// record holds it in words the log does not read as it, as Claude Code's own
+// prompt after a usage limit, which it records for its model alone, or not at
+// all. Its wait ends here, so nothing reads Sending for good (#2327). An
+// answer stamped before the handoff and recorded after it, as a notice Claude
+// Code writes itself can be, ends none.
 func (l *messageLog) reply(entry messageEntry, id string, offset int64) {
+	if entry.Timestamp.After(l.handed) {
+		l.waiting = slices.DeleteFunc(l.waiting, func(prompt WaitingPrompt) bool { return prompt.IsSending })
+	}
 	var blocks []messageBlock
 	if json.Unmarshal(entry.Message.Content, &blocks) != nil {
 		return
@@ -941,15 +953,12 @@ func (l *messageLog) reply(entry messageEntry, id string, offset int64) {
 		// repeats the answer's usage on them: only the first counts it. A
 		// notice Claude Code writes itself, such as a usage limit's, names
 		// no model ("<synthetic>") and used nothing, so it changes neither
-		// the session's model nor how full its context is.
+		// the model's window nor how full its context is.
 		if entry.Message.Model != syntheticModel {
 			usage := entry.Message.Usage
-			l.usage.add(usage.InputTokens+usage.CacheCreationInputTokens, usage.OutputTokens, usage.CacheReadInputTokens, entry.Message.Model)
+			l.usage.add(usage.InputTokens+usage.CacheCreationInputTokens, usage.OutputTokens, usage.CacheReadInputTokens)
 			if entry.Message.Model != "" {
 				l.window = claudeContextWindow(entry.Message.Model)
-			}
-			if entry.Effort != "" {
-				l.usage.Effort = entry.Effort
 			}
 		}
 	}
@@ -1024,12 +1033,6 @@ var (
 	commandArgs   = regexp.MustCompile(`(?s)<command-args>(.*?)</command-args>`)
 	bashInput     = regexp.MustCompile(`(?s)^<bash-input>(.*?)</bash-input>`)
 	commandStdout = regexp.MustCompile(`(?s)<(local-command|bash)-(stdout|stderr)>(.*?)</(?:local-command|bash)-(?:stdout|stderr)>`)
-	// effortSet is the level Claude Code's /effort says it set, from its
-	// picker or from the level typed after it, read only from the start of its
-	// success line ("Set effort level to xhigh: ..." or "Effort level set to
-	// auto"), so a cancelled /effort, or a refusal that lists every level as
-	// "Invalid argument: hgih. Valid options are: low, ...", sets none.
-	effortSet = regexp.MustCompile(`(?i)^(?:set effort level to|effort level set to) (low|medium|high|xhigh|max|auto)\b`)
 	// boardAnswer begins the words the board types for the Overlord's answer
 	// from the Command Center (internal/supervisor/questions.go and the
 	// items beside it), to a goblin after the CEO's stamp.
@@ -1153,9 +1156,6 @@ func (l *messageLog) commandOutput(text string) bool {
 		printed := bounded(strings.TrimSpace(ansi.ReplaceAllString(match[3], "")), resultLimit)
 		if match[2] == "stdout" {
 			command.Output = printed
-			if level := effortSet.FindStringSubmatch(printed); level != nil && (command.Text == "/effort" || strings.HasPrefix(command.Text, "/effort ")) {
-				l.usage.Effort = strings.ToLower(level[1])
-			}
 		} else {
 			command.Errors = printed
 		}

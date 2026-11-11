@@ -179,7 +179,16 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 			// Overlord, 2026-11-04: "Modern shat goblins that are not the CFO.
 			// Never pick up their cube message when I send them."). A command
 			// still waits for the turn to end, when its harness would run it.
-			result, err := s.Options.CEO.sendGoblin(ctx, a.TaskID, goblinIdentity(meta), typed, isHarnessCommand(a.Text), a.IsSentNow, true)
+			// The board reads it typed the moment its submit key went, not
+			// once the wait to see it taken ends.
+			typing := tellingSubmitted(ctx, func() {
+				if err := s.Store.markTyped(a.ID, a.TaskID, awaitingGoblinDelivery(meta, sent, typed)); err != nil {
+					s.publish(err)
+					return
+				}
+				s.notify()
+			})
+			result, err := s.Options.CEO.sendGoblin(typing, a.TaskID, goblinIdentity(meta), typed, isHarnessCommand(a.Text), a.IsSentNow, true)
 			// A message whose harness's send-now key went is taken at once;
 			// one whose key never went, or whose harness has none, at its next
 			// tool call.
@@ -205,6 +214,12 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 			}
 			if errors.Is(err, spawn.ErrUnsentWords) {
 				return Evaluation{Reason: "Queued until " + a.TaskID + "'s prompt line is empty. It holds words that were never sent, and nothing is typed onto them.", SendNowWhy: "Its prompt line holds words that were never sent."}, ErrDeferred
+			}
+			if errors.Is(err, spawn.ErrTakenBack) {
+				return Evaluation{}, fmt.Errorf("%w. It was typed for %s and never submitted. It was taken back off its prompt line, so nothing of it is left typed there.", ErrNotSent, a.TaskID)
+			}
+			if errors.Is(err, spawn.ErrLeftTyped) {
+				return Evaluation{LeftTyped: awaitingGoblinDelivery(meta, sent, typed)}, fmt.Errorf("It was typed for %s and never submitted. It is taken back off its prompt line if it shows there.", a.TaskID)
 			}
 			if errors.Is(err, fleet.ErrNotTyped) {
 				return Evaluation{Reason: "Queued until its terminal can take a message. Nothing was typed.", SendNowWhy: "Its terminal is not ready to take it yet."}, ErrDeferred
@@ -442,15 +457,19 @@ func (s *Store) withdrawMessage(a Action) (Action, error) {
 	// words are told apart and no other message is ever taken in its place.
 	if a.Target != "" {
 		at := slices.IndexFunc(s.db.Actions, func(queued Action) bool {
-			return queued.ID == a.Target && queued.Kind == "message" && queued.Status == "queued" && queued.TaskID == a.TaskID
+			return queued.ID == a.Target && queued.Kind == "message" && (queued.Status == "queued" || isNotSent(queued)) && queued.TaskID == a.TaskID
 		})
 		if at < 0 {
 			return Action{}, s.noLongerHeld(a.Target, a.TaskID)
 		}
+		deleted := "Deleted before its gate let go."
+		if isNotSent(s.db.Actions[at]) {
+			deleted = "Deleted unsent."
+		}
 		delete(s.deferredUntil, s.db.Actions[at].ID)
 		s.db.Actions = slices.Delete(s.db.Actions, at, at+1)
 		now := time.Now().UTC()
-		a.Status, a.Message, a.CreatedAt, a.UpdatedAt = "succeeded", "Deleted before its gate let go.", now, now
+		a.Status, a.Message, a.CreatedAt, a.UpdatedAt = "succeeded", deleted, now, now
 		s.db.Actions = append(s.db.Actions, a)
 		return a, nil
 	}
@@ -488,6 +507,12 @@ func (s *Store) withdrawMessage(a Action) (Action, error) {
 	a.UpdatedAt = a.CreatedAt
 	s.db.Actions = append(s.db.Actions, a)
 	return a, nil
+}
+
+// isNotSent says message a failed with its words delivered to nobody, the
+// CEO included, so Cancel takes it off the board as it takes a queued one.
+func isNotSent(a Action) bool {
+	return a.Kind == "message" && a.Status == "failed" && !strings.Contains(a.Message, "the CEO has it")
 }
 
 // withdrawFromResume takes the message text out of task's resume note while

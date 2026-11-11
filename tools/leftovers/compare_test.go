@@ -520,3 +520,57 @@ func TestNoisePassesOverWindowsClassesButNeverOurs(t *testing.T) {
 		})
 	}
 }
+
+// Codex keeps a temporary folder of its own, .tmp in its home, where it
+// clones its plugin marketplace into a folder named plugins-clone and a
+// random word and removes the clone once it holds the plugins, at times of
+// its own. In run 41515917655 the goblin's Codex removed plugins-clone-RpPvcL
+// between the two snapshots around the uninstall's dry run, which named every
+// file of it taken by the dry run. Code Goblins writes nothing there, so what
+// comes, changes or goes there is passed over, while what the install leaves
+// in the Codex home beside it, a thing of ours inside it and a file of the
+// person's taken from the home are still named.
+func TestNoisePassesOverCodexOwnTemporaryFolderButNotWhatTheInstallLeaves(t *testing.T) {
+	t.Setenv("USERPROFILE", `C:\Users\a`)
+	cases := []struct {
+		name string
+		difference
+		isNamed bool
+	}{
+		{"a plugin clone Codex removed", difference{Change: changeGone, Kind: kindFile, Identity: `C:\Users\a\.codex\.tmp\plugins-clone-RpPvcL`, Before: "folder"}, false},
+		{"a file of a plugin clone Codex removed", difference{Change: changeGone, Kind: kindFile, Identity: `C:\Users\a\.codex\.tmp\plugins-clone-RpPvcL\.agents\plugins\marketplace.json`, Before: "sha256 1"}, false},
+		{"git's lock in a plugin clone Codex removed", difference{Change: changeGone, Kind: kindFile, Identity: `C:\Users\a\.codex\.tmp\plugins-clone-RpPvcL\.git\index.lock`}, false},
+		{"a plugin clone Codex made", difference{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\.codex\.tmp\plugins-clone-Qw3rTy`, After: "folder"}, false},
+		{"a file of a plugin clone Codex made", difference{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\.codex\.tmp\plugins-clone-Qw3rTy\.git\HEAD`, After: "sha256 1"}, false},
+		{"the temporary folder itself, come during the run", difference{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\.codex\.tmp`, After: "folder"}, false},
+		{"the temporary folder under another case", difference{Change: changeGone, Kind: kindFile, Identity: `c:\users\a\.codex\.tmp\plugins-clone-RpPvcL`, Before: "folder"}, false},
+		{"Codex's record of the plugins it holds, changed", difference{Change: changeChanged, Kind: kindFile, Identity: `C:\Users\a\.codex\.tmp\plugins.sha`, Before: "sha256 1", After: "sha256 2"}, false},
+		{"a skill the install left in the Codex home", difference{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\.codex\skills\gh-axi\SKILL.md`, After: "sha256 1"}, true},
+		{"the Codex hooks the install changed", difference{Change: changeChanged, Kind: kindFile, Identity: `C:\Users\a\.codex\hooks.json`, Before: "sha256 1", After: "sha256 2"}, true},
+		{"the person's Codex settings taken", difference{Change: changeGone, Kind: kindFile, Identity: `C:\Users\a\.codex\config.toml`, Before: "sha256 1"}, true},
+		{"a folder beside the temporary folder", difference{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\.codex\.tmp-kept\note.txt`}, true},
+		{"a file of ours in the temporary folder", difference{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\.codex\.tmp\ceo-native-hook.ps1`}, true},
+		{"a temporary folder in another tool's home", difference{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\.pi\.tmp\plugins-clone-Qw3rTy`, After: "folder"}, true},
+		{"a temporary folder of the same name outside the Codex home", difference{Change: changeGone, Kind: kindFile, Identity: `C:\Users\a\source\demo\.codex\.tmp\notes.txt`}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			before, after := newSnapshot(time.Unix(0, 0)), newSnapshot(time.Unix(0, 0))
+			if tc.Change != changeLeft {
+				before.add(tc.Kind, tc.Identity, tc.Before)
+			}
+			if tc.Change != changeGone {
+				after.add(tc.Kind, tc.Identity, tc.After)
+			}
+
+			// Act
+			remaining, _ := compare(before, after, nil, noise())
+
+			// Assert
+			if (len(remaining) == 1) != tc.isNamed {
+				t.Errorf("%s: named %v, want named %t", tc.difference, remaining, tc.isNamed)
+			}
+		})
+	}
+}

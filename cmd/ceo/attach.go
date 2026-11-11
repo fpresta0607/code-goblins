@@ -321,21 +321,20 @@ func startNativeCEO(h home.Home, project, harness string, args []string, prompt 
 	var engine []string
 	if err == nil && choice.Harness != harness {
 		// An explicit harness wins for this start, as `goblins --harness` and the
-		// board's Restart promise, and the selection stays saved for when the CEO
-		// runs as its own harness again.
+		// board's Restart promise, and the selection stays saved until the CEO
+		// this starts names the engine it runs.
 		if noteErr := supervisor.NoteCEOEngineOverridden(h.State, harness); noteErr != nil {
 			return fmt.Errorf("note that the CEO started as %s: %w", harness, noteErr)
 		}
 	}
 	if err == nil && choice.Harness == harness {
-		switch harness {
-		case "codex":
-			engine = []string{"--model", choice.Model, "-c", "model_reasoning_effort=" + choice.Effort}
-		case "claude":
-			engine = []string{"--model", choice.Model, "--effort", choice.Effort}
-		case "pi":
-			engine = []string{"--model", choice.Model, "--thinking", choice.Effort}
+		// A recorded effort of default is the harness's own, which no flag
+		// names.
+		effort := map[string][]string{"codex": {"-c", "model_reasoning_effort=" + choice.Effort}, "claude": {"--effort", choice.Effort}, "pi": {"--thinking", choice.Effort}}[harness]
+		if choice.Effort == "default" {
+			effort = nil
 		}
+		engine = append([]string{"--model", choice.Model}, effort...)
 	}
 	hooks, err := ceoHookArguments(h, harness)
 	if err != nil {

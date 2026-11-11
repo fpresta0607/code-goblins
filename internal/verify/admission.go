@@ -50,6 +50,12 @@ type Admission struct {
 	// Limit bounds the floor wait at the head of the line, and how long a run
 	// tries again while the line's lock is busy. Expiry refuses a turn.
 	Limit time.Duration
+	// LineLimit bounds the whole wait for a turn, behind other runs, for
+	// memory and for the line's lock alike, and zero sets none. A run that
+	// has waited that long with no turn leaves the line with ErrLineLimit. It
+	// is for a run whose caller counts the wait against a budget of its own,
+	// as a gate counts it against its agent's invocation.
+	LineLimit time.Duration
 	// Poll is how often a waiting run looks again.
 	Poll time.Duration
 	// Waiting, when set, is told that the run waits, as it starts to, whenever
@@ -76,6 +82,9 @@ type Admission struct {
 // NoLimit is the Limit of a run that waits for memory for as long as the
 // machine is short of it.
 const NoLimit = time.Duration(math.MaxInt64)
+
+// ErrLineLimit is why a run that waited its LineLimit with no turn took none.
+var ErrLineLimit = errors.New("verify: no turn came within the run's line limit")
 
 // Turn is a run's turn on the machine.
 type Turn struct {
@@ -349,7 +358,16 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	if err := os.MkdirAll(a.Dir, 0o755); err != nil {
 		return Turn{}, err
 	}
-	unlock, err := custodyMutationWhileBusy(ctx, a.Dir, a.Limit)
+	// A run with a line limit tries a busy lock again no longer than that
+	// limit, which bounds its whole wait, this first look at the line included.
+	busyLimit := a.Limit
+	if a.LineLimit > 0 {
+		busyLimit = min(busyLimit, a.LineLimit)
+	}
+	unlock, err := custodyMutationWhileBusy(ctx, a.Dir, busyLimit)
+	if errors.Is(err, errCustodyBusy) && a.LineLimit > 0 && time.Since(start) >= a.LineLimit {
+		return Turn{Waited: time.Since(start)}, fmt.Errorf("%w of %s: %v", ErrLineLimit, a.LineLimit, err)
+	}
 	if err != nil {
 		return Turn{}, err
 	}
@@ -461,6 +479,11 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 					return turn, nil
 				}
 			}
+		}
+		// The run has just found no turn to take, so a limit that has passed
+		// ends its wait here and never a turn it could have had.
+		if a.LineLimit > 0 && time.Since(start) >= a.LineLimit {
+			return Turn{Waited: time.Since(start)}, fmt.Errorf("%w of %s", ErrLineLimit, a.LineLimit)
 		}
 		isBusy := !busySince.IsZero()
 		if a.Waiting != nil && (told.IsZero() || ahead != toldAhead || isBusy != isToldBusy || time.Since(told) >= time.Minute) {

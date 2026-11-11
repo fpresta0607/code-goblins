@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"os"
 	"slices"
@@ -10,6 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -40,13 +42,21 @@ type Awaiting struct {
 	// QuietSince is the last time the terminal's screen showed a turn under
 	// way, or Since when it has shown none.
 	QuietSince time.Time `json:"quiet_since"`
+	// IsHeld says the line was submitted into a turn under way, so its
+	// harness holds it in its own queue until that turn takes it: his
+	// message reads Queued until then, never Sent (#2332).
+	IsHeld bool `json:"is_held,omitempty"`
 }
 
 // sentToCEO and sentToGoblin are what a delivery that awaits its reader says,
-// and sentNowInTurn what one says once its harness's send-now key went.
+// heldByCEO and heldByGoblin what one submitted into a turn under way says
+// while its harness holds it in its own queue, and sentNowInTurn what one
+// says once its harness's send-now key went.
 const (
 	sentToCEO     = "Sent. The CEO takes it at its next tool call, or as its current turn ends."
 	sentToGoblin  = "Sent. The goblin takes it at its next tool call, or as its current turn ends."
+	heldByCEO     = "Queued in the CEO's session. The CEO takes it at its next tool call, or as its current turn ends."
+	heldByGoblin  = "Queued in the goblin's session. The goblin takes it at its next tool call, or as its current turn ends."
 	sentNowInTurn = "Typed while it was working and sent now."
 )
 
@@ -177,7 +187,9 @@ func (s *Service) behindGoblinsTurn(task string, since time.Time, text, unwatche
 	if err != nil {
 		return Evaluation{Reason: unwatched}
 	}
-	return Evaluation{Reason: sentToGoblin, Awaiting: awaitingGoblinDelivery(meta, since, text)}
+	held := awaitingGoblinDelivery(meta, since, text)
+	held.IsHeld = true
+	return Evaluation{Reason: heldByGoblin, Awaiting: held}
 }
 
 // awaitingGoblinDelivery is the delivery of text, typed into meta's native
@@ -212,13 +224,179 @@ func (s *Service) submitHandedBack(ctx context.Context) error {
 		}
 	}
 	var prompts [][]Action
-	for terminal, deliveries := range waiting {
+	for _, deliveries := range waiting {
 		slices.SortFunc(deliveries, func(a, b Action) int { return a.Awaiting.Since.Compare(b.Awaiting.Since) })
-		if prompt := s.submitOnto(ctx, terminal, deliveries); len(prompt) > 0 {
+		if prompt := s.submitOnto(ctx, deliveries); len(prompt) > 0 {
 			prompts = append(prompts, prompt)
 		}
 	}
 	return s.Store.markHandedBack(prompts, time.Now().UTC())
+}
+
+// deliveryTerminal returns the running terminal delivery a was typed into
+// and its harness's screens, and false once that terminal is gone, its goblin
+// restarted or ended, or its screens cannot be read.
+func (s *Service) deliveryTerminal(a Awaiting) (host.Record, harness.Screens, bool) {
+	terminal := a.Host
+	if a.Task != "" {
+		terminal = a.Task
+		if meta, err := state.ReadTaskMeta(s.Store.Home.State, a.Task); err != nil || meta.SpawnGen != a.Generation {
+			return host.Record{}, harness.Screens{}, false
+		}
+	}
+	screens, readable := harness.NativeScreens(harness.Kind(a.Harness))
+	record, err := host.ReadRecord(s.Store.Home.State, terminal)
+	return record, screens, readable && err == nil && host.Running(record)
+}
+
+// promptLineHolds finds the run of typed, deliveries typed into one terminal
+// in this order, that is all rows' prompt line holds, whitespace aside: one
+// of them, several joined in the order they were typed, or the placeholder
+// of one pasted line alone. It returns where the run starts and how many it
+// is, none when the prompt line holds anything else.
+func promptLineHolds(screens harness.Screens, rows []string, typed []Awaiting) (int, int) {
+	if !screens.ComposerHoldsText(rows) {
+		return 0, 0
+	}
+	if pasted := slices.IndexFunc(typed, func(a Awaiting) bool { return a.Pasted }); pasted >= 0 && screens.ComposerHoldsOnePaste(rows) {
+		return pasted, 1
+	}
+	for first := range typed {
+		joined := ""
+		for last, a := range typed[first:] {
+			joined += a.Typed + "\n"
+			if screens.ComposerMatches(rows, joined) {
+				return first, last + 1
+			}
+		}
+	}
+	return 0, 0
+}
+
+// takeBackLeftTyped takes back off its prompt line what each delivery typed
+// into a terminal and never submitted, once the terminal shows those words
+// there with nothing else: a harness that had not read them when their
+// delivery gave up shows them once it reads again, where they held back
+// every message after them (the Overlord, 2026-11-10: "queued messages in
+// modern chat get stuck in input box in terminal chat and never send",
+// #2306). A message taken back reads Not sent. Words of his beside them
+// leave the prompt line his, a goblin the board is typing for is left to that
+// delivery, and words whose terminal is gone or was started again since,
+// which can never show them, or that never showed within deliveryForget, are
+// watched no longer.
+func (s *Service) takeBackLeftTyped(ctx context.Context) error {
+	now := time.Now().UTC()
+	left := map[string][]Action{}
+	typing := map[string]bool{}
+	for _, a := range s.Store.Snapshot().Actions {
+		if a.LeftTyped != nil {
+			terminal := cmp.Or(a.LeftTyped.Host, a.LeftTyped.Task)
+			left[terminal] = append(left[terminal], a)
+		}
+		if a.TaskID != "" && a.Status == "running" && a.Awaiting == nil {
+			typing[a.TaskID] = true
+		}
+	}
+	var taken, dropped []Action
+	for terminal, deliveries := range left {
+		slices.SortFunc(deliveries, func(a, b Action) int { return a.LeftTyped.Since.Compare(b.LeftTyped.Since) })
+		var watched []Action
+		var record host.Record
+		var screens harness.Screens
+		for _, a := range deliveries {
+			live, read, isLive := s.deliveryTerminal(*a.LeftTyped)
+			if !isLive || a.LeftTyped.Since.Before(live.Started) || now.Sub(a.LeftTyped.Since) >= deliveryForget {
+				dropped = append(dropped, a)
+				continue
+			}
+			record, screens = live, read
+			watched = append(watched, a)
+		}
+		if len(watched) == 0 || watched[0].LeftTyped.Task != "" && typing[terminal] {
+			continue
+		}
+		taken = append(taken, s.takeBackFrom(ctx, record, screens, watched)...)
+	}
+	return s.Store.settleLeftTyped(taken, dropped, now)
+}
+
+// takeBackFrom takes back off the prompt line of the terminal record names
+// those of deliveries, all left typed in it in the order given, whose words
+// are all the line holds, and returns them once the line read empty. The
+// screen is read without the CEO's typing lock and again under it before any
+// key, as submitOnto reads it.
+func (s *Service) takeBackFrom(ctx context.Context, record host.Record, screens harness.Screens, deliveries []Action) []Action {
+	typed := make([]Awaiting, len(deliveries))
+	for i, a := range deliveries {
+		typed[i] = *a.LeftTyped
+	}
+	shown := func() []Action {
+		rows, err := host.ReadScreen(record)
+		if err != nil {
+			return nil
+		}
+		at, count := promptLineHolds(screens, rows, typed)
+		return deliveries[at : at+count]
+	}
+	held := shown()
+	if len(held) == 0 {
+		return nil
+	}
+	if typed[0].Host != "" && s.Options.CEO != nil {
+		s.Options.CEO.typing.Lock()
+		defer s.Options.CEO.typing.Unlock()
+		if held = shown(); len(held) == 0 {
+			return nil
+		}
+	}
+	client, err := host.Dial(record)
+	if err != nil {
+		return nil
+	}
+	defer client.Close()
+	words := ""
+	for _, a := range held {
+		words += a.LeftTyped.Typed
+	}
+	if ctx.Err() != nil || !spawn.TakeBack(func() ([]string, error) { return host.ReadScreen(record) }, client.Input, screens, words) {
+		return nil
+	}
+	return held
+}
+
+// settleLeftTyped records that the words each of taken left typed were taken
+// back off their prompt line unsubmitted, so a message among them reads Not
+// sent, and that the words of each of dropped are watched no longer.
+func (s *Store) settleLeftTyped(taken, dropped []Action, now time.Time) error {
+	if len(taken) == 0 && len(dropped) == 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	settle := func(left Action, isTaken bool) {
+		at := slices.IndexFunc(s.db.Actions, func(a Action) bool { return a.ID == left.ID && a.TaskID == left.TaskID })
+		if at < 0 || s.db.Actions[at].LeftTyped == nil {
+			return
+		}
+		a := &s.db.Actions[at]
+		who := a.LeftTyped.recipient()
+		a.LeftTyped, a.UpdatedAt = nil, now
+		if !isTaken {
+			return
+		}
+		a.Message = ErrNotSent.Error() + ". It was typed for " + who + ", which read it only after its delivery had ended, so it was taken back off its prompt line unsubmitted."
+		if a.Kind == "message" {
+			a.Status = "failed"
+		}
+	}
+	for _, left := range dropped {
+		settle(left, false)
+	}
+	for _, left := range taken {
+		settle(left, true)
+	}
+	s.updateQuestionOutcomes()
+	return s.save()
 }
 
 // submitOnto presses the submit key in terminal when its harness waits idle
@@ -228,36 +406,23 @@ func (s *Service) submitHandedBack(ctx context.Context) error {
 // typing lock, which a delivery to the CEO holds for seconds, and read again
 // under it before the key, so nothing else types into the CEO's terminal
 // meanwhile.
-func (s *Service) submitOnto(ctx context.Context, terminal string, deliveries []Action) []Action {
+func (s *Service) submitOnto(ctx context.Context, deliveries []Action) []Action {
 	first := *deliveries[0].Awaiting
-	if first.Task != "" {
-		if meta, err := state.ReadTaskMeta(s.Store.Home.State, first.Task); err != nil || meta.SpawnGen != first.Generation {
-			return nil
-		}
-	}
-	screens, readable := harness.NativeScreens(harness.Kind(first.Harness))
-	record, err := host.ReadRecord(s.Store.Home.State, terminal)
-	if !readable || err != nil || !host.Running(record) {
+	record, screens, isLive := s.deliveryTerminal(first)
+	if !isLive {
 		return nil
+	}
+	typed := make([]Awaiting, len(deliveries))
+	for i, a := range deliveries {
+		typed[i] = *a.Awaiting
 	}
 	handedBack := func() []Action {
 		rows, err := host.ReadScreen(record)
-		if err != nil || !screens.IsReady(rows) || !screens.ComposerHoldsText(rows) {
+		if err != nil || !screens.IsReady(rows) {
 			return nil
 		}
-		if pasted := slices.IndexFunc(deliveries, func(a Action) bool { return a.Awaiting.Pasted }); pasted >= 0 && screens.ComposerHoldsOnePaste(rows) {
-			return deliveries[pasted : pasted+1]
-		}
-		for first := range deliveries {
-			joined := ""
-			for last, a := range deliveries[first:] {
-				joined += a.Awaiting.Typed + "\n"
-				if screens.ComposerMatches(rows, joined) {
-					return deliveries[first : first+last+1]
-				}
-			}
-		}
-		return nil
+		at, count := promptLineHolds(screens, rows, typed)
+		return deliveries[at : at+count]
 	}
 	prompt := handedBack()
 	if len(prompt) == 0 {

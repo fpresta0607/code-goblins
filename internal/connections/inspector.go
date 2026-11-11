@@ -244,7 +244,7 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 	return result
 }
 
-// grantOffered is what an entry's connector card offers, as ceo auth grant
+// grantOffered is what the board offers beside an entry, as ceo auth grant
 // and ceo auth revoke would change it: grant for a service the task does not
 // carry or a project MCP server its harness was not given, revoke for one the
 // task's record names, and nothing for a credential variable or an MCP server

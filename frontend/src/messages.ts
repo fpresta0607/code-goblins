@@ -17,23 +17,37 @@ export function isPendingMessage(action: Action): boolean {
   return action.kind === "message" && (action.status === "queued" || action.status === "running");
 }
 
-// isUndelivered says a message's delivery ended with no take seen: it failed,
-// or it was typed and its session was never seen taking it (#2242). One its
-// goblin could not take that the CEO has was handed on, not lost.
+// isHarnessHeld says a message was typed into a turn under way that has not
+// taken it: it waits in its harness's own queue, where Send now, Edit and
+// Cancel act on it (#2332).
+export function isHarnessHeld(action: Action): boolean {
+  return action.kind === "message" && action.status === "running" && !!action.awaiting && action.is_held;
+}
+
+// isNotSent says a message's delivery failed with its words given to nobody:
+// one its goblin could not take that the CEO has was handed on, not lost. The
+// board still holds it, so Send now sends that same message and Cancel takes
+// it off the board (#2306).
+export function isNotSent(action: Action): boolean {
+  return action.kind === "message" && action.status === "failed" && !action.message.includes("the CEO has it");
+}
+
+// isUndelivered says a message's delivery ended with no take seen: it was not
+// sent, or it was typed and its session was never seen taking it (#2242).
 export function isUndelivered(action: Action): boolean {
-  return action.kind === "message" && (action.status === "failed" && !action.message.includes("the CEO has it") || action.status === "uncertain");
+  return isNotSent(action) || action.kind === "message" && action.status === "uncertain";
 }
 
 // STARTING opens the supervisor's reason for a message that waits on a start
 // of its session (startingFor in internal/supervisor).
 const STARTING = /^Starting /;
 
-// Where a message he typed is: Queued while it waits for its goblin, Starting
-// while its session starts for it, Sent once it is typed into the terminal,
-// and With the CEO when its goblin could not take it and the supervisor gave
-// it to the CEO.
+// Where a message he typed is: Queued while it waits for its goblin, on the
+// board or in its harness's own queue, Starting while its session starts for
+// it, Sent once its harness has it for a turn, and With the CEO when its
+// goblin could not take it and the supervisor gave it to the CEO.
 export function messageState(action: Action): string {
-  if (action.status === "queued" || action.status === "running" && !action.awaiting) return STARTING.test(action.message) ? "Starting" : "Queued";
+  if (action.status === "queued" || action.status === "running" && !action.awaiting || isHarnessHeld(action)) return STARTING.test(action.message) ? "Starting" : "Queued";
   if (action.status === "failed") return action.message.includes("the CEO has it") ? "With the CEO" : "Not sent";
   if (action.status === "uncertain") return "Not confirmed";
   return "Sent";

@@ -56,10 +56,10 @@ func grantBoard(t *testing.T) (*Service, string) {
 	return s, h.State
 }
 
-// The + on a connector card gives the task the service or MCP server, and its
-// check takes it back, as ceo auth grant and ceo auth revoke do: the task's
+// A connector's Connect gives the task the service or MCP server, and its
+// Disconnect takes it back, as ceo auth grant and ceo auth revoke do: the task's
 // record changes, its status names the Overlord's board, and the CEO is told.
-func TestAConnectorCardGivesAndTakesBackAServiceOrAnMCPServer(t *testing.T) {
+func TestAConnectorPressGivesAndTakesBackAServiceOrAnMCPServer(t *testing.T) {
 	cases := []struct {
 		name, connection string
 		carried          func(state.TaskMeta) []string
@@ -103,9 +103,9 @@ func TestAConnectorCardGivesAndTakesBackAServiceOrAnMCPServer(t *testing.T) {
 }
 
 // Only a board proven to be the Overlord's own changes what a goblin carries,
-// since any program on the PC can read the board's token, and the card names
-// only a service or an MCP server of the task it was drawn for.
-func TestAConnectorCardChangesNothingForAnotherCallerOrConnector(t *testing.T) {
+// since any program on the PC can read the board's token, and the press names
+// only a service or an MCP server of the task it was made for.
+func TestAConnectorPressChangesNothingForAnotherCallerOrConnector(t *testing.T) {
 	started := time.Now().Add(-time.Hour)
 	agentBrowser := func(pid int) ([]proc.Entry, []string, error) {
 		return []proc.Entry{
@@ -158,7 +158,7 @@ func TestAConnectorCardChangesNothingForAnotherCallerOrConnector(t *testing.T) {
 // could not be rewritten after it, as a goblin can arrange in its own task
 // folder: the board is answered with the check, not told nothing changed, and
 // the CEO is told of the grant and of what failed after it.
-func TestAConnectorCardGrantThatStandsIsToldAsOneWhateverFailedAfterIt(t *testing.T) {
+func TestAConnectorGrantThatStandsIsToldAsOneWhateverFailedAfterIt(t *testing.T) {
 	// Arrange
 	s, stateDir := grantBoard(t)
 	asOverlordsBoard(s)
@@ -215,7 +215,7 @@ func TestARefusedConnectorPressRepeatedWakesTheCEOOnce(t *testing.T) {
 	pending, err := wake.Pending(stateDir)
 	refusals := 0
 	for _, record := range pending {
-		if strings.Contains(record.Detail, "A press of a connector card on a board was refused") {
+		if strings.Contains(record.Detail, "A press of a connector's button on a board was refused") {
 			refusals++
 		}
 	}

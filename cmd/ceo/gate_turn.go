@@ -51,8 +51,9 @@ const gateTurnUsage = "usage: ceo gate turn [--as <name>] [--gate-run <run-id>] 
 // goblin's own suite, a run one of the Overlord's sessions starts. It waits
 // while another run holds the turn and while free physical memory or free
 // commit is under the floor, for as long as that lasts unless --wait bounds
-// that wait. An explicit --execution-limit bounds startup and execution
-// after admission, including what the command leaves running.
+// that wait, or a gate's agent started the run, which waits gateAgentLineLimit
+// at most (gateLineLimit). An explicit --execution-limit bounds startup and
+// execution after admission, including what the command leaves running.
 // While it waits it says on standard error, as it starts to, whenever its
 // place in line changes and once a minute, which run holds the turn and
 // since when, and where this run stands.
@@ -170,6 +171,7 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 	executor.Admission.IsLowPriority = request.isLowPriority
 	// Only a gate's Test step names its run, with its wrapper's --gate-run.
 	executor.Admission.IsTestStep = request.gateRun != ""
+	executor.Admission.LineLimit = gateLineLimit(runtime, os.Getenv, executor.Admission.IsTestStep)
 	executor.Admission.Priority = taskPriority("ceo gate turn", task, stderr, runtime)
 	executor.Admission.Estimate = request.memory
 	executor.ExecutionLimit = request.executionLimit
@@ -287,6 +289,8 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 	case errors.Is(runError, verify.ErrNoTurn):
 		why := oneLine(runError)
 		switch {
+		case errors.Is(runError, verify.ErrLineLimit):
+			why = agentLeftLine(executor.Admission.LineLimit)
 		case errors.Is(runError, context.Canceled) && decided.Load() == waitOver && !isInterrupted.Load():
 			why = fmt.Sprintf("it took no turn within its wait of %s", wait)
 		case errors.Is(runError, context.Canceled):

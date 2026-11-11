@@ -634,8 +634,8 @@ func TestADeliveryToANativeCEOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDeliv
 }
 
 // A delivery to a native CEO already in a turn waits for its next tool call:
-// it is typed and submitted once and reported sent, not delivered, while
-// nothing shows it taken.
+// it is typed and submitted once and reported queued in the CEO's session,
+// not delivered, while nothing shows it taken.
 func TestADeliveryToANativeCEOInATurnWaitsBehindIt(t *testing.T) {
 	stateDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(stateDir, NATIVE_EXIT_PHASES_FILE), nil, 0o600); err != nil {
@@ -652,8 +652,8 @@ func TestADeliveryToANativeCEOInATurnWaitsBehindIt(t *testing.T) {
 
 	result, err := (&CEOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
-	if err != nil || result.Awaiting == nil || result.Awaiting.Host != "ceo" || result.Reason != sentToCEO {
-		t.Errorf("Send = %+v, %v; want it sent and awaiting the CEO's hook, not an error", result, err)
+	if err != nil || result.Awaiting == nil || result.Awaiting.Host != "ceo" || result.Reason != heldByCEO {
+		t.Errorf("Send = %+v, %v; want it queued in the CEO's session and awaiting the CEO's hook, not an error", result, err)
 	}
 	if typed := ceo.exit(t); len(typed) != 3 || typed[2] != "Overlord: hello" {
 		t.Errorf("the terminal received %q, want the message typed once", typed)
@@ -685,7 +685,7 @@ func TestHisMessageToANativeCEOInATurnIsTypedAtOnceAsHeWroteIt(t *testing.T) {
 	result, err := service.deliverMessage(context.Background(), Action{Kind: "message", Text: " unpause all work and complete!! "})
 
 	// Assert
-	if err != nil || result.Awaiting == nil || result.Reason != sentToCEO {
+	if err != nil || result.Awaiting == nil || result.Reason != heldByCEO {
 		t.Errorf("deliverMessage = %+v, %v; want it typed into the turn and awaiting the CEO's next tool call", result, err)
 	}
 	if typed := ceo.exit(t); len(typed) != 3 || typed[2] != "unpause all work and complete!!" {

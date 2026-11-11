@@ -623,11 +623,11 @@ func TestInspectorReadsATaskAnOlderBuildStartedAsBefore(t *testing.T) {
 	}
 }
 
-// A connector card offers + for a service or a project MCP server the task
-// does not carry and a check for one its record names, the two that ceo auth
-// grant and ceo auth revoke change. A credential variable and an MCP server
-// from outside the project's .mcp.json offer neither.
-func TestInspectorNamesWhatEachConnectorCardOffers(t *testing.T) {
+// The board offers Connect for a service or a project MCP server the task
+// does not carry and Disconnect for one its record names, the two that ceo
+// auth grant and ceo auth revoke change. A credential variable and an MCP
+// server from outside the project's .mcp.json offer neither.
+func TestInspectorNamesWhatEachConnectorOffers(t *testing.T) {
 	// Arrange
 	inspector, meta := inspectorFixture(t)
 	meta.Credentials, meta.HasCredentials, meta.MCPServers = []string{"repo"}, true, []string{"tools"}

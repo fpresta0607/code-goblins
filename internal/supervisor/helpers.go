@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
@@ -18,6 +19,8 @@ import (
 // maxHelperBrief bounds a helper's brief: it says what the helper does, not
 // everything it reads.
 const maxHelperBrief = 32 << 10
+
+var helperBriefSetting = regexp.MustCompile(`(?i)^\s*(harness|model|effort|mode)\s*:\s*(\S.*?)\s*$`)
 
 // HelperRequest is a goblin's ask for a helper: the goblin asking, the
 // helper's brief as text, and its short title.
@@ -152,11 +155,27 @@ func (s *Service) acceptHelper(request HelperRequest) (HelperStart, error) {
 	return plan.HelperStart, nil
 }
 
+// helperBriefSettings are the harness, model, effort and mode a helper's brief
+// names on lines of their own anywhere in it, the first of each: the helper
+// contract asks a helper's brief for no Delivery section to name them under.
+func helperBriefSettings(brief string) map[string]string {
+	settings := map[string]string{}
+	for _, line := range strings.Split(brief, "\n") {
+		if match := helperBriefSetting.FindStringSubmatch(line); match != nil {
+			key := strings.ToLower(match[1])
+			if settings[key] == "" {
+				settings[key] = match[2]
+			}
+		}
+	}
+	return settings
+}
+
 // planHelper is the start a helper of request.Parent runs, or why it cannot
 // start: the parent is a live native goblin at work on a branch, with no
 // helper of its own and none of its own parent.
 func (s *Service) planHelper(request HelperRequest) (helperStart, error) {
-	engine := queuedEngine(fleet.BacklogRow{}, parseBriefSettings(strings.Split(request.Brief, "\n")))
+	engine := queuedEngine(fleet.BacklogRow{}, helperBriefSettings(request.Brief))
 	if err := engine.validateEngine(); err != nil {
 		return helperStart{}, err
 	}

@@ -541,6 +541,97 @@ func TestARunRefusesTheFloorAfterItsWaitLimit(t *testing.T) {
 	within(t, take(t, a), "the next run, after the expired waiter left").Release()
 }
 
+// A run given a line limit leaves the line once it has waited that long with
+// no turn, whether another run holds the turn or memory is under the floor,
+// and leaves the turn and its place to the runs that have none.
+func TestARunLeavesTheLineAtItsLineLimit(t *testing.T) {
+	for name, isHeld := range map[string]bool{"behind a run that holds the turn": true, "with memory under the floor": false} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			a := admission(t)
+			var holder Turn
+			if isHeld {
+				holder = within(t, take(t, a), "the holder")
+				defer holder.Release()
+			}
+			waiter := a
+			waiter.LineLimit = 100 * time.Millisecond
+			if !isHeld {
+				waiter.Available = func() (uint64, error) { return 1 * gigabyte, nil }
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			// Act
+			turn, err := waiter.Wait(ctx)
+
+			// Assert
+			defer turn.Release()
+			if !errors.Is(err, ErrLineLimit) || turn.release != nil || turn.Waited < waiter.LineLimit {
+				t.Fatalf("the run past its line limit returned %+v, %v; want no turn, ErrLineLimit and the recorded wait", turn, err)
+			}
+			holding, waiting, err := Line(a.Dir)
+			if err != nil || len(waiting) != 0 || len(holding) != map[bool]int{true: 1, false: 0}[isHeld] {
+				t.Fatalf("the line holds %+v and %+v (%v); want no run left waiting and the holder untouched", holding, waiting, err)
+			}
+			if isHeld {
+				if err := holder.Release(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			within(t, take(t, a), "the next run, after the run past its line limit left").Release()
+		})
+	}
+}
+
+// The line limit bounds the run's first look at the line as well. A run that
+// finds the line's lock busy before it joins the line, and still busy at its
+// line limit, leaves there, rather than trying the lock again for as long as
+// its admission's limit lasts, which is no limit at all for ceo gate turn.
+func TestARunLeavesABusyLockAtItsLineLimitBeforeItJoinsTheLine(t *testing.T) {
+	// Arrange
+	a := admission(t)
+	a.Limit = NoLimit
+	a.LineLimit = 300 * time.Millisecond
+	shortCustodyBudget(t)
+	release := holdLineLock(t, a.Dir, "in this process")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Act
+	turn, err := a.Wait(ctx)
+
+	// Assert
+	defer turn.Release()
+	if !errors.Is(err, ErrLineLimit) || turn.release != nil || turn.Waited < a.LineLimit {
+		t.Fatalf("the run that found the lock busy past its line limit returned %+v, %v; want no turn, ErrLineLimit and the recorded wait", turn, err)
+	}
+	release()
+	holding, waiting, err := Line(a.Dir)
+	if err != nil || len(holding) != 0 || len(waiting) != 0 {
+		t.Fatalf("the line holds %+v and %+v (%v); want it empty, since the run never joined it", holding, waiting, err)
+	}
+}
+
+// The line limit ends only a wait: a run whose turn is free takes it at once,
+// however short its limit, and keeps it.
+func TestARunWithALineLimitTakesATurnThatIsFree(t *testing.T) {
+	// Arrange
+	a := admission(t)
+	a.LineLimit = time.Nanosecond
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Act
+	turn, err := a.Wait(ctx)
+
+	// Assert
+	defer turn.Release()
+	if err != nil || turn.release == nil {
+		t.Fatalf("the run returned %+v, %v; want its turn", turn, err)
+	}
+}
+
 // The limit is on the wait for memory, not on the time in line: a run that
 // stood behind a holder for longer than its limit, and finds memory short as
 // the turn comes free, still waits its limit for memory before refusing it.

@@ -111,7 +111,7 @@ test("an older page goes before the first message held, and what it repeats is d
 
 test("a newest page clears abandoned usage while older pagination keeps current usage", () => {
   const before = parsePage({ conversation: "a", messages: [served(0), served(1, { kind: "reply" })], more: false,
-    usage: { input_tokens: 12000, context_tokens: 24000, context_window: 100000, model: "recorded-model" } });
+    usage: { input_tokens: 12000, context_tokens: 24000, context_window: 100000 } });
   const reset = parsePage({ conversation: "b", messages: [served(0)], more: false });
 
   const next = pageMessages(before, reset);
@@ -331,10 +331,13 @@ for (const [name, blocks, want] of [
   ["the newest call still running stays a live row beside the folded ones", [call("Read"), call("Read"), call(), call(), call(), call("Bash", "running")], ["fold 0+5", "running 5"]],
   ["a failed call is never folded and splits the run", [call(), call(), call("Bash", "failed"), call(), call()], ["fold 0+2", "failed 2", "fold 3+2"]],
   ["denied and interrupted calls stay rows", [call("Bash", "denied"), call("Bash", "interrupted")], ["denied 0", "interrupted 1"]],
-  ["a call with pictures, a question, a plan or a baby goblin stays its row", [
-    call("view_image", "done", { pictures: [{ id: "p1", media_type: "image/png", bytes: 1 }] }), call("AskUserQuestion"), call("request_user_input"),
+  ["a question, a plan or a baby goblin stays its row", [
+    call("AskUserQuestion"), call("request_user_input"),
     call("TodoWrite", "done", { plan: [{ text: "Read", status: "completed" }] }), call("Task", "done", { agent: { node: "subagent:a", type: "Explore" } }),
-  ], ["done 0", "done 1", "done 2", "done 3", "done 4"]],
+  ], ["done 0", "done 1", "done 2", "done 3"]],
+  ["calls with pictures fold with the calls beside them, as the folded row shows their thumbnails", [
+    call("Read", "done", { pictures: [{ id: "p1", media_type: "image/png", bytes: 1 }] }), call(), call("view_image", "done", { pictures: [{ id: "p2", media_type: "image/png", bytes: 1 }] }),
+  ], ["fold 0+3"]],
   ["a call whose outcome was never recorded folds with finished ones", [call("Read", "done", { state: undefined }), call("Read")], ["fold 0+2"]],
 ] as const) {
   test("calls: " + name, () => {

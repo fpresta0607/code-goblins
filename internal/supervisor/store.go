@@ -80,6 +80,10 @@ type Evaluation struct {
 	// Awaiting is set by a delivery that was typed and submitted and now
 	// waits for its harness to report taking it; its action keeps it.
 	Awaiting *Awaiting `json:"-"`
+	// LeftTyped is set by a delivery that ended with its words typed into a
+	// terminal whose harness took no submit key for them, and never saw them
+	// leave the prompt line; its action keeps it.
+	LeftTyped *Awaiting `json:"-"`
 	// CanSendNow is whether a queued message could be typed into its session
 	// on a retry, and SendNowWhy says why not when it could not.
 	CanSendNow bool   `json:"-"`
@@ -116,6 +120,11 @@ type Action struct {
 	// Awaiting is set while the action's delivery, typed and submitted, waits
 	// for its harness to report taking it.
 	Awaiting *Awaiting `json:"awaiting,omitempty"`
+	// LeftTyped is the action's delivery that ended with its words typed
+	// into a terminal and never submitted, without seeing them leave the
+	// prompt line: a harness that had not read them yet shows them there
+	// later, where takeBackLeftTyped takes them back (#2306).
+	LeftTyped *Awaiting `json:"left_typed,omitempty"`
 	// CanSendNow is whether he may ask for a queued message to be typed now,
 	// and SendNowWhy says why not, in plain words.
 	CanSendNow bool   `json:"can_send_now,omitempty"`
@@ -182,6 +191,9 @@ type Store struct {
 	changed       chan struct{}
 	inboxCursor   string
 	deferredUntil map[string]time.Time
+	// trying is each action whose delivery the worker runs now, from the
+	// moment it is picked until its outcome is recorded.
+	trying []string
 	// inboxRead is each inbox event as the last intake read it, by file
 	// name, so an unchanged event deferred again is not read and parsed
 	// again; inboxFillingWake is the identity of the wake for an inbox near
@@ -602,12 +614,52 @@ func (s *Store) noLongerHeld(id, task string) error {
 	return errors.New("It already left the board.")
 }
 
+// tryWait bounds how long a Send now, an Edit or a Cancel waits for a try of
+// the message it names to end.
+var tryWait = 10 * time.Second
+
+// awaitTry waits out a try under way of message id to task, for at most
+// tryWait. The board tries a queued message again and again, each try typing
+// it or finding within a moment that its session cannot take it yet, so a
+// press that lands inside a try acts on how the try ended rather than being
+// turned away for it (#1915: "Send now, Edit and Cancel on a queued message
+// do not work while a Claude turn runs"). A try that typed the message into
+// a goblin's turn still runs while it waits to see the message taken.
+func (s *Store) awaitTry(ctx context.Context, id, task string) {
+	for deadline := time.Now().Add(tryWait); ; {
+		s.mu.Lock()
+		at := slices.IndexFunc(s.db.Actions, func(a Action) bool { return a.ID == id && a.TaskID == task && a.Kind == "message" })
+		isTried := at >= 0 && (s.db.Actions[at].Status == "running" && s.db.Actions[at].Awaiting == nil || slices.Contains(s.trying, id))
+		s.mu.Unlock()
+		if !isTried || time.Now().After(deadline) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
 // SendQueuedMessageNow clears a queued message's wait so the worker types it
 // at its next safe moment, and refuses when its own reason says typing now
 // would break a gate or has nowhere to go.
 func (s *Store) SendQueuedMessageNow(id, task string) (Action, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// A message that reads Not sent reached nobody, so its Send now puts it
+	// back in the queue to go at once, the same message and never a copy.
+	if at := slices.IndexFunc(s.db.Actions, func(unsent Action) bool {
+		return unsent.ID == id && unsent.TaskID == task && isNotSent(unsent)
+	}); at >= 0 {
+		a := &s.db.Actions[at]
+		a.Status, a.Message, a.IsSentNow, a.UpdatedAt = "queued", "", true, time.Now().UTC()
+		if err := s.save(); err != nil {
+			return Action{}, err
+		}
+		return *a, nil
+	}
 	// A second Send now of a message he already sent now is the same ask,
 	// whether it still waits or has gone on its way since, never an error (the
 	// Overlord, 2026-10-28: "lack of indmepotent click on teh queue").
@@ -634,6 +686,29 @@ func (s *Store) SendQueuedMessageNow(id, task string) (Action, error) {
 		return Action{}, err
 	}
 	return *a, nil
+}
+
+// markTyped records, the moment its submit key went, that message id to task
+// was typed into its session's turn, while its delivery still waits to see
+// the harness take it: from then its harness holds it in its own queue, so
+// it reads Queued there, with the controls that act on that queue, rather
+// than Queued on the board with controls that could only fail for the
+// seconds that wait lasts (#1915, #2332).
+func (s *Store) markTyped(id, task string, awaiting *Awaiting) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	at := slices.IndexFunc(s.db.Actions, func(a Action) bool { return a.ID == id && a.TaskID == task && a.Kind == "message" })
+	if at < 0 || s.db.Actions[at].Status != "running" || s.db.Actions[at].Awaiting != nil {
+		return nil
+	}
+	waiting := *awaiting
+	if waiting.QuietSince.IsZero() {
+		waiting.QuietSince = waiting.Since
+	}
+	a := &s.db.Actions[at]
+	waiting.IsHeld = true
+	a.Awaiting, a.Message, a.CanSendNow, a.SendNowWhy, a.UpdatedAt = &waiting, heldByGoblin, false, "", time.Now().UTC()
+	return s.save()
 }
 
 // holdCommand takes Send now off a queued message that is a command, which
@@ -841,8 +916,11 @@ func (s *Store) queue(a Action) (Action, error) {
 	a.CreatedAt = time.Now().UTC()
 	a.UpdatedAt = a.CreatedAt
 	// His words to the CEO wait out their undo window on the board, which
-	// Send now skips.
-	a.CanSendNow = message && a.TaskID == "" && !isHarnessCommand(a.Text)
+	// Send now skips. His words to a goblin wait only for the board to try
+	// them, and Send now pressed before it has is kept for that try rather
+	// than refused as words that "cannot be typed into its session now"
+	// (#1915).
+	a.CanSendNow = message && !isHarnessCommand(a.Text)
 	// The answer already chosen sends nothing, but is kept, so a retry of the
 	// same request finds it done.
 	if isSame {
@@ -1033,10 +1111,12 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 		s.mu.Unlock()
 		return err
 	}
+	s.trying = append(s.trying, ran...)
 	s.mu.Unlock()
 	result, runErr := execute(ctx, a)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.trying = slices.DeleteFunc(s.trying, func(id string) bool { return slices.Contains(ran, id) })
 	for _, id := range ran {
 		// Queue append/retention can move indices while the action is running.
 		i = slices.IndexFunc(s.db.Actions, func(current Action) bool { return current.ID == id })
@@ -1045,6 +1125,11 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 		}
 		completed := &s.db.Actions[i]
 		a := *completed
+		// One markTyped recorded as typed was settled while its delivery
+		// still waited to see it taken, and that outcome stands.
+		if a.Status != "running" {
+			continue
+		}
 		completed.UpdatedAt = time.Now().UTC()
 		if errors.Is(runErr, ErrDeferred) {
 			completed.Status = "queued"
@@ -1065,12 +1150,18 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 		}
 		delete(s.deferredUntil, a.ID)
 		completed.CanSendNow, completed.SendNowWhy = false, ""
+		// What markTyped recorded as the submit key went gives way to how the
+		// delivery ended.
+		completed.Awaiting = nil
 		if runErr != nil {
 			completed.Status = "failed"
-			if a.Kind != "evaluate" && !errors.Is(runErr, ErrRejected) {
+			// A message whose words were taken back unsent reached nobody;
+			// any other delivery that ended in doubt may have arrived.
+			if a.Kind != "evaluate" && !errors.Is(runErr, ErrRejected) && !(a.Kind == "message" && errors.Is(runErr, ErrNotSent)) {
 				completed.Status = "uncertain"
 			}
 			completed.Message = bounded(runErr.Error(), 1200)
+			completed.LeftTyped = result.LeftTyped
 			if a.Kind == "evaluate" && (a.EventID == "" || s.db.Sessions[a.Session].LastEventID == a.EventID) {
 				prior := s.db.Tasks[a.TaskID]
 				base := ""

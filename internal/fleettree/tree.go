@@ -148,7 +148,10 @@ type Tree struct {
 	// Session is the conversation the goblin's running harness proved it is
 	// in at this read, as RunningSession names it, and empty while the
 	// harness does not run. The board keeps it for the goblin's relaunch.
-	Session  string `json:"-"`
+	Session string `json:"-"`
+	// Engine is the model and effort the goblin's own conversation last
+	// names, which the board writes into the task's record.
+	Engine   Engine `json:"-"`
 	Children []Node `json:"children"`
 	// LinePlace is the place in the machine's heavy line of the goblin's
 	// run that waits nearest its turn, a child's or one of its own

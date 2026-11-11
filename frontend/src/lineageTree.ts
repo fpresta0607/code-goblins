@@ -26,10 +26,12 @@ export function taskSessionDetails(task: Task): string {
     : "Session details unavailable";
 }
 
+// sessionModel is the model a session runs: its task record's for the task's
+// own session, the one record of it, and what a child session reported of
+// itself, which has no record of its own.
 export function sessionModel(node?: Session, task?: Task): string {
   return (
-    node?.model ||
-    (ownsTaskSession(node, task) ? task?.model : "") ||
+    (ownsTaskSession(node, task) ? task?.model : node?.model) ||
     "Model unreported"
   );
 }

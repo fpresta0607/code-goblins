@@ -455,10 +455,16 @@ func TestStartDispatchesThroughCeoSpawnAndTellsTheCEO(t *testing.T) {
 			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--effort", "medium", "--mode", "no-mistakes"},
 		},
 		{
-			name:  "every row field wins over the brief",
+			name:  "the row's engine over the brief's, and the brief's Delivery mode over the row's",
 			row:   "- **next-task** - Ship it (harness: codex, model: gpt-6.1-sol, effort: medium, mode: local-only)",
 			brief: strings.ReplaceAll(plainBrief, "mode: no-mistakes", "mode: direct-PR") + "harness: claude\nmodel: opus\neffort: high\n",
-			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--harness", "codex", "--model", "gpt-6.1-sol", "--effort", "medium", "--mode", "local-only"},
+			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--harness", "codex", "--model", "gpt-6.1-sol", "--effort", "medium", "--mode", "direct-PR"},
+		},
+		{
+			name:  "launch choices in the task text name nothing",
+			row:   "- **next-task** - Ship it",
+			brief: strings.Replace(plainBrief, "Ship it.\n", "Ship it.\nmode: direct-PR\nharness: codex\nmodel: quoted-model\neffort: low\n", 1),
+			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--mode", "no-mistakes"},
 		},
 	}
 	for _, test := range tests {
@@ -510,6 +516,7 @@ func TestQueuedSnapshotShowsOnlyExplicitEngineSettings(t *testing.T) {
 		{name: "automatic", row: "- **next-task** - Ship it", brief: plainBrief},
 		{name: "partial", row: "- **next-task** - Ship it (effort: high)", brief: plainBrief, effort: "high"},
 		{name: "row over brief", row: "- **next-task** - Ship it (harness: codex, model: gpt-6.1-sol)", brief: plainBrief + "\nharness: claude\nmodel: opus\neffort: high\n", harness: "codex", model: "gpt-6.1-sol", effort: "high"},
+		{name: "task text names nothing", row: "- **next-task** - Ship it", brief: strings.Replace(plainBrief, "Ship it.\n", "Ship it.\nharness: codex\nmodel: quoted-model\neffort: low\n", 1)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

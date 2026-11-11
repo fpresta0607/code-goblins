@@ -96,7 +96,7 @@ func TestRestartCodexCEOUsesSelectedModelAndEffortOnItsConversation(t *testing.T
 
 // An explicit harness wins for that start, as `goblins --harness` and the
 // board's Restart promise, and the saved selection keeps its own harness's model
-// and effort for when the CEO runs as that harness again.
+// and effort until the CEO that started names the engine it runs.
 func TestAnExplicitHarnessStartsWithoutTheSavedEnginesFlags(t *testing.T) {
 	h := home.Home{Root: t.TempDir()}
 	h.State, h.Data = filepath.Join(h.Root, "state"), filepath.Join(h.Root, "data")
@@ -132,6 +132,43 @@ func TestAnExplicitHarnessStartsWithoutTheSavedEnginesFlags(t *testing.T) {
 	t.Fatal("the CEO did not start")
 }
 
+// A record the supervisor wrote from the CEO's own conversation names the
+// effort default where the session named no level a start takes: the CEO's
+// next start runs the recorded model and passes no effort flag, so the
+// harness keeps its own.
+func TestACEOStartsOnItsRecordedModelAtTheHarnesssOwnEffort(t *testing.T) {
+	// Arrange
+	h := home.Home{Root: t.TempDir()}
+	h.State, h.Data = filepath.Join(h.Root, "state"), filepath.Join(h.Root, "data")
+	switchStandIns(t, h)
+	if err := os.MkdirAll(h.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.State, "ceo-engine.json"), []byte(`{"harness":"codex","model":"recorded-model","effort":"default"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if err := startNativeCEO(h, h.Root, "codex", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCEOTerminal) })
+
+	// Assert
+	path := filepath.Join(h.Root, "switch-arguments.txt")
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		data, _ := os.ReadFile(path)
+		if !strings.Contains(string(data), "--model recorded-model") {
+			continue
+		}
+		if strings.Contains(string(data), "model_reasoning_effort") {
+			t.Fatalf("started with an effort flag for the harness's own effort: %s", data)
+		}
+		return
+	}
+	t.Fatal("the CEO did not start on its recorded model")
+}
+
 // A saved selection's problem from an earlier start no longer holds once the
 // CEO starts as the harness it names, with its model and effort, which the
 // board then shows as what the CEO runs; a start as another harness keeps a
@@ -152,7 +189,7 @@ func TestACEOStartAsTheSavedEnginesHarnessClearsItsProblem(t *testing.T) {
 			if err := os.MkdirAll(h.State, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			selection := `{"harness":"pi","model":"selected-model","effort":"xhigh","problem":"The CEO started as codex, not as the pi its saved engine names; the selection is used when the CEO runs as pi again","overridden":"codex"}`
+			selection := `{"harness":"pi","model":"selected-model","effort":"xhigh","problem":"The CEO started as codex, not as the pi its saved engine names; what the codex CEO runs replaces the saved engine once its conversation names it","overridden":"codex"}`
 			if err := os.WriteFile(filepath.Join(h.State, "ceo-engine.json"), []byte(selection), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -541,7 +578,7 @@ func TestAFailedCEOStartKeepsItsSavedEnginesProblem(t *testing.T) {
 	if err := os.MkdirAll(h.State, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	problem := "The CEO started as codex, not as the claude its saved engine names; the selection is used when the CEO runs as claude again"
+	problem := "The CEO started as codex, not as the claude its saved engine names; what the codex CEO runs replaces the saved engine once its conversation names it"
 	selection := `{"harness":"claude","model":"claude-opus-5-5","effort":"high","problem":"` + problem + `"}`
 	if err := os.WriteFile(filepath.Join(h.State, "ceo-engine.json"), []byte(selection), 0o600); err != nil {
 		t.Fatal(err)

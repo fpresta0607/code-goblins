@@ -334,7 +334,7 @@ func TestGrantRequestCardGrantsAfterThePressAndWakesTheCEO(t *testing.T) {
 // Tailscale's headers, which a program on this PC can forge, he chose "Allow
 // it as is". A service grant card's Grant through the private board's gate
 // lands, recorded as from his private board; a press with no card, such as a
-// revoke from the Connections panel, stays on the PC.
+// revoke from the Connectors page, stays on the PC.
 func TestHisPrivateBoardGrantsAServiceOnItsCardAndNothingElse(t *testing.T) {
 	// Arrange
 	s, stateDir := grantBoard(t)

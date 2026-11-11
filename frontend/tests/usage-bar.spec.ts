@@ -11,7 +11,7 @@ import { box, card, holdMessages, NAME, open, openGoblin, PAGE, releaseMessages,
 // tests/session-board.ts; every reading is made up.
 
 const at = "2026-10-28T09:00:00Z";
-const usage = (fields: Record<string, unknown> = {}) => ({ input_tokens: 1_400_000, output_tokens: 289_000, cache_read_tokens: 208_000_000, cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000, model: "claude-opus-5-5", ...fields });
+const usage = (fields: Record<string, unknown> = {}) => ({ input_tokens: 1_400_000, output_tokens: 289_000, cache_read_tokens: 208_000_000, cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000, ...fields });
 const subscription = (provider: string, percent: number) => ({ provider, status: "available", percent_remaining: percent, read_at: at, resets_at: "2026-11-02T09:00:00Z", source: "oauth", floor_percent: 5 });
 const KEY = { provider: "openrouter", status: "available", spent_usd: 4, limit_usd: 20, remaining_usd: 16, period: "weekly", resets_at: "", read_at: at, byok_usd: null, includes_byok: false };
 
@@ -22,8 +22,8 @@ const meter = (page: Page, name: string) => bar(page).getByRole("meter", { name,
 
 const SESSIONS = [
   { harness: "claude", model: "claude-opus-5-5", context: usage(), fields: { subscriptions: [subscription("claude", 88)] }, other: "Week", otherPercent: "12%" },
-  { harness: "codex", model: "gpt-6-astra", context: usage({ context_tokens: 129_000, context_window: 258_400, model: "gpt-6-astra" }), fields: { subscriptions: [subscription("codex", 40)] }, other: "Week", otherPercent: "60%" },
-  { harness: "pi", model: "z-ai/glm-5.3-flash", context: usage({ context_tokens: 64_000, context_window: 200_000, model: "z-ai/glm-5.3-flash" }), fields: { key_spend: [KEY] }, other: "Key spend", otherPercent: "20%" },
+  { harness: "codex", model: "gpt-6-astra", context: usage({ context_tokens: 129_000, context_window: 258_400 }), fields: { subscriptions: [subscription("codex", 40)] }, other: "Week", otherPercent: "60%" },
+  { harness: "pi", model: "z-ai/glm-5.3-flash", context: usage({ context_tokens: 64_000, context_window: 200_000 }), fields: { key_spend: [KEY] }, other: "Key spend", otherPercent: "20%" },
 ] as const;
 
 for (const session of SESSIONS) {

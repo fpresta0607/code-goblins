@@ -1,6 +1,7 @@
 package gatetest
 
 import (
+	"context"
 	"io"
 	"regexp"
 	"slices"
@@ -27,8 +28,20 @@ import (
 // failures, 465 of 1603 cases ran, the time limit ended it, and the run said
 // it passed what it ran (issue 1542). A row is read only in that shape, so no
 // other line of a check's output can be taken for a case.
+//
+// A row is read only until the check's time ends. Ending the check ends its
+// processes, the browser and the worker running a case among them, and
+// Playwright closes that case as failed when either goes before its runner
+// does, so the reporter writes a row for it. That row is the end's doing: a
+// prepush whose 17 cases had all passed failed the push on case 18, which the
+// limit had ended and which passes by itself (issue 1927). The check's
+// processes are ended only after its time has, so no row read before that
+// can be one of these, and a row that arrives after it is left to CI with
+// the cases that never ran.
 type BrowserReport struct {
 	out io.Writer
+	// ended is closed when the check's time ends.
+	ended <-chan struct{}
 
 	mu sync.Mutex
 	// carry is the row a Write left without its newline, which the next one
@@ -44,17 +57,25 @@ type BrowserReport struct {
 // titles.
 var browserCase = regexp.MustCompile(`^ceo gate case: (unexpected|flaky) (\[[^\]]*\] \S.*)$`)
 
-// NewBrowserReport keeps the cases out reports as failed and passes
-// everything it is given on to out.
-func NewBrowserReport(out io.Writer) *BrowserReport {
-	return &BrowserReport{out: out}
+// NewBrowserReport keeps the cases out reports as failed until ctx, the
+// context of the check's run, ends, and passes everything it is given on to
+// out.
+func NewBrowserReport(ctx context.Context, out io.Writer) *BrowserReport {
+	return &BrowserReport{out: out, ended: ctx.Done()}
 }
 
-// Write passes p to out and reads the rows it holds.
+// Write passes p to out and reads the rows it holds, unless the check's time
+// has ended. A row that end finds unfinished is not read either.
 func (r *BrowserReport) Write(p []byte) (int, error) {
 	written, err := r.out.Write(p)
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	select {
+	case <-r.ended:
+		r.carry = ""
+		return written, err
+	default:
+	}
 	text := r.carry + string(p[:written])
 	r.carry = ""
 	lines := strings.Split(text, "\n")

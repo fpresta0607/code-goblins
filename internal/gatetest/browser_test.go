@@ -2,6 +2,7 @@ package gatetest
 
 import (
 	"bytes"
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -12,7 +13,7 @@ import (
 func TestBrowserReportNamesTheCasesThatFailed(t *testing.T) {
 	// Arrange
 	var out bytes.Buffer
-	report := NewBrowserReport(&out)
+	report := NewBrowserReport(t.Context(), &out)
 	rows := strings.Join([]string{
 		`  ok  87 [board] › tests\composer-status.spec.ts:10:7 › classic keeps held queue status compact (3.8s)`,
 		`  x   88 [board] › tests\composer-status.spec.ts:85:7 › classic gives a held send failure priority (23ms)`,
@@ -53,7 +54,7 @@ func TestBrowserReportNamesTheCasesThatFailed(t *testing.T) {
 func TestBrowserReportDropsACaseThatFailedAsExpected(t *testing.T) {
 	// Arrange
 	var out bytes.Buffer
-	report := NewBrowserReport(&out)
+	report := NewBrowserReport(t.Context(), &out)
 	transcript := `Running 5 tests using 1 worker
 
   ok 1 [board] › tests\cases.spec.ts:2:1 › passes (1ms)
@@ -101,7 +102,7 @@ ceo gate case: unexpected [board] tests/cases.spec.ts:5:1 › fails
 func TestBrowserReportReadsRowsSplitAcrossWritesAndWithoutANewline(t *testing.T) {
 	// Arrange
 	var out bytes.Buffer
-	report := NewBrowserReport(&out)
+	report := NewBrowserReport(t.Context(), &out)
 	row := `ceo gate case: unexpected [board] tests/afk.spec.ts:85:7 › a case that failed`
 	want := []string{"[board] tests/afk.spec.ts:85:7 › a case that failed"}
 
@@ -121,6 +122,50 @@ func TestBrowserReportReadsRowsSplitAcrossWritesAndWithoutANewline(t *testing.T)
 	}
 }
 
+// A row the check writes once its time has ended is no failure before it:
+// ending the check ends the browser and the worker running a case, and
+// Playwright closes that case as failed when either goes before its runner
+// does (issue 1927). A case that failed before the end stays one, and the
+// output still reaches the run unchanged.
+func TestBrowserReportReadsNoRowOnceTheChecksTimeHasEnded(t *testing.T) {
+	failed := "ceo gate case: unexpected [board] tests/afk.spec.ts:85:7 › a case that failed\n"
+	cut := "  x  18 [board] › tests\\afk.spec.ts:91:7 › a case the limit ended (2ms)\n" +
+		"ceo gate case: unexpected [board] tests/afk.spec.ts:91:7 › a case the limit ended\n"
+	for name, c := range map[string]struct {
+		before, after string
+	}{
+		"a row written after the end":      {before: failed, after: cut},
+		"a row the end finds unfinished":   {before: failed + cut[:len(cut)-20], after: cut[len(cut)-20:]},
+		"a row written whole with the end": {before: failed, after: cut[:len(cut)-1]},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			ctx, end := context.WithCancel(t.Context())
+			defer end()
+			var out bytes.Buffer
+			report := NewBrowserReport(ctx, &out)
+			want := []string{"[board] tests/afk.spec.ts:85:7 › a case that failed"}
+
+			// Act
+			if _, err := report.Write([]byte(c.before)); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			end()
+			if _, err := report.Write([]byte(c.after)); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+
+			// Assert
+			if got := report.Failed(); !slices.Equal(got, want) {
+				t.Errorf("failed cases are %q, want %q", got, want)
+			}
+			if out.String() != c.before+c.after {
+				t.Errorf("the run's output is %q, want %q", out.String(), c.before+c.after)
+			}
+		})
+	}
+}
+
 // A case that failed and passed when the run tried it again is no failure: the
 // reporter writes a row per try that failed and a flaky row for the retry that
 // passed it, so a case is what its last row said. The rows are a transcript of
@@ -130,7 +175,7 @@ func TestBrowserReportReadsRowsSplitAcrossWritesAndWithoutANewline(t *testing.T)
 func TestBrowserReportDropsACaseThatPassedOnARetry(t *testing.T) {
 	// Arrange
 	var out bytes.Buffer
-	report := NewBrowserReport(&out)
+	report := NewBrowserReport(t.Context(), &out)
 	rows := strings.Join([]string{
 		`Running 2 tests using 1 worker`,
 		``,
@@ -163,7 +208,7 @@ func TestBrowserReportDropsACaseThatPassedOnARetry(t *testing.T) {
 func TestBrowserReportReadsOnlyTheGateReportersRows(t *testing.T) {
 	// Arrange
 	var out bytes.Buffer
-	report := NewBrowserReport(&out)
+	report := NewBrowserReport(t.Context(), &out)
 	for _, line := range []string{
 		`  x   88 [board] › tests\composer-status.spec.ts:85:7 › a title (23ms)`,
 		"x 12 of 1603 cases did not pass",

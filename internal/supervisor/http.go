@@ -293,6 +293,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.selectCEOEngine(w, r)
 	case r.URL.Path == "/api/ceo/update" && r.Method == "POST":
 		h.updateCEO(w, r)
+	case r.URL.Path == "/api/harness/update-check" && r.Method == "POST":
+		h.checkHarnessUpdate(w, r)
 	case r.URL.Path == "/api/ceo/report" && r.Method == "POST":
 		h.reportBoardError(w, r)
 	case r.URL.Path == "/api/start-at-login" && r.Method == "POST":
@@ -568,9 +570,25 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// A press on a queued message that lands while the board tries it acts
+	// on how that try ended.
+	if (a.Kind == "message_now" || a.Kind == "message_withdraw") && a.Target != "" {
+		h.Service.Store.awaitTry(r.Context(), a.Target, a.TaskID)
+	}
 	// A queued message's Send now asks for it where it waits, and is never
 	// queued as a delivery of its own.
 	if a.Kind == "message_now" {
+		// One its harness holds in its own queue goes by that harness's
+		// send-now key (#2332).
+		if isHeld, err := h.Service.sendHeldNow(a.Target, a.TaskID); isHeld {
+			if err != nil {
+				apiError(w, 409, err.Error())
+				return
+			}
+			h.Service.publish(nil)
+			respond(w, 202, map[string]string{"status": "sending"})
+			return
+		}
 		if _, err := h.Service.Store.SendQueuedMessageNow(a.Target, a.TaskID); err != nil {
 			apiError(w, 409, err.Error())
 			return
@@ -579,6 +597,20 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		h.Service.publish(nil)
 		respond(w, 202, map[string]string{"status": "sending"})
 		return
+	}
+	// An Edit or a Cancel of a message its harness holds in its own queue
+	// takes it back out of that queue (#2332).
+	if a.Kind == "message_withdraw" && a.Target != "" {
+		if withdrawn, isHeld, err := h.Service.takeBackHeld(a); isHeld {
+			h.Service.wakeActions()
+			h.Service.publish(nil)
+			if err != nil {
+				apiError(w, 409, err.Error())
+				return
+			}
+			respond(w, 202, withdrawn)
+			return
+		}
 	}
 	var err error
 	if a.Kind == "review" {

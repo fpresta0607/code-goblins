@@ -337,12 +337,15 @@ export function liveCeoSession(snapshot: Pick<Snapshot, "sessions" | "ceo_sessio
   return snapshot.ceo_session ? running.find((session) => session.id === snapshot.ceo_session) : running.at(-1);
 }
 
-// ceoEffort is the effort the CEO runs: its saved engine's once that applied
-// to the CEO's own harness, with no change pending and no problem, and none
-// otherwise.
-export function ceoEffort(snapshot: Pick<Snapshot, "ceo_engine" | "ceo_harness">): string {
+// ceoEngine is the model and effort the CEO runs, which every view of the CEO
+// shows: its engine record's, the one record of them, which the board keeps
+// on what the CEO's own session says it runs. The record names them once it
+// applies to the CEO's own harness, with no change pending and no problem;
+// until then it names a selection the CEO does not run yet, and no view
+// shows a model or an effort.
+export function ceoEngine(snapshot: Pick<Snapshot, "ceo_engine" | "ceo_harness">): { model: string; effort: string } {
   const engine = snapshot.ceo_engine;
-  return engine && !engine.pending && !engine.problem && engine.harness === snapshot.ceo_harness ? engine.effort : "";
+  return engine && !engine.pending && !engine.problem && engine.harness === snapshot.ceo_harness ? { model: engine.model, effort: engine.effort } : { model: "", effort: "" };
 }
 
 // isInProgress says a task's goblin works or waits, as the board's In progress

@@ -378,6 +378,154 @@ test("Send now and Cancel each reach the board once, however often he presses th
   expect(posts.map((post) => post.kind)).toEqual(["message_now", "message_withdraw"]);
 });
 
+// The Overlord, 2026-11-10: "queued messages in modern chat get stuck in input
+// box in terminal chat and never send" (#2306). A message the board typed
+// that its harness never took as submitted is taken back off the terminal's
+// prompt line and reads Not sent on its bubble, why as its description. The
+// board still holds it, so Send now sends that same message, never a copy,
+// and Cancel takes it off the board, each once however often he presses.
+const NOT_SENT = "Not sent. It was typed for " + GOBLIN.id + " and never submitted. It was taken back off its prompt line, so nothing of it is left typed there.";
+for (const [press, kind, text] of [["Send now", "message_now", ""], ["Cancel", "message_withdraw", "hold the merge until the gate lets go"]] as const) {
+  test(`a message that was not sent says so on its bubble, with Send now and Cancel, and ${press} reaches the board once`, async ({ page }) => {
+    // Arrange
+    const posts = await openWith(page, queued({ status: "failed", message: NOT_SENT, send_now_why: "" }));
+    const bubble = entry(page);
+
+    // Assert
+    await expect(bubble.locator(".queued-state")).toHaveText("Not sent");
+    await expect(bubble.locator(".queued-bubble")).toHaveAccessibleDescription(/taken back off its prompt line/);
+    await expect(bubble.locator(".queued-actions button")).toHaveCount(2);
+    for (const name of ["Send now", "Cancel"]) await expect(bubble.getByRole("button", { name, exact: true })).toBeVisible();
+
+    // Act
+    await bubble.getByRole("button", { name: press, exact: true }).dblclick();
+
+    // Assert
+    await expect.poll(() => posts).toEqual([{ kind, target: "q1", text }]);
+  });
+}
+
+// A Send now he asked for is spent once the board has tried the message
+// again, so one that was not sent a second time can be sent now once more
+// rather than left with Cancel alone.
+test("a message not sent again after its Send now can be sent now once more", async ({ page }) => {
+  // Arrange
+  const unsent = queued({ status: "failed", message: NOT_SENT, send_now_why: "" });
+  const posts = await openWith(page, unsent);
+  const sendNow = entry(page).getByRole("button", { name: "Send now", exact: true });
+  const show = (revision: number, action: object) => page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision, actions: [action] }));
+  await sendNow.click();
+  await expect.poll(() => posts.length).toBe(1);
+
+  // Act: the board queues it again, tries it, and it is not sent again.
+  await show(2, queued({ can_send_now: true, send_now_why: "", message: "Queued.", updated_at: "2026-10-22T09:00:05Z" }));
+  await expect(entry(page).locator(".queued-state")).toHaveText(WAITING);
+  await show(3, { ...unsent, updated_at: "2026-10-22T09:00:40Z" });
+  await expect(entry(page).locator(".queued-state")).toHaveText("Not sent");
+  await sendNow.click();
+
+  // Assert
+  await expect.poll(() => posts).toEqual([{ kind: "message_now", target: "q1", text: "" }, { kind: "message_now", target: "q1", text: "" }]);
+});
+
+// The Overlord, 2026-11-10 (#2332): a message the harness still held in its
+// own queue read Sent in Modern Chat on his phone, with nothing to press.
+// Sent means the harness has taken it into a turn: one typed into a turn
+// under way reads Queued, dimmed, with Send now, Edit and Cancel, each of
+// which the board carries to the harness's own queue, and is his own row,
+// with no label, once the harness takes it.
+for (const { whose, task, width } of [
+  { whose: "the CEO", task: "", width: 390 }, { whose: "a goblin", task: GOBLIN.id, width: 390 }, { whose: "a goblin", task: GOBLIN.id, width: 1440 },
+]) {
+  test(`at ${width} wide, his message in the queue of ${whose}'s harness reads Queued with its controls, each reaching the board`, async ({ page }, testInfo) => {
+    // Arrange
+    await page.setViewportSize({ width, height: 844 });
+    const words = "check the phone layout too";
+    const held = queued({
+      id: "h1", task_id: task, generation: task ? GOBLIN.generation : "", text: words, status: "running", can_send_now: false, send_now_why: "",
+      message: task ? "Queued in the goblin's session. The goblin takes it at its next tool call, or as its current turn ends." : "Queued in the CEO's session. The CEO takes it at its next tool call, or as its current turn ends.",
+      awaiting: task ? { task, since: "2026-10-22T09:01:00Z", is_held: true } : { since: "2026-10-22T09:01:00Z", is_held: true }, created_at: "2026-10-22T09:01:00Z", updated_at: "2026-10-22T09:01:01Z",
+    });
+    const posts: { kind: string; target: string }[] = [];
+    const relay = await open(page, snapshot({ actions: [held] }));
+    await page.route("**/api/actions", (route) => {
+      const body = route.request().postDataJSON() as { kind: string; target?: string };
+      posts.push({ kind: body.kind, target: body.target ?? "" });
+      return route.fulfill({ status: 202, json: { status: "ok" } });
+    });
+    if (task) await openGoblin(page);
+    else {
+      await page.keyboard.press("Control+Alt+1");
+      await expect(page.locator("#panel-title")).toHaveText("CEO");
+    }
+    relay.say({ type: "screen", asking: false, open: false, working: true });
+    const bubble = entry(page).filter({ hasText: words });
+
+    // Assert: Queued, never Sent, and his to act on.
+    await expect(bubble.locator(".queued-state")).toHaveText(WAITING);
+    expect(Number(await bubble.locator(".queued-bubble").evaluate((element) => getComputedStyle(element).opacity))).toBeLessThan(1);
+    await expect(bubble.locator(".queued-bubble")).toHaveAccessibleDescription(task ? /^Queued in the goblin's session\./ : /^Queued in the CEO's session\./);
+    for (const name of ["Send now", "Edit", "Cancel"]) await expect(bubble.getByRole("button", { name, exact: true })).toBeEnabled();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    const shot = testInfo.outputPath(`harness-held-${task ? "goblin" : "ceo"}-${width}.png`);
+    await page.screenshot({ path: shot });
+    await testInfo.attach(`harness-held-${task ? "goblin" : "ceo"}-${width}`, { path: shot, contentType: "image/png" });
+
+    // Act: Send now, pressed twice.
+    const sendNow = bubble.getByRole("button", { name: "Send now", exact: true });
+    await sendNow.click();
+    await expect(sendNow).toBeDisabled();
+
+    // Assert: one press reaches the board, and it stays pressed until the
+    // board says what came of it.
+    await expect.poll(() => posts).toEqual([{ kind: "message_now", target: "h1" }]);
+
+    // Act: its harness's key went and the message still waits there, as
+    // behind a command typed in its terminal, so he may ask again.
+    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })),
+      snapshot({ revision: 2, actions: [{ ...held, message: "Typed while it was working and sent now.", updated_at: "2026-10-22T09:01:05Z" }] }));
+    await expect(sendNow).toBeEnabled();
+    await sendNow.click();
+    await expect.poll(() => posts).toEqual([{ kind: "message_now", target: "h1" }, { kind: "message_now", target: "h1" }]);
+
+    // Act: Cancel.
+    await bubble.getByRole("button", { name: "Cancel", exact: true }).click();
+
+    // Assert: it names the message by its own identity, once.
+    await expect.poll(() => posts.slice(2)).toEqual([{ kind: "message_withdraw", target: "h1" }]);
+    await expect(bubble.locator(".queued-actions")).toHaveCount(0);
+  });
+}
+
+test("Edit takes a message back out of its harness's queue and into the box, and one its harness is handing over has nothing to press", async ({ page }) => {
+  // Arrange
+  const words = "check the phone layout too";
+  const held = queued({
+    id: "h1", text: words, status: "running", can_send_now: false, send_now_why: "", message: "Queued in its session.",
+    awaiting: { task: GOBLIN.id, since: "2026-10-22T09:01:00Z", is_held: true }, created_at: "2026-10-22T09:01:00Z", updated_at: "2026-10-22T09:01:01Z",
+  });
+  const posts = await openWith(page, held);
+  const bubble = entry(page).filter({ hasText: words });
+
+  // Act: its harness hands it to a turn, as its own record shows.
+  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
+    { ...PAGE, waiting: [{ id: "w1", at: "2026-10-22T09:01:00Z", source: "overlord", text: words, sending: true, action: "h1" }] });
+
+  // Assert: out of his hands.
+  await expect(bubble.locator(".queued-state")).toHaveText("Sending");
+  await expect(bubble.locator(".queued-actions")).toHaveCount(0);
+
+  // Act: the record shows it queued there instead, and he presses Edit.
+  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
+    { ...PAGE, waiting: [{ id: "w1", at: "2026-10-22T09:01:00Z", source: "overlord", text: words, action: "h1" }] });
+  await expect(bubble.locator(".queued-state")).toHaveText(WAITING);
+  await bubble.getByRole("button", { name: "Edit", exact: true }).click();
+
+  // Assert: taken back by its own identity, his words in the box to change.
+  await expect.poll(() => posts).toEqual([{ kind: "message_withdraw", target: "h1", text: words }]);
+  await expect(field(page)).toHaveValue(words);
+});
+
 // His message to the CEO waits out a short undo window on the board, where
 // Edit and Cancel work, and is then typed into the CEO's turn, where they go
 // (the CEO, 2026-11-02: "The bubble shows each real state: held (Edit and
@@ -562,6 +710,8 @@ for (const [press, said] of [["Send now", "Its gate holds the branch."], ["Cance
 }
 
 const KEPT = "C:\\goblin\\tasktmp\\cg-touch\\composer-files\\pasted-1.png";
+// A 1x1 PNG, which the kept picture reads back as.
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 // controls reads a queued entry's buttons as they are drawn: name, look and
 // icon, in order.
 const controls = (entry: ReturnType<Page["locator"]>) => entry.locator(".queued-actions button").evaluateAll((buttons) =>
@@ -629,19 +779,33 @@ test("Up in the empty box takes the newest queued message back into the box, its
 });
 
 // The Overlord, 2026-10-28: "see how claude includes pictures when pasted".
-test("a queued message shows the picture the box kept above its bubble, never its path", async ({ page }) => {
-  // Arrange and Act
-  await openWith(page, queued({ text: "what is wrong here?\n" + KEPT }));
+test("a queued message shows the picture the box kept above its bubble, never its path, and opens it among its own", async ({ page }) => {
+  // Arrange and Act: the kept picture reads back to the board's token.
+  await open(page, snapshot({ actions: [queued({ text: "what is wrong here?\n" + KEPT })] }));
+  await page.route("**/api/composer/file**", (route) => route.fulfill({ body: PNG, contentType: "image/png" }));
+  await openGoblin(page);
 
   // Assert
   const picture = entry(page).locator(".message-picture img");
   await expect(picture).toHaveCount(1);
+  await expect.poll(() => picture.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth)).toBe(1);
   await expect(entry(page).locator(".queued-bubble")).toHaveText("what is wrong here?");
   await expect(page.locator(".messages-view")).not.toContainText("composer-files");
   expect(await entry(page).evaluate((element) => {
     const picture = element.querySelector(".message-pictures")?.getBoundingClientRect(), bubble = element.querySelector(".queued-bubble")?.getBoundingClientRect();
     return !!picture && !!bubble && picture.bottom <= bubble.top;
   }), "the picture sits above the bubble").toBe(true);
+
+  // Act: a message still queued is no row of the conversation yet, so its
+  // picture opens among the message's own.
+  await entry(page).getByRole("button", { name: "Open picture 1" }).click();
+
+  // Assert
+  const viewer = page.getByRole("dialog", { name: "Pictures" });
+  await expect(viewer.getByRole("status")).toHaveText("1 of 1");
+  await expect(viewer.getByRole("img", { name: "Picture 1 of 1" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(viewer).toHaveCount(0);
 });
 
 // The Overlord, 2026-10-28: "as it's working and going through stuff, it

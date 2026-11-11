@@ -44,7 +44,6 @@ var (
 	spawnHarnesses = []string{"claude", "codex", "pi"}
 	spawnModes     = []string{"no-mistakes", "direct-PR", "local-only"}
 	spawnValue     = regexp.MustCompile(`^[A-Za-z0-9._:/\[\]~-]{1,200}$`)
-	briefSetting   = regexp.MustCompile(`(?i)^\s*(harness|model|effort|mode)\s*:\s*(\S.*?)\s*$`)
 )
 
 // Dispatch is what a queued task's Start reads and runs on this machine:
@@ -400,8 +399,10 @@ func spawnFailure(output string, err error) string {
 
 // planStart is the ceo spawn a Start of id runs, or why it cannot: id must be
 // queued work with a brief and a project, not already running and not
-// already finished. Harness, model, effort and mode come from the backlog
-// row, then the brief. Unspecified engine settings are routed by spawn.
+// already finished. Harness, model and effort come from the backlog row, then
+// the brief's Delivery section, and mode from that section alone, since it is
+// the one readiness validated. Unspecified engine settings are routed by
+// spawn.
 func planStart(h home.Home, id string, finished *finishedWork, reading rowReading) (startPlan, error) {
 	if _, err := os.Stat(filepath.Join(h.State, id+".meta")); err == nil {
 		return startPlan{}, StartRefusal{Reason: id + " already runs; open it from In progress", Held: true}
@@ -430,6 +431,7 @@ func planStart(h home.Home, id string, finished *finishedWork, reading rowReadin
 		return startPlan{}, waitRefusal(id, row, waits)
 	}
 	var briefLines []string
+	var named map[string]string
 	briefRevision := ""
 	if briefErr == nil {
 		content, err := fsx.ReadFile(brief)
@@ -444,6 +446,7 @@ func planStart(h home.Home, id string, finished *finishedWork, reading rowReadin
 			return startPlan{}, StartRefusal{Reason: fleet.ErrBriefNotReady.Error() + ": the brief changed while planning its start", Passing: true}
 		}
 		briefLines = strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n")
+		named = fleet.BriefDelivery(content)
 	}
 	plan := startPlan{id: id, brief: brief, briefRevision: briefRevision, project: parseBriefProject(briefLines), isProductionDefect: row.Priority == "production-defect", isRoot: row.Priority == RootPriority}
 	if plan.project == "" {
@@ -466,7 +469,7 @@ func planStart(h home.Home, id string, finished *finishedWork, reading rowReadin
 			return startPlan{}, refusal
 		}
 	}
-	settings := queuedEngine(row, parseBriefSettings(briefLines))
+	settings := queuedEngine(row, named)
 	plan.harness, plan.model, plan.effort, plan.mode = settings.harness, settings.model, settings.effort, settings.mode
 	if err := plan.validateEngine(); err != nil {
 		return startPlan{}, StartRefusal{Reason: err.Error()}
@@ -490,6 +493,10 @@ func (p startPlan) validateEngine() error {
 	return nil
 }
 
+// queuedEngine is the engine and mode a queued task starts with, given what
+// its brief names: the row's harness, model and effort before the brief's,
+// and the brief's mode before the row's, since readiness validated it and the
+// row's mode is only what a brief not yet written is given.
 func queuedEngine(row fleet.BacklogRow, named map[string]string) startPlan {
 	pick := func(fromRow, key string) string {
 		if fromRow != "" || row.HasSetting(key) {
@@ -497,33 +504,25 @@ func queuedEngine(row fleet.BacklogRow, named map[string]string) startPlan {
 		}
 		return named[key]
 	}
+	mode := named["mode"]
+	if mode == "" {
+		mode = row.Mode
+	}
 	return startPlan{
 		harness: pick(row.Harness, "harness"),
 		model:   pick(row.Model, "model"),
 		effort:  pick(row.Effort, "effort"),
-		mode:    pick(row.Mode, "mode"),
+		mode:    mode,
 	}
 }
 
-// briefSettings are the harness, model, effort and mode a brief names on
-// lines of their own, such as "mode: direct-PR" under its Delivery heading.
+// briefSettings are the harness, model, effort and mode a queued task's brief
+// names under its Delivery heading, on lines of their own such as
+// "mode: direct-PR".
 func briefSettings(path string) map[string]string {
-	lines, err := fsx.ReadLines(path)
+	content, err := fsx.ReadFile(path)
 	if err != nil {
 		return map[string]string{}
 	}
-	return parseBriefSettings(lines)
-}
-
-func parseBriefSettings(lines []string) map[string]string {
-	settings := map[string]string{}
-	for _, line := range lines {
-		if match := briefSetting.FindStringSubmatch(line); match != nil {
-			key := strings.ToLower(match[1])
-			if settings[key] == "" {
-				settings[key] = match[2]
-			}
-		}
-	}
-	return settings
+	return fleet.BriefDelivery(content)
 }

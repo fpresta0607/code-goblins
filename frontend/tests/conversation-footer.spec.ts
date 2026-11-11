@@ -6,7 +6,7 @@ import { GOBLIN, open, openGoblin, PAGE, snapshot } from "./session-board";
 // (tests/reply-end.spec.ts), and since 2026-10-28 the session's usage is the
 // box's pies (tests/usage-bar.spec.ts).
 
-const USAGE = { input_tokens: 1_400_000, output_tokens: 289_000, cache_read_tokens: 208_000_000, cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000, model: "claude-opus-5-5" };
+const USAGE = { input_tokens: 1_400_000, output_tokens: 289_000, cache_read_tokens: 208_000_000, cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000 };
 const PAGE_WITH_USAGE = { ...PAGE, usage: USAGE };
 const MEMORY = { ...GOBLIN, tree: { task_id: GOBLIN.id, generation: GOBLIN.generation, harness: GOBLIN.harness, memory: 208 * 2 ** 20, own_memory: 208 * 2 ** 20, conversation_at: "", children: [], unread: [], source_updated_at: "", fetched_at: "" } };
 

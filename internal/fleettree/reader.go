@@ -69,6 +69,7 @@ type Reader struct {
 	owners       map[processKey]string
 	turns        map[processKey]bool
 	logs         map[string]*claudeLog
+	engines      map[string]*engineLog
 	records      map[string]childRecords
 	rolloutMetas map[string]rolloutMeta
 	commands     map[processKey]string
@@ -160,6 +161,12 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 	path, metas := r.conversation(ctx, goblin, harness.harness, isRunning)
 	if isRunning {
 		tree.Session = r.provedSession(ctx, goblin, harness.harness, metas)
+	}
+	if path != "" {
+		// A conversation that cannot be read names no engine, so the task's
+		// record stays as it is; what could not be read of it is named
+		// where its children are read.
+		tree.Engine, _ = r.sessionEngine(meta.ID, meta.Harness, path)
 	}
 	var commands map[string]string
 	records := childRecords{harness: strings.ToLower(meta.Harness), children: map[string]childRecord{}}
@@ -445,6 +452,11 @@ func (r *Reader) Forget(live map[string]bool) {
 	for task := range r.logs {
 		if !live[task] {
 			delete(r.logs, task)
+		}
+	}
+	for task := range r.engines {
+		if !live[task] && task != CEOOwner {
+			delete(r.engines, task)
 		}
 	}
 	for task := range r.records {

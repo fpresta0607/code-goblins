@@ -465,8 +465,8 @@ func TestASendToABusyAskerSaysItWaitsBehindItsTurn(t *testing.T) {
 			if asker == "goblin" && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 				t.Fatalf("err = %v, want the busy goblin's delivery reported as queued for its next tool call", err)
 			}
-			if asker == "ceo" && (err != nil || result.Awaiting == nil || result.Reason != sentToCEO) {
-				t.Fatalf("result = %+v, %v; want the busy CEO's delivery sent and awaiting its report", result, err)
+			if asker == "ceo" && (err != nil || result.Awaiting == nil || result.Reason != heldByCEO) {
+				t.Fatalf("result = %+v, %v; want the busy CEO's delivery queued in its session and awaiting its report", result, err)
 			}
 			if typed := terminal.waitForLines(t, 1); len(typed) != 1 {
 				t.Fatalf("the terminal received %q, want the text submitted once", typed)

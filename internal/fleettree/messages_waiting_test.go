@@ -313,6 +313,170 @@ func TestQueueHandoffStaysVisibleUntilItsDeliveredRow(t *testing.T) {
 	}
 }
 
+// continued is Claude Code carrying a session on by itself once its usage limit
+// has reset, as 2.1.322 recorded it in a goblin on 2026-11-10: it queues its
+// own words and takes them off the queue as it does his, then records them
+// for its model alone, which shows nothing.
+func continued(text string) []any {
+	return []any{
+		queued(text, at), dequeued(),
+		stamped(object{"type": "user", "uuid": "m1", "isMeta": true, "promptSource": "system", "origin": object{"kind": "auto-continuation"}, "message": object{"role": "user", "content": text}}),
+	}
+}
+
+func TestAPromptStopsSendingOnceTheSessionAnswersAfterItsHandoff(t *testing.T) {
+	const reset = "Your claude.ai usage limit has reset. Continue the task you were working on when the limit was reached; do not repeat work that is already complete."
+	later := at.Add(2 * time.Second)
+	tests := []struct {
+		name    string
+		entries []any
+		sending []string
+		queued  []string
+		prompts []string
+	}{
+		{
+			name:    "words Claude Code queued itself and recorded for its model alone",
+			entries: append(continued(reset), said("Carrying on with the reload.", later)),
+		},
+		{
+			name:    "words its harness lost, handed over in the place of the ones after them",
+			entries: []any{queued("lost with the harness", at), queued("sent after the resume", at), dequeued(), prompted("u1", "sent after the resume"), said("On it.", later)},
+			prompts: []string{"sent after the resume"},
+		},
+		{
+			name:    "words absorbed into a running turn whose record names others",
+			entries: []any{queued("check the phone too", at), absorbed("check the phone too"), said("Checking both.", later)},
+		},
+		{
+			// A notice Claude Code writes itself is stamped before the handoff
+			// and recorded after it, as its usage limit's was.
+			name:    "an answer written before the handoff and recorded after it ends nothing",
+			entries: []any{queued("hold this", at), dequeued(), said("You've hit your weekly limit", at.Add(-time.Second))},
+			sending: []string{"hold this"},
+		},
+		{
+			name:    "a prompt still queued waits through an answer",
+			entries: []any{queued("hold this", at), said("Still working.", later)},
+			queued:  []string{"hold this"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			path := conversation(t, t.TempDir(), test.entries...)
+
+			// Act
+			var reader Reader
+			page, _, err := reader.MessagePage(path, -1)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			sending, queued := []string{}, []string{}
+			for _, prompt := range page.Waiting {
+				if prompt.IsSending {
+					sending = append(sending, prompt.Text)
+				} else {
+					queued = append(queued, prompt.Text)
+				}
+			}
+			if !reflect.DeepEqual(sending, append([]string{}, test.sending...)) || !reflect.DeepEqual(queued, append([]string{}, test.queued...)) {
+				t.Fatalf("sending = %q and queued = %q; want %q and %q", sending, queued, test.sending, test.queued)
+			}
+			if got := promptWords(page.Messages); !reflect.DeepEqual(got, append([]string{}, test.prompts...)) {
+				t.Fatalf("prompts = %q; want %q", got, test.prompts)
+			}
+		})
+	}
+}
+
+// A stream that read the handoff hears it end with the answer, in the one
+// read, so a bubble that reads Sending never stays past it.
+func TestMessagesSinceEndsAHandoffWithTheAnswerAfterIt(t *testing.T) {
+	// Arrange
+	const reset = "Your claude.ai usage limit has reset. Continue the task you were working on when the limit was reached; do not repeat work that is already complete."
+	path := conversation(t, t.TempDir(), append([]any{prompted("u1", "start")}, continued(reset)...)...)
+	var reader Reader
+	page, cursor, err := reader.MessagePage(path, -1)
+	if err != nil || len(page.Waiting) != 1 || !page.Waiting[0].IsSending {
+		t.Fatalf("handed over: waiting %+v, error %v; want the one prompt sending", page.Waiting, err)
+	}
+
+	// Act
+	appendLines(t, path, said("Carrying on with the reload.", at.Add(2*time.Second)))
+	changed, waiting, _, isAnew, err := reader.MessagesSince(path, cursor)
+
+	// Assert
+	if err != nil || isAnew || len(changed) != 1 || changed[0].Kind != MessageReply || len(waiting) != 0 {
+		t.Fatalf("answered: changed %+v, waiting %+v, anew %t, error %v; want the answer and nothing waiting", changed, waiting, isAnew, err)
+	}
+}
+
+// takenBack is Claude Code moving one line of its queue back to the prompt
+// line when Up is pressed there: it writes one such entry for each line it
+// moved, in the queue's order (2.1.322, live, 2026-11-10).
+func takenBack(text string) object {
+	return object{"type": "queue-operation", "operation": "popAll", "content": text, "timestamp": at.Format(time.RFC3339Nano)}
+}
+
+func TestALineTakenBackToThePromptLineWaitsInNoQueue(t *testing.T) {
+	const notice = "<task-notification>\n<summary>Background command ended</summary>\n</task-notification>"
+	tests := []struct {
+		name    string
+		entries []any
+		sending []string
+		queued  []string
+	}{
+		{
+			name:    "every line he queued, taken back with Up",
+			entries: []any{queued("first", at), queued("second", at), takenBack("first"), takenBack("second")},
+		},
+		{
+			name:    "a command taken back with the words around it",
+			entries: []any{queued("first", at), queued("/context", at), takenBack("first"), takenBack("/context")},
+		},
+		{
+			name:    "lines typed again after the take-back wait as they were typed",
+			entries: []any{queued("first", at), queued("second", at), takenBack("first"), takenBack("second"), queued("first", at), queued("second, changed", at)},
+			queued:  []string{"first", "second, changed"},
+		},
+		{
+			// The notice is the queue's head once his line left it, so the
+			// handoff is the notice's and marks nothing of his sending.
+			name:    "the handoff after a take-back is the notice's the queue still holds",
+			entries: []any{queued(notice, at), queued("first", at), queued("second", at), takenBack("first"), dequeued()},
+			queued:  []string{"second"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			path := conversation(t, t.TempDir(), test.entries...)
+
+			// Act
+			var reader Reader
+			page, _, err := reader.MessagePage(path, -1)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			sending, queued := []string{}, []string{}
+			for _, prompt := range page.Waiting {
+				if prompt.IsSending {
+					sending = append(sending, prompt.Text)
+				} else {
+					queued = append(queued, prompt.Text)
+				}
+			}
+			if !reflect.DeepEqual(sending, append([]string{}, test.sending...)) || !reflect.DeepEqual(queued, append([]string{}, test.queued...)) {
+				t.Fatalf("sending = %q and queued = %q; want %q and %q", sending, queued, test.sending, test.queued)
+			}
+		})
+	}
+}
+
 func TestSuccessiveQueueHandoffsKeepTheirOwnDelivery(t *testing.T) {
 	path := conversation(t, t.TempDir(), queued("continue", at), queued(WakePrefix+"look at the board", at), queued("CEO: continue", at), dequeued(), dequeued(), dequeued())
 	var reader Reader

@@ -7,6 +7,11 @@ export interface HarnessUpdate { harness: string; line: string; installed: strin
 // pressed it, until the CEO's turn ends; updating while the restart runs;
 // problem why the last press did not restart it.
 export interface CEOUpdate extends HarnessUpdate { pending: boolean; updating: boolean; problem: string }
+// What the board knows of a harness's own update check, which the supervisor
+// runs outside every session (#2333): running while one he asked for runs,
+// result how the last one ended, failed when that is why it failed, and
+// current while the install is the newest its publisher offers.
+export interface UpdateCheck { running: boolean; failed: boolean; current: boolean; result: string }
 export interface RuntimeEvidence {
   state: string;
   reason: string;
@@ -329,6 +334,9 @@ export interface Action {
   // it, empty when it waits on nobody. advice: what to do about one that
   // never arrived, in the Overlord's words.
   awaiting: "" | "the CEO" | "the goblin";
+  // is_held: the delivery was typed into a turn under way, so its harness
+  // holds it in its own queue until that turn takes it.
+  is_held: boolean;
   advice: string;
   // can_send_now is whether he may ask for a queued message to be typed now,
   // and send_now_why says why not when it is off.
@@ -443,6 +451,9 @@ export interface Snapshot {
   // ceo_update is an update of the harness the CEO runs, installed since it
   // started, for the Update button on its header; null while none waits.
   ceo_update: CEOUpdate | null;
+  // update_checks is each harness's own update check, by harness, for a
+  // session's notice of a failed update; empty while the board knows of none.
+  update_checks: Record<string, UpdateCheck>;
   // comeback is what the supervisor brings back after the last restart or
   // sign-out; absent when it brings nothing back.
   comeback?: Comeback;
@@ -798,6 +809,7 @@ export function parseAction(value: unknown): Action {
     status: string(v.status),
     message: string(v.message),
     awaiting: isRecord(v.awaiting) ? (string(v.awaiting.task) ? "the goblin" : "the CEO") : "",
+    is_held: isRecord(v.awaiting) && v.awaiting.is_held === true,
     advice: string(v.advice),
     can_send_now: v.can_send_now === true,
     send_now_why: string(v.send_now_why),
@@ -1026,6 +1038,10 @@ export function parseSnapshot(value: unknown): Snapshot {
     ceo_session: v.ceo_session === undefined ? "" : string(v.ceo_session),
     ceo_conversation_left: v.ceo_conversation_left === undefined ? "" : string(v.ceo_conversation_left),
     ceo_update: v.ceo_update == null ? null : ((update) => ({ ...parseHarnessUpdate(update), pending: update.pending === undefined ? false : boolean(update.pending), updating: update.updating === undefined ? false : boolean(update.updating), problem: update.problem === undefined ? "" : string(update.problem) }))(object(v.ceo_update)),
+    update_checks: Object.fromEntries(Object.entries(v.update_checks == null ? {} : object(v.update_checks)).map(([harness, value]) => {
+      const check = object(value);
+      return [harness, { running: check.running === undefined ? false : boolean(check.running), failed: check.failed === undefined ? false : boolean(check.failed), current: check.current === undefined ? false : boolean(check.current), result: check.result === undefined ? "" : string(check.result) }];
+    })),
     ...(v.start_at_login == null ? {} : { start_at_login: ((setting) => ({ on: boolean(setting.on), unavailable: setting.unavailable === undefined ? "" : string(setting.unavailable) }))(object(v.start_at_login)) }),
     ...(v.dev_drive == null ? {} : { dev_drive: parseDevDrive(object(v.dev_drive)) }),
     ...(v.comeback == null ? {} : { comeback: ((c) => ({ signed_in: string(c.signed_in), ...(c.ceo == null ? {} : { ceo: parseComebackEntry(c.ceo) }), goblins: array(c.goblins).map(parseComebackEntry) }))(object(v.comeback)) }),

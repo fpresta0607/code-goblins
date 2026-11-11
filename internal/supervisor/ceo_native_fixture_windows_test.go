@@ -37,6 +37,11 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 	if isManual {
 		mode = strings.TrimPrefix(strings.TrimPrefix(mode, "manual"), "-")
 	}
+	// A harness that stalls reads nothing typed into it while the file
+	// beside its events, named .stall, exists, as the live CEO's Claude Code
+	// left typed input unread for seconds on 2026-11-10 (#2306).
+	isStalling := strings.HasSuffix(mode, "-stalls")
+	mode = strings.TrimSuffix(mode, "-stalls")
 	isHelp := false
 	record := func(value string) {
 		file, err := os.OpenFile(events, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
@@ -56,7 +61,12 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 			os.Exit(2)
 		}
 	}
+	// A goblin's terminal registers no CEO.
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		if os.Getenv(host.IDVariable) != "ceo" {
+			record("registered as no CEO")
+			break
+		}
 		registered, err := Register(stateDir, "", "session-1")
 		if err == nil {
 			record("registered " + registered)
@@ -86,6 +96,10 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 	// until Escape interrupts it and, as Claude Code, Codex and pi do, puts
 	// what its queue held back on the prompt line, unsent.
 	isBusy, hasQueued, held := mode == "busy", false, ""
+	// Claude Code 2.1.322 keeps each line queued, gives them all back to the
+	// prompt line, a row each, for Up at an empty one, and sends them with
+	// its send-now chord, live on 2026-11-10 (#2332).
+	var queue []string
 	composer := func() string { return typedBefore + paste + readAsPaste + line }
 	draw := func(isWorking bool) {
 		rows := []string{}
@@ -126,7 +140,7 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 			case isManual:
 				footer = "⏸ manual mode on · ? for shortcuts"
 			}
-			rows = append(rows, rule, "❯ "+shown, rule, footer)
+			rows = append(rows, rule, "❯ "+strings.ReplaceAll(shown, "\n", "\r\n  "), rule, footer)
 		} else {
 			text := typedBefore + line
 			if text == "" {
@@ -148,13 +162,43 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 		if err != nil {
 			return
 		}
+		for isStalling {
+			if _, err := os.Stat(events + ".stall"); err != nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 		switch key {
+		case '\x15':
+			// Ctrl+U takes typed words back off the prompt line: Codex 0.160
+			// the whole line, and Claude Code 2.1.322 the row its cursor is
+			// in, claudeRow characters here, or a paste's placeholder whole,
+			// live on 2026-11-10 (#2306).
+			had := composer()
+			switch {
+			case harness != "claude":
+				line, paste, readAsPaste, typedBefore = "", "", "", ""
+			case strings.HasSuffix(line, "\n"):
+				// The row above the cursor's emptied one joins it.
+				line = strings.TrimSuffix(line, "\n")
+			case line != "":
+				row := line[strings.LastIndex(line, "\n")+1:]
+				line = strings.TrimSuffix(line, row) + string([]rune(row)[:max(0, len([]rune(row))-claudeRow)])
+			case paste != "" || readAsPaste != "":
+				paste, readAsPaste = "", ""
+			default:
+				typedBefore = string([]rune(typedBefore)[:max(0, len([]rune(typedBefore))-claudeRow)])
+			}
+			if had != "" && composer() == "" {
+				record("cleared")
+			}
+			draw(false)
 		case '\x18':
 			// Claude Code's chat:sendNow chord, Ctrl+X Ctrl+S, sends what its
 			// turn has queued at once.
 			if next, _, err := reader.ReadRune(); err == nil && next == '\x13' {
 				record("sent now")
-				hasQueued = false
+				hasQueued, queue = false, nil
 				draw(false)
 			}
 		case '\x1b':
@@ -181,6 +225,13 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 				case "[201~":
 					isPasting = false
 					draw(false)
+				case "[A":
+					// Up at an empty prompt line takes the queue back onto it.
+					if harness == "claude" && composer() == "" && len(queue) > 0 {
+						record("took back " + strings.Join(queue, " | "))
+						line, hasQueued, queue, held = strings.Join(queue, "\n"), false, nil, ""
+						draw(false)
+					}
 				default:
 					hasPasteEnded = true
 				}
@@ -188,7 +239,7 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 			}
 			if isBusy && hasQueued {
 				record("interrupted")
-				isBusy, hasQueued, line, held = false, false, held, ""
+				isBusy, hasQueued, line, held, queue = false, false, held, "", nil
 				draw(false)
 				continue
 			}
@@ -222,7 +273,7 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 			if isBusy {
 				queued := typedBefore + paste + line
 				record("queued " + queued)
-				hasQueued, held = true, queued
+				hasQueued, held, queue = true, queued, append(queue, queued)
 				go func(text string) {
 					for {
 						if _, err := os.Stat(events + ".accept"); err == nil {
@@ -275,11 +326,22 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 // at once on 2026-10-29, and took as a paste (#1740).
 const claudeRead = 1024
 
+// claudeRow is how many characters of its prompt line one Ctrl+U takes off a
+// Claude Code fixture, as Claude Code takes the one row its cursor is in.
+const claudeRow = 100
+
 // codexMention matches a line that ends in a $ word, over which Codex 0.160
 // lists its skills.
 var codexMention = regexp.MustCompile(`(^|\s)\$\S*$`)
 
 func nativeCEOComposer(t *testing.T, stateDir, mode string) hostedTerminal {
+	t.Helper()
+	return nativeComposer(t, stateDir, "ceo", mode)
+}
+
+// nativeComposer hosts the fixture harness of mode as terminal id: the CEO's,
+// or a goblin's, which registers no CEO.
+func nativeComposer(t *testing.T, stateDir, id, mode string) hostedTerminal {
 	t.Helper()
 	program, err := os.Executable()
 	if err != nil {
@@ -297,12 +359,12 @@ func nativeCEOComposer(t *testing.T, stateDir, mode string) hostedTerminal {
 	}
 	t.Setenv("HERDR_PANE_ID", "")
 	t.Setenv("PATH", shims+string(os.PathListSeparator)+os.Getenv("PATH"))
-	terminal := hostProgram(t, stateDir, "ceo", events, os.Getenv("ComSpec"), "/c", harness)
+	terminal := hostProgram(t, stateDir, id, events, os.Getenv("ComSpec"), "/c", harness)
 	if lines := terminal.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
 		t.Fatalf("fixture registration = %q", lines)
 	}
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
-		record, err := host.ReadRecord(stateDir, "ceo")
+		record, err := host.ReadRecord(stateDir, id)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -604,6 +604,7 @@ Every take, protection and release of a turn goes through the line's lock, which
 A run that finds the lock busy for all five seconds, as a loaded machine can keep it, as it first checks the line, takes its turn at the head of the line, or protects the turn it took, keeps its place and tries again.
 At the head of the line it says `the line's lock is busy` as the lock turns busy.
 It tries again within its admission's limit, an hour for `ceo gate test` and `ceo gate prepush`, past which it gives up with why, and for as long as it waits for `ceo gate turn` and `ceo verify`, which set none.
+A run that a gate's agent started waits three minutes at most for its turn, as [A gate agent's wait](#any-command-in-the-line) says.
 On 2026-10-14 a run that had waited an hour and fourteen minutes reached the head of the line and ended with no turn on one busy change of the lock.
 
 A gate shows a step's output only once the step has ended, so `ceo gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they take their turns, a low-priority run marked, each after the first with why it stands behind the one before it, as `behind run 1: a gate's Test step goes ahead of a goblin's own turn` or `behind run 2: it asked first`, and the memory when the machine is short of it.
@@ -693,10 +694,27 @@ Since no harness waits on a detached run, its end is told to the goblin of any h
 
 **What it waits for.**
 It waits while another run holds the turn, and at the head of the line while free physical memory or free commit is under the floor.
-It sets no limit of its own on either wait.
+It sets no limit of its own on either wait, but for a run that a gate's agent started, as below.
 Where `ceo gate test` refuses a run after an hour of memory under the floor, `ceo gate turn` waits for as long as memory is short unless `--wait` bounds admission.
 Its execution limit never counts that wait.
 The wait counts in the wrapper's wall time, so a caller that budgets its test command should start the budget at `took its turn`, or allow for the wait.
+
+**A gate agent's wait.**
+A gate ends an agent whose invocation ran past its budget, and it counts the agent's wait for a turn in that budget, since it cannot tell a run that waits in line from one that hangs.
+So a run that a gate's agent started, which the `NO_MISTAKES_GATE` the gate sets in the agent's environment says, waits three minutes at most for its turn, behind other runs, for memory and for the line's lock alike, in `ceo gate turn`, `ceo gate test` and `ceo gate prepush`.
+Three minutes outlasts a short check ahead and a dip of memory under the floor, and is a tenth of the 30 minutes a gate gives an agent unless its machine says otherwise.
+A shorter `--wait` still ends the wait first, a longer one does not lengthen it, and a turn taken within it is never cut.
+The three minutes are the run's whole wait and not each turn's: `ceo gate test` takes a turn for each of its checks, so a check waits only what the checks before it left of them, and a check with none left takes a turn that is free and otherwise leaves the line at once, with the checks before it run and no other started.
+`ceo gate lint` takes a turn for each of its checks the same way, so what is said here of `ceo gate test` holds for it.
+A run that takes no turn in that time starts nothing and leaves the line: `ceo gate turn` exits 125 and `ceo gate test` and `ceo gate prepush` exit 1, each with a line that tells the agent to go on without the run:
+
+```text
+ceo gate turn: this run takes no turn: no turn came within 3m0s, which is as long as a run a gate's agent starts waits in line, since its gate counts the wait against the agent's invocation budget. Go on without this run and start nothing heavy outside the line: commit the work, and the gate runs the project's checks in a turn of its own
+```
+
+The agent loses nothing by it, since the gate's Test step runs the project's checks in a turn of its own, which no agent's budget counts.
+The gate's own Test step, which its wrapper's `--gate-run` names, has no such limit whatever its environment says, and neither has a goblin's own run or any other.
+On 2026-11-02 two review fixers each spent their whole hour in line behind six heavy steps on a machine short of memory, and were ended with their repairs written and not committed, which failed both runs in Review (issue 1932).
 
 **What it prints.**
 Every line of its own goes to standard error and starts with `ceo gate turn: `.
@@ -729,7 +747,7 @@ A gate shows a step's output only once the step has ended, so while a run waits 
 
 | Exit code | Last line on standard error | What happened |
 | --- | --- | --- |
-| 125 | `ceo gate turn: this run takes no turn: <reason>`, `ceo gate turn: run it without ceo gate turn: <command>`, or `ceo gate turn: the run ended its command, since free memory or commit stayed under the desktop reserve: <detail>` | The run gave no result of its command's. Either the line ended the command for the machine's memory, or the command was never started. The line's store or the machine's memory could not be read, the run's record could not be begun, the run was interrupted before its command started, standard output or error was no file, as a process's always is, the command waits on a gate, which the line before the last says, or the arguments named no command, which also prints the usage. |
+| 125 | `ceo gate turn: this run takes no turn: <reason>`, `ceo gate turn: run it without ceo gate turn: <command>`, or `ceo gate turn: the run ended its command, since free memory or commit stayed under the desktop reserve: <detail>` | The run gave no result of its command's. Either the line ended the command for the machine's memory, or the command was never started. The line's store or the machine's memory could not be read, the run's record could not be begun, no turn came within the run's `--wait` or within the three minutes a run that a gate's agent started waits, the run was interrupted before its command started, standard output or error was no file, as a process's always is, the command waits on a gate, which the line before the last says, or the arguments named no command, which also prints the usage. |
 | 126 | `ceo gate turn: the command did not start: <error>` | A required environment binding was refused before admission or once the turn was taken, or a turn was taken and given back and `<program>` could not be started, or the run's custody of it could not be recorded first. |
 
 Neither is a test result, so a caller reads 125 as "the machine gave this run no turn" and never asks an agent to repair tests that did not run.
@@ -1031,7 +1049,9 @@ The list reporter marks a case by its status alone, so a case declared with `tes
 So a case that failed before the cutoff fails the push, named, rather than being left to CI as a case that never ran, and a check whose cases all passed before the cutoff is still left to CI.
 On 2026-10-27 a prepush run of 141 specs reported three assertion failures, the limit ended it after 465 of 1603 cases, and the run said it passed what it ran (#1542).
 A case a retry then passed is no failure, since the gate's reporter writes a row for each try that failed and one for the retry that passed it, and a case is what its last row said.
-That failure's line names the cases the check reached:
+The case the limit itself ended is no failure either: ending the check ends the browser and the worker running a case, Playwright closes that case as failed when either goes before its runner does, and the gate's reporter writes a row for it.
+So the run reads no row once the limit has passed, and that case is left to CI with the cases that never ran (#1927).
+The line of a case that failed before the cutoff names the cases the check reached:
 
 ```text
 ceo gate prepush: failed at check 4 of 4, 1 browser spec: 2 browser cases failed before the time limit ended the check: [board] tests/afk.spec.ts:12:7 › a title, [board] tests/afk.spec.ts:19:3 › another title. CI would fail on them too, so fix them before you push.

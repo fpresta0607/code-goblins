@@ -16,6 +16,7 @@ Only a concrete separate Overlord exception may narrow the selection beyond that
 Defined fast-tier checks remain required for an exception.
 A narrower requested mode, from `--mode` or the brief, with neither a qualifying assessment nor that exception selects no-mistakes and records why, and brief and spawn print the reason.
 An explicit no-mistakes mode can always increase rigor.
+At spawn `--mode` only repeats the brief: one that differs from the `mode:` line under the brief's Delivery heading is refused and names both, so a stricter or a narrower mode is chosen in the brief.
 
 `ceo brief` and `ceo spawn` use the same resolver.
 Before the worker starts, spawn saves `state/tasktmp/<id>/delivery.json` with the mode, posture, surface, risk, reason and project checks.

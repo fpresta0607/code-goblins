@@ -1,8 +1,12 @@
 package supervisor
 
 import (
+	"crypto/sha256"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -108,6 +112,56 @@ func TestStartCreatesAMissingBriefFromTheQueuedTask(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("CEO was not told a brief was created")
+	}
+}
+
+// Issue 1925: a queued task's detail is task text, so a line of it that reads
+// as a launch choice never replaces what the brief's Delivery section names,
+// on the first start or on the one after a failed spawn.
+func TestStartAfterAFailedSpawnKeepsTheDeliveryChoicesOverTheTaskDetail(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{output: "ceo spawn: the terminal did not open\n", err: errors.New("exit status 1")}
+	handler, h := startBoard(t, 5*gigabyte, spawner)
+	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- **next-task** - Improve search (repo: code-goblins)\n  Search by project name.\n  mode: direct-PR\n  harness: codex\n  model: quoted-model\n  effort: low\n")
+	path := filepath.Join(h.Data, "next-task", "brief.md")
+
+	// Act
+	var calls [][]string
+	for start := 1; start <= 2; start++ {
+		if response := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken); response.Code != 202 {
+			t.Fatalf("start %d=%d %s", start, response.Code, response.Body)
+		}
+		calls = awaitDispatch(t, handler.Service, spawner, start)
+	}
+	card := cardOf(t, handler, "next-task")
+
+	// Assert
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, delivery, _ := strings.Cut(string(data), "\n## Delivery\n")
+	for _, line := range []string{"mode: direct-PR", "harness: codex", "model: quoted-model", "effort: low"} {
+		if !slices.Contains(strings.Split(task, "\n"), line) {
+			t.Fatalf("the brief's task text holds no bare %q line, so this test proves nothing: %q", line, task)
+		}
+	}
+	if !slices.Contains(strings.Split(delivery, "\n"), "mode: no-mistakes") {
+		t.Fatalf("delivery section=%q, want mode: no-mistakes", delivery)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("ceo spawn ran %d times, want twice: %q", len(calls), calls)
+	}
+	spawn := []string{"spawn", "next-task", "--project", "code-goblins", "--brief", path}
+	revision := []string{"--brief-revision", fmt.Sprintf("brief:%x", sha256.Sum256(data))}
+	if first := slices.Concat(spawn, revision); !slices.Equal(calls[0], first) {
+		t.Errorf("first start ran ceo %q, want ceo %q", calls[0], first)
+	}
+	if again := slices.Concat(spawn, []string{"--mode", "no-mistakes"}, revision); !slices.Equal(calls[1], again) {
+		t.Errorf("the start after the failed spawn ran ceo %q, want ceo %q", calls[1], again)
+	}
+	if card.Mode != "no-mistakes" || card.Harness != "" || card.Model != "" || card.Effort != "" {
+		t.Errorf("queued card shows %s on %s/%s/%s, want no-mistakes on the routed engine", card.Mode, card.Harness, card.Model, card.Effort)
 	}
 }
 

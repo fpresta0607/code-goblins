@@ -2,6 +2,7 @@ import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, ended, type FitEvent, followFontSize, fontSizeFor, INPUT_MESSAGE, inputMessages, isWebKit, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseHeld, parseHistory, parseScreen, parseSize, parseUnread, PHONE_FONT_SIZE, reconnects, storedFontSize, storeFontSize, usableSize } from "./terminalStream.ts";
 import { SMALL_SCREEN } from "./small-screen.ts";
+import { parseSnapshot } from "./types.ts";
 
 test("output is acknowledged in steps, and at once when the terminal has caught up", () => {
   const cases: [number, number, number, boolean][] = [
@@ -101,7 +102,7 @@ test("the relay says when the harness asks at a screen only its terminal takes, 
 test("the relay says the status and retry the terminal shows, and nothing of them once it shows none (#2236)", () => {
   // Arrange
   const screen = { type: "screen", asking: false, open: false, working: true, submission: "" };
-  const status = { gauge: "83% context used", notices: [{ text: "Auto-update failed" }, { text: "Run claude doctor", action: "/doctor" }] };
+  const status = { gauge: "83% context used", notices: [{ text: "Auto-update failed", check: "update" }, { text: "Low disk space" }] };
   const retry = { reason: "529 Overloaded", attempt: 3, attempts: 10 };
 
   // Act
@@ -109,11 +110,11 @@ test("the relay says the status and retry the terminal shows, and nothing of the
   const cleared = parseScreen(JSON.stringify(screen));
 
   // Assert
-  assert.deepEqual(shown?.status, { gauge: "83% context used", notices: [{ text: "Auto-update failed", action: "" }, { text: "Run claude doctor", action: "/doctor" }] });
+  assert.deepEqual(shown?.status, { gauge: "83% context used", notices: [{ text: "Auto-update failed", check: "update" }, { text: "Low disk space", check: "" }] });
   assert.deepEqual(shown?.retry, retry);
   assert.equal(parseScreen(JSON.stringify({ ...screen, status: { notices: [{ text: "Auto-update failed" }] } }))?.status?.gauge, "");
   assert.ok(cleared && !("status" in cleared) && !("retry" in cleared));
-  for (const malformed of [{ status: null }, { status: "full" }, { status: { gauge: 83 } }, { status: { notices: {} } }, { status: { notices: [{ text: 1 }] } }, { status: { notices: [{ text: "a", action: 1 }] } },
+  for (const malformed of [{ status: null }, { status: "full" }, { status: { gauge: 83 } }, { status: { notices: {} } }, { status: { notices: [{ text: 1 }] } }, { status: { notices: [{ text: "a", check: 1 }] } },
     { retry: null }, { retry: { reason: "529" } }, { retry: { reason: "529", attempt: "3", attempts: 10 } }]) assert.equal(parseScreen(JSON.stringify({ ...screen, ...malformed })), null, JSON.stringify(malformed));
 });
 
@@ -296,4 +297,21 @@ test("every iPhone browser and Safari is WebKit, and Chromium and Firefox elsewh
     ["Firefox on Windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) Gecko/20100101 Firefox/143.0", false],
   ];
   for (const [name, agent, want] of agents) assert.equal(isWebKit(agent), want, name);
+});
+
+test("the snapshot says each harness's update check by harness, and none while the board knows of none (#2333)", () => {
+  // Arrange
+  const checks = { claude: { failed: true, result: "Error: Failed to install update" }, codex: { running: true }, pi: { current: true, result: "pi is up to date" } };
+
+  // Act
+  const parsed = parseSnapshot({ healthy: true, update_checks: checks }).update_checks;
+  const none = parseSnapshot({ healthy: true }).update_checks;
+
+  // Assert
+  assert.deepEqual(parsed, {
+    claude: { running: false, failed: true, current: false, result: "Error: Failed to install update" },
+    codex: { running: true, failed: false, current: false, result: "" },
+    pi: { running: false, failed: false, current: true, result: "pi is up to date" },
+  });
+  assert.deepEqual(none, {});
 });

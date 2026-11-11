@@ -243,8 +243,8 @@ test("a picture the harness read back previews in its call and opens larger", as
   await reply.getByText("Read", { exact: true }).click();
   await reply.getByRole("button", { name: "Open picture 1" }).click();
 
-  // Assert
-  await expect(page.getByRole("dialog", { name: "Pictures" }).getByRole("img", { name: "Picture 1" })).toBeVisible();
+  // Assert: the conversation's viewer on it, the second of its two pictures.
+  await expect(page.getByRole("dialog", { name: "Pictures" }).getByRole("img", { name: "Picture 2 of 2" })).toBeVisible();
 });
 
 for (const width of [1440, 390]) {

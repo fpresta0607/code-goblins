@@ -38,11 +38,26 @@ func (s *Service) keepTrees(ctx context.Context) {
 
 // readTrees reads the tree of every live goblin whose terminal runs: a
 // paused or stopped goblin, or one whose terminal has ended, runs nothing.
+// The same read writes the model and effort each session's own conversation
+// names, the CEO's too, into the session's one record (keepEngine,
+// keepCEOEngine), and sends the boards a record that changed.
 func (s *Service) readTrees(ctx context.Context) {
 	pass, cancel := context.WithTimeout(ctx, treePassBudget)
 	defer cancel()
 	trees := map[string]fleettree.Tree{}
 	live := map[string]bool{}
+	isEngineChanged := false
+	keep := func(isChanged bool, err error) {
+		isEngineChanged = isEngineChanged || isChanged
+		if err == nil {
+			return
+		}
+		s.mu.Lock()
+		if s.fleetErr == nil || !strings.Contains(s.fleetErr.Error(), err.Error()) {
+			s.fleetErr = errors.Join(s.fleetErr, err)
+		}
+		s.mu.Unlock()
+	}
 	metas := liveTasks(s.Store.Home.State)
 	for _, meta := range metas {
 		live[meta.ID] = true
@@ -62,14 +77,10 @@ func (s *Service) readTrees(ctx context.Context) {
 		}
 		tree, _ := s.Options.Tree.Read(pass, goblin)
 		trees[meta.ID] = tree
-		if err := keepConversation(s.Store.Home.State, meta, tree.Session); err != nil {
-			s.mu.Lock()
-			if s.fleetErr == nil || !strings.Contains(s.fleetErr.Error(), err.Error()) {
-				s.fleetErr = errors.Join(s.fleetErr, err)
-			}
-			s.mu.Unlock()
-		}
+		keep(false, keepConversation(s.Store.Home.State, meta, tree.Session))
+		keep(s.keepEngine(meta, tree.Engine))
 	}
+	keep(s.keepCEOEngine())
 	s.Options.Tree.Forget(live)
 	// A helper hangs under its parent as a child of the parent's tree; a
 	// parent whose tree was not read, such as a paused one, holds none.
@@ -83,6 +94,9 @@ func (s *Service) readTrees(ctx context.Context) {
 	s.mu.Lock()
 	s.trees = trees
 	s.mu.Unlock()
+	if isEngineChanged {
+		s.notify()
+	}
 }
 
 // keepConversation keeps session as the conversation meta's goblin is in,

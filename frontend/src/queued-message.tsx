@@ -3,7 +3,7 @@ import { message, reportToCeo, request } from "./api";
 import { Icon } from "./Icon";
 import { keptFileAddress, keptPictures } from "./kept-files";
 import { MessagePictures } from "./message-pictures";
-import { isUndelivered, messageState } from "./messages";
+import { isHarnessHeld, isNotSent, messageState } from "./messages";
 import type { Action } from "./types";
 
 // TAKE_BACK_MESSAGE names the event Edit sends with a queued message's ID, for
@@ -48,6 +48,10 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
   // message's own, so one sent again from another screen withdraws nothing
   // twice.
   const [asked, setAsked] = useState<"" | "now" | "withdrawn" | "again">("");
+  // The failure a Send now was asked of, by when it ended: Send now stays
+  // pressed for that one alone, so a message not sent again since can be
+  // sent now once more.
+  const [resent, setResent] = useState("");
   const post = (body: object) => request("/api/actions", undefined, {
     method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify(body),
   });
@@ -66,9 +70,12 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
     }
     finally { setSending(false); }
   };
-  // A message whose delivery ended with no take seen says so and offers Send
-  // again, which sends its words as a new message; once sent again its row
-  // gives way to the new one's (#2242).
+  // A message typed and never seen taken may have arrived, so it says so and
+  // offers Send again, which sends its words as a new message; once sent
+  // again its row gives way to the new one's (#2242). One that was not sent
+  // reached nobody and is still the board's: it says so, why as its
+  // description, with Send now, which sends that same message, and Cancel,
+  // which takes it off the board (#2306).
   const sendAgain = async () => {
     if (isSending) return;
     setSending(true);
@@ -80,33 +87,43 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
     finally { setSending(false); }
   };
   if (asked === "again") return null;
-  const isHeld = !harnessState && (action.status === "queued" || action.status === "running" && !action.awaiting);
-  const isTyped = action.status === "running" && !!action.awaiting;
+  // A message waits where he can still act on it: on the board, or in its
+  // harness's own queue, typed into a turn that has not taken it, where Send
+  // now, Edit and Cancel act on that queue (#2332). One its harness is
+  // handing to a turn, or has, is out of his hands.
+  const waits = (message: Action) => message.status === "queued" || message.status === "running" && !message.awaiting || isHarnessHeld(message);
+  const isHeld = harnessState !== "Sending" && (harnessState === "Queued" || waits(action));
+  const isTyped = action.status === "running" && !!action.awaiting && !isHeld;
+  const isUnsent = !harnessState && isNotSent(action);
   const state = harnessState ?? messageState(action);
   // While he reads up the row shows the message as it was, and its controls
   // act on the board's live copy of it, which the board may hold no longer.
   const current = liveAction === undefined ? action : liveAction;
-  const canActNow = !harnessState && asked !== "withdrawn" && !!current && (current.status === "queued" || current.status === "running" && !current.awaiting);
+  const canActNow = isHeld && asked !== "withdrawn" && !!current && (harnessState === "Queued" || waits(current));
+  // A message in its harness's queue is sent now by that harness's own key,
+  // which he may press again while the message still waits there.
+  const isInHarness = !!current && (harnessState === "Queued" || isHarnessHeld(current));
   const canSendNow = asked !== "now" && canActNow;
   // A press the message no longer allows, as one shown while he reads up
   // that has moved on since, says why over the box: the board has it on its
   // way, it has left the queue, or, for a send the board has not taken yet,
   // what that send says of itself.
   const movedWhy = current ? "It is already on its way to its session." : action.created_at ? "It has already left the queue." : action.send_now_why || "It is still reaching the board.";
-  const reason = harnessState ?? (isHeld || isTyped ? action.message : "");
+  const reason = harnessState ?? (isHeld || isTyped || isUnsent ? action.message : "");
   const kept = keptPictures(action.text);
   const why = "queued-why-" + action.id;
   return <div className={"queued-message " + variant} data-queued={action.id}>
     {variant === "pane" && <MessagePictures sources={kept.paths.map((path) => keptFileAddress(instance, action.task_id || undefined, path))} />}
-    {variant === "pane" && kept.text && <div className={"message-bubble queued-bubble" + (isHeld || harnessState === "Queued" ? " waiting" : "")} aria-describedby={why}>{kept.text}</div>}
+    {variant === "pane" && kept.text && <div className={"message-bubble queued-bubble" + (isHeld ? " waiting" : "")} aria-describedby={why}>{kept.text}</div>}
     {variant === "pane" && <p className="queued-state">{state}</p>}
     {variant === "queue" && <span className="composer-sent-text" aria-describedby={why}>{action.text}</span>}
     {variant === "queue" && <p className="queued-line"><strong>{state}</strong></p>}
     <p className="sr-only" id={why}>{reason || state}</p>
     {isHeld && asked !== "withdrawn" && <div className="queued-actions">
-      <button type="button" className="icon-button" aria-label="Send now" disabled={isSending || asked === "now"} aria-disabled={!canSendNow}
+      <button type="button" className="icon-button" aria-label="Send now" disabled={isSending || asked === "now" || isInHarness && resent === action.updated_at} aria-disabled={!canSendNow}
         onClick={() => {
           if (!canSendNow || !current) refuse(current?.send_now_why || movedWhy);
+          else if (isInHarness) void act({ kind: "message_now" }, () => setResent(action.updated_at));
           else if (current.can_send_now) void act({ kind: "message_now" }, () => setAsked("now"));
           else refuse(current.send_now_why || "It cannot be typed into its session now.");
         }}><Icon name="arrow-up" /></button>
@@ -115,7 +132,13 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
       <button type="button" className="icon-button" aria-label="Cancel" disabled={isSending} aria-disabled={!canActNow}
         onClick={() => { if (canActNow && current) void act({ kind: "message_withdraw", text: current.text }, () => { setAsked("withdrawn"); onDeleted?.(); }); else refuse(movedWhy); }}><Icon name="close" /></button>
     </div>}
-    {!harnessState && isUndelivered(action) && <div className="queued-actions">
+    {isUnsent && asked !== "withdrawn" && <div className="queued-actions">
+      <button type="button" className="icon-button" aria-label="Send now" disabled={isSending || resent === action.updated_at}
+        onClick={() => void act({ kind: "message_now" }, () => { setAsked("now"); setResent(action.updated_at); })}><Icon name="arrow-up" /></button>
+      <button type="button" className="icon-button" aria-label="Cancel" disabled={isSending}
+        onClick={() => void act({ kind: "message_withdraw", text: action.text }, () => { setAsked("withdrawn"); onDeleted?.(); })}><Icon name="close" /></button>
+    </div>}
+    {!harnessState && action.status === "uncertain" && <div className="queued-actions">
       <button type="button" className="icon-button" aria-label="Send again" disabled={isSending} onClick={() => void sendAgain()}><Icon name="arrow-up" /></button>
     </div>}
   </div>;
@@ -129,7 +152,7 @@ type QueuedProps = { action: Action; harnessState?: "Queued" | "Sending"; liveAc
 function isSameAction(was: Action | null | undefined, is: Action | null | undefined): boolean {
   if (!was || !is) return was === is;
   return was.id === is.id && was.task_id === is.task_id && was.text === is.text && was.status === is.status && was.message === is.message
-    && !!was.awaiting === !!is.awaiting && was.can_send_now === is.can_send_now && was.send_now_why === is.send_now_why;
+    && !!was.awaiting === !!is.awaiting && was.is_held === is.is_held && was.updated_at === is.updated_at && was.can_send_now === is.can_send_now && was.send_now_why === is.send_now_why;
 }
 
 function isSameQueued(prior: QueuedProps, next: QueuedProps): boolean {

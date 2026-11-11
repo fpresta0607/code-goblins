@@ -170,12 +170,12 @@ function Activity({ task, snapshot, now }: { task?: Task; snapshot: Snapshot; no
 // what happened, below the panel header, each closed until it is opened, so
 // opening a panel reads no diff. log is the Activity section's state, which a
 // failure's Open the log opens.
-export function TaskView({ task, snapshot, connected, reviews, log, now, onRepair }: {
-  task: Task; snapshot: Snapshot; connected: boolean; reviews: ReviewControls; log: { open: boolean; onOpenChange: (open: boolean) => void }; now: number; onRepair?: (key: string) => void;
+export function TaskView({ task, snapshot, connected, reviews, log, now, onConnectors }: {
+  task: Task; snapshot: Snapshot; connected: boolean; reviews: ReviewControls; log: { open: boolean; onOpenChange: (open: boolean) => void }; now: number; onConnectors: () => void;
 }) {
   return <div className="panel-content">
       {task.tree && hasChildren(task.tree) && <Disclosure title="What's working" kind="working-section" defaultOpen={running(task.tree).length > 0}><WhatsWorking tree={task.tree} now={now} /></Disclosure>}
-      <WorkspaceDetails task={task} runs={snapshot.runs} snapshot={snapshot} connected={connected} onRepair={onRepair} />
+      <WorkspaceDetails task={task} snapshot={snapshot} connected={connected} onConnectors={onConnectors} />
       {task.generation && <Disclosure title="Changes" kind="changes-section"><Changes task={task} reviews={reviews} connected={connected} /></Disclosure>}
       <Disclosure id="task-activity" title="Activity" open={log.open} onOpenChange={log.onOpenChange}><Activity task={task} snapshot={snapshot} now={now} /></Disclosure>
       {task.generation && <Disclosure title="History"><History task={task} reviews={reviews} connected={connected} /></Disclosure>}

@@ -78,7 +78,7 @@ type AuthRefresher struct {
 	Panes PaneLiveness
 	// By names who grants or revokes, as the task's status says it. Empty is
 	// the CEO, whose ceo auth makes the change. The Overlord's press on a
-	// connector card on the board names him.
+	// connector on the board names him.
 	By string
 	// Generation and Project bind a card's grant to the task it was drawn for.
 	Generation string

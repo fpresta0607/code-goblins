@@ -191,6 +191,12 @@ type Options struct {
 	ReadScreen       func(host.Record) ([]string, error)
 	ProgramInstalled func(harness.Kind) (string, time.Time, error)
 	CEOJobActivity   func(host.Record) (string, error)
+	// UpdateCheck runs a harness's own update check and returns what it
+	// said, as its error why it failed, and HarnessCurrent reads whether a
+	// harness's install is the newest its publisher offers; nil runs and
+	// reads the machine's.
+	UpdateCheck    func(context.Context, harness.Kind) (string, error)
+	HarnessCurrent func(context.Context, harness.Kind) (bool, error)
 	// KeyPages are the reviewed key page recipes the binary carries; the
 	// browser broker lends a login's browser only for a provider they name.
 	KeyPages keypages.Recipes
@@ -290,6 +296,9 @@ type Service struct {
 	harnessUpdates   map[string]harnessUpdateRead
 	ceoUpdating      bool
 	ceoUpdateProblem string
+	// updateChecks is what the board knows of each harness's own update
+	// check, by harness.
+	updateChecks map[string]UpdateCheck
 	// release is the newest release as the banner shows it, kept by the
 	// release watch, which releaseNow asks for another look.
 	release    *ReleaseView
@@ -856,7 +865,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		reconcileErr = errors.Join(reconcileErr, s.Store.followCEO(ceo.identity), s.retellRuns(ctx))
 	}
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
-	reconcileErr = errors.Join(reconcileErr, s.submitHandedBack(ctx), s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
+	reconcileErr = errors.Join(reconcileErr, s.submitHandedBack(ctx), s.takeBackLeftTyped(ctx), s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleQueuedSends(time.Now().UTC(), s.lookAtQueuedSend))
 	reconcileErr = errors.Join(reconcileErr, s.applyEngineChoices(ctx, time.Now().UTC()))
 	reconcileErr = errors.Join(reconcileErr, s.holdForOverlord(time.Now().UTC()))
@@ -1647,6 +1656,10 @@ type Snapshot struct {
 	// CEOUpdate is an update of the harness the CEO runs, installed since it
 	// started, for the Update button on its header; absent while none waits.
 	CEOUpdate *CEOUpdate `json:"ceo_update,omitempty"`
+	// UpdateChecks is what the board knows of each harness's own update
+	// check, by harness, for a session's notice of a failed update; absent
+	// while it knows of none.
+	UpdateChecks map[string]UpdateCheck `json:"update_checks,omitempty"`
 	// Comeback is what the supervisor brings back after the last restart or
 	// sign-out, for the board's line; absent when it brings nothing back.
 	Comeback *state.Comeback `json:"comeback,omitempty"`
@@ -1753,6 +1766,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	if ceo.registered {
 		out.CEOUpdate = s.ceoUpdateView(ceo.since)
 	}
+	out.UpdateChecks = s.updateCheckView()
 	out.Comeback = s.comebackView()
 	out.PCRestart = s.pcRestartView()
 	if view, issue := s.startAtLoginView(); issue != "" {

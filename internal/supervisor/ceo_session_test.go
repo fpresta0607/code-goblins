@@ -59,6 +59,14 @@ func runningCEOHarness(t *testing.T, stateDir, userHome, fleetHome string) strin
 // answers a reader of the data of the next event of a name.
 func ceoMessageStream(t *testing.T, service *Service) func(event string) string {
 	t.Helper()
+	return messageStream(t, service, "ceo=ceo")
+}
+
+// messageStream opens the messages of the session a query names, the CEO's
+// or a task's of a generation, as the board streams them, and answers a
+// reader of the data of the next event of a name.
+func messageStream(t *testing.T, service *Service, session string) func(event string) string {
+	t.Helper()
 	handler := NewHTTP(service, "127.0.0.1:50000", nil)
 	handler.terminalTick = 100 * time.Millisecond
 	server := httptest.NewUnstartedServer(handler)
@@ -67,7 +75,7 @@ func ceoMessageStream(t *testing.T, service *Service) func(event string) string 
 	t.Cleanup(server.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	t.Cleanup(cancel)
-	request, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/messages?ceo=ceo&token=board-token&stream=1", nil)
+	request, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/messages?"+session+"&token=board-token&stream=1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +97,7 @@ func ceoMessageStream(t *testing.T, service *Service) func(event string) string 
 				return data
 			}
 		}
-		t.Fatalf("the CEO's stream sent no %s event: %v", event, scanner.Err())
+		t.Fatalf("the stream of %s sent no %s event: %v", session, event, scanner.Err())
 		return ""
 	}
 }

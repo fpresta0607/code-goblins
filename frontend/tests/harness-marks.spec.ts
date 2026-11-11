@@ -44,22 +44,23 @@ for (const session of SESSIONS) {
   });
 }
 
-// The CEO's panel has no task, so its Task view names the model of the CEO's
-// live session, the one its conversation shows, and the effort its saved
-// engine runs once that applied, as the box's model button shows it
-// (model-effort.spec.ts): a pending engine or one that could not be applied
-// runs no effort of its own.
+// The CEO's panel has no task, so its Task view names the model and effort of
+// the CEO's engine record, the one record of them, as the box's model button
+// shows them (model-effort.spec.ts): a pending engine or one that could not
+// be applied names a selection the CEO does not run, so the view names the
+// harness alone, as it does before the record exists. What the CEO's session
+// reported of itself as it started is no second record, and is never shown.
 const CEO_ENGINES = [
-  { why: "no saved engine", engine: undefined, line: "Claude Code · Opus 5.5" },
-  { why: "an applied engine", engine: { pending: false, problem: "" }, line: "Claude Code · Opus 5.5 · high" },
-  { why: "a pending engine", engine: { pending: true, problem: "" }, line: "Claude Code · Opus 5.5" },
-  { why: "an engine that could not be applied", engine: { pending: false, problem: "The selection could not be applied: the CEO is busy" }, line: "Claude Code · Opus 5.5" },
+  { why: "no saved engine", engine: undefined, line: "Claude Code" },
+  { why: "an applied engine", engine: { pending: false, problem: "" }, line: "Claude Code · Fable 5.2 · high" },
+  { why: "a pending engine", engine: { pending: true, problem: "" }, line: "Claude Code" },
+  { why: "an engine that could not be applied", engine: { pending: false, problem: "The selection could not be applied: the CEO is busy" }, line: "Claude Code" },
 ] as const;
 for (const ceo of CEO_ENGINES) {
-  test(`the CEO's Task view with ${ceo.why} names its harness, its live session's model and the effort it runs`, async ({ page }) => {
-    // Arrange
+  test(`the CEO's Task view with ${ceo.why} names its harness, and the model and effort its engine record says it runs`, async ({ page }) => {
+    // Arrange: a CEO whose session reported Opus 5.5 as it started.
     const [claude] = SESSIONS;
-    await open(page, snapshot({ sessions: [{ id: "ceo-1", harness: claude.harness, role: "ceo", model: claude.model }], ...(ceo.engine && { ceo_engine: { harness: claude.harness, model: claude.model, effort: "high", waiting: "", ...ceo.engine } }) }));
+    await open(page, snapshot({ sessions: [{ id: "ceo-1", harness: claude.harness, role: "ceo", model: claude.model }], ...(ceo.engine && { ceo_engine: { harness: claude.harness, model: "claude-fable-5-2", effort: "high", waiting: "", ...ceo.engine } }) }));
 
     // Act
     await page.locator(".ceo-pin").getByRole("button", { name: CEO_DOOR }).last().click();
