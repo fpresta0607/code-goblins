@@ -233,7 +233,7 @@ func (reader Reader) preserveWorktreeEdits(ctx context.Context, runID, repoID, w
 	if len(bytes.TrimSpace(status.Stdout)) == 0 {
 		return "", nil
 	}
-	index, err := os.CreateTemp("", "ceo-gate-worktree-")
+	index, err := os.CreateTemp("", "goblins-gate-worktree-")
 	if err != nil {
 		return "", err
 	}

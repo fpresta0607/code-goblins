@@ -42,7 +42,7 @@ func checkRunCommand(shell, command string, wait time.Duration) error {
 	if err != nil {
 		return err
 	}
-	dir, err := os.MkdirTemp("", "ceo-run-syntax-")
+	dir, err := os.MkdirTemp("", "goblins-run-syntax-")
 	if err != nil {
 		return err
 	}

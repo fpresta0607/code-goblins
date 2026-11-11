@@ -62,7 +62,7 @@ func Stages() int64 { return stages.Load() }
 // put in path's place.
 func Stage(path string, data []byte) (*Staged, error) {
 	stages.Add(1)
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".ceo-tmp-*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".goblins-tmp-*")
 	if err != nil {
 		return nil, err
 	}

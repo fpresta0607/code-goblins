@@ -40,7 +40,7 @@ func TestAnEventStreamOpensWhileStoreWritesWaitForAFileReader(t *testing.T) {
 	}
 	deadline := time.Now().Add(time.Minute)
 	for {
-		pending, err := filepath.Glob(filepath.Join(h.State, ".ceo-tmp-*"))
+		pending, err := filepath.Glob(filepath.Join(h.State, ".goblins-tmp-*"))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -109,7 +109,7 @@ func startWatchLockStandIn(t *testing.T, stateDir, role, program string, argumen
 	if program != "" {
 		// Not t.TempDir: a process just ended can keep its image open for a
 		// moment, so the removal retries once the process has ended.
-		dir, err := os.MkdirTemp("", "ceo-stand-in-")
+		dir, err := os.MkdirTemp("", "goblins-stand-in-")
 		if err != nil {
 			t.Fatal(err)
 		}

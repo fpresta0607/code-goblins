@@ -282,7 +282,7 @@ func TestStoreDirIsTheOverrideElseTheUsersCacheAndNeverThatFromATest(t *testing.
 	if namedErr != nil || named != `D:\scratch\verify` {
 		t.Errorf("storeDir with an override = %q, %v; want the override", named, namedErr)
 	}
-	if want := filepath.Join(cache, "ceo", "verify"); realErr != nil || real != want {
+	if want := filepath.Join(cache, "goblins", "verify"); realErr != nil || real != want {
 		t.Errorf("storeDir with no override = %q, %v; want %q", real, realErr, want)
 	}
 	if refused == nil || !strings.Contains(refused.Error(), "GOBLINS_VERIFY_DIR") {

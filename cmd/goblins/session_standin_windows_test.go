@@ -226,7 +226,7 @@ func sessionProgramsDir(t *testing.T) string {
 			sessionPrograms.err = err
 			return
 		}
-		if sessionPrograms.dir, sessionPrograms.err = os.MkdirTemp("", "ceo-session-programs-"); sessionPrograms.err != nil {
+		if sessionPrograms.dir, sessionPrograms.err = os.MkdirTemp("", "goblins-session-programs-"); sessionPrograms.err != nil {
 			return
 		}
 		for _, name := range []string{"claude.exe", sessionCLI} {

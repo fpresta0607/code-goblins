@@ -140,7 +140,7 @@ func (reader Reader) Admit(ctx context.Context, project, worktree, branch, opera
 			return execx.Result{}, "", fmt.Errorf("pipeline: admission candidate changed or is not clean (%s)", strings.Join(check.args, " "))
 		}
 	}
-	snapshot, err := os.CreateTemp("", "ceo-admission-*.json")
+	snapshot, err := os.CreateTemp("", "goblins-admission-*.json")
 	if err != nil {
 		return execx.Result{}, "", err
 	}

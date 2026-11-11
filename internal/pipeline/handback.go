@@ -77,7 +77,7 @@ func (reader Reader) Handback(ctx context.Context, project, worktree, branch, ru
 	if err != nil || clean.ExitCode != 0 || len(strings.TrimSpace(string(clean.Stdout))) != 0 {
 		return execx.Result{}, errors.New("pipeline: handback requires a readable clean caller worktree")
 	}
-	file, err := os.CreateTemp("", "ceo-handback-*.json")
+	file, err := os.CreateTemp("", "goblins-handback-*.json")
 	if err != nil {
 		return execx.Result{}, err
 	}

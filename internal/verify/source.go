@@ -77,7 +77,7 @@ func repositoryFreeEnvironment() []string {
 func ReadSource(ctx context.Context, commands execx.Runner, dir string) (source Source, err error) {
 	ctx, cancel := context.WithTimeout(ctx, sourceReadLimit)
 	defer cancel()
-	folder, err := os.MkdirTemp("", "ceo-source-")
+	folder, err := os.MkdirTemp("", "goblins-source-")
 	if err != nil {
 		return Source{}, fmt.Errorf("verify: read the source: %w", err)
 	}

@@ -37,7 +37,7 @@ func startStandIn(t *testing.T, stateDir, mode, program string, arguments ...str
 	// moment. This cleanup is registered first so it runs last, once the
 	// process below has ended; it retries, and reports a removal that still
 	// fails rather than hiding it.
-	dir, err := os.MkdirTemp("", "ceo-stand-in-")
+	dir, err := os.MkdirTemp("", "goblins-stand-in-")
 	if err != nil {
 		t.Fatal(err)
 	}

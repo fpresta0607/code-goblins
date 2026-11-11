@@ -696,7 +696,7 @@ func TestMain(m *testing.M) {
 			panic(err)
 		}
 	}
-	configDir, err := os.MkdirTemp("", "ceo-test-claude-config-")
+	configDir, err := os.MkdirTemp("", "goblins-test-claude-config-")
 	if err != nil {
 		panic(err)
 	}

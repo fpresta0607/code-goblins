@@ -510,7 +510,7 @@ func (e Engine) ask(ctx context.Context, path string) ([]byte, error) {
 // command line is what Microsoft Defender reads as a lure pasted into a
 // terminal, so it never goes there.
 func (e Engine) runWithBody(ctx context.Context, dir, body string, args ...string) (string, error) {
-	file, err := os.CreateTemp("", "ceo-train-body-*.md")
+	file, err := os.CreateTemp("", "goblins-train-body-*.md")
 	if err != nil {
 		return "", err
 	}

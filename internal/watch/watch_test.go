@@ -31,7 +31,7 @@ func TestMain(m *testing.M) {
 	if playStandIn() {
 		return
 	}
-	root, err := os.MkdirTemp("", "ceo-watch-projects-root-")
+	root, err := os.MkdirTemp("", "goblins-watch-projects-root-")
 	if err != nil {
 		panic(err)
 	}
