@@ -1057,6 +1057,41 @@ func TestClaudesQueuedHintReadsEmptyWithoutMistakingADraft(t *testing.T) {
 	}
 }
 
+// Claude Code 2.1.322, live on 2026-11-10: Up at the empty prompt line that
+// shows its queue's hint takes every queued line back onto that line, and at
+// one that shows none it recalls an earlier prompt instead. The board presses
+// it only where the hint shows, and never for a harness that has no such key
+// (#2332).
+func TestOnlyAnEmptyPromptLineThatShowsItsQueuesHintOffersTheQueueBack(t *testing.T) {
+	rule := strings.Repeat("─", 40)
+	for name, test := range map[string]struct {
+		kind   Kind
+		prompt string
+		want   bool
+	}{
+		"Claude Code's hint":             {Claude, "❯ Press up to edit queued messages", true},
+		"Claude Code's hint cut short":   {Claude, "❯ Press up to edit queued …", true},
+		"Claude Code's bare prompt line": {Claude, "❯ ", false},
+		"Claude Code's draft":            {Claude, "❯ Press up to edit the file", false},
+		"Codex, which has no such key":   {Codex, "› Ask Codex to do anything", false},
+		"pi, which has no such key":      {Pi, "", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+			screen := []string{"* Billowing… (2s · ↓ 9 tokens)", rule, test.prompt, rule, "  ⏵⏵ auto mode on (shift+tab to cycle)"}
+
+			// Act
+			offers := screens.OffersQueue(screen)
+
+			// Assert
+			if offers != test.want {
+				t.Fatalf("OffersQueue = %v, want %v", offers, test.want)
+			}
+		})
+	}
+}
+
 // Claude Code that takes the Enter ending typed text as a new line leaves the
 // text in its composer over the empty row that Enter added, as a resumed
 // goblin's was on a loaded machine on 2026-10-20. Text that shows over no new

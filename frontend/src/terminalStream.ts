@@ -154,10 +154,11 @@ export interface ScreenState {
   retry?: HarnessRetry;
 }
 
-// A notice's action is the command that takes, in the session, what it names,
-// as Run claude doctor names /doctor, and empty for a notice that names none.
+// A notice's check is the check of the harness's own that the supervisor
+// runs for it outside the session, as update for a failed update, and empty
+// for a notice that has none (#2333).
 export interface HarnessStatus { gauge: string; notices: HarnessNotice[] }
-export interface HarnessNotice { text: string; action: string }
+export interface HarnessNotice { text: string; check: string }
 export interface HarnessRetry { reason: string; attempt: number; attempts: number }
 
 // What a harness draws in its input line's place: the rows that ask or show,
@@ -196,9 +197,9 @@ function parseStatus(value: unknown): HarnessStatus | null | undefined {
   const parsed: HarnessNotice[] = [];
   for (const notice of listed) {
     if (typeof notice !== "object" || notice === null) return null;
-    const { text, action } = notice as Record<string, unknown>;
-    if (typeof text !== "string" || action !== undefined && typeof action !== "string") return null;
-    parsed.push({ text, action: action ?? "" });
+    const { text, check } = notice as Record<string, unknown>;
+    if (typeof text !== "string" || check !== undefined && typeof check !== "string") return null;
+    parsed.push({ text, check: check ?? "" });
   }
   return { gauge: gauge ?? "", notices: parsed };
 }

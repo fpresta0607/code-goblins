@@ -428,6 +428,104 @@ test("a message not sent again after its Send now can be sent now once more", as
   await expect.poll(() => posts).toEqual([{ kind: "message_now", target: "q1", text: "" }, { kind: "message_now", target: "q1", text: "" }]);
 });
 
+// The Overlord, 2026-11-10 (#2332): a message the harness still held in its
+// own queue read Sent in Modern Chat on his phone, with nothing to press.
+// Sent means the harness has taken it into a turn: one typed into a turn
+// under way reads Queued, dimmed, with Send now, Edit and Cancel, each of
+// which the board carries to the harness's own queue, and is his own row,
+// with no label, once the harness takes it.
+for (const { whose, task, width } of [
+  { whose: "the CEO", task: "", width: 390 }, { whose: "a goblin", task: GOBLIN.id, width: 390 }, { whose: "a goblin", task: GOBLIN.id, width: 1440 },
+]) {
+  test(`at ${width} wide, his message in the queue of ${whose}'s harness reads Queued with its controls, each reaching the board`, async ({ page }, testInfo) => {
+    // Arrange
+    await page.setViewportSize({ width, height: 844 });
+    const words = "check the phone layout too";
+    const held = queued({
+      id: "h1", task_id: task, generation: task ? GOBLIN.generation : "", text: words, status: "running", can_send_now: false, send_now_why: "",
+      message: task ? "Queued in the goblin's session. The goblin takes it at its next tool call, or as its current turn ends." : "Queued in the CFO's session. The CFO takes it at its next tool call, or as its current turn ends.",
+      awaiting: task ? { task, since: "2026-10-22T09:01:00Z", is_held: true } : { since: "2026-10-22T09:01:00Z", is_held: true }, created_at: "2026-10-22T09:01:00Z", updated_at: "2026-10-22T09:01:01Z",
+    });
+    const posts: { kind: string; target: string }[] = [];
+    const relay = await open(page, snapshot({ actions: [held] }));
+    await page.route("**/api/actions", (route) => {
+      const body = route.request().postDataJSON() as { kind: string; target?: string };
+      posts.push({ kind: body.kind, target: body.target ?? "" });
+      return route.fulfill({ status: 202, json: { status: "ok" } });
+    });
+    if (task) await openGoblin(page);
+    else {
+      await page.keyboard.press("Control+Alt+1");
+      await expect(page.locator("#panel-title")).toHaveText("CEO");
+    }
+    relay.say({ type: "screen", asking: false, open: false, working: true });
+    const bubble = entry(page).filter({ hasText: words });
+
+    // Assert: Queued, never Sent, and his to act on.
+    await expect(bubble.locator(".queued-state")).toHaveText(WAITING);
+    expect(Number(await bubble.locator(".queued-bubble").evaluate((element) => getComputedStyle(element).opacity))).toBeLessThan(1);
+    await expect(bubble.locator(".queued-bubble")).toHaveAccessibleDescription(task ? /^Queued in the goblin's session\./ : /^Queued in the CFO's session\./);
+    for (const name of ["Send now", "Edit", "Cancel"]) await expect(bubble.getByRole("button", { name, exact: true })).toBeEnabled();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    const shot = testInfo.outputPath(`harness-held-${task ? "goblin" : "ceo"}-${width}.png`);
+    await page.screenshot({ path: shot });
+    await testInfo.attach(`harness-held-${task ? "goblin" : "ceo"}-${width}`, { path: shot, contentType: "image/png" });
+
+    // Act: Send now, pressed twice.
+    const sendNow = bubble.getByRole("button", { name: "Send now", exact: true });
+    await sendNow.click();
+    await expect(sendNow).toBeDisabled();
+
+    // Assert: one press reaches the board, and it stays pressed until the
+    // board says what came of it.
+    await expect.poll(() => posts).toEqual([{ kind: "message_now", target: "h1" }]);
+
+    // Act: its harness's key went and the message still waits there, as
+    // behind a command typed in its terminal, so he may ask again.
+    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })),
+      snapshot({ revision: 2, actions: [{ ...held, message: "Typed while it was working and sent now.", updated_at: "2026-10-22T09:01:05Z" }] }));
+    await expect(sendNow).toBeEnabled();
+    await sendNow.click();
+    await expect.poll(() => posts).toEqual([{ kind: "message_now", target: "h1" }, { kind: "message_now", target: "h1" }]);
+
+    // Act: Cancel.
+    await bubble.getByRole("button", { name: "Cancel", exact: true }).click();
+
+    // Assert: it names the message by its own identity, once.
+    await expect.poll(() => posts.slice(2)).toEqual([{ kind: "message_withdraw", target: "h1" }]);
+    await expect(bubble.locator(".queued-actions")).toHaveCount(0);
+  });
+}
+
+test("Edit takes a message back out of its harness's queue and into the box, and one its harness is handing over has nothing to press", async ({ page }) => {
+  // Arrange
+  const words = "check the phone layout too";
+  const held = queued({
+    id: "h1", text: words, status: "running", can_send_now: false, send_now_why: "", message: "Queued in its session.",
+    awaiting: { task: GOBLIN.id, since: "2026-10-22T09:01:00Z", is_held: true }, created_at: "2026-10-22T09:01:00Z", updated_at: "2026-10-22T09:01:01Z",
+  });
+  const posts = await openWith(page, held);
+  const bubble = entry(page).filter({ hasText: words });
+
+  // Act: its harness hands it to a turn, as its own record shows.
+  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
+    { ...PAGE, waiting: [{ id: "w1", at: "2026-10-22T09:01:00Z", source: "overlord", text: words, sending: true, action: "h1" }] });
+
+  // Assert: out of his hands.
+  await expect(bubble.locator(".queued-state")).toHaveText("Sending");
+  await expect(bubble.locator(".queued-actions")).toHaveCount(0);
+
+  // Act: the record shows it queued there instead, and he presses Edit.
+  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
+    { ...PAGE, waiting: [{ id: "w1", at: "2026-10-22T09:01:00Z", source: "overlord", text: words, action: "h1" }] });
+  await expect(bubble.locator(".queued-state")).toHaveText(WAITING);
+  await bubble.getByRole("button", { name: "Edit", exact: true }).click();
+
+  // Assert: taken back by its own identity, his words in the box to change.
+  await expect.poll(() => posts).toEqual([{ kind: "message_withdraw", target: "h1", text: words }]);
+  await expect(field(page)).toHaveValue(words);
+});
+
 // His message to the CFO waits out a short undo window on the board, where
 // Edit and Cancel work, and is then typed into the CFO's turn, where they go
 // (the CFO, 2026-11-02: "The bubble shows each real state: held (Edit and

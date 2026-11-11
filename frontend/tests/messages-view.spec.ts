@@ -632,7 +632,9 @@ for (const isAwaiting of [false, true]) {
     await expect(rows.filter({ hasText: "and the phone" })).toHaveCount(1);
     await expect(rows.filter({ hasText: words })).toHaveCount(1);
     await expect(rows.filter({ hasText: words })).toContainText("Queued");
-    await expect(rows.filter({ hasText: words }).getByRole("button", { name: "Cancel" })).toHaveCount(0);
+    // What its harness holds queued is still his to send now, edit or cancel
+    // (#2332), on that one row.
+    await expect(rows.filter({ hasText: words }).getByRole("button", { name: "Cancel" })).toHaveCount(1);
 
     // Act
     await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [prompt("q1", words, "a1"), prompt("q3", words)] });
@@ -700,7 +702,7 @@ test("a prompt its harness holds before the board's snapshot shows its message t
   // Assert
   await expect(rows).toHaveCount(1);
   await expect(rows).toContainText("Queued");
-  await expect(rows.getByRole("button", { name: "Cancel" })).toHaveCount(0);
+  await expect(rows.getByRole("button", { name: "Cancel" })).toHaveCount(1);
 
   // Act: the snapshot catches up.
   await send(page, "snapshot", { ...SNAPSHOT, revision: 3, actions: [{ ...action, status: "running", awaiting: { task: "cg-touch" } }] });

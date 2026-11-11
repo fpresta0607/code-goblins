@@ -319,6 +319,9 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		state.Doing = screens.WorkingWords(rows)
 		if status, isShown := screens.Status(rows); isShown {
 			state.Status = &status
+			if slices.ContainsFunc(status.Notices, func(notice harness.Notice) bool { return notice.Check == "update" }) {
+				h.Service.noticeUpdateFailure(harness.Kind(binding.harness()))
+			}
 		}
 		if retry, isRetrying := screens.Retry(rows); isRetrying {
 			state.Retry = &retry

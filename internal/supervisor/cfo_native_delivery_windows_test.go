@@ -177,7 +177,9 @@ func TestHisLoneQuestionMarkReachesAClaudeCFOAsWords(t *testing.T) {
 // nothing left waiting, in each shape Claude Code records it (#2242): sent
 // between turns, as a user record once dequeued; sent during a turn, as a
 // queued_command attachment its model takes in that turn; and a ! command,
-// queued by its words alone and run at the turn's end as a bash-input row.
+// queued by its words alone and run as a bash-input row. The board types a
+// command only once the CFO's turn has ended (#2332), so that one reaches
+// an idle CFO.
 func TestHisMessageToAClaudeCFOIsDeliveredAndDrawnInEachShapeItsRecordTakes(t *testing.T) {
 	for _, shape := range []struct {
 		name   string
@@ -186,6 +188,7 @@ func TestHisMessageToAClaudeCFOIsDeliveredAndDrawnInEachShapeItsRecordTakes(t *t
 		source string
 		drawn  string
 		queued bool
+		isIdle bool
 	}{
 		{name: "between turns", typed: "check the gate", source: fleettree.FromOverlord, drawn: "check the gate",
 			record: func(at, _ string) []map[string]any {
@@ -205,7 +208,7 @@ func TestHisMessageToAClaudeCFOIsDeliveredAndDrawnInEachShapeItsRecordTakes(t *t
 			}},
 		// Claude Code records a ! line by its words after the !, and the board
 		// draws its own shell-mode line as the command he typed (#2051).
-		{name: "a ! command run at the turn's end", typed: "! claude doctor", source: fleettree.FromShell, drawn: "claude doctor",
+		{name: "a ! command typed once the turn has ended", typed: "! claude doctor", source: fleettree.FromShell, drawn: "claude doctor", isIdle: true,
 			record: func(at, recorded string) []map[string]any {
 				return []map[string]any{
 					{"type": "queue-operation", "operation": "enqueue", "timestamp": at, "content": recorded},
@@ -218,7 +221,11 @@ func TestHisMessageToAClaudeCFOIsDeliveredAndDrawnInEachShapeItsRecordTakes(t *t
 			// Arrange
 			records := useConversations(t)
 			store, home := testStore(t)
-			terminal := nativeCFOComposer(t, home.State, "claude-manual-busy")
+			mode, taken := "claude-manual-busy", "queued "
+			if shape.isIdle {
+				mode, taken = "claude-manual", "accepted "
+			}
+			terminal := nativeCFOComposer(t, home.State, mode)
 			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
 			if _, err := store.Queue(Action{ID: "sent", Kind: "message", Text: shape.typed}); err != nil {
 				t.Fatal(err)
@@ -263,7 +270,7 @@ func TestHisMessageToAClaudeCFOIsDeliveredAndDrawnInEachShapeItsRecordTakes(t *t
 			page.Messages, page.Waiting = shownShellCommands(home.State, page.Messages, page.Waiting)
 
 			// Assert
-			if len(lines) != 2 || lines[1] != "queued "+typed {
+			if len(lines) != 2 || lines[1] != taken+typed {
 				t.Fatalf("terminal input = %q; want the message typed once", lines)
 			}
 			if settled := store.Snapshot().Actions[0]; settled.Status != "succeeded" || settled.Awaiting != nil {
@@ -343,8 +350,8 @@ func TestHisLongMultiLineMessageToAClaudeCFOInATurnIsTakenWholeOnce(t *testing.T
 			delivered := store.Snapshot().Actions[0]
 
 			// Assert
-			if sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentToCFO || sent.CanSendNow {
-				t.Fatalf("send during the turn = %+v; want it sent, awaiting the CFO's next tool call, with no Send now", sent)
+			if sent.Status != "running" || sent.Awaiting == nil || sent.Message != heldByCFO || sent.CanSendNow {
+				t.Fatalf("send during the turn = %+v; want it queued in the CFO's session, awaiting the CFO's next tool call", sent)
 			}
 			if want := []string{"queued " + oneLine(message), "accepted " + oneLine(message)}; len(lines) != 3 || lines[1] != want[0] || lines[2] != want[1] {
 				t.Errorf("terminal input = %q; want the whole message queued once and taken once", lines)
@@ -535,7 +542,7 @@ func TestHisNextMessageIsTypedBehindOneInABusyClaudeCFOsQueue(t *testing.T) {
 		t.Fatalf("terminal input = %q; want both messages queued in turn", lines)
 	}
 	for _, sent := range store.Snapshot().Actions {
-		if sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentToCFO {
+		if sent.Status != "running" || sent.Awaiting == nil || sent.Message != heldByCFO {
 			t.Errorf("%s = %+v; want it typed into the turn, awaiting the CFO", sent.ID, sent)
 		}
 	}
@@ -734,7 +741,7 @@ func TestHisPasteAfterAHandedBackMessageIsNeverSubmittedForHim(t *testing.T) {
 	if lines := terminal.lines(t); !slices.Equal(lines[1:], []string{"queued stop and rebase", "interrupted"}) {
 		t.Errorf("terminal input = %q; want nothing submitted over his paste", lines)
 	}
-	if sent := actionOf(store, "m1"); sent.Status != "running" || sent.Message != sentToCFO {
+	if sent := actionOf(store, "m1"); sent.Status != "running" || sent.Message != heldByCFO {
 		t.Errorf("after his paste = %+v; want it still awaiting the CFO, never submitted again", sent)
 	}
 }
@@ -777,12 +784,13 @@ func TestAHandedBackQuestionMarkIsNeverSubmittedWithHisWordsBesideIt(t *testing.
 	}
 }
 
-// A message typed into the CFO's turn is sent the moment its submit key goes:
-// the turn takes it only at its next tool call, which only the CFO's own
-// record shows, and settleDeliveries reads that record. So the delivery waits
-// on no take, and his bubble reads Sent at once rather than Queued while his
-// words already sit in the CFO's queue.
-func TestADeliveryToACFOInATurnIsSentOnceItsSubmitKeyWent(t *testing.T) {
+// A message typed into the CFO's turn is its harness's the moment its submit
+// key goes: the turn takes it only at its next tool call, which only the CFO's
+// own record shows, and settleDeliveries reads that record. So the delivery
+// waits on no take, and his bubble reads Queued in the CFO's session at once,
+// with the controls that act on that queue (#2332), rather than Queued on the
+// board while his words already sit in the CFO's queue.
+func TestADeliveryToACFOInATurnReturnsOnceItsSubmitKeyWent(t *testing.T) {
 	for _, mode := range []string{"claude-busy", "busy"} {
 		t.Run(mode, func(t *testing.T) {
 			// Arrange
@@ -797,8 +805,8 @@ func TestADeliveryToACFOInATurnIsSentOnceItsSubmitKeyWent(t *testing.T) {
 			took := time.Since(started)
 
 			// Assert
-			if err != nil || result.Reason != sentToCFO || result.Awaiting == nil || result.Awaiting.Typed != "stop and rebase" {
-				t.Fatalf("deliverMessage = %+v, %v; want it sent and awaiting the CFO's next tool call", result, err)
+			if err != nil || result.Reason != heldByCFO || result.Awaiting == nil || result.Awaiting.Typed != "stop and rebase" {
+				t.Fatalf("deliverMessage = %+v, %v; want it queued in the CFO's session and awaiting the CFO's next tool call", result, err)
 			}
 			// stall-accepted: the delivery that waited for a busy CFO's take returned after exactly nativeConfirm, so no longer bound can tell it apart.
 			if took >= nativeConfirm {
@@ -956,7 +964,7 @@ func TestNativeCFOBusyAnswersBecomeDeliveredOnlyWhenTheQueuedPromptIsTaken(t *te
 				sent := reopened.Snapshot().Actions[0]
 
 				// Assert
-				if sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentToCFO {
+				if sent.Status != "running" || sent.Awaiting == nil || sent.Message != heldByCFO {
 					t.Fatalf("busy send = %+v; want submitted and awaiting actual acceptance", sent)
 				}
 				if kind == "review_answer" && reopened.Snapshot().Reviews[0].Delivered {
@@ -1137,21 +1145,25 @@ func TestNativeCFOCannotCallAnAnswerSentWhileItRemainsInTheIdleComposer(t *testi
 // A slash command the CFO's harness runs itself starts no turn, and Codex
 // and pi record none, so an idle CFO took it once it left the input line,
 // and the board reads it taken rather than Sent. A command typed into a
-// Codex or pi turn could be dropped with nothing to show it, so it waits for
-// the turn to end, nothing typed, while Claude Code queues one and records
-// it once run (#2193).
+// Codex or pi turn could be dropped with nothing to show it (#2193), and one
+// in Claude Code's queue is taken alone by its send-now key, ahead of his
+// message behind it (#2332), so it waits for the turn to end, nothing typed,
+// and a message behind it can be sent now.
 func TestASlashCommandReachesTheCFOInItsTrueState(t *testing.T) {
 	for _, test := range []struct {
 		mode      string
+		command   string
 		isTaken   bool
 		isWaiting bool
 	}{
-		{mode: "claude-ready", isTaken: true},
-		{mode: "ready", isTaken: true},
-		{mode: "claude-busy"},
-		{mode: "busy", isWaiting: true},
+		{mode: "claude-ready", command: "/remote-control", isTaken: true},
+		{mode: "ready", command: "/remote-control", isTaken: true},
+		{mode: "claude-busy", command: "/remote-control", isWaiting: true},
+		{mode: "busy", command: "/remote-control", isWaiting: true},
+		// A ! command waits as a slash command does.
+		{mode: "claude-busy", command: "! claude doctor", isWaiting: true},
 	} {
-		t.Run(test.mode, func(t *testing.T) {
+		t.Run(test.mode+" "+strings.TrimLeft(test.command, "/! "), func(t *testing.T) {
 			// Arrange
 			useConversations(t)
 			store, home := testStore(t)
@@ -1161,7 +1173,7 @@ func TestASlashCommandReachesTheCFOInItsTrueState(t *testing.T) {
 			defer cancel()
 
 			// Act
-			result, err := service.deliverMessage(ctx, Action{Kind: "message", Text: "/remote-control"})
+			result, err := service.deliverMessage(ctx, Action{ID: "command", Kind: "message", Text: test.command})
 
 			// Assert
 			lines := terminal.lines(t)
@@ -1170,16 +1182,12 @@ func TestASlashCommandReachesTheCFOInItsTrueState(t *testing.T) {
 			}
 			switch {
 			case test.isWaiting:
-				if !errors.Is(err, ErrDeferred) || len(lines) != 1 {
-					t.Errorf("deliverMessage = %+v, %v, terminal input %q; want it held for the turn's end, nothing typed", result, err, lines)
-				}
-			case test.isTaken:
-				if err != nil || result.Awaiting != nil || !strings.Contains(result.Reason, "Taken by the CFO") || len(lines) != 2 || lines[1] != "accepted /remote-control" {
-					t.Errorf("deliverMessage = %+v, %v, terminal input %q; want it typed once and taken", result, err, lines)
+				if !errors.Is(err, ErrDeferred) || len(lines) != 1 || !result.CanSendNow || result.Reason != "Queued until the CFO's turn ends. Send now has it take the message at once." {
+					t.Errorf("deliverMessage = %+v, %v, terminal input %q; want it held for the turn's end, nothing typed, with Send now for the words behind it", result, err, lines)
 				}
 			default:
-				if err != nil || result.Awaiting == nil || len(lines) != 2 || lines[1] != "queued /remote-control" {
-					t.Errorf("deliverMessage = %+v, %v, terminal input %q; want it queued in the turn, awaiting the CFO's record", result, err, lines)
+				if err != nil || result.Awaiting != nil || !strings.Contains(result.Reason, "Taken by the CFO") || len(lines) != 2 || lines[1] != "accepted "+test.command {
+					t.Errorf("deliverMessage = %+v, %v, terminal input %q; want it typed once and taken", result, err, lines)
 				}
 			}
 		})

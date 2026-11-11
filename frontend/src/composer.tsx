@@ -13,7 +13,7 @@ import { HarnessMark } from "./harness-mark";
 import { HarnessPanel } from "./harness-panel";
 import { Icon } from "./Icon";
 import { clipboardPicture, filesOf, keptFiles } from "./kept-files";
-import { isPendingMessage, messagesTo, takesMessages } from "./messages";
+import { isHarnessHeld, isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
 import { cycleMode, MODE_NOT_SENT } from "./mode-cycle";
 import { shortModel } from "./model-name";
@@ -29,7 +29,6 @@ import { readClipboard } from "./terminal-keys";
 import { keepFile } from "./terminal-image";
 import { TerminalStatus } from "./terminal-status";
 import { detachedHoldReason } from "./terminalInput";
-import type { ScreenState } from "./terminalStream";
 import { appendDictation, useDictation } from "./useDictation";
 import "./composer.css";
 
@@ -163,7 +162,6 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // rest in Windows PowerShell 5.1 through the harness's own !.
   const isShell = draft.trimStart().startsWith("!");
   const [isSending, setSending] = useState(false);
-  const [commandScreen, setCommandScreen] = useState<ScreenState | null>(null);
   const [isReplacing, setReplacing] = useState(false);
   const composerSection = useRef<HTMLElement>(null);
   // Why the last Send found no terminal to type into, or why a paste could
@@ -443,10 +441,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     setAttached([]);
     setUnsent("");
   };
-  // command is one a notice of the terminal's offers, sent as it is, which
-  // leaves his words and files in the box.
-  const send = async (command?: string) => {
-    const text = command ?? sendable(harness, outgoing);
+  const send = async () => {
+    const text = sendable(harness, outgoing);
     if (!text || isSending || adding) return;
     // A setting the box has a control for opens the board's own pane, or is
     // set at once with the value typed after it, never the terminal's menu;
@@ -475,44 +471,47 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
         return;
       }
       if (live?.send(text)) {
-        if (command) setCommandScreen(live.screen); else afterSend();
+        afterSend();
         onSend?.();
       } else setUnsent(unsentWhy);
       return;
     }
-    const id = command ? crypto.randomUUID() : sendID.current ||= crypto.randomUUID();
+    const id = sendID.current ||= crypto.randomUUID();
     // The conversation shows it at once as his queued bubble, and the box
     // empties, before the board has answered; a refusal takes the bubble
     // back and returns his words and pictures to the box as he left them.
     const written = draft, kept = attached;
     if (hasConversation) {
       addPendingSend({ id, task: task?.id || "", text });
-      if (!command) {
-        setDraft("");
-        setAttached([]);
-      }
+      setDraft("");
+      setAttached([]);
       onSend?.();
     }
     setSending(true);
     try {
       await post({ id, kind: "message", task_id: task?.id || "", generation: "", text });
-      if (!command) {
-        sendID.current = "";
-        storeDraft(draftKey, "");
-        storeAttached(draftKey, []);
-        afterSend();
-      }
+      sendID.current = "";
+      storeDraft(draftKey, "");
+      storeAttached(draftKey, []);
+      afterSend();
     } catch (error: unknown) {
       removePendingSend(id);
-      if (!command) {
-        setDraft((prior) => prior || written);
-        setAttached((prior) => prior.length ? prior : kept);
-      }
+      setDraft((prior) => prior || written);
+      setAttached((prior) => prior.length ? prior : kept);
       setUnsent("Not sent. " + message(error));
       reportToCfo("a message to " + name, message(error));
     } finally {
       setSending(false);
     }
+  };
+  // Retry on the terminal's notice of a failed update has the supervisor run
+  // the harness's own update check outside the session, which the snapshot
+  // then shows running and ended (#2333). Nothing is typed into the session.
+  const retryUpdateCheck = () => {
+    request("/api/harness/update-check", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ harness }) }).catch((error: unknown) => {
+      setNotice((prior) => ({ text: message(error), from: "queued", count: prior.count + 1 }));
+      if (!(error instanceof Error && error.cause !== undefined)) reportToCfo("the update check of " + name, message(error));
+    });
   };
   // A delete names the message by its goblin and its words, which the
   // supervisor takes out of the resume note.
@@ -679,7 +678,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   };
   useEffect(() => {
     const takeBack = (event: Event) => {
-      const action = event instanceof CustomEvent && queued.find((each) => each.id === event.detail && !each.awaiting);
+      const action = event instanceof CustomEvent && queued.find((each) => each.id === event.detail && (!each.awaiting || isHarnessHeld(each)));
       if (action) void unqueue(action);
     };
     window.addEventListener(TAKE_BACK_MESSAGE, takeBack);
@@ -877,6 +876,6 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     </div>
     {/* The terminal's gauge and notices go under the box, as the terminal
         draws them under its prompt (#2294). */}
-    {hasConversation && live?.screen?.status && <TerminalStatus status={live.screen.status} isSending={isSending || live.screen === commandScreen} onAction={(command) => void send(command)} />}
+    {hasConversation && live?.screen?.status && <TerminalStatus status={live.screen.status} check={snapshot.update_checks[harness]} onRetry={retryUpdateCheck} />}
   </section>;
 }

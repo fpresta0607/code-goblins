@@ -1198,10 +1198,17 @@ func TestANativeViewDistinguishesBackgroundWorkFromAHarnessTurn(t *testing.T) {
 
 // A view is told the context gauge and notices Claude Code draws over its
 // composer and the attempt its turn row shows while it retries, and told
-// again without them once the terminal no longer shows them (#2236).
+// again without them once the terminal no longer shows them (#2236). A failed
+// update is one notice that names the check the supervisor runs for it, and
+// has the install read against its publisher's newest (#2333).
 func TestANativeViewIsToldTheStatusAndRetryTheTerminalShows(t *testing.T) {
 	// Arrange
 	h, server := nativeBoard(t, "direct")
+	read := make(chan harness.Kind, 1)
+	h.Service.Options.HarnessCurrent = func(_ context.Context, kind harness.Kind) (bool, error) {
+		read <- kind
+		return false, nil
+	}
 	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
 	if err != nil {
 		t.Fatal(err)
@@ -1213,11 +1220,19 @@ func TestANativeViewIsToldTheStatusAndRetryTheTerminalShows(t *testing.T) {
 	hostTask(t, h)
 	v := openNativeView(t, server, viewQuery)
 	v.waitFor(t, "program ready")
-	status := `"status":{"gauge":"83% context used","notices":[{"text":"Auto-update failed"},{"text":"Run claude doctor","action":"/doctor"}]}`
+	status := `"status":{"gauge":"83% context used","notices":[{"text":"Auto-update failed","check":"update"}]}`
 
 	// Act and Assert: the status shows, then a retry under it, then neither.
 	v.send(t, websocket.MessageBinary, "status 83% context used · ✘ Auto-update failed · Run claude doctor\r")
 	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"his","mode":"bypass permissions",`+status+`}`)
+	select {
+	case kind := <-read:
+		if kind != harness.Claude {
+			t.Errorf("the install read = %s, want Claude Code's", kind)
+		}
+	case <-time.After(time.Minute):
+		t.Error("the install was never read against its publisher's newest")
+	}
 	v.send(t, websocket.MessageBinary, "retry 3/10\r")
 	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":true,"submission":"his","mode":"bypass permissions",`+status+`,"retry":{"reason":"529 Overloaded","attempt":3,"attempts":10}}`)
 	v.send(t, websocket.MessageBinary, "status\r")

@@ -242,7 +242,8 @@ type MessagePage struct {
 
 // WaitingPrompt keeps a Claude Code prompt visible from enqueue through its
 // handoff until its delivered Message appears, or the session answers after
-// the handoff with none that is it. It has no delivery offset yet,
+// the handoff with none that is it, and no longer once Up takes it back to
+// the prompt line. It has no delivery offset yet,
 // so it stays separate from messages; IsSending marks the handoff, and Action
 // names the board message that typed it, which the supervisor fills in.
 type WaitingPrompt struct {
@@ -857,13 +858,15 @@ func (l *messageLog) queueOperation(entry messageEntry, id string) {
 		l.waiting = append(l.waiting, WaitingPrompt{ID: id, At: entry.Timestamp, Source: source, Text: text})
 	case "dequeue":
 		at = slices.IndexFunc(l.waiting, func(prompt WaitingPrompt) bool { return !prompt.IsSending })
-	case "remove":
+	case "remove", "popAll":
 		at = slices.IndexFunc(l.waiting, func(prompt WaitingPrompt) bool {
 			return !prompt.IsSending && prompt.Source == source && prompt.Text == text
 		})
 	}
 	if at >= 0 {
-		if l.waiting[at].Source == FromNotice || l.waiting[at].Text == "" {
+		// A line Up took back is on the prompt line, his to change, and in
+		// no queue: it waits for nothing until it is submitted again (#2332).
+		if entry.Operation == "popAll" || l.waiting[at].Source == FromNotice || l.waiting[at].Text == "" {
 			l.waiting = slices.Delete(l.waiting, at, at+1)
 		} else {
 			l.waiting[at].IsSending = true
