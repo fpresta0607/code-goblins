@@ -10,7 +10,7 @@ import "../../src/styles.css";
 // serves, and "rolledBack" when it did not serve, with the board's next item
 // for the same release beside it.
 const offer = { from: "v0.4.2", to: "v0.5.0", page: "https://github.com/fpresta0607/code-goblins/releases/tag/v0.5.0", published: "2026-10-06T14:02:00Z",
-  notes: ["The installer sorts out every machine by itself", "AFK mode holds questions for you", "Goblins that stall wake the CFO"], signing: "unsigned", publisher: "", sum: "3f9a6c0e1d2b4a5f6e7d8c9b0a1f2e3d4c5b6a7f8e9d0c1b2a3f4e5d6c5bc21e" };
+  notes: ["The installer sorts out every machine by itself", "AFK mode holds questions for you", "Goblins that stall wake the CFO", "The guide is on https://docs.example.com/updates; javascript:alert(1) stays words"], signing: "unsigned", publisher: "", sum: "3f9a6c0e1d2b4a5f6e7d8c9b0a1f2e3d4c5b6a7f8e9d0c1b2a3f4e5d6c5bc21e" };
 const run = { id: "update-v0.5.0-1", identity: "u".repeat(64), title: "Update Code Goblins from v0.4.2 to v0.5.0", shell: "powershell", command: "goblins update --to v0.5.0 --run update-v0.5.0-1", cwd: "C:\\Users\\you\\AppData\\Local\\CodeGoblins", state: "ready", created_at: "2026-10-06T14:05:00Z", expires_at: "2026-10-07T14:05:00Z", update: offer };
 const release = { installed: "v0.4.2", tag: "v0.5.0", page: offer.page, published: offer.published, source: false };
 const base = { healthy: true, instance: "fixture", cfo_runs: true, tasks: [], build: "old-build", release };

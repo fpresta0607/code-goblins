@@ -1600,7 +1600,8 @@ Every http or https address the board shows in a message, a report, a card or a 
 A pull request, issue or CI run on github.com, and a review page's session on this PC, reads as a chip with a short name, such as `code-goblins PR #2358` or Review page, with the whole address in its tip; each is known by its exact host and path, so a look-alike host keeps its own words.
 A Markdown link to an address reads as its words, an address in a code block or a command's output stays as written and is still a link, and any other scheme stays text; message text is always escaped.
 The sentence a panel says under a goblin's status links the words it says each of the report's addresses by, such as PR #12.
-A goblin's terminal, the CEO's and a baby goblin's draw each http or https address as a link that a click or a tap opens in a new tab, one that wraps onto the next row included; nothing else in a terminal opens.
+A goblin's terminal, the CEO's and a baby goblin's draw each http or https address as a link that a click or a tap opens in a new tab, one that wraps onto the next row included.
+A link a program prints with words of its own, an OSC 8 hyperlink, opens its http or https address the same way, as a Markdown link's words do in chat; nothing else in a terminal opens.
 A card shows its first sixteen lines and scrolls a long line sideways inside itself; Expand opens it whole, every line wrapped.
 A PowerShell block in a finished reply's own words also has Run beside Copy, at its size (#2051): one fenced `powershell`, `pwsh` or `ps1`, or an untagged one whose first word, after an optional `! ` that Run drops, is `powershell` or `pwsh`.
 Run never shows on another language, on a tool's output, on his pasted or quoted words, on a hook's note or on the reply still being written, and nothing runs on render, hover or Copy.

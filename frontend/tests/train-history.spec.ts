@@ -1,4 +1,4 @@
-import { expect, holdStream, openTaskList, type Page, test } from "./site";
+import { expect, holdStream, type Locator, openTaskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-08, of his board: "paused is not truly paused these
 // are waiting", "merge train failed and landed of the same merge
@@ -483,5 +483,35 @@ test.describe("in his window", () => {
 
     await card(page, "Wes - Train Conductor").locator(".task-card").click();
     await expect(page.locator("#panel-title")).toHaveText("Wes - Train Conductor");
+  });
+
+  // A train's note links the web address it names (#2360), on its card in
+  // Train history and in its panel, and a javascript: string stays words.
+  test("a stopped train's note links its web address on its card and in its panel, and a javascript: one stays text", async ({ page }) => {
+    // Arrange
+    const review = "https://docs.example.com/release-review";
+    const stopped = { ...STOPPED, note: "Stopped while " + review + " was read; javascript:alert(1) is not a step" };
+    await open(page, [stopped]);
+    const history = board(page).getByRole("region", { name: "Train history", exact: true });
+    const expectLinked = async (note: Locator) => {
+      await expect(note).toHaveText(stopped.note);
+      const link = note.getByRole("link");
+      await expect(link).toHaveText(review);
+      await expect(link).toHaveAttribute("href", review);
+      await expect(link).toHaveAttribute("target", "_blank");
+      await expect(note.locator('a[href^="javascript:"]')).toHaveCount(0);
+    };
+
+    // Act
+    await history.locator("summary").click();
+
+    // Assert
+    await expectLinked(history.locator(".train-note"));
+
+    // Act
+    await history.getByRole("button", { name: /Open merge train/ }).click();
+
+    // Assert
+    await expectLinked(panel(page).locator(".train-panel-note"));
   });
 });

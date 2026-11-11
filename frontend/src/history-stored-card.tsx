@@ -5,6 +5,7 @@ import { AnswerWindow } from "./answer-window";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { Icon } from "./Icon";
 import { inputLabel, linkLabel, stepText } from "./credentials";
+import { linkedText } from "./messageText";
 
 // The steps of a card whose values are stored, as its History row unfolds
 // them: the page and the asker's steps, and each input by its label, which
@@ -36,7 +37,7 @@ export function HistoryStoredCard({ request, asker, to, connected, instance }: {
   return <div className="history-stored">
     {(request.link || request.steps.length > 0) && <ol className="credential-steps" aria-label={inputs.length ? "How to get them" : "What to do"}>
       {request.link && <li>Open <a href={request.link} target="_blank" rel="noreferrer"><span>{linkLabel(request.link)}</span><Icon name="external" /></a></li>}
-      {request.steps.map((step, index) => <li key={index}>{stepText(step)}</li>)}
+      {request.steps.map((step, index) => <li key={index}>{linkedText(stepText(step))}</li>)}
     </ol>}
     {inputs.length > 0 && <ul className="history-stored-values" aria-label="Its values">
       {request.names.map((name) => <li key={name}><span>{inputLabel(request, name)}</span><span className="history-stored-state"><Icon name="check" />Already stored</span></li>)}

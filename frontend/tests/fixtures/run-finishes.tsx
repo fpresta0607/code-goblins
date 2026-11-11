@@ -20,7 +20,7 @@ const snapshots = {
   running: parseSnapshot({ ...base, revision: 2, runs: [running] }),
   finished: parseSnapshot({ ...base, revision: 3, runs: [ended({ state: "succeeded", exit_code: 0, output: "Uploading assets\nPublished v0.5.2\n" })] }),
   errorLine: parseSnapshot({ ...base, revision: 3, runs: [ended({ state: "succeeded", exit_code: 0, output: "Uploading assets\nERROR: the release notes could not be attached\n" })] }),
-  failed: parseSnapshot({ ...base, revision: 3, runs: [ended({ state: "failed", exit_code: 2, output: "Uploading assets\ngh: release v0.5.2 already exists\n" })] }),
+  failed: parseSnapshot({ ...base, revision: 3, runs: [ended({ state: "failed", exit_code: 2, output: "Uploading assets\nRelease page: https://github.com/acme/site/releases/tag/v0.5.2\nSkipped: javascript:alert(1)\ngh: release v0.5.2 already exists\n" })] }),
   withdrawn: parseSnapshot({ ...base, revision: 3, runs: [{ ...run, state: "withdrawn", reason: "the release was published by hand" }] }),
 };
 const ignore = () => {};

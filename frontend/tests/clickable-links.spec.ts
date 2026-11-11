@@ -199,6 +199,23 @@ for (const [where, address] of [["live screen", PR], ["history", ISSUE]] as cons
   });
 }
 
+// A program can print a link with words of its own, an OSC 8 hyperlink. The
+// words are a single one here, since xterm draws a link's spaces as no-break
+// spaces, which the search for its text would not find.
+test("a link the CEO's terminal draws with words of its own opens its address in a tab of its own", async ({ page }) => {
+  // Arrange
+  await openCeoTerminal(page, `> read the \x1b]8;;${PAGE_ADDRESS}\x1b\\documentation\x1b]8;;\x1b\\ first\r\n$ `, "$");
+  const rows = page.locator(".terminal-surface:not(.terminal-history) .xterm-rows");
+  await expect(rows).toContainText("documentation");
+  await expect(rows).not.toContainText(PAGE_ADDRESS);
+
+  // Act
+  const opened = await openTerminalAddress(page, rows, "documentation");
+
+  // Assert
+  expect(opened.url()).toBe(PAGE_ADDRESS);
+});
+
 test("a paused goblin's Details links the pull request its last report names", async ({ page }) => {
   // Arrange
   const paused = { ...GOBLIN, phase: "paused", at, activity: "lifecycle-paused: overlord; task session and branch", last_report: `working: opened PR ${PR} for review`,

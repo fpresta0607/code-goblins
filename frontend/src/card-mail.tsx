@@ -4,7 +4,7 @@ import { copyText } from "./clipboard";
 import { CopyValue } from "./CopyValue";
 import { Icon } from "./Icon";
 import type { Mail } from "./types";
-import { linkedText, literalLinks } from "./messageText";
+import { literalLinks } from "./messageText";
 import "./card-mail.css";
 
 const COPIED_MS = 1400;
@@ -26,7 +26,7 @@ export function CardMail({ mail }: { mail: Mail }) {
   return <section className="card-mail" aria-label="Message to send">
     {mail.to && <p className="card-mail-line"><span className="card-mail-label">To</span>
       {mail.to.startsWith("https://") ? <a href={mail.to} target="_blank" rel="noreferrer"><span>{mail.to}</span><Icon name="external" /></a> : <CopyValue value={mail.to} />}</p>}
-    {mail.subject && <p className="card-mail-line"><span className="card-mail-label">Subject</span><span>{linkedText(mail.subject)}</span></p>}
+    {mail.subject && <p className="card-mail-line"><span className="card-mail-label">Subject</span><span>{literalLinks(mail.subject)}</span></p>}
     <pre className="card-mail-body" tabIndex={0} aria-label="Message body">{literalLinks(mail.body)}</pre>
     <div className="card-mail-actions">
       <ClickFeedback text={feedback} />
