@@ -151,13 +151,10 @@ func main() {
 		RawMessageHandler: func(_ application.Window, message string, sender *application.OriginInfo) {
 			if message == shownMessage && fromBoard(sender.Origin) {
 				page.Shown()
-			} else if address, ok := linkToOpen(message, sender.Origin); ok {
-				if err := openInBrowser(address); err != nil {
-					log.Printf("open %s in the browser: %v", address, err)
-					window.ExecJS(linkFailed(address))
+			} else if script, isHandled := linkReply(message, sender.Origin, openInBrowser); isHandled {
+				if script != "" {
+					window.ExecJS(script)
 				}
-			} else if address, ok := refusedLink(message, sender.Origin); ok {
-				window.ExecJS(linkFailed(address))
 			} else if note, ok := noteToRaise(message, sender.Origin); ok && notifier != nil {
 				notifier.FromPage(note)
 			}

@@ -1,5 +1,6 @@
 import type { CIUsual, PauseCondition, Task, Wait } from "./types.ts";
 import { cardDate } from "./cards.ts";
+import { webAddresses } from "./messageText.ts";
 
 // What the board says about a task, in words a person reads: the goblins and
 // the supervisor write for the fleet, with state words, semicolon chains,
@@ -66,8 +67,11 @@ function lastName(path: string): string {
   return name + stop;
 }
 
+// A question's options, which a report's plain sentence leaves out.
+const OPTIONS = /\s+options:\s[\s\S]*$/;
+
 function tidy(text: string): string {
-  return text.replace(/\s+options:\s[\s\S]*$/, "")
+  return text.replace(OPTIONS, "")
     .replace(PULL_REQUEST, "PR #$1").replace(ISSUE, "issue #$1").replace(RUN, "a CI run").replace(LINK, "$1")
     .replace(WINDOWS_PATH, lastName).replace(SLASH_PATH, lastName)
     .replace(HASH, "")
@@ -94,14 +98,12 @@ export function plainText(raw: string): string {
 export interface SaidLink { label: string; address: string }
 
 // saidLinks are raw text's addresses, each with the words plainText says it
-// by, in the order the text names them. The punctuation that ends a sentence
-// after an address is not its own.
+// by, in the order the text names them. Each address ends where the board's
+// links end one (webAddresses), and its words are what tidy puts in its place.
 export function saidLinks(raw: string): SaidLink[] {
-  return [...raw.replace(/\s+options:\s[\s\S]*$/, "").matchAll(LINK)].map((match) => {
-    const address = match[0].replace(/[.,;:!?\]}]+$/, "");
-    const item = /^https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/(pull|issues|actions\/runs)\/(\d+)/.exec(address);
-    const label = !item ? match[1] : item[1] === "pull" ? "PR #" + item[2] : item[1] === "issues" ? "issue #" + item[2] : "a CI run";
-    return { label, address };
+  return [...raw.replace(OPTIONS, "").matchAll(LINK)].flatMap((match) => {
+    const address = webAddresses(match[0])[0]?.address;
+    return address ? [{ label: match[0].replace(PULL_REQUEST, "PR #$1").replace(ISSUE, "issue #$1").replace(RUN, "a CI run").replace(LINK, "$1"), address }] : [];
   });
 }
 

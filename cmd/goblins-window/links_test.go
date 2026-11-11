@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -41,27 +43,50 @@ func TestOnlyABoardsWebLinkOpensInTheBrowser(t *testing.T) {
 	}
 }
 
-// A link the board's own page asked for that the window will not open is said
-// in that page, with its address; what another page asks is not answered.
-func TestALinkTheBoardAskedForThatTheWindowRefusesIsSaidInItsPage(t *testing.T) {
+// The window opens a link a board's own page asks for in the default
+// browser, and says one it refuses or could not hand to the browser in that
+// page, with its address; what another page asks, or a message that asks for
+// no link, is not its to answer.
+func TestALinkTheBoardAsksForOpensOrIsSaidInItsPage(t *testing.T) {
 	const board = "http://127.0.0.1:4310/"
+	// What the page hears of a link that could not be opened, the event its
+	// LinkFallback listens for.
+	said := func(address string) string {
+		return `window.dispatchEvent(new CustomEvent("code-goblins-link-failed", { detail: "` + address + `" }));`
+	}
 	for name, test := range map[string]struct {
-		message, sender, want string
-		isSaid                bool
+		message, origin string
+		openFails       error
+		opened          []string
+		script          string
+		isHandled       bool
 	}{
-		"a file from the board":           {"open:file:///C:/x.pdf", board, "file:///C:/x.pdf", true},
-		"a PDF preview from the board":    {"open:blob:http://127.0.0.1:4310/a1", board, "blob:http://127.0.0.1:4310/a1", true},
-		"a script from the board":         {"open:javascript:alert(1)", board, "javascript:alert(1)", true},
-		"a file from another site's page": {"open:file:///C:/x.pdf", "https://example.com/", "", false},
-		"a message that asks for no link": {"shown", board, "", false},
+		"a web address the browser is handed":           {"open:https://example.com/", board, nil, []string{"https://example.com/"}, "", true},
+		"a web address the browser could not be handed": {"open:https://example.com/", board, errors.New("rundll32 did not start"), []string{"https://example.com/"}, said("https://example.com/"), true},
+		"a file from the board":                         {"open:file:///C:/x.pdf", board, nil, nil, said("file:///C:/x.pdf"), true},
+		"a PDF preview from the board":                  {"open:blob:http://127.0.0.1:4310/a1", board, nil, nil, said("blob:http://127.0.0.1:4310/a1"), true},
+		"a script from the board":                       {"open:javascript:alert(1)", board, nil, nil, said("javascript:alert(1)"), true},
+		"a web address from another site's page":        {"open:https://example.com/", "https://example.com/", nil, nil, "", false},
+		"a file from another site's page":               {"open:file:///C:/x.pdf", "https://example.com/", nil, nil, "", false},
+		"a message that asks for no link":               {"shown", board, nil, nil, "", false},
 	} {
 		t.Run(name, func(t *testing.T) {
+			// Arrange
+			var opened []string
+			open := func(address string) error {
+				opened = append(opened, address)
+				return test.openFails
+			}
+
 			// Act
-			got, isSaid := refusedLink(test.message, test.sender)
+			script, isHandled := linkReply(test.message, test.origin, open)
 
 			// Assert
-			if isSaid != test.isSaid || isSaid && got != test.want {
-				t.Errorf("refusedLink(%q, %q) = %q, %v; want %q, %v", test.message, test.sender, got, isSaid, test.want, test.isSaid)
+			if script != test.script || isHandled != test.isHandled {
+				t.Errorf("linkReply(%q, %q) = %q, %v; want %q, %v", test.message, test.origin, script, isHandled, test.script, test.isHandled)
+			}
+			if !slices.Equal(opened, test.opened) {
+				t.Errorf("linkReply(%q, %q) opened %q; want %q", test.message, test.origin, opened, test.opened)
 			}
 		})
 	}

@@ -439,3 +439,22 @@ for (const [name, sentence, want] of [
     assert.equal(shown, want);
   });
 }
+
+const PR_235 = "https://github.com/example/board/pull/235";
+const CI_RUN = "https://github.com/example/board/actions/runs/99";
+const GUIDE = "https://example.org/guide";
+for (const [name, sentence, link, want] of [
+  ["a pull request whose number starts a longer one", "Rebased PR #2358 onto PR #235.", { label: "PR #235", address: PR_235 }, `Rebased PR #2358 onto ${named(PR_235, "PR #235")}.`],
+  ["a CI run that starts a CI runner", "A CI runner took a CI run.", { label: "a CI run", address: CI_RUN }, `A CI runner took ${named(CI_RUN, "a CI run")}.`],
+  ["a host that ends a longer host", "Read api.example.org, then example.org.", { label: "example.org", address: GUIDE }, `Read api.example.org, then ${named(GUIDE, "example.org")}.`],
+  ["a host that starts a longer host", "Read example.org.uk, then example.org.", { label: "example.org", address: GUIDE }, `Read example.org.uk, then ${named(GUIDE, "example.org")}.`],
+  ["words that stand only inside a longer number", "Rebased PR #2358.", { label: "PR #235", address: PR_235 }, "Rebased PR #2358."],
+] as const) {
+  test(`a plain sentence links a link's words only where they stand whole, never in ${name}`, () => {
+    // Arrange, act
+    const shown = renderToStaticMarkup(linkedSentence(sentence, [link]));
+
+    // Assert
+    assert.equal(shown, want);
+  });
+}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/url"
 	"strings"
 
@@ -66,11 +67,22 @@ func linkToOpen(message, sender string) (string, bool) {
 	return address, true
 }
 
-// refusedLink returns the address a board's own page asked the window to open
-// that linkToOpen refused, which the page then says it could not open.
-func refusedLink(message, sender string) (string, bool) {
-	address, ok := strings.CutPrefix(message, openMessage)
-	return address, ok && fromBoard(sender)
+// linkReply opens, with open, the link a board's own page asks the window for,
+// and returns the script that tells the page of one the window refused or
+// could not open, with its address; none once the link opened. A message that
+// asks for no link, or comes from another page, is not one it handles.
+func linkReply(message, origin string, open func(string) error) (script string, isHandled bool) {
+	if address, ok := linkToOpen(message, origin); ok {
+		if err := open(address); err != nil {
+			log.Printf("open %s in the browser: %v", address, err)
+			return linkFailed(address), true
+		}
+		return "", true
+	}
+	if address, ok := strings.CutPrefix(message, openMessage); ok && fromBoard(origin) {
+		return linkFailed(address), true
+	}
+	return "", false
 }
 
 // linkFailed is the script that tells the board's page a link could not be

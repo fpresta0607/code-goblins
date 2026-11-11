@@ -307,6 +307,8 @@ for (const [name, raw, labels] of [
   ["a pull request, an issue, a CI run and a page", "working: opened PR https://github.com/o/r/pull/12, see https://docs.example.com/a. Issue https://github.com/o/r/issues/7 and run https://github.com/o/r/actions/runs/99/job/3",
     [["PR #12", "https://github.com/o/r/pull/12"], ["docs.example.com", "https://docs.example.com/a"], ["issue #7", "https://github.com/o/r/issues/7"], ["a CI run", "https://github.com/o/r/actions/runs/99/job/3"]]],
   ["a Scrawl page in brackets", "waiting on overlord: his review (http://127.0.0.1:4387/session/f26e)", [["127.0.0.1:4387", "http://127.0.0.1:4387/session/f26e"]]],
+  ["a page in quotes", 'waiting on overlord: review "https://docs.example.org/guide/start".', [["docs.example.org", "https://docs.example.org/guide/start"]]],
+  ["pages in backticks and angle brackets", "working: read `https://docs.example.org/a` and <https://github.com/example/board/pull/412>", [["docs.example.org", "https://docs.example.org/a"], ["PR #412", "https://github.com/example/board/pull/412"]]],
   ["an address after the options", "blocked: which one? options: Keep https://a.example | Drop it", []],
   ["no address", "working: writing the tests", []],
 ] as const) {

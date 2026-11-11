@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-import { expect, test, type Page, type TestInfo } from "./site";
-import { at, NAME, open, openGoblin, pickStyle, snapshot } from "./session-board";
+import { expect, holdStream, openTaskList, openTerminalAddress, test, type Page, type TestInfo } from "./site";
+import { at, GOBLIN, NAME, open, openGoblin, pickStyle, snapshot } from "./session-board";
 
 // Web addresses on the board open (#2360). The Overlord, 2026-11-11: "any
 // type of URL like inside chat messages or UI or like the Galax chats. I
@@ -29,9 +29,11 @@ const CHAT = { conversation: "fixture-conversation", more: false, messages: [
 const REPORT = `waiting on ci: checks of PR ${PR} in ${RUN}`;
 const TERMINAL = `> opened ${PR}\r\n`;
 
+// The addresses the links open are answered here, never by the web.
+const answerAddresses = (page: Page) => page.context().route(/^https:\/\/(github\.com|docs\.example\.org)\//, (route) => route.fulfill({ contentType: "text/plain", body: "fixture page" }));
+
 async function openChat(page: Page) {
-  // The addresses the links open are answered here, never by the web.
-  await page.context().route(/^https:\/\/(github\.com|docs\.example\.org)\//, (route) => route.fulfill({ contentType: "text/plain", body: "fixture page" }));
+  await answerAddresses(page);
   const relay = await open(page, snapshot({}, { phase: "waiting", waiting_on: "ci", activity: REPORT }), undefined, CHAT, TERMINAL);
   await openGoblin(page);
   await pickStyle(page, "Modern chat");
@@ -42,6 +44,31 @@ async function openChat(page: Page) {
 
 async function picture(page: Page, testInfo: TestInfo, name: string) {
   await page.screenshot({ path: testInfo.outputPath(name + ".png") });
+}
+
+// openCeoTerminal opens the CEO's terminal in Herdr: its live screen draws
+// screen, and the pane's history, which Shift+PageUp opens over it, holds
+// history. The supervisor's terminal routes are played here.
+async function openCeoTerminal(page: Page, screen: string, history: string) {
+  await answerAddresses(page);
+  await page.addInitScript((frame) => {
+    const originalFetch = window.fetch;
+    window.fetch = (resource, options) => {
+      if (resource !== "/api/terminal/stream") return originalFetch(resource, options);
+      const body = JSON.parse(String(options?.body));
+      const encoder = new TextEncoder();
+      return Promise.resolve(new Response(new ReadableStream({ start(controller) {
+        controller.enqueue(encoder.encode(JSON.stringify({ type: "terminal.ready", lease: body.control ? "sized" : "observed", identity: "fixture" }) + "\n"));
+        controller.enqueue(encoder.encode(JSON.stringify({ type: "terminal.frame", encoding: "ansi", seq: 1, full: true, width: 80, height: 24, bytes: btoa(frame) }) + "\n"));
+        options?.signal?.addEventListener("abort", () => controller.close(), { once: true });
+      } })));
+    };
+  }, "\x1b[2J\x1b[H" + screen);
+  await page.route("**/api/terminal/input", (route) => route.fulfill({ json: { seq: route.request().postDataJSON().seq } }));
+  await page.route("**/api/terminal/history", (route) => route.fulfill({ json: { text: history, agent: "codex" } }));
+  await page.goto("/tests/fixtures/terminal-input.html?role=cfo#herdr");
+  await expect(page.getByRole("region", { name: "CEO terminal" })).toBeVisible();
+  await expect(page.getByText("Connecting to the terminal", { exact: true })).toHaveCount(0);
 }
 
 for (const [device, width, height] of [["phone", 390, 844], ["desktop", 1440, 1000]] as const) {
@@ -156,6 +183,56 @@ for (const [device, width, height] of [["phone", 390, 844], ["desktop", 1440, 10
   });
 }
 
+for (const [where, address] of [["live screen", PR], ["history", ISSUE]] as const) {
+  test(`an address the CEO's terminal draws on its ${where} opens in a tab of its own`, async ({ page }) => {
+    // Arrange
+    await openCeoTerminal(page, `> opened ${PR}\r\n$ `, `> filed ${ISSUE}\n$`);
+    if (where === "history") await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Shift+PageUp");
+    const rows = page.locator(where === "history" ? ".terminal-history:not(.away) .xterm-rows" : ".terminal-surface:not(.terminal-history) .xterm-rows");
+    await expect(rows).toContainText(address);
+
+    // Act
+    const opened = await openTerminalAddress(page, rows, address);
+
+    // Assert
+    expect(opened.url()).toBe(address);
+  });
+}
+
+test("a paused goblin's Details links the pull request its last report names", async ({ page }) => {
+  // Arrange
+  const paused = { ...GOBLIN, phase: "paused", at, activity: "lifecycle-paused: overlord; task session and branch", last_report: `working: opened PR ${PR} for review`,
+    lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason: "overlord", at } } };
+  await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], tasks: [paused] });
+  await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
+  await page.goto("/");
+  await page.locator(".task-card").filter({ hasText: "Zeke" }).first().click();
+  const header = await openTaskList(page);
+
+  // Act
+  await header.locator(".raw-details > summary").click();
+
+  // Assert
+  const details = header.locator(".raw-details-text");
+  await expect(details).toContainText("Opened PR #412 for review.");
+  await expect(details.getByRole("link", { name: "PR #412", exact: true })).toHaveAttribute("href", PR);
+  await expect(details.getByRole("link", { name: "PR #412", exact: true })).toHaveAttribute("target", "_blank");
+});
+
+test("an ended session's last report links the pull request it names", async ({ page }) => {
+  // Arrange
+  const query = new URLSearchParams({ phase: "paused", report: `working: opened PR ${PR} for review` });
+
+  // Act
+  await page.goto("/tests/fixtures/ended-session.html?" + query);
+
+  // Assert
+  const report = page.locator(".ended-session-report");
+  await expect(report).toContainText("Opened PR #412 for review.");
+  await expect(report.getByRole("link", { name: "PR #412", exact: true })).toHaveAttribute("href", PR);
+  await expect(report.getByRole("link", { name: "PR #412", exact: true })).toHaveAttribute("target", "_blank");
+});
+
 test("a report with no address puts no link in the panel", async ({ page }) => {
   // Arrange
   await open(page, snapshot({}, { phase: "waiting", waiting_on: "ci", activity: "waiting on ci: the checks" }), undefined, CHAT, TERMINAL);
@@ -179,8 +256,13 @@ const OPEN_MESSAGE = /const openMessage = "([^"]+)"/.exec(LINKS_GO)![1];
 const LINK_FAILED = /const linkFailedEvent = "([^"]+)"/.exec(LINKS_GO)![1];
 const LINKS_START = LINKS_GO.indexOf("const linksScript = `") + "const linksScript = `".length;
 const LINKS_SCRIPT = LINKS_GO.slice(LINKS_START, LINKS_GO.indexOf("})();`", LINKS_START) + "})();".length).replaceAll("` + openMessage + `", OPEN_MESSAGE);
+const RUN_LINKS = `window.addEventListener("DOMContentLoaded", () => { ${LINKS_SCRIPT} });`;
 const WINDOW = `const posted = []; Object.assign(window, { posted, chrome: { webview: { postMessage: (text) => posted.push(text) } } });
-window.addEventListener("DOMContentLoaded", () => { ${LINKS_SCRIPT} });`;
+${RUN_LINKS}`;
+// The same window, whose bridge hands each message to the test the moment it
+// is posted, so one a page posts as it leaves is kept.
+const HEARD_WINDOW = `Object.assign(window, { chrome: { webview: { postMessage: (text) => window.windowHeard(text) } } });
+${RUN_LINKS}`;
 const posted = (page: Page) => page.evaluate(() => (window as unknown as { posted: string[] }).posted);
 
 test.describe("in the desktop window", () => {
@@ -205,6 +287,30 @@ test.describe("in the desktop window", () => {
     expect(page.url()).toBe(board + "#within-the-board");
     expect(context.pages()).toHaveLength(1);
     await expect(talk.getByRole("link", { name: "board PR #412" })).toBeVisible();
+  });
+
+  test("a navigation the page cannot cancel goes ahead and asks the window for nothing", async ({ page, context }) => {
+    // Arrange: a page before the board in the tab's history, then the board
+    // in the window.
+    const heard: string[] = [];
+    await context.exposeBinding("windowHeard", (_source, text: string) => { heard.push(text); });
+    await answerAddresses(page);
+    await page.goto(PAGE_ADDRESS);
+    await context.addInitScript({ content: HEARD_WINDOW });
+    await openChat(page);
+
+    // Act: the navigate event the Navigation API fires, not cancelable, for a
+    // traversal to another document, then going back off the board, which
+    // Chromium starts without one.
+    await page.evaluate((url) => {
+      const { navigation } = window as unknown as { navigation: EventTarget };
+      navigation.dispatchEvent(Object.assign(new Event("navigate", { cancelable: false }), { destination: { url } }));
+    }, PAGE_ADDRESS);
+    await page.goBack();
+
+    // Assert
+    await expect(page).toHaveURL(PAGE_ADDRESS);
+    expect(heard).toEqual([]);
   });
 
   test("a link the window could not open is said in the board, with its address to copy and no link", async ({ page, context }, testInfo) => {

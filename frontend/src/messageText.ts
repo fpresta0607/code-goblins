@@ -311,6 +311,15 @@ export function literalLinks(text: string): ReactNode {
   return createElement(Fragment, null, ...out);
 }
 
+// Where a link's words stand whole in a sentence, from at on: never inside a
+// longer word, number or host name, such as PR #12 in PR #123.
+function wholeWords(lower: string, label: string, at: number): number {
+  for (let index = lower.indexOf(label, at); index >= 0; index = lower.indexOf(label, index + 1)) {
+    if (!/[\w.-]/.test(lower[index - 1] ?? "") && !/^(?:[\w-]|\.\w)/.test(lower.slice(index + label.length, index + label.length + 2))) return index;
+  }
+  return -1;
+}
+
 // A sentence the board wrote from a report, with the words it says each of
 // the report's addresses by, such as "PR #12", a link to that address, in
 // the order the report names them. Words a summary cut stay unlinked.
@@ -319,7 +328,7 @@ export function linkedSentence(sentence: string, links: SaidLink[]): ReactNode {
   const lower = sentence.toLowerCase();
   let at = 0;
   for (const link of links) {
-    const index = lower.indexOf(link.label.toLowerCase(), at);
+    const index = wholeWords(lower, link.label.toLowerCase(), at);
     if (index < 0) continue;
     if (index > at) out.push(sentence.slice(at, index));
     out.push(webLink(link.address, out.length, sentence.slice(index, index + link.label.length)));
