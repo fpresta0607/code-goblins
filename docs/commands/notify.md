@@ -23,6 +23,7 @@ Cleanup, the board, a restart, the wake for its gone terminal and the AFK report
 A task spawned local-only opens no pull request, such as a scout or an operations task with no commit, so it reports `--done --report <file>` in place of `--pr`, naming the file of its report.
 The report must be a non-empty file, and the notify keeps it where cleanup reads it, as `data/<id>/report.md` in the home, unless it is that file already.
 It records `done: report <path>` with the full path of that kept report, which cleanup reads as the task's delivery once the report is there.
+The board, a restart, the wake for its gone terminal and the AFK report read that line as a delivery too, as they read a closed issue's.
 A different report the home already keeps for the task is never replaced: the notify is refused, and the goblin names that report or writes its own there.
 `--report` beside `--pr`, `--closed` or `--decision`, from a helper, whose done needs none, and from a task spawned no-mistakes or direct-PR, which reports its pull request, is refused before anything is recorded, and so is a report that is missing, empty or not a file.
 The first instruction of a task spawned local-only names this done and asks for no pipeline run and no pull request.

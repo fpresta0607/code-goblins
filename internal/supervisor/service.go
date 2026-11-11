@@ -1018,10 +1018,11 @@ func isDelivered(lines []string, generation string, session Session) bool {
 }
 
 // reportsDelivery reports whether the latest report of generation delivered: a
-// pull request, or the issue a decision had it close in place of one.
+// pull request, the issue a decision had it close in place of one, or the
+// report a local-only task kept, which opens none.
 func reportsDelivery(lines []string, generation string) bool {
 	_, report := latestReport(lines, spawnTime(generation))
-	return deliveredPR(lines, generation) != "" || state.DoneClosed(report) != ""
+	return deliveredPR(lines, generation) != "" || state.DoneClosed(report) != "" || state.DoneReport(report) != ""
 }
 
 func deliveredPR(lines []string, generation string) string {
@@ -1941,12 +1942,13 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		activity, pr := statusActivity(lines, spawned)
 		lastReport, lastReportedAt, _ := taskSessionSummary(lines, spawned)
-		// A helper hands completed work to its parent without a PR or gate, and
-		// a task a decision ruled finished closes its issue without either.
+		// A helper hands completed work to its parent without a PR or gate, a
+		// task a decision ruled finished closes its issue without either, and
+		// a local-only task keeps its report in place of both.
 		// Its idle terminal does not turn that handoff into a request for input,
 		// and a line that is no report, such as a reap or a supersede, leaves
 		// the handoff its latest report made standing.
-		if (meta.Parent != "" || state.DoneClosed(lastReport) != "") && reportKind(lastReport) == "done" && !isGateHeld && !(linked && node.PromptAt.Truncate(time.Second).After(lastReportedAt)) && !runtime.working() {
+		if (meta.Parent != "" || state.DoneClosed(lastReport) != "" || state.DoneReport(lastReport) != "") && reportKind(lastReport) == "done" && !isGateHeld && !(linked && node.PromptAt.Truncate(time.Second).After(lastReportedAt)) && !runtime.working() {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = "done", strings.TrimPrefix(lastReport, "done: "), ""
 		}
 		if verb, detail, ok := waitingQuestion(decisions, id); ok {

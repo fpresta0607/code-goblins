@@ -138,7 +138,7 @@ A run that did not move starts no evaluation, so an answered gate decision stops
 Fresh, matching Herdr monitor evidence distinguishes a working harness from an unavailable or stale one.
 An abrupt process crash does not change the recorded native event into an invented end event.
 The board shows runtime unavailability separately and continues evaluating independent task/gate evidence.
-Silence, a vanished process, a Stop, and a prior `notify --done` are never substitutes for delivery evidence, except a [`--done --closed`](commands/notify.md), the only evidence a task ruled finished with no pull request has.
+Silence, a vanished process, a Stop, and a prior `notify --done` are never substitutes for delivery evidence, except a [`--done --closed`](commands/notify.md), the only evidence a task ruled finished with no pull request has, and a [`--done --report`](commands/notify.md), the only evidence a local-only task that opens none has.
 
 Review, tests, lint, documentation, push, PR, and CI must agree with the task's exact HEAD under its frozen policy.
 A clean no-mistakes task with a detached HEAD reports review, unverified, because gate evidence requires a branch.
