@@ -5,7 +5,7 @@ import { formatAge, formatCount, formatUSD, usageReadings } from "./session-usag
 
 const usage = {
   input_tokens: 1_400_000, output_tokens: 289_000, cache_read_tokens: 208_000_000,
-  cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000, model: "claude-opus-5-5", effort: "",
+  cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000,
 };
 const week = (provider: "claude" | "codex", percentRemaining: number | null, status: SubscriptionUsage["status"] = "available"): SubscriptionUsage =>
   ({ provider, status, percent_remaining: percentRemaining, read_at: "", resets_at: "", source: "oauth", floor_percent: 5 });

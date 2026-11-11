@@ -40,7 +40,6 @@ type codexEntry struct {
 		Item             codexItem        `json:"item"`
 		ID               string           `json:"id"`
 		Model            string           `json:"model"`
-		Effort           string           `json:"effort"`
 		Reason           string           `json:"reason"`
 		Message          string           `json:"message"`
 		CallID           string           `json:"call_id"`
@@ -167,12 +166,9 @@ func (l *codexMessageLog) entry(line []byte, offset int64) {
 	id := "@" + strconv.FormatInt(offset, 10)
 	switch entry.Type {
 	case "turn_context":
-		// Each turn's context names the model and effort it runs with, as
-		// the session's /model last set them.
+		// Each turn's context names the model it runs with, as the session's
+		// /model last set it.
 		l.model = entry.Payload.Model
-		if entry.Payload.Effort != "" {
-			l.usage.Effort = entry.Payload.Effort
-		}
 	case "token_usage_record":
 		// Codex writes one usage record as each model response ends, so the
 		// next block of the assistant's begins another reply.
@@ -310,9 +306,6 @@ func (l *codexMessageLog) recordUsage(total, last *codexTokenUsage, shouldAdd bo
 		if last.Total == 0 {
 			l.usage.ContextTokens = last.Input + last.Output
 		}
-	}
-	if (total.valid() || last.valid()) && l.model != "" {
-		l.usage.Model = l.model
 	}
 }
 

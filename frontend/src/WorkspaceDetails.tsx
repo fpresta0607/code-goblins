@@ -17,13 +17,7 @@ import { messagesQuery } from "./session-messages";
 
 function parse(value: unknown) {
   const v = object(value);
-  return { project: string(v.project), repository: string(v.repository), root: string(v.root), branch: string(v.branch), harness: string(v.harness), model: string(v.model), notes: strings(v.notes) };
-}
-
-// The supervisor labels a model "Reported: x" or "Configured: x".
-function splitModel(model: string): { name: string; basis: string } {
-  const [basis, name] = model.split(/: (.*)/s);
-  return name === undefined ? { name: model, basis: "" } : { name, basis };
+  return { project: string(v.project), repository: string(v.repository), root: string(v.root), branch: string(v.branch), harness: string(v.harness), notes: strings(v.notes) };
 }
 
 // Where the work lives and what it runs on: the Workspace and Harness
@@ -40,8 +34,10 @@ export function WorkspaceDetails({ task, node, snapshot, connected, onConnectors
   const resource = useResource(!queued && !unlinked && !isArchived ? path : null, parse);
   const details = resource.data;
   const harness = details ? harnessName(child ? node.harness : details.harness) : "";
-  const model = details ? splitModel(child ? sessionModel(node, task) : details.model) : { name: "", basis: "" };
-  const provider = modelMark(model.name);
+  // A task's own session and the CFO's show their one record in the selector
+  // below; a child session names the model it reported of itself.
+  const model = details && child ? sessionModel(node, task) : "";
+  const provider = modelMark(model);
   const isCfo = !task && !node;
   const hasConnectors = !child && !!task && !queued && !isArchived;
   // The Chat choice matters only where the board reads the session as messages.
@@ -60,7 +56,7 @@ export function WorkspaceDetails({ task, node, snapshot, connected, onConnectors
       {task && !child ? <EngineSelector key={task.id + task.generation} task={task} instance={snapshot.instance} /> : <>
         {!(isCfo && isCfoRestartOffered(snapshot)) && <ul className="connection-list" aria-label="Harness and model">
           {harness && <li><ConnectorMark mark={harnessMark(child ? node.harness : details?.harness || "")} label={harness} /><span className="connection-name">{harness}</span></li>}
-          {model.name && <li><ConnectorMark mark={provider.mark} label={provider.provider} /><span className="connection-name">{model.name}<span className="chip">{model.basis ? model.basis + " model" : "Model"}</span></span></li>}
+          {model && <li><ConnectorMark mark={provider.mark} label={provider.provider} /><span className="connection-name">{model}<span className="chip">Model</span></span></li>}
         </ul>}
         {isCfo && <RestartCfoButton snapshot={snapshot} />}
         {isCfo && <CfoEngineSelector snapshot={snapshot} />}

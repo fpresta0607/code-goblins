@@ -916,7 +916,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
           box"), only once the view is live and holds a real reading, never
           while it connects ("connecting screens don't need to display the
           dither or usage unavailable"). */}
-      {box?.(composing.usage?.model || model, composing.history, composing.usage?.effort || effort, phase === "live" && <UsageBar readings={readings} />, sentFromBox, isTurnRunning)}
+      {box?.(model, composing.history, effort, phase === "live" && <UsageBar readings={readings} />, sentFromBox, isTurnRunning)}
     </div>}
     {viewed !== null && <PictureViewer sources={pictureSources} source={viewed} onSource={setViewed} onClose={() => setViewed(null)} />}
   </section></MessageDocumentScope>;

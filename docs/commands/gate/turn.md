@@ -3,7 +3,7 @@
 `cfo gate turn [--as <name>] [--gate-run <run-id>] [--test-comparison-sha <sha>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]`
 
 Run any heavy command in the line `cfo gate test` and `cfo gate prepush` take their turns in, so one such run goes at a time on the machine whoever started it: another repository's test command under its gate, a goblin's own suite, or a run one of the Supreme Overlord's sessions starts.
-It waits while another run holds the turn and, at the head of the line, while free physical memory or free commit is under the line's floor, with no limit of its own: the limits that end a run are its command's and its caller's.
+It waits while another run holds the turn and, at the head of the line, while free physical memory or free commit is under the line's floor, with no limit of its own but for a run that a gate's agent started, as below: the limits that end a run are its command's and its caller's.
 While it waits it says on standard error, as it starts to, whenever its place in line changes and once a minute, which run holds the turn (its name or folder, its command, its task and goblin, and for how long) and where this run stands.
 Then it starts the command with the arguments after `--`, unparsed and with no shell in front, and the command's standard output, standard input, working folder, environment and exit code are its own, except for the fixed settings a required test environment adds, as below.
 Every line of `cfo`'s goes to standard error and starts with `cfo gate turn: `, and with the turn free and memory to spare it writes none.
@@ -18,6 +18,8 @@ The floor is 4 GiB on a line of one slot, and on a line of two what each run hol
 `--memory <size>`, as `--memory 7GiB`, is the most memory the run is expected to use, 2.5 GiB without it.
 `--as` names the run to whoever reads the line, as a gate names its repository, branch and run.
 `--wait` bounds the wait for the turn, as `--wait 30s`: a run that takes no turn within it runs nothing and exits 125, and once it has its turn the wait no longer counts.
+A run that a gate's agent started, which the gate's `NO_MISTAKES_GATE` in its environment says, waits three minutes at most whatever `--wait` says, since its gate counts the wait against the agent's invocation budget: with no turn by then it runs nothing and exits 125 with a line that tells the agent to commit its work without the run, which the gate's Test step checks in a turn of its own.
+The gate's own Test step, which `--gate-run` names, has no such limit.
 `--low-priority` has the run wait at the lowest priority: it takes its turn only while no ordinary run waits, and an ordinary run that joins the line after it still goes first, unless the low-priority run is already taking its turn or has waited the line's two hours, as the desktop's CI jobs wait, and `cfo gate turns` marks it.
 `--gate-run <run-id>` and `--test-comparison-sha <sha>` are the gate daemon's Test wrapper arguments, its full native run and the comparison its Test step selected.
 A run with `--gate-run` stands in line as a gate's Test step, ahead of every waiting run that is not one, and any run of a task stands by the priority on its backlog row, as [Taking turns](../../pipeline.md#taking-turns) says.

@@ -5,7 +5,7 @@ import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWith
 import { alreadyKnown, deliveryMark, runFailure, runMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
 import { taskStatus } from "./task-status.ts";
-import { arrange, settle, waitingOn, workflowNodes, lineageFamily, taskColumn, personaFor, nodeStatus, nativeStatus, statusPhase, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, zoomAt, MAX_ZOOM, MIN_ZOOM, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT, ROW, liveCfoSession } from "./workflow.ts";
+import { arrange, settle, waitingOn, workflowNodes, lineageFamily, taskColumn, personaFor, nodeStatus, nativeStatus, statusPhase, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, zoomAt, MAX_ZOOM, MIN_ZOOM, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT, ROW, liveCfoSession, cfoEngine } from "./workflow.ts";
 
 // A canvas of the board's usual shape, wider than it is tall.
 const CANVAS = { width: 1400, height: 900 };
@@ -187,6 +187,42 @@ test("child sessions never borrow the owning goblin model or effort", () => {
     "child-native-model",
   );
 });
+
+test("a task's own session shows the model its task record names, whatever the session reported as it started", () => {
+  // Arrange
+  const snapshot = parseSnapshot({
+    healthy: true,
+    tasks: [{ id: "task", session: "goblin", generation: "g1", model: "claude-fable-5-2", effort: "high", verified: false }],
+    sessions: [{ id: "goblin", role: "goblin", generation: "g1", task_id: "task", model: "claude-opus-5-5" }],
+  });
+
+  // Act
+  const shown = sessionModel(snapshot.sessions[0], snapshot.tasks[0]);
+
+  // Assert
+  assert.equal(shown, "claude-fable-5-2");
+});
+
+const CFO_ENGINE = { harness: "claude", model: "claude-fable-5-2", effort: "high", pending: false, problem: "", waiting: "" };
+const CFO_ENGINES = [
+  { why: "an engine the CFO runs", cfo_harness: "claude", cfo_engine: CFO_ENGINE, shown: { model: "claude-fable-5-2", effort: "high" } },
+  { why: "no engine record", cfo_harness: "claude", cfo_engine: undefined, shown: { model: "", effort: "" } },
+  { why: "a selection still to be applied", cfo_harness: "claude", cfo_engine: { ...CFO_ENGINE, pending: true }, shown: { model: "", effort: "" } },
+  { why: "a selection that could not be applied", cfo_harness: "claude", cfo_engine: { ...CFO_ENGINE, problem: "The selection could not be applied: the CFO is busy" }, shown: { model: "", effort: "" } },
+  { why: "a selection for another harness", cfo_harness: "codex", cfo_engine: CFO_ENGINE, shown: { model: "", effort: "" } },
+];
+for (const cfo of CFO_ENGINES) {
+  test(`the CFO's views of ${cfo.why} show the model and effort the CFO runs and no other`, () => {
+    // Arrange
+    const snapshot = parseSnapshot({ healthy: true, cfo_harness: cfo.cfo_harness, cfo_engine: cfo.cfo_engine });
+
+    // Act
+    const shown = cfoEngine(snapshot);
+
+    // Assert
+    assert.deepEqual(shown, cfo.shown);
+  });
+}
 
 test("a completed card says and shows what its pull request really did", () => {
   const cards = parseSnapshot({healthy:true, tasks:[

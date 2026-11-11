@@ -120,7 +120,7 @@ for (const who of ["CEO", "goblin"] as const) {
 }
 
 // The session's usage, a context and a week, so the row ends in two pies.
-const USAGE = { context_tokens: 593_000, context_window: 1_000_000, model: "claude-opus-5-5" };
+const USAGE = { context_tokens: 593_000, context_window: 1_000_000 };
 const WEEK = { provider: "claude", status: "available", percent_remaining: 12, read_at: "2026-10-28T09:00:00Z", resets_at: "2026-11-02T09:00:00Z", source: "oauth", floor_percent: 5 };
 
 // The Overlord, 2026-11-03, of the CFO's box: "in the chat input for the

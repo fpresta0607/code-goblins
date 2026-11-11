@@ -415,19 +415,10 @@ func (l *piMessageLog) touch(index int) {
 }
 
 // show adds what one retained entry shows: its message, its compaction or
-// branch summary, and nothing for an extension's own data. An entry that
-// records a setting shows nothing either, and sets the session's model or
-// effort in its usage.
+// branch summary, and nothing for an extension's own data or for an entry
+// that records a setting.
 func (l *piMessageLog) show(ctx context.Context, entry piRetained) {
 	switch entry.kind {
-	case "model_change":
-		if entry.model != "" {
-			l.usage.Model = entry.model
-		}
-		return
-	case "thinking_level_change":
-		l.usage.Effort = entry.text
-		return
 	case "compaction":
 		l.add(Message{ID: entry.id, Kind: MessageCompaction, At: entry.at, Trigger: "auto", Text: entry.text})
 		return
@@ -458,7 +449,7 @@ func (l *piMessageLog) show(ctx context.Context, entry piRetained) {
 		// answers a call fills that call in place, and the retained entry must
 		// stay as it was read for a branch that leaves the result out.
 		l.add(Message{ID: entry.id, Kind: MessageReply, At: entry.at, Model: entry.model, Blocks: slices.Clone(entry.blocks)})
-		l.usage.add(entry.inputTokens, entry.outputTokens, entry.cacheReadTokens, entry.model)
+		l.usage.add(entry.inputTokens, entry.outputTokens, entry.cacheReadTokens)
 		l.usage.CostUSD += entry.costUSD
 		if entry.contextTokens > 0 {
 			l.usage.ContextTokens = entry.contextTokens
@@ -514,12 +505,6 @@ func (l *piMessageLog) retain(entry piSessionEntry, offset int64) piRetained {
 	switch entry.Type {
 	case "compaction", "branch_summary":
 		kept.text = piTruncate(entry.Summary, messageTextLimit)
-		return kept
-	case "model_change":
-		kept.model = strings.Trim(entry.Provider+"/"+entry.ModelID, "/")
-		return kept
-	case "thinking_level_change":
-		kept.text = entry.ThinkingLevel
 		return kept
 	case "custom_message":
 		// An extension's own message is a prompt in pi's view only when pi

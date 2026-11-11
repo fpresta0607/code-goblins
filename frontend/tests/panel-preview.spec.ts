@@ -19,7 +19,7 @@ const page = {
     { id: "m2", seq: 2, at, kind: "prompt", source: "overlord", text: "Also show the queued message in the pane, with send now, edit and delete." },
   ],
   conversation: "fixture-conversation", more: false,
-  usage: { input_tokens: 1_400_000, output_tokens: 289_000, cache_read_tokens: 208_000_000, cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000, model: "claude-opus-5-5" },
+  usage: { input_tokens: 1_400_000, output_tokens: 289_000, cache_read_tokens: 208_000_000, cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000 },
 };
 const action = {
   id: "q1", kind: "message", task_id: GOBLIN.id, generation: GOBLIN.generation, status: "queued",
