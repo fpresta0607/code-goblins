@@ -72,7 +72,7 @@ func intentFixture(t *testing.T) (home.Home, string, *intentFileRunner) {
 
 func (runner *intentFileRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name == "no-mistakes" && slices.Equal(request.Args, []string{"help", "axi", "run"}) {
-		return execx.Result{Stdout: []byte("      --intent-file string   read intent from this file\n")}, nil
+		return execx.Result{Stdout: []byte("      --intent-file string   read intent from this file\n      --no-publish-intent    keep the generated Intent section out of the PR body\n")}, nil
 	}
 	if request.Name == "no-mistakes" && len(request.Args) > 1 && request.Args[0] == "axi" && request.Args[1] == "run" {
 		runner.started = append(runner.started, request)
