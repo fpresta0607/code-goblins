@@ -15,7 +15,7 @@ func TestInstallIncludesNativeCompactLifecycle(t *testing.T) {
 		t.Run(harness, func(t *testing.T) {
 			// Arrange
 			directory := t.TempDir()
-			configuration := InstallConfig{Harness: harness, ConfigDir: directory, Executable: filepath.Join(directory, "ceo.exe"), Home: directory, State: filepath.Join(directory, "state")}
+			configuration := InstallConfig{Harness: harness, ConfigDir: directory, Executable: filepath.Join(directory, "goblins.exe"), Home: directory, State: filepath.Join(directory, "state")}
 			if harness == "codex" {
 				original := []byte(`{"model":"unchanged","hooks":{"PreCompact":[{"hooks":[{"type":"command","command":"echo unrelated pre"}]}],"PostCompact":[{"hooks":[{"type":"command","command":"echo unrelated post"}]}]}}`)
 				if err := os.WriteFile(filepath.Join(directory, "hooks.json"), original, 0o600); err != nil {

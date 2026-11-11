@@ -356,7 +356,7 @@ func handOverReplacedResume(stateDir, id string) (err error) {
 }
 
 // HandOverReplacedNote gives the CEO, with their words, the board messages
-// record keeps for a resume once a later start, such as a ceo switch, has
+// record keeps for a resume once a later start, such as a goblins switch, has
 // replaced the session that resume was for, since no resume of that record
 // runs again. It takes no lock and writes nothing: its caller holds the
 // task's lifecycle lock and takes the messages out of the note, or writes its
@@ -412,7 +412,7 @@ func replacedMessages(record state.Lifecycle, meta state.TaskMeta) []string {
 // isCurrentRecord says record is meta's goblin's own: meta's session's, or
 // the task's interrupted resume. A record an earlier session left says
 // nothing of the goblin, and decides nothing of where its message goes: a
-// failed resume whose session a later start replaced, as a ceo switch run to
+// failed resume whose session a later start replaced, as a goblins switch run to
 // rescue the goblin does, can never be resumed again.
 func isCurrentRecord(record state.Lifecycle, meta state.TaskMeta) bool {
 	return record.Generation == meta.SpawnGen || record.IsInterruptedResume(meta)

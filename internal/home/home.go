@@ -1,6 +1,6 @@
 // Package home resolves the CEO home directory, names the folders inside it,
 // and decides whether a directory is a genuine primary fleet home. Every
-// install, the desktop installer and `ceo install` alike, uses one per-user
+// install, the desktop installer and `goblins install` alike, uses one per-user
 // home, %LOCALAPPDATA%\CodeGoblins, and a source checkout is never one:
 // every hook stays inert in a folder that is not a home.
 package home
@@ -57,12 +57,12 @@ func (h Home) Bin() string { return filepath.Join(h.Root, BinDir) }
 
 // Programs is the folder holding the build the home runs: bin, or, in a home
 // a build before bin set up, such as a checkout an older build made the home,
-// its root, where that build keeps ceo.exe and goblins.exe until an install
+// its root, where that build keeps goblins.exe until an install
 // lays the home out with bin. A home with no build yet gets bin, where an
 // install puts one.
 func (h Home) Programs() string {
-	if _, err := os.Stat(filepath.Join(h.Bin(), "ceo.exe")); err != nil {
-		if _, err := os.Stat(filepath.Join(h.Root, "ceo.exe")); err == nil {
+	if _, err := os.Stat(filepath.Join(h.Bin(), "goblins.exe")); err != nil {
+		if _, err := os.Stat(filepath.Join(h.Root, "goblins.exe")); err == nil {
 			return h.Root
 		}
 	}
@@ -215,27 +215,27 @@ func ReadDevDriveConfig(root string) (DevDriveConfig, error) {
 }
 
 // DefaultRoot is the per-user home every install uses,
-// %LOCALAPPDATA%\CodeGoblins. CEO_HOME overrides it, for a test or a
+// %LOCALAPPDATA%\CodeGoblins. GOBLINS_HOME overrides it, for a test or a
 // deliberate choice.
 func DefaultRoot() (string, error) {
 	local := os.Getenv("LOCALAPPDATA")
 	if local == "" {
-		return "", errors.New("home: LOCALAPPDATA is not set, so there is no per-user folder for a CEO home; set CEO_HOME")
+		return "", errors.New("home: LOCALAPPDATA is not set, so there is no per-user folder for a CEO home; set GOBLINS_HOME")
 	}
 	return filepath.Abs(filepath.Join(local, "CodeGoblins"))
 }
 
 // inheritedRoot and inheritedState capture the fleet home the process was
 // launched with, before any test can change it. Every goblin pane exports
-// CEO_HOME and CEO_STATE_OVERRIDE so `ceo` works from a worktree, and `go
+// GOBLINS_HOME and GOBLINS_STATE_OVERRIDE so `goblins` works from a worktree, and `go
 // test` inherits both. inheritedDefault is the per-user home the launch
-// environment names, which a test that clears CEO_HOME would otherwise
+// environment names, which a test that clears GOBLINS_HOME would otherwise
 // resolve to.
-var inheritedRoot, inheritedState = os.Getenv("CEO_HOME"), os.Getenv("CEO_STATE_OVERRIDE")
+var inheritedRoot, inheritedState = os.Getenv("GOBLINS_HOME"), os.Getenv("GOBLINS_STATE_OVERRIDE")
 
 var inheritedDefault, _ = DefaultRoot()
 
-// Resolve returns the home CEO_HOME names, or the per-user home when it is
+// Resolve returns the home GOBLINS_HOME names, or the per-user home when it is
 // unset. It never creates directories.
 //
 // A test binary is refused the fleet home it inherited. A test that resolves
@@ -243,9 +243,9 @@ var inheritedDefault, _ = DefaultRoot()
 // is not hypothetical: it has happened twice, and the second time a test's PR
 // notification arrived in the CEO's queue as a real goblin report. Per-package
 // TestMain guards only protect packages that remember to add one, so the
-// refusal lives here, where every caller passes. A test that points CEO_HOME
+// refusal lives here, where every caller passes. A test that points GOBLINS_HOME
 // at its own directory is unaffected, including one that builds a home which
-// looks primary. A test that clears CEO_HOME is refused the per-user home the
+// looks primary. A test that clears GOBLINS_HOME is refused the per-user home the
 // machine's own environment names, which on an installed machine is the
 // running fleet; one that points LOCALAPPDATA at its own directory resolves a
 // per-user home there.
@@ -255,7 +255,7 @@ func Resolve() (Home, error) {
 		return Home{}, err
 	}
 	if isTestBinary() && usesTheInheritedFleet(h) {
-		return Home{}, fmt.Errorf("home: a test resolved the inherited fleet home %s (state %s); point CEO_HOME and CEO_STATE_OVERRIDE at the test's own directory rather than inheriting the pane's", h.Root, h.State)
+		return Home{}, fmt.Errorf("home: a test resolved the inherited fleet home %s (state %s); point GOBLINS_HOME and GOBLINS_STATE_OVERRIDE at the test's own directory rather than inheriting the pane's", h.Root, h.State)
 	}
 	return h, nil
 }
@@ -264,7 +264,7 @@ func Resolve() (Home, error) {
 // before any test could change the environment. A test that hands a child
 // process its own environment uses this to prove it is not about to give that
 // child the running fleet; Resolve's refusal cannot help there, because the
-// real ceo binary is not a test binary.
+// real goblins binary is not a test binary.
 func Inherited() (root, state string) {
 	return inheritedRoot, inheritedState
 }
@@ -298,7 +298,7 @@ func isTestBinary() bool {
 }
 
 func resolve() (Home, error) {
-	root := os.Getenv("CEO_HOME")
+	root := os.Getenv("GOBLINS_HOME")
 	if root == "" {
 		var err error
 		if root, err = DefaultRoot(); err != nil {
@@ -314,13 +314,13 @@ func resolve() (Home, error) {
 		return Home{}, err
 	}
 	h := Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data"), DevDrive: config.Root}
-	if s := os.Getenv("CEO_STATE_OVERRIDE"); s != "" {
+	if s := os.Getenv("GOBLINS_STATE_OVERRIDE"); s != "" {
 		h.State = s
 	}
 	return h, nil
 }
 
-// InstalledMarker is the file `ceo install` writes into every home it sets
+// InstalledMarker is the file `goblins install` writes into every home it sets
 // up, and what makes a folder a home: a source checkout holds AGENTS.md and
 // may hold a state folder a test or an older build left, and is never one
 // unless it is the home in use, as a checkout an older build made the home
@@ -329,7 +329,7 @@ func resolve() (Home, error) {
 const InstalledMarker = ".ceo-home"
 
 // IsPrimary reports whether h is a genuine primary home: AGENTS.md present,
-// state/ present, and the marker `ceo install` writes. A home inside a linked
+// state/ present, and the marker `goblins install` writes. A home inside a linked
 // git worktree is never primary, marker or not. It never creates anything;
 // any failure to confirm is false, never an error.
 func IsPrimary(h Home) bool {

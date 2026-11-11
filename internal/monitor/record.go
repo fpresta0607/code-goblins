@@ -108,14 +108,14 @@ const (
 	AwaitingAnswer Reason = "awaiting_answer"
 	// AwaitingDecision is a goblin parked on a status-verb decision
 	// (blocked, needs-decision, or checks-passed) whose wake was already
-	// delivered by the watcher's decision signal or ceo notify's own wake.
+	// delivered by the watcher's decision signal or goblins notify's own wake.
 	AwaitingDecision Reason = "awaiting_decision"
 	// GoblinIdle is a goblin that has sat at its prompt with nothing running,
 	// nothing asked and nothing reported for the idle window, read from its
 	// own screen and processes whatever harness it runs, hooks or none.
 	GoblinIdle Reason = "goblin_idle"
 	// GoblinAsks is a goblin at its prompt whose last reply asks the CEO
-	// something, or offers it a choice, in prose instead of with ceo notify
+	// something, or offers it a choice, in prose instead of with goblins notify
 	// --blocked, so it waits on an answer no question records.
 	GoblinAsks Reason = "goblin_asks"
 )

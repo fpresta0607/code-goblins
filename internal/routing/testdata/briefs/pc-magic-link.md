@@ -65,4 +65,4 @@ Document these in your report for the Overlord to execute. Do not attempt them a
 ## Deliverable
 
 Write your report to `docs/magic-link-report.md` and commit it on your branch so it survives worktree cleanup.
-Report done with `ceo notify pc-magic-link --done --pr <url>`.
+Report done with `goblins notify pc-magic-link --done --pr <url>`.

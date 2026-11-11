@@ -161,7 +161,7 @@ type Entry struct {
 	// Command and Shell are the command a step only he can take asks him to
 	// run, with the shell that runs it: when AFK mode turns off the step is a
 	// run item on his Command Center, in place of a question. Admin runs it
-	// as administrator, after Windows asks him, as ceo run-request --admin
+	// as administrator, after Windows asks him, as goblins run-request --admin
 	// does.
 	Command string `json:"command,omitempty"`
 	Shell   string `json:"shell,omitempty"`
@@ -186,7 +186,7 @@ func Read(stateDir string) (State, error) {
 		err = decoder.Decode(&state)
 	}
 	if err != nil {
-		return State{}, fmt.Errorf("AFK mode's switch (state/%s) cannot be read: %w; only the Overlord resets it, with ceo afk off from a terminal of his own", stateFile, err)
+		return State{}, fmt.Errorf("AFK mode's switch (state/%s) cannot be read: %w; only the Overlord resets it, with goblins afk off from a terminal of his own", stateFile, err)
 	}
 	return state, nil
 }
@@ -355,7 +355,7 @@ func Log(stateDir string, entry Entry, now time.Time) (Entry, error) {
 }
 
 // CheckStep refuses a step only he can take whose card would not be one the
-// CEO's own ceo run-request or ceo question makes: a command he runs with one
+// CEO's own goblins run-request or goblins question makes: a command he runs with one
 // click, as administrator or not, or a decision of his with its own choices,
 // one of them recommended. On 2026-10-29 he cleared two cards whose only
 // choices said he had done the step or would later, and neither had happened.

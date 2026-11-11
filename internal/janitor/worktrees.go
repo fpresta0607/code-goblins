@@ -32,7 +32,7 @@ const worktreeGrace = time.Hour
 // empty. A worktree an older build put in a checkout's .worktrees is never
 // removed here: it is found through the projects root every home on the
 // machine shares, so nothing says it is this home's rather than another's, and
-// ceo cleanup and ceo reap are left to it. Every fleet worktree no task
+// goblins cleanup and goblins reap are left to it. Every fleet worktree no task
 // records that is still there afterwards is a stray.
 func (cfg Config) tidyWorktrees(ctx context.Context, record *Record) {
 	git := worktree.RunnerGit{Commands: cfg.Commands}
@@ -84,7 +84,7 @@ func (cfg Config) tidyWorktrees(ctx context.Context, record *Record) {
 		if _, err := os.Stat(dir.Path); err != nil {
 			continue
 		}
-		detail := "a worktree no task records; one a goblin needs beside its own comes from ceo worktree add"
+		detail := "a worktree no task records; one a goblin needs beside its own comes from goblins worktree add"
 		if dir.Source == reap.SourceCheckout {
 			detail = "a worktree " + dir.Project + " registers at a path no task of this home records, left by a harness or an older session"
 		}
@@ -116,7 +116,7 @@ func (cfg Config) inATaskFolder(path string) bool {
 // fleet's folders, which a harness's own tooling left in a checkout or a
 // scratchpad, on the rule every other worktree here gets: its work is kept
 // before it goes, and uncommitted work is never touched. A directory an older
-// build's .worktrees holds is left to ceo cleanup and ceo reap, since it is
+// build's .worktrees holds is left to goblins cleanup and goblins reap, since it is
 // found through a checkout every home on the machine shares.
 func (cfg Config) tidyCheckoutWorktree(ctx context.Context, git worktree.RunnerGit, dir reap.WorktreeDir, record *Record) {
 	if dir.Source != reap.SourceCheckout || dir.Registration != reap.RegistrationListed {

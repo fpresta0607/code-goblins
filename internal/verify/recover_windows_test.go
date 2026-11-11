@@ -184,7 +184,7 @@ func TestRecoveryEndsTheJobOfAKilledControllerAndFreesTheTurn(t *testing.T) {
 	}
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CEO_VERIFY_DIR", store)
+	t.Setenv("GOBLINS_VERIFY_DIR", store)
 	root := t.TempDir()
 	requested := admission(t)
 	controller := exec.Command(os.Args[0], "-test.run=^TestRecoveryEndsTheJobOfAKilledControllerAndFreesTheTurn$")
@@ -332,7 +332,7 @@ func TestRecoveryNeverPassesAnExecutionItRecovers(t *testing.T) {
 		t.Run(status, func(t *testing.T) {
 			// Arrange
 			store := t.TempDir()
-			t.Setenv("CEO_VERIFY_DIR", store)
+			t.Setenv("GOBLINS_VERIFY_DIR", store)
 			requested := admission(t)
 			execution, err := BeginExecution(t.TempDir(), []string{"go", "test"})
 			if err != nil {
@@ -471,7 +471,7 @@ func TestRecoveryKeepsACustodyRecordReplacedBeforeItsRemoval(t *testing.T) {
 func TestRecoveryFreesTheTurnOnceAKilledControllersJobEndedWithIt(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CEO_VERIFY_DIR", store)
+	t.Setenv("GOBLINS_VERIFY_DIR", store)
 	root := t.TempDir()
 	requested := admission(t)
 	controller := exec.Command(os.Args[0], "-test.run=^TestRecoveryEndsTheJobOfAKilledControllerAndFreesTheTurn$")
@@ -538,7 +538,7 @@ func TestRecoveryRecoversEveryAbandonedExecutionAtOnce(t *testing.T) {
 func TestRecoveryProceedsWhenTheEvidenceCannotBeRead(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CEO_VERIFY_DIR", store)
+	t.Setenv("GOBLINS_VERIFY_DIR", store)
 	requested := admission(t)
 	execution, err := BeginExecution(t.TempDir(), []string{"go", "test"})
 	if err != nil {

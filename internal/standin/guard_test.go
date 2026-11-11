@@ -25,16 +25,16 @@ import (
 // downloaded, renamed and ran, and those are gone. Take a file out of the
 // list with its copy, and add none.
 var stillCopies = map[string]string{
-	"cmd/ceo/attach_test.go":                        "claude.exe on PATH, answered by this package's TestMain",
-	"cmd/ceo/ceo_restart_test.go":                   "claude.exe on PATH, answered by this package's TestMain",
-	"cmd/ceo/doctor_test.go":                        "claude.exe, answered by this package's TestMain",
-	"cmd/ceo/hook_handover_windows_test.go":         "a watcher lock holder under a program's name",
-	"cmd/ceo/reap_kill_windows_test.go":             "a stand-in Docker Desktop.exe that runs this package's code",
-	"cmd/ceo/serve_herdr_env_test.go":               "herdr.exe on PATH, answered by this package's TestMain",
-	"cmd/ceo/serve_test.go":                         "claude.exe on PATH, answered by this package's TestMain",
-	"cmd/ceo/session_standin_windows_test.go":       "the session's programs, answered by this package's TestMain",
-	"cmd/ceo/update_standin_windows_test.go":        "reads the build marker at the end of its own file, where it is, and copies nothing",
-	"cmd/ceo/update_windows_test.go":                "builds of ceo told apart by a marker, which run this package's update code",
+	"cmd/goblins/attach_test.go":                    "claude.exe on PATH, answered by this package's TestMain",
+	"cmd/goblins/ceo_restart_test.go":               "claude.exe on PATH, answered by this package's TestMain",
+	"cmd/goblins/doctor_test.go":                    "claude.exe, answered by this package's TestMain",
+	"cmd/goblins/hook_handover_windows_test.go":     "a watcher lock holder under a program's name",
+	"cmd/goblins/reap_kill_windows_test.go":         "a stand-in Docker Desktop.exe that runs this package's code",
+	"cmd/goblins/serve_herdr_env_test.go":           "herdr.exe on PATH, answered by this package's TestMain",
+	"cmd/goblins/serve_test.go":                     "claude.exe on PATH, answered by this package's TestMain",
+	"cmd/goblins/session_standin_windows_test.go":   "the session's programs, answered by this package's TestMain",
+	"cmd/goblins/update_standin_windows_test.go":    "reads the build marker at the end of its own file, where it is, and copies nothing",
+	"cmd/goblins/update_windows_test.go":            "builds of goblins told apart by a marker, which run this package's update code",
 	"internal/conpty/conpty_windows_test.go":        "a stand-in Docker Desktop.exe that runs this package's code",
 	"internal/janitor/processes_windows_test.go":    "a stand-in chrome.exe that runs this package's code",
 	"internal/lifecycle/resources_windows_test.go":  "another task's test binary that runs this package's code",
@@ -123,7 +123,7 @@ func TestOwnBinaryCopiesReportsEveryCopyOfTheTestBinary(t *testing.T) {
 		body       string
 		isReported bool
 	}{
-		{"read to write elsewhere", `self, _ := os.Executable(); data, _ := os.ReadFile(self); _ = os.WriteFile("ceo.exe", data, 0o755)`, true},
+		{"read to write elsewhere", `self, _ := os.Executable(); data, _ := os.ReadFile(self); _ = os.WriteFile("goblins.exe", data, 0o755)`, true},
 		{"opened to copy", `self, err := os.Executable(); _ = err; source, _ := os.Open(self); _ = source`, true},
 		{"handed to a copy helper", `program, _ := os.Executable(); copyFile(t, program, "claude.exe")`, true},
 		{"handed to a package's copy helper", `program, _ := os.Executable(); fsx.CopyFile(program, "claude.exe")`, true},
@@ -134,7 +134,7 @@ func TestOwnBinaryCopiesReportsEveryCopyOfTheTestBinary(t *testing.T) {
 		{"its first argument run where it is", `_ = exec.Command(os.Args[0], "-test.run=^TestChild$").Run()`, false},
 		{"named in a command line", `self, _ := os.Executable(); _ = []string{self, "host"}`, false},
 		{"another file read", `self, _ := os.Executable(); _ = self; data, _ := os.ReadFile("install.ps1"); _ = data`, false},
-		{"the stand-in put", `standin.Put(t, "ceo.exe")`, false},
+		{"the stand-in put", `standin.Put(t, "goblins.exe")`, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

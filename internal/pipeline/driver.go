@@ -63,7 +63,7 @@ func NativeEnv(root string) []string {
 // cannot hold a command forever. The fleet's runners answer a read in process
 // (gatedb), in tens of milliseconds; a runner that starts sqlite3 for it
 // instead can take tens of seconds on a loaded machine just to start the
-// program: a 5 s bound failed `ceo pipeline recover` twice on 2026-10-20 while
+// program: a 5 s bound failed `goblins pipeline recover` twice on 2026-10-20 while
 // sqlite3 was installed and the database readable (#1286).
 const stateQueryTimeout = time.Minute
 
@@ -168,7 +168,7 @@ func sqlString(value string) string { return "'" + strings.ReplaceAll(value, "'"
 
 // ErrGateFileRequired is what a gate's start answers for a repository with
 // no committed gate file at the task's branch or at origin's default branch.
-// `ceo project check` reports a repository with none in these words, so the
+// `goblins project check` reports a repository with none in these words, so the
 // two cannot disagree about whether a gate run starts.
 var ErrGateFileRequired = errors.New("pipeline: readable committed task and origin default-branch .no-mistakes.yaml required")
 
@@ -475,7 +475,7 @@ func (r Reader) branchHead(ctx context.Context, worktree string) (string, error)
 
 // CheckRepoAgent says whether a policy refuses the agent a repository's gate
 // file names, given the file as the task's branch and as the default branch
-// have it. It is what a gate's start asks and what `ceo project check`
+// have it. It is what a gate's start asks and what `goblins project check`
 // reads, so a pin is judged by the code that would refuse the run. From
 // version 6 the run's own launch selection replaces whatever agent the
 // repository names, so no repository agent is refused.

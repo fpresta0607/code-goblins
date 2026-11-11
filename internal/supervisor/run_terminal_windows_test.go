@@ -20,11 +20,11 @@ import (
 )
 
 // runHostVariable makes this test binary, started as "host", host a run
-// item's terminal as ceo host does.
-const runHostVariable = "CEO_TEST_RUN_HOST"
+// item's terminal as goblins host does.
+const runHostVariable = "GOBLINS_TEST_RUN_HOST"
 
 // runHostCommand is the command a run item's launcher hosts its terminal
-// with: this test binary, in place of ceo.exe host.
+// with: this test binary, in place of goblins.exe host.
 func runHostCommand(t *testing.T) []string {
 	t.Helper()
 	program, err := os.Executable()
@@ -35,7 +35,7 @@ func runHostCommand(t *testing.T) []string {
 	return []string{program, "host"}
 }
 
-// commandRun records a run item the way ceo run-request does, with its
+// commandRun records a run item the way goblins run-request does, with its
 // command as its script on disk.
 func commandRun(t *testing.T, store *Store, identity, id, shell, command string, admin bool) Run {
 	t.Helper()
@@ -255,15 +255,15 @@ func TestAnElevatedRunStartsItsHostHiddenThroughWindows(t *testing.T) {
 	args := []string{"host", "--state", `C:\Users\Over Lord\AppData\Local\CodeGoblins\state\runs\ab12`, "--id", runTerminal, "--dir", `C:\work dir`, "--", `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`, "-File", `C:\it's here\runner.ps1`, `a "quoted" arg`}
 
 	// Act
-	script := string(elevateScript(`C:\Program Files\ceo.exe`, args, `C:\runs\ab12\declined.txt`))
+	script := string(elevateScript(`C:\Program Files\goblins.exe`, args, `C:\runs\ab12\declined.txt`))
 	line := elevatedCommandLine(args)
 
 	// Assert
-	decomposed, err := windows.DecomposeCommandLine("ceo.exe " + line)
+	decomposed, err := windows.DecomposeCommandLine("goblins.exe " + line)
 	if err != nil || strings.Join(decomposed[1:], "\x00") != strings.Join(args, "\x00") {
 		t.Fatalf("the elevated command line %q reads back as %q (%v), want exactly %q", line, decomposed, err, args)
 	}
-	for _, want := range []string{"Start-Process -FilePath 'C:\\Program Files\\ceo.exe'", "-ArgumentList '" + strings.ReplaceAll(line, "'", "''") + "'", "-Verb RunAs", "-WindowStyle Hidden", "-PassThru", "declined.txt", "$run.WaitForExit()"} {
+	for _, want := range []string{"Start-Process -FilePath 'C:\\Program Files\\goblins.exe'", "-ArgumentList '" + strings.ReplaceAll(line, "'", "''") + "'", "-Verb RunAs", "-WindowStyle Hidden", "-PassThru", "declined.txt", "$run.WaitForExit()"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("the elevation script lacks %q:\n%s", want, script)
 		}

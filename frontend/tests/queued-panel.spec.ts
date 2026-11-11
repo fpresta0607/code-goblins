@@ -376,7 +376,7 @@ const EVIDENCE = "Already finished: its last report was done (2026-10-06 11:59Z:
 const EVIDENCE_LINE = "Its last report was done (2026-10-06 11:59Z: done: PR 9).";
 const HELD = task("queued-held", "queued", { generation: "", brief: true, queue_revision: "q1", waits: [{ kind: "memory", target: "memory 12 GB", bytes: 12 * GB }], reason: NOTE });
 const FINISHED = task("queued-finished", "queued", { generation: "", brief: true, queue_revision: "q1", finished: EVIDENCE });
-const START_FAILED = task("queued-failed", "queued", { generation: "", brief: true, queue_revision: "q1", start_error: "ceo spawn: the brief names no project" });
+const START_FAILED = task("queued-failed", "queued", { generation: "", brief: true, queue_revision: "q1", start_error: "goblins spawn: the brief names no project" });
 
 test("a queued task's panel has no More under its status, whatever its row waits for or says finished", async ({ page }) => {
   // Arrange

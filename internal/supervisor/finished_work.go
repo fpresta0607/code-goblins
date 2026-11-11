@@ -70,7 +70,7 @@ func (work *finishedWork) refusal(id string) string {
 }
 
 // retiredEvidence says id's queued row is stale: the CEO retired its task,
-// with ceo cleanup or ceo kill, after the row was queued. A row has no time
+// with goblins cleanup or goblins kill, after the row was queued. A row has no time
 // of its own, so its brief stands for it: only a brief written since the
 // retirement is new work for the id. A row with no brief is stale too, since
 // the start would write it one from the row and run the retired task again.

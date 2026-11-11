@@ -211,7 +211,7 @@ func (adapter *codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// started, and custody proves a goblin's and the CEO's own processes by
 	// exactly that: the terminal's program among their ancestors, or the
 	// terminal's proof value. On 2026-10-16 a CEO's registration was refused
-	// for hours because its ceo commands descended from a shared app-server
+	// for hours because its goblins commands descended from a shared app-server
 	// an earlier session had left. --no-daemon keeps each launch on its own
 	// server, under its own terminal, even while another one runs; a Codex
 	// whose help does not list it would refuse it, so it is given none.

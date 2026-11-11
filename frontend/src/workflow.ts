@@ -318,7 +318,7 @@ export interface WorkflowNode {
   session?: Session;
   parent?: string;
   relation: string;
-  // ceo marks the supervisor root drawn when no native CEO session reported,
+  // goblins marks the supervisor root drawn when no native CEO session reported,
   // and status is its fixed label.
   ceo?: boolean;
   status?: string;
@@ -362,7 +362,7 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
   // each drawn from its live task record and the session that record names
   // as its own, so a goblin is there from its start until it finishes,
   // pauses or retires. No other session is drawn: the supervisor keeps a
-  // session's record after its task retires, and one ceo cleanup ended still
+  // session's record after its task retires, and one goblins cleanup ended still
   // reads as it last reported, so on 2026-10-17 goblins retired the day
   // before, which the board's history of its newest 20 entries no longer
   // named, were back under the CEO reading Turn finished. A sub-agent's or
@@ -396,7 +396,7 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
     const parent = owns(node) && node.task?.parent ? nodes.find((other) => other.task?.id === node.task?.parent && owns(other)) : undefined;
     if (parent) { node.parent = parent.id; node.relation = "Helper goblin"; helpers.add(node); }
   }
-  // Every live task record was dispatched by the CEO through ceo spawn, so a
+  // Every live task record was dispatched by the CEO through goblins spawn, so a
   // task card and a goblin session that has no parent in the tree hang under
   // the CEO, whoever started or resumed the goblin: under the CEO session
   // that reported, or the supervisor root drawn when none did. A parent a

@@ -285,8 +285,8 @@ test("the wheel over a pane that scrolls itself never asks again for a take that
 
 test("a wheel that cannot scroll a pane explains itself in plain words", () => {
   const cases: [string, string][] = [
-    ["pipeline owns this task; use ceo pipeline respond or inspect its delivery evidence", "A review gate owns this goblin's pane now. Scroll it in Herdr."],
-    ["pipeline custody has not been returned; use ceo pipeline recover", "A review gate owns this goblin's pane now. Scroll it in Herdr."],
+    ["pipeline owns this task; use goblins pipeline respond or inspect its delivery evidence", "A review gate owns this goblin's pane now. Scroll it in Herdr."],
+    ["pipeline custody has not been returned; use goblins pipeline recover", "A review gate owns this goblin's pane now. Scroll it in Herdr."],
     ["Native terminal disconnected.", "The wheel cannot scroll this pane: Native terminal disconnected."],
   ];
   for (const [raw, plain] of cases) assert.equal(scrollHeldReason(raw), plain, raw);
@@ -374,8 +374,8 @@ test("a connection that ends on its own stops the view, shows the pane afresh at
 
 test("a refused input explains itself in plain words", () => {
   const cases: [string, string][] = [
-    ["pipeline owns this task; use ceo pipeline respond or inspect its delivery evidence", "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen."],
-    ["pipeline custody has not been returned; use ceo pipeline recover", "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen."],
+    ["pipeline owns this task; use goblins pipeline respond or inspect its delivery evidence", "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen."],
+    ["pipeline custody has not been returned; use goblins pipeline recover", "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen."],
     ["cannot verify pipeline custody", "cannot verify pipeline custody"],
     ["HEAD is detached at 0123456789ab, so typing is held: pipeline: HEAD has moved since the worktree was made", "This goblin's worktree is on a detached HEAD at 0123456789ab, so typing is held: pipeline: HEAD has moved since the worktree was made. Reconnect to watch the screen."],
     ["HEAD is detached at 0123456789ab, so typing is held: pipeline: state query failed: the gate's database refused it: file is not a database", "This goblin's worktree is on a detached HEAD at 0123456789ab, so typing is held: pipeline: state query failed: the gate's database refused it: file is not a database. Reconnect to watch the screen."],
@@ -390,7 +390,7 @@ test("only a detached HEAD's hold is told on the terminal without waking the CEO
   const cases: [string, boolean][] = [
     ["HEAD is detached at 0123456789ab, so typing is held: pipeline: HEAD has moved since the worktree was made", true],
     ["Git symbolic-ref failed: exit status 128", false],
-    ["pipeline owns this task; use ceo pipeline respond or inspect its delivery evidence", false],
+    ["pipeline owns this task; use goblins pipeline respond or inspect its delivery evidence", false],
     ["Git symbolic-ref did not finish: context canceled", false],
     ["the HEAD is detached at abc", false],
     ["", false],
@@ -404,7 +404,7 @@ test("a detached HEAD's hold gives the gate's own reason, and no other refusal g
     ["HEAD is detached at 0123456789ab, so typing is held: cannot verify pipeline custody", "cannot verify pipeline custody"],
     ["HEAD is detached at 0123456789ab, so typing is held: pipeline: HEAD history cannot be read: open C:\\wt\\.git\\logs\\HEAD: The system cannot find the file specified.", "pipeline: HEAD history cannot be read: open C:\\wt\\.git\\logs\\HEAD: The system cannot find the file specified"],
     ["HEAD is detached at 0123456789ab, so typing is held: ", ""],
-    ["pipeline owns this task; use ceo pipeline respond or inspect its delivery evidence", ""],
+    ["pipeline owns this task; use goblins pipeline respond or inspect its delivery evidence", ""],
     ["Git symbolic-ref failed: exit status 128", ""],
     ["", ""],
   ];

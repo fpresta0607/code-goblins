@@ -8,7 +8,7 @@ export interface CardStart { blocked: string; onStart: () => void }
 export type CardStarter = (task: Task) => CardStart;
 
 // Start on a queued task, one click: the card says Starting in the frame he
-// clicks, the supervisor dispatches it through ceo spawn in its turn, and
+// clicks, the supervisor dispatches it through goblins spawn in its turn, and
 // onStarted hears once it took the start, so the board can open the new
 // goblin's session when it is up. A Start the supervisor refuses puts the
 // card back and goes to the CEO, never to a line on the board (the

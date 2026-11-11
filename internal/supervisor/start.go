@@ -47,7 +47,7 @@ var (
 )
 
 // Dispatch is what a queued task's Start reads and runs on this machine:
-// its memory, and ceo spawn itself. Without it the board starts no goblin.
+// its memory, and goblins spawn itself. Without it the board starts no goblin.
 type Dispatch struct {
 	Idle func(context.Context, state.TaskMeta) (bool, error)
 	// Memory reads the machine's physical memory, commit and kernel pools.
@@ -71,7 +71,7 @@ type Dispatch struct {
 	// SlotHold says it, or "" when one may; nil reads none, and nothing waits
 	// on it.
 	HeavyLine func(Memory) (string, error)
-	// Spawn runs ceo with args and returns what it printed.
+	// Spawn runs goblins with args and returns what it printed.
 	Spawn func(ctx context.Context, args []string) (string, error)
 }
 
@@ -115,7 +115,7 @@ func (m Memory) shortfall() string {
 	return ""
 }
 
-// startPlan is the ceo spawn a Start runs.
+// startPlan is the goblins spawn a Start runs.
 type startPlan struct {
 	id, project, brief, harness, model, effort, mode string
 	briefRevision                                    string
@@ -142,7 +142,7 @@ func (p startPlan) args() []string {
 }
 
 // startTask serves POST /api/tasks/start: the Overlord's Start on a queued
-// task, which dispatches it through ceo spawn as the CEO would.
+// task, which dispatches it through goblins spawn as the CEO would.
 func (h *HTTP) startTask(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Task string `json:"task"`
@@ -311,7 +311,7 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 	return nil
 }
 
-// runStart runs ceo spawn to its end, which confirms the goblin works before
+// runStart runs goblins spawn to its end, which confirms the goblin works before
 // it returns, so it is never cut short: a killed spawn strands its task.
 // Either way the CEO is told through the wake queue, as a notify tells it,
 // before the card stops showing the start.
@@ -387,7 +387,7 @@ func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
 	s.runAsked()
 }
 
-// spawnFailure is why ceo spawn failed: the last line it printed, which is
+// spawnFailure is why goblins spawn failed: the last line it printed, which is
 // its refusal, or the error when it printed nothing.
 func spawnFailure(output string, err error) string {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
@@ -397,7 +397,7 @@ func spawnFailure(output string, err error) string {
 	return bounded(err.Error(), 500)
 }
 
-// planStart is the ceo spawn a Start of id runs, or why it cannot: id must be
+// planStart is the goblins spawn a Start of id runs, or why it cannot: id must be
 // queued work with a brief and a project, not already running and not
 // already finished. Harness, model and effort come from the backlog row, then
 // the brief's Delivery section, and mode from that section alone, since it is
@@ -484,11 +484,11 @@ func planStart(h home.Home, id string, finished *finishedWork, reading rowReadin
 func (p startPlan) validateEngine() error {
 	switch {
 	case p.harness != "" && !slices.Contains(spawnHarnesses, p.harness):
-		return fmt.Errorf("the brief or backlog row names harness %s, which ceo spawn does not run", p.harness)
+		return fmt.Errorf("the brief or backlog row names harness %s, which goblins spawn does not run", p.harness)
 	case p.mode != "" && !slices.Contains(spawnModes, p.mode):
-		return fmt.Errorf("the brief or backlog row names mode %s, which ceo spawn does not run", p.mode)
+		return fmt.Errorf("the brief or backlog row names mode %s, which goblins spawn does not run", p.mode)
 	case p.model != "" && !spawnValue.MatchString(p.model), p.effort != "" && p.effort != "default" && !slices.Contains(harness.Efforts(harness.Claude), p.effort):
-		return errors.New("the brief or backlog row names a model or effort ceo spawn cannot take")
+		return errors.New("the brief or backlog row names a model or effort goblins spawn cannot take")
 	}
 	return nil
 }

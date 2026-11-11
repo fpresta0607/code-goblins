@@ -76,9 +76,9 @@ func sandboxInstruction(meta state.TaskMeta) string {
 	if meta.SandboxImage == "" {
 		return ""
 	}
-	return " Your brief carries sandbox: needed, so this repository's code is the adversary and never runs on this PC: run every command that builds, installs, tests or otherwise runs it as ceo sandbox run -- <command>, which runs it in a container of " + meta.SandboxImage +
-		" with only your worktree and scratch folder mounted, in the machine's heavy line, one at a time, and in the background as ceo gate turn --detach <log-file> -- ceo sandbox run -- <command>." +
+	return " Your brief carries sandbox: needed, so this repository's code is the adversary and never runs on this PC: run every command that builds, installs, tests or otherwise runs it as goblins sandbox run -- <command>, which runs it in a container of " + meta.SandboxImage +
+		" with only your worktree and scratch folder mounted, in the machine's heavy line, one at a time, and in the background as goblins gate turn --detach <log-file> -- goblins sandbox run -- <command>." +
 		" On the host your shell runs only ceo, git and gh, from your worktree, as plain words and quoted text joined by &&, with no pipe, redirection, variable, backslash before a quote or command of its own." +
-		" Git runs only status, diff, log, show, add, commit, push, fetch, pull, switch, checkout, branch, rebase, merge, reset, restore, stash, tag, rev-parse, ls-files and blame, with no option before its command, no rebase -x and no --exec, --upload-pack, --receive-pack, --recurse-submodules or --recursive; gh runs no alias or extension; and ceo gate test, ceo verify, ceo security, ceo deploy and ceo services are refused." +
+		" Git runs only status, diff, log, show, add, commit, push, fetch, pull, switch, checkout, branch, rebase, merge, reset, restore, stash, tag, rev-parse, ls-files and blame, with no option before its command, no rebase -x and no --exec, --upload-pack, --receive-pack, --recurse-submodules or --recursive; gh runs no alias or extension; and goblins gate test, goblins verify, goblins security, goblins deploy and goblins services are refused." +
 		" Your project cannot use submodules: every host command is refused while the worktree holds a .gitmodules or its index names one. Read and edit files with your file tools. Your gate's Test step runs its command in the same container."
 }

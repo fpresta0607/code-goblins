@@ -829,8 +829,8 @@ func TestPRHealthSaysNothingOfAGoblinsPullRequestThatIsOnlyBehindItsBase(t *test
 			if !slices.Contains(test.want, theirs) && strings.Contains(wakes[0].Detail, "teammate") || !slices.Contains(test.want, mine) && strings.Contains(wakes[0].Detail, "tell cg-health") {
 				t.Errorf("wake %q calls the pull request a teammate's or the goblin's, want neither but as %q says", wakes[0].Detail, test.want)
 			}
-			if strings.Contains(wakes[0].Detail, "ceo pr train") {
-				t.Errorf("wake %q names ceo pr train, which takes no pull request it tells of", wakes[0].Detail)
+			if strings.Contains(wakes[0].Detail, "goblins pr train") {
+				t.Errorf("wake %q names goblins pr train, which takes no pull request it tells of", wakes[0].Detail)
 			}
 		})
 	}

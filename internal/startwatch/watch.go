@@ -194,7 +194,7 @@ func (w *Watch) windows(reading Reading) []Finding {
 		shows := "shows " + process.Shown + " on the Overlord's screen"
 		if process.IsHidden {
 			shows = "showed " + process.Shown + " on the Overlord's screen, which the supervisor hid"
-			next = "tell " + process.Owner + " to start a heavy run with ceo gate turn --detach <log-file> -- <command>, and nothing else that opens a console"
+			next = "tell " + process.Owner + " to start a heavy run with goblins gate turn --detach <log-file> -- <command>, and nothing else that opens a console"
 		}
 		findings = append(findings, Finding{Identity: identity, Owner: process.Owner, Detail: fmt.Sprintf("window_shown: %s's %s (pid %d), started %s, %s: %s. Next: %s", ownerName(process.Owner, reading.CEO), filepath.Base(process.Exe), process.PID, process.Started.UTC().Format("15:04Z"), shows, shownCommand(process.Command), next)})
 	}

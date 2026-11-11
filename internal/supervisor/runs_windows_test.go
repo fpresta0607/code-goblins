@@ -53,7 +53,7 @@ func liveStart(t *testing.T) RunStarted {
 	return RunStarted{PID: os.Getpid(), Start: entries[0].Start}
 }
 
-// readyRun records a run item the way ceo run-request does, its script on disk.
+// readyRun records a run item the way goblins run-request does, its script on disk.
 func readyRun(t *testing.T, store *Store, identity, id, shell string, admin bool, created time.Time) Run {
 	t.Helper()
 	r := Run{ID: id, Identity: identity, By: "ceo", Title: "Run " + id, Shell: shell, Admin: admin, Command: "Write-Output ready\n", Cwd: store.Home.Root, CreatedAt: created}
@@ -289,7 +289,7 @@ func TestExpiredRunItemIsRefused(t *testing.T) {
 // item leaves the Command Center, state/runs.audit records the withdrawal
 // like a run, and Run on it is refused with nothing launched. On 2026-10-01
 // the CEO could only disable install-main-66714dea by renaming the binary it
-// named, because ceo review --clear does not reach a run item.
+// named, because goblins review --clear does not reach a run item.
 func TestTheCEOWithdrawsARunItemNobodyRan(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)

@@ -36,7 +36,7 @@ func ceoConversationPath(stateDir string) string {
 }
 
 // recordCEOConversation records the conversation of the CEO that just
-// registered. A registration that names no session, as `ceo register` by
+// registered. A registration that names no session, as `goblins register` by
 // hand does, leaves the last one as it was.
 func recordCEOConversation(stateDir string, primary primaryRegistration, session string) error {
 	if !sessionID.MatchString(session) {

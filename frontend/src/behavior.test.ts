@@ -260,7 +260,7 @@ test("a live card whose gate saw its pull request merge wears the merge icon", (
 });
 
 test("the board keeps the CEO registration state the supervisor reports", () => {
-  const stale = "The CEO is not registered; run ceo register in the CEO session";
+  const stale = "The CEO is not registered; run goblins register in the CEO session";
   assert.equal(parseSnapshot({healthy:true, registration:stale}).registration, stale);
   assert.equal(parseSnapshot({healthy:true}).registration, "");
 });
@@ -322,7 +322,7 @@ test("only a GitHub pull request wears the GitHub mark and its bare number", () 
 test("dispatched goblins hang under the CEO, and only live work is in the tree", () => {
   const live = ["a", "b", "c", "d", "e", "f"].map((id) => ({id, phase:"working", verified:false}));
   const history = [{id:"finished:x", phase:"done", verified:false, archived:true}, {id:"brief", phase:"queued", verified:false}];
-  const drawn = workflowNodes(parseSnapshot({healthy:true, registration:"The CEO is not registered; run ceo register in the CEO session", tasks:[...live, ...history]}));
+  const drawn = workflowNodes(parseSnapshot({healthy:true, registration:"The CEO is not registered; run goblins register in the CEO session", tasks:[...live, ...history]}));
   const root = drawn.find((node) => node.id === CEO_ROOT);
   assert.ok(root?.ceo);
   assert.equal(nodeStatus(root!), "Registration stale");
@@ -419,7 +419,7 @@ test("a helper's session hangs under its goblin, never the CEO", () => {
 
 // A retired task's session leaves the canvas and the lineage list, and its
 // baby goblins with it: its record is in the board's archived history. On
-// 2026-10-16 a session stayed on the canvas after ceo cleanup retired its
+// 2026-10-16 a session stayed on the canvas after goblins cleanup retired its
 // task.
 test("a retired task's sessions are gone from the tree", () => {
   // Arrange

@@ -22,7 +22,7 @@
 # read, fails the run with nothing typed. It checks again at the end that the
 # profile stayed signed out and holds no saved form entry it did not type.
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File tests\acceptance\credential_canary_windows.ps1 -Binary .\ceo.exe [-Transcript <agent session .jsonl> ...] [-Browser <browser .exe>] [-Visible]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File tests\acceptance\credential_canary_windows.ps1 -Binary .\goblins.exe [-Transcript <agent session .jsonl> ...] [-Browser <browser .exe>] [-Visible]
 #
 # -Transcript names the transcripts of the agent sessions that ran the proof,
 # such as the Claude Code session of the goblin or the CEO, which are searched
@@ -40,10 +40,10 @@ param(
     [switch]$Visible
 )
 $ErrorActionPreference = 'Stop'
-foreach ($name in @('CEO_HOME','CEO_STATE_OVERRIDE','CEO_TASK_ID','CEO_SPAWN_GEN','CEO_ROLE','CEO_HOST_ID','CEO_PARENT_SESSION_ID','CEO_ROOT_SESSION_ID','CEO_PARENT_HARNESS','CEO_CREDENTIAL_DIR')) {
+foreach ($name in @('GOBLINS_HOME','GOBLINS_STATE_OVERRIDE','GOBLINS_TASK_ID','GOBLINS_SPAWN_GEN','GOBLINS_ROLE','GOBLINS_HOST_ID','GOBLINS_PARENT_SESSION_ID','GOBLINS_ROOT_SESSION_ID','GOBLINS_PARENT_HARNESS','GOBLINS_CREDENTIAL_DIR')) {
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
-$ceo = (Resolve-Path -LiteralPath $Binary).Path
+$goblins = (Resolve-Path -LiteralPath $Binary).Path
 $repository = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 $utf8 = [Text.UTF8Encoding]::new($false)
 function Write-UTF8([string]$Path, [string]$Content) { [IO.File]::WriteAllText($Path, $Content, $utf8) }
@@ -94,7 +94,7 @@ $board = ''
 $canaryFile = ''
 
 function Start-Board {
-    $process = Start-Process -FilePath $ceo -ArgumentList @('serve','--listen',"127.0.0.1:$port",'--example') -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logs ("serve-" + (Get-Date).Ticks + ".out")) -RedirectStandardError (Join-Path $logs ("serve-" + (Get-Date).Ticks + ".err")) -PassThru
+    $process = Start-Process -FilePath $goblins -ArgumentList @('serve','--listen',"127.0.0.1:$port",'--example') -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logs ("serve-" + (Get-Date).Ticks + ".out")) -RedirectStandardError (Join-Path $logs ("serve-" + (Get-Date).Ticks + ".err")) -PassThru
     $deadline = (Get-Date).AddSeconds(45)
     do {
         Start-Sleep -Milliseconds 300
@@ -182,12 +182,12 @@ public static extern bool CredDeleteW(string target, int type, int flags);
 
 try {
     foreach ($dir in @($root, $ceoHome, $state, $data, $logs, $project, (Join-Path $data "projects\$scope"))) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-    # The scratch home is a primary home, as one ceo install sets up outside a
-    # checkout is, so ceo cleanup works in it.
+    # The scratch home is a primary home, as one goblins install sets up outside a
+    # checkout is, so goblins cleanup works in it.
     Write-UTF8 (Join-Path $ceoHome 'AGENTS.md') "# Canary proof home`n"
     Write-UTF8 (Join-Path $ceoHome '.ceo-home') ''
-    $env:CEO_HOME = $ceoHome
-    $env:CEO_STATE_OVERRIDE = $state
+    $env:GOBLINS_HOME = $ceoHome
+    $env:GOBLINS_STATE_OVERRIDE = $state
     Write-UTF8 (Join-Path $data "projects\$scope\auth.json") ('{"project":"' + $scope + '","services":[{"name":"proof","method":"env","env":["' + $name + '"],"optional":true}],"formats":[{"names":["CG_PROOF_*"],"prefixes":["canary"]}]}')
 
     # The throwaway project is a checkout with the stand-in goblin's worktree.
@@ -217,7 +217,7 @@ try {
 
     # The stand-in goblin asks from its own terminal, as any goblin does.
     $standin = Join-Path $repository 'tests\fixtures\credential-goblin\standin.ps1'
-    $hostProcess = Start-Process -FilePath $ceo -ArgumentList @('host','--state',$state,'--id',$task,'--dir',$worktree,'--','powershell.exe','-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',$standin,'-Ceo',$ceo,'-Project',$project,'-Task',$task,'-Names',"$name,$expiring",'-Transcript',$standinTranscript,'-ExpectedSha256',$canarySha) -WindowStyle Hidden -PassThru
+    $hostProcess = Start-Process -FilePath $goblins -ArgumentList @('host','--state',$state,'--id',$task,'--dir',$worktree,'--','powershell.exe','-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',$standin,'-Goblins',$goblins,'-Project',$project,'-Task',$task,'-Names',"$name,$expiring",'-Transcript',$standinTranscript,'-ExpectedSha256',$canarySha) -WindowStyle Hidden -PassThru
     $deadline = (Get-Date).AddSeconds(60)
     while (-not ((Request-For $name) -and (Request-For $expiring)) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
     $request = Request-For $name
@@ -287,8 +287,8 @@ try {
     Check 'the stand-in goblin received its re-source notice' ($told -match 'told: .*credentials refreshed: re-source .+auth\.ps1')
     if (-not $results['the stand-in goblin received its re-source notice']) { Write-Host ('the stand-in goblin was told: ' + ((($told -split "`n") | Where-Object { $_ -like 'told:*' }) -join ' | ')) }
     Check 'the stand-in goblin re-sourced the exact value' ($told -match "re-sourced auth\.ps1: $name set True, matches the expected SHA-256 True")
-    $listing = Checked $ceo @('auth','list','--project',$scope)
-    Check 'ceo auth list shows the name in Windows Credential Manager' ($listing -match [regex]::Escape("$scope/$name") -and $listing -match 'Windows Credential Manager')
+    $listing = Checked $goblins @('auth','list','--project',$scope)
+    Check 'goblins auth list shows the name in Windows Credential Manager' ($listing -match [regex]::Escape("$scope/$name") -and $listing -match 'Windows Credential Manager')
     $saved = Request-For $name
     Check 'the request closed as saved and recorded the goblin it told' ($saved.state -eq 'saved' -and @($saved.told) -contains $task)
 
@@ -319,12 +319,12 @@ try {
     # terminal has ended.
     Stop-Process -Id $hostProcess.Id -Force -ErrorAction SilentlyContinue
     $hostProcess.WaitForExit(15000) | Out-Null
-    $cleanup = Native $ceo @('cleanup', $task)
-    Check 'ceo cleanup took the stand-in goblin''s task' ($LASTEXITCODE -eq 0)
-    if ($LASTEXITCODE -ne 0) { Write-Host "ceo cleanup said: $($cleanup.Trim())" }
+    $cleanup = Native $goblins @('cleanup', $task)
+    Check 'goblins cleanup took the stand-in goblin''s task' ($LASTEXITCODE -eq 0)
+    if ($LASTEXITCODE -ne 0) { Write-Host "goblins cleanup said: $($cleanup.Trim())" }
     $afterCleanup = Hits @($state) $canary
-    Write-Host "canary: state/ after ceo cleanup: $($afterCleanup.Count) hit(s)"
-    Check 'ceo cleanup removed the auth.ps1, and state/ holds no canary' ($afterCleanup.Count -eq 0 -and -not (Test-Path -LiteralPath $script))
+    Write-Host "canary: state/ after goblins cleanup: $($afterCleanup.Count) hit(s)"
+    Check 'goblins cleanup removed the auth.ps1, and state/ holds no canary' ($afterCleanup.Count -eq 0 -and -not (Test-Path -LiteralPath $script))
     Write-Host "searched $($script:searched) file reads in all; $($script:unread) root(s), folder(s) or file(s) could not be read"
     Check 'every file the proof searched could be read' ($script:searched -gt 0 -and $script:unread -eq 0)
 } catch {
@@ -341,7 +341,7 @@ try {
     # fails with ERROR_NOT_FOUND.
     $deleted = [CanaryProof.Vault]::CredDeleteW("ceo:$scope/$name", 1, 0)
     $neverStored = -not $deleted -and [Runtime.InteropServices.Marshal]::GetLastWin32Error() -eq 1168
-    $gone = ($deleted -or $neverStored) -and (Native $ceo @('auth', 'list', '--project', $scope)) -match 'no credentials stored'
+    $gone = ($deleted -or $neverStored) -and (Native $goblins @('auth', 'list', '--project', $scope)) -match 'no credentials stored'
     Write-Host ("the throwaway credential ceo:$scope/$name is gone from Windows Credential Manager: $gone" + $(if ($deleted) { ' (deleted)' } elseif ($neverStored) { ' (it was never stored)' } else { '' }))
     $results['the throwaway credential is gone from Windows Credential Manager'] = $gone
     if (-not $gone) { $failures.Add('the throwaway credential is gone from Windows Credential Manager') }

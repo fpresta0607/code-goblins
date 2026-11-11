@@ -58,7 +58,7 @@ const devDriveAttachEvery = 12 * time.Hour
 // watchDevDrive keeps the Dev Drive's view and items to the machine: now,
 // every minute while a step is under way and every half hour otherwise,
 // whenever the person asks or one of its items ends, and at the next tick
-// after config\dev-drive.json changed, as ceo dev-drive setup, ceo dev-drive
+// after config\dev-drive.json changed, as goblins dev-drive setup, goblins dev-drive
 // move and the install change it. Only that file is read each tick; the
 // machine is read when a look is due.
 func (s *Service) watchDevDrive(ctx context.Context) {
@@ -206,7 +206,7 @@ func (s *Service) devDriveWaiting() string {
 
 // offerDevDriveStep makes plan's Command Center item: the create, trust and
 // attach steps run their script as administrator, and the move and the gate
-// step run this build's ceo dev-drive move in the home.
+// step run this build's goblins dev-drive move in the home.
 func (s *Service) offerDevDriveStep(plan devdrive.Plan, now time.Time) error {
 	var nonce [8]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
@@ -222,7 +222,7 @@ func (s *Service) offerDevDriveStep(plan devdrive.Plan, now time.Time) error {
 		}
 		quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
 		h := s.Store.Home
-		command = "$ErrorActionPreference = 'Stop'\n$env:CEO_HOME = " + quote(h.Root) + "\n$env:CEO_STATE_OVERRIDE = " + quote(h.State) + "\n" +
+		command = "$ErrorActionPreference = 'Stop'\n$env:GOBLINS_HOME = " + quote(h.Root) + "\n$env:GOBLINS_STATE_OVERRIDE = " + quote(h.State) + "\n" +
 			"& " + quote(executable) + " dev-drive move --to " + quote(plan.Folder) + "\nexit $LASTEXITCODE\n"
 	}
 	_, err := s.recordBoardRun(Run{ID: id, Identity: hex.EncodeToString(identity[:]), Title: plan.Title, Shell: "powershell", Admin: plan.Admin,

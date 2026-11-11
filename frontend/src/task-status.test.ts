@@ -23,8 +23,8 @@ const board = (task: Record<string, unknown>, available = 9): Snapshot => parseS
 const zane = (snapshot: Snapshot) => snapshot.tasks[0];
 
 for (const [phase, step, reason, runtime, text] of [
-  ["blocked", "rebase", "Pipeline decision required at rebase; use ceo pipeline respond", "busy", "Waiting on the CEO: rebase gate"],
-  ["blocked", "rebase", "Pipeline decision required at rebase; use ceo pipeline respond", "parked", "Waiting on the CEO: rebase gate"],
+  ["blocked", "rebase", "Pipeline decision required at rebase; use goblins pipeline respond", "busy", "Waiting on the CEO: rebase gate"],
+  ["blocked", "rebase", "Pipeline decision required at rebase; use goblins pipeline respond", "parked", "Waiting on the CEO: rebase gate"],
   ["review", "test", "Pipeline evidence is incomplete or belongs to a different HEAD", "busy", "In review gate: tests"],
   ["review", "test", "Pipeline evidence is incomplete or belongs to a different HEAD", "parked", "In review gate: tests"],
   ["blocked", "test", "Waiting on the CEO: Which source should ship?", "busy", "Waiting on the CEO"],
@@ -151,7 +151,7 @@ test("a Start that waits its turn for memory says when it starts, and stays in T
 
 test("a start that failed reads Start failed at a red dot, never a yellow one, and waits in Tasks for Start", () => {
   // Arrange
-  const snapshot = board({ phase: "queued", start_error: "ceo spawn: the brief names no project" });
+  const snapshot = board({ phase: "queued", start_error: "goblins spawn: the brief names no project" });
 
   // Act
   const status = taskStatus(zane(snapshot), snapshot);
@@ -162,12 +162,12 @@ test("a start that failed reads Start failed at a red dot, never a yellow one, a
 });
 
 test("a failed start's panel says nothing under it and keeps why behind Details", () => {
-  const snapshot = board({ phase: "queued", start_error: "ceo spawn: the brief names no project" });
-  assert.deepEqual(taskSummary(zane(snapshot), snapshot.tasks, "Start failed"), { sentence: "", details: ["ceo spawn: the brief names no project"], isFailure: false });
+  const snapshot = board({ phase: "queued", start_error: "goblins spawn: the brief names no project" });
+  assert.deepEqual(taskSummary(zane(snapshot), snapshot.tasks, "Start failed"), { sentence: "", details: ["goblins spawn: the brief names no project"], isFailure: false });
 });
 
 test("a new Start of a task whose last start failed reads Starting", () => {
-  const snapshot = board({ phase: "queued", start_error: "ceo spawn: no brief", starting: true, asked: true });
+  const snapshot = board({ phase: "queued", start_error: "goblins spawn: no brief", starting: true, asked: true });
   assert.deepEqual(taskStatus(zane(snapshot), snapshot), { text: "Starting", phase: "started" });
 });
 

@@ -259,7 +259,7 @@ measuring:
 			watched.ProgressUnreadSince = now
 		}
 		if lasted := now.Sub(watched.ProgressUnreadSince); lasted >= PROGRESS_THRESHOLD && !watched.ProgressUnreadWoke {
-			detail := fmt.Sprintf("progress_unread: every live goblin's progress read has run out of time together on every pass for %d minutes, since %s, so the machine is too slow to read any of them, not any one goblin, and no stall has been judged since; next: see what holds the machine with ceo gate turns and ceo runtime", int(lasted/time.Minute), watched.ProgressUnreadSince.UTC().Format("15:04Z"))
+			detail := fmt.Sprintf("progress_unread: every live goblin's progress read has run out of time together on every pass for %d minutes, since %s, so the machine is too slow to read any of them, not any one goblin, and no stall has been judged since; next: see what holds the machine with goblins gate turns and goblins runtime", int(lasted/time.Minute), watched.ProgressUnreadSince.UTC().Format("15:04Z"))
 			if err := raiseFleetWake(s.Store.Home.State, "check", "progress", detail); err != nil {
 				problems = errors.Join(problems, err)
 			} else {

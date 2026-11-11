@@ -59,7 +59,7 @@ func TestAStartWhoseOwnMemoryReadingFallsShortWaitsForTheNextReadingAndIsNoError
 // for a run of the default estimate when none waits.
 func heavyLine(t *testing.T, capacity int, waiter uint64) {
 	t.Helper()
-	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	store, err := verify.AdmissionDir()
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +74,7 @@ func heavyLine(t *testing.T, capacity int, waiter uint64) {
 		return
 	}
 	said := make(chan struct{}, 1)
-	run := verify.Admission{Dir: store, Available: func() (uint64, error) { return gigabyte, nil }, Who: "ceo gate test of a goblin closer to done", Estimate: waiter, Limit: verify.NoLimit, Poll: 10 * time.Millisecond, Waiting: func(time.Duration, string) {
+	run := verify.Admission{Dir: store, Available: func() (uint64, error) { return gigabyte, nil }, Who: "goblins gate test of a goblin closer to done", Estimate: waiter, Limit: verify.NoLimit, Poll: 10 * time.Millisecond, Waiting: func(time.Duration, string) {
 		select {
 		case said <- struct{}{}:
 		default:

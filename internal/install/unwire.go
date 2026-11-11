@@ -60,7 +60,7 @@ func (s Service) RemoveStartAtLoginEntry() error {
 }
 
 // EnvironmentWired names what of the install's user environment is still
-// set: CEO_HOME naming this home, the home's bin or root on PATH, and the
+// set: GOBLINS_HOME naming this home, the home's bin or root on PATH, and the
 // projects root.
 func (s Service) EnvironmentWired() ([]string, error) {
 	var wired []string

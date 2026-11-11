@@ -151,7 +151,7 @@ func TestTheWakerAnswersReadsThatAskAtOnce(t *testing.T) {
 	}
 }
 
-// A host started by a ceo from before input wakers read screens starts its
+// A host started by a goblins from before input wakers read screens starts its
 // own program as a screen reader for every read, and an update puts this
 // build at that program's path: this build attaches to the console and prints
 // the screen the console's waker reads.

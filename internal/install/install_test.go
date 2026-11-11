@@ -129,7 +129,7 @@ var (
 	minimalSkills   = fstest.MapFS{"stow/SKILL.md": {Data: []byte("stow")}}
 )
 
-// mklink makes a directory junction as ceo install does.
+// mklink makes a directory junction as goblins install does.
 func mklink(link, target string) error {
 	out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput()
 	if err != nil {
@@ -156,7 +156,7 @@ func newFixture(t *testing.T, userSettings string, env map[string]string) *fixtu
 		}
 	}
 	profile := filepath.Join(dir, "home")
-	binary := filepath.Join(dir, "release", "ceo.exe")
+	binary := filepath.Join(dir, "release", "goblins.exe")
 	if err := os.MkdirAll(filepath.Dir(binary), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func commandLine(entry map[string]any) string {
 // isCEOCommand reports whether a command line runs a CEO hook, in either
 // form an install has written.
 func isCEOCommand(line string) bool {
-	return strings.Contains(line, "ceo.exe hook ")
+	return strings.Contains(line, "goblins.exe hook ")
 }
 
 func count(values []string, want string) int {
@@ -373,8 +373,8 @@ func TestUninstallRestoresThePriorState(t *testing.T) {
 		t.Errorf("uninstall did not restore the settings document\n before: %s\n  after: %s", beforeJSON, afterJSON)
 	}
 
-	if value, ok := f.env.values["CEO_HOME"]; ok {
-		t.Errorf("CEO_HOME survived the uninstall as %q", value)
+	if value, ok := f.env.values["GOBLINS_HOME"]; ok {
+		t.Errorf("GOBLINS_HOME survived the uninstall as %q", value)
 	}
 	if got, want := f.env.values["Path"], `C:\Windows;C:\Windows\System32`; got != want {
 		t.Errorf("PATH = %q, want %q", got, want)
@@ -458,21 +458,21 @@ func TestUninstallRefusesWithNothingChangedWhileDictationsEngineIsInUse(t *testi
 	if _, err := os.Stat(engine); err != nil {
 		t.Errorf("the engine in use was not left whole: %v", err)
 	}
-	if f.env.values["CEO_HOME"] != f.root {
-		t.Errorf("CEO_HOME = %q after the refusal, want it kept as %q", f.env.values["CEO_HOME"], f.root)
+	if f.env.values["GOBLINS_HOME"] != f.root {
+		t.Errorf("GOBLINS_HOME = %q after the refusal, want it kept as %q", f.env.values["GOBLINS_HOME"], f.root)
 	}
 	if left, _ := filepath.Glob(filepath.Join(f.root, "caches", "voice-removed-*")); len(left) != 0 {
 		t.Errorf("the refusal left %v", left)
 	}
 }
 
-// Uninstall also takes out the board's native hooks, which `ceo hooks
+// Uninstall also takes out the board's native hooks, which `goblins hooks
 // install` wrote into each harness's own configuration.
 func TestUninstallRemovesTheBoardNativeHooks(t *testing.T) {
 	f := newFixture(t, adopterSettings, nil)
 	claude, codex, pi := t.TempDir(), t.TempDir(), t.TempDir()
 	for harness, dir := range map[string]string{"claude": claude, "pi": pi} {
-		if _, err := nativehook.Install(nativehook.InstallConfig{Harness: harness, ConfigDir: dir, Executable: filepath.Join(dir, "ceo.exe"), Home: f.root, State: filepath.Join(f.root, "state")}); err != nil {
+		if _, err := nativehook.Install(nativehook.InstallConfig{Harness: harness, ConfigDir: dir, Executable: filepath.Join(dir, "goblins.exe"), Home: f.root, State: filepath.Join(f.root, "state")}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -666,8 +666,8 @@ func TestUninstallRefusingAMalformedNativeHooksFileLeavesTheEnvironmentForARerun
 	}
 	writeFile(t, hooksFile, "{}")
 	f.uninstall()
-	if _, ok := f.env.values["CEO_HOME"]; ok {
-		t.Error("CEO_HOME survived the rerun")
+	if _, ok := f.env.values["GOBLINS_HOME"]; ok {
+		t.Error("GOBLINS_HOME survived the rerun")
 	}
 	if got := f.env.values["Path"]; got != `C:\Windows` {
 		t.Errorf("PATH = %q after the rerun, want C:\\Windows", got)
@@ -690,7 +690,7 @@ func TestUninstallBacksUpTheSharedClaudeSettingsAsTheyWereBeforeIt(t *testing.T)
 	claude := filepath.Dir(f.user)
 	f.service.HarnessDirs = map[string]string{"claude": claude}
 	f.install()
-	if _, err := nativehook.Install(nativehook.InstallConfig{Harness: "claude", ConfigDir: claude, Executable: filepath.Join(claude, "ceo.exe"), Home: f.root, State: filepath.Join(f.root, "state")}); err != nil {
+	if _, err := nativehook.Install(nativehook.InstallConfig{Harness: "claude", ConfigDir: claude, Executable: filepath.Join(claude, "goblins.exe"), Home: f.root, State: filepath.Join(f.root, "state")}); err != nil {
 		t.Fatal(err)
 	}
 	before := readFile(t, f.user)
@@ -776,8 +776,8 @@ func TestInstallTakesTheRetiredGoblinCountOutOfTheFleetSettings(t *testing.T) {
 func TestInstallRemovesTheRepoHooksBlockAndKeepsTheRest(t *testing.T) {
 	f := newFixture(t, adopterSettings, nil)
 	f.writeRepoSettings(`{
-  "permissions": {"allow": ["Bash(./ceo.exe *)"]},
-  "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/ceo.exe hook session-start"}]}]}
+  "permissions": {"allow": ["Bash(./goblins.exe *)"]},
+  "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/goblins.exe hook session-start"}]}]}
 }`)
 	output := f.install()
 
@@ -818,8 +818,8 @@ func TestInstallSetsHomeAndPath(t *testing.T) {
 	f := newFixture(t, adopterSettings, map[string]string{"Path": `C:\Windows;C:\Windows\System32`})
 	f.install()
 
-	if got := f.env.values["CEO_HOME"]; got != f.root {
-		t.Errorf("CEO_HOME = %q, want %q", got, f.root)
+	if got := f.env.values["GOBLINS_HOME"]; got != f.root {
+		t.Errorf("GOBLINS_HOME = %q, want %q", got, f.root)
 	}
 	want := `C:\Windows;C:\Windows\System32;` + f.bin
 	if got := f.env.values["Path"]; got != want {
@@ -830,15 +830,15 @@ func TestInstallSetsHomeAndPath(t *testing.T) {
 	}
 }
 
-// An install that takes over from the home CEO_HOME names once ceo home move
+// An install that takes over from the home GOBLINS_HOME names once goblins home move
 // has carried its state away takes that home's root off PATH, so neither an
-// older build left there nor a ceo.exe built in that checkout ever runs before
+// older build left there nor a goblins.exe built in that checkout ever runs before
 // the new home's bin. Any other entry stays.
 func TestInstallTakingOverFromAFormerHomeTakesItsRootOffPath(t *testing.T) {
 	// Arrange
 	former := filepath.Join(t.TempDir(), "code-goblins")
 	writeFile(t, filepath.Join(former, "AGENTS.md"), "contract")
-	f := newFixture(t, adopterSettings, map[string]string{"CEO_HOME": former, "Path": `C:\Windows;` + former + `;C:\Tools`})
+	f := newFixture(t, adopterSettings, map[string]string{"GOBLINS_HOME": former, "Path": `C:\Windows;` + former + `;C:\Tools`})
 
 	// Act
 	f.install()
@@ -851,7 +851,7 @@ func TestInstallTakingOverFromAFormerHomeTakesItsRootOffPath(t *testing.T) {
 
 func TestInstallLeavesAnAlreadyCorrectEnvironmentAlone(t *testing.T) {
 	f := newFixture(t, adopterSettings, nil)
-	f.env.values["CEO_HOME"] = f.root + `\`
+	f.env.values["GOBLINS_HOME"] = f.root + `\`
 	f.env.values["Path"] = `C:\Windows;` + strings.ToUpper(f.bin)
 	f.install()
 
@@ -865,12 +865,12 @@ func TestInstallLeavesAnAlreadyCorrectEnvironmentAlone(t *testing.T) {
 
 func TestInstallDoesNotDuplicateAPathEntryWrittenWithVariables(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("CEO_TEST_TOOLS", dir)
-	f := newFixture(t, adopterSettings, map[string]string{"Path": `C:\Windows;%CEO_TEST_TOOLS%\code-goblins\bin`})
+	t.Setenv("GOBLINS_TEST_TOOLS", dir)
+	f := newFixture(t, adopterSettings, map[string]string{"Path": `C:\Windows;%GOBLINS_TEST_TOOLS%\code-goblins\bin`})
 	f.service.Root = filepath.Join(dir, "code-goblins")
 	f.install()
 
-	if got, want := f.env.values["Path"], `C:\Windows;%CEO_TEST_TOOLS%\code-goblins\bin`; got != want {
+	if got, want := f.env.values["Path"], `C:\Windows;%GOBLINS_TEST_TOOLS%\code-goblins\bin`; got != want {
 		t.Errorf("PATH = %q, want it untouched at %q", got, want)
 	}
 }
@@ -963,14 +963,14 @@ func TestInstallAcceptsASettingsFileWithAByteOrderMark(t *testing.T) {
 }
 
 func TestExpandWindowsVarsLeavesUnknownNamesAlone(t *testing.T) {
-	t.Setenv("CEO_TEST_ONE", "one")
+	t.Setenv("GOBLINS_TEST_ONE", "one")
 	cases := map[string]string{
-		`%CEO_TEST_ONE%\bin`:            `one\bin`,
-		`%CEO_TEST_MISSING%\bin`:        `%CEO_TEST_MISSING%\bin`,
-		`C:\plain`:                      `C:\plain`,
-		`%CEO_TEST_ONE%`:                `one`,
-		`50%% off`:                      `50%% off`,
-		`%CEO_TEST_ONE%\%CEO_TEST_ONE%`: `one\one`,
+		`%GOBLINS_TEST_ONE%\bin`:                `one\bin`,
+		`%GOBLINS_TEST_MISSING%\bin`:            `%GOBLINS_TEST_MISSING%\bin`,
+		`C:\plain`:                              `C:\plain`,
+		`%GOBLINS_TEST_ONE%`:                    `one`,
+		`50%% off`:                              `50%% off`,
+		`%GOBLINS_TEST_ONE%\%GOBLINS_TEST_ONE%`: `one\one`,
 	}
 	for input, want := range cases {
 		if got := expandWindowsVars(input); got != want {
@@ -1014,7 +1014,7 @@ func TestInstallWithoutTheFlagKeepsTheRecordedProjectsRoot(t *testing.T) {
 
 func TestInstallSaysWhenNoProjectsRootIsRecorded(t *testing.T) {
 	f := newFixture(t, adopterSettings, nil)
-	if output := f.install(); !strings.Contains(output, "root not set; `ceo install --projects-root <dir>`") {
+	if output := f.install(); !strings.Contains(output, "root not set; `goblins install --projects-root <dir>`") {
 		t.Errorf("output does not say how to set the projects root:\n%s", output)
 	}
 	if _, set := f.env.values[ProjectsRootVariable]; set {

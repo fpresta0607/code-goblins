@@ -132,7 +132,7 @@ func TestADeliveryHeAskedForLeavesHisMarkForAViewThatSubmittedNothing(t *testing
 	}
 }
 
-// A host started by an older ceo types input without confirming it, so a
+// A host started by an older goblins types input without confirming it, so a
 // delivery refuses it before typing anything rather than guess.
 func TestADeliveryRefusesAHostThatCannotConfirm(t *testing.T) {
 	name, err := pipeName()

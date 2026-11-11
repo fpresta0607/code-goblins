@@ -4,7 +4,7 @@ import { chromium, expect } from "@playwright/test";
 import { build } from "vite";
 
 // The Go regression owns the scratch backend and invokes this with
-// CEO_RESUME_BROWSER=1. Requests use its real lifecycle route and CLI.
+// GOBLINS_RESUME_BROWSER=1. Requests use its real lifecycle route and CLI.
 const [origin, assets] = argv.slice(2);
 assert.ok(origin && assets);
 await build({ configFile: false, logLevel: "warn", build: { outDir: assets, emptyOutDir: false } });
@@ -30,7 +30,7 @@ try {
   }).toContain("another validation run owns the branch");
   await expect(card("managed-task").locator(".card-status-text")).toHaveText("Paused until you resume it");
   await expect(page.getByRole("button", { name: "Resume managed-task", exact: true })).toBeEnabled();
-  if (env.CEO_RESUME_SCREENSHOT) await page.screenshot({ path: env.CEO_RESUME_SCREENSHOT, fullPage: true });
+  if (env.GOBLINS_RESUME_SCREENSHOT) await page.screenshot({ path: env.GOBLINS_RESUME_SCREENSHOT, fullPage: true });
   await context.close();
   await browser.close();
   stdout.write("Real board clicks: direct PR resumed; foreign validation refusal remained paused with actionable CEO evidence.\n");

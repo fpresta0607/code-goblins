@@ -303,11 +303,11 @@ func (c *Console) Read(p []byte) (int, error) {
 }
 
 // heldEndingWait is how long an ending conhost would hold waits for the next
-// write: ceo attach writes what its console reads 4 KiB at a time, so a key
+// write: goblins attach writes what its console reads 4 KiB at a time, so a key
 // event can be split across two writes, and the rest follows at once, while
 // an Escape typed alone has nothing after it. Only time the machine ran
 // spends it (awake), since a pause of the whole machine between the two
-// writes stops ceo attach too.
+// writes stops goblins attach too.
 const heldEndingWait = 100 * time.Millisecond
 
 // Write types p into the terminal as the process's input, and tells the

@@ -24,14 +24,14 @@ func decisionService(stateDir string, probe Prober, now *time.Time) Service {
 }
 
 // park drives one scan so the task has an observation, then blocks it with an
-// unacknowledged wake record, exactly as `ceo notify <id> --blocked` leaves it.
+// unacknowledged wake record, exactly as `goblins notify <id> --blocked` leaves it.
 func park(t *testing.T, service Service, stateDir, id, question string) {
 	t.Helper()
 	notifyFrom(t, service, stateDir, id, "blocked: "+question)
 }
 
 // notifyFrom is park for any notify verb, so a `--failed` notify - which
-// `ceo drain` also renders as a decision and refuses to ack unread - can be
+// `goblins drain` also renders as a decision and refuses to ack unread - can be
 // driven through the same path.
 func notifyFrom(t *testing.T, service Service, stateDir, id, detail string) {
 	t.Helper()
@@ -339,7 +339,7 @@ func TestScanNeverReAsksAnInformationalDoneNotify(t *testing.T) {
 
 // The suppression is the pending record, never the status line. A goblin's
 // `done:` verb is the last thing it ever wrote and stays there forever, so a
-// goblin the CEO acked and then steered back to work with `ceo send` would be
+// goblin the CEO acked and then steered back to work with `goblins send` would be
 // silenced by a verb from hours ago - the same silence, arriving by a
 // different door. Once the notify is acked, a turn that ends at the prompt is
 // a standing question again.

@@ -146,7 +146,7 @@ func TestScanFlagsAGoblinsOwnPollOnceForAsLongAsItRuns(t *testing.T) {
 	if event == nil || event.Kind != "review" || event.Key != "g1" || event.TaskID != "g1" {
 		t.Fatalf("event = %+v, want a review event for g1", event)
 	}
-	for _, want := range []string{"goblin g1 is polling " + poll.Page + " itself", "pid 4242", "ceo notify g1 --waiting-on overlord <why> --lavish <page>"} {
+	for _, want := range []string{"goblin g1 is polling " + poll.Page + " itself", "pid 4242", "goblins notify g1 --waiting-on overlord <why> --lavish <page>"} {
 		if !strings.Contains(event.Detail, want) {
 			t.Errorf("detail = %q, want %q", event.Detail, want)
 		}
@@ -181,7 +181,7 @@ func TestScanFlagsARetiredGoblinsPollForTheCEOToAnswerItself(t *testing.T) {
 	now := time.Date(2026, 9, 25, 3, 0, 0, 0, time.UTC)
 	polls := &fakePolls{polls: []Poll{{PID: 77, Start: now, Task: "old-1", Page: `C:\work\old-1\.lavish\mockups.html`}}}
 	service := pollScanService(t, &now, polls)
-	if err := state.AppendStatus(service.StateDir, "old-1", "done: returned worktree via ceo cleanup"); err != nil {
+	if err := state.AppendStatus(service.StateDir, "old-1", "done: returned worktree via goblins cleanup"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -306,7 +306,7 @@ func TestScanKeepsItsFlagsWhilePollsCannotBeListed(t *testing.T) {
 	}
 }
 
-// An older ceo decodes the heartbeat and every observation strictly and knows
+// An older goblins decodes the heartbeat and every observation strictly and knows
 // no review event in either, so a poll's flag and its pending event live in
 // a record of their own that only this build reads.
 func TestAPendingPollFlagLeavesTheRecordsAnOlderBinaryReadsUntouched(t *testing.T) {

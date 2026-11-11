@@ -253,7 +253,7 @@ func TestUnreadableCompletionEvidenceRefusesQueuedDispatch(t *testing.T) {
 // A brief written from a queued row, as the board's Start writes one, carries
 // no change assessment, so its task starts strict whatever mode the row asks
 // for: its Verification section gives the checks to the pipeline alone and
-// starts no ceo verify beside it.
+// starts no goblins verify beside it.
 func TestAQueuedBriefGivesItsChecksToThePipelineWhateverModeItsRowAsks(t *testing.T) {
 	for _, mode := range []string{"direct-PR", "local-only"} {
 		t.Run(mode, func(t *testing.T) {
@@ -279,7 +279,7 @@ func TestAQueuedBriefGivesItsChecksToThePipelineWhateverModeItsRowAsks(t *testin
 			}
 			_, verification, _ := strings.Cut(string(body), "## Verification\n\n")
 			verification, _, _ = strings.Cut(verification, "\n\n## Authentication")
-			if !strings.Contains(verification, "Drive `ceo pipeline run nw-sync --intent-file <file>`") || !strings.Contains(verification, "Do not start a separate ceo verify") || strings.Contains(verification, "Before each push run") {
+			if !strings.Contains(verification, "Drive `goblins pipeline run nw-sync --intent-file <file>`") || !strings.Contains(verification, "Do not start a separate goblins verify") || strings.Contains(verification, "Before each push run") {
 				t.Errorf("the queued brief's Verification section = %q, want the pipeline as its one check owner", verification)
 			}
 		})
@@ -289,7 +289,7 @@ func TestAQueuedBriefGivesItsChecksToThePipelineWhateverModeItsRowAsks(t *testin
 // The Overlord on 2026-10-11 asked that what goblins start to run or check
 // tests finishes and is cleaned up, and that nothing is forgotten or runs in
 // loops. A brief written from a queued row says so in its Constraints, as a
-// brief ceo brief writes does.
+// brief goblins brief writes does.
 func TestAQueuedBriefSaysWhatItsGoblinStartsIsItsOwnToEnd(t *testing.T) {
 	// Arrange
 	h := home.Home{State: t.TempDir(), Data: t.TempDir()}
@@ -326,7 +326,7 @@ func TestAQueuedBriefSaysWhatItsGoblinStartsIsItsOwnToEnd(t *testing.T) {
 	// A heavy run started by a process start of the goblin's own shows a
 	// window on the Overlord's desktop: the brief names the one way to start
 	// it hidden.
-	if want := "A heavy run starts in the background as ceo gate turn --detach <log-file> -- <command>"; !strings.Contains(BriefProcesses(), want) {
+	if want := "A heavy run starts in the background as goblins gate turn --detach <log-file> -- <command>"; !strings.Contains(BriefProcesses(), want) {
 		t.Errorf("BriefProcesses() = %q; want it to say %q", BriefProcesses(), want)
 	}
 }

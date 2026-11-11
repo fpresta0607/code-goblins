@@ -166,7 +166,7 @@ func TestStartupMapNamesEachSourceOnceAndCountsWhatEachScopeHolds(t *testing.T) 
 		"Left out above, by scope; each entry stays verbatim in its source:\n" +
 		"project harbor: rulings 2\n" +
 		"topic project: facts 1; Stow required for 1\n" +
-		"Rulings not classified yet, which load until they are: 2; ceo memory scope --list shows them.\n"
+		"Rulings not classified yet, which load until they are: 2; goblins memory scope --list shows them.\n"
 	if err != nil || startup != expected {
 		t.Fatalf("the startup map is not the independently written one:\n%q\nwant\n%q\n%v", startup, expected, err)
 	}
@@ -191,7 +191,7 @@ func TestScopesAreBoundedWithTheRestCounted(t *testing.T) {
 	scopes := loaded.Scopes(len("Left out above, by scope; each entry stays verbatim in its source:\nproject anchor: facts 1\n"))
 
 	// Assert
-	if scopes != "Left out above, by scope; each entry stays verbatim in its source:\nproject anchor: facts 1\n2 more scopes: ceo memory routes lists every cold entry.\n" {
+	if scopes != "Left out above, by scope; each entry stays verbatim in its source:\nproject anchor: facts 1\n2 more scopes: goblins memory routes lists every cold entry.\n" {
 		t.Fatalf("scopes past the room were dropped uncounted: %q", scopes)
 	}
 }

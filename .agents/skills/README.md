@@ -7,7 +7,7 @@ This directory holds the skills Code Goblins itself provides, each tracked once,
 - `stow` - captures session knowledge and open work, curates the shared warm/cold memory map, preserves per-item pinned authority and reports budget and capture exceptions.
 - `step-card` - what a goblin does when its browser or computer-use work reaches a step only the Supreme Overlord can take: one Command Center card with the exact page and only his inputs, waited on so it goes on the moment the card closes.
 - `project-check` - assesses what the home knows about one project and brings it up to date: its project record, its verification gate, its configs and its connectors.
-  The checks live in `ceo project check`, so the skill is the same text for every harness and names no tool of one.
+  The checks live in `goblins project check`, so the skill is the same text for every harness and names no tool of one.
 - `reverse-engineer-site` - turns an existing site into an inventory a rebuild starts from: every route, each page's content, tables, images, downloads and layout, and every route it could not read.
   Its crawl step is `goblin-crawl`, the [crawler connector](../../docs/crawler.md) every goblin carries.
 - `smart-routing` - guides the CEO's worker model and reasoning effort choices through the existing lanes, current capabilities, quota and evidence of verified completion.

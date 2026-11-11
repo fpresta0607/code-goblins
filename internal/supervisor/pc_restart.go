@@ -277,7 +277,7 @@ func (s *Service) workingGoblins() ([]state.TaskMeta, error) {
 }
 
 // pauseForRestart pauses goblins until a sign-in after signedIn, all at
-// once, each through ceo pause, which asks it for its handoff before it
+// once, each through goblins pause, which asks it for its handoff before it
 // stops its terminal, and reads back that each is paused. It says which
 // paused and which saved no handoff, and names each that did not pause.
 func (s *Service) pauseForRestart(goblins []state.TaskMeta, signedIn time.Time) (summary, problem string) {

@@ -104,8 +104,8 @@ type Service struct {
 	Auth      AuthPreflight
 	Commands  execx.Runner
 	// HomeRoot and StateDir are the home this spawn runs in. A native
-	// goblin's terminal names both, as CEO_HOME and CEO_STATE_OVERRIDE, so
-	// every ceo command the goblin runs acts on this home, whatever home the
+	// goblin's terminal names both, as GOBLINS_HOME and GOBLINS_STATE_OVERRIDE, so
+	// every goblins command the goblin runs acts on this home, whatever home the
 	// user's environment names.
 	HomeRoot string
 	StateDir string
@@ -130,14 +130,14 @@ type Service struct {
 	PolicyPath  string
 	Admit       func() error
 	// Progress, when set, is told what a start waits on while it waits for
-	// its turn: ceo spawn's standard error.
+	// its turn: goblins spawn's standard error.
 	Progress io.Writer
 	// UserEnvironment is the environment a native task starts from: the
 	// variables Windows gives a new process of this user, never this
 	// process's own. Nil reads them from the user's and the machine's
 	// configuration.
 	UserEnvironment func() ([]string, error)
-	// HostCommand runs a native terminal's host: ceo.exe and "host" in
+	// HostCommand runs a native terminal's host: goblins.exe and "host" in
 	// production.
 	HostCommand []string
 	// ReadScreen reads a native terminal's screen. Nil reads it through its
@@ -433,7 +433,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 
 	// Publish metadata as soon as the worktree exists, before the harness can
 	// start: a task whose launch later fails is then addressable and cleanable
-	// through `ceo peek`/`ceo cleanup` instead of an unnameable orphan the CEO
+	// through `goblins peek`/`goblins cleanup` instead of an unnameable orphan the CEO
 	// has to hunt down by hand.
 	result.Meta.SpawnGen = fmt.Sprintf("s%d", time.Now().UTC().UnixNano())
 	result.Meta.FirstGen = result.Meta.SpawnGen
@@ -463,7 +463,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// (close its terminal, return the worktree, retire the metadata). A launch
 	// failure with the terminal still running keeps it instead, with the task
 	// record and worktree, delivered or not, so the session stays addressable
-	// for `ceo peek` and recovery rather than leaving an orphan behind.
+	// for `goblins peek` and recovery rather than leaving an orphan behind.
 	fail := func(result Result, cause error) (Result, error) {
 		cause = recordLaunchFailure(result.Meta.ID, cause)
 		if err := s.teardownLaunch(ctx, nativeHost, project, wt.Path, scratch, result.Meta.ID); err != nil {
@@ -566,7 +566,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return fail(result, err)
 	}
 	s.nativeEnvironment(launch.Env, result.Meta)
-	// Every goblin is told to report its outcome through ceo notify, so the
+	// Every goblin is told to report its outcome through goblins notify, so the
 	// CEO is woken with the actual PR URL, question, or failure reason instead
 	// of the watcher guessing from its screen.
 	if req.BeforeLaunch != nil {
@@ -612,7 +612,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := s.briefNativeHarness(ctx, req.ID, nativeHost, req.Harness, launch); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 		if host.Running(nativeHost) {
 			launchKept = true
-			return result, recordLaunchFailure(req.ID, fmt.Errorf("%w; the native terminal is still running and its task and worktree are kept; inspect it with ceo peek %s before recovering it", err, req.ID))
+			return result, recordLaunchFailure(req.ID, fmt.Errorf("%w; the native terminal is still running and its task and worktree are kept; inspect it with goblins peek %s before recovering it", err, req.ID))
 		}
 		return fail(result, err)
 	}
@@ -640,7 +640,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		result.Output += "\n" + uvLockCooldownLine(uvLocks)
 	}
 	if isServicesNeeded {
-		result.Output += "\nservices: the goblin holds " + auth.ProjectName(project) + "'s local services for its full-stack check with ceo services up, and releases them with ceo services down"
+		result.Output += "\nservices: the goblin holds " + auth.ProjectName(project) + "'s local services for its full-stack check with goblins services up, and releases them with goblins services down"
 	}
 	if len(provision.EnvHeld) > 0 {
 		result.Output += "\n" + envHeldLine(project, provision.EnvHeld)
@@ -728,8 +728,8 @@ func codexMCPServers(kind harness.Kind) ([]string, error) {
 
 // reservedLaunchEnv names the environment the launch contract owns. It is
 // explicit rather than read off the launch map at merge time because the
-// contract is written in stages: the adapter stamps GOTMPDIR and CEO_ROLE at
-// build, nativeHostEnvironment adds CEO_HOME and CEO_STATE_OVERRIDE when it
+// contract is written in stages: the adapter stamps GOTMPDIR and GOBLINS_ROLE at
+// build, nativeHostEnvironment adds GOBLINS_HOME and GOBLINS_STATE_OVERRIDE when it
 // builds the host's environment, and a manifest or credential merged in
 // between must not be able to claim a name the launch has not written yet.
 //
@@ -737,9 +737,9 @@ func codexMCPServers(kind harness.Kind) ([]string, error) {
 // temporary directory is derived from os.UserCacheDir, which reads
 // LOCALAPPDATA on Windows, XDG_CACHE_HOME on Linux and HOME whenever that is
 // unset, and HOME alone on darwin. All three are reserved because a manifest
-// that redirected any of them would leave any ceo command run from that terminal
+// that redirected any of them would leave any goblins command run from that terminal
 // computing a different directory than the process that created it.
-var reservedLaunchEnv = []string{"GOTMPDIR", "TEMP", "TMP", "TMPDIR", "CEO_HOME", "CEO_STATE_OVERRIDE", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", harness.RoleVariable}
+var reservedLaunchEnv = []string{"GOTMPDIR", "TEMP", "TMP", "TMPDIR", "GOBLINS_HOME", "GOBLINS_STATE_OVERRIDE", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", harness.RoleVariable}
 
 // reservedLaunchName reports whether name belongs to the launch contract:
 // one of the names the contract owns, or one the adapter already set on the
@@ -1033,7 +1033,7 @@ func (s Service) ensureProjectSeeded(ctx context.Context, project string) error 
 
 // spawnInstruction is the full first instruction a goblin receives: read the
 // brief, install the worktree's dependencies first when install names any,
-// then report outcomes through ceo notify so the CEO is woken with the real
+// then report outcomes through goblins notify so the CEO is woken with the real
 // payload rather than a guess from its screen.
 func spawnInstruction(briefPath string, meta state.TaskMeta, install []string, refused string) string {
 	return harness.BriefInstruction(briefPath) + deliveryInstruction(meta) + dependencyInstruction(meta.Worktree, install, refused) + heavyRunInstruction() + processInstruction() + notifyInstruction(meta)
@@ -1047,13 +1047,13 @@ func deliveryInstruction(meta state.TaskMeta) string {
 	if meta.DeliveryHash == "" {
 		return ""
 	}
-	return " Your delivery mode is " + meta.Mode + ", frozen at " + filepath.Join(meta.TaskTmp, "delivery.json") + " before validation: it supersedes the brief's mode line and Verification section. " + fleet.BriefVerification(meta.ID, meta.Mode) + " Follow only this path and its required checks, and add no manual review gate. Until its run's review repair cycles are spent, the implementation worker never decides its own ask-user finding: report it to the CEO and apply the returned decision through ceo pipeline respond."
+	return " Your delivery mode is " + meta.Mode + ", frozen at " + filepath.Join(meta.TaskTmp, "delivery.json") + " before validation: it supersedes the brief's mode line and Verification section. " + fleet.BriefVerification(meta.ID, meta.Mode) + " Follow only this path and its required checks, and add no manual review gate. Until its run's review repair cycles are spent, the implementation worker never decides its own ask-user finding: report it to the CEO and apply the returned decision through goblins pipeline respond."
 }
 
 // heavyRunInstruction tells a goblin that one heavy run goes at a time on the
 // machine: how a whole suite or any other heavy local run stands in the line
-// ceo gate turn keeps, what the wait looks like, how to start it in the
-// background with ceo gate turn --detach rather than a process start of its
+// goblins gate turn keeps, what the wait looks like, how to start it in the
+// background with goblins gate turn --detach rather than a process start of its
 // own, which on 2026-10-14 left blank windows on the Overlord's desktop, and
 // which runs still need the CEO's word because no turn covers them. Runs that tested at once took
 // three times as long and failed on their time limits with no assertion
@@ -1061,7 +1061,7 @@ func deliveryInstruction(meta state.TaskMeta) string {
 func heavyRunInstruction() string {
 	exe, err := os.Executable()
 	if err != nil {
-		exe = "ceo"
+		exe = "goblins"
 	}
 	return " One heavy run goes at a time on this machine. Start a whole test suite, a full build, a browser suite or any other heavy local run as " + exe + " gate turn -- <command>: it waits while another such run holds the turn or free memory is under 4 GiB, with no time limit of its own, says on standard error which run it waits for, then runs your command and exits with its code (125 means it took no turn and ran nothing)." +
 		" Its wait has no time limit, so start it in the background as " + exe + " gate turn --detach <log-file> -- <command>: it starts the run hidden and detached, writes its pid to <log-file>.pid, appends its output to <log-file> with a last line that says how it ended, and tells you when it ends." +
@@ -1148,21 +1148,21 @@ func (s Service) briefNeedsServices(data []byte, project string) (bool, error) {
 func servicesInstruction(meta state.TaskMeta) string {
 	exe, err := os.Executable()
 	if err != nil {
-		exe = "ceo"
+		exe = "goblins"
 	}
 	return " Your brief needs " + auth.ProjectName(meta.Project) + "'s local services for its full-stack check." +
 		" Before that check run " + exe + " services up " + meta.Project + " --task " + meta.ID + ", which starts them, or shares them with the tasks already holding them, and waits while memory is short, saying why." +
 		" Once the check is done run " + exe + " services down " + meta.Project + " --task " + meta.ID + ", and your cleanup releases them if you have not."
 }
 
-// notifyInstruction tells a goblin how to report its outcome through ceo
+// notifyInstruction tells a goblin how to report its outcome through goblins
 // notify, so the CEO is woken with the actual payload instead of the watcher
 // guessing from its screen. A helper reports to its parent instead, and a
 // ship goblin is told it may ask for a helper.
 func notifyInstruction(meta state.TaskMeta) string {
 	exe, err := os.Executable()
 	if err != nil {
-		exe = "ceo"
+		exe = "goblins"
 	}
 	if meta.Parent != "" {
 		return helperInstruction(exe, meta)
@@ -1190,14 +1190,14 @@ func notifyInstruction(meta state.TaskMeta) string {
 			ticket += " Your gate opens your pull request ready, so every push to it runs CI again: push a later round, your own commits included, once, whole, and only once the pull request's CI has ended, since a push while it runs cancels it after it billed its minutes."
 		}
 	}
-	return " Report outcomes to the CEO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. A done report may carry up to three lessons that the next goblin in this repository should know: add each as --lesson \"<one plain line>\" followed by --cites \"<the stamp of a status line of yours it stands on, or words that line holds>\" for every line it rests on; the CEO accepts or rejects each. When your own answered question ruled the task finished with no pull request, such as an issue that closes as no defect, a duplicate or already fixed, close the issue and run: " + exe + " notify " + id + " --done --closed <issue-url> --decision <sequence>, with the sequence its --blocked notify printed; that needs a question with choices, so never close one on your own word. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\"; the CEO reads it as body text, so lead with one short sentence that is the actual question, put the details on lines of their own that start with \"- \" (a real line break, such as `n in PowerShell), and mark with **two asterisks** only the verdict or the blocking item, never the whole question; those lines say in plain words what you recommend and why and what each choice does, and run IDs, finding codes, paths and other evidence go after a line that reads only Details:, which the board folds away; when the question has a fixed set of choices, name them after one literal options: marker separated by |, as in \"<question> options: Fix it next (Recommended) | Keep 300 s\", ending the choice you recommend with (Recommended); each choice is the answer itself as a short phrase, never a bare letter or number like a, b or 2, which notify refuses, and details stay in the \"- \" lines. ceo drain renders those as the decision's options; the CEO answers it, and his answer arrives here as a message. Never wait on the CEO for a choice you can undo: take the better option, say which with --working, and keep going; a choice you cannot undo or make yourself is a question for --blocked, never one asked in your reply. On failure run: " + exe + " notify " + id + " --failed \"<reason>\". To say you are back at work or what you are doing run: " + exe + " notify " + id + " --working \"<what>\"; when you wait on another task, a gate run, CI, a deploy or the Overlord personally (his sign-in, his click, his page) instead of asking a question run: " + exe + " notify " + id + " --waiting-on <task-id|run-id|overlord|ci|deploy|memory> \"<why>\"; a wait on the Overlord becomes a card in his Command Center only with what he acts on, --lavish <html-file>, --run <command.ps1> or --link <https-url>, and one with none reaches the CEO alone; a choice the CEO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options." +
+	return " Report outcomes to the CEO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. A done report may carry up to three lessons that the next goblin in this repository should know: add each as --lesson \"<one plain line>\" followed by --cites \"<the stamp of a status line of yours it stands on, or words that line holds>\" for every line it rests on; the CEO accepts or rejects each. When your own answered question ruled the task finished with no pull request, such as an issue that closes as no defect, a duplicate or already fixed, close the issue and run: " + exe + " notify " + id + " --done --closed <issue-url> --decision <sequence>, with the sequence its --blocked notify printed; that needs a question with choices, so never close one on your own word. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\"; the CEO reads it as body text, so lead with one short sentence that is the actual question, put the details on lines of their own that start with \"- \" (a real line break, such as `n in PowerShell), and mark with **two asterisks** only the verdict or the blocking item, never the whole question; those lines say in plain words what you recommend and why and what each choice does, and run IDs, finding codes, paths and other evidence go after a line that reads only Details:, which the board folds away; when the question has a fixed set of choices, name them after one literal options: marker separated by |, as in \"<question> options: Fix it next (Recommended) | Keep 300 s\", ending the choice you recommend with (Recommended); each choice is the answer itself as a short phrase, never a bare letter or number like a, b or 2, which notify refuses, and details stay in the \"- \" lines. goblins drain renders those as the decision's options; the CEO answers it, and his answer arrives here as a message. Never wait on the CEO for a choice you can undo: take the better option, say which with --working, and keep going; a choice you cannot undo or make yourself is a question for --blocked, never one asked in your reply. On failure run: " + exe + " notify " + id + " --failed \"<reason>\". To say you are back at work or what you are doing run: " + exe + " notify " + id + " --working \"<what>\"; when you wait on another task, a gate run, CI, a deploy or the Overlord personally (his sign-in, his click, his page) instead of asking a question run: " + exe + " notify " + id + " --waiting-on <task-id|run-id|overlord|ci|deploy|memory> \"<why>\"; a wait on the Overlord becomes a card in his Command Center only with what he acts on, --lavish <html-file>, --run <command.ps1> or --link <https-url>, and one with none reaches the CEO alone; a choice the CEO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options." +
 		" When the Overlord must answer on a Scrawl page (his review page; call it Scrawl when you name it to him), open it with lavish-axi <html-file> --no-open, then run: " + exe + " notify " + id + " --waiting-on overlord \"<why>\" --lavish <html-file>, and never run lavish-axi poll yourself: the supervisor polls the page, and his answer reaches you through the CEO." +
 		" When the page asks him to pick, declare its choices in it with a <script type=\"application/json\" data-lavish-choices> block as the lavish skill shows, each option the answer itself as a short phrase: the page draws them as a radio list and his pick reaches you as the option's exact text; a page without it shows him no choices." +
 		" When your browser or computer-use work reaches a step only the Overlord can take, such as creating an account, signing in, a CAPTCHA, accepting terms, an identity check or a token to copy, never take it yourself, and never send it as a chat message or a Scrawl walkthrough: send him one Command Center card and wait on it, with the wait run in the background so you go on the moment the card closes: " + exe + " auth request --project <project> --task " + id + " --why \"<what the step is for>\" --link <the exact https page> [--step \"<a click he makes>\"]... [--plain NAME --label NAME=\"<a few words>\"]... [SECRET_NAME]... --wait." +
 		" Ask only for what he must enter: a secret named by itself goes straight to the vault and never to you, and each --plain value comes back to you as NAME=value. A card that asks for nothing gets his Done. When the step must happen in your own browser session, such as a sign-in it keeps, add --window: his button shows your session's window at the link, and the session runs headless again on the same profile once the card closes." +
 		" When you see the step done yourself, close the card with " + exe + " auth request --done <card> --task " + id + ", take back one you no longer need with " + exe + " auth request --withdraw <card> --task " + id + " --reason \"<why>\", and wait on it again with --wait-on <card>. Exit 3 means he skipped it: go on without it, and exit 4 means he answered in his own words instead, which it prints: act on them as his word." +
 		" When the Overlord must run a command himself, never paste it into your words: write it to a .ps1 file and run: " + exe + " notify " + id + " --waiting-on overlord \"<why>\" --run <command.ps1>; his card shows the exact command and runs it with one click in a terminal on his card, where he types into it, and you are told how it ended." +
-		" For a successful browser walkthrough or a Scrawl presentation that needs no answer, use lavish-axi --no-open and report its safe URL with ceo present --id <stable-id> --task " + id + " --generation <CEO_SPAWN_GEN> --kind browser|review --url <safe-url>. Refresh only while live and report --state ended when finished. A viewing choice never pauses your work. See docs/native-board.md; do not publish secrets, query parameters or browser history." + offer + ticket
+		" For a successful browser walkthrough or a Scrawl presentation that needs no answer, use lavish-axi --no-open and report its safe URL with goblins present --id <stable-id> --task " + id + " --generation <GOBLINS_SPAWN_GEN> --kind browser|review --url <safe-url>. Refresh only while live and report --state ended when finished. A viewing choice never pauses your work. See docs/native-board.md; do not publish secrets, query parameters or browser history." + offer + ticket
 }
 
 func (s Service) releaseTaskLock(dir, name string) error {

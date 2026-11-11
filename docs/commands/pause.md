@@ -1,6 +1,6 @@
-# ceo pause
+# goblins pause
 
-`ceo pause <id> | resume <id> | kill <id>`
+`goblins pause <id> | resume <id> | kill <id>`
 
 pause, resume or stop a task while preserving its work
 

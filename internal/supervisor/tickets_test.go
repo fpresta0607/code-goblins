@@ -423,7 +423,7 @@ func TestKeeperHoldsTicketsInAPublicRepositoryUntilTheCEOAllowsThem(t *testing.T
 	keeper.reconcile(context.Background(), tasks, ticketNow.Add(time.Minute))
 
 	// Assert
-	if held != 0 || len(heldIssues) != 1 || !strings.Contains(heldIssues[0], ticketRepository) || !strings.Contains(heldIssues[0], "ceo tickets \""+checkout+"\" --allow-public-tickets") {
+	if held != 0 || len(heldIssues) != 1 || !strings.Contains(heldIssues[0], ticketRepository) || !strings.Contains(heldIssues[0], "goblins tickets \""+checkout+"\" --allow-public-tickets") {
 		t.Fatalf("applied %d, issues %v, want nothing opened and one line naming the repository and the command for the project as the task names it", held, heldIssues)
 	}
 	if len(github.applied) != 1 || len(keeper.Issues()) != 0 {
@@ -963,7 +963,7 @@ func TestKeeperTitlesATicketFromTheBacklogOrTheTaskRecordNeverFromTheBoard(t *te
 
 func TestKeeperRetitlesATicketOpenedUnderTheTasksIdOnceTheTaskIsTitled(t *testing.T) {
 	// Arrange: the task was dispatched with no title, so its ticket was opened
-	// under its id; ceo title then writes the title into the task's record.
+	// under its id; goblins title then writes the title into the task's record.
 	h, checkout, github := ticketHome(t)
 	if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"ceo: in progress", "goblin: claude"}, Title: "nw-sync"}); err != nil {
 		t.Fatal(err)
@@ -1400,7 +1400,7 @@ func TestKeeperClosesTheTicketOfAFinishedTaskThatAgedOffTheBoardWithItsBriefStil
 }
 
 func TestKeeperPutsTheOverlapTheCEOAcceptedOnTheTicket(t *testing.T) {
-	// Arrange: ceo spawn started the task beside a teammate's pull request
+	// Arrange: goblins spawn started the task beside a teammate's pull request
 	// and kept the CEO's reason; only the supervisor writes tickets.
 	h, checkout, github := ticketHome(t)
 	if err := tickets.WriteOverlapNote(h.State, "nw-sync", "PR #412: it only adds a log line"); err != nil {
@@ -1514,7 +1514,7 @@ func TestKeeperPutsTheTitleTheCEOGaveOnTheTicketEvenOnceItIsDone(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Arrange: the issue carries a dispatch note; ceo title then names it.
+			// Arrange: the issue carries a dispatch note; goblins title then names it.
 			h, checkout, github := ticketHome(t)
 			record := tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"ceo: in progress", "goblin: claude"}, Title: "RESTARTED on Claude Code 2026-10-06 about 21:55Z"}
 			if tc.isDone {

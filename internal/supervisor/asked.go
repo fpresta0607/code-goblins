@@ -79,7 +79,7 @@ func (s *Service) withdraw(task string) {
 // failure does. One loop runs them at a time, and a call while it runs has it
 // look once more, so the loop that ran a change takes it off the queue before
 // any other loop sees it: a resume that ended at once called this while its
-// own click still waited, and ceo resumed the goblin twice (CI run
+// own click still waited, and goblins resumed the goblin twice (CI run
 // 37884316186).
 func (s *Service) runAsked() {
 	s.starts.Lock()

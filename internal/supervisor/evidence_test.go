@@ -88,7 +88,7 @@ func TestSnapshotShowsWhatTheFleetKnowsForATaskNoHookReported(t *testing.T) {
 	if got := view.Tasks[0]; got.Phase != "working" || got.Activity != "working: gate test step" || got.PR != "https://example/pr/7" {
 		t.Fatalf("task = phase %q activity %q pr %q, want working with its own status line and PR", got.Phase, got.Activity, got.PR)
 	}
-	// ceo notify writes the status line before the wake record, as here.
+	// goblins notify writes the status line before the wake record, as here.
 	if err := state.AppendStatus(h.State, "task-1", "blocked: Which schema?"); err != nil {
 		t.Fatal(err)
 	}
@@ -105,10 +105,10 @@ func TestSnapshotShowsWhatTheFleetKnowsForATaskNoHookReported(t *testing.T) {
 
 // proseAsk is the monitor's wake for a goblin that ended its turn asking in
 // prose, as it raises it.
-const proseAsk = `goblin_asks: g1 ended its turn asking in prose instead of with ceo notify --blocked and waits at its prompt for the answer; next: answer it with ceo send g1 "<your answer>" (ceo answer takes only a notify's question). It asked: "Which layout do you want?"`
+const proseAsk = `goblin_asks: g1 ended its turn asking in prose instead of with goblins notify --blocked and waits at its prompt for the answer; next: answer it with goblins send g1 "<your answer>" (goblins answer takes only a notify's question). It asked: "Which layout do you want?"`
 
 // A goblin that ended its turn asking in prose shows on the board as waiting
-// on the CEO with its question, as one that asked with ceo notify --blocked
+// on the CEO with its question, as one that asked with goblins notify --blocked
 // does, until it reports again.
 func TestSnapshotShowsAGoblinThatAskedInProseAsWaitingOnTheCEO(t *testing.T) {
 	// Arrange
@@ -283,7 +283,7 @@ func TestFinishedTasksReadEveryCleanupLayout(t *testing.T) {
 		}
 	}
 	// Cleaned up: the status log stays, with no task record beside it.
-	write(filepath.Join(stateDir, "cleaned.status"), "done: PR https://example/pr/1\ndone: returned worktree via ceo cleanup\n")
+	write(filepath.Join(stateDir, "cleaned.status"), "done: PR https://example/pr/1\ndone: returned worktree via goblins cleanup\n")
 	// Live: a task record beside the log means it is not finished.
 	write(filepath.Join(stateDir, "live.status"), "working: still going\n")
 	write(filepath.Join(stateDir, "live.meta"), "id=live\n")
@@ -323,7 +323,7 @@ func TestCompletedStoppedCardRetainsTaskTitleRepositoryAndPullRequest(t *testing
 	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Done\n- **launch-check** - Check launch behavior (repo: example)\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(h.State, "launch-check.status"), []byte("done: returned worktree via ceo cleanup\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(h.State, "launch-check.status"), []byte("done: returned worktree via goblins cleanup\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.WriteOutcome(h.State, state.Outcome{ID: "delivered", Title: "Delivered title", Project: "example", Phase: "stopped", PR: "https://github.com/owner/example/pull/42", At: time.Now()}); err != nil {

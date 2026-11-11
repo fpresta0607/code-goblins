@@ -86,7 +86,7 @@ export const reviewLine = (review: Review) => plainMessage(waitsOnOverlord(revie
 
 // What a wait points at, so its card says it plainly and opens it: the page
 // the goblin named, else a file it delivered, else the web link it gave as the
-// link (ceo notify --link), never an address it only names in its words, and
+// link (goblins notify --link), never an address it only names in its words, and
 // never its question to the CEO. Null when it names nothing.
 export type WaitTarget = { kind: "item"; key: string; label: string } | { kind: "page"; url: string; label: string };
 export function waitTarget(review: Review, snapshot: Snapshot): WaitTarget | null {
@@ -102,7 +102,7 @@ export function waitTarget(review: Review, snapshot: Snapshot): WaitTarget | nul
 // is still open, which alone shows (the Overlord, 2026-10-17: "These
 // follow-ups should not be notifications in the Command Center ... But the
 // initial one is critical"). The goblin ties its wait to that decision by its
-// question's ID as it raises the wait (ceo notify --follows), and the
+// question's ID as it raises the wait (goblins notify --follows), and the
 // supervisor closes the wait when that decision is answered, so nothing open
 // is ever hidden past its decision.
 export const followsDecision = (review: Review, snapshot: Snapshot) => !!review.follows && (snapshot.questions || []).some((question) => question.id === review.follows && question.status === "pending");
@@ -226,7 +226,7 @@ export function withClosed(snapshot: Snapshot, read: ClosedItems | undefined): S
 
 export type QuestionOutcome = "pending" | "answered" | "superseded" | "cleared" | "failed" | "uncertain";
 
-// What became of a question. The CEO's ceo answer sets answered_by with an
+// What became of a question. The CEO's goblins answer sets answered_by with an
 // empty answer_id; a board answer that failed or went unconfirmed never
 // reached its asker, so it is not answered.
 export function questionOutcome(question: Question): QuestionOutcome {
@@ -255,7 +255,7 @@ export function answeredLabel(question: Question): string {
   return (question.answer_kind === "other" ? who + " wrote: " + question.answer : who + " chose " + (ceoReason(question) ? question.answered_option : question.answer)) + onItsWay;
 }
 
-// The reason the CEO gave with its choice: ceo answer --note joins it to the
+// The reason the CEO gave with its choice: goblins answer --note joins it to the
 // choice as "<choice>. <reason>".
 const ceoReason = (question: Question) => question.answered_by === "ceo" && question.answered_option && question.answer.startsWith(question.answered_option + ". ")
   ? question.answer.slice(question.answered_option.length + 2) : "";

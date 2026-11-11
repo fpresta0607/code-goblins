@@ -21,7 +21,7 @@ func installedHome(t *testing.T) (root, stateDir, candidate string) {
 			t.Fatal(err)
 		}
 	}
-	candidate = filepath.Join(root, "ceo.exe.held-candidate")
+	candidate = filepath.Join(root, "goblins.exe.held-candidate")
 	if err := os.WriteFile(candidate, []byte("candidate build"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -87,10 +87,10 @@ func TestSwapPutsTheCandidateUnderEveryAlias(t *testing.T) {
 func TestRestoreAfterASwapThatStoppedPartWay(t *testing.T) {
 	for name, interrupt := range map[string]func(t *testing.T, root string){
 		"between the two aliases": func(t *testing.T, root string) {
-			if err := moveAside(filepath.Join(root, "ceo.exe"), &Alias{}); err != nil {
+			if err := moveAside(filepath.Join(root, "goblins.exe"), &Alias{}); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.Rename(staged(root, "ceo.exe"), filepath.Join(root, "ceo.exe")); err != nil {
+			if err := os.Rename(staged(root, "goblins.exe"), filepath.Join(root, "goblins.exe")); err != nil {
 				t.Fatal(err)
 			}
 		},
@@ -143,7 +143,7 @@ func TestASwapThatFailsPartWayIsRestored(t *testing.T) {
 	if err := Swap(journal); err == nil {
 		t.Fatal("a swap whose second candidate was gone reported success")
 	}
-	holds(t, filepath.Join(root, "ceo.exe"), "candidate build")
+	holds(t, filepath.Join(root, "goblins.exe"), "candidate build")
 
 	if err := Restore(journal); err != nil {
 		t.Fatal(err)
@@ -211,7 +211,7 @@ func TestAHeldBuildCannotChangeButStillRuns(t *testing.T) {
 
 func TestPrepareRefusesACandidateThatIsAlreadyInstalled(t *testing.T) {
 	root, stateDir, _ := installedHome(t)
-	if _, err := Prepare(root, stateDir, filepath.Join(root, "ceo.exe")); err == nil {
+	if _, err := Prepare(root, stateDir, filepath.Join(root, "goblins.exe")); err == nil {
 		t.Fatal("Prepare accepted the installed build as its own candidate")
 	}
 }
@@ -220,7 +220,7 @@ func TestPrepareRefusesACandidateThatIsAlreadyInstalled(t *testing.T) {
 // aside by an earlier install, or a file of the user's, stays.
 func TestCleanUpRemovesOnlyWhatThisUpdateMovedAside(t *testing.T) {
 	root, stateDir, candidate := installedHome(t)
-	theirs := filepath.Join(root, "ceo.exe.1234.old")
+	theirs := filepath.Join(root, "goblins.exe.1234.old")
 	if err := os.WriteFile(theirs, []byte("an earlier install's build"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -261,14 +261,14 @@ func TestValidateAcceptsOnlyTheFilesAnUpdateMovesAside(t *testing.T) {
 		valid bool
 	}{
 		{"as moved aside", journal.Aliases[0].Aside[0], true},
-		{"the root in other case", filepath.Join(strings.ToUpper(root), "ceo.exe.1.update-old"), true},
-		{"outside the home", filepath.Join(t.TempDir(), "ceo.exe.1.update-old"), false},
+		{"the root in other case", filepath.Join(strings.ToUpper(root), "goblins.exe.1.update-old"), true},
+		{"outside the home", filepath.Join(t.TempDir(), "goblins.exe.1.update-old"), false},
 		{"another alias's", filepath.Join(root, "goblins.exe.1.update-old"), false},
-		{"no number", filepath.Join(root, "ceo.exe..update-old"), false},
-		{"a word for the number", filepath.Join(root, "ceo.exe.abc.update-old"), false},
-		{"an extra suffix", filepath.Join(root, "ceo.exe.1.update-old.txt"), false},
-		{"an extra path element", root + `\state\..\ceo.exe.1.update-old`, false},
-		{"in a folder of the root", filepath.Join(root, "state", "ceo.exe.1.update-old"), false},
+		{"no number", filepath.Join(root, "goblins.exe..update-old"), false},
+		{"a word for the number", filepath.Join(root, "goblins.exe.abc.update-old"), false},
+		{"an extra suffix", filepath.Join(root, "goblins.exe.1.update-old.txt"), false},
+		{"an extra path element", root + `\state\..\goblins.exe.1.update-old`, false},
+		{"in a folder of the root", filepath.Join(root, "state", "goblins.exe.1.update-old"), false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			edited := *journal

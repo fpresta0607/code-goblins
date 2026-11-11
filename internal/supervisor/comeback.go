@@ -293,7 +293,7 @@ func (s *Service) bringGoblinBack(comeback *Comeback, id string, memory Memory) 
 			}
 			detail := fmt.Sprintf("%s did not come back after the restart: %s. It stays stopped, with this reason on its card", id, result.Said)
 			if metaErr == nil && meta.Harness != "" {
-				detail += fmt.Sprintf("; once the cause is fixed, ceo switch %s --harness %s brings it back in place", id, meta.Harness)
+				detail += fmt.Sprintf("; once the cause is fixed, goblins switch %s --harness %s brings it back in place", id, meta.Harness)
 			}
 			err = raiseFleetWake(directory, "check", id, detail)
 		}

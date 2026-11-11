@@ -159,7 +159,7 @@ func TestSpawnStartsAGoblinWithNoBillingKeyWhenAProjectDeclaresNothing(t *testin
 // writes only at harness start are reserved all the same.
 func TestSpawnKeepsTheLaunchContractOverItsCredentials(t *testing.T) {
 	for name, env := range map[string]map[string]string{
-		"exact names":     {"GOTMPDIR": `C:\hijacked`, "CEO_HOME": `C:\hijacked`, "CEO_STATE_OVERRIDE": `C:\hijacked`, "FIXTURE_TOKEN": "t0ken"},
+		"exact names":     {"GOTMPDIR": `C:\hijacked`, "GOBLINS_HOME": `C:\hijacked`, "GOBLINS_STATE_OVERRIDE": `C:\hijacked`, "FIXTURE_TOKEN": "t0ken"},
 		"case-aliased":    {"gotmpdir": `C:\hijacked`, "ceo_home": `C:\hijacked`, "ceo_state_override": `C:\hijacked`, "FIXTURE_TOKEN": "t0ken"},
 		"the goblin role": {"Ceo_Role": "ceo", "FIXTURE_TOKEN": "t0ken"},
 		"the task's own":  {"ceo_task_id": "another-task", "FIXTURE_TOKEN": "t0ken"},
@@ -175,12 +175,12 @@ func TestSpawnKeepsTheLaunchContractOverItsCredentials(t *testing.T) {
 			}
 			started := named(f.events(t), "env")[0].Env
 			for variable, want := range map[string]string{
-				"GOTMPDIR":           taskScratch(f.stateDir, result.Meta.ID),
-				"CEO_HOME":           filepath.Dir(f.stateDir),
-				"CEO_STATE_OVERRIDE": f.stateDir,
-				"CEO_ROLE":           harness.RoleGoblin,
-				"CEO_TASK_ID":        "task-7",
-				"FIXTURE_TOKEN":      "t0ken",
+				"GOTMPDIR":               taskScratch(f.stateDir, result.Meta.ID),
+				"GOBLINS_HOME":           filepath.Dir(f.stateDir),
+				"GOBLINS_STATE_OVERRIDE": f.stateDir,
+				"GOBLINS_ROLE":           harness.RoleGoblin,
+				"GOBLINS_TASK_ID":        "task-7",
+				"FIXTURE_TOKEN":          "t0ken",
 			} {
 				if got := started[variable]; got == nil || *got != want {
 					t.Errorf("the goblin started with %s = %v, want %q", variable, got, want)
@@ -211,7 +211,7 @@ func TestSpawnRefusesARedBlockingServiceAndPrintsTheFixCommand(t *testing.T) {
 	f.request.Yolo = false
 	f.service.Auth = &stubPreflight{result: auth.Result{
 		Warning: "auth: 0/1 services green for primary; BLOCKING: postgres (missing)",
-		Refusal: "1 blocking service(s) for primary; fix these or pass --yolo to dispatch anyway\n  postgres (missing): did not resolve: DATABASE_URL\n    ceo auth store --project primary DATABASE_URL",
+		Refusal: "1 blocking service(s) for primary; fix these or pass --yolo to dispatch anyway\n  postgres (missing): did not resolve: DATABASE_URL\n    goblins auth store --project primary DATABASE_URL",
 	}}
 
 	_, err := f.service.Spawn(context.Background(), f.request)
@@ -220,7 +220,7 @@ func TestSpawnRefusesARedBlockingServiceAndPrintsTheFixCommand(t *testing.T) {
 	}
 	// The warning scrolled past every goblin spawned that night. A refusal
 	// the operator cannot ignore is the control; the fix has to be in it.
-	if !strings.Contains(err.Error(), "ceo auth store --project primary DATABASE_URL") {
+	if !strings.Contains(err.Error(), "goblins auth store --project primary DATABASE_URL") {
 		t.Errorf("err = %v, want the exact fix command printed", err)
 	}
 }

@@ -288,7 +288,7 @@ func TestSpawnRefusesEmptyDeliveryModeLine(t *testing.T) {
 // id and no Herdr pane, and its harness starts there with the task's identity
 // and its brief.
 func TestSpawnShipPublishesANativeTaskAndBriefsItsHarness(t *testing.T) {
-	for _, key := range []string{"CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "PI_SESSION_ID", "CEO_SESSION_ID", "CEO_SESSION_HARNESS", "CEO_ROOT_SESSION_ID"} {
+	for _, key := range []string{"CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "PI_SESSION_ID", "GOBLINS_SESSION_ID", "GOBLINS_SESSION_HARNESS", "GOBLINS_ROOT_SESSION_ID"} {
 		t.Setenv(key, "")
 	}
 	f := newQuickFixture(t)
@@ -335,7 +335,7 @@ func TestSpawnShipPublishesANativeTaskAndBriefsItsHarness(t *testing.T) {
 	// of its first shell /tmp for every shell of the user, so it can be no
 	// task's own folder, which goes with the task.
 	sharedTemp := filepath.Join(filepath.Dir(scratch), home.SharedTempDir)
-	for name, want := range map[string]string{"CEO_TASK_ID": "task-7", "CEO_ROLE": harness.RoleGoblin, "GOTMPDIR": scratch, "TEMP": scratch, "TMPDIR": scratch, "TMP": sharedTemp, "CEO_STATE_OVERRIDE": f.stateDir} {
+	for name, want := range map[string]string{"GOBLINS_TASK_ID": "task-7", "GOBLINS_ROLE": harness.RoleGoblin, "GOTMPDIR": scratch, "TEMP": scratch, "TMPDIR": scratch, "TMP": sharedTemp, "GOBLINS_STATE_OVERRIDE": f.stateDir} {
 		if got := env[name]; got == nil || *got != want {
 			t.Errorf("the harness started with %s = %v, want %q", name, got, want)
 		}
@@ -476,12 +476,12 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 	f := newQuickFixture(t)
 	// Windows compares environment names without case, so a redirect that
 	// differs from a reserved name only by case is the same variable.
-	// CEO_STATE_OVERRIDE is only written at harness start, after the manifest
+	// GOBLINS_STATE_OVERRIDE is only written at harness start, after the manifest
 	// is merged, so it proves the reserved set does not depend on what the
 	// launch map happens to hold at merge time. LOCALAPPDATA, XDG_CACHE_HOME
 	// and HOME are reserved for a different reason: the launch never writes
 	// them, but os.UserCacheDir reads them to derive the task's Go temporary
-	// directory, so a redirect would leave any ceo command the goblin runs
+	// directory, so a redirect would leave any goblins command the goblin runs
 	// computing a different directory than spawn created.
 	writeWorktreeManifest(t, f.dataDir, f.project, worktree.Manifest{
 		Project: "primary",
@@ -509,8 +509,8 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 	}
 	for name, want := range map[string]string{
 		"GOTMPDIR":                 taskScratch(f.stateDir, result.Meta.ID),
-		"CEO_STATE_OVERRIDE":       f.stateDir,
-		"CEO_ROLE":                 harness.RoleGoblin,
+		"GOBLINS_STATE_OVERRIDE":   f.stateDir,
+		"GOBLINS_ROLE":             harness.RoleGoblin,
 		"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
 	} {
 		if got := env[name]; got == nil || *got != want {

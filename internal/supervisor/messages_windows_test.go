@@ -185,7 +185,7 @@ func TestHisMessageToAPausedGoblinResumesItOnceWithTheMessageInItsNote(t *testin
 		t.Errorf("record = %+v, want both messages in the note its resume carries", record)
 	}
 	if len(calls) != 1 || calls[0][0] != "resume" || calls[0][1] != meta.ID {
-		t.Errorf("ceo ran %v, want one resume of %s", calls, meta.ID)
+		t.Errorf("goblins ran %v, want one resume of %s", calls, meta.ID)
 	}
 }
 
@@ -221,7 +221,7 @@ func TestAMessageToAResumingGoblinWaitsAndIsTypedOnceItRuns(t *testing.T) {
 
 // A message is kept only for a resume that can run: a failed resume of its
 // goblin's own session, or the task's interrupted resume, which a Resume
-// takes up again. A resume whose session a later start replaced, as a ceo
+// takes up again. A resume whose session a later start replaced, as a goblins
 // switch run to rescue the goblin does, is neither, and decides nothing of
 // where the message goes, so it is typed into the goblin's running terminal
 // (issue #1221).
@@ -285,7 +285,7 @@ func TestAMessageIsKeptOnlyForAResumeThatCanRun(t *testing.T) {
 	}
 }
 
-// switchSession publishes a new session for meta's task as a ceo switch does
+// switchSession publishes a new session for meta's task as a goblins switch does
 // once it has stopped the old harness: a new generation, and no resume.
 func switchSession(t *testing.T, stateDir string, meta state.TaskMeta) {
 	t.Helper()
@@ -312,7 +312,7 @@ func toldCEO(t *testing.T, stateDir, task string) []string {
 }
 
 // A message kept for a resume goes to the CEO with its words once a later
-// start, such as a ceo switch run to rescue the goblin, replaces the session
+// start, such as a goblins switch run to rescue the goblin, replaces the session
 // that resume was for, since no resume of that record runs again: one kept
 // before the switch, and one kept while it runs, holding the task's metadata
 // lock but not its lifecycle lock until it publishes the new session. The

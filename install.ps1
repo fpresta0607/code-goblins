@@ -6,19 +6,19 @@
 #
 # runs this script as published with the latest release, the same install
 # CodeGoblinsSetup.exe runs out of sight. In four steps it downloads that
-# same release's ceo.exe and desktop app, checks them against the release's
-# SHA256SUMS, lets ceo.exe set up the home with the app and the ceo command
+# same release's goblins.exe and desktop app, checks them against the release's
+# SHA256SUMS, lets goblins.exe set up the home with the app and the goblins command
 # line together in its bin folder, on your PATH, this window included, and
 # installs the tools, skills and hooks the fleet needs and Code Goblins in
 # the Start menu and on the desktop, then opens the app. The home is the one already in use
-# where CEO_HOME names one, kept where it is, and otherwise
+# where GOBLINS_HOME names one, kept where it is, and otherwise
 # %LOCALAPPDATA%\CodeGoblins. It asks nothing, prints only those steps and
 # a line for anything to know, and keeps every detail in its log.
 #
 # Releases are code-signed from the first signed release on; earlier ones
-# are not. The one-line install runs ceo.exe only when it matches the
+# are not. The one-line install runs goblins.exe only when it matches the
 # release's SHA256SUMS and, for a signed release, carries a valid signature
-# from its publisher, and it shows no SmartScreen prompt. A ceo.exe saved
+# from its publisher, and it shows no SmartScreen prompt. A goblins.exe saved
 # from a browser gets SmartScreen's "Windows protected your PC" while it is
 # unsigned or its certificate is still new, and Smart App Control, where it
 # is on, blocks an unsigned one. "On a fresh PC" in docs/install.md says how
@@ -29,7 +29,7 @@
 #
 #   .\install.cmd -Dev
 #
-# builds ceo.exe, goblins.exe and the desktop window goblins-window.exe from
+# builds goblins.exe and the desktop window goblins-window.exe from
 # the clone and does everything else the one-line install does. A build from
 # source is unsigned, and the install says so. install.cmd runs this script
 # whatever PowerShell execution policy is set locally; one set by Group
@@ -114,7 +114,7 @@
     }
 
     # A program run here writes everything it prints to the log, and the
-    # notes ceo install has for the person to the screen too. Its exit code
+    # notes goblins install has for the person to the screen too. Its exit code
     # is returned, and its last line kept for a failure to name; one that is
     # not there fails as a program that ran and failed does.
     $lastLine = @{ Text = "" }
@@ -219,7 +219,7 @@
     # CODE_GOBLINS_RELEASE_BASE points the download at another copy of the
     # release assets, such as a CI build; the checksum check applies the same.
     # The copy of this script published with a release names that release
-    # here in place of latest, so the script and ceo.exe are always one
+    # here in place of latest, so the script and goblins.exe are always one
     # release's.
     $releaseBase = "https://github.com/$repo/releases/latest/download"
     if ($env:CODE_GOBLINS_RELEASE_BASE) {
@@ -246,7 +246,7 @@
         return $expected
     }
 
-    # Save-VerifiedRelease downloads the release's ceo.exe into $Folder, and
+    # Save-VerifiedRelease downloads the release's goblins.exe into $Folder, and
     # its desktop window and its hook program when the release's SHA256SUMS
     # lists them, keeping each
     # only when it matches its sum and, where this script names the release's
@@ -256,16 +256,16 @@
     function Save-VerifiedRelease([string]$Folder) {
         $sums = Join-Path $Folder "SHA256SUMS"
         $expected = @{}
-        $names = @("ceo.exe")
+        $names = @("goblins.exe")
         try {
             try {
-                Write-Detail "Downloading ceo.exe from $releaseBase ..."
+                Write-Detail "Downloading goblins.exe from $releaseBase ..."
                 Invoke-WebRequest -Uri "$releaseBase/SHA256SUMS" -OutFile $sums -UseBasicParsing
                 if (Read-ReleaseChecksum $sums "goblins-window.exe") {
                     $names += "goblins-window.exe"
                 }
-                if (Read-ReleaseChecksum $sums "ceo-hook.exe") {
-                    $names += "ceo-hook.exe"
+                if (Read-ReleaseChecksum $sums "goblins-hook.exe") {
+                    $names += "goblins-hook.exe"
                 }
                 foreach ($name in $names) {
                     $expected[$name] = Read-ReleaseChecksum $sums $name
@@ -322,20 +322,20 @@
     }
 
     # Get-UserEnvironment returns the user-scope variable $Name. Where
-    # CEO_USER_ENV_FILE is set it reads that file, which stands in for the
-    # user-scope environment as it does for Add-UserPath and ceo install, so a
+    # GOBLINS_USER_ENV_FILE is set it reads that file, which stands in for the
+    # user-scope environment as it does for Add-UserPath and goblins install, so a
     # test's install never reads the machine's own user environment.
     function Get-UserEnvironment([string]$Name) {
-        if (-not $env:CEO_USER_ENV_FILE) {
+        if (-not $env:GOBLINS_USER_ENV_FILE) {
             return [Environment]::GetEnvironmentVariable($Name, "User")
         }
-        if (-not (Test-Path -LiteralPath $env:CEO_USER_ENV_FILE)) {
+        if (-not (Test-Path -LiteralPath $env:GOBLINS_USER_ENV_FILE)) {
             return $null
         }
-        return (Get-Content -Raw -LiteralPath $env:CEO_USER_ENV_FILE | ConvertFrom-Json).$Name
+        return (Get-Content -Raw -LiteralPath $env:GOBLINS_USER_ENV_FILE | ConvertFrom-Json).$Name
     }
 
-    # Install-Home runs ceo install from $Program, which picks the home itself:
+    # Install-Home runs goblins install from $Program, which picks the home itself:
     # the one already in use, kept where it is, or the per-user home, and
     # makes Windows start it at login unless that was turned off. Its report
     # goes to the log, and its notes to the screen.
@@ -358,7 +358,7 @@
     if ($PSCommandPath) {
         $scriptFolder = Split-Path -Parent $PSCommandPath
     }
-    $fromClone = $scriptFolder -and (Test-Path (Join-Path $scriptFolder "AGENTS.md")) -and (Test-Path (Join-Path $scriptFolder "cmd\ceo"))
+    $fromClone = $scriptFolder -and (Test-Path (Join-Path $scriptFolder "AGENTS.md")) -and (Test-Path (Join-Path $scriptFolder "cmd\goblins"))
     if ($fromClone -and -not $Dev) {
         throw "This is a clone of Code Goblins. To build it and make it your CEO home, run: .\install.cmd -Dev"
     }
@@ -379,10 +379,10 @@
     if ($Dev) {
         $steps = @("Build Code Goblins from this clone", "Install Code Goblins and its tools", "Open Code Goblins")
         if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
-            throw "-Dev builds ceo.exe from this clone, which needs Go: install it with winget install -e --id GoLang.Go, then open a new terminal and run this again."
+            throw "-Dev builds goblins.exe from this clone, which needs Go: install it with winget install -e --id GoLang.Go, then open a new terminal and run this again."
         }
         if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-            throw "-Dev builds the board ceo.exe embeds from this clone, which needs Node.js: install it with winget install -e --id OpenJS.NodeJS.LTS, then open a new terminal and run this again."
+            throw "-Dev builds the board goblins.exe embeds from this clone, which needs Node.js: install it with winget install -e --id OpenJS.NodeJS.LTS, then open a new terminal and run this again."
         }
 
         # A clone bootstrapped before the Lavish ruling still has the retired review
@@ -399,27 +399,27 @@
             }
         }
 
-        # The programs build to a folder of their own, and ceo install puts them
+        # The programs build to a folder of their own, and goblins install puts them
         # in the per-user home, as the one-line install does. The clone keeps
-        # only what git ignores: the board npm builds, which ceo.exe embeds
+        # only what git ignores: the board npm builds, which goblins.exe embeds
         # from there, and frontend's node_modules.
         $build = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-build-" + [Guid]::NewGuid().ToString("N"))
         New-Item -ItemType Directory -Path $build | Out-Null
         try {
             Write-Step "Build Code Goblins from this clone"
-            Write-Detail "Building the board, ceo.exe and the desktop window from $scriptFolder ..."
-            $dest = Join-Path $build "ceo.exe"
+            Write-Detail "Building the board, goblins.exe and the desktop window from $scriptFolder ..."
+            $dest = Join-Path $build "goblins.exe"
             Push-Location -LiteralPath $scriptFolder
             try {
-                # ceo.exe embeds the board npm builds from frontend, and without it
+                # goblins.exe embeds the board npm builds from frontend, and without it
                 # serves a page saying the board was not built.
                 if ((Invoke-Logged "npm.cmd" @("--prefix", "frontend", "ci")) -ne 0) { throw "npm ci in frontend failed: $($lastLine.Text)" }
                 if ((Invoke-Logged "npm.cmd" @("--prefix", "frontend", "run", "build")) -ne 0) { throw "npm run build in frontend failed: $($lastLine.Text)" }
-                if ((Invoke-Logged "go" @("build", "-trimpath", "-o", $dest, "./cmd/ceo")) -ne 0) { throw "go build failed: $($lastLine.Text)" }
-                # The hook program is the same ceo built as a program with no
+                if ((Invoke-Logged "go" @("build", "-trimpath", "-o", $dest, "./cmd/goblins")) -ne 0) { throw "go build failed: $($lastLine.Text)" }
+                # The hook program is the same goblins built as a program with no
                 # console, which Windows starts with no console host of its own
                 # for each of a goblin's hooks.
-                if ((Invoke-Logged "go" @("build", "-trimpath", "-o", (Join-Path $build "ceo-hook.exe"), "-ldflags", "-H windowsgui", "./cmd/ceo")) -ne 0) { throw "go build of the hook program failed: $($lastLine.Text)" }
+                if ((Invoke-Logged "go" @("build", "-trimpath", "-o", (Join-Path $build "goblins-hook.exe"), "-ldflags", "-H windowsgui", "./cmd/goblins")) -ne 0) { throw "go build of the hook program failed: $($lastLine.Text)" }
                 # -H windowsgui: the window is a program with no console.
                 # production: as a release builds it, with no developer tools and
                 # no browser menu on a right click.
@@ -433,7 +433,7 @@
             Write-Detail "These programs are unsigned: they were built on this PC from this clone, while Code Goblins' releases from v0.5.2 on are signed by SIQstack LLC."
             Write-Detail "Windows runs a program built here without asking. A copy taken to another PC is unsigned there too: SmartScreen may show ""Windows protected your PC"" with an unknown publisher, where More info and then Run anyway starts it, and Smart App Control, where it is on, blocks it."
 
-            # ceo install puts the window built beside it in the home.
+            # goblins install puts the window built beside it in the home.
             $deliveredWindow = $true
             Write-Step "Install Code Goblins and its tools"
             Install-Home $dest
@@ -446,12 +446,12 @@
         $download = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-" + [Guid]::NewGuid().ToString("N"))
         New-Item -ItemType Directory -Path $download | Out-Null
         try {
-            $downloaded = Join-Path $download "ceo.exe"
+            $downloaded = Join-Path $download "goblins.exe"
             Write-Step "Download Code Goblins"
             if (-not (Save-VerifiedRelease $download)) {
                 throw "Code Goblins could not be downloaded from $releaseBase. Check the internet connection, then try again."
             }
-            # ceo install puts the window downloaded beside it in the home.
+            # goblins install puts the window downloaded beside it in the home.
             $deliveredWindow = Test-Path -LiteralPath (Join-Path $download "goblins-window.exe")
 
             Write-Step "Install Code Goblins and its tools"
@@ -461,16 +461,16 @@
             Remove-Temporary $download
         }
     }
-    # The home ceo install picked: the one already in use, wherever it is,
+    # The home goblins install picked: the one already in use, wherever it is,
     # or the per-user home.
-    $InstallDir = Get-UserEnvironment "CEO_HOME"
+    $InstallDir = Get-UserEnvironment "GOBLINS_HOME"
     if (-not $InstallDir) {
         $InstallDir = Join-Path $env:LOCALAPPDATA "CodeGoblins"
     }
-    # ceo install set both at user scope; this session needs them now.
-    $env:CEO_HOME = $InstallDir
+    # goblins install set both at user scope; this session needs them now.
+    $env:GOBLINS_HOME = $InstallDir
     $env:Path = "$(Join-Path $InstallDir "bin");$env:Path"
-    # ceo install names the gate's home at user scope when it put it on the
+    # goblins install names the gate's home at user scope when it put it on the
     # home's Dev Drive, and every no-mistakes this install runs gates there.
     # One this session names already wins, as it does for ceo.
     $gateHome = Get-UserEnvironment "NM_HOME"
@@ -478,7 +478,7 @@
         $env:NM_HOME = $gateHome
     }
     # What follows runs the build the home now holds.
-    $dest = Join-Path $InstallDir "bin\ceo.exe"
+    $dest = Join-Path $InstallDir "bin\goblins.exe"
 
     # From here on, native stderr (npm progress, installer notes, mklink) must
     # not abort the install. Real failures are detected explicitly via exit
@@ -512,18 +512,18 @@
 
     # Add-UserPath puts $Folder on this session's PATH and on the user's, where
     # every new terminal finds it, and returns whether the user's PATH changed.
-    # CEO_USER_ENV_FILE, where set, names the JSON file that stands in for the
-    # user-scope environment, as it does for ceo install. The user PATH keeps
-    # its registry kind, as ceo install keeps it, so its %VARIABLE% entries
+    # GOBLINS_USER_ENV_FILE, where set, names the JSON file that stands in for the
+    # user-scope environment, as it does for goblins install. The user PATH keeps
+    # its registry kind, as goblins install keeps it, so its %VARIABLE% entries
     # survive.
     function Add-UserPath([string]$Folder) {
         if (-not (@($env:Path -split ';') -contains $Folder)) {
             $env:Path = "$env:Path;$Folder"
         }
-        if ($env:CEO_USER_ENV_FILE) {
+        if ($env:GOBLINS_USER_ENV_FILE) {
             $values = [ordered]@{}
-            if (Test-Path -LiteralPath $env:CEO_USER_ENV_FILE) {
-                foreach ($property in (Get-Content -Raw -LiteralPath $env:CEO_USER_ENV_FILE | ConvertFrom-Json).PSObject.Properties) {
+            if (Test-Path -LiteralPath $env:GOBLINS_USER_ENV_FILE) {
+                foreach ($property in (Get-Content -Raw -LiteralPath $env:GOBLINS_USER_ENV_FILE | ConvertFrom-Json).PSObject.Properties) {
                     $values[$property.Name] = $property.Value
                 }
             }
@@ -533,7 +533,7 @@
             }
             $addedPath.Add($Folder)
             $values["Path"] = ($entries + $Folder) -join ';'
-            [IO.File]::WriteAllText($env:CEO_USER_ENV_FILE, (ConvertTo-Json -InputObject $values))
+            [IO.File]::WriteAllText($env:GOBLINS_USER_ENV_FILE, (ConvertTo-Json -InputObject $values))
             return $true
         }
         $environment = Get-Item -LiteralPath "HKCU:\Environment"
@@ -578,7 +578,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
 
     # no-mistakes gates every goblin's work, so the fleet runs the build
     # pinned here: the commit of the no-mistakes fork whose axi run takes a
-    # gate's intent from a file and the launch selection every gate ceo
+    # gate's intent from a file and the launch selection every gate goblins
     # pipeline run starts gives it (docs/pipeline.md), and the version that
     # build reports. Each release builds it from that commit with
     # tools\build-no-mistakes.ps1, signs it as it signs its own programs and
@@ -718,13 +718,13 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
 
     # Test-ForkBuild says why the build of $Tool, an npm-file tool, that its
     # command runs is replaced with the tool's release file, or "" when it is
-    # kept: ceo doctor's check fails a build older than the file and one that
+    # kept: goblins doctor's check fails a build older than the file and one that
     # is not the fork's, such as the upstream package of the same name or one
     # that does not run, and passes the file's build and a later one of the
     # fork's. The build is the last word of the first line of what the
     # command prints for --version, read only when it succeeds, and the
     # file's is in its name, as npm pack names the file. The command runs as
-    # ceo doctor finds it, by an extension PATHEXT names, such as npm's .cmd
+    # goblins doctor finds it, by an extension PATHEXT names, such as npm's .cmd
     # shim: the execution policy may refuse npm's .ps1 shim, and Windows would
     # ask how to open its extensionless shell script.
     function Test-ForkBuild($Tool) {
@@ -750,7 +750,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         return ""
     }
 
-    # The toolchain mirrors `ceo doctor`; its hints are the source of truth for
+    # The toolchain mirrors `goblins doctor`; its hints are the source of truth for
     # where each tool comes from, except no-mistakes, which comes from the
     # release pinned above. npm is called as npm.cmd, which runs under any
     # execution policy, where the npm.ps1 shim is refused by the default one and
@@ -831,7 +831,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
             }
         }
         # A tool from a fork's release file keeps no build of its command
-        # that ceo doctor would fail, and replacing one adds nothing to the
+        # that goblins doctor would fail, and replacing one adds nothing to the
         # record, so the uninstall removes only a command an install fetched.
         $isReplacing = $false
         if ($found -and $tool.Kind -eq "npm-file") {
@@ -1062,7 +1062,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
     }
 
-    # Every goblin carries the crawler connector (docs/crawler.md), which ceo
+    # Every goblin carries the crawler connector (docs/crawler.md), which goblins
     # install set up above by installing the packages its lockfile pins with
     # npm ci, so a machine without Node.js has none.
     if (-not $hasNode) {

@@ -127,7 +127,7 @@ func TestAReaderReadsTheLogAgainOnlyWhenItHasChanged(t *testing.T) {
 	if err := os.WriteFile(log, kept, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := afk.Log(h.State, afk.Entry{Kind: afk.KindInstall, What: "ceo 1.4.2", Evidence: "ceo version reads 1.4.2"}, night.Add(2*time.Minute)); err != nil {
+	if _, err := afk.Log(h.State, afk.Entry{Kind: afk.KindInstall, What: "goblins 1.4.2", Evidence: "goblins version reads 1.4.2"}, night.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	grown, err := s.afkView(store.Snapshot())

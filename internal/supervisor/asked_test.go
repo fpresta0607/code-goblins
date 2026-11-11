@@ -34,7 +34,7 @@ func cardOf(t *testing.T, handler *HTTP, id string) Task {
 	return snapshot.Tasks[index]
 }
 
-// awaitCalls waits for ceo to have been run count times, and gives a moment
+// awaitCalls waits for goblins to have been run count times, and gives a moment
 // more for a call too many to show.
 func awaitCalls(t *testing.T, spawner *spawnRecorder, count int) [][]string {
 	t.Helper()
@@ -97,7 +97,7 @@ func TestAResumeClickedWhileAnotherGoblinStartsRunsOnceThatStartEnds(t *testing.
 		t.Fatalf("card while it waits its turn = %+v, want it resuming and waiting its turn", card)
 	}
 	if got := commands(calls); !slices.Equal(got, []string{"spawn next-task", "resume paused-task"}) {
-		t.Fatalf("ceo ran %q, want the start and then the resume", got)
+		t.Fatalf("goblins ran %q, want the start and then the resume", got)
 	}
 }
 
@@ -128,12 +128,12 @@ func TestAStartClickedWhileAnotherGoblinStartsRunsOnceThatStartEnds(t *testing.T
 		t.Fatalf("card while it waits its turn = %+v, want it starting and waiting its turn", card)
 	}
 	if got := commands(calls); !slices.Equal(got, []string{"spawn next-task", "spawn second"}) {
-		t.Fatalf("ceo ran %q, want both starts, one after the other", got)
+		t.Fatalf("goblins ran %q, want both starts, one after the other", got)
 	}
 }
 
 // A second click on Resume or Start while the first is under way, or still
-// waits its turn, is accepted and changes nothing: ceo runs once.
+// waits its turn, is accepted and changes nothing: goblins runs once.
 func TestASecondClickWhileTheFirstIsUnderWayRunsNothingTwice(t *testing.T) {
 	for _, test := range []struct {
 		name      string
@@ -181,7 +181,7 @@ func TestASecondClickWhileTheFirstIsUnderWayRunsNothingTwice(t *testing.T) {
 				want = "spawn next-task"
 			}
 			if got := commands(calls); strings.Count(strings.Join(got, ","), want) != 1 {
-				t.Fatalf("ceo ran %q, want %q once", got, want)
+				t.Fatalf("goblins ran %q, want %q once", got, want)
 			}
 		})
 	}
@@ -230,10 +230,10 @@ func TestAClickWhileMemoryIsShortRunsOnceMemoryReachesTheMark(t *testing.T) {
 				t.Fatalf("card while memory is short = %+v, want it waiting its turn", waiting)
 			}
 			if len(short) != 0 {
-				t.Fatalf("ceo ran %q while memory was short", commands(short))
+				t.Fatalf("goblins ran %q while memory was short", commands(short))
 			}
 			if len(calls) != 1 || calls[0][1] != id {
-				t.Fatalf("ceo ran %q, want %s once memory reached the mark", commands(calls), id)
+				t.Fatalf("goblins ran %q, want %s once memory reached the mark", commands(calls), id)
 			}
 		})
 	}
@@ -262,7 +262,7 @@ func TestAPauseOrStopAfterAWaitingResumeTakesItBack(t *testing.T) {
 			// Assert
 			command := map[string]string{"pause": "pause", "stop": "kill"}[action]
 			if code != 202 || slices.Contains(commands(calls), "resume paused-task") || !slices.Contains(commands(calls), command+" paused-task") {
-				t.Fatalf("%s = %d, ceo ran %q, want the %s run and the resume taken back", action, code, commands(calls), action)
+				t.Fatalf("%s = %d, goblins ran %q, want the %s run and the resume taken back", action, code, commands(calls), action)
 			}
 		})
 	}
@@ -294,7 +294,7 @@ func TestAGoblinWhosePauseFailedAndWhoseTerminalEndedShowsPausedAndResumes(t *te
 		t.Fatalf("card = %+v, lifecycle %+v, want it paused", card, card.Lifecycle)
 	}
 	if code != 202 || len(calls) != 1 || calls[0][0] != "resume" {
-		t.Fatalf("resume = %d, ceo ran %v, want it resumed", code, calls)
+		t.Fatalf("resume = %d, goblins ran %v, want it resumed", code, calls)
 	}
 }
 
@@ -302,7 +302,7 @@ func TestAGoblinWhosePauseFailedAndWhoseTerminalEndedShowsPausedAndResumes(t *te
 // session, and a snapshot showed it only at the next change of anything else
 // or the 15 second refresh: on 2026-10-08 the board saw a start's session 6
 // seconds after its terminal ran. Its record and its terminal host, written
-// while ceo spawn runs, reach the board at once.
+// while goblins spawn runs, reach the board at once.
 func TestTheBoardSeesAStartingGoblinsSessionTheMomentItIsRecorded(t *testing.T) {
 	// Arrange
 	spawner := &spawnRecorder{release: make(chan struct{})}
@@ -335,11 +335,11 @@ func TestTheBoardSeesAStartingGoblinsSessionTheMomentItIsRecorded(t *testing.T) 
 
 	// Assert
 	if card.Generation != "s1" {
-		t.Fatalf("card a minute after its record = %+v, want its session shown while ceo spawn runs", card)
+		t.Fatalf("card a minute after its record = %+v, want its session shown while goblins spawn runs", card)
 	}
 }
 
-// A board Resume that ceo refuses before it records anything, as goblins did
+// A board Resume that goblins refuses before it records anything, as goblins did
 // with "usage: goblins resume", goes to the CEO, which nothing else tells.
 func TestABoardResumeTheCLIRefusesTellsTheCEO(t *testing.T) {
 	// Arrange

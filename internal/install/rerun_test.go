@@ -31,7 +31,7 @@ func appendAdopterHook(t *testing.T, path, event, command string) {
 }
 
 // mergeCEOHooks adds the CEO's hooks to the settings file at path, each group
-// after the ones its event holds, as ceo install merged them into the user's
+// after the ones its event holds, as goblins install merged them into the user's
 // settings until 2026-10.
 func mergeCEOHooks(t *testing.T, path, root string) {
 	t.Helper()
@@ -74,9 +74,9 @@ func ceoCommands(t *testing.T, path string) []string {
 	return commands
 }
 
-// Until 2026-10 ceo install merged the CEO's hooks into the user's settings,
+// Until 2026-10 goblins install merged the CEO's hooks into the user's settings,
 // where every Claude Code session of the user ran them: each Bash call, turn
-// end and start, in his own sessions and in every goblin's, started ceo.exe,
+// end and start, in his own sessions and in every goblin's, started goblins.exe,
 // about 0.1 s each, for a hook that left on its environment. The CEO's
 // terminal starts with its hooks, so an install writes none there.
 func TestInstallWritesNoCEOHookIntoTheUsersSettings(t *testing.T) {
@@ -126,7 +126,7 @@ func TestInstallTakesTheCEOsHooksOutOfTheUsersSettings(t *testing.T) {
 	}
 }
 
-// ceo install and ceo hooks install claude write the same settings.json. Each
+// goblins install and goblins hooks install claude write the same settings.json. Each
 // puts its own hooks back where they stand, so once both have run, running
 // either again rewrites nothing. Each used to move its entries to the end of
 // the shared lists, behind the other's, so every rerun of either rewrote the
@@ -140,7 +140,7 @@ func TestReinstallingBothHookWritersRewritesNothing(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t, settings, nil)
 			claude := filepath.Dir(f.user)
-			native := nativehook.InstallConfig{Harness: "claude", ConfigDir: claude, Executable: filepath.Join(claude, "ceo.exe"), Home: f.root, State: filepath.Join(f.root, "state")}
+			native := nativehook.InstallConfig{Harness: "claude", ConfigDir: claude, Executable: filepath.Join(claude, "goblins.exe"), Home: f.root, State: filepath.Join(f.root, "state")}
 			f.install()
 			if _, err := nativehook.Install(native); err != nil {
 				t.Fatal(err)
@@ -155,10 +155,10 @@ func TestReinstallingBothHookWritersRewritesNothing(t *testing.T) {
 			afterNative := readFile(t, f.user)
 
 			if afterInstall != settled {
-				t.Errorf("rerunning ceo install rewrote the shared settings\nbefore: %s\nafter: %s", settled, afterInstall)
+				t.Errorf("rerunning goblins install rewrote the shared settings\nbefore: %s\nafter: %s", settled, afterInstall)
 			}
 			if afterNative != settled {
-				t.Errorf("rerunning ceo hooks install claude rewrote the shared settings\nbefore: %s\nafter: %s", settled, afterNative)
+				t.Errorf("rerunning goblins hooks install claude rewrote the shared settings\nbefore: %s\nafter: %s", settled, afterNative)
 			}
 		})
 	}

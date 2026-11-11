@@ -31,7 +31,7 @@ func reuseWorktree(t *testing.T) string {
 // reuseDeclared reads what reuse declares in a project's record: the ignored
 // build, git's version and one variable, for the fast tier.
 func reuseDeclared() project.Reuse {
-	return project.Reuse{Tiers: []string{"fast"}, Inputs: []string{"build"}, Tools: []project.Command{{"git", "version"}}, Environment: []string{"CEO_REUSE_TEST_SETTING"}}
+	return project.Reuse{Tiers: []string{"fast"}, Inputs: []string{"build"}, Tools: []project.Command{{"git", "version"}}, Environment: []string{"GOBLINS_REUSE_TEST_SETTING"}}
 }
 
 // namedKey is the part of a key its caller names.
@@ -45,7 +45,7 @@ func namedKey() ReuseKey {
 func TestReadReuseKeyReadsEverythingAPassDependsOn(t *testing.T) {
 	// Arrange
 	dir := reuseWorktree(t)
-	t.Setenv("CEO_REUSE_TEST_SETTING", "one")
+	t.Setenv("GOBLINS_REUSE_TEST_SETTING", "one")
 
 	// Act
 	key, err := ReadReuseKey(context.Background(), execx.OSRunner{}, dir, namedKey(), reuseDeclared())
@@ -62,7 +62,7 @@ func TestReadReuseKeyReadsEverythingAPassDependsOn(t *testing.T) {
 		t.Errorf("key source %+v and base %q; want the clean head and the base origin/main names", key.Source, key.Base)
 	}
 	sum := sha256.Sum256([]byte("one"))
-	if key.Inputs == "" || len(key.Tools) != 1 || key.Tools[0] == "" || len(key.Environment) != 1 || key.Environment[0] != "CEO_REUSE_TEST_SETTING=sha256:"+hex.EncodeToString(sum[:]) || key.Platform == "" {
+	if key.Inputs == "" || len(key.Tools) != 1 || key.Tools[0] == "" || len(key.Environment) != 1 || key.Environment[0] != "GOBLINS_REUSE_TEST_SETTING=sha256:"+hex.EncodeToString(sum[:]) || key.Platform == "" {
 		t.Errorf("key = %+v; want the inputs' digest, git's version, the variable's digest and the platform", key)
 	}
 }
@@ -73,14 +73,14 @@ func TestReadReuseKeyChangesWithEachInput(t *testing.T) {
 	for name, change := range map[string]func(t *testing.T, dir string){
 		"an ignored input":   func(t *testing.T, dir string) { writeSource(t, dir, "build/page.html", "rebuilt\n") },
 		"a new ignored file": func(t *testing.T, dir string) { writeSource(t, dir, "build/more.html", "more\n") },
-		"a variable":         func(t *testing.T, dir string) { t.Setenv("CEO_REUSE_TEST_SETTING", "two") },
+		"a variable":         func(t *testing.T, dir string) { t.Setenv("GOBLINS_REUSE_TEST_SETTING", "two") },
 		"a file git sees":    func(t *testing.T, dir string) { writeSource(t, dir, "a.txt", "changed\n") },
 		"the base":           func(t *testing.T, dir string) { gitIn(t, dir, "update-ref", "refs/remotes/origin/main", "HEAD~1") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			dir := reuseWorktree(t)
-			t.Setenv("CEO_REUSE_TEST_SETTING", "one")
+			t.Setenv("GOBLINS_REUSE_TEST_SETTING", "one")
 			before, err := ReadReuseKey(context.Background(), execx.OSRunner{}, dir, namedKey(), reuseDeclared())
 			if err != nil {
 				t.Fatal(err)
@@ -106,7 +106,7 @@ func TestReadReuseKeyRefusesWhatItCannotRead(t *testing.T) {
 		arrange   func(t *testing.T, dir string) (ReuseKey, project.Reuse)
 		wantError string
 	}{
-		"an unstamped build": {wantError: "an unstamped ceo build", arrange: func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
+		"an unstamped build": {wantError: "an unstamped goblins build", arrange: func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
 			key := namedKey()
 			key.Executor = "dev"
 			return key, reuseDeclared()
@@ -177,9 +177,9 @@ func TestReadReuseKeyReadsTheBaseOfTheWorktreeItIsGiven(t *testing.T) {
 // key passes is never written down.
 func TestReadReuseKeyKeepsNoVariableValue(t *testing.T) {
 	// Arrange
-	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	dir := reuseWorktree(t)
-	t.Setenv("CEO_REUSE_TEST_SETTING", "s3cret-value")
+	t.Setenv("GOBLINS_REUSE_TEST_SETTING", "s3cret-value")
 	key, err := ReadReuseKey(context.Background(), execx.OSRunner{}, dir, namedKey(), reuseDeclared())
 	if err != nil {
 		t.Fatal(err)
@@ -219,7 +219,7 @@ func passedRun(t *testing.T, key ReuseKey, command []string) Result {
 	t.Helper()
 	exit := 0
 	record := ExecutionRecord{Version: 1, ID: "run-" + command[len(command)-1], Command: command, Status: "passed", ExitCode: &exit, Source: SourceReads{Start: &key.Source, End: &key.Source}}
-	path := filepath.Join(os.Getenv("CEO_VERIFY_DIR"), "executions", record.ID+".json")
+	path := filepath.Join(os.Getenv("GOBLINS_VERIFY_DIR"), "executions", record.ID+".json")
 	if err := Save(path, record); err != nil {
 		t.Fatal(err)
 	}
@@ -231,13 +231,13 @@ func sealedKey() ReuseKey {
 	key := namedKey()
 	key.Source = Source{Commit: "c1", CommitTree: "t1", Tree: "t1", IsComplete: true}
 	key.Base, key.Inputs, key.Platform = "b1", "i1", "windows/amd64"
-	key.Tools, key.Environment = []string{"git version 2"}, []string{"CEO_REUSE_TEST_SETTING=sha256:1"}
+	key.Tools, key.Environment = []string{"git version 2"}, []string{"GOBLINS_REUSE_TEST_SETTING=sha256:1"}
 	return key
 }
 
 // keptAt is where the pass of key is kept.
 func keptAt(key ReuseKey) string {
-	return filepath.Join(os.Getenv("CEO_VERIFY_DIR"), "passes", key.ID()+".json")
+	return filepath.Join(os.Getenv("GOBLINS_VERIFY_DIR"), "passes", key.ID()+".json")
 }
 
 // A pass kept for a key is found for that key, with each of its results
@@ -245,7 +245,7 @@ func keptAt(key ReuseKey) string {
 // the original run's own fields.
 func TestFindPassReusesThePassKeptForItsKey(t *testing.T) {
 	// Arrange
-	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	key := sealedKey()
 	now := time.Now()
 	if err := KeepPass(key, []Result{passedRun(t, key, key.Commands[0])}, now); err != nil {
@@ -274,7 +274,7 @@ func TestFindPassFindsNothingForAnotherKey(t *testing.T) {
 		"another base":       func(key *ReuseKey) { key.Base = "b2" },
 		"other inputs":       func(key *ReuseKey) { key.Inputs = "i2" },
 		"another tool":       func(key *ReuseKey) { key.Tools = []string{"git version 3"} },
-		"another variable":   func(key *ReuseKey) { key.Environment = []string{"CEO_REUSE_TEST_SETTING=sha256:2"} },
+		"another variable":   func(key *ReuseKey) { key.Environment = []string{"GOBLINS_REUSE_TEST_SETTING=sha256:2"} },
 		"another platform":   func(key *ReuseKey) { key.Platform = "linux/amd64" },
 		"another build":      func(key *ReuseKey) { key.Executor = "main-4567cdef" },
 		"another command":    func(key *ReuseKey) { key.Commands = [][]string{{"demo", "check", "--all"}} },
@@ -284,7 +284,7 @@ func TestFindPassFindsNothingForAnotherKey(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+			t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 			key := sealedKey()
 			now := time.Now()
 			if err := KeepPass(key, []Result{passedRun(t, key, key.Commands[0])}, now); err != nil {
@@ -342,7 +342,7 @@ func TestFindPassFindsNothingWithoutFreshEvidence(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+			t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 			key := sealedKey()
 			now := time.Now()
 			result := passedRun(t, key, key.Commands[0])
@@ -373,7 +373,7 @@ func TestFindPassFindsNothingInAPassThatIsNotWhole(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+			t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 			key := sealedKey()
 			now := time.Now()
 			pass := Pass{Key: key, Results: []Result{passedRun(t, key, key.Commands[0])}, Kept: now.UTC()}
@@ -405,7 +405,7 @@ func TestFindPassFindsNothingInAPassOfAnotherKey(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+			t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 			key, other := sealedKey(), sealedKey()
 			differ(&other)
 			now := time.Now()
@@ -452,7 +452,7 @@ func TestKeepPassKeepsOnlyAWholePassOnItsSource(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+			t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 			key := sealedKey()
 			result := passedRun(t, key, key.Commands[0])
 			spoil(&result)
@@ -480,7 +480,7 @@ func TestKeepPassKeepsNoPassMissingACommand(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+			t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 			key := sealedKey()
 			var results []Result
 			if len(commands) > 0 {
@@ -502,7 +502,7 @@ func TestKeepPassKeepsNoPassMissingACommand(t *testing.T) {
 // Pruning removes the passes kept more than a week before, and no other.
 func TestPrunePassesRemovesPassesOlderThanAWeek(t *testing.T) {
 	// Arrange
-	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	old, young := sealedKey(), sealedKey()
 	old.Scope = "full"
 	now := time.Now()

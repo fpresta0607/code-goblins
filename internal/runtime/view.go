@@ -70,7 +70,7 @@ func renderContainers(out *writer, report Report) {
 		out.line("")
 		out.line("Evidence: " + text(stack.Owner.Evidence))
 		if stack.Owner.Reap {
-			out.line("Retire with: `ceo reap` (it already refuses to kill what is still working)")
+			out.line("Retire with: `goblins reap` (it already refuses to kill what is still working)")
 		}
 		out.line("")
 		out.line("| Container | Image | State | Since | Restarts | Ports |")
@@ -98,8 +98,8 @@ func renderContainers(out *writer, report Report) {
 	renderLooseVolumes(out, report.LooseVolumes)
 }
 
-// renderServices is each stack ceo services holds for tasks: who holds it,
-// what ceo started of it, which a release stops, and the memory it was
+// renderServices is each stack goblins services holds for tasks: who holds it,
+// what goblins started of it, which a release stops, and the memory it was
 // measured to take.
 func renderServices(out *writer, report Report) {
 	out.line("")
@@ -107,10 +107,10 @@ func renderServices(out *writer, report Report) {
 	out.line("")
 	stacks := report.Services.Sorted()
 	if len(stacks) == 0 {
-		out.line("No local services are held. `ceo services up <project> --task <id>` starts a project's for a task.")
+		out.line("No local services are held. `goblins services up <project> --task <id>` starts a project's for a task.")
 		return
 	}
-	out.line("| Project | State | Held by | ceo started | Memory |")
+	out.line("| Project | State | Held by | goblins started | Memory |")
 	out.line("| --- | --- | --- | --- | --- |")
 	for _, stack := range stacks {
 		state, holders, started := "down", "nobody", "-"
@@ -134,7 +134,7 @@ func renderServices(out *writer, report Report) {
 	}
 	if engine := report.Services.Engine; engine.StartedByCEO {
 		out.line("")
-		out.line("ceo started the Docker engine at " + stamp(engine.Since) + " for these stacks, and stops it once none of them runs.")
+		out.line("goblins started the Docker engine at " + stamp(engine.Since) + " for these stacks, and stops it once none of them runs.")
 	}
 }
 
@@ -186,7 +186,7 @@ func renderServers(out *writer, report Report) {
 	}
 	if safe := countSafe(report.Servers); safe > 0 {
 		out.line("")
-		out.line(fmt.Sprintf("%d server(s) are safe to stop. `ceo reap` owns retiring them; this command only reports.", safe))
+		out.line(fmt.Sprintf("%d server(s) are safe to stop. `goblins reap` owns retiring them; this command only reports.", safe))
 	}
 	renderFolded(out, report.Folded)
 }

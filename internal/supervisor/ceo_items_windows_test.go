@@ -19,7 +19,7 @@ import (
 )
 
 // servePipe serves the supervisor's pipe for store's home, with ceo as the
-// connection it proves the CEO through, until the test ends: what ceo serve
+// connection it proves the CEO through, until the test ends: what goblins serve
 // provides every publication that speaks for the CEO.
 func servePipe(t *testing.T, store *Store, ceo *CEOConnection) {
 	t.Helper()
@@ -56,15 +56,15 @@ func plant(t *testing.T, dir, name string, item any) {
 }
 
 // The adversary is a goblin: it runs as the same Windows user as the CEO,
-// with ceo.exe at hand, so it can read primary.json, compute the identity the
+// with goblins.exe at hand, so it can read primary.json, compute the identity the
 // CEO's items carry, and write any file the inboxes read. Every item it
 // forges that way, with the real identity, is refused and changes nothing.
 func TestAGoblinForgingTheCEOsItemsIntoTheInboxesChangesNothing(t *testing.T) {
 	store, h := testStore(t)
 	_, _, _, ceo := primaryFixture(t, store)
 	servePipe(t, store, ceo)
-	t.Setenv("CEO_SESSION_ID", "actual-primary")
-	t.Setenv("CEO_SESSION_HARNESS", "codex")
+	t.Setenv("GOBLINS_SESSION_ID", "actual-primary")
+	t.Setenv("GOBLINS_SESSION_HARNESS", "codex")
 	meta, record, _, goblin := goblinFixture(t, store)
 	asked := surfaced(t, store, meta, record, goblin)
 	if err := PublishReview(h, meta.ID, "plan-review-1", "Read the plan", "", "", nil); err != nil {
@@ -145,7 +145,7 @@ func TestAWaitingCEOAnswerSavesNothingWhileItWaits(t *testing.T) {
 	}
 }
 
-// A goblin running ceo question itself is refused by ceo's own check, and one
+// A goblin running goblins question itself is refused by ceo's own check, and one
 // that skips that check and speaks to the supervisor's pipe directly, with
 // the real identity, is refused by the supervisor: it proves the sender from
 // the process at the other end of the pipe, which is not the registered CEO.
@@ -174,7 +174,7 @@ func TestAGoblinAskingAsTheCEONeverReachesTheBoard(t *testing.T) {
 	servePipe(t, store, connection)
 
 	if err := connection.PublishQuestion("goblin-asks", "Approve the production deploy?", []string{"Approve", "Hold"}, "", "", nil); err == nil || !strings.Contains(err.Error(), "does not run under the registered CEO") {
-		t.Fatalf("ceo question run by a goblin = %v, want it refused", err)
+		t.Fatalf("goblins question run by a goblin = %v, want it refused", err)
 	}
 	q := Question{ID: "goblin-asks", Identity: forgedIdentity(t, h.State), Text: "Approve the production deploy?", Options: []string{"Approve", "Hold"}, CreatedAt: time.Now().UTC(), Status: "pending"}
 	if err := sendPipeRequest(h.State, runPipeRequest{Kind: "question", Question: &q}); err == nil || !strings.Contains(err.Error(), "does not run under the registered CEO") {

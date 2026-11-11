@@ -182,7 +182,7 @@ func (f *cleanupFixture) assertNoHerdrRequests(t *testing.T) {
 // its record left behind by a host that ended, even once a later process has
 // its pid, one this user may not open included - is cleaned like a Herdr one:
 // its worktree returned and its record retired, with nothing asked of Herdr.
-// ceo cleanup used to refuse every native task as not a Herdr task, and until
+// goblins cleanup used to refuse every native task as not a Herdr task, and until
 // issue #1206 one whose pid a process this user may not open reused.
 func TestCleanupReturnsANativeTaskWhoseTerminalHasEnded(t *testing.T) {
 	for name, hostPID := range map[string]func(*testing.T) int{
@@ -247,7 +247,7 @@ func TestCleanupClosesANativeTerminalIdleAtItsComposer(t *testing.T) {
 }
 
 // The cleanup reap runs never ends a process, so under LeaveRunningTerminals a
-// native goblin idle at its composer is refused naming ceo cleanup, force or
+// native goblin idle at its composer is refused naming goblins cleanup, force or
 // not, and its terminal and task are kept.
 func TestCleanupLeavingRunningTerminalsRefusesAnIdleNativeTerminal(t *testing.T) {
 	for _, force := range []bool{false, true} {
@@ -259,8 +259,8 @@ func TestCleanupLeavingRunningTerminalsRefusesAnIdleNativeTerminal(t *testing.T)
 
 			_, err := fixture.service.Cleanup(context.Background(), "g1")
 
-			if err == nil || !strings.Contains(err.Error(), "native task g1 still runs") || !strings.Contains(err.Error(), "ceo cleanup g1") {
-				t.Fatalf("Cleanup error = %v, want the running task refused naming ceo cleanup", err)
+			if err == nil || !strings.Contains(err.Error(), "native task g1 still runs") || !strings.Contains(err.Error(), "goblins cleanup g1") {
+				t.Fatalf("Cleanup error = %v, want the running task refused naming goblins cleanup", err)
 			}
 			record, err := host.ReadRecord(fixture.stateDir, "g1")
 			if err != nil {

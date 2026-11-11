@@ -28,7 +28,7 @@ func TestHelperParentRefusesEachCapAndSaysWhenToAskAgain(t *testing.T) {
 	}{
 		{"a task that is not live", nil, "g1", []string{"g1 is not a live task"}},
 		{"a helper asking for a helper", []TaskMeta{{ID: "g1"}, {ID: "g1-h1", Parent: "g1"}}, "g1-h1", []string{"a helper cannot start helpers", "ask g1"}},
-		{"a second helper", []TaskMeta{{ID: "g1"}, {ID: "g1-h1", Parent: "g1"}}, "g1", []string{"already has a helper, g1-h1", "one helper at a time", "ceo helper merge g1", "ceo kill g1-h1"}},
+		{"a second helper", []TaskMeta{{ID: "g1"}, {ID: "g1-h1", Parent: "g1"}}, "g1", []string{"already has a helper, g1-h1", "one helper at a time", "goblins helper merge g1", "goblins kill g1-h1"}},
 		{"a second helper named in another case", []TaskMeta{{ID: "g1"}, {ID: "g1-h1", Parent: "G1"}}, "g1", []string{"already has a helper, g1-h1"}},
 	}
 	for _, test := range cases {

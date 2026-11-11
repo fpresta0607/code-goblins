@@ -213,7 +213,7 @@ func (s *Service) created(path string) time.Time {
 	return created(info)
 }
 
-// sessionStarted is when a goblin started: its worktree is made fresh by ceo
+// sessionStarted is when a goblin started: its worktree is made fresh by goblins
 // spawn and kept across a switch, which writes a new spawn generation, so
 // the generation's time dates the session only when the folder cannot.
 func (s *Service) sessionStarted(meta state.TaskMeta) time.Time {

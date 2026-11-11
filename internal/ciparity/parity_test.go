@@ -90,7 +90,7 @@ func TestCollectPairsEachDesktopJobWithItsHostedCopyAndItsWait(t *testing.T) {
 	// Arrange
 	github := mirrored()
 	turns := t.TempDir()
-	turnLog := "ceo gate turn: waiting for its turn (1m0s so far): the turn is held by ceo verify fast of task Ike (pid 1), for 2m0s; this run is next in line\nceo gate turn: took its turn after 3m0s\nceo ci-runner: the VM started with runner cg-desktop-a\n"
+	turnLog := "goblins gate turn: waiting for its turn (1m0s so far): the turn is held by goblins verify fast of task Ike (pid 1), for 2m0s; this run is next in line\nceo gate turn: took its turn after 3m0s\nceo ci-runner: the VM started with runner cg-desktop-a\n"
 	if err := os.WriteFile(filepath.Join(turns, "job-200-20261021-223300.log"), []byte(turnLog), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestCollectPairsEachDesktopJobWithItsHostedCopyAndItsWait(t *testing.T) {
 	if pair.Hosted.Head != head || pair.Desktop.Base != base || pair.Desktop.Counts == nil || pair.Desktop.Counts.Passed != 7446 || pair.Desktop.Seconds != 720 {
 		t.Fatalf("pair = %+v, want each copy's merge, counts and time", pair)
 	}
-	if pair.Waited != "3m0s" || pair.HeldBy != "ceo verify fast of task Ike (pid 1), for 2m0s" {
+	if pair.Waited != "3m0s" || pair.HeldBy != "goblins verify fast of task Ike (pid 1), for 2m0s" {
 		t.Fatalf("waited %q, held by %q: want the turn's wait and what held it last", pair.Waited, pair.HeldBy)
 	}
 	if differences := pair.Differences(); len(differences) != 0 {

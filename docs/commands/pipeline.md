@@ -1,17 +1,17 @@
-# ceo pipeline
+# goblins pipeline
 
-`ceo pipeline config-drift \| config-apply \| migrate <id> \| run <id> [--branch <b>] --intent-file <file> \| respond <id> [--branch <b> \| --run <run>] --action <fix\|approve> [--findings <ids>] [--instructions <text>] [--accept <ids>] [--reason <text>] [--scope-decision <answered-notify-sequence>] \| recover <id> [--branch <b> \| --run <run>] \| handback <id> [--branch <b> \| --run <run>] [--revalidate-publication] [--resume --receipt <receipt>]`
+`goblins pipeline config-drift \| config-apply \| migrate <id> \| run <id> [--branch <b>] --intent-file <file> \| respond <id> [--branch <b> \| --run <run>] --action <fix\|approve> [--findings <ids>] [--instructions <text>] [--accept <ids>] [--reason <text>] [--scope-decision <answered-notify-sequence>] \| recover <id> [--branch <b> \| --run <run>] \| handback <id> [--branch <b> \| --run <run>] [--revalidate-publication] [--resume --receipt <receipt>]`
 
-`ceo pipeline terminal-preflight <id> --run <predecessor>`
+`goblins pipeline terminal-preflight <id> --run <predecessor>`
 
-`ceo pipeline validate-authored <id> [--branch <b>] --admission-file <file>`
+`goblins pipeline validate-authored <id> [--branch <b>] --admission-file <file>`
 
-`ceo pipeline validate-authored <id> --run <run> --findings <ids>`
+`goblins pipeline validate-authored <id> --run <run> --findings <ids>`
 
-`ceo pipeline validate-terminal <id> [--branch <b>] --admission-file <file>`
+`goblins pipeline validate-terminal <id> [--branch <b>] --admission-file <file>`
 
 Drive a gated task under its frozen policy: report or apply the owned shared no-mistakes settings in an explicit idle window, whose refusal names the gate runs it waits for, explicitly migrate a task's frozen snapshot to the current policy the shared config already runs while preserving its class and repair cap, which never needs the daemon stopped, validate a bounded gate start under the version-specific contract, taking the run's intent from the file `--intent-file` names (a short one may be given with `--intent <text>`) and handing it to no-mistakes in a file, never on a command line, where Microsoft Defender detected a long intent as a lure and Windows refused the start, answer one parked gate with an explicit fix or a no-op approval, return source custody through [supported recovery](../pipeline.md#driving-a-task), or return eligible published CI failures to their contributor through [native handback](../pipeline.md#driving-a-task).
-Each acts in the task's own worktree, or with `--branch` or `--run` in whichever of its worktrees, an extra one `ceo worktree add` recorded included, has that branch checked out; a branch or run none of the task's worktrees has is refused.
+Each acts in the task's own worktree, or with `--branch` or `--run` in whichever of its worktrees, an extra one `goblins worktree add` recorded included, has that branch checked out; a branch or run none of the task's worktrees has is refused.
 For `respond`, `recover` and `handback`, a selected run must be its branch's latest; preflight and admission bind an exact predecessor under the [native admission rules](../pipeline.md#driving-a-task).
 See [native handback](../pipeline.md#driving-a-task) for `--revalidate-publication` authorization, receipt-bound continuation and refusal behavior.
 For selected fixes, see the [informational finding translation contract](../pipeline.md#driving-a-task).

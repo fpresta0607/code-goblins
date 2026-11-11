@@ -164,7 +164,7 @@ func TestRegisterReplacesAStaleRegistrationWithOneTheBoardVerifies(t *testing.T)
 		t.Fatal(err)
 	}
 	var problem registrationProblem
-	if err := ceo.check(); !errors.As(err, &problem) || !strings.Contains(err.Error(), "pid 37680, started 2026-09-15 09:00 UTC, is no longer running; run ceo register in the CEO session") {
+	if err := ceo.check(); !errors.As(err, &problem) || !strings.Contains(err.Error(), "pid 37680, started 2026-09-15 09:00 UTC, is no longer running; run goblins register in the CEO session") {
 		t.Fatalf("stale registration reads as %v, want one registration problem naming the fix", err)
 	}
 
@@ -310,7 +310,7 @@ func TestBoardShowsTheRegistrationAsOneStateWithItsFix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Registration != "The CEO is not registered; run ceo register in the CEO session" {
+	if snapshot.Registration != "The CEO is not registered; run goblins register in the CEO session" {
 		t.Fatalf("unregistered board shows %q", snapshot.Registration)
 	}
 	// Native terminal ceo comes up only now: while it is up and nothing is
@@ -336,7 +336,7 @@ func TestCEOTerminalReportsAStaleRegistrationAsItsOwnState(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&failure); err != nil {
 		t.Fatal(err)
 	}
-	if response.StatusCode != 409 || failure.Code != "registration_stale" || !strings.HasSuffix(failure.Error, "run ceo register in the CEO session") {
+	if response.StatusCode != 409 || failure.Code != "registration_stale" || !strings.HasSuffix(failure.Error, "run goblins register in the CEO session") {
 		t.Fatalf("stale CEO terminal: %d %+v", response.StatusCode, failure)
 	}
 }

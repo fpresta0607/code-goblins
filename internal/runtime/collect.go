@@ -143,7 +143,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, error) {
 		inv.Janitor = &record
 	}
 	if record, err := services.ReadRecord(c.Home.State); err != nil {
-		inv.Notes = append(inv.Notes, "LOCAL SERVICES UNREADABLE: "+err.Error()+" - the stacks ceo services holds for tasks are not accounted for; fix or remove the record and run this again")
+		inv.Notes = append(inv.Notes, "LOCAL SERVICES UNREADABLE: "+err.Error()+" - the stacks goblins services holds for tasks are not accounted for; fix or remove the record and run this again")
 	} else {
 		inv.Services = record
 	}
@@ -189,7 +189,7 @@ func (c Collector) tasks() ([]Task, []string, error) {
 }
 
 // retired reads the ids of tasks whose records have been archived. It is what
-// separates a worktree a goblin finished with - which `ceo reap` returns -
+// separates a worktree a goblin finished with - which `goblins reap` returns -
 // from a directory the Overlord made and still wants.
 //
 // An archived record is named <id>.<timestamp> or <id>.status.<timestamp>, so

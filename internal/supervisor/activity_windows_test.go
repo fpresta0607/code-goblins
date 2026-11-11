@@ -17,7 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// A report spooling its board receipt, such as a ceo send, holds the activity
+// A report spooling its board receipt, such as a goblins send, holds the activity
 // lock for a moment. A cycle that meets it leaves the inbox to the next cycle
 // and reports nothing: each one reported the hold as its error, which the
 // supervisor met again and again and filed as #1505. A hold that outlasts
@@ -92,8 +92,8 @@ func TestPrimaryPresentationUsesVerifiedContextWithoutBorrowingTask(t *testing.T
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CEO_SESSION_ID", "actual-primary")
-	t.Setenv("CEO_SESSION_HARNESS", "codex")
+	t.Setenv("GOBLINS_SESSION_ID", "actual-primary")
+	t.Setenv("GOBLINS_SESSION_HARNESS", "codex")
 	now := time.Now().UTC()
 	a := BoardActivity{ID: "primary-review", Kind: "review", State: "active", URL: "http://127.0.0.1:4387/session/review", At: now, Until: now.Add(time.Minute)}
 	if err := PublishPresentation(h, a); err != nil {
@@ -255,8 +255,8 @@ func TestSendReceiptNeverBorrowsSameHarnessParent(t *testing.T) {
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CEO_SESSION_ID", "actual-primary")
-	t.Setenv("CEO_SESSION_HARNESS", "codex")
+	t.Setenv("GOBLINS_SESSION_ID", "actual-primary")
+	t.Setenv("GOBLINS_SESSION_HARNESS", "codex")
 	if err := PrepareSendActivity(h, "task-1").Taken(); err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +287,7 @@ func TestSendReceiptNeverBorrowsSameHarnessParent(t *testing.T) {
 }
 
 // The Overlord, 2026-10-17, of cg-canvas-live-only's Scrawl page, presented
-// with ceo present --kind review --watch: its row in the Command Center took
+// with goblins present --kind review --watch: its row in the Command Center took
 // him straight to the page, and once he sent and ended the review there "it
 // didn't react or update. It still shows I have a notification." A review he
 // is asked to watch is a review item, polled on the page lavish-axi serves at
@@ -363,8 +363,8 @@ func TestPrimaryPresentationLateSessionDiscoveryKeepsReportIdentity(t *testing.T
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CEO_SESSION_ID", "actual-primary")
-	t.Setenv("CEO_SESSION_HARNESS", "codex")
+	t.Setenv("GOBLINS_SESSION_ID", "actual-primary")
+	t.Setenv("GOBLINS_SESSION_HARNESS", "codex")
 	now := time.Now().UTC()
 	a := BoardActivity{ID: "late-primary-report", Kind: "review", State: "active", URL: "http://127.0.0.1:4387/session/review", At: now, Until: now.Add(time.Minute)}
 	if err := PublishPresentation(h, a); err != nil {

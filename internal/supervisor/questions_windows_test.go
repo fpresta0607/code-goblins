@@ -87,7 +87,7 @@ func TestTheCEOsQuestionNamesTheGoblinItDecidesFor(t *testing.T) {
 // decision she waited for: "These follow-ups should not be notifications in
 // the Command Center ... But the initial one is critical". A goblin's wait on
 // him follows a decision only when the goblin declares it, by the question's
-// ID (ceo notify --follows), and nothing infers one: a wait that declares none
+// ID (goblins notify --follows), and nothing infers one: a wait that declares none
 // is its own card beside any decision open, the CEO's question for the goblin
 // or the goblin's own with choices, since a need he never sees stalls the
 // goblin and an extra card does not. A wait declared to follow a decision
@@ -727,7 +727,7 @@ func TestGoblinQuestionKeepsItsLinesOnTheBoardAndItsAnswerIsOneLine(t *testing.T
 	store, h := testStore(t)
 	meta, _, goblin, connection := goblinFixture(t, store)
 	asked := "blocked: Ship the report?\n- **Verdict:** not yet\n- one blocking defect options: Ship now | Hold (Recommended)"
-	// The queue holds the one-line form ceo notify records.
+	// The queue holds the one-line form goblins notify records.
 	record, err := wake.Append(h.State, "notify", meta.ID, state.NormalizeStatusDetail(asked))
 	if err != nil {
 		t.Fatal(err)
@@ -897,8 +897,8 @@ func TestSurfaceNotifyNeedsChoicesAndTheGoblinsOwnTerminal(t *testing.T) {
 	}
 }
 
-// The CEO answers a goblin's question with ceo answer: the choice reaches the
-// goblin once, the way ceo send types, its notify reads answered, and the
+// The CEO answers a goblin's question with goblins answer: the choice reaches the
+// goblin once, the way goblins send types, its notify reads answered, and the
 // board records the choice, that the CEO gave it and when, even when the CEO
 // drains the notify before the supervisor takes the answer.
 func TestCEOAnswerDeliversOnceAndTheBoardRecordsIt(t *testing.T) {
@@ -949,7 +949,7 @@ func TestCEOAnswerDeliversOnceAndTheBoardRecordsIt(t *testing.T) {
 	}
 }
 
-// ceo answer refuses, sending nothing and leaving nothing for the board, a
+// goblins answer refuses, sending nothing and leaving nothing for the board, a
 // caller that is not the registered CEO, a choice the question does not
 // offer, a label that names two choices, a notify with no choices, one the
 // CEO already handled, and a goblin that restarted since it asked.
@@ -965,7 +965,7 @@ func TestCEOAnswerRefusesBeforeSendingAnything(t *testing.T) {
 		{name: "a caller that is not the registered CEO", option: "SQLite", refusal: "not registered"},
 		{name: "a choice the question does not offer", register: true, option: "Redis", refusal: "is not one of the choices"},
 		{name: "a label that names two choices", register: true, notify: "blocked: Which plan? options: a keep it | a drop it", option: "a", refusal: "names more than one choice"},
-		{name: "a notify with no choices", register: true, notify: "blocked: What next?", option: "a", refusal: "answer it with ceo send"},
+		{name: "a notify with no choices", register: true, notify: "blocked: What next?", option: "a", refusal: "answer it with goblins send"},
 		{name: "a notify the CEO already handled", register: true, option: "SQLite", refusal: "is not waiting", before: func(t *testing.T, store *Store, _ state.TaskMeta, record wake.Record) {
 			if err := wake.AckThrough(store.Home.State, record.Seq); err != nil {
 				t.Fatal(err)
@@ -1016,7 +1016,7 @@ func TestCEOAnswerRefusesBeforeSendingAnything(t *testing.T) {
 // A goblin's question can wait in the CEO's queue without ever reaching the
 // board, when its notify could not show it there (cg-native-desktop's 3593 on
 // 2026-10-01, refused by the board's proof). Once the question has had its
-// moment to arrive, ceo answer delivers the choice to the goblin that asked
+// moment to arrive, goblins answer delivers the choice to the goblin that asked
 // and marks the notify answered, instead of asking the CEO to try again for a
 // question that never comes. One raised a moment ago may still be on its
 // way, and one asked before the goblin restarted reaches nobody.
@@ -1105,7 +1105,7 @@ func TestCEOAnswerStandsWhenTheBoardAnswerIsRefused(t *testing.T) {
 	}
 }
 
-// A board answer that reaches the goblin's terminal while ceo answer is still
+// A board answer that reaches the goblin's terminal while goblins answer is still
 // delivering waits for it, then sees the CEO's answer and is refused with
 // nothing sent, so the goblin receives one decision.
 func TestBoardAnswerWaitsForAnInFlightCEOAnswer(t *testing.T) {

@@ -18,7 +18,7 @@ func TestAnAutomaticResumeRefusedForItsTasksCleanupIsNoFailure(t *testing.T) {
 	const id = "paused-task"
 	tests := []struct {
 		name string
-		// output is what ceo resume printed before it exited 1.
+		// output is what goblins resume printed before it exited 1.
 		output string
 		// isRetired has the cleanup retire the task's record while the resume
 		// runs.
@@ -32,7 +32,7 @@ func TestAnAutomaticResumeRefusedForItsTasksCleanupIsNoFailure(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			spawner := &spawnRecorder{output: test.output, err: errors.New("ceo exited 1")}
+			spawner := &spawnRecorder{output: test.output, err: errors.New("goblins exited 1")}
 			s, h := helperBoard(t, 8*gigabyte, spawner)
 			pausedGoblin(t, h, id, "memory", "", time.Now().UTC().Add(-time.Hour))
 			if test.isRetired {

@@ -11,7 +11,7 @@ import (
 )
 
 // Start at login is on unless the person turned it off: in the setup, with
-// ceo install --start-at-login off, on the board or in the tray. Their choice
+// goblins install --start-at-login off, on the board or in the tray. Their choice
 // is kept in the home, so an install or update never turns back on what they
 // turned off.
 const (

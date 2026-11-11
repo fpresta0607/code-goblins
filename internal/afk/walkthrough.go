@@ -265,7 +265,7 @@ func (r Return) Decided() (his, goblins []Decision) {
 	return his, goblins
 }
 
-// askedAndAnswered splits the evidence ceo answer logs for a goblin's question
+// askedAndAnswered splits the evidence goblins answer logs for a goblin's question
 // into the question it asked and the answer it was given.
 func askedAndAnswered(evidence string) (asked, answered string) {
 	rest := strings.TrimPrefix(evidence, "asked: ")

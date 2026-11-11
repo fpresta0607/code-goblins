@@ -48,7 +48,7 @@ func legacyHome(t *testing.T) home.Home {
 func harnessMemory(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "memory")
-	write(t, filepath.Join(dir, "MEMORY.md"), "# Memory index\n\n- [Gate needs a scratch home](gate-needs-a-scratch-home.md) - unset CEO_HOME\n- [Overlord pronouns](overlord-pronouns.md) - he/him\n")
+	write(t, filepath.Join(dir, "MEMORY.md"), "# Memory index\n\n- [Gate needs a scratch home](gate-needs-a-scratch-home.md) - unset GOBLINS_HOME\n- [Overlord pronouns](overlord-pronouns.md) - he/him\n")
 	write(t, filepath.Join(dir, "gate-needs-a-scratch-home.md"), "---\nname: gate-needs-a-scratch-home\n---\nfact one\n")
 	write(t, filepath.Join(dir, "overlord-pronouns.md"), "---\nname: overlord-pronouns\n---\nfact two\n")
 	return dir
@@ -292,7 +292,7 @@ func TestPlanMigrationImportsMemoryWithoutOverwritingTheHomes(t *testing.T) {
 	for _, w := range m.Writes {
 		contents[w.Path] = string(w.Content)
 	}
-	if want := "# Memory index\r\n\r\n- [Overlord pronouns](overlord-pronouns.md) - he/him, as the home has it\r\n" + importStamp(m) + "\r\n- [Gate needs a scratch home](gate-needs-a-scratch-home.md) - unset CEO_HOME\r\n"; contents["memory/MEMORY.md"] != want {
+	if want := "# Memory index\r\n\r\n- [Overlord pronouns](overlord-pronouns.md) - he/him, as the home has it\r\n" + importStamp(m) + "\r\n- [Gate needs a scratch home](gate-needs-a-scratch-home.md) - unset GOBLINS_HOME\r\n"; contents["memory/MEMORY.md"] != want {
 		t.Errorf("index = %q, want the home's lines and one new line for the fact it lacked", contents["memory/MEMORY.md"])
 	}
 	if _, ok := contents["memory/overlord-pronouns.md"]; ok {
@@ -323,7 +323,7 @@ func TestPlanMigrationStampsTheImportAndCopiesFactsExactly(t *testing.T) {
 	for _, w := range m.Writes {
 		contents[w.Path] = string(w.Content)
 	}
-	if want := "# Memory index\n\n" + importStamp(m) + "\n\n- [Gate needs a scratch home](gate-needs-a-scratch-home.md) - unset CEO_HOME\n- [Overlord pronouns](overlord-pronouns.md) - he/him\n"; contents["memory/MEMORY.md"] != want {
+	if want := "# Memory index\n\n" + importStamp(m) + "\n\n- [Gate needs a scratch home](gate-needs-a-scratch-home.md) - unset GOBLINS_HOME\n- [Overlord pronouns](overlord-pronouns.md) - he/him\n"; contents["memory/MEMORY.md"] != want {
 		t.Errorf("index = %q, want the source's index stamped with where and when it came from", contents["memory/MEMORY.md"])
 	}
 	for _, fact := range []string{"gate-needs-a-scratch-home.md", "overlord-pronouns.md"} {

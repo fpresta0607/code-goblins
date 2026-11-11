@@ -27,7 +27,7 @@ test("a service grant card names the service and task, and records its granted o
 });
 
 test("a recorded grant whose script refresh failed keeps its recovery instruction in the completed card and History", () => {
-  const reason = "spawn: the record of add-billing changed as asked, but its auth.ps1 was not rewritten, so run ceo auth refresh add-billing: task cleanup is in progress";
+  const reason = "spawn: the record of add-billing changed as asked, but its auth.ps1 was not rewritten, so run goblins auth refresh add-billing: task cleanup is in progress";
   const card = request({ names: [], grant_service: "stripe", state: "granted", reason });
 
   const settled = credentialSettled(card);
@@ -85,9 +85,9 @@ test("the terminal types the names the scope does not hold, and a stored one onl
   assert.deepEqual(terminalNames(request({ saved: ["DATABASE_URL"] }), []), ["STRIPE_SECRET_KEY"]);
 });
 
-test("the terminal command is the exact ceo auth store line, quoting a scope a shell would split", () => {
-  assert.equal(storeCommand("precisiondocs", "STRIPE_SECRET_KEY"), "ceo auth store --project precisiondocs STRIPE_SECRET_KEY");
-  assert.equal(storeCommand("Acme Shop (old)", "STRIPE_SECRET_KEY"), 'ceo auth store --project "Acme Shop (old)" STRIPE_SECRET_KEY');
+test("the terminal command is the exact goblins auth store line, quoting a scope a shell would split", () => {
+  assert.equal(storeCommand("precisiondocs", "STRIPE_SECRET_KEY"), "goblins auth store --project precisiondocs STRIPE_SECRET_KEY");
+  assert.equal(storeCommand("Acme Shop (old)", "STRIPE_SECRET_KEY"), 'goblins auth store --project "Acme Shop (old)" STRIPE_SECRET_KEY');
 });
 
 test("a format hint warns about a value of the wrong kind and advises on one it names, never blocking", () => {

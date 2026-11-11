@@ -21,9 +21,9 @@ func TestExecGateProberReturnsWhenTheStatusCallLeavesAProcessHoldingItsOutput(t 
 	fixture.standIn("no-mistakes.exe")
 	pidFile := filepath.Join(fixture.root, "child.pid")
 	t.Setenv("PATH", fixture.bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("CEO_POLL_STANDIN", "gate")
-	t.Setenv("CEO_GATE_STATUS", wedgedStatus)
-	t.Setenv("CEO_GATE_CHILD_PID", pidFile)
+	t.Setenv("GOBLINS_POLL_STANDIN", "gate")
+	t.Setenv("GOBLINS_GATE_STATUS", wedgedStatus)
+	t.Setenv("GOBLINS_GATE_CHILD_PID", pidFile)
 
 	start := time.Now()
 	sample, err := ExecGateProber{}.InspectGate(context.Background(), state.TaskMeta{Worktree: fixture.dir("work")})
@@ -52,11 +52,11 @@ func TestExecGateProberAsksTheGateHomeTheUserNames(t *testing.T) {
 	said := filepath.Join(fixture.root, "nm-home.txt")
 	const moved = `D:\CodeGoblins\no-mistakes`
 	t.Setenv("PATH", fixture.bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("CEO_POLL_STANDIN", "gate-home")
-	t.Setenv("CEO_GATE_HOME_FILE", said)
+	t.Setenv("GOBLINS_POLL_STANDIN", "gate-home")
+	t.Setenv("GOBLINS_GATE_HOME_FILE", said)
 	t.Setenv("NM_HOME", "")
 	userEnv := filepath.Join(fixture.root, "user-env.json")
-	t.Setenv("CEO_USER_ENV_FILE", userEnv)
+	t.Setenv("GOBLINS_USER_ENV_FILE", userEnv)
 	if err := os.WriteFile(userEnv, []byte(`{"NM_HOME": "D:\\CodeGoblins\\no-mistakes"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}

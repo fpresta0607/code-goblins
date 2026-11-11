@@ -487,7 +487,7 @@ test("a baby goblin says what it runs in plain words: the program its command st
     [{ kind: "process", group: "other", label: "node scripts/poll.mjs", task: "node scripts/poll.mjs" }, "Node running poll.mjs"],
     [{ kind: "process", group: "test", label: "Test run", task: "go test ./..." }, "Test run"],
     [{ kind: "process", group: "other", label: "sleep", task: "sleep 300" }, "sleep"],
-    [{ kind: "process", group: "other", label: "go run ./cmd/ceo serve --port 4310", task: "go run ./cmd/ceo serve --port 4310" }, "go"],
+    [{ kind: "process", group: "other", label: "go run ./cmd/goblins serve --port 4310", task: "go run ./cmd/goblins serve --port 4310" }, "go"],
     [{ kind: "shell", label: "terraform apply -auto-approve", task: "terraform apply -auto-approve" }, "terraform"],
     [{ kind: "shell", label: "Start the dev server", task: "npm run dev" }, "Start the dev server"],
     [{ kind: "shell", label: "bash scripts/listen.sh", task: "bash scripts/listen.sh" }, "Shell running listen.sh"],

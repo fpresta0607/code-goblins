@@ -104,8 +104,8 @@ func TestOnlyABoardOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 		{name: "a browser he started from his own terminal", ancestry: browser("chrome.exe", proc.Entry{PID: 4242, ParentPID: 900, ExeBase: "powershell.exe", Start: started}, proc.Entry{PID: 900, ExeBase: "WindowsTerminal.exe", Start: started.Add(-time.Hour)}), from: "his own board (powershell.exe pid 4242)"},
 		{name: "a browser a test runner started", ancestry: browser("chrome.exe", proc.Entry{PID: 4242, ParentPID: 900, ExeBase: "node.exe", Start: started}, desktop), refusal: "the program that shows this board runs under an agent harness (node.exe pid 4242)"},
 		{name: "a browser Claude Code started", ancestry: browser("msedge.exe", proc.Entry{PID: 4242, ParentPID: 900, ExeBase: "claude.exe", Start: started}, desktop), refusal: "under an agent harness (claude.exe pid 4242)"},
-		{name: "a browser opened from a goblin's terminal", ancestry: browser("msedge.exe", desktop), env: []string{"CEO_ROLE=goblin"}, refusal: "the program that shows this board runs in a goblin's terminal"},
-		{name: "a browser opened from a terminal of the fleet", ancestry: browser("msedge.exe", desktop), env: []string{"CEO_HOST_ID=ceo"}, refusal: "in native terminal ceo"},
+		{name: "a browser opened from a goblin's terminal", ancestry: browser("msedge.exe", desktop), env: []string{"GOBLINS_ROLE=goblin"}, refusal: "the program that shows this board runs in a goblin's terminal"},
+		{name: "a browser opened from a terminal of the fleet", ancestry: browser("msedge.exe", desktop), env: []string{"GOBLINS_HOST_ID=ceo"}, refusal: "in native terminal ceo"},
 		{name: "a browser a gate agent started", ancestry: browser("msedge.exe", desktop), env: []string{"NO_MISTAKES_GATE=1"}, refusal: "as a gate agent"},
 		{name: "a browser the registered CEO started", ancestry: browser("msedge.exe", ceo), refusal: "under the registered CEO"},
 		{name: "a browser whose harness is gone but left its mark", ancestry: browser("chrome.exe"), env: []string{"CLAUDECODE=1"}, refusal: "an agent harness (its environment carries CLAUDECODE)"},
@@ -220,7 +220,7 @@ func TestARequestFromAGoblinsOwnProcessIsRefusedOverARealConnection(t *testing.T
 	server := &http.Server{Handler: NewHTTP(s, listener.Addr().String(), nil)}
 	go func() { _ = server.Serve(listener) }()
 	defer server.Close()
-	t.Setenv("CEO_ROLE", "goblin")
+	t.Setenv("GOBLINS_ROLE", "goblin")
 	request, err := http.NewRequest("POST", "http://"+listener.Addr().String()+"/api/afk", strings.NewReader(`{"on":true}`))
 	if err != nil {
 		t.Fatal(err)
@@ -243,7 +243,7 @@ func TestARequestFromAGoblinsOwnProcessIsRefusedOverARealConnection(t *testing.T
 	if err := json.NewDecoder(response.Body).Decode(&refused); err != nil {
 		t.Fatal(err)
 	}
-	if response.StatusCode != http.StatusForbidden || refused.Error != "Switch AFK in the Code Goblins window, or run ceo afk on in PowerShell." {
+	if response.StatusCode != http.StatusForbidden || refused.Error != "Switch AFK in the Code Goblins window, or run goblins afk on in PowerShell." {
 		t.Fatalf("POST /api/afk from a goblin's process = %d %q, want it refused with the one sentence a board shows", response.StatusCode, refused.Error)
 	}
 	if pending, err := wake.Pending(h.State); err != nil || len(pending) != 1 || !strings.Contains(pending[0].Detail, "the program that shows this board runs in a goblin's terminal") {
@@ -344,7 +344,7 @@ func TestABoardThatIsNotHisIsRefusedAndChangesNothing(t *testing.T) {
 	code, body := askTheBoard(t, s, "POST", "/api/afk", `{"on":true}`, nil)
 
 	// Assert
-	if code != http.StatusForbidden || strings.TrimSpace(body) != `{"error":"Switch AFK in the Code Goblins window, or run ceo afk on in PowerShell."}` {
+	if code != http.StatusForbidden || strings.TrimSpace(body) != `{"error":"Switch AFK in the Code Goblins window, or run goblins afk on in PowerShell."}` {
 		t.Fatalf("POST /api/afk from a browser an agent started = %d %s, want it refused with the one sentence a board shows", code, body)
 	}
 	if switched, err := afk.Read(h.State); err != nil || switched.On {
@@ -681,7 +681,7 @@ func TestACommandTheBoardMadeItselfIsNotHeld(t *testing.T) {
 }
 
 // The report read after AFK mode turned off shows each item it held as it
-// stands now, on the board's page and to ceo afk report alike, while the
+// stands now, on the board's page and to goblins afk report alike, while the
 // report kept when the stretch ended still says what became of each by then.
 func TestTheReportReadLaterShowsEachHeldItemAsItStandsNow(t *testing.T) {
 	// Arrange
@@ -751,7 +751,7 @@ func TestTheReportReadLaterShowsEachHeldItemAsItStandsNow(t *testing.T) {
 // rules, where no decision can be logged. The report read later says so only
 // of an answer recorded after the stretch ended: one inside the stretch, at
 // its end or with no time recorded keeps the word that no decision was logged
-// for it, to ceo afk report and on his page of the stretch alike.
+// for it, to goblins afk report and on his page of the stretch alike.
 func TestTheReportReadLaterSaysWhichHeldQuestionsTheCEOAnsweredAfterAFKModeEnded(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
@@ -807,7 +807,7 @@ func TestTheReportReadLaterSaysWhichHeldQuestionsTheCEOAnsweredAfterAFKModeEnded
 	for _, c := range cases {
 		t.Run(c.id, func(t *testing.T) {
 			if held := byItem(report.Held, "question:"+c.id); held.Item != "question:"+c.id || held.Waiting != c.waiting || held.Now != c.now {
-				t.Errorf("ceo afk report reads %+v, want waiting %v and %q", held, c.waiting, c.now)
+				t.Errorf("goblins afk report reads %+v, want waiting %v and %q", held, c.waiting, c.now)
 			}
 		})
 	}

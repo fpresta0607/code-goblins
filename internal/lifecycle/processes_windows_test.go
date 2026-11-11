@@ -19,11 +19,11 @@ import (
 )
 
 func TestInventoryFindsADetachedProcessByWorkingDirectory(t *testing.T) {
-	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	directory := t.TempDir()
 	child := exec.Command(os.Args[0], "-test.run=^TestLifecycleProcessFixture$")
 	child.Dir = directory
-	child.Env = append(os.Environ(), "CEO_LIFECYCLE_FIXTURE=1")
+	child.Env = append(os.Environ(), "GOBLINS_LIFECYCLE_FIXTURE=1")
 	if err := child.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestOnlyAPlansReadingHoldsTheCommandThatAsked(t *testing.T) {
 
 func TestTerminateChecksCreationTimeOnTheProcessHandle(t *testing.T) {
 	child := exec.Command(os.Args[0], "-test.run=^TestLifecycleProcessFixture$")
-	child.Env = append(os.Environ(), "CEO_LIFECYCLE_FIXTURE=1")
+	child.Env = append(os.Environ(), "GOBLINS_LIFECYCLE_FIXTURE=1")
 	if err := child.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -100,10 +100,10 @@ func TestTerminateChecksCreationTimeOnTheProcessHandle(t *testing.T) {
 }
 
 func TestLifecycleProcessFixture(t *testing.T) {
-	if os.Getenv("CEO_LIFECYCLE_FIXTURE") != "1" {
+	if os.Getenv("GOBLINS_LIFECYCLE_FIXTURE") != "1" {
 		return
 	}
-	if pid, err := strconv.Atoi(os.Getenv("CEO_LIFECYCLE_FIXTURE_FOLLOW")); err == nil {
+	if pid, err := strconv.Atoi(os.Getenv("GOBLINS_LIFECYCLE_FIXTURE_FOLLOW")); err == nil {
 		handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
 		if err != nil {
 			t.Fatal(err)
@@ -115,7 +115,7 @@ func TestLifecycleProcessFixture(t *testing.T) {
 		if result, err := windows.WaitForSingleObject(handle, windows.INFINITE); err != nil || result != windows.WAIT_OBJECT_0 {
 			t.Fatalf("wait for task exit: result=%d error=%v", result, err)
 		}
-		if err := os.Chdir(os.Getenv("CEO_LIFECYCLE_FIXTURE_MOVE_TO")); err != nil {
+		if err := os.Chdir(os.Getenv("GOBLINS_LIFECYCLE_FIXTURE_MOVE_TO")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -138,7 +138,7 @@ func TestTerminateChecksWhetherAnAccessDeniedProcessExitedDuringTheCall(t *testi
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			child := exec.Command(os.Args[0], "-test.run=^TestLifecycleProcessFixture$")
-			child.Env = append(os.Environ(), "CEO_LIFECYCLE_FIXTURE=1")
+			child.Env = append(os.Environ(), "GOBLINS_LIFECYCLE_FIXTURE=1")
 			if err := child.Start(); err != nil {
 				t.Fatal(err)
 			}
@@ -191,13 +191,13 @@ func TestTerminateChecksWhetherAnAccessDeniedProcessExitedDuringTheCall(t *testi
 }
 
 func TestStopResourcesEndsDetachedTaskProcessesAndKeepsASentinel(t *testing.T) {
-	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	directory := t.TempDir()
 	var children []*exec.Cmd
 	for _, dir := range []string{directory, t.TempDir()} {
 		child := exec.Command(os.Args[0], "-test.run=^TestLifecycleProcessFixture$")
 		child.Dir = dir
-		child.Env = append(os.Environ(), "CEO_LIFECYCLE_FIXTURE=1")
+		child.Env = append(os.Environ(), "GOBLINS_LIFECYCLE_FIXTURE=1")
 		if err := child.Start(); err != nil {
 			t.Fatal(err)
 		}
@@ -225,12 +225,12 @@ func TestStopResourcesEndsDetachedTaskProcessesAndKeepsASentinel(t *testing.T) {
 }
 
 func TestStopResourcesEndsAProcessThatMovesIntoTheTaskDuringCleanup(t *testing.T) {
-	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	directory := t.TempDir()
 	start := func(dir string, env ...string) (*exec.Cmd, io.ReadCloser) {
 		child := exec.Command(os.Args[0], "-test.run=^TestLifecycleProcessFixture$")
 		child.Dir = dir
-		child.Env = append(append(os.Environ(), "CEO_LIFECYCLE_FIXTURE=1"), env...)
+		child.Env = append(append(os.Environ(), "GOBLINS_LIFECYCLE_FIXTURE=1"), env...)
 		stdout, err := child.StdoutPipe()
 		if err != nil {
 			t.Fatal(err)
@@ -242,7 +242,7 @@ func TestStopResourcesEndsAProcessThatMovesIntoTheTaskDuringCleanup(t *testing.T
 		return child, stdout
 	}
 	task, _ := start(directory)
-	mover, stdout := start(t.TempDir(), "CEO_LIFECYCLE_FIXTURE_FOLLOW="+strconv.Itoa(task.Process.Pid), "CEO_LIFECYCLE_FIXTURE_MOVE_TO="+directory)
+	mover, stdout := start(t.TempDir(), "GOBLINS_LIFECYCLE_FIXTURE_FOLLOW="+strconv.Itoa(task.Process.Pid), "GOBLINS_LIFECYCLE_FIXTURE_MOVE_TO="+directory)
 	ready := make(chan string, 1)
 	go func() {
 		line, _ := bufio.NewReader(stdout).ReadString('\n')

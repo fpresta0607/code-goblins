@@ -120,7 +120,7 @@ func TestStartCreatesAMissingBriefFromTheQueuedTask(t *testing.T) {
 // on the first start or on the one after a failed spawn.
 func TestStartAfterAFailedSpawnKeepsTheDeliveryChoicesOverTheTaskDetail(t *testing.T) {
 	// Arrange
-	spawner := &spawnRecorder{output: "ceo spawn: the terminal did not open\n", err: errors.New("exit status 1")}
+	spawner := &spawnRecorder{output: "goblins spawn: the terminal did not open\n", err: errors.New("exit status 1")}
 	handler, h := startBoard(t, 5*gigabyte, spawner)
 	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- **next-task** - Improve search (repo: code-goblins)\n  Search by project name.\n  mode: direct-PR\n  harness: codex\n  model: quoted-model\n  effort: low\n")
 	path := filepath.Join(h.Data, "next-task", "brief.md")
@@ -150,7 +150,7 @@ func TestStartAfterAFailedSpawnKeepsTheDeliveryChoicesOverTheTaskDetail(t *testi
 		t.Fatalf("delivery section=%q, want mode: no-mistakes", delivery)
 	}
 	if len(calls) != 2 {
-		t.Fatalf("ceo spawn ran %d times, want twice: %q", len(calls), calls)
+		t.Fatalf("goblins spawn ran %d times, want twice: %q", len(calls), calls)
 	}
 	spawn := []string{"spawn", "next-task", "--project", "code-goblins", "--brief", path}
 	revision := []string{"--brief-revision", fmt.Sprintf("brief:%x", sha256.Sum256(data))}

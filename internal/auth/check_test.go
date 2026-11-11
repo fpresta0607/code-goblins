@@ -666,7 +666,7 @@ func TestWriteLoginRequestConsolidatesEveryBlockingService(t *testing.T) {
 		t.Fatalf("WriteLoginRequest: %v", err)
 	}
 	text := out.String()
-	for _, want := range []string{"2 services", "precisiondocs / stripe", "clock-in / neon", "ceo auth store --project precisiondocs STRIPE_SECRET_KEY", "https://console.neon.tech"} {
+	for _, want := range []string{"2 services", "precisiondocs / stripe", "clock-in / neon", "goblins auth store --project precisiondocs STRIPE_SECRET_KEY", "https://console.neon.tech"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("login request lacks %q:\n%s", want, text)
 		}

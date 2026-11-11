@@ -10,7 +10,7 @@
 // installed. While the allowance is used up the supervisor arms it with a
 // codex of its own that only refuses: codex.cmd, which cmd, PowerShell and
 // every program that searches PATHEXT find, and a shell script named codex,
-// which Git Bash finds. Each runs ceo codex-guard, which says why in one line,
+// which Git Bash finds. Each runs goblins codex-guard, which says why in one line,
 // wakes the CEO once, and starts nothing. The guard holds against a goblin
 // that starts codex by name, as a rig, a probe or a test does; one that names
 // the real program by its path, or runs with a PATH of its own, passes it.
@@ -35,7 +35,7 @@ import (
 // Variable names the guard folders a terminal's PATH begins with, its own
 // first, so a terminal started from it, such as a scratch home's goblin a rig
 // spawns, keeps them all.
-const Variable = "CEO_CODEX_GUARD"
+const Variable = "GOBLINS_CODEX_GUARD"
 
 // folder is the state folder that holds every task's guard folder.
 const folder = "codex-guard"
@@ -61,7 +61,7 @@ func Chain(own, inherited string) string {
 }
 
 // Arm puts the refusing codex in task id's guard folder: it runs program, the
-// home's ceo.exe, and says Codex's allowance is used up until until. A folder
+// home's goblins.exe, and says Codex's allowance is used up until until. A folder
 // already armed so is left as it is.
 func Arm(stateDir, program, id string, until time.Time) error {
 	if err := state.ValidTaskID(id); err != nil {
@@ -135,7 +135,7 @@ func Refuse(stateDir, id string, until time.Time, args []string, now time.Time) 
 	}
 	line := fmt.Sprintf("codex: refused, because Codex's included allowance is used up until %s, so a Codex session started now bills paid credits, which task %s is not authorized to spend; nothing was started and the CEO has been told", renews, id)
 	command := shownCommand(args)
-	detail := fmt.Sprintf("codex_refused: goblin %s started `%s` while Codex's included allowance is used up until %s, so the session would have billed paid credits; its codex guard refused it and started nothing. `ceo auth grant %s --codex-credits` authorizes the task to spend them", id, command, renews, id)
+	detail := fmt.Sprintf("codex_refused: goblin %s started `%s` while Codex's included allowance is used up until %s, so the session would have billed paid credits; its codex guard refused it and started nothing. `goblins auth grant %s --codex-credits` authorizes the task to spend them", id, command, renews, id)
 	_, isNew, err := wake.AppendFirst(stateDir, "codex-refused/"+id+"/"+renews, "allowance", id, detail)
 	if err == nil && isNew {
 		_, err = wake.PublishEpisode(stateDir)

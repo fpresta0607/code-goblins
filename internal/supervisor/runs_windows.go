@@ -32,7 +32,7 @@ const (
 const runnerLinger = 60
 
 // OSRunLauncher starts a run item in a native terminal hosted the way a
-// goblin's is, HostCommand being what runs a host (ceo.exe host), so the
+// goblin's is, HostCommand being what runs a host (goblins.exe host), so the
 // item's card draws it and no window opens. An admin item's host starts
 // through Windows UAC: a hidden Windows PowerShell helper asks Windows to
 // start it elevated and out of sight, so Windows itself asks the Overlord,
@@ -124,7 +124,7 @@ func runHidden(shell string, args []string, cwd string) (RunStarted, error) {
 }
 
 // runnerScript is what an item's terminal runs: the item's script in its own
-// shell, attached to the terminal itself, so a prompt, a sign-in or ceo
+// shell, attached to the terminal itself, so a prompt, a sign-in or goblins
 // attach works there; then its exit code written to exit.txt, after which it
 // waits for the supervisor to keep what the terminal shows and close it, for
 // runnerLinger at most, so nothing waits for a key. A hidden item, which has

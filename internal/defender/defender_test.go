@@ -14,7 +14,7 @@ import (
 // recorded is what the read script prints for one detection of two files,
 // one detection of command lines alone, and two uploads.
 const recorded = `{"detections":[` +
-	`{"id":"{A1}","time":"2026-10-07T20:43:25.1230000Z","threat":"Trojan:Win32/Bearfoos.B!ml","process":"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe","files":["C:\\Users\\o\\AppData\\Local\\ceo\\gotmp\\0b49f5f9\\cg-auth-probe-hang\\TestOneLineInstallKeepsANewerNoMistakesThatThisWindowCannotSee1150654119\\002\\no-mistakes\\no-mistakes.exe","C:\\Users\\o\\AppData\\Local\\ceo\\gotmp\\0b49f5f9\\cg-auth-probe-hang\\TestOneLineInstallKeepsANewerNoMistakesThatThisWindowCannotSee1150654119\\003\\code-goblins-a3\\ceo.exe.download"],"command_lines":0},` +
+	`{"id":"{A1}","time":"2026-10-07T20:43:25.1230000Z","threat":"Trojan:Win32/Bearfoos.B!ml","process":"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe","files":["C:\\Users\\o\\AppData\\Local\\ceo\\gotmp\\0b49f5f9\\cg-auth-probe-hang\\TestOneLineInstallKeepsANewerNoMistakesThatThisWindowCannotSee1150654119\\002\\no-mistakes\\no-mistakes.exe","C:\\Users\\o\\AppData\\Local\\ceo\\gotmp\\0b49f5f9\\cg-auth-probe-hang\\TestOneLineInstallKeepsANewerNoMistakesThatThisWindowCannotSee1150654119\\003\\code-goblins-a3\\goblins.exe.download"],"command_lines":0},` +
 	`{"id":"{B2}","time":"2026-10-02T04:16:16Z","threat":"Trojan:Win32/ClickFix.DQ!MTB","process":"Unknown","files":[],"command_lines":42}],` +
 	`"uploads":[` +
 	`{"time":"2026-10-10T13:31:17.5000000Z","file":"C:\\dev\\code-goblins\\scratch\\candidates\\cand-v0.5.13\\install.ps1","sha256":"98be6d6b1ffa14adac0cb872aeed0e42b0f25c2260821891dffd5ef92bf3e277"},` +
@@ -50,7 +50,7 @@ func TestReadReturnsWhatDefenderRecorded(t *testing.T) {
 		t.Fatalf("read %d detections and %d uploads, want 2 and 2", len(report.Detections), len(report.Uploads))
 	}
 	first := report.Detections[0]
-	if first.ID != "{A1}" || first.Threat != "Trojan:Win32/Bearfoos.B!ml" || !first.Time.Equal(time.Date(2026, 10, 7, 20, 43, 25, 123000000, time.UTC)) || len(first.Files) != 2 || !strings.HasSuffix(first.Files[1], `ceo.exe.download`) {
+	if first.ID != "{A1}" || first.Threat != "Trojan:Win32/Bearfoos.B!ml" || !first.Time.Equal(time.Date(2026, 10, 7, 20, 43, 25, 123000000, time.UTC)) || len(first.Files) != 2 || !strings.HasSuffix(first.Files[1], `goblins.exe.download`) {
 		t.Errorf("first detection = %+v", first)
 	}
 	if second := report.Detections[1]; second.CommandLines != 42 || len(second.Files) != 0 {
@@ -129,7 +129,7 @@ func TestUnderKeepsTheFleetsOwnAndCountsTheRest(t *testing.T) {
 	}
 	report.Detections = append(report.Detections,
 		Detection{ID: "{C3}", Threat: "Trojan:Win32/Other", Files: []string{`D:\Photos\viewer.exe`}},
-		Detection{ID: "{D4}", Threat: "Trojan:Win32/Bearfoos.B!ml", Files: []string{`C:\Users\o\AppData\Local\Temp\TestOneLineInstallRetriesTheNoMistakesDownloadThatFailsTwice1554438682\003\x\ceo.exe.download`}})
+		Detection{ID: "{D4}", Threat: "Trojan:Win32/Bearfoos.B!ml", Files: []string{`C:\Users\o\AppData\Local\Temp\TestOneLineInstallRetriesTheNoMistakesDownloadThatFailsTwice1554438682\003\x\goblins.exe.download`}})
 
 	// Act
 	fleet := report.Under([]string{`c:\DEV\code-goblins`, `C:\Users\o\AppData\Local\ceo`})
@@ -157,18 +157,18 @@ func TestUnderKeepsTheFleetsOwnAndCountsTheRest(t *testing.T) {
 // temporary folder, as far as the path says.
 func TestOriginNamesTheTaskAndTheTestThatMadeAFile(t *testing.T) {
 	for path, want := range map[string]Origin{
-		`C:\Users\o\AppData\Local\ceo\gotmp\0b49f5f9\cg-auth-probe-hang\TestOneLineInstallKeepsANoMistakesAtThePin67573441\003\code-goblins-29\ceo.exe`: {Task: "cg-auth-probe-hang", Test: "TestOneLineInstallKeepsANoMistakesAtThePin"},
-		`C:\dev\code-goblins\scratch\cg-install-leaves-nothing\claude\session\scratchpad\main-tree\install.ps1`:                                         {Task: "cg-install-leaves-nothing"},
-		`C:\dev\code-goblins\state\tasktmp\cg-dev-drive\proof\ceo.exe`:                                                                                  {Task: "cg-dev-drive"},
-		`C:\dev\code-goblins\worktrees\code-goblins\cg-defender-quiet\install.ps1`:                                                                      {Task: "cg-defender-quiet"},
-		`D:\CodeGoblins\scratch\pd-billing\TestDevStartsAloneTheWindowItBuilt3943610803\002\built`:                                                      {Task: "pd-billing", Test: "TestDevStartsAloneTheWindowItBuilt"},
-		`C:\Users\o\AppData\Local\Temp\TestOneLineInstallRetriesTheNoMistakesDownloadThatFailsTwice1554438682\003\x\ceo.exe.download`:                   {Test: "TestOneLineInstallRetriesTheNoMistakesDownloadThatFailsTwice"},
-		`C:\Users\o\.no-mistakes\worktrees\a3a29a05a5f9\01M4DPXSR8JG7RFT43P3AC8AB0\install.ps1`:                                                         {Gate: "01M4DPXSR8JG7RFT43P3AC8AB0"},
-		`D:\CodeGoblins\no-mistakes\worktrees\a3a29a05a5f9\01M4DPXSR8JG7RFT43P3AC8AB0\install.ps1`:                                                      {Gate: "01M4DPXSR8JG7RFT43P3AC8AB0"},
-		`C:\dev\code-goblins\scratch\candidates\cand-v0.5.13\install.ps1`:                                                                               {},
-		`C:\dev\code-goblins\scratch\.tmp\go-build1\b001\pkg.test.exe`:                                                                                  {},
-		`C:\dev\code-goblins\bin\ceo.exe`: {},
-		`C:\dev\Testing\notes.txt`:        {},
+		`C:\Users\o\AppData\Local\ceo\gotmp\0b49f5f9\cg-auth-probe-hang\TestOneLineInstallKeepsANoMistakesAtThePin67573441\003\code-goblins-29\goblins.exe`: {Task: "cg-auth-probe-hang", Test: "TestOneLineInstallKeepsANoMistakesAtThePin"},
+		`C:\dev\code-goblins\scratch\cg-install-leaves-nothing\claude\session\scratchpad\main-tree\install.ps1`:                                             {Task: "cg-install-leaves-nothing"},
+		`C:\dev\code-goblins\state\tasktmp\cg-dev-drive\proof\goblins.exe`:                                                                                  {Task: "cg-dev-drive"},
+		`C:\dev\code-goblins\worktrees\code-goblins\cg-defender-quiet\install.ps1`:                                                                          {Task: "cg-defender-quiet"},
+		`D:\CodeGoblins\scratch\pd-billing\TestDevStartsAloneTheWindowItBuilt3943610803\002\built`:                                                          {Task: "pd-billing", Test: "TestDevStartsAloneTheWindowItBuilt"},
+		`C:\Users\o\AppData\Local\Temp\TestOneLineInstallRetriesTheNoMistakesDownloadThatFailsTwice1554438682\003\x\goblins.exe.download`:                   {Test: "TestOneLineInstallRetriesTheNoMistakesDownloadThatFailsTwice"},
+		`C:\Users\o\.no-mistakes\worktrees\a3a29a05a5f9\01M4DPXSR8JG7RFT43P3AC8AB0\install.ps1`:                                                             {Gate: "01M4DPXSR8JG7RFT43P3AC8AB0"},
+		`D:\CodeGoblins\no-mistakes\worktrees\a3a29a05a5f9\01M4DPXSR8JG7RFT43P3AC8AB0\install.ps1`:                                                          {Gate: "01M4DPXSR8JG7RFT43P3AC8AB0"},
+		`C:\dev\code-goblins\scratch\candidates\cand-v0.5.13\install.ps1`:                                                                                   {},
+		`C:\dev\code-goblins\scratch\.tmp\go-build1\b001\pkg.test.exe`:                                                                                      {},
+		`C:\dev\code-goblins\bin\goblins.exe`:                                                                                                               {},
+		`C:\dev\Testing\notes.txt`:                                                                                                                          {},
 	} {
 		if got := OriginOf(path); got != want {
 			t.Errorf("OriginOf(%s) = %+v, want %+v", path, got, want)

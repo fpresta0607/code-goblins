@@ -409,8 +409,10 @@ func newToolCallGoblin(t *testing.T, now time.Time) *toolCallGoblin {
 				{PID: 103, ParentPID: 102, Exe: "node.exe", Created: 3, Started: launched.Add(20*time.Minute + time.Second), CPU: goblin.toolCPU},
 			}, nil
 		},
-		Listeners:   func() (map[int][]int, error) { return nil, nil },
-		CommandLine: func(pid int) (string, error) { return map[int]string{102: `bash -c "npm run test:browser"`, 103: "node --test"}[pid], nil },
+		Listeners: func() (map[int][]int, error) { return nil, nil },
+		CommandLine: func(pid int) (string, error) {
+			return map[int]string{102: `bash -c "npm run test:browser"`, 103: "node --test"}[pid], nil
+		},
 	}
 	service.Options.Progress = &progressGit{head: strings.Repeat("a", 40), pushed: strings.Repeat("a", 40)}
 	writeFile(t, filepath.Join(h.State, "slow-task.status"), now.Format(time.RFC3339)+" working: Running the 432-test browser suite\n")
@@ -553,7 +555,7 @@ func TestADetachedSuiteUnderTheGoblinsLauncherKeepsItFromStalling(t *testing.T) 
 }
 
 // On 2026-10-23 the CEO drew a progress_stalled wake on a goblin that had
-// reported a wait and then left its browser checks to ceo gate turn --detach
+// reported a wait and then left its browser checks to goblins gate turn --detach
 // (#1443). Its run of a node script waited in the heavy line as no test or
 // build, so it was taken for a command of the goblin's own, neither a wait
 // nor its line moving seen. Once admitted, the run's Vite server listened on
@@ -831,8 +833,8 @@ func TestPassesThatReadNoGoblinWakeTheCEOOnceTheyLastAStall(t *testing.T) {
 				if strings.Contains(detail, "-task") || strings.Contains(detail, "task-1") {
 					t.Fatalf("wake %q names a goblin, want the machine", detail)
 				}
-				if !strings.Contains(detail, "ceo gate turns") {
-					t.Fatalf("wake %q, want it to name ceo gate turns, which shows the runs holding the machine", detail)
+				if !strings.Contains(detail, "goblins gate turns") {
+					t.Fatalf("wake %q, want it to name goblins gate turns, which shows the runs holding the machine", detail)
 				}
 			}
 		}

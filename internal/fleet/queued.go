@@ -49,9 +49,9 @@ func SaveQueuedTask(h home.Home, id, revision, text string) error {
 // BriefVerification assigns project checks to the selected delivery owner.
 func BriefVerification(id, mode string) string {
 	if mode != "direct-PR" && mode != "local-only" {
-		return "The pipeline Test step owns the project's defined checks and runs its baseline once. Before validation starts, ensure that its trusted test command covers every required project check; keep any missing check inside that same Test step. Drive `ceo pipeline run " + id + " --intent-file <file>` and process its returns. Do not start a separate ceo verify or prepush baseline beside the pipeline or repeat an unchanged baseline. Use the repository environment and existing fixtures for the changed surface. Report unavailable scenarios as untested with the missing prerequisite; do not invent or build a disposable full application for each change. Required cheap guards run before publication in the selected Test step. Reuse earlier proof only when its source, commands and configuration, dependencies, tools, environment and platform are verified equivalent. Validate the final commit, including formatting and documentation, and require CI on the published head. Once the run's review repair cycles are spent, accept its open review findings yourself with `ceo pipeline respond " + id + " --action approve --accept <ids>`, naming every open one, and the CEO is told of it; the Test step, --reason and every other step stay the CEO's. Accept as they stand only findings that are not correctness, security or regression defects: a real defect among them goes in one follow-up commit on the same pull request after its first CI, named in the done report."
+		return "The pipeline Test step owns the project's defined checks and runs its baseline once. Before validation starts, ensure that its trusted test command covers every required project check; keep any missing check inside that same Test step. Drive `goblins pipeline run " + id + " --intent-file <file>` and process its returns. Do not start a separate goblins verify or prepush baseline beside the pipeline or repeat an unchanged baseline. Use the repository environment and existing fixtures for the changed surface. Report unavailable scenarios as untested with the missing prerequisite; do not invent or build a disposable full application for each change. Required cheap guards run before publication in the selected Test step. Reuse earlier proof only when its source, commands and configuration, dependencies, tools, environment and platform are verified equivalent. Validate the final commit, including formatting and documentation, and require CI on the published head. Once the run's review repair cycles are spent, accept its open review findings yourself with `goblins pipeline respond " + id + " --action approve --accept <ids>`, naming every open one, and the CEO is told of it; the Test step, --reason and every other step stay the CEO's. Accept as they stand only findings that are not correctness, security or regression defects: a real defect among them goes in one follow-up commit on the same pull request after its first CI, named in the done report."
 	}
-	return "Before each push run `ceo verify " + id + "`. It runs the check this project's record names for a change, the one the CEO runs, and when the check fails it prints the line that says what failed and the file that holds the rest. Fix that before you push. Do not pick tests to run by name in its place: what the check leaves to CI it says, and CI is the check of that."
+	return "Before each push run `goblins verify " + id + "`. It runs the check this project's record names for a change, the one the CEO runs, and when the check fails it prints the line that says what failed and the file that holds the rest. Fix that before you push. Do not pick tests to run by name in its place: what the check leaves to CI it says, and CI is the check of that."
 }
 
 // BriefProcesses is what the Constraints section of every brief says of the
@@ -60,7 +60,7 @@ func BriefVerification(id, mode string) string {
 // nothing is forgotten or runs in loops, and that no terminal a goblin starts
 // shows on his desktop, as he asked on 2026-10-14.
 func BriefProcesses() string {
-	return "Browsers run headless and terminals hidden in tests, unless a picture needs a window. A heavy run starts in the background as ceo gate turn --detach <log-file> -- <command>, which starts it hidden with its pid file and log, never with a process start of the goblin's own, which opens a window on the Overlord's desktop. Every process the task starts is tracked by its pid and ended by that pid, never by its name. No retry or polling loop runs without a cap."
+	return "Browsers run headless and terminals hidden in tests, unless a picture needs a window. A heavy run starts in the background as goblins gate turn --detach <log-file> -- <command>, which starts it hidden with its pid file and log, never with a process start of the goblin's own, which opens a window on the Overlord's desktop. Every process the task starts is tracked by its pid and ended by that pid, never by its name. No retry or polling loop runs without a cap."
 }
 
 // BriefRootIssues is what the Constraints section of every brief says of a
@@ -68,7 +68,7 @@ func BriefProcesses() string {
 // 2026-10-14: it is filed on its project's repository, where the fleet picks
 // it up, and named in the report, never only mentioned.
 func BriefRootIssues() string {
-	return "A root issue you find outside this brief, a cause this task does not change, is filed with ceo issue file --project <project> --title <title> --body-file <file> and named by the address it prints in your report, never only mentioned. It comments on the open issue of the same root when there is one."
+	return "A root issue you find outside this brief, a cause this task does not change, is filed with goblins issue file --project <project> --title <title> --body-file <file> and named by the address it prints in your report, never only mentioned. It comments on the open issue of the same root when there is one."
 }
 
 // BriefStepCards is what the Authentication section of every brief says of a
@@ -76,7 +76,7 @@ func BriefRootIssues() string {
 // reaches him as one Command Center card with the page and only his inputs,
 // and the goblin goes on the moment the card closes.
 func BriefStepCards() string {
-	return "A browser or computer-use step only the Overlord can take, such as creating an account, a sign-in, a CAPTCHA, accepting terms or a token to copy, reaches him as one card: ceo auth request --project <project> --task <id> --why \"<what it is for>\" --link <the exact page> with only the inputs he enters and --wait, as your first instruction says, never a chat message or a Scrawl walkthrough."
+	return "A browser or computer-use step only the Overlord can take, such as creating an account, a sign-in, a CAPTCHA, accepting terms or a token to copy, reaches him as one card: goblins auth request --project <project> --task <id> --why \"<what it is for>\" --link <the exact page> with only the inputs he enters and --wait, as your first instruction says, never a chat message or a Scrawl walkthrough."
 }
 
 // WriteQueuedBrief writes data/<id>/brief.md from a queued row and every
@@ -127,7 +127,7 @@ func QueuedBriefText(queued QueuedTask, services []string) string {
 	if kind == "" {
 		kind = "ship"
 	}
-	return fmt.Sprintf("# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above. %s %s\n\n## Verification\n\n%s\n\n## Authentication\n\ncredentials: %s\nmcp: none\n\nThe brief records the project manifest's default services when it is written. The CEO grants another with ceo auth grant. %s\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\nready: true\n", row.ID, row.Repo, row.Title, queued.Detail, BriefProcesses(), BriefRootIssues(), BriefVerification(row.ID, "no-mistakes"), credentials, BriefStepCards(), kind, mode, row.Harness, row.Model, row.Effort)
+	return fmt.Sprintf("# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above. %s %s\n\n## Verification\n\n%s\n\n## Authentication\n\ncredentials: %s\nmcp: none\n\nThe brief records the project manifest's default services when it is written. The CEO grants another with goblins auth grant. %s\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\nready: true\n", row.ID, row.Repo, row.Title, queued.Detail, BriefProcesses(), BriefRootIssues(), BriefVerification(row.ID, "no-mistakes"), credentials, BriefStepCards(), kind, mode, row.Harness, row.Model, row.Effort)
 }
 
 // AppendQueuedTask adds row, the backlog row of task id, at the bottom of the

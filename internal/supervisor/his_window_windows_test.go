@@ -129,7 +129,7 @@ type boardAnswer struct {
 	body string
 }
 
-// realBoard serves a supervisor's board on a real connection, as ceo serve
+// realBoard serves a supervisor's board on a real connection, as goblins serve
 // does. Each request waits for its opener to have exited before the board
 // sees it, and what the board answers is handed to the test.
 type realBoard struct {
@@ -236,7 +236,7 @@ func TestAProgramWindowsNamesAsTheHomesWindowIsHisOverARealConnectionAfterItsOpe
 	window := filepath.Join(h.Bin(), windowName)
 
 	// Act
-	goblins := board.press(t, window, "CEO_ROLE=goblin")
+	goblins := board.press(t, window, "GOBLINS_ROLE=goblin")
 	lookalike := board.press(t, filepath.Join(elsewhere, windowName))
 	afterRefusals, readErr := afk.Read(h.State)
 	his := board.press(t, window)

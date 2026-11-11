@@ -169,7 +169,7 @@ func TestSwitchWritesAHandoffAndPointsTheNewHarnessAtIt(t *testing.T) {
 		t.Fatalf("submitted = %q, want the new harness's instruction", submitted)
 	}
 	instruction := delivered(t, submitted[0])
-	if !strings.Contains(instruction, result.Handoff) || !strings.Contains(instruction, "ask it again with ceo notify --blocked") {
+	if !strings.Contains(instruction, result.Handoff) || !strings.Contains(instruction, "ask it again with goblins notify --blocked") {
 		t.Errorf("instruction = %q, want it pointed at the handoff and told to ask a cancelled question again", instruction)
 	}
 }
@@ -613,7 +613,7 @@ func assertEmptyTerminalRecorded(t *testing.T, f *switchFixture, err error, more
 	if err == nil {
 		t.Fatal("Switch = nil, want the failure surfaced")
 	}
-	for _, want := range append([]string{"native terminal now has no harness", "is untouched", "ceo switch " + f.meta.ID}, more...) {
+	for _, want := range append([]string{"native terminal now has no harness", "is untouched", "goblins switch " + f.meta.ID}, more...) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want it to mention %q", err, want)
 		}
@@ -631,7 +631,7 @@ func assertEmptyTerminalRecorded(t *testing.T, f *switchFixture, err error, more
 }
 
 // A failure after the new harness is up must not claim the terminal is empty:
-// that sends the operator to `ceo switch` again, which stops a running goblin
+// that sends the operator to `goblins switch` again, which stops a running goblin
 // and loses its context.
 func TestSwitchReportsALiveTerminalInsteadOfClaimingItIsEmpty(t *testing.T) {
 	previous := nativeStartup
@@ -645,7 +645,7 @@ func TestSwitchReportsALiveTerminalInsteadOfClaimingItIsEmpty(t *testing.T) {
 	if err == nil {
 		t.Fatal("Switch = nil, want the launch failure surfaced")
 	}
-	for _, want := range []string{"still holds a live", "is untouched", "ceo peek " + f.meta.ID, "do NOT rerun `ceo switch`"} {
+	for _, want := range []string{"still holds a live", "is untouched", "goblins peek " + f.meta.ID, "do NOT rerun `goblins switch`"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want it to mention %q", err, want)
 		}
@@ -660,7 +660,7 @@ func TestSwitchReportsALiveTerminalInsteadOfClaimingItIsEmpty(t *testing.T) {
 // had to be given an invented suffix.
 func TestSpawnAllowsAnIDWhoseOnlyRemainIsAFinishedTasksStatusLog(t *testing.T) {
 	f := newNativeFixture(t, harness.Codex, "")
-	if err := state.AppendStatus(f.stateDir, f.request.ID, "done: returned worktree via ceo cleanup"); err != nil {
+	if err := state.AppendStatus(f.stateDir, f.request.ID, "done: returned worktree via goblins cleanup"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -830,7 +830,7 @@ func TestSwitchReappliesTheProjectEnvironmentRedirects(t *testing.T) {
 	for name, want := range map[string]string{
 		"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
 		"GOTMPDIR":                 goTmpDir(t, f.stateDir, f.meta.ID),
-		"CEO_STATE_OVERRIDE":       f.stateDir,
+		"GOBLINS_STATE_OVERRIDE":   f.stateDir,
 	} {
 		if got := started[name]; got == nil || *got != want {
 			t.Errorf("the new harness started with %s = %v, want %q", name, got, want)

@@ -637,9 +637,9 @@ func TestRequiredEnvironmentRefusalRequiresRetryInsteadOfApproval(t *testing.T) 
 	}{
 		{"recorded native refusal", recorded("native-environment-refusal.json"), "test-command-no-turn"},
 		{"recorded native refusal through verify", recorded("native-environment-refusal-through-verify.json"), "test-command-no-turn"},
-		{"before admission", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: ceo gate turn: the command did not start: required test environment: .venv is missing. Respond with fix to run it again."}]}`, "test-command-no-turn"},
-		{"after admission", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: ceo gate turn: the command did not start: required test environment changed while waiting; verify the project binding and retry."}]}`, "test-command-no-turn"},
-		{"base attribution", `{"findings":[{"id":"test-1","action":"ask-user","description":"configured test command exited with code 7"}],"summary":"Base attribution unavailable (test command was given no turn on the base checkout: ceo gate turn: the command did not start: required test environment: .venv is missing); every failure is attributed to this change."}`, "test-1"},
+		{"before admission", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: goblins gate turn: the command did not start: required test environment: .venv is missing. Respond with fix to run it again."}]}`, "test-command-no-turn"},
+		{"after admission", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: goblins gate turn: the command did not start: required test environment changed while waiting; verify the project binding and retry."}]}`, "test-command-no-turn"},
+		{"base attribution", `{"findings":[{"id":"test-1","action":"ask-user","description":"configured test command exited with code 7"}],"summary":"Base attribution unavailable (test command was given no turn on the base checkout: goblins gate turn: the command did not start: required test environment: .venv is missing); every failure is attributed to this change."}`, "test-1"},
 	} {
 		t.Run(report.name, func(t *testing.T) {
 			gate := Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 1, Findings: report.findings}
@@ -664,8 +664,8 @@ func TestRequiredEnvironmentRefusalRequiresRetryInsteadOfApproval(t *testing.T) 
 	for _, report := range []struct {
 		name, findings string
 	}{
-		{"unrelated no-turn refusal", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The test command ` + "`echo required test environment`" + ` was given no turn. The wrapper reported: ceo gate turn: this run takes no turn: it took no turn within its wait of 1m0s."}]}`},
-		{"unrelated base refusal", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: ceo gate turn: this run takes no turn: it took no turn within its wait of 1m0s."}],"summary":"Base attribution unavailable (test command was given no turn on the base checkout: ceo gate turn: this run takes no turn: queue timeout); every failure is attributed to this change.\nTest output mentions required test environment."}`},
+		{"unrelated no-turn refusal", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The test command ` + "`echo required test environment`" + ` was given no turn. The wrapper reported: goblins gate turn: this run takes no turn: it took no turn within its wait of 1m0s."}]}`},
+		{"unrelated base refusal", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: goblins gate turn: this run takes no turn: it took no turn within its wait of 1m0s."}],"summary":"Base attribution unavailable (test command was given no turn on the base checkout: goblins gate turn: this run takes no turn: queue timeout); every failure is attributed to this change.\nTest output mentions required test environment."}`},
 	} {
 		t.Run(report.name, func(t *testing.T) {
 			gate := Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 1, Findings: report.findings}

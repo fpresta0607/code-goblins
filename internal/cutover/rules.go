@@ -7,11 +7,17 @@ import (
 )
 
 // The supervisor's role was called the CFO until 2026-11-09 and is the CEO
-// since. This package is the one place outside recorded history that still
-// spells the old name, since each thing it moves is found by it.
+// since, and the command named after the role's old name is goblins. This
+// package is the one place outside recorded history that still spells the old
+// name, since each thing it moves is found by it.
 const (
 	oldName = "cfo"
+	// newName is the role's: the role's own files, skills, terminal and
+	// records take it.
 	newName = "ceo"
+	// newCommand is the command's: the old build's calls of its command, its
+	// settings and its programs take it.
+	newCommand = "goblins"
 )
 
 var (
@@ -54,16 +60,21 @@ var names = []string{
 	".ceo-home", ".ceo-narrowing-unfinished",
 	// What the install and the native hooks write in a harness's folder.
 	"ceo-native.ts", "ceo-native-hook.ps1", ".ceo-native.backup", ".ceo-install.bak", ".ceo-install.rules",
-	// The programs.
-	"ceo.exe", "ceo-hook.exe",
 	// Identifiers the state's records hold as values.
-	"ceo_answer", "ceo_message", "ceo_wait", "primary-ceo", "previous-ceo", "board-ceo",
-	// The copy of the old build the last update kept as its way back.
-	"previous-ceo.exe",
+	"ceo_answer", "ceo_message", "ceo_wait", "primary-ceo", "board-ceo",
 	// The schemas of the state's records, which the new build reads only
 	// under its own names.
 	"ceo-fleet-wakes.v1", "ceo-merge-train.v1", "ceo-monitor.v1", "ceo-monitor-polls.v1", "ceo-monitor-tally.v1",
 	"ceo-reap.v2", "ceo-update.v1",
+}
+
+// programs are the old build's programs, and the names its update gave the
+// copy it kept as its way back, each with the command's name it takes.
+var programs = map[string]string{
+	oldName + ".exe":               newCommand + ".exe",
+	oldName + "-hook.exe":          newCommand + "-hook.exe",
+	"previous-" + oldName:          "previous-" + newCommand,
+	"previous-" + oldName + ".exe": "previous-" + newCommand + ".exe",
 }
 
 // prefixes begin the names of a kind of file or record the new build names
@@ -79,11 +90,15 @@ var markers = []string{"CEO native hooks"}
 // name or a sentence about the role keeps its words.
 type rules struct {
 	command *regexp.Regexp
-	skills  []string
+	// argv finds the old command as the program of a JSON array that runs
+	// one of its commands, such as a delivery's verification.
+	argv   *regexp.Regexp
+	skills []string
 }
 
 var (
 	variable   = regexp.MustCompile(`\b` + strings.ToUpper(oldName) + `_([A-Z0-9])`)
+	setting    = strings.ToUpper(newCommand) + "_"
 	backticked = regexp.MustCompile("`" + oldName + "`")
 	nameToken  = regexp.MustCompile(`(^|[^A-Za-z0-9_-])(\.?(?i:` + oldName + `)[-_.][A-Za-z0-9_.-]*)`)
 	jsonKey    = regexp.MustCompile(`"((?:[a-z0-9]+_)*` + oldName + `(?:_[a-z0-9]+)*)"(\s*:)`)
@@ -106,6 +121,11 @@ func ledNames() *regexp.Regexp {
 			led = append(led, regexp.QuoteMeta(oldSpelling(name)))
 		}
 	}
+	for old := range programs {
+		if !strings.HasPrefix(old, oldName) {
+			led = append(led, regexp.QuoteMeta(old))
+		}
+	}
 	slices.SortFunc(led, func(a, b string) int { return len(b) - len(a) })
 	return regexp.MustCompile(`(^|[^A-Za-z0-9_-])(` + strings.Join(led, "|") + `)\b`)
 }
@@ -123,13 +143,17 @@ func newRules(commands, skills []string) rules {
 	slices.SortFunc(quoted, func(a, b string) int { return len(b) - len(a) })
 	return rules{
 		command: regexp.MustCompile(`(^|[^A-Za-z0-9_.-])` + oldName + `( +)(` + strings.Join(quoted, "|") + `)\b`),
+		argv:    regexp.MustCompile(`"` + oldName + `"(\s*,\s*"(?:` + strings.Join(quoted, "|") + `)")`),
 		skills:  skills,
 	}
 }
 
-// renamed is the new spelling of name when it is one the old build gave, or
-// name itself.
+// renamed is the new name of name when it is one the old build gave, or name
+// itself.
 func (r rules) renamed(name string) string {
+	if program, isProgram := programs[strings.ToLower(name)]; isProgram {
+		return program
+	}
 	respelled := newSpelling(name)
 	lower := strings.ToLower(respelled)
 	if slices.Contains(names, lower) || slices.Contains(r.skills, lower) {
@@ -179,10 +203,14 @@ func (r rules) text(text string, protected *regexp.Regexp) string {
 	return out.String()
 }
 
-// json rewrites a JSON document's text: its words as text does, every key
-// that names the old role as a word of its own, every value that is the old
-// name alone, and every label of the old name's, such as "cfo: running".
+// json rewrites a JSON document's text: its words as text does, the old
+// command where an array runs one of its commands, every key that names the
+// old role as a word of its own, every value that is the old name alone, and
+// every label of the old name's, such as "cfo: running".
 func (r rules) json(text string) string {
+	if r.argv != nil {
+		text = r.argv.ReplaceAllString(text, `"`+newCommand+`"${1}`)
+	}
 	text = jsonKey.ReplaceAllStringFunc(text, func(match string) string {
 		return newSpelling(match)
 	})
@@ -193,10 +221,10 @@ func (r rules) json(text string) string {
 }
 
 func (r rules) words(text string) string {
-	text = variable.ReplaceAllString(text, strings.ToUpper(newName)+"_$1")
-	text = backticked.ReplaceAllString(text, "`"+newName+"`")
+	text = variable.ReplaceAllString(text, setting+"$1")
+	text = backticked.ReplaceAllString(text, "`"+newCommand+"`")
 	if r.command != nil {
-		text = r.command.ReplaceAllString(text, "${1}"+newName+"${2}${3}")
+		text = r.command.ReplaceAllString(text, "${1}"+newCommand+"${2}${3}")
 	}
 	for _, marker := range markers {
 		text = strings.ReplaceAll(text, oldSpelling(marker), marker)
@@ -218,7 +246,11 @@ func renameLed(text string) string {
 			continue
 		}
 		out.WriteString(text[last:start])
-		out.WriteString(newSpelling(text[start:end]))
+		if program, isProgram := programs[strings.ToLower(text[start:end])]; isProgram {
+			out.WriteString(program)
+		} else {
+			out.WriteString(newSpelling(text[start:end]))
+		}
 		last = end
 	}
 	out.WriteString(text[last:])

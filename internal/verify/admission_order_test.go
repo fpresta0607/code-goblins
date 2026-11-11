@@ -332,7 +332,7 @@ func TestARunThatCannotMoveUpKeepsItsPlaceAndLeavesNoneInFront(t *testing.T) {
 	}
 }
 
-// Line says why each run stands behind the one before it, in the words ceo
+// Line says why each run stands behind the one before it, in the words goblins
 // gate turns prints, and says nothing of the first.
 func TestLineSaysWhyARunStandsBehindTheOneBeforeIt(t *testing.T) {
 	type place struct{ name, priority string }

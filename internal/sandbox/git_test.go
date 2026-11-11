@@ -352,9 +352,9 @@ func TestNestedGitRefusalFindsARepositoryAnywhereInTheWorktree(t *testing.T) {
 		isFile      bool
 		want        string
 	}{
-		{"a repository deep in the packages", "node_modules/pkg/.git", false, "ceo sandbox run -- rm -rf node_modules/pkg/.git"},
-		{"a submodule's link file", "vendor/x/.git", true, "ceo sandbox run -- rm -rf vendor/x/.git"},
-		{"a repository in another case", "src/.GIT", false, "ceo sandbox run -- rm -rf src/.GIT"},
+		{"a repository deep in the packages", "node_modules/pkg/.git", false, "goblins sandbox run -- rm -rf node_modules/pkg/.git"},
+		{"a submodule's link file", "vendor/x/.git", true, "goblins sandbox run -- rm -rf vendor/x/.git"},
+		{"a repository in another case", "src/.GIT", false, "goblins sandbox run -- rm -rf src/.GIT"},
 		{"a folder whose name starts with .git", ".github/workflows", false, ""},
 		{"the worktree's own link alone", "", false, ""},
 	} {

@@ -1,6 +1,6 @@
-# ceo hooks
+# goblins hooks
 
-`ceo hooks`
+`goblins hooks`
 
 check|install <claude|codex|pi> native lifecycle hooks
 

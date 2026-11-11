@@ -26,9 +26,9 @@ const pathVariable = "Path"
 
 // ProjectsRootVariable names the folder that holds the operator's checkouts,
 // which is what lets `--project <name>` stand for `<root>/<name>`. It is a
-// fact about the machine, so it is kept where CEO_HOME is and nowhere in the
+// fact about the machine, so it is kept where GOBLINS_HOME is and nowhere in the
 // repository: every adopter's folder is somewhere else.
-const ProjectsRootVariable = "CEO_PROJECTS_ROOT"
+const ProjectsRootVariable = "GOBLINS_PROJECTS_ROOT"
 
 // Service installs and uninstalls the CEO on one machine. Every destination
 // is a field so a test can point the whole thing at a temp directory and a
@@ -37,8 +37,8 @@ const ProjectsRootVariable = "CEO_PROJECTS_ROOT"
 // setup and losing their hooks to our installer is the worst failure here.
 type Service struct {
 	// Root is the CEO home, the per-user home every install uses unless
-	// CEO_HOME names another. It is the value CEO_HOME gets; its bin folder is
-	// the directory added to PATH and the one holding ceo.exe.
+	// GOBLINS_HOME names another. It is the value GOBLINS_HOME gets; its bin folder is
+	// the directory added to PATH and the one holding goblins.exe.
 	Root string
 	// UserSettings is the Claude Code user settings file, normally
 	// ~/.claude/settings.json.
@@ -67,7 +67,7 @@ type Service struct {
 	// through.
 	Link harnessmap.Linker
 	// HarnessDirs are the configuration folders, by harness name, whose
-	// board native hooks (written by `ceo hooks install`) an uninstall
+	// board native hooks (written by `goblins hooks install`) an uninstall
 	// removes.
 	HarnessDirs map[string]string
 	// StartMenuShortcut is the Code Goblins shortcut the install script puts
@@ -160,7 +160,7 @@ func (s Service) Install(out io.Writer) error {
 	if err := s.keepAppsEntry(report); err != nil {
 		return err
 	}
-	return s.finish(report, "ceo install: already installed - nothing changed")
+	return s.finish(report, "goblins install: already installed - nothing changed")
 }
 
 // Uninstall reverses Install. An adopter who cannot cleanly back out will
@@ -212,7 +212,7 @@ func (s Service) Uninstall(out io.Writer) error {
 		report.change("apps", "took Code Goblins out of Installed apps")
 	}
 	report.same("home", "kept "+s.Root+" with its state and data; delete the folder to remove them")
-	return s.finish(report, "ceo install --uninstall: nothing to remove")
+	return s.finish(report, "goblins install --uninstall: nothing to remove")
 }
 
 // removeDictation removes the speech engine and model the install set
@@ -242,7 +242,7 @@ func (s Service) removeDictation(report *reporter) error {
 	return nil
 }
 
-// refreshPiHooks brings the board's pi extension, where `ceo hooks install
+// refreshPiHooks brings the board's pi extension, where `goblins hooks install
 // pi` put one, up to this build, so an update reaches every pi session
 // started after it.
 func (s Service) refreshPiHooks(report *reporter) error {
@@ -250,7 +250,7 @@ func (s Service) refreshPiHooks(report *reporter) error {
 	if !ok {
 		return nil
 	}
-	changed, err := nativehook.RefreshPi(nativehook.InstallConfig{ConfigDir: root.Path, Executable: filepath.Join(s.bin(), "ceo.exe"), Home: s.Root, State: filepath.Join(s.Root, "state")})
+	changed, err := nativehook.RefreshPi(nativehook.InstallConfig{ConfigDir: root.Path, Executable: filepath.Join(s.bin(), "goblins.exe"), Home: s.Root, State: filepath.Join(s.Root, "state")})
 	if err != nil {
 		return fmt.Errorf("install: refresh the board's pi extension in %s: %w", root.Path, err)
 	}
@@ -396,7 +396,7 @@ func (s Service) setHome(report *reporter) error {
 		return err
 	}
 	if set && installbase.SameDirectory(current, s.Root) {
-		report.same("CEO_HOME", "already "+current)
+		report.same("GOBLINS_HOME", "already "+current)
 		return nil
 	}
 	if err := s.Env.Set(installbase.HomeVariable, s.Root); err != nil {
@@ -404,10 +404,10 @@ func (s Service) setHome(report *reporter) error {
 	}
 	report.envChanged = true
 	if set {
-		report.change("CEO_HOME", fmt.Sprintf("changed from %s to %s (user scope)", current, s.Root))
+		report.change("GOBLINS_HOME", fmt.Sprintf("changed from %s to %s (user scope)", current, s.Root))
 		return nil
 	}
-	report.change("CEO_HOME", "set to "+s.Root+" (user scope)")
+	report.change("GOBLINS_HOME", "set to "+s.Root+" (user scope)")
 	return nil
 }
 
@@ -417,14 +417,14 @@ func (s Service) unsetHome(report *reporter) error {
 		return err
 	}
 	if !set {
-		report.same("CEO_HOME", "not set")
+		report.same("GOBLINS_HOME", "not set")
 		return nil
 	}
 	if err := s.Env.Unset(installbase.HomeVariable); err != nil {
 		return err
 	}
 	report.envChanged = true
-	report.change("CEO_HOME", "removed (was "+current+")")
+	report.change("GOBLINS_HOME", "removed (was "+current+")")
 	return nil
 }
 
@@ -438,7 +438,7 @@ func (s Service) setProjectsRoot(report *reporter) error {
 		report.same("projects", "root is "+current)
 		return nil
 	case s.ProjectsRoot == "":
-		report.same("projects", "root not set; `ceo install --projects-root <dir>` lets --project take a bare name")
+		report.same("projects", "root not set; `goblins install --projects-root <dir>` lets --project take a bare name")
 		return nil
 	case set && installbase.SameDirectory(current, s.ProjectsRoot):
 		report.same("projects", "root already "+current)
@@ -476,7 +476,7 @@ func (s Service) unsetProjectsRoot(report *reporter) error {
 // projectsRoot reads the machine's projects root, or "" when none is recorded.
 // The process environment answers first, so an operator can point one command
 // somewhere else. The user scope answers second, because a session that was
-// already open when `ceo install --projects-root` ran keeps its old
+// already open when `goblins install --projects-root` ran keeps its old
 // environment for as long as it lives, and the CEO's own session is exactly
 // that.
 func projectsRoot(env installbase.EnvStore) (string, error) {
@@ -496,7 +496,7 @@ func MachineProjectsRoot() (string, error) {
 }
 
 // SetMachineProjectsRoot records root as this machine's projects root in the
-// user scope, as ceo install --projects-root does.
+// user scope, as goblins install --projects-root does.
 func SetMachineProjectsRoot(root string) error {
 	return installbase.NewEnvStore(execx.OSRunner{}).Set(ProjectsRootVariable, root)
 }
@@ -522,9 +522,9 @@ func AddToUserPath(dir string) error {
 }
 
 // addToPath puts the home's bin folder on the user PATH, where the hooks and
-// every terminal find ceo and goblins, and takes off the home's root, where an
+// every terminal find goblins, and takes off the home's root, where an
 // older install put the binaries, and the root of the former home it takes
-// over from, so neither an older build left there nor a ceo.exe built in that
+// over from, so neither an older build left there nor a goblins.exe built in that
 // checkout ever runs before this home's bin.
 func (s Service) addToPath(report *reporter, former string) error {
 	raw, _, err := s.Env.Get(pathVariable)
@@ -602,7 +602,7 @@ func (s Service) bin() string {
 //
 // The hooks were written there until 2026-10, where every Claude Code session
 // of the user ran them: each Bash call, turn end and start, in his own
-// sessions and in every goblin's, started ceo.exe, about 0.1 s each, only for
+// sessions and in every goblin's, started goblins.exe, about 0.1 s each, only for
 // the hook to leave on its environment. The CEO's terminal starts with them
 // instead (CEOSettings), so no other session runs them at all, and an install
 // removes the ones an older build wrote.
@@ -682,7 +682,7 @@ func (s Service) writeUserSettings(report *reporter) error {
 	return nil
 }
 
-// removeUserSettings takes the CEO hooks and the allow rules ceo install
+// removeUserSettings takes the CEO hooks and the allow rules goblins install
 // recorded adding out of the user's Claude Code settings in one write, and
 // then the record. A rule the adopter wrote stays, even one install would
 // have added.
@@ -735,9 +735,9 @@ func (s Service) removeUserSettings(report *reporter) error {
 		report.same("user hooks", "none of the CEO's in "+s.UserSettings)
 	}
 	if removed > 0 {
-		report.change("permissions", fmt.Sprintf("removed the %d Command Center allow rules ceo install added to %s, keeping the rest", removed, s.UserSettings))
+		report.change("permissions", fmt.Sprintf("removed the %d Command Center allow rules goblins install added to %s, keeping the rest", removed, s.UserSettings))
 	} else {
-		report.same("permissions", "none of the Command Center allow rules ceo install added are in "+s.UserSettings)
+		report.same("permissions", "none of the Command Center allow rules goblins install added are in "+s.UserSettings)
 	}
 	if backup != "" {
 		report.detail("backed up the previous file to " + backup)

@@ -1,6 +1,6 @@
 import type { LocalChecks } from "./types";
 
-// LocalChecksLook is how a task's newest ceo gate test run shows beside its
+// LocalChecksLook is how a task's newest goblins gate test run shows beside its
 // pull request: the words, a tip with the detail, a tone, and the page a click
 // opens, the end of the run's log.
 export interface LocalChecksLook { text: string; tip: string; tone: "failed" | "passed"; url: string }
@@ -11,7 +11,7 @@ function duration(seconds: number): string {
   return seconds < 60 ? Math.round(seconds) + "s" : Math.round(seconds / 60) + "m";
 }
 
-// localChecksLook says how the newest ceo gate test run of a task's change
+// localChecksLook says how the newest goblins gate test run of a task's change
 // ended, at which level and in how long, and what failed.
 export function localChecksLook(checks: LocalChecks, taskId: string): LocalChecksLook {
   const passed = checks.status === "passed";

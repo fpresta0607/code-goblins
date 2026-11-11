@@ -22,7 +22,7 @@ $ErrorActionPreference = "Continue"
 # A new terminal sees what the install wrote to the registry; a new step
 # does not.
 $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-$homeSetting = "CEO_HOME"
+$homeSetting = "GOBLINS_HOME"
 if ($PreRename) {
     . (Join-Path $PSScriptRoot "..\pre_rename_build.ps1")
     $homeSetting = "${PreRenameSettingPrefix}HOME"

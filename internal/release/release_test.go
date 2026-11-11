@@ -129,7 +129,7 @@ func TestStandingComparesThisBuildWithTheRelease(t *testing.T) {
 }
 
 func TestLatestReadsTheReleaseAndAsksAgainWithItsETag(t *testing.T) {
-	stub := newStubRelease(t, "v0.5.0", releaseAssets("", map[string][]byte{"ceo.exe": []byte("new build")}))
+	stub := newStubRelease(t, "v0.5.0", releaseAssets("", map[string][]byte{"goblins.exe": []byte("new build")}))
 	state := t.TempDir()
 
 	first, err := Latest(context.Background(), http.DefaultClient, stub.source(), state)
@@ -154,7 +154,7 @@ func TestLatestReadsTheReleaseAndAsksAgainWithItsETag(t *testing.T) {
 }
 
 func TestLatestOfflineFailsAndKeepsWhatItKnew(t *testing.T) {
-	stub := newStubRelease(t, "v0.5.0", releaseAssets("", map[string][]byte{"ceo.exe": []byte("new build")}))
+	stub := newStubRelease(t, "v0.5.0", releaseAssets("", map[string][]byte{"goblins.exe": []byte("new build")}))
 	state := t.TempDir()
 	if _, err := Latest(context.Background(), http.DefaultClient, stub.source(), state); err != nil {
 		t.Fatal(err)
@@ -180,7 +180,7 @@ func TestLatestRefusesAReleaseItCannotOffer(t *testing.T) {
 	}
 	for name, change := range cases {
 		t.Run(name, func(t *testing.T) {
-			stub := newStubRelease(t, "v0.5.0", releaseAssets("", map[string][]byte{"ceo.exe": []byte("new build")}))
+			stub := newStubRelease(t, "v0.5.0", releaseAssets("", map[string][]byte{"goblins.exe": []byte("new build")}))
 			change(stub.release)
 
 			_, err := Latest(context.Background(), http.DefaultClient, stub.source(), t.TempDir())
@@ -193,7 +193,7 @@ func TestLatestRefusesAReleaseItCannotOffer(t *testing.T) {
 }
 
 func TestLatestSaysWhatTheSourceAnswered(t *testing.T) {
-	stub := newStubRelease(t, "v0.5.0", releaseAssets("", map[string][]byte{"ceo.exe": []byte("new build")}))
+	stub := newStubRelease(t, "v0.5.0", releaseAssets("", map[string][]byte{"goblins.exe": []byte("new build")}))
 	stub.statuses["/latest"] = http.StatusForbidden
 
 	_, err := Latest(context.Background(), http.DefaultClient, stub.source(), t.TempDir())
@@ -298,7 +298,7 @@ func TestFetchReportsCheckingAfterAllProgramsDownload(t *testing.T) {
 }
 
 func TestFetchKeepsTheProgramsThatMatchTheReleaseSums(t *testing.T) {
-	programs := map[string][]byte{"ceo.exe": []byte("new build"), "goblins-window.exe": []byte("new window"), "ceo-hook.exe": []byte("new hook program")}
+	programs := map[string][]byte{"goblins.exe": []byte("new build"), "goblins-window.exe": []byte("new window"), "goblins-hook.exe": []byte("new hook program")}
 	stub := newStubRelease(t, "v0.5.0", releaseAssets("", programs))
 
 	download, dir, err := fetchFrom(t, stub, noSignature(t))
@@ -306,8 +306,8 @@ func TestFetchKeepsTheProgramsThatMatchTheReleaseSums(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if download.Program != filepath.Join(dir, "ceo.exe") || download.Window != filepath.Join(dir, "goblins-window.exe") || download.Hook != filepath.Join(dir, "ceo-hook.exe") || download.Publisher != "" {
-		t.Fatalf("download = %+v, want ceo.exe, the window and the hook program in %s, unsigned", download, dir)
+	if download.Program != filepath.Join(dir, "goblins.exe") || download.Window != filepath.Join(dir, "goblins-window.exe") || download.Hook != filepath.Join(dir, "goblins-hook.exe") || download.Publisher != "" {
+		t.Fatalf("download = %+v, want goblins.exe, the window and the hook program in %s, unsigned", download, dir)
 	}
 	for name, want := range programs {
 		got, err := os.ReadFile(filepath.Join(dir, name))
@@ -315,30 +315,30 @@ func TestFetchKeepsTheProgramsThatMatchTheReleaseSums(t *testing.T) {
 			t.Fatalf("%s holds %q (%v), want %q", name, got, err, want)
 		}
 	}
-	if download.Sums["ceo.exe"] != sum(programs["ceo.exe"]) {
-		t.Fatalf("download.Sums = %v, want ceo.exe's SHA-256", download.Sums)
+	if download.Sums["goblins.exe"] != sum(programs["goblins.exe"]) {
+		t.Fatalf("download.Sums = %v, want goblins.exe's SHA-256", download.Sums)
 	}
 }
 
 func TestFetchWithoutAWindowKeepsTheProgramAlone(t *testing.T) {
-	stub := newStubRelease(t, "v0.5.0", releaseAssets("", map[string][]byte{"ceo.exe": []byte("new build")}))
+	stub := newStubRelease(t, "v0.5.0", releaseAssets("", map[string][]byte{"goblins.exe": []byte("new build")}))
 
 	download, _, err := fetchFrom(t, stub, noSignature(t))
 
 	if err != nil || download.Program == "" || download.Window != "" || download.Hook != "" {
-		t.Fatalf("download = %+v, %v; want ceo.exe alone", download, err)
+		t.Fatalf("download = %+v, %v; want goblins.exe alone", download, err)
 	}
 }
 
 func TestFetchRefusesAProgramThatDoesNotMatchItsSum(t *testing.T) {
-	assets := releaseAssets("", map[string][]byte{"ceo.exe": []byte("new build"), "goblins-window.exe": []byte("new window")})
-	assets["ceo.exe"] = []byte("a build someone swapped in")
+	assets := releaseAssets("", map[string][]byte{"goblins.exe": []byte("new build"), "goblins-window.exe": []byte("new window")})
+	assets["goblins.exe"] = []byte("a build someone swapped in")
 	stub := newStubRelease(t, "v0.5.0", assets)
 
 	_, dir, err := fetchFrom(t, stub, noSignature(t))
 
-	if err == nil || !strings.Contains(err.Error(), "ceo.exe does not match the release's SHA256SUMS") {
-		t.Fatalf("Fetch = %v, want ceo.exe refused for its checksum", err)
+	if err == nil || !strings.Contains(err.Error(), "goblins.exe does not match the release's SHA256SUMS") {
+		t.Fatalf("Fetch = %v, want goblins.exe refused for its checksum", err)
 	}
 	if _, statErr := os.Stat(dir); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("the download folder %s is still there (%v); a refused download keeps nothing", dir, statErr)
@@ -348,16 +348,16 @@ func TestFetchRefusesAProgramThatDoesNotMatchItsSum(t *testing.T) {
 func TestFetchRefusesAReleaseWhoseSumsMissAProgram(t *testing.T) {
 	cases := map[string]func(map[string][]byte){
 		"no SHA256SUMS": func(a map[string][]byte) { delete(a, "SHA256SUMS") },
-		"sums without ceo.exe": func(a map[string][]byte) {
+		"sums without goblins.exe": func(a map[string][]byte) {
 			a["SHA256SUMS"] = []byte(sum(a["goblins-window.exe"]) + "  goblins-window.exe\n")
 		},
-		"no ceo.exe at all":       func(a map[string][]byte) { delete(a, "ceo.exe") },
+		"no goblins.exe at all":   func(a map[string][]byte) { delete(a, "goblins.exe") },
 		"no install script":       func(a map[string][]byte) { delete(a, "install.ps1") },
-		"a sum that is not a sum": func(a map[string][]byte) { a["SHA256SUMS"] = []byte("abc  ceo.exe\n") },
+		"a sum that is not a sum": func(a map[string][]byte) { a["SHA256SUMS"] = []byte("abc  goblins.exe\n") },
 	}
 	for name, change := range cases {
 		t.Run(name, func(t *testing.T) {
-			assets := releaseAssets("", map[string][]byte{"ceo.exe": []byte("new build"), "goblins-window.exe": []byte("new window")})
+			assets := releaseAssets("", map[string][]byte{"goblins.exe": []byte("new build"), "goblins-window.exe": []byte("new window")})
 			change(assets)
 			stub := newStubRelease(t, "v0.5.0", assets)
 
@@ -371,7 +371,7 @@ func TestFetchRefusesAReleaseWhoseSumsMissAProgram(t *testing.T) {
 }
 
 func TestFetchRefusesADownloadFromAnotherSite(t *testing.T) {
-	stub := newStubRelease(t, "v0.5.0", releaseAssets("", map[string][]byte{"ceo.exe": []byte("new build")}))
+	stub := newStubRelease(t, "v0.5.0", releaseAssets("", map[string][]byte{"goblins.exe": []byte("new build")}))
 	source := stub.source()
 	source.Downloads = "https://github.com/fpresta0607/code-goblins/releases/download/"
 	state := t.TempDir()
@@ -402,7 +402,7 @@ func TestFetchChecksTheSignatureOfASignedRelease(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			stub := newStubRelease(t, "v0.5.0", releaseAssets(c.publisher, map[string][]byte{"ceo.exe": []byte("new build"), "goblins-window.exe": []byte("new window")}))
+			stub := newStubRelease(t, "v0.5.0", releaseAssets(c.publisher, map[string][]byte{"goblins.exe": []byte("new build"), "goblins-window.exe": []byte("new window")}))
 			var read []string
 			signedBy := func(_ context.Context, path string) (string, string, error) {
 				read = append(read, filepath.Base(path))
@@ -447,8 +447,8 @@ func TestNotesSayWhetherTheReleaseIsSignedAndWhatItsProgramHashesTo(t *testing.T
 	cases := []struct {
 		name, notes, signing, publisher, ceo string
 	}{
-		{"unsigned", "**This release is unsigned.** Code Goblins has no code-signing identity yet.\n\n| File | SHA-256 |\n| --- | --- |\n| `ceo.exe` | `" + sum + "` |\n", "unsigned", "", sum},
-		{"signed", "The programs of this release are code-signed by **SIQstack LLC**, and the install refuses a download that is not.\n\n| `ceo.exe` | `" + sum + "` |\n", "signed", "SIQstack LLC", sum},
+		{"unsigned", "**This release is unsigned.** Code Goblins has no code-signing identity yet.\n\n| File | SHA-256 |\n| --- | --- |\n| `goblins.exe` | `" + sum + "` |\n", "unsigned", "", sum},
+		{"signed", "The programs of this release are code-signed by **SIQstack LLC**, and the install refuses a download that is not.\n\n| `goblins.exe` | `" + sum + "` |\n", "signed", "SIQstack LLC", sum},
 		{"notes that say neither", "## What's Changed\n* a change\n", "", "", ""},
 	}
 	for _, c := range cases {

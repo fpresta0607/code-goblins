@@ -251,13 +251,13 @@ for (const [where, origin, machines] of [
 
 test("settings that cannot be read leave the switch off with an amber mark that says so", async ({ page }) => {
   // Arrange and act
-  const { panel } = await open(page, { enabled: false, ready: false, scrawl: false, attention: "settings", issue: "remote access settings cannot be read; run ceo remote off to revoke access" });
+  const { panel } = await open(page, { enabled: false, ready: false, scrawl: false, attention: "settings", issue: "remote access settings cannot be read; run goblins remote off to revoke access" });
 
   // Assert
   const toggle = panel.getByRole("switch", { name: "Tailscale", exact: true });
   await expect(toggle).toBeDisabled();
   await expect(toggle).toHaveAccessibleDescription("Settings unreadable");
-  await expect(panel.getByRole("img", { name: "remote access settings cannot be read; run ceo remote off to revoke access", exact: true })).toBeVisible();
+  await expect(panel.getByRole("img", { name: "remote access settings cannot be read; run goblins remote off to revoke access", exact: true })).toBeVisible();
 });
 
 test("Scrawl reviews say what is wrong with an amber mark and a few words, and on this PC the command that mends it", async ({ page }) => {
@@ -363,8 +363,8 @@ const STOPPED = { ...ON, ready: false, attention: "stopped", issue: "Tailscale i
 for (const [change, before, after, isOn, note] of [
   ["Tailscale stops on this PC", ON, STOPPED, "true", "Not running"],
   ["Tailscale starts again", STOPPED, ON, "true", ""],
-  ["ceo remote off", ON, OFF, "false", ""],
-  ["ceo remote on", OFF, ON, "true", ""],
+  ["goblins remote off", ON, OFF, "false", ""],
+  ["goblins remote on", OFF, ON, "true", ""],
   ["a restart brings the board back at another address", { ...ON, ready: false, attention: "board_moved", issue: "The board moved to another address and its private route could not follow. Turn remote access off and on again on this PC." }, ON, "true", ""],
 ] as const) {
   test(`${change} shows in the open setting within seconds`, async ({ page }, testInfo) => {

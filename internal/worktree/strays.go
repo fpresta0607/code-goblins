@@ -107,7 +107,7 @@ func Strays(ctx context.Context, commands execx.Runner, project string, folders 
 }
 
 // ReturnStrays returns every worktree Strays lists, keeping unlanded work as a
-// local archive tag first, as ceo cleanup keeps a goblin's own. A worktree
+// local archive tag first, as goblins cleanup keeps a goblin's own. A worktree
 // holding uncommitted work is kept and named: nothing in the fleet discards
 // work, and a harness's scratchpad is no exception. One folder's failure does
 // not stop the rest, and each is reported as it ended.

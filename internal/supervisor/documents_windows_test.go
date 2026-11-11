@@ -21,7 +21,7 @@ import (
 // made for a picture of a board fix: "things like that should be
 // scrawl...downlaods can be offeried inn scralw if its a generated asset or
 // smomehting the overlord wanted saved", then "that way you can send comments
-// back to agent for it..". ceo deliver makes a Scrawl page that shows the
+// back to agent for it..". goblins deliver makes a Scrawl page that shows the
 // file, presented as a review item the supervisor watches.
 
 // webpPicture is the start of a WebP picture, enough for a type sniff.

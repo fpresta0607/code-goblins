@@ -21,7 +21,7 @@ $goblins = Join-Path $ceoHome "bin\goblins.exe"
 # From a neutral folder, in a new terminal's environment, as a person would.
 Set-Location $env:RUNNER_TEMP
 $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-$env:CEO_HOME = [Environment]::GetEnvironmentVariable("CEO_HOME", "User")
+$env:GOBLINS_HOME = [Environment]::GetEnvironmentVariable("GOBLINS_HOME", "User")
 
 $choices = @()
 if ($RemoveAll) { $choices = @("--remove-work", "--remove-tools") }
@@ -64,7 +64,7 @@ if ($LASTEXITCODE -ne 0) { throw "goblins uninstall exited with code $LASTEXITCO
 
 # What a person sees at once.
 if (Test-Path -LiteralPath $ceoHome) { throw "the uninstall left $ceoHome" }
-if ([Environment]::GetEnvironmentVariable("CEO_HOME", "User")) { throw "CEO_HOME survived the uninstall" }
+if ([Environment]::GetEnvironmentVariable("GOBLINS_HOME", "User")) { throw "GOBLINS_HOME survived the uninstall" }
 if (Test-Path -LiteralPath "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CodeGoblins") { throw "Code Goblins is still in Installed apps" }
 $kept = @()
 if ($plan.kept -and @($plan.items | Where-Object { $_.action -eq "keep" })) {

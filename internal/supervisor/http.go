@@ -664,7 +664,7 @@ func (h *HTTP) task(w http.ResponseWriter, r *http.Request) {
 		case err != nil:
 			apiError(w, 503, err.Error())
 		case !found:
-			apiError(w, 404, "No ceo gate test run of this task is kept")
+			apiError(w, 404, "No goblins gate test run of this task is kept")
 		default:
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			w.Header().Set("X-Content-Type-Options", "nosniff")

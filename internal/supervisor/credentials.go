@@ -52,7 +52,7 @@ const (
 	maxCredentialValue = 16 << 10
 	maxCredentialBody  = 64 << 10
 	// credentialTerminalTries is how many times a request's terminal asks for
-	// a value ceo auth store refuses.
+	// a value goblins auth store refuses.
 	credentialTerminalTries = 3
 	// credentialRefreshTimeout bounds the refresh a save starts.
 	credentialRefreshTimeout = 2 * time.Minute
@@ -60,14 +60,14 @@ const (
 	credentialInbox = "credential-requests-inbox"
 )
 
-// credentialID is the ID ceo auth request gives a request.
+// credentialID is the ID goblins auth request gives a request.
 var credentialID = regexp.MustCompile(`^cred-[0-9a-f]{16}$`)
 
 // CredentialRequest is the card for a step only the Overlord can take: the
 // page to open, the steps to take there, and only the inputs he must enter.
 // It never holds a secret: he pastes each one on the request's card on the
 // board, and the board stores it straight into the project's scope of the
-// credential store, the way ceo auth store does. A plain value, such as an
+// credential store, the way goblins auth store does. A plain value, such as an
 // account's email, goes back to the goblin instead. Each name takes one save,
 // and the request closes once every input is in, on his Done when it asks
 // for none, when the asker sees the step done, or when he dismisses it or
@@ -313,7 +313,7 @@ func validCredentialLink(link string) error {
 }
 
 // FileCredentialRequest files r from the asker's own process: a goblin for
-// its own task, proven from inside its terminal as ceo notify proves it, goes
+// its own task, proven from inside its terminal as goblins notify proves it, goes
 // through the inbox the supervisor reads; anyone else must be the registered
 // CEO, whom the supervisor proves over its pipe. It returns the request as
 // filed, with its ID.
@@ -694,7 +694,7 @@ func (h *HTTP) saveCredentials(w http.ResponseWriter, r *http.Request) {
 }
 
 // saveCredentials stores one save's values, usually one row's, into its
-// request's project scope through the store ceo auth store writes, closes
+// request's project scope through the store goblins auth store writes, closes
 // the request once every name it asks for is in the scope, and then, after
 // answering, refreshes the project's running goblins and tells the CEO the
 // names.
@@ -958,7 +958,7 @@ type credentialTerminalInput struct {
 }
 
 // openCredentialTerminal opens a terminal on the request's card that stores
-// the values a request still needs with ceo auth store, which reads each one
+// the values a request still needs with goblins auth store, which reads each one
 // without showing it, so no value is kept on the board. It takes the save's
 // checks, from this machine only, and its terminal shows only on the board's
 // own page on this PC.
@@ -1032,9 +1032,9 @@ func (s *Service) credentialTerminal(input credentialTerminalInput) (Run, error)
 		return Run{}, err
 	}
 	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
-	command := "$ErrorActionPreference = 'Stop'\n$env:CEO_HOME = " + quote(s.Store.Home.Root) + "\n$env:CEO_STATE_OVERRIDE = " + quote(s.Store.Home.State) + "\n" +
+	command := "$ErrorActionPreference = 'Stop'\n$env:GOBLINS_HOME = " + quote(s.Store.Home.Root) + "\n$env:GOBLINS_STATE_OVERRIDE = " + quote(s.Store.Home.State) + "\n" +
 		"Write-Host " + quote("Type or paste each value for "+request.Project+", then press Enter. Nothing you type is shown.") + "\n"
-	// ceo auth store refuses a value of the wrong shape with exit code 2,
+	// goblins auth store refuses a value of the wrong shape with exit code 2,
 	// saying why, and the terminal asks for it again, three times at most.
 	for _, name := range names {
 		command += "$tries = 0\ndo { $tries++; & " + quote(executable) + " auth store --project " + quote(request.Project) + " " + quote(name) + "; $code = $LASTEXITCODE } while ($code -eq 2 -and $tries -lt " + fmt.Sprint(credentialTerminalTries) + ")\nif ($code -ne 0) { exit $code }\n"
@@ -1060,7 +1060,7 @@ func (s *Service) credentialTerminal(input credentialTerminalInput) (Run, error)
 // name it ran for that the scope holds now and did not hold before, and,
 // when the terminal finished cleanly, every name it ran for that the scope
 // holds. The request closes when the terminal finished cleanly or once every
-// name is stored, and the CEO hears the names; ceo auth store refreshed the
+// name is stored, and the CEO hears the names; goblins auth store refreshed the
 // project's goblins itself. The caller holds credentialSaves.
 func (s *Service) credentialTerminalEnded(r Run, code *int) {
 	request, found := s.Store.credential(r.CredentialRequest)
@@ -1134,7 +1134,7 @@ func (s *Service) credentialTerminalEnded(r Run, code *int) {
 			s.publish(err)
 		}
 	}
-	detail := strings.Join(typed, ", ") + " stored for " + request.Project + " in a terminal on this PC (" + request.ID + "); ceo auth store refreshed the project's running goblins itself"
+	detail := strings.Join(typed, ", ") + " stored for " + request.Project + " in a terminal on this PC (" + request.ID + "); goblins auth store refreshed the project's running goblins itself"
 	if len(written) > 0 {
 		detail += "; " + strings.Join(written, ", ") + " written to " + request.EnvFile
 	}
@@ -1159,7 +1159,7 @@ func stillAsked(request CredentialRequest) []string {
 	})
 }
 
-// afterCredentialSave runs the refresh ceo auth store runs after it writes,
+// afterCredentialSave runs the refresh goblins auth store runs after it writes,
 // so the project's running goblins re-source their auth.ps1, and tells the
 // CEO which names the save stored for which project, which plain values
 // reached the goblin's card, and who was told. A save of plain values alone

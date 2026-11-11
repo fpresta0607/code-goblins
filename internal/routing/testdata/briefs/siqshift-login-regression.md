@@ -42,9 +42,9 @@ client/server artifacts.
 
 ## Constraints
 
-- SUBSCRIPTION only; usage/quota error -> STOP and `ceo notify --blocked`.
+- SUBSCRIPTION only; usage/quota error -> STOP and `goblins notify --blocked`.
 - If further defects surface across rounds, REASSESS and fix root causes
   (minimal diff, documented); park only for spend/destructive/production
   writes beyond the deploy itself.
 - no-mistakes standing policy; rebase before PR; do not merge your own PR.
-- Report `ceo notify siqshift-login-regression --done --pr <url>`.
+- Report `goblins notify siqshift-login-regression --done --pr <url>`.

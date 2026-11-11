@@ -37,19 +37,19 @@ func TestFindTargetKeepsAHomeInUseAndOtherwiseUsesTheStandardFolder(t *testing.T
 			standard: []string{"state/"},
 			want:     func(standard, _ string) Target { return Target{Root: standard, Update: true} },
 		},
-		"a checkout made the home, CEO_HOME naming it": {
-			checkout: []string{"AGENTS.md", "cmd/ceo/", "state/", "data/", ".worktrees/", "ceo.exe"},
+		"a checkout made the home, GOBLINS_HOME naming it": {
+			checkout: []string{"AGENTS.md", "cmd/goblins/", "state/", "data/", ".worktrees/", "goblins.exe"},
 			ceoHome:  "checkout",
 			want: func(_, checkout string) Target {
 				return Target{Root: checkout, Update: true, Kept: true, Checkout: true}
 			},
 		},
-		"a home of its own outside the standard folder, CEO_HOME naming it": {
+		"a home of its own outside the standard folder, GOBLINS_HOME naming it": {
 			checkout: []string{home.InstalledMarker, "AGENTS.md", "state/", "bin/"},
 			ceoHome:  "checkout",
 			want:     func(_, other string) Target { return Target{Root: other, Update: true, Kept: true} },
 		},
-		"CEO_HOME naming a folder with no fleet": {
+		"GOBLINS_HOME naming a folder with no fleet": {
 			checkout: []string{"AGENTS.md"},
 			ceoHome:  "checkout",
 			want:     func(standard, _ string) Target { return Target{Root: standard} },

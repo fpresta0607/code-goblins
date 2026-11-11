@@ -111,7 +111,7 @@ type VaultEntry struct {
 // StoreDirEnv points the credential store at a directory instead of the
 // system vault. It is the escape hatch when Credential Manager is unavailable
 // or unwanted, and what tests use so they never touch the real vault.
-const StoreDirEnv = "CEO_CREDENTIAL_DIR"
+const StoreDirEnv = "GOBLINS_CREDENTIAL_DIR"
 
 // OpenStore returns the credential store to use. Windows Credential Manager
 // is preferred because it encrypts at rest under the user's login; the file
@@ -246,7 +246,7 @@ func (s *fileStore) scopeKeys(project string) ([]Key, error) {
 }
 
 // sortKeys orders a listing shared scope first, then by project, so an
-// operator reading `ceo auth list` sees the fallback before what overrides it.
+// operator reading `goblins auth list` sees the fallback before what overrides it.
 func sortKeys(keys []Key) {
 	sort.Slice(keys, func(i, j int) bool {
 		if keys[i].Project != keys[j].Project {
@@ -389,7 +389,7 @@ func (r Resolver) refusedShared(service Service, name string) string {
 	if err != nil || !ok || value == "" {
 		return ""
 	}
-	return fmt.Sprintf("present but not used: %s is not declared shared; run `ceo auth copy %s --to %s`", service.Name, name, quoteScope(r.Project))
+	return fmt.Sprintf("present but not used: %s is not declared shared; run `goblins auth copy %s --to %s`", service.Name, name, quoteScope(r.Project))
 }
 
 // Redact reduces a secret to a shape that proves which credential it is
@@ -406,7 +406,7 @@ func Redact(value string) string {
 }
 
 // FileStoreRoot is the folder the file store keeps its secrets in: the one
-// CEO_CREDENTIAL_DIR names, or ~/.ceo/credentials.
+// GOBLINS_CREDENTIAL_DIR names, or ~/.ceo/credentials.
 func FileStoreRoot() (string, error) {
 	if dir := os.Getenv(StoreDirEnv); dir != "" {
 		return dir, nil

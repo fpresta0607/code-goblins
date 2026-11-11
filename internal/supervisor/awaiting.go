@@ -555,7 +555,7 @@ func ceoSession(stateDir string, primary primaryRegistration) string {
 
 // NativeTook reports whether native goblin meta's harness took text since,
 // as the record its harness keeps of the goblin's conversation shows: the
-// proof ceo send and the board wait for once a goblin is in a turn.
+// proof goblins send and the board wait for once a goblin is in a turn.
 func NativeTook(ctx context.Context, meta state.TaskMeta, session, text string, since time.Time) bool {
 	conversation := goblinConversation(meta)
 	conversation.Session = session

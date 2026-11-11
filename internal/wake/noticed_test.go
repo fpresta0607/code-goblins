@@ -130,7 +130,7 @@ func TestACutOffNoticeCostsOnlyItself(t *testing.T) {
 	}
 }
 
-// ceo drain --ack-through took the wake lock twice, once for the records and
+// goblins drain --ack-through took the wake lock twice, once for the records and
 // once for the recovery episode. One acknowledgement is one hold of the lock:
 // the records, the episode and what is left queued all come out of it.
 func TestOneAcknowledgementRetiresTheRecordsAndTheEpisodeUnderOneLock(t *testing.T) {

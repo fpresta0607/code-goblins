@@ -13,7 +13,7 @@ import (
 
 func TestExecutionPersistsLifecycleAndKeepsQueueTimeSeparate(t *testing.T) {
 	// Arrange
-	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	command := []string{"check", "original"}
 	execution, err := BeginExecution(t.TempDir(), command)
 	if err != nil {
@@ -75,7 +75,7 @@ func TestExecutionNeverPassesWithoutCompleteExecutionEvidence(t *testing.T) {
 		{name: "infrastructure failed", measurement: Measurement{State: Completed, CleanupConfirmed: true}, failure: errors.New("pipe read failed")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+			t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 			execution, err := BeginExecution(t.TempDir(), []string{"check"})
 			if err != nil {
 				t.Fatal(err)
@@ -100,7 +100,7 @@ func TestExecutionNeverPassesWithoutCompleteExecutionEvidence(t *testing.T) {
 }
 
 func TestExecutionRefusesInvalidTransitionsAndFailedWrites(t *testing.T) {
-	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	execution, err := BeginExecution(t.TempDir(), []string{"check"})
 	if err != nil {
 		t.Fatal(err)

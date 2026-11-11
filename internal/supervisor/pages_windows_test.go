@@ -309,8 +309,8 @@ func TestTheCEOsOwnPageReachesItAsAWakeKeyedByTheItem(t *testing.T) {
 	store, h := testStore(t)
 	_, _, _, ceo := primaryFixture(t, store)
 	servePipe(t, store, ceo)
-	t.Setenv("CEO_SESSION_ID", "actual-primary")
-	t.Setenv("CEO_SESSION_HARNESS", "codex")
+	t.Setenv("GOBLINS_SESSION_ID", "actual-primary")
+	t.Setenv("GOBLINS_SESSION_HARNESS", "codex")
 	page := filepath.Join(h.Root, ".lavish", "dispatch-options.html")
 	if err := os.MkdirAll(filepath.Dir(page), 0o755); err != nil {
 		t.Fatal(err)

@@ -27,7 +27,7 @@ const STATES = [
   { name: "starting with its session recorded", task: zane({ phase: "unknown", starting: true, generation: "s1", backend: "native" }), text: "Starting", phase: "started", column: "In progress" },
   { name: "started, with no evidence of it yet", task: zane({ phase: "unknown", generation: "s1", backend: "native" }), text: "Starting", phase: "started", column: "In progress" },
   { name: "working", task: zane({ phase: "working", generation: "s1", backend: "native" }), text: "Working", phase: "working", column: "In progress" },
-  { name: "a failed start", task: zane({ phase: "queued", start_error: "ceo spawn: the brief names no project" }), text: "Start failed", phase: "failed", column: "Tasks" },
+  { name: "a failed start", task: zane({ phase: "queued", start_error: "goblins spawn: the brief names no project" }), text: "Start failed", phase: "failed", column: "Tasks" },
 ] as const;
 
 interface Posted { path: string; body: Record<string, unknown> }

@@ -9,7 +9,7 @@
 // worktree holding uncommitted work, a worktree no task records, a retired
 // task's folder holding a git repository, a data folder over 200 MB, and a
 // new folder or file in the projects root that is no checkout. It stops the
-// local services stacks ceo services started that no live task holds, and
+// local services stacks goblins services started that no live task holds, and
 // beyond those never touches Docker, the Overlord's checkouts or files, or
 // anything holding uncommitted or unpushed work, and every check that decides
 // a removal refuses when it cannot read what it checks. It ends the processes
@@ -59,8 +59,8 @@ type Config struct {
 	// list was read before anything is removed on the strength of it.
 	SelfPID int
 	Now     time.Time
-	// StopServices stops every local services stack ceo services started
-	// that no live task holds, and the Docker engine ceo started once
+	// StopServices stops every local services stack goblins services started
+	// that no live task holds, and the Docker engine goblins started once
 	// nothing it started runs on it, and says what it stopped. Nil stops
 	// nothing.
 	StopServices func(ctx context.Context) ([]string, error)
@@ -96,7 +96,7 @@ type Item struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-// Record is one sweep, kept in state for the digest, the board and ceo
+// Record is one sweep, kept in state for the digest, the board and goblins
 // runtime to read.
 type Record struct {
 	Time    time.Time    `json:"time"`

@@ -26,7 +26,7 @@ test("a view whose typing a gate holds shows the live screen and says so, with n
   await open(page, (socket) => {
     send = socket.send;
     socket.send(JSON.stringify({ type: "history", bytes: 0 }));
-    socket.send(JSON.stringify({ type: "held", reason: "pipeline owns this task; use ceo pipeline respond or inspect its delivery evidence" }));
+    socket.send(JSON.stringify({ type: "held", reason: "pipeline owns this task; use goblins pipeline respond or inspect its delivery evidence" }));
     socket.send(Buffer.from(SCREEN));
   });
   const terminal = page.getByRole("region", { name: "Goblin terminal" });
@@ -47,7 +47,7 @@ test("the notice goes once the gate lets typing go", async ({ page }) => {
   await open(page, (socket) => {
     send = socket.send;
     socket.send(JSON.stringify({ type: "history", bytes: 0 }));
-    socket.send(JSON.stringify({ type: "held", reason: "pipeline custody has not been returned; use ceo pipeline recover" }));
+    socket.send(JSON.stringify({ type: "held", reason: "pipeline custody has not been returned; use goblins pipeline recover" }));
     socket.send(Buffer.from(SCREEN));
   });
   const terminal = page.getByRole("region", { name: "Goblin terminal" });

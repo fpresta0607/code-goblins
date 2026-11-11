@@ -139,7 +139,7 @@ func LatestVerb(lines []string) (string, bool) {
 
 // ceoAuditVerbs are the records the CEO itself writes into a task's status
 // log, including the Pause, Resume and Stop controller's outcomes and the
-// reason ceo spawn started the task beside a teammate's work, and the
+// reason goblins spawn started the task beside a teammate's work, and the
 // services whose credentials the CEO granted it or a relaunch narrowed it to.
 // They are the CEO's word, never the task's own report, so every scan for a
 // task's latest report skips them. A goblin's own accept of its spent

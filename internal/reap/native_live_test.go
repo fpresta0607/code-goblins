@@ -58,7 +58,7 @@ func TestAnUnreadableHostRecordHoldsItsGoblin(t *testing.T) {
 		t.Fatal(err)
 	}
 	processes := stubProcesses{
-		process(400, 1, "ceo.exe", `ceo.exe host --id board`, fixtureStart),
+		process(400, 1, "goblins.exe", `goblins.exe host --id board`, fixtureStart),
 		process(410, 400, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest),
 		process(420, 410, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest.Add(time.Minute)),
 	}
@@ -183,7 +183,7 @@ func TestALiveNativeGoblinIsNotAnOrphan(t *testing.T) {
 				process(420, 410, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest.Add(time.Minute)),
 			}
 			if test.hostRunning {
-				processes = append(processes, process(400, 1, "ceo.exe", `ceo.exe host --id board`, test.hostStart))
+				processes = append(processes, process(400, 1, "goblins.exe", `goblins.exe host --id board`, test.hostStart))
 			}
 			inv, _, err := Collector{Home: h, Session: "default", Processes: processes}.Collect(context.Background())
 			if err != nil {
@@ -241,7 +241,7 @@ func TestTheSweepRunsWithoutHerdrOnlyWhenNoHerdrServerRuns(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h, _ := nativeHome(t)
 			processes := stubProcesses{
-				process(400, 1, "ceo.exe", `ceo.exe host --id board`, fixtureStart),
+				process(400, 1, "goblins.exe", `goblins.exe host --id board`, fixtureStart),
 				process(410, 400, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest),
 			}
 			processes = append(processes, tc.herdr...)
@@ -313,7 +313,7 @@ func TestAProcessARunningTerminalOwnsIsNoOrphan(t *testing.T) {
 				process(530, 520, "cmd.exe", standIn, fixtureLatest),
 			}
 			if test.hostRuns {
-				processes = append(processes, process(400, 1, "ceo.exe", `ceo.exe host --id board`, fixtureStart), process(410, 400, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest))
+				processes = append(processes, process(400, 1, "goblins.exe", `goblins.exe host --id board`, fixtureStart), process(410, 400, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest))
 			}
 			collector := Collector{Home: h, Session: "default", Processes: processes, Sightings: stillRunning(processes, map[int]Sighting{500: test.whose, 510: test.whose, 520: test.whose, 530: test.whose})}
 
@@ -386,7 +386,7 @@ func TestAProcessThatEndedSinceTheListingIsNoFinding(t *testing.T) {
 	// Arrange
 	h, worktree := nativeHome(t)
 	standIn := `C:\WINDOWS\system32\cmd.exe /c codex --dangerously-bypass-approvals-and-sandbox`
-	host := process(400, 1, "ceo.exe", `ceo.exe host --id board`, fixtureStart)
+	host := process(400, 1, "goblins.exe", `goblins.exe host --id board`, fixtureStart)
 	goblin := process(410, 400, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest)
 	ended := process(520, 9999, "spawn.test.exe", `C:\tmp\spawn.test.exe native-spawn-host --state C:\tmp\state --id task-7 -- `+standIn, fixtureLatest)
 	replaced := process(530, 520, "cmd.exe", standIn, fixtureLatest)

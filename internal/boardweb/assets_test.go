@@ -15,7 +15,7 @@ import (
 // Assets serves the board Vite built into dist/board where this checkout
 // built it, and the placeholder page where it did not. CI's frontend job
 // builds the board and checks that it did before it runs this test, so there
-// it proves the build lands where ceo.exe embeds it; the go jobs, which
+// it proves the build lands where goblins.exe embeds it; the go jobs, which
 // build no board, prove the placeholder.
 func TestAssetsServeTheBoardTheCheckoutBuilt(t *testing.T) {
 	// Arrange

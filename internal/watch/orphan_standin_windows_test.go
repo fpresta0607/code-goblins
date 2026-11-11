@@ -43,13 +43,13 @@ const (
 // processes it started, one line each, the file whose making ends the test as
 // a finished test ends, and where the test's own folders are.
 const (
-	standInPIDs        = "CEO_WATCH_STANDIN_PIDS"
-	standInFinish      = "CEO_WATCH_STANDIN_FINISH"
-	standInTestBinary  = "CEO_WATCH_STANDIN_TEST_BINARY"
-	standInTestDir     = "CEO_WATCH_STANDIN_TEST_DIR"
-	standInCodexDir    = "CEO_WATCH_STANDIN_CODEX_DIR"
-	standInNestedState = "CEO_WATCH_STANDIN_NESTED_STATE"
-	standInNestedDir   = "CEO_WATCH_STANDIN_NESTED_DIR"
+	standInPIDs        = "GOBLINS_WATCH_STANDIN_PIDS"
+	standInFinish      = "GOBLINS_WATCH_STANDIN_FINISH"
+	standInTestBinary  = "GOBLINS_WATCH_STANDIN_TEST_BINARY"
+	standInTestDir     = "GOBLINS_WATCH_STANDIN_TEST_DIR"
+	standInCodexDir    = "GOBLINS_WATCH_STANDIN_CODEX_DIR"
+	standInNestedState = "GOBLINS_WATCH_STANDIN_NESTED_STATE"
+	standInNestedDir   = "GOBLINS_WATCH_STANDIN_NESTED_DIR"
 )
 
 // standInLife is how long a part waits to be ended before it ends itself.
@@ -184,7 +184,7 @@ func withoutMark() []string {
 // folder there.
 func startStandInFleet(t *testing.T) *standInFleet {
 	t.Helper()
-	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	root := t.TempDir()
 	standin.RemoveAtCleanup(t, root)
 	h := home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}

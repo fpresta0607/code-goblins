@@ -103,11 +103,11 @@ func allowanceBlocked(watched *fleetWakes, provider, model string, now time.Time
 
 // startHeldByAllowance is whether a queued start waits for an allowance to
 // renew. A start naming its harness waits on that provider's floor. One that
-// leaves the harness to routing waits while every lane ceo spawn may choose
+// leaves the harness to routing waits while every lane goblins spawn may choose
 // for its brief is at its floor, so it is held rather than started into a
 // spawn that refuses. A queued row without a brief is routed by the brief
 // Start will write for it. A lane table or brief that cannot be read holds
-// nothing: the start runs and ceo spawn reports why it cannot route.
+// nothing: the start runs and goblins spawn reports why it cannot route.
 func startHeldByAllowance(h home.Home, plan startPlan, watched *fleetWakes, now time.Time) bool {
 	if plan.harness != "" {
 		return allowanceBlocked(watched, plan.harness, plan.model, now)
@@ -257,7 +257,7 @@ func (s *Service) guardCodex(report quota.Report, skipped string, watched *fleet
 		watched.CodexUsedUpUntil = time.Time{}
 	}
 	stateDir := s.Store.Home.State
-	program := filepath.Join(s.Store.Home.Programs(), "ceo.exe")
+	program := filepath.Join(s.Store.Home.Programs(), "goblins.exe")
 	var live []string
 	var problems error
 	for _, meta := range liveTasks(stateDir) {

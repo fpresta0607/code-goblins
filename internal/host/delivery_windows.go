@@ -12,7 +12,7 @@ import (
 
 // ErrNoDelivery is a host that cannot confirm what it types: one started by an
 // older ceo. Nothing was typed into its terminal.
-var ErrNoDelivery = errors.New("host: this terminal's host was started by an older ceo and cannot confirm what it types; nothing was typed")
+var ErrNoDelivery = errors.New("host: this terminal's host was started by an older goblins and cannot confirm what it types; nothing was typed")
 
 // deliveryTimeout bounds the wait for the host to write one part. A write
 // into a terminal whose program has stopped reading can block once its input

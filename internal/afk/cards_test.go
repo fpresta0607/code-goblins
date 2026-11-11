@@ -117,7 +117,7 @@ func TestACommandIsLoggedOnlyOnAStepOnlyHeCanTake(t *testing.T) {
 	}
 }
 
-// A step only he can take is logged only as the card ceo run-request or ceo
+// A step only he can take is logged only as the card goblins run-request or goblins
 // question makes: a command he runs, as administrator or not, or real choices
 // with one of them recommended. On 2026-10-29 the Overlord cleared two cards
 // whose only choices said he had done the step or would later, and neither

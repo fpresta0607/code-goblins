@@ -30,7 +30,7 @@ test("a closed CEO is said to be closed in plain words, with Reopen as its one a
   // Assert: plain words, one action, and nothing about a pid or a command.
   await expect(bar.locator("p")).toHaveText("The CEO is closed.");
   await expect(bar.getByRole("button")).toHaveCount(1);
-  await expect(page.getByText(/pid|ceo register|No CEO is running|Start the CEO/)).toHaveCount(0);
+  await expect(page.getByText(/pid|goblins register|No CEO is running|Start the CEO/)).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("closed-ceo.png") });
 
   // Act

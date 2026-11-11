@@ -1,8 +1,8 @@
 // Package update installs a verified candidate build into a CEO home: it
-// swaps the home's ceo.exe and goblins.exe for the candidate as one
+// swaps the home's goblins.exe for the candidate as one
 // transaction whose progress is durable before anything live changes, so an
 // update that fails, or a process that ends part way, always leaves a way back
-// to the build that ran before. This package owns the files; ceo update owns
+// to the build that ran before. This package owns the files; goblins update owns
 // the supervisor around them.
 package update
 
@@ -24,7 +24,7 @@ import (
 )
 
 // Aliases are the names the home's one program is installed under.
-var Aliases = []string{"ceo.exe", "goblins.exe"}
+var Aliases = []string{"goblins.exe"}
 
 // readStaged reads a staged copy of the candidate the first time anything
 // opens it. A virus scanner holds the first open of a program just written

@@ -1,4 +1,4 @@
-// Package supervise answers the question the ceo turnend-guard hook exists
+// Package supervise answers the question the goblins turnend-guard hook exists
 // to ask: can this turn end safely? It reports whether goblin work is in
 // flight, whether a live watcher holds the home, and whether the Stop-owned
 // auto-arm hook (Task 11) is proving it is restoring one. It also owns the

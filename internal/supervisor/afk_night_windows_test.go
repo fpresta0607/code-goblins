@@ -24,8 +24,8 @@ import (
 //     Overlord, the CEO answers, the goblin has the answer once, and the log
 //     holds the decision.
 //   - A pull request passes the checks: the merge word is logged with its
-//     evidence, then its outcome, as ceo pr merge sends them (its checks are
-//     proven in cmd/ceo).
+//     evidence, then its outcome, as goblins pr merge sends them (its checks are
+//     proven in cmd/goblins).
 //   - A migration that drops a table is his alone: the CEO holds it for him
 //     with its recommendation instead of asking, an answer recorded as his is
 //     refused, and it is still waiting in the morning beside what the CEO
@@ -128,7 +128,7 @@ func TestANightUnderAFKMode(t *testing.T) {
 		t.Errorf("questions = %+v, want the migration still pending for him", got)
 	}
 	pending, err := wake.Pending(h.State)
-	if err != nil || !strings.Contains(pending[len(pending)-1].Detail, "ceo afk report") {
+	if err != nil || !strings.Contains(pending[len(pending)-1].Detail, "goblins afk report") {
 		t.Errorf("the CEO's queue ends %+v (%v), want it told to write the report", pending, err)
 	}
 	var rendered bytes.Buffer

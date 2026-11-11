@@ -105,7 +105,7 @@ for (const hasRefreshFailure of [false, true]) {
     const sent = await answer(page);
     await page.route("**/api/connections/grant", (route) => route.fulfill({ status: 200, json: {} }));
     const card = await openCard(page);
-    const reason = hasRefreshFailure ? "spawn: the record of add-billing changed as asked, but its auth.ps1 was not rewritten, so run ceo auth refresh add-billing: task cleanup is in progress" : "";
+    const reason = hasRefreshFailure ? "spawn: the record of add-billing changed as asked, but its auth.ps1 was not rewritten, so run goblins auth refresh add-billing: task cleanup is in progress" : "";
     await page.evaluate((id) => window.board?.request(id, { names: [], existing: [], link: "", steps: [], grant_service: "stripe", task_generation: "g1", expires_at: new Date(Date.now() + 86400000).toISOString() }), STRIPE);
     await recordDoneCards(page);
     await card.screenshot({ path: testInfo.outputPath("grant-card.png") });
@@ -422,7 +422,7 @@ test("Run opens a terminal on this PC for the names the scope does not hold, and
   await page.getByRole("dialog", { name: "Replace a stored credential?" }).getByRole("button", { name: "Replace and run" }).click();
 
   // Assert
-  expect(lines).toEqual(["ceo auth store --project precisiondocs STRIPE_SECRET_KEY"]);
+  expect(lines).toEqual(["goblins auth store --project precisiondocs STRIPE_SECRET_KEY"]);
   await expect.poll(() => sent.length).toBe(2);
   expect(sent.map((request) => [request.path, request.body])).toEqual([
     ["/api/credentials/terminal", { id: STRIPE, generation: STRIPE_GENERATION, replace: [] }],

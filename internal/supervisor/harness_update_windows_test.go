@@ -574,7 +574,7 @@ func TestTheCEOsUpdatePressNeverOutlivesTheCEOItWasFor(t *testing.T) {
 // its card. His press waits for the end of its turn, with no gate step,
 // background shell, monitor or sub-agent of its own running, and then
 // restarts it in place with its own harness, model and effort, on its own
-// conversation, through ceo switch --restart, once.
+// conversation, through goblins switch --restart, once.
 func TestAGoblinsUpdateRestartsItInPlaceOnlyAtTheEndOfItsTurn(t *testing.T) {
 	// Arrange
 	spawner := &spawnRecorder{}

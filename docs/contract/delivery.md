@@ -18,12 +18,12 @@ A narrower requested mode, from `--mode` or the brief, with neither a qualifying
 An explicit no-mistakes mode can always increase rigor.
 At spawn `--mode` only repeats the brief: one that differs from the `mode:` line under the brief's Delivery heading is refused and names both, so a stricter or a narrower mode is chosen in the brief.
 
-`ceo brief` and `ceo spawn` use the same resolver.
+`goblins brief` and `goblins spawn` use the same resolver.
 Before the worker starts, spawn saves `state/tasktmp/<id>/delivery.json` with the mode, posture, surface, risk, reason and project checks.
 The task record binds its bytes by `delivery_hash` and keeps its mode separately.
 The worker's first instruction, and every relaunch's, names the frozen mode and that mode's validation owner, which supersede the brief's mode line and Verification section.
-`ceo verify` refuses a missing or changed receipt or a mismatching mode.
-`ceo verify` uses the frozen verification tiers, time limits and declared reuse inputs without loading the live project record, even if that record is later removed or invalid.
+`goblins verify` refuses a missing or changed receipt or a mismatching mode.
+`goblins verify` uses the frozen verification tiers, time limits and declared reuse inputs without loading the live project record, even if that record is later removed or invalid.
 Tasks without a delivery receipt still read verification configuration from the live project record.
 A helper remains local-only under its parent's publication owner.
 Existing tasks without this receipt retain their modes, frozen policies, findings, spent rounds and custody.
@@ -35,14 +35,14 @@ The selected path owns its rigor.
 Simple work runs its defined project checks and required CI through the existing direct-PR or local-only route.
 Do not attach an independent model review, serial manual clean-verdict gate or second unchanged baseline.
 If the change needs independent validation, select no-mistakes instead of inventing another gate.
-Under no-mistakes, the same implementation worker drives `ceo pipeline run` and `respond` through every synchronous return.
+Under no-mistakes, the same implementation worker drives `goblins pipeline run` and `respond` through every synchronous return.
 The pipeline alone owns review, repair, tests, documentation and publication; any focused independent question belongs within that contract.
 The CEO still inspects the concrete change and relevant proof before delivery.
 
 Once validation starts, new product requirements normally become follow-up work.
 Corrections needed for accepted behavior, equivalent behavioral test replacements and accurate documentation remain in scope, including their smallest downstream changes.
 The worker never hand-edits, commits, pushes or starts another run while the active pipeline owns the branch.
-The one exception is a failure the task's frozen policy hands back: from pipeline policy version 7 the gate repairs no Test, Lint or CI failure, and the worker commits one correction of exactly the findings `ceo pipeline run` returns on the run's head.
+The one exception is a failure the task's frozen policy hands back: from pipeline policy version 7 the gate repairs no Test, Lint or CI failure, and the worker commits one correction of exactly the findings `goblins pipeline run` returns on the run's head.
 An explicit instruction invalidating the entire change uses the existing supported custody procedure under the CEO's direction, preserving history and spent allowances.
 This contract adds no native recovery procedure or authority over another task's run.
 
@@ -50,11 +50,11 @@ This contract adds no native recovery procedure or authority over another task's
 
 Until its run's review repair cycles are spent, the implementation worker never decides its own ask-user finding.
 It reports the actual finding to the CEO and applies only the returned decision through the active gate.
-Once they are spent, the worker may accept that run's open review findings itself with `ceo pipeline respond <its task> --action approve --accept <ids>`, under the exact-IDs rule of the CEO's own accept.
+Once they are spent, the worker may accept that run's open review findings itself with `goblins pipeline respond <its task> --action approve --accept <ids>`, under the exact-IDs rule of the CEO's own accept.
 The task's status log records it with the task as who accepted, and the CEO is told of it in a notify nothing waits on.
 The worker accepts as they stand only findings that are not correctness, security or regression defects: a real defect among them goes in one follow-up commit on the same pull request after its first CI, named in the done report.
 The Test step, `--reason` and every other step stay the CEO's.
-From pipeline policy version 7 the worker submits its own one-commit correction of a handed-back Test or Lint failure with `ceo pipeline validate-authored <its task> --run <run> --findings <ids>`, and of a CI failure with `ceo pipeline handback`; each is held to the failure's findings and the scope [The goblin fixes its own failures](../pipeline.md#the-goblin-fixes-its-own-failures) sets, and a wider correction, and every `validate-terminal`, stays the CEO's admission.
+From pipeline policy version 7 the worker submits its own one-commit correction of a handed-back Test or Lint failure with `goblins pipeline validate-authored <its task> --run <run> --findings <ids>`, and of a CI failure with `goblins pipeline handback`; each is held to the failure's findings and the scope [The goblin fixes its own failures](../pipeline.md#the-goblin-fixes-its-own-failures) sets, and a wider correction, and every `validate-terminal`, stays the CEO's admission.
 The CEO reconstructs accepted intent, identifies what Fix would require, then names the decision's run, step, action, finding IDs, instructions and authority.
 Reviewer labels cannot amend the accepted contract.
 Routine corrections, restoring approved behavior, completing the approved design, equivalent tests and correcting final-diff delivery evidence are autonomous CEO decisions within that contract.
@@ -82,39 +82,39 @@ Use existing PR check and guarded merge commands; confirm the forge's landed sta
 Delivery mode and merge authority remain independent.
 A scout leaves a self-contained report, and a recommendation or visual review grants no implementation authority.
 Keep a review artifact available while feedback is outstanding.
-When implementation is separately authorized, inventory scratch changes and dispatch the ship through `ceo brief` and `ceo spawn` from the proper clean base, carrying only intended implementation and regression changes and retaining the scout's report as context.
+When implementation is separately authorized, inventory scratch changes and dispatch the ship through `goblins brief` and `goblins spawn` from the proper clean base, carrying only intended implementation and regression changes and retaining the scout's report as context.
 There is no dedicated scout-promotion command in this build; a report or a mode edit never supplies missing ship authority.
 
-- `no-mistakes` - the goblin uses `ceo pipeline run`/`respond` under its frozen policy, so an exhausted review budget or fail-closed start refusal comes back as unresolved work rather than an automatic approval: the goblin may itself accept a spent review's open findings, which you are told of, and fixes a real defect among them in one follow-up commit on the same pull request after its first CI rather than asking you, and every other such decision is yours; follow [docs/pipeline.md](../pipeline.md), and after a completed gate relay the PR URL and wait for merge authority, then `ceo pr merge`.
-- `direct-PR` - open the PR as a draft (`gh pr create --draft`), record it with `ceo pr check`, mark it ready (`gh pr ready <url>`) once, on the head it means to merge, report it done once that run is green, and wait for merge authority before `ceo pr merge`.
+- `no-mistakes` - the goblin uses `goblins pipeline run`/`respond` under its frozen policy, so an exhausted review budget or fail-closed start refusal comes back as unresolved work rather than an automatic approval: the goblin may itself accept a spent review's open findings, which you are told of, and fixes a real defect among them in one follow-up commit on the same pull request after its first CI rather than asking you, and every other such decision is yours; follow [docs/pipeline.md](../pipeline.md), and after a completed gate relay the PR URL and wait for merge authority, then `goblins pr merge`.
+- `direct-PR` - open the PR as a draft (`gh pr create --draft`), record it with `goblins pr check`, mark it ready (`gh pr ready <url>`) once, on the head it means to merge, report it done once that run is green, and wait for merge authority before `goblins pr merge`.
 
 A pull request is a draft until its head is the one its goblin means to merge, so the fix rounds before that start no hosted CI: a repository's workflows skip a draft and run on `ready_for_review`, and each push to a ready pull request runs them again.
 A run whose event saw a draft first asks GitHub whether the pull request is a draft now, in one short job, and runs every other job unless it still is: an event can see the pull request as it was a moment before, and on 2026-10-15 a push seconds after a pull request was marked ready saw a draft, skipped every job and cancelled the ready run, so no run tested its last head.
-That job's check, `draft state`, tests nothing: on a draft it succeeds while every other job is skipped, so `ceo pr merge`, a merge train, the CI wakes and a card's hosted checks pass over it, whatever it concluded, as they pass over a skipped check.
+That job's check, `draft state`, tests nothing: on a draft it succeeds while every other job is skipped, so `goblins pr merge`, a merge train, the CI wakes and a card's hosted checks pass over it, whatever it concluded, as they pass over a skipped check.
 The goblin's first instruction says so for a direct-PR task.
 It tells a direct-PR or gated goblin too that a later round is pushed once, whole, and only once its pull request's CI has ended: a push while that CI runs cancels the run after it billed its minutes, as 18 runs of one private repository did in one week of October 2026.
 A gate opens its pull request ready, at the head its review, tests and lint passed, since its `ci` step waits on that pull request's CI: opened as a draft, a workflow that skips drafts would leave the step nothing to wait on, or skipped checks it would read as passed.
-A merge train and `ceo pr merge` take only a ready pull request, and only one on whose head a check ran: a check that was skipped or neutral tested nothing, though GitHub counts it as passing, and a pull request just marked ready shows its draft run's skipped checks until its ready run registers.
+A merge train and `goblins pr merge` take only a ready pull request, and only one on whose head a check ran: a check that was skipped or neutral tested nothing, though GitHub counts it as passing, and a pull request just marked ready shows its draft run's skipped checks until its ready run registers.
 A deploy status the host refused for its rate limit, a failed Vercel status whose target is its upgrade page with `upgradeToPro=build-rate-limit`, counts as not run in the same way, never as failed: the host never built the head, and pushing again for a fresh status spends another build of the same allowance.
-The train, `ceo pr merge`, the CI wakes and a card's hosted checks name it as rate limited, and any other failed deploy status still fails.
+The train, `goblins pr merge`, the CI wakes and a card's hosted checks name it as rate limited, and any other failed deploy status still fails.
 gh's check rollup gives a commit status's state and target but never its description, so the target is what is read.
 The supervisor raises no `ci_finished` for a draft, and no `pr_health` for a draft that is only behind its base.
-- `local-only` - the goblin stops with a clean branch; land it with `ceo merge-local <id>` only on the Supreme Overlord's word.
+- `local-only` - the goblin stops with a clean branch; land it with `goblins merge-local <id>` only on the Supreme Overlord's word.
 
-`ceo pr merge` and `ceo merge-local` never merge red or divergent work - they refuse loudly.
+`goblins pr merge` and `goblins merge-local` never merge red or divergent work - they refuse loudly.
 After a merge, tell the Supreme Overlord the full PR URL.
-Where the base requires GitHub's merge queue, `ceo pr merge` adds a green PR to the queue rather than merging it: the queue tests the PRs in it together on the base's current tip and merges each whose run passes, so a PR no longer needs its head refreshed on main and a fresh CI run before its turn.
+Where the base requires GitHub's merge queue, `goblins pr merge` adds a green PR to the queue rather than merging it: the queue tests the PRs in it together on the base's current tip and merges each whose run passes, so a PR no longer needs its head refreshed on main and a fresh CI run before its turn.
 It is merged when GitHub says so, not when the command returns.
-While [AFK mode](afk.md#afk-mode) is on, merge authority is your own merge word for a goblin pull request that meets its checks, given with `ceo pr merge <url> --verified "<what verified it>"`.
+While [AFK mode](afk.md#afk-mode) is on, merge authority is your own merge word for a goblin pull request that meets its checks, given with `goblins pr merge <url> --verified "<what verified it>"`.
 
 ### What CI runs
 
-A pull request's checks come from `.github/workflows/go.yml`, whose jobs run at once: the frontend's checks, the board's browser tests across the shards in the browser job matrix, each slow Go package in two jobs and cmd/ceo in three, and every other package in one.
+A pull request's checks come from `.github/workflows/go.yml`, whose jobs run at once: the frontend's checks, the board's browser tests across the shards in the browser job matrix, each slow Go package in two jobs and cmd/goblins in three, and every other package in one.
 A merge train's run and a run on the default branch start every one of them, so nothing reaches the default branch that the full set did not test.
 A push to the default branch starts none of them again when a pull request run of the same workflow that started every job passed on the push's exact tree and first parent, which is what a merge train's run is for the tree the train lands: that run leaves a record named for the pair, kept a week, and the push's plan job finds it with `tools/pushreuse`, takes it only from a green pull request run whose head is in this repository, and names it in the push's `test` check.
 Any other push, one whose records cannot be read, and one whose pull request was tested on an older main start every job as before, and `install.yml` reuses its own records the same way.
 From 2026-09-14 to 2026-10-14, 482 of 623 pushes to main ran a tree their pull request had just passed on the same main.
-A pull request's own run starts the jobs its change can alter, which a `plan` job chooses first (`tools/ciplan`): a Go job when the change reaches one of its packages, read as `ceo gate test --plan` reads it under `config/verify.json`, and the `frontend` and browser jobs when the board's source changed or a file they read outside it.
+A pull request's own run starts the jobs its change can alter, which a `plan` job chooses first (`tools/ciplan`): a Go job when the change reaches one of its packages, read as `goblins gate test --plan` reads it under `config/verify.json`, and the `frontend` and browser jobs when the board's source changed or a file they read outside it.
 It starts every job when the change touches a workflow, `config/verify.json`, the plan's own code, `go.mod` or `go.sum`, or a file the policy does not account for, since what the rule cannot be sure of widens the run.
 `JOBS`, at the top of the workflow, lists each job with what can change its result, and the plan's log says for each job whether it runs and why.
 So a pull request that changes only a document nothing embeds starts no test job, one that changes only the board starts the frontend and browser jobs, and one that changes Go starts the Go jobs its change reaches.
@@ -137,7 +137,7 @@ A change that needs more widens that budget in the same pull request and says wh
 
 Landing pull requests one at a time costs one CI run each, in a row, because every merge makes the other green runs stale.
 A merge train lands them together with one run.
-`ceo pr train <project>` picks the green pull requests goblins finished on the project's default branch in queue order, the one reported done first going first, and merges them onto the branch's tip with merge commits on a branch of its own, `ceo/train-<stamp>`.
+`goblins pr train <project>` picks the green pull requests goblins finished on the project's default branch in queue order, the one reported done first going first, and merges them onto the branch's tip with merge commits on a branch of its own, `ceo/train-<stamp>`.
 A pull request a goblin reported done since its task was spawned is finished whatever the goblin reports after, such as working on its next pull request or being blocked, so it keeps its place and rides while it is open, green and not in conflict; a head it pushes after the train took the pull request leaves it off that train.
 A report outlasts the goblin's relaunch, which a pause's resume, a switch and a comeback after a restart each are, but then it stands only for the head it was made of: the pull request rides while every check of its head had finished by the time of the report, so it was green then and is unchanged since.
 A check that finished after such a report means a new head or a new run, and the train leaves the pull request off, saying it rides once reported done again.
@@ -184,7 +184,7 @@ A saved hold whose reason is `GitHub reports merge readiness UNSTABLE` and that 
 Unchanged readiness never replenishes attempts after a policy refusal or an exhausted budget, and every attempt remains subject to GitHub's ordinary non-administrator merge enforcement.
 Changed successful source or excluded PR-only check identities, resumed or red source checks after green proof, or a changed own-run merge identity hold that proof rather than retrying its CI; closure of the train pull request still ends the run, actual rider withdrawal still removes the rider, and a genuinely changed base requires validation of the eligible remainder there.
 These rules apply equally to a train run and a rider's own run, whose successful checks are saved with its initial proof; deploy clearance also preserves that proof.
-Both the supervisor and `ceo pr train` publish one durable `merge_train:` hold notice through the existing `pr` wake keyed `train:<owner>/<repo>`, bound to the train and run identity.
+Both the supervisor and `goblins pr train` publish one durable `merge_train:` hold notice through the existing `pr` wake keyed `train:<owner>/<repo>`, bound to the train and run identity.
 Failed delivery is retried without another merge attempt, and a lost publication acknowledgement cannot duplicate the notice.
 A normal operator merge of the preserved pull request is reconciled from the actual base without another merge attempt or CI run, and an interrupted landing remains recoverable even after the error budget is spent.
 The train then reads that GitHub shows each one merged, up to three times, five seconds apart, and names to you any it still shows open: one whose goblin pushed to it while the train landed keeps what was pushed after and rides the next train once its checks pass on that head.
@@ -209,7 +209,7 @@ A run without green proof whose checks never appear stops after 20 minutes and o
 A new train pull request receives its CI window immediately before creation, including after publication recovery; recovering an already-created pull request never renews its saved deadline.
 A start that is cut short, as by one read that ran out of time, is kept and counts as the train's first failed step, so the next poll resumes its recorded build or publication rather than starting a replacement train.
 Each outcome reaches you as a `pr` wake keyed `train:<owner>/<repo>`, starting with `merge_train:`, and names any goblin it could not tell, for you to relay; while AFK mode is on, each pull request a train merges is logged as merged with the run that proved it, and one whose selected head the train finds already on its base is logged as already there, once in the stretch.
-The supervisor writes each of those lines, from the train's own record and the state GitHub gives the pull request, whoever started the train: a `ceo pr train` started detached does not run under the registered CEO, which the log of a decision needs, so it asks the supervisor to log the landing instead of writing it.
+The supervisor writes each of those lines, from the train's own record and the state GitHub gives the pull request, whoever started the train: a `goblins pr train` started detached does not run under the registered CEO, which the log of a decision needs, so it asks the supervisor to log the landing instead of writing it.
 
 On GitHub a train that landed leaves nothing closed without merging, which GitHub draws in red: its pull request reads merged, and so does every pull request it landed.
 A finished train that did not land its last run closes that run's pull request with how it ended, the failed checks and what landed before it: the one place on GitHub a train that went red says so.
@@ -226,7 +226,7 @@ Another repository that asks GitHub for a release's notes leaves the label out i
 The supervisor runs trains by itself: on its GitHub poll, when two or more green pull requests goblins finished wait on one default branch, or one has waited alone 10 minutes since its goblin first reported it done, it starts a train, and it takes each running train a step on every poll, also once the goblins of its repository have left.
 A project's manifest can make one alone wait longer for a second to share a train run with, `"trains": {"lone_rider_wait_minutes": 30}`, up to 240; one that can land on its own CI run still rides after 10 minutes, since that costs no run and a second would save nothing.
 A train that ends on a poll's step reads the open pull requests again and starts the next train on that same poll, so a pull request reported done while a train ran rides as soon as that train is over.
-`ceo pr train` joins the train already running in the project and waits until it is over.
+`goblins pr train` joins the train already running in the project and waits until it is over.
 Each train records every CI run it starts, with the pull requests it tested and how it ended.
 The board shows one card for each batch of pull requests: a train that landed nothing is folded into the later train that took its pull requests on, which counts its runs on from it, and one that landed nothing and was not retried shows once, saying why.
 A running train heads In progress, and a finished one heads Completed for six hours.

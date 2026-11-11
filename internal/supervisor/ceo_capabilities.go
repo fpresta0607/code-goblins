@@ -37,13 +37,13 @@ type CEOCapability struct {
 func CEOCapabilities() []CEOCapability {
 	typed := []string{
 		"it is woken only in a native terminal, where the wake line is typed while it sits idle at an empty prompt",
-		"no session-start digest: it runs ceo session-start to validate current memory and retrieves relevant cold authority with ceo memory retrieve",
+		"no session-start digest: it runs goblins session-start to validate current memory and retrieves relevant cold authority with goblins memory retrieve",
 		"no turn-end guard and no pre-tool guards",
 	}
 	return []CEOCapability{
 		{Agent: "claude", Name: "Claude Code", Recommended: true, Wake: CEOWakeFor("claude"), Registers: "its SessionStart hook registers it", Resumes: true, Note: "the best experience"},
-		{Agent: "codex", Name: "Codex", Wake: CEOWakeFor("codex"), Registers: "its first prompt runs ceo register", Resumes: true, Note: "woken by a typed line; no digest or guards", Lacks: typed},
-		{Agent: "pi", Name: "pi", Wake: CEOWakeFor("pi"), Registers: "its first prompt runs ceo register", Resumes: true, Note: "woken by a typed line; no digest or guards", Lacks: typed},
+		{Agent: "codex", Name: "Codex", Wake: CEOWakeFor("codex"), Registers: "its first prompt runs goblins register", Resumes: true, Note: "woken by a typed line; no digest or guards", Lacks: typed},
+		{Agent: "pi", Name: "pi", Wake: CEOWakeFor("pi"), Registers: "its first prompt runs goblins register", Resumes: true, Note: "woken by a typed line; no digest or guards", Lacks: typed},
 	}
 }
 

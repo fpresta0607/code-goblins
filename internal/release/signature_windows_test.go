@@ -11,7 +11,7 @@ import (
 // signed system program, and of a file nobody signed.
 func TestWindowsSignatureReadsWhatWindowsReports(t *testing.T) {
 	signed := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-	unsigned := filepath.Join(t.TempDir(), "ceo.exe")
+	unsigned := filepath.Join(t.TempDir(), "goblins.exe")
 	if err := os.WriteFile(unsigned, []byte("MZ not a signed program"), 0o600); err != nil {
 		t.Fatal(err)
 	}

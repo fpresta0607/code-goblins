@@ -23,17 +23,17 @@ import (
 // following a blank line, the marker lists the contract files the install
 // wrote, one slash-separated path per line, so the next install can remove
 // those its binary no longer ships; a checkout's lists none.
-const markerText = "This folder is a Code Goblins CEO home, which ceo install or ceo update marked.\r\n" +
+const markerText = "This folder is a Code Goblins CEO home, which goblins install or goblins update marked.\r\n" +
 	"The CEO hooks act here only while this file exists, so leave it in place.\r\n" +
 	"Below are the contract files it wrote; the next install removes any its binary no longer ships.\r\n" +
 	"\r\n"
 
-// formerHome is the folder CEO_HOME names when it is not this home: the home
+// formerHome is the folder GOBLINS_HOME names when it is not this home: the home
 // this install takes the machine over from, or "" when there is none. It
 // refuses while that folder holds a fleet's state, whether an install set it
 // up or an older build made a checkout its home without the marker: moving
-// CEO_HOME would start every new session in an empty home, leave that home
-// first on PATH, and leave its fleet's state unreachable. Once ceo home move
+// GOBLINS_HOME would start every new session in an empty home, leave that home
+// first on PATH, and leave its fleet's state unreachable. Once goblins home move
 // has carried the state away, the install takes over.
 func (s Service) formerHome() (string, error) {
 	current, set, err := s.Env.Get(installbase.HomeVariable)
@@ -46,7 +46,7 @@ func (s Service) formerHome() (string, error) {
 	if info, err := os.Stat(filepath.Join(current, "state")); err != nil || !info.IsDir() {
 		return current, nil
 	}
-	return "", fmt.Errorf("install: CEO_HOME is %s, a home in use; run ceo home move to bring its fleet to %s, or run goblins uninstall there first, then run this again to start anew in %s", current, s.Root, s.Root)
+	return "", fmt.Errorf("install: GOBLINS_HOME is %s, a home in use; run goblins home move to bring its fleet to %s, or run goblins uninstall there first, then run this again to start anew in %s", current, s.Root, s.Root)
 }
 
 // homeFolders are the folders every home holds beside data\, which the
@@ -147,7 +147,7 @@ func (s Service) writeHome(report *reporter) error {
 // narrowFolders keeps the home, and the Dev Drive folder its worktrees,
 // scratch and caches moved to when they did, to the account the install runs
 // as, SYSTEM and Administrators. A folder made under a drive's root, as a
-// home CEO_HOME puts there or a Dev Drive folder is, lets Authenticated Users
+// home GOBLINS_HOME puts there or a Dev Drive folder is, lets Authenticated Users
 // modify it, so any second account on the machine could read and write the
 // fleet's records and every goblin's work. A Dev Drive that is not attached,
 // and what a narrowing could not change, are narrowed by the next install
@@ -337,7 +337,7 @@ func (s Service) seedPolicy(report *reporter) error {
 }
 
 // copyBinary puts the running binary where the hooks look for it, as
-// bin\ceo.exe, and beside it as goblins.exe, its second name. An old copy
+// bin\goblins.exe. An old copy
 // still running, such as the supervisor, cannot be overwritten but can be
 // renamed, so it moves aside under a name of its own and goes once nothing
 // runs it, on this install or a later one, or by the janitor's sweep.
@@ -346,31 +346,23 @@ func (s Service) copyBinary(report *reporter) error {
 	if err != nil {
 		return fmt.Errorf("install: read the running binary %s: %w", s.Binary, err)
 	}
-	var copied []string
-	stillRunning := false
-	for _, name := range []string{"ceo.exe", "goblins.exe"} {
-		changed, running, err := replaceProgram(filepath.Join(s.bin(), name), data)
-		if err != nil {
-			return err
-		}
-		if changed {
-			copied = append(copied, name)
-		}
-		stillRunning = stillRunning || running
+	changed, stillRunning, err := replaceProgram(filepath.Join(s.bin(), "goblins.exe"), data)
+	if err != nil {
+		return err
 	}
-	if len(copied) == 0 {
-		report.same("binary", "ceo.exe and goblins.exe in "+s.bin()+" are already this build")
+	if !changed {
+		report.same("binary", "goblins.exe in "+s.bin()+" is already this build")
 		return nil
 	}
-	report.change("binary", fmt.Sprintf("copied %s to %s in %s", s.Binary, strings.Join(copied, " and "), s.bin()))
+	report.change("binary", fmt.Sprintf("copied %s to goblins.exe in %s", s.Binary, s.bin()))
 	if stillRunning {
 		report.detail("the previous build still runs, such as the supervisor; goblins stop, then goblins --board, restarts it on this one")
 	}
 	return nil
 }
 
-// windowName is the desktop window a release ships beside ceo.exe, which
-// goblins starts where it sits beside goblins.exe.
+// windowName is the desktop window a release ships beside goblins.exe, which
+// goblins starts from there.
 const windowName = "goblins-window.exe"
 
 // copyWindow puts the desktop window shipped beside the running binary in
@@ -410,7 +402,7 @@ func (s Service) copyWindow(programs string, report *reporter) error {
 
 // CarryWindow puts the desktop window shipped beside binary in programs, the
 // folder of the home's goblins.exe, as an install does, and writes what it did
-// to out. ceo update carries it once the candidate serves: the window is a
+// to out. goblins update carries it once the candidate serves: the window is a
 // program of its own that shows any build's board, so it follows an update and
 // takes no part in it.
 func CarryWindow(programs, binary string, out io.Writer) error {
@@ -479,7 +471,7 @@ func (s Service) adoptEarlierWindow(report *reporter) error {
 
 // rootPrograms are the files an older install put at the home's root, which
 // now live in bin.
-var rootPrograms = []string{"ceo.exe", "goblins.exe", windowName, windowPicture}
+var rootPrograms = []string{"goblins.exe", windowName, windowPicture}
 
 // rootAliases are the root programs that stay where an older install put
 // them, as this build. Sessions started before this install run them there:
@@ -487,7 +479,7 @@ var rootPrograms = []string{"ceo.exe", "goblins.exe", windowName, windowPicture}
 // they started with, and by the full path a goblin's brief names. Taking them
 // away would leave a running fleet's hooks and commands failing until each
 // session restarts.
-var rootAliases = map[string]bool{"ceo.exe": true, "goblins.exe": true}
+var rootAliases = map[string]bool{"goblins.exe": true}
 
 // retireRootBinaries takes the programs an older install put at the home's
 // root out of it, except the root aliases, which it brings up to this build.

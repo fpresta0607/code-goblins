@@ -52,7 +52,7 @@ type Options struct {
 	// finding, so the operator reads whether it is doing work before deciding
 	// which pid to name. It costs CPUSample of wall clock per process
 	// finding, so the watcher's background audit leaves it off and simply
-	// reports what it found; every ceo reap invocation turns it on.
+	// reports what it found; every goblins reap invocation turns it on.
 	ProbeIdle bool
 	// CPUSample and CPUIdle override the idleness measurement's window and
 	// threshold.
@@ -73,7 +73,7 @@ type Result struct {
 
 // Service runs the sweep. The action seams are plain functions rather than
 // interfaces because each has exactly one production implementation, wired in
-// cmd/ceo, and exactly one fake per test.
+// cmd/goblins, and exactly one fake per test.
 type Service struct {
 	Home home.Home
 	// Inventory is the evidence source. It is an interface so a gate test can
@@ -87,7 +87,7 @@ type Service struct {
 	CPU func(pid int) (time.Duration, bool)
 	// Kill ends a process and its children.
 	Kill func(ctx context.Context, pid int) error
-	// Clean returns a task's worktree through the existing ceo cleanup path
+	// Clean returns a task's worktree through the existing goblins cleanup path
 	// and reports its output, including warnings after the task is retired.
 	Clean func(ctx context.Context, id string, forceArchive bool) (string, error)
 	// Return releases a worktree directory that has no task record behind it,
@@ -386,7 +386,7 @@ func (s Service) act(ctx context.Context, finding Finding) (string, error) {
 	}
 }
 
-// returnWorktree prefers the existing ceo cleanup path, which closes the tab,
+// returnWorktree prefers the existing goblins cleanup path, which closes the tab,
 // returns the worktree and archives the record in one guarded step. A
 // directory with no task record behind it has nothing for cleanup to read, so
 // it goes through the same worktree return primitive cleanup itself calls,

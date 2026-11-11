@@ -1,0 +1,464 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"time"
+
+	codegoblins "github.com/fpresta0607/code-goblins"
+	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/axi"
+	"github.com/fpresta0607/code-goblins/internal/boardweb"
+	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/gatedb"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/keypages"
+	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/readcache"
+	"github.com/fpresta0607/code-goblins/internal/release"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
+	"github.com/fpresta0607/code-goblins/internal/verify"
+	"github.com/fpresta0607/code-goblins/internal/voice"
+	"github.com/fpresta0607/code-goblins/internal/watch"
+)
+
+// defaultBoardAddress is where goblins serve listens unless told otherwise.
+const defaultBoardAddress = "127.0.0.1:4310"
+
+// boardAddressVariable names the person's own choice of where the board
+// listens, for a machine where another program needs the usual address or
+// that runs a second home.
+const boardAddressVariable = "GOBLINS_BOARD_ADDRESS"
+
+// boardAddress is where this home's board listens, the same every time: the
+// address GOBLINS_BOARD_ADDRESS names, or else the usual one. Port 0 there asks
+// for any free port, which a test or a scratch home uses.
+func boardAddress() string {
+	if chosen := strings.TrimSpace(os.Getenv(boardAddressVariable)); chosen != "" {
+		return chosen
+	}
+	return defaultBoardAddress
+}
+
+// loopbackAddress reports whether address is a numeric loopback host and a
+// port, the only kind of address the board listens on.
+func loopbackAddress(address string) bool {
+	host, _, err := net.SplitHostPort(address)
+	return err == nil && net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback()
+}
+
+func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	if err := serveScheduling(); err != nil {
+		fmt.Fprintf(stderr, "goblins serve: %v\n", err)
+		return 1
+	}
+	// Serve does not care where it was started. Started from a Herdr pane,
+	// such as the CEO's own, it would hand that pane's variables to every
+	// terminal and herdr client it runs (HERDR_ENV, HERDR_PANE_ID,
+	// HERDR_TAB_ID, HERDR_WORKSPACE_ID, HERDR_STARTUP_CWD, HERDR_SOCKET_PATH
+	// and HERDR_BIN_PATH), and herdr refuses to start inside what they name
+	// as another Herdr, so it forgets them first. HERDR_SESSION and
+	// configuration such as HERDR_CONFIG_PATH are not the pane's and are kept.
+	// Started from a native terminal, such as the CEO's own, it would hand
+	// that terminal's id and proof value to every process it starts, and the
+	// proof value proves a process runs in that terminal, so it forgets them
+	// too. Started from a CEO's session, it would hand that session to every
+	// goblin it starts, resumes or switches as its parent, long after that
+	// session ended, so it forgets the session too, and such a goblin records
+	// the CEO registered when it starts. Started under an agent harness, as
+	// the update run in the CEO's own terminal started it on 2026-10-25, it
+	// would hand that harness's marks, CLAUDECODE and AI_AGENT, to every
+	// command it runs, and the CEO-act check reads them as an agent's session:
+	// that supervisor had every automatic start it made refused that way
+	// (#1508), so it forgets them as well.
+	for _, entry := range os.Environ() {
+		if name, _, _ := strings.Cut(entry, "="); herdr.IsPaneVariable(name) || supervisor.IsAgentSessionVariable(name) || strings.EqualFold(name, host.IDVariable) || strings.EqualFold(name, host.ProofVariable) || spawn.IsCallerSessionVariable(name) {
+			if err := os.Unsetenv(name); err != nil {
+				fmt.Fprintf(stderr, "goblins serve: forget the starting terminal's %s: %v\n", name, err)
+				return 1
+			}
+		}
+	}
+	f := flag.NewFlagSet("serve", flag.ContinueOnError)
+	f.SetOutput(stderr)
+	address := f.String("listen", boardAddress(), "loopback address for the native board")
+	example := f.Bool("example", false, "label an isolated temporary example home and omit machine-wide orphan inventory")
+	if !parseFlags(f, args) {
+		return 2
+	}
+	if !loopbackAddress(*address) {
+		fmt.Fprintln(stderr, "serve requires a numeric loopback address, for example 127.0.0.1:4310")
+		return 2
+	}
+	h, err := runtime.resolveHome()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	// A supervisor already serving this home is the one supervisor: a second
+	// serve says where it is rather than failing to take the address or the
+	// lock from it.
+	if record, err := readBoardRecord(h.State); err == nil && boardAlive(context.Background(), record) == nil {
+		fmt.Fprintf(stderr, "goblins serve: the supervisor already serves this home's board at %s; goblins status shows it, goblins stop stops it\n", record.URL)
+		return 1
+	}
+	if *example {
+		rel, err := filepath.Rel(os.TempDir(), h.Root)
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || !strings.EqualFold(filepath.Clean(h.State), filepath.Join(h.Root, "state")) {
+			fmt.Fprintln(stderr, "--example requires a separate home under the temporary directory with its own state directory")
+			return 2
+		}
+	}
+	assets, err := boardweb.Assets()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	// The watcher lock comes before the address, so the serve that holds the
+	// address is the one supervisor. After the Windows restart of 2026-10-27 a
+	// serve held the usual address without the lock, another goblins read that
+	// silent listener as another program and started a supervisor on a free
+	// port, and that one won the lock (#1592).
+	if err := supervisor.AcquireWatchLock(h.State); err != nil {
+		fmt.Fprintf(stderr, "supervisor: existing watch owner must finish before serve: %v\n", err)
+		return 1
+	}
+	defer releaseWatchLock(h)
+	listener, err := net.Listen("tcp", *address)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer listener.Close()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+	config := watch.ConfigFromEnv(h)
+	if config.Cleanup != nil {
+		config.Cleanup()
+	}
+	config.WaitEvent = nil
+	config.Cleanup = nil
+	if *example {
+		// The production orphan collector intentionally inventories the entire
+		// machine. A temporary example must not mix that with isolated panes.
+		config.Reap = nil
+	}
+	root, err := pipeline.DefaultRoot()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	// An unresolvable projects root still lists this home's own merges.
+	projects, _ := install.MachineProjectsRoot()
+	// The first-run page reads each agent's sign-in under the home folder;
+	// without one the board serves no first-run page.
+	var firstRun *supervisor.FirstRun
+	if userHome, err := os.UserHomeDir(); err != nil {
+		fmt.Fprintf(stderr, "goblins serve: the first-run page is off, the home folder is unknown: %v\n", err)
+	} else {
+		firstRun = firstRunOn(h, userHome, *example, install.SetMachineProjectsRoot)
+	}
+	// The example board shows made-up tasks, which must never reach GitHub.
+	var ticketKeeping *supervisor.Tickets
+	var rootIssues *supervisor.RootIssues
+	if !*example {
+		ticketKeeping = ticketWriter(execx.OSRunner{}, runtime)
+		github := tickets.GitHub{Commands: execx.OSRunner{}, API: runtime.githubAPI}
+		rootIssues = &supervisor.RootIssues{Checkout: runtime.resolveProject, Repository: github.RepositoryOf, OpenRoots: github.OpenRoots, IssueState: github.IssueState, ClosingPullRequests: github.OpenClosingPullRequests}
+	}
+	// The board looks for a newer release of Code Goblins; an example board
+	// looks only at a release source it is pointed at.
+	var releases *supervisor.Releases
+	if source, err := release.SourceFromEnvironment(); err != nil {
+		fmt.Fprintf(stderr, "goblins serve: the update check is off: %v\n", err)
+	} else if !*example || os.Getenv(release.APIVariable) != "" {
+		releases = &supervisor.Releases{Source: source, Version: version, Client: http.DefaultClient}
+	}
+	var dictation supervisor.Dictation
+	if speech := dictationEngine(h, stderr); speech != nil {
+		dictation = speech
+		defer speech.Close()
+	}
+	// After a restart or sign-out the supervisor brings the CEO and the
+	// goblins that were working back by itself; an example board brings
+	// nothing back.
+	var comeback *supervisor.Comeback
+	var startAtLogin *supervisor.StartAtLogin
+	var devDrive *supervisor.DevDrive
+	// Restart PC restarts Windows itself, so an example board never can.
+	var restartWindows func() error
+	if !*example {
+		restartWindows = supervisor.RestartWindows
+		// The board's Dev Drive setting reads this machine; an example board
+		// shows none.
+		devDrive = &supervisor.DevDrive{Read: runtime.readDevDrive, GateHome: runtime.gateHome}
+		// The board's Start at login is the setting the install, the setup
+		// and the desktop window's tray change.
+		login := boardStartAtLogin(h)
+		startAtLogin = &supervisor.StartAtLogin{
+			Read: func() (supervisor.StartAtLoginView, error) {
+				on, unavailable, err := login.StartsAtLogin()
+				return supervisor.StartAtLoginView{On: on, Unavailable: unavailable}, err
+			},
+			Set: login.SetStartsAtLogin,
+		}
+		comeback = &supervisor.Comeback{
+			SignedIn: supervisor.SignInBegan,
+			CEO: func(ctx context.Context) error {
+				return comebackCEO(ctx, h, runtime, "the machine restarted or its Windows sign-in ended, which ended its terminal")
+			},
+			CEOEnded: func(ctx context.Context, why string) error { return comebackCEO(ctx, h, runtime, why) },
+			Goblin: func(ctx context.Context, id string) supervisor.GoblinComeback {
+				return comebackGoblin(ctx, h, runtime, id, restartNote, false)
+			},
+			GoblinForMessage: func(ctx context.Context, id string) supervisor.GoblinComeback {
+				return comebackGoblin(ctx, h, runtime, id, messageNote, true)
+			},
+		}
+	}
+	// The board reads the same heads, refs and gate runs every minute: one
+	// cache answers each read while the files it reads are unchanged, so a
+	// refresh over work nobody changed starts no git, and a goblin's gate
+	// custody is checked once per change of its newest run. A read of the
+	// gate's database the cache cannot answer is read in process (gatedb).
+	reads := readcache.New()
+	cached := readcache.Runner{Cache: reads, Next: gatedb.Runner{Next: execx.OSRunner{}}}
+	gate := pipeline.Reader{Root: root, Commands: cached, Custody: pipeline.NewCustodyCache()}
+	// The board's family tree and the monitor's progress evidence read
+	// through one reader, so they never disagree about what a goblin does.
+	// An example board shows made-up goblins, so it reads no harness's
+	// records on this machine for a tree.
+	config.Tree.Gate = gate
+	tree := config.Tree
+	if *example {
+		tree = nil
+	}
+	// This goblins binary hosts a run item's terminal, as it hosts a goblin's.
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	keyPages, err := keypages.Parse(codegoblins.KeyPages)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	remote := boardRemoteAccess(h, "http://"+listener.Addr().String())
+	var remoteSetting *remoteaccess.Manager
+	if !*example {
+		remoteSetting = remote
+	}
+	s, err := supervisor.Start(ctx, h, supervisor.Options{
+		HoldsWatchLock:   true,
+		RemoteAccess:     remoteSetting,
+		Push:             &http.Client{Timeout: 15 * time.Second},
+		Dictation:        dictation,
+		Example:          *example,
+		Tickets:          ticketKeeping,
+		RootIssues:       rootIssues,
+		CEO:              &supervisor.CEOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}, Sockets: herdr.NewSocketCache()})},
+		Gate:             gate,
+		MergedPRs:        supervisor.GitMergedPRs(supervisor.FleetRepos(h, projects)),
+		PullRequestState: supervisor.GitHubPullRequestState(runtime.githubAPI, execx.OSRunner{}),
+		FileRoot:         fileRootFrom(runtime, *example),
+		Reconcile:        func(ctx context.Context) error { return watch.Reconcile(ctx, config) },
+		VerifyDelivery:   (supervisor.Git{}).VerifyDelivery,
+		VerifyReports:    verify.Reports,
+		Runs:             supervisor.OSRunLauncher{HostCommand: []string{self, "host"}},
+		PollPage:         (axi.Lavish{Commands: execx.OSRunner{}}).Poll,
+		PageSessions:     (axi.Lavish{}).Sessions,
+		EndPage:          (axi.Lavish{Commands: execx.OSRunner{}}).End,
+		OpenPage:         (axi.Lavish{Commands: execx.OSRunner{}}).Open,
+		BoardAssets:      assets,
+		FirstRun:         firstRun,
+		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, Processors: supervisor.MachineProcessors, GPU: supervisor.MachineGPU, HeavyLine: supervisor.MachineHeavyLine, PoolTags: supervisor.PoolTags, Spawn: spawnFromBoard},
+		CompactCEO:       compactNativeCEO,
+		// The CI wakes only read GitHub, as PullRequestState does, so an
+		// example home keeps them.
+		CI:       cached,
+		GitHub:   runtime.githubAPI,
+		Progress: cached,
+		Reads:    reads,
+		// The Defender wakes only read what Defender recorded, as goblins
+		// defender does.
+		Defender: runtime.readDefender,
+		// A credential request's card saves through the store goblins auth store
+		// writes, and its refresh is goblins auth store's own.
+		Credentials:        auth.OpenStore,
+		RefreshCredentials: boardCredentialRefresh(runtime),
+		Quota:              runtime.quota,
+		KeySpend:           runtime.keySpend,
+		ActionsSpend:       runtime.actionsSpend,
+		UserEnvironment:    spawn.UserEnvironment,
+		Comeback:           comeback,
+		StartAtLogin:       startAtLogin,
+		DevDrive:           devDrive,
+		Tree:               tree,
+		Releases:           releases,
+		KeyPages:           keyPages,
+		RestartWindows:     restartWindows,
+		EndHeavyRuns:       supervisor.EndHeavyRuns,
+	})
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer s.Close()
+	// goblins finds the board through this record; the supervisor holds the
+	// singleton by now, so no other one can be writing it.
+	if err := writeBoardRecord(h.State, boardRecord{PID: os.Getpid(), URL: "http://" + listener.Addr().String()}); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer removeBoardRecord(h.State, os.Getpid())
+	// Only the supervisor that holds the singleton moves remote access to its
+	// board: a serve that lost the race to it exits before here.
+	if remoteSetting != nil {
+		go remoteSetting.FollowBoard(ctx, func(line string) { fmt.Fprintln(stderr, line) })
+	}
+	handler := supervisor.NewHTTP(s, listener.Addr().String(), assets)
+	handler.GoblinHooks = goblinHookHandler{home: h}
+	// After an update to a build that pins a newer speech model, the board
+	// replaces the earlier one now rather than at the first dictation.
+	handler.ReplaceDictation()
+	server := &http.Server{Handler: remoteaccess.NewGate(ctx, remote, handler), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-s.Done():
+		}
+		shutdownCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stop()
+		_ = server.Shutdown(shutdownCtx)
+	}()
+	fmt.Fprintf(stdout, "CEO native board: http://%s\nSupervisor PID %d; browser-independent; Ctrl-C stops this process.\n", listener.Addr(), os.Getpid())
+	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
+}
+
+// firstRunOn is what the first-run page reads and changes on this machine for
+// the CEO home h: the home its CEO starts in, and the agent goblins
+// remembered for it, which the page shows as chosen and remembers in turn.
+// setMachine records the projects folder as this machine's setting; an
+// example board, such as a test fixture, never calls it and records the
+// folder for itself alone.
+func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root string) error) *supervisor.FirstRun {
+	return &supervisor.FirstRun{
+		Home:     userHome,
+		LookPath: exec.LookPath,
+		CEOHome:  h.Root,
+		SavedAgent: func() string {
+			// Only a choice the quick start wrote is one: a home with none
+			// has no answer yet, and a file that names no agent is no answer.
+			if _, err := os.Stat(ceoHarnessPath(h.State)); err != nil {
+				return ""
+			}
+			agent, err := ceoHarness(h.State)
+			if err != nil {
+				return ""
+			}
+			return agent
+		},
+		SaveAgent: func(agent string) error {
+			if agent == "" {
+				if err := os.Remove(ceoHarnessPath(h.State)); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+				return nil
+			}
+			return fsx.AtomicWriteFile(ceoHarnessPath(h.State), []byte(agent+"\n"))
+		},
+		ProjectsRoot: install.MachineProjectsRoot,
+		SetProjectsRoot: func(root string) error {
+			if !example {
+				if err := setMachine(root); err != nil {
+					return err
+				}
+			}
+			// This supervisor, and the CEO it starts, read the process
+			// environment first, and it still holds the old root.
+			return os.Setenv(install.ProjectsRootVariable, root)
+		},
+		SignIn:  ceoSignIn(h),
+		CEORuns: func() bool { return supervisor.CEORuns(h.State) },
+		StartCEO: func(agent string) error {
+			launchErr := acquireCEOLaunch(context.Background(), h.State)
+			if launchErr == nil {
+				defer lock.ReleaseExclusiveNamed(h.State, supervisor.CEOLaunchLock)
+			}
+			if supervisor.CEORuns(h.State) {
+				return nil
+			}
+			if launchErr != nil {
+				return launchErr
+			}
+			return startNativeCEO(h, h.Root, agent, nil, "")
+		},
+		ReopenCEO: func() error {
+			return reopenCEO(h, "the Overlord reopened it from the board", startNativeCEO, supervisor.NativeTerminalRuns)
+		},
+		RestartCEO: func(harness string) (supervisor.CEOConversation, bool, error) {
+			conversation, fresh, err := restartCEO(h, harness)
+			return conversation, fresh == "", err
+		},
+	}
+}
+
+func boardStartAtLogin(h home.Home) install.Service {
+	return install.Service{Root: h.Root, StartAtLoginKey: startAtLoginKey()}
+}
+
+// spawnFromBoard runs this goblins binary with args, as a queued task's Start
+// dispatches it through goblins spawn, and returns everything it printed.
+func spawnFromBoard(ctx context.Context, args []string) (string, error) {
+	self, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	result, err := (execx.OSRunner{}).Run(ctx, execx.Request{Name: self, Args: args})
+	output := string(result.Stdout) + string(result.Stderr)
+	if err == nil && result.ExitCode != 0 {
+		err = fmt.Errorf("goblins spawn exited %d", result.ExitCode)
+	}
+	return output, err
+}
+
+// dictationEngine is the speech engine the board dictates through: the model
+// this build pins, or the one the home's own config/voice.json names, kept
+// under the home's caches. Settings that cannot be read leave the board
+// without dictation, and goblins doctor says why.
+func dictationEngine(h home.Home, stderr io.Writer) *voice.Voice {
+	speech, err := voice.For(h.Root, codegoblins.Voice)
+	if err != nil {
+		fmt.Fprintln(stderr, "dictation: "+err.Error())
+		return nil
+	}
+	speech.Memory = func() (uint64, uint64, error) {
+		memory, err := supervisor.MachineMemory()
+		return memory.Available, memory.CommitAvailable, err
+	}
+	return speech
+}

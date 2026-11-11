@@ -151,7 +151,7 @@ func (s *Service) reopenCredential(id, generation, by string) error {
 		if reopened.Task != "" {
 			whose = reopened.Task + "'s card " + reopened.ID
 		}
-		wait := "Wait on it again with ceo auth request --wait-on " + reopened.ID + "."
+		wait := "Wait on it again with goblins auth request --wait-on " + reopened.ID + "."
 		if reopened.By == "goblin" {
 			wait = reopened.Task + " is told to wait on it again."
 		}
@@ -161,7 +161,7 @@ func (s *Service) reopenCredential(id, generation, by string) error {
 		s.credentialWork.Add(1)
 		go func() {
 			defer s.credentialWork.Done()
-			if _, err := s.Options.CEO.SendGoblin(context.Background(), reopened.Task, reopened.Identity, "Your card "+reopened.ID+" ("+reopened.Why+") is back in the Command Center. Wait on it again with ceo auth request --wait-on "+reopened.ID+" --task "+reopened.Task+"."); err != nil {
+			if _, err := s.Options.CEO.SendGoblin(context.Background(), reopened.Task, reopened.Identity, "Your card "+reopened.ID+" ("+reopened.Why+") is back in the Command Center. Wait on it again with goblins auth request --wait-on "+reopened.ID+" --task "+reopened.Task+"."); err != nil {
 				s.credentialNotice(reopened, "card "+reopened.ID+" is back in the Command Center, but "+reopened.Task+" could not be told: "+bounded(err.Error(), 300))
 			}
 		}()

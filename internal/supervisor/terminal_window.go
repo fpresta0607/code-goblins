@@ -16,7 +16,7 @@ import (
 
 // openTerminalWindow opens the terminal a view shows in a Windows Terminal
 // window of its own, beside the board: a goblin or CEO in Herdr attached to
-// its session with its tab in front, a native terminal through ceo attach.
+// its session with its tab in front, a native terminal through goblins attach.
 // The browser names only what its view shows; the program and its arguments
 // are the supervisor's own. A goblin whose gate owns its task is refused, as
 // typing into it is.

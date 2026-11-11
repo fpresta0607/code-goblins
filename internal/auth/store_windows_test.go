@@ -11,7 +11,7 @@ import (
 // selfTestKey is written to the real vault under the ceo: namespace, in a
 // scope no project uses, one stable, obviously-named entry that each test
 // removes again.
-var selfTestKey = Scoped("ceo-selftest", "CEO_CREDENTIAL_SELFTEST")
+var selfTestKey = Scoped("ceo-selftest", "GOBLINS_CREDENTIAL_SELFTEST")
 
 func TestCredentialManagerRoundTripsThroughTheRealVault(t *testing.T) {
 	store, err := openCredentialManager()
@@ -61,7 +61,7 @@ func TestCredentialManagerReportsAnUnknownKeyAsAbsentNotAnError(t *testing.T) {
 	if err != nil {
 		t.Skipf("Windows Credential Manager unavailable: %v", err)
 	}
-	value, found, err := store.Get(Shared("CEO_CREDENTIAL_THAT_DOES_NOT_EXIST"))
+	value, found, err := store.Get(Shared("GOBLINS_CREDENTIAL_THAT_DOES_NOT_EXIST"))
 	if err != nil {
 		t.Fatalf("Get(absent) = error %v, want absence reported as an ordinary state", err)
 	}
@@ -124,7 +124,7 @@ func TestAStoredCredentialIsListedDeletedAndReadBackGone(t *testing.T) {
 	if err != nil {
 		t.Skipf("Windows Credential Manager unavailable: %v", err)
 	}
-	key := Scoped("ceo-selftest", "CEO_CREDENTIAL_DELETE_SELFTEST")
+	key := Scoped("ceo-selftest", "GOBLINS_CREDENTIAL_DELETE_SELFTEST")
 	target := credentialTarget + key.String()
 	seen := credentialTarget + seenScope + "/" + key.String()
 	if err := store.Set(key, "a value"); err != nil {

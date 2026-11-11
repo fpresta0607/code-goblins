@@ -281,7 +281,7 @@ func TestCleanupReturnsCleanInactiveWorktree(t *testing.T) {
 	if err != nil || len(status) != 1 {
 		t.Fatalf("status = %v, %v; want one done line recording the returned worktree", status, err)
 	}
-	if _, event := state.SplitStatus(status[0]); event != "stopped: returned worktree "+fixture.worktree+" via ceo cleanup" {
+	if _, event := state.SplitStatus(status[0]); event != "stopped: returned worktree "+fixture.worktree+" via goblins cleanup" {
 		t.Fatalf("status = %v; want one done line recording the returned worktree", status)
 	}
 	fixture.assertOnlyTabCloseLifecycle(t)
@@ -441,7 +441,7 @@ func TestCleanupRefusals(t *testing.T) {
 	}
 }
 
-// A pause leaves its goblin's gate run running and only ceo kill aborts it,
+// A pause leaves its goblin's gate run running and only goblins kill aborts it,
 // so a cleanup retires no task whose run is still open: retired, the task
 // would leave the run going on through review, tests and a pull request for
 // nobody. A gate that cannot be read refuses too, never taken for one with no
@@ -460,16 +460,16 @@ func TestCleanupRefusesATaskWhoseGateRunIsStillOpen(t *testing.T) {
 		isForceArchive, isWorktreeGone, isEmptyFolder bool
 		want                                          []string
 	}{
-		{name: "a run still open", run: "run-1", want: []string{"run-1", "still open", "ceo kill g1"}},
+		{name: "a run still open", run: "run-1", want: []string{"run-1", "still open", "goblins kill g1"}},
 		{name: "a gate that cannot be read", readErr: errors.New("state query failed"), want: []string{"cannot be read", "state query failed"}},
 		{name: "a run that ended, or none"},
-		{name: "a force archive of a run still open", run: "run-1", isForceArchive: true, want: []string{"run-1", "still open", "ceo kill g1"}},
+		{name: "a force archive of a run still open", run: "run-1", isForceArchive: true, want: []string{"run-1", "still open", "goblins kill g1"}},
 		{name: "a force archive of a gate that cannot be read", readErr: errors.New("state query failed"), isForceArchive: true, want: []string{"cannot be read", "state query failed"}},
 		{name: "a force archive of a run that ended, or none", isForceArchive: true},
 		{name: "a force archive of a task whose worktree is gone", isForceArchive: true, isWorktreeGone: true},
-		{name: "a force archive of a task whose worktree is gone and whose saved run is open", run: "run-1", isForceArchive: true, isWorktreeGone: true, want: []string{"run-1", "still open", "ceo kill g1", "no-mistakes axi abort --run run-1"}},
+		{name: "a force archive of a task whose worktree is gone and whose saved run is open", run: "run-1", isForceArchive: true, isWorktreeGone: true, want: []string{"run-1", "still open", "goblins kill g1", "no-mistakes axi abort --run run-1"}},
 		{name: "a cleanup of an empty folder", isEmptyFolder: true},
-		{name: "a cleanup of an empty folder whose saved run is open", run: "run-1", isEmptyFolder: true, want: []string{"run-1", "still open", "ceo kill g1", "no-mistakes axi abort --run run-1"}},
+		{name: "a cleanup of an empty folder whose saved run is open", run: "run-1", isEmptyFolder: true, want: []string{"run-1", "still open", "goblins kill g1", "no-mistakes axi abort --run run-1"}},
 		{name: "a cleanup of an empty folder whose gate cannot be read", readErr: errors.New("state query failed"), isEmptyFolder: true, want: []string{"cannot be read", "state query failed"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

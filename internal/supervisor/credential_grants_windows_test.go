@@ -398,7 +398,7 @@ func TestGrantRequestCardKeepsTheRecordedGrantAndRecoveryWhenScriptRefreshFails(
 	if code != http.StatusOK || err != nil || !slices.Equal(after.Credentials, []string{"other", "sample"}) || !found || closed.State != "granted" {
 		t.Fatalf("Grant = %d %s, grants %v, card %s (%v)", code, body, after.Credentials, closed.State, err)
 	}
-	for _, want := range []string{"its auth.ps1 was not rewritten", "run ceo auth refresh task-1"} {
+	for _, want := range []string{"its auth.ps1 was not rewritten", "run goblins auth refresh task-1"} {
 		if !strings.Contains(closed.Reason, want) {
 			t.Errorf("card reason = %q, want %q", closed.Reason, want)
 		}

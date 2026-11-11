@@ -1747,7 +1747,7 @@ func TestAConversationNoViewAsksForIsLetGo(t *testing.T) {
 // a line that begins with "ceo" included (the Overlord, 2026-10-26).
 func TestTheFleetsTypedWakeIsANoticeNotHisMessage(t *testing.T) {
 	// Arrange
-	wake := WakePrefix + "2 queued wakes (ci cg-a, notify cg-b); run ceo drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints"
+	wake := WakePrefix + "2 queued wakes (ci cg-a, notify cg-b); run goblins drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints"
 	home := t.TempDir()
 	path := conversation(t, home,
 		prompted("u1", wake),
@@ -1774,7 +1774,7 @@ func TestTheFleetsTypedWakeIsANoticeNotHisMessage(t *testing.T) {
 // the supervisor types it into a pi CEO's terminal too.
 func TestAPiSessionReadsTheFleetsWakeAsANotice(t *testing.T) {
 	// Arrange
-	wake := WakePrefix + "1 queued wake (notify cg-a); run ceo drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints"
+	wake := WakePrefix + "1 queued wake (notify cg-a); run goblins drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints"
 	home := t.TempDir()
 	path := piSession(t, home,
 		piHeader(),
@@ -1800,15 +1800,15 @@ func TestFleetProducerMessagesAreNotOverlordPrompts(t *testing.T) {
 	for _, test := range []struct {
 		text, source string
 	}{
-		{WakePrefix + "1 queued wake (notify task-1); run ceo drain", FromNotice},
+		{WakePrefix + "1 queued wake (notify task-1); run goblins drain", FromNotice},
 		{"== SESSION LOCK ==\nSESSION LOCK: held by pid 123 on test\n== WAKE QUEUE ==\nWAKE QUEUE: empty", FromNotice},
-		{"WAKE QUEUE: 1 pending\n  1 notify task-1 done\nWAKE_ACK_REQUIRED: ceo drain --ack-through 1", FromNotice},
+		{"WAKE QUEUE: 1 pending\n  1 notify task-1 done\nWAKE_ACK_REQUIRED: goblins drain --ack-through 1", FromNotice},
 		{"AFK MODE IS ON: the Supreme Overlord turned it on 2026-10-02 02:10 UTC from the board, and he is away until he turns it off.\nIt is complete autopilot: no Command Center prompt opens for him while it is on, and nothing is asked of him or held for him.\nWAKE QUEUE: empty", FromNotice},
 		{routing.SteerPrefix + "Your run npm test ended with exit 0 after 1m35s; read its output and carry on from it.", FromNotice},
-		{routing.SteerPrefix + "Your helper task-1 is done: its work is committed on its branch, ready. Merge it into your branch with: ceo helper merge parent", FromNotice},
-		{routing.SteerPrefix + "Your helper task-1 asks: Which path? Answer it with: ceo send task-1 \"<answer>\"", FromNotice},
-		{routing.SteerPrefix + "Your helper task-1 failed: test failure. Tell it what to do with: ceo send task-1 \"<what>\", or stop it with: ceo kill task-1 --reason \"<why>\"", FromNotice},
-		{"ceo drain please", FromOverlord},
+		{routing.SteerPrefix + "Your helper task-1 is done: its work is committed on its branch, ready. Merge it into your branch with: goblins helper merge parent", FromNotice},
+		{routing.SteerPrefix + "Your helper task-1 asks: Which path? Answer it with: goblins send task-1 \"<answer>\"", FromNotice},
+		{routing.SteerPrefix + "Your helper task-1 failed: test failure. Tell it what to do with: goblins send task-1 \"<what>\", or stop it with: goblins kill task-1 --reason \"<why>\"", FromNotice},
+		{"goblins drain please", FromOverlord},
 		{"ceo watcher wake-ups need fixing", FromOverlord},
 		{"Your run was slow, please check it", FromOverlord},
 		{"WAKE QUEUE: please show it", FromOverlord},

@@ -22,7 +22,7 @@ import (
 )
 
 func TestPauseReportsDetachedWindowsTeardownWithoutWaitingForTheHandle(t *testing.T) {
-	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	for _, testCase := range []struct {
 		name          string
 		stopError     error
@@ -179,7 +179,7 @@ func startDetachedFixture(t *testing.T, directory string) *exec.Cmd {
 	start := func(flags uint32) (*exec.Cmd, error) {
 		child := exec.Command(os.Args[0], "-test.run=^TestLifecycleProcessFixture$")
 		child.Dir = directory
-		child.Env = append(os.Environ(), "CEO_LIFECYCLE_FIXTURE=1")
+		child.Env = append(os.Environ(), "GOBLINS_LIFECYCLE_FIXTURE=1")
 		child.SysProcAttr = &syscall.SysProcAttr{CreationFlags: flags, HideWindow: true}
 		return child, child.Start()
 	}
@@ -230,7 +230,7 @@ func TestStopQueuedKeepsPendingTeardownOfARequeuedTask(t *testing.T) {
 // which on a machine short of memory ran out of time before it ended
 // anything, so a busy goblin went on holding the memory a pause was for.
 func TestStopResourcesEndsTheTerminalEvenWhenTheSweepRunsOutOfTime(t *testing.T) {
-	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	// Arrange
 	terminal := Identity{PID: 4242, Started: time.Date(2026, 10, 8, 2, 0, 0, 0, time.UTC)}
 	expired, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
@@ -257,7 +257,7 @@ func TestStopResourcesEndsTheTerminalEvenWhenTheSweepRunsOutOfTime(t *testing.T)
 }
 
 func TestStopResourcesIssuesEveryTerminationBeforeWaiting(t *testing.T) {
-	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	directory := t.TempDir()
 	for range 3 {
 		startDetachedFixture(t, directory)

@@ -38,7 +38,7 @@ const (
 type ciRunnerWatch struct {
 	// ask asks the desktop CI runner's service.
 	ask func(ctx context.Context, request cirunner.Request, reply func(cirunner.Reply)) error
-	// commands runs this build's ceo gate turn, which detaches the job's run.
+	// commands runs this build's goblins gate turn, which detaches the job's run.
 	commands execx.Runner
 	// started is when process pid started, or false once it has ended.
 	started func(pid int) (time.Time, bool)
@@ -130,7 +130,7 @@ func (w *ciRunnerWatch) watch(ctx context.Context, sleep func(context.Context, t
 }
 
 // CIRunnerFolder is where the watch logs, and each job's run logs, under the
-// home's state, and where ceo ci-runner parity keeps its records.
+// home's state, and where goblins ci-runner parity keeps its records.
 func CIRunnerFolder(stateDir string) string {
 	return filepath.Join(stateDir, "ci-runner")
 }

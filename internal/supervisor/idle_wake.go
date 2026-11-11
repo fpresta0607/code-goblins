@@ -37,7 +37,7 @@ func (s *Service) wakeWhenStalled(w *fleetWakes, record *Scheduling, memory Memo
 	for _, work := range record.Waiting {
 		waiting = append(waiting, work.ID+": "+work.Why)
 	}
-	detail := fmt.Sprintf("idle: nothing has started for %d minutes with %.1f GB of memory and %.1f GB of commit free while this work waits; %s; next: fix what stops each, then start it with Start on the board or ceo spawn, or park its row if it must not start",
+	detail := fmt.Sprintf("idle: nothing has started for %d minutes with %.1f GB of memory and %.1f GB of commit free while this work waits; %s; next: fix what stops each, then start it with Start on the board or goblins spawn, or park its row if it must not start",
 		int(now.Sub(since)/time.Minute), gigabytes(memory.Available), gigabytes(memory.CommitAvailable), strings.Join(waiting, "; "))
 	if err := raiseFleetWake(s.Store.Home.State, "idle", "fleet", detail); err != nil {
 		return err

@@ -7,14 +7,14 @@ import (
 )
 
 // hostPrograms are the programs a sandbox task's goblin runs on the host:
-// ceo to report, gate and contain its work, and git and gh to deliver it.
-// Everything else runs in its container, through ceo sandbox run.
+// goblins to report, gate and contain its work, and git and gh to deliver it.
+// Everything else runs in its container, through goblins sandbox run.
 var hostPrograms = map[string]bool{"ceo": true, "git": true, "gh": true}
 
-// hostRefusedCommands are the ceo commands that run the project's own code
+// hostRefusedCommands are the goblins commands that run the project's own code
 // on the host, which a sandbox task runs in its container instead: the gate
-// checks this repository runs, the checks ceo verify runs before a push,
-// the security tier ceo security runs, the build ceo deploy runs, and a
+// checks this repository runs, the checks goblins verify runs before a push,
+// the security tier goblins security runs, the build goblins deploy runs, and a
 // local services stack, whose compose file the project writes.
 var hostRefusedCommands = map[string]bool{"deploy": true, "gate": true, "security": true, "services": true, "verify": true}
 
@@ -54,18 +54,18 @@ var whyNotPlain = map[byte]string{
 // quoted strings (hostCommands), that start ceo, git or gh by name or by an
 // absolute path outside worktree and scratch, the folders the container
 // writes. Git runs only the commands a goblin delivers with (gitRefusal),
-// and gh no alias or extension (ghRefusal). ceo sandbox run, and ceo gate
-// turn starting only it, are how the project's code runs; the ceo commands
+// and gh no alias or extension (ghRefusal). goblins sandbox run, and goblins gate
+// turn starting only it, are how the project's code runs; the goblins commands
 // that run it on the host are refused.
 func HostCommandRefusal(command, cwd, worktree, scratch string) string {
 	commands, refusal := hostCommands(command)
 	if refusal != "" {
-		return "this command holds " + refusal + ", and a sandbox task's host runs only ceo, git and gh commands of plain words and quoted text joined by &&: run anything else in its container with ceo sandbox run -- <command>"
+		return "this command holds " + refusal + ", and a sandbox task's host runs only ceo, git and gh commands of plain words and quoted text joined by &&: run anything else in its container with goblins sandbox run -- <command>"
 	}
 	for _, words := range commands {
 		program := programName(words[0])
 		if !hostPrograms[program] {
-			return "a sandbox task runs " + words[0] + " only in its container, since its code is the adversary: run it with ceo sandbox run -- <command>, and only ceo, git and gh on the host"
+			return "a sandbox task runs " + words[0] + " only in its container, since its code is the adversary: run it with goblins sandbox run -- <command>, and only ceo, git and gh on the host"
 		}
 		if refusal := programPathRefusal(words[0], cwd, worktree, scratch); refusal != "" {
 			return refusal
@@ -85,7 +85,7 @@ func HostCommandRefusal(command, cwd, worktree, scratch string) string {
 				return refusal
 			}
 		case hostRefusedCommands[words[1]]:
-			return "ceo " + words[1] + " runs the project's own code on the host, which a sandbox task runs in its container: use ceo sandbox run -- <command>, or ceo gate turn --detach <log-file> -- ceo sandbox run -- <command> in the background"
+			return "goblins " + words[1] + " runs the project's own code on the host, which a sandbox task runs in its container: use goblins sandbox run -- <command>, or goblins gate turn --detach <log-file> -- goblins sandbox run -- <command> in the background"
 		}
 	}
 	return ""
@@ -236,7 +236,7 @@ func gitRefusal(arguments []string) string {
 	}
 	for _, argument := range arguments[1:] {
 		if command == "rebase" && strings.HasPrefix(argument, "-") && !strings.HasPrefix(argument, "--") && strings.Contains(argument, "x") {
-			return "a sandbox task never runs git rebase " + argument + " on the host, since -x runs a command at each commit: run the command in its container with ceo sandbox run"
+			return "a sandbox task never runs git rebase " + argument + " on the host, since -x runs a command at each commit: run the command in its container with goblins sandbox run"
 		}
 	}
 	return refusedOption("git "+command, arguments[1:])
@@ -271,7 +271,7 @@ func refusedOption(program string, arguments []string) string {
 }
 
 // RunsNoHostGit reports whether command, which HostCommandRefusal lets run,
-// starts only ceo sandbox run, by itself or in a ceo gate turn, and ceo
+// starts only goblins sandbox run, by itself or in a goblins gate turn, and goblins
 // notify, none of which runs git on the host. Those run while a .git the
 // container made or a running container refuses every other host command,
 // so a goblin can still remove the one in its container, wait its turn and
@@ -282,7 +282,7 @@ func RunsNoHostGit(command string) bool {
 		return false
 	}
 	for _, words := range commands {
-		if programName(words[0]) != "ceo" || len(words) < 2 {
+		if programName(words[0]) != "goblins" || len(words) < 2 {
 			return false
 		}
 		isSandboxRun := words[1] == "sandbox" && len(words) > 2 && words[2] == "run"
@@ -293,8 +293,8 @@ func RunsNoHostGit(command string) bool {
 	return true
 }
 
-// sandboxTurnProgram is the program word of a turn that takes it for ceo
-// sandbox run alone, given the arguments after ceo gate, or empty for any
+// sandboxTurnProgram is the program word of a turn that takes it for goblins
+// sandbox run alone, given the arguments after goblins gate, or empty for any
 // other.
 func sandboxTurnProgram(arguments []string) string {
 	if len(arguments) == 0 || arguments[0] != "turn" {

@@ -139,7 +139,7 @@ func TestAGoblinWaitingOnTheCEOWakesItAfterTenMinutesAndEveryHalfHour(t *testing
 			if len(first) != 1 || first[0].Key != waitingGoblin {
 				t.Fatalf("a wait of ten minutes = %+v, want one wake keyed by the goblin", first)
 			}
-			for _, want := range []string{"ceo_wait: Jerry (cg-waits) has waited 10 minutes on the CEO", "waiting on ceo: which schema do I migrate first?", `next: answer it with ceo send cg-waits "<your answer>"`} {
+			for _, want := range []string{"ceo_wait: Jerry (cg-waits) has waited 10 minutes on the CEO", "waiting on ceo: which schema do I migrate first?", `next: answer it with goblins send cg-waits "<your answer>"`} {
 				if !strings.Contains(first[0].Detail, want) {
 					t.Errorf("wake %q lacks %q", first[0].Detail, want)
 				}
@@ -180,9 +180,9 @@ func TestEachWaitOnTheCEOWakesItAndNoWaitByDesignDoes(t *testing.T) {
 		{name: "a done on a draft", report: donePull209, pulls: pull209(true), want: []string{donePull209 + ", which no merge train takes: it is a draft", "review https://github.com/o/r/pull/209"}},
 		{name: "a done on a held pull request", report: donePull209, pulls: pull209(false, "Hold"), want: []string{donePull209 + ", which no merge train takes: it is held: it carries the hold label"}},
 		{name: "a wait on a row the CEO owns", report: "waiting on ceo-review: the schema plan first", want: []string{"waiting on ceo-review: the schema plan first; ceo-review is the CEO's own backlog row ceo-review (Review the schema plan)", "finish backlog row ceo-review"}},
-		{name: "a pause until a row the CEO owns", report: "working: migrating", pause: pausedUntil("task:ceo-review"), want: []string{"paused until the CEO's own backlog row ceo-review (Review the schema plan) is done", "ceo resume cg-waits"}},
-		{name: "a wait on a row the CEO finished", report: "waiting on ceo-plan: the rollout plan first", want: []string{"ceo-plan is the CEO's own backlog row ceo-plan (Approve the rollout plan), done in the backlog", `next: tell cg-waits that ceo-plan is done with ceo send cg-waits "<what>"`}},
-		{name: "a pause until a row the CEO finished", report: "working: migrating", pause: pausedUntil("task:ceo-plan"), want: []string{"paused until the CEO's own backlog row ceo-plan (Approve the rollout plan), which is done", "next: resume cg-waits with ceo resume cg-waits"}},
+		{name: "a pause until a row the CEO owns", report: "working: migrating", pause: pausedUntil("task:ceo-review"), want: []string{"paused until the CEO's own backlog row ceo-review (Review the schema plan) is done", "goblins resume cg-waits"}},
+		{name: "a wait on a row the CEO finished", report: "waiting on ceo-plan: the rollout plan first", want: []string{"ceo-plan is the CEO's own backlog row ceo-plan (Approve the rollout plan), done in the backlog", `next: tell cg-waits that ceo-plan is done with goblins send cg-waits "<what>"`}},
+		{name: "a pause until a row the CEO finished", report: "working: migrating", pause: pausedUntil("task:ceo-plan"), want: []string{"paused until the CEO's own backlog row ceo-plan (Approve the rollout plan), which is done", "next: resume cg-waits with goblins resume cg-waits"}},
 		{name: "a wait on the CEO after a pause that failed", report: "waiting on ceo: is the plan right?", pause: &state.PauseCondition{Reason: "memory", At: ceoWaitStarted}, phase: "failed", isHosted: true, want: []string{"waiting on ceo: is the plan right?"}},
 		{name: "a wait on the CEO once a failed pause took hold", report: "waiting on ceo: is the plan right?", pause: &state.PauseCondition{Reason: "memory", At: ceoWaitStarted}, phase: "failed"},
 		{name: "a wait on CI", report: "waiting on ci: the checks of #209"},

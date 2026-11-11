@@ -14,7 +14,7 @@ func TestRenderCollapsesOrphanStatusLogs(t *testing.T) {
 	for _, id := range []string{"a", "b", "c", "d", "e", "f", "g"} {
 		findings = append(findings, Finding{Class: OrphanStatus, TaskID: id, Detail: "status log with no matching meta", Action: "archive the log"})
 	}
-	findings = append(findings, Finding{Class: OrphanWorktree, TaskID: "z", Path: `C:\wt`, Detail: "no live pane", Action: "return the worktree through ceo cleanup"})
+	findings = append(findings, Finding{Class: OrphanWorktree, TaskID: "z", Path: `C:\wt`, Detail: "no live pane", Action: "return the worktree through goblins cleanup"})
 	SortFindings(findings)
 
 	var out strings.Builder

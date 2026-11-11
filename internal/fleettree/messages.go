@@ -1040,7 +1040,7 @@ var (
 	// These are the complete shapes emitted by gate_run_end.go and notify.go,
 	// after fleet.Stamp, rather than arbitrary sentences beginning with CEO.
 	runEndedNotice = regexp.MustCompile(`^Your run .+ ended with exit -?\d+ after [^;]+; read its output and carry on from it\.$`)
-	helperNotice   = regexp.MustCompile(`(?s)^Your helper [A-Za-z0-9_-]+ (?:is done: its work is committed on its branch, .+\. Merge it into your branch with: ceo helper merge [A-Za-z0-9_-]+|asks: .+ Answer it with: ceo send [A-Za-z0-9_-]+ "<answer>"|failed: .+\. Tell it what to do with: ceo send [A-Za-z0-9_-]+ "<what>", or stop it with: ceo kill [A-Za-z0-9_-]+ --reason "<why>")$`)
+	helperNotice   = regexp.MustCompile(`(?s)^Your helper [A-Za-z0-9_-]+ (?:is done: its work is committed on its branch, .+\. Merge it into your branch with: goblins helper merge [A-Za-z0-9_-]+|asks: .+ Answer it with: goblins send [A-Za-z0-9_-]+ "<answer>"|failed: .+\. Tell it what to do with: goblins send [A-Za-z0-9_-]+ "<what>", or stop it with: goblins kill [A-Za-z0-9_-]+ --reason "<why>")$`)
 	wakeDigest     = regexp.MustCompile(`^WAKE QUEUE: (?:\d+ pending\n|empty$)`)
 )
 

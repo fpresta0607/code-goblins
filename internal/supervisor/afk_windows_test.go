@@ -30,7 +30,7 @@ func asOverlordsTerminal(s *Service) {
 	s.inspectCaller = func(pid int) ([]proc.Entry, []string, error) {
 		started := time.Now().Add(-time.Hour)
 		return []proc.Entry{
-			{PID: pid, ParentPID: 4242, ExeBase: "ceo.exe", Start: started},
+			{PID: pid, ParentPID: 4242, ExeBase: "goblins.exe", Start: started},
 			{PID: 4242, ParentPID: 900, ExeBase: "powershell.exe", Start: started.Add(-time.Minute)},
 			{PID: 900, ExeBase: "WindowsTerminal.exe", Start: started.Add(-time.Hour)},
 		}, []string{"USERNAME=overlord"}, nil
@@ -43,7 +43,7 @@ func asGoblinsTerminal(s *Service) {
 	clean := s.inspectCaller
 	s.inspectCaller = func(pid int) ([]proc.Entry, []string, error) {
 		ancestry, env, err := clean(pid)
-		return ancestry, append(env, "CEO_ROLE=goblin"), err
+		return ancestry, append(env, "GOBLINS_ROLE=goblin"), err
 	}
 }
 
@@ -84,7 +84,7 @@ func TestOnlyATerminalOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 	ceo := proc.Entry{PID: primary.Process.PID, ExeBase: "supervisor.test.exe", Start: primary.Process.Start}
 	shell := func(above ...proc.Entry) []proc.Entry {
 		return append([]proc.Entry{
-			{PID: 7001, ParentPID: 4242, ExeBase: "ceo.exe", Start: ceo.Start.Add(4 * time.Millisecond)},
+			{PID: 7001, ParentPID: 4242, ExeBase: "goblins.exe", Start: ceo.Start.Add(4 * time.Millisecond)},
 			{PID: 4242, ParentPID: 900, ExeBase: "powershell.exe", Start: ceo.Start.Add(2 * time.Millisecond)},
 		}, above...)
 	}
@@ -105,7 +105,7 @@ func TestOnlyATerminalOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 		hisToMeet bool
 	}{
 		{name: "his own shell", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"USERNAME=overlord"}, from: "his own terminal (powershell.exe pid 4242)"},
-		{name: "a goblin's terminal", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"CEO_ROLE=goblin"}, refusal: "a goblin's terminal"},
+		{name: "a goblin's terminal", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"GOBLINS_ROLE=goblin"}, refusal: "a goblin's terminal"},
 		{name: "a gate agent", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"NO_MISTAKES_GATE=1"}, refusal: "a gate agent"},
 		{name: "the registered CEO", ancestry: shell(ceo), refusal: "under the registered CEO"},
 		{name: "a native terminal of the fleet", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"ceo_host_id=ceo"}, refusal: "native terminal ceo"},
@@ -123,7 +123,7 @@ func TestOnlyATerminalOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 		// stop short of the desktop prove nothing, and Git Bash cuts the
 		// Overlord's own the same way, so the refusal says what to do.
 		{name: "its parents cut off and nothing of a harness in its environment", ancestry: []proc.Entry{
-			{PID: 7001, ParentPID: 4242, ExeBase: "ceo.exe", Start: ceo.Start.Add(4 * time.Millisecond)},
+			{PID: 7001, ParentPID: 4242, ExeBase: "goblins.exe", Start: ceo.Start.Add(4 * time.Millisecond)},
 			{PID: 4242, ParentPID: 900, ExeBase: "env.exe", Start: ceo.Start.Add(2 * time.Millisecond)},
 		}, env: []string{"USERNAME=overlord"}, refusal: "nothing says this terminal is the Overlord's own: run it in PowerShell or cmd, or switch it in the Code Goblins window", hisToMeet: true},
 		{name: "shells above it whose parents are cut off", ancestry: shell(above("bash.exe")), env: []string{"USERNAME=overlord"}, refusal: "nothing says this terminal is the Overlord's own", hisToMeet: true},
@@ -204,7 +204,7 @@ func TestTheOverlordsSwitchTurnsAFKModeOnAndTheCEOIsToldInItsQueue(t *testing.T)
 		t.Errorf("the CEO's queue = %+v, %v, want one notice that the Overlord turned AFK mode on", pending, err)
 	}
 	// AFK mode is complete autopilot: the notice holds nothing for him.
-	if len(pending) == 1 && (strings.Contains(pending[0].Detail, "held for him") || !strings.Contains(pending[0].Detail, "Answer every decision yourself with your recommendation") || !strings.Contains(pending[0].Detail, "backlog row") || !strings.Contains(pending[0].Detail, "ceo afk log --kind his")) {
+	if len(pending) == 1 && (strings.Contains(pending[0].Detail, "held for him") || !strings.Contains(pending[0].Detail, "Answer every decision yourself with your recommendation") || !strings.Contains(pending[0].Detail, "backlog row") || !strings.Contains(pending[0].Detail, "goblins afk log --kind his")) {
 		t.Errorf("the notice = %q, want every decision answered by the CEO and a step only he can take as a line with a backlog row, never held for him", pending[0].Detail)
 	}
 	if entries := afkEntries(t, h.State); len(entries) != 1 || entries[0].Kind != afk.KindOn {
@@ -221,12 +221,12 @@ func TestAGoblinsOrTheCEOsAttemptToTurnAFKModeOnIsRefusedAndChangesNothing(t *te
 		refusal string
 	}{
 		{name: "a goblin", refusal: "a goblin's terminal", arrange: func(t *testing.T, _ *Store) {
-			t.Setenv("CEO_ROLE", "goblin")
+			t.Setenv("GOBLINS_ROLE", "goblin")
 		}},
 		{name: "the registered CEO", refusal: "under the registered CEO", arrange: func(t *testing.T, store *Store) {
 			// This test process is the registered CEO, and nothing else marks it.
 			primaryFixture(t, store)
-			for _, name := range []string{"CEO_ROLE", "NO_MISTAKES_GATE"} {
+			for _, name := range []string{"GOBLINS_ROLE", "NO_MISTAKES_GATE"} {
 				t.Setenv(name, "")
 			}
 		}},
@@ -519,7 +519,7 @@ func TestOnlyTheOverlordsOffResetsASwitchThatCannotBeRead(t *testing.T) {
 		refusal string
 	}{
 		"a goblin's off is refused": {false, asGoblinsTerminal, "a goblin's terminal"},
-		"his on is refused":         {true, asOverlordsTerminal, "only the Overlord resets it, with ceo afk off"},
+		"his on is refused":         {true, asOverlordsTerminal, "only the Overlord resets it, with goblins afk off"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -819,7 +819,7 @@ func TestTurningAFKModeOffReportsTheStretch(t *testing.T) {
 		t.Errorf("the switch = %+v, %v, want off, and the report of that stretch", switched, err)
 	}
 	pending, err := wake.Pending(h.State)
-	if err != nil || len(pending) != 2 || pending[1].Key != "afk" || !strings.Contains(pending[1].Detail, "turned AFK mode off") || !strings.Contains(pending[1].Detail, "ceo afk report") {
+	if err != nil || len(pending) != 2 || pending[1].Key != "afk" || !strings.Contains(pending[1].Detail, "turned AFK mode off") || !strings.Contains(pending[1].Detail, "goblins afk report") {
 		t.Errorf("the CEO's queue = %+v, %v, want it told AFK mode is off and to write the report", pending, err)
 	}
 }

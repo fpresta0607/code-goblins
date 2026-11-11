@@ -11,7 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/layout"
 )
 
-// laidOutHome is a home whose data folder ceo install laid out, so the
+// laidOutHome is a home whose data folder goblins install laid out, so the
 // watcher may file it.
 func laidOutHome(t *testing.T) home.Home {
 	t.Helper()

@@ -17,11 +17,11 @@ func TestBrowserReportNamesTheCasesThatFailed(t *testing.T) {
 	rows := strings.Join([]string{
 		`  ok  87 [board] › tests\composer-status.spec.ts:10:7 › classic keeps held queue status compact (3.8s)`,
 		`  x   88 [board] › tests\composer-status.spec.ts:85:7 › classic gives a held send failure priority (23ms)`,
-		`ceo gate case: unexpected [board] tests/composer-status.spec.ts:85:7 › classic gives a held send failure priority`,
+		`goblins gate case: unexpected [board] tests/composer-status.spec.ts:85:7 › classic gives a held send failure priority`,
 		`  ✘  90 [stepped-in] › tests\afk.spec.ts:19:3 › a waiting goblin says so once (4s)`,
-		`ceo gate case: unexpected [stepped-in] tests/afk.spec.ts:19:3 › a waiting goblin says so once`,
+		`goblins gate case: unexpected [stepped-in] tests/afk.spec.ts:19:3 › a waiting goblin says so once`,
 		`  -  91 [iphone] › tests\iphone-terminal.spec.ts:5:1 › a case the run skipped (0ms)`,
-		`ceo gate case: unexpected [board] tests/run-terminal.spec.ts:31:1 › a describe › a title`,
+		`goblins gate case: unexpected [board] tests/run-terminal.spec.ts:31:1 › a describe › a title`,
 		"",
 	}, "\n")
 	want := []string{
@@ -60,9 +60,9 @@ func TestBrowserReportDropsACaseThatFailedAsExpected(t *testing.T) {
   ok 1 [board] › tests\cases.spec.ts:2:1 › passes (1ms)
   x  2 [board] › tests\cases.spec.ts:3:6 › a test does not start (4ms)
   ok 3 [board] › tests\cases.spec.ts:4:6 › an expected failure that passes (0ms)
-ceo gate case: unexpected [board] tests/cases.spec.ts:4:6 › an expected failure that passes
+goblins gate case: unexpected [board] tests/cases.spec.ts:4:6 › an expected failure that passes
   x  4 [board] › tests\cases.spec.ts:5:1 › fails (6ms)
-ceo gate case: unexpected [board] tests/cases.spec.ts:5:1 › fails
+goblins gate case: unexpected [board] tests/cases.spec.ts:5:1 › fails
   -  5 [board] › tests\cases.spec.ts:8:6 › skipped
 
 
@@ -103,7 +103,7 @@ func TestBrowserReportReadsRowsSplitAcrossWritesAndWithoutANewline(t *testing.T)
 	// Arrange
 	var out bytes.Buffer
 	report := NewBrowserReport(t.Context(), &out)
-	row := `ceo gate case: unexpected [board] tests/afk.spec.ts:85:7 › a case that failed`
+	row := `goblins gate case: unexpected [board] tests/afk.spec.ts:85:7 › a case that failed`
 	want := []string{"[board] tests/afk.spec.ts:85:7 › a case that failed"}
 
 	// Act
@@ -128,9 +128,9 @@ func TestBrowserReportReadsRowsSplitAcrossWritesAndWithoutANewline(t *testing.T)
 // does (issue 1927). A case that failed before the end stays one, and the
 // output still reaches the run unchanged.
 func TestBrowserReportReadsNoRowOnceTheChecksTimeHasEnded(t *testing.T) {
-	failed := "ceo gate case: unexpected [board] tests/afk.spec.ts:85:7 › a case that failed\n"
+	failed := "goblins gate case: unexpected [board] tests/afk.spec.ts:85:7 › a case that failed\n"
 	cut := "  x  18 [board] › tests\\afk.spec.ts:91:7 › a case the limit ended (2ms)\n" +
-		"ceo gate case: unexpected [board] tests/afk.spec.ts:91:7 › a case the limit ended\n"
+		"goblins gate case: unexpected [board] tests/afk.spec.ts:91:7 › a case the limit ended\n"
 	for name, c := range map[string]struct {
 		before, after string
 	}{
@@ -180,13 +180,13 @@ func TestBrowserReportDropsACaseThatPassedOnARetry(t *testing.T) {
 		`Running 2 tests using 1 worker`,
 		``,
 		`  x  1 [board] › tests\cases.spec.ts:5:1 › fails (6ms)`,
-		`ceo gate case: unexpected [board] tests/cases.spec.ts:5:1 › fails`,
+		`goblins gate case: unexpected [board] tests/cases.spec.ts:5:1 › fails`,
 		`  x  2 [board] › tests\cases.spec.ts:5:1 › fails (retry #1) (6ms)`,
-		`ceo gate case: unexpected [board] tests/cases.spec.ts:5:1 › fails`,
+		`goblins gate case: unexpected [board] tests/cases.spec.ts:5:1 › fails`,
 		`  x  3 [board] › tests\cases.spec.ts:7:1 › flaky (7ms)`,
-		`ceo gate case: unexpected [board] tests/cases.spec.ts:7:1 › flaky`,
+		`goblins gate case: unexpected [board] tests/cases.spec.ts:7:1 › flaky`,
 		`  ok 4 [board] › tests\cases.spec.ts:7:1 › flaky (retry #1) (5ms)`,
-		`ceo gate case: flaky [board] tests/cases.spec.ts:7:1 › flaky`,
+		`goblins gate case: flaky [board] tests/cases.spec.ts:7:1 › flaky`,
 		"",
 	}, "\n")
 
@@ -212,10 +212,10 @@ func TestBrowserReportReadsOnlyTheGateReportersRows(t *testing.T) {
 	for _, line := range []string{
 		`  x   88 [board] › tests\composer-status.spec.ts:85:7 › a title (23ms)`,
 		"x 12 of 1603 cases did not pass",
-		"ceo gate case: unexpected",
-		"ceo gate case: unexpected tests/afk.spec.ts:3:1 › no project",
-		"ceo gate case: expected [board] tests/afk.spec.ts:3:1 › a title",
-		"  ceo gate case: unexpected [board] tests/afk.spec.ts:3:1 › an indented row",
+		"goblins gate case: unexpected",
+		"goblins gate case: unexpected tests/afk.spec.ts:3:1 › no project",
+		"goblins gate case: expected [board] tests/afk.spec.ts:3:1 › a title",
+		"  goblins gate case: unexpected [board] tests/afk.spec.ts:3:1 › an indented row",
 		"  3 failed",
 		"",
 	} {

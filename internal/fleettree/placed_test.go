@@ -27,7 +27,7 @@ func TestPlacedPlacesWhatEachOwnerStarted(t *testing.T) {
 		Process{PID: 230, ParentPID: 903, Exe: "explorer.exe", Created: 25, Started: later(-600)},
 	)
 	commands := maps.Clone(goblinCommands)
-	commands[400], commands[601] = "no-mistakes.exe daemon", `bash -c "eval 'ceo drain'"`
+	commands[400], commands[601] = "no-mistakes.exe daemon", `bash -c "eval 'goblins drain'"`
 	reads := map[int]int{}
 	reader := Reader{
 		Processes:   func() ([]Process, error) { return processes, nil },

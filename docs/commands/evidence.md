@@ -1,5 +1,5 @@
-# ceo evidence
+# goblins evidence
 
-`ceo evidence <task-id>`
+`goblins evidence <task-id>`
 
 Read the [applicable delivery procedure](../contract/delivery.md) before acting.

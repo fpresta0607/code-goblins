@@ -78,7 +78,7 @@ func ValidateBriefReadiness(content []byte) error {
 		return fmt.Errorf("%w: %v", ErrBriefNotReady, err)
 	}
 	if !isReadySeen {
-		return fmt.Errorf("%w: finish the requirements and launch choices, then run ceo brief ready <id>", ErrBriefNotReady)
+		return fmt.Errorf("%w: finish the requirements and launch choices, then run goblins brief ready <id>", ErrBriefNotReady)
 	}
 	if !isModeSeen {
 		return fmt.Errorf("%w: explicitly choose the Delivery mode", ErrBriefNotReady)

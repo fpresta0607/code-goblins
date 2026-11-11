@@ -745,7 +745,7 @@ func TestSnapshotEndsAWaitOnTheOverlordOnceTheAnswerReachesTheGoblin(t *testing.
 		{"an earlier wait's delivered answer", answer(true), true, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			// Arrange: the report comes first, then its item, as ceo notify
+			// Arrange: the report comes first, then its item, as goblins notify
 			// writes them.
 			store, h := testStore(t)
 			if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: pick a plan"); err != nil {

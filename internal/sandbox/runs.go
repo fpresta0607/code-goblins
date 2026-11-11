@@ -12,16 +12,16 @@ import (
 )
 
 // RunsDir is the folder under a task's tasktmp folder that holds a record of
-// each container ceo sandbox run started for it, by the container's name,
+// each container goblins sandbox run started for it, by the container's name,
 // from before the container can start until it was removed. No container
 // mounts it.
 const RunsDir = "sandbox-runs"
 
 // RunningContainerRefusal refuses a host git of the sandbox task whose
-// tasktmp folder is taskTmp while a container of its ceo sandbox run may
+// tasktmp folder is taskTmp while a container of its goblins sandbox run may
 // run: one could make a repository in the worktree after the walk for one
 // (NestedGitRefusal) and before host git reads it. A record whose run ended
-// without removing its container refuses too, until the next ceo sandbox
+// without removing its container refuses too, until the next goblins sandbox
 // run removes that container, as does a record that cannot be read.
 func RunningContainerRefusal(taskTmp string) error {
 	if !filepath.IsAbs(taskTmp) {
@@ -45,9 +45,9 @@ func RunningContainerRefusal(taskTmp string) error {
 			return fmt.Errorf("sandbox: the container %s of this task may still run, and its record in %s cannot be read: %w", entry.Name(), dir, err)
 		}
 		if holder.Alive() {
-			return fmt.Errorf("sandbox: the container %s of this task runs, from ceo sandbox run (pid %d), and could make a repository host git would read: run host git once that run ended", entry.Name(), holder.PID)
+			return fmt.Errorf("sandbox: the container %s of this task runs, from goblins sandbox run (pid %d), and could make a repository host git would read: run host git once that run ended", entry.Name(), holder.PID)
 		}
-		return fmt.Errorf("sandbox: the container %s of this task may still run, since its ceo sandbox run (pid %d) ended without removing it: the next ceo sandbox run removes it, and host git runs once it did", entry.Name(), holder.PID)
+		return fmt.Errorf("sandbox: the container %s of this task may still run, since its goblins sandbox run (pid %d) ended without removing it: the next goblins sandbox run removes it, and host git runs once it did", entry.Name(), holder.PID)
 	}
 	return nil
 }

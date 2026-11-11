@@ -1,6 +1,6 @@
-# ceo auth refresh
+# goblins auth refresh
 
-`ceo auth refresh <task-id>`
+`goblins auth refresh <task-id>`
 
 Regenerate a task's `auth.ps1` from the store, for the services the task carries and no other.
 Unknown and archived tasks are refused.

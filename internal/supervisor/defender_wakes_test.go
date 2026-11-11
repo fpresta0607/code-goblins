@@ -38,7 +38,7 @@ func TestEachNewDefenderRecordWakesTheCEOOnce(t *testing.T) {
 	// The detected file is in a test's temporary folder on another drive,
 	// so what its path says of who made it does not depend on where this
 	// test runs. The uploaded one is in the home.
-	made := `X:\CodeGoblins\scratch\cg-auth-probe-hang\TestOneLineInstallKeepsANoMistakesAtThePin67573441\003\ceo.exe.download`
+	made := `X:\CodeGoblins\scratch\cg-auth-probe-hang\TestOneLineInstallKeepsANoMistakesAtThePin67573441\003\goblins.exe.download`
 	script := filepath.Join(h.Root, "candidates", "cand-v0.5.14", "install.ps1")
 	check := func(after time.Duration) int {
 		t.Helper()
@@ -74,7 +74,7 @@ func TestEachNewDefenderRecordWakesTheCEOOnce(t *testing.T) {
 	}
 	wakes := fleetWakeRecords(t, h, "check")
 	detected, sent := wakes[len(wakes)-2].Detail, wakes[len(wakes)-1].Detail
-	for _, want := range []string{"defender_detection:", "Trojan:Win32/Bearfoos.B!ml", made, "test TestOneLineInstallKeepsANoMistakesAtThePin of task cg-auth-probe-hang", "ceo defender --since"} {
+	for _, want := range []string{"defender_detection:", "Trojan:Win32/Bearfoos.B!ml", made, "test TestOneLineInstallKeepsANoMistakesAtThePin of task cg-auth-probe-hang", "goblins defender --since"} {
 		if !strings.Contains(detected, want) {
 			t.Errorf("the detection's wake lacks %q:\n%s", want, detected)
 		}

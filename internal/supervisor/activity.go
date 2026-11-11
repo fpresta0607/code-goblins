@@ -475,7 +475,7 @@ func PublishPresentation(h home.Home, a BoardActivity) error {
 	return spoolActivity(h.State, a)
 }
 
-// SendReceipt is the board's receipt of one ceo send to a native goblin,
+// SendReceipt is the board's receipt of one goblins send to a native goblin,
 // pinned to the goblin the send was for. One for a goblin the board shows no
 // session of does nothing.
 type SendReceipt struct {

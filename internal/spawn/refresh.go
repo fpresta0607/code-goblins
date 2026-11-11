@@ -77,7 +77,7 @@ type AuthRefresher struct {
 	Store auth.Store
 	Panes PaneLiveness
 	// By names who grants or revokes, as the task's status says it. Empty is
-	// the CEO, whose ceo auth makes the change. The Overlord's press on a
+	// the CEO, whose goblins auth makes the change. The Overlord's press on a
 	// connector on the board names him.
 	By string
 	// Generation and Project bind a card's grant to the task it was drawn for.
@@ -479,7 +479,7 @@ func (r AuthRefresher) statusAfterChange(id, line string) error {
 func (r AuthRefresher) scriptAfterChange(ctx context.Context, id string) (Refreshed, error) {
 	item, err := r.RefreshTask(ctx, id)
 	if err != nil {
-		return item, changeStands{fmt.Errorf("spawn: the record of %s changed as asked, but its auth.ps1 was not rewritten, so run ceo auth refresh %s: %w", id, id, err)}
+		return item, changeStands{fmt.Errorf("spawn: the record of %s changed as asked, but its auth.ps1 was not rewritten, so run goblins auth refresh %s: %w", id, id, err)}
 	}
 	return item, nil
 }

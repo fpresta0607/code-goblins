@@ -38,7 +38,7 @@ import (
 // work waits for it, and CI that finished on a goblin's pull request or went
 // red on main, and pull requests that conflict or fall behind. They go
 // through the wake queue like every other wake, so the CEO hears them
-// however it is woken and ceo drain shows them.
+// however it is woken and goblins drain shows them.
 const (
 	fleetWakesSchema = "ceo-fleet-wakes.v1"
 	// fleetWatchEvery is how often memory is read for memory_ready, the
@@ -493,7 +493,7 @@ func diskLowDetail(h home.Home, reading Disk, now time.Time) string {
 		detail += fmt.Sprintf(" The home holds %.1f GB: worktrees %.1f, scratch %.1f, caches %.1f, state %.1f, data %.1f, bin %.1f; the janitor last swept %s ago and freed %.1f GB.",
 			disk.GB(uint64(b.Total())), disk.GB(uint64(janitor.Sum(b.Worktrees))), disk.GB(uint64(janitor.Sum(b.Scratch))), disk.GB(uint64(janitor.Sum(b.Caches))), disk.GB(uint64(b.State)), disk.GB(uint64(b.Data)), disk.GB(uint64(b.Bin)), now.Sub(record.Time).Round(time.Minute), disk.GB(uint64(record.Freed())))
 	}
-	return detail + " Next: ceo runtime names every bucket and Docker's share; clean up finished goblins with ceo cleanup, and put the caches and Docker beyond the home to the Overlord, whose they are."
+	return detail + " Next: goblins runtime names every bucket and Docker's share; clean up finished goblins with goblins cleanup, and put the caches and Docker beyond the home to the Overlord, whose they are."
 }
 
 // memoryWork is the work waiting on memory: the queued tasks a Start could
@@ -1611,7 +1611,7 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 		detail += fmt.Sprintf("all %d passed%s; next: check the base and the merge ref's first parent, then merge it with a merge commit if its work is done (%s)", len(pr.Checks)-len(limited), once, pr.URL)
 	default:
 		sort.Strings(failed)
-		detail += fmt.Sprintf("%d of %d failed (%s)%s; next: tell %s which checks failed with ceo send %s \"...\" so it fixes them (%s)", len(failed), len(pr.Checks), strings.Join(failed, ", "), once, goblin, goblin, pr.URL)
+		detail += fmt.Sprintf("%d of %d failed (%s)%s; next: tell %s which checks failed with goblins send %s \"...\" so it fixes them (%s)", len(failed), len(pr.Checks), strings.Join(failed, ", "), once, goblin, goblin, pr.URL)
 	}
 	if err := raiseFleetWake(stateDir, "ci", goblin, detail); err != nil {
 		return err

@@ -30,7 +30,7 @@ import type { AfkToggleState } from "./useAfkToggle";
 // still has an answer to show. Restart is in the CEO's panel, off the bar.
 // A CEO still starting has not registered yet: Claude Code registers through
 // its SessionStart hook after onboarding and sign-in, and a Codex or pi CEO
-// when its first prompt runs ceo register. While the board cannot reach the
+// when its first prompt runs goblins register. While the board cannot reach the
 // CEO the bar says so, with why and the fix in its tip.
 // The weekly allowance of each subscription in use is a dial beside the
 // bar's buttons, its provider's icon inside its ring, as on the CEO's card on

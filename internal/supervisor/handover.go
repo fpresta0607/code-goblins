@@ -58,7 +58,7 @@ const vanishedHolderTries = 3
 // holds the lock; a test removes the record there.
 var betweenRefusalAndRead = func() {}
 
-// takeOverWatcher takes the lock from a watcher the Stop hook hosts, or a ceo
+// takeOverWatcher takes the lock from a watcher the Stop hook hosts, or a goblins
 // watch, when held says one holds it. The supervisor supersedes a watcher, so
 // it asks the watcher to yield and waits for the lock; another supervisor
 // holding it is refused as before, so two never run. On 2026-10-01 an install
@@ -146,13 +146,13 @@ func endLegacyWatcher(stateDir string, holder lock.Info) error {
 }
 
 // watcherRole accepts the command line of a watcher: ceo, or its goblins
-// alias, running the Stop hook's auto-arm or ceo watch. A ceo binary running
+// alias, running the Stop hook's auto-arm or goblins watch. A goblins binary running
 // as anything else, a terminal's host, serve or a gate's test, is not one.
 func watcherRole(arguments []string) error {
 	if len(arguments) > 0 {
 		name := strings.TrimSuffix(strings.ToLower(filepath.Base(arguments[0])), ".exe")
 		role := strings.Join(arguments[1:], " ")
-		if (name == "ceo" || name == "goblins") && (role == "hook stop-autoarm" || role == "watch") {
+		if name == "goblins" && (role == "hook stop-autoarm" || role == "watch") {
 			return nil
 		}
 	}

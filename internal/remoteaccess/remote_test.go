@@ -346,7 +346,7 @@ func TestTailscaleNotConnectedSaysWhatIsMissing(t *testing.T) {
 // With remote access off, the board reads by itself what this PC's
 // Tailscale is, so its switch can be offered or say what is missing, with the
 // command that mends it where one does. It never reports that as a problem
-// of remote access, and Status alone, which ceo doctor reads, asks
+// of remote access, and Status alone, which goblins doctor reads, asks
 // Tailscale nothing while access is off.
 func TestOffDetectReadsWhatTailscaleIsForTurningOn(t *testing.T) {
 	const serve = "tailscale serve --bg --https=4311 http://127.0.0.1:4310"
@@ -515,7 +515,7 @@ func TestOffWithTailscaleStoppedSaysItIsNotRunning(t *testing.T) {
 	err := m.Disable(context.Background())
 
 	// Assert
-	if err == nil || !strings.Contains(err.Error(), "Tailscale is not running on this PC") || !strings.Contains(err.Error(), "run ceo remote off again") {
+	if err == nil || !strings.Contains(err.Error(), "Tailscale is not running on this PC") || !strings.Contains(err.Error(), "run goblins remote off again") {
 		t.Fatalf("off with Tailscale stopped: %v", err)
 	}
 	if strings.Contains(err.Error(), "enable HTTPS") || strings.Contains(err.Error(), "secret") {

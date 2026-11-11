@@ -58,14 +58,14 @@ func TestSpawnStartsAClaudeGoblinWithTheGoblinHooks(t *testing.T) {
 				t.Fatal(err)
 			}
 			if !bytes.Equal(written, want) {
-				t.Fatalf("the settings file holds %s, want this build's goblin hooks run by the home's ceo.exe", written)
+				t.Fatalf("the settings file holds %s, want this build's goblin hooks run by the home's goblins.exe", written)
 			}
 		})
 	}
 }
 
 // A Codex goblin takes its native session hooks and its goblin seal in its
-// own launch, run by the home's ceo.exe against the home's state, and a
+// own launch, run by the home's goblins.exe against the home's state, and a
 // goblin of any other harness takes none that way: Claude Code's ride its
 // settings file and Pi's its extensions. A home under a path with a space,
 // as a profile named for a person can be, still starts its Codex goblin,
@@ -108,7 +108,7 @@ func TestSpawnStartsACodexGoblinWithItsNativeSessionHooks(t *testing.T) {
 				}
 				return
 			}
-			want, err := nativehook.CodexGoblinArguments(filepath.Join(f.service.HomeRoot, home.BinDir, "ceo.exe"), f.service.HomeRoot, f.service.StateDir)
+			want, err := nativehook.CodexGoblinArguments(filepath.Join(f.service.HomeRoot, home.BinDir, "goblins.exe"), f.service.HomeRoot, f.service.StateDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -116,7 +116,7 @@ func TestSpawnStartsACodexGoblinWithItsNativeSessionHooks(t *testing.T) {
 				t.Fatalf("CodexHooks = %q, want %q", hooks, want)
 			}
 			seal := hooks[len(hooks)-1]
-			if !strings.HasPrefix(seal, "hooks.PreToolUse=") || !strings.Contains(seal, filepath.ToSlash(filepath.Join(f.service.HomeRoot, home.BinDir, "ceo.exe"))+" hook goblin-seal-codex") {
+			if !strings.HasPrefix(seal, "hooks.PreToolUse=") || !strings.Contains(seal, filepath.ToSlash(filepath.Join(f.service.HomeRoot, home.BinDir, "goblins.exe"))+" hook goblin-seal-codex") {
 				t.Fatalf("the last override is %q, want the goblin seal before each shell command", seal)
 			}
 		})

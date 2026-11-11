@@ -108,7 +108,7 @@ func TestADecisionTheCEOAnsweredIsSettledInHistoryAndHisStepIsACardInTheCommandC
 	if err := afk.Render(&text, report); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"\nFor you (1)\n- Which fallback does the gate policy take?\n  The CEO answered: Drop it from the machine config. You can change it in History.\n", "\nWaiting on you in the Command Center (1), each as it stands now\n- question:"+afk.HisCardID(logged[1])+", the CEO's: Sign in to Fly again\n"} {
+	for _, want := range []string{"\nFor you (1)\n- Which fallback does the gate policy take?\n  The CEO answered: Drop it from the machine config. You can change it in History.\n", "\nWaiting on you in the Command Center (1), each as it stands now\n- question:" + afk.HisCardID(logged[1]) + ", the CEO's: Sign in to Fly again\n"} {
 		if !strings.Contains(text.String(), want) {
 			t.Errorf("the CEO's text of the report lacks %q:\n%s", want, text.String())
 		}
@@ -122,7 +122,7 @@ func TestHisChangeToASettledDecisionReachesTheCEOOnce(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	_, _, ceo, connection := primaryFixture(t, store)
-	for _, name := range []string{"CEO_ROLE", "NO_MISTAKES_GATE"} {
+	for _, name := range []string{"GOBLINS_ROLE", "NO_MISTAKES_GATE"} {
 		t.Setenv(name, "")
 	}
 	s := &Service{Store: store, Options: Options{CEO: connection}}

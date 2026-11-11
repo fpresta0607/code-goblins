@@ -5,8 +5,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-if ($env:CEO_PLAN3_REAL -ne '1') {
-    throw 'Plan 3 Windows acceptance is opt-in. Set CEO_PLAN3_REAL=1 to run it in a disposable environment.'
+if ($env:GOBLINS_PLAN3_REAL -ne '1') {
+    throw 'Plan 3 Windows acceptance is opt-in. Set GOBLINS_PLAN3_REAL=1 to run it in a disposable environment.'
 }
 
 function Invoke-Checked {
@@ -239,29 +239,29 @@ function Assert-FleetProjectionParity {
     }
 }
 
-function Test-CeoCleanupAvailable {
-    param([Parameter(Mandatory = $true)][string]$Ceo)
+function Test-GoblinsCleanupAvailable {
+    param([Parameter(Mandatory = $true)][string]$Goblins)
 
-    if (-not (Test-Path -LiteralPath $Ceo -PathType Leaf)) {
+    if (-not (Test-Path -LiteralPath $Goblins -PathType Leaf)) {
         return $false
     }
-    $output = @(& $Ceo cleanup --help 2>&1)
+    $output = @(& $Goblins cleanup --help 2>&1)
     $text = $output -join [Environment]::NewLine
-    return $LASTEXITCODE -eq 0 -and $text -match '(?m)usage:\s+ceo cleanup'
+    return $LASTEXITCODE -eq 0 -and $text -match '(?m)usage:\s+goblins cleanup'
 }
 
 function New-MissingCleanupBlocker {
     param([Parameter(Mandatory = $true)][string]$Root)
-    return "ACCEPTANCE BLOCKER: this ceo build has no cleanup command. Leaving disposable fixture intact at $Root because no direct worktree deletion outside ceo cleanup is permitted."
+    return "ACCEPTANCE BLOCKER: this goblins build has no cleanup command. Leaving disposable fixture intact at $Root because no direct worktree deletion outside goblins cleanup is permitted."
 }
 
-function Assert-CeoCleanupReady {
+function Assert-GoblinsCleanupReady {
     param(
-        [Parameter(Mandatory = $true)][string]$Ceo,
+        [Parameter(Mandatory = $true)][string]$Goblins,
         [Parameter(Mandatory = $true)][string]$Root
     )
 
-    if (-not (Test-CeoCleanupAvailable -Ceo $Ceo)) {
+    if (-not (Test-GoblinsCleanupAvailable -Goblins $Goblins)) {
         throw (New-MissingCleanupBlocker -Root $Root)
     }
 }
@@ -326,7 +326,7 @@ $fixtureRoot = Join-Path $tempRoot ('ceo-plan3-windows-' + [Guid]::NewGuid().ToS
 $ceoHome = Join-Path $fixtureRoot 'home'
 $origin = Join-Path $fixtureRoot 'origin.git'
 $project = Join-Path $fixtureRoot 'project'
-$ceo = Join-Path $fixtureRoot 'ceo.exe'
+$goblins = Join-Path $fixtureRoot 'goblins.exe'
 $session = 'ceo-plan3-' + [Guid]::NewGuid().ToString('N')
 $marker = 'plan3-acceptance-' + [Guid]::NewGuid().ToString('N')
 $workers = @()
@@ -335,15 +335,15 @@ $cleanupReady = $false
 $cleanupCompleted = $false
 $primaryFailure = $null
 $cleanupFailure = $null
-$previousCeoHome = $env:CEO_HOME
-$previousStateOverride = $env:CEO_STATE_OVERRIDE
+$previousCeoHome = $env:GOBLINS_HOME
+$previousStateOverride = $env:GOBLINS_STATE_OVERRIDE
 $previousHerdrSession = $env:HERDR_SESSION
-$previousSignalGrace = $env:CEO_SIGNAL_GRACE
+$previousSignalGrace = $env:GOBLINS_SIGNAL_GRACE
 
 if ($SelfTest -eq 'missing-cleanup') {
-    $missingCeo = Join-Path $fixtureRoot 'missing-ceo.exe'
-    Assert-CeoCleanupReady -Ceo $missingCeo -Root $fixtureRoot
-    throw 'Acceptance self-test expected a missing ceo cleanup command.'
+    $missingGoblins = Join-Path $fixtureRoot 'missing-goblins.exe'
+    Assert-GoblinsCleanupReady -Goblins $missingGoblins -Root $fixtureRoot
+    throw 'Acceptance self-test expected a missing goblins cleanup command.'
 }
 if ($SelfTest -eq 'primary-home') {
     try {
@@ -374,9 +374,9 @@ if ($SelfTest -eq 'fleet-parity') {
         backend = 'herdr'
         artifact = ''
         path = 'C:\fixture\worker'
-        actions = [pscustomobject]@{ peek = 'ceo peek gb-accept-claude' }
+        actions = [pscustomobject]@{ peek = 'goblins peek gb-accept-claude' }
     }
-    $markdown = '| accept-claude | working / status | stale | 2m1s | 2026-08-13T12:34:56Z | 2 | yes | task | C:\fixture\project | herdr | fixture:pane:claude (present) | - | C:\fixture\worker | ceo peek gb-accept-claude |'
+    $markdown = '| accept-claude | working / status | stale | 2m1s | 2026-08-13T12:34:56Z | 2 | yes | task | C:\fixture\project | herdr | fixture:pane:claude (present) | - | C:\fixture\worker | goblins peek gb-accept-claude |'
     Assert-FleetProjectionParity -Row $row -Worker $worker -Markdown $markdown
     try {
         Assert-FleetProjectionParity -Row $row -Worker $worker -Markdown ($markdown.Replace('present', 'absent'))
@@ -408,27 +408,27 @@ if ($SelfTest -ne '') {
     throw "Unknown Plan 3 acceptance self-test $SelfTest."
 }
 
-$env:CEO_HOME = $ceoHome
-$env:CEO_STATE_OVERRIDE = Join-Path $ceoHome 'state'
+$env:GOBLINS_HOME = $ceoHome
+$env:GOBLINS_STATE_OVERRIDE = Join-Path $ceoHome 'state'
 
 try {
     New-Item -ItemType Directory -Path $fixtureRoot -ErrorAction Stop | Out-Null
     Assert-ContainedPath -Root $fixtureRoot -Path $ceoHome -Description 'CEO home'
     Assert-ContainedPath -Root $fixtureRoot -Path $origin -Description 'fixture Git origin'
     Assert-ContainedPath -Root $fixtureRoot -Path $project -Description 'fixture Git project'
-    Assert-ContainedPath -Root $fixtureRoot -Path $ceo -Description 'CEO binary'
+    Assert-ContainedPath -Root $fixtureRoot -Path $goblins -Description 'CEO binary'
     Initialize-DisposablePrimaryCeoHome -Root $fixtureRoot -CeoHome $ceoHome
 
     Push-Location $repoRoot
     try {
         Invoke-Checked -FilePath 'go' -Arguments @('vet', './...') -Description 'go vet ./...' | Out-Host
         Invoke-Checked -FilePath 'go' -Arguments @('test', './...', '-count=1') -Description 'go test ./... -count=1' | Out-Host
-        Invoke-Checked -FilePath 'go' -Arguments @('build', '-o', $ceo, './cmd/ceo') -Description 'go build ceo.exe' | Out-Host
+        Invoke-Checked -FilePath 'go' -Arguments @('build', '-o', $goblins, './cmd/goblins') -Description 'go build goblins.exe' | Out-Host
     }
     finally {
         Pop-Location
     }
-    Assert-CeoCleanupReady -Ceo $ceo -Root $fixtureRoot
+    Assert-GoblinsCleanupReady -Goblins $goblins -Root $fixtureRoot
     $cleanupReady = $true
 
     Invoke-Checked -FilePath 'git' -Arguments @('init', '--bare', '--initial-branch=main', $origin) -Description 'initialize disposable bare origin' | Out-Host
@@ -441,13 +441,13 @@ try {
     Invoke-Checked -FilePath 'git' -Arguments @('-C', $project, 'push', '-u', 'origin', 'main') -Description 'push disposable project seed' | Out-Host
 
     $env:HERDR_SESSION = $session
-    $env:CEO_SIGNAL_GRACE = '1'
+    $env:GOBLINS_SIGNAL_GRACE = '1'
 
-    $doctor = @(& $ceo doctor 2>&1)
+    $doctor = @(& $goblins doctor 2>&1)
     $doctorText = $doctor -join [Environment]::NewLine
     foreach ($tool in @('git', 'herdr', 'claude', 'codex', 'pi')) {
         if ($doctorText -notmatch "(?m)^ok\s+$tool\s+") {
-            throw "ACCEPTANCE BLOCKER: ceo doctor did not report usable $tool for the real-session target.`n$doctorText"
+            throw "ACCEPTANCE BLOCKER: goblins doctor did not report usable $tool for the real-session target.`n$doctorText"
         }
     }
     foreach ($tool in @('tasks-axi', 'quota-axi')) {
@@ -477,7 +477,7 @@ try {
 
     foreach ($harness in @('claude', 'codex', 'pi')) {
         $id = 'accept-' + $harness
-        $brief = Invoke-Checked -FilePath $ceo -Arguments @('brief', $id, '--project', $project, '--mode', 'local-only') -Description "create $harness acceptance brief"
+        $brief = Invoke-Checked -FilePath $goblins -Arguments @('brief', $id, '--project', $project, '--mode', 'local-only') -Description "create $harness acceptance brief"
         Assert-ContainedPath -Root $fixtureRoot -Path $brief -Description "$harness brief"
         @(
             "# Brief $id",
@@ -509,9 +509,9 @@ try {
             'mode: local-only',
             'ready: false'
         ) | Set-Content -LiteralPath $brief
-        Invoke-Checked -FilePath $ceo -Arguments @('brief', 'ready', $id) -Description "finalize $harness acceptance brief" | Out-Host
+        Invoke-Checked -FilePath $goblins -Arguments @('brief', 'ready', $id) -Description "finalize $harness acceptance brief" | Out-Host
 
-        $spawn = Invoke-Checked -FilePath $ceo -Arguments @('spawn', $id, '--project', $project, '--brief', $brief, '--harness', $harness, '--mode', 'local-only') -Description "spawn $harness acceptance worker"
+        $spawn = Invoke-Checked -FilePath $goblins -Arguments @('spawn', $id, '--project', $project, '--brief', $brief, '--harness', $harness, '--mode', 'local-only') -Description "spawn $harness acceptance worker"
         $worker = [pscustomobject]@{ ID = $id; Worktree = $null; Meta = $null }
         $workers += $worker
         Write-Host ($spawn -join [Environment]::NewLine)
@@ -542,43 +542,43 @@ try {
             throw "ACCEPTANCE BLOCKER: $id workspace has $($taskTabs.Count) matching task tabs, want exactly one."
         }
 
-        $peek = @(& $ceo peek ('gb-' + $id) 200 2>&1)
+        $peek = @(& $goblins peek ('gb-' + $id) 200 2>&1)
         if ($LASTEXITCODE -ne 0) {
-            throw "ACCEPTANCE BLOCKER: ceo peek failed for $id.`n$($peek -join [Environment]::NewLine)"
+            throw "ACCEPTANCE BLOCKER: goblins peek failed for $id.`n$($peek -join [Environment]::NewLine)"
         }
         $peekText = $peek -join [Environment]::NewLine
         if ($peekText -notmatch [regex]::Escape($marker) -and $peekText -notmatch '(?i)starting|loading|working|initializ') {
-            throw "ACCEPTANCE BLOCKER: ceo peek for $id has neither the marker nor a documented startup-progress response.`n$peekText"
+            throw "ACCEPTANCE BLOCKER: goblins peek for $id has neither the marker nor a documented startup-progress response.`n$peekText"
         }
 
-        $send = Invoke-Checked -FilePath $ceo -Arguments @('send', ('gb-' + $id), "print the acceptance marker $marker and exit") -Description "send acceptance marker to $id"
+        $send = Invoke-Checked -FilePath $goblins -Arguments @('send', ('gb-' + $id), "print the acceptance marker $marker and exit") -Description "send acceptance marker to $id"
         if (($send -join [Environment]::NewLine) -notmatch ('sent gb-' + [regex]::Escape($id))) {
-            throw "ACCEPTANCE BLOCKER: ceo send did not confirm delivery for $id."
+            throw "ACCEPTANCE BLOCKER: goblins send did not confirm delivery for $id."
         }
     }
 
     $watchStatus = Join-Path $ceoHome 'state\acceptance-watch.status'
     Assert-ContainedPath -Root $fixtureRoot -Path $watchStatus -Description 'fixture watch trigger'
     Set-Content -LiteralPath $watchStatus -Value 'working: fixture monitor trigger' -NoNewline
-    & $ceo watch
+    & $goblins watch
     if ($LASTEXITCODE -ne 0) {
-        throw 'ACCEPTANCE BLOCKER: ceo watch failed before monitor inspection.'
+        throw 'ACCEPTANCE BLOCKER: goblins watch failed before monitor inspection.'
     }
     foreach ($worker in $workers) {
         $observation = Join-Path $ceoHome (Join-Path 'state\monitor\tasks' ($worker.ID + '.json'))
         if (-not (Test-Path -LiteralPath $observation -PathType Leaf)) {
-            throw "ACCEPTANCE BLOCKER: ceo watch did not persist a monitor observation for $($worker.ID). Plan 3 real-session monitoring cannot claim busy protection, stale escalation, deep inspection, unknown handling, or restart persistence."
+            throw "ACCEPTANCE BLOCKER: goblins watch did not persist a monitor observation for $($worker.ID). Plan 3 real-session monitoring cannot claim busy protection, stale escalation, deep inspection, unknown handling, or restart persistence."
         }
     }
 
-    $fleetJsonText = (@(& $ceo fleet-view --json 2>&1) -join [Environment]::NewLine)
+    $fleetJsonText = (@(& $goblins fleet-view --json 2>&1) -join [Environment]::NewLine)
     if ($LASTEXITCODE -ne 0) {
-        throw "ACCEPTANCE BLOCKER: ceo fleet-view --json failed.`n$fleetJsonText"
+        throw "ACCEPTANCE BLOCKER: goblins fleet-view --json failed.`n$fleetJsonText"
     }
     $fleetJson = $fleetJsonText | ConvertFrom-Json -ErrorAction Stop
-    $fleetMarkdown = (@(& $ceo fleet-view 2>&1) -join [Environment]::NewLine)
+    $fleetMarkdown = (@(& $goblins fleet-view 2>&1) -join [Environment]::NewLine)
     if ($LASTEXITCODE -ne 0) {
-        throw "ACCEPTANCE BLOCKER: ceo fleet-view failed.`n$fleetMarkdown"
+        throw "ACCEPTANCE BLOCKER: goblins fleet-view failed.`n$fleetMarkdown"
     }
     foreach ($worker in $workers) {
         $row = @($fleetJson.tasks | Where-Object { $_.id -eq $worker.ID })
@@ -606,21 +606,21 @@ finally {
     }
     else {
         foreach ($worker in $workers) {
-            $output = @(& $ceo cleanup $worker.ID 2>&1)
+            $output = @(& $goblins cleanup $worker.ID 2>&1)
             if ($LASTEXITCODE -ne 0) {
-                $cleanupFailure = "ACCEPTANCE BLOCKER: ceo cleanup failed for $($worker.ID). Leaving fixture intact.`n$($output -join [Environment]::NewLine)"
+                $cleanupFailure = "ACCEPTANCE BLOCKER: goblins cleanup failed for $($worker.ID). Leaving fixture intact.`n$($output -join [Environment]::NewLine)"
                 [Console]::Error.WriteLine($cleanupFailure)
                 $cleanupFailed = $true
                 break
             }
             if ([string]::IsNullOrWhiteSpace($worker.Worktree)) {
-                $cleanupFailure = "ACCEPTANCE BLOCKER: ceo cleanup succeeded for $($worker.ID), but its worker worktree was not recorded. Leaving fixture intact because cleanup cannot be proven."
+                $cleanupFailure = "ACCEPTANCE BLOCKER: goblins cleanup succeeded for $($worker.ID), but its worker worktree was not recorded. Leaving fixture intact because cleanup cannot be proven."
                 [Console]::Error.WriteLine($cleanupFailure)
                 $cleanupFailed = $true
                 break
             }
             if (Test-Path -LiteralPath $worker.Worktree) {
-                $cleanupFailure = "ACCEPTANCE BLOCKER: ceo cleanup returned success but left $($worker.Worktree). Leaving fixture intact."
+                $cleanupFailure = "ACCEPTANCE BLOCKER: goblins cleanup returned success but left $($worker.Worktree). Leaving fixture intact."
                 [Console]::Error.WriteLine($cleanupFailure)
                 $cleanupFailed = $true
                 break
@@ -651,10 +651,10 @@ finally {
     else {
         [Console]::Error.WriteLine("Disposable fixture preserved for manual recovery: $fixtureRoot")
     }
-    $env:CEO_HOME = $previousCeoHome
-    $env:CEO_STATE_OVERRIDE = $previousStateOverride
+    $env:GOBLINS_HOME = $previousCeoHome
+    $env:GOBLINS_STATE_OVERRIDE = $previousStateOverride
     $env:HERDR_SESSION = $previousHerdrSession
-    $env:CEO_SIGNAL_GRACE = $previousSignalGrace
+    $env:GOBLINS_SIGNAL_GRACE = $previousSignalGrace
 }
 
 if ($null -ne $primaryFailure) {

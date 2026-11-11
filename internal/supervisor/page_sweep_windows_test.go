@@ -110,7 +110,7 @@ func writePage(t *testing.T, path string) string {
 	return path
 }
 
-// retire leaves task id as ceo cleanup does: its status log, no record.
+// retire leaves task id as goblins cleanup does: its status log, no record.
 func retire(t *testing.T, stateDir, id string) {
 	t.Helper()
 	if err := state.AppendStatus(stateDir, id, "done: PR https://github.com/example/repo/pull/1"); err != nil {
@@ -239,7 +239,7 @@ func TestASweepEndsOnlyTheOpenPagesOfRetiredGoblins(t *testing.T) {
 }
 
 // What the Overlord sent on a page of a goblin that stands but that nothing
-// watches, such as one it presented with ceo present, reaches that goblin
+// watches, such as one it presented with goblins present, reaches that goblin
 // while it runs and the CEO otherwise, once, and the page stays open.
 func TestASweepHandsUnreadFeedbackToTheGoblinThatStillStands(t *testing.T) {
 	for name, test := range map[string]struct {

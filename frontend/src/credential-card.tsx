@@ -51,7 +51,7 @@ interface Confirm { names: string[]; action: "save" | "run"; confirmed: string[]
 // has Dismiss, which tells its goblin to go on without it. A pasted secret is
 // stored at once, unless its format hint warns about it; a typed one when he
 // presses Enter or the row's lock. Where a value goes and how it was stored
-// are in the tips. Below the table the ceo auth store lines have Copy and Run
+// are in the tips. Below the table the goblins auth store lines have Copy and Run
 // to type them in a terminal on this PC instead. Values are typed only on the
 // board on this PC; a board opened from another machine shows the commands. A
 // plain value the board refuses as shaped like a key shows its refusal with a

@@ -37,7 +37,7 @@ func TestBuildPackCarriesScopedMemoryAndLiveStateWithinBudget(t *testing.T) {
 		"## " + sectionFacts, "harbor-database-is-live (", "Supersedes harbor-has-no-hosted-database.",
 		"## " + sectionLive, "harbor-gallery-2 (Ivy): Gallery captions; branch feat/gallery-captions; pull request https://github.com/acme/harbor/pull/11; last report: working: captions under review", "on main since your base: abc1234",
 		"## " + sectionDone, "2026-11-08 harbor-live: Harbor configurator saves - PR https://github.com/acme/harbor/pull/9",
-		"ceo memory recall \"<question>\" --project harbor",
+		"goblins memory recall \"<question>\" --project harbor",
 	} {
 		if !strings.Contains(pack.Text, want) {
 			t.Fatalf("the pack lacks %q:\n%s", want, pack.Text)

@@ -41,7 +41,7 @@ func readTally(t *testing.T, service Service) Tally {
 // evidence" for goblins whose panes showed a tool running. A pane showing a
 // running tool is evidence the goblin is working, so no progress-based stale
 // wake fires past the budget while it shows, and each held-back wake is
-// counted once for ceo doctor.
+// counted once for goblins doctor.
 func TestARunningToolOnThePaneHoldsBackBusyTurnOverAge(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	service, probe, _, _ := progressService(t, &now)

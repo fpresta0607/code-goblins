@@ -16,8 +16,8 @@ import (
 )
 
 // The Command Center kept eight questions the CEO had already answered: each
-// goblin was busy, so ceo answer's text waited in its composer, SendGoblin
-// reported the delivery unconfirmed, and ceo answer returned before it
+// goblin was busy, so goblins answer's text waited in its composer, SendGoblin
+// reported the delivery unconfirmed, and goblins answer returned before it
 // recorded the answer on the board or marked the notify answered. A queued
 // delivery is a delivery: it is recorded and the notify reads answered, so
 // the board's own answer path refuses a second, possibly different decision.
@@ -391,7 +391,7 @@ func TestAQueuedCEOAnswerSurvivesAcknowledgementAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Act: the CEO acks the notify, as ceo drain does, and the supervisor
+	// Act: the CEO acks the notify, as goblins drain does, and the supervisor
 	// restarts.
 	if err := wake.AckThrough(h.State, record.Seq); err != nil {
 		t.Fatal(err)
@@ -463,7 +463,7 @@ func TestCEORecordsAnAnswerGivenOutOfBandWithoutSendingIt(t *testing.T) {
 }
 
 // A record-only close never stands in for an answer: a notify still waiting
-// unanswered is answered with ceo answer, which delivers it; a question the
+// unanswered is answered with goblins answer, which delivers it; a question the
 // Overlord is answering, or already answered, keeps its answer; only the
 // registered CEO may record one; and it names the question by its ID, never
 // by a bare wake sequence.
@@ -527,8 +527,8 @@ func TestCEORecordOnlyRefusesAQuestionItMustNotClose(t *testing.T) {
 }
 
 // On 2026-09-29 the Overlord answered the CEO's question herdr-strays-20260929
-// in chat, and the CEO had no way to close its card: ceo question takes no
-// answer, and ceo answer --record-only took only a goblin's question. The CEO
+// in chat, and the CEO had no way to close its card: goblins question takes no
+// answer, and goblins answer --record-only took only a goblin's question. The CEO
 // now records an answer the Overlord gave elsewhere, naming where, for its own
 // question or a goblin's: the card closes as his answer there, recorded by the
 // CEO, and nothing is sent to anyone.

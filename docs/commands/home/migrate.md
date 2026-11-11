@@ -1,6 +1,6 @@
-# ceo home migrate
+# goblins home migrate
 
-`ceo home migrate [--apply --plan <digest>] [--memory-from <dir>]`
+`goblins home migrate [--apply --plan <digest>] [--memory-from <dir>]`
 
 Lay out a home whose `data/` predates the layout: create its folders, file every finished task folder and stale brief exactly as the watcher does, give the backlog its Parked section, import a harness memory folder into `data/memory/` once, stamping the index with its source and time, and mark the data laid out so the watcher files it from then on.
 Without `--apply` it is a dry run that changes nothing: it lists every file it would move (with its SHA-256), create or change, every task folder it leaves in place and why, and the proof that nothing is dropped, which is the file counts before and after and a digest over the SHA-256 of every file whose content it keeps, taken before and after, which must match; a changed file, such as the backlog, only gains lines.

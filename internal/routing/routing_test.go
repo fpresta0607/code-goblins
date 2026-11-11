@@ -115,15 +115,15 @@ func TestMatchPrefersAHarnessRuleOverACatchAllWhicheverComesFirst(t *testing.T) 
 
 func TestCommandRendersTheSwitchTheRuleCallsFor(t *testing.T) {
 	rule := Rule{Switch: Switch{Harness: "claude", Model: "opus", Effort: "xhigh"}}
-	if got, want := rule.Command("qm-v4"), "ceo switch qm-v4 --harness claude --model opus --effort xhigh"; got != want {
+	if got, want := rule.Command("qm-v4"), "goblins switch qm-v4 --harness claude --model opus --effort xhigh"; got != want {
 		t.Errorf("Command = %q, want %q", got, want)
 	}
 	bare := Rule{Switch: Switch{Harness: "codex"}}
-	if got, want := bare.Command("g1"), "ceo switch g1 --harness codex"; got != want {
+	if got, want := bare.Command("g1"), "goblins switch g1 --harness codex"; got != want {
 		t.Errorf("Command = %q, want %q", got, want)
 	}
 	forced := Rule{Switch: Switch{Harness: "claude", Model: "opus", Effort: "xhigh"}, ForceDirty: true}
-	if got, want := forced.Command("qm-v4"), "ceo switch qm-v4 --harness claude --model opus --effort xhigh --force-dirty"; got != want {
+	if got, want := forced.Command("qm-v4"), "goblins switch qm-v4 --harness claude --model opus --effort xhigh --force-dirty"; got != want {
 		t.Errorf("Command = %q, want %q", got, want)
 	}
 }

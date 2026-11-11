@@ -13,7 +13,7 @@ import (
 // feature on; nothing is written to the user's hooks.json.
 func TestCodexArgumentsGiveOneSessionItsNativeHooks(t *testing.T) {
 	// Arrange
-	executable, home, state := `C:\dev\code-goblins\bin\ceo.exe`, `C:\dev\code-goblins`, `C:\dev\code-goblins\state`
+	executable, home, state := `C:\dev\code-goblins\bin\goblins.exe`, `C:\dev\code-goblins`, `C:\dev\code-goblins\state`
 
 	// Act
 	args, err := CodexArguments(executable, home, state)
@@ -25,7 +25,7 @@ func TestCodexArgumentsGiveOneSessionItsNativeHooks(t *testing.T) {
 	if !slices.Equal(args[:2], []string{"--enable", "hooks"}) {
 		t.Fatalf("args start %q, want the hooks feature on", args[:2])
 	}
-	command := "C:/dev/code-goblins/bin/ceo.exe native-hook codex --home C:/dev/code-goblins --state C:/dev/code-goblins/state"
+	command := "C:/dev/code-goblins/bin/goblins.exe native-hook codex --home C:/dev/code-goblins --state C:/dev/code-goblins/state"
 	var events []string
 	for i := 2; i < len(args); i += 2 {
 		event, value, found := strings.Cut(strings.TrimPrefix(args[i+1], "hooks."), "=")
@@ -47,7 +47,7 @@ func TestCodexArgumentsGiveOneSessionItsNativeHooks(t *testing.T) {
 func TestCodexArgumentsRefuseAPathThatNeedsQuoting(t *testing.T) {
 	for name, arguments := range map[string]func(executable, home, state string) ([]string, error){"the CEO's": CodexArguments, "a goblin's": CodexGoblinArguments} {
 		t.Run(name, func(t *testing.T) {
-			_, err := arguments(`C:\Program Files\ceo\ceo.exe`, `C:\dev\code-goblins`, `C:\dev\code-goblins\state`)
+			_, err := arguments(`C:\Program Files\ceo\goblins.exe`, `C:\dev\code-goblins`, `C:\dev\code-goblins\state`)
 
 			if err == nil || !strings.Contains(err.Error(), "without quoting") {
 				t.Fatalf("err = %v, want the path that needs quoting refused", err)
@@ -59,11 +59,11 @@ func TestCodexArgumentsRefuseAPathThatNeedsQuoting(t *testing.T) {
 // A Codex goblin's seal runs before each of its shell commands, which Codex
 // names Bash, as a Claude Code goblin's runs before each of its own: its
 // launch carries the native session hooks and, after them, one PreToolUse
-// override running ceo hook goblin-seal-codex directly, with no quote or
+// override running goblins hook goblin-seal-codex directly, with no quote or
 // character cmd would read.
 func TestCodexGoblinArgumentsAddTheGoblinSealToTheNativeHooks(t *testing.T) {
 	// Arrange
-	executable, home, state := `C:\dev\code-goblins\bin\ceo.exe`, `C:\dev\code-goblins`, `C:\dev\code-goblins\state`
+	executable, home, state := `C:\dev\code-goblins\bin\goblins.exe`, `C:\dev\code-goblins`, `C:\dev\code-goblins\state`
 	native, err := CodexArguments(executable, home, state)
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +76,7 @@ func TestCodexGoblinArgumentsAddTheGoblinSealToTheNativeHooks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := append(native, "-c", "hooks.PreToolUse=[{matcher='Bash',hooks=[{type='command',command='C:/dev/code-goblins/bin/ceo.exe hook goblin-seal-codex'}]}]")
+	want := append(native, "-c", "hooks.PreToolUse=[{matcher='Bash',hooks=[{type='command',command='C:/dev/code-goblins/bin/goblins.exe hook goblin-seal-codex'}]}]")
 	if !slices.Equal(args, want) {
 		t.Fatalf("args = %q, want %q", args, want)
 	}

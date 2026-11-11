@@ -64,9 +64,9 @@ func TestFleetDropsAnOldLifecycleObservationAfterRelaunch(t *testing.T) {
 		t.Run(phase, func(t *testing.T) {
 			// Arrange
 			h := snapshotHome(t)
-			t.Setenv("CEO_HOME", h.Root)
-			t.Setenv("CEO_STATE_OVERRIDE", h.State)
-			t.Setenv("CEO_PROJECTS_ROOT", t.TempDir())
+			t.Setenv("GOBLINS_HOME", h.Root)
+			t.Setenv("GOBLINS_STATE_OVERRIDE", h.State)
+			t.Setenv("GOBLINS_PROJECTS_ROOT", t.TempDir())
 			meta := writeSnapshotMeta(t, h, "task", t.TempDir(), t.TempDir())
 			meta.SpawnGen = "replacement"
 			if err := state.WriteTaskMeta(h.State, meta); err != nil {
@@ -348,7 +348,7 @@ func TestBuildSnapshotSortsRowsAndProjectsTypedTaskState(t *testing.T) {
 	if alphaRow.Monitor.Health != monitor.HealthActive || alphaRow.Monitor.StaleSeconds != 0 || alphaRow.Monitor.LastSeen == nil || !alphaRow.Monitor.LastSeen.Equal(lastSeen) {
 		t.Errorf("alpha monitor = %+v, want active projection", alphaRow.Monitor)
 	}
-	if alphaRow.Actions.Peek != "ceo peek gb-alpha" {
+	if alphaRow.Actions.Peek != "goblins peek gb-alpha" {
 		t.Errorf("alpha actions = %+v, want typed peek action", alphaRow.Actions)
 	}
 
@@ -361,7 +361,7 @@ func TestBuildSnapshotSortsRowsAndProjectsTypedTaskState(t *testing.T) {
 	if zuluRow.Monitor.Health != monitor.HealthStale || zuluRow.Monitor.StaleSeconds != 10 || zuluRow.Monitor.Escalation != 2 || !zuluRow.Monitor.DemandDeepInspection {
 		t.Errorf("zulu monitor = %+v, want persisted stale monitor summary", zuluRow.Monitor)
 	}
-	if zuluRow.Actions.Peek != "ceo peek gb-zulu" {
+	if zuluRow.Actions.Peek != "goblins peek gb-zulu" {
 		t.Errorf("zulu actions = %+v, want task-local peek action", zuluRow.Actions)
 	}
 }

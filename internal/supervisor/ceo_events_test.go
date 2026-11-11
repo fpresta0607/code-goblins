@@ -275,7 +275,7 @@ func TestACompactionSaysSoOnItsSessionUntilItEnds(t *testing.T) {
 	}
 }
 
-// primaryHome makes h a primary home, as ceo install leaves one.
+// primaryHome makes h a primary home, as goblins install leaves one.
 func primaryHome(t *testing.T, h home.Home) {
 	t.Helper()
 	for _, name := range []string{"AGENTS.md", home.InstalledMarker} {

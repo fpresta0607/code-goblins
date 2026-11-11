@@ -38,7 +38,7 @@ func TestSchedulerNeverRestartsFinishedWork(t *testing.T) {
 			name: "its archived status log last reported done",
 			arrange: func(t *testing.T, _ *Service, h home.Home) {
 				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261001T090000Z"), "2026-10-01T08:00:00Z working: first try\n")
-				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:00:00Z working: building\n2026-10-06T11:59:00Z done: returned worktree C:\\w via ceo cleanup\n")
+				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:00:00Z working: building\n2026-10-06T11:59:00Z done: returned worktree C:\\w via goblins cleanup\n")
 			},
 			evidence: "its last report was done",
 		},
@@ -75,7 +75,7 @@ func TestSchedulerNeverRestartsFinishedWork(t *testing.T) {
 				// whatever today's date is.
 				archived := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
 				stamp := func(before time.Duration) string { return archived.Add(-before).Format(time.RFC3339) }
-				writeFile(t, filepath.Join(h.State, "archive", "next-task.status."+archived.Format("20060102T150405Z")), stamp(time.Hour)+" done: PR "+pullRequest+"\n"+stamp(30*time.Minute)+" working: more to do\n"+stamp(time.Minute)+" stopped: returned worktree C:\\w via ceo cleanup\n")
+				writeFile(t, filepath.Join(h.State, "archive", "next-task.status."+archived.Format("20060102T150405Z")), stamp(time.Hour)+" done: PR "+pullRequest+"\n"+stamp(30*time.Minute)+" working: more to do\n"+stamp(time.Minute)+" stopped: returned worktree C:\\w via goblins cleanup\n")
 				writeOutcome(t, h, state.Outcome{ID: "next-task", Generation: "s1", Title: "Ship it", Project: h.Root, Branch: "feat/ship-it", Phase: "stopped", Reason: "Worktree returned by cleanup", At: time.Now().UTC().Add(-time.Hour)})
 				if err := service.refreshHistory(t.Context(), time.Now().UTC()); err != nil {
 					t.Fatal(err)
@@ -152,7 +152,7 @@ func TestSchedulerTellsTheCEOOfARetiredTasksRowInsteadOfStartingIt(t *testing.T)
 				}
 				generation := "s" + strconv.FormatInt(time.Now().Add(-time.Hour).UnixNano(), 10)
 				retired := time.Now().UTC().Add(-time.Minute)
-				writeFile(t, filepath.Join(h.State, "next-task.status"), time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)+" working: proving the strays\n"+retired.Add(-time.Minute).Format(time.RFC3339)+" done: PR none (local-only scout). Report: C:\\home\\data\\next-task\\report.md\n"+retired.Format(time.RFC3339)+" stopped: returned worktree C:\\w via ceo cleanup\n")
+				writeFile(t, filepath.Join(h.State, "next-task.status"), time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)+" working: proving the strays\n"+retired.Add(-time.Minute).Format(time.RFC3339)+" done: PR none (local-only scout). Report: C:\\home\\data\\next-task\\report.md\n"+retired.Format(time.RFC3339)+" stopped: returned worktree C:\\w via goblins cleanup\n")
 				writeOutcome(t, h, state.Outcome{ID: "next-task", Generation: generation, Title: "Ship it", Project: h.Root, Phase: "stopped", Reason: "Worktree returned by cleanup", At: retired})
 			},
 		},
@@ -248,7 +248,7 @@ func TestMemoryWorkLeavesOutFinishedWork(t *testing.T) {
 	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- **done-task** - Shipped (repo: code-goblins)\n- **next-task** - Ship it (repo: code-goblins)\n")
 	writeFile(t, filepath.Join(h.Data, "done-task", "brief.md"), strings.ReplaceAll(plainBrief, "next-task", "done-task"))
 	writeFile(t, filepath.Join(h.Data, "next-task", "brief.md"), plainBrief)
-	writeFile(t, filepath.Join(h.State, "archive", "done-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via ceo cleanup\n")
+	writeFile(t, filepath.Join(h.State, "archive", "done-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via goblins cleanup\n")
 
 	// Act
 	queued, _ := memoryWork(h, readFinishedWork(h, nil), rowReading{now: time.Now().UTC()})

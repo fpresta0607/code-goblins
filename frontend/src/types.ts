@@ -91,7 +91,7 @@ export interface Task extends Evaluation {
   // was written; empty when neither is known.
   since: string;
   // brief says queued work has its brief, which Start needs; starting that
-  // its Start runs ceo spawn now or waits its turn, start_error why its last
+  // its Start runs goblins spawn now or waits its turn, start_error why its last
   // Start failed, and finished why it never starts again by itself: what
   // says it already finished. asked says a Start or Resume the Overlord
   // clicked waits its turn behind another start or resume, or for memory or
@@ -116,7 +116,7 @@ export interface Task extends Evaluation {
   ticket?: Ticket;
   overlaps: Overlap[];
   // hosted_checks is what its pull request's hosted checks said at the last
-  // CI poll, local_checks its change's newest ceo gate test run, and
+  // CI poll, local_checks its change's newest goblins gate test run, and
   // deployment how the deploy of its merge stands, apart.
   hosted_checks?: HostedChecks;
   local_checks?: LocalChecks;
@@ -186,7 +186,7 @@ export interface DevDriveView { state: string; line: string; note: string; expla
 // reviewer approved the pull request; rate_limited names the deploys the host
 // rate limited, which never built the head and checks leaves out.
 export interface HostedChecks { head: string; state: string; checks: number; failed: string[]; rate_limited: string[]; link: string; approved: boolean }
-// LocalChecks is the newest ceo gate test run of a task's change: the commit,
+// LocalChecks is the newest goblins gate test run of a task's change: the commit,
 // the level it ran and the one required, passed or failed, how long it took
 // and waited for its turn, and the packages or commands that failed.
 export interface LocalChecks { commit: string; level: string; required_level: string; status: string; duration_seconds: number; queue_seconds: number; failed: string[]; at: string }
@@ -469,7 +469,7 @@ export interface Snapshot {
   ceo_runs: boolean;
   // ceo_starting says the CEO runs in its terminal but has not registered
   // yet: Claude Code registers through its SessionStart hook after its
-  // onboarding and sign-in, a Codex or pi CEO when its first prompt runs ceo
+  // onboarding and sign-in, a Codex or pi CEO when its first prompt runs goblins
   // register.
   ceo_starting: boolean;
   // ceo_closed says the home's CEO registered and has since ended, with no
@@ -543,7 +543,7 @@ export interface Question {
   // task names the goblin that asked; it is empty for the CEO's own question.
   task: string;
   // for_task names the goblin whose decision the CEO's own question puts to
-  // him (ceo question --for); it is empty for a goblin's question.
+  // him (goblins question --for); it is empty for a goblin's question.
   for_task: string;
   // answered_in says where an answer given outside its card came from, such
   // as "chat".
@@ -586,12 +586,12 @@ export interface Review {
   // revising_since is when he sent a revision from the page without ending
   // its review: the item waits on its goblin's next version, not on him.
   revising_since: string;
-  // document is a file ceo deliver handed him, which its Scrawl page shows,
+  // document is a file goblins deliver handed him, which its Scrawl page shows,
   // or null for any other item.
   document: ReviewDocument | null;
   state: string; answer: string; answer_id: string; delivered: boolean; reason: string; created_at: string; updated_at: string;
 }
-// A file delivered with ceo deliver: kind is set when its page shows it, and
+// A file delivered with goblins deliver: kind is set when its page shows it, and
 // download says its page offers it to download.
 export interface ReviewDocument { name: string; size: number; kind: string; download: boolean }
 // A command the CEO needs the Overlord to run (API8): the stored text is what
@@ -627,7 +627,7 @@ export interface Run {
 // A newer release of Code Goblins, as the Update item offers it: the version
 // this board runs and the one it installs, when that was published, a few
 // lines of what is new, its notes' page, whether its notes say it is signed
-// and by whom, and the SHA-256 they list for ceo.exe.
+// and by whom, and the SHA-256 they list for goblins.exe.
 export interface ReleaseOffer {
   from: string; to: string; page: string; published: string; notes: string[];
   // signing is "signed", "unsigned", or empty when the notes do not say.

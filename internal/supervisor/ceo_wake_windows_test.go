@@ -194,7 +194,7 @@ func TestAWakeIsTypedIntoAnIdleCodexOrPiCEOOnce(t *testing.T) {
 					if err := s.wakeCEO(context.Background(), now); err != nil {
 						t.Fatal(err)
 					}
-					if len(*typed) != 1 || !strings.HasPrefix((*typed)[0], "ceo|"+agent+"|ceo watcher wake: 1 queued wake ("+kind+" cg-wakes); run ceo drain") || strings.ContainsAny((*typed)[0], "\r\n") {
+					if len(*typed) != 1 || !strings.HasPrefix((*typed)[0], "ceo|"+agent+"|ceo watcher wake: 1 queued wake ("+kind+" cg-wakes); run goblins drain") || strings.ContainsAny((*typed)[0], "\r\n") {
 						t.Fatalf("typed = %q, want one wake line naming %s", *typed, kind)
 					}
 					if err := s.wakeCEO(context.Background(), now.Add(10*time.Second)); err != nil || len(*typed) != 1 {
@@ -321,7 +321,7 @@ func TestAClaudeCodeCEOIsLeftToItsStopHook(t *testing.T) {
 }
 
 // A line typed that nothing proves taken is reported and still marks what it
-// covered, since typing it twice is the failure ceo send never risks.
+// covered, since typing it twice is the failure goblins send never risks.
 func TestAnUnprovenWakeLineIsReportedAndNeverTypedTwice(t *testing.T) {
 	s, stateDir, typed, deliverErr := typedWakeCEO(t, "codex", idleCodexCEO)
 	*deliverErr = errors.New("its screen never showed it working")
@@ -455,7 +455,7 @@ func TestTheTypedWakeLineSaysAFKModeIsOn(t *testing.T) {
 
 // idleWithWorkRunning is a Codex CEO idle at its prompt while work it started
 // still runs, the shape suspected of 2026-10-13 01:17Z to 01:33Z.
-var idleWithWorkRunning = []string{"• Ran ceo drain", "  Running… (12m)", "› Ask Codex to do anything", "  gpt-6-astra high · work"}
+var idleWithWorkRunning = []string{"• Ran goblins drain", "  Running… (12m)", "› Ask Codex to do anything", "  gpt-6-astra high · work"}
 
 // skips reads the record of the wakes the supervisor did not type.
 func skips(t *testing.T, stateDir string) []ceoWakeSkip {
@@ -594,7 +594,7 @@ func TestTheOverlordIsToldOnceWhenTheCEOCannotBeWoken(t *testing.T) {
 }
 
 // The CEO may read its wakes without being told, as a Codex CEO in a long
-// turn runs ceo drain itself: once none waits, the item goes as well.
+// turn runs goblins drain itself: once none waits, the item goes as well.
 func TestTheOverlordsItemGoesOnceTheCEODrainsItsWakes(t *testing.T) {
 	// Arrange
 	busy := idleWithWorkRunning

@@ -21,7 +21,7 @@ import (
 // answer was, what it is now, and that he changed it.
 
 // ceoAnswered is the goblin fixture's question as the CEO answered it with
-// ceo answer, SQLite, before the goblin reported anything since. ceo is the
+// goblins answer, SQLite, before the goblin reported anything since. goblins is the
 // CEO's own terminal.
 func ceoAnswered(t *testing.T) (*Store, state.TaskMeta, hostedTerminal, hostedTerminal, *CEOConnection, Question) {
 	t.Helper()
@@ -62,7 +62,7 @@ func overlordAnswered(t *testing.T) (*Store, state.TaskMeta, hostedTerminal, hos
 }
 
 // reportLater writes a report into the goblin's status log stamped after the
-// first answer, as the goblin's next ceo notify would.
+// first answer, as the goblin's next goblins notify would.
 func reportLater(t *testing.T, store *Store, meta state.TaskMeta) {
 	t.Helper()
 	file, err := os.OpenFile(state.StatusPath(store.Home.State, meta.ID), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)

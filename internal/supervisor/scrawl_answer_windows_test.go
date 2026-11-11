@@ -63,7 +63,7 @@ func TestASendAndEndOnAScrawlPageClearsItsCardAtOnceAndDeliversHisNoteOnce(t *te
 			if test.host != "" {
 				published = test.host + link[strings.Index(link, "/session/"):]
 			}
-			// As ceo present --kind review --watch publishes it.
+			// As goblins present --kind review --watch publishes it.
 			if err := PublishReview(h, meta.ID, "task-1-plan", "Approve the plan", published, "", nil); err != nil {
 				t.Fatal(err)
 			}

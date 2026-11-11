@@ -11,7 +11,7 @@ import (
 // of another, and a test that passed faster has its faster time.
 func TestKeepTimesAddsARunsTimesToTheProjectsRecord(t *testing.T) {
 	// Arrange
-	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	first := map[string]map[string]float64{"example.com/m/a": {"TestOne": 1.5, "TestTwo": 30}}
 	second := map[string]map[string]float64{"example.com/m/a": {"TestTwo": 4}, "example.com/m/b": {"TestThree": 0.2}}
 
@@ -38,12 +38,12 @@ func TestKeepTimesAddsARunsTimesToTheProjectsRecord(t *testing.T) {
 // A test keeps the fastest time it has passed in. A push leaves out the tests
 // the record has as slow, and a test left out is not run, so it would never
 // be timed again: on 2026-10-10 two hours of replays on a busy machine moved
-// 13 tests of internal/supervisor and 3 of cmd/ceo past two seconds, and
+// 13 tests of internal/supervisor and 3 of cmd/goblins past two seconds, and
 // each would have stayed out of every later push that did not touch its
 // file.
 func TestKeepTimesKeepsATestsFastestPass(t *testing.T) {
 	// Arrange
-	t.Setenv("CEO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	quiet := map[string]map[string]float64{"example.com/m/a": {"TestOne": 1.2, "TestTwo": 30}}
 	busy := map[string]map[string]float64{"example.com/m/a": {"TestOne": 9.5, "TestTwo": 12}}
 
@@ -66,7 +66,7 @@ func TestKeepTimesKeepsATestsFastestPass(t *testing.T) {
 func TestKeepTimesReplacesARecordThatCannotBeRead(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CEO_VERIFY_DIR", store)
+	t.Setenv("GOBLINS_VERIFY_DIR", store)
 	if err := os.MkdirAll(filepath.Join(store, "times"), 0o755); err != nil {
 		t.Fatal(err)
 	}

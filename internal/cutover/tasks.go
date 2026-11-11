@@ -154,7 +154,7 @@ func (p *planner) elsewhere() error {
 	}
 	for _, entry := range entries {
 		checkout := filepath.Join(p.machine.ProjectsRoot, entry.Name())
-		if !entry.IsDir() || !exists(filepath.Join(checkout, ".git")) || exists(filepath.Join(checkout, "cmd", newName)) || exists(filepath.Join(checkout, "cmd", oldName)) {
+		if !entry.IsDir() || !exists(filepath.Join(checkout, ".git")) || exists(filepath.Join(checkout, "cmd", newCommand)) || exists(filepath.Join(checkout, "cmd", oldName)) {
 			continue
 		}
 		out, err := p.machine.Git(checkout, "ls-files", "-z")

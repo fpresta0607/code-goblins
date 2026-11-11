@@ -358,7 +358,7 @@ func (s Service) installCommands(ctx context.Context, git RunnerGit, manifest Ma
 // in a worktree under the install strategy: the manifest's own commands, or
 // the one the lockfile at the worktree's root names. Has reports whether
 // the worktree holds a file at its root. It is what a spawn names and what
-// `ceo project check` reads, so the two cannot disagree about what a
+// `goblins project check` reads, so the two cannot disagree about what a
 // worktree will hold.
 //
 // Every command it names installs a lock with hashes and resolves no version
@@ -474,7 +474,7 @@ func detectInstallCommand(has func(name string) bool) string {
 
 // InstallOutputs names the directories a set of install commands
 // materializes, so they can be excluded when the project itself does not
-// ignore them, and so `ceo project check` knows what a worktree will hold.
+// ignore them, and so `goblins project check` knows what a worktree will hold.
 func InstallOutputs(commands []string) []string {
 	outputs := map[string]bool{}
 	for _, command := range commands {

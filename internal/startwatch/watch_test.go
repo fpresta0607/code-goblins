@@ -79,7 +79,7 @@ func TestAConsoleWindowTheSupervisorHidIsToldAsHidden(t *testing.T) {
 	if len(findings) != 1 {
 		t.Fatalf("findings = %q, want the waiter once", details(findings))
 	}
-	for _, want := range []string{"window_shown: cg-a's goblins.exe (pid 400)", "showed a console window on the Overlord's screen, which the supervisor hid: ", "gate turn -- go test ./...", "Next: tell cg-a to start a heavy run with ceo gate turn --detach <log-file> -- <command>, and nothing else that opens a console"} {
+	for _, want := range []string{"window_shown: cg-a's goblins.exe (pid 400)", "showed a console window on the Overlord's screen, which the supervisor hid: ", "gate turn -- go test ./...", "Next: tell cg-a to start a heavy run with goblins gate turn --detach <log-file> -- <command>, and nothing else that opens a console"} {
 		if !strings.Contains(findings[0].Detail, want) {
 			t.Errorf("detail = %q, want %q", findings[0].Detail, want)
 		}
@@ -106,7 +106,7 @@ func TestACommandStartedAgainAndAgainIsALoopToldOnce(t *testing.T) {
 		other := started("cg-b", pid+1, "node.exe", "node server.js --port 3000")
 		shell := started("cg-a", pid+2, "bash.exe", "bash tools/run.sh")
 		wait := started("cg-a", pid+3, "sleep.exe", "sleep 5")
-		hook := started("cg-a", pid+4, "ceo.exe", "ceo.exe native claude")
+		hook := started("cg-a", pid+4, "goblins.exe", "goblins.exe native claude")
 		hook.ByHarness = true
 		agent := started("cg-a", pid+5, "claude.exe", "claude.exe -p")
 		agent.Service = true

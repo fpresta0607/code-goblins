@@ -155,7 +155,7 @@ func (result RecallResult) Shortened() RecallResult {
 		problems = append(problems, oneLine(problem, excerptLimit))
 	}
 	if extra := len(result.Problems) - replyProblems; extra > 0 {
-		problems = append(problems, fmt.Sprintf("and %d more; ceo memory recall --data <data folder> builds the index here and names them all", extra))
+		problems = append(problems, fmt.Sprintf("and %d more; goblins memory recall --data <data folder> builds the index here and names them all", extra))
 	}
 	result.Problems = problems
 	return result

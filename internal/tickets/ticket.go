@@ -143,7 +143,7 @@ func (t Ticket) CloseReason() string {
 	}
 }
 
-// Body is the body of an issue ceo opened for the task: what it changes and
+// Body is the body of an issue goblins opened for the task: what it changes and
 // where, its state, who is on it and every pull request of the task,
 // rewritten in place as the state changes. The title is the issue's own, so
 // the body does not repeat it.

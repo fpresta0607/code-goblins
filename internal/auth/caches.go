@@ -97,7 +97,7 @@ const (
 // tuned: absent, inherited, and project-declared would all read the same.
 //
 // projectEnv is the project's own worktree manifest env block, which is why
-// this takes an argument the launch path does not. `ceo auth <project> --env`
+// this takes an argument the launch path does not. `goblins auth <project> --env`
 // answers "where does THIS project's goblin build", and a project that
 // declares a location overrides the shared root in both real consumers - the
 // dependency install and the pane - so an audit that reported the machine

@@ -14,7 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// lockingSpawner runs ceo spawn and ceo resume as they meet the home's spawn
+// lockingSpawner runs goblins spawn and goblins resume as they meet the home's spawn
 // lock: each takes it for its run, and one that finds it held fails as they
 // print it. Every other command succeeds.
 type lockingSpawner struct {
@@ -32,7 +32,7 @@ func (r *lockingSpawner) spawn(ctx context.Context, args []string) (string, erro
 	}
 	if _, err := lock.AcquireExclusiveNamed(r.stateDir, ".spawn.lock"); err != nil {
 		r.once.Do(func() { close(r.met) })
-		return refusal + err.Error() + "\n", errors.New("ceo exited 1")
+		return refusal + err.Error() + "\n", errors.New("goblins exited 1")
 	}
 	return "done\n", lock.ReleaseExclusiveNamed(r.stateDir, ".spawn.lock")
 }
@@ -101,7 +101,7 @@ func TestAStartThatMeetsAHandRunSpawnTriesAgainOnceTheLockFrees(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			// Arrange: a ceo spawn run by hand holds the spawn lock.
+			// Arrange: a goblins spawn run by hand holds the spawn lock.
 			spawner := &lockingSpawner{met: make(chan struct{})}
 			s, h := helperBoard(t, 8*gigabyte, &spawner.spawnRecorder)
 			spawner.stateDir = h.State
@@ -125,7 +125,7 @@ func TestAStartThatMeetsAHandRunSpawnTriesAgainOnceTheLockFrees(t *testing.T) {
 			// Assert
 			runs := spawner.runs(test.command)
 			if len(runs) != 2 || !slices.Equal(runs[0], runs[1]) {
-				t.Fatalf("ceo %s ran %q, want the same run twice", test.command, runs)
+				t.Fatalf("goblins %s ran %q, want the same run twice", test.command, runs)
 			}
 			s.starts.Lock()
 			failure := test.failure(s, spawner)

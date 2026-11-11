@@ -73,7 +73,7 @@ var faultPatterns = []struct {
 }
 
 // SteerPrefix is stamped on every line the CEO delivers into a goblin's pane
-// with ceo send, and OverlordPrefix is what the Overlord types before a line
+// with goblins send, and OverlordPrefix is what the Overlord types before a line
 // of their own. Detect blanks lines carrying either, and the indented
 // continuation lines a pane wraps a long prompt into, before it looks for a
 // fault: text an operator wrote about a provider is not evidence about the
@@ -227,7 +227,7 @@ func allMatches(haystack, needle string) []int {
 	return indexes
 }
 
-// redactOperatorLines blanks every line an operator wrote, a ceo send steer
+// redactOperatorLines blanks every line an operator wrote, a goblins send steer
 // or an Overlord line, together with the indented lines a pane wraps the
 // rest of that prompt into. An indented line that opens with a harness result
 // or turn marker (⎿ ● ✻ ◐ ⏺ ❯ › >) is the harness answering, not the prompt
@@ -535,7 +535,7 @@ type Lane struct {
 	Model   string `json:"model,omitempty"`
 	Effort  string `json:"effort,omitempty"`
 	// Note says what the lane is for, to whoever reads the file or
-	// `ceo doctor` next.
+	// `goblins doctor` next.
 	Note string `json:"note,omitempty"`
 }
 
@@ -662,10 +662,10 @@ func (p Policy) Match(harness string, fault Fault) (Rule, bool) {
 	return fallback, found
 }
 
-// Command renders the ceo switch command a rule calls for, which is what the
+// Command renders the goblins switch command a rule calls for, which is what the
 // CEO is shown when the rule is a recommendation rather than an automatic.
 func (r Rule) Command(id string) string {
-	command := "ceo switch " + id + " --harness " + r.Switch.Harness
+	command := "goblins switch " + id + " --harness " + r.Switch.Harness
 	if r.Switch.Model != "" {
 		command += " --model " + r.Switch.Model
 	}

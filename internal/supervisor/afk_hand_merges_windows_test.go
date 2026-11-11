@@ -13,7 +13,7 @@ import (
 
 // The 13:18Z report of 2026-10-14 listed eight pull requests that landed by
 // train under Not merged, each "No merge was recorded": the CEO had logged
-// each with ceo afk log --kind merge --link, which writes no outcome. GitHub's
+// each with goblins afk log --kind merge --link, which writes no outcome. GitHub's
 // word on the pull request is where the outcome comes from.
 
 const repository = "https://github.com/acme/api/pull/"

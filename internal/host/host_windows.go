@@ -37,13 +37,13 @@ var (
 
 // IDVariable tells the program in a host's terminal which terminal it runs
 // in, so it can register as reachable through that host.
-const IDVariable = "CEO_HOST_ID"
+const IDVariable = "GOBLINS_HOST_ID"
 
 // ProofVariable carries a value the host makes for its terminal alone, which
 // every process in the terminal inherits and the host's record keeps only as
 // a digest, so a process can prove it runs in the terminal when its chain of
 // parents stops short of the program.
-const ProofVariable = "CEO_HOST_PROOF"
+const ProofVariable = "GOBLINS_HOST_PROOF"
 
 // Spec is one terminal for a host to run.
 type Spec struct {

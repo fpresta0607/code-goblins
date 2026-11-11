@@ -68,7 +68,7 @@ func assertEnded(t *testing.T, tree treetest.Found, err error) {
 
 // A run its context ends is ended with everything it started that still
 // runs, and the error says what that was, by name and pid. On 2026-10-12
-// ceo gate prepush ended a check at its time limit and a test's helper ran
+// goblins gate prepush ended a check at its time limit and a test's helper ran
 // on, since the test process that started it had already ended: ending a
 // process with what its parents reach left the helper unreached. A helper
 // that broke away from a terminal's job of its own, as what Git Bash starts
@@ -115,7 +115,7 @@ func TestOSRunnerStreamEndsEverythingTheRunStartedWhenItsContextEnds(t *testing.
 	}
 }
 
-// A run started under a machine service, as a gate agent's ceo gate prepush
+// A run started under a machine service, as a gate agent's goblins gate prepush
 // runs under the no-mistakes daemon, is ended whole all the same: the
 // service above the run is no part of the run's tree, and once made every
 // process of the tree read as the service's, which the end then spared.

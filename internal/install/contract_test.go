@@ -120,7 +120,7 @@ func TestLegacyTrackedHomeKeepsItsLoadedContractAndDirtyPolicy(t *testing.T) {
 	// Arrange
 	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
 	f.service.Checkout = true
-	f.env.values["CEO_HOME"] = f.root
+	f.env.values["GOBLINS_HOME"] = f.root
 	tracked := map[string]string{
 		"AGENTS.md":            "# Stale tracked contract\n",
 		"CLAUDE.md":            "Read [AGENTS.md](AGENTS.md).\n",

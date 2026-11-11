@@ -4,7 +4,7 @@ import { open, snapshot } from "./session-board";
 for (const width of [390, 1440]) {
   test(`gate decisions and worker activity stay distinct across cards at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    const task = { goblin_name: "Hugo", goblin_title: "Build Tamer", phase: "blocked", gate_step: "rebase", reason: "Pipeline decision required at rebase; use ceo pipeline respond", report: "working", runtime: { state: "busy" } };
+    const task = { goblin_name: "Hugo", goblin_title: "Build Tamer", phase: "blocked", gate_step: "rebase", reason: "Pipeline decision required at rebase; use goblins pipeline respond", report: "working", runtime: { state: "busy" } };
     await open(page, snapshot({}, task));
     const board = page.locator(".task-board .task-card-shell").filter({ hasText: "Hugo - Build Tamer" });
     await expect(board.locator(".card-status-text")).toHaveText("Waiting on the CEO: rebase gate");

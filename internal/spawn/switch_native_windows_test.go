@@ -86,7 +86,7 @@ func TestANativeGoblinSwitchesInPlace(t *testing.T) {
 const containedSwitch = "SPAWN_TEST_CONTAINED_SWITCH"
 
 // A switch whose new terminal could not leave the job of the process that
-// ran ceo names it in the switch's output, as a spawn does, since that
+// ran goblins names it in the switch's output, as a spawn does, since that
 // terminal ends when the job closes. The switch runs in a copy of this test
 // binary, put in such a job before it starts.
 func TestAContainedNativeSwitchIsReported(t *testing.T) {

@@ -59,8 +59,8 @@ func TestTheBinaryCarriesTheProjectCheckSkillWithItsHeader(t *testing.T) {
 	if !regexp.MustCompile(`(?m)^description: \S.{80,}$`).MatchString(header) {
 		t.Errorf("the header has no description saying when to use the skill:\n%s", header)
 	}
-	if !strings.Contains(skill, "ceo project check") {
-		t.Error("the skill does not send its reader to ceo project check, where the checks live")
+	if !strings.Contains(skill, "goblins project check") {
+		t.Error("the skill does not send its reader to goblins project check, where the checks live")
 	}
 }
 
@@ -69,7 +69,7 @@ func TestTheBinaryCarriesTheProjectCheckSkillWithItsHeader(t *testing.T) {
 // differently, or not at all, in the other two.
 var oneHarnessOnly = regexp.MustCompile(`(?i)\b(claude|codex|pi|anthropic|openai|askuserquestion|todowrite|apply_patch|subagents?|slash commands?|(bash|read|edit|write|grep|glob|task|shell) tool)\b|~[/\\]\.(claude|codex|pi)\b|/project-check\b`)
 
-// The skill is one text for every harness: it sends its reader to ceo
+// The skill is one text for every harness: it sends its reader to goblins
 // commands and names no tool, folder or product of a single harness.
 func TestTheProjectCheckSkillNamesNoToolOfOneHarness(t *testing.T) {
 	// Act
@@ -134,7 +134,7 @@ func TestTheBinaryCarriesTheStepCardSkillForBrowserWork(t *testing.T) {
 	if !regexp.MustCompile(`(?m)^description: \S.{80,}$`).MatchString(header) || !strings.Contains(header, "browser") {
 		t.Errorf("the header has no description saying when to use the skill:\n%s", header)
 	}
-	for _, want := range []string{"ceo auth request", "--wait", "--plain", "--label", "--window", "--done", "--withdraw", "never take", "in the background"} {
+	for _, want := range []string{"goblins auth request", "--wait", "--plain", "--label", "--window", "--done", "--withdraw", "never take", "in the background"} {
 		if !strings.Contains(skill, want) {
 			t.Errorf("the skill does not say %q", want)
 		}

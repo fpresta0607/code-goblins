@@ -541,7 +541,7 @@ func (catalog Catalog) Routes(limit int) string {
 		}
 	}
 	if left > 0 {
-		fmt.Fprintf(&output, "%d additional cold routes: ceo memory routes lists all.\n", left)
+		fmt.Fprintf(&output, "%d additional cold routes: goblins memory routes lists all.\n", left)
 	}
 	return output.String()
 }

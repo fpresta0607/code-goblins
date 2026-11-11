@@ -68,7 +68,7 @@ func TestTheCEOIsWokenAgainWhileRunnableWorkWaitsAndNothingStarts(t *testing.T) 
 			available: 8,
 			arrange: func(t *testing.T, h home.Home) {
 				queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins)", plainBrief)
-				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via ceo cleanup\n")
+				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via goblins cleanup\n")
 			},
 		},
 		{

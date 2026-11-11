@@ -8,7 +8,7 @@ import (
 // RunningServicesAmong maps each of members, the processes of a job, that is
 // a machine service, or runs under one that is among members too, to that
 // service. A service outside them makes none of them one: what a job holds
-// is the job's, and the gate daemon above an agent's ceo gate prepush is no
+// is the job's, and the gate daemon above an agent's goblins gate prepush is no
 // part of the job a check of it runs in, so it must not keep the check
 // from being ended.
 func RunningServicesAmong(members []Entry) (map[int]Service, error) {
@@ -38,7 +38,7 @@ func servicesAmong(running []ServiceProcess, members []Entry) map[int]Service {
 // ProcessTree lists pid and every process under it, pid first, with the
 // machine service each is or runs under, judged only by a service among the
 // tree's own processes, as a job's are. A service above the tree is none of
-// its processes': the Scrawl server above a ceo reap --force must not keep
+// its processes': the Scrawl server above a goblins reap --force must not keep
 // the tree it was asked to end. A recorded parent counts only when it
 // started before the process, since Windows gives an ended parent's ID to
 // the next process.

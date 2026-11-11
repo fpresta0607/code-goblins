@@ -1,6 +1,6 @@
-# ceo stop
+# goblins stop
 
-`ceo stop`
+`goblins stop`
 
 ask the supervisor to stop and wait until it has; --force ends its process tree instead
 

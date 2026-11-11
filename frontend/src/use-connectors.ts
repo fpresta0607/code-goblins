@@ -106,7 +106,7 @@ export function useConnectors(goblins: Task[], runs: Run[], instance: string, on
     finally { setIsBusy(false); }
   };
   // Connect gives the goblin the connector and Disconnect takes it back, as
-  // ceo auth grant and ceo auth revoke do; its row changes at once.
+  // goblins auth grant and goblins auth revoke do; its row changes at once.
   const give = async (task: Task, entry: ConnectionEntry, isGiving: boolean) => {
     const goblin = goblinKey(task);
     setAsked((prior) => new Map(prior).set(askKey(goblin, entry.id), isGiving));

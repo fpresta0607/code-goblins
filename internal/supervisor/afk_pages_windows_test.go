@@ -136,7 +136,7 @@ func TestWhileAFKModeIsOnAGoblinsPageIsTheCEOsDecision(t *testing.T) {
 	}
 }
 
-// The CEO answers the page with ceo answer: the goblin gets the answer once,
+// The CEO answers the page with goblins answer: the goblin gets the answer once,
 // the notify reads answered, the question closes as the CEO's answer while he
 // was away, the goblin's items still open on that same page close with it,
 // its open item on another page stays open, and the AFK log keeps the answer
@@ -192,12 +192,12 @@ func TestTheCEOsAnswerToAGoblinsPageReachesItOnceAndClosesItsItems(t *testing.T)
 
 // Only the page AFK mode asked as the question closes with the CEO's answer,
 // and only the goblin's items on it published before the question, whether
-// the CEO answered with ceo answer or answered another way and acked: its
+// the CEO answered with goblins answer or answered another way and acked: its
 // item on another page, an item of another generation of the goblin on the
 // same page and a version of the page published after the question stay open.
 func TestOnlyThePageAFKModeAskedClosesWithTheCEOsAnswer(t *testing.T) {
 	for name, answer := range map[string]func(t *testing.T, s *Service, h home.Home, connection *CEOConnection, record wake.Record){
-		"ceo answer": func(t *testing.T, s *Service, _ home.Home, connection *CEOConnection, record wake.Record) {
+		"goblins answer": func(t *testing.T, s *Service, _ home.Home, connection *CEOConnection, record wake.Record) {
 			if _, _, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(record.Seq), "Build it as shown", ""); err != nil {
 				t.Fatal(err)
 			}
@@ -333,7 +333,7 @@ func TestAPageTheCEOAnsweredIsSettledInHistoryAndNeverAsked(t *testing.T) {
 // A page that declares no choices still reaches the CEO as a decision, which
 // it answers in its own words, and History keeps that answer as the goblin's
 // question's, written. A goblin's question without choices and without a
-// page is answered with ceo send, as before.
+// page is answered with goblins send, as before.
 func TestAPageThatDeclaresNoChoicesTakesTheCEOsOwnWords(t *testing.T) {
 	// Arrange
 	s, h, meta, goblin, connection := pageFixture(t)
@@ -357,8 +357,8 @@ func TestAPageThatDeclaresNoChoicesTakesTheCEOsOwnWords(t *testing.T) {
 	if err != nil || chosen != "Ship the three mockups as shown" {
 		t.Fatalf("AnswerGoblin = %q, %v, want the CEO's words delivered", chosen, err)
 	}
-	if plainErr == nil || !strings.Contains(plainErr.Error(), "ceo send") {
-		t.Errorf("an answer to a question with no choices and no page = %v, want it sent with ceo send", plainErr)
+	if plainErr == nil || !strings.Contains(plainErr.Error(), "goblins send") {
+		t.Errorf("an answer to a question with no choices and no page = %v, want it sent with goblins send", plainErr)
 	}
 	if typed := goblin.lines(t); len(typed) != 1 || !strings.Contains(typed[0], "Ship the three mockups as shown") {
 		t.Errorf("the goblin received %q, want the CEO's words once", typed)

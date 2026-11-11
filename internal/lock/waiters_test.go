@@ -16,8 +16,8 @@ import (
 // takerLock in the state folder it names, and takerHoldVariable says for how
 // long each time.
 const (
-	takerDirVariable  = "CEO_LOCK_TEST_TAKER_DIR"
-	takerHoldVariable = "CEO_LOCK_TEST_TAKER_HOLD"
+	takerDirVariable  = "GOBLINS_LOCK_TEST_TAKER_DIR"
+	takerHoldVariable = "GOBLINS_LOCK_TEST_TAKER_HOLD"
 	takerLock         = ".wake-queue.lock"
 )
 

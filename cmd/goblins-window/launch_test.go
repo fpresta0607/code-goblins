@@ -125,11 +125,11 @@ func TestASupervisorThatDoesNotStartIsExplainedInFull(t *testing.T) {
 	}
 	for name, said := range map[string][]string{
 		"the board's address is in use": append([]string{
-			`goblins: the board's address 127.0.0.1:4310 is in use by another program, so no supervisor was started (listen tcp 127.0.0.1:4310: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.). Close that program, or give this home's board an address of its own by setting CEO_BOARD_ADDRESS, for example to 127.0.0.1:4311`,
+			`goblins: the board's address 127.0.0.1:4310 is in use by another program, so no supervisor was started (listen tcp 127.0.0.1:4310: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.). Close that program, or give this home's board an address of its own by setting GOBLINS_BOARD_ADDRESS, for example to 127.0.0.1:4311`,
 			header,
 		}, tail...),
 		"another process held serve.log": append([]string{
-			`goblins: the supervisor was not started, because another process held C:\home\state\serve.log (start ceo serve`,
+			`goblins: the supervisor was not started, because another process held C:\home\state\serve.log (start goblins serve`,
 			`open C:\home\state\serve.log: The process cannot access the file because it is being used by another process.)`,
 			header,
 		}, tail...),

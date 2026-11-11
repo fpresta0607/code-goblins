@@ -72,8 +72,8 @@ func TestReadSaysWhereTheGateHomeIsForEachPlacement(t *testing.T) {
 		{name: "on the system drive", root: system, devDrive: devDrive, want: PlaceSystem, line: "WARNING: " + system + " is not on the Dev Drive", shouldMove: true},
 		{name: "linked into the Dev Drive", root: linked, devDrive: devDrive, want: PlaceLinked, line: "through junctions (" + filepath.Join(linked, "repos") + ")", shouldMove: true},
 		{name: "itself a junction to its place on the Dev Drive", root: whole, devDrive: devDrive, want: PlaceLinked, line: "through junctions (" + whole + ")", shouldMove: true},
-		{name: "itself a junction to another folder", root: elsewhere, devDrive: devDrive, want: PlaceStrayLink, line: "WARNING: " + elsewhere + " is a junction to " + other + ", another folder, and ceo dev-drive move carries only a junction to " + filepath.Join(devDrive, "no-mistakes") + ","},
-		{name: "a junction of the home to another place in the gate's home on the Dev Drive", root: strayEntry, devDrive: devDrive, want: PlaceStrayLink, line: "WARNING: " + filepath.Join(strayEntry, "repos") + " is a junction to " + misplaced + ", another folder, and ceo dev-drive move carries only a junction to " + filepath.Join(devDrive, "no-mistakes", "repos") + ","},
+		{name: "itself a junction to another folder", root: elsewhere, devDrive: devDrive, want: PlaceStrayLink, line: "WARNING: " + elsewhere + " is a junction to " + other + ", another folder, and goblins dev-drive move carries only a junction to " + filepath.Join(devDrive, "no-mistakes") + ","},
+		{name: "a junction of the home to another place in the gate's home on the Dev Drive", root: strayEntry, devDrive: devDrive, want: PlaceStrayLink, line: "WARNING: " + filepath.Join(strayEntry, "repos") + " is a junction to " + misplaced + ", another folder, and goblins dev-drive move carries only a junction to " + filepath.Join(devDrive, "no-mistakes", "repos") + ","},
 		{name: "a junction of the home to a folder outside the gate's home on the Dev Drive", root: carriedEntry, devDrive: devDrive, want: PlaceSystem, line: "WARNING: " + carriedEntry + " is not on the Dev Drive", shouldMove: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -87,7 +87,7 @@ func TestReadSaysWhereTheGateHomeIsForEachPlacement(t *testing.T) {
 			if line := placement.Line(); !strings.Contains(line, test.line) {
 				t.Errorf("line = %q, want it to say %q", line, test.line)
 			}
-			if move := "ceo dev-drive move --to " + devDrive; test.shouldMove != strings.Contains(placement.Line(), move) {
+			if move := "goblins dev-drive move --to " + devDrive; test.shouldMove != strings.Contains(placement.Line(), move) {
 				t.Errorf("line = %q, want it to name %q %v", placement.Line(), move, test.shouldMove)
 			}
 			if placement.ShouldMove() != test.shouldMove {

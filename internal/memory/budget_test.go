@@ -116,7 +116,7 @@ func TestMemoryReportCountsTheStartupMapWithItsScopeCounts(t *testing.T) {
 	// scope and 94 the ruling still to classify: 212 bytes, 53 tokens.
 	expected := "\noverlord.md\n[rule] Keep.\n" +
 		"Left out above, by scope; each entry stays verbatim in its source:\ntopic history: history 1\n" +
-		"Rulings not classified yet, which load until they are: 1; ceo memory scope --list shows them.\n"
+		"Rulings not classified yet, which load until they are: 1; goblins memory scope --list shows them.\n"
 	loaded, err := Load(dir, referenceDate)
 	if err != nil {
 		t.Fatal(err)

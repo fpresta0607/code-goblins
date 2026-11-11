@@ -56,7 +56,7 @@ func TestCodexsUsedUpWeekArmsTheCodexGuardOfAGoblinOnClaudeCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	stub := guardedCodex(t, h.State, "g1")
-	for _, want := range []string{`"codex-guard"`, `"--task" "g1"`, `"--until" "` + reset.Format(time.RFC3339) + `"`, filepath.Join(h.Programs(), "ceo.exe")} {
+	for _, want := range []string{`"codex-guard"`, `"--task" "g1"`, `"--until" "` + reset.Format(time.RFC3339) + `"`, filepath.Join(h.Programs(), "goblins.exe")} {
 		if !strings.Contains(stub, want) {
 			t.Errorf("g1's guard runs %q, want it to hold %s", stub, want)
 		}

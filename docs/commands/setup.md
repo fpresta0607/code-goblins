@@ -1,4 +1,4 @@
-# ceo setup
+# goblins setup
 
 `goblins setup`
 

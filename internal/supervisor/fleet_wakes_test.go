@@ -202,7 +202,7 @@ func TestMemoryReadyWakesOnlyForWorkWaitingOnIt(t *testing.T) {
 	}
 }
 
-// A queued task the scheduler is starting could start no more, though ceo
+// A queued task the scheduler is starting could start no more, though goblins
 // spawn writes its task record only once its worktree exists, so memory_ready
 // names the work after it. On 2026-10-19 the wake named root-pocketpiggies-161
 // as the next task to dispatch while the scheduler's start of it was under
@@ -569,7 +569,7 @@ func TestCIFinishedWakesOncePerCompletionOfAGoblinsPullRequest(t *testing.T) {
 		t.Fatalf("a second completion within the gap woke the CEO at once: %+v", held)
 	}
 	failed := pollForge(t, s, h, &now)
-	if len(failed) != 1 || !strings.Contains(failed[0].Detail, "1 of 3 failed (test)") || !strings.Contains(failed[0].Detail, "ceo send cg-wakes") {
+	if len(failed) != 1 || !strings.Contains(failed[0].Detail, "1 of 3 failed (test)") || !strings.Contains(failed[0].Detail, "goblins send cg-wakes") {
 		t.Fatalf("a rerun that failed, once the gap passed = %+v, want one wake naming the failed check", failed)
 	}
 }

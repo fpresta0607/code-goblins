@@ -32,7 +32,7 @@ import (
 
 // The board reads the fleet's own records for work no native hook reported:
 // task metadata, status logs, the wake queue, the gate database, merge
-// commits in fleet repositories and what ceo cleanup leaves behind. Without
+// commits in fleet repositories and what goblins cleanup leaves behind. Without
 // them a goblin that never installed the native hooks read as awaiting
 // evidence however busy it was.
 
@@ -527,7 +527,7 @@ func (s *Service) tellWaitCycles() error {
 				newest = task.ReportedAt
 			}
 		}
-		detail := "wait_cycle: " + strings.Join(names, " waits on ") + " waits on " + names[0] + ", each by its latest ceo notify --waiting-on, so none of them can go on as reported. Ask each what it waits for and tell the one that can go on."
+		detail := "wait_cycle: " + strings.Join(names, " waits on ") + " waits on " + names[0] + ", each by its latest goblins notify --waiting-on, so none of them can go on as reported. Ask each what it waits for and tell the one that can go on."
 		_, isNew, err := wake.AppendFirst(s.Store.Home.State, "wait-cycle/"+strings.Join(cycle, "+")+"/"+newest.UTC().Format(time.RFC3339), "notify", cycle[0], detail)
 		if err != nil {
 			return err
@@ -580,7 +580,7 @@ func taskSessionSummary(lines []string, spawned time.Time) (report string, repor
 		}
 		event = strings.TrimSpace(event)
 		kind, detail, _ := strings.Cut(event, ": ")
-		if (kind == "done" || kind == "stopped") && (strings.HasPrefix(detail, "returned worktree ") || strings.HasPrefix(detail, "force-archived via ceo cleanup")) {
+		if (kind == "done" || kind == "stopped") && (strings.HasPrefix(detail, "returned worktree ") || strings.HasPrefix(detail, "force-archived via goblins cleanup")) {
 			if retired.IsZero() && report == "" {
 				retired = stamp
 			}
@@ -591,9 +591,9 @@ func taskSessionSummary(lines []string, spawned time.Time) (report string, repor
 	return report, reportedAt, retired
 }
 
-// finishedTasks are tasks ceo cleanup finished within the history window,
+// finishedTasks are tasks goblins cleanup finished within the history window,
 // newest first. Cleanup leaves the status log in place with no task record
-// beside it; ceo reap later moves it into the archive as its own file, and
+// beside it; goblins reap later moves it into the archive as its own file, and
 // older archives keep it inside the task's archived directory.
 //
 // The Completed column is rebuilt every minute, and a finished task's files

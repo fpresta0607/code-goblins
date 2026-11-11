@@ -67,7 +67,7 @@ func (o Overlaps) Lines() []string {
 }
 
 // An overlap note is the CEO's reason for starting a task beside a
-// teammate's work. ceo spawn writes it, and the supervisor, the tickets'
+// teammate's work. goblins spawn writes it, and the supervisor, the tickets'
 // only writer, reads it into the task's ticket.
 
 // WriteOverlapNote keeps the reason a task was started beside other work.

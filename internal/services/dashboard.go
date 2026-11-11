@@ -67,7 +67,7 @@ type dashboardLook struct {
 // launcher, which starts its backend, which starts the window process with
 // --name=dashboard, which shows the dashboard once it has drawn it. Neither
 // docker desktop start, the launcher nor the window process takes any other
-// word for it. The setting is the Overlord's, and ceo leaves it alone. So this
+// word for it. The setting is the Overlord's, and goblins leaves it alone. So this
 // finds the window process the start started, by its program, its arguments
 // and its start, and asks its dashboard window to close, as its close button
 // would, which leaves Docker Desktop in the tray and its engine running.

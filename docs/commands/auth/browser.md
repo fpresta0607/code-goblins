@@ -1,6 +1,6 @@
-# ceo auth browser
+# goblins auth browser
 
-`ceo auth browser <provider> --task <id> [--release \| --sign-in]`
+`goblins auth browser <provider> --task <id> [--release \| --sign-in]`
 
 A Claude Code goblin, from its own terminal, borrows its project's login of a provider: the supervisor starts the login's Chrome headless on its own profile, reaching only the recipe's hosts, and the command points the task's chrome-devtools-axi session at it.
 Drive it only while the keys on its pages are masked, never reveal or read a key in it, and give it back with `--release`.

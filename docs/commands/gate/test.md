@@ -1,9 +1,9 @@
-# ceo gate test
+# goblins gate test
 
-`ceo gate test [--level fast\|affected\|full \| --focused] [--plan]`
+`goblins gate test [--level fast\|affected\|full \| --focused] [--plan]`
 
 This repository's no-mistakes test step, run from `.no-mistakes.yaml`'s `commands.test` as the step's baseline, runs `go vet` and `go test -json -count=1 -p 2 -timeout 45m` at the selected verification level.
-It runs them without `CEO_HOME` and `CEO_STATE_OVERRIDE`, which a gate step inherits from the goblin's pane, and without `NO_MISTAKES_GATE`, under which every `ceo hook` does nothing and the hook tests would test nothing.
+It runs them without `GOBLINS_HOME` and `GOBLINS_STATE_OVERRIDE`, which a gate step inherits from the goblin's pane, and without `NO_MISTAKES_GATE`, under which every `goblins hook` does nothing and the hook tests would test nothing.
 CI still runs every package before a change reaches the default branch, in its merge train's run; the local step is bounded because an agent-chosen step ran the whole suite on this machine, where supervisor alone takes about 22 minutes, and hit the 30-minute test agent limit.
 With neither `--level` nor `--focused` the step, the gate's included, runs `fast`; [Verification levels](../../pipeline.md#verification-levels) owns package selection, required guards and platform deferrals.
 Running the required level here as well ran the slowest packages twice, here in a median of 33 minutes and again in CI.
@@ -16,8 +16,8 @@ Missing failure or repair-path records and unrecognized or unmappable data widen
 A narrowed repair report uses `focused` scope; a full fallback uses `full`.
 `--focused` cannot be combined with `--level`.
 
-`ceo gate lint [--plan]` uses the same trusted planner's vet selection at the required level, with full-tree vet for unknown changes, module changes or an unreadable policy.
+`goblins gate lint [--plan]` uses the same trusted planner's vet selection at the required level, with full-tree vet for unknown changes, module changes or an unreadable policy.
 It runs no tests and prints its vet plan and verdict without writing test reports or logs.
 
-`ceo gate test` prints what `go test` prints without `-v`, and a run in which a package did not pass ends its tests' output by naming each such package and the tests in it that failed or never finished.
+`goblins gate test` prints what `go test` prints without `-v`, and a run in which a package did not pass ends its tests' output by naming each such package and the tests in it that failed or never finished.
 See [Verification levels](../../pipeline.md#verification-levels) for test reports, logs, recorded source details, admission, budgets and process cleanup.

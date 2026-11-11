@@ -18,7 +18,7 @@ import (
 // requests use, named for the goblin, in a terminal on its card.
 
 // waitWithACommand makes the fixture's goblin wait on the Overlord with a
-// command for him to run, as ceo notify --run does, and returns the goblin,
+// command for him to run, as goblins notify --run does, and returns the goblin,
 // its terminal and connection, and the run item on the board.
 func waitWithACommand(t *testing.T, store *Store, command string) (state.TaskMeta, hostedTerminal, *CEOConnection, Run) {
 	t.Helper()

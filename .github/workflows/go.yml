@@ -57,7 +57,7 @@ env:
   # Of the go jobs, a package slow enough to hold a run back gets jobs of its
   # own. These three spend their time waiting on real terminals and
   # supervisors, which no faster runner shortens, so each gets two: one runs
-  # the tests whose names match run, the other skips exactly those. cmd/ceo
+  # the tests whose names match run, the other skips exactly those. cmd/goblins
   # gets three: in two its second job's tests took 14 to 17 minutes of the
   # 20-minute limit, and 21 on a slow runner, so it is split again near the
   # middle of their time.
@@ -93,16 +93,16 @@ env:
         {"shard": "chrome", "packages": "./internal/browserlogin ./internal/supervisor ./cmd/goblins-setup", "run": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestAClosedTabIsNoLongerListedOnceCloseTabReturns|TestTheKeyTabClosesThroughAStallOfTheWholeBrowser|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone|TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed|TestEveryScreenFitsTheWindowAtEachScale|TestASendAndEndOnAScrawlPageClearsItsCardAtOnceAndDeliversHisNoteOnce)$"},
         {"shard": "browserlogin", "packages": "./internal/browserlogin", "skip": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestAClosedTabIsNoLongerListedOnceCloseTabReturns|TestTheKeyTabClosesThroughAStallOfTheWholeBrowser|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone|TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed|TestEveryScreenFitsTheWindowAtEachScale|TestASendAndEndOnAScrawlPageClearsItsCardAtOnceAndDeliversHisNoteOnce)$"},
         {"shard": "goblins-setup", "packages": "./cmd/goblins-setup", "skip": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestAClosedTabIsNoLongerListedOnceCloseTabReturns|TestTheKeyTabClosesThroughAStallOfTheWholeBrowser|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone|TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed|TestEveryScreenFitsTheWindowAtEachScale|TestASendAndEndOnAScrawlPageClearsItsCardAtOnceAndDeliversHisNoteOnce)$"},
-        {"shard": "cmd-ceo-1", "packages": "./cmd/ceo", "run": "Update|Recover"},
-        {"shard": "cmd-ceo-2", "packages": "./cmd/ceo", "run": "^Test[A-H]", "skip": "Update|Recover"},
-        {"shard": "cmd-ceo-3", "packages": "./cmd/ceo", "skip": "Update|Recover|^Test[A-H]"},
+        {"shard": "cmd-goblins-1", "packages": "./cmd/goblins", "run": "Update|Recover"},
+        {"shard": "cmd-goblins-2", "packages": "./cmd/goblins", "run": "^Test[A-H]", "skip": "Update|Recover"},
+        {"shard": "cmd-goblins-3", "packages": "./cmd/goblins", "skip": "Update|Recover|^Test[A-H]"},
         {"shard": "spawn-1", "packages": "./internal/spawn", "run": "Spawn|Resume"},
         {"shard": "spawn-2", "packages": "./internal/spawn", "skip": "Spawn|Resume"},
         {"shard": "supervisor-1", "packages": "./internal/supervisor", "run": "^Test[A-M]", "skip": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestAClosedTabIsNoLongerListedOnceCloseTabReturns|TestTheKeyTabClosesThroughAStallOfTheWholeBrowser|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone|TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed|TestEveryScreenFitsTheWindowAtEachScale|TestASendAndEndOnAScrawlPageClearsItsCardAtOnceAndDeliversHisNoteOnce)$"},
         {"shard": "supervisor-2", "packages": "./internal/supervisor", "skip": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestAClosedTabIsNoLongerListedOnceCloseTabReturns|TestTheKeyTabClosesThroughAStallOfTheWholeBrowser|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone|TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed|TestEveryScreenFitsTheWindowAtEachScale|TestASendAndEndOnAScrawlPageClearsItsCardAtOnceAndDeliversHisNoteOnce)$|^Test[A-M]"},
         {"shard": "conpty", "packages": "./internal/conpty"},
         {"shard": "cirunner", "packages": "./internal/cirunner"},
-        {"shard": "rest", "except": "./cmd/ceo ./internal/spawn ./internal/supervisor ./internal/conpty ./internal/cirunner ./internal/browserlogin ./cmd/goblins-setup"}
+        {"shard": "rest", "except": "./cmd/goblins ./internal/spawn ./internal/supervisor ./internal/conpty ./internal/cirunner ./internal/browserlogin ./cmd/goblins-setup"}
       ]
     }
 
@@ -242,14 +242,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # Where ceo.exe finds no board, it serves a page saying the board
+          # Where goblins.exe finds no board, it serves a page saying the board
           # was not built.
           if (-not (Test-Path ../internal/boardweb/dist/board/index.html)) {
-            throw 'npm run build wrote no internal/boardweb/dist/board/index.html, which ceo.exe embeds the board from.'
+            throw 'npm run build wrote no internal/boardweb/dist/board/index.html, which goblins.exe embeds the board from.'
           }
-      # With the board built above, boardweb's tests prove ceo.exe embeds and
+      # With the board built above, boardweb's tests prove goblins.exe embeds and
       # serves it rather than the placeholder page.
-      - name: Check ceo.exe embeds the board
+      - name: Check goblins.exe embeds the board
         run: go test ./internal/boardweb -count=1
       # The crawler connector every goblin carries crawls a made-up site its
       # tests serve on loopback, in the runner's Chrome, headless.
@@ -398,7 +398,7 @@ jobs:
         if: matrix.shard == 'rest'
         shell: pwsh
         run: |
-          foreach ($program in 'cmd/ceo', 'cmd/goblins-window', 'cmd/goblins-setup') {
+          foreach ($program in 'cmd/goblins', 'cmd/goblins-window', 'cmd/goblins-setup') {
             Push-Location $program
             go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64,arm64
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -514,8 +514,8 @@ jobs:
           # which the step after shows.
           if ($env:SHARD -eq 'chrome') {
             $env:GOFLAGS = '-p=1'
-            $env:CEO_CHROME_TIMINGS = '5'
-            $env:CEO_CHROME_TIMINGS_FILE = Join-Path $env:RUNNER_TEMP chrome-timings.txt
+            $env:GOBLINS_CHROME_TIMINGS = '5'
+            $env:GOBLINS_CHROME_TIMINGS_FILE = Join-Path $env:RUNNER_TEMP chrome-timings.txt
           }
           & $citest -job "go ($env:SHARD)" -record (Join-Path $env:RUNNER_TEMP failed-once.jsonl) "-run=$env:RUN" "-skip=$env:SKIP" -timeout 20m $packages
         env:
@@ -524,8 +524,8 @@ jobs:
           EXCEPT: ${{ matrix.except }}
           RUN: ${{ matrix.run }}
           SKIP: ${{ matrix.skip }}
-          CEO_HOME: ${{ runner.temp }}\ceo-go-tests
-          CEO_STATE_OVERRIDE: ${{ runner.temp }}\ceo-go-tests\state
+          GOBLINS_HOME: ${{ runner.temp }}\ceo-go-tests
+          GOBLINS_STATE_OVERRIDE: ${{ runner.temp }}\ceo-go-tests\state
       - name: Show Chrome's start, first cookie and exit times
         # Chrome's own tail where nothing competes with it, as
         # TestChromeStartCookieAndExitTimes recorded it in the step above:
@@ -543,7 +543,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
       - if: matrix.shard == 'rest'
-        run: go build ./cmd/ceo
+        run: go build ./cmd/goblins
 
   # The check branch protection requires. It runs whatever happened above,
   # but in a run of a draft and in one whose event saw a draft and that was

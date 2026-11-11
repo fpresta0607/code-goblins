@@ -63,7 +63,7 @@ func eventually(t *testing.T, within time.Duration, what string, done func() boo
 // it: the request wakes its wait, so it does not sit out its poll.
 func TestAWatcherYieldsTheLockAtOnceToAServeThatAsksForIt(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("CEO_POLL", "300")
+	t.Setenv("GOBLINS_POLL", "300")
 	cfg := ConfigFromEnv(home.Home{Root: filepath.Dir(dir), State: dir})
 	cfg.Monitor, cfg.Reap, cfg.FileEvery = nil, nil, 0
 	type result struct {

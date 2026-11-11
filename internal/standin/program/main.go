@@ -1,12 +1,12 @@
 // Command standin is the program this repository's tests start where a test
-// needs some program to start: a ceo.exe an install downloads, a
+// needs some program to start: a goblins.exe an install downloads, a
 // no-mistakes.exe it updates, a harness on PATH. It is one small program,
 // built once for each Go toolchain and reused (see standin.Program), so the
 // file antivirus meets is one it has met before, never a new unsigned
 // program for each test run.
 //
-// It appends its name and arguments to the file CEO_STANDIN_RECORD names,
-// then does what the first rule of CEO_STANDIN_RULES that matches its
+// It appends its name and arguments to the file GOBLINS_STANDIN_RECORD names,
+// then does what the first rule of GOBLINS_STANDIN_RULES that matches its
 // arguments says, and with no such rule exits 0. standin.Env writes both
 // variables. It opens no connection and starts no program, and the only
 // files it writes are that record and the copies of itself a rule names, as
@@ -40,7 +40,7 @@ type rule struct {
 }
 
 func main() {
-	if record := os.Getenv("CEO_STANDIN_RECORD"); record != "" {
+	if record := os.Getenv("GOBLINS_STANDIN_RECORD"); record != "" {
 		name := strings.TrimSuffix(strings.ToLower(filepath.Base(os.Args[0])), ".exe")
 		file, err := os.OpenFile(record, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err != nil {
@@ -51,9 +51,9 @@ func main() {
 		_ = file.Close()
 	}
 	var rules []rule
-	if text := os.Getenv("CEO_STANDIN_RULES"); text != "" {
+	if text := os.Getenv("GOBLINS_STANDIN_RULES"); text != "" {
 		if err := json.Unmarshal([]byte(text), &rules); err != nil {
-			fmt.Fprintln(os.Stderr, "standin: CEO_STANDIN_RULES:", err)
+			fmt.Fprintln(os.Stderr, "standin: GOBLINS_STANDIN_RULES:", err)
 			os.Exit(misuse)
 		}
 	}

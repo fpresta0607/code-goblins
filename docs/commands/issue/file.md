@@ -1,6 +1,6 @@
-# ceo issue file
+# goblins issue file
 
-`ceo issue file --project <p> --title <t> [--body-file <f>] [--evidence <text>]... [--root <key>]`
+`goblins issue file --project <p> --title <t> [--body-file <f>] [--evidence <text>]... [--root <key>]`
 
 Files a [root issue](../../contract/root-issues.md#root-issues) on the project's own GitHub repository with the `ops-root` label, or, when an open `ops-root` issue there has the same root, adds a dated comment with the new evidence instead of a second issue, and prints the issue's address.
 The root is `--root` (a test's package and name, a workflow and job, an error's class), else the title.

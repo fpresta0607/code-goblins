@@ -362,9 +362,9 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 			// The comeback's own words win: it brings the goblin back by
 			// itself, so the CEO is not sent to launch it beside it.
 			case verb == "done" && meta.Backend == "native" && strings.HasPrefix(reported, "PR https://") && !sample.IsComingBack:
-				detail = fmt.Sprintf("native terminal %s is gone after it reported its pull request done; a restart leaves it down to wait on the merge unless a prompt reached it since, and ceo switch %s --harness %s brings it back if it has more work", meta.ID, meta.ID, meta.Harness)
+				detail = fmt.Sprintf("native terminal %s is gone after it reported its pull request done; a restart leaves it down to wait on the merge unless a prompt reached it since, and goblins switch %s --harness %s brings it back if it has more work", meta.ID, meta.ID, meta.Harness)
 			case verb == "done" && meta.Backend == "native" && state.DoneClosed("done: "+reported) != "" && !sample.IsComingBack:
-				detail = fmt.Sprintf("native terminal %s is gone after it reported its issue closed; a restart leaves it down unless a prompt reached it since, and ceo switch %s --harness %s brings it back if it has more work", meta.ID, meta.ID, meta.Harness)
+				detail = fmt.Sprintf("native terminal %s is gone after it reported its issue closed; a restart leaves it down unless a prompt reached it since, and goblins switch %s --harness %s brings it back if it has more work", meta.ID, meta.ID, meta.Harness)
 			}
 		}
 		return unknownObservation(observation, EndpointMissing, detail, now), sample
@@ -849,7 +849,7 @@ func workingObservation(observation Observation, sample EndpointSample, now time
 
 // statusVerbObservation returns the observation for a status verb that parks,
 // pauses, or terminates the goblin, along with whether such a verb is present.
-// These verbs win over liveness because ceo notify (or the watcher's decision
+// These verbs win over liveness because goblins notify (or the watcher's decision
 // signal) already woke the CEO, so the monitor must hold the pane quiet.
 func (s Service) statusVerbObservation(observation Observation, id string, now time.Time, sample EndpointSample) (Observation, bool) {
 	verb, _, line, ok := s.latestStatusVerb(id)
@@ -1023,7 +1023,7 @@ func ownWorkObservation(observation Observation, now time.Time) Observation {
 // parkedObservation records a goblin whose latest status verb parks it
 // awaiting the CEO's decision (blocked, needs-decision, or checks-passed).
 // The outcome was already delivered by the watcher's decision signal or by
-// ceo notify's own wake, so this state stays quiet: no new wake and no stall
+// goblins notify's own wake, so this state stays quiet: no new wake and no stall
 // escalation while the goblin waits for the CEO to respond.
 func (s Service) parkedObservation(observation Observation, now time.Time) Observation {
 	observation.Health = HealthParked
@@ -1038,7 +1038,7 @@ func (s Service) parkedObservation(observation Observation, now time.Time) Obser
 }
 
 // terminalObservation records a goblin whose latest status verb delivered a
-// terminal outcome (done or failed). ceo notify already woke the CEO with that
+// terminal outcome (done or failed). goblins notify already woke the CEO with that
 // outcome, so the monitor holds the pane quiet: the idle clock never advances
 // and a finished goblin is not re-woken as a genuine stall.
 func (s Service) terminalObservation(observation Observation, now time.Time) Observation {
@@ -1241,10 +1241,10 @@ func (s Service) latestStatusVerb(id string) (string, string, int64, bool) {
 
 // IsParkedDecisionVerb reports whether a status verb parks the goblin on
 // something outside itself. needs-decision and checks-passed wake through the
-// watcher's decision signal, and blocked wakes through ceo notify's own
+// watcher's decision signal, and blocked wakes through goblins notify's own
 // record. waiting names what it waits on, such as another task, a run, the
 // Overlord, CI or a deploy, and holds while it is the latest report until that
-// named thing changes: a wait on the Overlord already woke the CEO through ceo
+// named thing changes: a wait on the Overlord already woke the CEO through goblins
 // notify, and any other wait must never wake the CEO at all. The monitor must
 // not re-wake any of them as a genuine stall. The supervisor's stall check
 // reads this too, so a declared wait has one definition.
@@ -1266,7 +1266,7 @@ func IsParkedDecisionVerb(verb string) bool {
 // which its own wake already carries. The supervisor's stall check reads it so
 // a finished goblin is not judged stalled.
 //
-// done and failed woke the CEO through ceo notify's own record (or a
+// done and failed woke the CEO through goblins notify's own record (or a
 // spawn/switch error surfaced directly), so the monitor must not re-wake the
 // finished goblin as a genuine stall. While that wake is still
 // unacknowledged, resurfaceDecision keeps asking from the ledger; this label
@@ -1299,7 +1299,7 @@ func (s Service) launchDeadline(meta state.TaskMeta, now time.Time) time.Time {
 }
 
 // isRelaunching reports whether a command starting the goblin's harness still
-// runs: a ceo switch relaunching it, or the ceo spawn that wrote its record,
+// runs: a goblins switch relaunching it, or the goblins spawn that wrote its record,
 // which holds the home's spawn lock as its turn from before it names the
 // goblin's generation until the goblin's host runs. A live holder that took
 // the lock no later than the generation began is that spawn; one that took it
@@ -1489,7 +1489,7 @@ func (s Service) resurfaceDecision(observation Observation, now time.Time, unans
 	observation.DecisionAsks++
 	observation.NextDecisionAsk = timePointer(now.Add(s.decisionAskInterval(observation.DecisionAsks)))
 	event := taskEvent(observation.TaskID, AwaitingDecision,
-		fmt.Sprintf("still unanswered (re-ask %d); run `ceo drain` for the question", observation.DecisionAsks))
+		fmt.Sprintf("still unanswered (re-ask %d); run `goblins drain` for the question", observation.DecisionAsks))
 	observation.PendingEvent = &event
 	return observation
 }
@@ -1581,7 +1581,7 @@ func (s Service) launchGrace() time.Duration {
 }
 
 // statusStamp is the status log's size and mtime as a cheap liveness signal.
-// A goblin writing its status (no-mistakes steps, ceo notify, or a plain
+// A goblin writing its status (no-mistakes steps, goblins notify, or a plain
 // progress line) advances this stamp, which is evidence it is working even
 // when the pane text is quiet.
 func (s Service) statusStamp(id string) string {

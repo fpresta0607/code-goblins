@@ -225,7 +225,7 @@ func (s *Service) tellAnswer(ctx context.Context, answer pageAnswer) error {
 				if !answer.SentAt.IsZero() {
 					at = " at " + answer.SentAt.Format(time.RFC3339)
 				}
-				detail += fmt.Sprintf("; it was typed into %s's terminal%s and the goblin's record has not shown it taken: check with ceo peek %s whether it waits there before relaying it", r.Task, at, r.Task)
+				detail += fmt.Sprintf("; it was typed into %s's terminal%s and the goblin's record has not shown it taken: check with goblins peek %s whether it waits there before relaying it", r.Task, at, r.Task)
 			case isLive:
 				// A terminal changing hands takes no note, as it takes no board
 				// message: a resume types its own instruction into it, and a
@@ -356,7 +356,7 @@ func (s *Service) pageMessage(answer pageAnswer) (text, detail, delivered, reaso
 	queued = "the Overlord's feedback on the page " + r.LavishPage + " is queued for " + r.Task + "'s next tool call; " + feedback
 	switch {
 	case r.State != "open":
-		text = fmt.Sprintf("The Overlord wrote on your review page %s: %s\nTo show him a next version, change the same file and run ceo notify %s --waiting-on overlord \"<why>\" --lavish %s.", r.LavishPage, asked, r.Task, r.LavishPage)
+		text = fmt.Sprintf("The Overlord wrote on your review page %s: %s\nTo show him a next version, change the same file and run goblins notify %s --waiting-on overlord \"<why>\" --lavish %s.", r.LavishPage, asked, r.Task, r.LavishPage)
 		detail = "the Overlord wrote on your page " + r.LavishPage + "; " + feedback + ", act on it"
 		if r.Task != "" {
 			detail = "the Overlord wrote on the page " + r.LavishPage + "; " + feedback + ", relay it to " + r.Task
@@ -387,7 +387,7 @@ func (s *Service) pageMessage(answer pageAnswer) (text, detail, delivered, reaso
 		}
 		deliveredReason = "You answered on its page; the goblin has it."
 	default:
-		text = fmt.Sprintf("The Overlord asked for a revision on your review page %s: %s\nMake the next version in the same file, then run ceo notify %s --waiting-on overlord \"<why>\" --lavish %s again: it replaces the page in the same review.", r.LavishPage, asked, r.Task, r.LavishPage)
+		text = fmt.Sprintf("The Overlord asked for a revision on your review page %s: %s\nMake the next version in the same file, then run goblins notify %s --waiting-on overlord \"<why>\" --lavish %s again: it replaces the page in the same review.", r.LavishPage, asked, r.Task, r.LavishPage)
 		detail = "the Overlord asked for a revision on the page " + r.LavishPage + "; " + feedback + ", act on it"
 		if r.Task != "" {
 			detail = "the Overlord asked for a revision on the page " + r.LavishPage + "; " + feedback + ", relay it to the goblin"

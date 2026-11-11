@@ -8,7 +8,7 @@ import (
 func TestFailedOnceRootIsKeyedByItsTestWhateverJobRanIt(t *testing.T) {
 	// Arrange
 	named := []string{
-		"go (cmd-ceo-2): github.com/acme/widgets/internal/conpty TestInputLeftUnread",
+		"go (cmd-goblins-2): github.com/acme/widgets/internal/conpty TestInputLeftUnread",
 		"go (rest): github.com/acme/widgets/internal/conpty TestInputLeftUnread",
 	}
 

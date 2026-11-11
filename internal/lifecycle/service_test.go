@@ -210,7 +210,7 @@ func TestAFailedPauseWhoseTerminalEndedSinceResumes(t *testing.T) {
 }
 
 // A paused goblin paused again takes the new condition, so what resumes it
-// can be changed: ceo pause on a paused task used to answer paused and keep
+// can be changed: goblins pause on a paused task used to answer paused and keep
 // the old record, so a goblin paused for memory went on waiting for memory.
 // What its first pause stopped and kept stays as it was, and nothing is
 // stopped again.
@@ -595,7 +595,7 @@ func TestAResumeThatOnlyWaitsForRoomLeavesThePauseAsItWas(t *testing.T) {
 	}
 }
 
-// On 2026-10-10 ceo resume pd-whats-new was refused, rightly, for a gate
+// On 2026-10-10 goblins resume pd-whats-new was refused, rightly, for a gate
 // policy older than the machine's, and the refusal took the task out of its
 // pause: its record was already written as resuming, so the refusal was
 // recorded as a failed resume, its card stopped reading paused, and five
@@ -604,7 +604,7 @@ func TestAResumeThatOnlyWaitsForRoomLeavesThePauseAsItWas(t *testing.T) {
 // refused it and whenever, so the task is left exactly as it was. Its status
 // log says why in one line, but for a wait for room, which passes by itself.
 func TestARefusedResumeLeavesTheTaskExactlyAsItWas(t *testing.T) {
-	const migrate = "pipeline: the machine's gate config has moved on from the policy task task is frozen at (agent). Run ceo pipeline migrate task, then resume it"
+	const migrate = "pipeline: the machine's gate config has moved on from the policy task task is frozen at (agent). Run goblins pipeline migrate task, then resume it"
 	relaunch := func(refusal error) func(*Service, *Request) {
 		return func(service *Service, _ *Request) {
 			service.Operations.Resume = func(context.Context, state.TaskMeta, state.Lifecycle) error { return refusal }
@@ -789,7 +789,7 @@ func TestStopNeverArchivesWhileProcessesCouldNotBeStopped(t *testing.T) {
 }
 
 // A board message kept for a paused goblin's resume rides on its record, and
-// once a ceo switch replaced that session no resume of the record runs again.
+// once a goblins switch replaced that session no resume of the record runs again.
 // A pause or stop of the later session hands on what the record keeps before
 // it writes its own record over it, so the message is never dropped (issue
 // #1280); a hand-off that fails refuses the operation, with nothing stopped

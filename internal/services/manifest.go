@@ -3,7 +3,7 @@
 // stack per project, held by the tasks that asked for it and started only
 // when the machine's memory and commit stay above the fleet's floor with the
 // stack's cost added. The last release stops the stack, and the Docker engine
-// with it when ceo started the engine.
+// with it when goblins started the engine.
 package services
 
 import (
@@ -38,7 +38,7 @@ type Manifest struct {
 	// as the project's guard that its env file points at no production
 	// service. A check that exits non-zero refuses the start.
 	Check []string `json:"check,omitempty"`
-	// MemoryEstimateGB is what the stack is expected to cost before ceo has
+	// MemoryEstimateGB is what the stack is expected to cost before goblins has
 	// measured it: memory, and commit beside it.
 	MemoryEstimateGB float64 `json:"memory_estimate_gb"`
 	// Path is where the manifest was loaded from. It is not serialized.
@@ -100,7 +100,7 @@ func (m Manifest) Validate() error {
 		return errors.New("check names no program")
 	}
 	if m.MemoryEstimateGB <= 0 {
-		return errors.New("memory_estimate_gb must be more than 0, what the stack costs before ceo has measured it")
+		return errors.New("memory_estimate_gb must be more than 0, what the stack costs before goblins has measured it")
 	}
 	return nil
 }

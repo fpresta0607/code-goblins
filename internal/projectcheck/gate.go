@@ -37,7 +37,7 @@ func (c *checker) gate(ctx context.Context) string {
 	data, ok := c.repo.read(ctx, gateFileName)
 	if !ok {
 		c.add(AreaGate, "gate-file-missing", High,
-			"the repository has no gate settings, so ceo pipeline run refuses every gate run of the project at its start, and a gate started any other way leaves every step to an agent's choice, the test step included",
+			"the repository has no gate settings, so goblins pipeline run refuses every gate run of the project at its start, and a gate started any other way leaves every step to an agent's choice, the test step included",
 			"no "+gateFileName+" at "+c.repo.at()+". A gate's start answers: "+pipelineWords(pipeline.ErrGateFileRequired),
 			"commit a "+gateFileName+" whose commands.test is the project's own test command")
 		c.workflows(ctx, "")
@@ -109,7 +109,7 @@ func (c *checker) gateStart(data []byte, gate gateFile) {
 		if c.PolicyFile == "" {
 			unread = "this run was given no policy file"
 		}
-		const fix = "run ceo install to write the home's pipeline policy, and run the check again"
+		const fix = "run goblins install to write the home's pipeline policy, and run the check again"
 		if gate.AutoFix.Kind != 0 {
 			c.add(AreaGate, "gate-limits-unjudged", Low,
 				"the gate file sets automatic fix counts and the home has no pipeline policy this check can read, so whether a gate run takes them is not known",
@@ -126,7 +126,7 @@ func (c *checker) gateStart(data []byte, gate gateFile) {
 	switch refusal := pipeline.CheckRepoConfig(data, policy); {
 	case refusal != nil:
 		c.add(AreaGate, "gate-file-refused", High,
-			"the home's pipeline policy refuses the gate file, so ceo pipeline run refuses every gate run of the project at its start",
+			"the home's pipeline policy refuses the gate file, so goblins pipeline run refuses every gate run of the project at its start",
 			file+". "+version+" answers: "+pipelineWords(refusal),
 			"correct what the answer names in "+gateFileName)
 	case gate.AutoFix.Kind != 0:
@@ -168,7 +168,7 @@ func (c *checker) gateAgent(data []byte, agent yaml.Node, policy pipeline.Policy
 	switch refusal := pipeline.CheckRepoAgent(data, data, policy); {
 	case refusal != nil:
 		c.add(AreaGate, "gate-agent-refused", High,
-			"the gate file pins an agent the home's pipeline policy refuses, so ceo pipeline run refuses every gate run of the project at its start",
+			"the gate file pins an agent the home's pipeline policy refuses, so goblins pipeline run refuses every gate run of the project at its start",
 			pinned+". "+version+" answers: "+pipelineWords(refusal),
 			"take the agent field out of "+gateFileName+", or set it to the agent the policy names")
 	case policy.Version >= 6:
@@ -301,7 +301,7 @@ func (c *checker) workflows(ctx context.Context, test string) {
 			}
 		}
 	}
-	if strings.HasPrefix(test, "ceo gate test") {
+	if strings.HasPrefix(test, "goblins gate test") {
 		source += "\ngo vet\ngo test"
 	}
 	inGate, inCI := runnersIn(source), runnersIn(text.String())

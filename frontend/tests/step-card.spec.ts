@@ -88,7 +88,7 @@ test("Skip beside the decision buttons skips a card from any board and leaves th
 
   // Assert
   expect(sent[0]).toEqual({ path: "/api/credentials/close", token: "fixture-token", body: { id: INPUTS, generation: "b".repeat(32), action: "dismiss" } });
-  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Closed.*goes on without it\. Give it later: ceo auth store --project acme-shop SHOP_API_TOKEN/));
+  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Closed.*goes on without it\. Give it later: goblins auth store --project acme-shop SHOP_API_TOKEN/));
 });
 
 test("a closed card with nothing secret to give later says how to bring it back", async ({ page }) => {
@@ -102,7 +102,7 @@ test("a closed card with nothing secret to give later says how to bring it back"
   await setCard(page, CLICKS, { state: "dismissed", closed_at: "2026-10-14T23:45:00Z" });
 
   // Assert
-  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Closed.*Bring it back: ceo auth request --reopen cred-1111111111111111/));
+  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Closed.*Bring it back: goblins auth request --reopen cred-1111111111111111/));
 });
 
 test("each input shows by its label: a plain value is typed in the open and sent to the goblin, a secret stays hidden", async ({ page }) => {

@@ -37,7 +37,7 @@ func TestAPlanEndsNothingWritesNothingAndIsWhatTheSweepActsOn(t *testing.T) {
 		// What a terminal with no host left: ended.
 		process(10, 900, "node.exe", at(0), lifecycle.Process{Directory: elsewhere, Mark: gone}),
 		// A running terminal's host, its harness and a tool under it: kept.
-		process(20, 1, "ceo.exe", at(0), lifecycle.Process{Directory: elsewhere}),
+		process(20, 1, "goblins.exe", at(0), lifecycle.Process{Directory: elsewhere}),
 		process(21, 20, "claude.exe", at(1), lifecycle.Process{Directory: task, Mark: live}),
 		process(22, 21, "go.exe", at(2), lifecycle.Process{Directory: task, Mark: live}),
 		// A server the running terminal left detached: watched.

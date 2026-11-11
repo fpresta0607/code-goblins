@@ -1,6 +1,6 @@
-# ceo ci-runner
+# goblins ci-runner
 
-`ceo ci-runner job \| status \| parity --repo <owner/name>`
+`goblins ci-runner job \| status \| parity --repo <owner/name>`
 
 Run one CI job in this machine's desktop CI runner, the `cg-ci-runner` service, which runs one GitHub Actions job at a time in a Hyper-V VM put back to clean before every job.
 The watcher starts `job` itself, in a turn at the lowest priority of the machine's line expected to use 7 GiB, for each job the runner says waits, one at a time, so a goblin never runs it.

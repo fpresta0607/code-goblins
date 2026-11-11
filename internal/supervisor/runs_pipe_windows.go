@@ -45,7 +45,7 @@ const (
 )
 
 // runReadTimeout bounds how long a client takes to send its request, and
-// runReplyTimeout how long ceo run-request waits for the answer. Only time
+// runReplyTimeout how long goblins run-request waits for the answer. Only time
 // the machine ran spends either (awake), since a pause of the whole machine
 // stops the other side too.
 var (
@@ -117,7 +117,7 @@ func (s *Service) serveRunRequests(ctx context.Context) {
 		}
 		if syscall.Handle(handle) == syscall.InvalidHandle {
 			if first && errors.Is(callErr, syscall.ERROR_ACCESS_DENIED) {
-				err := fmt.Errorf("run requests: another process already holds the pipe %s, so run requests are not served; stop it and restart ceo serve", runPipeName(s.Store.Home.State))
+				err := fmt.Errorf("run requests: another process already holds the pipe %s, so run requests are not served; stop it and restart goblins serve", runPipeName(s.Store.Home.State))
 				s.Store.mu.Lock()
 				s.Store.issue(err.Error())
 				saveErr := s.Store.save()
@@ -336,7 +336,7 @@ func askPipe(stateDir string, req runPipeRequest) (pipeReply, error) {
 	}
 	cancelOpening()
 	if err != nil {
-		return pipeReply{}, errors.New("the supervisor is not running, so the board cannot take this; start ceo serve")
+		return pipeReply{}, errors.New("the supervisor is not running, so the board cannot take this; start goblins serve")
 	}
 	defer pipe.Close()
 	// The command goes only to the supervisor of this home: the process that

@@ -18,15 +18,15 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// HomeVariable is the variable that tells ceo where the fleet lives, and the
+// HomeVariable is the variable that tells goblins where the fleet lives, and the
 // one the installed hooks resolve the binary through.
-const HomeVariable = "CEO_HOME"
+const HomeVariable = "GOBLINS_HOME"
 
 // UserEnvFileVariable names a JSON file that stands in for the user-scope
-// environment, HKCU\Environment on Windows. With it set, ceo reads and writes
+// environment, HKCU\Environment on Windows. With it set, goblins reads and writes
 // that file in place of the user scope, so a test or a proof in a scratch
 // profile never writes the machine's own user environment.
-const UserEnvFileVariable = "CEO_USER_ENV_FILE"
+const UserEnvFileVariable = "GOBLINS_USER_ENV_FILE"
 
 // fileEnvStore keeps user-scope variables in a JSON object, comparing names
 // without case as Windows does. A missing file is an empty scope.

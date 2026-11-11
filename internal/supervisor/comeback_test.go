@@ -123,7 +123,7 @@ func workingGoblin(t *testing.T, h home.Home, id string, started time.Time) stat
 
 // promptedAfterItsReports records in the store that meta's session took a
 // prompt a minute after the reports its status log holds, as a goblin the
-// CEO steers back to work with ceo send takes one.
+// CEO steers back to work with goblins send takes one.
 func promptedAfterItsReports(t *testing.T, store *Store, meta state.TaskMeta) {
 	t.Helper()
 	key := meta.Harness + "/" + meta.ID
@@ -685,7 +685,7 @@ func TestAGoblinThatCannotComeBackStaysStoppedWithItsReasonAndBlocksNoOther(t *t
 		t.Fatal(err)
 	}
 	woke := slices.IndexFunc(records, func(record wake.Record) bool {
-		return record.Kind == "check" && record.Key == alpha.ID && strings.Contains(record.Detail, "Codex is not signed in") && strings.Contains(record.Detail, "ceo switch alpha --harness claude")
+		return record.Kind == "check" && record.Key == alpha.ID && strings.Contains(record.Detail, "Codex is not signed in") && strings.Contains(record.Detail, "goblins switch alpha --harness claude")
 	})
 	if woke < 0 {
 		t.Errorf("no wake told the CEO alpha did not come back: %+v", records)

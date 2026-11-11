@@ -92,7 +92,7 @@ func TestPushPicksTheBoardsChecksAndTheSpecsThatCoverTheChange(t *testing.T) {
 	}
 	for _, wantLeft := range []string{
 		"the 2 other browser specs (the change touched no file of theirs and names none of them)",
-		"the board's build, the test that ceo embeds it and the licence check (CI's frontend job runs them)",
+		"the board's build, the test that goblins embeds it and the licence check (CI's frontend job runs them)",
 	} {
 		if !slices.Contains(lefts(pick), wantLeft) {
 			t.Errorf("push leaves to CI\n%s\nwant among it %s", strings.Join(lefts(pick), "\n"), wantLeft)
@@ -119,7 +119,7 @@ func TestPushChecksTheBoardBeforeThePackagesThatOnlyImportTheChange(t *testing.T
 }
 
 // The board's checks come before the changed packages that are slow to
-// test, and after the quick ones. PR 536 changed cmd/ceo,
+// test, and after the quick ones. PR 536 changed cmd/goblins,
 // internal/supervisor and the board, and failed CI twice on a browser spec.
 // On 2026-10-10 the replays of two pull requests that changed those
 // packages were ended by the 15 minute limit inside their quick tests, so a

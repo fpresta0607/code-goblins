@@ -126,11 +126,11 @@ func (p Placement) ShouldMove() bool {
 	return p.Place == PlaceSystem || p.Place == PlaceLinked
 }
 
-// Line says where the gate's home is, for ceo doctor and ceo dev-drive, and
+// Line says where the gate's home is, for goblins doctor and goblins dev-drive, and
 // warns when the fleet's heavy folders are on a Dev Drive while the gate's are
 // not, or reach it through junctions.
 func (p Placement) Line() string {
-	move := fmt.Sprintf("ceo dev-drive move --to %s moves it to %s and names it with NM_HOME once no gate run is in flight", p.DevDrive, Target(p.DevDrive))
+	move := fmt.Sprintf("goblins dev-drive move --to %s moves it to %s and names it with NM_HOME once no gate run is in flight", p.DevDrive, Target(p.DevDrive))
 	switch p.Place {
 	case PlaceNoDevDrive:
 		return p.Root + ", where no-mistakes keeps it, as the fleet has no Dev Drive"
@@ -143,7 +143,7 @@ func (p Placement) Line() string {
 		if relative, err := filepath.Rel(p.Root, p.Stray); err == nil {
 			carried = filepath.Join(carried, relative)
 		}
-		return fmt.Sprintf("WARNING: %s is a junction to %s, another folder, and ceo dev-drive move carries only a junction to %s, so the gate's home stays where it is", p.Stray, p.StrayTo, carried)
+		return fmt.Sprintf("WARNING: %s is a junction to %s, another folder, and goblins dev-drive move carries only a junction to %s, so the gate's home stays where it is", p.Stray, p.StrayTo, carried)
 	}
 	return fmt.Sprintf("WARNING: %s is not on the Dev Drive the fleet's worktrees, scratch and caches use, so every gate checkout lands where Defender scans it as it opens; %s", p.Root, move)
 }

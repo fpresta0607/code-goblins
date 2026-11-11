@@ -1411,7 +1411,7 @@ func (g gateTakesOver) CanSteer(ctx context.Context, _, _, _ string) error {
 		g.observe(ctx)
 	}
 	if g.taken.Load() {
-		return errors.New("pipeline owns this task; use ceo pipeline respond or inspect its delivery evidence")
+		return errors.New("pipeline owns this task; use goblins pipeline respond or inspect its delivery evidence")
 	}
 	return nil
 }

@@ -119,9 +119,9 @@ func countState(report Report, state State) int {
 // rather than described so the Overlord can paste it.
 func StoreCommand(project, name string) string {
 	if project == "" {
-		return "ceo auth store " + name
+		return "goblins auth store " + name
 	}
-	return "ceo auth store --project " + quoteScope(project) + " " + name
+	return "goblins auth store --project " + quoteScope(project) + " " + name
 }
 
 // quoteScope keeps a printed command pasteable. A checkout directory may
@@ -154,7 +154,7 @@ func remedies(project string, status Status) []string {
 		names = status.Declared
 	}
 	if len(names) == 0 {
-		return []string{"ceo auth " + quoteScope(project) + " --fix"}
+		return []string{"goblins auth " + quoteScope(project) + " --fix"}
 	}
 	scope := ProjectName(project)
 	commands := make([]string, 0, len(names))

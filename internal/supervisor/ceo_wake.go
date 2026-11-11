@@ -31,7 +31,7 @@ import (
 // way every harness takes input: it types one short wake line into the CEO's
 // native terminal, only while its harness sits idle at an empty composer, so
 // never mid-turn and never over text somebody left unsent, and proves it taken
-// the way ceo send does.
+// the way goblins send does.
 const (
 	// ceoWakeEvery is how often the supervisor looks for queued wakes the
 	// CEO has not been told about.
@@ -91,7 +91,7 @@ const (
 )
 
 // ceoWokenFile holds the highest wake sequence a typed wake line covered:
-// the line sends the CEO to ceo drain, which shows all of them, so a record a
+// the line sends the CEO to goblins drain, which shows all of them, so a record a
 // line covered is never typed about again, answered or not.
 const ceoWokenFile = ".ceo-wake-typed"
 
@@ -153,7 +153,7 @@ func (s *Service) keepCEOAwake(ctx context.Context, every time.Duration) {
 // ceoWakeGap. The records a line covers are marked before it is typed, so
 // they stay covered when nothing proves it taken or the supervisor dies while
 // it waits for the proof, because typing it twice is worse than asking the
-// CEO to look: ceo send never types a line twice either.
+// CEO to look: goblins send never types a line twice either.
 func (s *Service) wakeCEO(ctx context.Context, now time.Time) error {
 	connection := s.Options.CEO
 	if connection == nil {
@@ -309,13 +309,13 @@ func wakeLine(records []wake.Record) string {
 	if len(records) > 1 {
 		noun = "wakes"
 	}
-	return bounded(fmt.Sprintf(fleettree.WakePrefix+"%d queued %s (%s); run ceo drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints", len(records), noun, strings.Join(named, ", ")), 300)
+	return bounded(fmt.Sprintf(fleettree.WakePrefix+"%d queued %s (%s); run goblins drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints", len(records), noun, strings.Join(named, ", ")), 300)
 }
 
 // typeWake types text into the registered CEO's native terminal when its
 // harness sits idle at an empty composer on two readings ceoIdleRecheck
 // apart, marking the records up to covered as typed about at now first, and
-// delivers it with the proof ceo send uses: its native hooks report the
+// delivers it with the proof goblins send uses: its native hooks report the
 // prompt taken, or its screen shows it working when it was not. A delivery
 // that typed nothing leaves the records as they were.
 func (c *CEOConnection) typeWake(ctx context.Context, primary primaryRegistration, text string, covered int, now time.Time) (ceoWakeSkip, error) {
@@ -414,7 +414,7 @@ func notIdle(screens harness.Screens, screen []string) string {
 	return ""
 }
 
-// deliverNative submits text in terminal's native terminal as ceo send does
+// deliverNative submits text in terminal's native terminal as goblins send does
 // for a native goblin: taken once the harness's own prompt hook reports it or
 // its screen shows it working. A turn that started after typeWake found the
 // CEO idle, shown on the screen it reads just before typing, gets nothing.

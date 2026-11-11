@@ -136,7 +136,7 @@ func TestTheSweepsReaderGivesRestOnlyToATaskThatRests(t *testing.T) {
 
 // A done report is one pull request's, and a task can ship several under one
 // id: a goblin that reported one done and went on to the next waits on its
-// own work, as on a run it started in the machine's heavy line with ceo gate
+// own work, as on a run it started in the machine's heavy line with goblins gate
 // turn --detach, which uses no processor while it waits in line (#876). The
 // sweep keeps what such a goblin left detached, and still ends what a goblin
 // whose work is finished left: an idle detached dev server past the hour. A

@@ -1226,7 +1226,7 @@ func TestAPageNoteTheGoblinsRecordNeverShowsReachesTheCEOAndTheNextGoes(t *testi
 				t.Errorf("typed = %q, want only the second note", typed)
 			}
 			wakes := reviewWakes(t, h.State, meta.ID)
-			if len(wakes) != 2 || !strings.Contains(wakes[0].Detail, "ceo peek "+meta.ID) || !strings.Contains(wakes[1].Detail, meta.ID+" has it: second") {
+			if len(wakes) != 2 || !strings.Contains(wakes[0].Detail, "goblins peek "+meta.ID) || !strings.Contains(wakes[1].Detail, meta.ID+" has it: second") {
 				t.Fatalf("wakes = %+v, want the first handed to the CEO with what to check, then the second delivered", wakes)
 			}
 			typedAt := test.sentAt.Format(time.RFC3339)
@@ -1262,8 +1262,8 @@ func TestATypedPageNoteOfARetiredTaskReachesTheCEOWithWhatToCheck(t *testing.T) 
 
 	// Assert
 	wakes := reviewWakes(t, h.State, meta.ID)
-	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, typedAt.Format(time.RFC3339)) || !strings.Contains(wakes[0].Detail, "ceo peek "+meta.ID) {
-		t.Errorf("wakes = %+v, want one saying when it was typed and to check with ceo peek", wakes)
+	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, typedAt.Format(time.RFC3339)) || !strings.Contains(wakes[0].Detail, "goblins peek "+meta.ID) {
+		t.Errorf("wakes = %+v, want one saying when it was typed and to check with goblins peek", wakes)
 	}
 }
 

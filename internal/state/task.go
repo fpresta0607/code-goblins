@@ -51,8 +51,8 @@ type TaskMeta struct {
 	// none until its first relaunch records the generation it ran on until
 	// then.
 	FirstGen string
-	// Title is the task's short title: the one ceo spawn was given with
-	// --title, else its backlog row's, or the one ceo title wrote since;
+	// Title is the task's short title: the one goblins spawn was given with
+	// --title, else its backlog row's, or the one goblins title wrote since;
 	// empty when it had none.
 	Title string
 	// GoblinName and GoblinTitle are the fun first name and title the goblin
@@ -65,7 +65,7 @@ type TaskMeta struct {
 	// older build spawned has none; its Go temporary directory is
 	// GoTmpDir's.
 	Scratch string
-	// Extras are the extra worktrees `ceo worktree add` made for the task
+	// Extras are the extra worktrees `goblins worktree add` made for the task
 	// beside its own, which go with it.
 	Extras []string
 	// Parent is the goblin a helper works for: the task that asked the
@@ -74,7 +74,7 @@ type TaskMeta struct {
 	Parent string
 	// Credentials names the services of the project's auth manifest whose
 	// credentials the task's terminal carries: what its spawn gave it, plus
-	// what ceo auth grant added since and less what ceo auth revoke took
+	// what goblins auth grant added since and less what goblins auth revoke took
 	// out. Every later terminal of the task, a
 	// resume's or a switch's, carries the same ones. It holds names, never a
 	// value.
@@ -86,13 +86,13 @@ type TaskMeta struct {
 	HasCredentials bool
 	// MCPServers names the MCP servers of the project's .mcp.json the task
 	// is given although their entry holds a value: the ones its brief named,
-	// plus what ceo auth grant added since and less what ceo auth revoke took
+	// plus what goblins auth grant added since and less what goblins auth revoke took
 	// out. A record that names none is a
 	// task given none of those, which is also every task an older build
 	// spawned. It holds names, never a value.
 	MCPServers []string
 	// CodexCredits says the operator authorized the task to spend paid Codex
-	// credits: ceo auth grant --codex-credits set it, and ceo auth revoke
+	// credits: goblins auth grant --codex-credits set it, and goblins auth revoke
 	// --codex-credits clears it. Without it, a Codex session the task's
 	// terminal starts while Codex's included allowance is used up is refused
 	// by its codex guard (codexguard).
@@ -237,7 +237,7 @@ func MetadataLockName(id string) string {
 // spellings differing only in case name two real directories, and folding
 // them together would manufacture sharing rather than a harmless split.
 //
-// A relative state directory is refused rather than made absolute. CEO_STATE_
+// A relative state directory is refused rather than made absolute. GOBLINS_STATE_
 // OVERRIDE is taken verbatim, so two fleets launched from different working
 // directories with the same relative override would hash one string and share
 // one directory - the sharing this scoping exists to prevent. filepath.Abs

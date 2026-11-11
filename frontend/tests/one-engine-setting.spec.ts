@@ -99,7 +99,7 @@ test("a goblin switched to another harness and model shows them in every view, w
   await openGoblin(page);
   await shows(page, zeke(page), NAME, { tip: "Claude Code · Opus 5.5 · xhigh", model: "Opus 5.5", effort: "xhigh" });
 
-  // Act: ceo switch wrote the record and started a new generation, and the
+  // Act: goblins switch wrote the record and started a new generation, and the
   // conversation the box still holds is the one Opus 5.5 answered in.
   await push(page, snapshot({ revision: 2 }, { phase: "settled", generation: "cg-touch-2", harness: "codex", model: "gpt-6-astra", effort: "medium" }));
 

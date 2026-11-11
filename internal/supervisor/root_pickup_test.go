@@ -58,7 +58,7 @@ func rootBoard(t *testing.T, open ...tickets.OpenRoot) (*Service, home.Home, *in
 }
 
 // fileRootAsLiveTask makes task a live task of h that filed the root issue
-// at url with ceo issue file.
+// at url with goblins issue file.
 func fileRootAsLiveTask(t *testing.T, h home.Home, task, url string) {
 	t.Helper()
 	taskTmp := filepath.Join(h.State, "tasktmp", task)

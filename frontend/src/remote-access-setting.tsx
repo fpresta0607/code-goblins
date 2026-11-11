@@ -80,7 +80,7 @@ export function RemoteAccessSetting({ instance, runs, connected }: { instance: s
   // Tailscale and the machines on it are read again whenever he comes back to
   // the board, as from installing it or signing in, and remote access every
   // few seconds while the board shows, since nothing tells the board when
-  // Tailscale stops or starts, ceo remote turns it on or off, or a restart
+  // Tailscale stops or starts, goblins remote turns it on or off, or a restart
   // moves it.
   useEffect(() => {
     read();

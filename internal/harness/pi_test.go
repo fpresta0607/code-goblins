@@ -36,7 +36,7 @@ Options:
 	}
 	assertLaunch(t, defaults, Launch{
 		Args:       []string{"--tui-mode", "fullscreen"},
-		Env:        map[string]string{"CEO_ROLE": RoleGoblin, "GOTMPDIR": `C:\gotmp\task`, "TEMP": `C:\gotmp\task`, "TMP": `C:\gotmp\.tmp`, "TMPDIR": `C:\gotmp\task`},
+		Env:        map[string]string{"GOBLINS_ROLE": RoleGoblin, "GOTMPDIR": `C:\gotmp\task`, "TEMP": `C:\gotmp\task`, "TMP": `C:\gotmp\.tmp`, "TMPDIR": `C:\gotmp\task`},
 		PromptFile: `C:\briefs\task.md`,
 		Executable: "pi",
 	})

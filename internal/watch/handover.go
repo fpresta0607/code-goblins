@@ -13,8 +13,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
-// HandoverName is the request ceo serve writes in the state directory when it
-// starts while a watcher the Stop hook hosts, or a ceo watch, holds the
+// HandoverName is the request goblins serve writes in the state directory when it
+// starts while a watcher the Stop hook hosts, or a goblins watch, holds the
 // watcher lock. On 2026-10-01 an install stopped serve, the CEO's Stop hook
 // took the lock in the gap, and every new serve refused to start until the
 // hook's window ended, leaving the board down. The watcher yields the lock to

@@ -44,7 +44,7 @@ func TestTheCEOStrikesALineItLoggedByMistakeOverThePipe(t *testing.T) {
 func leftLine(what string) afk.Entry {
 	return afk.Entry{
 		Kind: afk.KindLeft, What: what, Evidence: "his own sign-in. Backlog row cg-fly-token-durable",
-		Diagnosis: "the stored token reads unauthorized", Tried: "ceo auth --fix",
+		Diagnosis: "the stored token reads unauthorized", Tried: "goblins auth --fix",
 		Options: []string{"I will sign in", "Leave it parked"}, Recommendation: "I will sign in",
 	}
 }

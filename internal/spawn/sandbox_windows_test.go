@@ -181,8 +181,8 @@ func TestContainEnvironmentTurnsOffWhatTheWorktreeCouldPlantForHostGit(t *testin
 			if got := hostGitConfiguration(func(name string) string { return env[name] }); !maps.Equal(got, wantHostGit(hooksOff)) {
 				t.Fatalf("host git runs with %v, want %v", got, wantHostGit(hooksOff))
 			}
-			if !strings.Contains(sandboxInstruction(meta), "ceo sandbox run -- <command>") {
-				t.Fatalf("instruction %q, want ceo sandbox run named", sandboxInstruction(meta))
+			if !strings.Contains(sandboxInstruction(meta), "goblins sandbox run -- <command>") {
+				t.Fatalf("instruction %q, want goblins sandbox run named", sandboxInstruction(meta))
 			}
 		})
 	}
@@ -237,8 +237,8 @@ func TestASandboxSpawnRecordsItsImageAndHoldsItsHostGit(t *testing.T) {
 	if got := hostGitConfiguration(func(name string) string { return value(env[name]) }); !maps.Equal(got, wantHostGit(hooksOff)) {
 		t.Fatalf("the goblin's git runs with %v, want %v", got, wantHostGit(hooksOff))
 	}
-	if _, written := typedBrief(t, f.fixture, f.request.ID); !strings.Contains(written, "ceo sandbox run -- <command>") {
-		t.Fatalf("instruction = %q, want ceo sandbox run named", written)
+	if _, written := typedBrief(t, f.fixture, f.request.ID); !strings.Contains(written, "goblins sandbox run -- <command>") {
+		t.Fatalf("instruction = %q, want goblins sandbox run named", written)
 	}
 }
 
@@ -264,7 +264,7 @@ func TestASandboxTasksRelaunchHoldsItsHostGit(t *testing.T) {
 	if got := hostGitConfiguration(func(name string) string { return value(env[name]) }); !maps.Equal(got, wantHostGit(hooksOff)) {
 		t.Fatalf("the new goblin's git runs with %v, want %v", got, wantHostGit(hooksOff))
 	}
-	if _, written := typedBrief(t, f.fixture, f.meta.ID); !strings.Contains(written, "ceo sandbox run -- <command>") {
-		t.Fatalf("instruction = %q, want ceo sandbox run named", written)
+	if _, written := typedBrief(t, f.fixture, f.meta.ID); !strings.Contains(written, "goblins sandbox run -- <command>") {
+		t.Fatalf("instruction = %q, want goblins sandbox run named", written)
 	}
 }

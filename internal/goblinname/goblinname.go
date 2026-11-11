@@ -1,6 +1,6 @@
 // Package goblinname gives every goblin a fun first name and title, such as
 // Jerry the Code Designer, which the board, the merge train and the CEO call
-// it by. The task id stays the handle for ceo commands.
+// it by. The task id stays the handle for goblins commands.
 package goblinname
 
 import (

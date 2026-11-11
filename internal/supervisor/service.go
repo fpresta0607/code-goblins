@@ -76,7 +76,7 @@ type Options struct {
 	// shows reads Finished.
 	PullRequestState func(ctx context.Context, url string) (PullRequestInfo, error)
 	// FileRoot files a root issue on the repository of a project, a name or
-	// a path, through the screen ceo issue file uses, or comments on the
+	// a path, through the screen goblins issue file uses, or comments on the
 	// open issue of the same root; without it the supervisor files none.
 	FileRoot func(ctx context.Context, project string, root tickets.Root) (tickets.FiledRoot, error)
 	// Tickets keeps a GitHub issue for each task in a repository other
@@ -85,7 +85,7 @@ type Options struct {
 	// RootIssues picks up the open ops-root issues of each project's
 	// repository as queued work; without it none is.
 	RootIssues *RootIssues
-	// VerifyReports reads a project's ceo gate test reports, the newest
+	// VerifyReports reads a project's goblins gate test reports, the newest
 	// first, which put each task's newest run on its card; without it no
 	// card shows one.
 	VerifyReports func(project string) ([]verify.Report, error)
@@ -116,7 +116,7 @@ type Options struct {
 	Dispatch *Dispatch
 	// CompactCEO writes the compact checkpoint of a registered Codex or pi CEO
 	// as its compaction begins and, as it ends, queues the one wake that names
-	// it, as ceo hook pre-compact and the SessionStart digest do for a Claude
+	// it, as goblins hook pre-compact and the SessionStart digest do for a Claude
 	// CEO; without it a compaction does neither.
 	CompactCEO func(h home.Home, e nativehook.Event, now time.Time) error
 	// CI runs git for the CI wakes, and gh for what a merge train writes to
@@ -134,12 +134,12 @@ type Options struct {
 	// wake that tells the CEO of each new detection and upload under the
 	// fleet's folders. It only reads.
 	Defender func(ctx context.Context, since time.Time) (defender.Report, error)
-	// Credentials opens the credential store ceo auth store writes, which a
+	// Credentials opens the credential store goblins auth store writes, which a
 	// credential request's card saves into; without it the board takes no
 	// value.
 	Credentials func() (auth.Store, error)
 	// RefreshCredentials regenerates auth.ps1 for a project's running goblins
-	// and tells each to re-source it, as ceo auth store does after it writes,
+	// and tells each to re-source it, as goblins auth store does after it writes,
 	// and returns the tasks it told.
 	RefreshCredentials func(ctx context.Context, project string) ([]string, error)
 	// Quota reads quota-axi, on the supervisor's own timers only: AFK mode's
@@ -323,8 +323,8 @@ type Service struct {
 	pushMu sync.Mutex
 	// ordering saves one list order at a time.
 	ordering sync.Mutex
-	// starts guards starting, the task a Start is running ceo spawn for,
-	// overlordStart, the last task the Overlord's own Start ran ceo spawn
+	// starts guards starting, the task a Start is running goblins spawn for,
+	// overlordStart, the last task the Overlord's own Start ran goblins spawn
 	// for, and startErrors, why each task's last Start failed.
 	starts        sync.Mutex
 	starting      string
@@ -1007,7 +1007,7 @@ func HasDelivered(directory string, meta state.TaskMeta) (bool, error) {
 
 // isDelivered reports whether the goblin of generation delivered in its latest
 // report and its session took no prompt after it, as one the CEO steers back
-// to work with ceo send takes. Such a goblin waits on the merge, or on nothing
+// to work with goblins send takes. Such a goblin waits on the merge, or on nothing
 // once it closed its issue, not on a session: on 2026-10-27 three that a
 // restart brought back each spent a fresh session only to report the same pull
 // request done again.
@@ -1373,10 +1373,10 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 				continue
 			}
 			result.Phase = "blocked"
-			result.Reason = "Pipeline decision required at " + step.Name + "; use ceo pipeline respond"
+			result.Reason = "Pipeline decision required at " + step.Name + "; use goblins pipeline respond"
 			// From policy version 7 the gate repairs no Test, Lint or CI
 			// failure: it is the goblin's to fix, not a decision to wait on,
-			// by the rule ceo pipeline run reads to hand it back, which hands
+			// by the rule goblins pipeline run reads to hand it back, which hands
 			// back no step whose findings it cannot read. A task spawned with
 			// no frozen policy, as outside no-mistakes delivery, has none of
 			// version 7 to hand anything back.
@@ -1529,7 +1529,7 @@ type Task struct {
 	// brief was written; zero when neither is known.
 	Since time.Time `json:"since"`
 	// Brief says queued work has its brief, which a Start needs; Starting
-	// that its Start runs ceo spawn now or waits its turn, StartError why its
+	// that its Start runs goblins spawn now or waits its turn, StartError why its
 	// last Start failed, and Finished why it never starts again by itself:
 	// what says it already finished. Asked says a Start or Resume the
 	// Overlord clicked waits its turn behind another start or resume, or for
@@ -1561,7 +1561,7 @@ type Task struct {
 	Ticket   *TaskTicket `json:"ticket,omitempty"`
 	Overlaps []Overlap   `json:"overlaps,omitempty"`
 	// HostedChecks is what its pull request's hosted checks said at the last
-	// CI poll, and LocalChecks its change's newest ceo gate test run.
+	// CI poll, and LocalChecks its change's newest goblins gate test run.
 	HostedChecks *HostedChecks `json:"hosted_checks,omitempty"`
 	LocalChecks  *LocalChecks  `json:"local_checks,omitempty"`
 	// Deployment is how the deploy of its merged pull request stands, apart

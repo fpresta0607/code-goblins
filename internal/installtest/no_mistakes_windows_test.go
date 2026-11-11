@@ -62,7 +62,7 @@ func pinnedNoMistakes(t *testing.T) string {
 }
 
 // noMistakesRelease is a stand-in for the release install.ps1 was published
-// with: the stand-in program as ceo.exe, a no-mistakes.exe and SHA256SUMS.
+// with: the stand-in program as goblins.exe, a no-mistakes.exe and SHA256SUMS.
 type noMistakesRelease struct {
 	base string
 	// requests counts the requests for no-mistakes.exe.
@@ -72,7 +72,7 @@ type noMistakesRelease struct {
 }
 
 // serveNoMistakesRelease serves a release whose no-mistakes.exe is program
-// and whose SHA256SUMS sums writes from the sums of ceo.exe and program. It
+// and whose SHA256SUMS sums writes from the sums of goblins.exe and program. It
 // answers the first failures requests for no-mistakes.exe with 503, and,
 // where ready is not nil, any request for it only once ready closes or after
 // 30 seconds.
@@ -84,7 +84,7 @@ func serveNoMistakesRelease(t *testing.T, program []byte, failures int32, sums f
 	var askedOnce sync.Once
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/ceo.exe":
+		case "/goblins.exe":
 			_, _ = w.Write(ceo)
 		case "/SHA256SUMS":
 			_, _ = w.Write([]byte(sums(sha256.Sum256(ceo), sha256.Sum256(program))))
@@ -111,7 +111,7 @@ func serveNoMistakesRelease(t *testing.T, program []byte, failures int32, sums f
 
 // publishedSums writes SHA256SUMS as a release publishes it.
 func publishedSums(ceo, noMistakes [32]byte) string {
-	return fmt.Sprintf("%x  CodeGoblinsSetup.exe\n%x  ceo.exe\n%x  no-mistakes.exe\n", sha256.Sum256([]byte("the setup")), ceo, noMistakes)
+	return fmt.Sprintf("%x  CodeGoblinsSetup.exe\n%x  goblins.exe\n%x  no-mistakes.exe\n", sha256.Sum256([]byte("the setup")), ceo, noMistakes)
 }
 
 // noMistakesSetup is what one install run starts from.
@@ -132,7 +132,7 @@ type noMistakesSetup struct {
 }
 
 // noMistakesInstall is one run of the one-line install against a stand-in
-// release, as far as the install goes with a stand-in ceo.exe: every command
+// release, as far as the install goes with a stand-in goblins.exe: every command
 // it runs succeeds and records itself.
 type noMistakesInstall struct {
 	output string
@@ -335,10 +335,10 @@ func TestOneLineInstallGivesUpOnANoMistakesDownloadThatKeepsFailing(t *testing.T
 func TestOneLineInstallRefusesANoMistakesThatDoesNotMatchItsChecksum(t *testing.T) {
 	for name, sums := range map[string]func(ceo, noMistakes [32]byte) string{
 		"another program's checksum": func(ceo, _ [32]byte) string {
-			return fmt.Sprintf("%x  ceo.exe\n%x  no-mistakes.exe\n", ceo, sha256.Sum256([]byte("the program the release published")))
+			return fmt.Sprintf("%x  goblins.exe\n%x  no-mistakes.exe\n", ceo, sha256.Sum256([]byte("the program the release published")))
 		},
 		"no checksum for no-mistakes.exe": func(ceo, noMistakes [32]byte) string {
-			return fmt.Sprintf("%x  ceo.exe\n%x  no-mistakes-NOTICES\n", ceo, noMistakes)
+			return fmt.Sprintf("%x  goblins.exe\n%x  no-mistakes-NOTICES\n", ceo, noMistakes)
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

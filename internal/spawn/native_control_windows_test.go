@@ -16,7 +16,7 @@ import (
 
 // A native goblin takes a steer the way it took its instruction: typed,
 // submitted once its composer shows it, and delivered once it works on it. A
-// key reaches its terminal as the console reads it, and a key ceo send does
+// key reaches its terminal as the console reads it, and a key goblins send does
 // not name is refused before anything is sent.
 func TestANativeGoblinTakesTextAndKeysThroughItsTerminal(t *testing.T) {
 	f := newNativeFixture(t, harness.Codex, "turns")
@@ -126,7 +126,7 @@ func TestANativeGoblinTakesASlashCommandOnceAndReportsItUnconfirmed(t *testing.T
 	err = f.service.SendNative(context.Background(), meta, "/exit")
 	took := time.Since(began)
 
-	if err == nil || !strings.Contains(err.Error(), "submitted once") || !strings.Contains(err.Error(), "ceo peek task-7") {
+	if err == nil || !strings.Contains(err.Error(), "submitted once") || !strings.Contains(err.Error(), "goblins peek task-7") {
 		t.Errorf("SendNative /exit = %v, want it reported submitted once but unconfirmed", err)
 	}
 	if !slices.ContainsFunc(slept, func(duration time.Duration) bool { return duration >= 1200*time.Millisecond }) {
@@ -332,7 +332,7 @@ func TestASlashCommandTypedIntoATurnIsReportedUnconfirmed(t *testing.T) {
 	err = f.service.SendNative(context.Background(), meta, "/compact")
 
 	// Assert
-	if err == nil || !strings.Contains(err.Error(), "submitted once") || !strings.Contains(err.Error(), "ceo peek task-7") {
+	if err == nil || !strings.Contains(err.Error(), "submitted once") || !strings.Contains(err.Error(), "goblins peek task-7") {
 		t.Errorf("SendNative /compact = %v, want it reported submitted once but unconfirmed", err)
 	}
 	if submitted := submittedLines(t, f, 2); !slices.Equal(submitted, []string{spawnPointer(t, f.fixture), "/compact"}) {

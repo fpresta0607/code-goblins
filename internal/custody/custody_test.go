@@ -32,7 +32,7 @@ func TestTakeTellsTheCEOItTookTheLockFromALiveHolder(t *testing.T) {
 	other := heldByAnother(t, dir, "desktop-session")
 
 	// Act
-	holder, replaced, err := Take(dir, os.Getpid(), "ceo-session", "ceo hook stop-autoarm")
+	holder, replaced, err := Take(dir, os.Getpid(), "ceo-session", "goblins hook stop-autoarm")
 
 	// Assert
 	if err != nil || holder.PID != os.Getpid() || !lock.HeldBy(dir, os.Getpid()) {
@@ -64,12 +64,12 @@ func TestTakeTellsTheCEOOfOneTakeoverOnce(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
 	heldByAnother(t, dir, "desktop-session")
-	if _, _, err := Take(dir, os.Getpid(), "ceo-session", "ceo hook stop-autoarm"); err != nil {
+	if _, _, err := Take(dir, os.Getpid(), "ceo-session", "goblins hook stop-autoarm"); err != nil {
 		t.Fatal(err)
 	}
 
 	// Act
-	_, replaced, err := Take(dir, os.Getpid(), "ceo-session", "ceo hook session-start")
+	_, replaced, err := Take(dir, os.Getpid(), "ceo-session", "goblins hook session-start")
 
 	// Assert
 	if err != nil || replaced != nil {
@@ -85,7 +85,7 @@ func TestTakeQueuesNoWakeWhereNobodyHeldTheLock(t *testing.T) {
 	dir := t.TempDir()
 
 	// Act
-	holder, replaced, err := Take(dir, os.Getpid(), "ceo-session", "ceo register")
+	holder, replaced, err := Take(dir, os.Getpid(), "ceo-session", "goblins register")
 
 	// Assert
 	if err != nil || holder.PID != os.Getpid() || replaced != nil {

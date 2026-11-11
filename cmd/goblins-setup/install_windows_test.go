@@ -29,14 +29,14 @@ func installScript(t *testing.T) []byte {
 	return script
 }
 
-// standInRelease serves a release whose ceo.exe is the stand-in program,
+// standInRelease serves a release whose goblins.exe is the stand-in program,
 // whose every command succeeds, beside the repository's own install script.
 func standInRelease(t *testing.T) string {
 	t.Helper()
 	binary := standin.Bytes(t)
 	files := map[string][]byte{
-		"/ceo.exe":     binary,
-		"/SHA256SUMS":  []byte(fmt.Sprintf("%x  ceo.exe\n", sha256.Sum256(binary))),
+		"/goblins.exe": binary,
+		"/SHA256SUMS":  []byte(fmt.Sprintf("%x  goblins.exe\n", sha256.Sum256(binary))),
 		"/install.ps1": installScript(t),
 	}
 	release := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -62,9 +62,9 @@ var forkRelease = regexp.MustCompile(`/releases/download/v[^/"]+/([a-z-]+)-(\d[^
 // release file answers the build the script pins, the stand-in program as
 // claude.exe, which a native terminal needs, and as the managed no-mistakes,
 // which answers the version the script pins and takes what the fleet's gate
-// gives it, as the pinned build does. The release's ceo.exe is the
+// gives it, as the pinned build does. The release's goblins.exe is the
 // stand-in too, and its install puts it in the per-user home's bin under both
-// the binary's names, as ceo install does.
+// the binary's names, as goblins install does.
 func strippedInstall(t *testing.T, base, name string, args ...string) (*exec.Cmd, string) {
 	t.Helper()
 	stubs := map[string]string{}
@@ -99,7 +99,7 @@ func strippedInstall(t *testing.T, base, name string, args ...string) (*exec.Cmd
 	cmd.Env = append(cmd.Env, standin.Env("",
 		standin.Rule{Args: "--version", Stdout: "no-mistakes version v" + string(pin[1]) + "\n"},
 		standin.Rule{Args: "help axi run", Stdout: "      --intent-file string\n      --launch-assertion string\n"},
-		standin.Rule{Args: "install", Prefix: true, CopyTo: []string{filepath.Join(bin, "ceo.exe"), filepath.Join(bin, "goblins.exe")}},
+		standin.Rule{Args: "install", Prefix: true, CopyTo: []string{filepath.Join(bin, "goblins.exe")}},
 	)...)
 	return cmd, temp
 }
@@ -159,7 +159,7 @@ func TestTheSetupAndTheOneLineInstallSayTheSamePlainSteps(t *testing.T) {
 	if !slices.Equal(said, plainSteps) {
 		t.Errorf("the one-line install said the steps %q, want %q", said, plainSteps)
 	}
-	if kept, err := os.ReadFile(filepath.Join(lineTemp, "CodeGoblinsInstall.log")); err != nil || !strings.Contains(string(kept), "Verified ceo.exe") {
+	if kept, err := os.ReadFile(filepath.Join(lineTemp, "CodeGoblinsInstall.log")); err != nil || !strings.Contains(string(kept), "Verified goblins.exe") {
 		t.Errorf("the one-line install's log (%v) lacks its details:\n%s", err, kept)
 	}
 	if setupErr != nil {

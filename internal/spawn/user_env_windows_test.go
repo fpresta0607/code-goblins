@@ -11,7 +11,7 @@ import (
 // markers, is not in it.
 func TestTheUsersEnvironmentHoldsNothingOnlyThisProcessCarries(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "only-in-this-process")
-	t.Setenv("CEO_ONLY_IN_THIS_PROCESS", "1")
+	t.Setenv("GOBLINS_ONLY_IN_THIS_PROCESS", "1")
 
 	env, err := (Service{}).userEnvironment()
 
@@ -28,7 +28,7 @@ func TestTheUsersEnvironmentHoldsNothingOnlyThisProcessCarries(t *testing.T) {
 			t.Errorf("the user's environment lacks %s: %d entries", configured, len(env))
 		}
 	}
-	for _, inherited := range []string{"CLAUDE_CODE_SESSION_ID", "CEO_ONLY_IN_THIS_PROCESS"} {
+	for _, inherited := range []string{"CLAUDE_CODE_SESSION_ID", "GOBLINS_ONLY_IN_THIS_PROCESS"} {
 		if names[inherited] {
 			t.Errorf("the user's environment carries %s, which only this process has", inherited)
 		}

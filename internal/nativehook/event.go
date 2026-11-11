@@ -251,7 +251,7 @@ func Spool(stateDir string, e Event) error {
 		return err
 	}
 	if len(entries) >= MaxQueuedEvents {
-		return errors.New("native event spool is full; start or repair ceo serve")
+		return errors.New("native event spool is full; start or repair goblins serve")
 	}
 	data, err := json.Marshal(e)
 	if err != nil {

@@ -312,7 +312,7 @@ func helperCommand(configDir string) (helper, command string) {
 // with no quotes, written with forward slashes.
 const unquotedPath = `[A-Za-z0-9:/._~-]+`
 
-// directCommand is the Codex hook command that runs ceo itself, and whether
+// directCommand is the Codex hook command that runs goblins itself, and whether
 // Codex hooks use it. Codex runs each hook command inside the session's own
 // shell, powershell.exe -NoProfile -Command on Windows, so the helper's
 // command starts a second PowerShell for every event; live on 2026-10-08
@@ -330,7 +330,7 @@ func directCommand(c InstallConfig) (string, bool) {
 
 // CodexArguments are the Codex arguments that give one session its native
 // hooks, with the hooks feature on: a -c override for each lifecycle event,
-// running ceo native-hook codex directly as Install's hooks do, in the
+// running goblins native-hook codex directly as Install's hooks do, in the
 // session's own configuration rather than the user's hooks.json, which every
 // Codex session on the machine loads, the Overlord's own outside the fleet
 // included. Codex keys a hook's trust by where it is defined, which for a -c
@@ -340,7 +340,7 @@ func directCommand(c InstallConfig) (string, bool) {
 func CodexArguments(executable, home, state string) ([]string, error) {
 	command, ok := directCommand(InstallConfig{Harness: "codex", Executable: executable, Home: home, State: state})
 	if !ok {
-		return nil, fmt.Errorf("native hooks: Codex cannot run ceo from %s with home %s and state %s without quoting them", executable, home, state)
+		return nil, fmt.Errorf("native hooks: Codex cannot run goblins from %s with home %s and state %s without quoting them", executable, home, state)
 	}
 	args := []string{"--enable", "hooks"}
 	for _, event := range Events("codex") {
@@ -352,7 +352,7 @@ func CodexArguments(executable, home, state string) ([]string, error) {
 // CodexGoblinArguments are a Codex goblin's CodexArguments with its goblin
 // seal, which a Claude Code goblin's settings run before each command
 // (install.GoblinHooks): a PreToolUse override for Bash, the name Codex gives
-// a shell command and an exec_command call alike, running ceo hook
+// a shell command and an exec_command call alike, running goblins hook
 // goblin-seal-codex directly with Codex's own limit for a hook, as Claude
 // Code's is for the seal. The Codex CEO's launch carries no seal, as the
 // Claude Code CEO's settings carry none.
@@ -365,7 +365,7 @@ func CodexGoblinArguments(executable, home, state string) ([]string, error) {
 }
 
 // ownsCommand reports whether a hook command is one Install wrote for harness
-// under configDir: the helper's, or ceo run directly for harness from any
+// under configDir: the helper's, or goblins run directly for harness from any
 // place it was installed, so a reinstall after the binary moved replaces it.
 func ownsCommand(harness, configDir, command string) bool {
 	_, helper := helperCommand(configDir)
@@ -470,7 +470,7 @@ export default function (pi: ExtensionAPI) {
     if (name === "agent_settled" && ctx.hasPendingMessages()) return;
     const payload = {hook_event_name: name, session_id: ctx.sessionManager.getSessionId(), cwd: ctx.cwd,
       turn_id: instance + ":" + turn, model: ctx.model?.id, pending_messages: ctx.hasPendingMessages(),
-      ...(tool && process.env.CEO_ROLE === "goblin" ? {tool_name: tool.toolName, tool_use_id: tool.toolCallId, tool_response: tool.result} : {})};
+      ...(tool && process.env.GOBLINS_ROLE === "goblin" ? {tool_name: tool.toolName, tool_use_id: tool.toolCallId, tool_response: tool.result} : {})};
     let input: string;
     try {
       input = JSON.stringify(payload);

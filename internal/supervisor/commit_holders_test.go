@@ -45,12 +45,12 @@ func TestTopCommitHoldersNamesTheAppsHoldingTheMostCommit(t *testing.T) {
 		{
 			name: "a process whose parent is gone is its own app, and apps of one name count as one",
 			processes: []processCommit{
-				{pid: 48440, parent: 26096, name: "ceo.exe", created: 10, commit: 65 * megabyte},
+				{pid: 48440, parent: 26096, name: "goblins.exe", created: 10, commit: 65 * megabyte},
 				{pid: 47352, parent: 48440, name: "claude.exe", created: 11, commit: 389 * megabyte},
-				{pid: 50000, parent: 26097, name: "CEO.EXE", created: 12, commit: 60 * megabyte},
+				{pid: 50000, parent: 26097, name: "GOBLINS.EXE", created: 12, commit: 60 * megabyte},
 			},
 			count: 3,
-			want:  []CommitHolder{{Name: "ceo", Commit: (65 + 389 + 60) * megabyte}},
+			want:  []CommitHolder{{Name: "goblins", Commit: (65 + 389 + 60) * megabyte}},
 		},
 		{
 			name: "a parent created after the process took a reused ID and is not its parent",

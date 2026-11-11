@@ -18,14 +18,14 @@ on:
       - install.cmd
       - tools/build-no-mistakes.ps1
       - home_files.go
-      - cmd/ceo/install.go
-      - cmd/ceo/launcher.go
-      - cmd/ceo/serve.go
-      - cmd/ceo/native.go
-      - cmd/ceo/main.go
-      - cmd/ceo/doctor.go
-      - cmd/ceo/dictation.go
-      - cmd/ceo/crawler.go
+      - cmd/goblins/install.go
+      - cmd/goblins/launcher.go
+      - cmd/goblins/serve.go
+      - cmd/goblins/native.go
+      - cmd/goblins/main.go
+      - cmd/goblins/doctor.go
+      - cmd/goblins/dictation.go
+      - cmd/goblins/crawler.go
       - cmd/goblins-setup/**
       - config/voice.json
       - internal/voice/**
@@ -37,15 +37,15 @@ on:
       - internal/nativehook/**
       - internal/doctor/**
       - internal/uninstall/**
-      - cmd/ceo/uninstall.go
+      - cmd/goblins/uninstall.go
       - tools/leftovers/**
       - tests/uninstall/**
       - tests/update/**
-      - cmd/ceo/update.go
-      - cmd/ceo/update_release.go
+      - cmd/goblins/update.go
+      - cmd/goblins/update_release.go
       - internal/release/**
       - internal/update/**
-      - cmd/ceo/cutover.go
+      - cmd/goblins/cutover.go
       - internal/cutover/**
       - .github/workflows/install.yml
       - .github/workflows/release.yml
@@ -56,14 +56,14 @@ on:
       - install.cmd
       - tools/build-no-mistakes.ps1
       - home_files.go
-      - cmd/ceo/install.go
-      - cmd/ceo/launcher.go
-      - cmd/ceo/serve.go
-      - cmd/ceo/native.go
-      - cmd/ceo/main.go
-      - cmd/ceo/doctor.go
-      - cmd/ceo/dictation.go
-      - cmd/ceo/crawler.go
+      - cmd/goblins/install.go
+      - cmd/goblins/launcher.go
+      - cmd/goblins/serve.go
+      - cmd/goblins/native.go
+      - cmd/goblins/main.go
+      - cmd/goblins/doctor.go
+      - cmd/goblins/dictation.go
+      - cmd/goblins/crawler.go
       - cmd/goblins-setup/**
       - config/voice.json
       - internal/voice/**
@@ -75,15 +75,15 @@ on:
       - internal/nativehook/**
       - internal/doctor/**
       - internal/uninstall/**
-      - cmd/ceo/uninstall.go
+      - cmd/goblins/uninstall.go
       - tools/leftovers/**
       - tests/uninstall/**
       - tests/update/**
-      - cmd/ceo/update.go
-      - cmd/ceo/update_release.go
+      - cmd/goblins/update.go
+      - cmd/goblins/update_release.go
       - internal/release/**
       - internal/update/**
-      - cmd/ceo/cutover.go
+      - cmd/goblins/cutover.go
       - internal/cutover/**
       - .github/workflows/install.yml
       - .github/workflows/release.yml
@@ -200,17 +200,17 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory release | Out-Null
-          # ceo.exe embeds the board, which a release builds first.
+          # goblins.exe embeds the board, which a release builds first.
           npm --prefix frontend ci
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm --prefix frontend run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go build -o release/ceo.exe ./cmd/ceo
+          go build -o release/goblins.exe ./cmd/goblins
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # The no-mistakes a release publishes beside ceo.exe, built from
+          # The no-mistakes a release publishes beside goblins.exe, built from
           # the commit install.ps1 pins, as the release builds it.
           ./tools/build-no-mistakes.ps1 -Destination release/no-mistakes.exe
-          $lines = foreach ($file in 'ceo.exe', 'no-mistakes.exe') {
+          $lines = foreach ($file in 'goblins.exe', 'no-mistakes.exe') {
             "$((Get-FileHash "release/$file" -Algorithm SHA256).Hash.ToLowerInvariant())  $file"
           }
           [IO.File]::WriteAllText("$PWD/release/SHA256SUMS", ($lines -join "`n") + "`n")
@@ -287,14 +287,14 @@ jobs:
         env:
           REAL_RELEASE: ${{ inputs.release }}
         run: |
-          # A new terminal sees the PATH and CEO_HOME the installers wrote to
-          # the registry; a new step does not, and without CEO_HOME goblins
+          # A new terminal sees the PATH and GOBLINS_HOME the installers wrote to
+          # the registry; a new step does not, and without GOBLINS_HOME goblins
           # takes this checkout for the home.
           $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-          $env:CEO_HOME = [Environment]::GetEnvironmentVariable("CEO_HOME", "User")
+          $env:GOBLINS_HOME = [Environment]::GetEnvironmentVariable("GOBLINS_HOME", "User")
           $ceoHome = Join-Path $env:LOCALAPPDATA "CodeGoblins"
           $bin = Join-Path $ceoHome "bin"
-          foreach ($file in "bin\ceo.exe", "bin\goblins.exe", ".ceo-home", "AGENTS.md", "CLAUDE.md", "config\pipeline.json", "data\routing.json", "state") {
+          foreach ($file in "bin\goblins.exe", ".ceo-home", "AGENTS.md", "CLAUDE.md", "config\pipeline.json", "data\routing.json", "state") {
             if (-not (Test-Path -LiteralPath (Join-Path $ceoHome $file))) { throw "the one-line install left no $file in $ceoHome" }
           }
           # The skills this repository ships install once in the shared skills
@@ -307,11 +307,11 @@ jobs:
             if (-not (Test-Path -LiteralPath (Join-Path $env:USERPROFILE ".agents\skills\$skill\SKILL.md"))) { throw "the one-line install left no $skill skill in ~\.agents\skills" }
             if ((Get-Item -LiteralPath (Join-Path $env:USERPROFILE ".claude\skills\$skill") -Force).LinkType -ne "Junction") { throw "~\.claude\skills\$skill is not a junction to ~\.agents\skills\$skill" }
           }
-          if ([Environment]::GetEnvironmentVariable("CEO_HOME", "User") -ne $ceoHome) { throw "CEO_HOME is not $ceoHome" }
+          if ([Environment]::GetEnvironmentVariable("GOBLINS_HOME", "User") -ne $ceoHome) { throw "GOBLINS_HOME is not $ceoHome" }
           if (-not (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $bin)) { throw "$bin is not on the user PATH" }
           $settings = Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json
           # A hook runs its command with its args, so each entry is read as that
-          # whole line. The CEO's hooks are ceo.exe with args hook <name>, and the
+          # whole line. The CEO's hooks are goblins.exe with args hook <name>, and the
           # install writes none of them here: the CEO's terminal starts with its
           # own, and in the user's settings every Claude Code session would run them.
           $ceoHooks = @(@($settings.hooks.PSObject.Properties.Value.hooks | ForEach-Object { @($_.command) + @($_.args) -join " " }) -match "ceo\.exe hook ")
@@ -353,12 +353,12 @@ jobs:
           Write-EnvironmentResult -Lines (@($environment) + @($tools.Environment)) -Summary $env:GITHUB_STEP_SUMMARY
           if ($tools.Failures.Count -gt 0) { throw "goblins doctor reports something missing or broken: $($tools.Failures -join '; ')" }
           # Whether dictation is ready is a premise the runner may not be
-          # able to make: the check runs `ceo dictation setup` once, asserts
+          # able to make: the check runs `goblins dictation setup` once, asserts
           # readiness when it works, and records a runner that could not
           # download the model as an environment result, never a product
           # failure. tests/acceptance/dictation.ps1 owns that rule and its
           # fixtures, and its summary says which outcome happened.
-          & ".\tests\acceptance\dictation.ps1" -Goblins (Join-Path $bin "goblins.exe") -Ceo (Join-Path $bin "ceo.exe") -CeoHome $ceoHome -Summary $env:GITHUB_STEP_SUMMARY
+          & ".\tests\acceptance\dictation.ps1" -Goblins (Join-Path $bin "goblins.exe") -CeoHome $ceoHome -Summary $env:GITHUB_STEP_SUMMARY
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The install set up the crawler connector every goblin carries; a
           # published release from before it has none.
@@ -525,9 +525,9 @@ jobs:
           # A build from source is unsigned, and the install must say so in
           # its log, which holds every detail it does not print.
           if (-not ((Get-Content -Raw (Join-Path $env:TEMP "CodeGoblinsInstall.log")) -match "These programs are unsigned")) { throw "the -Dev install did not say that its programs are unsigned" }
-          # ceo.exe embeds the board -Dev builds first, and without it serves a
+          # goblins.exe embeds the board -Dev builds first, and without it serves a
           # page saying the board was not built.
-          if (-not (Test-Path internal/boardweb/dist/board/index.html)) { throw "the -Dev install built no board for ceo.exe to embed" }
+          if (-not (Test-Path internal/boardweb/dist/board/index.html)) { throw "the -Dev install built no board for goblins.exe to embed" }
           # The install ends with goblins doctor, whose verdict the next step
           # reads line by line, as the one-line job's does.
           $global:LASTEXITCODE = 0
@@ -541,12 +541,10 @@ jobs:
           $bin = Join-Path $ceoHome "bin"
           # -Dev installs the same per-user home the one-line install does,
           # and the clone keeps no program.
-          if ([Environment]::GetEnvironmentVariable("CEO_HOME", "User") -ne $ceoHome) { throw "CEO_HOME is not $ceoHome" }
+          if ([Environment]::GetEnvironmentVariable("GOBLINS_HOME", "User") -ne $ceoHome) { throw "GOBLINS_HOME is not $ceoHome" }
           if (-not (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $bin)) { throw "$bin is not on the user PATH" }
-          foreach ($name in "ceo", "goblins") {
-            $found = (Get-Command $name -ErrorAction Stop).Source
-            if ($found -ne (Join-Path $bin "$name.exe")) { throw "$name resolves to $found, want the home's bin\$name.exe" }
-          }
+          $found = (Get-Command goblins -ErrorAction Stop).Source
+          if ($found -ne (Join-Path $bin "goblins.exe")) { throw "goblins resolves to $found, want the home's bin\goblins.exe" }
           $programs = @(Get-ChildItem -LiteralPath $clone -Filter *.exe* -File | ForEach-Object Name)
           if ($programs.Count -gt 0) { throw "the clone holds $($programs -join ', ') after -Dev, want no program" }
           foreach ($skill in "lavish", "stow", "project-check") {
@@ -575,23 +573,23 @@ jobs:
           Write-EnvironmentResult -Lines (@($environment) + @($tools.Environment)) -Summary $env:GITHUB_STEP_SUMMARY
           if ($tools.Failures.Count -gt 0) { throw "goblins doctor reports something missing or broken: $($tools.Failures -join '; ')" }
           # The home's dictation is the same premise as the one-line job's:
-          # the check runs `ceo dictation setup` once and records a runner
+          # the check runs `goblins dictation setup` once and records a runner
           # that could not download the model as an environment result.
-          & ".\tests\acceptance\dictation.ps1" -Goblins (Join-Path $bin "goblins.exe") -Ceo (Join-Path $bin "ceo.exe") -CeoHome $ceoHome -Summary $env:GITHUB_STEP_SUMMARY
+          & ".\tests\acceptance\dictation.ps1" -Goblins (Join-Path $bin "goblins.exe") -CeoHome $ceoHome -Summary $env:GITHUB_STEP_SUMMARY
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $deadline = (Get-Date).AddMinutes(1)
           do { & goblins status | Out-Null } while ($LASTEXITCODE -ne 0 -and (Get-Date) -lt $deadline -and -not (Start-Sleep -Seconds 2))
           if ($LASTEXITCODE -ne 0) { throw "no supervisor runs a minute after -Dev opened Code Goblins" }
           $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk"))
-          # -Dev builds the desktop window, which ceo install puts in bin beside
+          # -Dev builds the desktop window, which goblins install puts in bin beside
           # goblins, so Code Goblins in the Start menu starts that program
           # alone, and it is the one entry.
           if (-not (Test-Path -LiteralPath (Join-Path $bin "goblins-window.exe"))) { throw "-Dev put no desktop window in $bin" }
           if ($shortcut.TargetPath -ne (Join-Path $bin "goblins-window.exe") -or $shortcut.Arguments -ne "") { throw "the Start-menu shortcut runs '$($shortcut.TargetPath) $($shortcut.Arguments)', want the home's goblins-window.exe alone" }
           if (Test-Path -LiteralPath (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins Window.lnk")) { throw "the install made a second Start-menu entry for the window" }
-          # -Dev builds the hook program too, the same ceo with no console,
-          # which ceo install puts in bin for the goblins' hooks.
-          if (-not (Test-Path -LiteralPath (Join-Path $bin "ceo-hook.exe"))) { throw "-Dev put no hook program in $bin" }
+          # -Dev builds the hook program too, the same goblins with no console,
+          # which goblins install puts in bin for the goblins' hooks.
+          if (-not (Test-Path -LiteralPath (Join-Path $bin "goblins-hook.exe"))) { throw "-Dev put no hook program in $bin" }
           $global:LASTEXITCODE = 0
       - name: Use it with one goblin
         shell: powershell
@@ -632,7 +630,7 @@ jobs:
   # A person who installed a published release, with its own install script
   # as its notes say, updates with goblins update while the CEO and a goblin
   # work. Each release here predates the rename, which its update cannot cross,
-  # so its home moves to ceo by this commit's ceo cutover first, with the fleet
+  # so its home moves to goblins by this commit's goblins cutover first, with the fleet
   # paused, and the CEO and the goblin are brought back to work under ceo.
   # This commit's build is served as the newest release, and so is a build of
   # it whose board exits as it starts: the update to that one rolls back, the
@@ -672,7 +670,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Serve this commit as the newest release, and a build of it that does not start
         run: |
-          # ceo.exe embeds the board, which a release builds first.
+          # goblins.exe embeds the board, which a release builds first.
           npm --prefix frontend ci
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm --prefix frontend run build
@@ -722,8 +720,8 @@ jobs:
           }
       - name: Put the CEO and a goblin to work under the release's names
         run: ./tests/update/fleet_at_work.ps1 -Project (Join-Path $env:USERPROFILE "source\demo") -Facts $env:FACTS -PreRename
-      - name: Move the home to ceo with the fleet paused, and put it back to work
-        run: ./tests/update/cutover_and_check.ps1 -Ceo "$env:RELEASES\cutover\ceo.exe" -Project (Join-Path $env:USERPROFILE "source\demo") -Facts $env:FACTS
+      - name: Move the home to goblins with the fleet paused, and put it back to work
+        run: ./tests/update/cutover_and_check.ps1 -Goblins "$env:RELEASES\cutover\goblins.exe" -Project (Join-Path $env:USERPROFILE "source\demo") -Facts $env:FACTS
       - name: Update to a build whose board does not start, which rolls back
         run: ./tests/update/update_and_check.ps1 -Api http://127.0.0.1:8765/broken/latest -Release "$env:RELEASES\broken" -Want rolled-back -Project (Join-Path $env:USERPROFILE "source\demo") -Facts $env:FACTS
       - name: Update to this commit

@@ -289,7 +289,7 @@ func TestChurningPollLoopStillWakesAfterTheBudgetAndOneStallInterval(t *testing.
 	}
 }
 
-// ceo watch rescans at once when any goblin's status changes, so two readings
+// goblins watch rescans at once when any goblin's status changes, so two readings
 // of one goblin can land a second apart. A short-lived child caught in that
 // second - a poll loop's `gh`, a dev server's garbage collection - uses more
 // than 5% of the second but nothing like 5% of a minute, and it must not pass

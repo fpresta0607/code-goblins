@@ -38,7 +38,7 @@ func newReleaseSource(t *testing.T, tag string) *releaseSource {
 		r.mu.Lock()
 		tag := r.tag
 		r.mu.Unlock()
-		notes := "**This release is unsigned.**\n\n| File | SHA-256 |\n| --- | --- |\n| `ceo.exe` | `" + strings.Repeat("3f", 32) + "` |\n\n## What's Changed\n* feat(board): an update arrives in the Command Center by @fpresta0607 in https://example.invalid/pull/1\n"
+		notes := "**This release is unsigned.**\n\n| File | SHA-256 |\n| --- | --- |\n| `goblins.exe` | `" + strings.Repeat("3f", 32) + "` |\n\n## What's Changed\n* feat(board): an update arrives in the Command Center by @fpresta0607 in https://example.invalid/pull/1\n"
 		_ = json.NewEncoder(w).Encode(map[string]any{"tag_name": tag, "html_url": r.URL + "/tag/" + tag, "published_at": "2026-10-06T14:02:00Z", "body": notes})
 	}))
 	t.Cleanup(r.Close)
@@ -71,7 +71,7 @@ func updateItems(s *Service) []Run {
 
 // A newer release arrives as one Update item of its own, for exactly that
 // release, with what its card shows: the two versions, what is new, what the
-// notes say of the signature and the SHA-256 of ceo.exe. Looking again makes
+// notes say of the signature and the SHA-256 of goblins.exe. Looking again makes
 // no second item; a newer release replaces it, and the build becoming that
 // release retires it, each with why.
 func TestTheBoardOffersANewerReleaseAsItsOwnUpdateItem(t *testing.T) {
@@ -139,7 +139,7 @@ func TestTheUpdateItemRunsTheGoblinsTheHomeKeeps(t *testing.T) {
 			if err := os.MkdirAll(programs, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			for _, name := range []string{"ceo.exe", "goblins.exe"} {
+			for _, name := range []string{"goblins.exe"} {
 				if err := os.WriteFile(filepath.Join(programs, name), []byte("the installed build"), 0o700); err != nil {
 					t.Fatal(err)
 				}

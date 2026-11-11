@@ -286,7 +286,7 @@ func piProfileDefault() string {
 
 // userEnvironment is the environment Windows gives a new process of this
 // user, by name, which every goblin's terminal starts from: not this
-// process's own, which ceo serve inherited from whatever started it.
+// process's own, which goblins serve inherited from whatever started it.
 func (s *Service) userEnvironment() map[string]string {
 	read := s.Options.UserEnvironment
 	if read == nil {

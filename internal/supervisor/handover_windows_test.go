@@ -53,7 +53,7 @@ func startStandIn(t *testing.T, stateDir, mode, program string, arguments ...str
 	path := filepath.Join(dir, program)
 	copyExecutable(t, self, path)
 	cmd := exec.Command(path, arguments...)
-	cmd.Env = append(os.Environ(), lockHolderVariable+"="+stateDir, lockHolderModeVariable+"="+mode, "CEO_POLL=300")
+	cmd.Env = append(os.Environ(), lockHolderVariable+"="+stateDir, lockHolderModeVariable+"="+mode, "GOBLINS_POLL=300")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestServeTakesTheLockFromAWatcherTheStopHookHosts(t *testing.T) {
 	setHandoverWait(t, 2*time.Minute)
 	_, h := testStore(t)
 	for round := 1; round <= 2; round++ {
-		hook := startStandIn(t, h.State, "watcher", "ceo.exe", "hook", "stop-autoarm")
+		hook := startStandIn(t, h.State, "watcher", "goblins.exe", "hook", "stop-autoarm")
 		began := time.Now()
 
 		s, err := Start(context.Background(), h, Options{})
@@ -149,7 +149,7 @@ func TestServeTakesTheLockFromAWatcherTheStopHookHosts(t *testing.T) {
 func TestAServeWhoseRequestWasReplacedByOneThatEndedStillGetsTheLock(t *testing.T) {
 	setHandoverWait(t, 2*time.Minute)
 	_, h := testStore(t)
-	hook := startStandIn(t, h.State, "watcher", "ceo.exe", "hook", "stop-autoarm")
+	hook := startStandIn(t, h.State, "watcher", "goblins.exe", "hook", "stop-autoarm")
 	exited := exec.Command("cmd", "/c", "exit 0")
 	if err := exited.Run(); err != nil {
 		t.Fatal(err)
@@ -188,7 +188,7 @@ func TestAServeWhoseRequestWasReplacedByOneThatEndedStillGetsTheLock(t *testing.
 func TestServeWaitsForAWatcherThatAnsweredRatherThanEndingIt(t *testing.T) {
 	setHandoverWait(t, 2*time.Second)
 	_, h := testStore(t)
-	hook := startStandIn(t, h.State, "acknowledging", "ceo.exe", "hook", "stop-autoarm")
+	hook := startStandIn(t, h.State, "acknowledging", "goblins.exe", "hook", "stop-autoarm")
 	began := time.Now()
 
 	s, err := Start(context.Background(), h, Options{})
@@ -221,7 +221,7 @@ func TestServeWaitsForAWatcherThatAnsweredRatherThanEndingIt(t *testing.T) {
 func TestAWatcherYieldingToOneServeAnswersTheNextServeToo(t *testing.T) {
 	setHandoverWait(t, 2*time.Second)
 	_, h := testStore(t)
-	hook := startStandIn(t, h.State, "slow-watcher", "ceo.exe", "hook", "stop-autoarm")
+	hook := startStandIn(t, h.State, "slow-watcher", "goblins.exe", "hook", "stop-autoarm")
 	first := exec.Command("ping", "-n", "60", "127.0.0.1")
 	if err := first.Start(); err != nil {
 		t.Fatal(err)
@@ -299,8 +299,8 @@ func requestFor(stateDir string, pid int) error {
 func TestTwoServesAskingAtOnceNeverEndAWatcherThatAnswered(t *testing.T) {
 	setHandoverWait(t, 2*time.Second)
 	_, h := testStore(t)
-	hook := startStandIn(t, h.State, "slow-watcher", "ceo.exe", "hook", "stop-autoarm")
-	other := startStandIn(t, h.State, "serve", "ceo.exe", "serve")
+	hook := startStandIn(t, h.State, "slow-watcher", "goblins.exe", "hook", "stop-autoarm")
+	other := startStandIn(t, h.State, "serve", "goblins.exe", "serve")
 	// The other serve's request is written again far more often than once a
 	// second, so the answer names it, not this serve, when this serve's
 	// handover wait runs out. A write that meets the watcher reading the
@@ -338,7 +338,7 @@ func TestTwoServesAskingAtOnceNeverEndAWatcherThatAnswered(t *testing.T) {
 
 // heldOpenByReaders keeps opening the watcher lock the way every reader of it
 // does, without delete sharing, holding it a while each time, as a Stop hook,
-// ceo doctor or the board checking who holds the lock, until the test ends.
+// goblins doctor or the board checking who holds the lock, until the test ends.
 func heldOpenByReaders(t *testing.T, stateDir string) {
 	t.Helper()
 	stop := make(chan struct{})
@@ -371,7 +371,7 @@ func heldOpenByReaders(t *testing.T, stateDir string) {
 func TestServeEndsAWatcherThatNeverAnswersTheHandover(t *testing.T) {
 	setHandoverWait(t, 2*time.Second)
 	_, h := testStore(t)
-	ceoHost := startStandIn(t, h.State, "idle", "ceo.exe", "host", "--id", "ceo")
+	ceoHost := startStandIn(t, h.State, "idle", "goblins.exe", "host", "--id", "ceo")
 	heldOpenByReaders(t, h.State)
 	for round := 1; round <= 2; round++ {
 		hook := startStandIn(t, h.State, "legacy", "goblins.exe", "hook", "stop-autoarm")
@@ -392,7 +392,7 @@ func TestServeEndsAWatcherThatNeverAnswersTheHandover(t *testing.T) {
 	}
 }
 
-// Only a watcher is ever ended: a ceo process holding the lock as anything
+// Only a watcher is ever ended: a goblins process holding the lock as anything
 // else, a terminal's host, a serve or a gate's test, any other program, and a
 // process the lock record does not truly name are left running, whatever the
 // record says.
@@ -404,11 +404,11 @@ func TestServeLeavesALockHolderThatIsNotProvedAWatcherRunning(t *testing.T) {
 		arguments  []string
 		mismatched bool
 	}{
-		{"a terminal's host", "ceo.exe", []string{"host", "--id", "ceo"}, false},
-		{"a serve", "ceo.exe", []string{"serve"}, false},
+		{"a terminal's host", "goblins.exe", []string{"host", "--id", "ceo"}, false},
+		{"a serve", "goblins.exe", []string{"serve"}, false},
 		{"a gate's test", "goblins.exe", []string{"gate", "test"}, false},
 		{"another program", "helper.exe", []string{"hook", "stop-autoarm"}, false},
-		{"a watcher the record names with another start", "ceo.exe", []string{"hook", "stop-autoarm"}, true},
+		{"a watcher the record names with another start", "goblins.exe", []string{"hook", "stop-autoarm"}, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, h := testStore(t)

@@ -173,7 +173,7 @@ func TestACheckpointOfAnEmptyHomeSaysWhatIsEmpty(t *testing.T) {
 func TestACheckpointListsAQuestionAGoblinAskedInProse(t *testing.T) {
 	// Arrange
 	h := newDigestHome(t)
-	if _, err := wake.Append(h.State, "stale", "cg-wakes", `goblin_asks: cg-wakes ended its turn asking in prose instead of with ceo notify --blocked and waits at its prompt for the answer; next: answer it with ceo send cg-wakes "<your answer>" (ceo answer takes only a notify's question). It asked: "Should I open the PR?"`); err != nil {
+	if _, err := wake.Append(h.State, "stale", "cg-wakes", `goblin_asks: cg-wakes ended its turn asking in prose instead of with goblins notify --blocked and waits at its prompt for the answer; next: answer it with goblins send cg-wakes "<your answer>" (goblins answer takes only a notify's question). It asked: "Should I open the PR?"`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -400,7 +400,7 @@ func TestTheBriefAfterACompactionSaysWhenNoFreshCheckpointWasWritten(t *testing.
 
 			next := section(t, briefAfterCompact(t, h), "== READ THIS NEXT ==")
 
-			if !strings.Contains(next, "no checkpoint was written before this compaction") || !strings.Contains(next, "ceo install") {
+			if !strings.Contains(next, "no checkpoint was written before this compaction") || !strings.Contains(next, "goblins install") {
 				t.Fatalf("READ THIS NEXT does not say the pre-compact hook did not run:\n%s", next)
 			}
 		})

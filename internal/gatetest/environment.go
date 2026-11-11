@@ -2,13 +2,13 @@ package gatetest
 
 import "strings"
 
-// excludedVariables are kept from the step's go. CEO_HOME and
-// CEO_STATE_OVERRIDE point ceo at the running fleet: a gate step inherits
-// them from the goblin's pane, and a test that runs ceo with them writes into
-// the live fleet, as a test step's ceo notify once did. NO_MISTAKES_GATE
-// marks a gate agent's process, under which every ceo hook does nothing, so
+// excludedVariables are kept from the step's go. GOBLINS_HOME and
+// GOBLINS_STATE_OVERRIDE point goblins at the running fleet: a gate step inherits
+// them from the goblin's pane, and a test that runs goblins with them writes into
+// the live fleet, as a test step's goblins notify once did. NO_MISTAKES_GATE
+// marks a gate agent's process, under which every goblins hook does nothing, so
 // the step's hook tests would test nothing.
-var excludedVariables = []string{"CEO_HOME", "CEO_STATE_OVERRIDE", "NO_MISTAKES_GATE"}
+var excludedVariables = []string{"GOBLINS_HOME", "GOBLINS_STATE_OVERRIDE", "NO_MISTAKES_GATE"}
 
 // Environment is env without the excluded variables, compared without
 // regard to case as Windows does.

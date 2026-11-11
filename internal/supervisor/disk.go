@@ -63,7 +63,7 @@ func (d Disk) Shortfall() string {
 
 // diskRefusal is the whole refusal a start under the floor gets.
 func diskRefusal(short string) string {
-	return short + "; a start needs the floor free: the janitor's sweep removes what the fleet left behind, and ceo runtime shows what holds the rest"
+	return short + "; a start needs the floor free: the janitor's sweep removes what the fleet left behind, and goblins runtime shows what holds the rest"
 }
 
 // machineDisk reads the disk through the dispatch's seam when it has one.

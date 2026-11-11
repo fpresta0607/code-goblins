@@ -34,7 +34,7 @@ func (h *heldCleanup) Run(ctx context.Context, request execx.Request) (execx.Res
 }
 
 // pausedForResume records the fixture's task as paused with a resume of it
-// under way, as ceo resume leaves it when it hands the relaunch to Switch.
+// under way, as goblins resume leaves it when it hands the relaunch to Switch.
 func pausedForResume(t *testing.T, f *switchFixture) SwitchRequest {
 	t.Helper()
 	if err := state.WriteLifecycle(f.stateDir, state.Lifecycle{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "auto-resume-1", Action: "resume", Phase: "resuming"}); err != nil {

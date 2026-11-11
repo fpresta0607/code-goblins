@@ -113,7 +113,13 @@ func read(t *testing.T, path string) string {
 
 // theOldBuilds respells what the new build's native hook install writes as a
 // build before the rename wrote it: its program, its marker and its files.
-var theOldBuilds = strings.NewReplacer(newName+".exe", oldName+".exe", "CEO native hooks", oldSpelling("CEO native hooks"), newName+"-native", oldName+"-native")
+var theOldBuilds = strings.NewReplacer(newCommand+".exe", oldName+".exe", "CEO native hooks", oldSpelling("CEO native hooks"), newName+"-native", oldName+"-native")
+
+// asTheOldBuildSpelled is text of this build's as a build before the rename
+// spelled it, which named its command and the role alike.
+func asTheOldBuildSpelled(text string) string {
+	return oldSpelling(strings.ReplaceAll(text, newCommand+" ", oldName+" "))
+}
 
 // asTheOldBuildWroteThem rewrites what the new build's native hook install
 // wrote in folder as a build before the rename wrote it.
@@ -150,10 +156,10 @@ type fixture struct {
 }
 
 const (
-	skillText       = "---\nname: " + newName + "-afk\n---\nRun `" + newName + " afk on`.\n"
-	lavishText      = "---\nname: lavish\n---\nRun `" + newName + " present` with the plan.\n"
-	agentsText      = "# The CEO\n\nRun `" + newName + " spawn` for every task.\n"
-	spawnPage       = "# " + newName + " spawn\n"
+	skillText       = "---\nname: " + newName + "-afk\n---\nRun `" + newCommand + " afk on`.\n"
+	lavishText      = "---\nname: lavish\n---\nRun `" + newCommand + " present` with the plan.\n"
+	agentsText      = "# The CEO\n\nRun `" + newCommand + " spawn` for every task.\n"
+	spawnPage       = "# " + newCommand + " spawn\n"
 	lavishOwnerText = "Code Goblins installed this skill\r\nThe files it wrote:\r\nSKILL.md\r\n"
 )
 
@@ -183,19 +189,19 @@ func newFixture(t *testing.T) fixture {
 	root, user, local, projects := filepath.Join(top, "home"), filepath.Join(top, "user"), filepath.Join(top, "local"), filepath.Join(top, "projects")
 	state, data := filepath.Join(root, "state"), filepath.Join(root, "data")
 	build := filepath.Join(top, "build")
-	write(t, filepath.Join(build, newName+".exe"), "this build")
-	write(t, filepath.Join(build, newName+"-hook.exe"), "this build's hook program")
+	write(t, filepath.Join(build, newCommand+".exe"), "this build")
+	write(t, filepath.Join(build, newCommand+"-hook.exe"), "this build's hook program")
 	write(t, filepath.Join(build, "goblins-window.exe"), "this build's window")
 	write(t, filepath.Join(root, "bin", oldName+".exe"), "the old build")
 	write(t, filepath.Join(root, "bin", oldName+"-hook.exe"), "the old hook program")
 	write(t, filepath.Join(root, "bin", "goblins.exe"), "the old build")
 	write(t, filepath.Join(root, "bin", "goblins-window.exe"), "the old window")
 	write(t, filepath.Join(root, "."+oldName+"-home"), "")
-	write(t, filepath.Join(root, "AGENTS.md"), oldSpelling(agentsText))
+	write(t, filepath.Join(root, "AGENTS.md"), asTheOldBuildSpelled(agentsText))
 
 	harnesses := harnessmap.Find(func(string) string { return "" }, user)
 	for _, root := range harnesses.Roots {
-		_, err := nativehook.Install(nativehook.InstallConfig{Harness: root.Harness, ConfigDir: root.Path, Executable: filepath.Join(filepath.Dir(state), "bin", newName+".exe"), Home: filepath.Dir(state), State: state})
+		_, err := nativehook.Install(nativehook.InstallConfig{Harness: root.Harness, ConfigDir: root.Path, Executable: filepath.Join(filepath.Dir(state), "bin", newCommand+".exe"), Home: filepath.Dir(state), State: state})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -210,7 +216,7 @@ func newFixture(t *testing.T) fixture {
 	write(t, filepath.Join(claude.Path, "CLAUDE.md"), "Run "+oldName+" doctor first.\n")
 
 	shared := filepath.Join(harnesses.SharedSkills, oldName+"-afk")
-	write(t, filepath.Join(shared, "SKILL.md"), oldSpelling(skillText))
+	write(t, filepath.Join(shared, "SKILL.md"), asTheOldBuildSpelled(skillText))
 	write(t, filepath.Join(shared, "notes.md"), "a file the old build shipped and this one does not\n")
 	write(t, filepath.Join(shared, "my-notes.md"), "notes the user added, which no install wrote\n")
 	write(t, filepath.Join(shared, ".code-goblins"), "Code Goblins installed this skill\r\nThe files it wrote:\r\nSKILL.md\r\nnotes.md\r\n")
@@ -221,7 +227,7 @@ func newFixture(t *testing.T) fixture {
 		t.Fatal(err)
 	}
 	lavish := filepath.Join(harnesses.SharedSkills, "lavish")
-	write(t, filepath.Join(lavish, "SKILL.md"), oldSpelling(lavishText))
+	write(t, filepath.Join(lavish, "SKILL.md"), asTheOldBuildSpelled(lavishText))
 	write(t, filepath.Join(lavish, ".code-goblins"), lavishOwnerText)
 	write(t, filepath.Join(lavish, "my-notes.md"), "notes the user added, which no install wrote\n")
 	if err := junction(filepath.Join(claude.Skills, "lavish"), lavish); err != nil {
@@ -246,6 +252,7 @@ func newFixture(t *testing.T) fixture {
 	write(t, filepath.Join(state, "trains", "owner-repo-1.json"), `{"schema": "`+oldName+`-merge-train.v1","branch":"`+oldName+`/train-1"}`)
 	write(t, filepath.Join(state, "conversations", oldName, "session.jsonl"), `{"text":"`+oldName+` spawn"}`+"\n")
 	write(t, filepath.Join(state, "update", "previous-"+oldName+".exe"), "the build before the last update")
+	write(t, filepath.Join(state, "update", "previous-goblins.exe"), "the build before the last update")
 	write(t, filepath.Join(state, "update", "release.json"), `{"assets":["`+oldName+`.exe"]}`)
 	write(t, filepath.Join(root, "bin", oldName+".exe.1794.update-old"), "the build the last update set aside")
 	write(t, filepath.Join(state, "update", "journal.json"), lastUpdate(t, root))
@@ -292,7 +299,7 @@ func newFixture(t *testing.T) fixture {
 	return fixture{
 		machine: Machine{
 			Root: root, UserHome: user, LocalAppData: local, Harnesses: harnesses, ProjectsRoot: projects,
-			Program: filepath.Join(build, newName+".exe"),
+			Program: filepath.Join(build, newCommand+".exe"),
 			Skills: fstest.MapFS{
 				newName + "-afk/SKILL.md": {Data: []byte(skillText)},
 				"lavish/SKILL.md":         {Data: []byte(lavishText)},
@@ -411,18 +418,21 @@ func TestTheDryRunListsEveryChangeAndChangesNothing(t *testing.T) {
 	root, user := f.machine.Root, f.machine.UserHome
 	shared := filepath.Join(user, ".agents", "skills")
 	for _, want := range []string{
-		KindProgram + ":", filepath.Join(root, "bin", newName+".exe") + ": this build", filepath.Join(root, "bin", oldName+".exe") + ": removed",
+		KindProgram + ":", filepath.Join(root, "bin", newCommand+".exe") + ": this build", filepath.Join(root, "bin", oldName+".exe") + ": removed",
+		filepath.Join(root, "bin", newCommand+"-hook.exe") + ": this build", filepath.Join(root, "bin", oldName+"-hook.exe") + ": removed",
 		filepath.Join(root, "bin", "goblins-window.exe") + ": this build",
 		KindContract + ":", filepath.Join(root, "AGENTS.md") + ": this build's", filepath.Join(root, "docs", "commands", "spawn.md") + ": this build's",
 		filepath.Join(shared, newName+"-afk", "SKILL.md") + ": this build's", filepath.Join(shared, newName+"-afk", "notes.md") + ": removed",
 		filepath.Join(shared, "lavish", "SKILL.md") + ": this build's", filepath.Join(shared, "lavish", ".code-goblins") + ": this build's",
 		filepath.Join(f.machine.LocalAppData, oldName) + ": the old build's caches outside the home, left for you to delete",
-		KindSetting + ":", strings.ToUpper(oldName) + "_HOME=" + root + " becomes " + strings.ToUpper(newName) + "_HOME",
+		KindSetting + ":", strings.ToUpper(oldName) + "_HOME=" + root + " becomes " + strings.ToUpper(newCommand) + "_HOME",
 		KindHook + ":", filepath.Join(user, ".claude", "settings.json") + ": ", "renamed " + newName + "-native.ts", filepath.Join(root, "state", oldName+"-wake-skips.jsonl") + ": renamed",
 		KindSkill + ":", filepath.Join(user, ".agents", "skills", oldName+"-afk") + ": becomes",
-		KindJob + ":", `\` + oldName + `-stall-watchdog: becomes \` + newName + `-stall-watchdog`, `\Code Goblins\Resume: its definition rewritten`,
+		KindJob + ":", `\` + oldName + `-stall-watchdog: becomes \` + newCommand + `-stall-watchdog`, `\Code Goblins\Resume: its definition rewritten`,
 		KindCredential + ":", oldName + ":GITHUB_TOKEN becomes " + newName + ":GITHUB_TOKEN", filepath.Join(user, "."+oldName) + ": the credential file store's folder",
 		KindState + ":", filepath.Join(root, "state", "hosts", oldName+".log") + ": renamed " + newName + ".log", filepath.Join(root, "."+oldName+"-home") + ": renamed",
+		filepath.Join(root, "state", "update", "journal.json") + ": rewritten to name " + newCommand + ".exe once",
+		filepath.Join(root, "state", "update", "previous-"+oldName+".exe") + ": kept, since",
 		KindTask + ":", filepath.Join(root, "data", "backlog.md") + ": 1 line rewritten", filepath.Join(root, "state", "tasktmp", "cg-x", "delivery.json"),
 		KindLabel + ":", `owner/repo: "` + oldName + `: running" becomes "` + newName + `: running"`,
 		KindListed + ":", filepath.Join(f.machine.ProjectsRoot, "other-app", "README.md") + ": names the old command on line 1, 3",
@@ -479,7 +489,7 @@ func TestTheCutoverLeavesTheHomeWorkingUnderTheNewName(t *testing.T) {
 		}
 	}
 	bin := filepath.Join(root, "bin")
-	for name, want := range map[string]string{newName + ".exe": "this build", "goblins.exe": "this build", newName + "-hook.exe": "this build's hook program", "goblins-window.exe": "this build's window"} {
+	for name, want := range map[string]string{newCommand + ".exe": "this build", newCommand + "-hook.exe": "this build's hook program", "goblins-window.exe": "this build's window"} {
 		if got := read(t, filepath.Join(bin, name)); got != want {
 			t.Errorf("bin\\%s is %q, want %q", name, got, want)
 		}
@@ -489,7 +499,7 @@ func TestTheCutoverLeavesTheHomeWorkingUnderTheNewName(t *testing.T) {
 			t.Errorf("%s is still there", gone)
 		}
 	}
-	if f.env.values[strings.ToUpper(newName)+"_HOME"] != root || f.env.values[strings.ToUpper(newName)+"_PROJECTS_ROOT"] != f.machine.ProjectsRoot || f.env.broadcasts != 1 {
+	if f.env.values[strings.ToUpper(newCommand)+"_HOME"] != root || f.env.values[strings.ToUpper(newCommand)+"_PROJECTS_ROOT"] != f.machine.ProjectsRoot || f.env.broadcasts != 1 {
 		t.Errorf("settings %v, broadcast %d times", f.env.values, f.env.broadcasts)
 	}
 	if _, isSet := f.env.values[strings.ToUpper(oldName)+"_HOME"]; isSet {
@@ -501,7 +511,7 @@ func TestTheCutoverLeavesTheHomeWorkingUnderTheNewName(t *testing.T) {
 		}
 	}
 	settings := read(t, filepath.Join(user, ".claude", "settings.json"))
-	if !strings.Contains(settings, "Bash("+newName+" question *)") || strings.Contains(strings.ToLower(settings), oldName) {
+	if !strings.Contains(settings, "Bash("+newCommand+" question *)") || strings.Contains(strings.ToLower(settings), oldName) {
 		t.Errorf("Claude Code's settings still name the old command:\n%s", settings)
 	}
 	if !exists(filepath.Join(user, ".claude", "settings.json."+newName+"-install.bak")) {
@@ -520,8 +530,8 @@ func TestTheCutoverLeavesTheHomeWorkingUnderTheNewName(t *testing.T) {
 	if exists(filepath.Join(user, ".agents", "skills", newName+"-afk", "notes.md")) {
 		t.Errorf("a file the old build shipped and this one does not is still in the skill")
 	}
-	watchdog, resume := f.jobs[`\`+newName+`-stall-watchdog`], f.jobs[`\Code Goblins\Resume`]
-	if !strings.Contains(watchdog, `<URI>\`+newName+`-stall-watchdog</URI>`) || !strings.Contains(resume, newName+".exe") || strings.Contains(resume, oldName+".exe") || len(f.jobs) != 3 {
+	watchdog, resume := f.jobs[`\`+newCommand+`-stall-watchdog`], f.jobs[`\Code Goblins\Resume`]
+	if !strings.Contains(watchdog, `<URI>\`+newCommand+`-stall-watchdog</URI>`) || !strings.Contains(resume, newCommand+".exe") || strings.Contains(resume, oldName+".exe") || len(f.jobs) != 3 {
 		t.Errorf("the scheduled jobs are %v", f.jobs)
 	}
 	if held := f.vault[newName+":app/STRIPE_KEY"]; held.User != auth.VaultUser || string(held.Value) != "key" || len(f.vault) != 3 {
@@ -533,24 +543,24 @@ func TestTheCutoverLeavesTheHomeWorkingUnderTheNewName(t *testing.T) {
 	for path, want := range map[string]string{
 		filepath.Join(state, newName+"-wake-skips.jsonl"):               `{"skipped":"` + oldName + ` spawn"}` + "\n",
 		filepath.Join(state, "hosts", newName+".json"):                  `{"host":"` + newName + `","started_by_` + newName + `":true,"pid":7}`,
-		filepath.Join(state, "tasktmp", "cg-x", "delivery.json"):        `{"fast":[["` + newName + `","gate","test"]],"mode":"no-mistakes"}`,
+		filepath.Join(state, "tasktmp", "cg-x", "delivery.json"):        `{"fast":[["` + newCommand + `","gate","test"]],"mode":"no-mistakes"}`,
 		filepath.Join(state, "tickets", "cg-x.json"):                    `{"task_id":"cg-x","repository":"owner/repo","labels":["` + newName + `: running"]}`,
 		filepath.Join(state, "fleet-wakes.json"):                        `{"schema":"` + newName + `-fleet-wakes.v1"}`,
 		filepath.Join(state, "monitor", "heartbeat.json"):               `{"schema":"` + newName + `-monitor.v1","pid":7}`,
 		filepath.Join(state, "monitor", "tasks", "cg-x.json"):           `{"schema":"` + newName + `-monitor.v1","task":"cg-` + oldName + `-wakes"}`,
 		filepath.Join(state, "trains", "owner-repo-1.json"):             `{"schema": "` + newName + `-merge-train.v1","branch":"` + oldName + `/train-1"}`,
 		filepath.Join(state, "conversations", newName, "session.jsonl"): `{"text":"` + oldName + ` spawn"}` + "\n",
-		filepath.Join(state, "update", "previous-"+newName+".exe"):      "the build before the last update",
-		filepath.Join(root, "bin", newName+".exe.1794.update-old"):      "the build the last update set aside",
-		filepath.Join(state, "ops", "watchdog.ps1"):                     "& \"$env:" + strings.ToUpper(newName) + "_HOME\\bin\\" + newName + ".exe\" watch\n",
-		filepath.Join(root, "data", "backlog.md"):                       "| cg-x | run `" + newName + " spawn cg-x` |\n| " + oldName + "-native-board | done |\n",
-		filepath.Join(root, "data", "memory", "fleet.md"):               "Use " + newName + " gate turn --low-priority.\n",
-		filepath.Join(root, "data", "cg-x", "ticket.md"):                "Run " + newName + " status first.\n",
+		filepath.Join(state, "update", "previous-"+newCommand+".exe"):   "the build before the last update",
+		filepath.Join(root, "bin", newCommand+".exe.1794.update-old"):   "the build the last update set aside",
+		filepath.Join(state, "ops", "watchdog.ps1"):                     "& \"$env:" + strings.ToUpper(newCommand) + "_HOME\\bin\\" + newCommand + ".exe\" watch\n",
+		filepath.Join(root, "data", "backlog.md"):                       "| cg-x | run `" + newCommand + " spawn cg-x` |\n| " + oldName + "-native-board | done |\n",
+		filepath.Join(root, "data", "memory", "fleet.md"):               "Use " + newCommand + " gate turn --low-priority.\n",
+		filepath.Join(root, "data", "cg-x", "ticket.md"):                "Run " + newCommand + " status first.\n",
 		filepath.Join(root, "data", newName+"-handoff-2026-11-05.md"):   "The CFO handed off; " + oldName + " spawn later.\n",
 		filepath.Join(root, "AGENTS.md"):                                agentsText,
 		filepath.Join(root, "docs", "commands", "spawn.md"):             spawnPage,
 		filepath.Join(user, ".agents", "skills", "lavish", "SKILL.md"):  lavishText,
-		filepath.Join(state, "tasktmp", "cg-x", "brief.md"):             "# Brief\n\nRun `" + newName + " gate test` with " + strings.ToUpper(newName) + "_HOME cleared, then " + newName + " notify cg-x --done.\n\nThe Overlord wrote: \"restart the " + oldName + " when " + oldName + " gate test hangs\"\n\n> " + oldName + " spawn is his to run\n\nTask cg-" + oldName + "-wakes and the skill " + newName + "-afk stay named.\n",
+		filepath.Join(state, "tasktmp", "cg-x", "brief.md"):             "# Brief\n\nRun `" + newCommand + " gate test` with " + strings.ToUpper(newCommand) + "_HOME cleared, then " + newCommand + " notify cg-x --done.\n\nThe Overlord wrote: \"restart the " + oldName + " when " + oldName + " gate test hangs\"\n\n> " + oldName + " spawn is his to run\n\nTask cg-" + oldName + "-wakes and the skill " + newName + "-afk stay named.\n",
 	} {
 		if got := read(t, path); got != want {
 			t.Errorf("%s is\n%q, want\n%q", path, got, want)

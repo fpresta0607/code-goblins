@@ -50,7 +50,7 @@ func Image(checkout string) (string, error) {
 		case config.Image != "":
 			return config.Image, nil
 		case len(config.Build) > 0 || config.DockerFile != "" || len(config.ComposeFile) > 0:
-			return "", fmt.Errorf("sandbox: the project's %s builds its image, from a Dockerfile or a compose file, which ceo sandbox run does not build: name a built image in its image field", filepath.ToSlash(name))
+			return "", fmt.Errorf("sandbox: the project's %s builds its image, from a Dockerfile or a compose file, which goblins sandbox run does not build: name a built image in its image field", filepath.ToSlash(name))
 		}
 		return "", fmt.Errorf("sandbox: the project's %s names no image", filepath.ToSlash(name))
 	}

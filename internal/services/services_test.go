@@ -358,7 +358,7 @@ func TestUpStartsTheEngineAndTheStackForTheFirstTask(t *testing.T) {
 	record := h.record(t)
 	stack := record.Stacks["PrecisionDocs-AI"]
 	if !record.Engine.StartedByCEO {
-		t.Error("the record does not say ceo started the engine")
+		t.Error("the record does not say goblins started the engine")
 	}
 	if !stack.Owned || !slices.Equal(stack.HolderIDs(), []string{"task-a"}) {
 		t.Errorf("stack = %+v, want it owned and held by task-a", stack)
@@ -473,7 +473,7 @@ func TestTheLastReleaseLeavesAnEngineCEODidNotStart(t *testing.T) {
 		t.Fatalf("docker calls = %v, want only the stack stopped", h.docker.calls)
 	}
 	if !h.docker.engine {
-		t.Error("the engine ceo did not start was stopped")
+		t.Error("the engine goblins did not start was stopped")
 	}
 }
 
@@ -492,7 +492,7 @@ func TestTheLastReleaseLeavesTheEngineWhileContainersCEODidNotStartRun(t *testin
 		t.Errorf("line = %q, want it to name the container that keeps the engine running", line)
 	}
 	if !h.record(t).Engine.StartedByCEO {
-		t.Error("the record forgot ceo started the engine, so no later release can stop it")
+		t.Error("the record forgot goblins started the engine, so no later release can stop it")
 	}
 }
 
@@ -937,8 +937,8 @@ func TestUpSaysWhatItStartsBeforeEachSlowStep(t *testing.T) {
 
 	h.up(t, "task-a")
 
-	want := "ceo services: starting the Docker engine\n" +
-		"ceo services: starting PrecisionDocs-AI's backend, worker-light and what they depend on, which builds any image they lack first and can take many minutes\n"
+	want := "goblins services: starting the Docker engine\n" +
+		"goblins services: starting PrecisionDocs-AI's backend, worker-light and what they depend on, which builds any image they lack first and can take many minutes\n"
 	if got := h.out.String(); got != want {
 		t.Errorf("progress = %q, want %q", got, want)
 	}
@@ -1060,14 +1060,14 @@ func TestAStartTakesTheMachinesTurnAndASharerTakesNone(t *testing.T) {
 	if !slices.Equal(h.docker.calls, want) {
 		t.Errorf("calls = %q, want %q", h.docker.calls, want)
 	}
-	if want := []string{"ceo services up PrecisionDocs-AI for task-a"}; !slices.Equal(h.turn.taken, want) {
+	if want := []string{"goblins services up PrecisionDocs-AI for task-a"}; !slices.Equal(h.turn.taken, want) {
 		t.Errorf("turns taken = %q, want %q", h.turn.taken, want)
 	}
 }
 
 // A build that takes the machine under the floor is ended at the first
 // reading under it, and the start then stops what it started, the engine
-// ceo started included, so the memory comes back. The start says why, and
+// goblins started included, so the memory comes back. The start says why, and
 // what it took is kept as the stack's cost for the next start's mark.
 func TestABuildThatReachesTheFloorIsEndedAndWhatItStartedStopped(t *testing.T) {
 	// Arrange: 12 GB free, the engine takes 2 GB and the build 7 GB, which
@@ -1104,7 +1104,7 @@ func TestABuildThatReachesTheFloorIsEndedAndWhatItStartedStopped(t *testing.T) {
 	if stack.Cost.Bytes != 9*gigabyte {
 		t.Errorf("cost = %.1f GB, want the 9 GB the start took", float64(stack.Cost.Bytes)/float64(gigabyte))
 	}
-	if said := h.out.String(); !strings.Contains(said, "under the 4 GB floor, so ceo ended its start of PrecisionDocs-AI's services") {
+	if said := h.out.String(); !strings.Contains(said, "under the 4 GB floor, so goblins ended its start of PrecisionDocs-AI's services") {
 		t.Errorf("said %q, want the floor and what it ended", said)
 	}
 }

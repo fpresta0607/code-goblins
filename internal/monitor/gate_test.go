@@ -61,7 +61,7 @@ func TestParseGateStatusReadsAStepBeingFixedInTheCurrentFormat(t *testing.T) {
 		wantActivity string
 	}{
 		"a step whose agent is fixing it":                    {`ci,fixing,19m24s,36s,"1s ago: claude producing output","48204",fix 1`, 19*time.Minute + 24*time.Second, "1s ago: claude producing output"},
-		"a running step":                                     {`test,running,22m39s,22m39s,"quiet 22m30s ago: log: running tests: ceo gate test","",starting`, 22*time.Minute + 39*time.Second, "quiet 22m30s ago: log: running tests: ceo gate test"},
+		"a running step":                                     {`test,running,22m39s,22m39s,"quiet 22m30s ago: log: running tests: goblins gate test","",starting`, 22*time.Minute + 39*time.Second, "quiet 22m30s ago: log: running tests: goblins gate test"},
 		"a fixing step whose activity ends in a quote":       {`ci,fixing,19m24s,36s,"1s ago: log: running \"go test ./...\"","48204",fix 1`, 19*time.Minute + 24*time.Second, `1s ago: log: running "go test ./..."`},
 		"a fixing step whose activity quotes before a comma": {`ci,fixing,19m24s,36s,"1s ago: log: got \"x\", retrying","48204",fix 1`, 19*time.Minute + 24*time.Second, `1s ago: log: got "x", retrying`},
 	} {

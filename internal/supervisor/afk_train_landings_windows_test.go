@@ -141,7 +141,7 @@ func TestTheSupervisorLogsALandingOfATrainItDidNotStartOnceFromItsRecord(t *test
 	}
 }
 
-// A ceo pr train started detached runs outside the registered CEO, and the
+// A goblins pr train started detached runs outside the registered CEO, and the
 // supervisor still logs what it landed as merged (#848): a build before #833
 // took the landing as a decision of the CEO's and refused it, "this process
 // does not run under the registered CEO".

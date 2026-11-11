@@ -273,7 +273,7 @@ func TestABriefForAResumedConversationDoesNotAskForTheLongDigestAgain(t *testing
 
 // The ack line retires every record at or below its sequence, so it is
 // printed only beside a listing of all of them: a queue too long to list
-// here keeps its first records and withholds the ack, pointing at ceo drain.
+// here keeps its first records and withholds the ack, pointing at goblins drain.
 func TestABriefThatCannotListTheWholeWakeQueueWithholdsItsAck(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -288,12 +288,12 @@ func TestABriefThatCannotListTheWholeWakeQueueWithholdsItsAck(t *testing.T) {
 
 			out := composeBrief(t, h)
 
-			hasAck := strings.Contains(out, "WAKE_ACK_REQUIRED: ceo drain --ack-through")
+			hasAck := strings.Contains(out, "WAKE_ACK_REQUIRED: goblins drain --ack-through")
 			if hasAck != test.isWhole {
 				t.Errorf("ack line printed = %v, want %v:\n%s", hasAck, test.isWhole, out)
 			}
-			if !test.isWhole && (!strings.Contains(out, "WAKE_ACK_WITHHELD") || !strings.Contains(out, "ceo drain")) {
-				t.Errorf("a partial listing does not withhold its ack and point at ceo drain:\n%s", out)
+			if !test.isWhole && (!strings.Contains(out, "WAKE_ACK_WITHHELD") || !strings.Contains(out, "goblins drain")) {
+				t.Errorf("a partial listing does not withhold its ack and point at goblins drain:\n%s", out)
 			}
 			if !strings.Contains(out, fmt.Sprintf("WAKE QUEUE: %d pending", test.wakes)) {
 				t.Errorf("the brief does not say how many wakes are pending:\n%s", out)
@@ -374,7 +374,7 @@ func TestABriefStaysWithinItsBudgetWhenTheWakeQueueIsUnreadable(t *testing.T) {
 	if !strings.Contains(out, "WAKE QUEUE: UNREADABLE (wake: corrupt queue line") {
 		t.Errorf("the brief does not say the wake queue is unreadable:\n%s", out)
 	}
-	if strings.Contains(out, "WAKE_ACK_REQUIRED: ceo drain --ack-through") {
+	if strings.Contains(out, "WAKE_ACK_REQUIRED: goblins drain --ack-through") {
 		t.Errorf("the brief offers an ack for a queue it could not read:\n%s", out)
 	}
 	fleet := out[strings.Index(out, "== FLEET =="):strings.Index(out, "== READ THIS NEXT ==")]
@@ -468,7 +468,7 @@ func TestABriefForASessionThatDoesNotHoldTheHomeWritesNothing(t *testing.T) {
 	if _, ok := ReadCompleteMarker(h.State); ok {
 		t.Error("a read-only brief wrote the completion marker")
 	}
-	if !strings.Contains(out, "ceo session-start") || !strings.Contains(out, readOnlyBannerTitle) {
+	if !strings.Contains(out, "goblins session-start") || !strings.Contains(out, readOnlyBannerTitle) {
 		t.Errorf("a read-only brief does not say how to print the long digest:\n%s", out)
 	}
 }

@@ -237,17 +237,19 @@ func TestReadKeepsTheGoblinsOwnTerminalOutOfItsJobs(t *testing.T) {
 	hostCPU := time.Minute
 	processes := func() []Process {
 		return []Process{
-			{PID: 50, ParentPID: 990, Exe: "ceo.exe", Created: 1, Started: launched.Add(-time.Second), CPU: hostCPU, Memory: 30 * megabyte},
+			{PID: 50, ParentPID: 990, Exe: "goblins.exe", Created: 1, Started: launched.Add(-time.Second), CPU: hostCPU, Memory: 30 * megabyte},
 			{PID: 51, ParentPID: 50, Exe: "OpenConsole.exe", Created: 2, Started: launched.Add(-time.Second), CPU: hostCPU, Memory: 10 * megabyte},
 			{PID: 100, ParentPID: 50, Exe: "claude.exe", Created: 3, Started: launched, Memory: 500 * megabyte},
 		}
 	}
 	now := at
 	reader := Reader{
-		Home:        t.TempDir(),
-		Processes:   func() ([]Process, error) { return processes(), nil },
-		Listeners:   func() (map[int][]int, error) { return nil, nil },
-		CommandLine: func(pid int) (string, error) { return map[int]string{50: `ceo.exe host --id tree --dir C:\worktrees\repo\tree`}[pid], nil },
+		Home:      t.TempDir(),
+		Processes: func() ([]Process, error) { return processes(), nil },
+		Listeners: func() (map[int][]int, error) { return nil, nil },
+		CommandLine: func(pid int) (string, error) {
+			return map[int]string{50: `goblins.exe host --id tree --dir C:\worktrees\repo\tree`}[pid], nil
+		},
 		// The host is the task's by the worktree it is told to work in.
 		Owner: func(pid int) string { return map[int]string{50: "tree"}[pid] },
 		Now:   func() time.Time { return now },
@@ -419,7 +421,7 @@ func TestReadGivesTheGoblinsPlaceInTheHeavyLine(t *testing.T) {
 	}
 }
 
-// A run a goblin started in the machine's heavy line with ceo gate turn
+// A run a goblin started in the machine's heavy line with goblins gate turn
 // --detach waits there, hidden and detached, and tells the goblin how it
 // ended, so the goblin waits on it by design while it waits in line or holds
 // the turn: on 2026-10-14 a goblin's run waited 50 minutes behind another.

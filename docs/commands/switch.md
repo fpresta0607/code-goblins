@@ -1,6 +1,6 @@
-# ceo switch
+# goblins switch
 
-`ceo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart]`
+`goblins switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart]`
 
 Change a running goblin's harness, model, or effort in place: same id, same worktree, a new native terminal under the same id.
 Stops the old harness on its own terms, then relaunches.

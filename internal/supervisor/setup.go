@@ -33,7 +33,7 @@ type FirstRun struct {
 	SavedAgent func() string
 	SaveAgent  func(agent string) error
 	// ProjectsRoot and SetProjectsRoot read and record the projects folder,
-	// as ceo install --projects-root does.
+	// as goblins install --projects-root does.
 	ProjectsRoot    func() (string, error)
 	SetProjectsRoot func(root string) error
 	// SignIn asks agent's own status command whether it is signed in, in

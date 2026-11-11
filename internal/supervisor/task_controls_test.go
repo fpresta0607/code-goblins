@@ -292,7 +292,9 @@ func TestRefusedResumeLeavesTheSharedSnapshotAndItsEarlierFailureUntilOneIsAccep
 		t.Fatalf("resume with an unreadable memory=%d, want it taken and its failure sent to the CEO", code)
 	}
 	records, err := wake.Pending(h.State)
-	if err != nil || !slices.ContainsFunc(records, func(record wake.Record) bool { return record.Key == meta.ID && strings.Contains(record.Detail, "memory reading failed") }) {
+	if err != nil || !slices.ContainsFunc(records, func(record wake.Record) bool {
+		return record.Key == meta.ID && strings.Contains(record.Detail, "memory reading failed")
+	}) {
 		t.Fatalf("wakes = %+v, %v, want the CEO told the Resume could not read memory", records, err)
 	}
 
@@ -449,7 +451,7 @@ func TestBoardResumeLetsTheCLIReconcileOnlyAnOperationBoundLaunchBelowFiveGigaby
 				calls = awaitCalls(t, spawner, 1)
 			}
 			if response.Code != 202 || test.isRun != (len(calls) == 1) {
-				t.Fatalf("resume=%d %s, ceo ran %v, want it taken and run at once %v", response.Code, response.Body, calls, test.isRun)
+				t.Fatalf("resume=%d %s, goblins ran %v, want it taken and run at once %v", response.Code, response.Body, calls, test.isRun)
 			}
 		})
 	}
@@ -487,7 +489,7 @@ func TestBoardResumeWaitsItsTurnForFiveGigabytesOfBothMemoryAndCommit(t *testing
 				calls = awaitCalls(t, spawner, 1)
 			}
 			if response.Code != 202 || test.isRun != (len(calls) == 1) {
-				t.Fatalf("resume = %d %s, ceo ran %v, want it taken and run at once %v", response.Code, response.Body, calls, test.isRun)
+				t.Fatalf("resume = %d %s, goblins ran %v, want it taken and run at once %v", response.Code, response.Body, calls, test.isRun)
 			}
 			if card := cardOf(t, handler, meta.ID); !test.isRun && (card.Phase != "resuming" || !card.Asked) {
 				t.Fatalf("card = %+v, want it resuming and waiting its turn for memory", card)

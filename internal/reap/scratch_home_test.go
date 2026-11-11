@@ -10,7 +10,7 @@ const (
 	boardScratch = `C:\Users\op\AppData\Local\Temp\claude\C--dev-proj--worktrees-gb-board\5e1f\scratchpad`
 )
 
-// withScratchHost adds a ceo host run for a CEO home other than the fleet's,
+// withScratchHost adds a goblins host run for a CEO home other than the fleet's,
 // started in cwd with state as its --state, and the harness it runs.
 func withScratchHost(inv Inventory, cwd, state string) Inventory {
 	host := process(600, 1, "ceo-new.exe", `"C:\tmp\ceo-new.exe" host --state "`+state+`" --id ceo --dir "`+scratchHome+`" -- "C:\Program Files\nodejs\node.exe" harness.js --dangerously-skip-permissions`, fixtureLater)
@@ -21,7 +21,7 @@ func withScratchHost(inv Inventory, cwd, state string) Inventory {
 	return inv
 }
 
-// A ceo host run with another CEO home's --state is a goblin's test or proof,
+// A goblins host run with another CEO home's --state is a goblin's test or proof,
 // the native counterpart of a Herdr server of another session: its harness is
 // that goblin's fixture while the goblin lives, tied to it by where the host
 // was started or by the goblin's Claude Code scratchpad the home sits in; a
@@ -110,8 +110,8 @@ func TestAScratchHomeInASpacedWorktreesScratchpadIsItsGoblinsFixture(t *testing.
 }
 
 func TestCommandArgsKeepAQuotedPathWhole(t *testing.T) {
-	got := commandArgs(`"C:\Program Files\ceo.exe" host --state "C:\a b\state" --id ceo`)
-	want := []string{`C:\Program Files\ceo.exe`, "host", "--state", `C:\a b\state`, "--id", "ceo"}
+	got := commandArgs(`"C:\Program Files\goblins.exe" host --state "C:\a b\state" --id ceo`)
+	want := []string{`C:\Program Files\goblins.exe`, "host", "--state", `C:\a b\state`, "--id", "ceo"}
 	if len(got) != len(want) {
 		t.Fatalf("commandArgs = %q, want %q", got, want)
 	}

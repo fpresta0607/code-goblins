@@ -101,17 +101,17 @@ func (freeLine) Wrap(_ string, command []string) []string { return command }
 type busyLine struct{}
 
 func (busyLine) Free() error {
-	return errors.New("ceo gate test at 0123abcd (pid 4242) holds the machine's heavy line")
+	return errors.New("goblins gate test at 0123abcd (pid 4242) holds the machine's heavy line")
 }
 func (busyLine) Wrap(_ string, command []string) []string { return command }
 
 // countedLine stands in for a heavy line free for its first free reads and
-// held after, which wraps a command in ceo gate turn as the watcher's does.
+// held after, which wraps a command in goblins gate turn as the watcher's does.
 type countedLine struct{ free int }
 
 func (line *countedLine) Free() error {
 	if line.free == 0 {
-		return errors.New("ceo verify fast of task t1 (pid 7) holds the machine's heavy line")
+		return errors.New("goblins verify fast of task t1 (pid 7) holds the machine's heavy line")
 	}
 	line.free--
 	return nil
@@ -223,7 +223,7 @@ func TestSweepRetiresTheHomesOwnCachesOnceNoTerminalFromBeforeTheMoveRuns(t *tes
 			goBuild := folder(t, filepath.Join(old, "go-build", "00"), true)
 			npm := folder(t, filepath.Join(old, "npm", "_cacache"), true)
 			voice := folder(t, filepath.Join(old, "voice", "model"), true)
-			terminal := reap.Process{PID: 4242, CommandLine: `"C:\cg\ceo.exe" host --id goblin`, Start: moved.Add(test.started)}
+			terminal := reap.Process{PID: 4242, CommandLine: `"C:\cg\goblins.exe" host --id goblin`, Start: moved.Add(test.started)}
 			recorded := terminal.Start
 			if test.recorded != 0 {
 				recorded = moved.Add(test.recorded)
@@ -280,7 +280,7 @@ func writeHostRecord(t *testing.T, stateDir, id string, pid int, started time.Ti
 // A worktree an older build put in a checkout's .worktrees is found through
 // the projects root, which every home on the machine shares, so no record of
 // this home says it is this fleet's rather than another home's: the janitor
-// reports it and leaves it to ceo cleanup and ceo reap, however clean and
+// reports it and leaves it to goblins cleanup and goblins reap, however clean and
 // merged it is. A scratch home's janitor must never return a live fleet's
 // worktree.
 func TestSweepOnlyReportsACleanWorktreeOutsideItsOwnHome(t *testing.T) {
@@ -520,7 +520,7 @@ type pruneRunner struct {
 	caches string
 	ran    []string
 	envs   [][]string
-	// isNoTurn has every prune take no turn and run nothing, as ceo gate
+	// isNoTurn has every prune take no turn and run nothing, as goblins gate
 	// turn's does when a run takes the line within its wait.
 	isNoTurn bool
 }
@@ -529,7 +529,7 @@ func (r *pruneRunner) Run(_ context.Context, request execx.Request) (execx.Resul
 	r.ran = append(r.ran, request.Name+" "+strings.Join(request.Args, " "))
 	r.envs = append(r.envs, request.Env)
 	if r.isNoTurn {
-		return execx.Result{ExitCode: 125, Stderr: []byte("ceo gate turn: this run takes no turn: it took no turn within its wait of 30s\n")}, nil
+		return execx.Result{ExitCode: 125, Stderr: []byte("goblins gate turn: this run takes no turn: it took no turn within its wait of 30s\n")}, nil
 	}
 	if len(request.Env) == 0 {
 		return execx.Result{}, nil
@@ -584,7 +584,7 @@ func TestSweepTrimsTheCachesWithTheLeastRecentlyUsedToolFirst(t *testing.T) {
 
 // A cache tool's prune can delete a whole cache, as go clean -cache does, so
 // each prune starts only on a free heavy line and runs in a turn of it, taken
-// by ceo gate turn with no turn of the sweep's own to ride. A sweep stops at
+// by goblins gate turn with no turn of the sweep's own to ride. A sweep stops at
 // a line that is not free, or that it was not given, and says why.
 func TestSweepPrunesEachCacheInATurnOfAFreeHeavyLine(t *testing.T) {
 	for name, row := range map[string]struct {
@@ -597,12 +597,12 @@ func TestSweepPrunesEachCacheInATurnOfAFreeHeavyLine(t *testing.T) {
 		"a free line": {
 			line:    &countedLine{free: 9},
 			caches:  []string{"uv"},
-			wantRan: []string{"ceo gate turn --as the janitor, pruning the uv cache --wait 30s -- uv cache prune"},
+			wantRan: []string{"goblins gate turn --as the janitor, pruning the uv cache --wait 30s -- uv cache prune"},
 		},
 		"a busy line": {
 			line:     busyLine{},
 			caches:   []string{"uv"},
-			wantNote: "are not trimmed further, as the machine's heavy line is not free: ceo gate test at 0123abcd (pid 4242) holds the machine's heavy line",
+			wantNote: "are not trimmed further, as the machine's heavy line is not free: goblins gate test at 0123abcd (pid 4242) holds the machine's heavy line",
 		},
 		"no line given": {
 			caches:   []string{"uv"},
@@ -611,14 +611,14 @@ func TestSweepPrunesEachCacheInATurnOfAFreeHeavyLine(t *testing.T) {
 		"a line taken after the first prune": {
 			line:     &countedLine{free: 1},
 			caches:   []string{"uv", "go-build"},
-			wantRan:  []string{"ceo gate turn --as the janitor, pruning the uv cache --wait 30s -- uv cache prune"},
-			wantNote: "not trimmed further, as the machine's heavy line is not free: ceo verify fast of task t1 (pid 7) holds",
+			wantRan:  []string{"goblins gate turn --as the janitor, pruning the uv cache --wait 30s -- uv cache prune"},
+			wantNote: "not trimmed further, as the machine's heavy line is not free: goblins verify fast of task t1 (pid 7) holds",
 		},
 		"a prune that took no turn within its wait": {
 			line:     &countedLine{free: 9},
 			caches:   []string{"uv", "go-build"},
 			isNoTurn: true,
-			wantRan:  []string{"ceo gate turn --as the janitor, pruning the uv cache --wait 30s -- uv cache prune"},
+			wantRan:  []string{"goblins gate turn --as the janitor, pruning the uv cache --wait 30s -- uv cache prune"},
 			wantNote: "are not trimmed further, as a run took the machine's heavy line before the uv cache's prune took its turn",
 		},
 	} {
@@ -635,7 +635,7 @@ func TestSweepPrunesEachCacheInATurnOfAFreeHeavyLine(t *testing.T) {
 				}
 			}
 			makeOld(t, filepath.Join(f.home.Caches(), "uv"))
-			t.Setenv("CEO_VERIFY_TURN", "slot-1:4242:1")
+			t.Setenv("GOBLINS_VERIFY_TURN", "slot-1:4242:1")
 			runner := &pruneRunner{caches: f.home.Caches(), isNoTurn: row.isNoTurn}
 			cfg := f.config(reap.Inventory{})
 			cfg.Commands = runner
@@ -650,7 +650,7 @@ func TestSweepPrunesEachCacheInATurnOfAFreeHeavyLine(t *testing.T) {
 				t.Fatalf("ran = %q, want %q", runner.ran, row.wantRan)
 			}
 			for _, env := range runner.envs {
-				if slices.ContainsFunc(env, func(entry string) bool { return strings.HasPrefix(entry, "CEO_VERIFY_TURN=") }) {
+				if slices.ContainsFunc(env, func(entry string) bool { return strings.HasPrefix(entry, "GOBLINS_VERIFY_TURN=") }) {
 					t.Errorf("a prune was handed the sweep's turn: %v", env)
 				}
 			}
@@ -678,11 +678,11 @@ func TestSweepKeepsTheBuildsOfAHomeWhoseBuildIsAtItsRoot(t *testing.T) {
 		name, build string
 		age         time.Duration
 	}{
-		{"ceo.exe", "build 4", 0},
 		{"goblins.exe", "build 4", 0},
-		{"ceo.exe.3.update-old", "build 3", time.Hour},
-		{"ceo.exe.2.update-old", "build 2", 2 * time.Hour},
-		{"ceo.exe.1.update-old", "build 1", 3 * time.Hour},
+		{"goblins.exe", "build 4", 0},
+		{"goblins.exe.3.update-old", "build 3", time.Hour},
+		{"goblins.exe.2.update-old", "build 2", 2 * time.Hour},
+		{"goblins.exe.1.update-old", "build 1", 3 * time.Hour},
 		{"goblins.exe.1.update-old", "build 1", 3 * time.Hour},
 	}
 	for _, b := range builds {

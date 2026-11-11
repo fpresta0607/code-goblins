@@ -16,7 +16,7 @@ func TestAGateCommandThatDoesNotExistIsReported(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
-		".no-mistakes.yaml": "commands:\n  test: \"python scripts/gate_test.py\"\n  lint: \"nosuchlinter .\"\ngates:\n  - name: tests-kept\n    after: lint\n    command: \"ceo gate tests-kept\"\n",
+		".no-mistakes.yaml": "commands:\n  test: \"python scripts/gate_test.py\"\n  lint: \"nosuchlinter .\"\ngates:\n  - name: tests-kept\n    after: lint\n    command: \"goblins gate tests-kept\"\n",
 		"scripts/other.py":  "print('x')\n",
 	})
 
@@ -38,7 +38,7 @@ func TestAGateWhoseCommandsExistPasses(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
-		".no-mistakes.yaml":         "commands:\n  test: \"python scripts/gate_test.py\"\ngates:\n  - name: tests-kept\n    after: lint\n    command: \"ceo gate tests-kept\"\n",
+		".no-mistakes.yaml":         "commands:\n  test: \"python scripts/gate_test.py\"\ngates:\n  - name: tests-kept\n    after: lint\n    command: \"goblins gate tests-kept\"\n",
 		"scripts/gate_test.py":      "import subprocess\nsubprocess.run(['pytest'])\n",
 		".github/workflows/ci.yml":  workflow,
 		"tests/test_placeholder.py": "def test_ok():\n    pass\n",
@@ -94,7 +94,7 @@ func TestAGateCommandNamingAPackageScriptIsCheckedAgainstThePackageFile(t *testi
 	}
 }
 
-// With no gate file a gate's start refuses the project: ceo pipeline run
+// With no gate file a gate's start refuses the project: goblins pipeline run
 // wants the file at the task's branch and at the default branch. The line
 // was a medium that said an agent chooses every step, which is what a gate
 // started any other way does. The answer it quotes is the pipeline's own.
@@ -111,7 +111,7 @@ func TestARepositoryWithNoGateFileIsOneAGatesStartRefuses(t *testing.T) {
 	if finding.Severity != High {
 		t.Errorf("gate-file-missing is %s, want high", finding.Severity)
 	}
-	contains(t, "says", finding.Says, "ceo pipeline run refuses every gate run")
+	contains(t, "says", finding.Says, "goblins pipeline run refuses every gate run")
 	contains(t, "evidence", finding.Evidence, ".no-mistakes.yaml", strings.TrimPrefix(pipeline.ErrGateFileRequired.Error(), "pipeline: "))
 }
 

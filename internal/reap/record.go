@@ -149,7 +149,7 @@ func Summary(findings []Finding) string {
 // JSON form and the persisted record still carry every one.
 const statusListCap = 5
 
-// Render writes the human report shared by ceo reap and the digest section, so
+// Render writes the human report shared by goblins reap and the digest section, so
 // the two presentations cannot drift.
 func Render(w io.Writer, result Result) error {
 	if _, err := fmt.Fprintln(w, "ORPHANS: "+Summary(result.Findings)); err != nil {
@@ -198,7 +198,7 @@ func Render(w io.Writer, result Result) error {
 func RenderRecord(w io.Writer, stateDir string, now time.Time) error {
 	record, err := ReadRecord(stateDir)
 	if errors.Is(err, os.ErrNotExist) {
-		_, err := fmt.Fprintln(w, "ORPHANS: no sweep recorded yet; run ceo reap")
+		_, err := fmt.Fprintln(w, "ORPHANS: no sweep recorded yet; run goblins reap")
 		return err
 	}
 	if err != nil {
@@ -214,6 +214,6 @@ func RenderRecord(w io.Writer, stateDir string, now time.Time) error {
 		return err
 	}
 	age := now.Sub(record.Time).Round(time.Second)
-	_, err = fmt.Fprintf(w, "  swept %s ago (%s); ceo reap re-runs it, ceo reap --apply acts on it except to end a process, which needs its pid named with --force\n", age, record.Time.UTC().Format(time.RFC3339))
+	_, err = fmt.Fprintf(w, "  swept %s ago (%s); goblins reap re-runs it, goblins reap --apply acts on it except to end a process, which needs its pid named with --force\n", age, record.Time.UTC().Format(time.RFC3339))
 	return err
 }

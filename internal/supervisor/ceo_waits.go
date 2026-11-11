@@ -149,10 +149,10 @@ func ceoWaitOf(stateDir string, meta state.TaskMeta, ceoRow func(id string) (row
 		wait.Since = record.Pause.At
 		if isDone {
 			wait.What = "paused until the CEO's own backlog row " + rowName(row) + ", which is done"
-			wait.Next = "resume " + meta.ID + " with ceo resume " + meta.ID
+			wait.Next = "resume " + meta.ID + " with goblins resume " + meta.ID
 		} else {
 			wait.What = "paused until the CEO's own backlog row " + rowName(row) + " is done"
-			wait.Next = "finish backlog row " + row.ID + ", then resume " + meta.ID + " with ceo resume " + meta.ID
+			wait.Next = "finish backlog row " + row.ID + ", then resume " + meta.ID + " with goblins resume " + meta.ID
 		}
 		return wait, true, nil
 	}
@@ -172,20 +172,20 @@ func ceoWaitOf(stateDir string, meta state.TaskMeta, ceoRow func(id string) (row
 	switch {
 	case isWait && strings.EqualFold(target, "ceo"):
 		wait.What = quoted
-		wait.Next = fmt.Sprintf("answer it with ceo send %s \"<your answer>\"", meta.ID)
+		wait.Next = fmt.Sprintf("answer it with goblins send %s \"<your answer>\"", meta.ID)
 	case pullRequest != "" && keptOff[pullRequest] != "":
 		wait.What = quoted + ", which no merge train takes: " + keptOff[pullRequest]
-		wait.Next = fmt.Sprintf("review %s, then clear what keeps it off the train, or tell %s what to change with ceo send %s \"<what>\"", pullRequest, meta.ID, meta.ID)
+		wait.Next = fmt.Sprintf("review %s, then clear what keeps it off the train, or tell %s what to change with goblins send %s \"<what>\"", pullRequest, meta.ID, meta.ID)
 	case isWait && !slices.Contains([]string{"ci", "deploy", "overlord", "memory"}, target) && state.ValidTaskID(target) == nil:
 		row, isDone, isCEOs, err := ceoRow(target)
 		if err != nil || !isCEOs {
 			return wait, false, err
 		}
 		wait.What = quoted + "; " + row.ID + " is the CEO's own backlog row " + rowName(row)
-		wait.Next = fmt.Sprintf("finish backlog row %s and tell %s with ceo send %s \"<what>\"", row.ID, meta.ID, meta.ID)
+		wait.Next = fmt.Sprintf("finish backlog row %s and tell %s with goblins send %s \"<what>\"", row.ID, meta.ID, meta.ID)
 		if isDone {
 			wait.What += ", done in the backlog"
-			wait.Next = fmt.Sprintf("tell %s that %s is done with ceo send %s \"<what>\"", meta.ID, row.ID, meta.ID)
+			wait.Next = fmt.Sprintf("tell %s that %s is done with goblins send %s \"<what>\"", meta.ID, row.ID, meta.ID)
 		}
 	default:
 		return wait, false, nil

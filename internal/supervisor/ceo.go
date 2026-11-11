@@ -48,7 +48,7 @@ type primaryRegistration struct {
 type registrationProblem string
 
 func (p registrationProblem) Error() string {
-	return string(p) + "; run ceo register in the CEO session"
+	return string(p) + "; run goblins register in the CEO session"
 }
 
 const errNotRegistered = registrationProblem("The CEO is not registered")
@@ -62,7 +62,7 @@ type CEOConnection struct {
 	Terminals terminal.Opener
 	// ReadScreen reads a native terminal's console for a typed wake; nil
 	// reads it through its host. Deliver submits a typed wake; nil delivers
-	// it as ceo send does.
+	// it as goblins send does.
 	ReadScreen func(host.Record) ([]string, error)
 	Deliver    func(ctx context.Context, terminal state.TaskMeta, text string) error
 	// typing lets one writer at a time read and type into the CEO's native
@@ -117,7 +117,7 @@ func Register(stateDir, harness, session string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Plain ceo register names no session. Codex gives every command it runs
+	// Plain goblins register names no session. Codex gives every command it runs
 	// its thread, and pi 0.85.1 its session, which is the conversation a closed
 	// CEO comes back on. Each reads only its own, since a CEO started inside
 	// another harness's session inherits that one's.
@@ -130,7 +130,7 @@ func Register(stateDir, harness, session string) (string, error) {
 		}
 	}
 	// Custody is taken last, so a refused registration changes nothing.
-	if _, _, err := custody.Take(stateDir, ancestry[harnessAt].PID, session, "ceo register"); err != nil {
+	if _, _, err := custody.Take(stateDir, ancestry[harnessAt].PID, session, "goblins register"); err != nil {
 		return "", fmt.Errorf("the home's session lock could not be taken, so this session is not registered: %w", err)
 	}
 	hostname, err := os.Hostname()
@@ -239,7 +239,7 @@ var errHerdrRegistration = errors.New("The CEO is registered in a Herdr pane, wh
 // native terminal record, by the proof value its host put there, and returns
 // the terminal's program. It is how a process whose chain of parents stops
 // short of the program is proven, as a Cygwin or MSYS exec leaves one: Git
-// Bash runs timeout by replacing its own Windows process, so `timeout 60 ceo
+// Bash runs timeout by replacing its own Windows process, so `timeout 60 goblins
 // notify ...` has a parent that already exited, and the MSYS runtime breaks
 // away from the terminal's job as well. Every descendant of the terminal
 // inherits the value, so a process in a Herdr pane proves nothing by it: a
@@ -372,7 +372,7 @@ type ceoState struct {
 	// starting says native terminal ceo is up for a CEO that has not
 	// registered yet: Claude Code registers through its SessionStart hook
 	// after its onboarding and sign-in, in that terminal, and a Codex or pi
-	// CEO when its first prompt runs ceo register.
+	// CEO when its first prompt runs goblins register.
 	starting bool
 	// terminal is the native terminal the board shows the CEO in: the one the
 	// registered CEO names or, while it is starting, native terminal ceo,

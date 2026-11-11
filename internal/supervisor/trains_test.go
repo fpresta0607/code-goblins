@@ -289,7 +289,7 @@ func TestTheSupervisorStartsATrainWhenTwoGoblinsFinishedPullRequestsWaitGreen(t 
 	}
 }
 
-// The supervisor's own train and ceo pr train are one engine, and leave the
+// The supervisor's own train and goblins pr train are one engine, and leave the
 // same on GitHub: the poll after a green run merges the train's own pull
 // request at the head CI tested, the pull requests that rode read merged by
 // it, nothing is closed without merging, and the train's branch is removed.

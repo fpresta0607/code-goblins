@@ -63,7 +63,7 @@ func TestOpenInTerminalAttachesToTheHerdrSessionWithTheTabInFront(t *testing.T) 
 	}
 }
 
-// A native terminal opens through ceo attach, told the state folder, since a
+// A native terminal opens through goblins attach, told the state folder, since a
 // Windows Terminal window does not inherit the supervisor's environment.
 func TestOpenInTerminalAttachesANativeTerminalInItsStateFolder(t *testing.T) {
 	// Arrange

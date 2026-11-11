@@ -263,7 +263,7 @@ func TestNativeTerminalProgram(t *testing.T) {
 			}
 			record("sent")
 		case line == "register", line == "register by program", line == "register by hand":
-			// A CEO runs plain ceo register, which names no harness, so the
+			// A CEO runs plain goblins register, which names no harness, so the
 			// terminal's program has to say which harness it is; by hand it
 			// names no session either.
 			named, session := "claude", "session-1"
@@ -419,7 +419,7 @@ func nativeBoard(t *testing.T, mode string) (*HTTP, *httptest.Server) {
 	return h, server
 }
 
-// hostedTerminal is a terminal hosted in this test process as ceo host hosts
+// hostedTerminal is a terminal hosted in this test process as goblins host hosts
 // one, running this test binary as TestNativeTerminalProgram.
 type hostedTerminal struct {
 	stateDir, id string
@@ -1465,7 +1465,7 @@ func TestANativeTerminalTellsEveryViewItsNewSize(t *testing.T) {
 	first.waitForSize(t, "100x30")
 }
 
-// A resize made straight through the host, as ceo attach in the Open window
+// A resize made straight through the host, as goblins attach in the Open window
 // makes one, reaches the board's views as the size the terminal took, so a
 // view never draws the terminal's output on a grid of another size.
 func TestANativeViewIsToldOfAResizeMadeThroughTheHost(t *testing.T) {

@@ -323,7 +323,7 @@ func (s *Service) answerPageQuestion(answer pageAnswer) {
 	}
 	unlock, err := answerLock(s.Store.Home.State, q.Seq)
 	if err != nil {
-		// The CEO is answering it with ceo answer; what he wrote reaches the
+		// The CEO is answering it with goblins answer; what he wrote reaches the
 		// goblin all the same.
 		s.publish(err)
 		return

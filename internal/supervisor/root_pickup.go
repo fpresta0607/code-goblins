@@ -258,7 +258,7 @@ func issuesNamedInProject(h home.Home, backlog fleet.BacklogRows, name, checkout
 	return named
 }
 
-// liveRootFilers are the live tasks that filed root issues with ceo issue
+// liveRootFilers are the live tasks that filed root issues with goblins issue
 // file, by each issue's address in lower case. A task that files an issue
 // may be taking it up itself, so the issue is its own while it runs.
 func liveRootFilers(h home.Home) (map[string]string, error) {
@@ -390,7 +390,7 @@ Change only what this root needs. %s %s
 credentials: %s
 mcp: none
 
-The brief records the project manifest's default services when it is written. The CEO grants another with ceo auth grant. %s
+The brief records the project manifest's default services when it is written. The CEO grants another with goblins auth grant. %s
 
 ## Commits
 

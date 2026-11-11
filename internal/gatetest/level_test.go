@@ -39,12 +39,12 @@ func TestALevelCoversItselfAndTheNarrowerLevels(t *testing.T) {
 }
 
 var selection = []Choice{
-	{ImportPath: "example.com/repo/cmd/ceo"},
+	{ImportPath: "example.com/repo/cmd/goblins"},
 	{ImportPath: "example.com/repo/internal/tickets"},
 	{ImportPath: "example.com/repo/internal/install", Imports: "example.com/repo/internal/tickets"},
 }
 
-var slowPackages = map[string]bool{"example.com/repo/cmd/ceo": true}
+var slowPackages = map[string]bool{"example.com/repo/cmd/goblins": true}
 
 func deferred(left []Deferred) []string {
 	var lines []string
@@ -62,10 +62,10 @@ func TestScopeAtFastTestsTheQuickChangedPackagesAndNamesWhatItLeaves(t *testing.
 	vet, tests, left := scope(Fast, selection, false, slowPackages)
 
 	// Assert
-	wantVet := []string{"example.com/repo/cmd/ceo", "example.com/repo/internal/tickets", "example.com/repo/internal/install"}
+	wantVet := []string{"example.com/repo/cmd/goblins", "example.com/repo/internal/tickets", "example.com/repo/internal/install"}
 	wantTests := []string{"example.com/repo/internal/tickets"}
 	wantLeft := []string{
-		"tests of example.com/repo/cmd/ceo (a slow package)",
+		"tests of example.com/repo/cmd/goblins (a slow package)",
 		"tests of example.com/repo/internal/install (imports example.com/repo/internal/tickets)",
 	}
 	if !slices.Equal(vet, wantVet) || !slices.Equal(tests, wantTests) || !slices.Equal(deferred(left), wantLeft) {
@@ -80,7 +80,7 @@ func TestScopeAtAffectedTestsEveryPackageTheChangeReaches(t *testing.T) {
 	vet, tests, left := scope(Affected, selection, false, slowPackages)
 
 	// Assert
-	want := []string{"example.com/repo/cmd/ceo", "example.com/repo/internal/tickets", "example.com/repo/internal/install"}
+	want := []string{"example.com/repo/cmd/goblins", "example.com/repo/internal/tickets", "example.com/repo/internal/install"}
 	if !slices.Equal(vet, want) || !slices.Equal(tests, want) || len(left) != 0 {
 		t.Errorf("scope(affected) = vet %q, tests %q, left %q; want %q for both and nothing left", vet, tests, deferred(left), want)
 	}

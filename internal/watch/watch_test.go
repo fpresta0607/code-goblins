@@ -707,7 +707,7 @@ func TestRouteHarnessErrorUsesTheCarriedFault(t *testing.T) {
 	}
 
 	got := routeHarnessError(cfg, event)
-	for _, want := range []string{"STANDING POLICY", "ceo switch g1 --harness claude --model opus --effort xhigh"} {
+	for _, want := range []string{"STANDING POLICY", "goblins switch g1 --harness claude --model opus --effort xhigh"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("routeHarnessError = %q, want it to contain %q", got, want)
 		}
@@ -750,7 +750,7 @@ func TestRunClearsPendingHarnessErrorAfterDecoratedPublish(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if !strings.Contains(reason, "ceo switch g1 --harness claude --model opus --effort xhigh") {
+	if !strings.Contains(reason, "goblins switch g1 --harness claude --model opus --effort xhigh") {
 		t.Errorf("Run reason = %q, want the rule's switch command", reason)
 	}
 
@@ -761,7 +761,7 @@ func TestRunClearsPendingHarnessErrorAfterDecoratedPublish(t *testing.T) {
 	if len(records) != 1 || records[0].Kind != "stale" {
 		t.Fatalf("wake queue = %+v, want one stale record", records)
 	}
-	if !strings.Contains(records[0].Detail, "ceo switch g1 --harness claude --model opus --effort xhigh") {
+	if !strings.Contains(records[0].Detail, "goblins switch g1 --harness claude --model opus --effort xhigh") {
 		t.Errorf("wake detail = %q, want the rule's switch command", records[0].Detail)
 	}
 
@@ -782,7 +782,7 @@ func TestRunClearsPendingHarnessErrorAfterDecoratedPublish(t *testing.T) {
 	}
 }
 
-// signalIsDecision must not re-wake on outcomes that ceo notify (or a
+// signalIsDecision must not re-wake on outcomes that goblins notify (or a
 // spawn/switch error) already delivered to the CEO; a second wake on those
 // status lines would double-report one goblin report.
 func TestSignalIsDecisionOwnsOnlyGateAndMergeVerbs(t *testing.T) {

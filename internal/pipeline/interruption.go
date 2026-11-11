@@ -266,7 +266,7 @@ func (reader Reader) preserveWorktreeEdits(ctx context.Context, runID, repoID, w
 	if tree == strings.TrimSpace(string(headTree.Stdout)) {
 		return "", nil
 	}
-	commit, err := reader.runGitEnv(ctx, worktree, env, "-c", "user.name=Code Goblins", "-c", "user.email=code-goblins@localhost", "-c", "commit.gpgsign=false", "commit-tree", tree, "-p", head, "-m", "ceo: preserve the gate worktree edits of run "+runID)
+	commit, err := reader.runGitEnv(ctx, worktree, env, "-c", "user.name=Code Goblins", "-c", "user.email=code-goblins@localhost", "-c", "commit.gpgsign=false", "commit-tree", tree, "-p", head, "-m", "goblins: preserve the gate worktree edits of run "+runID)
 	kept = strings.TrimSpace(string(commit.Stdout))
 	if err != nil || commit.ExitCode != 0 || !gateCommit.MatchString(kept) {
 		return "", errors.New("gate worktree changes could not be preserved: the commit could not be written")

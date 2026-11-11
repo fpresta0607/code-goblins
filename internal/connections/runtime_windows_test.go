@@ -31,7 +31,7 @@ func TestConnectionRuntimeRequiresMatchingOwnerFolderAndGeneration(t *testing.T)
 	stateDir := t.TempDir()
 	command := execx.Command(os.Args[0], "-test.run=^TestConnectionRuntimeChild$")
 	command.Dir = directory
-	command.Env = append(os.Environ(), "CONNECTION_RUNTIME_FIXTURE=1", "CEO_SPAWN_GEN=proof", "CONNECTION_FIXTURE_TOKEN=synthetic")
+	command.Env = append(os.Environ(), "CONNECTION_RUNTIME_FIXTURE=1", "GOBLINS_SPAWN_GEN=proof", "CONNECTION_FIXTURE_TOKEN=synthetic")
 	command.Stderr = io.Discard
 	input, err := command.StdinPipe()
 	if err != nil {

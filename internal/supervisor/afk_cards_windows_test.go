@@ -18,7 +18,7 @@ import (
 // and none became a card: the CEO filed each by hand. When AFK mode turns off,
 // each step still open becomes one Command Center card: a run item when the
 // step is a command he runs, otherwise a question with its plain steps, its
-// link and the choices the CEO gave it, as ceo question makes.
+// link and the choices the CEO gave it, as goblins question makes.
 
 func hisPlainStep() afk.Entry {
 	return afk.Entry{Kind: afk.KindHis, What: "Sign in to pocketpiggies.app and check that your dashboard loads", Link: "https://pocketpiggies.app/assistant", Evidence: "PR 140 is live and only his own session can check it. Backlog row 2026-10-13", Options: []string{"It loads", "It does not load"}, Recommendation: "It loads"}
@@ -97,7 +97,7 @@ func TestEachOpenStepOnlyHeCanTakeBecomesOneCommandCenterCardWhenAFKTurnsOff(t *
 // The Dell TechHub card of 2026-10-29 held a script that requires an
 // administrator, and failed with exit 1 on his click. A step logged with
 // --run --admin becomes a run item marked admin, which runs elevated after
-// Windows asks him, as a ceo run-request --admin item does. No elevated
+// Windows asks him, as a goblins run-request --admin item does. No elevated
 // command runs here: the item's record proves the path.
 func TestAStepHeRunsAsAdministratorBecomesARunItemMarkedAdmin(t *testing.T) {
 	// Arrange
@@ -232,7 +232,7 @@ func TestACardStillWaitingSettlesNothing(t *testing.T) {
 
 // A step an older build logged with no command and no choices, as the install
 // steps of 2026-10-18 were, becomes no card when AFK mode turns off: it is
-// not a card ceo question or ceo run-request would make. The CEO is told
+// not a card goblins question or goblins run-request would make. The CEO is told
 // which step could not become a card and why, so it puts the step to him as
 // one that acts.
 func TestAStepItsCardCouldNotDoBecomesNoCard(t *testing.T) {
@@ -286,7 +286,7 @@ func TestAStepItsCardCouldNotDoBecomesNoCard(t *testing.T) {
 // The Overlord, 2026-10-28: "afk commands dont have proper multiple choice
 // answers like normal command cfo prompts please fix so its options arent
 // always done / later". A step logged with choices becomes a card with those
-// choices and its recommendation, as ceo question makes; the board adds Other
+// choices and its recommendation, as goblins question makes; the board adds Other
 // to every question.
 func TestAStepLoggedWithChoicesBecomesACardWithThoseChoicesAndItsRecommendation(t *testing.T) {
 	// Arrange
@@ -317,7 +317,7 @@ func TestHisAnswerToACardWithChoicesReachesTheCEOWithTheChosenChoice(t *testing.
 	// Arrange
 	store, h := testStore(t)
 	_, identity, ceo, connection := primaryFixture(t, store)
-	for _, name := range []string{"CEO_ROLE", "NO_MISTAKES_GATE"} {
+	for _, name := range []string{"GOBLINS_ROLE", "NO_MISTAKES_GATE"} {
 		t.Setenv(name, "")
 	}
 	s := &Service{Store: store, Options: Options{CEO: connection}}

@@ -50,7 +50,7 @@ Code Goblins keeps secrets in the existing auth store and keeps infrastructure s
 }
 ```
 
-`ceo spawn` without `--harness` deterministically classifies the task and selects a lane from the manifest's `routing` block when it defines lanes, otherwise from the fleet table in `data/routing.json` (`ceo doctor` prints it).
+`goblins spawn` without `--harness` deterministically classifies the task and selects a lane from the manifest's `routing` block when it defines lanes, otherwise from the fleet table in `data/routing.json` (`goblins doctor` prints it).
 A missing, stale, or unparseable quota-axi is no evidence of exhaustion.
 Explicit `--harness`, `--model`, and `--effort` remain authoritative overrides, and `--auto` is an alias for the default.
 A project without a manifest routes from the fleet table and gets no capsule.
@@ -61,7 +61,7 @@ It names `[IO.File]::ReadAllText` for a file's content, never `Get-Content`, who
 ### Root issue repository
 
 The optional `issue_repository` field names the GitHub repository for operational root issues, as `owner/name`, for example `"issue_repository": "acme/private-ops"`.
-`ceo issue file`, merge trains and the supervisor file there; when the field is empty or absent, or the project has no record, they use the checkout's origin.
+`goblins issue file`, merge trains and the supervisor file there; when the field is empty or absent, or the project has no record, they use the checkout's origin.
 Malformed values are refused before filing.
 The selected repository must still belong to the fleet and have issues enabled, and its visibility determines the public-data screening; credentials are screened on every destination.
 This setting grants no credentials, moves no existing issues and leaves code repository operations and test identities unchanged.
@@ -112,11 +112,11 @@ Official model documentation describes [GPT-6 Luna](https://developers.openai.co
 Local catalog availability does not prove account quota, and API pricing does not establish subscription consumption.
 No paid model probe or automatic paid-provider fallback is required to choose or validate the routing policy.
 
-Verification is tiered. `ceo verify <task> --tier fast` is the default changed-scope gate; `full` is the project regression gate; `deep` is for expensive validation. Every command produces structured timing, exit, scope, task and source evidence, the source being the commit and the git tree of the files git does not ignore as they were on disk, read once its turn was taken and again once it had ended, as docs/pipeline.md says. Ignored files, such as installed dependencies, are no part of it. A command whose two reads differed, could not be read, or were incomplete tested no one source, so it fails whatever its exit code, and its failure says why. Each command waits its turn in the machine's one line for heavy runs and runs as a measured execution, whose record its result names, and its time limit starts when it starts, so its wait in line never counts against it. A tier that names no command, or an empty one, fails, and so does a tier whose result cannot be saved. Before it waits, a tier saves one entry with status `running`, so a tier ended in its wait never leaves an earlier pass standing, and a tier that runs nothing saves one entry with status `not_run` and why. Each command's entry says `passed`, `failed` or `timed_out`. What a command leaves running more than ten seconds after it exits is ended and named on standard error and in the command's entry, and the tier keeps the command's own result. A machine service it started, such as Docker Desktop, serves the whole machine, so it is left running and named apart, under `spared`. A tier with an empty command runs none of its commands. A security mode that asks for no scan of a change runs nothing, saves an empty result and passes. `ceo security` follows the project security mode. `ceo deploy` executes every declared target and its verification command, so GitHub CI cannot substitute for a required Vercel/Fly/Railway/custom deployment.
+Verification is tiered. `goblins verify <task> --tier fast` is the default changed-scope gate; `full` is the project regression gate; `deep` is for expensive validation. Every command produces structured timing, exit, scope, task and source evidence, the source being the commit and the git tree of the files git does not ignore as they were on disk, read once its turn was taken and again once it had ended, as docs/pipeline.md says. Ignored files, such as installed dependencies, are no part of it. A command whose two reads differed, could not be read, or were incomplete tested no one source, so it fails whatever its exit code, and its failure says why. Each command waits its turn in the machine's one line for heavy runs and runs as a measured execution, whose record its result names, and its time limit starts when it starts, so its wait in line never counts against it. A tier that names no command, or an empty one, fails, and so does a tier whose result cannot be saved. Before it waits, a tier saves one entry with status `running`, so a tier ended in its wait never leaves an earlier pass standing, and a tier that runs nothing saves one entry with status `not_run` and why. Each command's entry says `passed`, `failed` or `timed_out`. What a command leaves running more than ten seconds after it exits is ended and named on standard error and in the command's entry, and the tier keeps the command's own result. A machine service it started, such as Docker Desktop, serves the whole machine, so it is left running and named apart, under `spared`. A tier with an empty command runs none of its commands. A security mode that asks for no scan of a change runs nothing, saves an empty result and passes. `goblins security` follows the project security mode. `goblins deploy` executes every declared target and its verification command, so GitHub CI cannot substitute for a required Vercel/Fly/Railway/custom deployment.
 
 A tier takes a pass it already has instead of running when the record declares `verification.reuse` and names the tier among its `tiers`, of `fast`, `full` and `deep`: a tier not named runs every time.
 The declaration names the files and folders inside the worktree that git ignores and the checks read (`inputs`), commands whose output names the tools they run (`tools`), the variables they read (`environment`), and how old a pass may be (`max_age_hours`, a day unless set, a week at most).
-The key of a pass is the project, the tier, its commands, its time limit, the stamped `ceo` build that verifies, the complete source as docs/pipeline.md describes it, where the branch left the default branch (`origin/HEAD` or `origin/main`), a digest of the inputs, each tool's output, a digest of each variable's value, so that no secret is written down, and the operating system and architecture.
+The key of a pass is the project, the tier, its commands, its time limit, the stamped `goblins` build that verifies, the complete source as docs/pipeline.md describes it, where the branch left the default branch (`origin/HEAD` or `origin/main`), a digest of the inputs, each tool's output, a digest of each variable's value, so that no secret is written down, and the operating system and architecture.
 The key is read three times, each within two minutes: before the tier and after it, outside the machine's line, and once the tier's first command holds its turn, inside it, since the worktree can change while the tier waits.
 Each command's own source reads come within its turn.
 A pass is kept only when every command passed on that very source and the key reads the same after the tier as at its turn, and it is taken again only for the same key, within its age, while it is a whole pass and each command's execution record is there and still shows a pass on that source.
@@ -125,19 +125,19 @@ A tier that finds at its turn a pass kept for the key it reads then, as one a ru
 A tier whose key, or whose pass, cannot be read at its turn runs and keeps no pass, which it says.
 Taking a pass at the turn saves a run only when the pass is there by then: identical runs are never merged or cancelled, a run that waits behind another of the same key still waits its turn, the run ahead keeps its pass only once it has given its turn back, so a run right behind it can miss the pass and run the tier again, and a tier without `reuse` never takes one.
 A taken pass is saved with each result naming it under `reused`, with `reused_at` and `reused_for`, the task that took it, while the result's other fields are the original run's, and the tier says so on standard error.
-A record without `reuse` runs every time, and so does an unstamped `ceo` build, an incomplete source, an input that is a link or a junction, a tool command that fails, or a worktree with no default branch to measure against, which the tier says.
+A record without `reuse` runs every time, and so does an unstamped `goblins` build, an incomplete source, an input that is a link or a junction, a tool command that fails, or a worktree with no default branch to measure against, which the tier says.
 What the key does not hold can change a check's result unseen: files outside the worktree, the network and services, the time of day, every variable not declared, line endings, modes and the case of a name as docs/pipeline.md says, the Windows build, and a change made and undone between the two reads of the key.
-A `ceo` a tier's command starts from its PATH is another build than the one that verifies, so a tier that runs `ceo` declares `["ceo","version"]` among its tools.
-Files git ignores by `.git/info/exclude` or a user's `core.excludesFile`, as the dependencies and `.env` copies ceo links into a worktree, are no part of the source, so a check that reads them declares them as inputs.
-A dependency folder ceo links in is a junction, which no key reads, so a record declares a file inside it instead, as a lockfile or an install marker.
+A `goblins` a tier's command starts from its PATH is another build than the one that verifies, so a tier that runs `goblins` declares `["ceo","version"]` among its tools.
+Files git ignores by `.git/info/exclude` or a user's `core.excludesFile`, as the dependencies and `.env` copies goblins links into a worktree, are no part of the source, so a check that reads them declares them as inputs.
+A dependency folder goblins links in is a junction, which no key reads, so a record declares a file inside it instead, as a lockfile or an install marker.
 A pass is kept for a week at most, and taken only while the execution records it names are kept.
 These same-user records save a local run and approve no GitHub check.
 
-When a direction is rejected, `ceo supersede <task> --reason ...` records a durable supersede event, writes cleanup instructions, and steers the worker to remove unshipped debris before continuing. `ceo hygiene <task>` reports suspicious test debris without deleting it.
+When a direction is rejected, `goblins supersede <task> --reason ...` records a durable supersede event, writes cleanup instructions, and steers the worker to remove unshipped debris before continuing. `goblins hygiene <task>` reports suspicious test debris without deleting it.
 
 ## Checking a project
 
-`ceo project check <project>` says whether what the home knows about a project is still true.
+`goblins project check <project>` says whether what the home knows about a project is still true.
 It reads the checkout and the project's files under `data/projects/<project>/` and changes neither.
 It starts no command of the project and probes no service.
 The one thing it asks outside this machine is where the remote's default branch is, with `git ls-remote`, which writes nothing to the repository.
@@ -158,7 +158,7 @@ An area passes when none of its lines is worse than `low`, and the command exits
 | Area | What it proves |
 | --- | --- |
 | `checkout` | This machine has a checkout of the project. The line says which branch and commit were read and when that branch was last fetched, and whether the remote's default branch is still at that commit. |
-| `record` | `project.json` is there, the loader takes it, and it names the project it is filed under. Each command of its verification and security tiers is a program this machine has. A record with no verification command is reported, because `ceo verify` then has nothing to run and fails the tier. |
+| `record` | `project.json` is there, the loader takes it, and it names the project it is filed under. Each command of its verification and security tiers is a program this machine has. A record with no verification command is reported, because `goblins verify` then has nothing to run and fails the tier. |
 | `gate` | `.no-mistakes.yaml` is on the default branch, a gate's start takes it under the home's pipeline policy, and each command it names has its program, its script files and its package script. Its test step is the repository's own command, since without one an agent chooses what runs. The repository has a workflow for the gate's ci step to wait for, and CI runs the test runners the gate's test command starts. No env file a goblin's worktree shares holds a production value the test setup does not name, and no credential a task's terminal carries is read by the repository and left unnamed by the test setup. |
 | `configs` | Git ignores every env file of the project except the examples it commits on purpose. What an env file holds decides its line, not what it is called. A credential or the address of a production store in a file git does not ignore is critical, and the report names its variable and never its value. An environment set to production is no credential and nothing to rotate, so it does not count there. A tracked env file that holds none, such as a demo setup committed on purpose, is a `low` line, `env-file-committed`, and nothing tells the reader to rotate. `worktree.json` shares files the checkout holds and installs with programs and files that exist, and each install it names installs a lock with hashes, since one that resolves versions at a package index gives a goblin no install step (`worktree-install-unlocked`). `services.json` names a compose file the project has, services that file declares, an env file the checkout holds and a check that can run. |
 | `connectors` | Every service `auth.json` declares has a user the check can name. Every credential the code reads from the environment, an env example names or an MCP connector in `.mcp.json` authenticates with is declared by a service. |
@@ -210,7 +210,7 @@ A file git does not track is in a worktree only in two cases, and what the check
 
 So `.venv/Scripts/python.exe` is found where the worktree's install is `uv venv` and reported where no install step makes a virtual environment, whether or not the Overlord's own folder has one.
 The check reads the install the way a spawn does, through the same function, so the two cannot disagree.
-The record's tiers are judged by the same rule, since `ceo verify` runs them in a worktree.
+The record's tiers are judged by the same rule, since `goblins verify` runs them in a worktree.
 
 What a command writes does not have to exist before it runs.
 The check passes over the target of `-o`, of a flag named for output such as `--outfile`, and of a redirect, the destination of `cp` and `mv`, and everything `mkdir`, `touch`, `tee` and `rm` name.
@@ -232,7 +232,7 @@ The rule is for instruction files only: a made-up path in the gate file is a fau
 ### Services and credentials
 
 The connectors area reads names only.
-`ceo auth <project> --check` is the command that asks each service whether it answers, and its sign-in request names what only the operator can supply.
+`goblins auth <project> --check` is the command that asks each service whether it answers, and its sign-in request names what only the operator can supply.
 
 A declared service counts as used by one rule, and the draft keeps a service by the same rule:
 
@@ -369,7 +369,7 @@ So it names variables, and cannot say whether one is stored or whether what it h
 
 ### Drafting a record
 
-`ceo project check <project> --draft <file>` writes the record the run can vouch for.
+`goblins project check <project> --draft <file>` writes the record the run can vouch for.
 It starts from the record that is there, so nothing a person set is drafted away, and fills only what that leaves empty:
 
 - `services` from the services `auth.json` declares and the check counts as used, with credential names and no value
@@ -387,13 +387,13 @@ Prove each command before the draft is placed.
 Where the repository names no test command anywhere there is none to vouch for, so no draft is written, and the command says why and exits 1.
 
 It leaves `verification.full` and `deployment` alone.
-A wrong deploy command is one `ceo deploy` would run.
+A wrong deploy command is one `goblins deploy` would run.
 A draft is never written over a file, and never under the home's `data/projects`, where a record steers routing and verification for live spawns.
 A person reads the draft, completes it and places it.
 
 ### What a gate's start asks of the gate file
 
-`ceo pipeline run` asks three things of a repository's gate file before it starts a gate run, and refuses the run when one fails.
+`goblins pipeline run` asks three things of a repository's gate file before it starts a gate run, and refuses the run when one fails.
 The check asks the same three, each through the pipeline's own code and against the home's policy, `config/pipeline.json`, so every answer is the pipeline's verdict and not a second copy of its rule.
 
 - **The file is there.** A repository with no `.no-mistakes.yaml` at its default branch is refused at the start of every gate run. That is `gate-file-missing`, a `high` line, and it quotes the pipeline's answer. A gate started any other way leaves every step to an agent's choice.
@@ -423,20 +423,20 @@ The check says only what it read, and these are outside it today:
 
 ### Checkouts the home holds no folder for
 
-`ceo project check --unfiled` takes no project.
+`goblins project check --unfiled` takes no project.
 It names each checkout directly under the machine's projects root that the home holds no folder for under `data/projects`, one `ok` line each, `checkout-unfiled`.
 A spawn can be sent into any of them, and the line says what it would be given there: no env file, since a worktree is given one only when a `worktree.json` names it, no credential from the credential store, since a project with no `auth.json` has no service to grant, and no record to steer its routing or its verification.
 It names the env files the checkout holds at its root, which stay in the checkout, and opens none of them.
 A last line, `checkouts-examined`, counts the checkouts it looked at and names the home's folders that have no checkout directly under the root, which may be kept elsewhere.
 A folder counts as a checkout when it holds a `.git`.
 The command exits 0 whatever it names, since a checkout the home knows nothing of is no fault.
-To file one, run `ceo project check <its path>` and place what it drafts.
+To file one, run `goblins project check <its path>` and place what it drafts.
 
 ### The project-check skill
 
 The command proves what can be proved without starting anything.
 The `project-check` skill is the rest of the pass, one text for every harness, installed with the other skills Code Goblins ships.
-It runs `ceo project check` and `ceo auth <project> --check`, then proves each listed build, test and lint command by running it or its dry form.
+It runs `goblins project check` and `goblins auth <project> --check`, then proves each listed build, test and lint command by running it or its dry form.
 It runs no deploy, no migration and no test while the report holds a `test-reaches-production` line.
 It completes the draft from evidence, proves it in a scratch home with `--area record`, and writes a report with one line for each finding.
 A fix in the home's files is the CEO's to place.

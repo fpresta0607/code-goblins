@@ -233,7 +233,7 @@ func TestAProgramInALiveNativeTerminalRegistersAsTheCEO(t *testing.T) {
 }
 
 // Codex and pi install as npm script shims, which a native terminal runs
-// through cmd /c by their paths, so cmd is the terminal's program: plain ceo
+// through cmd /c by their paths, so cmd is the terminal's program: plain goblins
 // register, as a CEO runs it, names the harness from the base name of the
 // script cmd runs, and refuses any name that is not a harness.
 func TestAHarnessRunThroughItsShimRegistersByTheNameCmdRuns(t *testing.T) {
@@ -290,7 +290,7 @@ func shimTerminal(t *testing.T, stateDir, name string) (hostedTerminal, host.Rec
 	return ceo, record
 }
 
-// Plain ceo register names no session, and it is how a Codex or pi CEO that
+// Plain goblins register names no session, and it is how a Codex or pi CEO that
 // goblins starts registers, by its first prompt. Each gives every command it
 // runs its own conversation, Codex its thread and pi its session, so the
 // registration records that as the CEO's conversation, and a closed CEO comes
@@ -578,8 +578,8 @@ func TestANativeCEOsSendFromAProcessWhoseParentHasExitedNamesItAsSender(t *testi
 		t.Fatal(err)
 	}
 	t.Setenv("HERDR_PANE_ID", "")
-	t.Setenv("CEO_SESSION_ID", "ceo-1")
-	t.Setenv("CEO_SESSION_HARNESS", "claude")
+	t.Setenv("GOBLINS_SESSION_ID", "ceo-1")
+	t.Setenv("GOBLINS_SESSION_HARNESS", "claude")
 	ceo := hostTerminal(t, h.State, "ceo")
 	ceo.typeLine(t, "register")
 	if lines := ceo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
@@ -948,7 +948,7 @@ func TestTheBoardShowsTheCEOsTerminalBeforeTheCEORegisters(t *testing.T) {
 		t.Fatal(err)
 	}
 	if snapshot.CEOTerminal != NativeCEOTerminal || !snapshot.CEORuns {
-		t.Errorf("CEOTerminal = %q, CEORuns = %v with terminal ceo up and no CEO registered, want ceo and true", snapshot.CEOTerminal, snapshot.CEORuns)
+		t.Errorf("CEOTerminal = %q, CEORuns = %v with terminal ceo up and no CEO registered, want goblins and true", snapshot.CEOTerminal, snapshot.CEORuns)
 	}
 	if lines := terminal.waitForLines(t, 1); len(lines) != 1 || lines[0] != "yes, trust this folder" {
 		t.Errorf("the CEO's terminal got %q, want the line typed in the board", lines)
@@ -957,10 +957,10 @@ func TestTheBoardShowsTheCEOsTerminalBeforeTheCEORegisters(t *testing.T) {
 
 // A CEO started in native terminal ceo has not registered yet: Claude Code
 // registers through its SessionStart hook after its onboarding and sign-in, a
-// Codex or pi CEO when its first prompt runs ceo register. Until then the
+// Codex or pi CEO when its first prompt runs goblins register. Until then the
 // snapshot says it is starting and carries no registration problem: the board
 // opens its terminal for whatever it asks there instead of telling the
-// Overlord to run ceo register. With no terminal ceo up, the problem stands.
+// Overlord to run goblins register. With no terminal ceo up, the problem stands.
 func TestAStartingCEOIsNotReportedAsUnregistered(t *testing.T) {
 	// Arrange
 	h, _ := nativeBoard(t, "direct")

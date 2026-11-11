@@ -1,8 +1,8 @@
 # cutover_and_check.ps1 - the one move a home that a release from before the
-# rename runs makes to ceo, since such a release cannot update itself across
-# the rename: with the fleet paused, this commit's build lists the cutover
-# with --dry-run and makes that plan with --plan, then goblins resume brings
-# the board, the CEO and the goblin back under ceo. The fleet pauses as a
+# rename runs makes to goblins, since such a release cannot update itself
+# across the rename: with the fleet paused, this commit's build lists the
+# cutover with --dry-run and makes that plan with --plan, then goblins resume
+# brings the board, the CEO and the goblin back under goblins. The fleet pauses as a
 # reboot pauses it: the supervisor stops when asked, each terminal, the
 # CEO's and the goblin's, ends, its harness and then its host, by the pids its
 # record names, and the desktop window closes, the board's own window that
@@ -13,12 +13,12 @@
 # by its pid.
 # The home, the person's settings, project record, stored
 # credential and the goblin's work are as fleet_at_work.ps1 -PreRename found
-# them, and the fleet's facts under ceo replace <facts>, for the updates after
-# it to keep.
+# them, and the fleet's facts under goblins replace <facts>, for the updates
+# after it to keep.
 #
-#   .\tests\update\cutover_and_check.ps1 -Ceo <this commit's ceo.exe> -Project <checkout> -Facts <file>
+#   .\tests\update\cutover_and_check.ps1 -Goblins <this commit's goblins.exe> -Project <checkout> -Facts <file>
 param(
-    [Parameter(Mandatory = $true)][string]$Ceo,
+    [Parameter(Mandatory = $true)][string]$Goblins,
     [Parameter(Mandatory = $true)][string]$Project,
     [Parameter(Mandatory = $true)][string]$Facts
 )
@@ -26,7 +26,7 @@ param(
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "fleet_facts.ps1")
 $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-$oldCommand, $oldSettingPrefix = Get-CeoNames -PreRename
+$oldCommand, $oldSettingPrefix, $null = Get-BuildNames -PreRename
 $ceoHome = [Environment]::GetEnvironmentVariable("${oldSettingPrefix}HOME", "User")
 Set-Item -LiteralPath "env:${oldSettingPrefix}HOME" -Value $ceoHome
 $state = Join-Path $ceoHome "state"
@@ -53,10 +53,10 @@ do {
 } while ($running.Count -gt 0 -and (Get-Date) -lt $deadline -and -not (Start-Sleep -Seconds 1))
 if ($running.Count -gt 0) { throw "a minute after the fleet paused these still run from the home's bin: $(($running | ForEach-Object { "$($_.Path) (pid $($_.Id))" }) -join ', ')" }
 
-$dryRun = @(& $Ceo cutover --dry-run)
+$dryRun = @(& $Goblins cutover --dry-run)
 $code = $LASTEXITCODE
 $dryRun | Write-Host
-if ($code -ne 0) { throw "ceo cutover --dry-run exited with code $code" }
+if ($code -ne 0) { throw "goblins cutover --dry-run exited with code $code" }
 $problems = @()
 # Each kind of change a release's install and the fleet at work leave to
 # move heads its group.
@@ -67,19 +67,19 @@ $plan = @($dryRun | Select-String -Pattern '^plan: (\S+)$')
 if ($plan.Count -ne 1) { throw "the dry run printed $($plan.Count) plan: lines, want one" }
 $digest = $plan[0].Matches[0].Groups[1].Value
 
-$made = @(& $Ceo cutover --plan $digest)
+$made = @(& $Goblins cutover --plan $digest)
 $code = $LASTEXITCODE
 $made | Write-Host
-if ($code -ne 0) { throw "ceo cutover --plan $digest exited with code $code" }
+if ($code -ne 0) { throw "goblins cutover --plan $digest exited with code $code" }
 if (-not ($made -match '^undo: ')) { $problems += "the cutover printed no undo command" }
-if ([Environment]::GetEnvironmentVariable("CEO_HOME", "User") -ne $ceoHome) { $problems += "the user setting CEO_HOME is '$([Environment]::GetEnvironmentVariable("CEO_HOME", "User"))', want the home $ceoHome" }
+if ([Environment]::GetEnvironmentVariable("GOBLINS_HOME", "User") -ne $ceoHome) { $problems += "the user setting GOBLINS_HOME is '$([Environment]::GetEnvironmentVariable("GOBLINS_HOME", "User"))', want the home $ceoHome" }
 if ($null -ne [Environment]::GetEnvironmentVariable("${oldSettingPrefix}HOME", "User")) { $problems += "the user setting ${oldSettingPrefix}HOME is still there" }
 if (Test-Path -LiteralPath (Join-Path $bin "$oldCommand.exe")) { $problems += "bin\$oldCommand.exe is still there" }
-$built = (Get-FileHash -LiteralPath $Ceo -Algorithm SHA256).Hash.ToLowerInvariant()
+$built = (Get-FileHash -LiteralPath $Goblins -Algorithm SHA256).Hash.ToLowerInvariant()
 
 # A new terminal sees the settings the cutover moved; a running step does not.
 Remove-Item -LiteralPath "env:${oldSettingPrefix}HOME"
-$env:CEO_HOME = $ceoHome
+$env:GOBLINS_HOME = $ceoHome
 Set-Content -LiteralPath "$Facts.no-input" -Value $null
 $resume = Start-Process -FilePath (Join-Path $bin "goblins.exe") -ArgumentList "resume", "--harness", "pi" -NoNewWindow -PassThru `
     -RedirectStandardInput "$Facts.no-input" -RedirectStandardOutput "$Facts.resume.log" -RedirectStandardError "$Facts.resume.err"
@@ -115,11 +115,11 @@ Write-Host $dictation
 
 $after = Get-FleetFacts -Project $Project
 $after | Format-Table -AutoSize -Wrap | Out-String -Width 400 | Write-Host
-foreach ($running in "board", "ceo host", "ceo harness", "demo-goblin host", "demo-goblin harness") {
+foreach ($running in "board", "goblins host", "ceo harness", "demo-goblin host", "demo-goblin harness") {
     if ($after[$running] -match "not running") { $problems += "after the cutover the $running is not running: $($after[$running])" }
 }
-if ($after.version -notmatch '^ceo ') { $problems += "goblins version prints '$($after.version)', want ceo's" }
-foreach ($program in "ceoExe", "boardExe") {
+if ($after.version -notmatch '^goblins ') { $problems += "goblins version prints '$($after.version)', want goblins'" }
+foreach ($program in "commandExe", "boardExe") {
     if ($after[$program] -ne $built) { $problems += "after the cutover $program is $($after[$program]), want this commit's $built" }
 }
 # The credential listing's first line names its store, which for the file
@@ -131,5 +131,5 @@ foreach ($kept in "home", "allowanceFloor", "claudeSetting", "project", "goblinW
 }
 if ($problems.Count -gt 0) { throw "the cutover from $($before.version) did not do what it must:`n- $($problems -join "`n- ")" }
 [IO.File]::WriteAllText($Facts, (ConvertTo-Json -InputObject $after))
-Write-Host "ceo cutover from $($before.version): the home runs ceo, and the board, the CEO and the goblin work under it with the home, the settings, the project, the credential and the goblin's work as they were."
+Write-Host "goblins cutover from $($before.version): the home runs goblins, and the board, the CEO and the goblin work under it with the home, the settings, the project, the credential and the goblin's work as they were."
 $global:LASTEXITCODE = 0

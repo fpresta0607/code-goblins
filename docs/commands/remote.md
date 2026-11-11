@@ -1,6 +1,6 @@
-# ceo remote
+# goblins remote
 
-`ceo remote on\|status\|off`
+`goblins remote on\|status\|off`
 
 Optional private phone access to the board and existing CEO terminal through Tailscale Serve HTTPS, restricted to the PC owner's discovered Tailscale account.
 Off by default.

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// With CEO_USER_ENV_FILE set, the user environment is that file: what is set
+// With GOBLINS_USER_ENV_FILE set, the user environment is that file: what is set
 // lands in it, names compare without case as Windows compares them, and a
 // file not yet written reads as an empty scope.
 func TestTheUserEnvironmentFileStandsInForTheMachines(t *testing.T) {
@@ -23,7 +23,7 @@ func TestTheUserEnvironmentFileStandsInForTheMachines(t *testing.T) {
 	if value, set, err := store.Get("Path"); err != nil || set {
 		t.Fatalf("Get(Path) before any write = %q, %v, %v; want unset", value, set, err)
 	}
-	for _, write := range []struct{ name, value string }{{"Path", `C:\one;C:\two`}, {"PATH", `C:\three`}, {"CEO_HOME", `C:\home`}} {
+	for _, write := range []struct{ name, value string }{{"Path", `C:\one;C:\two`}, {"PATH", `C:\three`}, {"GOBLINS_HOME", `C:\home`}} {
 		if err := store.Set(write.name, write.value); err != nil {
 			t.Fatalf("Set(%s): %v", write.name, err)
 		}
@@ -40,7 +40,7 @@ func TestTheUserEnvironmentFileStandsInForTheMachines(t *testing.T) {
 		t.Fatal(err)
 	}
 	var values map[string]string
-	if err := json.Unmarshal(data, &values); err != nil || len(values) != 1 || values["CEO_HOME"] != `C:\home` {
-		t.Errorf("the file holds %s (%v), want only CEO_HOME", data, err)
+	if err := json.Unmarshal(data, &values); err != nil || len(values) != 1 || values["GOBLINS_HOME"] != `C:\home` {
+		t.Errorf("the file holds %s (%v), want only GOBLINS_HOME", data, err)
 	}
 }

@@ -125,10 +125,10 @@ func TestHarnessMarkNamesAnAgentHarnessAndNothingElse(t *testing.T) {
 		ancestry   []proc.Entry
 		env        []string
 	}{
-		{"the Overlord's own terminal", "", process("ceo.exe", "powershell.exe", "WindowsTerminal.exe", "explorer.exe"), []string{`Path=C:\bin`}},
-		{"a command Claude Code runs", "claude.exe pid 102", process("ceo.exe", "bash.exe", "claude.exe", "Claude.exe"), nil},
-		{"a command Codex runs", "node.exe pid 102", process("ceo.exe", "cmd.exe", "node.exe"), nil},
-		{"a command whose parents were cut off", "CLAUDECODE", process("ceo.exe"), []string{"CLAUDECODE=1"}},
+		{"the Overlord's own terminal", "", process("goblins.exe", "powershell.exe", "WindowsTerminal.exe", "explorer.exe"), []string{`Path=C:\bin`}},
+		{"a command Claude Code runs", "claude.exe pid 102", process("goblins.exe", "bash.exe", "claude.exe", "Claude.exe"), nil},
+		{"a command Codex runs", "node.exe pid 102", process("goblins.exe", "cmd.exe", "node.exe"), nil},
+		{"a command whose parents were cut off", "CLAUDECODE", process("goblins.exe"), []string{"CLAUDECODE=1"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Act
@@ -151,7 +151,7 @@ func TestTheMarksAServeForgetsAreTheOnesTheCheckReads(t *testing.T) {
 	// CLAUDECODE, and a supervisor started by an update from an agent's
 	// terminal has its parents cut off, so nothing but its environment can
 	// mark the session.
-	env := []string{`Path=C:\bin`, `CEO_HOME=C:\home`}
+	env := []string{`Path=C:\bin`, `GOBLINS_HOME=C:\home`}
 	for _, name := range agentVariables {
 		env = append(env, name+"=1")
 	}
@@ -182,7 +182,7 @@ func TestTheMarksAServeForgetsAreTheOnesTheCheckReads(t *testing.T) {
 			t.Errorf("IsAgentSessionVariable(%q) = false, want the mark the check reads", name)
 		}
 	}
-	for _, name := range []string{"CEO_ROLE", gateAgentVariable, host.IDVariable, host.ProofVariable, "Path", "CEO_HOME"} {
+	for _, name := range []string{"GOBLINS_ROLE", gateAgentVariable, host.IDVariable, host.ProofVariable, "Path", "GOBLINS_HOME"} {
 		if IsAgentSessionVariable(name) {
 			t.Errorf("IsAgentSessionVariable(%q) = true, want only the marks a harness sets", name)
 		}

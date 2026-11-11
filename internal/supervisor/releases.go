@@ -46,7 +46,7 @@ type Releases struct {
 // ReleaseOffer is the release an Update item installs, as its card shows it:
 // the version this board runs and the one it installs, when that was
 // published, a few lines of what is new, the page of its notes, what its
-// notes say of its signature, and the SHA-256 they list for ceo.exe.
+// notes say of its signature, and the SHA-256 they list for goblins.exe.
 type ReleaseOffer struct {
 	From      string    `json:"from"`
 	To        string    `json:"to"`
@@ -163,7 +163,7 @@ func (s *Service) offerUpdate(latest release.Release, installed string) error {
 	identity := sha256.Sum256([]byte("update\n" + id + "\n" + strconv.FormatInt(now.UnixNano(), 10)))
 	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
 	h := s.Store.Home
-	command := "$ErrorActionPreference = 'Stop'\n$env:CEO_HOME = " + quote(h.Root) + "\n$env:CEO_STATE_OVERRIDE = " + quote(h.State) + "\n" +
+	command := "$ErrorActionPreference = 'Stop'\n$env:GOBLINS_HOME = " + quote(h.Root) + "\n$env:GOBLINS_STATE_OVERRIDE = " + quote(h.State) + "\n" +
 		"& " + quote(filepath.Join(h.Programs(), "goblins.exe")) + " update --to " + latest.Tag + " --run " + id + "\nexit $LASTEXITCODE\n"
 	signing, publisher := release.Signing(latest.Notes)
 	offer := &ReleaseOffer{From: installed, To: latest.Tag, Page: latest.Page, Published: latest.Published, Notes: release.WhatsNew(latest.Notes, 3),

@@ -82,7 +82,7 @@ func (f *settingsFile) render() ([]byte, error) {
 
 // save backs the file up and writes it, and reports whether it wrote at all.
 // An unchanged document is left alone entirely, which is what makes a second
-// `ceo install` a genuine no-op rather than a rewrite that happens to land
+// `goblins install` a genuine no-op rather than a rewrite that happens to land
 // on the same bytes.
 func (f *settingsFile) save() (changed bool, backup string, err error) {
 	if !f.exists && len(f.values) == 0 {

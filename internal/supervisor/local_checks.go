@@ -12,7 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
-// LocalChecks is the newest ceo gate test run of a task's change, as its
+// LocalChecks is the newest goblins gate test run of a task's change, as its
 // report says: one the task's goblin ran, or one of the commit the goblin or
 // its pull request is at, as a gate's test step runs it. Level is the level it
 // ran and Required the level the change requires; Status is passed or failed;
@@ -71,7 +71,7 @@ func shortPackage(importPath, project string) string {
 	return importPath
 }
 
-// readLocalReports reads, by project, the ceo gate test reports of each
+// readLocalReports reads, by project, the goblins gate test reports of each
 // project a live task works in.
 func (s *Service) readLocalReports() (map[string][]verify.Report, error) {
 	read := s.Options.VerifyReports
@@ -94,7 +94,7 @@ func (s *Service) readLocalReports() (map[string][]verify.Report, error) {
 
 // localChecksLog is the end of the log of the run a task's card shows, and
 // whether one is kept. A log is read only from its project's folder of the
-// report store, where ceo gate test writes it.
+// report store, where goblins gate test writes it.
 func (s *Service) localChecksLog(meta state.TaskMeta) ([]string, bool, error) {
 	snapshot, err := s.Snapshot()
 	if err != nil {

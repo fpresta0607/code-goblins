@@ -149,7 +149,7 @@ func WriteCheckpoint(h home.Home, now time.Time) error {
 	} else if len(records) == 0 {
 		ew.println("No wake waits to be acknowledged.")
 	} else {
-		ew.printf("%d wakes are not acknowledged; run ceo drain to read and handle them.\n", len(records))
+		ew.printf("%d wakes are not acknowledged; run goblins drain to read and handle them.\n", len(records))
 		for _, record := range records {
 			ew.printf("[%d] %s %s: %s\n", record.Seq, record.Kind, record.Key, record.Detail)
 			if record.Answered != "" {

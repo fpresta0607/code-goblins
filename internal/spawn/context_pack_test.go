@@ -69,7 +69,7 @@ func TestWriteContextPackDrawsMemoryAndTheRepositorysLiveState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(instruction, filepath.Join(meta.TaskTmp, contextPackName)) || !strings.Contains(instruction, "within 6000 estimated tokens") || !strings.Contains(instruction, `ceo memory recall "<question>" --project harbor`) {
+	if !strings.Contains(instruction, filepath.Join(meta.TaskTmp, contextPackName)) || !strings.Contains(instruction, "within 6000 estimated tokens") || !strings.Contains(instruction, `goblins memory recall "<question>" --project harbor`) {
 		t.Fatalf("instruction %q", instruction)
 	}
 	record := filepath.Join(meta.TaskTmp, contextPackRecord)

@@ -125,9 +125,9 @@ func TestCompareNamesWhatTheUninstallLeftTookOrChanged(t *testing.T) {
 		{
 			name:   "a rule for one change passes over no other",
 			before: map[string]map[string]string{kindProcess: {}},
-			after:  map[string]map[string]string{kindProcess: {`C:\x\ceo.exe`: ""}},
+			after:  map[string]map[string]string{kindProcess: {`C:\x\goblins.exe`: ""}},
 			rules:  []rule{{kind: kindProcess, change: changeGone, pattern: regexp.MustCompile(`.`), why: "ended"}},
-			want:   []string{`left process C:\x\ceo.exe`},
+			want:   []string{`left process C:\x\goblins.exe`},
 		},
 		{
 			name:   "no rule passes over a thing that names Code Goblins",
@@ -469,8 +469,8 @@ func TestNoisePassesOverWindowsOwnLiveCredentialButNeverOurs(t *testing.T) {
 // over. Code Goblins registers nothing there but its notification
 // registration and its click handlers, so everything in AppUserModelId and
 // CLSID is compared. A key or value whose name, or what it held or holds,
-// names Code Goblins, goblins, ceo.exe or goblins-window is named wherever it
-// sits under Classes, even once it went.
+// names Code Goblins, goblins, goblins.exe or goblins-window is named wherever
+// it sits under Classes, even once it went.
 func TestNoisePassesOverWindowsClassesButNeverOurs(t *testing.T) {
 	cases := []struct {
 		name string
@@ -483,7 +483,7 @@ func TestNoisePassesOverWindowsClassesButNeverOurs(t *testing.T) {
 		{"a value Windows changed", difference{Change: changeChanged, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\.txt\OpenWithProgids\AppXb5yxv86nkhp530y0y50yxe69c1qwad1x`, Before: "", After: "x"}, false},
 		{"a key named for Code Goblins", difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\CodeGoblins.Brief`}, true},
 		{"a link that runs the window", difference{Change: changeLeft, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\brief\shell\open\command\`, After: `"C:\Users\a\AppData\Local\CodeGoblins\bin\goblins-window.exe" "%1"`}, true},
-		{"a link that runs ceo.exe", difference{Change: changeLeft, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\brief\shell\open\command\`, After: `C:\tools\ceo.exe open "%1"`}, true},
+		{"a link that runs goblins.exe", difference{Change: changeLeft, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\brief\shell\open\command\`, After: `C:\tools\goblins.exe open "%1"`}, true},
 		{"a value changed to name the goblins", difference{Change: changeChanged, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\.txt\shell\open\command\`, Before: "notepad.exe %1", After: `goblins.exe %1`}, true},
 		{"a class", difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\CLSID\{675d0139-5ced-40b2-8c52-7ff0dca6fc9d}`}, true},
 		{"a class's value", difference{Change: changeLeft, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\CLSID\{675d0139-5ced-40b2-8c52-7ff0dca6fc9d}\LocalServer32\`, After: "x"}, true},

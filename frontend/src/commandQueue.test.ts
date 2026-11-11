@@ -272,7 +272,7 @@ test("only an answer that reached its asker counts as answered", () => {
   const cases: [string, Record<string, unknown>, string, string, string][] = [
     ["a board answer", { status: "succeeded", answer_id: "x", answer: "A", answer_kind: "option", answered_option: "A", answered_by: "overlord" }, "answered", "You chose A", "check-double"],
     ["a board answer on its way", { status: "queued", answer_id: "x", answer: "A", answer_kind: "option" }, "answered", "You chose A (not yet delivered to the goblin)", "check-double"],
-    ["a ceo answer with an empty answer_id", { status: "succeeded", answer_id: "", answer: "B", answer_kind: "option", answered_option: "B", answered_by: "ceo" }, "answered", "The CEO chose B", "check-double"],
+    ["a goblins answer with an empty answer_id", { status: "succeeded", answer_id: "", answer: "B", answer_kind: "option", answered_option: "B", answered_by: "ceo" }, "answered", "The CEO chose B", "check-double"],
     ["a failed board answer", { status: "failed", answer_id: "x", answer: "A", answer_kind: "option", message: "the CEO already handled this question; nothing was sent" }, "failed", "Your answer did not reach the goblin", "warning"],
     ["an unconfirmed board answer", { status: "uncertain", answer_id: "x", answer: "A", answer_kind: "option" }, "uncertain", "Not confirmed: check the goblin's terminal", "warning"],
     ["a question cleared after a failure", { status: "cleared", answer_id: "x", answer: "A", answer_kind: "option" }, "cleared", "Closed without an answer", "close"],
@@ -637,7 +637,7 @@ test("a card whose item closed without it sending anything finishes as Answered 
 test("a run item the CEO withdrew leaves the Command Center, and its history says who withdrew it and why", () => {
   // Arrange
   const snapshot = parseSnapshot({ healthy: true, runs: [
-    { id: "install-main-66714dea", identity: "ceo-1", title: "Install main", shell: "powershell", command: "ceo install", state: "withdrawn", reason: "the candidate binary is gone", created_at: "2026-10-01T03:00:00Z", finished_at: "2026-10-01T05:00:00Z" },
+    { id: "install-main-66714dea", identity: "ceo-1", title: "Install main", shell: "powershell", command: "goblins install", state: "withdrawn", reason: "the candidate binary is gone", created_at: "2026-10-01T03:00:00Z", finished_at: "2026-10-01T05:00:00Z" },
   ] });
 
   // Act

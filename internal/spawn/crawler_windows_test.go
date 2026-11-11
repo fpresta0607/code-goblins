@@ -16,7 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// setUpCrawler gives homeRoot the crawler connector's commands, as ceo
+// setUpCrawler gives homeRoot the crawler connector's commands, as goblins
 // crawler setup leaves them.
 func setUpCrawler(t *testing.T, homeRoot string) {
 	t.Helper()
@@ -167,7 +167,7 @@ func TestAHelperOfAGoblinWithoutTheCrawlerGoesWithoutIt(t *testing.T) {
 func TestTheCrawlerFolderFollowsTheCodexGuardOnPath(t *testing.T) {
 	// Arrange
 	stateDir := t.TempDir()
-	t.Setenv("CEO_CODEX_GUARD", "")
+	t.Setenv("GOBLINS_CODEX_GUARD", "")
 	service := Service{StateDir: stateDir, HomeRoot: filepath.Dir(stateDir)}
 	userPath := `C:\Users\someone\AppData\Roaming\npm;C:\Windows\System32`
 	userEnv := []string{"Path=" + userPath}
@@ -175,8 +175,8 @@ func TestTheCrawlerFolderFollowsTheCodexGuardOnPath(t *testing.T) {
 	bin := crawler.BinDir(service.HomeRoot)
 
 	// Act
-	carrying := service.nativeHostEnvironment(userEnv, harness.Launch{Env: map[string]string{"CEO_TASK_ID": "g1", crawler.PathVariable: bin}}, auth.Result{})
-	leftOut := service.nativeHostEnvironment(userEnv, harness.Launch{Env: map[string]string{"CEO_TASK_ID": "g1"}}, auth.Result{})
+	carrying := service.nativeHostEnvironment(userEnv, harness.Launch{Env: map[string]string{"GOBLINS_TASK_ID": "g1", crawler.PathVariable: bin}}, auth.Result{})
+	leftOut := service.nativeHostEnvironment(userEnv, harness.Launch{Env: map[string]string{"GOBLINS_TASK_ID": "g1"}}, auth.Result{})
 
 	// Assert
 	if got, want := nativeVariable(carrying, "PATH"), strings.Join([]string{guard, bin, userPath}, ";"); got != want {

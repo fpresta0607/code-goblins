@@ -242,7 +242,7 @@ func TestAnAnsweredQuestionNoLongerHoldsTheCard(t *testing.T) {
 	}
 }
 
-// failedSpawn is the line ceo spawn writes when a goblin's terminal kept its
+// failedSpawn is the line goblins spawn writes when a goblin's terminal kept its
 // instruction in the composer unsubmitted past the start's budget.
 const failedSpawn = "failed: spawn: native terminal task-1 never showed its harness working on the instruction: not within 1m30s; its screen ends: > Read the brief"
 

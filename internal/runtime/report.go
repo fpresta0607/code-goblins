@@ -17,9 +17,9 @@ type Report struct {
 	Home   string `json:"home"`
 	// Stacks are the container groups, one per owner and stack name.
 	Stacks []Stack `json:"stacks"`
-	// Services are the local services stacks ceo services started or shares
-	// for tasks: who holds each, what ceo started of it and what it was
-	// measured to cost, and whether ceo started the Docker engine.
+	// Services are the local services stacks goblins services started or shares
+	// for tasks: who holds each, what goblins started of it and what it was
+	// measured to cost, and whether goblins started the Docker engine.
 	Services services.Record `json:"services"`
 	// LooseVolumes are named volumes no container references. They are the
 	// quiet half of the disk bill: 11 GB of them here, none attached to
@@ -163,7 +163,7 @@ type StopVerdict string
 const (
 	// StopNo is a live goblin's server. Stopping it breaks a working goblin.
 	StopNo StopVerdict = "no"
-	// StopSafe is a server whose task is finished. `ceo reap` retires it.
+	// StopSafe is a server whose task is finished. `goblins reap` retires it.
 	StopSafe StopVerdict = "safe"
 	// StopAsk is the Overlord's own. It is not the fleet's to stop.
 	StopAsk StopVerdict = "ask"
@@ -415,9 +415,9 @@ func (s Server) StopReason() string {
 		return "task " + s.Owner.TaskID + " is live and working in this directory"
 	case StopSafe:
 		if s.Owner.TaskID != "" {
-			return "task " + s.Owner.TaskID + " is finished; ceo reap retires it"
+			return "task " + s.Owner.TaskID + " is finished; goblins reap retires it"
 		}
-		return "no task holds this worktree; ceo reap retires it"
+		return "no task holds this worktree; goblins reap retires it"
 	case StopUnknown:
 		return "no task record for this worktree could be read, so it is not established that anything here is finished"
 	default:

@@ -14,7 +14,7 @@ import (
 
 // switchedTailscale is this PC's Tailscale, which its own client stops and
 // starts, which the network going away leaves unconnected, and whose Serve
-// keeps a route per port. The board and ceo remote share it, as the one
+// keeps a route per port. The board and goblins remote share it, as the one
 // Tailscale on the PC.
 type switchedTailscale struct {
 	mu                   sync.Mutex
@@ -131,7 +131,7 @@ func TestEveryWayRemoteAccessTurnsOnOrOffShowsInTheBoardsSetting(t *testing.T) {
 				t.Fatalf("off answered %d", code)
 			}
 		}},
-		{name: "ceo remote on", change: func(t *testing.T) {
+		{name: "goblins remote on", change: func(t *testing.T) {
 			if _, err := cli.Enable(context.Background()); err != nil {
 				t.Fatal(err)
 			}
@@ -152,7 +152,7 @@ func TestEveryWayRemoteAccessTurnsOnOrOffShowsInTheBoardsSetting(t *testing.T) {
 				t.Fatalf("Follow = %v, %v", moved, err)
 			}
 		}, isOn: true, isReady: true, routeTo: "http://127.0.0.1:64610"},
-		{name: "ceo remote off", change: func(t *testing.T) {
+		{name: "goblins remote off", change: func(t *testing.T) {
 			cli.Target = "http://127.0.0.1:64610"
 			if err := cli.Disable(context.Background()); err != nil {
 				t.Fatal(err)

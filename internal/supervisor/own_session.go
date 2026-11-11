@@ -27,7 +27,7 @@ var ErrNotOwnSession = errors.New("this is not the CEO's own session, which is t
 // that is one of its own ancestors, by pid and creation time, or, where its
 // chain of parents stops short, it carries the terminal's proof value.
 //
-// `ceo install` puts the CEO's hooks in the user's settings, so they run in
+// `goblins install` puts the CEO's hooks in the user's settings, so they run in
 // every Claude Code session on the machine, and on 2026-10-09 one the
 // Overlord's desktop app reopened after a restart took the session lock
 // before the CEO came back, was rewoken with the fleet's wakes and

@@ -43,7 +43,7 @@ type Settings struct {
 	CheckForUpdates bool `json:"check_for_updates"`
 	// GitHubOwners name the GitHub organizations, and any account besides
 	// the one gh works as, whose repositories the fleet owns: a teammate's
-	// pull request there is watched as the fleet's own are, and ceo issue
+	// pull request there is watched as the fleet's own are, and goblins issue
 	// file files a root issue only there.
 	GitHubOwners []string `json:"github_owners"`
 	// WeeklyFloorPercent is, by provider, the percent of its weekly
@@ -78,7 +78,7 @@ func Defaults() Settings {
 		DiskWakeGB:  10,
 		CachesCapGB: 20,
 		// The leaks the CEO removed by hand on 2026-10-02: Go test homes,
-		// Go's own build folders, ceo fixtures, Playwright and Chrome
+		// Go's own build folders, goblins fixtures, Playwright and Chrome
 		// profiles, audit runs and PrecisionDocs test homes.
 		TempPatterns:    []string{"Test*", "go-build*", "ceo-*", "playwright*", "scoped_dir*", "fallow-audit*", "pd-*"},
 		CheckForUpdates: true,

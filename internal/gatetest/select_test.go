@@ -18,7 +18,7 @@ var repo = []Package{
 	pkg("internal/reap", "example.com/repo/internal/herdr", "example.com/repo/internal/state"),
 	pkg("internal/state"),
 	pkg("internal/supervisor", "example.com/repo/internal/monitor"),
-	pkg("cmd/ceo", "example.com/repo/internal/reap", "example.com/repo/internal/supervisor"),
+	pkg("cmd/goblins", "example.com/repo/internal/reap", "example.com/repo/internal/supervisor"),
 }
 
 // A package is tested when a file in its directory changed, testdata and
@@ -31,13 +31,13 @@ func TestSelectTakesChangedPackagesAndTheirDirectImporters(t *testing.T) {
 	}{
 		"a leaf package": {
 			files: []string{"internal/reap/classify.go"},
-			want:  []string{"example.com/repo/internal/reap (changed)", "example.com/repo/cmd/ceo (imports example.com/repo/internal/reap)"},
+			want:  []string{"example.com/repo/internal/reap (changed)", "example.com/repo/cmd/goblins (imports example.com/repo/internal/reap)"},
 		},
 		"a core package reaches all its importers": {
 			files: []string{"internal/herdr/client.go"},
 			want: []string{
 				"example.com/repo/internal/herdr (changed)",
-				"example.com/repo/cmd/ceo (imports example.com/repo/internal/reap)",
+				"example.com/repo/cmd/goblins (imports example.com/repo/internal/reap)",
 				"example.com/repo/internal/monitor (imports example.com/repo/internal/herdr)",
 				"example.com/repo/internal/reap (imports example.com/repo/internal/herdr)",
 				"example.com/repo/internal/supervisor (imports example.com/repo/internal/monitor)",
@@ -45,14 +45,14 @@ func TestSelectTakesChangedPackagesAndTheirDirectImporters(t *testing.T) {
 		},
 		"a testdata file belongs to its package": {
 			files: []string{"internal/state/testdata/task.json"},
-			want:  []string{"example.com/repo/internal/state (changed)", "example.com/repo/cmd/ceo (imports example.com/repo/internal/reap)", "example.com/repo/internal/reap (imports example.com/repo/internal/state)"},
+			want:  []string{"example.com/repo/internal/state (changed)", "example.com/repo/cmd/goblins (imports example.com/repo/internal/reap)", "example.com/repo/internal/reap (imports example.com/repo/internal/state)"},
 		},
 		"a changed importer is listed as changed": {
 			files: []string{"internal/herdr/client.go", "internal/monitor/service.go"},
 			want: []string{
 				"example.com/repo/internal/herdr (changed)",
 				"example.com/repo/internal/monitor (changed)",
-				"example.com/repo/cmd/ceo (imports example.com/repo/internal/reap)",
+				"example.com/repo/cmd/goblins (imports example.com/repo/internal/reap)",
 				"example.com/repo/internal/reap (imports example.com/repo/internal/herdr)",
 				"example.com/repo/internal/supervisor (imports example.com/repo/internal/monitor)",
 			},
@@ -177,7 +177,7 @@ func TestSelectReachesTransitiveImporters(t *testing.T) {
 			packages: repo,
 			want: []Choice{
 				{ImportPath: "example.com/repo/internal/herdr"},
-				{ImportPath: "example.com/repo/cmd/ceo", Imports: "example.com/repo/internal/reap"},
+				{ImportPath: "example.com/repo/cmd/goblins", Imports: "example.com/repo/internal/reap"},
 				{ImportPath: "example.com/repo/internal/monitor", Imports: "example.com/repo/internal/herdr"},
 				{ImportPath: "example.com/repo/internal/reap", Imports: "example.com/repo/internal/herdr"},
 				{ImportPath: "example.com/repo/internal/supervisor", Imports: "example.com/repo/internal/monitor"},

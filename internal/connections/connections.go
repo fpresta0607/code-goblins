@@ -25,7 +25,7 @@ type Entry struct {
 	RestartReason   string    `json:"restart_reason,omitempty"`
 	// Grant is what the board offers beside the entry: grant for a service or
 	// a project MCP server the task does not carry, revoke for one its record
-	// names, or empty for one no ceo auth grant changes.
+	// names, or empty for one no goblins auth grant changes.
 	Grant string `json:"grant,omitempty"`
 	// Tools are the tools an MCP server reported in the check, by name, which
 	// its connector's page lists in two groups.

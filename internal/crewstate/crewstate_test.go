@@ -120,7 +120,7 @@ func TestResolveMapsStatusOnlyAfterExactStructuralIdle(t *testing.T) {
 		{line: "done: shipped", want: Done},
 		{line: "failed: test failure", want: Failed},
 		// On 2026-10-13 fleet-view read Murray and Bernie as unknown while
-		// the board showed what they waited on: ceo notify --waiting-on
+		// the board showed what they waited on: goblins notify --waiting-on
 		// writes waiting on <what>, which no state took.
 		{line: "waiting on memory: scoped checks queued in the gate turn", want: Waiting},
 		{line: "waiting on 01M4TK6QXR7F31S7EY3SFGKWF6: respond queued", want: Waiting},

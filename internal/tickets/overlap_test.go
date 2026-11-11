@@ -111,7 +111,7 @@ func TestApplyWritesAnOverlapAcceptedAfterTheTicketWasOpened(t *testing.T) {
 		wantRequest string
 		wantBody    string
 	}{
-		{name: "an issue ceo opened", from: openedRecord(InProgress, "ceo: in progress", "goblin: claude"), wantRequest: "PATCH " + issue},
+		{name: "an issue goblins opened", from: openedRecord(InProgress, "ceo: in progress", "goblin: claude"), wantRequest: "PATCH " + issue},
 		{name: "a claimed issue", from: &Record{TaskID: "nw-sync", Repository: northwind, Number: 501, IsClaimed: true, CommentID: 9001, State: InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"ceo: in progress", "goblin: claude"}},
 			wantRequest: "PATCH repos/" + northwind + "/issues/comments/9001"},
 	}

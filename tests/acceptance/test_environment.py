@@ -174,8 +174,8 @@ def main():
         'PATH': str(root / 'bin') + os.pathsep + os.environ['PATH'],
         'USERPROFILE': str(root / 'user'), 'APPDATA': str(root / 'appdata'),
         'LOCALAPPDATA': str(root / 'localappdata'), 'TEMP': str(root / 'temp'), 'TMP': str(root / 'temp'),
-        'CEO_HOME': str(home), 'CEO_STATE_OVERRIDE': str(home / 'state'),
-        'CEO_VERIFY_DIR': str(root / 'verification'), 'NM_HOME': str(native_home),
+        'GOBLINS_HOME': str(home), 'GOBLINS_STATE_OVERRIDE': str(home / 'state'),
+        'GOBLINS_VERIFY_DIR': str(root / 'verification'), 'NM_HOME': str(native_home),
         'NM_TEST_START_DAEMON': '1', 'NM_TEST_DAEMON_START_TIMEOUT': '45s',
         'NO_MISTAKES_TELEMETRY': 'off', 'NO_MISTAKES_NO_UPDATE_CHECK': '1',
         'FAKEAGENT_LOG': str(root / 'agent.log'), 'UV_PROJECT_ENVIRONMENT': 'daemon-unverified',
@@ -187,7 +187,7 @@ def main():
                '{test_comparison_sha}', '--as', '{repo} {branch}, run {run_short}', '--']
     write(native_home / 'config.yaml', 'agent: codex\nlog_level: debug\nagent_path_override:\n  codex: ' +
           json.dumps(str(root / 'bin' / 'codex.exe')) + '\nauto_fix:\n  review: 0\n  test: 0\n  lint: 0\n  rebase: 0\n  document: 0\n  ci: 0\n' +
-          'test_command_wrapper:\n  command: ' + json.dumps(wrapper) + '\n  refusal_prefix: "ceo gate turn: "\n')
+          'test_command_wrapper:\n  command: ' + json.dumps(wrapper) + '\n  refusal_prefix: "goblins gate turn: "\n')
     write(root / 'command-sentinel.py', SENTINEL)
     for tool in ('uv', 'node'):
         write(root / 'bin' / (tool + '.cmd'), '@echo off\n"%PROOF_BASE_PYTHON%" "%PROOF_ROOT%\\command-sentinel.py" ' + tool + ' %*\nexit /b %errorlevel%\n')

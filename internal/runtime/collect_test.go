@@ -236,7 +236,7 @@ func TestCollectChecksEveryWorkingDirectoryOnDisk(t *testing.T) {
 	}
 }
 
-// The stacks ceo services holds for tasks are read from the home's own
+// The stacks goblins services holds for tasks are read from the home's own
 // record, so the report names who holds each without asking Docker.
 func TestCollectReadsTheLocalServicesTheHomeHolds(t *testing.T) {
 	h := collectorHome(t)

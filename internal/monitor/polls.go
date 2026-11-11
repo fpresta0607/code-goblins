@@ -17,7 +17,7 @@ import (
 // Poll is a lavish-axi poll a goblin runs itself. The poll takes the
 // Overlord's feedback on the page as it arrives, so his answer there reaches
 // that goblin and nobody else: no status line, no Waiting on you card and no
-// wake. A goblin waiting on a page registers the wait with ceo notify
+// wake. A goblin waiting on a page registers the wait with goblins notify
 // --waiting-on overlord --lavish instead, and the supervisor polls it for the
 // CEO.
 type Poll struct {
@@ -93,7 +93,7 @@ func (p ProcessPolls) Polls(ctx context.Context) ([]Poll, error) {
 }
 
 // goblinOf places a poll with the first process in its chain, the poll itself
-// first, that runs in a goblin's worktree. A poll ceo started is the
+// first, that runs in a goblin's worktree. A poll goblins started is the
 // supervisor polling a page wait for the CEO, which is exactly what a goblin
 // should have asked for, so it is never a goblin's poll.
 func goblinOf(chain []proc.Entry, inWorktree func(string) string) (string, bool) {
@@ -120,7 +120,7 @@ func startedByCEO(chain []proc.Entry) bool {
 		switch executableName(entry.ExeBase) {
 		case "cmd", "powershell", "pwsh", "bash", "sh", "node":
 			continue
-		case "ceo", "goblins":
+		case "goblins":
 			return true
 		}
 		return false
@@ -313,7 +313,7 @@ type goblinRecord struct {
 }
 
 // knownGoblins reads every goblin this home knows from its state listing:
-// live with a task record, retired with only its status log left, which ceo
+// live with a task record, retired with only its status log left, which goblins
 // cleanup keeps when it retires the record.
 func knownGoblins(entries []os.DirEntry) map[string]goblinRecord {
 	goblins := make(map[string]goblinRecord)
@@ -345,7 +345,7 @@ func privatePollDetail(poll Poll, task string, live bool) string {
 		page = "its page"
 	}
 	if live {
-		return fmt.Sprintf("goblin %s is polling %s itself with lavish-axi (pid %d), so the Overlord's answer there reaches only that goblin; tell it to stop the poll and wait with ceo notify %s --waiting-on overlord <why> --lavish <page>", task, page, poll.PID, task)
+		return fmt.Sprintf("goblin %s is polling %s itself with lavish-axi (pid %d), so the Overlord's answer there reaches only that goblin; tell it to stop the poll and wait with goblins notify %s --waiting-on overlord <why> --lavish <page>", task, page, poll.PID, task)
 	}
 	return fmt.Sprintf("a lavish-axi poll (pid %d) still waits on %s for goblin %s, which is retired, so the Overlord's answer there reaches nobody; read the page's open questions, put them to him, and stop the poll", poll.PID, page, task)
 }

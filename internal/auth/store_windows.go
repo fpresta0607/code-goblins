@@ -60,7 +60,7 @@ func openCredentialManager() (Store, error) {
 	// Prove the vault answers before claiming it: a read of a name that does
 	// not exist must come back as "not found", not as a load failure.
 	store := credentialManagerStore{target: credentialTarget}
-	if _, _, err := store.Get(Shared("CEO_CREDENTIAL_STORE_PROBE")); err != nil {
+	if _, _, err := store.Get(Shared("GOBLINS_CREDENTIAL_STORE_PROBE")); err != nil {
 		return nil, err
 	}
 	return store, nil
@@ -233,7 +233,7 @@ func restrictToOwner(path string) error {
 // VaultTargets lists every Windows Credential Manager entry Code Goblins
 // stored: each credential and each fingerprint of what a .env last offered.
 // An entry counts only as this package writes it, a generic credential for
-// the user ceo whose target is a key this package could have written, so an
+// the user goblins whose target is a key this package could have written, so an
 // uninstall that removes them never reaches another program's entry.
 func VaultTargets() ([]string, error) {
 	entries, err := VaultEntries(credentialTarget)

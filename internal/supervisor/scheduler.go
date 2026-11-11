@@ -118,7 +118,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		if record.Phase != "paused" || record.Generation != meta.SpawnGen || record.Pause == nil {
 			continue
 		}
-		// A goblin given new settings while paused resumes on them, as ceo
+		// A goblin given new settings while paused resumes on them, as goblins
 		// resume does, so it waits on their allowance and not on the one
 		// it paused on.
 		harness, model := meta.Harness, meta.Model

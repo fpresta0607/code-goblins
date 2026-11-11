@@ -150,7 +150,7 @@ func TestALoopOfAGoblinsCommandWakesTheCEOOnce(t *testing.T) {
 	}
 }
 
-// A goblin's own hooks start ceo.exe, a Codex goblin's before every shell
+// A goblin's own hooks start goblins.exe, a Codex goblin's before every shell
 // call and after every tool call, far more than ten times a minute when it is
 // busy, and a Claude Code goblin's at its prompts and turns, its hooks at
 // every tool call posting to the board instead. Claude Code starts a hook given as a program and its args itself,
@@ -193,7 +193,7 @@ func TestAGoblinsOwnHooksAreNoLoop(t *testing.T) {
 				for range 5 {
 					for _, command := range commands {
 						pid++
-						fleet.processes = append(fleet.processes, fleettree.Process{PID: pid, ParentPID: test.parent, Exe: "ceo.exe", Created: int64(pid), Started: at})
+						fleet.processes = append(fleet.processes, fleettree.Process{PID: pid, ParentPID: test.parent, Exe: "goblins.exe", Created: int64(pid), Started: at})
 						fleet.commands[pid] = command
 					}
 				}

@@ -1,7 +1,7 @@
 // Package digest composes the session-start digest in its two forms: the
 // brief one a CEO session sees at the top of context when Claude Code fires
 // the SessionStart hook (ComposeBrief), and the long one that hook writes to
-// a file and an operator prints with the manual `ceo session-start` alias
+// a file and an operator prints with the manual `goblins session-start` alias
 // (Compose). Composition samples current state once under a shared deadline.
 // Rendering never probes terminals; memory and state have separate bounds.
 package digest
@@ -111,7 +111,7 @@ func (e *werr) write(text []byte) {
 // Compose writes the long session-start digest to w, in this exact section
 // order: SESSION LOCK, AFK MODE while it is on, WAKE QUEUE, WAITING ON THE
 // CEO, SUPERVISION OPERATING INSTRUCTIONS, READ-ONCE CONTRACT, FLEET STATE,
-// ORPHANS, CONTEXT, NEXT STEP. It is what `ceo session-start` prints by
+// ORPHANS, CONTEXT, NEXT STEP. It is what `goblins session-start` prints by
 // hand; a hook prints ComposeBrief, because a session is handed a hook's
 // output whole only up to Limit.
 //
@@ -126,7 +126,7 @@ func (e *werr) write(text []byte) {
 // the werr latch below, so one broken write silently no-ops every later
 // print and is surfaced here) and a failure to write the completion marker.
 // The caller is responsible for rendering a returned error as digest text
-// (never a nonzero exit; see cmd/ceo/hook.go's session-start case).
+// (never a nonzero exit; see cmd/goblins/hook.go's session-start case).
 //
 // ownerPID identifies the process taking custody of the session lock, the
 // harness of the CEO's own session, which the caller has proven it is (see
@@ -207,7 +207,7 @@ func composeLong(h home.Home, current fleetSample, ew *werr) error {
 			fmt.Fprintf(&fleetState, "(+%d more queued)\n", len(queued)-5)
 		}
 	}
-	fmt.Fprintln(&fleetState, "Canonical current state: ceo fleet-view; ceo drain reads the durable work queue. Status tails above are event history, not proof of present state. No omitted record was acknowledged.")
+	fmt.Fprintln(&fleetState, "Canonical current state: goblins fleet-view; goblins drain reads the durable work queue. Status tails above are event history, not proof of present state. No omitted record was acknowledged.")
 	files, memoryErr := writeContext(h.Data, &werr{w: &context})
 
 	if hasCatalog {
@@ -242,7 +242,7 @@ func composeLong(h home.Home, current fleetSample, ew *werr) error {
 //
 // The long digest is written to state\FullDigestFile only under a lock this
 // call holds, as every other mutation is: a session that does not hold the
-// home is told to print the long form with `ceo session-start` instead. The
+// home is told to print the long form with `goblins session-start` instead. The
 // completion marker is written as Compose writes it.
 func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact, isResumed bool, w io.Writer) error {
 	return composeBriefWithEndpoint(context.Background(), h, ownerPID, session, isAfterCompact, isResumed, fleet.NewTerminalEndpoint(h.State, nil), w)
@@ -259,12 +259,12 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 
 	// A tool cuts long output short just as a hook does, so the fallback
 	// names the two files a session must not go without beside the command.
-	fallback := fmt.Sprintf("read %s and %s themselves; \"ceo session-start\" prints the long digest, which is too long for a tool to hand back whole.", filepath.Join(h.Data, "overlord.md"), filepath.Join(h.Data, filepath.FromSlash(layout.MemoryIndex)))
+	fallback := fmt.Sprintf("read %s and %s themselves; \"goblins session-start\" prints the long digest, which is too long for a tool to hand back whole.", filepath.Join(h.Data, "overlord.md"), filepath.Join(h.Data, filepath.FromSlash(layout.MemoryIndex)))
 	if hasCatalog {
-		fallback = "ceo session-start prints the verified warm map read-only; use ceo memory retrieve --project <name> --task <id> --topic <topic> --cold for relevant cold authority and facts, resolving any memory diagnostic before dependent action."
+		fallback = "goblins session-start prints the verified warm map read-only; use goblins memory retrieve --project <name> --task <id> --topic <topic> --cold for relevant cold authority and facts, resolving any memory diagnostic before dependent action."
 	}
 	if memoryErr != nil {
-		fallback = "no warm map was verified; resolve the MEMORY UNREADABLE diagnostic below before dependent action, then run ceo session-start again."
+		fallback = "no warm map was verified; resolve the MEMORY UNREADABLE diagnostic below before dependent action, then run goblins session-start again."
 	}
 	next := "this session does not hold the home, so no long digest was written: " + fallback
 	hasUnchangedContext := false
@@ -283,13 +283,13 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 			hasUnchangedContext = isResumed && isSameContext
 			next = path + " holds what this digest leaves out: the bounded canonical state projection and data\\projects.md, data\\overlord.md and data\\memory\\MEMORY.md in full. Detailed metadata, backlog, status history and omitted wakes require targeted retrieval. "
 			if hasCatalog {
-				next = path + " holds the verified warm operating map, memory diagnostics and bounded canonical state summary. Before dependent work use ceo memory retrieve --project <name> --task <id> --topic <topic> --cold for relevant cold authority and facts. It does not embed the full history or cold fact files. "
+				next = path + " holds the verified warm operating map, memory diagnostics and bounded canonical state summary. Before dependent work use goblins memory retrieve --project <name> --task <id> --topic <topic> --cold for relevant cold authority and facts. It does not embed the full history or cold fact files. "
 			}
 			if memoryErr != nil {
 				next = path + " holds the MEMORY UNREADABLE diagnostic below and the bounded canonical state summary; its warm map failed validation. Resolve the diagnostic before dependent work. "
 			}
 			if hasUnchangedContext {
-				next += "The source context is unchanged. If this conversation already read those exact bytes and still holds them, do not read it again; otherwise read all source context before dependent action. Current state must be reconciled from ceo fleet-view and ceo drain."
+				next += "The source context is unchanged. If this conversation already read those exact bytes and still holds them, do not read it again; otherwise read all source context before dependent action. Current state must be reconciled from goblins fleet-view and goblins drain."
 			} else {
 				next += "Read all of it, in parts if your tool caps a read, before acting on anything not shown here."
 			}
@@ -307,7 +307,7 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 		if path, _, isFresh := FreshCheckpoint(h.State, time.Now()); isFresh {
 			checkpoint = path + " holds the checkpoint written before compaction. Read it first.\n"
 		} else {
-			checkpoint = "no checkpoint was written before this compaction, or the one on disk is stale or unreadable; run ceo install to register the pre-compact hook.\n"
+			checkpoint = "no checkpoint was written before this compaction, or the one on disk is stale or unreadable; run goblins install to register the pre-compact hook.\n"
 		}
 	}
 	tail := func(isWholeQueue, isWholeFleet bool) []byte {
@@ -320,7 +320,7 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 			ew.println("== READ-ONCE CONTRACT ==")
 			writePrintedInFull(nil, ew)
 			if memoryErr != nil {
-				ew.printf("MEMORY UNREADABLE: %s. This preview delivers no source memory and no warm map was verified; do not act without resolving source authority. When memory changed after the catalog was written, ceo memory sync derives the catalog again.\n", cutError(memoryErr, briefErrorWidth))
+				ew.printf("MEMORY UNREADABLE: %s. This preview delivers no source memory and no warm map was verified; do not act without resolving source authority. When memory changed after the catalog was written, goblins memory sync derives the catalog again.\n", cutError(memoryErr, briefErrorWidth))
 			} else {
 				ew.println("This preview does not deliver source memory. Follow READ THIS NEXT for the freshly validated warm map; retrieve cold ranges by relevance before dependent action.")
 			}
@@ -369,14 +369,14 @@ func briefFleet(current fleetSample, room int) ([]byte, bool) {
 		ew.printf("state\\: UNREADABLE (%s)\n", cutError(current.err, briefErrorWidth))
 	}
 	if current.orphans > 0 {
-		ew.printf("%d orphan status logs: ceo reap --json reads the full finding set.\n", current.orphans)
+		ew.printf("%d orphan status logs: goblins reap --json reads the full finding set.\n", current.orphans)
 	}
 	if len(current.lines) == 0 {
 		ew.println("(no goblins in flight)")
 		return section.Bytes(), current.err == nil
 	}
 	more := func(left int) string {
-		return fmt.Sprintf("(+%d more goblins: ceo fleet-view reads current state)\n", left)
+		return fmt.Sprintf("(+%d more goblins: goblins fleet-view reads current state)\n", left)
 	}
 	for listed, line := range current.lines {
 		if section.Len()+len(line)+len(more(len(current.lines))) > room {
@@ -518,7 +518,7 @@ func fleetLine(ctx context.Context, stateDir, id string, endpoint crewstate.Endp
 	}
 	detail := current.Detail
 	if current.State == crewstate.Unknown && ctx.Err() != nil {
-		detail = "startup sample deadline reached; use ceo fleet-view"
+		detail = "startup sample deadline reached; use goblins fleet-view"
 	}
 	if record, err := state.ReadLifecycle(stateDir, id); err == nil && record.Generation == meta["spawn_gen"] && current.State == crewstate.Paused && record.Pause != nil {
 		detail = record.Pause.Description()
@@ -652,10 +652,10 @@ func writeStorage(h home.Home, now time.Time, ew *werr) {
 		line += fmt.Sprintf(", kept %d it must not touch", len(record.Kept))
 	}
 	if len(record.Strays) > 0 {
-		line += fmt.Sprintf(", reports %d stray item(s) (ceo runtime names them)", len(record.Strays))
+		line += fmt.Sprintf(", reports %d stray item(s) (goblins runtime names them)", len(record.Strays))
 	}
 	if ended, left := len(record.Processes.Ended), len(record.Processes.Left); ended+left > 0 {
-		line += fmt.Sprintf(", ended %d leftover process(es) and left %d it could not prove the fleet's own (ceo runtime names them)", ended, left)
+		line += fmt.Sprintf(", ended %d leftover process(es) and left %d it could not prove the fleet's own (goblins runtime names them)", ended, left)
 	}
 	ew.println(line)
 }
@@ -677,7 +677,7 @@ func writeAFKMode(stateDir string, ew *werr) {
 }
 
 // writeWakeQueue reads the raw pending wake records and current episode,
-// then hands them to wake.Render, the same renderer `ceo drain` uses, so the
+// then hands them to wake.Render, the same renderer `goblins drain` uses, so the
 // two presentations can never drift in format. This section never acks:
 // Pending and ReadEpisode are read-only calls that create nothing.
 //
@@ -732,21 +732,21 @@ func writeSupervisionInstructions(dataDir string, isBrief bool, ew *werr) {
 		indexPrinted, orphans = "printed in full in the file named under READ THIS NEXT", "The ORPHANS section of the file named under READ THIS NEXT"
 	}
 	if _, err := os.Lstat(filepath.Join(dataDir, "memory", "startup.json")); !errors.Is(err, os.ErrNotExist) {
-		ew.printf("The CEO's memory is %s, the same for Claude Code, Codex and Pi. Once it validates, startup.json selects exact warm source ranges; cold facts and original rulings remain at their owners. Use ceo memory retrieve for the task's project, task and topic before dependent action. Read the Stow skill for capture, corrections, provenance and per-item pinned-offload authority; no digest grants that authority.\n", memory)
+		ew.printf("The CEO's memory is %s, the same for Claude Code, Codex and Pi. Once it validates, startup.json selects exact warm source ranges; cold facts and original rulings remain at their owners. Use goblins memory retrieve for the task's project, task and topic before dependent action. Read the Stow skill for capture, corrections, provenance and per-item pinned-offload authority; no digest grants that authority.\n", memory)
 	} else {
 		ew.printf("The CEO's memory is %s, the same for Claude Code, Codex and Pi: MEMORY.md there is its index, %s, one line per fact. Read a fact's own file when its line bears on the work. When you learn something durable, write it there as one file (frontmatter name, description and type, then the fact) and add its one line to MEMORY.md, never only to a harness's own memory folder, which the next CEO may not see.\n", memory, indexPrinted)
 	}
-	ew.println("For an explicit user decision, the registered primary CEO uses ceo question --id <stable-id> --text <question> --option <choice> --recommend <exact-choice>. Repeat --option for real choices; omit --recommend unless you recommend one. Other always permits a written answer.")
+	ew.println("For an explicit user decision, the registered primary CEO uses goblins question --id <stable-id> --text <question> --option <choice> --recommend <exact-choice>. Repeat --option for real choices; omit --recommend unless you recommend one. Other always permits a written answer.")
 	ew.println("This contract applies to Claude Code, Codex and Pi: publish from this primary session's shell, then continue independent work or end the turn awaiting the answer. The durable answer returns to the same CEO as a normal message; it does NOT answer a pending native prompt tool. Do not open a native prompt for the same decision or promote worker wake diagnostics into user questions.")
-	ew.println("For a nonblocking presentation, use a Scrawl page (lavish-axi <file> --no-open) and ceo present --id <stable-id> --kind review --url <returned-safe-url> from this registered primary; workers add --task and --generation. Report only a successful tool result, refresh only while live and finish with --state ended. Do not wait for a viewing choice or claim URL opening mirrors browser control; see docs/native-board.md.")
+	ew.println("For a nonblocking presentation, use a Scrawl page (lavish-axi <file> --no-open) and goblins present --id <stable-id> --kind review --url <returned-safe-url> from this registered primary; workers add --task and --generation. Report only a successful tool result, refresh only while live and finish with --state ended. Do not wait for a viewing choice or claim URL opening mirrors browser control; see docs/native-board.md.")
 	ew.println("The Stop-owned auto-arm hook owns watcher continuity: it hosts the watcher in-process across every turn for up to 8 hours.")
-	ew.println("Never run \"ceo watch\" from the agent shell. The watcher is armed and supervised by that hook alone; running it manually bypasses supervision.")
+	ew.println("Never run \"goblins watch\" from the agent shell. The watcher is armed and supervised by that hook alone; running it manually bypasses supervision.")
 	ew.println("Wakes arrive as rewake turns: a Stop hook exit 2 reopens the turn with an operational reason (a signal, a stale sweep, or a heartbeat), not a fresh session.")
-	ew.println("Every drain presentation ends with a WAKE_ACK_REQUIRED command. Run it after handling what ceo drain printed, or the same records resurface on the next drain.")
+	ew.println("Every drain presentation ends with a WAKE_ACK_REQUIRED command. Run it after handling what goblins drain printed, or the same records resurface on the next drain.")
 	ew.println("That command is REFUSED when unanswered questions sit at or below its sequence: drain lists every waiting goblin and retires nothing. The refusal is the protection working, not an error - a record acked unread is a record nobody will ever read.")
-	ew.println("Answer each listed goblin with \"ceo send <id> \"...\"\", then re-run the same command with --ack-blocking. That flag is range-scoped, not per-record: it retires EVERY question at or below the sequence, and the refusal listing is the whole set it will retire. The ack floor only moves forward, so a later question cannot be retired while an earlier one is kept - to hold one open, handle it first or ack a range that stops below its sequence.")
+	ew.println("Answer each listed goblin with \"goblins send <id> \"...\"\", then re-run the same command with --ack-blocking. That flag is range-scoped, not per-record: it retires EVERY question at or below the sequence, and the refusal listing is the whole set it will retire. The ack floor only moves forward, so a later question cannot be retired while an earlier one is kept - to hold one open, handle it first or ack a range that stops below its sequence.")
 	ew.println("Supervision is needed whenever tasks are in flight or queued work could start: any state\\*.meta file with no terminal status, or a queued task a Start could start, keeps the Stop hooks watching for a live watcher, and a turn that ends with no goblin at work while work waits and memory is free is reopened with the next work named. Your job is the whole list, not only the goblins in flight.")
-	ew.println(orphans + " is the fleet nothing else reports: a harness process with no pane is unsupervised and may still be spending tokens. Run \"ceo reap\" to re-sweep and \"ceo reap --apply\" to retire everything it found except a process: ending one is authorised only by naming its pid, as \"ceo reap --force <pid> --apply\". A HELD line says why that one was left alone.")
+	ew.println(orphans + " is the fleet nothing else reports: a harness process with no pane is unsupervised and may still be spending tokens. Run \"goblins reap\" to re-sweep and \"goblins reap --apply\" to retire everything it found except a process: ending one is authorised only by naming its pid, as \"goblins reap --force <pid> --apply\". A HELD line says why that one was left alone.")
 }
 
 // writeReadOnceContract names every source this digest already printed, so
@@ -758,7 +758,7 @@ func writeReadOnceContract(printed []string, ew *werr) {
 	ew.println("== READ-ONCE CONTRACT ==")
 	writePrintedInFull(printed, ew)
 	ew.println("State is bounded: the first 5 queued task records, capped task rows and each shown task's last status event, not full metadata, backlog or logs.")
-	ew.println("The last orphan sweep is capped; ceo reap --json reads the full finding set.")
+	ew.println("The last orphan sweep is capped; goblins reap --json reads the full finding set.")
 	ew.println("Do not re-read a file named on the PRINTED IN FULL line this turn. A backlog or status section that hit its cap only needs a fresh read for what is past the cap, not for what is already shown.")
 	ew.println("That line holds only for a reader that reached NEXT STEP at the end of this digest: one handed a part of it, by a tool that cut it short or a read that stopped early, has read less.")
 }
@@ -790,7 +790,7 @@ func writeOrphans(stateDir string, ew *werr) {
 	}
 	text := section.String()
 	if len(text) > 1000 {
-		text = strings.ToValidUTF8(text[:1000], "") + "\n(+more findings: ceo reap --json)\n"
+		text = strings.ToValidUTF8(text[:1000], "") + "\n(+more findings: goblins reap --json)\n"
 	}
 	ew.printf("%s", text)
 }
@@ -811,12 +811,12 @@ func writeContext(dataDir string, ew *werr) ([]string, error) {
 			text, err = catalog.StartupMap()
 		}
 		if err != nil {
-			ew.printf("MEMORY UNREADABLE: %s. Do not act without resolving source authority; no legacy fallback was selected. When memory changed after the catalog was written, ceo memory sync derives the catalog again.\n", err)
+			ew.printf("MEMORY UNREADABLE: %s. Do not act without resolving source authority; no legacy fallback was selected. When memory changed after the catalog was written, goblins memory sync derives the catalog again.\n", err)
 			return nil, err
 		}
 		ew.println("Verified warm operating map; quoted source ranges follow, each after its id in brackets. No source file is claimed read in full.")
 		ew.printf("%s", text)
-		ew.println("Before work, retrieve relevant cold authority and project facts with ceo memory retrieve --project <name> --task <id> --topic <topic> --cold, which prints what those scopes hold beyond this map; retrieve a named item with --id <id>.")
+		ew.println("Before work, retrieve relevant cold authority and project facts with goblins memory retrieve --project <name> --task <id> --topic <topic> --cold, which prints what those scopes hold beyond this map; retrieve a named item with --id <id>.")
 	} else {
 		for _, name := range []string{"projects.md", "overlord.md", filepath.FromSlash(layout.MemoryIndex)} {
 			if writeContextFile(dataDir, name, ew) {
@@ -829,7 +829,7 @@ func writeContext(dataDir string, ew *werr) ([]string, error) {
 	case err != nil:
 		ew.printf("MEMORY BUDGET UNREADABLE: %s; Stow cannot declare reset-safe.\n", err)
 	case report.IsLegacy:
-		ew.printf("LEGACY MEMORY UNCURATED: %d source bytes, %d estimated tokens, budget %d. No authority was offloaded; ceo memory migration-plan inventories named proposals.\n", report.Bytes, report.EstimatedTokens, report.Budget)
+		ew.printf("LEGACY MEMORY UNCURATED: %d source bytes, %d estimated tokens, budget %d. No authority was offloaded; goblins memory migration-plan inventories named proposals.\n", report.Bytes, report.EstimatedTokens, report.Budget)
 	default:
 		ew.printf("Warm memory and scope counts: %d bytes, %d estimated tokens (bytes/4 rounded up), budget %d estimated tokens.\n", report.Bytes, report.EstimatedTokens, report.Budget)
 	}

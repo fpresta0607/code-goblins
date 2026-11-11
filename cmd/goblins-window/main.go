@@ -1,5 +1,5 @@
 // Command goblins-window is the Code Goblins desktop window: a Wails window
-// around the board ceo serve already serves, with a tray icon, notifications,
+// around the board goblins serve already serves, with a tray icon, notifications,
 // one instance and start at login. It holds no engine logic, so closing it
 // leaves the supervisor, the CEO and every goblin running. Started with the
 // board's address and the fleet's state folder it is the window; started with

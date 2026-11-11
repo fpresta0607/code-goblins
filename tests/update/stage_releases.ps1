@@ -7,11 +7,11 @@
 # release's does, and the record GitHub's API answers for the latest
 # release, at <base>/<name>/latest. Beside them is cutover, this commit
 # built as the release before them, -CutoverVersion, which moves a home a
-# release from before the rename runs to ceo, so each update after it is an
+# release from before the rename runs to goblins, so each update after it is an
 # update.
 #
 # Run it from the checkout, after npm ci and npm run build in frontend, since
-# ceo.exe embeds the board:
+# goblins.exe embeds the board:
 #
 #   .\tests\update\stage_releases.ps1 -Version v0.5.99 -CutoverVersion v0.5.98 -Folder <folder> -Port 8765
 #
@@ -26,19 +26,19 @@ param(
 
 $ErrorActionPreference = "Stop"
 $base = "http://127.0.0.1:$Port"
-$serve = Join-Path (Get-Location) "cmd\ceo\serve.go"
+$serve = Join-Path (Get-Location) "cmd\goblins\serve.go"
 
 function Build-Release([string]$Name, [string]$Tag) {
     $out = Join-Path $Folder $Name
     New-Item -ItemType Directory -Force -Path $out | Out-Null
-    go build -trimpath -ldflags "-X main.version=$Tag" -o (Join-Path $out "ceo.exe") ./cmd/ceo
-    if ($LASTEXITCODE -ne 0) { throw "go build of $Name ceo.exe exited with code $LASTEXITCODE" }
-    go build -trimpath -ldflags "-H windowsgui -X main.version=$Tag" -o (Join-Path $out "ceo-hook.exe") ./cmd/ceo
-    if ($LASTEXITCODE -ne 0) { throw "go build of $Name ceo-hook.exe exited with code $LASTEXITCODE" }
+    go build -trimpath -ldflags "-X main.version=$Tag" -o (Join-Path $out "goblins.exe") ./cmd/goblins
+    if ($LASTEXITCODE -ne 0) { throw "go build of $Name goblins.exe exited with code $LASTEXITCODE" }
+    go build -trimpath -ldflags "-H windowsgui -X main.version=$Tag" -o (Join-Path $out "goblins-hook.exe") ./cmd/goblins
+    if ($LASTEXITCODE -ne 0) { throw "go build of $Name goblins-hook.exe exited with code $LASTEXITCODE" }
     go build -trimpath -tags production -ldflags "-H windowsgui" -o (Join-Path $out "goblins-window.exe") ./cmd/goblins-window
     if ($LASTEXITCODE -ne 0) { throw "go build of $Name goblins-window.exe exited with code $LASTEXITCODE" }
     Copy-Item install.ps1 (Join-Path $out "install.ps1")
-    $names = "ceo.exe", "ceo-hook.exe", "goblins-window.exe"
+    $names = "goblins.exe", "goblins-hook.exe", "goblins-window.exe"
     $lines = foreach ($file in $names) { "$((Get-FileHash (Join-Path $out $file) -Algorithm SHA256).Hash.ToLowerInvariant())  $file" }
     [IO.File]::WriteAllText((Join-Path $out "SHA256SUMS"), ($lines -join "`n") + "`n")
     $assets = foreach ($file in $names + "install.ps1", "SHA256SUMS") { [ordered]@{ name = $file; browser_download_url = "$base/$Name/$file" } }
@@ -64,7 +64,7 @@ Build-Release "cutover" $CutoverVersion
 # does; everything else, its update among it, is this commit's.
 $source = Get-Content -Raw $serve
 $opening = "func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {"
-if (-not $source.Contains($opening)) { throw "cmd\ceo\serve.go has no '$opening' to break" }
+if (-not $source.Contains($opening)) { throw "cmd\goblins\serve.go has no '$opening' to break" }
 try {
     [IO.File]::WriteAllText($serve, $source.Replace($opening, "$opening`n`tfmt.Fprintln(stderr, `"this build's board does not start`")`n`treturn 1"))
     Build-Release "broken" $Version

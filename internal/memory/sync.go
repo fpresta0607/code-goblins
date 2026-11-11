@@ -172,7 +172,7 @@ func rewriteCatalog(dataDir, stateDir string, now time.Time, tag *Tag) (report S
 			for _, id := range missing.ids {
 				fmt.Fprintf(&pairs, " --expiry %s=\"<words>\"", id)
 			}
-			return SyncReport{}, fmt.Errorf("the catalog would not load, so it was left as it was: %w; name each one's expiry in that entry's own words, all in one command: ceo memory scope%s", err, pairs.String())
+			return SyncReport{}, fmt.Errorf("the catalog would not load, so it was left as it was: %w; name each one's expiry in that entry's own words, all in one command: goblins memory scope%s", err, pairs.String())
 		}
 		return SyncReport{}, fmt.Errorf("the catalog would not load, so it was left as it was: %w", err)
 	}
@@ -383,7 +383,7 @@ func applyTag(catalog *Catalog, contents map[string][]byte, tag Tag) (int, error
 			missing = append(missing, id)
 		}
 		slices.Sort(missing)
-		return 0, fmt.Errorf("no memory entry has the id %s; ceo memory scope --list shows the rulings still to classify, and ceo memory routes every cold entry", strings.Join(missing, ", "))
+		return 0, fmt.Errorf("no memory entry has the id %s; goblins memory scope --list shows the rulings still to classify, and goblins memory routes every cold entry", strings.Join(missing, ", "))
 	}
 	return tagged, nil
 }

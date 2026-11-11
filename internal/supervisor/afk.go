@@ -59,7 +59,7 @@ var agentVariables = []string{"CLAUDECODE", "AI_AGENT"}
 
 // IsAgentSessionVariable says name is one a harness sets for every command it
 // runs, which harnessMark reads as an agent's session when the command's
-// parents were cut off. A process that is no agent's session, such as ceo
+// parents were cut off. A process that is no agent's session, such as goblins
 // serve, forgets them from whoever started it, so the commands it runs are
 // not refused as an agent's.
 func IsAgentSessionVariable(name string) bool {
@@ -177,9 +177,9 @@ func boardAsker(what, only, say, sayInWindow string) asker {
 // switchingBoard asks for AFK mode's switch from a board, to turn it on or
 // off.
 func switchingBoard(on bool) asker {
-	command := "ceo afk off"
+	command := "goblins afk off"
 	if on {
-		command = "ceo afk on"
+		command = "goblins afk on"
 	}
 	return boardAsker(afkWhat, onlyHis, "Switch AFK in the Code Goblins window, or run "+command+" in PowerShell.", reopenTheWindow+"switch AFK there.")
 }
@@ -433,7 +433,7 @@ func (s *Service) switchAFKAs(from, asked string, on bool) error {
 		// What the board's view kept of the stretch before goes with its
 		// report.
 		s.reads.forget(afkLogKind+current.Session, filepath.Join(stateDir, "afk.audit"))
-		if err := s.afkNotice(switchedSays(from, asked, "on") + ": he is away until he turns it off, and nothing prompts him meanwhile. Answer every decision yourself with your recommendation, act on it and log it. Ask him nothing and hold nothing for him: a step only he can take gets a backlog row and a ceo afk log --kind his line, which becomes one card in his Command Center when he is back, and the work goes around it. A goblin's Scrawl page reaches you as its question: read the page and answer it with ceo answer. Its terms stand above this queue."); err != nil {
+		if err := s.afkNotice(switchedSays(from, asked, "on") + ": he is away until he turns it off, and nothing prompts him meanwhile. Answer every decision yourself with your recommendation, act on it and log it. Ask him nothing and hold nothing for him: a step only he can take gets a backlog row and a goblins afk log --kind his line, which becomes one card in his Command Center when he is back, and the work goes around it. A goblin's Scrawl page reaches you as its question: read the page and answer it with goblins answer. Its terms stand above this queue."); err != nil {
 			return err
 		}
 		return kept
@@ -474,12 +474,12 @@ func (s *Service) switchAFKAs(from, asked string, on bool) error {
 	} else {
 		says += "His report opens in a modal on the board. "
 	}
-	return s.afkNotice(switchedSays(from, asked, "off") + ": he is back and decides again, so the standing rules apply. " + settled + says + "Write the report of the stretch into your terminal: ceo afk report")
+	return s.afkNotice(switchedSays(from, asked, "off") + ": he is back and decides again, so the standing rules apply. " + settled + says + "Write the report of the stretch into your terminal: goblins afk report")
 }
 
 // cardHisSteps makes each step only the Overlord can take that the stretch left
 // open, one the CEO logged as his and neither struck nor settled, a card in his
-// Command Center, the card ceo run-request or ceo question makes: a run item
+// Command Center, the card goblins run-request or goblins question makes: a run item
 // when the step is a command he runs, as administrator when the CEO said so,
 // otherwise a question with the step in plain words, its link and the choices
 // the CEO gave it, with its recommendation. A step is

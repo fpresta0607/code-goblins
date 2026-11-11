@@ -76,7 +76,7 @@ type Review struct {
 	Link string `json:"link,omitempty"`
 	// Follows is the decision a goblin's wait on him that opens nothing
 	// follows, by its question's ID, which the goblin declared as it raised
-	// the wait (ceo notify --follows): the CEO's question for its task (ceo
+	// the wait (goblins notify --follows): the CEO's question for its task (goblins
 	// question --for) or the goblin's own with choices. The board shows only
 	// that question while it is open, and its answer closes the wait. A wait
 	// that declares none is its own card, whatever is open.
@@ -261,7 +261,7 @@ func RefuseEndedPage(page string) error {
 // EndedPage refuses a review of page, its Scrawl link or its HTML file, whose
 // review session has ended: its card would open a page that says so.
 func EndedPage(page string) error {
-	return fmt.Errorf("the review session of %s has ended, so its card would open a page that says so; open it again with ceo review --id <a new ID> --lavish <its link or HTML file> --reopen, only when the Overlord asked for another look", page)
+	return fmt.Errorf("the review session of %s has ended, so its card would open a page that says so; open it again with goblins review --id <a new ID> --lavish <its link or HTML file> --reopen, only when the Overlord asked for another look", page)
 }
 
 // askCEOOnPage puts goblin taskID's item id, with its page, to the CEO as the
@@ -1060,7 +1060,7 @@ func (s *Service) tellOfAClearedWait(ctx context.Context, id string) string {
 	told := "and the goblin was told"
 	if s.Options.CEO == nil {
 		told = "but the goblin could not be told: message transport is unavailable"
-	} else if _, err := s.Options.CEO.SendGoblin(ctx, r.Task, r.Identity, fmt.Sprintf("The Overlord skipped your wait %s (%s) from the Command Center. Go on without it. If you still need him for it, ask again with ceo notify --waiting-on overlord.", r.ID, r.Title)); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+	} else if _, err := s.Options.CEO.SendGoblin(ctx, r.Task, r.Identity, fmt.Sprintf("The Overlord skipped your wait %s (%s) from the Command Center. Go on without it. If you still need him for it, ask again with goblins notify --waiting-on overlord.", r.ID, r.Title)); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 		told = "but the goblin could not be told: " + bounded(err.Error(), 300)
 	}
 	detail := fmt.Sprintf("the Overlord cleared %s's wait %s (%s) from the Command Center, %s", r.Task, r.ID, r.Title, told)

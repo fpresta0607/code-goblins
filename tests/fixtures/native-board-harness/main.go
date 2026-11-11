@@ -53,13 +53,13 @@ func run() error {
 	if c.NativeID != "board-worker" && c.NativeID != "board-ceo" {
 		return fmt.Errorf("unsupported example session")
 	}
-	for key, value := range map[string]string{"CEO_HOME": c.Home, "CEO_STATE_OVERRIDE": filepath.Join(c.Home, "state"), "CEO_ROLE": c.Role, "CEO_TASK_ID": "board-fixture", "CEO_SPAWN_GEN": "fixture-1", "CEO_PARENT_SESSION_ID": "board-ceo", "CEO_PARENT_HARNESS": c.ParentHarness, "CEO_ROOT_SESSION_ID": "board-ceo"} {
+	for key, value := range map[string]string{"GOBLINS_HOME": c.Home, "GOBLINS_STATE_OVERRIDE": filepath.Join(c.Home, "state"), "GOBLINS_ROLE": c.Role, "GOBLINS_TASK_ID": "board-fixture", "GOBLINS_SPAWN_GEN": "fixture-1", "GOBLINS_PARENT_SESSION_ID": "board-ceo", "GOBLINS_PARENT_HARNESS": c.ParentHarness, "GOBLINS_ROOT_SESSION_ID": "board-ceo"} {
 		if err := os.Setenv(key, value); err != nil {
 			return err
 		}
 	}
 	if c.Role == "ceo" {
-		for _, key := range []string{"CEO_TASK_ID", "CEO_SPAWN_GEN", "CEO_PARENT_SESSION_ID", "CEO_PARENT_HARNESS", "CEO_ROOT_SESSION_ID"} {
+		for _, key := range []string{"GOBLINS_TASK_ID", "GOBLINS_SPAWN_GEN", "GOBLINS_PARENT_SESSION_ID", "GOBLINS_PARENT_HARNESS", "GOBLINS_ROOT_SESSION_ID"} {
 			_ = os.Unsetenv(key)
 		}
 	}
@@ -146,7 +146,7 @@ func run() error {
 			return err
 		}
 		fmt.Printf("Accepted message %d in the %s process:\n%s\n", turn, c.Role, text)
-		// A goblin asks the way a real one does: ceo notify from inside its
+		// A goblin asks the way a real one does: goblins notify from inside its
 		// own pane, so the board's pane proof sees this process as the asker.
 		// Each " --image <path>" after the question attaches a review image,
 		// and a typed \n is a line break, since a typed line cannot hold one.
@@ -157,13 +157,13 @@ func run() error {
 				args = append(args, "--image", image)
 			}
 			output, err := exec.Command(c.Binary, args...).CombinedOutput()
-			fmt.Printf("ceo notify: %s (error: %v)\n", strings.TrimSpace(string(output)), err)
+			fmt.Printf("goblins notify: %s (error: %v)\n", strings.TrimSpace(string(output)), err)
 		}
 		// It reports a review page the same way, from its own pane.
 		if _, presentation, ok := strings.Cut(text, "fixture:present "); ok && c.Role == "goblin" {
 			id, link, _ := strings.Cut(presentation, " ")
 			output, err := exec.Command(c.Binary, "present", "--id", id, "--task", "board-fixture", "--kind", "review", "--url", link).CombinedOutput()
-			fmt.Printf("ceo present: %s (error: %v)\n", strings.TrimSpace(string(output)), err)
+			fmt.Printf("goblins present: %s (error: %v)\n", strings.TrimSpace(string(output)), err)
 		}
 		if strings.Contains(text, "fixture:crash-ready") {
 			continue

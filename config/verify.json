@@ -1,7 +1,7 @@
 {
   "version": 1,
   "slow_packages": [
-    "cmd/ceo",
+    "cmd/goblins",
     "internal/installscript",
     "internal/installtest",
     "internal/monitor",
@@ -64,7 +64,7 @@
     },
     {
       "paths": ["README.md"],
-      "packages": [".", "cmd/ceo"],
+      "packages": [".", "cmd/goblins"],
       "why": "a test reads the README's links to the contract, and one reads its command reference"
     },
     {
@@ -79,17 +79,17 @@
     },
     {
       "paths": ["config/pipeline.json", ".no-mistakes.yaml"],
-      "packages": ["internal/pipeline", "cmd/ceo", "internal/spawn"],
+      "packages": ["internal/pipeline", "cmd/goblins", "internal/spawn"],
       "why": "the pipeline tests read the committed gate policy"
     },
     {
       "paths": ["data/routing.json"],
-      "packages": ["internal/routing", "cmd/ceo"],
+      "packages": ["internal/routing", "cmd/goblins"],
       "why": "the lane tests read the shipped table"
     },
     {
-      "paths": ["cmd/ceo/winres.json"],
-      "packages": ["cmd/ceo"],
+      "paths": ["cmd/goblins/winres.json"],
+      "packages": ["cmd/goblins"],
       "why": "the Windows resource objects are built from it"
     },
     {
@@ -109,7 +109,7 @@
     },
     {
       "paths": ["tests/acceptance/plan3_windows.ps1"],
-      "packages": ["cmd/ceo"],
+      "packages": ["cmd/goblins"],
       "why": "a test runs the acceptance script's self-tests"
     },
     {

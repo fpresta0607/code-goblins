@@ -107,7 +107,7 @@ func BriefInstruction(promptFile string) string {
 }
 
 // Control is how a running harness is stopped in place and, where it can,
-// resumed. It exists so `ceo switch` can change a goblin's harness, model, or
+// resumed. It exists so `goblins switch` can change a goblin's harness, model, or
 // effort without tearing down its tab or worktree.
 type Control struct {
 	// StopKeys are sent before StopCommand. A harness mid-stream ignores a
@@ -134,7 +134,7 @@ type Control struct {
 // the value a goblin's pane carries. The CEO's Claude Code hooks read it and
 // stay inert: a goblin is the work being supervised, never the supervisor.
 const (
-	RoleVariable = "CEO_ROLE"
+	RoleVariable = "GOBLINS_ROLE"
 	RoleGoblin   = "goblin"
 )
 

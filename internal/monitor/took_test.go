@@ -133,7 +133,7 @@ func TestASteerIsFoundInEveryRecordAndEveryTextHandedOver(t *testing.T) {
 }
 
 // A machine keeps thousands of Codex rollouts, whose openings are read to
-// find a goblin's, and a fresh ceo send read them all for minutes: only the
+// find a goblin's, and a fresh goblins send read them all for minutes: only the
 // rollouts Codex filed since the day the goblin started are read.
 func TestOnlyRolloutsFiledSinceTheGoblinStartedAreRead(t *testing.T) {
 	sent := time.Date(2026, 10, 6, 21, 54, 52, 0, time.UTC)

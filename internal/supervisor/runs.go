@@ -129,7 +129,7 @@ type Run struct {
 	Mail *Mail `json:"mail,omitempty"`
 }
 
-// RunRequest is what ceo run-request asks for; CommandFile and MessageFile
+// RunRequest is what goblins run-request asks for; CommandFile and MessageFile
 // are each read once.
 type RunRequest struct {
 	ID, Title, Shell, Cwd, CommandFile, MessageFile string
@@ -244,7 +244,7 @@ func WithdrawRun(h home.Home, id, reason string) error {
 	return sendPipeRequest(h.State, runPipeRequest{Kind: "withdraw-run", ID: id, Reason: reason})
 }
 
-// runPipeRequest is one request over the supervisor's pipe: a run item as ceo
+// runPipeRequest is one request over the supervisor's pipe: a run item as goblins
 // run-request sends it, or, named by Kind, an item only the registered CEO
 // may put on the board (a question, a review record, an answer or a
 // credential request), a run item it withdraws or a decision it logs under

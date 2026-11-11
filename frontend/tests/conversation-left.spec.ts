@@ -1,7 +1,7 @@
 import { CEO_DOOR, expect, openTaskList, type Page, test } from "./site";
 
 const LEFT = "The CEO's conversation a1b2c3d4-session could not be resumed when it came back at 2026-10-03 01:47 UTC, so it started on a new one. That conversation is kept: claude --resume a1b2c3d4-session in the CEO's home opens it by hand.";
-const UNREGISTERED = "The CEO is not registered; run ceo register in the CEO session";
+const UNREGISTERED = "The CEO is not registered; run goblins register in the CEO session";
 
 async function board(page: Page, snapshot: object) {
   await page.route("**/api/**", async (route) => {

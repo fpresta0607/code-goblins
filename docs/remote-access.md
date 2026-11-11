@@ -16,7 +16,7 @@ owner account. No personal hostname, account or key is included in the build.
    signed in on the PC; until then a few words under it say what is missing,
    such as Not installed or Signed out. It reads Tailscale again whenever
    you come back to the board, and every five seconds while the board shows,
-   so Tailscale stopping or starting, `ceo remote on` or `off` and a restart
+   so Tailscale stopping or starting, `goblins remote on` or `off` and a restart
    show on the switch within seconds.
 3. Copy the private HTTPS link shown there. On the phone, connect Tailscale and
    open the link in its browser. Open the CEO terminal to control the existing
@@ -124,7 +124,7 @@ work and saved sessions remain; setup never restarts those terminals for you.
 An older terminal keeps its old environment and can start Scrawl's automatic
 tailnet listener after idle shutdown, a crash or an upgrade, even if it never
 explicitly set a network address. A healthy current server does not prove those
-future launches are private. Use `ceo review` from an external shell, or set
+future launches are private. Use `goblins review` from an external shell, or set
 `$env:LAVISH_AXI_HOST = '127.0.0.1'` before directly running `lavish-axi` there.
 If another process starts a network listener, remote Scrawl refuses requests
 and its status asks for setup again.
@@ -162,9 +162,9 @@ fails, the record remains and uninstall reports how to finish.
 ## Terminal commands
 
 ```powershell
-ceo remote on
-ceo remote status
-ceo remote off
+goblins remote on
+goblins remote status
+goblins remote off
 ```
 
 `on` requires this build's board to be running and prints the same phone link.
@@ -176,7 +176,7 @@ board that moved could not take its route with it, turn remote access off and
 on again on the PC. `off` revokes
 access even when Tailscale is stopped, then reports any remaining proxy cleanup.
 `on` and `off` are refused in a goblin's or a gate agent's terminal: only you,
-or the CEO on your word, turn remote access on or off. `ceo doctor` reports it
+or the CEO on your word, turn remote access on or off. `goblins doctor` reports it
 in one `remote access:` line, off, ready or what it needs, without naming your
 tailnet or account.
 

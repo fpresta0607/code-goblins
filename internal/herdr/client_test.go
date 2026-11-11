@@ -954,7 +954,7 @@ func TestCommandFailuresPreserveOperationTargetAndStderr(t *testing.T) {
 	}
 }
 
-// The interrupt `ceo switch` sends when a harness ignores its stop command is
+// The interrupt `goblins switch` sends when a harness ignores its stop command is
 // spelled `Ctrl-C`. Herdr rejects an unsupported key name, so a spelling the
 // normaliser misses aborts the switch instead of interrupting the harness.
 func TestSendKeyNormalisesEveryModifierSpellingTheFleetSends(t *testing.T) {

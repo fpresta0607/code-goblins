@@ -18,7 +18,7 @@ import (
 
 // lockHolder makes the test binary another command of the fleet's: one that
 // holds, or tries to take, one of a task's locks from a process of its own,
-// as ceo resume, ceo switch and ceo pause do. TestMain runs it.
+// as goblins resume, goblins switch and goblins pause do. TestMain runs it.
 const lockHolder = "hold-a-task-lock"
 
 // runLockHolder takes the lock arguments name in the state directory they
@@ -176,7 +176,7 @@ func TestCleanupHoldsTheTaskAgainstEveryCommandThatChangesIt(t *testing.T) {
 	}
 }
 
-// ceo kill stops a goblin and then cleans it up in its own process, while it
+// goblins kill stops a goblin and then cleans it up in its own process, while it
 // still holds the task's lifecycle and record locks. Those are the cleanup's
 // own caller's, so the cleanup runs, and leaves them held for the caller to
 // release.

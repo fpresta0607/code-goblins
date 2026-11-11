@@ -38,7 +38,7 @@ type Owner struct {
 	Project  string    `json:"project,omitempty"`
 	TaskID   string    `json:"task_id,omitempty"`
 	Evidence string    `json:"evidence"`
-	// Reap records that `ceo reap` is the command that retires this. It is a
+	// Reap records that `goblins reap` is the command that retires this. It is a
 	// pointer, never an action: reap owns that decision and already refuses
 	// to kill what is still working.
 	Reap bool `json:"reap,omitempty"`
@@ -255,7 +255,7 @@ func (a Attribution) Of(workDir, stack string) Owner {
 		return owner
 	}
 	if !checked {
-		// Never looked for. Reporting it as abandoned would put a `ceo reap`
+		// Never looked for. Reporting it as abandoned would put a `goblins reap`
 		// pointer on a directory nothing has established is gone.
 		return Owner{
 			Kind:     OwnerUnowned,

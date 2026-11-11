@@ -59,7 +59,7 @@ func (m Machine) folders(context.Context) ([]Item, error) {
 // the store's alone.
 func (m Machine) credentialsFolder() (string, string) {
 	root := filepath.Join(m.Profile, ".ceo", "credentials")
-	if dir := os.Getenv("CEO_CREDENTIAL_DIR"); dir != "" {
+	if dir := os.Getenv("GOBLINS_CREDENTIAL_DIR"); dir != "" {
 		return dir, ""
 	}
 	return root, filepath.Dir(root)

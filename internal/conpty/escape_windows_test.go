@@ -98,7 +98,7 @@ func TestKeyRecordChild(t *testing.T) {
 }
 
 // An Escape typed into a terminal that has read a key event as Windows sends
-// it, as one does once ceo attach has typed into it, reaches the program at
+// it, as one does once goblins attach has typed into it, reaches the program at
 // once, and the key after it arrives as itself, not as Alt and that key.
 func TestAnEscapeTypedAfterAWindowsKeyEventReachesTheProgramAtOnce(t *testing.T) {
 	progressPath := filepath.Join(t.TempDir(), "keys.log")
@@ -116,7 +116,7 @@ func TestAnEscapeTypedAfterAWindowsKeyEventReachesTheProgramAtOnce(t *testing.T)
 		}
 		return false
 	}
-	// A key event as ceo attach writes one: a pressed and released.
+	// A key event as goblins attach writes one: a pressed and released.
 	if _, err := console.Write([]byte("\x1b[65;30;97;1;0;1_\x1b[65;30;97;0;0;1_")); err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestAnEscapeTypedAfterAWindowsKeyEventReachesTheProgramAtOnce(t *testing.T)
 	}
 }
 
-// A key event written as Windows sends it and split across two writes, as ceo
+// A key event written as Windows sends it and split across two writes, as goblins
 // attach splits what its console reads 4 KiB at a time, reaches the program
 // as that key: the Escape that ends the first write is held for the second,
 // never sent alone.

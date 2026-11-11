@@ -234,9 +234,9 @@ func linkOpened(commandLine string) bool {
 	return slices.ContainsFunc(arguments, func(argument string) bool { return argument == "--single-argument" || argument == "-osint" })
 }
 
-// supervisors are the programs the fleet's supervisor runs as: ceo or
-// goblins, or an update's verified copy of either.
-var supervisors = []string{"ceo", "goblins", "previous-ceo", "previous-goblins"}
+// supervisors are the programs the fleet's supervisor runs as: goblins, or
+// an update's verified copy of it.
+var supervisors = []string{"goblins", "previous-goblins"}
 
 // isSupervisor says a process is the fleet's supervisor, by its program and
 // its command line, which runs serve.

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// builds counts the distinct builds of ceo among the files in bin, its
+// builds counts the distinct builds of goblins among the files in bin, its
 // aliases and the copies moved aside.
 func builds(t *testing.T, bin string) (map[string]bool, int) {
 	t.Helper()
@@ -19,7 +19,7 @@ func builds(t *testing.T, bin string) (map[string]bool, int) {
 	files := 0
 	for _, entry := range entries {
 		name := entry.Name()
-		if name != "ceo.exe" && name != "goblins.exe" && !asideCopy.MatchString(name) {
+		if name != "goblins.exe" && !asideCopy.MatchString(name) {
 			continue
 		}
 		files++
@@ -36,7 +36,7 @@ func builds(t *testing.T, bin string) (map[string]bool, int) {
 // runs, such as a goblin's terminal host, outlives the update's own clean-up:
 // 122 of them once filled a home's root. The Overlord, 2026-10-08: "no
 // redudant exe files". Whatever number of updates runs, bin keeps the current
-// build alone, under its two names, and the last update's rollback still puts
+// build alone, and the last update's rollback still puts
 // the build it replaced back from the update's own verified copies.
 func TestBinKeepsTheCurrentBuildAloneAfterAnyNumberOfUpdates(t *testing.T) {
 	// Arrange
@@ -55,7 +55,7 @@ func TestBinKeepsTheCurrentBuildAloneAfterAnyNumberOfUpdates(t *testing.T) {
 	}
 	var journal *Journal
 	for i := 1; i <= 6; i++ {
-		candidate := filepath.Join(t.TempDir(), "ceo.exe")
+		candidate := filepath.Join(t.TempDir(), "goblins.exe")
 		if err := os.WriteFile(candidate, []byte(fmt.Sprintf("build %d", i)), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -100,8 +100,8 @@ func TestBinKeepsTheCurrentBuildAloneAfterAnyNumberOfUpdates(t *testing.T) {
 func TestRemoveAsideCopiesRemovesEveryCopyMovedAsideAndNothingElse(t *testing.T) {
 	// Arrange
 	bin := t.TempDir()
-	aside := []string{"ceo.exe.1791449158834959100.update-old", "goblins.exe.ZWLFUCC5NGUANWZOS4MPE2XO2L.old", "ceo.exe.OFXG3O7Z2WTAOETUQUBHOQCWTS.old.GHVTLRQU5WOWXKXQU6QWXUHANI.old", "goblins-window.exe.abc.old", "ceo-hook.exe.KQ7YBGRJVN3HXK7Q2M4W5PZR3E.old", "ceo.exe.held-66714dea"}
-	kept := []string{"ceo.exe.update-new", "goblins.exe.update-restore", "ceo.exe", "goblins.exe", "goblins-window.exe", "ceo-hook.exe", "notes.txt", "ceo.exe.bak"}
+	aside := []string{"goblins.exe.1791449158834959100.update-old", "goblins.exe.ZWLFUCC5NGUANWZOS4MPE2XO2L.old", "goblins.exe.OFXG3O7Z2WTAOETUQUBHOQCWTS.old.GHVTLRQU5WOWXKXQU6QWXUHANI.old", "goblins-window.exe.abc.old", "goblins-hook.exe.KQ7YBGRJVN3HXK7Q2M4W5PZR3E.old", "goblins.exe.held-66714dea"}
+	kept := []string{"goblins.exe.update-new", "goblins.exe.update-restore", "goblins.exe", "goblins-window.exe", "goblins-hook.exe", "notes.txt", "goblins.exe.bak"}
 	for _, name := range append(append([]string{}, aside...), kept...) {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(name), 0o644); err != nil {
 			t.Fatal(err)

@@ -10,7 +10,7 @@ import (
 )
 
 // filedRootsFile is the file in a task's temporary directory that names, one
-// address a line, every root issue the task opened with ceo issue file.
+// address a line, every root issue the task opened with goblins issue file.
 const filedRootsFile = "filed-roots"
 
 // RecordFiledRoot notes, in taskTmp, the temporary directory of the task that

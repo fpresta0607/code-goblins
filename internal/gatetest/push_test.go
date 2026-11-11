@@ -50,21 +50,21 @@ func checkout(t *testing.T, policy string, files map[string]string, packages []s
 	return found
 }
 
-// fleet is a policy shaped as this repository's: cmd/ceo and
-// internal/supervisor are slow, the root package and one test of cmd/ceo
+// fleet is a policy shaped as this repository's: cmd/goblins and
+// internal/supervisor are slow, the root package and one test of cmd/goblins
 // guard the whole tree, and docs and the board are outside the Go checks.
 const fleet = `{
 	"version": 1,
-	"slow_packages": ["cmd/ceo", "internal/supervisor"],
+	"slow_packages": ["cmd/goblins", "internal/supervisor"],
 	"guards": [
 		{"package": ".", "why": "its tests read every link of the contract"},
-		{"package": "cmd/ceo", "tests": ["TestEveryCommandSaysWhetherItActsAsTheCEO"], "why": "it reads every command"}
+		{"package": "cmd/goblins", "tests": ["TestEveryCommandSaysWhetherItActsAsTheCEO"], "why": "it reads every command"}
 	],
 	"contracts": [],
 	"outside": [{"paths": ["docs/**", "frontend/**"], "why": "no Go check reads them"}]
 }`
 
-var fleetPackages = []string{".", "internal/auth", "internal/state imports internal/auth", "internal/supervisor imports internal/state", "cmd/ceo imports internal/auth internal/supervisor"}
+var fleetPackages = []string{".", "internal/auth", "internal/state imports internal/auth", "internal/supervisor imports internal/state", "cmd/goblins imports internal/auth internal/supervisor"}
 
 // whats are the checks a pick runs, each as the plan names it with why.
 func whats(pick Push) []string {
@@ -133,25 +133,25 @@ func TestPushNamesTheRootPackageAnImporterBuildsAgainst(t *testing.T) {
 	}
 }
 
-// A new command is a change to cmd/ceo, a slow package whose own tests the
+// A new command is a change to cmd/goblins, a slow package whose own tests the
 // pick narrows: the guard that reads every command runs whatever the change
 // touched, since a new command that says nothing of whose it is fails it.
 func TestPushPicksTheGuardThatReadsEveryCommandForANewCommand(t *testing.T) {
 	// Arrange
 	found := checkout(t, fleet, map[string]string{
-		"cmd/ceo/main.go":          "package main\n",
-		"cmd/ceo/ceo_acts_test.go": "package main\n\nfunc TestEveryCommandSaysWhetherItActsAsTheCEO(t *testing.T) {}\n",
-	}, fleetPackages, "cmd/ceo/main.go", "cmd/ceo/process_plan.go")
+		"cmd/goblins/main.go":          "package main\n",
+		"cmd/goblins/ceo_acts_test.go": "package main\n\nfunc TestEveryCommandSaysWhetherItActsAsTheCEO(t *testing.T) {}\n",
+	}, fleetPackages, "cmd/goblins/main.go", "cmd/goblins/process_plan.go")
 
 	// Act
 	pick := push(found, nil)
 
 	// Assert
 	want := Step{
-		What:    "guard tests of cmd/ceo",
+		What:    "guard tests of cmd/goblins",
 		Why:     "it reads every command",
 		Detail:  []string{"TestEveryCommandSaysWhetherItActsAsTheCEO"},
-		Command: []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "0", "-run", "^(TestEveryCommandSaysWhetherItActsAsTheCEO)$", "./cmd/ceo"},
+		Command: []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "0", "-run", "^(TestEveryCommandSaysWhetherItActsAsTheCEO)$", "./cmd/goblins"},
 	}
 	if !slices.ContainsFunc(pick.Steps, func(step Step) bool {
 		return step.What == want.What && step.Why == want.Why && slices.Equal(step.Detail, want.Detail) && slices.Equal(step.Command, want.Command)
@@ -173,7 +173,7 @@ func TestPushPicksTheGuardThatReadsEveryLinkForADocChange(t *testing.T) {
 	// Assert
 	want := []string{
 		"guard tests of the root package (its tests read every link of the contract)",
-		"guard tests of cmd/ceo (it reads every command)",
+		"guard tests of cmd/goblins (it reads every command)",
 	}
 	if got := whats(pick); !slices.Equal(got, want) {
 		t.Fatalf("push picks\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -204,7 +204,7 @@ func TestPushRunsAGuardOnceWhenItsPackageRunsWhole(t *testing.T) {
 // each under 15 seconds on this machine, and two of them were PR 613's, in
 // spawn_test.go beside the spawn.go it changed. The slower ones beside a
 // changed source stay left to CI: counting them all as touched ran 37 slow
-// tests for a change to one file of cmd/ceo, seven minutes of the limit.
+// tests for a change to one file of cmd/goblins, seven minutes of the limit.
 func TestPushRunsTheQuickerSlowTestsBesideAChangedSource(t *testing.T) {
 	// Arrange
 	found := checkout(t, fleet, map[string]string{
@@ -298,10 +298,10 @@ func TestPushRunsAnUntimedSlowPackageWholeOnlyWhenItChanged(t *testing.T) {
 	pick := push(found, nil)
 
 	// Assert
-	if got := whats(pick); !slices.Contains(got, "tests of internal/supervisor (changed)") || slices.ContainsFunc(got, func(what string) bool { return strings.HasPrefix(what, "tests of cmd/ceo") }) {
-		t.Errorf("push picks\n%s\nwant internal/supervisor whole and no test of cmd/ceo but its guard", strings.Join(got, "\n"))
+	if got := whats(pick); !slices.Contains(got, "tests of internal/supervisor (changed)") || slices.ContainsFunc(got, func(what string) bool { return strings.HasPrefix(what, "tests of cmd/goblins") }) {
+		t.Errorf("push picks\n%s\nwant internal/supervisor whole and no test of cmd/goblins but its guard", strings.Join(got, "\n"))
 	}
-	if wantLeft := "tests of cmd/ceo (imports internal/supervisor, and it is a slow package this machine has not timed)"; !slices.Contains(lefts(pick), wantLeft) {
+	if wantLeft := "tests of cmd/goblins (imports internal/supervisor, and it is a slow package this machine has not timed)"; !slices.Contains(lefts(pick), wantLeft) {
 		t.Errorf("push leaves to CI\n%s\nwant among it %s", strings.Join(lefts(pick), "\n"), wantLeft)
 	}
 }
@@ -311,20 +311,20 @@ func TestPushRunsAnUntimedSlowPackageWholeOnlyWhenItChanged(t *testing.T) {
 func TestPushRunsATimedSlowImporterWithoutItsSlowTests(t *testing.T) {
 	// Arrange
 	found := checkout(t, fleet, map[string]string{
-		"cmd/ceo/spawn_test.go": "package main\n\nfunc TestSpawnStarts(t *testing.T) {}\nfunc TestSpawnWaits(t *testing.T) {}\n",
+		"cmd/goblins/spawn_test.go": "package main\n\nfunc TestSpawnStarts(t *testing.T) {}\nfunc TestSpawnWaits(t *testing.T) {}\n",
 	}, fleetPackages, "internal/auth/need.go")
-	times := Times{"example.com/repo/cmd/ceo": {"TestSpawnStarts": 0.4, "TestSpawnWaits": 61}}
+	times := Times{"example.com/repo/cmd/goblins": {"TestSpawnStarts": 0.4, "TestSpawnWaits": 61}}
 
 	// Act
 	pick := push(found, times)
 
 	// Assert
 	got := whats(pick)
-	state, ceo := slices.Index(got, "tests of internal/state (imports internal/auth)"), slices.Index(got, "tests of cmd/ceo but for 1 slower one (imports internal/auth)")
+	state, ceo := slices.Index(got, "tests of internal/state (imports internal/auth)"), slices.Index(got, "tests of cmd/goblins but for 1 slower one (imports internal/auth)")
 	if state < 0 || ceo < state {
-		t.Errorf("push picks\n%s\nwant internal/state and after it cmd/ceo but for its slow test", strings.Join(got, "\n"))
+		t.Errorf("push picks\n%s\nwant internal/state and after it cmd/goblins but for its slow test", strings.Join(got, "\n"))
 	}
-	if wantLeft := "1 test of cmd/ceo (it takes 1m1s here)"; !slices.Contains(lefts(pick), wantLeft) {
+	if wantLeft := "1 test of cmd/goblins (it takes 1m1s here)"; !slices.Contains(lefts(pick), wantLeft) {
 		t.Errorf("push leaves to CI\n%s\nwant among it %s", strings.Join(lefts(pick), "\n"), wantLeft)
 	}
 }
@@ -389,15 +389,15 @@ func TestPushWithoutAPolicyPicksTheChangedPackagesAndSaysSo(t *testing.T) {
 func TestPushNamesItsChecksInPlainWords(t *testing.T) {
 	// Arrange
 	found := checkout(t, fleet, map[string]string{
-		"cmd/ceo/spawn_test.go":           "package main\n\nfunc TestSpawnWaits(t *testing.T) {}\n",
+		"cmd/goblins/spawn_test.go":       "package main\n\nfunc TestSpawnWaits(t *testing.T) {}\n",
 		"frontend/node_modules/.keep":     "",
 		"frontend/tests/afk.spec.ts":      "",
 		"frontend/tests/run-card.spec.ts": "",
 		"frontend/src/RunCard.tsx":        "",
-	}, fleetPackages, "internal/auth/need.go", "scripts/new.ps1", "frontend/src/RunCard.tsx", "cmd/ceo/main.go")
+	}, fleetPackages, "internal/auth/need.go", "scripts/new.ps1", "frontend/src/RunCard.tsx", "cmd/goblins/main.go")
 
 	// Act
-	pick := push(found, Times{"example.com/repo/cmd/ceo": {"TestSpawnWaits": 61}})
+	pick := push(found, Times{"example.com/repo/cmd/goblins": {"TestSpawnWaits": 61}})
 
 	// Assert
 	said := append(whats(pick), lefts(pick)...)
@@ -419,13 +419,13 @@ func TestPushNamesItsChecksInPlainWords(t *testing.T) {
 // failed.
 func TestStepAgainRunsTheNamedTestsOfItsPackageByThemselves(t *testing.T) {
 	// Arrange
-	step := Step{What: "tests of cmd/ceo but for 2 slower ones", Command: []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "0", "-skip", "^(TestSlow|TestSlower)$", "./cmd/ceo"}}
+	step := Step{What: "tests of cmd/goblins but for 2 slower ones", Command: []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "0", "-skip", "^(TestSlow|TestSlower)$", "./cmd/goblins"}}
 
 	// Act
 	again := step.Again([]string{"TestRestart", "TestSpawn"})
 
 	// Assert
-	if want := []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "0", "-run", "^(TestRestart|TestSpawn)$", "./cmd/ceo"}; !slices.Equal(again, want) {
+	if want := []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "0", "-run", "^(TestRestart|TestSpawn)$", "./cmd/goblins"}; !slices.Equal(again, want) {
 		t.Errorf("Again = %q, want %q", again, want)
 	}
 }

@@ -16,7 +16,7 @@ This roadmap deliberately borrows patterns, not product dependencies. Code Gobli
 4. Merge with `gh pr merge --match-head-commit <sha>` so a push between proof and merge invalidates the operation.
 5. Record the proof in task metadata: head SHA, check count, timestamp, and merge result.
 
-`ceo pr merge` now uses the verifier and exact-head merge guard; persisting the proof metadata remains planned.
+`goblins pr merge` now uses the verifier and exact-head merge guard; persisting the proof metadata remains planned.
 
 ## P0 — Acceptance evidence as a first-class artifact
 

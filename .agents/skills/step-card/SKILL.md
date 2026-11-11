@@ -12,7 +12,7 @@ You never send the step as a chat message, a notify or a Scrawl walkthrough eith
 ## Send the card
 
 ```
-ceo auth request --project <project> --task <your task id> --why "<what the step is for>" --link <the exact https page> [--step "<a click he makes>"]... [--plain NAME --label NAME="<a few words>"]... [SECRET_NAME]... --wait
+goblins auth request --project <project> --task <your task id> --why "<what the step is for>" --link <the exact https page> [--step "<a click he makes>"]... [--plain NAME --label NAME="<a few words>"]... [SECRET_NAME]... --wait
 ```
 
 - `--why` is the card's heading when it asks for nothing, so make it the step itself, such as "Create the shop's test account".
@@ -45,9 +45,9 @@ Once the card closes your session runs headless again on the same profile and ke
 Keep checking the page while you wait, and when you see the step done, such as the signed-in dashboard, close the card:
 
 ```
-ceo auth request --done <card> --task <your task id>
+goblins auth request --done <card> --task <your task id>
 ```
 
-Take back a card you no longer need with `ceo auth request --withdraw <card> --task <your task id> --reason "<why>"`.
-Wait on a card again after your wait was cut short with `ceo auth request --wait-on <card> --task <your task id>`.
+Take back a card you no longer need with `goblins auth request --withdraw <card> --task <your task id> --reason "<why>"`.
+Wait on a card again after your wait was cut short with `goblins auth request --wait-on <card> --task <your task id>`.
 Your open cards are withdrawn for you once you report done or failed.

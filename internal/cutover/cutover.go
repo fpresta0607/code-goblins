@@ -1,8 +1,8 @@
 // Package cutover moves an installed Code Goblins home, and the harnesses,
 // settings, scheduled jobs and credentials around it, from the command's old
-// name to ceo: a plan that lists every change and proves itself by its
-// digest, an apply that first writes everything it needs to undo, and the
-// undo. It never changes recorded history: archives, backups, logs, status
+// name to goblins and the role's to ceo: a plan that lists every change and
+// proves itself by its digest, an apply that first writes everything it needs
+// to undo, and the undo. It never changes recorded history: archives, backups, logs, status
 // logs, git history and the Supreme Overlord's quoted words keep theirs.
 package cutover
 
@@ -24,6 +24,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/installbase"
+	"github.com/fpresta0607/code-goblins/internal/update"
 )
 
 // Machine is the installed home the cutover moves and what around it names
@@ -42,9 +43,8 @@ type Machine struct {
 	// ProjectsRoot is the folder of the Overlord's checkouts, whose files
 	// naming the old command are listed and never changed; empty for none.
 	ProjectsRoot string
-	// Program is this build's ceo.exe, which the home's bin takes as ceo.exe
-	// and goblins.exe, with the hook program and the desktop window beside it
-	// when there are.
+	// Program is this build's goblins.exe, which the home's bin takes, with
+	// the hook program and the desktop window beside it when there are.
 	Program string
 	// Skills are the skills this build ships, by folder.
 	Skills fs.FS
@@ -277,8 +277,8 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// programs puts this build in the home's bin as ceo.exe and goblins.exe, and
-// the hook program and the desktop window beside it, and takes the old
+// programs puts this build in the home's bin as goblins.exe, and the hook
+// program and the desktop window beside it, and takes the old
 // build's programs out.
 func (p *planner) programs() error {
 	bin := filepath.Join(p.machine.Root, "bin")
@@ -298,13 +298,10 @@ func (p *planner) programs() error {
 		p.add(KindProgram, fmt.Sprintf("%s: this build, from %s", path, source), writeStep(path, before, isAbsent, content))
 		return nil
 	}
-	if err := install(newName+".exe", p.machine.Program, program); err != nil {
+	if err := install(newCommand+".exe", p.machine.Program, program); err != nil {
 		return err
 	}
-	if err := install("goblins.exe", p.machine.Program, program); err != nil {
-		return err
-	}
-	for _, name := range []string{newName + "-hook.exe", "goblins-window.exe"} {
+	for _, name := range []string{newCommand + "-hook.exe", newCommand + "-window.exe"} {
 		source := filepath.Join(filepath.Dir(p.machine.Program), name)
 		content, err := fsx.ReadFile(source)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -351,7 +348,7 @@ func (p *planner) programs() error {
 // content differs, as an install does. A code-goblins checkout keeps its own,
 // which git tracks.
 func (p *planner) contract() error {
-	if exists(filepath.Join(p.machine.Root, "cmd", newName)) || exists(filepath.Join(p.machine.Root, "cmd", oldName)) {
+	if exists(filepath.Join(p.machine.Root, "cmd", newCommand)) || exists(filepath.Join(p.machine.Root, "cmd", oldName)) {
 		return nil
 	}
 	return fs.WalkDir(p.machine.Contract, ".", func(name string, entry fs.DirEntry, err error) error {
@@ -376,7 +373,7 @@ func (p *planner) contract() error {
 	})
 }
 
-// settings moves every user setting of the old name's to the new name's.
+// settings moves every user setting of the old name's to the command's.
 func (p *planner) settings() error {
 	all, err := p.machine.Env.Names()
 	if err != nil {
@@ -391,7 +388,7 @@ func (p *planner) settings() error {
 		if err != nil {
 			return err
 		}
-		to := strings.ToUpper(newName) + "_" + name[len(prefix):]
+		to := setting + name[len(prefix):]
 		current, isSet, err := p.machine.Env.Get(to)
 		if err != nil {
 			return err
@@ -490,6 +487,47 @@ func (p *planner) rewrite(kind, path, to string, protected *regexp.Regexp) error
 		p.claimed[path] = true
 		p.add(kind, path+": "+strings.Join(said, ", "), steps...)
 	}
+	return nil
+}
+
+// journal rewrites the last update's journal, which names the programs it
+// swapped and the copies it kept, and which goblins update trusts only when
+// it names this build's one program: the old build's two names for its
+// program both become goblins.exe, so the second is dropped.
+func (p *planner) journal(path string) error {
+	content, err := fsx.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	after := p.rules.json(string(content))
+	var journal update.Journal
+	if err := json.Unmarshal([]byte(after), &journal); err != nil {
+		return fmt.Errorf("cutover: read the last update's journal %s: %w", path, err)
+	}
+	var aliases []update.Alias
+	for _, alias := range journal.Aliases {
+		if !slices.ContainsFunc(aliases, func(kept update.Alias) bool { return strings.EqualFold(kept.Name, alias.Name) }) {
+			aliases = append(aliases, alias)
+		}
+	}
+	count := changedLines(string(content), after)
+	said := fmt.Sprintf("%d lines rewritten", count)
+	if count == 1 {
+		said = "1 line rewritten"
+	}
+	if len(aliases) < len(journal.Aliases) {
+		journal.Aliases = aliases
+		folded, err := json.MarshalIndent(journal, "", "  ")
+		if err != nil {
+			return err
+		}
+		after, said = string(folded), "rewritten to name "+newCommand+".exe once, as this build's one program"
+	}
+	if after == string(content) {
+		return nil
+	}
+	p.claimed[path] = true
+	p.add(KindState, path+": "+said, writeStep(path, content, false, []byte(after)))
 	return nil
 }
 
@@ -619,7 +657,7 @@ func (p *planner) jobs() error {
 		folder, name := job.Name[:strings.LastIndex(job.Name, `\`)+1], job.Name[strings.LastIndex(job.Name, `\`)+1:]
 		renamed := name
 		if jobName.MatchString(name) {
-			renamed = newSpelling(name)
+			renamed = jobName.ReplaceAllString(name, "${1}"+newCommand+"${2}")
 		}
 		definition := p.rules.text(job.XML, nil)
 		if renamed != name {
@@ -714,11 +752,8 @@ func (p *planner) stateFiles() error {
 			return err
 		}
 	}
-	// The last update's journal names the programs it swapped and the copies
-	// it kept, which ceo update checks against this build's names before it
-	// updates again.
 	if journal := filepath.Join(updates, "journal.json"); exists(journal) {
-		if err := p.rewrite(KindState, journal, journal, nil); err != nil {
+		if err := p.journal(journal); err != nil {
 			return err
 		}
 	}

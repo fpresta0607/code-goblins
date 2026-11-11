@@ -10,7 +10,7 @@ import (
 
 func installFor(t *testing.T, harness, dir string) {
 	t.Helper()
-	if _, err := Install(InstallConfig{Harness: harness, ConfigDir: dir, Executable: filepath.Join(dir, "ceo.exe"), Home: dir, State: filepath.Join(dir, "state")}); err != nil {
+	if _, err := Install(InstallConfig{Harness: harness, ConfigDir: dir, Executable: filepath.Join(dir, "goblins.exe"), Home: dir, State: filepath.Join(dir, "state")}); err != nil {
 		t.Fatal(err)
 	}
 }

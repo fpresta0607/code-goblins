@@ -10,7 +10,7 @@ const run = (id: string, state = "ready"): Run => ({ id, title: "Restart the boa
 const snapshot = (parts: { tasks?: Task[]; questions?: Question[]; reviews?: Review[]; runs?: Run[] }): Snapshot => ({ tasks: parts.tasks || [task("a", "working")], questions: parts.questions || [], reviews: parts.reviews || [], runs: parts.runs || [], attention: [] as string[] }) as Snapshot;
 const MINUTE = 60 * 1000;
 // The reason the gate gives every time a step needs the Overlord's decision.
-const GATE_BLOCK = "Pipeline decision required at review; use ceo pipeline respond";
+const GATE_BLOCK = "Pipeline decision required at review; use goblins pipeline respond";
 const PR = "https://github.com/o/r/pull/7";
 const LONG_TITLE = "Answers given in a review page's editor are never lost (a disconnect is not the end), no duplicate Command Center question, revisions update the editor, the Command Center never blocks typing, and waiting cards render cleanly with a copy button on every value";
 

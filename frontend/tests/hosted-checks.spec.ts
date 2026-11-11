@@ -1,6 +1,6 @@
 import { expect, openTaskList, type Page, test } from "./site";
 
-// A live goblin's hosted checks and its change's newest ceo gate test run
+// A live goblin's hosted checks and its change's newest goblins gate test run
 // beside its pull request in its panel, and never on its card (the Overlord,
 // 2026-10-17: "we don't need to have the test checks as an icon. That can be
 // in the task panel"). The supervisor is played by one held snapshot.

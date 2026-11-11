@@ -31,7 +31,7 @@ func TestAnIdleTurnIsWokenWithTheNextWork(t *testing.T) {
 			arrange: func(t *testing.T, h home.Home) {
 				queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins)", plainBrief)
 			},
-			want: []string{"idle: ", "no goblin at work", "8.0 GB of memory", "next: start next-task", "ceo spawn next-task --project"},
+			want: []string{"idle: ", "no goblin at work", "8.0 GB of memory", "next: start next-task", "goblins spawn next-task --project"},
 		},
 		{
 			name:   "a goblin paused for memory comes back first",
@@ -40,7 +40,7 @@ func TestAnIdleTurnIsWokenWithTheNextWork(t *testing.T) {
 				queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins)", plainBrief)
 				pausedGoblin(t, h, "paused-task", "memory", "", time.Now().UTC().Add(-time.Hour))
 			},
-			want: []string{"next: resume paused-task with ceo resume paused-task", "then start next-task"},
+			want: []string{"next: resume paused-task with goblins resume paused-task", "then start next-task"},
 		},
 		{
 			name:   "a pause whose date passed",
@@ -84,7 +84,7 @@ func TestAnIdleTurnIsWokenWithTheNextWork(t *testing.T) {
 			memory: plenty,
 			arrange: func(t *testing.T, h home.Home) {
 				queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins)", plainBrief)
-				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via ceo cleanup\n")
+				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via goblins cleanup\n")
 			},
 		},
 		{
@@ -127,10 +127,10 @@ func TestAnIdleTurnIsWokenWithTheNextWork(t *testing.T) {
 	}
 }
 
-// A queued task the supervisor is starting could start no more, though ceo
+// A queued task the supervisor is starting could start no more, though goblins
 // spawn writes its task record only once its worktree exists, so an idle turn
 // names the work after it, or none. The CEO's turn-end guard runs apart from
-// ceo serve and cannot read the start the supervisor holds in memory, so on
+// goblins serve and cannot read the start the supervisor holds in memory, so on
 // 2026-10-21 it could name a start under way as work to dispatch (#1246).
 func TestAnIdleTurnLeavesOutTheTaskBeingStarted(t *testing.T) {
 	cases := []struct {
@@ -138,7 +138,7 @@ func TestAnIdleTurnLeavesOutTheTaskBeingStarted(t *testing.T) {
 		isSecondQueued bool
 		want           []string
 	}{
-		{name: "work queued after it", isSecondQueued: true, want: []string{"next: start second-task with ceo spawn second-task"}},
+		{name: "work queued after it", isSecondQueued: true, want: []string{"next: start second-task with goblins spawn second-task"}},
 		{name: "nothing queued after it"},
 	}
 	for _, testCase := range cases {
@@ -269,7 +269,7 @@ func TestWorkWaitsWhileARowWaitsForWhatItsBlockedByNames(t *testing.T) {
 			h := bareHome(t)
 			queueBriefedTask(t, h, c.row, plainBrief)
 			if c.isFinished {
-				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via ceo cleanup\n")
+				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via goblins cleanup\n")
 			}
 
 			// Act

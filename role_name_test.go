@@ -14,10 +14,11 @@ import (
 	"testing"
 )
 
-// The supervisor's role is the CEO, and everything named for it says so: the
-// command, its settings, its skills, its hooks, the board and file names.
-// oldRoleName is what the role was called before 2026-11-09, which only
-// recorded history keeps.
+// The supervisor's role is the CEO, and everything named for it says so: its
+// skills, its terminal, the board and file names. The command that was named
+// for the role is goblins, and its settings begin GOBLINS_. oldRoleName is what
+// the role and the command were called before 2026-11-09, which only recorded
+// history keeps.
 const oldRoleName = "cfo"
 
 // recordedHistory are the tracked paths that keep the old name, in their
@@ -162,7 +163,7 @@ func TestTheOldRoleNameIsFoundOutsideHisWords(t *testing.T) {
 		`// The Overlord, 2026-10-28: "place send button in line with message ` + oldRoleName,
 		`	// height in chat input". The ` + strings.ToUpper(oldRoleName) + `'s composer`,
 		"run " + oldRoleName + ".exe doctor",
-		"the CEO runs ceo doctor",
+		"the CEO runs goblins doctor",
 		"see [the evidence](https://example.com/blob/main/docs/evidence/" + oldRoleName + "-board.md), as recorded",
 	}, "\n")
 	quoted := make([]int, len(quotes))
@@ -216,7 +217,7 @@ func TestOnlyRecordedHistoryAndHisWordsKeepTheOldRoleName(t *testing.T) {
 
 	// Assert
 	if len(findings) > 0 {
-		t.Errorf("these name the old role, which is the CEO now: rename them to ceo or CEO, or, for recorded history or the Overlord's own words, add them to the lists in role_name_test.go with why:\n%s", strings.Join(findings, "\n"))
+		t.Errorf("these name the old role, which is the CEO now: rename them to goblins or GOBLINS_ where they name the command or its settings and to ceo or CEO where they name the role, or, for recorded history or the Overlord's own words, add them to the lists in role_name_test.go with why:\n%s", strings.Join(findings, "\n"))
 	}
 	for _, entry := range recordedHistory {
 		if !slices.ContainsFunc(files, func(file string) bool { return file == entry.path || strings.HasPrefix(file, entry.path) }) {

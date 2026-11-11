@@ -59,14 +59,14 @@ func TestClassifySaysWhatEveryChangedFileReaches(t *testing.T) {
 			choices: []string{
 				"example.com/repo/internal/reap (changed)",
 				"example.com/repo/internal/herdr (the guard scans every Go file: internal/reap/classify.go and 1 more)",
-				"example.com/repo/cmd/ceo (imports example.com/repo/internal/reap)",
+				"example.com/repo/cmd/goblins (imports example.com/repo/internal/reap)",
 			},
 		},
 		"a package that changed is listed as changed, whatever contract names it": {
 			files: []string{"internal/herdr/client.go"},
 			choices: []string{
 				"example.com/repo/internal/herdr (changed)",
-				"example.com/repo/cmd/ceo (imports example.com/repo/internal/reap)",
+				"example.com/repo/cmd/goblins (imports example.com/repo/internal/reap)",
 				"example.com/repo/internal/monitor (imports example.com/repo/internal/herdr)",
 				"example.com/repo/internal/reap (imports example.com/repo/internal/herdr)",
 				"example.com/repo/internal/supervisor (imports example.com/repo/internal/monitor)",
@@ -81,7 +81,7 @@ func TestClassifySaysWhatEveryChangedFileReaches(t *testing.T) {
 			files: []string{"internal/state/testdata/task.json"},
 			choices: []string{
 				"example.com/repo/internal/state (changed)",
-				"example.com/repo/cmd/ceo (imports example.com/repo/internal/reap)",
+				"example.com/repo/cmd/goblins (imports example.com/repo/internal/reap)",
 				"example.com/repo/internal/reap (imports example.com/repo/internal/state)",
 			},
 		},
@@ -159,7 +159,7 @@ func TestClassifyLeavesTheSelectionAsItWasUnderAPolicyThatClassifiesNothing(t *t
 	want, _ := Select(root, "example.com/repo", files, repo)
 
 	// Act
-	reach := Classify(root, "example.com/repo", files, repo, Policy{Version: 1, SlowPackages: []string{"cmd/ceo"}})
+	reach := Classify(root, "example.com/repo", files, repo, Policy{Version: 1, SlowPackages: []string{"cmd/goblins"}})
 
 	// Assert
 	if !slices.Equal(reach.Choices, want) || len(reach.Outside) != 0 || len(reach.Unknown) != 0 || reach.Everything {

@@ -15,7 +15,7 @@ Read the user's current harness, model and effort choices first, including stand
 Explicit choices win; an unsupported explicit choice needs a corrected choice, not a silent substitution.
 Do not switch live tasks as part of tuning new starts.
 
-Read the effective `data/routing.json` and the project's `routing` override, then preview the actual task with `ceo route --project <project> "<short task>"`.
+Read the effective `data/routing.json` and the project's `routing` override, then preview the actual task with `goblins route --project <project> "<short task>"`.
 This command takes task text, not a brief filename; include material complexity and risk from the brief.
 Use `--attempts <count>` before the task text for prior failures.
 The preview checks classification and quota, not model entitlement or model-specific effort support.
@@ -61,10 +61,10 @@ Delegated model selection authorizes tuning inferred lanes within the user's cho
 Do not silently launch an unsuitable heavy default while describing a lighter recommendation.
 Preserve explicit overrides, fallback ordering, helper roles and unrelated policy fields.
 Preview representative briefs against an isolated copy before applying a policy change; installation preserves the live table.
-Dispatch through `ceo spawn`; per-dispatch flags remain reserved for explicit user choices.
+Dispatch through `goblins spawn`; per-dispatch flags remain reserved for explicit user choices.
 Use the configured helper roles and existing independent-verification checks.
 
 Record the task class and risk, chosen lane/model/effort, capability and quota evidence with age, any fallback reason, and the condition for escalation in the brief or dispatch note.
 Compare success rate and time to verified completion for comparable tasks and roles, including failed attempts in that total.
-`ceo doctor` telemetry measures validation invocations only: successful test time is not implementation time, and failed or cancelled latency is not successful speed.
+`goblins doctor` telemetry measures validation invocations only: successful test time is not implementation time, and failed or cancelled latency is not successful speed.
 Absent implementation evidence stays unmeasured.

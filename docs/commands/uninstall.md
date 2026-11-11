@@ -1,9 +1,9 @@
-# ceo uninstall
+# goblins uninstall
 
-`ceo uninstall [--dry-run [--json]] [--yes] [--remove-work] [--remove-tools]`
+`goblins uninstall [--dry-run [--json]] [--yes] [--remove-work] [--remove-tools]`
 
 Remove Code Goblins from this machine and leave it as the install found it.
-`goblins uninstall`, `ceo install --uninstall` and the window Windows' Installed apps opens (`goblins-window.exe --uninstall`, which `ceo install` registers for both installs) all run this one uninstall.
+`goblins uninstall`, `goblins install --uninstall` and the window Windows' Installed apps opens (`goblins-window.exe --uninstall`, which `goblins install` registers for both installs) all run this one uninstall.
 It first makes a plan from what the machine holds and changes nothing until the person types yes or presses Uninstall.
 The plan names what it stops: the window, the board, the CEO's and every goblin's terminal and what they started, each by its pid and start time, and only what runs from the home's folders or carries one of its terminals' proven marks.
 It names what it keeps, in `Code Goblins kept` in the user's folder (or the next free `Code Goblins kept 2`): each goblin's work that no remote, tag or other branch holds, as its changed files, a patch and its commits in a git bundle that is verified, with a note on how to bring it back, the work the archive tags cleanup recorded in `state\archive-tags.jsonl` hold, and the home's `data` and `config`.

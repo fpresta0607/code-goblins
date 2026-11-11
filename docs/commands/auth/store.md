@@ -1,6 +1,6 @@
-# ceo auth store
+# goblins auth store
 
-`ceo auth store [--project <p>] <NAME> [value]`
+`goblins auth store [--project <p>] <NAME> [value]`
 
 Store one credential in a project's scope, or in the shared scope when `--project` is omitted.
 Omit the value to read it from stdin, which keeps the secret out of shell history; a value typed at a console is read without being shown.

@@ -112,7 +112,7 @@ func TestTheSweepEndsADetachedTreeOfARunningTerminalOnlyOnceItSatIdle(t *testing
 	}
 	tree := func(serverCPU, workerCPU time.Duration) []Process {
 		return []Process{
-			{Process: lifecycle.Process{PID: 1, Name: "ceo.exe", Started: started}},
+			{Process: lifecycle.Process{PID: 1, Name: "goblins.exe", Started: started}},
 			{Process: lifecycle.Process{PID: 2, ParentPID: 1, Name: "claude.exe", Started: started.Add(time.Second), Mark: mark}},
 			// What the harness started and still holds is never detached.
 			{Process: lifecycle.Process{PID: 3, ParentPID: 2, Name: "node.exe", Started: started.Add(2 * time.Second), Mark: mark}},
@@ -178,7 +178,7 @@ func TestTheSweepEndsARunningTerminalsBridgeOnceItsSessionSatUnused(t *testing.T
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			processes := []Process{
-				{Process: lifecycle.Process{PID: 1, Name: "ceo.exe", Started: started}},
+				{Process: lifecycle.Process{PID: 1, Name: "goblins.exe", Started: started}},
 				{Process: lifecycle.Process{PID: 10, ParentPID: 900, Name: "node.exe", Started: started.Add(time.Minute), Arguments: bridge, Mark: mark}, CPU: 40 * time.Minute, LastUsed: test.lastUsed},
 				{Process: lifecycle.Process{PID: 11, ParentPID: 10, Name: "chrome.exe", Started: started.Add(2 * time.Minute), Arguments: []string{"chrome.exe", "--headless"}, Mark: mark}, CPU: 50 * time.Minute},
 			}

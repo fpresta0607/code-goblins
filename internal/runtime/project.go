@@ -230,7 +230,7 @@ func derivedLocal(path string) Local {
 				if _, ok := row.Scripts[script]; ok {
 					return Local{
 						Up:     []string{"npm run " + script},
-						Down:   []string{"stop the process (ceo runtime names its pid)"},
+						Down:   []string{"stop the process (goblins runtime names its pid)"},
 						Source: source,
 					}
 				}

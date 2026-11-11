@@ -14,26 +14,26 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// HookProgram is the program a release ships beside ceo.exe for a goblin's
-// hooks: ceo built as a windowed program. Claude Code starts each hook
+// HookProgram is the program a release ships beside goblins.exe for a goblin's
+// hooks: goblins built as a windowed program. Claude Code starts each hook
 // hidden, and Windows gives a console program started that way a console
 // host of its own, a second process for every hook, where it starts a
 // windowed program alone, which reads the hook's payload and writes its
 // answer through the same pipes. Measured on 2026-10-19: twenty shell tool
-// calls' hooks started 40 ceo.exe and 40 console hosts, and as the hook
+// calls' hooks started 40 goblins.exe and 40 console hosts, and as the hook
 // program 40 and none.
-const HookProgram = "ceo-hook.exe"
+const HookProgram = "goblins-hook.exe"
 
 // copyHookProgram puts the hook program shipped beside the running binary in
 // programs, the home's bin. One a hook runs at that moment is moved aside as
 // the binary is. A build with none beside it, such as one built from source
 // with go build alone, leaves the home's own, which the goblins' hooks run
-// only while it is the same build as ceo.exe (HookCommand).
+// only while it is the same build as goblins.exe (HookCommand).
 func (s Service) copyHookProgram(programs string, report *reporter) error {
 	source := filepath.Join(filepath.Dir(s.Binary), HookProgram)
 	data, err := fsx.ReadFile(source)
 	if errors.Is(err, fs.ErrNotExist) {
-		report.same("hooks", "no hook program beside "+s.Binary+"; goblins' hooks run ceo.exe unless the home's "+HookProgram+" is this build")
+		report.same("hooks", "no hook program beside "+s.Binary+"; goblins' hooks run goblins.exe unless the home's "+HookProgram+" is this build")
 		return nil
 	}
 	if err != nil {
@@ -52,20 +52,20 @@ func (s Service) copyHookProgram(programs string, report *reporter) error {
 }
 
 // CarryHookProgram puts the hook program shipped beside binary in programs,
-// the home's bin, as an install does, and writes what it did to out. ceo
+// the home's bin, as an install does, and writes what it did to out. goblins
 // update carries it once the candidate serves: until it does, the goblins'
-// hooks run ceo.exe, since the hook program left in the home is no longer
+// hooks run goblins.exe, since the hook program left in the home is no longer
 // the same build.
 func CarryHookProgram(programs, binary string, out io.Writer) error {
 	return Service{Binary: binary}.copyHookProgram(programs, &reporter{out: out})
 }
 
 // HookCommand is the program a goblin's hooks run from bin, a home's
-// programs: its hook program where that is the same build as its ceo.exe,
-// and ceo.exe otherwise, so a hook program an update could not replace, or
+// programs: its hook program where that is the same build as its goblins.exe,
+// and goblins.exe otherwise, so a hook program an update could not replace, or
 // one an install from source left, never runs another build's hooks.
 func HookCommand(bin string) string {
-	program, hook := filepath.Join(bin, "ceo.exe"), filepath.Join(bin, HookProgram)
+	program, hook := filepath.Join(bin, "goblins.exe"), filepath.Join(bin, HookProgram)
 	if _, err := os.Stat(hook); err != nil || !sameBuild(program, hook) {
 		return program
 	}

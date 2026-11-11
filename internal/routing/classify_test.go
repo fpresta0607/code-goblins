@@ -159,7 +159,7 @@ func TestClassifyReadsAGitCheckoutAsOrdinaryWorkAndAPaymentCheckoutAsSecurity(t 
 		class TaskClass
 		risk  string
 	}{
-		{"Make ceo cleanup refuse a dirty project checkout.", Implementation, "normal"},
+		{"Make goblins cleanup refuse a dirty project checkout.", Implementation, "normal"},
 		{"Add Apple Pay to the Stripe checkout flow.", Security, "high"},
 		{"Rework the checkout payment flow for saved cards.", Security, "high"},
 	}

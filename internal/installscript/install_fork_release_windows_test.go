@@ -56,7 +56,7 @@ type forkInstall struct {
 // standIns replaces the one of its name. Handed the release file of the tool
 // npmReplaces, npm also puts that release's build in place of the tool's
 // command, as a real install does when the command is npm's own. The home's
-// state folder is in place, as ceo install makes it, so the install keeps its
+// state folder is in place, as goblins install makes it, so the install keeps its
 // record.
 func runInstallWithForkDownload(t *testing.T, content []byte, matching []string, standIns map[string]string, npmReplaces string) forkInstall {
 	t.Helper()
@@ -73,7 +73,7 @@ func runInstallWithForkDownload(t *testing.T, content []byte, matching []string,
 		pins += fmt.Sprintf(".Replace('%s', '%X')", pin[1], sha256.Sum256(content))
 	}
 	binary := standin.Bytes(t)
-	base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  ceo.exe\n", sha256.Sum256(binary)))
+	base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  goblins.exe\n", sha256.Sum256(binary)))
 	folder := t.TempDir()
 	record := filepath.Join(folder, "record.txt")
 	served := filepath.Join(folder, "served.tgz")
@@ -213,7 +213,7 @@ func TestOneLineInstallHandsNpmTheForkReleaseThatMatchesItsPin(t *testing.T) {
 	}
 }
 
-// doctorPasses says whether ceo doctor's check passes tool when its command is
+// doctorPasses says whether goblins doctor's check passes tool when its command is
 // a script with the text present. The PATH it sets holds for the rest of the
 // test, so a test calls it after its install.
 func doctorPasses(t *testing.T, tool, present string) bool {
@@ -223,13 +223,13 @@ func doctorPasses(t *testing.T, tool, present string) bool {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", folder)
-	t.Setenv("CEO_HOME", t.TempDir())
+	t.Setenv("GOBLINS_HOME", t.TempDir())
 	for _, check := range doctor.Run() {
 		if check.Name == tool {
 			return check.Err == ""
 		}
 	}
-	t.Fatalf("ceo doctor does not check %s", tool)
+	t.Fatalf("goblins doctor does not check %s", tool)
 	return false
 }
 
@@ -253,7 +253,7 @@ func assertNotRecorded(t *testing.T, run forkInstall, tool string) {
 }
 
 // An install that finds a fork's tool already there keeps it only when it is
-// the release's build or a later one of the fork's, the builds ceo doctor
+// the release's build or a later one of the fork's, the builds goblins doctor
 // passes, so each case here also asks the doctor. The upstream package, a
 // build of the fork's older than the release, such as one installed by hand,
 // and one that reports no version or does not run are replaced with the
@@ -294,7 +294,7 @@ func TestOneLineInstallReplacesAForkToolThatIsNotItsReleaseOrLater(t *testing.T)
 
 			// Assert
 			if isPassed := doctorPasses(t, tc.tool, present); isPassed == tc.isReplaced {
-				t.Errorf("ceo doctor passing %s %q is %v, and the case replacing it is %v, want one of them", tc.tool, tc.version, isPassed, tc.isReplaced)
+				t.Errorf("goblins doctor passing %s %q is %v, and the case replacing it is %v, want one of them", tc.tool, tc.version, isPassed, tc.isReplaced)
 			}
 			downloaded := strings.Contains(run.recorded, "download "+forkReleases[tc.tool])
 			if !tc.isReplaced {
@@ -318,7 +318,7 @@ func TestOneLineInstallReplacesAForkToolThatIsNotItsReleaseOrLater(t *testing.T)
 // npm replaces only the copy in its own folder, so a stale command in a folder
 // ahead of that one goes on answering. The install then says so and names the
 // copy that comes first, rather than report a release nothing runs: the fix
-// ceo doctor names, npm install -g, reaches the same folder and cannot clear it.
+// goblins doctor names, npm install -g, reaches the same folder and cannot clear it.
 func TestOneLineInstallReplacesAForkToolThatIsNotItsReleaseOrLaterUnlessACopyComesFirstOnPath(t *testing.T) {
 	// Arrange
 	const tool = "chrome-devtools-axi"

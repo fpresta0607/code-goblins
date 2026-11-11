@@ -67,7 +67,7 @@ func TestAGoblinIdleAtItsPromptWakesOnceAfterThreeMinutes(t *testing.T) {
 	if len(wakes) != 1 {
 		t.Fatalf("an idle goblin raised %d wakes over the next 17 minutes, past the busy budget, want exactly one: %+v", len(wakes), wakes)
 	}
-	for _, want := range []string{string(GoblinIdle) + ":", "next:", "ceo send g1", "Tests pass. Next I will open the pull request.", "pwsh.exe (pid 51)"} {
+	for _, want := range []string{string(GoblinIdle) + ":", "next:", "goblins send g1", "Tests pass. Next I will open the pull request.", "pwsh.exe (pid 51)"} {
 		if !strings.Contains(wakes[0].Detail, want) {
 			t.Errorf("wake detail %q lacks %q", wakes[0].Detail, want)
 		}

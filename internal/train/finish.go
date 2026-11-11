@@ -61,7 +61,7 @@ func (e Engine) finish(ctx context.Context, t *Train, state, note string) error 
 			continue
 		}
 		if err := e.TellGoblin(ctx, car.Task, text); err != nil {
-			undelivered = append(undelivered, fmt.Sprintf("%s was not told about #%d (%v): relay it with ceo send", goblinname.Called(car.Goblin, car.Task), car.Number, err))
+			undelivered = append(undelivered, fmt.Sprintf("%s was not told about #%d (%v): relay it with goblins send", goblinname.Called(car.Goblin, car.Task), car.Number, err))
 		}
 	}
 	summary := "merge_train: " + t.Repository + " train " + t.ID + " " + e.summary(*t)

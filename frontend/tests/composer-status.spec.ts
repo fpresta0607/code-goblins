@@ -16,7 +16,7 @@ for (const style of ["modern"]) {
         await card(page, NAME).click();
         await expect.poll(() => relay.views).toBeGreaterThan(0);
         await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
-        relay.say({ type: "held", reason: "pipeline owns this task; use ceo pipeline respond" });
+        relay.say({ type: "held", reason: "pipeline owns this task; use goblins pipeline respond" });
         await expect(field(page)).toBeVisible();
         const draft = "Keep this draft\n" + "A long message that stays readable while waiting. ".repeat(40);
         await field(page).fill(draft);
@@ -423,7 +423,7 @@ for (const style of ["modern"]) {
       await field(page).fill("Keep this until ");
       await field(page).focus();
       await page.keyboard.type("recovery");
-      relay.say({ type: "held", reason: "pipeline owns this task; use ceo pipeline respond" });
+      relay.say({ type: "held", reason: "pipeline owns this task; use goblins pipeline respond" });
       await expect(box(page)).toHaveAttribute("data-queues", "");
       await expect(box(page).getByRole("status")).toHaveText("");
       expect(await note.count()).toBe(0);

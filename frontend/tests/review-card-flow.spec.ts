@@ -22,10 +22,10 @@ const quiet = {
   tasks: [greta, wanda], questions: [] as object[], reviews: [] as object[], runs: [], credentials: [], actions: [],
 };
 const asking = (item: { questions?: object[]; reviews?: object[] }, revision: number) => ({ ...quiet, revision, questions: item.questions || [], reviews: item.reviews || [] });
-// A goblin's review he is asked to watch, as ceo present --watch publishes it:
+// A goblin's review he is asked to watch, as goblins present --watch publishes it:
 // its page is the one the supervisor polls.
 const gretaReview = { id: "cg-canvas-live-only-before-after", identity: "g".repeat(64), task: greta.id, title: TITLE, lavish: PAGE, lavish_page: "D:\\scratch\\cg-canvas-live-only\\review\\index.html", state: "open", created_at: "2026-10-17T18:09:52Z", updated_at: "2026-10-17T18:09:52Z" };
-// The CEO's own review, as ceo review --lavish without --task publishes it.
+// The CEO's own review, as goblins review --lavish without --task publishes it.
 const ceoReview = { ...gretaReview, id: "itascaunity-mockup-20261017", identity: "c".repeat(64), task: "", title: "Oona's mockup of the Russo and Presta one-page site, desktop and phone" };
 // What the supervisor's poll of the page makes of his Send and End there.
 const answeredOnPage = (review: typeof gretaReview, words: string) => ({ ...review, state: "answered", answered_by: "overlord", answered_in: "page", reason: "You answered on its page; " + (review.task ? "the goblin" : "the CEO") + " has it.", answer: words, updated_at: "2026-10-17T18:14:31Z" });

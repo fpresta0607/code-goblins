@@ -253,7 +253,7 @@ func (s *Service) signInBegan() (time.Time, error) {
 }
 
 // leaveCEOStopped tells why the supervisor left the CEO stopped, which what
-// says in plain words: one check wake keyed ceo for the next CEO, with what it
+// says in plain words: one check wake keyed goblins for the next CEO, with what it
 // should find, and one Command Center item for the Overlord, whose one action
 // is the board's Reopen the CEO, made while none waits already.
 func (s *Service) leaveCEOStopped(what, find string, now time.Time) error {

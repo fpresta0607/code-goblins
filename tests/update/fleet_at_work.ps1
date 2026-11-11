@@ -32,7 +32,7 @@ New-Item -ItemType File -Force -Path (Join-Path $piTools "fd.exe"), (Join-Path $
 
 & (Join-Path $PSScriptRoot "..\uninstall\one_goblin_session.ps1") -Project $Project -PreRename:$PreRename
 $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-$command, $settingPrefix = Get-CeoNames -PreRename:$PreRename
+$command, $settingPrefix, $ceoTerminal = Get-BuildNames -PreRename:$PreRename
 $ceoHome = [Environment]::GetEnvironmentVariable("${settingPrefix}HOME", "User")
 Set-Item -LiteralPath "env:${settingPrefix}HOME" -Value $ceoHome
 $state = Join-Path $ceoHome "state"
@@ -72,14 +72,14 @@ if (-not $quickStart.WaitForExit(180000)) {
 }
 Get-Content -LiteralPath "$Facts.quick-start.log", "$Facts.quick-start.err" | Write-Host
 $deadline = (Get-Date).AddMinutes(2)
-while (-not (Test-Path -LiteralPath (Join-Path $state "hosts\$command.json"))) {
+while (-not (Test-Path -LiteralPath (Join-Path $state "hosts\$ceoTerminal.json"))) {
     if ((Get-Date) -gt $deadline) { throw "the CEO's terminal did not start within 2 minutes of the quick start" }
     Start-Sleep -Seconds 1
 }
 
 $before = Get-FleetFacts -Project $Project -PreRename:$PreRename
 $before | Format-Table -AutoSize -Wrap | Out-String -Width 400 | Write-Host
-foreach ($running in "board", "ceo host", "ceo harness", "demo-goblin host", "demo-goblin harness") {
+foreach ($running in "board", "goblins host", "ceo harness", "demo-goblin host", "demo-goblin harness") {
     if ($before[$running] -match "not running") { throw "before the update the $running is not running: $($before[$running])" }
 }
 if ($before.credentials -notmatch "DEMO_TOKEN") { throw "the stored credential is not listed before the update: $($before.credentials)" }

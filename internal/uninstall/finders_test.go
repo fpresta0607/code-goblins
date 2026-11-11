@@ -120,7 +120,7 @@ func (v *fakeVault) Delete(target string) error {
 func TestCredentialsAreEveryOneCodeGoblinsStoredInTheVaultAndInFiles(t *testing.T) {
 	// Arrange
 	m := testMachine(t)
-	t.Setenv("CEO_CREDENTIAL_DIR", "")
+	t.Setenv("GOBLINS_CREDENTIAL_DIR", "")
 	vault := &fakeVault{targets: []string{"ceo:GITHUB_TOKEN", "ceo:demo/API_KEY", "ceo:.env-seen/demo/API_KEY"}}
 	m.Vault = vault
 	write(t, filepath.Join(m.Profile, ".ceo", "credentials", "OLD_TOKEN"), "x")
@@ -581,7 +581,7 @@ func TestAHomeInACheckoutNamesOnlyItsOwnFolders(t *testing.T) {
 			m.Checkout = tc.isCheckout
 			t.Setenv(installbase.UserEnvFileVariable, filepath.Join(t.TempDir(), "env.json"))
 			m.Install.Env = installbase.NewEnvStore(execx.OSRunner{})
-			write(t, filepath.Join(m.Home.Root, "bin", "ceo.exe"), "abc")
+			write(t, filepath.Join(m.Home.Root, "bin", "goblins.exe"), "abc")
 			write(t, filepath.Join(m.Home.Root, "worktrees", "g1", "x"), "abc")
 			write(t, filepath.Join(m.Home.Root, "data", "backlog.md"), "abc")
 			write(t, filepath.Join(m.Home.Root, "go.mod"), "abc")

@@ -9,7 +9,7 @@ import (
 	"testing/fstest"
 )
 
-// mklink makes a directory junction as ceo does on Windows.
+// mklink makes a directory junction as goblins does on Windows.
 func mklink(link, target string) error {
 	out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput()
 	if err != nil {

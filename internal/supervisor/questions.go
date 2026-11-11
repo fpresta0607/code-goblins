@@ -49,7 +49,7 @@ type Question struct {
 	Generation string `json:"generation,omitempty"`
 	Seq        int    `json:"seq,omitempty"`
 	// Images are a goblin's review images as absolute paths, one for each
-	// choice in order. ceo notify checks them before publishing and the board
+	// choice in order. goblins notify checks them before publishing and the board
 	// checks them again whenever it serves one, and only ever sees ImageCount.
 	Images     []string `json:"images,omitempty"`
 	ImageCount int      `json:"image_count,omitempty"`
@@ -323,7 +323,7 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 	q := s.Store.Snapshot().Questions[i]
 	unlock, err := answerLock(s.Store.Home.State, q.Seq)
 	if err != nil {
-		return Evaluation{}, fmt.Errorf("%w: the CEO is answering this question with ceo answer (%v); nothing was sent", ErrRejected, err)
+		return Evaluation{}, fmt.Errorf("%w: the CEO is answering this question with goblins answer (%v); nothing was sent", ErrRejected, err)
 	}
 	defer unlock()
 	pending, err := wake.Pending(s.Store.Home.State)
@@ -367,7 +367,7 @@ func (s *Service) changeAnswer(ctx context.Context, a Action) (Evaluation, error
 	}
 	unlock, err := answerLock(s.Store.Home.State, q.Seq)
 	if err != nil {
-		return Evaluation{}, fmt.Errorf("%w: the CEO is answering this question with ceo answer (%v); nothing was sent", ErrDeferred, err)
+		return Evaluation{}, fmt.Errorf("%w: the CEO is answering this question with goblins answer (%v); nothing was sent", ErrDeferred, err)
 	}
 	defer unlock()
 	if isAsker(s.Store.Home.State, q) {
@@ -423,7 +423,7 @@ func (s *Service) deliverAnswer(ctx context.Context, q Question, text string) (E
 	return result, err
 }
 
-// answersInbox is where ceo answer once spooled its answers. They now reach
+// answersInbox is where goblins answer once spooled its answers. They now reach
 // the supervisor only over its pipe, so ingest refuses any file found here.
 const answersInbox = "answers-inbox"
 
@@ -432,7 +432,7 @@ const answersInbox = "answers-inbox"
 // never reached the board.
 var questionArrival = 30 * time.Second
 
-// ceoAnswer is one answer the CEO gave with ceo answer.
+// ceoAnswer is one answer the CEO gave with goblins answer.
 type ceoAnswer struct {
 	QuestionID string `json:"question_id"`
 	// Option is the choice that answers the question, and empty for the
@@ -456,10 +456,10 @@ type ceoAnswer struct {
 }
 
 // AnswerGoblin answers a goblin's blocked question as the CEO, the structured
-// counterpart of ceo send: ref is the question's ID or its notify's wake
+// counterpart of goblins send: ref is the question's ID or its notify's wake
 // sequence, and option names one of its choices in full or by its first word
 // (the a | b labels goblins give their options). The goblin receives the
-// choice the way ceo send types, its notify reads answered so ceo drain
+// choice the way goblins send types, its notify reads answered so goblins drain
 // retires it without --ack-blocking, and the supervisor records which choice
 // closed the question, that the CEO gave it, and when. Only the registered
 // primary CEO may answer. It returns the accepted choice and whether it waits
@@ -495,7 +495,7 @@ func (c *CEOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	}
 	asked, options, ok := wake.Question(record)
 	if !ok || len(options) == 0 && wake.Page(asked) == "" {
-		return "", false, fmt.Errorf("notify %d asks no multiple-choice question; answer it with ceo send", seq)
+		return "", false, fmt.Errorf("notify %d asks no multiple-choice question; answer it with goblins send", seq)
 	}
 	choices, _ := questionChoices(options)
 	if chosen, err = pickAnswer(asked, choices, option); err != nil {
@@ -602,11 +602,11 @@ var answerPlace = regexp.MustCompile(`^[A-Za-z][A-Za-z ]{0,39}$`)
 // may do it. in names where the Overlord gave the choice, such as chat, and
 // the card then reads as his answer there, recorded by the CEO; without it,
 // the choice is the CEO's own, which only a goblin's question takes, such as
-// a ceo answer whose delivery was left unconfirmed. The CEO's own question
+// a goblins answer whose delivery was left unconfirmed. The CEO's own question
 // only the Overlord answers, so recording its answer names where.
 // A goblin's question is recorded only once the CEO has handled its notify:
 // it was acknowledged, or it reads answered. A notify still waiting
-// unanswered is refused, since ceo answer is how that one is answered, and so
+// unanswered is refused, since goblins answer is how that one is answered, and so
 // is a question the Overlord is answering on the board. id is the question's
 // ID, notify-<task>-<sequence> for a goblin's. It returns the choice it
 // recorded.
@@ -642,7 +642,7 @@ func (c *CEOConnection) RecordAnswer(id, option, note, in string) (string, error
 			return "", fmt.Errorf("read the wake queue: %w", err)
 		}
 		if i := slices.IndexFunc(pending, func(r wake.Record) bool { return r.Seq == seq }); i >= 0 && pending[i].Answered == "" {
-			return "", fmt.Errorf("notify %d is still waiting unanswered; answer it with ceo answer, which delivers it, or acknowledge it first if it was answered another way", seq)
+			return "", fmt.Errorf("notify %d is still waiting unanswered; answer it with goblins answer, which delivers it, or acknowledge it first if it was answered another way", seq)
 		} else if i < 0 {
 			acked, err := wake.Acked(c.State, seq)
 			if err != nil {
@@ -716,7 +716,7 @@ func logAFKAnswer(stateDir string, q Question, answer string) error {
 
 // recordAnswer tells the board which choice closed a goblin's question. It
 // closes that question and only the waits the goblin declared to follow it
-// (ceo notify --follows): its other waits on the Overlord, such as a sign-in
+// (goblins notify --follows): its other waits on the Overlord, such as a sign-in
 // only he can clear, stay his.
 func (c *CEOConnection) recordAnswer(q Question, id, chosen, answer, in string, awaiting *Awaiting) error {
 	// A goblin's page that declares no choices takes the CEO's own words.
@@ -751,7 +751,7 @@ func withNote(chosen, note string) string {
 	return chosen
 }
 
-// answerLock serializes the two ways one goblin question is answered, ceo
+// answerLock serializes the two ways one goblin question is answered, goblins
 // answer and the board, so whichever comes second sees the other's answer;
 // it waits briefly for the other one. The lock is the question's own, named
 // by its notify's wake sequence, so answers to different goblins never wait
@@ -860,7 +860,7 @@ func DecisionAnswer(stateDir string, meta state.TaskMeta, seq int) (string, erro
 }
 
 // OpenDecisions lists the decisions open for goblin task: its own pending
-// question with choices and the CEO's pending questions for it (ceo question
+// question with choices and the CEO's pending questions for it (goblins question
 // --for), on the board's record or waiting in the inbox for the board to take
 // them. It only reads, as readQuestion does. The inbox is read first, as
 // reportedReview reads it, since the board records a question before it
@@ -962,7 +962,7 @@ func (s *Store) ingestAnswers() error {
 	return s.save()
 }
 
-// recordCEOAnswer records an answer the CEO gave with ceo answer, or keeps it
+// recordCEOAnswer records an answer the CEO gave with goblins answer, or keeps it
 // for a later pass when its question cannot take it yet.
 func (s *Store) recordCEOAnswer(a ceoAnswer) error {
 	switched, err := afk.Read(s.Home.State)
@@ -994,7 +994,7 @@ func (s *Store) recordCEOAnswer(a ceoAnswer) error {
 var errAnswerWaits = errors.New("its question cannot take an answer yet")
 
 // answeredByAck reports whether q closed because the CEO acked its notify,
-// which the CEO does once it answered the goblin, such as with ceo send: the
+// which the CEO does once it answered the goblin, such as with goblins send: the
 // board knows the CEO answered it but not which choice, which the CEO may
 // still record.
 func answeredByAck(q Question) bool {

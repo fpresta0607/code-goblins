@@ -733,7 +733,7 @@ func TestSuccessfulCLIActionClearsAnEarlierEngineFailure(t *testing.T) {
 }
 
 // Restart in a working goblin's Harness section restarts it at once on its
-// own harness, model and effort, on its own conversation, through ceo switch
+// own harness, model and effort, on its own conversation, through goblins switch
 // --restart. A paused goblin has Resume for that, and a queued task has no
 // session to restart.
 func TestBoardRestartRestartsAGoblinOnItsOwnEngineAtOnce(t *testing.T) {

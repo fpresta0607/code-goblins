@@ -54,11 +54,11 @@ func rootPath(dir string, elements ...string) string {
 // Codex runs each hook command inside the session's own shell, which on
 // Windows is powershell.exe -NoProfile -Command, so a hook that started the
 // helper's PowerShell started two for every event and timed out live. Its
-// hooks run ceo itself, written so PowerShell, cmd and bash read it alike.
+// hooks run goblins itself, written so PowerShell, cmd and bash read it alike.
 func TestCodexHooksRunCeoWithoutAHelperShell(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
-	config := InstallConfig{Harness: "codex", ConfigDir: dir, Executable: rootPath(dir, "cg", "bin", "ceo.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}
+	config := InstallConfig{Harness: "codex", ConfigDir: dir, Executable: rootPath(dir, "cg", "bin", "goblins.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}
 	want := filepath.ToSlash(config.Executable) + " native-hook codex --home " + filepath.ToSlash(config.Home) + " --state " + filepath.ToSlash(config.State)
 
 	// Act
@@ -83,7 +83,7 @@ func TestCodexHooksRunCeoWithoutAHelperShell(t *testing.T) {
 func TestCodexHooksKeepTheHelperWhereAPathNeedsQuoting(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
-	config := InstallConfig{Harness: "codex", ConfigDir: dir, Executable: rootPath(dir, "Code Goblins", "bin", "ceo.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}
+	config := InstallConfig{Harness: "codex", ConfigDir: dir, Executable: rootPath(dir, "Code Goblins", "bin", "goblins.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}
 	_, want := helperCommand(dir)
 
 	// Act
@@ -118,7 +118,7 @@ func TestCodexReinstallReplacesEitherCommandShape(t *testing.T) {
 			// Arrange
 			dir := t.TempDir()
 			config := func(folder string) InstallConfig {
-				return InstallConfig{Harness: "codex", ConfigDir: dir, Executable: rootPath(dir, folder, "ceo.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}
+				return InstallConfig{Harness: "codex", ConfigDir: dir, Executable: rootPath(dir, folder, "goblins.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}
 			}
 			if _, err := Install(config(test.before)); err != nil {
 				t.Fatal(err)
@@ -156,10 +156,10 @@ func TestUninstallRemovesEitherCodexCommandShape(t *testing.T) {
 		t.Run(folder, func(t *testing.T) {
 			// Arrange
 			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, "hooks.json"), []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"C:/tools/ceo.exe native-hook claude --home C:/cg --state C:/cg/state"}]}]}}`), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, "hooks.json"), []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"C:/tools/goblins.exe native-hook claude --home C:/cg --state C:/cg/state"}]}]}}`), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := Install(InstallConfig{Harness: "codex", ConfigDir: dir, Executable: rootPath(dir, folder, "ceo.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}); err != nil {
+			if _, err := Install(InstallConfig{Harness: "codex", ConfigDir: dir, Executable: rootPath(dir, folder, "goblins.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}); err != nil {
 				t.Fatal(err)
 			}
 
@@ -186,7 +186,7 @@ func TestAnInstallWithTheOldLimitTakesTheNewOneOnTheNextInstall(t *testing.T) {
 		t.Run(harness, func(t *testing.T) {
 			// Arrange
 			dir := t.TempDir()
-			config := InstallConfig{Harness: harness, ConfigDir: dir, Executable: rootPath(dir, "cg", "bin", "ceo.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}
+			config := InstallConfig{Harness: harness, ConfigDir: dir, Executable: rootPath(dir, "cg", "bin", "goblins.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}
 			path, err := Install(config)
 			if err != nil {
 				t.Fatal(err)

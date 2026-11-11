@@ -96,7 +96,7 @@ process.stdout.write(JSON.stringify(calls));
 `), 0600); err != nil {
 				t.Fatal(err)
 			}
-			t.Setenv("CEO_ROLE", role)
+			t.Setenv("GOBLINS_ROLE", role)
 
 			output, diagnostics, err := runPiDriver(piDriverBound, node, driver, extension)
 
@@ -169,7 +169,7 @@ process.stdout.write(String(calls));
 `), 0600); err != nil {
 				t.Fatal(err)
 			}
-			t.Setenv("CEO_ROLE", "goblin")
+			t.Setenv("GOBLINS_ROLE", "goblin")
 
 			output, diagnostics, err := runPiDriver(piDriverBound, node, driver, extension, failure)
 
@@ -243,7 +243,7 @@ handlers.agent_settled({}, ctx);
 `), 0600); err != nil {
 				t.Fatal(err)
 			}
-			t.Setenv("CEO_ROLE", "goblin")
+			t.Setenv("GOBLINS_ROLE", "goblin")
 
 			// Act
 			_, reported, err := runPiDriver(piDriverBound, node, driver, extension, c.failure)

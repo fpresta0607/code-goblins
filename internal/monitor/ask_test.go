@@ -59,7 +59,7 @@ func TestAGoblinThatAsksInProseWakesWithItsQuestion(t *testing.T) {
 	if len(wakes) != 1 || !strings.HasPrefix(wakes[0].Detail, string(GoblinAsks)+":") {
 		t.Fatalf("wakes = %+v, want exactly one goblin_asks wake", wakes)
 	}
-	for _, want := range []string{"g1 ", `It asked: "I'll take the History marks next unless you want the live proof first."`, `ceo send g1 "<your answer>"`} {
+	for _, want := range []string{"g1 ", `It asked: "I'll take the History marks next unless you want the live proof first."`, `goblins send g1 "<your answer>"`} {
 		if !strings.Contains(wakes[0].Detail, want) {
 			t.Errorf("wake detail %q lacks %q", wakes[0].Detail, want)
 		}
@@ -234,7 +234,7 @@ func TestWhatARealTurnEndingAsks(t *testing.T) {
 			"**Decision needed:** the Claude skill still names the old address. Decision 3027's 30-day zero-call clock only starts once the skill moves too, and changing it republishes the skill at precisiondocs.ai/skills. Should it move now?",
 			[]string{"Should it move now?"}},
 		{"cg-review-editor-sync 2026-10-06 01:25 reports a page wait on the Overlord",
-			"**Gaps the build will have to close,** found while he looks and now in the handoff:\n- The reason the CEO gives with `ceo answer --note` goes only to the goblin, so History has no reason to show yet.\n- Nothing records that the CEO answered while he was away.\n- A CEO answer marks its question succeeded at once, even before the goblin has taken it, so nothing yet says whether it can still be undone.\n- There is no way yet to swap a queued CEO answer for his.\n\nAny notify I send, such as done on 270, withdraws that page wait. After each one I'll file it again until he answers; this is in the handoff too.",
+			"**Gaps the build will have to close,** found while he looks and now in the handoff:\n- The reason the CEO gives with `goblins answer --note` goes only to the goblin, so History has no reason to show yet.\n- Nothing records that the CEO answered while he was away.\n- A CEO answer marks its question succeeded at once, even before the goblin has taken it, so nothing yet says whether it can still be undone.\n- There is no way yet to swap a queued CEO answer for his.\n\nAny notify I send, such as done on 270, withdraws that page wait. After each one I'll file it again until he answers; this is in the handoff too.",
 			nil},
 		{"cg-review-editor-sync 2026-10-06 03:27 leaves the merges to the CEO's queue",
 			"**Tests:**\n- The new Go tests failed before their code. Mutation checks showed they catch real breakage, such as a delivery that skips the recheck or a supervisor that trusts the sender's \"away\" flag.\n- The board's unit tests, lint and type check pass.\n- The PR body has screenshots of History and both card states.\n\nEvery brief item is now built. What's left is your calls on 366, 367, 369, 370 and 298 once 378 lands.",
@@ -246,7 +246,7 @@ func TestWhatARealTurnEndingAsks(t *testing.T) {
 			"Still left:\n1. The full Go run (`go test ./... -p 4`).\n2. The frontend checks.\n3. Commit, PR and one CI run.\n\nI'll resume when you say so, or on my own once free memory reaches 6 GB, which gives the Go run room to stay above your 4 GB line.",
 			nil},
 		{"cg-verify-fast 2026-10-05 18:09 has a watch running",
-			"The `internal/gatetest` run has started, and a watch will tell me if free memory drops under 3 GB. The `cmd/ceo` plan tests follow once it passes.",
+			"The `internal/gatetest` run has started, and a watch will tell me if free memory drops under 3 GB. The `cmd/goblins` plan tests follow once it passes.",
 			nil},
 		{"cg-fleet-auto-resume 2026-10-05 16:30 reports PRs waiting for the merge",
 			"I wrote the pause handoff and it is in place, so the task can stop now. Nothing needed pushing: the worktree is clean and parked on main.\n\n- **PRs:** 331 is merged. 324 and 326 are pushed, green on all 10 checks and reported done, waiting for your merge.\n- **Resume:** ready for 2026-10-09 22:27 UTC, when Codex image generation is back.",

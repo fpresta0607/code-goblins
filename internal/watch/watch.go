@@ -62,7 +62,7 @@ type Config struct {
 	HeartbeatMax time.Duration
 	Monitor      *monitor.Service
 	// Tree is the reader the monitor's progress evidence reads through, the
-	// board's family tree reader, which ceo serve shares with the board.
+	// board's family tree reader, which goblins serve shares with the board.
 	Tree *fleettree.Reader
 	// Routing is the standing answer to a harness that starts erroring. An
 	// empty policy simply means every fault wakes the CEO undecided.
@@ -131,24 +131,24 @@ func (cfg Config) reconcileBudget() time.Duration {
 
 // ConfigFromEnv fills Config from the timing env vars (internal/claudehook),
 // clamping every interval to at least 1s. claudehook.Seconds ships with no
-// clamp of its own: CEO_POLL=0 would spin the loop rewriting signatures and
-// touching the beat, and CEO_POLL=-5 converts to roughly 49 days of wait so
+// clamp of its own: GOBLINS_POLL=0 would spin the loop rewriting signatures and
+// touching the beat, and GOBLINS_POLL=-5 converts to roughly 49 days of wait so
 // the watcher never beats and supervise.WatcherHealthy reads it as stale
 // against a live process. The clamp belongs at this consumer; Task 2, which
 // shipped claudehook.Seconds, is not reopened for it. HeartbeatMax is
 // additionally floored at Heartbeat itself (after both are floored at 1s),
-// so a CEO_HEARTBEAT_MAX set below CEO_HEARTBEAT cannot pin the backoff
+// so a GOBLINS_HEARTBEAT_MAX set below GOBLINS_HEARTBEAT cannot pin the backoff
 // cadence to something shorter than its own base interval.
 func ConfigFromEnv(h home.Home) Config {
-	heartbeat := clampMin1s(claudehook.Seconds("CEO_HEARTBEAT", 600))
-	heartbeatMax := clampMin1s(claudehook.Seconds("CEO_HEARTBEAT_MAX", 7200))
+	heartbeat := clampMin1s(claudehook.Seconds("GOBLINS_HEARTBEAT", 600))
+	heartbeatMax := clampMin1s(claudehook.Seconds("GOBLINS_HEARTBEAT_MAX", 7200))
 	if heartbeatMax < heartbeat {
 		heartbeatMax = heartbeat
 	}
 	cfg := Config{
 		Home:         h,
-		Poll:         clampMin1s(claudehook.Seconds("CEO_POLL", 15)),
-		SignalGrace:  clampMin1s(claudehook.Seconds("CEO_SIGNAL_GRACE", 30)),
+		Poll:         clampMin1s(claudehook.Seconds("GOBLINS_POLL", 15)),
+		SignalGrace:  clampMin1s(claudehook.Seconds("GOBLINS_SIGNAL_GRACE", 30)),
 		Heartbeat:    heartbeat,
 		HeartbeatMax: heartbeatMax,
 		Sleep:        sleep,
@@ -161,7 +161,7 @@ func ConfigFromEnv(h home.Home) Config {
 	// The production monitor prober is the read-only structural Herdr prober,
 	// resolved against the same session source spawn uses (HERDR_SESSION,
 	// default "default") so monitoring cannot drift to a different implicit
-	// session. Both watch entry paths (manual ceo watch and the Task 11
+	// session. Both watch entry paths (manual goblins watch and the Task 11
 	// stop-autoarm hook) build their Config here, so this one installation
 	// covers both.
 	session := os.Getenv("HERDR_SESSION")
@@ -176,9 +176,9 @@ func ConfigFromEnv(h home.Home) Config {
 	// herdr process each time.
 	sockets := herdr.NewSocketCache()
 	// The harnesses' transcripts tell both how a goblin's work moves and what
-	// it last said, read through the family tree reader. Alone, as ceo watch,
+	// it last said, read through the family tree reader. Alone, as goblins watch,
 	// it takes the conversation the board recorded from the board's file;
-	// ceo serve hands the same reader the board's record in memory.
+	// goblins serve hands the same reader the board's record in memory.
 	cfg.Tree = &fleettree.Reader{Home: userHome, Recorded: func(meta state.TaskMeta) string {
 		// A record that cannot be read proves no conversation, and the
 		// harness's own record of its process still can.
@@ -207,7 +207,7 @@ func ConfigFromEnv(h home.Home) Config {
 	// The sweep shares the monitor's Herdr client construction and its
 	// session, so orphan detection can never look at a different session than
 	// supervision does.
-	cfg.ReapEvery = clampMin1s(claudehook.Seconds("CEO_REAP_EVERY", 600))
+	cfg.ReapEvery = clampMin1s(claudehook.Seconds("GOBLINS_REAP_EVERY", 600))
 	cfg.FileEvery = 10 * time.Minute
 	cfg.JanitorEvery = time.Hour
 	cfg.CIRunnerEvery = 30 * time.Second
@@ -582,7 +582,7 @@ func fileData(ctx context.Context, cfg Config, last *time.Time) {
 // the rest of the set moving around it: a leak that has already been reported
 // and consciously left alone must not re-wake the CEO when a retired task's
 // status log comes and goes beside it, while one new unsupervised harness must
-// wake it immediately. A worktree or a status log waits for ceo reap and the
+// wake it immediately. A worktree or a status log waits for goblins reap and the
 // session-start digest, as Actionable says. A sweep that fails is recorded as
 // a failure rather than swallowed, because "cannot see the fleet" and "the
 // fleet is clean" must never render the same, and it keeps what was reported,
@@ -635,7 +635,7 @@ func sweepOrphans(ctx context.Context, cfg Config) string {
 	}
 	reason := ""
 	if isNew {
-		detail := reap.Summary(record.Findings) + "; still running: " + reap.Summary(actionable) + "; run ceo reap to see them, ceo reap --apply to retire everything else, and ceo reap --force <pid> --apply to end one of these, because a kill is authorised only by naming its pid"
+		detail := reap.Summary(record.Findings) + "; still running: " + reap.Summary(actionable) + "; run goblins reap to see them, goblins reap --apply to retire everything else, and goblins reap --force <pid> --apply to end one of these, because a kill is authorised only by naming its pid"
 		if _, err := wake.Append(cfg.Home.State, "orphan", "orphans", detail); err == nil {
 			for _, key := range running {
 				record.Told[key] = record.Time
@@ -680,7 +680,7 @@ func routeHarnessError(cfg Config, event monitor.Event) string {
 		case routing.ThirdParty:
 			// A git-platform outage is the platform's own problem, not the
 			// harness's: switching harnesses will not help. Wait and retry.
-			return event.Detail + " | third-party outage (git platform): wait and retry; `ceo switch` will not help"
+			return event.Detail + " | third-party outage (git platform): wait and retry; `goblins switch` will not help"
 		case routing.Provider:
 			// A model-provider 5xx is the provider's own side failing; a
 			// switch may help if it persists, but a retry is the first move.
@@ -688,7 +688,7 @@ func routeHarnessError(cfg Config, event monitor.Event) string {
 		case routing.Auth:
 			return event.Detail + " | credential failure: fix the credential, not the harness"
 		default:
-			return event.Detail + " | no standing rule; decide and use `ceo switch " + event.TaskID + " --harness <h>` if a switch is right"
+			return event.Detail + " | no standing rule; decide and use `goblins switch " + event.TaskID + " --harness <h>` if a switch is right"
 		}
 	}
 	prefix := " | RECOMMENDED: "
@@ -707,7 +707,7 @@ func routeHarnessError(cfg Config, event monitor.Event) string {
 
 // decisionVerb reports whether a status verb needs the CEO's immediate
 // attention: a gate question or a green gate awaiting merge. Blocked and
-// failed are deliberately absent: those outcomes are delivered by ceo notify's
+// failed are deliberately absent: those outcomes are delivered by goblins notify's
 // own wake (or by a spawn/switch error surfaced to the CEO directly), so the
 // watcher must not re-wake on their status lines.
 func decisionVerb(verb string) bool {

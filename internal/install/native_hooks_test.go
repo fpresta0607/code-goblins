@@ -16,8 +16,8 @@ import (
 // session through.
 var claudeEvents = []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact"}
 
-// isNativeHook reports whether hook runs ceo native-hook, which reports its
-// session to the supervisor, rather than a ceo hook.
+// isNativeHook reports whether hook runs goblins native-hook, which reports its
+// session to the supervisor, rather than a goblins hook.
 func isNativeHook(hook registeredHook) bool {
 	return len(hook.Args) > 0 && hook.Args[0] == "native-hook"
 }
@@ -60,8 +60,8 @@ func TestEveryFleetClaudeSessionCarriesItsNativeSessionHooks(t *testing.T) {
 					continue
 				}
 				want := []string{"native-hook", "claude", "--home", root, "--state", stateDir}
-				if hook.Command != filepath.Join(root, home.BinDir, "ceo.exe") || !slices.Equal(hook.Args, want) || hook.Shell || hook.Matcher != "" {
-					t.Errorf("native hook = %+v, want the home's ceo.exe run with %q and no shell for every tool", hook, want)
+				if hook.Command != filepath.Join(root, home.BinDir, "goblins.exe") || !slices.Equal(hook.Args, want) || hook.Shell || hook.Matcher != "" {
+					t.Errorf("native hook = %+v, want the home's goblins.exe run with %q and no shell for every tool", hook, want)
 				}
 				events = append(events, hook.Event)
 			}
@@ -81,7 +81,7 @@ func TestEveryFleetClaudeSessionCarriesItsNativeSessionHooks(t *testing.T) {
 // Overlord never installed, or a file of his own there, is left as it is.
 func TestInstallBringsTheBoardsPiExtensionUpToItsBuild(t *testing.T) {
 	const olderBuild = "// CEO native hooks v1\n" +
-		`    const result = spawnSync("C:\ceo.exe", ["native-hook","pi"], {input: JSON.stringify(payload), encoding: "utf8", windowsHide: true, timeout: 2500});` + "\n" +
+		`    const result = spawnSync("C:\goblins.exe", ["native-hook","pi"], {input: JSON.stringify(payload), encoding: "utf8", windowsHide: true, timeout: 2500});` + "\n" +
 		`    if (result.error || result.status !== 0) console.error("CEO native event could not be spooled");` + "\n"
 	const ownExtension = "// the Overlord's own extension\n"
 	for _, test := range []struct {
@@ -104,7 +104,7 @@ func TestInstallBringsTheBoardsPiExtensionUpToItsBuild(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			current, err := nativehook.Install(nativehook.InstallConfig{Harness: "pi", ConfigDir: t.TempDir(), Executable: filepath.Join(f.bin, "ceo.exe"), Home: f.root, State: filepath.Join(f.root, "state")})
+			current, err := nativehook.Install(nativehook.InstallConfig{Harness: "pi", ConfigDir: t.TempDir(), Executable: filepath.Join(f.bin, "goblins.exe"), Home: f.root, State: filepath.Join(f.root, "state")})
 			if err != nil {
 				t.Fatal(err)
 			}

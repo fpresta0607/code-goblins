@@ -51,8 +51,8 @@ func TestRenderMarkdownCarriesAllFiveSections(t *testing.T) {
 		"RESTART LOOP",
 		"1037 times",
 		// the stale server verdict and who owns retiring it
-		"safe - task peak-compute-to-supabase is finished; ceo reap retires it",
-		"ceo reap",
+		"safe - task peak-compute-to-supabase is finished; goblins reap retires it",
+		"goblins reap",
 		// headroom, including the footprint that starves the fleet
 		"WSL virtual machine: 11.0 GB",
 		// commit beside memory, and whether the next goblin fits in both
@@ -86,7 +86,7 @@ func TestRenderMarkdownOnAnEmptyReportSaysSoInEverySection(t *testing.T) {
 		"No stack is running.",
 		"No project declares a deploy target.",
 		"No project declares or implies a local stack.",
-		"No local services are held. `ceo services up <project> --task <id>` starts a project's for a task.",
+		"No local services are held. `goblins services up <project> --task <id>` starts a project's for a task.",
 	} {
 		if !strings.Contains(out, empty) {
 			t.Errorf("output is missing %q\n%s", empty, out)
@@ -155,8 +155,8 @@ func TestTruncateKeepsShortValuesWhole(t *testing.T) {
 	}
 }
 
-// The local services section names each stack ceo services holds, who holds
-// it, what ceo started of it and the memory it was measured to take, so the
+// The local services section names each stack goblins services holds, who holds
+// it, what goblins started of it and the memory it was measured to take, so the
 // CEO sees a stack's cost before dispatching beside it.
 func TestRenderMarkdownShowsEachLocalServicesStackWithItsHoldersAndMemory(t *testing.T) {
 	at := time.Date(2026, 10, 8, 14, 2, 0, 0, time.UTC)
@@ -175,11 +175,11 @@ func TestRenderMarkdownShowsEachLocalServicesStackWithItsHoldersAndMemory(t *tes
 	out := render(t, report)
 	for _, want := range []string{
 		"## Local services",
-		"| Project | State | Held by | ceo started | Memory |",
+		"| Project | State | Held by | goblins started | Memory |",
 		"| PrecisionDocs-AI | up since 2026-10-08T14:02:00Z | pd-a, pd-b | the whole stack | 2.5 GB, measured 2026-10-08T14:02:00Z |",
 		"| peakCraftsman | down | nobody | - | 1.0 GB, measured 2026-10-08T14:02:00Z |",
 		"| siqsermon | up since 2026-10-08T14:02:00Z | sermon-a | redis | not measured yet |",
-		"ceo started the Docker engine at 2026-10-08T14:02:00Z for these stacks, and stops it once none of them runs.",
+		"goblins started the Docker engine at 2026-10-08T14:02:00Z for these stacks, and stops it once none of them runs.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output is missing %q\n%s", want, out)
@@ -191,8 +191,8 @@ func TestRenderMarkdownShowsEachLocalServicesStackWithItsHoldersAndMemory(t *tes
 	}
 }
 
-// A stack already running when ceo came is shared and never stopped by a
-// release, and the report says so rather than naming nothing ceo started.
+// A stack already running when goblins came is shared and never stopped by a
+// release, and the report says so rather than naming nothing goblins started.
 func TestRenderMarkdownSaysASharedStackIsNotCEOsToStop(t *testing.T) {
 	report := Build("", Inventory{Services: services.Record{Stacks: map[string]services.Stack{
 		"PrecisionDocs-AI": {Project: "PrecisionDocs-AI", Holders: []services.Hold{{Task: "pd-a"}}},
@@ -283,13 +283,13 @@ func TestRenderMarkdownNamesTheBucketsReadOnlyInPart(t *testing.T) {
 func TestRenderMarkdownSaysWhatTheJanitorNoted(t *testing.T) {
 	// Arrange
 	report := Build(`C:\dev\code-goblins`, reportFixture())
-	report.Janitor = &janitor.Record{Time: time.Date(2026, 10, 14, 6, 0, 0, 0, time.UTC), Notes: []string{"the caches hold 21.0 GB, over their 20 GB cap, and are not trimmed, as the sweep took no turn in the machine's heavy line: ceo gate test (pid 4242) holds the machine's heavy line"}}
+	report.Janitor = &janitor.Record{Time: time.Date(2026, 10, 14, 6, 0, 0, 0, time.UTC), Notes: []string{"the caches hold 21.0 GB, over their 20 GB cap, and are not trimmed, as the sweep took no turn in the machine's heavy line: goblins gate test (pid 4242) holds the machine's heavy line"}}
 
 	// Act
 	out := render(t, report)
 
 	// Assert
-	if want := "- note: the caches hold 21.0 GB, over their 20 GB cap, and are not trimmed, as the sweep took no turn in the machine's heavy line: ceo gate test (pid 4242) holds the machine's heavy line"; !strings.Contains(out, want) {
+	if want := "- note: the caches hold 21.0 GB, over their 20 GB cap, and are not trimmed, as the sweep took no turn in the machine's heavy line: goblins gate test (pid 4242) holds the machine's heavy line"; !strings.Contains(out, want) {
 		t.Errorf("output is missing %q\n%s", want, out)
 	}
 }

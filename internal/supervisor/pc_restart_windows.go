@@ -96,7 +96,7 @@ func EndHeavyRuns() ([]string, error) {
 			if len(arguments) == 0 {
 				return fmt.Errorf("process %d names no program", run.PID)
 			}
-			if program := strings.TrimSuffix(strings.ToLower(filepath.Base(arguments[0])), ".exe"); program != "ceo" && program != "goblins" {
+			if program := strings.TrimSuffix(strings.ToLower(filepath.Base(arguments[0])), ".exe"); program != "goblins" {
 				return fmt.Errorf("process %d runs %s, not a run of the heavy line", run.PID, arguments[0])
 			}
 			return nil

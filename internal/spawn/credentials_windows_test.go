@@ -145,7 +145,7 @@ func TestASpawnGivesATaskOnlyTheServiceItsBriefNames(t *testing.T) {
 	if !result.Meta.HasCredentials || !slices.Equal(result.Meta.Credentials, []string{"database"}) {
 		t.Errorf("the record names %v, want database alone", result.Meta.Credentials)
 	}
-	for _, want := range []string{"payments", "source", "ceo auth grant task-7 <service>", standInStray} {
+	for _, want := range []string{"payments", "source", "goblins auth grant task-7 <service>", standInStray} {
 		if !strings.Contains(result.Output, want) {
 			t.Errorf("output = %q, want %q on the line that says what was withheld", result.Output, want)
 		}
@@ -350,7 +350,7 @@ func TestAResumeOfATaskAnOlderBuildSpawnedCarriesTheDefaultServices(t *testing.T
 			if err != nil || !after.HasCredentials || !slices.Equal(after.Credentials, []string{"source"}) {
 				t.Errorf("after the resume the record names %v (recorded %v), %v, want the default service", after.Credentials, after.HasCredentials, err)
 			}
-			for _, want := range []string{"started by a build that gave it every credential stored for primary", "carry only source", "withheld 2 of primary's services (database, payments)", "ceo auth grant task-7 <service>"} {
+			for _, want := range []string{"started by a build that gave it every credential stored for primary", "carry only source", "withheld 2 of primary's services (database, payments)", "goblins auth grant task-7 <service>"} {
 				if !strings.Contains(result.Output, want) {
 					t.Errorf("output = %q, want %q: the resume says what became of the task and how to grant a service", result.Output, want)
 				}
@@ -1099,7 +1099,7 @@ func TestAServiceChangeWhoseScriptCannotBeRewrittenSaysTheRecordChanged(t *testi
 			if err == nil {
 				t.Fatal("the change succeeded, want the script's failure said")
 			}
-			for _, want := range []string{"the record of names-one changed as asked", "its auth.ps1 was not rewritten", "run ceo auth refresh names-one"} {
+			for _, want := range []string{"the record of names-one changed as asked", "its auth.ps1 was not rewritten", "run goblins auth refresh names-one"} {
 				if !strings.Contains(err.Error(), want) {
 					t.Errorf("change = %v, want %q", err, want)
 				}
@@ -1229,7 +1229,7 @@ func TestASpawnWithholdsAnMCPServerWhoseEntryHoldsAValueItsBriefDoesNotName(t *t
 		t.Errorf("the goblin's servers = %v, want %v", servers, want)
 	}
 	holdsNoStandInMCPValue(t, "the goblin's MCP configuration", text)
-	for _, want := range []string{"mcp: withheld 2 servers whose entry holds a value (literal-env, literal-header)", "ceo auth grant task-7 --mcp <server>"} {
+	for _, want := range []string{"mcp: withheld 2 servers whose entry holds a value (literal-env, literal-header)", "goblins auth grant task-7 --mcp <server>"} {
 		if !strings.Contains(result.Output, want) {
 			t.Errorf("output = %q, want %q", result.Output, want)
 		}
@@ -1332,7 +1332,7 @@ func TestARelaunchWithholdsAnMCPServerItsLastTerminalWasGiven(t *testing.T) {
 	if len(specs) != 1 || specs[0].MCPConfig != last {
 		t.Errorf("the new harness was built %d time(s) with %+v, want it handed %s", len(specs), specs, last)
 	}
-	for _, want := range []string{"mcp: withheld 2 servers whose entry holds a value (literal-env, literal-header)", "ceo auth grant task-7 --mcp <server>"} {
+	for _, want := range []string{"mcp: withheld 2 servers whose entry holds a value (literal-env, literal-header)", "goblins auth grant task-7 --mcp <server>"} {
 		if !strings.Contains(result.Output, want) {
 			t.Errorf("output = %q, want %q", result.Output, want)
 		}

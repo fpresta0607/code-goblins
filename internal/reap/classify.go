@@ -6,7 +6,7 @@
 // worktrees folder or a project's .worktrees/ an older build used, that the
 // project does not register as a worktree at all.
 //
-// No single source sees all of it. ceo knows the tasks it started, Herdr knows
+// No single source sees all of it. goblins knows the tasks it started, Herdr knows
 // the panes that still exist, only the operating system knows what is still
 // running, and only a project's own git worktree list says which directories
 // under it are worktrees, so classification cross-references all five (state,
@@ -559,7 +559,7 @@ func Classify(inv Inventory) []Finding {
 // terminal host, and no process naming the folder on its command line. Each
 // is a worktree its project registers, or a folder its project answered
 // about and does not register. These are the janitor's to tidy; a worktree a
-// task still owns is that task's, left to ceo cleanup. A task whose record
+// task still owns is that task's, left to goblins cleanup. A task whose record
 // cannot be read owns what its name could name, so nothing is listed for it.
 func Unowned(inv Inventory) []WorktreeDir {
 	tasks := make(map[string]Task, len(inv.Tasks))
@@ -773,7 +773,7 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 			continue
 		}
 		detail := placementOutcome(inv, task, known, unreadable[worktree.TaskID]) + extraWorktreeNote(task, known, worktree)
-		action := "return the worktree through ceo cleanup"
+		action := "return the worktree through goblins cleanup"
 		if worktree.Source == SourceCheckout {
 			// Nothing of this home records it, and it is not in a folder the
 			// fleet puts its own in: it is a harness's or an older session's,
@@ -804,7 +804,7 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 }
 
 // ownerOf returns the task a fleet worktree belongs to. That is the task whose
-// record names it, as its worktree or as an extra one `ceo worktree add` made,
+// record names it, as its worktree or as an extra one `goblins worktree add` made,
 // else the task its name records, <id> in the home or gb-<id> where an older
 // build put it. A goblin also made extra worktrees for itself, <id>-<suffix>,
 // and one no record names belongs to the task it extends: the longest such
@@ -1187,7 +1187,7 @@ func goTestTask(process Process, scratchRoots []string) (string, bool) {
 }
 
 // scratchHost reports whether process is a native terminal host run for a CEO
-// home other than this one, and the --state and --dir it names. ceo host is
+// home other than this one, and the --state and --dir it names. goblins host is
 // only ever run with the home's state directory, so a host with any other is
 // a scratch home some goblin's test or proof started.
 func scratchHost(process Process, stateDir string) ([]string, bool) {
@@ -1585,7 +1585,7 @@ var explorerShells = []string{"powershell", "pwsh", "cmd", "mintty"}
 
 // overlordsSessions are the processes the Overlord runs himself: everything a
 // Windows Terminal window or a shell he opened from Explorer started, except
-// the fleet's own ceo processes and everything under them. A harness there is
+// the fleet's own goblins processes and everything under them. A harness there is
 // his own Claude Code or Codex session, whatever its flags, while a host the
 // fleet launched from his terminal, and the harness it runs, stay the fleet's.
 func overlordsSessions(processes []Process) map[int]bool {
@@ -1739,7 +1739,7 @@ func verbText(verb string) string {
 }
 
 // IsTerminal reports whether a status verb ends a task. done and failed are
-// the two outcomes a goblin reports through ceo notify; every other verb
+// the two outcomes a goblin reports through goblins notify; every other verb
 // leaves the task somebody's problem.
 func IsTerminal(verb string) bool {
 	return verb == "done" || verb == "failed" || verb == "stopped"

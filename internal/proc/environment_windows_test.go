@@ -7,21 +7,21 @@ import (
 )
 
 func TestEnvironmentReadsOwnedProcessWithoutChangingIt(t *testing.T) {
-	t.Setenv("CEO_CONNECTION_ENV_TEST", "synthetic-value")
+	t.Setenv("GOBLINS_CONNECTION_ENV_TEST", "synthetic-value")
 	entries, err := Environment(os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
 	found := false
 	for _, entry := range entries {
-		if entry == "CEO_CONNECTION_ENV_TEST=synthetic-value" {
+		if entry == "GOBLINS_CONNECTION_ENV_TEST=synthetic-value" {
 			found = true
 		}
 	}
 	if !found {
 		t.Fatal("known environment assignment missing")
 	}
-	if os.Getenv("CEO_CONNECTION_ENV_TEST") != "synthetic-value" {
+	if os.Getenv("GOBLINS_CONNECTION_ENV_TEST") != "synthetic-value" {
 		t.Fatal("read changed the environment")
 	}
 	_, err = Environment(-1)
@@ -36,8 +36,8 @@ func TestEnvironmentReadsOwnedProcessWithoutChangingIt(t *testing.T) {
 // process that grew its environment after it started is still read whole.
 func TestParametersAndEnvironmentReadAProcessThroughOneHandle(t *testing.T) {
 	// Arrange
-	t.Setenv("CEO_PARAMETERS_ENV_GROWN", strings.Repeat("x", 3*os.Getpagesize()))
-	t.Setenv("CEO_PARAMETERS_ENV_LAST", "set-after-the-large-one")
+	t.Setenv("GOBLINS_PARAMETERS_ENV_GROWN", strings.Repeat("x", 3*os.Getpagesize()))
+	t.Setenv("GOBLINS_PARAMETERS_ENV_LAST", "set-after-the-large-one")
 	wantDirectory, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestParametersAndEnvironmentReadAProcessThroughOneHandle(t *testing.T) {
 	if strings.Join(arguments, "\x00") != strings.Join(wantArguments, "\x00") {
 		t.Errorf("arguments = %q, want %q", arguments, wantArguments)
 	}
-	wanted := map[string]bool{"CEO_PARAMETERS_ENV_LAST=set-after-the-large-one": false, "CEO_PARAMETERS_ENV_GROWN=" + strings.Repeat("x", 3*os.Getpagesize()): false}
+	wanted := map[string]bool{"GOBLINS_PARAMETERS_ENV_LAST=set-after-the-large-one": false, "GOBLINS_PARAMETERS_ENV_GROWN=" + strings.Repeat("x", 3*os.Getpagesize()): false}
 	for _, entry := range environment {
 		if _, ok := wanted[entry]; ok {
 			wanted[entry] = true

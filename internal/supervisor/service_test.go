@@ -900,7 +900,7 @@ func TestEvaluationLeavesAHandedBackFailureWithItsGoblin(t *testing.T) {
 	versionSix := pipeline.Policy{Version: 6, AutoFix: pipeline.AutoFix{Test: 1, Lint: 1, Rebase: 1, CI: 1}, Classes: classes}
 	versionSeven := pipeline.Policy{Version: 7, AutoFix: pipeline.AutoFix{Rebase: 1}, Classes: classes}
 	const failure = `{"findings":[{"id":"step-failure","action":"auto-fix","severity":"error","description":"the command failed"}]}`
-	const noTurn = `{"findings":[{"id":"test-command-no-turn","action":"ask-user","severity":"error","description":"The wrapper reported: ceo gate turn: the command did not start: required test environment: .venv is missing. Respond with fix to run it again."}]}`
+	const noTurn = `{"findings":[{"id":"test-command-no-turn","action":"ask-user","severity":"error","description":"The wrapper reported: goblins gate turn: the command did not start: required test environment: .venv is missing. Respond with fix to run it again."}]}`
 	for _, c := range []struct {
 		name, step, findings string
 		policy               pipeline.Policy
@@ -962,7 +962,7 @@ func TestEvaluationLeavesAHandedBackFailureWithItsGoblin(t *testing.T) {
 			if err != nil || got.Phase != c.want || got.GateStep != c.step {
 				t.Fatalf("evaluation = %+v (%v), want phase %s at %s", got, err, c.want, c.step)
 			}
-			if c.want == "blocked" && got.Reason != "Pipeline decision required at "+c.step+"; use ceo pipeline respond" {
+			if c.want == "blocked" && got.Reason != "Pipeline decision required at "+c.step+"; use goblins pipeline respond" {
 				t.Fatalf("reason = %q, want the CEO's decision at %s", got.Reason, c.step)
 			}
 		})

@@ -10,7 +10,7 @@ import (
 // URL, then the CEO's steer about a GitHub Actions failure with the pane's
 // prompt marker in front and two-space continuation lines where the pane
 // wrapped it. The watcher woke the CEO with harness_error rate-limit and a
-// `ceo switch` recommendation for a goblin that was working perfectly.
+// `goblins switch` recommendation for a goblin that was working perfectly.
 func steerPane(prefix string) string {
 	return "  https://github.com/fpresta0607/peakCraftsman/pull/23 - docs only, MERGEABLE / CLEAN, all checks green.\n" +
 		"\n" +

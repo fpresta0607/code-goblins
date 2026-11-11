@@ -36,7 +36,7 @@ export function credentialFinish(request: CredentialRequest): { heading: string;
 // later, or, for a card with none, to bring it back.
 export function closedLine(request: CredentialRequest): string {
   const needed = stillNeeded(request);
-  if (!needed.length) return "Bring it back: ceo auth request --reopen " + request.id;
+  if (!needed.length) return "Bring it back: goblins auth request --reopen " + request.id;
   const first = storeCommand(request.project, needed[0]);
   return needed.length === 1 ? "Give it later: " + first : "Give them later: " + first + ", then the same for " + listNames(needed.slice(1));
 }
@@ -103,11 +103,11 @@ export function terminalNames(request: CredentialRequest, replace: string[]): st
   return stillNeeded(request).filter((name) => !request.existing.includes(name) || replace.includes(name));
 }
 
-// The exact terminal fallback for one name, as ceo prints it: a scope a shell
+// The exact terminal fallback for one name, as goblins prints it: a scope a shell
 // would split is quoted.
 export function storeCommand(project: string, name: string): string {
   const scope = /^[A-Za-z0-9._/:-]+$/.test(project) ? project : '"' + project + '"';
-  return "ceo auth store --project " + scope + " " + name;
+  return "goblins auth store --project " + scope + " " + name;
 }
 
 // A format hint's warnings for a value: one that starts none of the expected

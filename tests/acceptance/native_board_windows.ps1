@@ -1,20 +1,20 @@
 [CmdletBinding()]
 param([Parameter(Mandatory=$true)][string]$Binary, [Parameter(Mandatory=$true)][string]$HarnessBinary)
 $ErrorActionPreference = 'Stop'
-if ($env:CEO_BOARD_REAL -ne '1') { throw 'Set CEO_BOARD_REAL=1 to create the isolated native board fixture.' }
-Remove-Item Env:CEO_HOME,Env:CEO_STATE_OVERRIDE -ErrorAction SilentlyContinue
+if ($env:GOBLINS_BOARD_REAL -ne '1') { throw 'Set GOBLINS_BOARD_REAL=1 to create the isolated native board fixture.' }
+Remove-Item Env:GOBLINS_HOME,Env:GOBLINS_STATE_OVERRIDE -ErrorAction SilentlyContinue
 $root = Join-Path ([IO.Path]::GetTempPath()) ('ceo-board-windows-' + [guid]::NewGuid().ToString('N'))
 $fixtureHome = Join-Path $root 'home'
 $project = Join-Path $root 'project'
 $session = 'ceo-board-test-' + [guid]::NewGuid().ToString('N').Substring(0,12)
 foreach ($dir in @($root, "$root\bin", $fixtureHome, "$fixtureHome\state", "$fixtureHome\data", $project)) { New-Item -ItemType Directory -Path $dir | Out-Null }
-$env:CEO_HOME = $fixtureHome
-$env:CEO_STATE_OVERRIDE = "$fixtureHome\state"
-$env:CEO_PROJECTS_ROOT = $root
+$env:GOBLINS_HOME = $fixtureHome
+$env:GOBLINS_STATE_OVERRIDE = "$fixtureHome\state"
+$env:GOBLINS_PROJECTS_ROOT = $root
 $env:HERDR_SESSION = $session
 $env:HERDR_CONFIG_PATH = Join-Path $root 'herdr.toml'
-Remove-Item Env:CEO_TASK_ID,Env:CEO_SPAWN_GEN,Env:CEO_PARENT_SESSION_ID,Env:CEO_PARENT_HARNESS,Env:CEO_ROOT_SESSION_ID -ErrorAction SilentlyContinue
-$env:CEO_ROLE = 'ceo'
+Remove-Item Env:GOBLINS_TASK_ID,Env:GOBLINS_SPAWN_GEN,Env:GOBLINS_PARENT_SESSION_ID,Env:GOBLINS_PARENT_HARNESS,Env:GOBLINS_ROOT_SESSION_ID -ErrorAction SilentlyContinue
+$env:GOBLINS_ROLE = 'ceo'
 function Write-UTF8([string]$Path, [string]$Content) { [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false)) }
 function Checked([string]$Command, [string[]]$Arguments) {
     $output = & $Command @Arguments
@@ -22,7 +22,7 @@ function Checked([string]$Command, [string[]]$Arguments) {
     return $output
 }
 Write-UTF8 $env:HERDR_CONFIG_PATH ((Checked 'herdr' @('--default-config')) -join "`n")
-$ceo = (Resolve-Path -LiteralPath $Binary).Path
+$goblins = (Resolve-Path -LiteralPath $Binary).Path
 $harness = (Resolve-Path -LiteralPath $HarnessBinary).Path
 # Build, validate and scan both supplied executables before this opt-in test.
 # A second path or copy is not security clearance for a flagged artifact.
@@ -40,8 +40,8 @@ Write-UTF8 "$project\board.css" ":root {`n  --accent: #00e59b;`n  --surface: #03
 Checked 'git' @('-C',$project,'add','.') | Out-Null
 Checked 'git' @('-C',$project,'commit','-qm','Show evidence freshness in the native board') | Out-Null
 foreach ($kind in @('codex','claude','pi')) {
-    Checked $ceo @('hooks','install',$kind,'--config-dir',"$root\$kind") | Out-Host
-    Checked $ceo @('hooks','install',$kind,'--config-dir',"$root\$kind") | Out-Host
+    Checked $goblins @('hooks','install',$kind,'--config-dir',"$root\$kind") | Out-Host
+    Checked $goblins @('hooks','install',$kind,'--config-dir',"$root\$kind") | Out-Host
 }
 $server = Start-Process -FilePath 'herdr' -ArgumentList @('--session',$session,'server') -WindowStyle Hidden -RedirectStandardOutput "$root\herdr.out" -RedirectStandardError "$root\herdr.err" -PassThru
 $deadline = (Get-Date).AddSeconds(15)
@@ -60,7 +60,7 @@ Write-UTF8 "$fixtureHome\state\board-fixture.meta" (@(
 ) -join "`n")
 Write-UTF8 "$fixtureHome\state\board-fixture.status" ((Get-Date).ToUniversalTime().ToString('o') + ' working: Build review panel' + "`n")
 Write-UTF8 "$fixtureHome\data\backlog.md" "## Queued`n- [ ] board-fixture - Build review panel (repo: example)`n- [ ] follow-up - Polish settings (repo: example)`n"
-$config = @{ root=$root; home=$fixtureHome; project=$project; session=$session; pane=$pane; hook="$root\codex\ceo-native-hook.ps1"; binary=$ceo; herdr_pid=$server.Id; parentHarness='codex' }
+$config = @{ root=$root; home=$fixtureHome; project=$project; session=$session; pane=$pane; hook="$root\codex\ceo-native-hook.ps1"; binary=$goblins; herdr_pid=$server.Id; parentHarness='codex' }
 Write-UTF8 "$root\fixture.json" ($config | ConvertTo-Json)
 $ceoTab = (Checked 'herdr' @('--session',$session,'tab','create','--workspace',$workspace.workspace.workspace_id,'--cwd',$project,'--label','example-ceo','--no-focus') | ConvertFrom-Json).result
 $ceoConfig = $config.Clone()
@@ -85,7 +85,7 @@ Checked 'herdr' @('--session',$session,'pane','run',$pane,$line) | Out-Null
 $deadline = (Get-Date).AddSeconds(15)
 while (!(Test-Path "$root\harness.pid") -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
 if (!(Test-Path "$root\harness.pid")) { throw "Fixture harness did not start. Inspect $root" }
-$board = Start-Process -FilePath $ceo -ArgumentList @('serve','--example','--listen','127.0.0.1:0') -WindowStyle Hidden -RedirectStandardOutput "$root\board.out" -RedirectStandardError "$root\board.err" -PassThru
+$board = Start-Process -FilePath $goblins -ArgumentList @('serve','--example','--listen','127.0.0.1:0') -WindowStyle Hidden -RedirectStandardOutput "$root\board.out" -RedirectStandardError "$root\board.err" -PassThru
 $deadline = (Get-Date).AddSeconds(15)
 do {
     Start-Sleep -Milliseconds 100

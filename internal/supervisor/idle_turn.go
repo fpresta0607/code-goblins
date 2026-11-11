@@ -82,7 +82,7 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 			continue
 		}
 		next = record.ID
-		steps = append(steps, "resume "+record.ID+" with ceo resume "+record.ID)
+		steps = append(steps, "resume "+record.ID+" with goblins resume "+record.ID)
 	}
 	for index, id := range queued {
 		if index > 0 {
@@ -119,7 +119,7 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 			detail += fmt.Sprintf(" and %d more", len(waiting)-8)
 		}
 	}
-	detail += ". The supervisor's scheduler starts them one at a time as memory allows: read ceo fleet-view first, start or resume what has not started, and park a row that must not start."
+	detail += ". The supervisor's scheduler starts them one at a time as memory allows: read goblins fleet-view first, start or resume what has not started, and park a row that must not start."
 	if err := raiseFleetWake(h.State, "idle", "turn", detail); err != nil {
 		return "", err
 	}
@@ -132,9 +132,9 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 
 // startableQueued names the queued tasks a Start could start at reading, in
 // queue order, leaving out each whose queued lock a live process holds: the
-// supervisor holds it for a start's whole run, and ceo spawn writes the task
+// supervisor holds it for a start's whole run, and goblins spawn writes the task
 // record planStart reads only once the worktree exists, so the lock is what
-// the CEO's turn-end guard, which runs apart from ceo serve, can see of the
+// the CEO's turn-end guard, which runs apart from goblins serve, can see of the
 // start. A record that cannot be read yet, as while it is written, reads as
 // held.
 func startableQueued(h home.Home, finished *finishedWork, reading rowReading) []string {

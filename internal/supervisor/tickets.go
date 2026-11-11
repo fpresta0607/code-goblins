@@ -386,7 +386,7 @@ func (k *ticketKeeper) reconcileTask(ctx context.Context, id string, task Task, 
 			ticket.State, ticket.Reason, ticket.PullRequest = tickets.Merged, "", merged
 		}
 	}
-	// ceo spawn keeps the CEO's reason for starting a task beside a
+	// goblins spawn keeps the CEO's reason for starting a task beside a
 	// teammate's work; the keeper, the tickets' only writer, puts it on the
 	// ticket.
 	overlap, err := tickets.ReadOverlapNote(k.home.State, id)
@@ -596,7 +596,7 @@ func (k *ticketKeeper) reconcileGone(ctx context.Context, onTheBoard map[string]
 	}
 }
 
-// retitleDone writes the title the CEO gave a task with ceo title to its
+// retitleDone writes the title the CEO gave a task with goblins title to its
 // done ticket, the one write a done ticket still takes.
 func (k *ticketKeeper) retitleDone(ctx context.Context, record tickets.Record, now time.Time) {
 	if record.IsClaimed {
@@ -738,7 +738,7 @@ func (k *ticketKeeper) ticketedRepository(ctx context.Context, id string, now ti
 			return "", ""
 		}
 		if !isAllowed {
-			k.note("public:"+known.Repository, fmt.Sprintf("Task tickets are not filed in %s, because it is a public repository and anyone could read them. To file them there anyway: ceo tickets \"%s\" --allow-public-tickets", known.Repository, project))
+			k.note("public:"+known.Repository, fmt.Sprintf("Task tickets are not filed in %s, because it is a public repository and anyone could read them. To file them there anyway: goblins tickets \"%s\" --allow-public-tickets", known.Repository, project))
 			return "", ""
 		}
 	}
@@ -798,7 +798,7 @@ func (k *ticketKeeper) project(id string) string {
 }
 
 // title is the title a task's ticket carries, cut to a ticket's short title:
-// the one the CEO gave it with ceo title, else the one its issue was opened
+// the one the CEO gave it with goblins title, else the one its issue was opened
 // under, else the one the task was dispatched under, else, before its issue
 // opens, its backlog row's, else its id. An open issue keeps its title, so a
 // backlog row the CEO rewrites into a note, or a respawn copies from one,
@@ -824,12 +824,12 @@ func (k *ticketKeeper) title(id string, record *tickets.Record) string {
 	return id
 }
 
-// namedTitle is the title the CEO gave a task with ceo title, cut to a
+// namedTitle is the title the CEO gave a task with goblins title, cut to a
 // ticket's short title, or "" when he gave none.
 func (k *ticketKeeper) namedTitle(id string) string {
 	named, err := tickets.ReadTitleNote(k.home.State, id)
 	if err != nil {
-		k.note("task:"+id, fmt.Sprintf("The title ceo title gave %s cannot be read: %v", id, err))
+		k.note("task:"+id, fmt.Sprintf("The title goblins title gave %s cannot be read: %v", id, err))
 	}
 	return tickets.ShortTitle(named)
 }

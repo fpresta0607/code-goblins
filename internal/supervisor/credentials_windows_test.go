@@ -20,7 +20,7 @@ import (
 
 // The CEO files a request over the supervisor's pipe, proven by its own
 // process, and a goblin files one for its own task from inside its terminal,
-// as ceo notify proves it. Both reach the board as names, labelled with who
+// as goblins notify proves it. Both reach the board as names, labelled with who
 // asked.
 func TestTheCEOAndAGoblinFileCredentialRequestsProvenByTheirOwnProcess(t *testing.T) {
 	// Arrange
@@ -83,7 +83,7 @@ func (b *credentialBoard) credentialRun() Run {
 	return Run{}
 }
 
-// The card's Run opens a terminal on the card that runs ceo auth store for
+// The card's Run opens a terminal on the card that runs goblins auth store for
 // each name the request still needs, which reads each value hidden, so no
 // value is kept on the board. Once the terminal finishes, the rows
 // it stored are checked, and the request closes when every name is stored.
@@ -280,7 +280,7 @@ func (b *credentialBoard) openTerminal(replace ...string) Run {
 }
 
 // typeValue stores a canary for name in the request's scope, as the
-// terminal's ceo auth store does.
+// terminal's goblins auth store does.
 func (b *credentialBoard) typeValue(name string) {
 	b.t.Helper()
 	store, err := auth.OpenStore()

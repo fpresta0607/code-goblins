@@ -45,9 +45,9 @@ func shownWindows(t *testing.T) map[windows.HWND]bool {
 // through a pseudo console window that neither the program nor its console
 // host owns, as a hosted runner showed in 3 of 5 runs. It shows a window,
 // so it runs only on the hosted runner of .github/workflows/windows.yml,
-// which names its default terminal in CEO_WINDOW_PROOF.
+// which names its default terminal in GOBLINS_WINDOW_PROOF.
 func TestHideConsoleOnDesktopTakesACarelessConsoleOffTheDesktop(t *testing.T) {
-	terminal := os.Getenv("CEO_WINDOW_PROOF")
+	terminal := os.Getenv("GOBLINS_WINDOW_PROOF")
 	if terminal == "" {
 		t.Skip("shows a window on the desktop, so it runs only on the hosted runner of .github/workflows/windows.yml")
 	}
@@ -107,7 +107,7 @@ func TestHideConsoleOnDesktopTakesACarelessConsoleOffTheDesktop(t *testing.T) {
 
 // hideConsolePIDVariable names the console program's pid to
 // TestHideConsoleOnDesktopFixture.
-const hideConsolePIDVariable = "CEO_TEST_HIDE_CONSOLE_PID"
+const hideConsolePIDVariable = "GOBLINS_TEST_HIDE_CONSOLE_PID"
 
 // TestHideConsoleOnDesktopFixture is not a test: it is the supervisor
 // TestHideConsoleOnDesktopLeavesAConsoleAboveItsReach starts, which prints

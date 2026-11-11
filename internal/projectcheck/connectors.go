@@ -17,7 +17,7 @@ import (
 // connectors assesses the services and connectors the project declares in
 // auth.json against what its repository names: a declared one nothing uses,
 // and a credential the code or an MCP connector reads that no service
-// declares. It reads names only and probes nothing: `ceo auth <project>
+// declares. It reads names only and probes nothing: `goblins auth <project>
 // --check` is what asks each service whether it answers.
 func (c *checker) connectors(ctx context.Context) error {
 	file := auth.ManifestPath(c.DataDir, c.project)
@@ -29,7 +29,7 @@ func (c *checker) connectors(ctx context.Context) error {
 			"no file at "+file, "write "+file+" naming each service the project needs")
 	case err != nil:
 		c.add(AreaConnectors, "auth-invalid", High,
-			"the loader refuses the project's auth manifest, so ceo auth and every spawn's preflight fail",
+			"the loader refuses the project's auth manifest, so goblins auth and every spawn's preflight fail",
 			err.Error(), "correct what the loader names in "+file)
 		return nil
 	}

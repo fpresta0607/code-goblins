@@ -20,7 +20,7 @@ import (
 // not be set up.
 const dictationNote = "Note: Dictation could not be set up now, so it finishes setting itself up the first time you dictate; the log says why."
 
-// homeCeo puts the stand-in where ceo install puts ceo.exe in the per-user
+// homeCeo puts the stand-in where goblins install puts goblins.exe in the per-user
 // home, which the stand-in's own install does not.
 func homeCeo(t *testing.T) func(local string) {
 	t.Helper()
@@ -29,7 +29,7 @@ func homeCeo(t *testing.T) func(local string) {
 		if err := os.MkdirAll(bin, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		standin.Put(t, filepath.Join(bin, "ceo.exe"))
+		standin.Put(t, filepath.Join(bin, "goblins.exe"))
 	}
 }
 
@@ -43,10 +43,10 @@ func TestOneLineInstallSetsDictationUpWithTheHomesBuild(t *testing.T) {
 	run := runInstallWithNoMistakes(t, WindowsPowerShell(), release, noMistakesSetup{seed: homeCeo(t)})
 
 	// Assert
-	installed := strings.Index(run.record, "ceo install\r\n")
-	dictation := strings.Index(run.record, "ceo dictation setup\r\n")
+	installed := strings.Index(run.record, "goblins install\r\n")
+	dictation := strings.Index(run.record, "goblins dictation setup\r\n")
 	if installed < 0 || dictation < installed {
-		t.Fatalf("want ceo install, then ceo dictation setup:\n%s\n%s", run.record, run.output)
+		t.Fatalf("want goblins install, then goblins dictation setup:\n%s\n%s", run.record, run.output)
 	}
 	if !strings.Contains(run.output, "\n      Setting up dictation\r\n") {
 		t.Errorf("the install did not say it sets dictation up:\n%s", run.output)
@@ -70,7 +70,7 @@ func TestOneLineInstallEndsWellWhenDictationCannotBeSetUp(t *testing.T) {
 	run := runInstallWithNoMistakes(t, WindowsPowerShell(), release, noMistakesSetup{seed: homeCeo(t), rules: []standin.Rule{{Args: "dictation setup", Exit: 1}}})
 
 	// Assert
-	if !strings.Contains(run.record, "ceo dictation setup\r\n") {
+	if !strings.Contains(run.record, "goblins dictation setup\r\n") {
 		t.Fatalf("the install did not try to set dictation up:\n%s\n%s", run.record, run.output)
 	}
 	if !strings.Contains(run.output, dictationNote) {
@@ -168,7 +168,7 @@ func TestOneLineInstallThatIsInterruptedEndsDictationsSetup(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !slices.ContainsFunc(members, func(member execx.EndedProcess) bool { return strings.EqualFold(member.Name, "ceo.exe") }) {
+		if !slices.ContainsFunc(members, func(member execx.EndedProcess) bool { return strings.EqualFold(member.Name, "goblins.exe") }) {
 			break
 		}
 		if time.Now().After(deadline) {

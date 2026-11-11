@@ -111,7 +111,7 @@ func TestANativeGoblinAsksFromItsOwnTerminalOnly(t *testing.T) {
 }
 
 // Git Bash runs an MSYS program such as timeout by replacing its own Windows
-// process, so `timeout 60 ceo notify ...` has a parent that already exited and
+// process, so `timeout 60 goblins notify ...` has a parent that already exited and
 // its chain of parents never reaches the goblin's program: cg-board-polish's
 // page wait was refused that way on 2026-09-30. The proof value its
 // terminal's host put in the terminal's environment still proves where it
@@ -210,8 +210,8 @@ func TestANativeGoblinsSendToItsChildNamesItAsSender(t *testing.T) {
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CEO_SESSION_ID", "parent-1")
-	t.Setenv("CEO_SESSION_HARNESS", "claude")
+	t.Setenv("GOBLINS_SESSION_ID", "parent-1")
+	t.Setenv("GOBLINS_SESSION_HARNESS", "claude")
 	parent := hostTerminal(t, h.State, "task-9")
 
 	parent.typeLine(t, "send gb-task-1")

@@ -38,7 +38,7 @@ func checkoutHome(t *testing.T) (string, map[string]bool) {
 	write(t, filepath.Join(root, "AGENTS.md"), "contract")
 	write(t, filepath.Join(root, "data", "routing.json"), `{"lanes":[]}`)
 	write(t, filepath.Join(root, "config", "pipeline.json"), `{"classes":{}}`)
-	write(t, filepath.Join(root, ".gitignore"), "/projects/\n/state/\n/data/*\n!/data/routing.json\n/caches/\n/config/fleet.json\n.worktrees/\n/ceo.exe\n")
+	write(t, filepath.Join(root, ".gitignore"), "/projects/\n/state/\n/data/*\n!/data/routing.json\n/caches/\n/config/fleet.json\n.worktrees/\n/goblins.exe\n")
 	gitIn(t, root, "init", "-q")
 	gitIn(t, root, "add", ".")
 	gitIn(t, root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "source")
@@ -56,7 +56,7 @@ func checkoutHome(t *testing.T) (string, map[string]bool) {
 	write(t, filepath.Join(root, "config", "fleet.json"), `{"disk_floor_gb":20}`)
 	write(t, filepath.Join(root, "caches", "uv", "blob"), "downloaded")
 	write(t, filepath.Join(root, ".worktrees", "gb-g1", "work.go"), "package work")
-	write(t, filepath.Join(root, "ceo.exe"), "old build")
+	write(t, filepath.Join(root, "goblins.exe"), "old build")
 	write(t, filepath.Join(root, "projects", "old-clone", "README.md"), "a clone kept under the home")
 	tracked := map[string]bool{}
 	for _, name := range strings.Split(gitIn(t, root, "ls-files"), "\n") {
@@ -78,12 +78,12 @@ func TestPlanMoveListsEveryFileWithItsHashAndProvesNoneDropped(t *testing.T) {
 		t.Fatal(err)
 	}
 	listing := strings.Join(plan.Listing(), "\n")
-	for _, want := range []string{"move state/g1.meta ", "move state/tasktmp/g1/auth.ps1 ", "move data/g1/brief.md ", "copy data/routing.json ", "copy config/pipeline.json ", "move config/fleet.json ", "move caches (1 files, 10 bytes)", "rewrite state/g1.meta ", "names the old home state/g1.status", "stays .worktrees", "stays projects (no part", "remove ceo.exe ("} {
+	for _, want := range []string{"move state/g1.meta ", "move state/tasktmp/g1/auth.ps1 ", "move data/g1/brief.md ", "copy data/routing.json ", "copy config/pipeline.json ", "move config/fleet.json ", "move caches (1 files, 10 bytes)", "rewrite state/g1.meta ", "names the old home state/g1.status", "stays .worktrees", "stays projects (no part", "remove goblins.exe ("} {
 		if !strings.Contains(listing, want) {
 			t.Errorf("the listing lacks %q:\n%s", want, listing)
 		}
 	}
-	for _, unwanted := range []string{"AGENTS.md", "\nmove ceo.exe", "work.go"} {
+	for _, unwanted := range []string{"AGENTS.md", "\nmove goblins.exe", "work.go"} {
 		if strings.Contains(listing, unwanted) {
 			t.Errorf("the listing moves %s, which is source, a binary or a worktree:\n%s", unwanted, listing)
 		}

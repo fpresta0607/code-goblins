@@ -107,7 +107,7 @@ func (s Service) heldByVerb(id string, observation Observation) bool {
 // idleDetail is the goblin_idle wake: how long it has sat, what to do next,
 // its own processes left running, and the end of its screen.
 func idleDetail(id string, sample EndpointSample, jobs []string, idle time.Duration, since time.Time) string {
-	detail := fmt.Sprintf("at its prompt for %s with nothing running, no question open and no report since %s UTC; next: steer it with ceo send %s \"<what to do next>\", or retire it if its work is done",
+	detail := fmt.Sprintf("at its prompt for %s with nothing running, no question open and no report since %s UTC; next: steer it with goblins send %s \"<what to do next>\", or retire it if its work is done",
 		idle.Round(time.Minute), since.UTC().Format("15:04"), id)
 	if len(jobs) > 0 {
 		detail += "; its own processes sit idle: " + strings.Join(jobs, ", ")

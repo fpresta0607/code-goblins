@@ -19,7 +19,7 @@ import (
 // (the Overlord, 2026-10-02: "run in powershell button"). It reaches the board
 // as a run item, the card the CEO's own requests use, named for the goblin:
 // he reads the exact command and runs it with one click, in a terminal on the
-// card, so a sign-in or ceo attach works there. The goblin
+// card, so a sign-in or goblins attach works there. The goblin
 // hears how it ended, and a command nobody ran leaves the board once the
 // goblin moves on.
 

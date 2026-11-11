@@ -20,7 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/waiting"
 )
 
-// boardAddress reads the board's address from the record ceo serve writes in
+// boardAddress reads the board's address from the record goblins serve writes in
 // the fleet's state folder, and refuses anything but a plain loopback board
 // address, as goblins does.
 func boardAddress(stateDir string) (string, error) {

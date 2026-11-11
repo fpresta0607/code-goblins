@@ -34,7 +34,7 @@ func TestBrowserSignInWindowOnAHiddenDesktop(t *testing.T) {
 // Overlord's screen. The copy is ended with everything it started when it
 // is done or out of time, and its output fails the test when it failed.
 func onAHiddenDesktop(t *testing.T, prove func(*testing.T)) {
-	if os.Getenv("CEO_HIDDEN_DESKTOP_PROOF") == t.Name() {
+	if os.Getenv("GOBLINS_HIDDEN_DESKTOP_PROOF") == t.Name() {
 		prove(t)
 		return
 	}
@@ -67,7 +67,7 @@ func onAHiddenDesktop(t *testing.T, prove func(*testing.T)) {
 	if err := proc.SetJobInformation(held, windows.JobObjectExtendedLimitInformation, unsafe.Pointer(&limits), unsafe.Sizeof(limits)); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CEO_HIDDEN_DESKTOP_PROOF", t.Name())
+	t.Setenv("GOBLINS_HIDDEN_DESKTOP_PROOF", t.Name())
 	command, err := windows.UTF16PtrFromString(syscall.EscapeArg(os.Args[0]) + " -test.run=^" + t.Name() + "$ -test.v")
 	if err != nil {
 		t.Fatal(err)

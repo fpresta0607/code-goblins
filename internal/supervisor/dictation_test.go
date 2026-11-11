@@ -334,7 +334,7 @@ func TestDictationSaysSoWhenTheMachineHasNoRoom(t *testing.T) {
 func TestASupervisorWithoutAnEngineSaysDictationIsNotSetUp(t *testing.T) {
 	handler := dictationBoard(t, nil)
 	response := dictate(handler, []byte("RIFF-sound"), nil)
-	if _, _, problem := answer(t, response); response.Code != http.StatusServiceUnavailable || !strings.Contains(problem, "ceo doctor") {
+	if _, _, problem := answer(t, response); response.Code != http.StatusServiceUnavailable || !strings.Contains(problem, "goblins doctor") {
 		t.Fatalf("without an engine it answered %d %s", response.Code, response.Body)
 	}
 	if _, state, _ := dictationStatus(t, handler); state != "none" {

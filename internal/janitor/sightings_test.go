@@ -51,7 +51,7 @@ func TestTheOrphanSweepAndTheProcessSweepGiveAProcessTheSameOwner(t *testing.T) 
 	}
 	processes := []Process{
 		// Terminal g1, its goblin and a shell of the goblin's.
-		process(20, 1, "ceo.exe", at(0), lifecycle.Process{Arguments: []string{"ceo.exe", "host", "--id", "g1"}}),
+		process(20, 1, "goblins.exe", at(0), lifecycle.Process{Arguments: []string{"goblins.exe", "host", "--id", "g1"}}),
 		process(21, 20, "claude.exe", at(1), lifecycle.Process{Directory: worktree, Arguments: []string{"claude", "--dangerously-skip-permissions"}, Mark: mark("g1")}),
 		process(22, 21, "bash.exe", at(2), lifecycle.Process{Directory: worktree, Mark: mark("g1")}),
 		// The goblin's go test, started by a Git Bash process that has exited.
@@ -68,7 +68,7 @@ func TestTheOrphanSweepAndTheProcessSweepGiveAProcessTheSameOwner(t *testing.T) 
 		// A harness nothing ties to any terminal.
 		process(50, 902, "claude.exe", at(9), lifecycle.Process{Directory: elsewhere, Arguments: []string{"claude", "--dangerously-skip-permissions"}}),
 		// The CEO's terminal and its harness.
-		process(60, 1, "ceo.exe", at(0), lifecycle.Process{Arguments: []string{"ceo.exe", "host", "--id", "ceo"}}),
+		process(60, 1, "goblins.exe", at(0), lifecycle.Process{Arguments: []string{"goblins.exe", "host", "--id", "ceo"}}),
 		process(61, 60, "claude.exe", at(1), lifecycle.Process{Directory: root, Arguments: []string{"claude"}, Mark: mark("ceo")}),
 	}
 	owners := []Owner{

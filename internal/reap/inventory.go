@@ -479,7 +479,7 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 			}
 			if strings.EqualFold(filepath.Base(filepath.Dir(entry.Path)), home.LegacyWorktreesDir) {
 				// A goblin worktree where an older build put them, placed above
-				// or left to ceo cleanup and ceo reap when it is another home's.
+				// or left to goblins cleanup and goblins reap when it is another home's.
 				// The check is by folder name because git spells a junctioned
 				// checkout's paths as its target while the scan holds the
 				// junction's own name.

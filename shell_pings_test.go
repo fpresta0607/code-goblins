@@ -189,8 +189,8 @@ func TestShellPingsReportsEachPingStartedThroughCmd(t *testing.T) {
 
 // A test that needs a live process to stand in for another starts ping
 // itself, never through cmd. A test ends the process it started, and ending
-// a cmd leaves the ping it started running for as long as its count. A ceo
-// verify or ceo gate turn run lets what a command leaves running linger ten
+// a cmd leaves the ping it started running for as long as its count. A goblins
+// verify or goblins gate turn run lets what a command leaves running linger ten
 // seconds and then names it as the run's leftover and ends it, so each ping
 // -n 30 or -n 60 that tests left this way was named by a run that ended
 // soon after (#1117, #1207). A start handed straight to StartTree is ended

@@ -13,36 +13,36 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// boardCommands are the ceo commands that only put an item in front of the
+// boardCommands are the goblins commands that only put an item in front of the
 // Overlord in the Command Center and run no command of the caller's: a
 // question, a run item, whose command runs only when Run is pressed on the
 // card that shows it, a review item or Scrawl page, a live presentation, a
 // document and a credential request, each with the withdrawal or clear of
-// such an item. The only programs they start are fixed ones: ceo review
-// starts lavish-axi to serve a page, and ceo auth request asks git whether
+// such an item. The only programs they start are fixed ones: goblins review
+// starts lavish-axi to serve a page, and goblins auth request asks git whether
 // an env file is ignored. Each refuses a caller that is neither the
 // registered CEO nor a goblin naming its own task. Filing one is what auto
 // mode's classifier refused as a public surface, leaving him nothing to see.
 //
-// ceo answer is left out: it types the CEO's decision, with free text, into
+// goblins answer is left out: it types the CEO's decision, with free text, into
 // a goblin's terminal, and that goblin acts on it under permissions of its
-// own, so the classifier keeps judging it as it judges ceo send.
+// own, so the classifier keeps judging it as it judges goblins send.
 var boardCommands = []string{"question", "run-request", "review", "present", "deliver", "auth request"}
 
-// shellTools are the Claude Code tools a CEO runs ceo through.
+// shellTools are the Claude Code tools a CEO runs goblins through.
 var shellTools = []string{"Bash", "PowerShell"}
 
 // rulesRecordSuffix names the file beside a settings file that lists the
-// allow rules ceo install added to it, so an uninstall removes exactly those
+// allow rules goblins install added to it, so an uninstall removes exactly those
 // and never a rule the adopter wrote, even the same one.
 const rulesRecordSuffix = ".ceo-install.rules"
 
-// PermissionRules are the allow rules ceo install adds to the user's Claude
+// PermissionRules are the allow rules goblins install adds to the user's Claude
 // Code settings, one per board command and shell tool, in the space-star
 // form Claude Code's own permission dialog writes. Auto mode resolves a
 // narrow allow rule before its classifier runs, unless
 // autoMode.classifyAllShell is on, and Claude Code matches each command of a
-// compound command on its own, so a rule approves `ceo question ...` and
+// compound command on its own, so a rule approves `goblins question ...` and
 // never anything chained to it.
 func PermissionRules() []string {
 	rules := make([]string, 0, len(shellTools)*len(boardCommands))
@@ -54,7 +54,7 @@ func PermissionRules() []string {
 	return rules
 }
 
-// Permissions is how a Claude Code settings file stands on the rules ceo
+// Permissions is how a Claude Code settings file stands on the rules goblins
 // install adds.
 type Permissions struct {
 	// Missing are the rules it lacks, in PermissionRules' order.
@@ -165,7 +165,7 @@ func (f *settingsFile) permissions() (map[string]any, error) {
 	return permissions, nil
 }
 
-// readRulesRecord reads the rules ceo install recorded adding to the
+// readRulesRecord reads the rules goblins install recorded adding to the
 // settings file at settingsPath; a missing record is none.
 func readRulesRecord(settingsPath string) ([]string, error) {
 	data, err := fsx.ReadFile(settingsPath + rulesRecordSuffix)
@@ -182,7 +182,7 @@ func readRulesRecord(settingsPath string) ([]string, error) {
 	return rules, nil
 }
 
-// writeRulesRecord records rules as the ones ceo install added to the
+// writeRulesRecord records rules as the ones goblins install added to the
 // settings file at settingsPath.
 func writeRulesRecord(settingsPath string, rules []string) error {
 	data, err := json.MarshalIndent(rules, "", "  ")

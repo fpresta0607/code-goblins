@@ -162,8 +162,8 @@ func TestAReviewOfAPageAnotherReporterHoldsIsRefused(t *testing.T) {
 			store, h := testStore(t)
 			_, _, _, ceo := primaryFixture(t, store)
 			servePipe(t, store, ceo)
-			t.Setenv("CEO_SESSION_ID", "actual-primary")
-			t.Setenv("CEO_SESSION_HARNESS", "codex")
+			t.Setenv("GOBLINS_SESSION_ID", "actual-primary")
+			t.Setenv("GOBLINS_SESSION_HARNESS", "codex")
 			goblinFixture(t, store)
 			lavish := t.TempDir()
 			t.Setenv("LAVISH_AXI_STATE_DIR", lavish)
@@ -268,7 +268,7 @@ func TestReviewWithdrawnOnlyByItsReporter(t *testing.T) {
 	}
 }
 
-// ceo review withdraw refuses, recording nothing, an ID it does not know, an
+// goblins review withdraw refuses, recording nothing, an ID it does not know, an
 // item already closed and an item another reporter published.
 func TestReviewWithdrawalRefusedBeforeRecordingAnything(t *testing.T) {
 	store, h := testStore(t)
@@ -349,7 +349,7 @@ func TestReviewRepublishNeverTouchesTheRecordedImages(t *testing.T) {
 }
 
 // His Send and End closes an item, and a reporter that published it again
-// under its ID, as a goblin rerunning ceo review --reopen did, was told it was
+// under its ID, as a goblin rerunning goblins review --reopen did, was told it was
 // published while no card appeared. A republish of an item that is no longer
 // open is refused, naming a new --id, and recording nothing; a republish of
 // an open item is still that same item.
@@ -437,8 +437,8 @@ func TestReviewAnswerReachesItsReporterOnceOrElseTheCEO(t *testing.T) {
 			_, _, terminal, ceo := primaryFixture(t, store)
 			servePipe(t, store, ceo)
 			meta, _, goblin, _ := goblinFixture(t, store)
-			t.Setenv("CEO_SESSION_ID", "actual-primary")
-			t.Setenv("CEO_SESSION_HARNESS", "codex")
+			t.Setenv("GOBLINS_SESSION_ID", "actual-primary")
+			t.Setenv("GOBLINS_SESSION_HARNESS", "codex")
 			task := ""
 			if c.goblin {
 				task = meta.ID
@@ -502,8 +502,8 @@ func TestABoardAnswerOnAGoblinsItemAlsoReachesTheCEO(t *testing.T) {
 			_, _, _, ceo := primaryFixture(t, store)
 			servePipe(t, store, ceo)
 			meta, _, _, _ := goblinFixture(t, store)
-			t.Setenv("CEO_SESSION_ID", "actual-primary")
-			t.Setenv("CEO_SESSION_HARNESS", "codex")
+			t.Setenv("GOBLINS_SESSION_ID", "actual-primary")
+			t.Setenv("GOBLINS_SESSION_HARNESS", "codex")
 			task := ""
 			if goblin {
 				task = meta.ID
@@ -554,8 +554,8 @@ func TestAnsweredReviewSurvivesAFullListUntilDelivered(t *testing.T) {
 	store, h := testStore(t)
 	_, _, terminal, ceo := primaryFixture(t, store)
 	servePipe(t, store, ceo)
-	t.Setenv("CEO_SESSION_ID", "actual-primary")
-	t.Setenv("CEO_SESSION_HARNESS", "codex")
+	t.Setenv("GOBLINS_SESSION_ID", "actual-primary")
+	t.Setenv("GOBLINS_SESSION_HARNESS", "codex")
 	ctx := context.Background()
 	if err := PublishReview(h, "", "plan-review-1", "Read the plan", "", "", nil); err != nil {
 		t.Fatal(err)

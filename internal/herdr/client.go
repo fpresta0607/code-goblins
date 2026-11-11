@@ -1035,7 +1035,7 @@ func decodeArray(raw json.RawMessage, destination any, field string) error {
 // normalizeKey folds the modifier spellings the fleet actually types into the
 // names Herdr accepts. It canonicalises separator and case rather than listing
 // variants, because the hand-maintained list silently missed `Ctrl-C` - the one
-// spelling `ceo switch` sends to interrupt a harness that ignores its stop
+// spelling `goblins switch` sends to interrupt a harness that ignores its stop
 // command, so Herdr rejected it as an unsupported key and the switch aborted.
 // An unrecognised key is still passed through untouched for Herdr to judge.
 func normalizeKey(key string) string {

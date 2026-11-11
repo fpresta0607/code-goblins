@@ -149,7 +149,7 @@ func PlanMove(from, to string, tracked map[string]bool, now time.Time) (Plan, er
 
 // oldPrograms are the binaries an older build kept at the home's root, which
 // the move removes once the new home's bin holds this build.
-var oldPrograms = []string{"ceo.exe", "goblins.exe", "goblins-window.exe", "goblins-window.png"}
+var oldPrograms = []string{"goblins.exe", "goblins-window.exe", "goblins-window.png"}
 
 // leftBehind names every top-level entry of the old home the move neither
 // carries nor removes, and that its git does not track: what the Overlord

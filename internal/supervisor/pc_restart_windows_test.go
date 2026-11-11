@@ -45,7 +45,7 @@ func (l *restartLog) recorded() []string {
 }
 
 // restartBoard is a board on the Overlord's own PC whose kernel pools hold
-// pools bytes together. Its ceo pause writes a goblin's handoff, then its
+// pools bytes together. Its goblins pause writes a goblin's handoff, then its
 // pause, and pauses its helpers with it, as the real one does, and a goblin
 // named in failing fails to pause. Windows' restart is a fake that records
 // each goblin's pause and handoff as it finds them on disk.
@@ -100,7 +100,7 @@ func restartBoard(t *testing.T, pools uint64, failing ...string) (*Service, home
 	return s, h, log, spawner
 }
 
-// writeRestartPause writes what ceo pause leaves of id's pause until the PC
+// writeRestartPause writes what goblins pause leaves of id's pause until the PC
 // restarts: the handoff its goblin wrote first, then its lifecycle record,
 // in phase.
 func writeRestartPause(t *testing.T, h home.Home, id, phase, until string) {
@@ -183,12 +183,12 @@ func TestRestartPCWritesEveryHandoffAndPauseBeforeWindowsRestarts(t *testing.T) 
 	until := signedInAt.Format(time.RFC3339Nano)
 	calls := spawner.recorded()
 	if len(calls) != 2 {
-		t.Fatalf("ceo ran %v, want a pause of each working goblin and nothing else", calls)
+		t.Fatalf("goblins ran %v, want a pause of each working goblin and nothing else", calls)
 	}
 	for _, meta := range []state.TaskMeta{first, second} {
 		want := []string{"pause", meta.ID, "--generation", meta.SpawnGen, "--operation", calls[0][5], "--reason", "restart", "--until", until}
 		if !slices.ContainsFunc(calls, func(call []string) bool { return slices.Equal(call, want) }) {
-			t.Errorf("ceo ran %v, want %v", calls, want)
+			t.Errorf("goblins ran %v, want %v", calls, want)
 		}
 	}
 	events := log.recorded()
@@ -246,7 +246,7 @@ func TestRestartPCLeavesAGoblinThatDeliveredItsPullRequestUnpaused(t *testing.T)
 		t.Fatalf("POST /api/pc/restart = %d, want it accepted", code)
 	}
 	if calls := spawner.recorded(); len(calls) != 1 || calls[0][0] != "pause" || calls[0][1] != working.ID {
-		t.Errorf("ceo ran %v, want a pause of %s alone", calls, working.ID)
+		t.Errorf("goblins ran %v, want a pause of %s alone", calls, working.ID)
 	}
 	if got, isPaused := log.atRestart[delivered.ID]; isPaused {
 		t.Errorf("as Windows restarted %s was %q, want it left unpaused", delivered.ID, got)
@@ -392,7 +392,7 @@ func TestARestartPauseClearsOnlyInALaterSignIn(t *testing.T) {
 			}
 			isResumed := slices.ContainsFunc(calls, func(call []string) bool { return call[0] == "resume" && call[1] == meta.ID })
 			if isResumed != test.wantResumed {
-				t.Errorf("ceo ran %v in %s, want a resume %v", calls, name, test.wantResumed)
+				t.Errorf("goblins ran %v in %s, want a resume %v", calls, name, test.wantResumed)
 			}
 		})
 	}

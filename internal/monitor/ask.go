@@ -107,6 +107,6 @@ const askQuoteLimit = 600
 // question in its own words, which ends the wake so the board can read it
 // back whole.
 func askDetail(id string, asked []string) string {
-	return fmt.Sprintf("%s ended its turn asking in prose instead of with ceo notify --blocked and waits at its prompt for the answer; next: answer it with ceo send %s \"<your answer>\" (ceo answer takes only a notify's question). It asked: \"%s\"",
+	return fmt.Sprintf("%s ended its turn asking in prose instead of with goblins notify --blocked and waits at its prompt for the answer; next: answer it with goblins send %s \"<your answer>\" (goblins answer takes only a notify's question). It asked: \"%s\"",
 		id, id, bounded(strings.Join(asked, " "), askQuoteLimit))
 }

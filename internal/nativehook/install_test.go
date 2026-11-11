@@ -20,7 +20,7 @@ func TestInstallPreservesOtherHooksAndIsIdempotent(t *testing.T) {
 			if err := os.WriteFile(path, original, 0600); err != nil {
 				t.Fatal(err)
 			}
-			cfg := InstallConfig{Harness: name, ConfigDir: dir, Executable: filepath.Join(dir, "ceo.exe"), Home: dir, State: filepath.Join(dir, "state")}
+			cfg := InstallConfig{Harness: name, ConfigDir: dir, Executable: filepath.Join(dir, "goblins.exe"), Home: dir, State: filepath.Join(dir, "state")}
 			if _, err := Install(cfg); err != nil {
 				t.Fatal(err)
 			}
@@ -74,7 +74,7 @@ func TestUnsupportedCapabilitiesAndBrokenSettingsAreRefused(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"hooks":42}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Install(InstallConfig{Harness: "codex", ConfigDir: dir, Executable: filepath.Join(dir, "ceo.exe"), Home: dir, State: filepath.Join(dir, "state")})
+	_, err := Install(InstallConfig{Harness: "codex", ConfigDir: dir, Executable: filepath.Join(dir, "goblins.exe"), Home: dir, State: filepath.Join(dir, "state")})
 	if err == nil {
 		t.Fatal("accepted malformed hooks")
 	}

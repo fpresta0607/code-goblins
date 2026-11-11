@@ -16,7 +16,7 @@ import (
 
 // The CEO's own question is the Overlord's alone to answer, and the one way
 // the CEO can close it is by recording an answer he gave somewhere else. While
-// AFK mode is on he is away, so nothing is recorded as his, through ceo answer
+// AFK mode is on he is away, so nothing is recorded as his, through goblins answer
 // or straight over the pipe, and the question stays held for him.
 func TestWhileAFKModeIsOnNoAnswerIsRecordedAsTheOverlords(t *testing.T) {
 	// Arrange
@@ -35,7 +35,7 @@ func TestWhileAFKModeIsOnNoAnswerIsRecordedAsTheOverlords(t *testing.T) {
 	pipeErr := sendPipeRequest(h.State, runPipeRequest{Kind: "answer", Answer: &ceoAnswer{QuestionID: "drop-legacy-invoices", Option: "Apply it", Answer: "Apply it", In: "chat", At: time.Now().UTC()}})
 
 	// Assert
-	for name, err := range map[string]error{"ceo answer --record-only --in chat": recordErr, "an answer sent straight to the pipe": pipeErr} {
+	for name, err := range map[string]error{"goblins answer --record-only --in chat": recordErr, "an answer sent straight to the pipe": pipeErr} {
 		if err == nil || !strings.Contains(err.Error(), "AFK mode is on") || !strings.Contains(err.Error(), "held for him") {
 			t.Errorf("%s = %v, want it refused because he is away", name, err)
 		}
@@ -175,7 +175,7 @@ func TestTheCEOsAnswerIsMarkedAsGivenWhileHeWasAwayOnlyWhileAFKModeIsOn(t *testi
 	}
 }
 
-// A goblin question the CEO answered another way, such as with ceo send, and
+// A goblin question the CEO answered another way, such as with goblins send, and
 // then acked closes as the CEO's answer, marked the same way.
 func TestAQuestionTheCEOAckedIsMarkedAsAnsweredWhileHeWasAwayOnlyWhileAFKModeIsOn(t *testing.T) {
 	for name, isAFKOn := range map[string]bool{"AFK mode on": true, "AFK mode off": false} {

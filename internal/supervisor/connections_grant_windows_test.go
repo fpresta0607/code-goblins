@@ -57,7 +57,7 @@ func grantBoard(t *testing.T) (*Service, string) {
 }
 
 // A connector's Connect gives the task the service or MCP server, and its
-// Disconnect takes it back, as ceo auth grant and ceo auth revoke do: the task's
+// Disconnect takes it back, as goblins auth grant and goblins auth revoke do: the task's
 // record changes, its status names the Overlord's board, and the CEO is told.
 func TestAConnectorPressGivesAndTakesBackAServiceOrAnMCPServer(t *testing.T) {
 	cases := []struct {

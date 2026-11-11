@@ -207,7 +207,7 @@ func TestANotMergedRowSaysWhatTheCEODidAndWhatHappened(t *testing.T) {
 	}
 	failed := ended("not merged: gh exited 1: Pull request is not mergeable")
 	sentBack := Entry{At: night.Add(2 * time.Minute), Kind: KindMerge, What: "Sent it back to nw-export to merge main in", Link: pr, Evidence: "Its head was behind main."}
-	his := Entry{At: night.Add(3 * time.Minute), Kind: KindHis, What: "Merge #13, a teammate's pull request", Link: pr, Evidence: "ceo pr merge refused it"}
+	his := Entry{At: night.Add(3 * time.Minute), Kind: KindHis, What: "Merge #13, a teammate's pull request", Link: pr, Evidence: "goblins pr merge refused it"}
 	for name, tc := range map[string]struct {
 		lines []Entry
 		says  []string

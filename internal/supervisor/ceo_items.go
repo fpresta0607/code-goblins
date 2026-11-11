@@ -7,7 +7,7 @@ import (
 )
 
 // errFromInbox refuses an item that speaks for the CEO but came through a
-// file inbox. Every goblin runs as the same Windows user with ceo.exe at hand,
+// file inbox. Every goblin runs as the same Windows user with goblins.exe at hand,
 // so any of them can read primary.json, compute the identity an item carries,
 // and write a file here; a file proves nothing about who wrote it.
 var errFromInbox = errors.New("an item that speaks for the CEO reaches the board only over the supervisor's pipe, where the supervisor proves who sent it; this one was written into an inbox by some other process")

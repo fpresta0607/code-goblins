@@ -85,7 +85,7 @@ var (
 	pathSegment = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 	driveLetter = regexp.MustCompile(`^[A-Za-z]:`)
 	// fileNameExtensions are the extensions that make a bare word with a dot
-	// a file name: "store.go" is a file, "e.g." and "ceo.exe" are not ones a
+	// a file name: "store.go" is a file, "e.g." and "goblins.exe" are not ones a
 	// pull request changes.
 	fileNameExtensions = []string{"c", "cfg", "cjs", "cs", "css", "go", "graphql", "h", "html", "ini", "java", "js", "json", "jsx", "kt", "md", "mdx", "mjs", "php", "proto", "ps1", "py", "rb", "rs", "scss", "sh", "sql", "svelte", "swift", "tf", "toml", "ts", "tsx", "vue", "yaml", "yml"}
 )

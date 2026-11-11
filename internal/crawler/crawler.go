@@ -28,7 +28,7 @@ const (
 	Command = "goblin-crawl"
 	// PathVariable names, in a goblin's launch, the folder of Command, which
 	// its terminal puts on PATH. A launch without it carries no crawler.
-	PathVariable = "CEO_CRAWLER_BIN"
+	PathVariable = "GOBLINS_CRAWLER_BIN"
 	// SourceDir is where the build carries the connector's files.
 	SourceDir = "connectors/crawler"
 )

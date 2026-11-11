@@ -76,7 +76,7 @@ func TestWorkspaceNamesTheLocalServicesHeldAndTheirMemory(t *testing.T) {
 	want = []string{
 		"PrecisionDocs-AI's local services are up for task-1 and task-2, which take 2.5 GB of memory.",
 		"siqsermon's local services are up for task-2, whose memory is not measured yet.",
-		"ceo started the Docker engine for them and stops it once none of them runs.",
+		"goblins started the Docker engine for them and stops it once none of them runs.",
 	}
 	if !slices.Equal(details.Notes, want) {
 		t.Errorf("CEO notes = %q, want %q", details.Notes, want)
@@ -94,7 +94,7 @@ func TestWorkspaceSaysWhenTheLocalServicesCannotBeRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(details.Notes, []string{"The local services ceo holds could not be read."}) {
+	if !slices.Equal(details.Notes, []string{"The local services goblins holds could not be read."}) {
 		t.Errorf("notes = %q, want the unreadable record named", details.Notes)
 	}
 }

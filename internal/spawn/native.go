@@ -70,7 +70,7 @@ func (s *Service) codexHooks(kind harness.Kind) (hooks []string, notice string) 
 	if kind != harness.Codex {
 		return nil, ""
 	}
-	hooks, err := nativehook.CodexGoblinArguments(filepath.Join(s.HomeRoot, home.BinDir, "ceo.exe"), s.HomeRoot, s.StateDir)
+	hooks, err := nativehook.CodexGoblinArguments(filepath.Join(s.HomeRoot, home.BinDir, "goblins.exe"), s.HomeRoot, s.StateDir)
 	if err != nil {
 		return nil, "hooks: Codex starts without its native session hooks or its goblin seal, so the board reads it from its terminal and nothing checks its worktree's Python environments before its commands: " + err.Error()
 	}
@@ -84,11 +84,11 @@ func (s *Service) codexHooks(kind harness.Kind) (hooks []string, notice string) 
 const BrowserSessionVariable = "CHROME_DEVTOOLS_AXI_SESSION"
 
 // callerSessionVariables name the session a process runs in, in the order
-// they are read: the explicit CEO_SESSION_ID and CEO_SESSION_HARNESS pair,
+// they are read: the explicit GOBLINS_SESSION_ID and GOBLINS_SESSION_HARNESS pair,
 // then the variable each harness sets for the commands its agent runs, since
 // a CEO in Claude Code, Codex or pi names only its own.
 var callerSessionVariables = []struct{ session, harness string }{
-	{"CEO_SESSION_ID", ""},
+	{"GOBLINS_SESSION_ID", ""},
 	{"CODEX_THREAD_ID", "codex"},
 	{"CLAUDE_CODE_SESSION_ID", "claude"},
 	{"PI_SESSION_ID", "pi"},
@@ -103,7 +103,7 @@ func CallerSession() (session, harness string) {
 	for _, variable := range callerSessionVariables {
 		session, harness = os.Getenv(variable.session), variable.harness
 		if harness == "" {
-			harness = os.Getenv("CEO_SESSION_HARNESS")
+			harness = os.Getenv("GOBLINS_SESSION_HARNESS")
 		}
 		if session != "" {
 			break
@@ -123,10 +123,10 @@ func boardSession(session, harness string) (string, string) {
 }
 
 // IsCallerSessionVariable says name is one CallerSession reads, which a
-// process that runs in no session, such as ceo serve, forgets from whoever
+// process that runs in no session, such as goblins serve, forgets from whoever
 // started it.
 func IsCallerSessionVariable(name string) bool {
-	return strings.EqualFold(name, "CEO_SESSION_HARNESS") || slices.ContainsFunc(callerSessionVariables, func(variable struct{ session, harness string }) bool {
+	return strings.EqualFold(name, "GOBLINS_SESSION_HARNESS") || slices.ContainsFunc(callerSessionVariables, func(variable struct{ session, harness string }) bool {
 		return strings.EqualFold(name, variable.session)
 	})
 }
@@ -137,10 +137,10 @@ func IsCallerSessionVariable(name string) bool {
 // dots, dashes and underscores. A task its brief did not leave the crawler
 // out of is given the home's crawler folder, which its terminal puts on PATH.
 func (s Service) nativeEnvironment(env map[string]string, meta state.TaskMeta) {
-	env["CEO_TASK_ID"], env["CEO_SPAWN_GEN"] = meta.ID, meta.SpawnGen
+	env["GOBLINS_TASK_ID"], env["GOBLINS_SPAWN_GEN"] = meta.ID, meta.SpawnGen
 	env[BrowserSessionVariable] = meta.ID
-	env["CEO_PARENT_SESSION_ID"], env["CEO_PARENT_HARNESS"] = s.parentSession(meta)
-	env["CEO_ROOT_SESSION_ID"] = os.Getenv("CEO_ROOT_SESSION_ID")
+	env["GOBLINS_PARENT_SESSION_ID"], env["GOBLINS_PARENT_HARNESS"] = s.parentSession(meta)
+	env["GOBLINS_ROOT_SESSION_ID"] = os.Getenv("GOBLINS_ROOT_SESSION_ID")
 	if !meta.IsCrawlerLeftOut {
 		env[crawler.PathVariable] = crawler.BinDir(s.HomeRoot)
 	}
@@ -154,7 +154,7 @@ func (s Service) nativeEnvironment(env map[string]string, meta state.TaskMeta) {
 // such as a resume after a memory pause, knows. A helper's parent is its
 // goblin, which its task record names, so a helper never takes the CEO.
 func (s Service) parentSession(meta state.TaskMeta) (string, string) {
-	if os.Getenv("CEO_SESSION_ID") == "" && meta.Parent == "" && s.CEOSession != nil {
+	if os.Getenv("GOBLINS_SESSION_ID") == "" && meta.Parent == "" && s.CEOSession != nil {
 		if session, harness := boardSession(s.CEOSession()); session != "" {
 			return session, harness
 		}

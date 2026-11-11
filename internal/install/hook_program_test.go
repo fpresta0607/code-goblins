@@ -41,8 +41,8 @@ func hookPrograms(t *testing.T, settings []byte) map[string]bool {
 }
 
 // A goblin's hooks run the home's hook program, which Windows starts with no
-// console host, only while it is the same build as the home's ceo.exe: with
-// none, or one another build left, they run ceo.exe, so no hook ever runs
+// console host, only while it is the same build as the home's goblins.exe: with
+// none, or one another build left, they run goblins.exe, so no hook ever runs
 // another build's code.
 func TestAGoblinsHooksRunTheHookProgramOnlyWhileItIsCeosBuild(t *testing.T) {
 	tests := []struct {
@@ -63,7 +63,7 @@ func TestAGoblinsHooksRunTheHookProgramOnlyWhileItIsCeosBuild(t *testing.T) {
 				t.Fatal(err)
 			}
 			// The stand-in program is a Go program with its build information.
-			standin.Put(t, filepath.Join(bin, "ceo.exe"))
+			standin.Put(t, filepath.Join(bin, "goblins.exe"))
 			test.hook(t, filepath.Join(bin, HookProgram))
 
 			// Act
@@ -73,7 +73,7 @@ func TestAGoblinsHooksRunTheHookProgramOnlyWhileItIsCeosBuild(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := filepath.Join(bin, "ceo.exe")
+			want := filepath.Join(bin, "goblins.exe")
 			if test.wantHook {
 				want = filepath.Join(bin, HookProgram)
 			}
@@ -84,7 +84,7 @@ func TestAGoblinsHooksRunTheHookProgramOnlyWhileItIsCeosBuild(t *testing.T) {
 	}
 }
 
-// The hook program is ceo built with -H windowsgui, which its build settings
+// The hook program is goblins built with -H windowsgui, which its build settings
 // record: that is the one difference two builds may have and still be the
 // same build.
 func TestTheSameBuildDiffersOnlyByTheWindowedFlag(t *testing.T) {
@@ -147,11 +147,11 @@ func TestInstallPutsTheHookProgramBesideCeo(t *testing.T) {
 	}
 }
 
-// ceo update carries the hook program beside the candidate into the home,
+// goblins update carries the hook program beside the candidate into the home,
 // as it carries the window.
 func TestCarryHookProgramBringsTheHookProgramIntoTheHome(t *testing.T) {
 	// Arrange
-	candidate := filepath.Join(t.TempDir(), "ceo.exe")
+	candidate := filepath.Join(t.TempDir(), "goblins.exe")
 	writeFile(t, candidate, "candidate")
 	writeFile(t, filepath.Join(filepath.Dir(candidate), HookProgram), "hook program 2")
 	programs := t.TempDir()

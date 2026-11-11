@@ -40,7 +40,7 @@ test("a new release is its own item: the versions, what is new, what the update 
   await expect(card.locator(".update-versions")).toHaveAccessibleName("From v0.4.2 to v0.5.0");
   await expect(card.locator(".update-notes li")).toHaveText(["The installer sorts out every machine by itself", "AFK mode holds questions for you", "Goblins that stall wake the CEO"]);
   await expect(card.getByRole("link", { name: "What's new" })).toHaveAttribute("href", "https://github.com/fpresta0607/code-goblins/releases/tag/v0.5.0");
-  await expect(card.locator(".update-trust")).toContainText("Unsigned release. Update installs it only when each file matches the release's SHA-256, such as ceo.exe 3f9a6c0e…5bc21e.");
+  await expect(card.locator(".update-trust")).toContainText("Unsigned release. Update installs it only when each file matches the release's SHA-256, such as goblins.exe 3f9a6c0e…5bc21e.");
   await expect(card.locator(".run-command")).toHaveCount(0);
   await expect(card.locator(".goblin-avatar.persona-releases")).toBeVisible();
 
@@ -61,7 +61,7 @@ test("Update follows the run step by step, and a rollback ends on one sentence a
     await route.fulfill({ json: { id: String(sent?.id), kind: "run", run_id: "update-v0.5.0-2", status: "queued" } });
   });
   await page.route("**/api/runs/update-v0.5.0-1/output", (route) => route.fulfill({ json: { state: "running",
-    output: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n      ceo.exe matches the release's SHA256SUMS: 3f9a\n[3/4] Install Code Goblins v0.5.0\nStopping the supervisor (pid 21116).\n" } }));
+    output: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n      goblins.exe matches the release's SHA256SUMS: 3f9a\n[3/4] Install Code Goblins v0.5.0\nStopping the supervisor (pid 21116).\n" } }));
   const dialog = await openTheItem(page);
   const card = dialog.locator(".update-card");
 

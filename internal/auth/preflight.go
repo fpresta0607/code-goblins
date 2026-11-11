@@ -16,7 +16,7 @@ import (
 // and returns the environment that task's terminal should inherit.
 //
 // It deliberately does not run login commands or drive a browser. Those are
-// what `ceo auth <project> --fix` is for: a dispatch should not silently open
+// what `goblins auth <project> --fix` is for: a dispatch should not silently open
 // an OAuth window or re-authenticate a CLI as a side effect.
 type SpawnPreflight struct {
 	DataDir string
@@ -171,7 +171,7 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string, need Need
 // that did.
 //
 // Origins are file paths and tool names. No value appears here, and none ever
-// may: this line goes to the spawn output, which `ceo peek` reads back and
+// may: this line goes to the spawn output, which `goblins peek` reads back and
 // which lives in a pane's scrollback.
 func AdoptionLine(adopted []Adopted) string {
 	var refreshed, added, kept []string

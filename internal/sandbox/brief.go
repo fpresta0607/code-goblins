@@ -1,7 +1,7 @@
 // Package sandbox is the containment mode a task whose code is the adversary
 // runs in: a brief that carries `sandbox: needed` keeps its goblin's harness
 // on the host, in its worktree, and runs every command that executes the
-// project's code inside one container, through ceo sandbox run, in the
+// project's code inside one container, through goblins sandbox run, in the
 // machine's heavy line. The host runs only ceo, git and gh for it, with the
 // worktree's .git link checked and git's hooks, fsmonitor and in-tree
 // attributes off, so nothing the container writes runs on the host.

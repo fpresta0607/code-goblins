@@ -11,7 +11,7 @@ import (
 
 // ceoQuietAfter is how long the CEO has a goblin's question to itself; past
 // it the question waits on the Overlord too, as the board's page counts it
-// (CEO_QUIET_AFTER_MS).
+// (GOBLINS_QUIET_AFTER_MS).
 const ceoQuietAfter = 10 * time.Minute
 
 // Item is one thing on the board that asks the Overlord something: its

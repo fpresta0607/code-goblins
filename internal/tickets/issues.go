@@ -23,7 +23,7 @@ import (
 // request the record does not hold yet is a change too, so the record keeps
 // every pull request of the task. A claimed issue belongs to whoever filed it, so a
 // task that stops without a merge releases it open rather than closing it.
-// A done issue is never written again but for a new title, the one ceo title
+// A done issue is never written again but for a new title, the one goblins title
 // can still give it. A status comment someone deleted is
 // posted again, and an issue that is deleted (410, or 404 while the
 // repository still answers) ends the ticket, or that one of the issues it

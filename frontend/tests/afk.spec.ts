@@ -31,7 +31,7 @@ const PAGE = "/api/afk/report/afk-fixture/index.html";
 const KEPT = { state: "off", page: PAGE };
 // What the supervisor tells him on a board it refuses: one short sentence that
 // says what to do. What it found goes to the CEO, never to the board.
-const REFUSAL = "Switch AFK in the Code Goblins window, or run ceo afk on in PowerShell.";
+const REFUSAL = "Switch AFK in the Code Goblins window, or run goblins afk on in PowerShell.";
 
 interface Asked { on: unknown; token: string }
 interface Supervisor { asked: Asked[]; refuses: boolean; announces: boolean }

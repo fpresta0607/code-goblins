@@ -109,10 +109,10 @@ func selects(t *testing.T, matcher, tool string) bool {
 }
 
 // Every pre-tool hook starts a process before its tool runs, and a shell
-// command starts two more (Git Bash's launcher and bash) before ceo.exe does.
+// command starts two more (Git Bash's launcher and bash) before goblins.exe does.
 // What a tool call costs is the processes its matching hooks start: the
 // reading and editing tools a session lives in start none, a call of either
-// shell tool one ceo.exe, and the delegation tools the guard can refuse one
+// shell tool one goblins.exe, and the delegation tools the guard can refuse one
 // each. Claude Code on Windows has a PowerShell tool beside its Bash tool,
 // and a shell tool no hook selects is a shell no guard reads.
 func TestTheCEOsPreToolHooksStartOneProcessPerShellCallAndNoneForSessionTools(t *testing.T) {
@@ -159,7 +159,7 @@ func TestTheCEOsHooksRunTheHomesBinaryWithoutAShell(t *testing.T) {
 	hooks := terminalHooks(t, f.root)
 
 	// Assert
-	binary := filepath.Join(f.bin, "ceo.exe")
+	binary := filepath.Join(f.bin, "goblins.exe")
 	names := map[string]bool{}
 	for _, hook := range hooks {
 		if hook.Command != binary {
@@ -188,7 +188,7 @@ func TestTheCEOsTerminalHoldsPreCompactForManualAndAutomaticCompactionOnce(t *te
 	count := 0
 	for _, hook := range terminalHooks(t, f.root) {
 		// The native hook beside it only reports the compaction to the board.
-		if hook.Event != "PreCompact" || hook.Command != filepath.Join(f.bin, "ceo.exe") || hook.Args[0] == "native-hook" {
+		if hook.Event != "PreCompact" || hook.Command != filepath.Join(f.bin, "goblins.exe") || hook.Args[0] == "native-hook" {
 			continue
 		}
 		count++
@@ -210,7 +210,7 @@ func TestTheCEOsTerminalHoldsPreCompactForManualAndAutomaticCompactionOnce(t *te
 // entries; installing again replaces them rather than running both.
 func TestInstallReplacesShellFormHooks(t *testing.T) {
 	// Arrange
-	shellForm := `CEO_ROOT="${CEO_HOME:-$CLAUDE_PROJECT_DIR}"; [ -x "$CEO_ROOT"/ceo.exe ] || exit 0; "$CEO_ROOT"/ceo.exe hook `
+	shellForm := `GOBLINS_ROOT="${GOBLINS_HOME:-$CLAUDE_PROJECT_DIR}"; [ -x "$GOBLINS_ROOT"/goblins.exe ] || exit 0; "$GOBLINS_ROOT"/goblins.exe hook `
 	settings := `{"hooks": {
   "PreToolUse": [
     {"matcher": "Bash", "hooks": [{"type": "command", "command": "` + jsonEscape(shellForm+"pretool-arm") + `"}, {"type": "command", "command": "` + jsonEscape(shellForm+"pretool-cd") + `"}]},
@@ -226,7 +226,7 @@ func TestInstallReplacesShellFormHooks(t *testing.T) {
 
 	// Assert
 	for _, hook := range registeredHooks(t, f.user) {
-		if strings.Contains(hook.Command, "ceo.exe hook") {
+		if strings.Contains(hook.Command, "goblins.exe hook") {
 			t.Errorf("shell-form hook survived the install: %s", hook.Command)
 		}
 	}

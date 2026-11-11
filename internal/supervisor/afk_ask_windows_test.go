@@ -33,7 +33,7 @@ func asTheCEO(t *testing.T) (*Service, home.Home, string) {
 	t.Helper()
 	store, h := testStore(t)
 	primary, _, _, ceo := primaryFixture(t, store)
-	for _, name := range []string{"CEO_ROLE", "NO_MISTAKES_GATE"} {
+	for _, name := range []string{"GOBLINS_ROLE", "NO_MISTAKES_GATE"} {
 		t.Setenv(name, "")
 	}
 	s := &Service{Store: store, Options: Options{CEO: ceo}}
@@ -87,7 +87,7 @@ func TestASwitchAtHisAskIsMadeForNobodyButTheRegisteredCEO(t *testing.T) {
 		refusal string
 	}{
 		{name: "a goblin", refusal: "this command runs in a goblin's terminal", arrange: func(t *testing.T, _ *Service, _ home.Home) {
-			t.Setenv("CEO_ROLE", "goblin")
+			t.Setenv("GOBLINS_ROLE", "goblin")
 		}},
 		{name: "a gate agent", refusal: "this command runs as a gate agent", arrange: func(t *testing.T, _ *Service, _ home.Home) {
 			t.Setenv("NO_MISTAKES_GATE", "1")
