@@ -49,8 +49,40 @@ function expectOneGroup(seen: Rows, name: string, isCentred: boolean) {
 
 const measureAll = async (cards: Locator, shape: typeof GOBLIN) => Promise.all((await cards.all()).map((card) => card.evaluate(measure, shape)));
 
-async function open(page: Page, view = "canvas") {
-  await page.goto("/tests/fixtures/orchestration-card-text.html" + (view === "canvas" ? "" : "?view=" + view));
+// What a card's marks take: the lines its people stand on, each mark its
+// border leaves outside it, the card and the line under it where they leave
+// the room their place gives them, and whether the card holds more than it
+// shows.
+function marksOf(card: Element): { lines: number; spills: string[]; isScrolling: boolean } {
+  const frame = card.querySelector<HTMLElement>(".task-card-shell")!;
+  const outside = (parts: Element[], within: Element) => {
+    const outer = within.getBoundingClientRect();
+    return parts.filter((part) => { const box = part.getBoundingClientRect(); return box.left < outer.left - 1 || box.right > outer.right + 1 || box.top < outer.top - 1 || box.bottom > outer.bottom + 1; })
+      .map((part) => part.getAttribute("class") || part.tagName);
+  };
+  const people = [...card.querySelectorAll(".same-area-avatars > *")];
+  return {
+    lines: new Set(people.map((person) => Math.round(person.getBoundingClientRect().top))).size,
+    spills: [...outside([...card.querySelectorAll(".card-icons > *"), ...people], frame), ...outside([frame, ...card.querySelectorAll(".flow-session-details")], card)],
+    isScrolling: frame.scrollHeight > frame.clientHeight + 1 || frame.scrollWidth > frame.clientWidth + 1,
+  };
+}
+
+// The lines a part of a baby goblin's card needs and the lines it shows.
+// What it needs is measured on a copy of the part that nothing limits, at
+// the part's own width and in its own font.
+function linesOf(card: Element, selector: string): { needs: number; shows: number } {
+  const part = card.querySelector<HTMLElement>(selector)!, line = parseFloat(getComputedStyle(part).lineHeight);
+  const free = part.cloneNode(true) as HTMLElement;
+  free.style.cssText = "display: block; -webkit-line-clamp: none; white-space: normal; overflow: visible";
+  part.after(free);
+  const needs = Math.round(free.offsetHeight / line);
+  free.remove();
+  return { needs, shows: Math.round(part.offsetHeight / line) };
+}
+
+async function open(page: Page, view = "canvas", hasEveryMark = false) {
+  await page.goto("/tests/fixtures/orchestration-card-text.html?view=" + view + (hasEveryMark ? "&marks" : ""));
   await expect(page.locator(view === "canvas" ? ".flow-node" : ".workflow-node").first()).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
   // The pointer rests on empty canvas, where no card lifts under it.
@@ -94,3 +126,55 @@ test("a goblin's card on the phone's list holds its rows as one group", async ({
   expect(goblins).toHaveLength(7);
   goblins.forEach((seen, i) => expectOneGroup(seen, "goblin card " + (i + 1), false));
 });
+
+// A goblin with every mark a card wears, a ticket, a pull request, four
+// people in the same area and its harness mark, has more marks than fit
+// beside a clock as long as 2h 15m, so its people take a second line and the
+// row grows. The clock stays right under the project at the text's edge,
+// never in the middle of the taller row, and the card still holds it all.
+for (const { view, width, height } of [{ view: "canvas", width: 1440, height: 900 }, { view: "lineage", width: 390, height: 844 }]) {
+  test(`a goblin's clock stays right under its project when its marks take a second line, on the ${view}`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width, height });
+    await open(page, view, true);
+    const card = page.locator(view === "canvas" ? ".flow-node.has-task" : ".workflow-node.has-task").filter({ has: page.locator(".card-title", { hasText: "Bartholomew" }) });
+    await expect(card.locator(".card-clock")).toContainText("2h 15m");
+    for (const [mark, count] of [[".card-ticket", 1], [".card-pr", 1], [".same-area-person", 3], [".same-area-more", 1], [".card-harness", 1]] as const) await expect(card.locator(mark), mark).toHaveCount(count);
+
+    // Act
+    const seen = await card.evaluate(measure, GOBLIN);
+    const marks = await card.evaluate(marksOf);
+
+    // Assert: the marks need a second line, the case this test is for.
+    expect(marks.lines, "the lines the people in the same area stand on").toBeGreaterThan(1);
+    expectOneGroup(seen, "the card with every mark", view === "canvas");
+    expect(marks.spills, "marks outside the card, or the card outside its place").toEqual([]);
+    expect(marks.isScrolling, "the card holds more than it shows").toBe(false);
+  });
+}
+
+// A baby goblin's name takes up to three lines and what it runs up to two,
+// each ending in an ellipsis past them. At the card's width Bartholomew II -
+// Observability Investigator needs three lines for its name, the helper that
+// reconciles the exports needs more, and what Bartholomew II runs needs at
+// least two.
+for (const { title, baby, part, least, most, shows } of [
+  { title: "a baby goblin's name that needs three lines shows all three", baby: "Bartholomew II", part: ".tree-child-copy strong", least: 3, most: 3, shows: 3 },
+  { title: "a baby goblin's name that needs more than three lines shows three and is cut short", baby: "Reconcile the nightly", part: ".tree-child-copy strong", least: 4, most: Infinity, shows: 3 },
+  { title: "what a baby goblin runs shows on two lines when it needs them", baby: "Bartholomew II", part: ".tree-child-runs", least: 2, most: Infinity, shows: 2 },
+]) {
+  test(title, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page);
+    const card = page.locator(".tree-branches .tree-child").filter({ has: page.locator("strong", { hasText: baby }) });
+
+    // Act
+    const seen = await card.evaluate(linesOf, part);
+
+    // Assert: the part needs the lines this case is for, and shows these.
+    expect(seen.needs, "the lines the part needs").toBeGreaterThanOrEqual(least);
+    expect(seen.needs, "the lines the part needs").toBeLessThanOrEqual(most);
+    expect(seen.shows, "the lines the part shows").toBe(shows);
+  });
+}

@@ -272,7 +272,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
   .task-card-shell > .card-icons { margin-top: 6px; }
   /* In Orchestration no card is numbered, so its clock has room at the
      left edge its name, status and project share, right under them. */
-  .flow-node.has-task .card-clock, .workflow-node.has-task .card-clock { margin: 0 0 0 var(--card-text-edge); }
+  .flow-node.has-task .card-clock, .workflow-node.has-task .card-clock { align-self: start; margin: 0 0 0 var(--card-text-edge); }
   .flow-node.has-task .card-icons, .workflow-node.has-task .card-icons { margin-top: 0; }
 }
 .card-pr { display: inline-flex; align-items: center; gap: 6px; font-size: 1rem; font-weight: 700; color: #6bf0cc; text-decoration: none; }

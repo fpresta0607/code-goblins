@@ -22,7 +22,9 @@ import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 // card he showed beside them. ?view picks what shows: the canvas (the default), the
 // lineage list the canvas becomes at phone width, or the board's cards.
 // ?terminal gives Olive, whose task names no session, a native terminal in
-// that state, such as busy or unknown.
+// that state, such as busy or unknown. ?marks gives Bartholomew every mark a
+// card wears: a ticket and four people in the same area beside his pull
+// request and his harness mark.
 const at = "2026-10-12T12:00:00Z";
 const ago = (minutes: number) => new Date(Date.parse(at) - minutes * 60_000).toISOString();
 const goblin = (fields: Record<string, unknown>) => ({ project: "code-goblins", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", route_lane: "strong-claude", route_reason: "strong cross-harness fallback", verified: false, since: at, at, ...fields });
@@ -35,6 +37,10 @@ const params = new URLSearchParams(location.search);
 const view = params.get("view") || "canvas";
 const isCrowded = params.has("crowded");
 const terminal = params.get("terminal");
+const REPOSITORY = "https://github.com/fpresta0607/code-goblins-infrastructure-observability-monorepo";
+const sameArea = (login: string, pull: number) => ({ login, name: "", avatar_url: "", what: "PR #" + pull, url: REPOSITORY + "/pull/" + pull });
+const everyMark = params.has("marks") ? { ticket: { number: 2373, url: REPOSITORY + "/issues/2373", state: "open" },
+  overlaps: [sameArea("ada", 12301), sameArea("grace", 12302), sameArea("edsger", 12303), sameArea("barbara", 12304)] } : {};
 const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, cfo_runs: true, afk: { state: params.has("unreadable") ? "unreadable" : "off" }, cfo_harness: "claude",
   subscriptions: [{ provider: "claude", status: "available", percent_remaining: 62, read_at: at, resets_at: "2026-10-16T22:27:42Z", source: "oauth", floor_percent: 5 },
     ...(isCrowded ? [{ provider: "codex", status: "available", percent_remaining: 8, read_at: at, source: "oauth", floor_percent: 5 }] : [])],
@@ -43,7 +49,7 @@ const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, cfo_run
     goblin({ id: "cg-tour", title: "Show a visitor around the board", goblin_name: "Woody", goblin_title: "Tour Guide", generation: "g-tour", route_reason: "strong fallback", phase: "waiting", waiting_on: "cg-processes", since: ago(95) }),
     goblin({ id: "cg-plumbing", title: "Fix the reliability of the nightly sync", goblin_name: "Wilhelmina", goblin_title: "Senior Reliability Plumber", generation: "g-plumbing", session: "s-plumbing", phase: "waiting", waiting_on: "cg-archive", since: ago(64) }),
     goblin({ id: "cg-dispatch", title: "Dispatch the nightly builds", goblin_name: "Cornelius", goblin_title: "Senior Dispatcher", generation: "g-dispatch", phase: "waiting", waiting_on: "cg-plumbing", since: ago(52) }),
-    goblin({ id: "cg-archive", title: "Archive the old infrastructure notes", goblin_name: "Bartholomew", goblin_title: "Distinguished Infrastructure Archivist", project: "code-goblins-infrastructure-observability-monorepo", generation: "g-archive", phase: "working", since: ago(135), pr: "https://github.com/fpresta0607/code-goblins-infrastructure-observability-monorepo/pull/12345",
+    goblin({ id: "cg-archive", title: "Archive the old infrastructure notes", goblin_name: "Bartholomew", goblin_title: "Distinguished Infrastructure Archivist", project: "code-goblins-infrastructure-observability-monorepo", generation: "g-archive", phase: "working", since: ago(135), pr: REPOSITORY + "/pull/12345", ...everyMark,
       tree: tree("cg-archive", [
         child({ id: "subagent:observability", kind: "subagent", label: "Investigate the infrastructure observability", state: "working", started: ago(42), last_activity: ago(1) }),
         child({ id: "subagent:server", kind: "subagent", label: "Review the development server", state: "working", started: ago(779), last_activity: ago(1), memory: 1.4 * 2 ** 30 }),
