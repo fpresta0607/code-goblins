@@ -38,6 +38,7 @@ Two packages carry most of it:
 | `internal/verify`, `internal/cirunner`, `internal/update`, `internal/fsx`, `internal/lock`, `internal/watch` | 1 each |
 
 About 69 files use one of the first two, so porting `internal/proc` and `internal/host` removes most of the list, and they come early.
+The five files that use `internal/herdr` need no port of it: they lose that use when #2370 removes Herdr's code (see [Herdr](#herdr)).
 Inside their own packages, about 13 supervisor files call its Windows-only functions, all but one of them the pipe calls (`sendPipeRequest`, `askPipe`, `serveRunRequests`, `Reported`) and the last one the call that hides a console (`hideConsoleOnDesktop`), and the lock calls its Windows-only process checks and waiter line; the rest are single names such as `cirunner.Ask`, `update.Hold` and `writeSynced`, `fsx.RemoveFileWhen` and `watch.NewDirWaiter`.
 The untagged files that import `golang.org/x/sys/windows` are the desktop window's six, `cmd/goblins/attach.go` and `update.go`, `internal/doctor/doctor.go` and `harness_versions.go`, and `internal/spawn/native_launch.go`; `cmd/goblins/banner.go` and `launcher.go`, and `internal/reap/inventory.go`, use `syscall` names that exist only on Windows.
 
@@ -82,6 +83,7 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
   - the desktop CI runner's pipe.
 - **Linux:** a Unix domain socket under the home's `state` folder, in a folder only the user can open (0700), with `SO_PEERCRED` giving each side the other's process id.
   The primary transport is an open file held with `flock`.
+- **Not needed:** Herdr's pipe.
 - **Layer:** 4.
 
 ### Process trees and job objects
@@ -199,14 +201,22 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
 
 - **Windows:** dictation loads the sherpa speech engine's Windows x64 library; the clipboard is the Win32 clipboard.
 - **Linux:** the sherpa engine's Linux library, with a pin of its own beside the Windows one in `config/voice.json`; `wl-copy` or `xclip` for the clipboard.
-- **Left out at first:** dictation, which says it needs the engine until its layer lands.
 - **Layer:** 9 for dictation, 6 for the clipboard.
 
 ### The desktop CI runner
 
-- **Windows:** `cmd/cg-ci-runner` is a Windows service that runs private repositories' CI in a Hyper-V virtual machine, reached by an access-limited pipe.
-- **Linux:** a systemd system unit and a KVM machine (`internal/cirunner` already reads qcow2 disks).
-- **Left out:** the whole runner, which serves the one Windows machine it was built for; it ports when a Linux machine is asked to run CI.
+- **Windows:** `cmd/cg-ci-runner` is a Windows service that runs private repositories' CI in a Hyper-V virtual machine, reached by an access-limited pipe, so that CI does not use paid GitHub runners.
+- **Linux:** a systemd system unit that runs the jobs in a KVM machine (`internal/cirunner` already reads qcow2 disks), reached by an access-limited Unix socket instead of the pipe.
+  Without it, a Linux machine would send private repositories' CI back to paid GitHub runners.
+- **Layer:** 10.
+
+### Herdr
+
+- **Windows:** `internal/herdr`, a client for Herdr's panes over its own pipe, which 87 files import.
+  The fleet no longer runs Herdr panes: every goblin and the CEO run in native terminals, and the install neither installs nor checks Herdr.
+- **Linux:** nothing; its code leaves the repository with #2370.
+  Until then, its Windows-only names get the error-returning Linux file every name gets in layer 1, and nothing more.
+- **Not needed:** all of it.
 
 ### Restart, folder picker and other edges
 
@@ -224,16 +234,14 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
 - The registry, Installed apps, Start menu shortcuts and elevation.
 - Long path prefixes, 8.3 short names and file sharing modes.
 - The setup window.
+- Herdr, whose code #2370 removes.
 
 ## Left out on Linux at first
 
 Nothing is dropped in silence: each of these says what it lacks when used, until its own pull request lands.
 
 - GPU readings: no vendor-neutral source.
-- Dictation: needs the engine's Linux library (layer 9).
 - The desktop window: the board opens in the browser instead.
-- The desktop CI runner: ports when a Linux machine is asked to run CI.
-- Herdr panes: the fleet runs native terminals, and Herdr's Linux socket follows only if it is asked for.
 
 ## Pull requests, one layer each
 
@@ -253,7 +261,8 @@ A layer's Linux code sits beside the Windows code under a build tag.
 6. **Watching and readings.** `inotify`, the memory and processor readings, priorities, the janitor's processes, the browser sign-in and the clipboard.
 7. **End to end.** The hooks without PowerShell, card commands and `!` messages in bash, folders opened with `xdg-open`, and a goblin run on Linux in CI under Claude Code, Codex and pi: spawn, send, peek, wake, pause, resume, gate and cleanup.
 8. **Installer and updater.** The release's Linux archives and `install.sh`, update and uninstall, the `.desktop` entry and the user unit, the board opening in the browser, and the README's download control and the install guide offering Linux beside Windows.
-9. **Dictation.** The speech engine's Linux library.
+9. **Dictation.** The speech engine's Linux library, pinned in `config/voice.json` beside the Windows one.
+10. **The desktop CI runner.** The runner as a systemd system unit running private repositories' CI in a KVM machine.
 
 Layers 3 to 5 hold most of the work; layer 7 is where a goblin first works on Linux, and layer 8 is where someone else can install it.
 
