@@ -92,9 +92,9 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart]` | [cfo help switch](../commands/switch.md) |
 | `cfo pipeline` | [cfo help pipeline](../commands/pipeline.md) |
 | `cfo gate tests-kept` | [cfo help gate tests-kept](../commands/gate/tests-kept.md) |
-| `cfo gate test [--level fast\|affected\|full \| --focused] [--plan]`, `cfo gate lint [--plan]` | [cfo help gate test](../commands/gate/test.md) |
+| `cfo gate test [--level changed\|fast\|affected\|full \| --focused] [--plan]`, `cfo gate lint [--plan]` | [cfo help gate test](../commands/gate/test.md) |
 | `cfo gate prepush [--plan] [--limit <duration>]` | [cfo help gate prepush](../commands/gate/prepush.md) |
-| `cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]` | [cfo help gate turn](../commands/gate/turn.md) |
+| `cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--light] [--detach <log-file>] -- <program> [<argument>...]` | [cfo help gate turn](../commands/gate/turn.md) |
 | `cfo gate turns [--json]` | [cfo help gate turns](../commands/gate/turns.md) |
 | `cfo ci-runner job \| status \| parity --repo <owner/name>` | [cfo help ci-runner](../commands/ci-runner.md) |
 | `cfo send <target> <text>` | [cfo help send](../commands/send.md) |

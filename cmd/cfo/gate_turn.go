@@ -43,7 +43,7 @@ const (
 // statusControlCExit is the exit status of a console program Ctrl+C ended.
 const statusControlCExit = 0xC000013A
 
-const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--gate-run <run-id>] [--test-comparison-sha <sha>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]"
+const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--gate-run <run-id>] [--test-comparison-sha <sha>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--light] [--detach <log-file>] -- <program> [<argument>...]"
 
 // runGateTurn runs any command in the machine's one line for heavy runs, the
 // line cfo gate test takes its turns in, so that one such run goes at a time
@@ -86,6 +86,12 @@ const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--gate-run <run-id>] 
 // A command that waits on a gate (gateWait) takes no turn: the gate's test
 // command takes its own, and a turn held through the gate's agents' work
 // would only keep every other run waiting.
+//
+// A light run (--light, or a gate's Test step of a project whose record
+// declares its Test light) takes a turn of its own beside the slots once free
+// memory covers its estimate, however many runs hold the slots or wait for
+// them (verify.Admission.IsLight), and is ended with everything it started
+// once it has run its bound, its execution limit, which its last line says.
 //
 // With --detach the run is started again as a process of its own, hidden and
 // detached (detachGateTurn), and this one returns at once. The detached run
@@ -175,6 +181,10 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 	executor.Admission.Priority = taskPriority("cfo gate turn", task, stderr, runtime)
 	executor.Admission.Estimate = request.memory
 	executor.ExecutionLimit = request.executionLimit
+	if request.isLight {
+		executor.Admission.IsLight = true
+		executor.Admission.Budget = request.executionLimit
+	}
 	// The command writes to this run's own output, which a process's always
 	// is a file of, so it sees what this run's caller gives it, console or
 	// pipe, and the caller keeps what it writes.
@@ -192,6 +202,18 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 		fmt.Fprintf(stderr, "cfo gate turn: the command did not start: required test environment refused: %s\n", oneLine(err))
 		tell(exitNotStarted)
 		return exitNotStarted
+	}
+	// A gate's Test step of a project whose record declares its Test light
+	// runs light within the record's bound, or a shorter one it was given.
+	if light := bound.lightTest; light != nil {
+		limit := time.Duration(light.LimitMinutes) * time.Minute
+		if request.executionLimit > 0 {
+			limit = min(limit, request.executionLimit)
+		}
+		executor.Admission.IsLight = true
+		executor.Admission.Estimate = uint64(light.MemoryMiB) << 20
+		executor.Admission.Budget = limit
+		executor.ExecutionLimit = limit
 	}
 	run := command
 	if request.gateRun != "" {
@@ -282,6 +304,10 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 		fmt.Fprintf(stderr, "cfo gate turn: old execution records could not all be removed: %s\n", oneLine(err))
 	}
 	switch {
+	case errors.Is(runError, verify.ErrLimit) && executor.Admission.IsLight:
+		fmt.Fprintf(stderr, "cfo gate turn: the light run outlived its bound of %s, so it was ended with everything it started: %s; execution record: %s\n", executor.ExecutionLimit, oneLine(runError), record)
+		tell(exitExecutionLimit)
+		return exitExecutionLimit
 	case errors.Is(runError, verify.ErrLimit):
 		fmt.Fprintf(stderr, "cfo gate turn: the run exceeded its execution limit of %s: %s; execution record: %s\n", request.executionLimit, oneLine(runError), record)
 		tell(exitExecutionLimit)
@@ -321,9 +347,13 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 	return exit
 }
 
+// gateTestBinding is what a gate's Test step is bound to by its project's
+// record: the environment its command is given and the source it runs on, and
+// the light Test the record declares, or nil.
 type gateTestBinding struct {
 	environment []string
 	source      pipeline.RunSource
+	lightTest   *projectcfg.LightTest
 }
 
 func gateTestEnvironment(ctx context.Context, dir, runID, comparison string, runtime commandRuntime) (gateTestBinding, error) {
@@ -344,11 +374,20 @@ func gateTestEnvironment(ctx context.Context, dir, runID, comparison string, run
 		return gateTestBinding{}, fmt.Errorf("required test environment: cannot read the gate's source project: %w", err)
 	}
 	manifest, _, err := projectcfg.LoadForCheckout(h.Data, project)
-	if errors.Is(err, os.ErrNotExist) || err == nil && manifest.TestEnvironment == nil {
+	if errors.Is(err, os.ErrNotExist) {
 		return gateTestBinding{}, nil
 	}
 	if err != nil {
 		return gateTestBinding{}, fmt.Errorf("required test environment: %w", err)
+	}
+	// The project's test evidence goes to its Test command, as cfo gate test
+	// reads it to choose its level.
+	var evidence []string
+	if manifest.TestEvidence != "" {
+		evidence = []string{testEvidenceVariable + "=" + manifest.TestEvidence}
+	}
+	if manifest.TestEnvironment == nil {
+		return gateTestBinding{environment: evidence, lightTest: manifest.LightTest}, nil
 	}
 	source, err := reader.CommandSource(ctx, dir, runID, comparison)
 	if err != nil {
@@ -363,7 +402,7 @@ func gateTestEnvironment(ctx context.Context, dir, runID, comparison string, run
 		return gateTestBinding{}, err
 	}
 	environment, err := pipeline.ProjectTestEnvironment(ctx, execx.OSRunner{}, h.Data, meta.Project, meta.Worktree)
-	return gateTestBinding{environment: environment, source: source}, err
+	return gateTestBinding{environment: append(environment, evidence...), source: source, lightTest: manifest.LightTest}, err
 }
 
 // gateTurnTask is the fleet task whose run this is. A gate's Test step names
@@ -443,6 +482,9 @@ type gateTurnRequest struct {
 	// how it was given.
 	memory     uint64
 	memoryText string
+	// isLight has the run take a light turn beside the slots, bounded by its
+	// memory and its execution limit, which it must name both of.
+	isLight bool
 	// detachLog, when set, asks for the run to be started detached and
 	// hidden, its output appended to this file.
 	detachLog string
@@ -505,6 +547,9 @@ func parseGateTurn(args []string) (gateTurnRequest, error) {
 			if request.testComparisonSHA != "" && request.gateRun == "" {
 				return gateTurnRequest{}, errors.New("--test-comparison-sha requires --gate-run")
 			}
+			if request.isLight && (request.memory == 0 || request.executionLimit == 0) {
+				return gateTurnRequest{}, errors.New("--light requires --memory and --execution-limit, the memory the run is expected to use and the bound it is ended at")
+			}
 			request.command = args[at+1:]
 			return request, nil
 		case isNamed:
@@ -538,6 +583,8 @@ func parseGateTurn(args []string) (gateTurnRequest, error) {
 			return gateTurnRequest{}, errors.New("--execution-limit is given no duration")
 		case args[at] == "--low-priority":
 			request.isLowPriority = true
+		case args[at] == "--light":
+			request.isLight = true
 		case args[at] == "--memory":
 			return gateTurnRequest{}, errors.New("--memory is given no size")
 		case args[at] == "--detach" && at+1 < len(args) && args[at+1] != "" && !strings.HasPrefix(args[at+1], "-"):
@@ -600,6 +647,9 @@ func detachedArguments(request gateTurnRequest) []string {
 	}
 	if request.isLowPriority {
 		args = append(args, "--low-priority")
+	}
+	if request.isLight {
+		args = append(args, "--light")
 	}
 	return append(append(args, "--"), request.command...)
 }

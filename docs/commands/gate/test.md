@@ -1,6 +1,6 @@
 # cfo gate test
 
-`cfo gate test [--level fast\|affected\|full \| --focused] [--plan]`
+`cfo gate test [--level changed\|fast\|affected\|full \| --focused] [--plan]`
 
 This repository's no-mistakes test step, run from `.no-mistakes.yaml`'s `commands.test` as the step's baseline, runs `go vet` and `go test -json -count=1 -p 2 -timeout 45m` at the selected verification level.
 It runs them without `CFO_HOME` and `CFO_STATE_OVERRIDE`, which a gate step inherits from the goblin's pane, and without `NO_MISTAKES_GATE`, under which every `cfo hook` does nothing and the hook tests would test nothing.
@@ -8,6 +8,8 @@ CI still runs every package before a change reaches the default branch, in its m
 With neither `--level` nor `--focused` the step, the gate's included, runs `fast`; [Verification levels](../../pipeline.md#verification-levels) owns package selection, required guards and platform deferrals.
 Running the required level here as well ran the slowest packages twice, here in a median of 33 minutes and again in CI.
 `--level affected` runs affected checks here, such as to reproduce what CI found; `--level full` tests every package; `--plan` prints the plan and runs nothing.
+`--level changed` vets as the change requires and runs only the tests the change added or edited, each by name, and prints what it left to CI.
+With no `--level` it is the level of a project whose hosted CI is its test evidence, which `CFO_TEST_EVIDENCE=hosted-ci` from `cfo gate turn` says; see [A project whose hosted CI is its test evidence](../../pipeline.md#a-project-whose-hosted-ci-is-its-test-evidence).
 `--focused`, the repository's `commands.test_focused`, reads `NO_MISTAKES_TEST_FOCUS` as an absolute path to a UTF-8 file, never as shell code.
 Its `test <package> --- FAIL: TestName/subtest (0.01s)` and `path <relative/path>` records select each failed top-level test and every check the repository-relative repair paths reach under the same trusted affected-level planner, including transitive dependents and required guards.
 A named failure already covered by a selected whole package is not run twice.
