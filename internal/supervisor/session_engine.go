@@ -30,7 +30,8 @@ import (
 // earlier run's, which a switch or a resume has replaced in the record. A
 // model its picker only named is the catalog's id for that name, an effort no
 // start of the harness takes, such as Claude Code's auto, is the harness's
-// own default, and a model that could not be handed to a start is none.
+// own default, and a model that could not be handed to a start, such as
+// Claude Code's default, which names whichever model it picks, is none.
 func (s *Service) runningEngine(kind string, engine fleettree.Engine, started time.Time) (model, effort string) {
 	if started.IsZero() {
 		return "", ""
@@ -46,7 +47,7 @@ func (s *Service) runningEngine(kind string, engine fleettree.Engine, started ti
 				}
 			}
 		}
-		if strings.HasPrefix(model, "-") || !spawnValue.MatchString(model) {
+		if !engineValue(model) {
 			model = ""
 		}
 	}
@@ -61,13 +62,10 @@ func (s *Service) runningEngine(kind string, engine fleettree.Engine, started ti
 
 // isRecordedModel reports whether recorded, the model a session's record
 // names, is the model running, which its harness says it runs. Claude Code's
-// answers name a model without the context window its record may ask for, so
-// a record that names one keeps it while the session runs that model.
+// answers name a model by its id alone, so a record that names it by an alias
+// or asks for a context window keeps both while the session runs that model.
 func isRecordedModel(kind, recorded, running string) bool {
-	if kind == "claude" {
-		recorded = strings.TrimSuffix(recorded, "[1m]")
-	}
-	return recorded == running
+	return recorded == running || kind == "claude" && fleettree.NamesClaudeModel(recorded, running)
 }
 
 // keepEngine writes the model and effort goblin meta's own conversation

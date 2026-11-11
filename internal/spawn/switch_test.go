@@ -291,18 +291,20 @@ func TestPausedResumeUsesTheSavedSessionInsteadOfTheLatestSession(t *testing.T) 
 // keeps it, and a switch's own model replaces it in the record.
 func TestARelaunchStartsOnTheRecordedModelAndEffort(t *testing.T) {
 	for name, testCase := range map[string]struct {
+		recorded   string
 		request    SwitchRequest
 		wantModel  string
 		wantEffort string
 	}{
-		"a resume":                   {SwitchRequest{IsResume: true, ResumeSession: "saved-session-42"}, "gpt-9", "xhigh"},
-		"a switch to another model":  {SwitchRequest{Model: "gpt-10", ResumeSession: "saved-session-42"}, "gpt-10", "xhigh"},
-		"a switch to another effort": {SwitchRequest{Effort: "low", ResumeSession: "saved-session-42"}, "gpt-9", "low"},
+		"a resume":                   {"gpt-9", SwitchRequest{IsResume: true, ResumeSession: "saved-session-42"}, "gpt-9", "xhigh"},
+		"a switch to another model":  {"gpt-9", SwitchRequest{Model: "gpt-10", ResumeSession: "saved-session-42"}, "gpt-10", "xhigh"},
+		"a switch to another effort": {"gpt-9", SwitchRequest{Effort: "low", ResumeSession: "saved-session-42"}, "gpt-9", "low"},
+		"a resume of a record that names an alias and its context window": {"opus[1m]", SwitchRequest{IsResume: true, ResumeSession: "saved-session-42"}, "opus[1m]", "xhigh"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}})
-			f.meta.Model, f.meta.Effort = "gpt-9", "xhigh"
+			f.meta.Model, f.meta.Effort = testCase.recorded, "xhigh"
 			if err := state.WriteTaskMeta(f.stateDir, f.meta); err != nil {
 				t.Fatal(err)
 			}

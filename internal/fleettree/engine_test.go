@@ -63,9 +63,18 @@ func TestASessionReadsTheEngineItsHarnessLastNamed(t *testing.T) {
 				writtenAt(modelCommand("c1", ""), at.Add(time.Minute)),
 				writtenAt(commandPrinted("o1", "Kept model as `Fable 5.2`"), at.Add(time.Minute)))
 		}, Engine{ModelName: "Fable 5.2", ModelAt: at.Add(time.Minute)}},
-		{"Claude Code's /model picker as an older version printed it", "claude", func(t *testing.T, home string) string {
-			return conversation(t, home, modelCommand("c1", ""), commandPrinted("o1", "Set model to \x1b[1mclaude-fable-5\x1b[22m"))
-		}, Engine{ModelName: "claude-fable-5", ModelAt: at}},
+		{"an alias and a context window typed after Claude Code's /model outlive an answer on that model", "claude", func(t *testing.T, home string) string {
+			return conversation(t, home, modelCommand("c1", "opus[1m]"), commandPrinted("o1", "Set model to `Opus 5.5 (1M context)`"),
+				writtenAt(ranOn("a1", "reply-1", "claude-opus-5-5", "high"), at.Add(time.Minute)))
+		}, Engine{Model: "opus[1m]", ModelAt: at, Effort: "high", EffortAt: at.Add(time.Minute)}},
+		{"an alias typed after Claude Code's /model gives way to an answer on another model", "claude", func(t *testing.T, home string) string {
+			return conversation(t, home, modelCommand("c1", "opus"), commandPrinted("o1", "Set model to `Opus 5.5`"),
+				writtenAt(ranOn("a1", "reply-1", "claude-sonnet-5-5", ""), at.Add(time.Minute)))
+		}, Engine{Model: "claude-sonnet-5-5", ModelAt: at.Add(time.Minute)}},
+		{"an id typed after Claude Code's /model is no alias of a newer model's", "claude", func(t *testing.T, home string) string {
+			return conversation(t, home, modelCommand("c1", "claude-opus-5"), commandPrinted("o1", "Set model to `Opus 5`"),
+				writtenAt(ranOn("a1", "reply-1", "claude-opus-5-5", ""), at.Add(time.Minute)))
+		}, Engine{Model: "claude-opus-5-5", ModelAt: at.Add(time.Minute)}},
 		{"Claude Code's cancelled /model", "claude", func(t *testing.T, home string) string {
 			return conversation(t, home, ranOn("a1", "reply-1", "claude-opus-5-5", ""), writtenAt(modelCommand("c1", ""), at.Add(time.Minute)), writtenAt(commandPrinted("o1", "Cancelled"), at.Add(time.Minute)))
 		}, Engine{Model: "claude-opus-5-5", ModelAt: at}},
@@ -198,6 +207,31 @@ func TestASessionsEngineIsReadFromTheConversationItIsIn(t *testing.T) {
 	}
 	if want := (Engine{Model: "acme/thinker-1", ModelAt: at}); got != want {
 		t.Fatalf("engine = %+v, want %+v", got, want)
+	}
+}
+
+// Forget drops the reading of a task that is no longer live, and keeps a live
+// task's and the CFO's, whose conversation no task's liveness speaks for, so
+// each is read on from where its last read ended.
+func TestForgettingEndedTasksKeepsTheCFOsAndLiveTasksReadings(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	path := conversation(t, home, ranOn("a1", "reply-1", "claude-opus-5-5", "high"))
+	reader := Reader{Home: home}
+	for _, owner := range []string{CFOOwner, "live", "ended"} {
+		if _, err := reader.SessionEngine(owner, "claude", path); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	reader.Forget(map[string]bool{"live": true})
+
+	// Assert
+	for owner, isKept := range map[string]bool{CFOOwner: true, "live": true, "ended": false} {
+		if _, isRead := reader.EngineAgain(owner); isRead != isKept {
+			t.Errorf("after Forget, %s has a reading to read on = %v, want %v", owner, isRead, isKept)
+		}
 	}
 }
 

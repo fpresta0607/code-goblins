@@ -18,7 +18,8 @@ import (
 type Engine struct {
 	// Model is the model as a start of the harness takes it: the id an
 	// answer, a turn or a model change names, or what was typed after Claude
-	// Code's /model, which the harness then set or kept.
+	// Code's /model, which the harness then set or kept, and which stays
+	// while its answers name that model.
 	Model string
 	// ModelName is what Claude Code's /model printed for the model its
 	// picker set or kept, with nothing typed after it, until an answer names
@@ -47,10 +48,9 @@ type engineLog struct {
 var (
 	// modelSet is the model Claude Code's /model says it set or kept, read
 	// only from the start of its result, so a cancelled /model sets none:
-	// "Set model to `Fable 5.2` and saved as your default for new sessions",
-	// "Kept model as `Fable 5.2`", and an older version's "Set model to
-	// opus".
-	modelSet = regexp.MustCompile("(?i)^(?:set model to|kept model as) (?:`([^`]+)`|(\\S+))")
+	// "Set model to `Fable 5.2` and saved as your default for new sessions"
+	// and "Kept model as `Fable 5.2`".
+	modelSet = regexp.MustCompile("(?i)^(?:set model to|kept model as) `([^`]+)`")
 	// effortSet is the level Claude Code's /effort says it set, from its
 	// picker or from the level typed after it, read only from the start of its
 	// success line ("Set effort level to xhigh: ..." or "Effort level set to
@@ -191,9 +191,14 @@ func (l *engineLog) claudeEntry(line []byte) {
 	switch entry.Type {
 	case "assistant":
 		// A notice Claude Code writes itself, such as a usage limit's, names
-		// no model ("<synthetic>") and ran at no effort.
+		// no model ("<synthetic>") and ran at no effort. An answer names its
+		// model by its id alone, so an alias or a context window typed after
+		// /model stays, as written when it was typed, while the answers name
+		// that model.
 		if entry.Message.Model != syntheticModel {
-			l.model(entry.Message.Model, entry.Timestamp)
+			if typed := l.engine.Model; typed == entry.Message.Model || !NamesClaudeModel(typed, entry.Message.Model) {
+				l.model(entry.Message.Model, entry.Timestamp)
+			}
 			l.effort(entry.Effort, entry.Timestamp)
 		}
 	case "user":
@@ -222,7 +227,7 @@ func (l *engineLog) claudeEntry(line []byte) {
 			if name := modelSet.FindStringSubmatch(printed); name != nil && command == "/model" {
 				l.engine.Model, l.engine.ModelName, l.engine.ModelAt = value, "", entry.Timestamp.UTC()
 				if value == "" {
-					l.engine.ModelName = name[1] + name[2]
+					l.engine.ModelName = name[1]
 				}
 			}
 			if level := effortSet.FindStringSubmatch(printed); level != nil && command == "/effort" {
@@ -230,6 +235,17 @@ func (l *engineLog) claudeEntry(line []byte) {
 			}
 		}
 	}
+}
+
+// NamesClaudeModel reports whether named, a model as a start of Claude Code
+// takes it, is the model id, as Claude Code's answers name it. A start takes
+// a model's id or an alias for the newest model of its family, "opus" for
+// claude-opus-5-5, and either with the context window asked for after it,
+// "opus[1m]", while an answer names the id alone. An id is no alias of
+// another, so claude-opus-5 does not name claude-opus-5-5.
+func NamesClaudeModel(named, id string) bool {
+	named = strings.TrimSuffix(named, "[1m]")
+	return named == id || !strings.HasPrefix(named, "claude-") && strings.HasPrefix(id, "claude-"+named+"-")
 }
 
 // model keeps the model an entry written at names, when it names one.
