@@ -148,7 +148,7 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 		actions := []string{"store:" + name}
 		if values[strings.ToUpper(name)] != "" {
 			verdict = "provided"
-			actions = nil
+			actions = []string{"replace:" + name}
 		} else if grant, isWithheld := withheld[name]; isWithheld {
 			verdict, detail, actions = "withheld", grant, nil
 		}
@@ -230,6 +230,9 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 		entry := &result.Entries[index]
 		entry.Actions = slices.DeleteFunc(entry.Actions, func(action string) bool {
 			credential, isStore := strings.CutPrefix(action, "store:")
+			if !isStore {
+				credential, isStore = strings.CutPrefix(action, "replace:")
+			}
 			return isStore && (!slices.Contains(manifest.EnvNames(), credential) || auth.IsHarnessBillingKey(credential))
 		})
 		if entry.Kind == "mcp" && entry.Status == "unauthorized" && len(entry.Actions) == 0 {

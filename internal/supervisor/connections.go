@@ -299,7 +299,11 @@ func (s *Service) connectionRun(meta state.TaskMeta, input connectionRequest, pl
 	command := "$ErrorActionPreference = 'Stop'\n$env:CFO_HOME = " + quote(s.Store.Home.Root) + "\n$env:CFO_STATE_OVERRIDE = " + quote(s.Store.Home.State) + "\n"
 	title := "Sign in to " + strings.TrimPrefix(input.Connection, "service:")
 	if plan.Credential != "" {
-		title = "Store " + plan.Credential + " from clipboard for " + filepath.Base(meta.Project)
+		verb := "Store "
+		if strings.HasPrefix(input.Action, "replace:") {
+			verb = "Replace "
+		}
+		title = verb + plan.Credential + " from clipboard for " + filepath.Base(meta.Project)
 		command += "Get-Clipboard -Raw | & " + quote(executable) + " auth store --project " + quote(meta.Project) + " " + quote(plan.Credential) + "\nexit $LASTEXITCODE\n"
 	} else {
 		command += "& " + quote(executable) + " connection-repair " + quote(meta.ID) + " " + quote(meta.SpawnGen) + " " + quote(input.Connection) + " " + quote(input.Action) + "\nexit $LASTEXITCODE\n"

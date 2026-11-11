@@ -52,5 +52,6 @@ export function connectionEvidence(entry: ConnectionEntry): string {
 
 export function connectionAction(action: string, name: string): string {
   if (action.startsWith("store:")) return "Store " + action.slice(6) + " from clipboard";
+  if (action.startsWith("replace:")) return "Replace " + action.slice(8) + " from clipboard";
   return (action === "cli" ? "Open CLI sign-in for " : "Sign in to ") + name;
 }

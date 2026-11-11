@@ -223,6 +223,36 @@ func TestConnectionClipboardCardNeverReadsClipboardAndCannotRunForReplacedTask(t
 	}
 }
 
+// A clipboard card says whether it stores a missing variable or replaces a
+// set one, and runs the same store either way (#2389).
+func TestAClipboardCardSaysWhetherItStoresOrReplacesTheVariable(t *testing.T) {
+	for _, test := range []struct{ action, want string }{
+		{"store:TEST_TOKEN", "Store TEST_TOKEN from clipboard for "},
+		{"replace:TEST_TOKEN", "Replace TEST_TOKEN from clipboard for "},
+	} {
+		t.Run(test.action, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, _ := state.ReadTaskMeta(h.State, "task-1")
+			service := &Service{Store: store, Instance: "test-instance"}
+
+			// Act
+			run, err := service.connectionRun(meta, connectionRequest{Task: meta.ID, Generation: meta.SpawnGen, Connection: "credential:TEST_TOKEN", Action: test.action}, connections.Repair{Credential: "TEST_TOKEN"})
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if run.Title != test.want+filepath.Base(meta.Project) {
+				t.Fatalf("title = %q, want %q", run.Title, test.want+filepath.Base(meta.Project))
+			}
+			if !strings.Contains(run.Command, "Get-Clipboard -Raw | & ") || !strings.Contains(run.Command, " auth store --project ") || !strings.HasSuffix(run.Command, " 'TEST_TOKEN'\nexit $LASTEXITCODE\n") {
+				t.Fatalf("not the clipboard store: %q", run.Command)
+			}
+		})
+	}
+}
+
 func TestCompletedConnectionRepairRechecksItsTaskAndPublishesTheOwner(t *testing.T) {
 	store, h := testStore(t)
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")

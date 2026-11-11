@@ -6,16 +6,21 @@ import { goblinName } from "./task-words";
 import type { Task } from "./types";
 import { personaFor } from "./workflow";
 
+// Whether a repair stores what he copied: a missing variable, or a set one
+// it replaces.
+const isClipboard = (action: string): boolean => action.startsWith("store:") || action.startsWith("replace:");
+
 // What a repair's button says: the sign-in it opens, or the variable it
 // stores from the clipboard, named whole since it reads what he copied.
 function repairWords(action: string, name: string): string {
-  if (action.startsWith("store:")) return connectionAction(action, name);
+  if (isClipboard(action)) return connectionAction(action, name);
   return action === "cli" ? "CLI sign-in" : "Sign in";
 }
 
 // One goblin on a connector's page: who it is, its state in a word with the
-// reason its check gave, the repairs a failing one offers, and Connect or
-// Disconnect where the board can give it the connector or take it back. A
+// reason its check gave, the repairs a failing one offers, Replace from
+// clipboard where it holds a variable (#2389), and Connect or Disconnect
+// where the board can give it the connector or take it back. A
 // verified one says Verified alone, since the page's check details say what
 // its check did and did not prove (the Overlord, 2026-11-11), one that must
 // sign in says why beside its Sign in, the board's green button as Connect
@@ -28,6 +33,7 @@ export function ConnectorGoblin({ connector, use, task, isBusy, isChanging, onFi
   const name = goblinName(task);
   const { entry } = use;
   const isFailing = use.isCarried && !!connectionTrouble(entry);
+  const repairs = isFailing ? entry.actions : use.isCarried ? entry.actions.filter((action) => action.startsWith("replace:")) : [];
   const state = usageState(use);
   return <li className="connector-goblin">
     <Avatar persona={personaFor(task)} small />
@@ -39,8 +45,8 @@ export function ConnectorGoblin({ connector, use, task, isBusy, isChanging, onFi
       {entry.restartReason && <span className="connector-waiting">{entry.restartReason}</span>}
     </span>
     <span className="connector-goblin-actions">
-      {isFailing && entry.actions.map((action) => <button key={action} type="button" className={action.startsWith("store:") ? undefined : "primary"} disabled={isBusy} aria-label={connectionAction(action, connector.name) + " for " + name} onClick={() => onFix(action)}>
-        <Icon name={action.startsWith("store:") ? "key" : action === "cli" ? "terminal" : "external"} />{repairWords(action, connector.name)}
+      {repairs.map((action) => <button key={action} type="button" className={isClipboard(action) ? undefined : "primary"} disabled={isBusy} aria-label={connectionAction(action, connector.name) + " for " + name} onClick={() => onFix(action)}>
+        <Icon name={isClipboard(action) ? "key" : action === "cli" ? "terminal" : "external"} />{repairWords(action, connector.name)}
       </button>)}
       {entry.grant && <button type="button" className={use.isCarried ? undefined : "primary"} disabled={isChanging} aria-label={(use.isCarried ? "Disconnect " + connector.name + " from " : "Connect " + connector.name + " to ") + name} onClick={() => onGive(!use.isCarried)}>{use.isCarried ? "Disconnect" : "Connect"}</button>}
     </span>
