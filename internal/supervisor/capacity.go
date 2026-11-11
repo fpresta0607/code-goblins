@@ -3,6 +3,7 @@ package supervisor
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
@@ -79,6 +80,43 @@ func MachineHeavyLine(memory Memory) (string, error) {
 		return "", err
 	}
 	return SlotHold(floor, memory), nil
+}
+
+// MachineLineStall says how the machine's heavy line stands still at the
+// reading memory: a turn free, runs waiting and memory and commit at the
+// floor of the run at its head, which should then take its turn, naming the
+// line's lock when a live process has held it long; "" when the line moves
+// or waits for memory or a turn.
+func MachineLineStall(memory Memory) (string, error) {
+	dir, err := verify.AdmissionDir()
+	if err != nil {
+		return "", err
+	}
+	capacity, _, err := verify.AdmissionLimits(dir)
+	if err != nil {
+		return "", err
+	}
+	holding, waiting, err := verify.Line(dir)
+	if err != nil || len(holding) >= capacity || len(waiting) == 0 {
+		return "", err
+	}
+	floor, err := verify.HeadFloor(dir, waiting[0].Estimate, 0)
+	if err != nil {
+		return "", err
+	}
+	free := min(memory.Available, memory.CommitAvailable)
+	if free < floor {
+		return "", nil
+	}
+	stall := fmt.Sprintf("%d of %d turns free and %d in line, %s first, with %.1f GB of memory and commit free against its %.1f GB floor", capacity-len(holding), capacity, len(waiting), waiting[0].Who, gigabytes(free), gigabytes(floor))
+	stuck, err := verify.StuckLock(dir, time.Now())
+	if err != nil {
+		return "", err
+	}
+	if stuck != nil {
+		stall += fmt.Sprintf("; the line's lock (custody-mutation) has been held by pid %d for %s", stuck.PID, time.Since(stuck.Acquired).Round(time.Second))
+	}
+	return stall, nil
 }
 
 // heavyLineHold says why the supervisor starts and resumes no goblin by

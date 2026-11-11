@@ -197,10 +197,87 @@ func whileBusy(ctx context.Context, limit time.Duration, try func() (func() erro
 	}
 }
 
+// custodyMutations holds, by store, the line's lock this process could not
+// give back, and whether a retry of its own is giving it back: a run that
+// waits in line makes no further change of custody to retry it with, and
+// while it keeps the lock no other run can join, move in or take a turn.
 var custodyMutations = struct {
 	sync.Mutex
-	pending map[string]lock.Info
-}{pending: make(map[string]lock.Info)}
+	pending    map[string]lock.Info
+	isRetrying map[string]bool
+}{pending: make(map[string]lock.Info), isRetrying: make(map[string]bool)}
+
+// custodyMutationName is the line's lock in the store, which every change of
+// custody holds for milliseconds.
+const custodyMutationName = "custody-mutation"
+
+// StuckLockAfter is how long a live owner holds the line's lock before it
+// is reported: twelve times the budget a change waits for it.
+const StuckLockAfter = time.Minute
+
+// StuckLock is the owner of the line's lock in dir when that owner is alive
+// and has held it StuckLockAfter or longer at now, and nil otherwise. While
+// it holds the lock no run joins the line, moves in it or takes a turn,
+// however free the turns are; a dead owner's lock the next change reclaims.
+func StuckLock(dir string, now time.Time) (*lock.Info, error) {
+	owner, err := lock.ReadNamedStrict(dir, custodyMutationName)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if now.Sub(owner.Acquired) < StuckLockAfter || !owner.Alive() {
+		return nil, nil
+	}
+	return owner, nil
+}
+
+// custodyReleaseRetry is how often a lock this process could not give back
+// is tried again by itself.
+const custodyReleaseRetry = time.Second
+
+// releaseCustodyLock gives the line's lock back; a test makes it fail.
+var releaseCustodyLock = lock.ReleaseExclusiveOwned
+
+// keepPending records owner as the lock of dir this process still holds and
+// starts the retry that gives it back, unless one runs. The caller holds
+// custodyMutations.
+func keepPending(dir, key string, owner lock.Info) {
+	custodyMutations.pending[key] = owner
+	if custodyMutations.isRetrying[key] {
+		return
+	}
+	custodyMutations.isRetrying[key] = true
+	go func() {
+		ticker := time.NewTicker(custodyReleaseRetry)
+		defer ticker.Stop()
+		for range ticker.C {
+			if isGivenBack(dir, key) {
+				return
+			}
+		}
+	}()
+}
+
+// isGivenBack makes one try at giving back the lock of dir this process
+// still holds, and reports whether none is held any more.
+func isGivenBack(dir, key string) bool {
+	ctx, cancel := awake.WithTimeout(context.Background(), time.Duration(custodyMutationBudget.Load()))
+	defer cancel()
+	if err := lockBefore(ctx, &custodyMutations.Mutex); err != nil {
+		return false
+	}
+	defer custodyMutations.Unlock()
+	if owner, pending := custodyMutations.pending[key]; pending {
+		if err := releaseCustodyLock(ctx, dir, custodyMutationName, owner); err != nil {
+			return false
+		}
+		delete(custodyMutations.pending, key)
+	}
+	delete(custodyMutations.isRetrying, key)
+	return true
+}
 
 func custodyMutationContext(caller context.Context, dir string) (func() error, error) {
 	unlock, err := takeCustodyMutation(caller, dir)
@@ -215,7 +292,7 @@ func takeCustodyMutation(caller context.Context, dir string) (func() error, erro
 	key = strings.ToLower(key)
 	ctx, cancel := awake.WithTimeout(caller, time.Duration(custodyMutationBudget.Load()))
 	defer cancel()
-	const name = "custody-mutation"
+	const name = custodyMutationName
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -223,7 +300,7 @@ func takeCustodyMutation(caller context.Context, dir string) (func() error, erro
 			return nil, err
 		}
 		if owner, pending := custodyMutations.pending[key]; pending {
-			if err := lock.ReleaseExclusiveOwned(ctx, dir, name, owner); err != nil {
+			if err := releaseCustodyLock(ctx, dir, name, owner); err != nil {
 				custodyMutations.Unlock()
 				return nil, fmt.Errorf("verify: retry worker custody release: %w", err)
 			}
@@ -231,15 +308,15 @@ func takeCustodyMutation(caller context.Context, dir string) (func() error, erro
 		}
 		owner, err := lock.AcquireExclusiveNamedStrictContext(ctx, dir, name)
 		if err != nil && owner != nil {
-			custodyMutations.pending[key] = *owner
+			keepPending(dir, key, *owner)
 		}
 		if err == nil {
 			return func() error {
 				defer custodyMutations.Unlock()
 				releaseContext, cancel := awake.WithTimeout(caller, 5*time.Second)
 				defer cancel()
-				if err := lock.ReleaseExclusiveOwned(releaseContext, dir, name, *owner); err != nil {
-					custodyMutations.pending[key] = *owner
+				if err := releaseCustodyLock(releaseContext, dir, name, *owner); err != nil {
+					keepPending(dir, key, *owner)
 					return fmt.Errorf("verify: release worker custody mutation: %w", err)
 				}
 				return nil

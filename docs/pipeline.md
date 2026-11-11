@@ -855,7 +855,7 @@ The executor retains failed cleanup jobs for its owner's bounded `RetryCleanup` 
 Slot release reports errors and stays retryable, and an executor retains final evidence-write failures even after workers have ended.
 Concurrent recovery waits respect the waiting caller's deadline without holding the executor's registry mutex over job or filesystem operations.
 The deadline also bounds custody-lock, file-open and final evidence-rename contention retries.
-A failed mutation-lock release retains its exact lease identity for a later retry, and cannot reclaim a changed or foreign live owner.
+A failed mutation-lock release retains its exact lease identity and tries again by itself every second until the lock is given back, without waiting for a later change of the same process, and cannot reclaim a changed or foreign live owner.
 Stale lease removal claims the record against writes and replacement, validates its identity while claimed, and deletes through that same Windows handle.
 Mutation-lease creation excludes readers until the writer closes, so contenders cannot mistake an in-progress publication for a corrupt record.
 An interrupted publication that leaves an incomplete record still refuses admission.
