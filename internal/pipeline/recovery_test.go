@@ -483,7 +483,7 @@ func (r *gateRebaseRunner) Run(ctx context.Context, request execx.Request) (exec
 	return execx.Result{}, errors.New("unexpected command: " + recoveryRequestCommand(request))
 }
 
-func TestRecoverKeepLocalReturnsCustodyOnlyFromAGateRebaseOfTheSubmittedHead(t *testing.T) {
+func TestRecoverKeepLocalReturnsCustodyOnlyFromAGateRebaseOrMergeOfTheSubmittedHead(t *testing.T) {
 	for _, tool := range []string{"git", "sqlite3"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Skip(tool + " CLI not available")
@@ -497,8 +497,10 @@ func TestRecoverKeepLocalReturnsCustodyOnlyFromAGateRebaseOfTheSubmittedHead(t *
 	for _, test := range []struct {
 		name          string
 		isRebased     bool
+		isMerged      bool
 		isConflicting bool
 		hasFixCommit  bool
+		isAmended     bool
 		remoteHolds   string
 		isRecovered   bool
 	}{
@@ -506,6 +508,11 @@ func TestRecoverKeepLocalReturnsCustodyOnlyFromAGateRebaseOfTheSubmittedHead(t *
 		{name: "rebase onto a base no remote holds", isRebased: true, remoteHolds: "base"},
 		{name: "rebase with a gate fix commit", isRebased: true, hasFixCommit: true, remoteHolds: "upstream"},
 		{name: "rebase whose conflict the gate resolved", isRebased: true, isConflicting: true, remoteHolds: "upstream"},
+		{name: "merge of published main", isMerged: true, remoteHolds: "upstream", isRecovered: true},
+		{name: "merge of a base no remote holds", isMerged: true, remoteHolds: "base"},
+		{name: "merge with a gate fix commit", isMerged: true, hasFixCommit: true, remoteHolds: "upstream"},
+		{name: "merge whose conflict the gate resolved", isMerged: true, isConflicting: true, remoteHolds: "upstream"},
+		{name: "clean merge amended with a gate change", isMerged: true, isAmended: true, remoteHolds: "upstream"},
 		{name: "gate fix commit on the submitted head", hasFixCommit: true, remoteHolds: "upstream"},
 		{name: "recorded head a remote already holds", hasFixCommit: true, remoteHolds: "recorded", isRecovered: true},
 	} {
@@ -535,7 +542,20 @@ func TestRecoverKeepLocalReturnsCustodyOnlyFromAGateRebaseOfTheSubmittedHead(t *
 				upstream = commit("feature-two.txt", "upstream two\n")
 			}
 			runPipelineGit(t, work, "switch", "--quiet", "--detach", submitted)
-			if test.isConflicting {
+			if test.isMerged {
+				if out, err := exec.Command("git", "-C", work, "merge", "--quiet", "--no-ff", "--no-edit", "main").CombinedOutput(); err != nil {
+					if !test.isConflicting {
+						t.Fatalf("merge: %s %v", out, err)
+					}
+					if err := os.WriteFile(filepath.Join(work, "feature-two.txt"), []byte("feature two\nupstream two\n"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					runPipelineGit(t, work, "add", "feature-two.txt")
+					runPipelineGit(t, work, "commit", "--quiet", "--no-edit")
+				} else if test.isConflicting {
+					t.Fatalf("merge did not conflict: %s", out)
+				}
+			} else if test.isConflicting {
 				if out, err := exec.Command("git", "-C", work, "rebase", "--quiet", "main").CombinedOutput(); err == nil {
 					t.Fatalf("rebase did not conflict: %s", out)
 				}
@@ -546,6 +566,13 @@ func TestRecoverKeepLocalReturnsCustodyOnlyFromAGateRebaseOfTheSubmittedHead(t *
 				runPipelineGit(t, work, "-c", "core.editor=true", "rebase", "--continue")
 			} else if test.isRebased {
 				runPipelineGit(t, work, "rebase", "--quiet", "main")
+			}
+			if test.isAmended {
+				if err := os.WriteFile(filepath.Join(work, "gate-fix.txt"), []byte("gate fix\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				runPipelineGit(t, work, "add", "gate-fix.txt")
+				runPipelineGit(t, work, "commit", "--quiet", "--amend", "--no-edit")
 			}
 			if test.hasFixCommit {
 				commit("gate-fix.txt", "gate fix\n")
