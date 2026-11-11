@@ -322,11 +322,13 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 	priority := taskPriority(label, report.Task, stderr, runtime)
 	env := gatetest.Environment(os.Environ())
 	remainingFailures := slices.Clone(plan.Failures)
+	lineLimit := gateLineLimit(runtime, os.Getenv, false)
 	for _, command := range commands {
 		check := verify.Result{Command: command, Scope: report.Level, Status: "not_run", ExitCode: -1}
 		if report.Status == "passed" {
 			budget := runtime.gateBudget(plan.Level)
-			turn, admissionErr := takeGateTurn(context.Background(), label, stdout, stderr, runtime.availableMemory, who, priority, budget, runtime.gateWaitLimit, gateLineLimit(runtime, os.Getenv, false))
+			lineWaited := time.Duration(report.QueueSeconds * float64(time.Second))
+			turn, admissionErr := takeGateTurn(context.Background(), label, stdout, stderr, runtime.availableMemory, who, priority, budget, runtime.gateWaitLimit, lineLimit, lineWaited)
 			report.QueueSeconds += turn.Waited.Seconds()
 			if admissionErr != nil {
 				report.Status, report.QueueNote = "failed", admissionErr.Error()
@@ -492,10 +494,12 @@ func agentLeftLine(limit time.Duration) string {
 // which run holds the turn, for how long and under what budget, and where
 // this run stands in line. An unavailable or expired floor reading, a store
 // failure, or a wait that ctx ended, prevents execution, and is written to
-// stderr, as is a wait that lineLimit ended, which is the whole wait's bound
-// for a run a gate's agent started (gateLineLimit) and zero for any other.
-// Budget expiry never displaces custody.
-func takeGateTurn(ctx context.Context, label string, says, stderr io.Writer, available func() (supervisor.Memory, error), who, priority string, budget, limit, lineLimit time.Duration) (verify.Turn, error) {
+// stderr, as is a wait that lineLimit ended, which is zero for any run but one
+// a gate's agent started (gateLineLimit) and bounds that run's wait across
+// every turn it takes: lineWaited is what its earlier turns took of the
+// limit, and a run with none of it left takes a turn that is free and waits
+// for none. Budget expiry never displaces custody.
+func takeGateTurn(ctx context.Context, label string, says, stderr io.Writer, available func() (supervisor.Memory, error), who, priority string, budget, limit, lineLimit, lineWaited time.Duration) (verify.Turn, error) {
 	store, err := verify.AdmissionDir()
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: this run takes no turn: %v\n", label, err)
@@ -508,6 +512,10 @@ func takeGateTurn(ctx context.Context, label string, says, stderr io.Writer, ava
 			return min(memory.Available, memory.CommitAvailable), err
 		}
 	}
+	lineLeft := lineLimit
+	if lineLimit > 0 {
+		lineLeft = max(lineLimit-lineWaited, time.Nanosecond)
+	}
 	turn, err := verify.Admission{
 		Dir:       store,
 		Floor:     supervisor.MemoryFloor,
@@ -516,7 +524,7 @@ func takeGateTurn(ctx context.Context, label string, says, stderr io.Writer, ava
 		Priority:  priority,
 		Budget:    budget,
 		Limit:     limit,
-		LineLimit: lineLimit,
+		LineLimit: lineLeft,
 		Poll:      time.Second,
 		Waiting: func(waited time.Duration, why string) {
 			fmt.Fprintf(says, "%s: waiting for its turn (%s so far): %s\n", label, waited.Round(time.Second), why)

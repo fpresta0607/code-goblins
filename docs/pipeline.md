@@ -704,6 +704,7 @@ A gate ends an agent whose invocation ran past its budget, and it counts the age
 So a run that a gate's agent started, which the `NO_MISTAKES_GATE` the gate sets in the agent's environment says, waits three minutes at most for its turn, behind other runs, for memory and for the line's lock alike, in `cfo gate turn`, `cfo gate test` and `cfo gate prepush`.
 Three minutes outlasts a short check ahead and a dip of memory under the floor, and is a tenth of the 30 minutes a gate gives an agent unless its machine says otherwise.
 A shorter `--wait` still ends the wait first, a longer one does not lengthen it, and a turn taken within it is never cut.
+The three minutes are the run's whole wait and not each turn's: `cfo gate test` takes a turn for each of its checks, so a check waits only what the checks before it left of them, and a check with none left takes a turn that is free and otherwise leaves the line at once, with the checks before it run and no other started.
 A run that takes no turn in that time starts nothing and leaves the line: `cfo gate turn` exits 125 and `cfo gate test` and `cfo gate prepush` exit 1, each with a line that tells the agent to go on without the run:
 
 ```text
