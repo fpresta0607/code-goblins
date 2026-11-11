@@ -46,12 +46,24 @@ func TestTreeUsageReadsAJobWhoseMembersChurn(t *testing.T) {
 	go func() { exited <- command.Wait() }()
 	t.Cleanup(func() { _, _ = tree.End(); <-exited })
 
+	processorTime := func() time.Duration {
+		var creation, exit, kernel, user windows.Filetime
+		if err := windows.GetProcessTimes(windows.CurrentProcess(), &creation, &exit, &kernel, &user); err != nil {
+			t.Fatal(err)
+		}
+		return time.Duration(kernel.Nanoseconds() + user.Nanoseconds())
+	}
+
 	// Act
 	samples := 0
 	var failure error
 	isRunning := true
+	sampledSince, processorBefore := time.Now(), processorTime()
 	// The bound only fails a root that never exits; the churn takes a second
-	// or two on an idle machine.
+	// or two on an idle machine. Each sample waits a millisecond for the
+	// root's exit first, so the sampler leaves the processor to the root it
+	// waits on: one that never paused read 914557 samples on a loaded machine
+	// on 2026-11-04 while the root's churn ran past the bound (issue 1951).
 	for bound := time.After(2 * time.Minute); isRunning && failure == nil; samples++ {
 		select {
 		case err := <-exited:
@@ -59,15 +71,19 @@ func TestTreeUsageReadsAJobWhoseMembersChurn(t *testing.T) {
 			isRunning = false
 		case <-bound:
 			t.Fatalf("the churning root did not exit within its bound, after %d samples", samples)
-		default:
+		case <-time.After(time.Millisecond):
 		}
 		_, failure = tree.Usage()
 	}
+	sampled, processorUsed := time.Since(sampledSince), processorTime()-processorBefore
 	usage, usageError := tree.Usage()
 
 	// Assert
 	if failure != nil || usageError != nil {
 		t.Fatalf("sample %d of a churning job = %v, %v, want every sample read", samples, failure, usageError)
+	}
+	if processorUsed > sampled/2 {
+		t.Fatalf("this process used %s of processor time in the %s it sampled, want under half of it, so the root it waits on has a processor", processorUsed, sampled)
 	}
 	// The job's lifetime count shows its members did churn while it was
 	// sampled, so the samples above read a changing list.
