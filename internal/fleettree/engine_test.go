@@ -57,7 +57,7 @@ func TestASessionReadsTheEngineItsHarnessLastNamed(t *testing.T) {
 			return conversation(t, home, prompted("u1", "work"), ranOn("a1", "reply-1", "claude-opus-5-5", "high"),
 				writtenAt(modelCommand("c1", "claude-fable-5-2[1m]"), at.Add(time.Minute)),
 				writtenAt(commandPrinted("o1", "Set model to `Fable 5.2` and saved as your default for new sessions"), at.Add(time.Minute)))
-		}, Engine{Model: "claude-fable-5-2[1m]", ModelAt: at.Add(time.Minute), Effort: "high", EffortAt: at}},
+		}, Engine{Model: "claude-opus-5-5", ModelAt: at, ModelTyped: "claude-fable-5-2[1m]", ModelTypedAt: at.Add(time.Minute), Effort: "high", EffortAt: at}},
 		{"Claude Code's /model picker, which names the model it kept", "claude", func(t *testing.T, home string) string {
 			return conversation(t, home, prompted("u1", "work"),
 				writtenAt(modelCommand("c1", ""), at.Add(time.Minute)),
@@ -66,7 +66,15 @@ func TestASessionReadsTheEngineItsHarnessLastNamed(t *testing.T) {
 		{"an alias and a context window typed after Claude Code's /model outlive an answer on that model", "claude", func(t *testing.T, home string) string {
 			return conversation(t, home, modelCommand("c1", "opus[1m]"), commandPrinted("o1", "Set model to `Opus 5.5 (1M context)`"),
 				writtenAt(ranOn("a1", "reply-1", "claude-opus-5-5", "high"), at.Add(time.Minute)))
-		}, Engine{Model: "opus[1m]", ModelAt: at, Effort: "high", EffortAt: at.Add(time.Minute)}},
+		}, Engine{Model: "claude-opus-5-5", ModelAt: at.Add(time.Minute), ModelTyped: "opus[1m]", ModelTypedAt: at, Effort: "high", EffortAt: at.Add(time.Minute)}},
+		{"an id typed after Claude Code's /model outlives an answer that names it", "claude", func(t *testing.T, home string) string {
+			return conversation(t, home, modelCommand("c1", "claude-opus-5-5"), commandPrinted("o1", "Set model to `Opus 5.5`"),
+				writtenAt(ranOn("a1", "reply-1", "claude-opus-5-5", ""), at.Add(time.Minute)))
+		}, Engine{Model: "claude-opus-5-5", ModelAt: at.Add(time.Minute), ModelTyped: "claude-opus-5-5", ModelTypedAt: at}},
+		{"a model typed after Claude Code's /model gives way to the one its picker sets", "claude", func(t *testing.T, home string) string {
+			return conversation(t, home, modelCommand("c1", "opus"), commandPrinted("o1", "Set model to `Opus 5.5`"),
+				writtenAt(modelCommand("c2", ""), at.Add(time.Minute)), writtenAt(commandPrinted("o2", "Set model to `Fable 5.2`"), at.Add(time.Minute)))
+		}, Engine{ModelName: "Fable 5.2", ModelAt: at.Add(time.Minute)}},
 		{"an alias typed after Claude Code's /model gives way to an answer on another model", "claude", func(t *testing.T, home string) string {
 			return conversation(t, home, modelCommand("c1", "opus"), commandPrinted("o1", "Set model to `Opus 5.5`"),
 				writtenAt(ranOn("a1", "reply-1", "claude-sonnet-5-5", ""), at.Add(time.Minute)))

@@ -192,58 +192,135 @@ func TestARecordedContextWindowOutlivesAnAnswerOnItsModel(t *testing.T) {
 // A record names a Claude Code model as a start takes it: by its id, or by an
 // alias for the newest model of a family, either with the context window
 // asked for after it. Claude Code's answers name the id alone, so the record
-// keeps the alias and the window while the answers name that model, however
-// the reads fall, and takes another model's id once an answer names one. The
-// models are the routing lanes' own aliases and what Claude Code's /model
-// takes: sonnet names claude-sonnet-5-5, opus[1m] claude-opus-5-5 on its 1M
-// window, and claude-opus-5 is another model than claude-opus-5-5.
+// keeps the alias and the window while the answers name that model, and takes
+// another model's id once an answer names one. What is typed after /model is
+// itself what a start takes, so the record takes it as typed, whatever it
+// named before, and keeps it through the answers on that model. Each holds
+// however the reads fall. The models are the routing lanes' own aliases and
+// what Claude Code's /model takes: sonnet names claude-sonnet-5-5, opus[1m]
+// claude-opus-5-5 on its 1M window, and claude-opus-5 and claude-sonnet-5 are
+// other models than claude-opus-5-5 and claude-sonnet-5-5.
 func TestARecordedAliasOutlivesAnswersOnTheModelItNames(t *testing.T) {
 	now := time.Now()
 	for name, testCase := range map[string]struct {
 		recorded string
-		reads    [][]string
+		entries  []string
 		want     string
 	}{
-		"an alias and its window typed, read together with the answer on its model": {
+		"an alias and its window typed, then an answer on its model": {
 			recorded: "claude-opus-5-5",
-			reads:    [][]string{append(typedCommand(t, now, "/model", "opus[1m]", "Set model to `Opus 5.5 (1M context)`"), answeredOn(t, now, "claude-opus-5-5", "high"))},
+			entries:  append(typedCommand(t, now, "/model", "opus[1m]", "Set model to `Opus 5.5 (1M context)`"), answeredOn(t, now, "claude-opus-5-5", "high")),
 			want:     "opus[1m]",
 		},
-		"an alias and its window typed, read before the answer on its model": {
-			recorded: "claude-opus-5-5",
-			reads:    [][]string{typedCommand(t, now, "/model", "opus[1m]", "Set model to `Opus 5.5 (1M context)`"), {answeredOn(t, now, "claude-opus-5-5", "high")}},
-			want:     "opus[1m]",
+		"an id and its window typed over an alias of that model": {
+			recorded: "sonnet",
+			entries:  append(typedCommand(t, now, "/model", "claude-sonnet-5-5[1m]", "Set model to `Sonnet 5.5 (1M context)`"), answeredOn(t, now, "claude-sonnet-5-5", "high")),
+			want:     "claude-sonnet-5-5[1m]",
+		},
+		"an older id typed over an alias of its family": {
+			recorded: "sonnet",
+			entries:  append(typedCommand(t, now, "/model", "claude-sonnet-5", "Set model to `Sonnet 5`"), answeredOn(t, now, "claude-sonnet-5", "high")),
+			want:     "claude-sonnet-5",
+		},
+		"an alias typed without the window its record asked for": {
+			recorded: "opus[1m]",
+			entries:  append(typedCommand(t, now, "/model", "opus", "Set model to `Opus 5.5`"), answeredOn(t, now, "claude-opus-5-5", "high")),
+			want:     "opus",
+		},
+		"an id typed without the window its record asked for": {
+			recorded: "claude-opus-5-5[1m]",
+			entries:  append(typedCommand(t, now, "/model", "claude-opus-5-5", "Set model to `Opus 5.5`"), answeredOn(t, now, "claude-opus-5-5", "high")),
+			want:     "claude-opus-5-5",
 		},
 		"a spawned alias while the answers name its model": {
 			recorded: "sonnet",
-			reads:    [][]string{{answeredOn(t, now, "claude-sonnet-5-5", "high")}, {answeredOn(t, now, "claude-sonnet-5-5", "high")}},
+			entries:  []string{answeredOn(t, now, "claude-sonnet-5-5", "high"), answeredOn(t, now, "claude-sonnet-5-5", "high")},
 			want:     "sonnet",
 		},
 		"a spawned alias once an answer names another model": {
 			recorded: "sonnet",
-			reads:    [][]string{{answeredOn(t, now, "claude-sonnet-5-5", "high")}, {answeredOn(t, now, "claude-opus-5-5", "high")}},
+			entries:  []string{answeredOn(t, now, "claude-sonnet-5-5", "high"), answeredOn(t, now, "claude-opus-5-5", "high")},
 			want:     "claude-opus-5-5",
 		},
 		"an id, which is no alias of a newer model's": {
 			recorded: "claude-opus-5",
-			reads:    [][]string{{answeredOn(t, now, "claude-opus-5-5", "high")}},
+			entries:  []string{answeredOn(t, now, "claude-opus-5-5", "high")},
 			want:     "claude-opus-5-5",
+		},
+	} {
+		apart := [][]string{}
+		for _, entry := range testCase.entries {
+			apart = append(apart, []string{entry})
+		}
+		for fall, reads := range map[string][][]string{"read together": {testCase.entries}, "read as each is written": apart} {
+			t.Run(name+", "+fall, func(t *testing.T) {
+				// Arrange
+				service, h, userHome, meta := engineGoblin(t, "alias", testCase.recorded, "high")
+
+				// Act
+				for _, entries := range reads {
+					said(t, userHome, meta.ID, entries...)
+					service.readTrees(context.Background())
+				}
+
+				// Assert
+				recorded, err := state.ReadTaskMeta(h.State, meta.ID)
+				if err != nil || recorded.Model != testCase.want || recorded.Effort != "high" {
+					t.Fatalf("task record = %s at %s err=%v, want %s at high", recorded.Model, recorded.Effort, err, testCase.want)
+				}
+				if model, _ := shownEngine(t, service, meta.ID); model != testCase.want {
+					t.Fatalf("snapshot = %s, want %s", model, testCase.want)
+				}
+			})
+		}
+	}
+}
+
+// A conversation resumed across a start keeps what its earlier run named,
+// and the session that started is the one the record follows: an answer
+// written since the start names the model that runs, whether the earlier run
+// answered on that model or was told it after /model, and what the earlier
+// run was told never replaces the record the start was given.
+func TestAnAnswerSinceAStartNamesTheModelThatRunsWhateverWasNamedBefore(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		recorded string
+		earlier  func(t *testing.T, when time.Time) []string
+		want     string
+	}{
+		"an earlier run that answered on the model": {
+			recorded: "claude-fable-5-2",
+			earlier: func(t *testing.T, when time.Time) []string {
+				return []string{answeredOn(t, when, "claude-opus-5-5", "max")}
+			},
+			want: "claude-opus-5-5",
+		},
+		"an earlier run that was told the model by an alias and its window": {
+			recorded: "claude-fable-5-2",
+			earlier: func(t *testing.T, when time.Time) []string {
+				return typedCommand(t, when, "/model", "opus[1m]", "Set model to `Opus 5.5 (1M context)`")
+			},
+			want: "claude-opus-5-5",
+		},
+		"an earlier run that was told a window the start was not given": {
+			recorded: "claude-opus-5-5",
+			earlier: func(t *testing.T, when time.Time) []string {
+				return typedCommand(t, when, "/model", "opus[1m]", "Set model to `Opus 5.5 (1M context)`")
+			},
+			want: "claude-opus-5-5",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			service, h, userHome, meta := engineGoblin(t, "alias", testCase.recorded, "high")
+			service, h, userHome, meta := engineGoblin(t, "resumed", testCase.recorded, "max")
+			said(t, userHome, meta.ID, append(testCase.earlier(t, spawnTime(meta.SpawnGen).Add(-time.Minute)), answeredOn(t, time.Now(), "claude-opus-5-5", "max"))...)
 
 			// Act
-			for _, entries := range testCase.reads {
-				said(t, userHome, meta.ID, entries...)
-				service.readTrees(context.Background())
-			}
+			service.readTrees(context.Background())
 
 			// Assert
 			recorded, err := state.ReadTaskMeta(h.State, meta.ID)
-			if err != nil || recorded.Model != testCase.want || recorded.Effort != "high" {
-				t.Fatalf("task record = %s at %s err=%v, want %s at high", recorded.Model, recorded.Effort, err, testCase.want)
+			if err != nil || recorded.Model != testCase.want || recorded.Effort != "max" {
+				t.Fatalf("task record = %s at %s err=%v, want %s at max", recorded.Model, recorded.Effort, err, testCase.want)
 			}
 			if model, _ := shownEngine(t, service, meta.ID); model != testCase.want {
 				t.Fatalf("snapshot = %s, want %s", model, testCase.want)
@@ -440,6 +517,19 @@ func TestAnEngineChangedInTheCFOsTerminalBecomesItsEngineRecord(t *testing.T) {
 			saved:   `{"harness":"claude","model":"claude-opus-5-5","effort":"high"}`,
 			entries: append(typedCommand(t, now, "/model", "opus[1m]", "Set model to `Opus 5.5 (1M context)`"), answeredOn(t, now, "claude-opus-5-5", "high")),
 			want:    CFOEngine{Harness: "claude", Model: "opus[1m]", Effort: "high"},
+		},
+		"an id and its window typed over a saved alias of that model": {
+			saved:   `{"harness":"claude","model":"sonnet","effort":"high"}`,
+			entries: append(typedCommand(t, now, "/model", "claude-sonnet-5-5[1m]", "Set model to `Sonnet 5.5 (1M context)`"), answeredOn(t, now, "claude-sonnet-5-5", "high")),
+			want:    CFOEngine{Harness: "claude", Model: "claude-sonnet-5-5[1m]", Effort: "high"},
+		},
+		"a CFO with no engine saved, restarted on a conversation that answered on its model before": {
+			entries: []string{answeredOn(t, now.Add(-2*time.Hour), "claude-opus-5-5", "low"), answeredOn(t, now, "claude-opus-5-5", "high")},
+			want:    CFOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "high"},
+		},
+		"a CFO with no engine saved, restarted on a conversation that was told its model before": {
+			entries: append(typedCommand(t, now.Add(-2*time.Hour), "/model", "opus[1m]", "Set model to `Opus 5.5 (1M context)`"), answeredOn(t, now, "claude-opus-5-5", "high")),
+			want:    CFOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "high"},
 		},
 		"a saved alias while the answers name its model": {
 			saved:   `{"harness":"claude","model":"sonnet","effort":"high"}`,

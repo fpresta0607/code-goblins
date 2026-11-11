@@ -16,18 +16,23 @@ import (
 // setting the running harness made from one an earlier run of it left in
 // the same conversation. A field the record does not name is left empty.
 type Engine struct {
-	// Model is the model as a start of the harness takes it: the id an
-	// answer, a turn or a model change names, or what was typed after Claude
-	// Code's /model, which the harness then set or kept, and which stays
-	// while its answers name that model.
+	// Model is the model's id, as an answer, a turn or a model change names
+	// it.
 	Model string
 	// ModelName is what Claude Code's /model printed for the model its
 	// picker set or kept, with nothing typed after it, until an answer names
 	// the model by its id.
 	ModelName string
 	ModelAt   time.Time
-	Effort    string
-	EffortAt  time.Time
+	// ModelTyped is what was typed after Claude Code's /model, which the
+	// harness then set or kept, as a start takes it, and ModelTypedAt when.
+	// It stays while the answers since name that model, which they name by
+	// its id alone, and goes once an answer names another or the picker sets
+	// one.
+	ModelTyped   string
+	ModelTypedAt time.Time
+	Effort       string
+	EffortAt     time.Time
 }
 
 // CFOOwner is the owner SessionEngine reads the CFO's own conversation for.
@@ -191,14 +196,12 @@ func (l *engineLog) claudeEntry(line []byte) {
 	switch entry.Type {
 	case "assistant":
 		// A notice Claude Code writes itself, such as a usage limit's, names
-		// no model ("<synthetic>") and ran at no effort. An answer names its
-		// model by its id alone, so an alias or a context window typed after
-		// /model stays, as written when it was typed, while the answers name
-		// that model.
+		// no model ("<synthetic>") and ran at no effort.
 		if entry.Message.Model != syntheticModel {
-			if typed := l.engine.Model; typed == entry.Message.Model || !NamesClaudeModel(typed, entry.Message.Model) {
-				l.model(entry.Message.Model, entry.Timestamp)
+			if entry.Message.Model != "" && !NamesClaudeModel(l.engine.ModelTyped, entry.Message.Model) {
+				l.engine.ModelTyped, l.engine.ModelTypedAt = "", time.Time{}
 			}
+			l.model(entry.Message.Model, entry.Timestamp)
 			l.effort(entry.Effort, entry.Timestamp)
 		}
 	case "user":
@@ -225,9 +228,11 @@ func (l *engineLog) claudeEntry(line []byte) {
 				continue
 			}
 			if name := modelSet.FindStringSubmatch(printed); name != nil && command == "/model" {
-				l.engine.Model, l.engine.ModelName, l.engine.ModelAt = value, "", entry.Timestamp.UTC()
 				if value == "" {
-					l.engine.ModelName = name[1]
+					l.engine.Model, l.engine.ModelName, l.engine.ModelAt = "", name[1], entry.Timestamp.UTC()
+					l.engine.ModelTyped, l.engine.ModelTypedAt = "", time.Time{}
+				} else {
+					l.engine.ModelTyped, l.engine.ModelTypedAt = value, entry.Timestamp.UTC()
 				}
 			}
 			if level := effortSet.FindStringSubmatch(printed); level != nil && command == "/effort" {

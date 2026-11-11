@@ -28,15 +28,20 @@ import (
 // started, as a record holds them, each empty when the session's own record
 // has named none since. What a conversation held before the start is an
 // earlier run's, which a switch or a resume has replaced in the record. A
-// model its picker only named is the catalog's id for that name, an effort no
-// start of the harness takes, such as Claude Code's auto, is the harness's
-// own default, and a model that could not be handed to a start, such as
-// Claude Code's default, which names whichever model it picks, is none.
-func (s *Service) runningEngine(kind string, engine fleettree.Engine, started time.Time) (model, effort string) {
+// model typed after /model since the start is the model as typed, and
+// isTyped says so; else it is the id an entry named since, a model its picker
+// only named being the catalog's id for that name. An effort no start of the
+// harness takes, such as Claude Code's auto, is the harness's own default,
+// and a model that could not be handed to a start, such as Claude Code's
+// default, which names whichever model it picks, is none.
+func (s *Service) runningEngine(kind string, engine fleettree.Engine, started time.Time) (model string, isTyped bool, effort string) {
 	if started.IsZero() {
-		return "", ""
+		return "", false, ""
 	}
-	if engine.ModelAt.After(started) {
+	switch {
+	case engine.ModelTypedAt.After(started):
+		model, isTyped = engine.ModelTyped, true
+	case engine.ModelAt.After(started):
 		model = engine.Model
 		if model == "" && engine.ModelName != "" {
 			models, _ := readEngineModels(s.Options.Tree.Home, harness.Kind(kind))
@@ -47,9 +52,9 @@ func (s *Service) runningEngine(kind string, engine fleettree.Engine, started ti
 				}
 			}
 		}
-		if !engineValue(model) {
-			model = ""
-		}
+	}
+	if !engineValue(model) {
+		model = ""
 	}
 	if engine.EffortAt.After(started) && engine.Effort != "" {
 		effort = "default"
@@ -57,15 +62,17 @@ func (s *Service) runningEngine(kind string, engine fleettree.Engine, started ti
 			effort = engine.Effort
 		}
 	}
-	return model, effort
+	return model, isTyped, effort
 }
 
 // isRecordedModel reports whether recorded, the model a session's record
-// names, is the model running, which its harness says it runs. Claude Code's
-// answers name a model by its id alone, so a record that names it by an alias
-// or asks for a context window keeps both while the session runs that model.
-func isRecordedModel(kind, recorded, running string) bool {
-	return recorded == running || kind == "claude" && fleettree.NamesClaudeModel(recorded, running)
+// names, is the model running, which its harness says it runs. A model typed
+// after /model is one a start takes, so the record is that model only where
+// it names it as typed. An id of Claude Code's answers names no alias and no
+// context window, so a record that names that id by an alias or asks for a
+// window keeps both while the session answers on it.
+func isRecordedModel(kind, recorded, running string, isTyped bool) bool {
+	return recorded == running || !isTyped && kind == "claude" && fleettree.NamesClaudeModel(recorded, running)
 }
 
 // keepEngine writes the model and effort goblin meta's own conversation
@@ -74,8 +81,8 @@ func isRecordedModel(kind, recorded, running string) bool {
 // generation that has ended since, is left alone: the next read finds the
 // engine again.
 func (s *Service) keepEngine(meta state.TaskMeta, engine fleettree.Engine) (isChanged bool, err error) {
-	model, effort := s.runningEngine(meta.Harness, engine, spawnTime(meta.SpawnGen))
-	if (model == "" || isRecordedModel(meta.Harness, meta.Model, model)) && (effort == "" || effort == meta.Effort) {
+	model, isTyped, effort := s.runningEngine(meta.Harness, engine, spawnTime(meta.SpawnGen))
+	if (model == "" || isRecordedModel(meta.Harness, meta.Model, model, isTyped)) && (effort == "" || effort == meta.Effort) {
 		return false, nil
 	}
 	stateDir := s.Store.Home.State
@@ -95,7 +102,7 @@ func (s *Service) keepEngine(meta state.TaskMeta, engine fleettree.Engine) (isCh
 	if err != nil {
 		return false, err
 	}
-	if model != "" && !isRecordedModel(meta.Harness, record["model"], model) {
+	if model != "" && !isRecordedModel(meta.Harness, record["model"], model, isTyped) {
 		record["model"], isChanged = model, true
 	}
 	if effort != "" && effort != record["effort"] {
@@ -130,7 +137,7 @@ func (s *Service) keepCFOEngine() (isChanged bool, err error) {
 	if err != nil {
 		return false, nil
 	}
-	model, effort := s.runningEngine(cfo.harness, engine, cfo.since)
+	model, isTyped, effort := s.runningEngine(cfo.harness, engine, cfo.since)
 	if model == "" && effort == "" {
 		return false, nil
 	}
@@ -161,7 +168,7 @@ func (s *Service) keepCFOEngine() (isChanged bool, err error) {
 		}
 		recorded = CFOEngine{Harness: cfo.harness, Model: model, Effort: effort}
 	default:
-		if model != "" && !isRecordedModel(cfo.harness, recorded.Model, model) {
+		if model != "" && !isRecordedModel(cfo.harness, recorded.Model, model, isTyped) {
 			recorded.Model, isChanged = model, true
 		}
 		if effort != "" && effort != recorded.Effort {
