@@ -705,6 +705,7 @@ So a run that a gate's agent started, which the `NO_MISTAKES_GATE` the gate sets
 Three minutes outlasts a short check ahead and a dip of memory under the floor, and is a tenth of the 30 minutes a gate gives an agent unless its machine says otherwise.
 A shorter `--wait` still ends the wait first, a longer one does not lengthen it, and a turn taken within it is never cut.
 The three minutes are the run's whole wait and not each turn's: `cfo gate test` takes a turn for each of its checks, so a check waits only what the checks before it left of them, and a check with none left takes a turn that is free and otherwise leaves the line at once, with the checks before it run and no other started.
+`cfo gate lint` takes a turn for each of its checks the same way, so what is said here of `cfo gate test` holds for it.
 A run that takes no turn in that time starts nothing and leaves the line: `cfo gate turn` exits 125 and `cfo gate test` and `cfo gate prepush` exit 1, each with a line that tells the agent to go on without the run:
 
 ```text
@@ -746,7 +747,7 @@ A gate shows a step's output only once the step has ended, so while a run waits 
 
 | Exit code | Last line on standard error | What happened |
 | --- | --- | --- |
-| 125 | `cfo gate turn: this run takes no turn: <reason>`, `cfo gate turn: run it without cfo gate turn: <command>`, or `cfo gate turn: the run ended its command, since free memory or commit stayed under the desktop reserve: <detail>` | The run gave no result of its command's. Either the line ended the command for the machine's memory, or the command was never started. The line's store or the machine's memory could not be read, the run's record could not be begun, the run was interrupted before its command started, standard output or error was no file, as a process's always is, the command waits on a gate, which the line before the last says, or the arguments named no command, which also prints the usage. |
+| 125 | `cfo gate turn: this run takes no turn: <reason>`, `cfo gate turn: run it without cfo gate turn: <command>`, or `cfo gate turn: the run ended its command, since free memory or commit stayed under the desktop reserve: <detail>` | The run gave no result of its command's. Either the line ended the command for the machine's memory, or the command was never started. The line's store or the machine's memory could not be read, the run's record could not be begun, no turn came within the run's `--wait` or within the three minutes a run that a gate's agent started waits, the run was interrupted before its command started, standard output or error was no file, as a process's always is, the command waits on a gate, which the line before the last says, or the arguments named no command, which also prints the usage. |
 | 126 | `cfo gate turn: the command did not start: <error>` | A required environment binding was refused before admission or once the turn was taken, or a turn was taken and given back and `<program>` could not be started, or the run's custody of it could not be recorded first. |
 
 Neither is a test result, so a caller reads 125 as "the machine gave this run no turn" and never asks an agent to repair tests that did not run.
