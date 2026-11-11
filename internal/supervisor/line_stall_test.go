@@ -65,6 +65,46 @@ func TestAHeavyLineStandingStillWakesTheCFOOnceAfterFiveMinutes(t *testing.T) {
 	}
 }
 
+// Readings with a gap between them longer than two passes are not readings
+// in a row: a line that stood still before the gap and after it wakes the CFO
+// only once it has stood still five minutes after the gap, and says so.
+func TestAGapBetweenReadingsStartsTheLineStallsFiveMinutesAgain(t *testing.T) {
+	// Arrange
+	s, h := fleetService(t)
+	s.Options.Dispatch = &Dispatch{
+		Memory: func() (Memory, error) {
+			return Memory{Available: 6 * gigabyte, CommitAvailable: 6 * gigabyte, Total: 32 * gigabyte}, nil
+		},
+		LineStall: func(Memory) (string, error) { return "1 of 1 turns free and 1 in line", nil },
+	}
+	now := time.Date(2026, 11, 11, 18, 47, 0, 0, time.UTC)
+	read := func(readings int) int {
+		t.Helper()
+		before := len(lineStallWakes(t, h))
+		for range readings {
+			if err := s.checkFleet(t.Context(), now); err != nil {
+				t.Fatal(err)
+			}
+			now = now.Add(time.Minute)
+		}
+		return len(lineStallWakes(t, h)) - before
+	}
+
+	// Act
+	beforeGap := read(4)
+	now = now.Add(time.Hour)
+	afterGap := read(5)
+	atFive := read(1)
+
+	// Assert
+	if beforeGap != 0 || afterGap != 0 || atFive != 1 {
+		t.Fatalf("wakes: %d before the gap, %d in the five minutes after it, %d at five; want 0, 0, 1", beforeGap, afterGap, atFive)
+	}
+	if detail := lineStallWakes(t, h)[0].Detail; !strings.Contains(detail, "heavy_line_stalled: for 5m0s") {
+		t.Errorf("wake %q; want the five minutes since the gap", detail)
+	}
+}
+
 // MachineLineStall reads a line standing still from the machine's store,
 // naming the line's lock a live process has held long, and reads nothing
 // while a run holds the one turn's place or memory is short of the floor.

@@ -235,7 +235,7 @@ func StuckLock(dir string, now time.Time) (*lock.Info, error) {
 
 // custodyReleaseRetry is how often a lock this process could not give back
 // is tried again by itself.
-var custodyReleaseRetry = time.Second
+const custodyReleaseRetry = time.Second
 
 // releaseCustodyLock gives the line's lock back; a test makes it fail.
 var releaseCustodyLock = lock.ReleaseExclusiveOwned

@@ -380,6 +380,7 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if err != nil {
 		// No reading is no evidence either way: the next two decide.
 		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 		return planningErr
 	}
 	if err := s.keepPools(memory, now); err != nil {
@@ -393,10 +394,12 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	s.starts.Unlock()
 	if isRestarting {
 		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 		return planningErr
 	}
 	if w.MemoryReadAt.IsZero() || now.Sub(w.MemoryReadAt) > 2*fleetWatchEvery || !now.After(w.MemoryReadAt) {
 		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 	}
 	w.MemoryReadAt = now
 	low := min(memory.Available, memory.CommitAvailable)
@@ -412,7 +415,7 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 		return errors.Join(planningErr, s.pauseAtMemoryFloor(w, memory, now))
 	}
-	planningErr = errors.Join(planningErr, s.checkLineStall(w, memory, now))
+	stallErr := s.checkLineStall(w, memory, now)
 	w.MemoryBelow = 0
 	if low < memoryNext {
 		w.MemoryAbove = 0
@@ -424,17 +427,17 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	// start would dispatch is refused meanwhile, so nothing comes back or
 	// starts by itself at this reading.
 	if update.Installing(s.Store.Home.State) {
-		return planningErr
+		return errors.Join(planningErr, stallErr)
 	}
 	hold, lineErr := s.heavyLineHold(w, memory)
 	// What a restart ended comes back before anything else starts by itself, and no
 	// memory wake offers its room to other work while it does.
 	if planningErr == nil {
 		if isComing, err := s.comeBack(memory, w, hold); isComing || err != nil {
-			return errors.Join(lineErr, err)
+			return errors.Join(lineErr, stallErr, err)
 		}
 	}
-	planningErr = errors.Join(planningErr, lineErr)
+	planningErr = errors.Join(planningErr, lineErr, stallErr)
 	if low < memoryNext {
 		return planningErr
 	}
@@ -479,6 +482,9 @@ func (s *Service) checkLineStall(w *fleetWakes, memory Memory, now time.Time) er
 		return nil
 	}
 	stall, err := dispatch.LineStall(memory)
+	if err != nil {
+		err = fmt.Errorf("the machine's heavy line cannot be read for a stall, so none is told: %w", err)
+	}
 	if err = w.failing("line-stall", err); err != nil || stall == "" {
 		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 		return err
