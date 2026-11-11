@@ -92,6 +92,7 @@ for (const width of [1440, 390]) {
     await expect(yours.locator(".connector-status")).toHaveText(["Verified", "Verified", "Sign in", "Installed", "Verified", "Set", "Verified"]);
     await expect(row(main, "Supabase").locator(".connector-state.is-verified .icon")).toHaveCount(1);
     await expect(row(main, "Context7").locator(".connector-status button.connector-connect")).toHaveAccessibleName("Sign in to Context7");
+    await expect(row(main, "Context7").locator(".connector-status button"), "the board's green button").toHaveClass(/\bprimary\b/);
     await expect(row(main, "Context7").locator(".connector-state, .connector-status .icon")).toHaveCount(0);
     await expect(row(main, "GITHUB_TOKEN").locator(".connector-state.is-quiet")).toHaveText("Set");
     // Assert: only Verified is green, and the rest, with a change waiting for
@@ -206,7 +207,7 @@ for (const width of [1440, 390]) {
     // Assert: the goblin says why beside its own Sign in, with no amber word.
     const context7 = main.getByRole("article", { name: "Context7" });
     await expect(goblinRow(context7, ZEKE).locator(".connector-use")).toHaveText("Sign-in required.");
-    await expect(goblinRow(context7, ZEKE).getByRole("button", { name: "Sign in to Context7 for " + ZEKE, exact: true })).toBeVisible();
+    await expect(goblinRow(context7, ZEKE).getByRole("button", { name: "Sign in to Context7 for " + ZEKE, exact: true }), "the board's green button, as Connect is").toHaveClass(/\bprimary\b/);
     await expectFits(page, main);
     await page.screenshot({ path: testInfo.outputPath(`connector-context7-${width}.png`), fullPage: true });
   });

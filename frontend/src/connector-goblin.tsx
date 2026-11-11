@@ -18,8 +18,9 @@ function repairWords(action: string, name: string): string {
 // Disconnect where the board can give it the connector or take it back. A
 // verified one says Verified alone, since the page's check details say what
 // its check did and did not prove (the Overlord, 2026-11-11), one that must
-// sign in says why beside its Sign in button, and a change that waits for the
-// goblin's next terminal says why in a quiet line.
+// sign in says why beside its Sign in, the board's green button as Connect
+// is, and a change that waits for the goblin's next terminal says why in a
+// quiet line.
 export function ConnectorGoblin({ connector, use, task, isBusy, isChanging, onFix, onGive }: {
   connector: Connector; use: ConnectorUse; task: Task; isBusy: boolean; isChanging: boolean;
   onFix: (action: string) => void; onGive: (isGiving: boolean) => void;
@@ -38,7 +39,7 @@ export function ConnectorGoblin({ connector, use, task, isBusy, isChanging, onFi
       {entry.restartReason && <span className="connector-waiting">{entry.restartReason}</span>}
     </span>
     <span className="connector-goblin-actions">
-      {isFailing && entry.actions.map((action) => <button key={action} type="button" disabled={isBusy} aria-label={connectionAction(action, connector.name) + " for " + name} onClick={() => onFix(action)}>
+      {isFailing && entry.actions.map((action) => <button key={action} type="button" className={action.startsWith("store:") ? undefined : "primary"} disabled={isBusy} aria-label={connectionAction(action, connector.name) + " for " + name} onClick={() => onFix(action)}>
         <Icon name={action.startsWith("store:") ? "key" : action === "cli" ? "terminal" : "external"} />{repairWords(action, connector.name)}
       </button>)}
       {entry.grant && <button type="button" className={use.isCarried ? undefined : "primary"} disabled={isChanging} aria-label={(use.isCarried ? "Disconnect " + connector.name + " from " : "Connect " + connector.name + " to ") + name} onClick={() => onGive(!use.isCarried)}>{use.isCarried ? "Disconnect" : "Connect"}</button>}

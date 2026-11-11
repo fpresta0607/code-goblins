@@ -48,6 +48,7 @@
 .connector-waiting { grid-column: 2 / -1; margin: 0; color: var(--muted); overflow-wrap: anywhere; }
 .connector-connect { position: relative; z-index: 1; padding: 6px 16px; border-color: var(--glass-border-hover); border-radius: 999px; font-weight: 700; }
 .connector-connect:hover { background: var(--field-bg); border-color: var(--accent-green); }
+.connector-connect.primary { border-color: var(--accent-green); }
 
 /* A connector's own page. */
 .connector-detail { display: grid; gap: 18px; min-width: 0; }
