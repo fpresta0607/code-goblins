@@ -64,8 +64,9 @@ func ReviewImages(h home.Home, taskID string, images []string) ([]string, error)
 // of roots, reached through plain directories, and within the size cap. It
 // returns the file at its start with its sniffed type. The path is never
 // resolved through links: it must already be spelled under a root, either as
-// the task records it or in its canonical form. 8.3 short names are expanded
-// on both sides first, since they are the same directory under another name.
+// the task records it or in its canonical form. A folder of the root matches
+// by its 8.3 short name too, since that is the same directory under another
+// name.
 func openReviewImage(roots []string, path string) (*os.File, string, error) {
 	f, err := openInside(roots, path)
 	if errors.Is(err, errOutsideRoots) {
@@ -87,23 +88,22 @@ var errOutsideRoots = errors.New("outside every allowed folder")
 
 // openInside opens path only when it is a regular file inside one of roots,
 // reached through plain directories, spelled under a root as the task records
-// it or in its canonical form, 8.3 short names expanded on both sides.
+// it or in its canonical form, each folder of the root by its long or its 8.3
+// short name. Nothing looks path up on disk before it matches a root: a path
+// on a network share would reach the host it names before it was refused.
 func openInside(roots []string, path string) (*os.File, error) {
 	abs, err := fsx.AbsClean(path)
 	if err != nil {
 		return nil, err
 	}
-	abs = fsx.LongPath(abs)
 	for _, dir := range roots {
 		canonical, err := fsx.Canonical(dir)
 		if err != nil {
 			continue
 		}
 		rel := ""
-		for _, spelling := range []string{fsx.LongPath(filepath.Clean(dir)), canonical} {
-			r, err := filepath.Rel(spelling, abs)
-			if err == nil && r != "." && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) && !filepath.IsAbs(r) {
-				rel = r
+		for _, spelling := range []string{filepath.Clean(dir), canonical} {
+			if rel = pathBelow(spelling, abs); rel != "" {
 				break
 			}
 		}
@@ -119,6 +119,36 @@ func openInside(roots []string, path string) (*os.File, error) {
 		return f, err
 	}
 	return nil, errOutsideRoots
+}
+
+// folderSpellings looks a root up on disk for its long and its 8.3 short
+// spelling. It is a variable so a test sees every path that is looked up.
+var folderSpellings = func(dir string) (long, short string) {
+	return fsx.LongPath(dir), fsx.ShortPath(dir)
+}
+
+// pathBelow returns the part of path below dir, or "" when path is not below
+// it. Only dir is looked up on disk, and path is compared as it is spelled,
+// without regard to case, as Windows compares names.
+func pathBelow(dir, path string) string {
+	long, short := folderSpellings(dir)
+	longNames, shortNames, names := pathNames(long), pathNames(short), pathNames(path)
+	if len(shortNames) != len(longNames) || len(names) <= len(longNames) {
+		return ""
+	}
+	for i, name := range names[:len(longNames)] {
+		if !strings.EqualFold(name, longNames[i]) && !strings.EqualFold(name, shortNames[i]) {
+			return ""
+		}
+	}
+	return filepath.Join(names[len(longNames):]...)
+}
+
+// pathNames splits a clean absolute path into its volume and the names after
+// it.
+func pathNames(path string) []string {
+	volume := filepath.VolumeName(path)
+	return append([]string{volume}, strings.FieldsFunc(path[len(volume):], func(r rune) bool { return r == filepath.Separator })...)
 }
 
 func sniffReviewImage(f *os.File) (string, error) {
