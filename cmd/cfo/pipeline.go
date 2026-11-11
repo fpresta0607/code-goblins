@@ -586,7 +586,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 				return fmt.Errorf("%s: %w", recorded, daemonReplyMissed(ctx, reader, meta, branch, args[0], pipeline.IsDaemonHealthMissed(result)))
 			}
 			if tries > 1 {
-				return fmt.Errorf("%s after %d tries a busy gate daemon turned away, and no ordinary response was attempted", recorded, tries)
+				return fmt.Errorf("%s: after a busy gate daemon turned away every earlier try at its health reply, try %d reached it and was refused; that refusal is the recorded outcome, and no ordinary response was attempted", recorded, tries)
 			}
 			return fmt.Errorf("%s and no ordinary response or retry was attempted", recorded)
 		}
