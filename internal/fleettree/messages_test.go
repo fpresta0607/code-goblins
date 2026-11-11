@@ -1922,3 +1922,208 @@ func TestAPlanIsReadOnlyFromItsOwnToolsShape(t *testing.T) {
 		})
 	}
 }
+
+// taskCreated is the result of a TaskCreate that made task id, as Claude
+// Code writes it, and taskUpdated that of a TaskUpdate of it.
+func taskCreated(uuid, call, id, subject string) object {
+	return answered(uuid, call, "Task #"+id+" created successfully: "+subject, object{"task": object{"id": id, "subject": subject}}, nil)
+}
+
+func taskUpdated(uuid, call, id string) object {
+	return answered(uuid, call, "Updated task #"+id+" status", object{"success": true, "taskId": id, "updatedFields": []string{"status"}}, nil)
+}
+
+// plans are the plans of the blocks of a page's messages, by call id.
+func plans(page MessagePage) map[string][]PlanStep {
+	shown := map[string][]PlanStep{}
+	for _, message := range page.Messages {
+		for _, block := range message.Blocks {
+			if block.Kind == BlockCall {
+				shown[block.CallID] = block.Plan
+			}
+		}
+	}
+	return shown
+}
+
+// Newer Claude Code builds keep their checklist with TaskCreate, which adds
+// one task, and TaskUpdate, which changes one by its ID (#1669). The list
+// they build over several calls, across answers, reads as one plan at the
+// latest task call that ran, a deleted task off it and a renamed one by its
+// new words; every earlier task call, and one that failed, is its row.
+func TestTaskCallsBuildOnePlanAtTheLatestThatRan(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	path := conversation(t, home,
+		prompted("u1", "Fix the swipe"),
+		answer("a1", "msg_1", useBlock("toolu_1", "TaskCreate", object{"subject": "Read the touch handlers", "description": "Find where a swipe starts", "activeForm": "Reading the touch handlers"})),
+		taskCreated("r1", "toolu_1", "1", "Read the touch handlers"),
+		answer("a2", "msg_1", useBlock("toolu_2", "TaskCreate", object{"subject": "Fix the swipe", "description": "Hand the swipe to the history", "activeForm": "Fixing the swipe"})),
+		taskCreated("r2", "toolu_2", "2", "Fix the swipe"),
+		answer("a3", "msg_1", useBlock("toolu_3", "TaskCreate", object{"subject": "Run the phone spec", "description": "The swipe spec on a phone", "activeForm": "Running the phone spec"})),
+		taskCreated("r3", "toolu_3", "3", "Run the phone spec"),
+		answer("a4", "msg_1", useBlock("toolu_4", "TaskCreate", object{"subject": "A note to drop", "description": "Dropped later", "activeForm": "Noting"})),
+		taskCreated("r4", "toolu_4", "4", "A note to drop"),
+		answer("a5", "msg_2", useBlock("toolu_5", "TaskUpdate", object{"taskId": "1", "status": "completed"})),
+		taskUpdated("r5", "toolu_5", "1"),
+		answer("a6", "msg_2", useBlock("toolu_6", "TaskUpdate", object{"taskId": "2", "status": "in_progress"})),
+		taskUpdated("r6", "toolu_6", "2"),
+		answer("a7", "msg_2", useBlock("toolu_7", "TaskUpdate", object{"taskId": "4", "status": "deleted"})),
+		taskUpdated("r7", "toolu_7", "4"),
+		answer("a8", "msg_2", useBlock("toolu_8", "TaskUpdate", object{"taskId": "3", "subject": "Run the phone and desktop specs"})),
+		taskUpdated("r8", "toolu_8", "3"),
+		answer("a9", "msg_2", useBlock("toolu_9", "TaskUpdate", object{"taskId": "2", "status": "completed"})),
+		failedResult("r9", "toolu_9", "<tool_use_error>InputValidationError: TaskUpdate failed due to the following issue:\nThe required parameter `taskId` is missing</tool_use_error>"),
+	)
+	reader := Reader{Home: home}
+
+	// Act
+	page, _, err := reader.MessagePage(path, -1)
+
+	// Assert
+	if err != nil || len(page.Messages) != 3 {
+		t.Fatalf("MessagePage = %+v, %v; want the prompt and two answers", page.Messages, err)
+	}
+	want := []PlanStep{{"Read the touch handlers", PlanCompleted}, {"Fix the swipe", PlanInProgress}, {"Run the phone and desktop specs", PlanPending}}
+	shown := plans(page)
+	for _, call := range []string{"toolu_1", "toolu_2", "toolu_3", "toolu_4", "toolu_5", "toolu_6", "toolu_7", "toolu_9"} {
+		if shown[call] != nil {
+			t.Errorf("call %s shows the plan %+v; want its row alone", call, shown[call])
+		}
+	}
+	if !reflect.DeepEqual(shown["toolu_8"], want) {
+		t.Errorf("the latest task call that ran shows %+v; want %+v", shown["toolu_8"], want)
+	}
+	if created := page.Messages[1].Blocks[0]; created.Subject != "Read the touch handlers" {
+		t.Errorf("the first TaskCreate's row reads %q; want the task's subject", created.Subject)
+	}
+	if failed := page.Messages[2].Blocks[4]; failed.CallID != "toolu_9" || failed.State != CallFailed {
+		t.Errorf("the failed TaskUpdate = %+v; want its failed row", failed)
+	}
+}
+
+// A task call that did not run changes nothing: one that failed, was denied
+// or was interrupted is its row with its outcome, and the plan stays at the
+// task call before it, as Claude Code's list stayed as it was.
+func TestATaskCallThatDidNotRunLeavesThePlanWhereItWas(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		result object
+		state  string
+	}{
+		{"failed", failedResult("r2", "toolu_2", "<tool_use_error>Task not found</tool_use_error>"), CallFailed},
+		{"denied", answered("r2", "toolu_2", "Permission for this action was denied.", "Error: Permission denied", object{"permissionDecision": object{"decision": "reject", "source": "config"}, "toolDenialKind": "automode-blocked"}), CallDenied},
+		{"interrupted", answered("r2", "toolu_2", "The user doesn't want to proceed with this tool use.", object{"interrupted": true}, object{"toolDenialKind": "interrupted"}), CallInterrupted},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			path := conversation(t, home,
+				answer("a1", "msg_1", useBlock("toolu_1", "TaskCreate", object{"subject": "Fix the swipe", "description": "Hand the swipe to the history"})),
+				taskCreated("r1", "toolu_1", "1", "Fix the swipe"),
+				answer("a2", "msg_1", useBlock("toolu_2", "TaskUpdate", object{"taskId": "1", "status": "completed"})),
+				test.result,
+			)
+			reader := Reader{Home: home}
+
+			// Act
+			page, _, err := reader.MessagePage(path, -1)
+
+			// Assert
+			if err != nil || len(page.Messages) != 1 || len(page.Messages[0].Blocks) != 2 {
+				t.Fatalf("MessagePage = %+v, %v; want one answer of two calls", page.Messages, err)
+			}
+			created, update := page.Messages[0].Blocks[0], page.Messages[0].Blocks[1]
+			if want := []PlanStep{{"Fix the swipe", PlanPending}}; !reflect.DeepEqual(created.Plan, want) {
+				t.Errorf("the TaskCreate shows %+v; want %+v", created.Plan, want)
+			}
+			if update.State != test.state || update.Plan != nil {
+				t.Errorf("the TaskUpdate = %+v; want its %s row", update, test.state)
+			}
+		})
+	}
+}
+
+// A list the conversation cannot know shows no plan, never a part of one: a
+// TaskUpdate of a task no call here made shows the list was made elsewhere,
+// and a TaskCreate whose result names no task leaves the list unreadable.
+func TestATaskListTheConversationCannotKnowShowsNoPlan(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		entries []any
+	}{
+		{"a task made elsewhere", []any{
+			answer("a1", "msg_1", useBlock("toolu_1", "TaskCreate", object{"subject": "Fix the swipe"})),
+			taskCreated("r1", "toolu_1", "2", "Fix the swipe"),
+			answer("a2", "msg_1", useBlock("toolu_2", "TaskUpdate", object{"taskId": "1", "status": "completed"})),
+			taskUpdated("r2", "toolu_2", "1"),
+		}},
+		{"a made task with no ID", []any{
+			answer("a1", "msg_1", useBlock("toolu_1", "TaskCreate", object{"subject": "Fix the swipe"})),
+			answered("r1", "toolu_1", "Task created", object{"success": true}, nil),
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			path := conversation(t, home, test.entries...)
+			reader := Reader{Home: home}
+
+			// Act
+			page, _, err := reader.MessagePage(path, -1)
+
+			// Assert
+			if err != nil || len(page.Messages) != 1 {
+				t.Fatalf("MessagePage = %+v, %v; want one answer", page.Messages, err)
+			}
+			for call, plan := range plans(page) {
+				if plan != nil {
+					t.Errorf("call %s shows the plan %+v; want none", call, plan)
+				}
+			}
+		})
+	}
+}
+
+// A long conversation's tail may begin after a task was made, so the page a
+// read of the tail serves shows no plan, and the read of the whole
+// conversation puts the whole list at its latest task call, a change a view
+// following the tail's page is sent.
+func TestATaskListShowsOnlyOnceTheWholeConversationIsRead(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	entries := []any{
+		prompted("u-first", "Plan the fix"),
+		answer("a1", "msg_first", useBlock("toolu_1", "TaskCreate", object{"subject": "Read the touch handlers"})),
+		taskCreated("r1", "toolu_1", "1", "Read the touch handlers"),
+	}
+	entries = append(entries, beyondTheTail()...)
+	entries = append(entries,
+		prompted("u-next", "Go on"),
+		answer("a2", "msg_next", useBlock("toolu_2", "TaskCreate", object{"subject": "Fix the swipe"})),
+		taskCreated("r2", "toolu_2", "2", "Fix the swipe"),
+	)
+	path := conversation(t, home, entries...)
+	reader := Reader{Home: home}
+	tail, cursor, err := reader.MessagePage(path, -1)
+	if err != nil || len(tail.Messages) != 2 || !tail.More {
+		t.Fatalf("MessagePage = %+v, %v; want the tail's prompt and answer, and more", tail.Messages, err)
+	}
+
+	// Act
+	_, _, olderErr := reader.MessagePage(path, tail.Messages[0].Seq)
+	changed, _, _, isAnew, sinceErr := reader.MessagesSince(path, cursor)
+	whole, _, wholeErr := reader.MessagePage(path, -1)
+
+	// Assert
+	if shown := plans(tail); shown["toolu_2"] != nil {
+		t.Errorf("the tail's page shows the plan %+v; want none until the whole conversation is read", shown["toolu_2"])
+	}
+	want := []PlanStep{{"Read the touch handlers", PlanPending}, {"Fix the swipe", PlanPending}}
+	if shown := plans(whole); olderErr != nil || wholeErr != nil || !reflect.DeepEqual(shown["toolu_2"], want) {
+		t.Errorf("the newest page once read whole shows %+v, %v, %v; want %+v", shown["toolu_2"], olderErr, wholeErr, want)
+	}
+	if sinceErr != nil || isAnew || len(changed) != 1 || changed[0].ID != "msg_next" || !reflect.DeepEqual(changed[0].Blocks[0].Plan, want) {
+		t.Errorf("MessagesSince the tail's page = %+v, anew %t, %v; want the answer with the plan", changed, isAnew, sinceErr)
+	}
+}

@@ -357,8 +357,8 @@ func toolName(name string) string {
 }
 
 // callSubject is what a tool was called on, as Claude Code shows it: the
-// command, file, pattern, address, query or description it was given, a file
-// under the folder the sub-agent works in relative to it.
+// command, file, pattern, address, query, subject or description it was
+// given, a file under the folder the sub-agent works in relative to it.
 func callSubject(input json.RawMessage, cwd string) string {
 	var fields struct {
 		Command     string `json:"command"`
@@ -366,6 +366,7 @@ func callSubject(input json.RawMessage, cwd string) string {
 		Pattern     string `json:"pattern"`
 		URL         string `json:"url"`
 		Query       string `json:"query"`
+		Subject     string `json:"subject"`
 		Description string `json:"description"`
 		Path        string `json:"path"`
 		Prompt      string `json:"prompt"`
@@ -374,7 +375,7 @@ func callSubject(input json.RawMessage, cwd string) string {
 	if cwd != "" && len(fields.FilePath) > len(cwd)+1 && strings.EqualFold(fields.FilePath[:len(cwd)], cwd) && strings.ContainsRune(`\/`, rune(fields.FilePath[len(cwd)])) {
 		fields.FilePath = fields.FilePath[len(cwd)+1:]
 	}
-	for _, subject := range []string{fields.Command, fields.FilePath, fields.Pattern, fields.URL, fields.Query, fields.Description, fields.Path, fields.Prompt} {
+	for _, subject := range []string{fields.Command, fields.FilePath, fields.Pattern, fields.URL, fields.Query, fields.Subject, fields.Description, fields.Path, fields.Prompt} {
 		if line := firstLine(subject); line != "" {
 			return line
 		}
