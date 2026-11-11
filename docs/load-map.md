@@ -159,7 +159,7 @@ Everything in the user rows above still loads for a goblin; spawn adds the follo
 
 **Why this repository has a `.no-mistakes.yaml`.**
 It is this repository's own settings file for the no-mistakes gate, the local pipeline (review, test, document, lint, push, pull request, CI) every change passes before it merges.
-Three of its settings shape how a gate agent runs.
+Four of its settings shape how the gate runs.
 It sets `disable_project_settings: true`, so the gate's reviewers and fixers never load this repository's `AGENTS.md` or `CLAUDE.md` as project instructions and keep their assigned gate phase separate from the project's operating contract.
 It sets how many automatic fix rounds review, rebase and CI may take, and names no test or lint count, so the machine config that the home's pipeline policy sets governs both.
 It sets `rebase.strategy: merge`, so the gate's rebase step merges a moved main into the branch instead of replaying the branch's commits onto it.
