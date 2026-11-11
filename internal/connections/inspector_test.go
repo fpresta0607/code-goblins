@@ -219,10 +219,10 @@ func TestInspectorExplainsCredentialGrantDifferencesFromObservedProcess(t *testi
 		isGranted, isLoaded, isStored, isRejected bool
 		wantReason                                string
 	}{
-		{"granted absent", true, false, true, false, "Restart to load"},
+		{"granted absent", true, false, true, false, "reach this goblin at its next terminal"},
 		{"granted absent unstored", true, false, false, false, ""},
 		{"granted absent rejected by probe", true, false, true, true, ""},
-		{"revoked present", false, true, true, false, "Restart to remove"},
+		{"revoked present", false, true, true, false, "leave this goblin at its next terminal"},
 		{"granted present", true, true, true, false, ""},
 		{"revoked absent", false, false, true, false, ""},
 	} {
@@ -289,7 +289,7 @@ func TestRestartIsNotClaimedForCredentialsLaunchWithholds(t *testing.T) {
 			result := inspector.Check(context.Background(), meta)
 
 			index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == "service:repo" })
-			if index < 0 || result.Entries[index].Status != "connected" && result.Entries[index].Status != "unverified" {
+			if index < 0 || result.Entries[index].Status != "provided" {
 				t.Fatalf("fixture service is not one launch would load: %+v", result)
 			}
 			if result.Entries[index].RestartRequired || result.Entries[index].RestartReason != "" {
@@ -306,8 +306,8 @@ func TestSharedAndPartiallyLoadedCredentialsHaveAccurateRestartExplanations(t *t
 		wantRestart bool
 		wantReason  string
 	}{
-		{"shared revoked service", []string{"other"}, false, "Restarting retains those shared credentials"},
-		{"partially loaded service", []string{"repo"}, true, "Restart to load available credentials"},
+		{"shared revoked service", []string{"other"}, false, "another account this goblin has uses them too"},
+		{"partially loaded service", []string{"repo"}, true, "Its missing variables reach this goblin at its next terminal"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			inspector, meta := inspectorFixture(t)
@@ -507,7 +507,7 @@ func TestRuntimeFailureCannotReuseConnectedOrProvidedEvidence(t *testing.T) {
 		return RuntimeObservation{}, errors.New("Goblin runtime unavailable.")
 	}
 	snapshot := inspector.Check(context.Background(), meta)
-	if snapshot.Error == "" || len(snapshot.Entries) != 4 || !slices.ContainsFunc(snapshot.Entries, func(entry Entry) bool { return entry.ID == "connector:crawler" && entry.Status == "unverified" }) {
+	if snapshot.Error == "" || len(snapshot.Entries) != 4 || !slices.ContainsFunc(snapshot.Entries, func(entry Entry) bool { return entry.ID == "connector:crawler" && entry.Status == "unchecked" }) {
 		t.Fatalf("missing unavailable evidence: %+v", snapshot)
 	}
 	for _, entry := range snapshot.Entries {
@@ -647,6 +647,58 @@ func TestInspectorNamesWhatEachConnectorOffers(t *testing.T) {
 		if index < 0 || result.Entries[index].Grant != want {
 			t.Errorf("%s offers %q, want %q: %+v", id, entryGrant(result.Entries, index), want, result.Entries)
 		}
+	}
+}
+
+// An account's variables each say whether the goblin's terminal holds them,
+// by name, with the service that declares them: none of them reads
+// unverified for a check only the account can have.
+func TestAnAccountsVariablesNameTheServiceThatDeclaresThemWithoutAWarningEach(t *testing.T) {
+	// Arrange
+	inspector, meta := inspectorFixture(t)
+	meta.Credentials, meta.HasCredentials = []string{"repo"}, true
+	for _, name := range []string{"FIXTURE_SECRET", "FIXTURE_URL", "FIXTURE_REPO_TOKEN"} {
+		storeConnectionCredential(t, inspector, meta, name)
+	}
+	writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"repo","method":"env","env":["FIXTURE_SECRET","FIXTURE_URL","FIXTURE_REPO_TOKEN"]}]}`)
+
+	// Act
+	result := inspector.Check(context.Background(), meta)
+
+	// Assert
+	for id, want := range map[string][2]string{"service:repo": {"provided", ""}, "credential:FIXTURE_SECRET": {"provided", "repo"}, "credential:FIXTURE_URL": {"missing", "repo"}, "credential:FIXTURE_REPO_TOKEN": {"missing", "repo"}} {
+		index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == id })
+		if index < 0 || result.Entries[index].Status != want[0] || result.Entries[index].Account != want[1] {
+			t.Errorf("%s is not %s under %q: %+v", id, want[0], want[1], result.Entries)
+		}
+	}
+	if slices.ContainsFunc(result.Entries, func(entry Entry) bool { return entry.Kind == "credential" && entry.Status == "unverified" }) {
+		t.Fatalf("a variable carries a warning of its own: %+v", result.Entries)
+	}
+	data, _ := json.Marshal(result)
+	if strings.Contains(string(data), "synthetic-value") || strings.Contains(string(data), "synthetic-stored-value") {
+		t.Fatal("report exposed a credential value")
+	}
+}
+
+// A store that cannot be opened checks nothing, so an account it holds reads
+// not checked, with why, and offers nothing to store into it.
+func TestAnAccountReadsNotCheckedWhenTheStoreCannotBeOpened(t *testing.T) {
+	// Arrange
+	inspector, meta := inspectorFixture(t)
+	writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"repo","method":"env","env":["FIXTURE_MISSING_TOKEN"]}]}`)
+	inspector.OpenStore = func() (auth.Store, error) { return nil, errors.New("private diagnostic") }
+
+	// Act
+	result := inspector.Check(context.Background(), meta)
+
+	// Assert
+	index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == "service:repo" })
+	if index < 0 || result.Entries[index].Status != "unchecked" || result.Entries[index].Detail != "Not checked: the credential store could not be opened." || len(result.Entries[index].Actions) != 0 {
+		t.Fatalf("store failure = %+v", result.Entries)
+	}
+	if result.Error != "Credential store is unavailable." {
+		t.Fatalf("error = %q", result.Error)
 	}
 }
 

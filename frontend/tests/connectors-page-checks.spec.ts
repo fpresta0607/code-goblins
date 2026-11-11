@@ -66,7 +66,7 @@ test("a failing connector's repair opens its Command Center card, and the goblin
   await expect(page.locator(".connector-row").filter({ hasText: "Context7" }).locator(".connector-state.is-trouble")).toHaveText("Sign in");
   const detail = await openConnector(page, "Context7");
   const goblin = detail.getByRole("listitem").filter({ hasText: NAME });
-  await expect(goblin.getByText("Sign in: Sign-in required.", { exact: true })).toBeVisible();
+  await expect(goblin.locator(".connector-use")).toHaveText("Sign in. Sign-in required.");
 
   // Act
   await goblin.getByRole("button", { name: "Sign in to Context7 for " + NAME, exact: true }).click();
@@ -77,7 +77,7 @@ test("a failing connector's repair opens its Command Center card, and the goblin
   await expect(page.locator(".connector-notice")).toContainText("Login card is ready in the Command Center.");
   await expect(page.locator(".connector-notice").getByRole("button", { name: "Open repair card" })).toBeVisible();
   await page.clock.runFor(5 * 60 * 1000);
-  await expect(goblin.getByText("Sign in: Sign-in required.", { exact: true })).toBeVisible();
+  await expect(goblin.locator(".connector-use")).toHaveText("Sign in. Sign-in required.");
   expect(supervisor.reads).toEqual({ [PROOF]: 1 });
 
   // Act: the repair ends.
@@ -85,11 +85,49 @@ test("a failing connector's repair opens its Command Center card, and the goblin
   await page.evaluate(() => (window as unknown as { finishRepair: (id: string) => void }).finishRepair("connections-login-fixture"));
 
   // Assert
-  await expect(goblin).toContainText("Connected");
+  await expect(goblin.locator(".connector-word")).toHaveText("Verified");
   await expect(goblin.getByRole("button")).toHaveCount(0);
   expect(supervisor.reads).toEqual({ [PROOF]: 2 });
   expect(errors).toEqual([]);
 });
+
+// #2358: on a phone, Checking connectors... ran into the heading beside it,
+// which kept its place but not its words. Each says what the page is doing
+// on a line of its own under the heading, clear of the recheck button.
+for (const isFailing of [false, true]) {
+  test(`on a phone, ${isFailing ? "Check failed" : "Checking connectors..."} takes a line of its own, clear of the heading and the recheck button`, async ({ page }, testInfo) => {
+    // Arrange
+    await page.setViewportSize({ width: 390, height: 844 });
+    const supervisor = supervisorWith({ [PROOF]: [GITHUB] });
+    if (isFailing) supervisor.error = "Connection check timed out.";
+    else supervisor.checking = { [PROOF]: true };
+
+    // Act
+    await open(page, supervisor);
+    await expect(page.locator(".connectors-head [role=status]")).toHaveText(isFailing ? "Check failed" : "Checking connectors...");
+    await page.evaluate(() => document.fonts.ready);
+    await page.screenshot({ path: testInfo.outputPath(`connectors-status-390-${isFailing ? "failed" : "checking"}.png`), clip: { x: 0, y: 0, width: 390, height: 320 } });
+
+    // Assert: the words of each part of the head, and the button, each in a
+    // place of its own.
+    const parts = await page.locator(".connectors-head").evaluate((head) => [...head.children].map((part) => {
+      const words = document.createRange();
+      words.selectNodeContents(part);
+      const box = part.tagName === "BUTTON" ? part.getBoundingClientRect() : words.getBoundingClientRect();
+      return { name: part.tagName, left: box.left, right: box.right, top: box.top, bottom: box.bottom, isWhole: part.scrollWidth <= part.clientWidth };
+    }));
+    const head = await page.locator(".connectors-head").boundingBox();
+    for (const [at, part] of parts.entries()) {
+      expect(part.isWhole, part.name + " shows whole").toBe(true);
+      expect(part.left >= head!.x - 0.5 && part.right <= head!.x + head!.width + 0.5, part.name + " stays in the head").toBe(true);
+      for (const other of parts.slice(at + 1)) {
+        const isApart = part.right <= other.left || other.right <= part.left || part.bottom <= other.top || other.bottom <= part.top;
+        expect(isApart, part.name + " and " + other.name + " do not overlap").toBe(true);
+      }
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), "the page does not scroll sideways").toBe(true);
+  });
+}
 
 // The Overlord, 2026-10-08: "everything error wise goes to cfo". A check that
 // timed out says so in two words where the page says what it is doing.

@@ -23,6 +23,10 @@ type Entry struct {
 	TargetIdentity  string    `json:"target_identity"`
 	RestartRequired bool      `json:"restart_required"`
 	RestartReason   string    `json:"restart_reason,omitempty"`
+	// Account is the repository service a credential variable is declared by,
+	// which the board lists it under, or empty for a variable no service
+	// declares.
+	Account string `json:"account,omitempty"`
 	// Grant is what the board offers beside the entry: grant for a service or
 	// a project MCP server the task does not carry, revoke for one its record
 	// names, or empty for one no cfo auth grant changes.
@@ -90,20 +94,32 @@ type codexStatus struct {
 	} `json:"tools"`
 }
 
+// serviceEntry is an account's row: connected only when its probe passed, and
+// provided when its credentials resolved and no check could say more, either
+// because the account declares none or because the program its check runs
+// is not on this machine. Unverified is left for a check that ran and did not
+// confirm the access.
 func serviceEntry(service auth.Service, status auth.Status) Entry {
-	verdict := string(status.State)
-	if status.State == auth.StateGreen {
+	verdict, detail := string(status.State), ""
+	switch {
+	case status.State == auth.StateGreen && len(service.Probe) > 0:
 		verdict = "connected"
-		if len(service.Probe) == 0 {
-			verdict = "unverified"
-		}
+	case status.State == auth.StateGreen && service.Identity != nil:
+		verdict, detail = "provided", "Credentials resolved and name this project. This account declares no connection check."
+	case status.State == auth.StateGreen:
+		verdict, detail = "provided", "Credentials resolved. This account declares no connection check."
+	case status.State == auth.StateUnverified && status.Unchecked != "":
+		verdict, detail = "provided", "Credentials resolved. Not checked on this machine: "+status.Unchecked+"."
 	}
-	entry := Entry{ID: "service:" + service.Name, Name: service.Name, Kind: "service", Status: verdict, Source: "Repository", Detail: statusDetail(verdict)}
+	if detail == "" {
+		detail = statusDetail(verdict)
+	}
+	entry := Entry{ID: "service:" + service.Name, Name: service.Name, Kind: "service", Status: verdict, Source: "Repository", Detail: detail}
 	entry.Scope = "configuration"
 	if len(service.Probe) > 0 {
 		entry.Scope = "separate_probe"
 	}
-	if verdict != "connected" {
+	if verdict != "connected" && verdict != "provided" {
 		if safeLoginURL(service.URL) {
 			entry.Actions = append(entry.Actions, "login")
 		}
@@ -125,7 +141,7 @@ func statusDetail(status string) string {
 		"wrong_target": "Credentials point to another project.", "unreachable": "Service did not respond.",
 		"failed": "Connection check failed.", "unverified": "No successful connection check.",
 		"withheld": "Not currently granted to this goblin.", "disabled": "Disabled in the probe configuration. Live session load state unknown.",
-		"checking": "Waiting for the harness.", "skipped": "Optional connection is not available.",
+		"checking": "Waiting for the harness.", "skipped": "Optional connection is not available.", "unchecked": "Not checked.",
 	}[status]
 }
 

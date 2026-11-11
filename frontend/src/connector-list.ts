@@ -13,7 +13,17 @@ export interface GoblinReading { goblin: string; entries: ConnectionEntry[] }
 // decides until a finished check shows it.
 export interface ConnectorUse { goblin: string; entry: ConnectionEntry; isCarried: boolean }
 
-export type ConnectorStatus = "connected" | "trouble" | "checking" | "available";
+// A state's tone: verified, the only green, only when a check confirmed the
+// access; trouble, the only amber, where he must act or a check failed; and
+// quiet for every other state (the Overlord, 2026-11-11: "clean up the sign
+// in and amber alerts to make it much more simple and user friendly
+// especially with verification and difference between mcp and env cli
+// variables", #2358).
+export type ConnectorTone = "verified" | "trouble" | "quiet";
+
+// A connector is listed in a tone once a goblin carries it, and is
+// available when none does.
+export type ConnectorStatus = ConnectorTone | "available";
 
 export interface Connector {
   key: string;
@@ -25,9 +35,10 @@ export interface Connector {
   type: string;
   uses: ConnectorUse[];
   status: ConnectorStatus;
-  // What the first goblin it fails for says, in a word and in full.
-  troubleWord: string;
-  trouble: string;
+  // Its state in one word, as the goblin whose check says least has it.
+  word: string;
+  // Whether a Connect or Disconnect waits for a goblin's next terminal.
+  isWaiting: boolean;
 }
 
 // goblinKey names a goblin's running session: its task and its generation.
@@ -41,12 +52,32 @@ export const askKey = (goblin: string, entry: string): string => goblin + "\n" +
 // shows.
 function connectorType(entry: ConnectionEntry): string {
   if (entry.kind === "service") return "Repository service";
-  if (entry.kind === "credential") return "Credential";
+  if (entry.kind === "credential") return "CLI variable";
   if (entry.kind === "connector") return "Built in";
-  if (/^claude[._ ]ai[._ ]/i.test(entry.name)) return "Claude connector";
-  if (/^plugin[_:]/i.test(entry.name)) return "Plugin";
+  if (/^claude[._ ]ai[._ ]/i.test(entry.name)) return "Claude MCP connector";
+  if (/^plugin[_:]/i.test(entry.name)) return "Plugin MCP server";
   return "MCP server";
 }
+
+// entryState is what one goblin's check of a connector says, in a word and
+// its tone. A credential or a service whose credentials resolve and that no
+// check confirmed is Set, and the crawler on a goblin's PATH is Installed:
+// neither is Verified.
+export function entryState(entry: ConnectionEntry): { tone: ConnectorTone; word: string } {
+  if (entry.status === "connected" || entry.status === "probe_succeeded") return { tone: "verified", word: "Verified" };
+  if (entry.status === "provided") return { tone: "quiet", word: entry.kind === "connector" ? "Installed" : "Set" };
+  if (entry.status === "withheld" || entry.status === "checking") return { tone: "quiet", word: "Checking" };
+  return { tone: connectionTrouble(entry) ? "trouble" : "quiet", word: connectionStatus(entry.status) };
+}
+
+// The quiet states in the order a row prefers to show them, the one that says
+// least first: a row shows its goblins' least, so it never reads better than
+// any one of their checks.
+const QUIET = ["checking", "withheld", "unchecked", "disabled", "skipped", "provided"];
+const rank = (entry: ConnectionEntry): number => {
+  const { tone } = entryState(entry);
+  return tone === "trouble" ? -1 : tone === "verified" ? QUIET.length : QUIET.indexOf(entry.status);
+};
 
 // Whether the goblin carries the connector: what he last asked, else what
 // the check found. A connector with nothing to give or take back is carried
@@ -65,7 +96,7 @@ export function listConnectors(readings: GoblinReading[], asked: ReadonlyMap<str
       const key = entry.kind + ":" + entry.name.toLowerCase();
       const connector = found.get(key) ?? {
         key, name: entry.kind === "credential" ? entry.name : connectorName(entry.name), reported: entry.name, kind: entry.kind, type: connectorType(entry),
-        uses: [], status: "available" as ConnectorStatus, troubleWord: "", trouble: "",
+        uses: [], status: "available" as ConnectorStatus, word: "", isWaiting: false,
       };
       connector.uses.push({ goblin, entry, isCarried: isCarried(entry, asked.get(askKey(goblin, entry.id))) });
       found.set(key, connector);
@@ -73,14 +104,13 @@ export function listConnectors(readings: GoblinReading[], asked: ReadonlyMap<str
   }
   const connectors = [...found.values()].filter((connector) => connector.kind !== "credential" || connector.uses.some((use) => use.isCarried));
   for (const connector of connectors) {
+    connector.isWaiting = connector.uses.some((use) => use.entry.isRestartRequired);
     const carried = connector.uses.filter((use) => use.isCarried);
-    const failing = carried.find((use) => connectionTrouble(use.entry));
-    if (failing) {
-      connector.status = "trouble";
-      connector.troubleWord = connectionStatus(failing.entry.status);
-      connector.trouble = connectionTrouble(failing.entry);
-    } else if (carried.some((use) => use.entry.status === "checking" || use.entry.status === "withheld")) connector.status = "checking";
-    else if (carried.length) connector.status = "connected";
+    if (!carried.length) continue;
+    const least = carried.reduce((found, use) => rank(use.entry) < rank(found.entry) ? use : found);
+    const { tone, word } = entryState(least.entry);
+    connector.status = tone;
+    connector.word = word;
   }
   return connectors.sort((first, second) => first.name.localeCompare(second.name) || first.type.localeCompare(second.type));
 }
@@ -92,14 +122,41 @@ export function matchesConnector(connector: Connector, search: string): boolean 
   return !wanted || [connector.name, connector.reported, connector.type].some((text) => text.toLowerCase().includes(wanted));
 }
 
-// usageWords is what one goblin's use of a connector says under the goblin's
-// name: that it is not connected or is being checked, its trouble, what a
-// separate probe of it does and does not prove, or the state its check found.
-export function usageWords(use: ConnectorUse): string {
-  if (!use.isCarried) return "Not connected";
-  if (use.entry.status === "withheld" || use.entry.status === "checking") return "Checking";
-  if (use.entry.status === "probe_succeeded") return connectionEvidence(use.entry);
-  return connectionTrouble(use.entry) || connectionStatus(use.entry.status);
+// usageState is what one goblin's use of a connector says under the goblin's
+// name on the connector's page: Not connected, or its state in a word and
+// its tone, with the reason the check gave, and for a verified or set one
+// what its check did and did not prove.
+export function usageState(use: ConnectorUse): { tone: ConnectorTone; word: string; reason: string } {
+  if (!use.isCarried) return { tone: "quiet", word: "Not connected", reason: "" };
+  const { entry } = use;
+  const { tone, word } = entryState(entry);
+  if (word === "Checking") return { tone, word, reason: "" };
+  const isEvidence = tone === "verified" || (entry.status === "provided" && !entry.detail);
+  return { tone, word, reason: isEvidence ? connectionEvidence(entry) : entry.detail };
+}
+
+// The words for what a goblin's terminal holds of a CLI variable.
+function variableWord(entry: ConnectionEntry): string {
+  return ({ provided: "Set", missing: "Not set", withheld: "Not given", unchecked: "Not checked" } as Record<string, string>)[entry.status] || connectionStatus(entry.status);
+}
+
+export interface CliVariable { name: string; states: { goblin: string; word: string }[] }
+
+// cliVariables are the CLI variables a service brings, the ones the auth
+// manifest declares for it, each by name with what every goblin's terminal
+// holds of it, in the order of their names. Never a value.
+export function cliVariables(connector: Connector, readings: GoblinReading[]): CliVariable[] {
+  if (connector.kind !== "service") return [];
+  const found = new Map<string, CliVariable>();
+  for (const { goblin, entries } of readings) {
+    for (const entry of entries) {
+      if (entry.kind !== "credential" || entry.account !== connector.reported) continue;
+      const variable = found.get(entry.name) ?? { name: entry.name, states: [] };
+      variable.states.push({ goblin, word: variableWord(entry) });
+      found.set(entry.name, variable);
+    }
+  }
+  return [...found.values()].sort((first, second) => first.name.localeCompare(second.name));
 }
 
 // A connector's tools in two groups, as its harness marks them: those that

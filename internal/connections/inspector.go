@@ -85,7 +85,9 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 		if err != nil {
 			result.Error = "Credential store is unavailable."
 			for _, service := range carried.Services {
-				result.Entries = append(result.Entries, serviceEntry(service, auth.Status{State: auth.StateUnverified}))
+				entry := serviceEntry(service, auth.Status{State: auth.StateUnverified})
+				entry.Status, entry.Detail, entry.Actions = "unchecked", "Not checked: the credential store could not be opened.", nil
+				result.Entries = append(result.Entries, entry)
 			}
 		} else {
 			checker := auth.Checker{Store: store, Runner: workspaceRunner{Runner: i.Runner, dir: meta.Worktree}, Project: auth.ProjectName(meta.Project)}
@@ -114,12 +116,13 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 	env, args := observed.Env, observed.Args
 	if runtimeErr != nil {
 		result.Error = runtimeErr.Error()
+		unchecked := "Not checked: " + runtimeErr.Error()
 		for _, name := range manifest.EnvNames() {
-			result.Entries = append(result.Entries, Entry{ID: "credential:" + name, Name: name, Kind: "credential", Status: "unverified", Detail: "Goblin runtime unavailable.", CheckedAt: time.Now().UTC()})
+			result.Entries = append(result.Entries, Entry{ID: "credential:" + name, Name: name, Kind: "credential", Status: "unchecked", Detail: unchecked, Account: declaring(manifest, name), CheckedAt: time.Now().UTC()})
 		}
 		for _, entry := range append(withheldEntries(meta, nil), i.crawlerEntry(meta, "")) {
-			entry.Status = "unverified"
-			entry.Detail = "Goblin runtime unavailable."
+			entry.Status = "unchecked"
+			entry.Detail = unchecked
 			entry.Actions = nil
 			result.Entries = append(result.Entries, entry)
 		}
@@ -149,7 +152,7 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 		} else if grant, isWithheld := withheld[name]; isWithheld {
 			verdict, detail, actions = "withheld", grant, nil
 		}
-		result.Entries = append(result.Entries, Entry{ID: "credential:" + name, Name: name, Kind: "credential", Status: verdict, Source: "Goblin environment", Scope: "launch_environment", Detail: detail, Actions: actions, CheckedAt: time.Now().UTC()})
+		result.Entries = append(result.Entries, Entry{ID: "credential:" + name, Name: name, Kind: "credential", Status: verdict, Source: "Goblin environment", Scope: "launch_environment", Detail: detail, Actions: actions, Account: declaring(manifest, name), CheckedAt: time.Now().UTC()})
 	}
 	for index := range result.Entries {
 		entry := &result.Entries[index]
@@ -166,11 +169,11 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 		isGranted := slices.Contains(meta.Credentials, entry.Name)
 		switch {
 		case isGranted && hasLoadable:
-			entry.RestartRequired, entry.RestartReason = true, "Granted, but declared credentials are missing from the running process. Restart to load available credentials."
+			entry.RestartRequired, entry.RestartReason = true, "Connected. Its missing variables reach this goblin at its next terminal; the one running started without them."
 		case !isGranted && hasRevokedLoaded:
-			entry.RestartRequired, entry.RestartReason = true, "Revoked, but credentials remain in the running process. Restart to remove them; rewriting auth scripts does not remove loaded credentials."
+			entry.RestartRequired, entry.RestartReason = true, "Disconnected. Its variables leave this goblin at its next terminal; the one running still has them."
 		case !isGranted && isLoaded:
-			entry.RestartReason = "Credentials remain loaded for another granted service. Restarting retains those shared credentials while that service is granted."
+			entry.RestartReason = "Disconnected, but its variables stay: another account this goblin has uses them too."
 		}
 	}
 	result.Entries = append(result.Entries, i.crawlerEntry(meta, values["PATH"]))
@@ -242,6 +245,17 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 		return result.Entries[a].Kind+result.Entries[a].Name < result.Entries[b].Kind+result.Entries[b].Name
 	})
 	return result
+}
+
+// declaring names the service of a manifest that declares a variable, or
+// empty when none does.
+func declaring(manifest auth.Manifest, name string) string {
+	for _, service := range manifest.Services {
+		if slices.Contains(service.Env, name) {
+			return service.Name
+		}
+	}
+	return ""
 }
 
 // grantOffered is what the board offers beside an entry, as cfo auth grant
