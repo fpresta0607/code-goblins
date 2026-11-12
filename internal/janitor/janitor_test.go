@@ -668,6 +668,112 @@ func TestSweepPrunesEachCacheInATurnOfAFreeHeavyLine(t *testing.T) {
 	}
 }
 
+// Go's build cache is pruned only whole, which waits for a free heavy line,
+// and a busy machine's line is never free: on one home the cache reached
+// 52.6 GB while every sweep left it. So over the cap, the sweep first trims
+// the cache's entries unused for a day, by Go's own trim rule, which any go
+// command applies beside other builds, and needs no turn for it. What is not
+// an entry, and an entry used within the day, stays.
+func TestSweepTrimsGoBuildEntriesUnusedForADayWhileTheLineIsBusy(t *testing.T) {
+	// Arrange
+	f := newSweepFixture(t)
+	cache := filepath.Join(f.home.Caches(), "go-build")
+	old := f.now.Add(-26 * time.Hour)
+	recent := f.now.Add(-2 * time.Hour)
+	files := []struct {
+		name      string
+		when      time.Time
+		isTrimmed bool
+	}{
+		{name: "0a/old-a", when: old, isTrimmed: true},
+		{name: "0a/old-d", when: old, isTrimmed: true},
+		{name: "ff/oldexe-d/program.exe", when: old, isTrimmed: true},
+		{name: "0a/recent-a", when: recent},
+		{name: "0a/recent-d", when: recent},
+		{name: "0a/notes.txt", when: old},
+		{name: "trim.txt", when: old},
+		{name: "README", when: old},
+	}
+	for _, file := range files {
+		path := filepath.Join(cache, filepath.FromSlash(file.name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, make([]byte, 1<<10), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		for _, touched := range []string{path, filepath.Dir(path)} {
+			if err := os.Chtimes(touched, file.when, file.when); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	runner := &pruneRunner{caches: f.home.Caches()}
+	cfg := f.config(reap.Inventory{})
+	cfg.Commands = runner
+	cfg.Settings.CachesCapGB = 1.0 / (1 << 20)
+	cfg.Line = busyLine{}
+
+	// Act
+	record := Sweep(context.Background(), cfg)
+
+	// Assert
+	for _, file := range files {
+		_, err := os.Stat(filepath.Join(cache, filepath.FromSlash(file.name)))
+		if isGone := os.IsNotExist(err); isGone != file.isTrimmed {
+			t.Errorf("%s gone = %v, want %v", file.name, isGone, file.isTrimmed)
+		}
+	}
+	if item, ok := has(record.Removed, cache); !ok || item.Bytes != 3<<10 {
+		t.Errorf("removed = %+v, want the three entries unused for a day, 3 KB, from %s", record.Removed, cache)
+	}
+	if len(runner.ran) != 0 {
+		t.Errorf("ran %q on a busy line, want no prune", runner.ran)
+	}
+	isSaid := false
+	for _, note := range record.Notes {
+		isSaid = isSaid || strings.Contains(note, "not trimmed further, as the machine's heavy line is not free")
+	}
+	if !isSaid {
+		t.Errorf("notes = %q; want one saying why the caches stay over their cap", record.Notes)
+	}
+}
+
+// The gate's home is outside the home and nobody trimmed it: on one machine it
+// held 55 GB, 24.5 on the system drive and 30.3 in the Dev Drive folder a
+// move by hand linked it into, and nothing showed it. The sweep measures
+// each of its folders, links not followed, and keeps the size in its record,
+// since walking it takes minutes, too long for goblins runtime to do.
+func TestSweepMeasuresTheGateHomesFolders(t *testing.T) {
+	// Arrange
+	f := newSweepFixture(t)
+	root := t.TempDir()
+	folders := []string{filepath.Join(root, "profile", ".no-mistakes"), filepath.Join(root, "devdrive", "no-mistakes")}
+	for i, folder := range folders {
+		path := filepath.Join(folder, "worktrees", "repo", "run", "file")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, make([]byte, (i+1)<<10), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := f.config(reap.Inventory{})
+	cfg.GateHomes = folders
+
+	// Act
+	record := Sweep(context.Background(), cfg)
+	unmeasured := Sweep(context.Background(), f.config(reap.Inventory{}))
+
+	// Assert
+	if record.Gate == nil || record.Gate.Bytes != 3<<10 || !slices.Equal(record.Gate.Folders, folders) || record.Gate.IsIncomplete {
+		t.Errorf("gate = %+v, want 3 KB over %v", record.Gate, folders)
+	}
+	if unmeasured.Gate != nil {
+		t.Errorf("gate = %+v for a sweep given no gate home, want none", unmeasured.Gate)
+	}
+}
+
 // A home a build before bin set up keeps its build at its root, where its
 // updates move the builds they replace aside: the sweep keeps that folder to
 // the current build alone, as it keeps bin, and says what it freed there.

@@ -704,6 +704,8 @@ func finishedTasks(h home.Home, reads *keptReads, now time.Time) []Task {
 			phase, reason = "done", "Delivered pull request; task cleaned up"
 		} else if issue := state.DoneClosed(report); issue != "" {
 			phase, reason = "done", "Closed "+issue+"; task cleaned up"
+		} else if kept := state.DoneReport(report); kept != "" {
+			phase, reason = "done", "Reported "+kept+"; task cleaned up"
 		}
 		title, project := id, ""
 		if row, isListed := backlogRows[id]; isListed {

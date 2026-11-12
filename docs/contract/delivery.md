@@ -99,7 +99,7 @@ A deploy status the host refused for its rate limit, a failed Vercel status whos
 The train, `goblins pr merge`, the CI wakes and a card's hosted checks name it as rate limited, and any other failed deploy status still fails.
 gh's check rollup gives a commit status's state and target but never its description, so the target is what is read.
 The supervisor raises no `ci_finished` for a draft, and no `pr_health` for a draft that is only behind its base.
-- `local-only` - the goblin stops with a clean branch; land it with `goblins merge-local <id>` only on the Supreme Overlord's word.
+- `local-only` - the goblin stops with a clean branch and reports done with its report, `goblins notify <id> --done --report <file>`, since it opens no pull request; land a branch it committed with `goblins merge-local <id>` only on the Supreme Overlord's word.
 
 `goblins pr merge` and `goblins merge-local` never merge red or divergent work - they refuse loudly.
 After a merge, tell the Supreme Overlord the full PR URL.

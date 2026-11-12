@@ -284,6 +284,19 @@ test("a task that closed its issue reads Done and stays in progress until cleanu
   assert.equal(taskColumn(zane(snapshot)), "In progress");
 });
 
+test("a local-only task that kept its report reads Done and stays in progress until cleanup retires it", () => {
+  // Arrange
+  const kept = "C:/home/data/zane/report.md";
+  const snapshot = board({ mode: "local-only", phase: "done", report: "done", reason: "report " + kept, kept_report: kept, runtime: { state: "idle" } });
+
+  // Act
+  const status = taskStatus(zane(snapshot), snapshot);
+
+  // Assert
+  assert.deepEqual(status, { text: "Done", phase: "done" });
+  assert.equal(taskColumn(zane(snapshot)), "In progress");
+});
+
 test("a completed helper reports its parent handoff without claiming verification", () => {
   const snapshot = board({ parent: "parent-1", phase: "done", report: "done", reason: "ready for parent-1 to merge", runtime: { state: "idle" } });
   const ordinary = board({ phase: "done", report: "done", runtime: { state: "idle" } });
