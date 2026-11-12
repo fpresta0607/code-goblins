@@ -522,3 +522,37 @@ func TestReadBacklogReadsATitleAndItsWaitsApartFromEveryAnnotation(t *testing.T)
 		})
 	}
 }
+
+func TestReadBacklogListsTheSectionsThatHoldNoOpenRowAsItsHistory(t *testing.T) {
+	// Arrange
+	h := snapshotHome(t)
+	if err := os.MkdirAll(h.Data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "# Backlog\n\n" +
+		"## Queued\n- [ ] q1 - Open work\n\n" +
+		"## Notes\nA note.\nMore.\n\n" +
+		"## Fleet defects\n- [ ] fd1 - Fix it\n\n" +
+		"## Closed\n- [x] c1 - Was done\n\n" +
+		"## In flight\nprose about work under way\n\n" +
+		"## Parked\nwhy these wait\n\n" +
+		"## Done\n- [x] d1 - Done\nmore about it\n"
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	backlog, err := ReadBacklog(h)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []BacklogSection{
+		{Heading: "Notes", Line: 6, Lines: 3, Bytes: len("## Notes\nA note.\nMore.")},
+		{Heading: "Closed", Line: 13, Lines: 2, Bytes: len("## Closed\n- [x] c1 - Was done")},
+	}
+	if got := backlog.History(); !reflect.DeepEqual(got, want) {
+		t.Errorf("history = %+v, want %+v", got, want)
+	}
+}

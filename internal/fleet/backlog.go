@@ -60,6 +60,7 @@ type BacklogRows struct {
 	duplicates  map[string]bool
 	listed      map[string]bool
 	openText    []string
+	history     []BacklogSection
 }
 
 // OpenRowsText is the text of every open row with its detail lines: a row
@@ -67,6 +68,27 @@ type BacklogRows struct {
 // closed rows are left out.
 func (backlog BacklogRows) OpenRowsText() string {
 	return strings.Join(backlog.openText, "\n")
+}
+
+// workSections are the backlog's sections of work, which are never its
+// history whatever they hold.
+var workSections = []string{"Queued", "Parked", "In flight", "Done"}
+
+// BacklogSection is a level-two section of the backlog: its heading, the
+// line it starts on, counting from one, and its lines and bytes from its
+// heading to its last line that is not blank.
+type BacklogSection struct {
+	Heading string
+	Line    int
+	Lines   int
+	Bytes   int
+}
+
+// History is every section of the backlog but Queued, Parked, In flight and
+// Done that holds no open row, in file order: notes and history, which no
+// one reads as work.
+func (backlog BacklogRows) History() []BacklogSection {
+	return backlog.history
 }
 
 // BacklogRow is either a typed tasks-axi-compatible record or a raw source
@@ -135,11 +157,23 @@ func ReadBacklog(h home.Home) (BacklogRows, error) {
 	section := ""
 	isOpenRow := false
 	lines := strings.Split(string(data), "\n")
+	var current *BacklogSection
+	holdsOpenRow := false
+	closeSection := func(end int) {
+		if current == nil || holdsOpenRow || slices.Contains(workSections, current.Heading) {
+			return
+		}
+		text := strings.TrimRight(strings.Join(lines[current.Line-1:end], "\n"), "\r\n\t ")
+		current.Lines, current.Bytes = strings.Count(text, "\n")+1, len(text)
+		result.history = append(result.history, *current)
+	}
 	for index, raw := range lines {
 		line := strings.TrimSuffix(raw, "\r")
 		trimmed := strings.TrimSpace(line)
 		// Indented headings belong to task bodies, not backlog sections.
 		if heading := levelTwoHeading.FindStringSubmatch(line); heading != nil {
+			closeSection(index)
+			current, holdsOpenRow = &BacklogSection{Heading: strings.TrimSpace(heading[1]), Line: index + 1}, false
 			isOpenRow = false
 			switch strings.TrimSpace(heading[1]) {
 			case "Queued":
@@ -165,6 +199,7 @@ func ReadBacklog(h home.Home) (BacklogRows, error) {
 		}
 		if isOpenRow {
 			result.openText = append(result.openText, trimmed)
+			holdsOpenRow = true
 		}
 		if section == "" {
 			continue
@@ -199,6 +234,7 @@ func ReadBacklog(h home.Home) (BacklogRows, error) {
 			result.Done = append(result.Done, row)
 		}
 	}
+	closeSection(len(lines))
 	return result, nil
 }
 

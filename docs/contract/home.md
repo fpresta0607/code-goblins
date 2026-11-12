@@ -37,6 +37,7 @@ The target for a home is small: the binaries, records under 200 MB, capped cache
 | `data/archive/finished/<task>/` | A finished task's folder. |
 | `data/archive/parked/<task>/` | A brief set aside before it was dispatched. |
 | `data/archive/filed.md` | Every move filing made, and any pass that failed or was cut short. |
+| `data/archive/backlog-history.md` | The backlog's history: notes and sections that are over, moved out of `backlog.md` with their headings, so a read of the backlog reads only work. |
 
 The supervisor files a laid-out home's data every ten minutes, so finished and abandoned work leaves `data/` without anyone asking:
 
@@ -112,6 +113,8 @@ Every check that decides a removal refuses when it cannot read what it checks, a
   The gate's own daemon trims that home, never the janitor; `goblins runtime` and the `disk_low` wake show what it holds beside the home's buckets.
 - It reports, and wakes the CEO with an `orphan` wake when it reports something it had not reported before: a worktree no task records, a new folder or file in the projects root that is no checkout, a retired task's folder it would not trim, and a `data` folder over 200 MB.
   The report of a `data` folder over 200 MB names its five largest folders and why filing leaves each where it is.
+  It reports `data/backlog.md` too when its sections but `## Queued`, `## Parked`, `## In flight` and `## Done` that hold no open row pass 64 KB, with their size and five largest sections: history, which belongs in `data/archive/backlog-history.md`.
+  It moves none of it, since such a section can hold open work written as prose, which belongs in a row.
 - It names, and never ends, the processes nothing proves the fleet's own: a browser bridge with no mark whose parent is gone, and a gate agent's process whose gate is gone.
   They reach you as one `orphan` wake for all of them, raised once for each process, with its pid, its age, the memory of its tree and its command, with the value of any argument named as a secret left out.
   End by pid what is the fleet's leftover and leave what is the Overlord's.

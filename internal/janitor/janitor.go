@@ -179,6 +179,7 @@ func Sweep(ctx context.Context, cfg Config) Record {
 		record.Gate = MeasureGate(cfg.GateHomes)
 	}
 	cfg.reportDataSize(&record)
+	cfg.reportBacklogHistory(&record)
 	if reading, err := disk.ReadLeast(cfg.Home.Root, cfg.Home.DevDrive); err == nil {
 		record.Disk = reading
 	} else {
