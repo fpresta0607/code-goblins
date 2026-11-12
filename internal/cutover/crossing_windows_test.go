@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/cutover/cutovertest"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 var crossedAt = time.Date(2026, 11, 12, 5, 0, 0, 0, time.UTC)
@@ -311,5 +312,48 @@ func TestACrossingKeepsTheLogTheCEOsRunningTerminalHoldsOpen(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(hosts, newName+".json")); err != nil {
 		t.Errorf("the CEO's terminal's record did not take the new name: %v", err)
+	}
+}
+
+// A pi terminal from before the move runs the home's old program from its
+// extension at the end of every turn, so the move writes each program in the
+// home's bin beside its place before it sets the one there aside. A turn that
+// ended while the old program was missing left the hook's error on the CEO's
+// prompt line, where the board read text left unsent and never restarted it.
+func TestACrossingWritesEachProgramBeforeItSetsTheOneThereAside(t *testing.T) {
+	// Arrange
+	f := newFixture(t)
+	plan, err := f.machine.PlanCrossing(crossedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := filepath.Join(f.machine.Root, "bin", oldName+".exe")
+	there, err := filepath.Glob(filepath.Join(f.machine.Root, "bin", "*.exe"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var written, missing []string
+	stage := stageProgram
+	stageProgram = func(path string, data []byte) (*fsx.Staged, error) {
+		written = append(written, path)
+		if _, err := os.Lstat(path); err != nil && slices.ContainsFunc(there, func(was string) bool { return strings.EqualFold(was, path) }) {
+			missing = append(missing, path)
+		}
+		return stage(path, data)
+	}
+	t.Cleanup(func() { stageProgram = stage })
+
+	// Act
+	_, err = f.machine.Apply(plan, crossedAt)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(written, func(path string) bool { return strings.EqualFold(path, program) }) {
+		t.Fatalf("the crossing wrote the programs %v, want %s among them", written, program)
+	}
+	if len(missing) > 0 {
+		t.Fatalf("these programs were gone from their place while their replacement was written: %v", missing)
 	}
 }

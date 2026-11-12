@@ -169,6 +169,27 @@ func setAside(path string) error {
 	return nil
 }
 
+// writeProgram puts data in the place of the program at path. It writes it
+// beside that place before it sets the program there aside, so the place is
+// empty only between two renames and not while a scanner reads the new
+// program: a pi terminal from before the move runs the old program from its
+// extension at the end of every turn, and one that found it gone left the
+// hook's error on its prompt line.
+func writeProgram(path string, data []byte) error {
+	staged, err := stageProgram(path, data)
+	if err != nil {
+		return err
+	}
+	if err := setAside(path); err != nil {
+		staged.Discard()
+		return err
+	}
+	return staged.Commit()
+}
+
+// stageProgram is fsx.Stage, which a test watches.
+var stageProgram = fsx.Stage
+
 // abandon removes the folder of an apply that changed nothing yet.
 func (m Machine) abandon(folder string, record undoRecord, err error) error {
 	if removeErr := removeFolder(folder, record); removeErr != nil {
@@ -274,17 +295,20 @@ func removeMade(made []string) error {
 func (m Machine) do(step *Step, isRemoved bool, after []byte) ([]string, error) {
 	switch step.Kind {
 	case "file":
-		if m.isProgram(step.Key) {
-			if err := setAside(step.Key); err != nil {
-				return nil, err
-			}
-		}
 		if isRemoved {
+			if m.isProgram(step.Key) {
+				if err := setAside(step.Key); err != nil {
+					return nil, err
+				}
+			}
 			return nil, removeAbsent(step.Key)
 		}
 		made, err := makeParents(step.Key)
 		if err != nil {
 			return made, err
+		}
+		if m.isProgram(step.Key) {
+			return made, writeProgram(step.Key, after)
 		}
 		return made, fsx.AtomicWriteFile(step.Key, after)
 	case "move":
@@ -334,18 +358,22 @@ func (m Machine) undoStep(folder string, index int, step recordedStep) error {
 			}
 			content = kept
 		}
-		if m.isProgram(step.Key) {
-			if err := setAside(step.Key); err != nil {
-				return err
-			}
-		}
 		if step.IsAbsent {
+			if m.isProgram(step.Key) {
+				if err := setAside(step.Key); err != nil {
+					return err
+				}
+			}
 			if err := removeAbsent(step.Key); err != nil {
 				return err
 			}
 			return removeMade(step.Made)
 		}
-		if err := fsx.AtomicWriteFile(step.Key, content); err != nil {
+		write := fsx.AtomicWriteFile
+		if m.isProgram(step.Key) {
+			write = writeProgram
+		}
+		if err := write(step.Key, content); err != nil {
 			return err
 		}
 		return os.Chtimes(step.Key, step.ModTime, step.ModTime)
