@@ -244,8 +244,8 @@ The card is `goblins auth request --project <p> --task <its id> --why "<what it 
   A card that asks for nothing has a Done button.
 - A message he sends himself, such as an email, goes in a file named with `--message-file`, never as a step that points at the file.
   His card shows its body with Copy, and Copy subject when it has a subject.
-- When the step must happen inside the goblin's own browser session, such as a sign-in the session keeps, `--window` puts a button on the card that shows the session's window at the link on his screen, on a profile in the task's folder.
-  Once the card closes the session runs headless again on that profile, so it keeps what he did there.
+- When the step must happen inside the goblin's own browser, such as a sign-in its session keeps, `--window` gives the card Take control, which opens the link in that browser and shows its screen on the card, where he takes the step and hands the browser back with a few words, which the wait prints.
+  The browser runs on a profile in the task's folder, so it keeps what he did there.
 
 The goblin runs the command in the background, so it goes on the moment the card closes: when every input is in, when he presses Done, or when the goblin sees the step done itself and runs `goblins auth request --done <card> --task <its id>`.
 Exit 3 means he skipped the card, and the goblin goes on without it.

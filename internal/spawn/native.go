@@ -2,6 +2,7 @@ package spawn
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -83,6 +84,12 @@ func (s *Service) codexHooks(kind harness.Kind) (hooks []string, notice string) 
 // bridge of that session held 2.5 GB that no owner could be proved for.
 const BrowserSessionVariable = "CHROME_DEVTOOLS_AXI_SESSION"
 
+// BrowserURLVariable names the browser a session of chrome-devtools-axi
+// attaches to instead of starting one of its own. A goblin's names its own
+// browser, which the supervisor runs and the board shows on the goblin's
+// Screen view, reached through the board.
+const BrowserURLVariable = "CHROME_DEVTOOLS_AXI_BROWSER_URL"
+
 // callerSessionVariables name the session a process runs in, in the order
 // they are read: the explicit GOBLINS_SESSION_ID and GOBLINS_SESSION_HARNESS pair,
 // then the variable each harness sets for the commands its agent runs, since
@@ -136,9 +143,14 @@ func IsCallerSessionVariable(name string) bool {
 // its id, which is always a name the tool takes: at most 64 letters, digits,
 // dots, dashes and underscores. A task its brief did not leave the crawler
 // out of is given the home's crawler folder, which its terminal puts on PATH.
+// With a board to reach, the session drives the goblin's own browser, which
+// the supervisor runs so the board can show it.
 func (s Service) nativeEnvironment(env map[string]string, meta state.TaskMeta) {
 	env["GOBLINS_TASK_ID"], env["GOBLINS_SPAWN_GEN"] = meta.ID, meta.SpawnGen
 	env[BrowserSessionVariable] = meta.ID
+	if board, isBoard := strings.CutPrefix(s.Board, "http://"); isBoard {
+		env[BrowserURLVariable] = "ws://" + board + "/api/browser/devtools?" + url.Values{"task": {meta.ID}, "generation": {meta.SpawnGen}}.Encode()
+	}
 	env["GOBLINS_PARENT_SESSION_ID"], env["GOBLINS_PARENT_HARNESS"] = s.parentSession(meta)
 	env["GOBLINS_ROOT_SESSION_ID"] = os.Getenv("GOBLINS_ROOT_SESSION_ID")
 	if !meta.IsCrawlerLeftOut {

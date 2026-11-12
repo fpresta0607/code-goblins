@@ -1593,11 +1593,11 @@ An open panel follows the task's current root generation or the CEO's terminal s
 The messages fill the panel, so they fill the window while it is maximized.
 A switch by Ctrl+Alt with a digit or an arrow, the first open and the end of the tour hand the keyboard to the message box, or to the terminal where the session has no messages or Classic draws it.
 The view shows the session's conversation as `GET /api/messages` serves it ([A session read as messages](#a-session-read-as-messages)), read only.
-The panel's selector chooses between this conversation and its task view, for the CEO and a goblin alike: a segmented control of Chat and Task, never a fold or a dropdown (the Overlord, 2026-10-26: "i dont like how you remove the selector at the top between caht and task panel bring that back i dont like the drop down also").
-Its two buttons are icons alone, Chat as Modern chat's message bubble and Task, each named for a screen reader, with no words and no tip, in the middle of the panel header's one row, between the name and the panel's controls, at desktop and phone widths alike (the Overlord, 2026-10-28: "chat and task doesn't need to be full width, it can fit inline with cfo and afk and just be the icons").
-It is only as wide as its two icons, and the room either side of it is shared equally, so it sits in the middle while both sides fit (the Overlord, 2026-10-29: "also put the switch in the middle less wide").
+The panel's selector chooses between this conversation and its task view, for the CEO and a goblin alike, and while a goblin's own browser runs its Screen view too ([A goblin's own browser](#a-goblins-own-browser)): a segmented control of Chat and Task, never a fold or a dropdown (the Overlord, 2026-10-26: "i dont like how you remove the selector at the top between caht and task panel bring that back i dont like the drop down also").
+Its buttons are icons alone, Chat as Modern chat's message bubble, Task and Screen, each named for a screen reader, with no words and no tip, in the middle of the panel header's one row, between the name and the panel's controls, at desktop and phone widths alike (the Overlord, 2026-10-28: "chat and task doesn't need to be full width, it can fit inline with cfo and afk and just be the icons").
+It is only as wide as its icons, and the room either side of it is shared equally, so it sits in the middle while both sides fit (the Overlord, 2026-10-29: "also put the switch in the middle less wide").
 On a narrower panel the controls keep what they show and the name gives way, wrapping onto more lines, and a control goes into More only once the name is down to its first letters.
-A maximized panel has room for both at once, draws its task list beside the conversation and hides the selector.
+A maximized panel has room for both at once, draws its task list beside the conversation and hides the selector, except while the goblin's own browser runs, when the selector switches between the conversation and the Screen view.
 The conversation carries no speaker line: no sender name and no harness icon above a message, for any speaker (the Overlord, 2026-10-26: "you dont need to ahve cfo and You above each of our messages either").
 What says who spoke is the side and the bubble it already has.
 The conversation is one centred column of a readable width, about 48 times its text size, however wide the panel is, with the message box centred under it.
@@ -2079,6 +2079,7 @@ What nothing proves is named for the CEO and never ended: a browser bridge with 
 
 A browser bridge belongs to one owner.
 chrome-devtools-axi keeps one bridge and one browser for each session name, and a terminal that names none shares its unnamed session with every other program of the user, so every goblin's terminal starts with `CHROME_DEVTOOLS_AXI_SESSION` set to its task id and the CEO's with `goblins`, whatever the user's environment named.
+A goblin started by a supervisor with a board also gets `CHROME_DEVTOOLS_AXI_BROWSER_URL`, so its bridge drives the goblin's own browser, which the supervisor runs and the board shows (see [A goblin's own browser](#a-goblins-own-browser)), and starts no browser of its own.
 The bridge is started with its terminal's environment, so it carries the terminal's mark and ends with it.
 The tool hashes a session name to one of 1,000 ports, so two tasks can be given the same port. The second bridge then fails to start, and its goblin sets `CHROME_DEVTOOLS_AXI_PORT` for itself.
 The tool removes no session's folder. The janitor removes one under `.chrome-devtools-axi\sessions` once the bridge its `bridge.pid` names no longer runs and nothing wrote to it for a day, and only when it holds nothing but the tool's own files.
@@ -2696,7 +2697,11 @@ goblins auth request --project acme-shop --task shop-signup --why "Sign in to th
 - A goblin's step card is its wait on the Overlord: a `goblins notify --waiting-on overlord` without a page while a card the goblin filed itself is open opens no second item, and the notify names the card and tells the goblin to wait on it in the background with `goblins auth request --wait-on <card> --task <id>`, which ends when the card closes.
   The board reads the goblin as waiting until it reports again, as for a wait on a run card.
   Done on the card, his or the goblin's, its inputs arriving, or his answer from Something else?, also closes as answered each plain wait of that goblin opened while the card was open, so nothing asks him for the step again; a wait opened before the card, or on a page, stays its own item.
-- `--window`, which needs `--wait` and the asker's own browser session, gives the card **Open the browser window**, `POST /api/credentials/window`, taken only on this PC. The asker's wait sees the press and restarts the goblin's chrome-devtools-axi session with a window on a profile in its task folder at the link, then reports it open or why it could not open, and the card says so. Once the card closes the wait restarts the session headless on the same profile, so the session keeps the sign-in.
+- `--window`, which needs `--wait` and the asker's own browser session on the board, gives the card **Take control**, `POST /api/credentials/window`, taken only on this PC.
+  The supervisor opens the card's link in the goblin's own browser (see [A goblin's own browser](#a-goblins-own-browser)), on the page it had open or a new one, gives him control of it, and the card shows that browser's Screen view, so no window opens on the desktop.
+  A browser that could not open offers the button again, saying why, as does a card whose browser closed before the card did, because Chrome exited, the browser went unused or the supervisor restarted.
+  His **Hand back** closes the card as done with his words, which the goblin's wait prints after its Done line, and any other close of the card gives the browser back to the goblin too.
+  Words that hold one shaped like a key are never passed on, as his answer on a card is not: the card then says only that the step is taken.
 - Every open credential and step card has Skip and the pencil beside its decision buttons. Skip is `POST /api/credentials/close` with `"action": "dismiss"`, from any board, and the pencil's Send is the same with `"action": "answer"` and his `"text"`, which closes the card as answered, refuses words shaped like a key, tells the goblin his answer and ends its wait with exit 4, printing `he answered instead: <his words>`. The card closes as dismissed, the goblin that asked is told in its terminal to go on without it, and the CEO gets a `review` wake.
 - The card's place, and its History row, then show one line: the `goblins auth store` command to give a secret it still asks for later, or, for a card with none, `goblins auth request --reopen <card>`. That command, run by the CEO or the asking goblin, brings the card back open under a new generation for the rest of its day, and the goblin is told to wait on it again.
 
@@ -2705,6 +2710,26 @@ A card the board refused, neither on the board nor in its inbox, ends the wait a
 The asker closes its own card with `--done <card>` once it sees the step done and takes it back with `--withdraw <card> --reason "<why>"`, both over the supervisor's pipe from its own terminal, and the CEO may withdraw any card.
 A goblin's open card is withdrawn once its goblin is gone or was replaced, or reported done or failed after it asked.
 A card closed as done, dismissed or withdrawn takes no value, and History lists it so.
+
+### A goblin's own browser
+
+Each goblin's browser session drives a Chrome the supervisor starts for it, headless, 1280 by 800 pixels, on a profile in the task's folder, so a sign-in made there stays with the task.
+Spawn points the session at it: `CHROME_DEVTOOLS_AXI_BROWSER_URL` is `ws://<board>/api/browser/devtools?generation=<generation>&task=<id>`, which the supervisor answers only for the task's current session, only from a process of this PC's own Windows user, and never from a web page, whose WebSocket always names its origin.
+The Chrome starts on the session's first command, closes two minutes after nothing uses it and once its goblin ends, starts again on the next use if it exited, and has no debugging port: its DevTools are on a private pipe, as a login's are.
+While it runs, the snapshot's task carries `browser: true`, the goblin's card shows **Browser active** as a button that opens `/?screen=<task>`, its Screen view full size in a tab of its own, and its panel offers **Screen** beside Chat and Task.
+
+The Screen view is `GET /api/screen?task=<id>&generation=<generation>&token=<instance>`, a WebSocket from the board's own origin.
+It shows the page the goblin or a sign-in opened or sent somewhere last, a blank page only when every page is blank, by its title and host alone, never its address, which can carry a sign-in's code.
+A title that reads as an address, with no space and a scheme's :// or a host followed by a path, query or fragment, as Chrome gives a page with no title of its own or one whose title has not drawn yet, shows as untitled, by its host alone.
+It sends the page's screencast as JPEG frames, each only once the view drew the one before, so a slow board is sent no more than it draws.
+A view streams only while it is on screen in a visible tab: one switched away from, scrolled out of sight, in a closed Command Center or in a hidden tab closes its socket, and the supervisor stops the page's screencast as it closes, so no frame is made or sent for nobody.
+At most 16 views are open at once; another is closed with "Too many screens are open."
+
+**Take control**, from the board on this PC only, makes him the browser's driver: each click, wheel turn, key and paste on the view's screen goes to the page through DevTools' Input domain, and while he drives the goblin's own commands are refused with "A person is driving this browser from the Code Goblins board. Wait until they hand it back, then try again.", except those that only set up a page the session attaches to.
+Nothing typed on the screen is logged, kept or shown by the board.
+While the screen has the keyboard, F6 gives it back to the board.
+**Hand back**, from any view, gives the browser back to the goblin with a few words of what he did, at most 300 characters, as a paste is at most 4000, each counted in characters whatever bytes they take.
+Control that no view shows for 30 minutes goes back to the goblin by itself.
 
 ## Browser key fetching
 

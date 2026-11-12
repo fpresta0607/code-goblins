@@ -259,3 +259,28 @@ func TestAStartingSupervisorSaysACardsFetchStopped(t *testing.T) {
 		t.Fatalf("fetch = %+v, want it stopped and saying so", fetch)
 	}
 }
+
+// A supervisor that stopped took with it the goblin's browser a card showed,
+// and the press of his Take control it was opening, so a starting one offers
+// the card's Take control again, saying why.
+func TestAStartingSupervisorOffersACardsTakeControlAgain(t *testing.T) {
+	for _, windowState := range []string{"requested", "open"} {
+		t.Run(windowState, func(t *testing.T) {
+			// Arrange
+			b := newFetchBoard(t)
+			if _, err := b.service.Store.updateCredential(b.request.ID, func(r *CredentialRequest) { r.Window, r.WindowState = true, windowState }); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			// Act
+			b.service.keepBrowsers(ctx)
+
+			// Assert
+			if card := b.stored(); card.State != "open" || card.WindowState != "" || card.Reason != "The supervisor restarted. Press Take control to open the goblin's browser again." {
+				t.Fatalf("card = %+v, want Take control offered again with why", card)
+			}
+		})
+	}
+}
