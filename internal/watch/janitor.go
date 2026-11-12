@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
+	"github.com/fpresta0607/code-goblins/internal/gatehome"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
@@ -120,6 +122,19 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 	}
 	// A store whose folder cannot be named is measured as not named.
 	verificationStore, _ := verify.StoreDir()
+	// The gate's home is measured where the gate runs it and on the Dev
+	// Drive, where a home moved there by hand keeps its repositories behind
+	// junctions the measure does not follow.
+	var gateHomes []string
+	if gate, err := gatehome.Root(); err == nil {
+		gateHomes = append(gateHomes, gate)
+	}
+	if cfg.Home.DevDrive != "" {
+		target := gatehome.Target(cfg.Home.DevDrive)
+		if _, err := os.Stat(target); err == nil && !slices.ContainsFunc(gateHomes, func(gate string) bool { return strings.EqualFold(gate, target) }) {
+			gateHomes = append(gateHomes, target)
+		}
+	}
 	// A sweep that cannot name this build deletes no cache.
 	var line janitor.HeavyLine
 	if executable, err := os.Executable(); err == nil {
@@ -154,6 +169,7 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 		Line:            line,
 
 		VerificationStore: verificationStore,
+		GateHomes:         gateHomes,
 	})
 	if err := janitor.WriteRecord(cfg.Home.State, record); err != nil {
 		return

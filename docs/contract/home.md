@@ -100,6 +100,7 @@ Every check that decides a removal refuses when it cannot read what it checks, a
   It is never judged by its processes' time added up, which falls when one that used the processor exits.
 - A terminal a pause, a resume, a stop, a switch or a cleanup is changing is left to that command.
 - `caches` is trimmed back under `caches_cap_gb` with each tool's own prune (`uv cache prune`, `pnpm store prune`, `npm cache verify`, `go clean -cache`, `go clean -modcache`), the tool used longest ago first; Playwright's browsers are measured and never deleted.
+  First the sweep removes the entries of Go's build cache that Go has not used for a day, one by one, as Go's own daily trim does, which runs beside other builds, so this needs no turn in the line.
   Go's two prunes delete their whole cache, so each prune starts only while the machine's heavy line has one slot that no run holds or waits for, and runs as `goblins gate turn --as "the janitor, pruning the <tool> cache" --wait 30s -- <prune>`, whose turn no run that waits its turn builds beside, and which the line reclaims if it dies.
   A run that takes the line between that read and the prune's turn keeps the prune waiting 30 seconds at most, after which it runs nothing and the sweep trims no further, leaving the rest to the next sweep.
   The removal of the home's old caches after a move to a Dev Drive starts each folder only while the line is free the same way, though a run that takes its turn once a removal has started is not stopped.
@@ -108,6 +109,8 @@ Every check that decides a removal refuses when it cannot read what it checks, a
   A run outside the line, as a test run by name, is not seen and can build beside a prune.
 - A bucket holding an entry the sweep cannot read, as a folder another account owns, is named under `goblins runtime`'s table of buckets, since its size, and the home's, is then only what could be counted.
   The sweep notes when the caches could not all be read, as their size against `caches_cap_gb` is then a lower bound.
+- It measures the gate's home, where the gate keeps the repositories it gates and a checkout for each run: the folder the gate runs from, and the gate's folder on the Dev Drive when that is another, as a home moved there by hand reaches it through junctions.
+  The gate's own daemon trims that home, never the janitor; `goblins runtime` and the `disk_low` wake show what it holds beside the home's buckets.
 - It reports, and wakes the CEO with an `orphan` wake when it reports something it had not reported before: a worktree no task records, a new folder or file in the projects root that is no checkout, a retired task's folder it would not trim, and a `data` folder over 200 MB.
   The report of a `data` folder over 200 MB names its five largest folders and why filing leaves each where it is.
   It reports `data/backlog.md` too when its sections but `## Queued`, `## Parked`, `## In flight` and `## Done` that hold no open row pass 64 KB, with their size and five largest sections: history, which belongs in `data/archive/backlog-history.md`.

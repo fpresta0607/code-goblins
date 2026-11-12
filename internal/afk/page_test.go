@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"html"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -315,27 +316,42 @@ func TestTheReturnPageWrapsAndLinksToItsCommandCenterCards(t *testing.T) {
 	}
 }
 
-// A closed issue changed no code, so the return page's changes leave it out
-// while the report still lists it among the goblins that finished.
+// A closed issue, or the report a local-only task kept, changed no code, so
+// the return page's changes leave it out while the report still lists it
+// among the goblins that finished.
 func TestAClosedIssueIsAGoblinFinishedAndNoChangeOnTheReturnPage(t *testing.T) {
-	// Arrange
 	const issue = "https://github.com/example/garden-app/issues/44"
-	r := recordedReturn(t)
-	r.Report.Finished = append(r.Report.Finished, Finish{Task: "garden-issue", Closed: issue, Title: "The garden issue", At: r.Report.Ended})
-	var report bytes.Buffer
+	kept := filepath.Join(`C:\home`, "data", "garden-issue", "report.md")
+	for _, test := range []struct {
+		name   string
+		finish Finish
+		listed string
+	}{
+		{"a closed issue", Finish{Closed: issue}, "- garden-issue: closed " + issue},
+		{"a kept report", Finish{Report: kept}, "- garden-issue: report " + kept},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			r := recordedReturn(t)
+			finish := test.finish
+			finish.Task, finish.Title, finish.At = "garden-issue", "The garden issue", r.Report.Ended
+			r.Report.Finished = append(r.Report.Finished, finish)
+			var report bytes.Buffer
 
-	// Act
-	page, _ := returnPage(t, r)
-	err := Render(&report, r.Report)
+			// Act
+			page, _ := returnPage(t, r)
+			err := Render(&report, r.Report)
 
-	// Assert
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(page, "The garden issue") {
-		t.Errorf("the return page shows the closed issue as a change")
-	}
-	if !strings.Contains(report.String(), "- garden-issue: closed "+issue) {
-		t.Errorf("the report does not list the closed issue:\n%s", report.String())
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(page, "The garden issue") {
+				t.Errorf("the return page shows %s as a change", test.name)
+			}
+			if !strings.Contains(report.String(), test.listed) {
+				t.Errorf("the report does not list %s:\n%s", test.name, report.String())
+			}
+		})
 	}
 }

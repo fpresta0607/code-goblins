@@ -342,6 +342,43 @@ func TestRenderMarkdownSaysWhenTheHomesDataWasLastFiled(t *testing.T) {
 	}
 }
 
+// The gate's home is named beside the home's buckets with what the janitor
+// last measured there, since walking it takes minutes, and a home the
+// janitor has not measured says so rather than showing nothing.
+func TestRenderMarkdownShowsTheGateHomeTheJanitorMeasured(t *testing.T) {
+	cases := []struct {
+		name    string
+		janitor *janitor.Record
+		want    string
+	}{
+		{
+			name:    "measured",
+			janitor: &janitor.Record{Time: time.Date(2026, 11, 12, 6, 0, 0, 0, time.UTC), Gate: &janitor.GateHome{Folders: []string{`C:\Users\o\.no-mistakes`, `D:\DevDrive\no-mistakes`}, Bytes: 55 << 30}},
+			want:    `| the gate's home at C:\Users\o\.no-mistakes and D:\DevDrive\no-mistakes, as the janitor measured it at 2026-11-12T06:00:00Z | 55.0 GB |`,
+		},
+		{
+			name:    "never measured",
+			janitor: &janitor.Record{Time: time.Date(2026, 11, 12, 6, 0, 0, 0, time.UTC)},
+			want:    "| the gate's home | not measured yet; the janitor's hourly sweep measures it |",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			report := Build(`C:\dev\code-goblins`, reportFixture())
+			report.Janitor = c.janitor
+
+			// Act
+			out := render(t, report)
+
+			// Assert
+			if !strings.Contains(out, c.want) {
+				t.Errorf("output is missing %q\n%s", c.want, out)
+			}
+		})
+	}
+}
+
 // The janitor's sweep of processes is read here: what it ended as a
 // terminal's own, and each process it left for the CEO with its pid, when it
 // started, the memory of its tree and its command.

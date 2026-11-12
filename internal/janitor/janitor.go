@@ -86,6 +86,10 @@ type Config struct {
 	// VerificationStore is the verification store's folder, which the sweep
 	// measures beside the home. Empty measures it as not named.
 	VerificationStore string
+	// GateHomes are the folders of the gate's home, which the sweep measures
+	// beside the home: the one the gate runs from, and the Dev Drive's when
+	// that is another. None measures no gate home.
+	GateHomes []string
 }
 
 // Item is one thing a sweep removed, kept or reports.
@@ -105,7 +109,9 @@ type Record struct {
 	Strays  []Item       `json:"strays,omitempty"`
 	Disk    disk.Reading `json:"disk"`
 	Buckets Buckets      `json:"buckets"`
-	Notes   []string     `json:"notes,omitempty"`
+	// Gate is what the gate's home holds, nil when the sweep was given none.
+	Gate  *GateHome `json:"gate,omitempty"`
+	Notes []string  `json:"notes,omitempty"`
 	// Processes are the processes the sweep ended, those it left for the
 	// CEO, and the detached trees it goes on watching.
 	Processes ProcessSweep `json:"processes,omitzero"`
@@ -169,6 +175,9 @@ func Sweep(ctx context.Context, cfg Config) Record {
 		metas = append(metas, task.Meta)
 	}
 	record.Buckets = Measure(cfg.Home, metas, cfg.VerificationStore)
+	if len(cfg.GateHomes) > 0 {
+		record.Gate = MeasureGate(cfg.GateHomes)
+	}
 	cfg.reportDataSize(&record)
 	cfg.reportBacklogHistory(&record)
 	if reading, err := disk.ReadLeast(cfg.Home.Root, cfg.Home.DevDrive); err == nil {

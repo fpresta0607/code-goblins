@@ -70,14 +70,16 @@ type Report struct {
 }
 
 // Finish is a pull request a goblin reported done during the stretch, or the
-// issue it closed in place of one, with its task's title, the CEO's one line
-// for the work, the goblin's name and the goblin's own last note on the work
+// issue it closed or the report it kept in place of one, with its task's
+// title, the CEO's one line for the work, the goblin's name and the goblin's own last note on the work
 // before it reported it done.
 type Finish struct {
 	Task string `json:"task"`
 	PR   string `json:"pr"`
 	// Closed is the issue a decision had the goblin close, with PR empty.
-	Closed string    `json:"closed,omitempty"`
+	Closed string `json:"closed,omitempty"`
+	// Report is the report a local-only goblin kept, with PR empty.
+	Report string    `json:"report,omitempty"`
 	At     time.Time `json:"at"`
 	Title  string    `json:"title,omitempty"`
 	Goblin string    `json:"goblin,omitempty"`
@@ -723,6 +725,9 @@ func Render(w io.Writer, r Report) error {
 		delivered := finish.PR
 		if finish.Closed != "" {
 			delivered = "closed " + finish.Closed
+		}
+		if finish.Report != "" {
+			delivered = "report " + finish.Report
 		}
 		say("- %s: %s (%s)", finish.Task, delivered, finish.At.UTC().Format("15:04 UTC"))
 	}

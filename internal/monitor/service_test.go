@@ -409,6 +409,7 @@ func TestTheWakeForADeliveredGoblinsGoneTerminalSaysARestartLeavesItDown(t *test
 	}{
 		{name: "resting on its pull request", report: "done: PR https://github.com/acme/api/pull/7", saysDown: "native terminal g1 is gone after it reported its pull request done; a restart leaves it down to wait on the merge unless a prompt reached it since, and goblins switch g1 --harness codex brings it back if it has more work"},
 		{name: "resting on the issue it closed", report: "done: closed https://github.com/acme/api/issues/7 (decision 7: Close it, no PR)", saysDown: "native terminal g1 is gone after it reported its issue closed; a restart leaves it down unless a prompt reached it since, and goblins switch g1 --harness codex brings it back if it has more work"},
+		{name: "resting on the report it kept", report: "done: report " + filepath.Join(os.TempDir(), "data", "g1", "report.md"), saysDown: "native terminal g1 is gone after it reported done with its report; a restart leaves it down unless a prompt reached it since, and goblins switch g1 --harness codex brings it back if it has more work"},
 		{name: "seen working past its done report", report: "done: PR https://github.com/acme/api/pull/7", isSeenWorking: true},
 		{name: "seen working past the issue it closed", report: "done: closed https://github.com/acme/api/issues/7 (decision 7: Close it, no PR)", isSeenWorking: true},
 		{name: "done naming no pull request", report: "done: handed the fix to parent-1"},

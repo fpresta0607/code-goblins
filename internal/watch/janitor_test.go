@@ -260,3 +260,41 @@ func TestTheJanitorPassStopsALocalServicesStackNoLiveTaskHolds(t *testing.T) {
 		t.Errorf("janitor removed = %+v, want the stopped stack recorded", swept.Removed)
 	}
 }
+
+// The watcher's janitor pass measures the gate's home where the gate runs it
+// and on the Dev Drive, where a home moved by hand keeps its repositories
+// behind junctions the measure does not follow, and measures one folder once
+// the home has moved there whole.
+func TestTheJanitorPassMeasuresTheGatesHomeOnBothDrives(t *testing.T) {
+	for name, isMoved := range map[string]bool{"moved by hand": false, "moved whole": true} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			h := home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data"), DevDrive: filepath.Join(root, "devdrive")}
+			target := filepath.Join(h.DevDrive, "no-mistakes")
+			gate := filepath.Join(root, "profile", ".no-mistakes")
+			want := []string{gate, target}
+			if isMoved {
+				gate, want = target, []string{target}
+			}
+			for _, folder := range []string{h.State, gate, target} {
+				if err := os.MkdirAll(folder, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("NM_HOME", gate)
+
+			// Act
+			runJanitor(Config{Home: h, Reap: &reap.Service{Commands: &dockerRunner{}}, JanitorEvery: time.Hour}, reap.Inventory{})
+
+			// Assert
+			swept, err := janitor.ReadRecord(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if swept.Gate == nil || !slices.Equal(swept.Gate.Folders, want) {
+				t.Errorf("gate = %+v, want %v measured", swept.Gate, want)
+			}
+		})
+	}
+}
