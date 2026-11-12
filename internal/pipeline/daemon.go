@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -34,6 +35,17 @@ type Daemon struct {
 	// LiveRuns is how many runs the daemon serves, and -1 when its database
 	// could not be read.
 	LiveRuns int
+}
+
+// RunCount names how many runs the daemon serves, in a sentence.
+func (d Daemon) RunCount() string {
+	switch {
+	case d.LiveRuns < 0:
+		return "runs its database could not count"
+	case d.LiveRuns == 1:
+		return "1 run"
+	}
+	return fmt.Sprintf("%d runs", d.LiveRuns)
 }
 
 // Daemon reads the daemon's pid file, the process it names and the runs its
