@@ -693,7 +693,7 @@ A goblin's card there holds its rows as one group in the middle of the size the 
 A baby goblin's card there is the same shape at its smaller size, its head beside its rows, with its name on up to three lines, what it runs on up to two and its state whole on one line, even the longest, Unknown just started.
 The lineage list puts the clock at that same edge in a card no wider than 360px, while a narrow column of the board keeps it at the card's edge, where a numbered card's marks leave it room.
 A wider card in the lineage list keeps the board's one-row card, with the clock at its top right corner.
-A card there keeps its marks on the clock's row while the widest of them has room beside the clock and gives them the row under it when it has none, so Browser active, the one mark no line can break, is never drawn over the clock.
+A card there no wider than 360px keeps its marks on the clock's row while the widest of them has room beside the clock and gives them the row under it when it has none, so Browser active, the one mark no line can break, is never drawn over the clock.
 Marks too many to fit beside the clock take a second line, and the clock stays right under the project (`frontend/tests/orchestration-card-rows.spec.ts`).
 Dragging a card or using Alt plus an arrow key changes only its saved browser position; connectors retain their reported parent identity.
 The tree fits and centers itself in the visible canvas, scaled up to fill it but never past 125% and down as far as 10%, so the whole of any tree shows, and refits whenever the panel opens or closes, the window resizes, a goblin appears or leaves, or a dragged card is dropped.
