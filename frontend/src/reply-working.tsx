@@ -1,6 +1,7 @@
 import type { HarnessRetry } from "./terminalStream";
 import { WorkingIndicator } from "./working-indicator";
 import { WorkingWord } from "./working-word";
+import { linkedText } from "./messageText";
 import "./reply-working.css";
 
 // The end of the reply in progress, in the place a finished reply shows when
@@ -27,6 +28,6 @@ export function ReplyWorking({ ink, said, isCompacting, isHeld, retry }: { ink: 
   return <div className={"reply-working" + (isCompacting ? " compacting" : retry ? " retrying" : "") + (isHeld ? " held" : "")} aria-hidden={isHeld || undefined}>
     <WorkingIndicator ink={isCompacting ? "var(--purple)" : ink} label={words || "Working"} />
     <WorkingWord said={words} isAlone={isCompacting || !!retry} />
-    {retry && <span className="reply-retry">{"attempt " + retry.attempt + " of " + retry.attempts + " · " + retry.reason}</span>}
+    {retry && <span className="reply-retry">{linkedText("attempt " + retry.attempt + " of " + retry.attempts + " · " + retry.reason)}</span>}
   </div>;
 }

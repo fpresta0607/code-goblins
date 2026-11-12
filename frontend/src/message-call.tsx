@@ -11,6 +11,7 @@ import { MessagePictures } from "./message-pictures";
 import { PlanCard } from "./plan-card";
 import type { CallState, MessageBlock } from "./session-messages";
 import type { Task, TreeNode } from "./types";
+import { literalLinks } from "./messageText";
 
 const STATE_WORDS: Record<CallState, string> = { running: "Running", done: "", failed: "Failed", denied: "Denied", interrupted: "Interrupted", "": "" };
 const STATE_MARKS: Partial<Record<CallState, IconName>> = { running: "clock", done: "check", failed: "warning", denied: "lock", interrupted: "pause" };
@@ -68,7 +69,7 @@ export function MessageCall({ call, task, picture, onChild, open, onOpenChange }
   return <Disclosure kind="disclosure-line message-call" title={head} open={open} onOpenChange={onOpenChange}>
     {words.connector && <p className="call-full call-raw">{call.tool}</p>}
     {words.loaded && words.loaded.length > 0 && <ul className="call-loaded">{words.loaded.map((name, at) => <li key={at}>{name}</li>)}</ul>}
-    {input && (language ? <CodeBlock text={input} language={language} /> : <p className="call-full">{input}</p>)}
+    {input && (language ? <CodeBlock text={input} language={language} /> : <p className="call-full">{literalLinks(input)}</p>)}
     {call.edit?.diff.length
       ? <div className="message-diff">{call.edit.diff.map((line, at) => <div key={at} className={line.startsWith("+") ? "line-added" : line.startsWith("-") ? "line-removed" : undefined}>{line}</div>)}</div>
       : call.result && <CodeBlock text={call.result} language="output" textClass="call-result" />}

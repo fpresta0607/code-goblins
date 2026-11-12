@@ -93,7 +93,9 @@ for (const width of [320, 375, 1440]) {
     const evidence = details.locator(".question-evidence");
     await expect(evidence.getByRole("listitem")).toHaveCount(7);
     await expect(evidence.getByRole("button", { name: "Copy " + RUN_ID })).toBeVisible();
-    await expect(evidence.getByRole("link", { name: LOG_LINK })).toHaveAttribute("href", LOG_LINK);
+    // A run's address reads as its short name, which opens it whole (#2360).
+    await expect(evidence.getByRole("link", { name: "project CI run 38280093670" })).toHaveAttribute("href", LOG_LINK);
+    await expect(evidence.getByRole("link", { name: "project CI run 38280093670" })).toHaveAttribute("title", LOG_LINK);
     expect(await overflow(page)).toEqual([0, 0, 0]);
     await page.screenshot({ path: testInfo.outputPath(`clear-question-open-${width}.png`), fullPage: true });
   });
