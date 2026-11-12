@@ -382,7 +382,7 @@ A role runs on its lead's harness and names lanes with explicit models, and a la
 A role the lane does not name is its lead's own work, so a table without `roles` routes every role to the lead, as before roles existed.
 Implementation and fixes fall back to the lead when none of the lanes they name can run.
 Review and verification are kept off the lead's own model: while their lanes name another model, a lane on the lead's model is left out, so when no other is usable the role is refused rather than run on it; they take the lead's model only when every lane they name is that model.
-The shipped table names, for ordinary Codex work led on Astra, implementation on `gpt-6.1-sol` and verification on Sol, leaving review to the lead; for its Claude fallback led on Opus, it names implementation on Sonnet and review and verification on Fable.
+The shipped table names, for Codex work led on Astra, ordinary or escalated, verification on `gpt-6-sol`, with implementation on `gpt-6.1-sol` for ordinary work, leaving review to the lead; for its Claude fallback led on Opus, it names implementation on Sonnet and review and verification on Fable.
 Nothing launches on a role yet: `goblins route` only previews each role's lane after the quota check, or says why a role is refused, and `goblins doctor` only prints each lane's roles, while every goblin still implements, reviews, verifies and fixes on its own lane.
 A project's `routing` block carries no roles, so its lanes keep every role on the lead.
 
