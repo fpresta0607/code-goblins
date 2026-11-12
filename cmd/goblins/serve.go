@@ -269,11 +269,6 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if !*example {
 		remoteSetting = remote
 	}
-	// An example home shows no machine's shared services.
-	var shared *supervisor.SharedProbes
-	if !*example {
-		shared = sharedProbes(execx.OSRunner{})
-	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
 		HoldsWatchLock:   true,
 		RemoteAccess:     remoteSetting,
@@ -309,7 +304,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		// defender does.
 		Defender: runtime.readDefender,
 		// The shared services' check only reads them, as goblins shared does.
-		Shared: shared,
+		Shared: sharedProbes(*example, execx.OSRunner{}),
 		// A credential request's card saves through the store goblins auth store
 		// writes, and its refresh is goblins auth store's own.
 		Credentials:        auth.OpenStore,

@@ -203,7 +203,7 @@ func TestTheDaemonHealthProbeCountsOnlyARunningDaemonsAnswer(t *testing.T) {
 			commands := &daemonStatusRunner{stdout: c.stdout, exitCode: c.exitCode}
 
 			// Act
-			isAnswering := sharedProbes(commands).DaemonAnswers(t.Context())
+			isAnswering := sharedProbes(false, commands).DaemonAnswers(t.Context())
 
 			// Assert
 			if isAnswering != c.isAnswering {
@@ -213,5 +213,25 @@ func TestTheDaemonHealthProbeCountsOnlyARunningDaemonsAnswer(t *testing.T) {
 				t.Fatalf("the health probe ran %+v, want one no-mistakes daemon status", commands.requests)
 			}
 		})
+	}
+}
+
+// goblins serve reads the machine's shared services, and goblins serve
+// --example, whose home is made up, reads none and asks the machine nothing.
+func TestOnlyARealServeReadsTheMachinesSharedServices(t *testing.T) {
+	// Arrange
+	t.Setenv(gatehome.Variable, t.TempDir())
+	commands := &daemonStatusRunner{stdout: "daemon running (pid 276)\n"}
+
+	// Act
+	example := sharedProbes(true, commands)
+	machine := sharedProbes(false, commands)
+
+	// Assert
+	if example != nil || len(commands.requests) != 0 {
+		t.Fatalf("an example serve's shared probes = %+v after %d commands, want none and nothing asked", example, len(commands.requests))
+	}
+	if machine == nil || !machine.DaemonAnswers(t.Context()) || len(commands.requests) != 1 || strings.Join(commands.requests[0].Args, " ") != "daemon status" {
+		t.Fatalf("a real serve's shared probes ran %+v, want them to ask no-mistakes daemon status", commands.requests)
 	}
 }

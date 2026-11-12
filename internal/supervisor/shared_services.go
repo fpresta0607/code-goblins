@@ -290,31 +290,37 @@ func sharedWaiting(h home.Home, target string) []string {
 
 // wakeSharedWaiters raises one wake for every goblin waiting on a service
 // that is not usable, however many wait, and one more once it is usable,
-// naming the goblins to tell, each told once. A service is taken for down or
-// usable only once two readings in a row agree, so a daemon that misses its
-// health reply now and then wakes nobody at each miss.
+// naming the goblins to tell, each told once. An outage that waited on the
+// service to come back by itself and no longer does wakes the CEO once more,
+// as it is now the CEO's to decide. A reading counts only once the next one
+// says the same next step, so a daemon that misses its health reply now and
+// then wakes nobody at each miss.
 func (s *Service) wakeSharedWaiters(w *fleetWakes, service SharedService) error {
-	wasUsable, isRead := w.SharedUsable[service.Name]
-	if w.SharedUsable == nil {
-		w.SharedUsable = map[string]bool{}
+	lastNext, isRead := w.SharedNext[service.Name]
+	if w.SharedNext == nil {
+		w.SharedNext = map[string]string{}
 	}
-	w.SharedUsable[service.Name] = service.IsUsable
+	w.SharedNext[service.Name] = service.Next
 	if len(service.Waiting) == 0 {
 		delete(w.SharedRaised, service.Name)
 		delete(w.SharedTold, service.Name)
 		return nil
 	}
-	if !isRead || wasUsable != service.IsUsable {
+	if !isRead || lastNext != service.Next {
 		return nil
 	}
 	if !service.IsUsable {
 		// A new outage tells every waiter again once it ends.
 		delete(w.SharedTold, service.Name)
-		if w.SharedRaised[service.Name] {
+		raised := w.SharedRaised[service.Name]
+		if raised == SharedAsk || raised == service.Next {
 			return nil
 		}
 		owner := "it is shared and comes back by itself, so nothing restarts it"
-		if service.Next == SharedAsk {
+		switch {
+		case raised == SharedWait:
+			owner = "it no longer comes back by itself, so whether to start it is now the CEO's to decide, never a goblin's"
+		case service.Next == SharedAsk:
 			owner = "whether to start it is the CEO's to decide, never a goblin's"
 		}
 		detail := fmt.Sprintf("shared_busy: the %s is %s: %s. %d %s on it, %s; %s, and each is told once when it is usable again.", sharedName(service.Name), service.State, service.Detail, len(service.Waiting), goblinsWait(len(service.Waiting)), strings.Join(service.Waiting, ", "), owner)
@@ -322,9 +328,9 @@ func (s *Service) wakeSharedWaiters(w *fleetWakes, service SharedService) error 
 			return err
 		}
 		if w.SharedRaised == nil {
-			w.SharedRaised = map[string]bool{}
+			w.SharedRaised = map[string]string{}
 		}
-		w.SharedRaised[service.Name] = true
+		w.SharedRaised[service.Name] = service.Next
 		return nil
 	}
 	told := w.SharedTold[service.Name]

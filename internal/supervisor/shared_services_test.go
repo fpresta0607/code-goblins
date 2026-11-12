@@ -270,6 +270,84 @@ func TestAHealthReplyMissedNowAndThenWakesNobodyUntilTwoChecksAgree(t *testing.T
 	}
 }
 
+// An outage the CEO was told comes back by itself and then stops coming back,
+// a busy daemon whose process dies or an engine whose start ran past its
+// limit, wakes the CEO once more, as it is now the CEO's to decide; coming back
+// to busy or starting wakes nobody, as the CEO already holds it.
+func TestAnOutageThatStopsComingBackByItselfWakesTheCEOOnceMore(t *testing.T) {
+	now := time.Date(2026, 11, 11, 14, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		name    string
+		target  string
+		arrange func(t *testing.T, h home.Home, machine *sharedMachine)
+		worsen  func(t *testing.T, h home.Home, machine *sharedMachine)
+		recover func(t *testing.T, h home.Home, machine *sharedMachine)
+	}{
+		{
+			name:    "a busy daemon whose process dies",
+			target:  "gate-daemon",
+			arrange: func(*testing.T, home.Home, *sharedMachine) {},
+			worsen: func(_ *testing.T, _ home.Home, machine *sharedMachine) {
+				machine.daemon = pipeline.Daemon{State: pipeline.DaemonStopped}
+			},
+			recover: func(_ *testing.T, _ home.Home, machine *sharedMachine) {
+				machine.daemon = pipeline.Daemon{State: pipeline.DaemonAlive, PID: 277, LiveRuns: 1}
+			},
+		},
+		{
+			name:   "an engine whose start runs past its limit",
+			target: "docker",
+			arrange: func(t *testing.T, h home.Home, machine *sharedMachine) {
+				machine.isDockerUp = false
+				if err := services.WriteRecord(h.State, services.Record{Engine: services.Engine{StartedByCEO: true, Since: now}}); err != nil {
+					t.Fatal(err)
+				}
+			},
+			worsen: func(t *testing.T, h home.Home, _ *sharedMachine) {
+				if err := services.WriteRecord(h.State, services.Record{Engine: services.Engine{StartedByCEO: true, Since: now.Add(-time.Hour)}}); err != nil {
+					t.Fatal(err)
+				}
+			},
+			recover: func(t *testing.T, h home.Home, _ *sharedMachine) {
+				if err := services.WriteRecord(h.State, services.Record{Engine: services.Engine{StartedByCEO: true, Since: now.Add(6 * time.Minute)}}); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			s, h, machine := sharedService(t)
+			c.arrange(t, h, machine)
+			sharedWaiter(t, h, "fern", c.target)
+			checkTime := now
+			checkTwice := func() []wake.Record {
+				first, _ := checkShared(t, s, h, &checkTime)
+				second, _ := checkShared(t, s, h, &checkTime)
+				return append(first, second...)
+			}
+			waiting := checkTwice()
+
+			// Act
+			c.worsen(t, h, machine)
+			worse := append(checkTwice(), checkTwice()...)
+			c.recover(t, h, machine)
+			again := checkTwice()
+
+			// Assert
+			if len(waiting) != 1 || !strings.Contains(waiting[0].Detail, "comes back by itself, so nothing restarts it") {
+				t.Fatalf("wakes while it comes back by itself = %+v, want one saying nothing restarts it", waiting)
+			}
+			if len(worse) != 1 || !strings.HasPrefix(worse[0].Detail, "shared_busy:") || !strings.Contains(worse[0].Detail, " is stopped: ") || !strings.Contains(worse[0].Detail, "it no longer comes back by itself, so whether to start it is now the CEO's to decide, never a goblin's") || !strings.Contains(worse[0].Detail, "fern") {
+				t.Fatalf("wakes once it stopped = %+v, want one more telling the CEO it is now its to decide", worse)
+			}
+			if len(again) != 0 {
+				t.Fatalf("wakes once it came back by itself again = %+v, want none", again)
+			}
+		})
+	}
+}
+
 // A goblin waiting on a stopped Docker engine wakes the CEO once, told that
 // starting it is the CEO's to decide, never a goblin's, and is told once the
 // engine answers again.

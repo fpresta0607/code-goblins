@@ -17,6 +17,7 @@ Each service carries when it was checked, what a goblin does now (`go`, `wait` o
 It also names the goblins whose latest report is a wait on it: report one with `goblins notify <task> --waiting-on gate-daemon|memory|docker "<why>"`, the heavy line's wait being a wait on memory, and do not poll.
 However many goblins wait on the gate daemon or the Docker engine while it is down, the supervisor raises one `shared` wake to the CEO, and one more once it is usable again, naming the goblins to tell, each told once.
 It takes a service for down or usable again only once two checks in a row agree, so a daemon that misses its health reply now and then raises no wake at each miss.
+An outage that was waiting to come back by itself and then reads stopped, a busy daemon whose process died or an engine whose start ran past five minutes, raises one more `shared` wake: starting it is now the CEO's to decide, never a goblin's.
 A wait on either ends by itself, so the stall check does not wake the CEO for each goblin that waits on one.
 The CEO's digest shows the same states on its `SHARED:` line with the count waiting on each.
 
