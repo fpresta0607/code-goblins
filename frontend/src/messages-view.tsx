@@ -33,6 +33,8 @@ const AT_END_PX = 24;
 // His scroll rests once this long passes with no scroll and nothing held
 // down on the list.
 const REST_MS = 250;
+// How far Copied stands from the line of the selection it says it copied.
+const COPIED_GAP = 6;
 // The page of messages before the first one held is read once he reads up
 // this close to the list's top, so it is there before he reaches it.
 const OLDER_WITHIN_PX = 600;
@@ -69,7 +71,13 @@ type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 // board knows, pending those of them that still wait, and box is the message
 // box under the conversation, told whether the stream says a turn runs. onAskSlot takes the conversation's last row,
 // where the box draws what the harness's own screen asks (#2223).
-export function MessagesView({ query, instance, pages, name, task, terminal, harness, model, effort, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, onAskSlot, onOpenCommand, box }: {
+// ChatState is what keeps the conversation a view shows from being the
+// session's own now, which its panel's header says (#2438): a dropped
+// connection while it reconnects, and why the conversation drawn is stale or
+// its stream cannot be kept, or nothing.
+export interface ChatState { isReconnecting: boolean; trouble: string }
+export const QUIET_CHAT: ChatState = { isReconnecting: false, trouble: "" };
+export function MessagesView({ query, instance, pages, name, task, terminal, harness, model, effort, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, onAskSlot, onOpenCommand, onState, box }: {
   query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isCompacting: boolean;
   pages: Map<string, MessagePage>;
   sent: Action[]; pending: Action[];
@@ -79,6 +87,9 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // onOpenCommand opens the Command Center on an item, as a block's Run does
   // on the run card it made.
   onOpenCommand?: (key: string) => void;
+  // onState hears what keeps the conversation shown from being the session's
+  // own now, which the panel's header says, or nothing.
+  onState: (state: ChatState) => void;
 }) {
   // What he sent that the board has not shown yet, drawn at once on its way.
   const sending = usePendingSends();
@@ -122,9 +133,12 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   const [closedWhy, setClosedWhy] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [font, setFont] = useState(storedMessageFont);
-  // A selection he settles with a mouse or a key copies itself, with the same
-  // quiet Copied the copy button gives.
-  const [isCopied, setCopied] = useState(false);
+  // A selection he settles with a mouse or a key copies itself, and says
+  // Copied right under where it ends, as a button says it on itself, never in
+  // a notice over the conversation's top (#2438): copiedAt is where the
+  // selection's last line lay, and copied the Copied placed by it.
+  const [copiedAt, setCopiedAt] = useState<DOMRect | null>(null);
+  const copied = useRef<HTMLDivElement>(null);
   const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const fontValue = useRef(font);
   const shownValue = useRef(shown);
@@ -258,7 +272,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     // until it does. Nothing infers that the conversation is stale from how
     // long the stream was quiet: the stream says itself what the session's
     // turn is and where its head is, and a view that has drawn less than the
-    // head says it is behind.
+    // head is behind.
     const close = (why: string) => {
       stream.close();
       setReconnecting(false);
@@ -698,13 +712,27 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     const selection = window.getSelection();
     if (!shownValue.current || !box || !selection || selection.isCollapsed || selection.rangeCount === 0) return;
     const text = selection.toString();
-    if (!text.trim() || !box.contains(selection.getRangeAt(0).commonAncestorContainer)) return;
+    const range = selection.getRangeAt(0);
+    if (!text.trim() || !box.contains(range.commonAncestorContainer)) return;
+    const end = [...range.getClientRects()].at(-1) ?? range.getBoundingClientRect();
     copyText(text).then(() => {
       clearTimeout(copiedTimer.current);
-      setCopied(true);
-      copiedTimer.current = setTimeout(() => setCopied(false), 1400);
+      setCopiedAt(end);
+      copiedTimer.current = setTimeout(() => setCopiedAt(null), 1400);
     }, () => {});
   }, []);
+  // Copied ends where the selection does, under its last line, or over it
+  // where the frame has no room below, and inside the frame.
+  useLayoutEffect(() => {
+    const said = copied.current;
+    const frame = said?.offsetParent;
+    if (!said || !frame || !copiedAt) return;
+    const room = frame.getBoundingClientRect();
+    const under = copiedAt.bottom - room.top + COPIED_GAP;
+    const top = under + said.offsetHeight <= room.height ? under : copiedAt.top - room.top - COPIED_GAP - said.offsetHeight;
+    said.style.top = Math.min(Math.max(0, top), room.height - said.offsetHeight) + "px";
+    said.style.left = Math.max(0, Math.min(copiedAt.right - room.left, room.width) - said.offsetWidth) + "px";
+  }, [copiedAt]);
   useEffect(() => {
     let frame = 0;
     const settled = () => {
@@ -722,6 +750,21 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     };
   }, [copySelection]);
   useEffect(() => () => clearTimeout(copiedTimer.current), []);
+  // What keeps the conversation shown from being the session's own now goes
+  // to the panel's header, never in a notice over the conversation (the
+  // Overlord, 2026-11-12: "I hate all these alerts remove them!!", #2438): the
+  // one Reconnecting of the pane, for its stream and for the terminal its box
+  // types through, which is not drawn here (2026-11-04), and why the
+  // conversation drawn is not the session's current one, which stays said
+  // while it reconnects, so a drop moves nothing (2026-10-28). A view the
+  // stream has run past says nothing, since Jump to latest shows wherever he
+  // reads up and catches it up.
+  const isDropped = shown && phase !== "closed" && (isReconnecting || !visible || !!link?.isReconnecting);
+  const trouble = shown ? report?.stale || report?.problem || "" : "";
+  useEffect(() => {
+    onState({ isReconnecting: isDropped, trouble });
+    return () => onState(QUIET_CHAT);
+  }, [isDropped, trouble, onState]);
   const toEnd = useCallback((box: HTMLElement) => {
     isJumping.current = true;
     following.current = true;
@@ -912,17 +955,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
           as a click does (the Overlord, 2026-10-28, from his phone: "Jump to
           latest button mobile doesn't work"). */}
       {!isAtEnd && <button type="button" className="message-jump" onClick={jump} onPointerUp={(event) => { if (event.pointerType === "touch") jump(); }}><Icon name="arrow-down" />Jump to latest</button>}
-      {isCopied && <Notice className="terminal-corner">Copied</Notice>}
-      {/* One notice in the corner at a time, the most pressing first: the one
-          Reconnecting of the pane, for its stream and for the terminal its box
-          types through, which is not drawn here (2026-11-04); why the
-          conversation drawn is not the session's current one; then a view
-          the stream has run past, which is behind, neither disconnected nor
-          ended, and no clock says it. */}
-      {phase !== "closed" && (isReconnecting || !visible || !!link?.isReconnecting) ? <Notice tone="warning" className="terminal-corner">Reconnecting</Notice>
-        : report?.stale || report?.problem ? <Notice tone="warning" className="terminal-corner">{report.stale || report.problem}</Notice>
-        : phase === "live" && standing.isBehind ? <Notice className="terminal-corner">Behind the session. Jump to latest catches up.</Notice>
-        : null}
+      {copiedAt && <div ref={copied} className="selection-copied"><Notice>Copied</Notice></div>}
       {phase === "closed" && <Notice form="box" icon="comment" className="terminal-foot"
         actions={<button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button>}>{closedWhy}</Notice>}
     </div>
