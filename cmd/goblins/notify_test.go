@@ -1944,3 +1944,193 @@ func TestAClosedIssueReportedDoneTwiceWakesTheCEOOnce(t *testing.T) {
 		t.Errorf("wake records = %+v, %v; want one wake for one closed issue", records, err)
 	}
 }
+
+func TestALocalOnlyReportReportedDoneTwiceWakesTheCEOOnce(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		edit      []byte
+		wantWakes int
+	}{
+		{"the same report", nil, 1},
+		{"a report it rewrote", []byte("Twenty strays, each proven safe to clear."), 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h, runtime, report := reportingGoblin(t, "local-only")
+			kept := filepath.Join(h.Data, "g1", "report.md")
+			var first, stderr bytes.Buffer
+			if exit := runNotify([]string{"g1", "--done", "--report", report}, &first, &stderr, runtime); exit != 0 {
+				t.Fatalf("exit = %d, stderr = %s", exit, stderr.String())
+			}
+			if test.edit != nil {
+				plantFile(t, kept, test.edit)
+			}
+			var again bytes.Buffer
+
+			// Act
+			exit := runNotify([]string{"g1", "--done", "--report", kept}, &again, &stderr, runtime)
+
+			// Assert
+			if exit != 0 || strings.Contains(again.String(), "not woken again") != (test.wantWakes == 1) {
+				t.Errorf("exit = %d, stdout = %q; want the goblin told whether the CEO was woken again", exit, again.String())
+			}
+			if records, err := wake.Pending(h.State); err != nil || len(records) != test.wantWakes {
+				t.Errorf("wake records = %+v, %v; want %d wakes", records, err, test.wantWakes)
+			}
+		})
+	}
+}
+
+// reportingGoblin is the home of goblin g1, a top-level task spawned in mode,
+// and of its local-only helper g1-h1, with g1's report written in a folder of
+// its own.
+func reportingGoblin(t *testing.T, mode string) (home.Home, commandRuntime, string) {
+	t.Helper()
+	h, runtime, _ := helperHome(t, nil)
+	meta, err := state.ReadTaskMeta(h.State, "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Mode = mode
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	report := filepath.Join(t.TempDir(), "findings.md")
+	if err := os.WriteFile(report, []byte("Nineteen strays, each proven safe to clear."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return h, runtime, report
+}
+
+// A local-only task opens no pull request, by design: a scout, or an
+// operations task with no commit. Its done was refused without --pr, so it
+// reported --working and its card stayed working with its work finished
+// (#1675). Its done now names its report, which the home keeps where cleanup
+// reads it as the task's delivery.
+func TestALocalOnlyTaskReportsDoneWithItsReport(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		place func(h home.Home, report string) string
+	}{
+		{"a report written elsewhere", func(_ home.Home, report string) string { return report }},
+		{"the report the home keeps", func(h home.Home, report string) string {
+			kept := filepath.Join(h.Data, "g1", "report.md")
+			content, err := os.ReadFile(report)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plantFile(t, kept, content)
+			return kept
+		}},
+		{"a report the home already keeps the same", func(h home.Home, report string) string {
+			content, err := os.ReadFile(report)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plantFile(t, filepath.Join(h.Data, "g1", "report.md"), content)
+			return report
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h, runtime, report := reportingGoblin(t, "local-only")
+			given := test.place(h, report)
+			kept := filepath.Join(h.Data, "g1", "report.md")
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runNotify([]string{"g1", "--done", "--report", given}, &stdout, &stderr, runtime)
+
+			// Assert
+			if exit != 0 {
+				t.Fatalf("exit = %d, stderr = %s", exit, stderr.String())
+			}
+			want := "done: report " + kept
+			lines, err := state.TailStatus(h.State, "g1", 1)
+			if err != nil || len(lines) != 1 {
+				t.Fatalf("status = %v, %v; want one done line", lines, err)
+			}
+			if _, event := state.SplitStatus(lines[0]); event != want {
+				t.Errorf("status = %q, want %q", event, want)
+			}
+			if records, err := wake.Pending(h.State); err != nil || len(records) != 1 || records[0].Detail != want {
+				t.Errorf("wake records = %+v, %v; want the CEO woken with %q", records, err, want)
+			}
+			if content, err := os.ReadFile(kept); err != nil || string(content) != "Nineteen strays, each proven safe to clear." {
+				t.Errorf("kept report = %q, %v; want the goblin's report kept where cleanup reads it", content, err)
+			}
+		})
+	}
+}
+
+func TestALocalOnlyDoneReportIsRefusedOffItsRoute(t *testing.T) {
+	pullRequest := "https://github.com/o/r/pull/9"
+	for _, test := range []struct {
+		name    string
+		mode    string
+		args    func(report string) []string
+		arrange func(t *testing.T, h home.Home, report string)
+		want    string
+	}{
+		{name: "a done with no route", mode: "local-only", args: func(string) []string { return []string{"g1", "--done"} }, want: "--report <file>"},
+		{name: "a gated task", mode: "no-mistakes", args: func(report string) []string { return []string{"g1", "--done", "--report", report} }, want: "--pr <url>"},
+		{name: "a direct-PR task", mode: "direct-PR", args: func(report string) []string { return []string{"g1", "--done", "--report", report} }, want: "--pr <url>"},
+		{name: "a helper", mode: "local-only", args: func(report string) []string { return []string{"g1-h1", "--done", "--report", report} }, want: "parent g1"},
+		{name: "beside a pull request", mode: "local-only", args: func(report string) []string { return []string{"g1", "--done", "--pr", pullRequest, "--report", report} }, want: "--report"},
+		{name: "beside a closed issue", mode: "local-only", args: func(report string) []string {
+			return []string{"g1", "--done", "--closed", closedIssue, "--decision", "7", "--report", report}
+		}, want: "--report"},
+		{name: "on another report", mode: "local-only", args: func(report string) []string { return []string{"g1", "--working", "writing it", "--report", report} }, want: "--report"},
+		{name: "a missing file", mode: "local-only", args: func(report string) []string { return []string{"g1", "--done", "--report", report + ".missing"} }, want: "findings.md.missing"},
+		{name: "a folder", mode: "local-only", args: func(report string) []string { return []string{"g1", "--done", "--report", filepath.Dir(report)} }, want: "not a file"},
+		{name: "an empty file", mode: "local-only", args: func(report string) []string { return []string{"g1", "--done", "--report", report} }, arrange: func(t *testing.T, _ home.Home, report string) {
+			plantFile(t, report, nil)
+		}, want: "empty"},
+		{name: "a different report the home keeps", mode: "local-only", args: func(report string) []string { return []string{"g1", "--done", "--report", report} }, arrange: func(t *testing.T, h home.Home, _ string) {
+			plantFile(t, filepath.Join(h.Data, "g1", "report.md"), []byte("An earlier report."))
+		}, want: "different report"},
+		{name: "a lesson that cites nothing", mode: "local-only", args: func(report string) []string {
+			return []string{"g1", "--done", "--report", report, "--lesson", "Clear strays by pid.", "--cites", "lighthouse"}
+		}, want: "lighthouse"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h, runtime, report := reportingGoblin(t, test.mode)
+			if test.arrange != nil {
+				test.arrange(t, h, report)
+			}
+			kept := filepath.Join(h.Data, "g1", "report.md")
+			before, beforeErr := os.ReadFile(kept)
+			args := test.args(report)
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runNotify(args, &stdout, &stderr, runtime)
+
+			// Assert
+			if exit != 2 || !strings.Contains(stderr.String(), test.want) {
+				t.Errorf("exit = %d, stderr = %q; want 2 and a refusal that names %q", exit, stderr.String(), test.want)
+			}
+			if lines, _ := state.TailStatus(h.State, args[0], 1); len(lines) != 0 {
+				t.Errorf("status = %v, want nothing recorded for a refused notify", lines)
+			}
+			if records, err := wake.Pending(h.State); err != nil || len(records) != 0 {
+				t.Errorf("wake records = %+v, %v; want the CEO left unwoken by a refused notify", records, err)
+			}
+			if after, afterErr := os.ReadFile(kept); string(after) != string(before) || (afterErr == nil) != (beforeErr == nil) {
+				t.Errorf("kept report = %q, %v; want it as it was, %q, %v", after, afterErr, before, beforeErr)
+			}
+		})
+	}
+}
+
+// plantFile writes data to path, making its folder.
+func plantFile(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}

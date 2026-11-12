@@ -66,6 +66,40 @@ test("a plan step's web address is a link that opens in a new tab, and a javascr
   await expect(plan.locator('a[href^="javascript:"]')).toHaveCount(0);
 });
 
+// Newer Claude Code builds keep their checklist with TaskCreate, which adds
+// one task, and TaskUpdate, which changes one (#1669). The supervisor puts
+// the list they built over several calls on the latest task call that ran,
+// so the reply shows it as one checklist card there, the task calls before
+// it fold into one row that says what they did, and one that failed is its
+// own row.
+test("a task list built over several calls shows as one checklist card at its latest task call", async ({ page }) => {
+  // Arrange
+  await open(page, snapshot({}, { harness: "claude" }), "", { messages: [
+    { id: "m0", seq: 0, at, kind: "prompt", source: "overlord", text: "Fix the swipe and check the phone spec." },
+    { id: "m1", seq: 1, at, kind: "reply", blocks: [
+      { kind: "text", text: "Here is the plan." },
+      { kind: "call", tool: "TaskCreate", subject: "Read the touch handlers", state: "done" },
+      { kind: "call", tool: "TaskCreate", subject: "Hand the swipe to the history", state: "done" },
+      { kind: "call", tool: "TaskCreate", subject: "Run the phone spec", state: "done" },
+      { kind: "call", tool: "TaskUpdate", subject: "Hand the swipe to the history", state: "done", plan: PLAN },
+      { kind: "call", tool: "TaskUpdate", subject: "Run the phone spec", state: "failed", result: "Task not found" },
+    ] },
+  ], conversation: "fixture-conversation", more: false });
+
+  // Act
+  await openGoblin(page);
+
+  // Assert
+  const plan = page.getByRole("region", { name: "Plan", exact: true });
+  await expect(plan).toHaveCount(1);
+  await expect(plan).toContainText("1 of 3 done");
+  await expect(plan.getByRole("listitem")).toHaveText(["Read the touch handlersDone", "Hand the swipe to the historyIn progress", "Run the phone specTo do"]);
+  await expect(page.locator(".message-call-group .call-verb")).toHaveText("Added 3 tasks");
+  const failed = page.locator(".message-call").filter({ hasText: "Updated a task" });
+  await expect(failed).toContainText("Run the phone spec");
+  await expect(failed.locator(".call-end")).toHaveText("Failed");
+});
+
 test("a plan call that failed is its row with Failed, not a card", async ({ page }) => {
   // Arrange: the supervisor serves a failed TodoWrite with no plan.
   await open(page, snapshot({}, { harness: "claude" }), "", { messages: [

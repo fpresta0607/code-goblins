@@ -78,8 +78,10 @@ type Block struct {
 	Edit     Edit      `json:"edit,omitzero"`
 	Agent    AgentLink `json:"agent,omitzero"`
 	// Plan is the checklist a call wrote, as Claude Code's TodoWrite and
-	// Codex's update_plan write the whole of it each time, and none for a
-	// call that failed, was denied or was interrupted, or that Codex refused.
+	// Codex's update_plan write the whole of it each time, or the task list
+	// Claude Code's TaskCreate and TaskUpdate calls built, on the latest of
+	// them alone (messageLog.taskDone), and none for a call that failed, was
+	// denied or was interrupted, or that Codex refused.
 	Plan []PlanStep `json:"plan,omitempty"`
 }
 
@@ -104,11 +106,7 @@ const (
 // state it knows, and nil for any other call or a plan it cannot read.
 func callPlan(tool string, input json.RawMessage) []PlanStep {
 	var steps []PlanStep
-	add := func(text, status string) {
-		if text = firstLine(text); text != "" && len(steps) < planStepLimit {
-			steps = append(steps, PlanStep{Text: bounded(text, agentLineLimit), Status: status})
-		}
-	}
+	add := func(text, status string) { steps = appendStep(steps, text, status) }
 	switch tool {
 	case "TodoWrite":
 		var fields struct {
@@ -144,8 +142,39 @@ func callPlan(tool string, input json.RawMessage) []PlanStep {
 	return steps
 }
 
-// planStatus is a todo's state, pending for any Claude Code names that the
-// board does not draw.
+// appendStep adds a step with the first line of text to steps, unless that
+// line is empty or the plan already holds as many steps as one keeps.
+func appendStep(steps []PlanStep, text, status string) []PlanStep {
+	if text = firstLine(text); text != "" && len(steps) < planStepLimit {
+		steps = append(steps, PlanStep{Text: bounded(text, agentLineLimit), Status: status})
+	}
+	return steps
+}
+
+// planTask is one task of the list Claude Code's task calls build: its ID,
+// which TaskCreate's result gives and TaskUpdate names, its subject and its
+// state.
+type planTask struct {
+	ID, Subject, Status string
+}
+
+// taskCall is what a TaskCreate or TaskUpdate call asks of the task list:
+// the task it names, by TaskUpdate's ID, and the subject and state it gives,
+// a state of deleted taking the task off the list.
+type taskCall struct {
+	TaskID  string `json:"taskId"`
+	Subject string `json:"subject"`
+	Status  string `json:"status"`
+}
+
+// isTaskTool reports whether tool is one of Claude Code's that change its
+// task list.
+func isTaskTool(tool string) bool {
+	return tool == "TaskCreate" || tool == "TaskUpdate"
+}
+
+// planStatus is a todo's or a task's state, pending for any Claude Code names
+// that the board does not draw.
 func planStatus(status string) string {
 	switch status {
 	case PlanInProgress, PlanCompleted:
@@ -402,6 +431,16 @@ type messageState struct {
 	replies  map[string]int
 	calls    map[string]blockAt
 	pictures map[string]pictureAt
+	// tasks is the task list Claude Code's task calls built, in the order
+	// they created its tasks, as a read from the conversation's start knows
+	// it, and isTaskListLost says a call on a task the list does not hold
+	// showed the list was made elsewhere, so this read cannot know it.
+	// taskCalls is what each task call not yet settled asks of the list, and
+	// taskCard the call whose block shows it.
+	tasks          []planTask
+	isTaskListLost bool
+	taskCalls      map[string]taskCall
+	taskCard       string
 	// usage is what the conversation says the session spent, and window the
 	// context window of the model it last named (claudeContextWindow).
 	usage   Usage
@@ -425,7 +464,7 @@ type pictureAt struct {
 
 // reset starts the log over as the read epoch of its conversation.
 func (l *messageLog) reset(epoch uint64) {
-	l.messageState = messageState{epoch: epoch, replies: map[string]int{}, calls: map[string]blockAt{}, pictures: map[string]pictureAt{}}
+	l.messageState = messageState{epoch: epoch, replies: map[string]int{}, calls: map[string]blockAt{}, pictures: map[string]pictureAt{}, taskCalls: map[string]taskCall{}}
 }
 
 // messageEntry is the part of a Claude Code transcript entry the message
@@ -936,6 +975,18 @@ func (l *messageLog) reply(entry messageEntry, id string, offset int64) {
 				_ = json.Unmarshal(block.Input, &input)
 				call.Agent = AgentLink{Node: "subagent:" + block.ID, Type: cmp.Or(input.SubagentType, "general-purpose")}
 			}
+			if isTaskTool(block.Name) {
+				var asked taskCall
+				_ = json.Unmarshal(block.Input, &asked)
+				l.taskCalls[block.ID] = asked
+				subject := asked.Subject
+				if i := l.task(asked.TaskID); subject == "" && i >= 0 {
+					subject = l.tasks[i].Subject
+				}
+				if subject = firstLine(subject); subject != "" {
+					call.Subject = bounded(subject, agentLineLimit)
+				}
+			}
 			added = append(added, call)
 		}
 	}
@@ -1191,6 +1242,12 @@ type toolOutcome struct {
 	StructuredPatch     []struct {
 		Lines []string `json:"lines"`
 	} `json:"structuredPatch"`
+	// Task is the task a TaskCreate made, and Success false a TaskUpdate
+	// Claude Code refused without an error, as of a task it does not hold.
+	Task struct {
+		ID string `json:"id"`
+	} `json:"task"`
+	Success *bool `json:"success"`
 }
 
 // persisted is a result too large for the conversation as Claude Code writes
@@ -1215,7 +1272,7 @@ func (l *messageLog) result(entry messageEntry, block messageBlock, offset int64
 		call.State = CallInterrupted
 	case entry.PermissionDecision.Decision == "reject" || entry.ToolDenialKind != "":
 		call.State = CallDenied
-	case block.IsError:
+	case block.IsError, isTaskTool(call.Tool) && outcome.Success != nil && !*outcome.Success:
 		call.State = CallFailed
 	default:
 		call.State = CallDone
@@ -1242,7 +1299,51 @@ func (l *messageLog) result(entry messageEntry, block messageBlock, offset int64
 		call.Plan = nil
 	}
 	l.messages[at.message].Blocks[at.block] = call
+	if asked, isTaskCall := l.taskCalls[call.CallID]; isTaskCall {
+		delete(l.taskCalls, call.CallID)
+		if call.State == CallDone {
+			l.taskDone(at, call, asked, outcome.Task.ID)
+		}
+	}
 	l.touch(at.message)
+}
+
+// taskDone puts into the task list the change a task call that ran, call at
+// at, made as asked, a TaskCreate making the task created, and moves the
+// list's card to that call: the conversation shows the list once, at its
+// latest task call, the earlier ones staying rows. A read that cannot know
+// the list, one of a tail or one that lost it, shows it nowhere.
+func (l *messageLog) taskDone(at blockAt, call Block, asked taskCall, created string) {
+	if call.Tool == "TaskCreate" {
+		l.tasks = append(l.tasks, planTask{ID: created, Subject: asked.Subject, Status: PlanPending})
+		l.isTaskListLost = l.isTaskListLost || created == ""
+	} else if i := l.task(asked.TaskID); i < 0 {
+		l.isTaskListLost = true
+	} else if asked.Status == "deleted" {
+		l.tasks = slices.Delete(l.tasks, i, i+1)
+	} else {
+		l.tasks[i].Subject = cmp.Or(asked.Subject, l.tasks[i].Subject)
+		l.tasks[i].Status = cmp.Or(asked.Status, l.tasks[i].Status)
+	}
+	if card, isShown := l.calls[l.taskCard]; isShown && l.taskCard != "" {
+		l.messages[card.message].Blocks[card.block].Plan = nil
+		l.touch(card.message)
+	}
+	l.taskCard = ""
+	if l.from > 0 || l.isTaskListLost {
+		return
+	}
+	var steps []PlanStep
+	for _, task := range l.tasks {
+		steps = appendStep(steps, task.Subject, planStatus(task.Status))
+	}
+	l.messages[at.message].Blocks[at.block].Plan = steps
+	l.taskCard = call.CallID
+}
+
+// task is where the task list holds the task id, and -1 when it holds none.
+func (l *messageLog) task(id string) int {
+	return slices.IndexFunc(l.tasks, func(task planTask) bool { return task.ID == id })
 }
 
 // spilled is the start of a result Claude Code saved to a file of its own,

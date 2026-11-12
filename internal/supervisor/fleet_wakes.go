@@ -532,15 +532,50 @@ func (s *Service) checkDisk(w *fleetWakes, now time.Time) error {
 }
 
 // diskLowDetail is the disk wake's text: the free space against the floor and
-// the mark, what the home holds, and what the janitor last did.
+// the mark, what the home and the gate's home hold, the largest bucket, and
+// what the janitor last did.
 func diskLowDetail(h home.Home, reading Disk, now time.Time) string {
 	detail := fmt.Sprintf("disk_low: free disk on %s is %.1f GB, under the %.0f GB mark; no goblin or gate test run starts under the %.0f GB floor.", reading.Drive, disk.GB(reading.Free), disk.GB(reading.Wake), disk.GB(reading.Floor))
 	if record, err := janitor.ReadRecord(h.State); err == nil {
 		b := record.Buckets
 		detail += fmt.Sprintf(" The home holds %.1f GB: worktrees %.1f, scratch %.1f, caches %.1f, state %.1f, data %.1f, bin %.1f; the janitor last swept %s ago and freed %.1f GB.",
 			disk.GB(uint64(b.Total())), disk.GB(uint64(janitor.Sum(b.Worktrees))), disk.GB(uint64(janitor.Sum(b.Scratch))), disk.GB(uint64(janitor.Sum(b.Caches))), disk.GB(uint64(b.State)), disk.GB(uint64(b.Data)), disk.GB(uint64(b.Bin)), now.Sub(record.Time).Round(time.Minute), disk.GB(uint64(record.Freed())))
+		if record.Gate != nil {
+			detail += fmt.Sprintf(" The gate's home at %s holds %.1f GB.", strings.Join(record.Gate.Folders, " and "), disk.GB(uint64(record.Gate.Bytes)))
+		}
+		if name, bytes := largestBucket(record); bytes > 0 {
+			detail += fmt.Sprintf(" The largest bucket is %s, at %.1f GB.", name, disk.GB(uint64(bytes)))
+		}
 	}
 	return detail + " Next: goblins runtime names every bucket and Docker's share; clean up finished goblins with goblins cleanup, and put the caches and Docker beyond the home to the Overlord, whose they are."
+}
+
+// largestBucket is the bucket the sweep measured that holds the most, the
+// verification store and the gate's home among them, named as goblins
+// runtime's table names it.
+func largestBucket(record janitor.Record) (name string, bytes int64) {
+	consider := func(candidate string, size int64) {
+		if size > bytes {
+			name, bytes = candidate, size
+		}
+	}
+	b := record.Buckets
+	for _, group := range []struct {
+		prefix, suffix string
+		sizes          map[string]int64
+	}{{"task ", " worktrees", b.Worktrees}, {"task ", " scratch", b.Scratch}, {`caches\`, "", b.Caches}} {
+		for _, key := range slices.Sorted(maps.Keys(group.sizes)) {
+			consider(group.prefix+key+group.suffix, group.sizes[key])
+		}
+	}
+	consider("bin", b.Bin)
+	consider("state", b.State)
+	consider("data", b.Data)
+	consider("the verification store", b.Verification)
+	if record.Gate != nil {
+		consider("the gate's home", record.Gate.Bytes)
+	}
+	return name, bytes
 }
 
 // memoryWork is the work waiting on memory: the queued tasks a Start could

@@ -69,6 +69,9 @@ export interface Task extends Evaluation {
   // closed_issue is the issue a live task's latest report says it closed in
   // place of a pull request, which leaves nothing to verify of it.
   closed_issue: string;
+  // kept_report is the report the home keeps for a live local-only task whose
+  // latest report is its done, which leaves nothing to verify of it.
+  kept_report: string;
   // reported_at is when the goblin wrote its latest report.
   reported_at?: string;
   retired_at?: string;
@@ -1094,6 +1097,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         handoff: t.handoff === undefined ? false : boolean(t.handoff),
         last_report: string(t.last_report),
         closed_issue: t.closed_issue === undefined ? "" : string(t.closed_issue),
+        kept_report: t.kept_report === undefined ? "" : string(t.kept_report),
         reported_at: string(t.reported_at),
         retired_at: string(t.retired_at),
         report: t.report === undefined ? "" : string(t.report),
