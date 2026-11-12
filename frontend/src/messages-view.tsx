@@ -12,7 +12,7 @@ import { Notice } from "./notice";
 import { PictureOpener } from "./picture-opener";
 import { PictureViewer } from "./picture-viewer";
 import { ReplyWorking } from "./reply-working";
-import { changeMessages, isWrittenReply, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseSession, parseUsage, parseWaiting, storedMessageFont, storeMessageFont, turnEnds, viewStanding, type MessagePage, type SessionReport } from "./session-messages";
+import { changeMessages, conversationHead, isWrittenReply, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseSession, parseUsage, parseWaiting, storedMessageFont, storeMessageFont, turnEnds, viewStanding, type ConversationHead, type MessagePage, type SessionReport } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { object, parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
 import { useTerminalLink } from "./terminal-link";
@@ -91,6 +91,9 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // The stream keeps one latest version while the displayed history stays
   // where he reads. Returning to the end publishes it once, without replay.
   const latest = useRef(held);
+  // Where the latest version ends, so a view that holds it back knows it
+  // draws less than it has.
+  const [received, setReceived] = useState<ConversationHead>(() => conversationHead(held));
   // The box speaks for the session as it is now, however far up he reads, so
   // it follows the stream while the history he reads holds still.
   const [composing, setComposing] = useState<Composing>(() => composerOf({ history: [] }, held));
@@ -99,11 +102,15 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // working indicator: never the board's snapshot of the terminal, which can
   // say a finished turn still works.
   const [report, setReport] = useState<SessionReport | null>(null);
-  // Behind and working are the stream's own words, and a compaction is the
-  // session's own state rather than a turn: both draw the one indicator, only
-  // once the view is live, and both are published with the messages so what
-  // he reads up keeps still.
-  const standing = viewStanding(report, held.messages);
+  // Behind and working are read from the stream's word and the view's own
+  // place: the conversation drawn against what the stream sent and what its
+  // head names. The working row is that word as it is now, never kept from
+  // when he left the end, so a turn that ended draws no indicator wherever he
+  // reads. What the rows he reads show of their turn, its end and a reply's
+  // Run, is published with the messages, so what he reads up keeps still. A
+  // compaction is the session's own state rather than a turn, and draws the
+  // one indicator too once the view is live.
+  const standing = viewStanding(report, conversationHead(held), received);
   const isAtWork = standing.isWorking || phase === "live" && isCompacting;
   // The box's Stop reads the same word of the stream, as the session is now
   // however far up he reads, so no Stop shows for a turn that ended, whatever
@@ -275,10 +282,12 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
         olderWaiting.current = null;
       }
       reconcile.current();
+      const head = conversationHead(next);
       isTaking.current = true;
       try {
         flushSync(() => {
           if (following.current) setHeld(next);
+          setReceived((prior) => prior.conversation === head.conversation && prior.newest === head.newest ? prior : head);
           setComposing((prior) => composerOf(prior, next));
           setReconnecting(false);
           setPhase("live");
@@ -316,13 +325,19 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
       close(why || UNREAD);
     });
     // A stream the supervisor refused is closed for good; one that dropped,
-    // as each does after ten minutes, reconnects by itself.
+    // as each does after ten minutes, reconnects by itself. Either way the
+    // turn may end while no stream is there to say so, so nothing it last
+    // said of the turn is drawn until it speaks again.
     stream.onerror = () => {
       if (stream.readyState === EventSource.CLOSED || ++failures >= MAX_RETRIES) close(UNREAD);
-      else setReconnecting(true);
+      else {
+        setReconnecting(true);
+        setReport(null);
+      }
     };
     return () => {
       stream.close();
+      setReport(null);
     };
   }, [address, visible, attempt, where, pages, pageKey]);
 
@@ -837,7 +852,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     for (const row of items.current?.querySelectorAll<HTMLElement>(":scope > .reply-working, :scope > [data-queued], :scope > .conversation-ask") ?? []) observer.observe(row);
     settle();
     return () => observer.disconnect();
-  }, [queuedIDs, held.isWorking, reachesEnd, phase, shown, settle]);
+  }, [queuedIDs, isAtWork, reachesEnd, phase, shown, settle]);
   return <MessageDocumentScope query={query} instance={instance}><section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     {/* Connecting is a plain line above the conversation, never a cover over
         the box he types into. */}
@@ -863,7 +878,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
-          {shown && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} retry={link?.screen?.retry} />}
+          {shown && isAtWork && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} retry={link?.screen?.retry} />}
           {/* His messages not yet in the session's record, at the
               conversation's end in its one scroll (the Overlord, 2026-10-29:
               "the double scrolls and having its own little scroll for queued
