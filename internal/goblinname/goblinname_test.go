@@ -1,6 +1,7 @@
 package goblinname
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -47,7 +48,7 @@ func TestAssignGivesANameAndTitleFromTheCatalogAndRemembersIt(t *testing.T) {
 	stateDir := t.TempDir()
 
 	// Act
-	pair, err := Assign(stateDir, Work{ID: "nw-sum", Title: "Make the numbers add up"})
+	pair, err := Assign(stateDir, Work{ID: "nw-x1", Title: "Make it right"})
 
 	// Assert
 	if err != nil {
@@ -204,8 +205,8 @@ func TestAssignNamesTheSubjectOfRealBacklogTasks(t *testing.T) {
 		{work: Work{ID: "cg-voice-long", Title: `A long dictation of any length is heard and typed in full, never "Nothing was heard" (Moonshine tiny since PR 488); Claude Code`}, want: "Voice Whisperer"},
 		{work: Work{ID: "cg-resume-smooth", Title: "One click starts or resumes a goblin quickly, a message to a busy goblin is queued, and no yellow error line shows; Claude Code"}, want: "Resume Wrangler"},
 		{work: Work{ID: "cg-tree-polish", Title: "On the Orchestration family tree, branches meet the top of each baby goblin and a click on a baby goblin opens its agent terminal; Claude Code"}, want: "Branch Bender"},
-		{work: Work{ID: "cg-fly-token-durable", Title: "PrecisionDocs' fly service stays green until its token's own expiry, so PrecisionDocs goblins are never refused for Fly; Claude Code"}, want: "Token Tamer"},
-		{work: Work{ID: "cg-openconsole", Title: "Goblin terminals run on OpenConsole (ConPTY 1.25) with a host screen model that answers its cursor query and repaints viewers, so keys never strand and conhost's crash cannot kill a terminal; Claude Code"}, want: "Console Captain"},
+		{work: Work{ID: "cg-fly-token-durable", Title: "The app's fly service stays green until its token's own expiry, so its goblins are never refused for Fly; Claude Code"}, want: "Fly Fixer"},
+		{work: Work{ID: "cg-openconsole", Title: "Goblin terminals run on OpenConsole (ConPTY 1.25) with a host screen model that answers its cursor query and repaints viewers, so keys never strand and conhost's crash cannot kill a terminal; Claude Code"}, want: "Terminal Tamer"},
 		{work: Work{ID: "cg-stall-evidence", Title: "A goblin is called stalled only when its screen, transcript and process tree all stop, so the CEO is never woken for a goblin that is plainly busy; Claude Code"}, want: "Stall Sleuth"},
 		{work: Work{ID: "cg-test-hygiene", Title: "Tests stop reading the live checkout or timing out under load, and proc.Processes fills or drops Start (cg-harness-capacity's findings); Claude Code"}, want: "Test Tamer"},
 		{work: Work{ID: "ceo-no-mistakes-update", Title: "Install no-mistakes built from his fork (fpresta0607/no-mistakes main 8cf1c98e3 or later) in a quiet window"}, want: "Gate Guardian"},
@@ -261,7 +262,7 @@ func TestAssignGivesAGenericTitleOnlyWhenTheTaskNamesNoSubject(t *testing.T) {
 		name string
 		work Work
 	}{
-		{name: "nothing named", work: Work{ID: "nw-sum", Title: "Make the numbers add up", Task: "The totals should come out right."}},
+		{name: "nothing named", work: Work{ID: "nw-x1", Title: "Make it right", Task: "It should be right."}},
 		{name: "nothing given", work: Work{}},
 	}
 	for _, tc := range cases {
@@ -284,7 +285,7 @@ func TestAssignGivesEachGoblinOnOneSubjectAnotherTitleNamingIt(t *testing.T) {
 
 	// Act
 	var titles []string
-	for range RecentWindow {
+	for range len(subject{word: "Token"}.titles()) {
 		pair, err := Assign(stateDir, work)
 		if err != nil {
 			t.Fatal(err)
@@ -355,16 +356,242 @@ func TestBackfillOfANamedFleetChangesNothing(t *testing.T) {
 	}
 }
 
-func TestWorkOfReadsTheTaskSectionOfTheBriefOnly(t *testing.T) {
+func TestWorkOfReadsTheTaskSectionAndTheGivenTitleOfTheBriefOnly(t *testing.T) {
 	// Arrange
-	brief := "# Brief cg-x\n\n## Task\n\nShow names on the board.\nAnd the canvas.\n\n## Constraints\n\nNever touch the merge train.\n"
+	brief := "# Brief cg-x\n\n## Task\n\nShow names on the board.\nAnd the canvas.\n\n## Constraints\n\nNever touch the merge train.\ngoblin title: Train Tamer\n\n## Delivery\n\nkind: ship\ngoblin title: Name Ninja\nready: true\n"
 
 	// Act
 	work := WorkOf("cg-x", "Goblin names", brief)
 
 	// Assert
-	if want := (Work{ID: "cg-x", Title: "Goblin names", Task: "Show names on the board.\nAnd the canvas."}); work != want {
+	if want := (Work{ID: "cg-x", Title: "Goblin names", Task: "Show names on the board.\nAnd the canvas.", GivenTitle: "Name Ninja"}); work != want {
 		t.Fatalf("work = %+v, want %+v", work, want)
+	}
+}
+
+func TestGivenTitleReadsTheDeliveryLineAndRefusesOneThatBreaksTheRule(t *testing.T) {
+	cases := []struct {
+		name      string
+		delivery  string
+		want      string
+		isRefused bool
+	}{
+		{name: "a title", delivery: "goblin title: Estimate Elf\n", want: "Estimate Elf"},
+		{name: "its spaces tidied", delivery: "Goblin Title:   App   Store Ace  \n", want: "App Store Ace"},
+		{name: "no line", delivery: "kind: ship\n", want: ""},
+		{name: "four words", delivery: "goblin title: The Big Cost Elf\n", isRefused: true},
+		{name: "past the length", delivery: "goblin title: Configuration Wrangler\n", isRefused: true},
+		{name: "a semicolon", delivery: "goblin title: Cost; Elf\n", isRefused: true},
+		{name: "empty", delivery: "goblin title:\n", isRefused: true},
+		{name: "two lines", delivery: "goblin title: Estimate Elf\ngoblin title: Cost Elf\n", isRefused: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			brief := "# Brief cg-x\n\n## Task\n\ngoblin title: Not This One\n\n## Delivery\n\n" + tc.delivery
+
+			// Act
+			title, err := GivenTitle(brief)
+
+			// Assert
+			if tc.isRefused != (err != nil) || !tc.isRefused && title != tc.want {
+				t.Fatalf("GivenTitle = %q, %v, want %q, refused %v", title, err, tc.want, tc.isRefused)
+			}
+		})
+	}
+}
+
+func TestAssignGivesTheTitleTheBriefGivesAndAQueuedTaskKeepsItsName(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	queued, err := Reserve(stateDir, []Work{{ID: "cg-x", Title: "Smooth resumes"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	given := Work{ID: "cg-x", Title: "Smooth resumes", GivenTitle: "Resume Rascal"}
+
+	// Act
+	reserved, reserveErr := Reserve(stateDir, []Work{given})
+	assigned, assignErr := Assign(stateDir, given)
+	fresh, freshErr := Assign(stateDir, Work{ID: "cg-y", Title: "Smooth resumes", GivenTitle: "Comeback Kid"})
+
+	// Assert
+	if err := errors.Join(reserveErr, assignErr, freshErr); err != nil {
+		t.Fatal(err)
+	}
+	want := Pair{Name: queued["cg-x"].Name, Title: "Resume Rascal"}
+	if reserved["cg-x"] != want || assigned != want {
+		t.Fatalf("reserved %+v and assigned %+v, want %+v: the queued name with the given title", reserved["cg-x"], assigned, want)
+	}
+	if fresh.Title != "Comeback Kid" || fresh.Name == want.Name {
+		t.Fatalf("fresh pair = %+v, want a name of its own and the title Comeback Kid", fresh)
+	}
+}
+
+// The examples of issue 2396, each told in the issue's words, with the title
+// it had before: each title now names the task's own subject.
+func TestAssignNamesTheTasksOwnSubjectForTheIssuesExamples(t *testing.T) {
+	cases := []struct {
+		before string
+		work   Work
+		want   string
+	}{
+		{before: "Build Boss", work: Work{ID: "acme-layout-reasoning", Title: "Better layout reasoning in a drawing engine"}, want: "Reasoning Ranger"},
+		{before: "Build Bender", work: Work{ID: "acme-app-store", Title: "Open the phone app to the public through the App Store"}, want: "App Store Ace"},
+		{before: "Build Buster", work: Work{ID: "acme-home-video", Title: "Remake the video for the home page"}, want: "Video Director"},
+		{before: "Chat Wrangler", work: Work{ID: "acme-web-app-back", Title: "Bring the web app back for customers"}, want: "App Ace"},
+		{before: "Website Wrangler", work: Work{ID: "root-acme-12", Title: "Fix the cost estimate and the document writer"}, want: "Estimate Elf"},
+		{before: "Ordinance Oracle", work: Work{ID: "acme-corpus-reload", Title: "Reload the set of legal code corpora"}, want: "Corpus Curator"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.work.ID, func(t *testing.T) {
+			// Act
+			pair, err := Assign(t.TempDir(), tc.work)
+
+			// Assert
+			if err != nil || pair.Title != tc.want {
+				t.Fatalf("pair = %+v, %v, want %q in place of %q", pair, err, tc.want, tc.before)
+			}
+		})
+	}
+}
+
+// subjectOf is the subject word of title: all but its role.
+func subjectOf(title string) string {
+	fields := strings.Fields(title)
+	return keyOf(strings.Join(fields[:len(fields)-1], " "))
+}
+
+// A fleet like the one issue 2396 measured, where 18 of 23 goblins shared
+// their title's first word with another: each now names a subject of its
+// own.
+func TestReserveGivesNoTwoGoblinsOfALikeFleetOneSubjectWord(t *testing.T) {
+	// Arrange
+	fleet := []Work{
+		{ID: "cg-board-connectors", Title: "Board: the phone's branch text (Dispatched by the CEO, spawned) goes, Connectors leaves the top bar"},
+		{ID: "cg-ceo-rename", Title: "Rename cfo to ceo everywhere, then one planned cutover"},
+		{ID: "cg-chat-slash-commands", Title: "Board: Modern Chat takes slash commands the way the terminal does, and Orchestration cards fit"},
+		{ID: "cg-goblin-names", Title: "Goblin names and titles fit the task and stop repeating, issue 2396"},
+		{ID: "cg-linux-build", Title: "Code Goblins on Linux: the build, a goblin end to end, and an installer"},
+		{ID: "acme-layout-reasoning", Title: "Better layout reasoning in a drawing engine"},
+		{ID: "acme-app-store", Title: "Open the phone app to the public through the App Store"},
+		{ID: "acme-home-video", Title: "Remake the video for the home page"},
+		{ID: "acme-web-app-back", Title: "Bring the web app back for customers"},
+		{ID: "root-acme-12", Title: "Fix the cost estimate and the document writer"},
+		{ID: "acme-corpus-reload", Title: "Reload the set of legal code corpora"},
+		{ID: "acme-examples-one-surface", Title: "acme-examples-one-surface"},
+		{ID: "root-code-goblins-1949", Title: "Gate Rebase step conflicts on a published branch kept current by merge commits"},
+		{ID: "root-code-goblins-1951", Title: "execx churn test times out under load while its sampler spins"},
+		{ID: "root-no-mistakes-102", Title: "Two Review step tests flake on Windows on main"},
+		{ID: "root-no-mistakes-127", Title: "test cannot admit required task-private checks when baseline is absent"},
+		{ID: "root-no-mistakes-130", Title: "TestOmitIntentFoldsAtRunStartAndRerunInherits loses worktree metadata"},
+		{ID: "root-code-goblins-1916", Title: "test(fleettree): inherited-capture process child test flakes on a loaded machine"},
+		{ID: "root-code-goblins-1925", Title: "A supervisor start can dispatch a mode other than the brief's Delivery mode"},
+		{ID: "root-code-goblins-1927", Title: "Prepush fails the push on the browser case its time limit ends"},
+		{ID: "root-code-goblins-1930", Title: "One-line install CI fails when the runner's Codex removes its own plugin clone folder"},
+		{ID: "root-code-goblins-1931", Title: "openInside resolves a path on disk before matching it to its roots"},
+		{ID: "root-no-mistakes-87", Title: "TestExecutor_AppliesGateReconcileTimingsFromGlobalConfig misses its one-second post-approval window on loaded Windows runners"},
+		{ID: "root-no-mistakes-98", Title: "test (windows-steps-1) runs at its 15-minute package budget"},
+		{ID: "cg-chat-queue-delivery", Title: "Modern Chat queued messages always deliver and their bubbles follow the real state"},
+		{ID: "root-no-mistakes-99", Title: "TestPiStrictDeclarationSatisfiesTheStrictFunctionContract flakes and hides its cause"},
+		{ID: "root-code-goblins-1932", Title: "A gate fixer's budget runs out while it waits in the gate line, losing its fix and the repair round"},
+		{ID: "root-code-goblins-1933", Title: "Gate fix agent's invocation budget runs out while it waits for a machine turn"},
+	}
+	// The premise: each task's best subject alone, as if no other goblin
+	// were live, would share a word with another task's.
+	alone := map[string]bool{}
+	isShared := false
+	for _, work := range fleet {
+		subject := keyOf(subjectsOf(work)[0].word)
+		isShared = isShared || alone[subject]
+		alone[subject] = true
+	}
+	if !isShared {
+		t.Fatal("no two tasks' best subjects match, so the fleet tests nothing")
+	}
+
+	// Act
+	pairs, err := Reserve(t.TempDir(), fleet)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	holders := map[string]string{}
+	for _, work := range fleet {
+		subject := subjectOf(pairs[work.ID].Title)
+		if holder, isHeld := holders[subject]; isHeld {
+			t.Errorf("%s and %s both name %q: %q and %q", holder, work.ID, subject, pairs[holder].Title, pairs[work.ID].Title)
+		}
+		holders[subject] = work.ID
+	}
+}
+
+// The live goblins' titles are read from their records, so a goblin
+// starting beside a live Chat Charmer takes the other subject its task
+// names, and only one whose task names no other shares the subject.
+func TestAssignPassesOverASubjectALiveGoblinsTitleNamesWhileAnotherFits(t *testing.T) {
+	cases := []struct {
+		name string
+		work Work
+		want string
+	}{
+		{name: "another fits", work: Work{ID: "cg-chat-scroll", Title: "The chat keeps its scroll"}, want: "Scroll Sleuth"},
+		{name: "none other fits", work: Work{ID: "cg-chat", Title: "The chat"}, want: "Chat Captain"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			stateDir := t.TempDir()
+			alone, err := Assign(t.TempDir(), tc.work)
+			if err != nil || alone.Title != "Chat Charmer" {
+				t.Fatalf("alone = %+v, %v, want Chat Charmer, the task's best subject", alone, err)
+			}
+			liveGoblin(t, stateDir, "cg-live-chat", Pair{Name: "Jerry", Title: "Chat Charmer"})
+
+			// Act
+			pair, err := Assign(stateDir, tc.work)
+
+			// Assert
+			if err != nil || pair.Title != tc.want {
+				t.Fatalf("pair = %+v, %v, want %q", pair, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestAssignNeverNamesTheTasksProjectInItsTitle(t *testing.T) {
+	cases := []Work{
+		{ID: "acme-invoices", Title: "Acme invoices total right"},
+		{ID: "root-acme-12", Title: "Acme crashes on start"},
+	}
+	for _, work := range cases {
+		t.Run(work.ID, func(t *testing.T) {
+			// Act
+			pair, err := Assign(t.TempDir(), work)
+
+			// Assert
+			if err != nil || strings.HasPrefix(pair.Title, "Acme") || slices.Contains(genericTitles, pair.Title) {
+				t.Fatalf("pair = %+v, %v, want a title naming the work, not the project Acme", pair, err)
+			}
+		})
+	}
+}
+
+func TestPickNeverReusesANameInsideTheRecentWindow(t *testing.T) {
+	// Arrange: the last RecentWindow spawns used the first names of the pool.
+	var recent []Pair
+	for _, name := range firstNames[:RecentWindow] {
+		recent = append(recent, Pair{Name: name, Title: "Code Designer"})
+	}
+
+	// Act and assert: a pick blind to the window would land in it two times
+	// in three.
+	for range 200 {
+		pair, err := pick(Work{}, nil, recent)
+		if err != nil || slices.Contains(firstNames[:RecentWindow], pair.Name) {
+			t.Fatalf("pair = %+v, %v, want a name outside the last %d spawns", pair, err, RecentWindow)
+		}
 	}
 }
 
@@ -506,6 +733,63 @@ func TestBackfillGivesALiveGoblinThePairItWasQueuedWith(t *testing.T) {
 	}
 }
 
+func TestBackfillGivesALiveGoblinTheQueuedNameAndTheTitleItsBriefGives(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	queued, err := Reserve(stateDir, []Work{{ID: "nw-sync", Title: "Smooth resumes"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	briefPath := filepath.Join(t.TempDir(), "brief.md")
+	if err := os.WriteFile(briefPath, []byte("# Brief nw-sync\n\n## Task\n\nSmooth resumes.\n\n## Delivery\n\ngoblin title: Resume Ranger\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	liveGoblin(t, stateDir, "nw-sync", Pair{})
+	record, err := os.OpenFile(state.TaskMetaPath(stateDir, "nw-sync"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = record.WriteString("brief=" + briefPath + "\n")
+	if err = errors.Join(err, record.Close()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err = Backfill(stateDir)
+
+	// Assert
+	if record := readRecord(t, stateDir, "nw-sync"); err != nil || record["goblin_name"] != queued["nw-sync"].Name || record["goblin_title"] != "Resume Ranger" {
+		t.Fatalf("record = %v, %v, want the queued name %q titled Resume Ranger", record, err, queued["nw-sync"].Name)
+	}
+}
+
+func TestDisplayPrintsTheTasksWordSingularAndKeepsItsCapitals(t *testing.T) {
+	cases := []struct{ word, want string }{
+		{"Sizes", "Size"},
+		{"macOS", "macOS"},
+		{"Statuses", "Status"},
+		{"Aliases", "Alias"},
+		{"Series", "Series"},
+		{"PDFs", "PDF"},
+		{"tokens", "Token"},
+		{"branches", "Branch"},
+		{"queries", "Query"},
+		{"buzzes", "Buzz"},
+		{"status", "Status"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.word, func(t *testing.T) {
+			// Act
+			got := display(tc.word)
+
+			// Assert
+			if got != tc.want {
+				t.Fatalf("display(%q) = %q, want %q", tc.word, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCatalogNamesAreShortSingleWordsWithNoRepeats(t *testing.T) {
 	seen := map[string]bool{}
 	for _, name := range firstNames {
@@ -515,9 +799,10 @@ func TestCatalogNamesAreShortSingleWordsWithNoRepeats(t *testing.T) {
 		}
 		seen[key] = true
 	}
-	// The recent window and a full fleet together must leave names free.
-	if len(firstNames) < 4*RecentWindow+60 {
-		t.Fatalf("%d names, want room for %d recent spawns and a large fleet", len(firstNames), RecentWindow)
+	// The recent window and a full fleet of live and queued goblins
+	// together must leave names free.
+	if len(firstNames) < RecentWindow+150 {
+		t.Fatalf("%d names, want room for %d recent spawns and 150 live and queued goblins", len(firstNames), RecentWindow)
 	}
 	titles := slices.Clone(genericTitles)
 	words := map[string]bool{}

@@ -122,6 +122,25 @@ func TestSpawnGivesTheGoblinANameAndATitleThatNamesItsWork(t *testing.T) {
 	}
 }
 
+// A brief that gives its goblin's title gives it as written.
+func TestSpawnGivesTheGoblinTheTitleItsBriefGives(t *testing.T) {
+	// Arrange
+	f := newQuickFixture(t)
+	writeFile(t, f.request.BriefPath, strings.ReplaceAll(completedSpawnBrief, "ready: true", "goblin title: Expiry Elf\nready: true"))
+
+	// Act
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
+	if err != nil || meta.GoblinName == "" || meta.GoblinTitle != "Expiry Elf" {
+		t.Fatalf("metadata: %+v %v, want a name and the title Expiry Elf", meta, err)
+	}
+}
+
 // A queued task already has its goblin's name and title on its card, and its
 // spawn keeps them, so the goblin is called the same in Tasks and In
 // progress.

@@ -13,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -121,6 +122,32 @@ func TestBriefScaffoldCarriesTheCommitAuthorshipRule(t *testing.T) {
 		if !strings.Contains(brief, want) {
 			t.Errorf("brief scaffold is missing %q:\n%s", want, brief)
 		}
+	}
+}
+
+// The scaffold tells its author how to give the goblin's title, and its own
+// words give none, so a brief left without the line has its title fitted.
+func TestBriefScaffoldSaysHowToGiveTheGoblinsTitleAndGivesNone(t *testing.T) {
+	// Arrange
+	t.Setenv("GOBLINS_HOME", t.TempDir())
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runBrief([]string{"t1", "--project", "projects/demo"}, &stdout, &stderr, commandRuntime{})
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("runBrief exit=%d stderr=%s", exit, stderr.String())
+	}
+	body, err := os.ReadFile(strings.TrimSpace(stdout.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "goblin title: Estimate Elf") {
+		t.Errorf("brief scaffold does not say how to give the goblin's title:\n%s", body)
+	}
+	if title, err := goblinname.GivenTitle(string(body)); title != "" || err != nil {
+		t.Errorf("the scaffold gives the title %q, %v, want none", title, err)
 	}
 }
 

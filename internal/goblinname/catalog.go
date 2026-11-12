@@ -1,27 +1,51 @@
 package goblinname
 
 // firstNames are the names a goblin can be given: short, friendly human
-// first names, each one word of letters.
+// first names, each one word of letters, more than RecentWindow beyond the
+// live and queued goblins a fleet holds.
 var firstNames = []string{
-	"Abe", "Alfie", "Archie", "Arlo", "Barney", "Bea", "Benny", "Bernie", "Biff", "Bix",
-	"Bruno", "Carla", "Clem", "Cora", "Cosmo", "Cyril", "Daisy", "Dex", "Dina", "Dolly",
-	"Dot", "Duke", "Edna", "Elsie", "Enzo", "Ernie", "Etta", "Faye", "Fern", "Fitz",
-	"Flo", "Frank", "Frida", "Fritz", "Gabe", "Gertie", "Gil", "Goldie", "Gordy", "Greta",
-	"Gus", "Hank", "Hattie", "Hazel", "Hector", "Herb", "Huey", "Hugo", "Ida", "Iggy",
-	"Ike", "Inez", "Ingrid", "Iris", "Ivy", "Jasper", "Jerry", "Jojo", "Jonas", "Jules",
-	"June", "Kenny", "Kiki", "Kip", "Kit", "Kurt", "Lars", "Lenny", "Leroy", "Lola",
-	"Lou", "Lyle", "Mabel", "Maggie", "Marv", "Midge", "Milo", "Mo", "Mona", "Murray",
-	"Ned", "Nell", "Nico", "Nina", "Noel", "Norm", "Odie", "Olive", "Ollie", "Oona",
-	"Opal", "Oscar", "Otis", "Pablo", "Pat", "Pearl", "Penny", "Percy", "Phil", "Pip",
-	"Quincy", "Ralph", "Reggie", "Rex", "Rita", "Rocco", "Rosie", "Ruby", "Rufus", "Sadie",
-	"Sal", "Shirley", "Sid", "Sonny", "Stan", "Suki", "Tad", "Teddy", "Tess", "Tilly",
-	"Toby", "Trudy", "Ugo", "Uma", "Ursula", "Val", "Vera", "Vern", "Vi", "Vic",
-	"Vince", "Wally", "Walt", "Wanda", "Wendell", "Wes", "Wilma", "Winnie", "Woody", "Yara",
-	"Yuri", "Yvette", "Zach", "Zane", "Zeke", "Zora",
+	"Abe", "Ada", "Adele", "Agnes", "Al", "Alba", "Albert", "Alfie", "Alice", "Alma", "Alvin", "Amos",
+	"Andy", "Angus", "Anita", "Annie", "Archie", "Arlo", "Arnie", "Artie", "Astrid", "Audrey", "Augie", "Ava",
+	"Axel", "Babs", "Barney", "Basil", "Bea", "Benny", "Bernie", "Bert", "Bess", "Betty", "Biff", "Bill",
+	"Billie", "Bix", "Blanche", "Bo", "Bobbie", "Boris", "Brady", "Brenda", "Bruno", "Bud", "Buster", "Buzz",
+	"Cal", "Calvin", "Carla", "Carmen", "Cass", "Cecil", "Celia", "Chester", "Chet", "Chuck", "Clara", "Clem",
+	"Cleo", "Cliff", "Clyde", "Connie", "Cora", "Cosmo", "Curtis", "Cyril", "Daisy", "Dale", "Dana", "Darla",
+	"Dean", "Deb", "Del", "Della", "Dewey", "Dex", "Dina", "Dixie", "Dolly", "Don", "Dora", "Dot",
+	"Doug", "Duke", "Dusty", "Earl", "Eddie", "Edgar", "Edie", "Edna", "Effie", "Elmer", "Elsie", "Elton",
+	"Emil", "Emmett", "Enid", "Enzo", "Ernie", "Esme", "Ethel", "Etta", "Eva", "Ezra", "Fanny", "Faye",
+	"Felix", "Fern", "Ferris", "Fifi", "Finn", "Fitz", "Flo", "Floyd", "Frank", "Fred", "Freda", "Frida",
+	"Fritz", "Gabe", "Gail", "Gary", "Gene", "Georgie", "Gertie", "Gia", "Gil", "Gina", "Ginger", "Gladys",
+	"Glen", "Gloria", "Goldie", "Gordy", "Grady", "Greta", "Gus", "Gwen", "Hal", "Hank", "Hans", "Harold",
+	"Harriet", "Harvey", "Hattie", "Hazel", "Hector", "Heidi", "Herb", "Hilda", "Hiram", "Hollis", "Homer", "Horace",
+	"Huey", "Hugh", "Hugo", "Ian", "Ida", "Iggy", "Ike", "Ilsa", "Imogen", "Inez", "Ingrid", "Ira",
+	"Irene", "Iris", "Irma", "Irving", "Isla", "Ivan", "Ivo", "Ivy", "Izzy", "Jack", "Jackie", "Jake",
+	"Jan", "Jane", "Jasper", "Jay", "Jean", "Jed", "Jenny", "Jerry", "Jess", "Jill", "Jimmy", "Jo",
+	"Joan", "Joe", "Jojo", "Jonas", "Josie", "Judy", "Jules", "June", "Kai", "Karl", "Kate", "Kay",
+	"Keith", "Ken", "Kenny", "Kiki", "Kip", "Kit", "Kitty", "Klaus", "Knox", "Kurt", "Kyle", "Lana",
+	"Lance", "Lars", "Laszlo", "Laverne", "Lefty", "Len", "Lenny", "Leo", "Leon", "Leroy", "Les", "Lew",
+	"Lila", "Lily", "Linus", "Lionel", "Liz", "Lola", "Lonnie", "Lorna", "Lou", "Lucy", "Lula", "Luther",
+	"Lyle", "Mabel", "Mack", "Madge", "Maggie", "Mamie", "Marge", "Margo", "Marty", "Marv", "Maude", "Mavis",
+	"Max", "Maxine", "Mel", "Merle", "Midge", "Mildred", "Millie", "Milo", "Mimi", "Minnie", "Mo", "Moe",
+	"Molly", "Mona", "Monty", "Moss", "Murray", "Myra", "Myrtle", "Nadia", "Nan", "Nancy", "Nat", "Ned",
+	"Nell", "Nettie", "Nick", "Nico", "Nils", "Nina", "Noel", "Nola", "Nora", "Norm", "Norris", "Nova",
+	"Odie", "Odin", "Olaf", "Olga", "Olive", "Ollie", "Omar", "Oona", "Opal", "Orla", "Orson", "Oscar",
+	"Oswald", "Otis", "Otto", "Ozzie", "Pablo", "Paddy", "Pam", "Pansy", "Pat", "Patsy", "Paul", "Pearl",
+	"Peg", "Peggy", "Penny", "Percy", "Pete", "Phil", "Phoebe", "Pip", "Polly", "Poppy", "Pru", "Queenie",
+	"Quentin", "Quincy", "Quinn", "Ralph", "Ray", "Reba", "Reggie", "Rena", "Rex", "Rhett", "Rhoda", "Rita",
+	"Rocco", "Rod", "Rollo", "Ron", "Roscoe", "Rose", "Rosie", "Ross", "Roy", "Ruby", "Rudy", "Rufus",
+	"Russ", "Ruth", "Sadie", "Sal", "Sally", "Sam", "Sammy", "Sandy", "Saul", "Scotty", "Selma", "Seth",
+	"Shelby", "Sherman", "Shirley", "Sid", "Silas", "Sonny", "Stan", "Stella", "Sue", "Suki", "Sully", "Sven",
+	"Sybil", "Sylvia", "Tad", "Tammy", "Ted", "Teddy", "Tess", "Thad", "Thea", "Theo", "Tilly", "Tina",
+	"Tito", "Toby", "Tom", "Tommy", "Toni", "Trixie", "Trudy", "Truman", "Tuck", "Ty", "Ugo", "Ulla",
+	"Ulric", "Uma", "Una", "Upton", "Uri", "Ursula", "Val", "Vance", "Velma", "Vera", "Vern", "Verna",
+	"Vi", "Vic", "Vince", "Viola", "Violet", "Virgil", "Vivian", "Vonnie", "Wade", "Wally", "Walt", "Wanda",
+	"Wayne", "Wendell", "Wendy", "Wes", "Whit", "Wilbur", "Wiley", "Willa", "Wilma", "Winnie", "Winston", "Woody",
+	"Wyatt", "Xander", "Xavier", "Yara", "Yolanda", "Yuri", "Yusuf", "Yves", "Yvette", "Yvonne", "Zach", "Zane",
+	"Zara", "Zeb", "Zeke", "Zelma", "Ziggy", "Zoe", "Zora", "Zuri",
 }
 
-// genericTitles are the titles for work whose task names no subject the
-// catalog knows: playful and simple.
+// genericTitles are the titles for work whose task gives no word a title
+// can name: playful and simple.
 var genericTitles = []string{
 	"Code Designer", "Bit Shepherd", "Loop Tamer", "Bit Whisperer", "Commit Crafter",
 	"Logic Gardener", "Patch Pilot", "Code Sculptor", "Syntax Surfer", "Byte Barista",
@@ -37,15 +61,18 @@ var genericTitles = []string{
 
 // subject is a thing a task can be about: the word its titles call it by,
 // the words and phrases that name it in a task, in lower case and singular,
-// and the roles that suit it best.
+// and the roles that suit it best. A word of the task's own the catalog does
+// not know is a subject too, with no names or roles of its own.
 type subject struct {
 	word  string
 	names []string
 	roles []string
 }
 
-// subjects are the things a title can name. A task naming two of them
-// equally often gets the one listed first, so the more specific come first.
+// subjects are the things the catalog knows a task by, so the words a task
+// uses for one thing, such as dictation, speech and microphone, all name it.
+// None names a private project, person or customer: the catalog ships to
+// every install.
 var subjects = []subject{
 	{word: "Whats-New", names: []string{"whats new", "whatsnew", "announcement", "announce", "changelog"}, roles: []string{"Wizard"}},
 	{word: "Voice", names: []string{"voice", "dictation", "dictate", "speech", "moonshine", "microphone", "audio"}, roles: []string{"Whisperer"}},
@@ -72,7 +99,7 @@ var subjects = []subject{
 	{word: "Readme", names: []string{"readme"}},
 	{word: "Docs", names: []string{"doc", "docs", "documentation", "guide", "wording", "prose"}},
 	{word: "Tour", names: []string{"tour", "onboarding", "walkthrough", "quick start", "quickstart", "first run"}, roles: []string{"Guide"}},
-	{word: "Website", names: []string{"website", "site", "landing page", "homepage", "hero"}},
+	{word: "Website", names: []string{"website", "landing page", "homepage"}},
 	{word: "AFK", names: []string{"afk"}},
 	{word: "Ticket", names: []string{"ticket"}},
 	{word: "Repo", names: []string{"repo", "repository", "checkout"}},
@@ -128,8 +155,8 @@ var subjects = []subject{
 	{word: "Config", names: []string{"config", "settings", "setting", "env"}},
 	{word: "Hook", names: []string{"hook"}},
 	{word: "Dependency", names: []string{"dependency", "npm", "package", "node modules"}},
-	{word: "Build", names: []string{"build", "compile", "bundle", "vite", "binary"}, roles: []string{"Boss"}},
-	{word: "Clock", names: []string{"clock", "timer", "timeout", "cron"}},
+	{word: "Build", names: []string{"build", "built", "compile", "bundle", "vite", "binary"}, roles: []string{"Boss"}},
+	{word: "Clock", names: []string{"clock", "timer", "timeout", "time out", "cron"}},
 	{word: "Browser", names: []string{"browser", "chrome"}},
 	{word: "Phone", names: []string{"phone", "mobile", "ios", "android", "expo"}},
 	{word: "History", names: []string{"history", "archive"}, roles: []string{"Keeper"}},
@@ -143,7 +170,17 @@ var subjects = []subject{
 	{word: "Card", names: []string{"card"}, roles: []string{"Shuffler"}},
 	{word: "Panel", names: []string{"panel", "sidebar", "drawer"}},
 	{word: "Canvas", names: []string{"canvas", "orchestration"}},
-	{word: "Board", names: []string{"board", "kanban", "column"}, roles: []string{"Boss"}},
+	{word: "Board", names: []string{"board", "kanban"}, roles: []string{"Boss"}},
+	{word: "Video", names: []string{"video", "footage", "clip", "animation"}, roles: []string{"Director"}},
+	{word: "App Store", names: []string{"app store", "play store", "testflight", "store listing"}},
+	{word: "Calendar", names: []string{"calendar", "invitation", "invite", "reminder"}, roles: []string{"Keeper"}},
+	{word: "Report", names: []string{"report"}, roles: []string{"Writer"}},
+	{word: "Estimate", names: []string{"estimate", "quote", "pricing"}},
+	{word: "Citation", names: []string{"citation", "cite", "footnote"}},
+	{word: "Corpus", names: []string{"corpus", "corpora"}, roles: []string{"Curator"}},
+	{word: "Slide", names: []string{"slide", "deck", "presentation", "carousel"}},
+	{word: "Form", names: []string{"form", "wizard", "signup", "sign up"}},
+	{word: "Recorder", names: []string{"recorder", "recording"}},
 }
 
 // alliterative are the roles that begin with each letter, best first, which
@@ -165,6 +202,7 @@ var alliterative = map[rune][]string{
 	'n': {"Ninja", "Navigator"},
 	'o': {"Oracle", "Operator"},
 	'p': {"Pilot", "Polisher", "Painter", "Pro"},
+	'q': {"Quester"},
 	'r': {"Ranger", "Rider", "Rascal"},
 	's': {"Sleuth", "Smith", "Sage", "Scout", "Shepherd", "Sorcerer"},
 	't': {"Tamer", "Tinkerer", "Tracker", "Tuner"},
@@ -180,4 +218,39 @@ var alliterative = map[rune][]string{
 var roles = []string{
 	"Wrangler", "Whisperer", "Wizard", "Tamer", "Tinkerer", "Herder", "Hunter", "Juggler", "Keeper",
 	"Smith", "Sleuth", "Ninja", "Pilot", "Ranger", "Fixer", "Captain", "Maestro", "Guru",
+	"Ace", "Sage", "Scout", "Mender", "Tracker", "Expert", "Pro", "Elf", "Imp",
+}
+
+// ordinaryWords say nothing of what a task is about, so a title never names
+// one: the small words of a sentence, the verbs and adjectives any task uses,
+// and the words of the fleet itself. Each stands for its s, es, d, ed and ing
+// forms too.
+var ordinaryWords = []string{
+	"a", "about", "above", "across", "after", "again", "against", "all", "also", "an", "and", "another", "any", "are", "as", "at",
+	"back", "be", "been", "before", "behind", "being", "below", "between", "both", "but", "by", "can", "cannot", "could",
+	"did", "do", "does", "done", "down", "during", "each", "either", "else", "even", "ever", "every", "for", "from",
+	"had", "has", "have", "he", "her", "here", "him", "his", "how", "i", "if", "in", "inside", "into", "is", "it", "its",
+	"itself", "just", "least", "less", "like", "may", "me", "might", "more", "most", "much", "must", "my", "neither",
+	"never", "no", "nor", "not", "now", "of", "off", "on", "once", "only", "onto", "or", "other", "our", "out", "outside",
+	"over", "own", "per", "same", "shall", "she", "should", "since", "so", "some", "still", "such", "than", "that", "the",
+	"their", "them", "then", "there", "these", "they", "this", "those", "though", "through", "to", "too", "under",
+	"until", "up", "upon", "us", "very", "via", "was", "we", "were", "what", "when", "where", "whether", "which", "while",
+	"who", "whom", "whose", "why", "will", "with", "within", "without", "would", "yet", "you", "your",
+	"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "first", "second", "third", "last", "next",
+	"add", "adopt", "allow", "apply", "ask", "become", "began", "begin", "bring", "brought", "call", "carry", "change",
+	"check", "claim", "clear", "close", "come", "cut", "drop", "end", "ensure", "fail", "find", "finish", "fit", "fix", "follow",
+	"found", "gave", "get", "give", "given", "go", "got", "handle", "hear", "heard", "held", "help", "hide", "hold", "ignore", "improve", "judge", "keep",
+	"kept", "know", "land", "learn", "leave", "left", "let", "look", "lose", "lost", "made", "make", "mark", "match",
+	"measure", "meet", "miss", "move", "need", "omit", "open", "opt", "pass", "pick", "present", "print", "prove", "put", "reach", "read",
+	"receive", "refuse", "reload", "remake", "remove", "rerun", "resolve", "ran", "run", "running", "said", "save", "say", "see", "seen", "send", "sent",
+	"set", "share", "show", "shown", "sit", "skip", "spin", "start", "stay", "stop", "study", "take", "taken", "tell", "told", "took", "treat",
+	"try", "turn", "use", "wait", "want", "went", "work", "write", "written", "wrote",
+	"cutting", "dropped", "getting", "putting", "stopped",
+	"able", "bad", "best", "better", "big", "broken", "clean", "custom", "current", "different", "early", "earlier",
+	"false", "full", "good", "great", "green", "high", "large", "late", "later", "little", "local", "long", "low", "new",
+	"nice", "old", "partly", "proper", "public", "quick", "ready", "real", "realistic", "red", "right", "short", "simple",
+	"small", "smooth", "stale", "true", "unrelated", "whole", "wrong", "always", "really", "well",
+	"ai", "case", "ceo", "cfo", "code", "default", "goblin", "issue", "item", "job", "main", "overlord",
+	"part", "phase", "priority", "pr", "problem", "project", "root", "row", "step", "task", "thing", "today", "ups",
+	"way", "word",
 }
