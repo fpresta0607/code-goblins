@@ -371,11 +371,15 @@ export function App() {
   const views = panelViews(selected ? task : undefined, selected ? selectedSession : undefined);
   // A queued task has no terminal yet, so its panel is its task list alone,
   // and a baby goblin's panel is its terminal alone. A Screen view whose
-  // browser closed gives way to the conversation.
+  // browser closed gives way to the conversation, which stays when a browser
+  // starts again, so nothing brings the Screen view back by itself (#2362).
+  if (panelView === "screen" && !views.includes("screen")) setPanelView("terminal");
   const shownView: PanelView = child ? "terminal" : views.includes(panelView) ? panelView : views.includes("terminal") ? "terminal" : "task";
-  // A Screen view a chat row opened takes the keyboard as it opens, once.
-  const [screenAsked, setScreenAsked] = useState(false);
-  if (screenAsked && (shownView !== "screen" || !showsPanel)) setScreenAsked(false);
+  // The session whose chat row opened its Screen view, which takes the
+  // keyboard as it opens, once: another view, another session or a closed
+  // panel ends it.
+  const [screenAsked, setScreenAsked] = useState("");
+  if (screenAsked && (shownView !== "screen" || screenAsked !== shownSession)) setScreenAsked("");
   // The session's own terminal, by the terminal deck's key, whether its
   // harness works, which a box with no conversation reads for its Stop, and
   // that terminal's link, which says what it was last told of the harness's
@@ -412,7 +416,8 @@ export function App() {
   // an upload, a Send landing or a failed Send to retry, stays until that work
   // ends.
   const takesTyping = !!task && takesMessages(task);
-  const classicInPlace = styleOf(terminalKey) === "classic" && !!terminalKey && !takesTyping;
+  const hasTerminalInPlace = !!terminalKey && !takesTyping;
+  const classicInPlace = styleOf(terminalKey) === "classic" && hasTerminalInPlace;
   // Reading back in a terminal that cannot take input opens its recorded
   // conversation in the terminal's place and leaves the saved style alone. The
   // conversation stays mounted under the terminal, so the session, its
@@ -423,11 +428,10 @@ export function App() {
   // messages has none of, and a browser row the goblin's Screen view while
   // its browser runs. Each hands that view the keyboard, and the saved style
   // stays as he chose it.
-  const hasTerminalInPlace = !!terminalKey && !takesTyping;
   const hasScreen = views.includes("screen");
   const rowOpener = useMemo<RowOpener>(() => ({
     terminal: hasTerminalInPlace ? () => { setSessionStyle({ session: terminalKey, style: "classic" }); setSwitchFocus((prior) => prior + 1); } : undefined,
-    screen: hasScreen ? () => { setPanelView("screen"); setScreenAsked(true); } : undefined,
+    screen: hasScreen ? () => { setPanelView("screen"); setScreenAsked(terminalKey); } : undefined,
   }), [hasTerminalInPlace, hasScreen, terminalKey, setSessionStyle, setScreenAsked]);
   // Once offered, the composer stays reachable as input becomes ready so an
   // upload, a Send still landing, a failed Send to retry or its own recording
@@ -616,7 +620,7 @@ export function App() {
           : train ? <TrainPanel key={selectionEpoch + ":train:" + train.id} train={train} tasks={snapshot.tasks} row={row} />
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "ceo") + ":" + (task?.generation || "") + ":" + (child?.id || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} snapshot={snapshot} connected={connected} reviews={reviews}
-            view={shownView} views={views} onView={setPanelView} shouldFocusScreen={screenAsked} maximized={panelWide} side={side} isBoardShown={view === "Board" && !panelWide && !fillsPhone} now={now} presentations={presentations} cardStart={cardStart} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
+            view={shownView} views={views} onView={setPanelView} shouldFocusScreen={!!screenAsked} maximized={panelWide} side={side} isBoardShown={view === "Board" && !panelWide && !fillsPhone} now={now} presentations={presentations} cardStart={cardStart} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
             onOpenTask={openTask} onConnectors={openConnectors} styleChoice={styleChoice} />)}
         {/* The stage, the Messages view and the terminal deck in one box,
             beside the column the panel's task list is drawn into. */}

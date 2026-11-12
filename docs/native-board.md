@@ -2719,6 +2719,7 @@ Each goblin's browser session drives a Chrome the supervisor starts for it, head
 Spawn points the session at it: `CHROME_DEVTOOLS_AXI_BROWSER_URL` is `ws://<board>/api/browser/devtools?generation=<generation>&task=<id>`, which the supervisor answers only for the task's current session, only from a process of this PC's own Windows user, and never from a web page, whose WebSocket always names its origin.
 The Chrome starts on the session's first command, closes two minutes after nothing uses it and once its goblin ends, starts again on the next use if it exited, and has no debugging port: its DevTools are on a private pipe, as a login's are.
 While it runs, the snapshot's task carries `browser: true`, the goblin's card shows **Browser active** as a button that opens `/?screen=<task>`, its Screen view full size in a tab of its own, and its panel offers **Screen** beside Chat and Task.
+A browser that closes, or a session with none, gives the panel's Screen view way to Chat, which stays when a browser starts again, so only his pick, from the selector or a chat row's Open screen, shows the Screen view (#2362).
 
 The Screen view is `GET /api/screen?task=<id>&generation=<generation>&token=<instance>`, a WebSocket from the board's own origin.
 It shows the page the goblin or a sign-in opened or sent somewhere last, a blank page only when every page is blank, by its title and host alone, never its address, which can carry a sign-in's code.

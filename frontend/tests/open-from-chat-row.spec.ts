@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./site";
-import { at, NAME, open, openGoblin, pickStyle, snapshot } from "./session-board";
+import { at, card, GOBLIN, NAME, open, openGoblin, OTHER, pickStyle, snapshot } from "./session-board";
 
 // A row of a goblin's chat opens the view behind it (#2362): a command's row
 // opens that goblin's terminal in its panel, and a row whose command drives
@@ -22,9 +22,13 @@ const STATE = { type: "state", is_driven: false, can_drive: true, title: "Sign i
 const messages = (page: Page) => page.getByRole("log", { name: "Messages of " + NAME });
 const messagesRegion = (page: Page) => page.getByRole("region", { name: "Messages", exact: true });
 const terminalInput = (page: Page) => page.getByRole("textbox", { name: "Terminal input", exact: true });
-const screen = (page: Page) => page.getByRole("region", { name: NAME + "'s browser", exact: true });
+const screen = (page: Page, name = NAME) => page.getByRole("region", { name: name + "'s browser", exact: true });
+const viewButton = (page: Page, name: "Chat" | "Screen") => page.getByRole("group", { name: "Panel view", exact: true }).getByRole("button", { name, exact: true });
 const saved = (page: Page) => page.evaluate(() => localStorage.getItem("ceo-chat-style"));
 const fitsWidth = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
+const tell = (page: Page, next: object) => page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail })), next);
+const relayScreen = (page: Page) => page.routeWebSocket("**/api/screen?*", (socket) => socket.send(JSON.stringify(STATE)));
+const openScreenFromRow = async (page: Page) => (await openRow(page, "chrome-devtools-axi screenshot")).getByRole("button", { name: "Open screen", exact: true }).click();
 
 // openRow opens the row of the command given, unless it is open, and gives
 // what it holds.
@@ -129,4 +133,119 @@ test("his pick holds as the goblin replies, Modern chat from the header brings t
   // Assert: the panel opens on the messages, his saved style.
   await openGoblin(page);
   expect(await saved(page)).toBe("modern");
+});
+
+// A goblin paused or resuming takes messages in its box and has no terminal in
+// the conversation's place, so a command's row has no Open in terminal.
+for (const phase of ["paused", "resuming"]) {
+  test(`a ${phase} goblin's command row offers no Open in terminal`, async ({ page }) => {
+    // Arrange
+    await open(page, snapshot({}, { phase }), undefined, ROWS);
+    await card(page, NAME).click();
+    await expect(messagesRegion(page)).toBeVisible();
+
+    // Act
+    const body = await openRow(page, "npm test");
+
+    // Assert
+    await expect(body.getByText("12 passing")).toBeVisible();
+    await expect(body.getByRole("button", { name: "Open in terminal", exact: true })).toHaveCount(0);
+  });
+}
+
+test("while the goblin's browser runs, a command that does not drive it offers the terminal and no Open screen", async ({ page }) => {
+  // Arrange
+  await open(page, BROWSING, undefined, ROWS);
+  await openGoblin(page);
+
+  // Act
+  const body = await openRow(page, "npm test");
+
+  // Assert
+  await expect(body.getByRole("button", { name: "Open in terminal", exact: true })).toBeVisible();
+  await expect(body.getByRole("button", { name: "Open screen", exact: true })).toHaveCount(0);
+});
+
+test("a row's Open screen hands the keyboard to the Screen view once, so the panel's Screen tab later leaves it on the tab", async ({ page }) => {
+  // Arrange
+  await relayScreen(page);
+  await open(page, BROWSING, undefined, ROWS);
+  await openGoblin(page);
+  await openScreenFromRow(page);
+  await expect(screen(page)).toBeFocused();
+
+  // Act
+  await viewButton(page, "Chat").click();
+  await expect(messagesRegion(page)).toBeVisible();
+  await viewButton(page, "Screen").click();
+
+  // Assert
+  await expect(screen(page)).toBeVisible();
+  await expect(viewButton(page, "Screen")).toBeFocused();
+});
+
+test("a row's Open in terminal with Modern saved reads back to the conversation from a held full-screen terminal and leaves Modern saved", async ({ page }) => {
+  // Arrange: Zeke's full-screen Codex, opened from his row, is held.
+  const relay = await open(page, snapshot({}, { harness: "codex" }), "", ROWS, "\x1b[?1049h> ready\r\n");
+  await openGoblin(page);
+  await (await openRow(page, "npm test")).getByRole("button", { name: "Open in terminal", exact: true }).click();
+  await expect(terminalInput(page)).toBeVisible();
+  relay.say({ type: "held", reason: "pipeline owns this task" });
+  await expect(page.locator(".context-pane").getByText("Typing is paused.", { exact: true })).toBeVisible();
+
+  // Act: a wheel up over the terminal.
+  await page.locator(".terminal-view:not(.staged) > .xterm .xterm-screen").hover();
+  await page.mouse.wheel(0, -45);
+
+  // Assert
+  await expect(messagesRegion(page)).toBeVisible();
+  expect(await saved(page)).toBe("modern");
+});
+
+// The goblin's Chrome closes two minutes after nothing uses it and starts
+// again on its next command: the Screen view gives way to Chat as it closes,
+// and Chat stays as it starts again, however the Screen view was opened.
+for (const [how, openScreen] of [["a browser row's Open screen", openScreenFromRow], ["the panel's Screen tab", (page: Page) => viewButton(page, "Screen").click()]] as const) {
+  test(`a Screen view opened from ${how} gives way to Chat as the browser closes and never comes back by itself`, async ({ page }) => {
+    // Arrange
+    await relayScreen(page);
+    await open(page, BROWSING, undefined, ROWS);
+    await openGoblin(page);
+    await openScreen(page);
+    await expect(screen(page)).toBeVisible();
+
+    // Act: the browser closes.
+    await tell(page, snapshot({ revision: 2 }, { browser: false }));
+
+    // Assert
+    await expect(screen(page)).toHaveCount(0);
+    await expect(messagesRegion(page)).toBeVisible();
+
+    // Act: the browser starts again.
+    await tell(page, snapshot({ revision: 3 }, { browser: true }));
+
+    // Assert
+    await expect(viewButton(page, "Screen")).toHaveAttribute("aria-pressed", "false");
+    await expect(viewButton(page, "Chat")).toHaveAttribute("aria-pressed", "true");
+    await expect(screen(page)).toHaveCount(0);
+    await expect(messagesRegion(page)).toBeVisible();
+  });
+}
+
+test("a row's Open screen on one goblin hands the keyboard to no other goblin's Screen view", async ({ page }) => {
+  // Arrange: Zeke's and Ivy's browsers both run.
+  const ivy = OTHER.goblin_name + " - " + OTHER.goblin_title;
+  await relayScreen(page);
+  await open(page, snapshot({ tasks: [{ ...GOBLIN, browser: true }, { ...OTHER, browser: true }] }), undefined, ROWS);
+  await openGoblin(page);
+  await openScreenFromRow(page);
+  await expect(screen(page)).toBeFocused();
+
+  // Act: the switch's keys show Ivy, whose Screen view the panel keeps.
+  await page.keyboard.press("Control+Alt+3");
+
+  // Assert
+  await expect(page.locator("#panel-title")).toHaveText(ivy);
+  await expect(screen(page, ivy)).toBeVisible();
+  await expect(screen(page, ivy)).not.toBeFocused();
 });
