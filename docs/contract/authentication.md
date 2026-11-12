@@ -144,7 +144,8 @@ Any other value, or a second line, refuses the brief at `goblins brief ready` an
 The project names the container's image in its devcontainer, `.devcontainer/devcontainer.json` or `.devcontainer.json`, as an `image` field.
 A devcontainer that builds its image, with `build`, `dockerFile` or `dockerComposeFile`, is refused, since the build would run the untrusted Dockerfile on the engine outside the line; the project names a built image instead.
 A spawn is refused before anything starts when `docker` is not on PATH or the project names no image, and a helper of a sandbox task is a sandbox task too.
-The task keeps its worktree, branch and delivery, and the task's record keeps the image and the worktree's `.git` link (`sandbox_image` and `sandbox_git` in `state/<id>.meta`).
+A spawn in mode no-mistakes is refused too, naming direct-PR and local-only, since a gate would run the task's code on the host, as below.
+The task keeps its worktree and branch, and the task's record keeps the image and the worktree's `.git` link (`sandbox_image` and `sandbox_git` in `state/<id>.meta`).
 Its goblin's harness runs on the host, where its shell runs only `goblins`, `git` and `gh`, from its worktree, by name or by an absolute path outside the worktree and scratch folder.
 A host command is simple commands joined by `&&`, each of plain words and quoted text, so Bash and PowerShell read it alike.
 A plain word holds letters, digits, `.`, `_`, `/`, `:`, `=`, `@`, `%`, `+`, `-` and `~`, so a path is written with `/`.
@@ -156,7 +157,7 @@ It is refused `rebase -x`, and `--exec`, `--upload-pack`, `--receive-pack`, `--r
 Host gh runs only the commands that write no file on this PC: `api`, `auth status`, `issue` `comment`, `create`, `edit`, `list` and `view`, `pr` `checks`, `comment`, `create`, `diff`, `edit`, `list`, `ready`, `status` and `view`, `repo view`, and `run` `list`, `view` and `watch`, and none of those options.
 Any other could make a repository host git reads, as `gh run download` and `gh repo clone` unpack one where they run, or run a program of its own, as an alias or an extension does.
 `goblins gate test`, `goblins verify`, `goblins security`, `goblins deploy` and `goblins services` are refused there, and the goblin runs what they run in the container with [`goblins sandbox run`](../commands/sandbox.md), in the machine's heavy line.
-Its gate's Test step runs its command in the same image, with the gate's checkout alone mounted.
+A gate's Test step of the task runs its command in the same image, with the gate's checkout alone mounted.
 A run that cannot start Docker runs nowhere, never on the host instead.
 Code in the container can write the worktree, so the task's host git reads hooks from an empty folder, runs with its fsmonitor off, takes no folder it finds for a bare repository, and reads attributes from the empty tree, so no filter, diff or merge driver the worktree names runs.
 A sandbox task's project cannot use submodules: every host command is refused while the worktree holds a `.gitmodules`, whose `ignore` lines would have host git recurse into a submodule the container made, or the worktree's index names a gitlink or a sparse directory, which could hold one.
@@ -172,7 +173,8 @@ What may make one has the next host command walk: a `goblins sandbox run`, from 
 Such a `goblins` command run beside a walk, in a tool call made at the same time, can still write after that walk found the worktree clean.
 A Codex goblin's host commands walk the worktree every time, since its `apply_patch` edits are outside the boundary until #2255 lands.
 The token of the latest such start, and the token of the last walk that found the worktree clean, are kept in the task's tasktmp folder, which no container mounts and no goblin's boundary lets it write.
-The gate's prepare, lint and format commands and its agents' own shells still run on the host.
+A gate runs only its Test step's command in the container: the agents of its Review, Test, Document and Lint steps run their own shells on the host, as do the prepare, lint and format commands a gate file names.
+So a sandbox task is delivered in mode direct-PR or local-only, and `goblins pipeline run`, `respond`, `handback`, `validate-authored` and `validate-terminal` drive no gate of a sandbox task: each names those steps and runs nothing.
 
 ### The credential store
 

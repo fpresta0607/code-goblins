@@ -3,6 +3,8 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -199,30 +201,141 @@ func TestBillingConsentRefreshDoesNotHoldTheCycle(t *testing.T) {
 
 // Retry is a forced read, which every board may ask for as it may read; it
 // starts no consent.
-func TestBillingRetryRefreshesTransientFailuresWithoutConsent(t *testing.T) {
+func TestBillingRetryRefreshesFailuresWithoutConsent(t *testing.T) {
+	for _, problem := range []actionsbilling.Problem{{Kind: "transient", Action: "retry"}, {Kind: "authentication", Action: "renew", Credential: "gh"}} {
+		t.Run(problem.Kind, func(t *testing.T) {
+			// Arrange
+			store, _ := testStore(t)
+			service := boardService(store)
+			service.lifetime = context.Background()
+			reads := 0
+			service.Options.ActionsSpend = func(_ context.Context, now time.Time, month string) actionsbilling.Reading {
+				reads++
+				return actionsbilling.Reading{Status: "unavailable", Month: month, CheckedAt: now, Problem: &problem}
+			}
+			month := time.Now().UTC().Format("2006-01")
+			service.readActionsSpend(context.Background(), time.Now())
+
+			// Act
+			for _, change := range []func(*http.Request){nil, func(r *http.Request) { r.RemoteAddr = "192.168.1.20:50000" }} {
+				code, body := askTheBoard(t, service, "POST", "/api/actions-spend/repair", `{"month":"`+month+`","action":"retry"}`, change)
+				if code != 200 {
+					t.Fatalf("HTTP %d: %s", code, body)
+				}
+			}
+
+			// Assert
+			if reads != 2 || len(store.Snapshot().Runs) != 0 {
+				t.Fatalf("reads %d; runs %+v", reads, store.Snapshot().Runs)
+			}
+		})
+	}
+}
+
+// A Retry of a reading GitHub failed for another cause than a refused login
+// sends the kept token again and starts no gh auth token.
+func TestBillingRetryOfATransientFailureKeepsTheToken(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
+	runner := &billingTokenRunner{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/user" {
+			_, _ = w.Write([]byte(`{"login":"example-user"}`))
+		} else {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+	}))
+	defer server.Close()
+	client := billingClient(server, runner)
 	service := boardService(store)
 	service.lifetime = context.Background()
-	reads := 0
-	service.Options.ActionsSpend = func(_ context.Context, now time.Time, month string) actionsbilling.Reading {
-		reads++
-		return actionsbilling.Reading{Status: "unavailable", Month: month, CheckedAt: now, Problem: &actionsbilling.Problem{Kind: "transient", Action: "retry"}}
-	}
+	service.Options.GitHub, service.Options.ActionsSpend = client, (actionsbilling.Reader{GitHub: client}).Read
 	month := time.Now().UTC().Format("2006-01")
 	service.readActionsSpend(context.Background(), time.Now())
 
 	// Act
-	for _, change := range []func(*http.Request){nil, func(r *http.Request) { r.RemoteAddr = "192.168.1.20:50000" }} {
-		code, body := askTheBoard(t, service, "POST", "/api/actions-spend/repair", `{"month":"`+month+`","action":"retry"}`, change)
-		if code != 200 {
-			t.Fatalf("HTTP %d: %s", code, body)
-		}
-	}
+	code, body := askTheBoard(t, service, "POST", "/api/actions-spend/repair", `{"month":"`+month+`","action":"retry"}`, nil)
 
 	// Assert
-	if reads != 2 || len(store.Snapshot().Runs) != 0 {
-		t.Fatalf("reads %d; runs %+v", reads, store.Snapshot().Runs)
+	var reading actionsbilling.Reading
+	if err := json.Unmarshal([]byte(body), &reading); err != nil {
+		t.Fatal(err)
+	}
+	if code != 200 || reading.Problem == nil || reading.Problem.Kind != "transient" || runner.reads != 1 {
+		t.Fatalf("HTTP %d: %s; token reads %d", code, body, runner.reads)
+	}
+}
+
+// A Retry after gh auth login reads the new login at once, though GitHub
+// refused the old one less than a minute ago (#2003).
+func TestBillingRetryAfterARefusedLoginReadsTheNewLoginAtOnce(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	runner := &billingTokenRunner{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer tokenA" {
+			w.WriteHeader(http.StatusUnauthorized)
+		} else if r.URL.Path == "/user" {
+			_, _ = w.Write([]byte(`{"login":"example-user"}`))
+		} else {
+			_, _ = w.Write([]byte(`{"usageItems":[]}`))
+		}
+	}))
+	defer server.Close()
+	client := billingClient(server, runner)
+	service := boardService(store)
+	service.lifetime = context.Background()
+	service.Options.GitHub, service.Options.ActionsSpend = client, (actionsbilling.Reader{GitHub: client}).Read
+	month := time.Now().UTC().Format("2006-01")
+	service.readActionsSpend(context.Background(), time.Now())
+	if refused := service.actionsSpendUsage(time.Now(), month, nil); refused.Problem == nil || refused.Problem.Kind != "authentication" || runner.reads != 1 {
+		t.Fatalf("refused reading %+v; token reads %d", refused, runner.reads)
+	}
+	runner.isConsented = true
+
+	// Act
+	code, body := askTheBoard(t, service, "POST", "/api/actions-spend/repair", `{"month":"`+month+`","action":"retry"}`, nil)
+
+	// Assert
+	var reading actionsbilling.Reading
+	if err := json.Unmarshal([]byte(body), &reading); err != nil {
+		t.Fatal(err)
+	}
+	if code != 200 || reading.Status != "available" || reading.Problem != nil || runner.reads != 2 {
+		t.Fatalf("HTTP %d: %s; token reads %d", code, body, runner.reads)
+	}
+}
+
+// A Retry its 10 s limit holds back reads nothing, so it keeps the wait after
+// a refused login: gh auth token starts at most once per read, never once per
+// click (#2003).
+func TestBillingRetryWithinItsLimitKeepsTheRefusedTokenWait(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	runner := &billingTokenRunner{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	client := billingClient(server, runner)
+	service := boardService(store)
+	service.lifetime = context.Background()
+	service.Options.GitHub, service.Options.ActionsSpend = client, (actionsbilling.Reader{GitHub: client}).Read
+	month := time.Now().UTC().Format("2006-01")
+	service.readActionsSpend(context.Background(), time.Now())
+
+	// Act
+	var codes []int
+	for range 3 {
+		code, _ := askTheBoard(t, service, "POST", "/api/actions-spend/repair", `{"month":"`+month+`","action":"retry"}`, nil)
+		codes = append(codes, code)
+	}
+	held := client.Get(context.Background(), "user", &struct{}{})
+
+	// Assert
+	var credential *githubapi.CredentialError
+	if fmt.Sprint(codes) != "[200 200 200]" || runner.reads != 2 || !errors.As(held, &credential) {
+		t.Fatalf("HTTP %v; token reads %d; then %v: want one Retry read, the wait kept, and gh read once by it", codes, runner.reads, held)
 	}
 }
 

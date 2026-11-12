@@ -30,6 +30,7 @@ func dockerOnPath(t *testing.T, isPresent bool) {
 func TestASandboxBriefIsRefusedWhereDockerIsMissing(t *testing.T) {
 	// Arrange
 	f := newFixture(t)
+	f.request.Mode = "direct-PR"
 	briefAsking(t, f, "credentials: none\nsandbox: needed")
 	dockerOnPath(t, false)
 
@@ -42,6 +43,31 @@ func TestASandboxBriefIsRefusedWhereDockerIsMissing(t *testing.T) {
 	}
 	if _, readErr := state.ReadTaskMeta(f.stateDir, f.request.ID); !os.IsNotExist(readErr) {
 		t.Errorf("the refused start left a task record: %v", readErr)
+	}
+}
+
+// A gate runs a sandbox task's code on the host in every step but its Test
+// step's command (issue 2244), so a brief asking for a container is refused
+// in mode no-mistakes before anything is built, naming the modes that need
+// no gate, where docker is there to run it.
+func TestASandboxBriefIsRefusedInModeNoMistakes(t *testing.T) {
+	// Arrange
+	f := newFixture(t)
+	briefAsking(t, f, "credentials: none\nsandbox: needed")
+	dockerOnPath(t, true)
+
+	// Act
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "sandbox: needed") || !strings.Contains(err.Error(), "Select direct-PR or local-only") {
+		t.Fatalf("Spawn = %v, want the no-mistakes start refused, naming direct-PR or local-only", err)
+	}
+	if _, readErr := state.ReadTaskMeta(f.stateDir, f.request.ID); !os.IsNotExist(readErr) {
+		t.Errorf("the refused start left a task record: %v", readErr)
+	}
+	if f.runner.calls != 0 || len(mutations(f.events)) != 0 {
+		t.Errorf("commands = %d and events = %v, want none before the refusal", f.runner.calls, f.events)
 	}
 }
 
@@ -181,8 +207,10 @@ func TestContainEnvironmentTurnsOffWhatTheWorktreeCouldPlantForHostGit(t *testin
 			if got := hostGitConfiguration(func(name string) string { return env[name] }); !maps.Equal(got, wantHostGit(hooksOff)) {
 				t.Fatalf("host git runs with %v, want %v", got, wantHostGit(hooksOff))
 			}
-			if !strings.Contains(sandboxInstruction(meta), "goblins sandbox run -- <command>") {
-				t.Fatalf("instruction %q, want goblins sandbox run named", sandboxInstruction(meta))
+			for _, want := range []string{"goblins sandbox run -- <command>", "goblins pipeline run starts no gate for your task"} {
+				if !strings.Contains(sandboxInstruction(meta), want) {
+					t.Fatalf("instruction %q, want %q in it", sandboxInstruction(meta), want)
+				}
 			}
 		})
 	}
@@ -214,6 +242,7 @@ func dockerFirstOnPath(t *testing.T) {
 func TestASandboxSpawnRecordsItsImageAndHoldsItsHostGit(t *testing.T) {
 	// Arrange
 	f := newQuickFixture(t)
+	f.request.Mode = "direct-PR"
 	briefAsking(t, f.fixture, "credentials: none\nsandbox: needed")
 	dockerFirstOnPath(t)
 	link := sandboxWorktree(t, f.worktree, "mcr.microsoft.com/devcontainers/go:1")

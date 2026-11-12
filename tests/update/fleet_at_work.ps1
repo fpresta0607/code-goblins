@@ -23,10 +23,8 @@ $ErrorActionPreference = "Stop"
 
 # pi downloads fd and rg from GitHub the first time it starts, and until they
 # land it hands a submitted prompt back to its editor. v0.5.15 presses Enter
-# once, and a board that starts the goblin from its brief beside this spawn
-# outlives the stand-in, so a slow download fails the job. pi takes a file of
-# either name as the tool and nothing here runs one, so an empty file saves
-# the download.
+# once, so a slow download fails the job. pi takes a file of either name as
+# the tool and nothing here runs one, so an empty file saves the download.
 $piTools = Join-Path $env:USERPROFILE ".pi\agent\bin"
 New-Item -ItemType File -Force -Path (Join-Path $piTools "fd.exe"), (Join-Path $piTools "rg.exe") | Out-Null
 
