@@ -510,12 +510,9 @@ func breakWaitCycles(tasks []Task) [][]string {
 }
 
 // tellWaitCycles tells the CEO, once for each, of a circle the goblins'
-// standing waits close. A newer report of any goblin in it is a new circle.
-func (s *Service) tellWaitCycles() error {
-	snapshot, err := s.Snapshot()
-	if err != nil {
-		return err
-	}
+// standing waits close in snapshot. A newer report of any goblin in it is a
+// new circle.
+func (s *Service) tellWaitCycles(snapshot Snapshot) error {
 	isTold := false
 	for _, cycle := range snapshot.waitCycles {
 		var names []string
@@ -535,19 +532,17 @@ func (s *Service) tellWaitCycles() error {
 		isTold = isTold || isNew
 	}
 	if isTold {
-		_, err = wake.PublishEpisode(s.Store.Home.State)
+		_, err := wake.PublishEpisode(s.Store.Home.State)
+		return err
 	}
-	return err
+	return nil
 }
 
 // tellParkedRuns tells the CEO, once for each, of a gate run that waits on a
-// decision since before its goblin's newest report, which holds no card. The
-// run parking again, at another step or in a later round, is a new one.
-func (s *Service) tellParkedRuns() error {
-	snapshot, err := s.Snapshot()
-	if err != nil {
-		return err
-	}
+// decision since before its goblin's newest report in snapshot, which holds
+// no card. The run parking again, at another step or in a later round, is a
+// new one.
+func (s *Service) tellParkedRuns(snapshot Snapshot) error {
 	isTold := false
 	for _, task := range snapshot.Tasks {
 		for _, run := range task.parkedBeforeReport {
@@ -561,9 +556,10 @@ func (s *Service) tellParkedRuns() error {
 		}
 	}
 	if isTold {
-		_, err = wake.PublishEpisode(s.Store.Home.State)
+		_, err := wake.PublishEpisode(s.Store.Home.State)
+		return err
 	}
-	return err
+	return nil
 }
 
 // statusActivity is a task's own latest status line, the one-line answer to

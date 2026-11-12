@@ -4,6 +4,7 @@ import { cardDate, clockText, fullDate, panelViews, showMoreLabel } from "./card
 import type { Session, Task } from "./types.ts";
 import { parseSnapshot } from "./types.ts";
 import { sessionEnd } from "./session-end.ts";
+import { cardActivity } from "./workflow.ts";
 
 const MINUTE = 60_000;
 const now = Date.parse("2026-09-27T12:00:00Z");
@@ -114,4 +115,24 @@ test("a task's parked gate runs reach its card with their branch, step and own p
   // Assert
   assert.deepEqual(withParked.parked_runs, [parked]);
   assert.equal(without.parked_runs, undefined);
+});
+
+test("a card's activity line names each parked gate run by its branch and step, after what a gate-held card shows", () => {
+  // Arrange
+  const parked = [{ branch: "fix/side", run_id: "01JZTESTRUNOFTHESIDEBRANCH", step: "test", parked_at: "2026-10-27T16:09:00Z" }, { branch: "fix/other", run_id: "01JZTESTRUNOFTHEOTHERBRANCH", step: "review", parked_at: "2026-10-27T16:10:00Z" }];
+  const tasks = [
+    { id: "waiting", generation: "s1", phase: "waiting", verified: false, parked_runs: parked },
+    { id: "held", generation: "s1", phase: "blocked", gate_step: "lint", verified: false, parked_runs: parked.slice(0, 1) },
+    { id: "plain", generation: "s1", phase: "working", verified: false },
+  ];
+
+  // Act
+  const lines = parseSnapshot({ healthy: true, tasks }).tasks.map(cardActivity);
+
+  // Assert
+  assert.deepEqual(lines, [
+    "Gate on fix/side waits at tests · Gate on fix/other waits at code review",
+    "Terminal state unreported · Gate on fix/side waits at tests",
+    "",
+  ]);
 });

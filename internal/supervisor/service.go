@@ -27,6 +27,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -903,7 +904,11 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
 		s.checkRegistration()
-		reconcileErr = errors.Join(reconcileErr, s.tellWaitCycles(), s.tellParkedRuns())
+		if snapshot, err := s.Snapshot(); err != nil {
+			reconcileErr = errors.Join(reconcileErr, err)
+		} else {
+			reconcileErr = errors.Join(reconcileErr, s.tellWaitCycles(snapshot), s.tellParkedRuns(snapshot))
+		}
 		s.mu.Lock()
 		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.ceoWakeErr, s.fleetErr, s.pushErr)
 		s.ceoWakeErr, s.fleetErr, s.pushErr = nil, nil, nil
@@ -1357,13 +1362,21 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 			return Evaluation{}, err
 		}
 	}
-	result := Evaluation{Phase: "review", Reason: "Task awaits independent review and delivery evidence", Head: head, Base: base}
-	if meta.Mode == "no-mistakes" && s.Options.Gate != nil {
-		if result.ParkedRuns, err = s.parkedExtraRuns(ctx, meta); err != nil {
-			return Evaluation{}, err
-		}
+	result, err := s.branchEvaluation(ctx, meta, head, base, clean)
+	if err != nil || meta.Mode != "no-mistakes" || s.Options.Gate == nil {
+		return result, err
 	}
-	if !clean {
+	parked, problems := s.parkedExtraRuns(ctx, meta)
+	result.ParkedRuns = parked
+	result.Reason = strings.Join(append([]string{result.Reason}, problems...), "; ")
+	return result, nil
+}
+
+// branchEvaluation is the task's evaluation from its worktree at head and
+// the gate run on that worktree's branch.
+func (s *Service) branchEvaluation(ctx context.Context, meta state.TaskMeta, head, base string, isClean bool) (Evaluation, error) {
+	result := Evaluation{Phase: "review", Reason: "Task awaits independent review and delivery evidence", Head: head, Base: base}
+	if !isClean {
 		result.Phase = "working"
 		result.Reason = "Worktree has uncommitted changes"
 		return result, nil
@@ -1489,25 +1502,35 @@ func handedBackUnder(meta state.TaskMeta, step pipeline.ProgressStep) (int, erro
 
 // parkedExtraRuns are the gate runs waiting on a decision on the branches the
 // task's extra worktrees have checked out, each with its own run's pull
-// request. They hold no card: on 2026-10-28 a run parked the day before on
-// an older branch of a task held its card at Blocked under the pull request
-// of another branch, over the goblin's newer report (#1677).
-func (s *Service) parkedExtraRuns(ctx context.Context, meta state.TaskMeta) ([]ParkedRun, error) {
-	var parked []ParkedRun
+// request, and what kept any of them from being read. They hold no card: on
+// 2026-10-28 a run parked the day before on an older branch of a task held
+// its card at Blocked under the pull request of another branch, over the
+// goblin's newer report (#1677). An extra worktree already gone has no branch
+// left to read and is skipped.
+func (s *Service) parkedExtraRuns(ctx context.Context, meta state.TaskMeta) (parked []ParkedRun, problems []string) {
 	for _, extra := range meta.Extras {
-		branch, err := s.Git.Branch(ctx, extra)
+		path, err := fsx.Canonical(extra)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		branch := ""
+		if err == nil {
+			branch, err = s.Git.Branch(ctx, path)
+		}
 		if errors.Is(err, errDetachedHead) {
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("extra worktree %s: %w", extra, err)
+			problems = append(problems, fmt.Sprintf("extra worktree %s: %v", extra, err))
+			continue
 		}
 		p, err := s.Options.Gate.Progress(ctx, meta.Project, branch)
 		if errors.Is(err, pipeline.ErrNoProgress) {
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("gate run on %s: %w", branch, err)
+			problems = append(problems, fmt.Sprintf("gate run on %s: %v", branch, err))
+			continue
 		}
 		i := slices.IndexFunc(p.Steps, awaitsDecision)
 		if p.IsTerminal() || i < 0 {
@@ -1515,13 +1538,14 @@ func (s *Service) parkedExtraRuns(ctx context.Context, meta state.TaskMeta) ([]P
 		}
 		version, err := handedBackUnder(meta, p.Steps[i])
 		if err != nil {
-			return nil, err
+			problems = append(problems, err.Error())
+			continue
 		}
 		if version == 0 {
 			parked = append(parked, *parkedRun(branch, p, p.Steps[i]))
 		}
 	}
-	return parked, nil
+	return parked, problems
 }
 
 func (s *Service) validateTerminalControl(ctx context.Context, meta state.TaskMeta) error {

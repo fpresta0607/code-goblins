@@ -3,7 +3,7 @@ import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { HarnessMark } from "./harness-mark";
 import type { NextUp } from "./start";
-import { GATE_STEPS, harnessTip, personaFor, pullRequestIcon } from "./workflow";
+import { cardActivity, harnessTip, personaFor, pullRequestIcon } from "./workflow";
 import { goblinName, taskName } from "./task-words";
 import { taskStatus } from "./task-status";
 import { TicketLink } from "./ticket-link";
@@ -13,8 +13,6 @@ import { CardPullRequest } from "./card-pull-request";
 import { BrandGlyph } from "./brand-glyph";
 import { safeGitHubLink } from "./people";
 import { screenAddress } from "./screen-address";
-
-const TERMINAL_ACTIVITY: Record<string, string> = { busy: "Terminal active", active: "Terminal active", parked: "Terminal awaiting input", idle: "Terminal idle", stale: "Terminal evidence stale", unknown: "Terminal state unknown", unavailable: "Terminal unavailable", launching: "Terminal starting", ended: "Terminal ended" };
 
 // A task's card on the board is one row, like a conversation in a list (the
 // Overlord, 2026-10-17: "minimal cards are better like an imessage history
@@ -61,13 +59,7 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
   const tip = isNamed ? { "data-tip": taskName(task) } : clipped ? { "data-tip": name } : {};
   const icon = pullRequestIcon(task);
   const repositoryLink = repository ? safeGitHubLink("https://github.com/" + repository) : "";
-  const terminal = task.runtime?.state ?? "";
-  const activity = task.gate_step && ["blocked", "review"].includes(task.phase)
-    ? [(TERMINAL_ACTIVITY[terminal] || (terminal ? "Terminal: " + terminal : "Terminal state unreported")), task.report && "Last report: " + task.report].filter(Boolean).join(" · ") : "";
-  // A gate run that waits on a decision and holds no card, as one on a branch
-  // of its extra worktrees, is named by its branch and step (#1677).
-  const parked = (task.parked_runs ?? []).map((run) => "Gate on " + run.branch + " waits at " + (GATE_STEPS[run.step] || run.step));
-  const line = [activity, ...parked].filter(Boolean).join(" · ");
+  const line = cardActivity(task);
   const content = <>
     <Avatar persona={personaFor(task)} />
     <span className="card-copy"><span className="card-head">{isPresenting && !task.browser && <span className="browser-indicator">Browser active</span>}{nextText && <span className={"next-chip" + (nextTone ? " " + nextTone : "")}>{nextText}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>

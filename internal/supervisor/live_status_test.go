@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
@@ -190,13 +191,18 @@ func TestAGateRunThatMovesMidTurnIsReadAgain(t *testing.T) {
 }
 
 // branchGate is a gate whose newest run on each branch is the one runs
-// names, with none on any other branch.
+// names, whose read of each branch errs names fails, with none on any other
+// branch.
 type branchGate struct {
 	fakeProgress
 	runs map[string]pipeline.Progress
+	errs map[string]error
 }
 
 func (g branchGate) Progress(_ context.Context, _, branch string) (pipeline.Progress, error) {
+	if err, ok := g.errs[branch]; ok {
+		return pipeline.Progress{}, err
+	}
 	if run, ok := g.runs[branch]; ok {
 		return run, nil
 	}
@@ -211,18 +217,27 @@ func parkedAtTest(runID string, parkedAt time.Time) pipeline.Progress {
 
 // gateCardFixture is task-1, a no-mistakes goblin on branch feat/primary
 // whose turn ended after its reports, each line ten minutes after the one
-// before and the last ten minutes ago, with its evaluation read from gate as
-// the supervisor reads it.
-func gateCardFixture(t *testing.T, gate ProgressReader, extras []string, reports ...string) (*Service, home.Home) {
+// before and the last ten minutes ago, spawned under policy when it is not
+// nil, with its evaluation read from gate as the supervisor reads it.
+func gateCardFixture(t *testing.T, gate ProgressReader, policy *pipeline.Policy, extras []string, reports ...string) (*Service, home.Home) {
 	t.Helper()
 	store, h := atWorkFixture(t, "claude", "task-1")
 	meta, err := state.ReadTaskMeta(h.State, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	meta.Mode, meta.Extras = "no-mistakes", extras
+	meta.Mode, meta.Extras, meta.TaskTmp = "no-mistakes", extras, t.TempDir()
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
 		t.Fatal(err)
+	}
+	if policy != nil {
+		selection, err := policy.Select("ordinary")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := selection.Save(filepath.Join(meta.TaskTmp, "pipeline.json")); err != nil {
+			t.Fatal(err)
+		}
 	}
 	gitFixture(t, meta.Worktree)
 	boardGit(t, meta.Worktree, "checkout", "-q", "-b", "feat/primary")
@@ -269,7 +284,8 @@ func parkedRunWakes(t *testing.T, h home.Home) []wake.Record {
 // The run behind it had parked the day before on an older branch of his task
 // and held the card over every report since (#1677). A gate decision holds
 // the card only while the goblin has reported nothing since the run parked;
-// an older one is an item of its own, which the CEO is woken to once.
+// an older one is an item of its own, which the supervisor's recovery cycle
+// wakes the CEO to once.
 func TestAGateRunParkedBeforeTheNewestReportHoldsNoCard(t *testing.T) {
 	const runID = "01M5YTMPMZGYMPFFN9T08BRKMZ"
 	reports := []string{"done: PR https://github.com/o/r/pull/1671 ready", "waiting on ci: #1672 checks are running"}
@@ -289,20 +305,17 @@ func TestAGateRunParkedBeforeTheNewestReportHoldsNoCard(t *testing.T) {
 			// Arrange
 			parkedAt := time.Now().UTC().Add(-test.parkedAgo).Truncate(time.Second)
 			gate := branchGate{runs: map[string]pipeline.Progress{"feat/primary": parkedAtTest(runID, parkedAt)}}
-			service, h := gateCardFixture(t, gate, nil, reports...)
+			service, h := gateCardFixture(t, gate, nil, nil, reports...)
 			for i := range test.wantParked {
 				test.wantParked[i].ParkedAt = parkedAt
 			}
 
 			// Act: the board reads the card, and two recovery cycles run.
 			got := snapshotTask(t, service, "task-1")
-			first := service.tellParkedRuns()
-			second := service.tellParkedRuns()
+			service.cycle(context.Background(), true)
+			service.cycle(context.Background(), true)
 
 			// Assert
-			if first != nil || second != nil {
-				t.Fatalf("telling the parked runs failed: %v, %v", first, second)
-			}
 			if got.Phase != test.wantPhase || got.GateStep != test.wantGateStep {
 				t.Errorf("card reads phase %q at gate step %q (%s), want %q at %q", got.Phase, got.GateStep, got.Reason, test.wantPhase, test.wantGateStep)
 			}
@@ -331,16 +344,26 @@ func TestAGateRunParkedBeforeTheNewestReportHoldsNoCard(t *testing.T) {
 // there is an item on the task's card naming that branch, its step and that
 // run's pull request, never the task's own, and the task's phase stays its
 // own branch's and its goblin's. One parked before the goblin's newest
-// report wakes the CEO once, as a run on its own branch would.
+// report wakes the CEO once, as a run on its own branch would. A run that
+// ended, or whose test failure the gate handed back to the goblin under
+// policy version 7, waits on no decision and is no item.
 func TestAGateRunParkedOnAnExtraWorktreesBranchIsAnItemOfItsOwn(t *testing.T) {
 	const sidePR = "https://github.com/o/r/pull/1584"
+	const failure = `{"findings":[{"id":"step-failure","action":"auto-fix","severity":"error","description":"the command failed"}]}`
+	versionSeven := pipeline.Policy{Version: 7, AutoFix: pipeline.AutoFix{Rebase: 1}, Classes: pipeline.Classes{Ordinary: pipeline.Class{ReviewCycles: 2}, HighRisk: pipeline.Class{ReviewCycles: 3}, Mechanical: pipeline.Class{ReviewCycles: 2}}}
 	for _, test := range []struct {
-		name      string
-		parkedAgo time.Duration
-		wantWakes int
+		name         string
+		parkedAgo    time.Duration
+		status       string
+		findings     string
+		policy       *pipeline.Policy
+		isParkedItem bool
+		wantWakes    int
 	}{
-		{"parked since the goblin's newest report", time.Minute, 0},
-		{"parked before the goblin's newest report", 3 * time.Hour, 1},
+		{"parked since the goblin's newest report", time.Minute, "running", "", nil, true, 0},
+		{"parked before the goblin's newest report", 3 * time.Hour, "running", "", nil, true, 1},
+		{"cancelled at a step that awaited a decision", 3 * time.Hour, "cancelled", "", nil, false, 0},
+		{"handed its test failure back under policy version 7", 3 * time.Hour, "running", failure, &versionSeven, false, 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -348,24 +371,31 @@ func TestAGateRunParkedOnAnExtraWorktreesBranchIsAnItemOfItsOwn(t *testing.T) {
 			boardGit(t, extra, "checkout", "-q", "-b", "fix/side")
 			parkedAt := time.Now().UTC().Add(-test.parkedAgo).Truncate(time.Second)
 			side := parkedAtTest("01JZTESTRUNOFTHESIDEBRANCH", parkedAt)
-			side.PR = sidePR
+			side.PR, side.Status, side.Steps[2].Findings = sidePR, test.status, test.findings
 			own := pipeline.Progress{RunID: "01JZTESTRUNOFTHISBRANCH00", Status: "running", PR: "https://github.com/o/r/pull/1700", Steps: []pipeline.ProgressStep{{Name: "intent", Status: "completed"}, {Name: "review", Status: "running"}}}
 			gate := branchGate{runs: map[string]pipeline.Progress{"feat/primary": own, "fix/side": side}}
-			service, h := gateCardFixture(t, gate, []string{extra}, "working: reviewing the gate's findings")
+			service, h := gateCardFixture(t, gate, test.policy, []string{extra}, "working: reviewing the gate's findings")
+			var want []ParkedRun
+			if test.isParkedItem {
+				want = []ParkedRun{{Branch: "fix/side", RunID: side.RunID, Step: "test", ParkedAt: parkedAt, PR: sidePR}}
+			}
 
 			// Act
-			got := snapshotTask(t, service, "task-1")
-			first := service.tellParkedRuns()
-			second := service.tellParkedRuns()
+			view, err := service.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			first := service.tellParkedRuns(view)
+			second := service.tellParkedRuns(view)
 
 			// Assert
 			if first != nil || second != nil {
 				t.Fatalf("telling the parked runs failed: %v, %v", first, second)
 			}
+			got := view.Tasks[slices.IndexFunc(view.Tasks, func(task Task) bool { return task.ID == "task-1" })]
 			if got.Phase != "review" || got.GateStep != "review" || got.PR != own.PR {
 				t.Errorf("card reads phase %q at gate step %q with %q (%s), want its own run's review with %q", got.Phase, got.GateStep, got.PR, got.Reason, own.PR)
 			}
-			want := []ParkedRun{{Branch: "fix/side", RunID: side.RunID, Step: "test", ParkedAt: parkedAt, PR: sidePR}}
 			if !slices.Equal(got.ParkedRuns, want) {
 				t.Errorf("parked runs %+v, want %+v", got.ParkedRuns, want)
 			}
@@ -379,6 +409,31 @@ func TestAGateRunParkedOnAnExtraWorktreesBranchIsAnItemOfItsOwn(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// An extra worktree the task recorded whose folder is gone has no branch
+// left to read, and one whose gate cannot be read says so in the task's
+// reason. Either leaves the card its own branch's: before, every evaluation
+// of the task read unavailable until its record was edited by hand.
+func TestAnExtraWorktreeTheBoardCannotReadLeavesTheCardItsOwn(t *testing.T) {
+	// Arrange
+	gone := filepath.Join(t.TempDir(), "returned")
+	broken := gitFixture(t)
+	boardGit(t, broken, "checkout", "-q", "-b", "fix/broken")
+	own := pipeline.Progress{RunID: "01JZTESTRUNOFTHISBRANCH00", Status: "running", PR: "https://github.com/o/r/pull/1700", Steps: []pipeline.ProgressStep{{Name: "intent", Status: "completed"}, {Name: "review", Status: "running"}}}
+	gate := branchGate{runs: map[string]pipeline.Progress{"feat/primary": own}, errs: map[string]error{"fix/broken": errors.New("database is locked")}}
+
+	// Act
+	service, _ := gateCardFixture(t, gate, nil, []string{gone, broken}, "working: reviewing the gate's findings")
+	got := snapshotTask(t, service, "task-1")
+
+	// Assert
+	if got.Phase != "review" || got.GateStep != "review" || got.PR != own.PR || len(got.ParkedRuns) != 0 {
+		t.Errorf("card reads phase %q at gate step %q with %q and parked runs %+v (%s), want its own run's review with %q and none parked", got.Phase, got.GateStep, got.PR, got.ParkedRuns, got.Reason, own.PR)
+	}
+	if reason := service.Store.Snapshot().Tasks["task-1"].Reason; !strings.Contains(reason, "gate run on fix/broken: database is locked") || strings.Contains(reason, "returned") {
+		t.Errorf("evaluation reason %q, want the gate read that failed on fix/broken and nothing of the folder that is gone", reason)
 	}
 }
 

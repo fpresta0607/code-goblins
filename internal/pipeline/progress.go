@@ -33,7 +33,10 @@ type ProgressStep struct {
 	Findings string `json:"findings"`
 	// MovedAt is when the step last moved, in Unix seconds: its last
 	// activity, else when its round or the step started. A step that waits on
-	// a decision has not moved since it parked.
+	// a decision has not moved since it parked. Progress reads these columns
+	// directly: every gate build it supports writes them, started_at and
+	// last_activity_at since no-mistakes v1.34.0 and round_started_at since
+	// v1.70.0, and gate starts require v1.80.0.
 	MovedAt int64 `json:"moved_at"`
 }
 
