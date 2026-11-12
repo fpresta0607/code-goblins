@@ -1,8 +1,11 @@
 package execx
 
 import (
+	"context"
+	"fmt"
 	"syscall"
 	"testing"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -34,5 +37,25 @@ func CountUnlistedForTest(t testing.TB, reads int, counted func()) {
 			counted()
 		}
 		return ids, unlisted, err
+	}
+}
+
+// DelayEndForTest makes EndAndWait's end of a job's members, until the test
+// ends, wait delay longer for them to exit, as a loaded machine can, and fail
+// as the real wait does once its caller's deadline runs out within it.
+func DelayEndForTest(t testing.TB, delay time.Duration) {
+	original := endJob
+	t.Cleanup(func() { endJob = original })
+	endJob = func(ctx context.Context, job windows.Handle) ([]proc.Entry, []proc.Entry, error) {
+		ended, spared, err := original(ctx, job)
+		if err != nil {
+			return ended, spared, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, nil, fmt.Errorf("execx: the job's processes outlived its end: %w", ctx.Err())
+		case <-time.After(delay):
+		}
+		return ended, spared, nil
 	}
 }
