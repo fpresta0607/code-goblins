@@ -48,6 +48,16 @@ never its orphans. The sweep lists the machine's processes and then reads
 which of them still run. One that ended in between is named in a note and
 is no finding.
 
+Git Bash starts a tool call's programs outside the terminal's job, so one its
+shell left running when it ended goes on until its terminal does. Such a
+process of a terminal of this home, whose parent has exited and which is no
+harness, dev server, terminal host, gate agent, machine service or goblins, is
+listed as detached_process with how long it has run, its processor time and
+the handles it holds, and ended only by naming its pid with --force. A command
+Git Bash still runs for a goblin can show a gone parent too, so read its age,
+processor time and goblin before naming it. It wakes no one; the supervisor's
+handle wake names one that holds a million handles.
+
 The watcher runs this sweep on its own timer and wakes the CEO once for a
 running finding. A fleet harness and a dev server are each told once for each
 process. A harness nothing ties to the fleet is told once for its shape, where

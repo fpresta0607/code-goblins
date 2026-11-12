@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 func TestAncestryIncludesSelfAndParent(t *testing.T) {
@@ -185,5 +187,50 @@ func TestCPUTimeIsTheProcessorTimeUsedSinceStart(t *testing.T) {
 	}
 	if limit := time.Since(start) * time.Duration(runtime.NumCPU()); used > limit {
 		t.Fatalf("CPUTime = %s, more than %s of processor time since the process started", used, limit)
+	}
+}
+
+// heldHandleCount is how many handles holdHandles opens: three times what the
+// busiest process on a quiet machine holds (Microsoft Defender's, about
+// 9,000 on 2026-11-11), so this process holds the most.
+const heldHandleCount = 30000
+
+// holdHandles opens count event handles in this process until the test ends.
+func holdHandles(t *testing.T, count int) {
+	t.Helper()
+	events := make([]windows.Handle, 0, count)
+	t.Cleanup(func() {
+		for _, event := range events {
+			windows.CloseHandle(event)
+		}
+	})
+	for range count {
+		event, err := windows.CreateEvent(nil, 0, 0, nil)
+		if err != nil {
+			t.Fatalf("open an event: %v", err)
+		}
+		events = append(events, event)
+	}
+}
+
+// The process holding the most handles is read from the system process
+// list, by its pid, its program and its start.
+func TestTopHandleHolderIsTheProcessHoldingTheMostHandles(t *testing.T) {
+	// Arrange
+	holdHandles(t, heldHandleCount)
+	started, ok := StartTime(os.Getpid())
+	if !ok {
+		t.Fatal("StartTime of this process failed")
+	}
+
+	// Act
+	holder, err := TopHandleHolder()
+
+	// Assert
+	if err != nil {
+		t.Fatalf("TopHandleHolder: %v", err)
+	}
+	if holder.PID != os.Getpid() || holder.Handles < heldHandleCount || !holder.Start.Equal(started) || holder.ExeBase == "" {
+		t.Fatalf("TopHandleHolder = %+v, want this process, started %s, with at least %d handles", holder, started, heldHandleCount)
 	}
 }

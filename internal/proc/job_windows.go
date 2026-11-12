@@ -469,7 +469,7 @@ func heldJobsBy(holderPID int, access uint32, duplicate func(source, handle, tar
 		return nil, fmt.Errorf("proc: create a job object: %w", err)
 	}
 	defer syscall.CloseHandle(syscall.Handle(own))
-	table, err := handleTable()
+	table, err := handleTable(maxHandleTable)
 	if err != nil {
 		return nil, err
 	}
@@ -581,9 +581,10 @@ type handleEntry struct {
 	objectType uint16
 }
 
-// handleTable reads every handle open on the system.
-func handleTable() ([]handleEntry, error) {
-	for size := 1 << 20; size <= maxHandleTable; {
+// handleTable reads every handle open on the system, in a copy of at most
+// bound bytes.
+func handleTable(bound int) ([]handleEntry, error) {
+	for size := 1 << 20; size <= bound; {
 		buffer := make([]byte, size)
 		var returned uint32
 		status, _, _ := ntQuerySystemInformation.Call(systemExtendedHandleInfo, uintptr(unsafe.Pointer(&buffer[0])), uintptr(size), uintptr(unsafe.Pointer(&returned)))
@@ -613,7 +614,18 @@ func handleTable() ([]handleEntry, error) {
 		}
 		return entries, nil
 	}
-	return nil, errors.New("proc: the system handle table exceeds its bound")
+	return nil, handleTableBound()
+}
+
+// handleTableBound says the system handle table is past its bound and names
+// the process holding the most handles, which is almost always the one that
+// filled it and the one to end.
+func handleTableBound() error {
+	holder, err := TopHandleHolder()
+	if err != nil {
+		return fmt.Errorf("proc: the system handle table exceeds its bound, and the process holding the most handles could not be read: %w", err)
+	}
+	return fmt.Errorf("proc: the system handle table exceeds its bound: %s pid %d, started %s, holds %d handles", holder.ExeBase, holder.PID, holder.Start.Format(time.RFC3339), holder.Handles)
 }
 
 // readJobList fills buffer with job's JOBOBJECT_BASIC_PROCESS_ID_LIST: two
