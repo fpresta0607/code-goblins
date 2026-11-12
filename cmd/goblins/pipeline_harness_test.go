@@ -57,10 +57,11 @@ func (r *gateStartRunner) Run(ctx context.Context, q execx.Request) (execx.Resul
 		}
 		return execx.Result{Stdout: []byte(`{"status":"not_ready"}`), ExitCode: 1}, nil
 	case "no-mistakes":
-		// This no-mistakes names no --intent-file in its help, as one before
-		// 1.86.0, so a run it starts has its intent on the command line.
+		// This no-mistakes names no --intent-file in its help, as one from
+		// 1.80.0 to before 1.86.0, so a run it starts has its intent on the
+		// command line, kept out of the pull request.
 		if strings.Join(q.Args, " ") == "help axi run" {
-			return execx.Result{}, nil
+			return execx.Result{Stdout: []byte("      --no-publish-intent   keep the generated Intent section out of the PR body\n")}, nil
 		}
 		if r.started != nil {
 			close(r.started)
@@ -153,17 +154,17 @@ func launchedSelection(t *testing.T, native []execx.Request) (selection writtenS
 		t.Fatalf("native launches=%+v, want one", native)
 	}
 	args := native[0].Args
-	if len(args) != 10 || strings.Join(args[:4], " ") != "axi run --intent ship safely" || args[4] != "--launch-nonce" || args[6] != "--validation-generation" || args[8] != "--launch-assertion" {
+	if len(args) != 11 || strings.Join(args[:5], " ") != "axi run --intent ship safely --no-publish-intent" || args[5] != "--launch-nonce" || args[7] != "--validation-generation" || args[9] != "--launch-assertion" {
 		t.Fatalf("native launch argv: %q", args)
 	}
-	data, err := os.ReadFile(args[9])
+	data, err := os.ReadFile(args[10])
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := json.Unmarshal(data, &selection); err != nil {
 		t.Fatalf("launch selection %s: %v", data, err)
 	}
-	return selection, string(data), args[5], args[7]
+	return selection, string(data), args[6], args[8]
 }
 
 func harnesses(chain []map[string]string) []string {
@@ -256,8 +257,8 @@ func TestTwoTasksOnDifferentHarnessesGateAtOnceUnderOneMachineConfig(t *testing.
 	if claudeNonce == codexNonce {
 		t.Fatalf("both launches share the nonce %q", claudeNonce)
 	}
-	if held.native[0].Args[9] == second.native[0].Args[9] {
-		t.Fatalf("both tasks wrote one launch selection file: %s", second.native[0].Args[9])
+	if held.native[0].Args[10] == second.native[0].Args[10] {
+		t.Fatalf("both tasks wrote one launch selection file: %s", second.native[0].Args[10])
 	}
 	after, err := os.ReadFile(filepath.Join(nm, "config.yaml"))
 	if err != nil || !bytes.Equal(after, machine) {
