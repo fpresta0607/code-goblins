@@ -819,6 +819,14 @@ func (p *planner) stateFiles() error {
 			}
 			continue
 		}
+		// A crossing runs while the CEO's terminal from before it still runs,
+		// and its host holds its log open, which Windows does not let be
+		// renamed; the log is history, and the terminal's next host writes
+		// one under the new name.
+		if p.crossing != nil && strings.EqualFold(filepath.Ext(name), ".log") {
+			p.add(KindListed, from+": kept, the log of the CEO's terminal from before the move, which its host may still write; its next host writes "+filepath.Base(to))
+			continue
+		}
 		p.claimed[from] = true
 		p.add(KindState, fmt.Sprintf("%s: renamed %s, the CEO's own terminal's", from, filepath.Base(to)), moveStep(from, to))
 	}

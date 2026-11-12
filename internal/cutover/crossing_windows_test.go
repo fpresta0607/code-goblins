@@ -280,3 +280,36 @@ func TestACrossingThatCannotSetAProgramAsideUndoesEverythingBeforeIt(t *testing.
 		t.Fatalf("the failed crossing left the machine changed:\n%s", strings.Join(found, "\n"))
 	}
 }
+
+// The CEO's terminal from before the move still runs while an update moves
+// the home, and its host holds its log open, which Windows does not let be
+// renamed: the crossing keeps the log where it is, as the history it is, and
+// moves the terminal's record.
+func TestACrossingKeepsTheLogTheCEOsRunningTerminalHoldsOpen(t *testing.T) {
+	// Arrange
+	f := newFixture(t)
+	hosts := filepath.Join(f.machine.Root, "state", "hosts")
+	held, err := os.OpenFile(filepath.Join(hosts, oldName+".log"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { held.Close() })
+
+	// Act
+	plan, err := f.machine.PlanCrossing(crossedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.machine.Apply(plan, crossedAt)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("the crossing failed while the CEO's terminal holds its log open: %v", err)
+	}
+	if got := read(t, filepath.Join(hosts, oldName+".log")); got != "the CEO's terminal\n" {
+		t.Errorf("the held log reads %q, want it kept as it was", got)
+	}
+	if _, err := os.Stat(filepath.Join(hosts, newName+".json")); err != nil {
+		t.Errorf("the CEO's terminal's record did not take the new name: %v", err)
+	}
+}
