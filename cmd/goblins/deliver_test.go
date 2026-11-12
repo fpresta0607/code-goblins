@@ -452,6 +452,29 @@ func TestPRMergeWithoutDeleteBranchRunsOnlyTheMerge(t *testing.T) {
 	}
 }
 
+// goblins pr merge reads a github.com pull request's merge queue through the
+// command's GitHub API client, not through a gh it starts.
+func TestPRMergeCommandReadsGitHubThroughTheRuntimesAPI(t *testing.T) {
+	// Arrange
+	runner := &prMergeRunner{localOid: prMergeHeadOID}
+	runtime := commandRuntime{githubAPI: githubtest.Client(runner)}
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runPR("merge", []string{"https://github.com/o/r/pull/13"}, &stdout, &stderr, runner, runtime)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
+	}
+	if !slices.Equal(runner.asked, []string{"POST graphql"}) {
+		t.Errorf("asked GitHub's API %q, want the merge queue asked through it", runner.asked)
+	}
+	if !runner.ran("gh", "pr", "merge", "https://github.com/o/r/pull/13", "--merge", "--match-head-commit", prMergeHeadOID) {
+		t.Errorf("the merge did not run: %v", runner.requests)
+	}
+}
+
 // A branch name is not an identity. goblins is run from whatever checkout the
 // operator's shell is in, goblin names like fix/x collide across projects, and
 // -D force-deletes: a same-named local branch on a different commit is
