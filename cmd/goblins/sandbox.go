@@ -42,7 +42,10 @@ func sandboxDocker(runtime commandRuntime, out io.Writer) sandboxEngine {
 // start until it is removed, a record of it under the task's tasktmp folder
 // holds the task's host git back (sandbox.RunningContainerRefusal), and a
 // run first removes the container of each record whose run ended without
-// removing its own. A task whose brief carries no
+// removing its own. Before anything starts it has the next host command
+// walk the worktree for a .git the container made, and once its container
+// is removed it walks it once itself, so the host commands after it need no
+// walk when it found none (sandbox.WalkForNestedGit). A task whose brief carries no
 // sandbox: needed, a worktree whose .git link changed, and an engine that
 // cannot run are refused, and the command then runs nowhere: never on the
 // host instead.
@@ -88,6 +91,9 @@ func runSandbox(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 	if err != nil {
 		return refuse("%v", err)
 	}
+	if err := sandbox.ForgetNestedGitWalk(meta.TaskTmp); err != nil {
+		return refuse("%v", err)
+	}
 	runs := filepath.Join(meta.TaskTmp, sandbox.RunsDir)
 	removeEndedSandboxRuns(engine, runs, stderr)
 	if err := os.MkdirAll(runs, 0o755); err != nil {
@@ -98,6 +104,9 @@ func runSandbox(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 	}
 	exit := runGateTurn(append([]string{"--as", "sandbox " + task + ": " + strings.Join(command, " "), "--"}, docker...), stdout, stderr, runtime)
 	if removeSandboxContainer(engine, name, "goblins sandbox run", stderr) {
+		if err := sandbox.WalkForNestedGit(meta.TaskTmp, meta.Worktree); err != nil {
+			fmt.Fprintf(stderr, "goblins sandbox run: %s\n", oneLine(err))
+		}
 		if err := lock.ReleaseExclusiveNamed(runs, name); err != nil {
 			fmt.Fprintf(stderr, "goblins sandbox run: the container %s is removed, but its record in %s stays and holds the task's host git back: %s\n", name, runs, oneLine(err))
 		}

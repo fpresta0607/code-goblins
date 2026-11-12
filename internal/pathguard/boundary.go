@@ -20,6 +20,10 @@ type Boundary struct {
 	// Writable are the folders a tool call may write in: its worktree, its
 	// scratch folder and the caches it was given.
 	Writable []string
+	// RepositoryFree are the folders in which a tool call makes no
+	// repository: a write whose path there holds a .git, in any form Windows
+	// opens as .git, is refused.
+	RepositoryFree []string
 	// Secrets are the folders a tool call may neither read nor write, each
 	// with the name a refusal gives it.
 	Secrets []Secret
@@ -58,6 +62,11 @@ func (b Boundary) Refusal(path string, isWrite bool) string {
 	}
 	if !isWrite {
 		return ""
+	}
+	for _, root := range b.RepositoryFree {
+		if root != "" && (namesGitBelow(given, root) || namesGitBelow(resolved, root)) {
+			return "it writes " + named + ", a .git in " + root + ", where host git would read a repository of its own"
+		}
 	}
 	for _, root := range b.Writable {
 		if root != "" && within(resolved, root) {
@@ -165,6 +174,24 @@ func within(path, root string) bool {
 		prefix += string(filepath.Separator)
 	}
 	return len(path) > len(prefix) && strings.EqualFold(path[:len(prefix)], prefix)
+}
+
+// namesGitBelow reports whether path is inside root and a folder or file of
+// it below root is .git as Windows opens it: in any case, with dots and
+// spaces after it, which Windows drops, or with a stream after a colon, as
+// .git::$INDEX_ALLOCATION makes a folder .git.
+func namesGitBelow(path, root string) bool {
+	if !within(path, root) {
+		return false
+	}
+	below := path[len(realPath(filepath.Clean(root))):]
+	for _, name := range strings.FieldsFunc(below, func(r rune) bool { return r == '\\' || r == '/' }) {
+		name, _, _ = strings.Cut(strings.ToLower(name), ":")
+		if strings.TrimRight(name, ". ") == ".git" {
+			return true
+		}
+	}
+	return false
 }
 
 func isLetter(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }

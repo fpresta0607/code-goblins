@@ -152,8 +152,9 @@ Quoted text holds no backslash, `$`, backtick, parenthesis, quote of the other k
 Anything else is refused, naming the character, so a pipe, a redirection, a `;`, a variable and a command of its own all run in the container.
 What the two shells would read as different words is refused too: a backslash outside quotes, which Bash takes off and PowerShell keeps; a word that starts with quoted text and goes on after it; an empty quoted word, which Windows PowerShell drops; a `,`, which PowerShell reads as a list; an `@` that starts a word; an unquoted word that starts with `-` and holds a `.`, which Windows PowerShell splits; and `--%`.
 Host git runs only `status`, `diff`, `log`, `show`, `add`, `commit`, `push`, `fetch`, `pull`, `switch`, `checkout`, `branch`, `rebase`, `merge`, `reset`, `restore`, `stash`, `tag`, `rev-parse`, `ls-files` and `blame`, with no option before its command.
-It is refused `rebase -x`, and `--exec`, `--upload-pack`, `--receive-pack`, `--recurse-submodules` and `--recursive` or any start of them, each of which starts a program or reaches a submodule.
-Host gh is refused `alias` and `extension`, which run a command or program of their own, and those options too.
+It is refused `rebase -x`, and `--exec`, `--upload-pack`, `--receive-pack`, `--recurse-submodules` and `--recursive` or any start of them, each of which starts a program or reaches a submodule, and `--output` or any start of it, which writes the file it names.
+Host gh runs only the commands that write no file on this PC: `api`, `auth status`, `issue` `comment`, `create`, `edit`, `list` and `view`, `pr` `checks`, `comment`, `create`, `diff`, `edit`, `list`, `ready`, `status` and `view`, `repo view`, and `run` `list`, `view` and `watch`, and none of those options.
+Any other could make a repository host git reads, as `gh run download` and `gh repo clone` unpack one where they run, or run a program of its own, as an alias or an extension does.
 `goblins gate test`, `goblins verify`, `goblins security`, `goblins deploy` and `goblins services` are refused there, and the goblin runs what they run in the container with [`goblins sandbox run`](../commands/sandbox.md), in the machine's heavy line.
 Its gate's Test step runs its command in the same image, with the gate's checkout alone mounted.
 A run that cannot start Docker runs nowhere, never on the host instead.
@@ -163,8 +164,14 @@ A sandbox task's project cannot use submodules: every host command is refused wh
 Every host command is also refused while the worktree's `.git` link differs from the one its spawn recorded, and the container sees the `.git` link read-only.
 Every host command but `goblins sandbox run` and `goblins notify` waits while a `.git` other than the worktree's own link is anywhere in the worktree, since host git would read that repository from a folder under it or once a checkout brings in its gitlink.
 The refusal names the `.git` it found and how to remove it in the container.
-`goblins` walks the whole worktree for it before each such command, which took 2.2 to 2.9 seconds on a warm worktree of 77,160 entries with its `node_modules`, and 27 seconds on the first, cold walk.
 Those commands wait too while a container of the task may run, from the moment `goblins sandbox run` records it until it removed it, since the container could make a repository between the walk and the command.
+A walk of the whole worktree for a `.git` took 2.2 to 2.9 seconds on a warm worktree of 77,160 entries with its `node_modules`, and 27 seconds on the first, cold walk.
+So `goblins sandbox run` walks the worktree once as its container ends, and a host command walks it again only once something may have made a `.git` since the last walk that found none.
+Host git and gh write none, as above, and the goblin's file tools make none: its path boundary refuses a write whose path in its worktree holds a `.git`, in any case, with dots or spaces after it or a stream after a colon, each of which Windows opens as `.git`.
+What may make one has the next host command walk: a `goblins sandbox run`, from before its container starts, and every other `goblins` command but `goblins notify`, which may write a file it names, as `goblins gate turn --detach` its log.
+Such a `goblins` command run beside a walk, in a tool call made at the same time, can still write after that walk found the worktree clean.
+A Codex goblin's host commands walk the worktree every time, since its `apply_patch` edits are outside the boundary until #2255 lands.
+The token of the latest such start, and the token of the last walk that found the worktree clean, are kept in the task's tasktmp folder, which no container mounts and no goblin's boundary lets it write.
 The gate's prepare, lint and format commands and its agents' own shells still run on the host.
 
 ### The credential store

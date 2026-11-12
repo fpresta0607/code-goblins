@@ -11,6 +11,8 @@ The command runs in the folder of `/work` that matches the shell's, with the arg
 The run takes its turn in the machine's heavy line as [`goblins gate turn`](gate/turn.md) runs a command, one at a time on the machine, with the docker client tracked and ended by pid.
 Once the run ended, interrupted or not, the container is removed, which a `docker run` that was itself ended would otherwise leave running.
 From before the container can start until it is removed, a record of it in the task's tasktmp folder, under `sandbox-runs`, holds the task's host git back, and a run first removes the container of each record whose run ended without removing its own.
+Before anything starts, the run has the next host command walk the worktree for a `.git` the container made.
+Once its container is removed, it walks the worktree once itself, before its record goes, so the host commands after it walk it no more when it found none, and a `.git` it found is named on standard error with how to remove it.
 The exit code is the command's.
 Started in the background, it is `goblins gate turn --detach <log-file> -- goblins sandbox run -- <command>`.
 

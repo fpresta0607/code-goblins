@@ -31,9 +31,17 @@ var hostGitCommands = map[string]bool{
 // of a long option for it, so each start is refused too.
 var hostRefusedGitOptions = []string{"--exec", "--receive-pack", "--recurse-submodules", "--recursive", "--upload-pack"}
 
-// hostRefusedGhCommands are the gh commands that run a command or program
-// of the goblin's choosing as gh: an alias and an extension.
-var hostRefusedGhCommands = map[string]bool{"alias": true, "extension": true, "extensions": true, "ext": true}
+// hostGhCommands are the gh commands a sandbox task's host runs, each by its
+// command, and its subcommand where it has them: those that read GitHub or
+// write to it and write no file on this PC. Every other is refused: gh run
+// download and gh repo clone unpack a repository where they run, which host
+// git would read, and an alias or extension runs a command or program of
+// the goblin's choosing as gh.
+var hostGhCommands = map[string]bool{
+	"api": true, "auth status": true, "issue comment": true, "issue create": true, "issue edit": true, "issue list": true, "issue view": true,
+	"pr checks": true, "pr comment": true, "pr create": true, "pr diff": true, "pr edit": true, "pr list": true, "pr ready": true, "pr status": true, "pr view": true,
+	"repo view": true, "run list": true, "run view": true, "run watch": true,
+}
 
 // whyNotPlain is why a character a host command holds outside quotes is
 // refused, for the characters a shell reads as more than text.
@@ -54,7 +62,7 @@ var whyNotPlain = map[byte]string{
 // quoted strings (hostCommands), that start goblins, git or gh by name or by an
 // absolute path outside worktree and scratch, the folders the container
 // writes. Git runs only the commands a goblin delivers with (gitRefusal),
-// and gh no alias or extension (ghRefusal). goblins sandbox run, and goblins gate
+// and gh only what writes no file on this PC (ghRefusal). goblins sandbox run, and goblins gate
 // turn starting only it, are how the project's code runs; the goblins commands
 // that run it on the host are refused.
 func HostCommandRefusal(command, cwd, worktree, scratch string) string {
@@ -221,8 +229,8 @@ func isWithin(path, root string) bool {
 // gitRefusal is why git with arguments, those after its name, is refused on
 // a sandbox task's host: an option before its command, which can point it
 // at another repository, configuration or program, a command that is none of
-// hostGitCommands, rebase's -x, which runs a command at each commit, or one
-// of hostRefusedGitOptions.
+// hostGitCommands, rebase's -x, which runs a command at each commit,
+// --output, which writes the file it names, or one of hostRefusedGitOptions.
 func gitRefusal(arguments []string) string {
 	if len(arguments) == 0 {
 		return ""
@@ -238,19 +246,26 @@ func gitRefusal(arguments []string) string {
 		if command == "rebase" && strings.HasPrefix(argument, "-") && !strings.HasPrefix(argument, "--") && strings.Contains(argument, "x") {
 			return "a sandbox task never runs git rebase " + argument + " on the host, since -x runs a command at each commit: run the command in its container with goblins sandbox run"
 		}
+		// Git takes any start of a long option for it.
+		if name, _, _ := strings.Cut(argument, "="); strings.HasPrefix(name, "--output") || len(name) > 2 && strings.HasPrefix("--output", name) {
+			return "a sandbox task never runs git " + command + " with " + argument + " on the host, since --output writes the file it names, which could make a repository host git reads: read git's own output instead"
+		}
 	}
 	return refusedOption("git "+command, arguments[1:])
 }
 
 // ghRefusal is why gh with arguments, those after its name, is refused on a
-// sandbox task's host: an alias or extension command, which runs a command
-// or program of the goblin's choosing as gh, or one of
-// hostRefusedGitOptions, which gh hands to the git it runs.
+// sandbox task's host: one of hostRefusedGitOptions, which gh hands to the
+// git it runs, or a command none of hostGhCommands names.
 func ghRefusal(arguments []string) string {
-	if len(arguments) > 0 && hostRefusedGhCommands[arguments[0]] {
-		return "a sandbox task never runs gh " + arguments[0] + " on the host, which runs a command or program of its own as gh"
+	if refusal := refusedOption("gh", arguments); refusal != "" {
+		return refusal
 	}
-	return refusedOption("gh", arguments)
+	command := strings.Join(arguments[:min(len(arguments), 2)], " ")
+	if hostGhCommands[command] || len(arguments) > 0 && hostGhCommands[arguments[0]] {
+		return ""
+	}
+	return "a sandbox task never runs " + strings.TrimSpace("gh "+command) + " on the host, which is none of the gh commands that write no file on this PC, where another could make a repository host git reads, or run a program of its own: api, auth status, issue comment, create, edit, list and view, pr checks, comment, create, diff, edit, list, ready, status and view, repo view, and run list, view and watch. If the task needs another, tell the CEO with a blocked report"
 }
 
 // refusedOption is why program is refused one of arguments, an option of
@@ -291,6 +306,24 @@ func RunsNoHostGit(command string) bool {
 		}
 	}
 	return true
+}
+
+// MayMakeRepository reports whether command, which HostCommandRefusal lets
+// run, may write a .git into the worktree, so the next host command walks it
+// again (ForgetNestedGitWalk): a goblins command but goblins notify, which
+// may write a file it names, as goblins gate turn --detach its log. Host git
+// and gh write none (gitRefusal, ghRefusal).
+func MayMakeRepository(command string) bool {
+	commands, refusal := hostCommands(command)
+	if refusal != "" {
+		return true
+	}
+	for _, words := range commands {
+		if programName(words[0]) == "goblins" && (len(words) < 2 || words[1] != "notify") {
+			return true
+		}
+	}
+	return false
 }
 
 // sandboxTurnProgram is the program word of a turn that takes it for goblins
