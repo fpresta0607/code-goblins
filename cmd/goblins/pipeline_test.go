@@ -122,10 +122,11 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 			return execx.Result{Stdout: []byte("auto_fix: {review: 0}\n")}, nil
 		}
 	case "no-mistakes":
-		// This no-mistakes names no --intent-file in its help, as one before
-		// 1.86.0, so a run it starts has its intent on the command line.
+		// This no-mistakes names no --intent-file in its help, as one from
+		// 1.80.0 to before 1.86.0, so a run it starts has its intent on the
+		// command line, kept out of the pull request.
 		if slices.Equal(q.Args, []string{"help", "axi", "run"}) {
-			return execx.Result{}, nil
+			return execx.Result{Stdout: []byte("      --no-publish-intent   keep the generated Intent section out of the PR body\n")}, nil
 		}
 		r.native = append(r.native, q)
 		r.roleStarted = r.advance && r.remoteRead >= 2
@@ -1830,7 +1831,7 @@ func TestPipelineRunLaunchesNativeAfterCheckStart(t *testing.T) {
 		t.Fatalf("native launches=%+v, want one", runner.native)
 	}
 	request := runner.native[0]
-	if request.Name != "no-mistakes" || !strings.HasPrefix(strings.Join(request.Args, " "), "axi run --intent ship safely --launch-nonce ceo-") {
+	if request.Name != "no-mistakes" || !strings.HasPrefix(strings.Join(request.Args, " "), "axi run --intent ship safely --no-publish-intent --launch-nonce ceo-") {
 		t.Fatalf("native launch argv: %+v", request)
 	}
 	if request.Dir != wt {
@@ -2066,7 +2067,7 @@ func TestPipelineRunAndRecoverActInTheWorktreeOfTheNamedBranch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("run --branch: %v", err)
 		}
-		if len(start.native) != 1 || !strings.HasSuffix(start.native[0].Dir, "task-connections") || !strings.HasPrefix(strings.Join(start.native[0].Args, " "), "axi run --intent ship safely --launch-nonce ceo-") {
+		if len(start.native) != 1 || !strings.HasSuffix(start.native[0].Dir, "task-connections") || !strings.HasPrefix(strings.Join(start.native[0].Args, " "), "axi run --intent ship safely --no-publish-intent --launch-nonce ceo-") {
 			t.Fatalf("native launches = %+v, want one run in the extra worktree", start.native)
 		}
 	})

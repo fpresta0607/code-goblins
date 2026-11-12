@@ -258,6 +258,53 @@ test("the CEO's last AFK report opens from its Task view, not from the header", 
   await expect(header(page).getByRole("button", { name: "Open your last AFK report", exact: true })).toHaveCount(0);
 });
 
+// #2438, the Overlord on 2026-11-12, of the CEO's panel on his phone: "Fix
+// spacing at top of task panel we don't need the Claude code . Fable 5.2 and
+// button has no padding between dropdown break line". The CEO's Task view
+// names no harness, model or effort, which its Harness section says, and its
+// AFK report has as much room under it, before Workspace's rule, as over it,
+// under the header's rule. A goblin's Task view keeps its line, the one place
+// that says which model that goblin runs.
+for (const width of [1440, 390]) {
+  test(`the CEO's Task view at ${width}px names no harness, and its AFK report has as much room under it as over it`, async ({ page }, testInfo) => {
+    // Arrange
+    await page.setViewportSize({ width, height: 900 });
+    await open(page, snapshot({ afk: { state: "off", page: REPORT } }));
+    await openCeo(page);
+    const task = page.locator(".goblin-panel > .panel-task");
+    const report = task.getByRole("button", { name: "Open your last AFK report", exact: true });
+
+    // Act
+    await header(page).getByRole("button", { name: "Task", exact: true }).click();
+    await expect(report).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+    if (width === 390) await page.screenshot({ path: testInfo.outputPath("ceo-task-afk-390.png"), clip: { x: 0, y: 0, width: 390, height: 320 } });
+
+    // Assert
+    await expect(task.locator(".panel-header-details")).not.toContainText("Claude Code");
+    const top = await box(task);
+    const button = await box(report);
+    const rule = await box(task.locator(".workspace-details"));
+    const above = button.y - top.y;
+    const below = rule.y - (button.y + button.height);
+    expect(below, "room under the report, before Workspace's rule").toBeGreaterThanOrEqual(12);
+    expect(Math.abs(below - above), "room under the report against room over it").toBeLessThanOrEqual(1);
+  });
+
+  test(`a goblin's Task view at ${width}px keeps its harness, model and effort`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width, height: 900 });
+    await open(page);
+    await openGoblin(page);
+
+    // Act
+    await header(page).getByRole("button", { name: "Task", exact: true }).click();
+
+    // Assert
+    await expect(page.locator(".goblin-panel > .panel-task .panel-header-details")).toContainText("Claude Code · Opus 5.5 · xhigh");
+  });
+}
+
 test("the divider beside the panel is drawn before the pointer reaches it", async ({ page }) => {
   // Arrange
   await open(page);

@@ -227,3 +227,38 @@ func TestManifestReadsALoneRidersWaitWithinItsBounds(t *testing.T) {
 		})
 	}
 }
+
+func TestManifestReadsALightTestAndHostedCIEvidenceWithinTheirRules(t *testing.T) {
+	cases := map[string]struct {
+		text      string
+		light     *LightTest
+		evidence  string
+		isRefused bool
+	}{
+		"left out":                {text: `{"project":"p"}`},
+		"light alone":             {text: `{"project":"p","light_test":{"memory_mib":2048,"limit_minutes":15}}`, light: &LightTest{MemoryMiB: 2048, LimitMinutes: 15}},
+		"hosted CI with light":    {text: `{"project":"p","light_test":{"memory_mib":3072,"limit_minutes":20},"test_evidence":"hosted-ci"}`, light: &LightTest{MemoryMiB: 3072, LimitMinutes: 20}, evidence: HostedCIEvidence},
+		"hosted CI without light": {text: `{"project":"p","test_evidence":"hosted-ci"}`, isRefused: true},
+		"unknown evidence":        {text: `{"project":"p","light_test":{"memory_mib":1024,"limit_minutes":5},"test_evidence":"local"}`, isRefused: true},
+		"no memory":               {text: `{"project":"p","light_test":{"limit_minutes":5}}`, isRefused: true},
+		"no limit":                {text: `{"project":"p","light_test":{"memory_mib":1024}}`, isRefused: true},
+		"negative memory":         {text: `{"project":"p","light_test":{"memory_mib":-1,"limit_minutes":5}}`, isRefused: true},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			m, err := loadText(t, c.text)
+
+			// Assert
+			if (err != nil) != c.isRefused {
+				t.Fatalf("error = %v, want refused %v", err, c.isRefused)
+			}
+			if c.isRefused {
+				return
+			}
+			if (m.LightTest == nil) != (c.light == nil) || c.light != nil && *m.LightTest != *c.light || m.TestEvidence != c.evidence {
+				t.Fatalf("light_test = %+v, test_evidence = %q; want %+v and %q", m.LightTest, m.TestEvidence, c.light, c.evidence)
+			}
+		})
+	}
+}

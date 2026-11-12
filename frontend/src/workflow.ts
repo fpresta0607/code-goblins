@@ -215,6 +215,19 @@ export function inLineStatus(place: number): string {
   return place + suffix + " in line for the machine";
 }
 const GATE_STEPS: Record<string, string> = { review: "code review", lint: "lint", push: "push", test: "tests", ci: "CI", pr: "PR", document: "docs" };
+const TERMINAL_ACTIVITY: Record<string, string> = { busy: "Terminal active", active: "Terminal active", parked: "Terminal awaiting input", idle: "Terminal idle", stale: "Terminal evidence stale", unknown: "Terminal state unknown", unavailable: "Terminal unavailable", launching: "Terminal starting", ended: "Terminal ended" };
+
+// cardActivity is a task card's activity line: for a card the gate holds, its
+// terminal and its goblin's last report, and each gate run that waits on a
+// decision and holds no card, as one on a branch of its extra worktrees,
+// named by its branch and step (#1677).
+export function cardActivity(task: Task): string {
+  const terminal = task.runtime?.state ?? "";
+  const activity = task.gate_step && ["blocked", "review"].includes(task.phase)
+    ? [(TERMINAL_ACTIVITY[terminal] || (terminal ? "Terminal: " + terminal : "Terminal state unreported")), task.report && "Last report: " + task.report].filter(Boolean).join(" · ") : "";
+  const parked = (task.parked_runs ?? []).map((run) => "Gate on " + run.branch + " waits at " + (GATE_STEPS[run.step] || run.step));
+  return [activity, ...parked].filter(Boolean).join(" · ");
+}
 
 // A resume or stop that did not finish is the task's state until the next
 // one starts, whatever its goblin last reported, drawn as that action under

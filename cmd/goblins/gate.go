@@ -22,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/testguard"
 	"github.com/fpresta0607/code-goblins/internal/verify"
@@ -51,7 +52,7 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 	}
 	takesFlags := len(args) > 0 && (args[0] == "test" || args[0] == "lint" || args[0] == "prepush")
 	if len(args) == 0 || !slices.Contains([]string{"tests-kept", "prepare", "test", "lint", "prepush", "turns"}, args[0]) || (!takesFlags && len(args) != 1) {
-		fmt.Fprintln(stderr, "goblins gate: the checks are tests-kept, prepare, test [--level fast|affected|full | --focused] [--plan], lint [--plan], prepush [--plan] [--limit <duration>], turn [--as <name>] -- <program> [<argument>...] and turns [--json]")
+		fmt.Fprintln(stderr, "goblins gate: the checks are tests-kept, prepare, test [--level changed|fast|affected|full | --focused] [--plan], lint [--plan], prepush [--plan] [--limit <duration>], turn [--as <name>] [--light] -- <program> [<argument>...] and turns [--json]")
 		return 2
 	}
 	dir, err := os.Getwd()
@@ -142,7 +143,10 @@ func approvedHeads(ctx context.Context) ([]string, error) {
 // runs go vet and, for the test step, go test without the fleet's GOBLINS_HOME
 // and GOBLINS_STATE_OVERRIDE, which a gate step inherits from the goblin's pane,
 // and leaves a report only for the test step. With no --level or --focused,
-// test runs fast; lint vets at the required level. CI checks the level the
+// test runs fast, or changed when its environment says the project's hosted
+// CI is its test evidence (testEvidenceVariable), as goblins gate turn tells a
+// gate's Test step of such a project; lint vets at the required level. CI
+// checks the level the
 // change requires: the changed packages, the packages that
 // import them directly or transitively and the packages a contract of the
 // policy names for a changed file, or every package once a module file
@@ -160,14 +164,18 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 	isLint := kind == "lint"
 	flags := flag.NewFlagSet(label, flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	levelName := flags.String("level", "", "fast, affected or full; fast when not given, since CI runs every package")
+	levelName := flags.String("level", "", "changed, fast, affected or full; fast when not given, since CI runs every package, and changed for a project whose hosted CI is its test evidence")
 	planOnly := flags.Bool("plan", false, "print the plan and run nothing")
 	isFocused := flags.Bool("focused", false, "read repair tests and paths from NO_MISTAKES_TEST_FOCUS")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || *isFocused && *levelName != "" || isLint && (*isFocused || *levelName != "") {
-		fmt.Fprintln(stderr, "usage: goblins gate test [--level fast|affected|full | --focused] [--plan]; goblins gate lint [--plan]")
+		fmt.Fprintln(stderr, "usage: goblins gate test [--level changed|fast|affected|full | --focused] [--plan]; goblins gate lint [--plan]")
 		return 2
 	}
 	asked, defaulted := gatetest.Fast, true
+	isHostedCI := os.Getenv(testEvidenceVariable) == projectcfg.HostedCIEvidence
+	if isHostedCI {
+		asked = gatetest.Changed
+	}
 	if *levelName != "" {
 		level, err := gatetest.ParseLevel(*levelName)
 		if err != nil {
@@ -238,6 +246,9 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 			for _, named := range plan.Named {
 				fmt.Fprintln(stdout, "- "+named.What)
 			}
+		}
+		if isHostedCI && defaulted {
+			fmt.Fprintln(stdout, label+": the project's hosted CI is its test evidence, so this step runs the quick checks and the tests the change added or edited, and CI runs every test before the merge")
 		}
 		printGatePlan(stdout, plan, defaulted)
 	}
@@ -457,6 +468,11 @@ func runGateCommand(command []string, dir string, env []string, stdout, stderr i
 	return process.ProcessState.ExitCode(), err
 }
 
+// testEvidenceVariable is the variable goblins gate turn gives a gate's Test step
+// of a project whose record names its test evidence, as hosted-ci, which has
+// goblins gate test run the changed level when it is given no other.
+const testEvidenceVariable = "GOBLINS_TEST_EVIDENCE"
+
 // gateAgentLineLimit is the longest a run that a gate's agent started waits
 // in line. A gate ends an agent whose invocation ran past its budget, and
 // counts the agent's wait for a turn in it: on 2026-11-02 two review fixers
@@ -618,9 +634,10 @@ func gateBudget(level gatetest.Level) time.Duration {
 // each run that holds a turn, with how long it has and its budget, the runs
 // that wait, in the order they take their turns, each with why it stands
 // behind the one before it, and the machine's memory when it is under the
-// floor a run waits for. A gate shows a step's output only once
-// the step has ended, so this is where a run's wait can be read while it
-// lasts.
+// floor a run waits for. The light runs beside the slots follow the slots'
+// holders, each on a line of its own that says so, with its bound and its
+// memory. A gate shows a step's output only once the step has ended, so this
+// is where a run's wait can be read while it lasts.
 func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory, error)) int {
 	report, err := readTurns(available)
 	if err != nil {
@@ -629,7 +646,7 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 	}
 	now := time.Now()
 	switch {
-	case len(report.Holding) == 0 && len(report.Waiting) == 0:
+	case len(report.Holding) == 0 && len(report.Waiting) == 0 && len(report.Light) == 0:
 		fmt.Fprintln(stdout, "no run holds the turn and none waits")
 	case len(report.Holding) == 0 && report.StuckLock == nil:
 		fmt.Fprintln(stdout, "turn: free")
@@ -648,6 +665,12 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 			line += fmt.Sprintf(", using %.1f GB of the %.1f GB it is expected to use", verify.Gigabytes(run.UsedBytes), verify.Gigabytes(run.EstimateBytes))
 		}
 		fmt.Fprintln(stdout, line)
+		if run.Now != "" {
+			fmt.Fprintln(stdout, "  now: "+run.Now)
+		}
+	}
+	for _, run := range report.Light {
+		fmt.Fprintf(stdout, "light, beside the slots: %s (pid %d), for %s of its %s bound, using %.1f GB of the %.1f GB it is expected to use\n", run.Who, run.PID, now.Sub(run.Since).Round(time.Second), time.Duration(run.BudgetSeconds*float64(time.Second)), verify.Gigabytes(run.UsedBytes), verify.Gigabytes(run.EstimateBytes))
 		if run.Now != "" {
 			fmt.Fprintln(stdout, "  now: "+run.Now)
 		}
@@ -696,9 +719,10 @@ func runGateTurnsJSON(stdout, stderr io.Writer, available func() (supervisor.Mem
 
 // turnsReport is the machine's line as goblins gate turns --json gives it, a
 // shape whose keys stay as they are, for the board: each run that holds a
-// turn, each that waits in the order it takes its turn, and the machine's
-// memory against the floor the line's head waits for. Every key is always
-// there, and an empty line is empty lists.
+// turn, each that waits in the order it takes its turn, each light run that
+// holds a turn beside the slots, apart from both, and the machine's memory
+// against the floor the line's head waits for. Every key is always there, and
+// an empty line is empty lists.
 type turnsReport struct {
 	// Capacity is how many runs may hold a turn at once, and IsWeighed whether
 	// the line weighs each run's expected memory, which a line of two does.
@@ -706,6 +730,7 @@ type turnsReport struct {
 	IsWeighed bool        `json:"is_weighed"`
 	Holding   []turnsRun  `json:"holding"`
 	Waiting   []turnsRun  `json:"waiting"`
+	Light     []turnsRun  `json:"light"`
 	Memory    turnsMemory `json:"memory"`
 	// Hold says why the supervisor starts and resumes no goblin by itself,
 	// a new session leaving the line's next run short of its floor, and is
@@ -763,6 +788,8 @@ func readTurns(available func() (supervisor.Memory, error)) (turnsReport, error)
 	if err != nil {
 		return turnsReport{}, err
 	}
+	light := slices.DeleteFunc(slices.Clone(holding), func(run verify.Standing) bool { return !run.IsLight })
+	holding = slices.DeleteFunc(holding, func(run verify.Standing) bool { return run.IsLight })
 	var headEstimate uint64
 	if len(waiting) > 0 {
 		headEstimate = waiting[0].Estimate
@@ -788,6 +815,7 @@ func readTurns(available func() (supervisor.Memory, error)) (turnsReport, error)
 		IsWeighed: capacity == 2,
 		Holding:   turnsRuns(holding),
 		Waiting:   turnsRuns(waiting),
+		Light:     turnsRuns(light),
 		Memory: turnsMemory{
 			AvailableBytes:       memory.Available,
 			CommitAvailableBytes: memory.CommitAvailable,
@@ -814,8 +842,9 @@ func turnsRuns(standing []verify.Standing) []turnsRun {
 const unknownShown = 10
 
 // printGatePlan prints the level a plan runs and why, each package the
-// change reaches with why, each test run the level leaves to a broader one,
-// the changed files the policy puts outside the Go checks, under its reason
+// change reaches with why, at the changed level the tests it runs by name,
+// each test run the level leaves to a broader one, or to CI at the changed
+// level, the changed files the policy puts outside the Go checks, under its reason
 // for each, and the changed files it does not account for. defaulted says the
 // level is the one a run without --level takes.
 func printGatePlan(w io.Writer, plan gatetest.Plan, defaulted bool) {
@@ -845,11 +874,19 @@ func printGatePlan(w io.Writer, plan gatetest.Plan, defaulted bool) {
 	for _, guard := range plan.Guards {
 		fmt.Fprintln(w, "- "+guard.String())
 	}
-	if len(plan.Left) > 0 {
-		fmt.Fprintf(w, "left to the %s level:\n", plan.Required)
-		for _, left := range plan.Left {
-			fmt.Fprintln(w, "- "+left.String())
+	if plan.Level == gatetest.Changed {
+		for _, named := range plan.Named {
+			fmt.Fprintln(w, "- "+named.String())
 		}
+	}
+	switch {
+	case len(plan.Left) > 0 && plan.Level == gatetest.Changed:
+		fmt.Fprintln(w, "left to CI:")
+	case len(plan.Left) > 0:
+		fmt.Fprintf(w, "left to the %s level:\n", plan.Required)
+	}
+	for _, left := range plan.Left {
+		fmt.Fprintln(w, "- "+left.String())
 	}
 	if len(plan.Outside) > 0 {
 		fmt.Fprintln(w, "changed files outside the Go checks:")

@@ -3,6 +3,7 @@ package supervisor
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/verify"
@@ -86,7 +87,8 @@ func MachineHeavyLine(memory Memory) (string, error) {
 // reading memory: a turn free, runs waiting and memory and commit at the
 // floor of the run at its head, which should then take its turn, naming the
 // line's lock when a live process has held it long; "" when the line moves
-// or waits for memory or a turn.
+// or waits for memory or a turn. A light run beside the slots holds no turn
+// of the line's, so only the slots' holders are counted against it.
 func MachineLineStall(memory Memory) (string, error) {
 	dir, err := verify.AdmissionDir()
 	if err != nil {
@@ -97,6 +99,7 @@ func MachineLineStall(memory Memory) (string, error) {
 		return "", err
 	}
 	holding, waiting, err := verify.Line(dir)
+	holding = slices.DeleteFunc(holding, func(run verify.Standing) bool { return run.IsLight })
 	if err != nil || len(holding) >= capacity || len(waiting) == 0 {
 		return "", err
 	}

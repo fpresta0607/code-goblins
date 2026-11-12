@@ -76,7 +76,7 @@ func intentFixture(t *testing.T) (home.Home, string, *intentFileRunner) {
 
 func (runner *intentFileRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name == "no-mistakes" && slices.Equal(request.Args, []string{"help", "axi", "run"}) {
-		return execx.Result{Stdout: []byte(cmp.Or(runner.help, "      --intent-file string   read intent from this file\n"))}, nil
+		return execx.Result{Stdout: []byte(cmp.Or(runner.help, "      --intent-file string   read intent from this file\n      --no-publish-intent    keep the generated Intent section out of the PR body\n"))}, nil
 	}
 	if request.Name == "no-mistakes" && len(request.Args) > 1 && request.Args[0] == "axi" && request.Args[1] == "run" {
 		runner.started = append(runner.started, request)
@@ -171,6 +171,46 @@ func TestPipelineRunRefusesAnIntentGivenTwiceOrNotAtAll(t *testing.T) {
 				t.Errorf("no-mistakes started %d runs, want none", len(runner.started))
 			}
 		})
+	}
+}
+
+// publishingNoMistakes is a no-mistakes before 1.80.0: its help names neither
+// --no-publish-intent nor --intent-file, so a run it started would publish
+// the gate's intent in the pull request it opens.
+type publishingNoMistakes struct {
+	*pipelineStartRunner
+}
+
+func (runner publishingNoMistakes) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	if request.Name == "no-mistakes" && slices.Equal(request.Args, []string{"help", "axi", "run"}) {
+		return execx.Result{Stdout: []byte("Flags:\n      --intent string   what the user set out to accomplish\n")}, nil
+	}
+	return runner.pipelineStartRunner.Run(ctx, request)
+}
+
+// Issue 1866: goblins pipeline run on a no-mistakes that would publish the
+// gate's intent in its pull request starts no run, names the no-mistakes to
+// update to, and leaves no intent file behind.
+func TestPipelineRunOnANoMistakesThatWouldPublishItsIntentStartsNothing(t *testing.T) {
+	// Arrange
+	h, nm, fixture := intentFixture(t)
+	runner := publishingNoMistakes{fixture.pipelineStartRunner}
+	temp := t.TempDir()
+	t.Setenv("TMP", temp)
+	t.Setenv("TEMP", temp)
+
+	// Act
+	err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "no run starts") || !strings.Contains(err.Error(), "1.80.0") {
+		t.Fatalf("pipeline run returned %v, want a refusal naming the no-mistakes to update to", err)
+	}
+	if len(runner.native) != 0 {
+		t.Errorf("no-mistakes started %q, want no run", runner.native[0].Args)
+	}
+	if left, _ := filepath.Glob(filepath.Join(temp, "goblins-gate-intent-*")); len(left) != 0 {
+		t.Errorf("the refused start left intent files %q behind", left)
 	}
 }
 
@@ -476,7 +516,7 @@ func TestPipelineRunRefusesInvalidCIHandbackReattachment(t *testing.T) {
 // closing reference only from axi run --closes. A no-mistakes that takes no
 // --closes, or a value that is not an issue, starts no run.
 func TestPipelineRunHandsNoMistakesTheIssuesItsPullRequestCloses(t *testing.T) {
-	withCloses := "      --closes stringArray   issue this PR closes when merged\n      --intent-file string   read intent from this file\n"
+	withCloses := "      --closes stringArray   issue this PR closes when merged\n      --intent-file string   read intent from this file\n      --no-publish-intent    keep the generated Intent section out of the PR body\n"
 	for _, row := range []struct {
 		name   string
 		help   string

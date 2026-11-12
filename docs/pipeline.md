@@ -251,6 +251,11 @@ A short one may be given with `--intent <text>`.
 Either way `goblins pipeline run` hands it to no-mistakes in a file, never on a command line.
 An intent is prose, often several thousand characters that name a shell, and on 2026-10-02 Microsoft Defender detected one on a command line as `Trojan:Win32/ClickFix.DQ!MTB`, the lure that has a person paste such a line, and Windows refused the start.
 A no-mistakes before 1.86.0 has no `--intent-file`, so for such a build alone the intent stays on the command line, and the command says so.
+Every run starts with `--no-publish-intent`, so the intent, a task's private brief with its machine-local paths, ownership decisions and routing, never becomes the Intent section of the pull request the gate opens (issue 1866).
+no-mistakes keeps that on the run, so a later refresh of the body after CI leaves it out too, and every step but the pull request's drafting still reads the whole intent.
+no-mistakes never took a closing reference from the intent, so none is lost: its `## Issues` section comes only from `axi run --closes`.
+A no-mistakes before 1.80.0 has no such flag, so on it no run starts, and the command says to update it.
+A run started before this change, without the flag, keeps publishing its intent; reattaching to it passes no flag, since no-mistakes refuses one a running run was not started with.
 A response's `--instructions` still reach no-mistakes on its command line, which is the only way it takes them, so keep them short and plain.
 An approval `--reason` reaches it the same way, and the driver refuses one that is not a single line of plain text.
 
@@ -454,7 +459,8 @@ Newly spawned tasks freeze the version the home's `config/pipeline.json` holds.
 `goblins gate test` is this repository's test step (`commands.test` in `.no-mistakes.yaml`), and it plans before it runs.
 
 ```powershell
-goblins gate test                     # fast, the default
+goblins gate test                     # fast, the default, or changed for a project whose hosted CI is its test evidence
+goblins gate test --level changed     # vet as the change requires, and only the tests the change added or edited
 goblins gate test --level affected    # every package the change reaches, which CI's run also covers
 goblins gate test --level full        # every package
 goblins gate test --plan              # print the plan and run nothing
@@ -464,6 +470,7 @@ goblins gate lint                    # required vet scope, without running tests
 
 | Level | `go vet` | `go test` |
 | --- | --- | --- |
+| `changed` | the packages the change requires | the tests the change added or edited, each by name in its package, plus required policy guards |
 | `fast` | the packages the change reaches | the changed packages and the packages a contract selects, unless the policy lists them as slow, plus required policy guards |
 | `affected` | the packages the change reaches | the same packages |
 | `full` | every package | every package |
@@ -488,6 +495,12 @@ So CI is the check of the level a change requires, and nothing reaches main that
 With no `--level` the step runs `fast`, which is what the gate runs.
 Running the required level here as well ran the slowest packages twice, once on this machine and once in CI: from 2026-10-05 to 2026-10-07 every such local run took a median of 33 minutes, where CI tested every package in 11.
 A level asked for runs instead, such as `affected` to reproduce what CI found; a run at a level narrower than the change requires exits 0 when its checks pass, and its last line and its report name the level the change requires, which CI's run checks.
+
+`changed` is the level of a project whose hosted CI is its test evidence.
+It vets what the change requires, and runs only the test functions the change added or edited, read from the Go source at the merge base and at HEAD, each package's with `-run '^(TestA|TestB)$'`.
+A test whose function did not change, a test helper and `TestMain` are not run here, and its plan names each package whose tests it left with `left to CI:`, since CI runs every test before the merge.
+Nothing is skipped: what this level leaves, CI runs on the pull request and in the merge train, and the CI step stays the judge, with no approval by hand.
+
 Before a push, `goblins gate prepush` runs more than the fast level and picks the tests of a slow package itself, so nobody runs tests by a name they guessed ([Before a push](#before-a-push)).
 
 The plan reads the checkout before anything runs, which is `go list` opening every Go file one after another.
@@ -561,6 +574,23 @@ A log with no report belongs to a run still going and stays, until nothing has w
 A run that cannot write its report says so and keeps its verdict: the checks decide the exit code, never the store.
 A report is written whole or not at all, and the board reads them: a live task's card shows the newest run of its change, as [docs/native-board.md](native-board.md) describes.
 
+### A project whose hosted CI is its test evidence
+
+A project's machine-local `project.json` can declare its gate Test light and its hosted CI its test evidence:
+
+```json
+{
+  "light_test": {"memory_mib": 1024, "limit_minutes": 15},
+  "test_evidence": "hosted-ci"
+}
+```
+
+`light_test` is the most memory the Test step is expected to use and the bound it is ended at, both over zero.
+`test_evidence` is empty or `hosted-ci`, and `hosted-ci` needs `light_test`, since a Test step that leaves the tests to CI is one that runs light.
+A gate's Test step of such a project, which its wrapper's `--gate-run` names, takes a light turn, as [Light runs beside the line](#light-runs-beside-the-line) says, and its command is given `GOBLINS_TEST_EVIDENCE=hosted-ci`, under which `goblins gate test` with no `--level` runs `changed`.
+A project without the record, or with neither field, keeps its local-first testing, unchanged.
+A record changes only after a build that reads it is installed, and the record of this repository is the machine-local one, not `.no-mistakes.yaml`.
+
 ### Taking turns
 
 Every `go vet` and `go test` command waits for a turn at every level: the shared capacity limits concurrent commands, every goblin's and every gate's alike, in the order below.
@@ -609,6 +639,17 @@ A run's expected memory is what `goblins gate turn --memory` declares, or 2.5 Gi
 A run behind the head never passes it, however well a smaller run would fit.
 An unavailable reading or an hour of floor waiting refuses admission and starts no command.
 
+#### Light runs beside the line
+
+A light run takes a turn of its own beside the slots, however many runs hold them or wait for them, once free physical memory and free commit cover its floor.
+Its floor is what each run holding a slot and each light run beside it may still use, its expected memory less what it commits now, then its own expected memory and the desktop reserve.
+A heavy run still grows toward its expected memory, so a light run admitted on memory a heavy run is about to use would have that run ended at the desktop reserve.
+It is admitted by free memory, never by a count, so any number of light runs go beside the slots while memory covers them.
+A light run names its expected memory and its bound, as `goblins gate turn --light --memory 1GiB --execution-limit 15m` does, or takes no turn.
+At its bound it is ended with everything it started, and exits 124 with a last line that says the light run outlived its bound.
+At capacity two the head of the line weighs what each light run may still use, as it weighs each slot's holder.
+A run started inside a light turn, as `goblins gate test` under its wrapper is, runs inside that turn.
+
 While it waits, a run says which run holds the turn, for how long and under what budget, and where it stands in line, as it starts to wait, whenever its place in line changes and once a minute:
 
 ```text
@@ -625,7 +666,8 @@ On 2026-10-14 a run that had waited an hour and fourteen minutes reached the hea
 A gate shows a step's output only once the step has ended, so `goblins gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they take their turns, a low-priority run marked, each after the first with why it stands behind the one before it, as `behind run 1: a gate's Test step goes ahead of a goblin's own turn` or `behind run 2: it asked first`, and the memory when the machine is short of it.
 At capacity two it also shows what each run is expected to use and what each holder uses now.
 When memory and commit, less the about 1 GB a new goblin's session takes, are short of the floor for the line's next run, its last line says the supervisor starts and resumes no goblin by itself, keeping the test slots open, as the scheduler's own line says ([The fleet never idles](contract/dispatch.md#the-fleet-never-idles)).
-`goblins gate turns --json` gives the same, less why a run stands behind another, as one JSON object, for the board to read, whose keys stay as they are and are always there, an empty line being empty lists: `capacity`, `is_weighed`, `holding` and `waiting`, each run with `who`, `pid`, `since`, `budget_seconds`, `now`, `estimate_bytes`, `used_bytes` and `is_low_priority`, `memory` with `available_bytes`, `commit_available_bytes`, `floor_bytes` and `is_short`, and `hold`, which says why no goblin starts or resumes by itself and is empty when one may.
+`goblins gate turns` shows each light run apart from the slots' holders, as `light, beside the slots:`, with its bound and the memory it uses of what it is expected to use.
+`goblins gate turns --json` gives the same, less why a run stands behind another, as one JSON object, for the board to read, whose keys stay as they are and are always there, an empty line being empty lists: `capacity`, `is_weighed`, `holding`, `light` and `waiting`, each run with `who`, `pid`, `since`, `budget_seconds`, `now`, `estimate_bytes`, `used_bytes` and `is_low_priority`, `memory` with `available_bytes`, `commit_available_bytes`, `floor_bytes` and `is_short`, and `hold`, which says why no goblin starts or resumes by itself and is empty when one may.
 Under a run that holds a turn, `goblins gate turns` prints what the run says it is doing, which the run renews every five seconds while its tests run: how many packages are done, which tests are running and for how long, and the last line of its output.
 A new gate run names the task registered for its source worktree, including the owner of an extra worktree, in its turn and report.
 Its turn names the task's goblin with it, as `Zora (cg-example)`, when the task's record names one, and its report keeps the id.
@@ -656,7 +698,7 @@ A store failure prevents commands from starting.
 `goblins gate test`, `goblins gate prepush` and `goblins gate turn` wait through the same admission code in the same store, so a run of any of them waits for a run of the others.
 
 ```text
-goblins gate turn [--as <name>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]
+goblins gate turn [--as <name>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--light] [--detach <log-file>] -- <program> [<argument>...]
 ```
 
 Everything before `--` is `goblins`'s, and everything after it is the command's, its own flags and a `--` of its own included.
@@ -674,6 +716,7 @@ A cleanup that cannot be confirmed keeps its custody and reports uncertainty; la
 `--low-priority` has the run wait at the lowest priority: it takes its turn only while no ordinary run waits, and an ordinary run that joins the line after it still goes first, unless the low-priority run is already taking its turn or has waited the line's two hours, as the desktop's CI jobs wait, and `goblins gate turns` marks it.
 `--memory <size>`, as `--memory 7GiB` or `--memory 512MiB`, is the most memory the run is expected to use, which a line of two slots weighs before it starts the run beside another, as [Taking turns](#taking-turns) says.
 Without it a run is expected to use 2.5 GiB.
+`--light` has the run take a light turn beside the slots, which needs `--memory` and `--execution-limit`, as [Light runs beside the line](#light-runs-beside-the-line) says.
 A caller such as a gate knows its repository, branch and run, which the command and the folder do not say, so it should give them: `--as "PrecisionDocs feat/x, run 01M4FG7F"`.
 A run is named `<name>: <command>` with `--as` and `<command> in <folder>` without it.
 `goblins` adds `, task <Goblin> (<id>)` when the run is a fleet task's: a goblin's own run by its terminal, and a gate's run by the task registered for the run's source worktree, as for `goblins gate test`.

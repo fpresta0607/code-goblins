@@ -45,7 +45,7 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { TrainPanel } from "./train-panel";
 import { SMALL_SCREEN } from "./small-screen";
 import { useVisualViewport } from "./use-visual-viewport";
-import { MessagesView } from "./messages-view";
+import { MessagesView, QUIET_CHAT } from "./messages-view";
 import { Composer } from "./composer";
 import { useTerminalLink } from "./terminal-link";
 import { ceoEngine, liveCeoSession } from "./workflow";
@@ -57,6 +57,7 @@ import { RowOpener } from "./row-opener";
 import { AfkOnDialog } from "./afk-on-dialog";
 import { LinkFallback } from "./link-fallback";
 import { useAfkToggle } from "./useAfkToggle";
+import { useBoardAddress } from "./use-board-address";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = boardPage(() => import("./TerminalDeck").then((module) => module.TerminalDeck), "terminals");
@@ -136,6 +137,9 @@ export function App() {
   // The session whose Messages view, or the box it holds, was last shown,
   // which stays mounted. A Classic terminal that shows neither loads none.
   const [messagesOpened, setMessagesOpened] = useState("");
+  // What keeps the shown Messages view's conversation from being the
+  // session's own now, which the panel's header says (#2438).
+  const [chatState, setChatState] = useState(QUIET_CHAT);
   const [messagePages] = useState(() => new Map<string, MessagePage>());
   const [switchFocus, setSwitchFocus] = useState(0);
   // A count each hand of the keyboard to a Messages view's box adds to.
@@ -240,6 +244,7 @@ export function App() {
     requestAnimationFrame(() => pane.current?.focus({ preventScroll: true }));
   };
   useEffect(() => { latestSelect.current = select; });
+  useBoardAddress(snapshot, (id) => latestSelect.current({ task: id }, pane.current || document.body), (key) => setCommandFocus({ key, at: Date.now() }));
   // keyboardTo hands the keyboard to the session of key: the box under its
   // messages, or its terminal, where the board does not read it as messages
   // or its terminal stepped in.
@@ -621,7 +626,7 @@ export function App() {
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "ceo") + ":" + (task?.generation || "") + ":" + (child?.id || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} snapshot={snapshot} connected={connected} reviews={reviews}
             view={shownView} views={views} onView={setPanelView} shouldFocusScreen={!!screenAsked} maximized={panelWide} side={side} isBoardShown={view === "Board" && !panelWide && !fillsPhone} now={now} presentations={presentations} cardStart={cardStart} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
-            onOpenTask={openTask} onConnectors={openConnectors} styleChoice={styleChoice} />)}
+            onOpenTask={openTask} onConnectors={openConnectors} styleChoice={styleChoice} chatState={chatState} />)}
         {/* The stage, the Messages view and the terminal deck in one box,
             beside the column the panel's task list is drawn into. */}
         <div className="panel-body" hidden={!terminalShown && !messagesShown}>
@@ -632,7 +637,7 @@ export function App() {
             isCompacting={isCompacting} sent={panelSent} pending={panelPending}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock} onAskSlot={setAskSlot}
-            onOpenCommand={(key) => setCommandFocus({ key, at: Date.now() })}
+            onOpenCommand={(key) => setCommandFocus({ key, at: Date.now() })} onState={setChatState}
             box={(model, history, effort, usage, onSend, isTurnRunning) => createPortal(<Composer isWorking={isTurnRunning} isCompacting={isCompacting} history={history} usage={usage} onSend={onSend} snapshot={snapshot} task={ceoShown ? undefined : task} name={ceoShown || !task ? "CEO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} askSlot={askSlot} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
               focus={boxOnScreen ? boxFocus : 0} />, composerTarget)} /></RowOpener>}
           {snapshot && showsPanel && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>

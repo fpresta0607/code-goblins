@@ -510,6 +510,10 @@ A delivered goblin is at work again only on a prompt taken after its latest done
 A question or a failure a goblin reported is its state until the goblin takes a prompt after it, as an answer that reached it, a steer or an instruction an Enter submitted, and a failure also while its terminal shows its harness at work since.
 An answer on record or an acknowledgement resumes nothing, since an answer can be to stay held, and a hold its own turn is still finishing stays a hold; the line stays in the goblin's history.
 A gate run that finished, passed, failed, cancelled or interrupted, holds no step and asks for no decision, so it supplies no current In review gate or Waiting status; the card still shows work or an independent wait reported by the goblin.
+A gate run on the task's own branch that waits on a decision holds the card at Blocked, under that run's own pull request or none, only while the goblin has reported nothing since the run parked.
+One that parked before the goblin's newest standing report leaves the card to that report: the task's snapshot entry carries it in `parked_runs`, and the CEO is woken once for it with a `parked_run` check wake naming the task, branch, run, step and when it parked, and how to act on it.
+A run waiting on a decision on the branch of one of the task's extra worktrees never sets the task's phase either: it is an entry of `parked_runs` too.
+Each entry names its `branch`, `run_id`, `step`, `parked_at`, when the step last moved, and its run's own `pr`, never the task's, and the card names each by its branch and step on its activity line.
 A native session of an earlier generation, such as the Pi session of a goblin since switched to a harness whose hooks are not installed, is no evidence of the current one, and the card reads the goblin's gate and terminal instead.
 Goblins whose standing waits on one another close a circle each read Waiting, with the reason naming the goblin whose wait comes back to it and saying neither can go on as reported, and the CEO is woken once for each circle with a `wait_cycle` notify naming every goblin in it; a newer report of any of them is a new circle.
 A goblin that waits on the Overlord shows Waiting on you while its wait, or a question of its, is an item under Waiting on you in his Command Center, as that list's heading reads, and Waiting on the CEO otherwise, since the CEO carries every other question to him.
@@ -545,6 +549,7 @@ The turn-on question focuses Cancel, and a switch that cannot be read shows off,
 The [README](https://github.com/fpresta0607/code-goblins/blob/main/README.md#afk-mode) describes the switch's loading and refusal displays; a refusal is drawn under the switch, over the board, so it neither widens the bar nor moves the board down.
 The name wraps at the edge of its own part of the panel's row, which never narrows past the session's picture, so it is never drawn under the Chat and Task switch.
 While AFK mode is off and his page of the last stretch is in his Command Center, **Open your last AFK report** in the CEO's Task view opens that page again, from the snapshot's `afk.page`.
+It has as much room under it, before Workspace's rule, as over it, under the header's, and with no report to open the details over Workspace take no room (#2438).
 The status at the top of the panel's Task view is the one place the panel says the task's state (`frontend/src/task-words.ts` translates what the fleet wrote, at display time, and changes no record).
 A resume or stop whose lifecycle record failed reads Resume failed or Stop failed, whatever the goblin's own last report says, on its card, node and panel alike.
 A failed resume whose goblin then reports from the session the resume started, working, waiting, asking or done, took its instruction after all: the supervisor's next reading finishes its record as running, under the task's lifecycle lock, so the card reads what the goblin reports.
@@ -562,6 +567,7 @@ The panel's controls are Open in Windows Terminal and Maximize, each a 44 px ico
 The supervisor's panel and every label the board writes for that role name it CEO (#2222); the `goblins` executable, its commands and its environment names keep theirs, and words the supervisor or the server wrote, such as a push notification or a run's reason, are shown as they came.
 The Chat and Task switch's icons are 44 px targets too, and Chat is the message bubble, as Modern chat is in the style menu (the Overlord, 2026-11-04: "I'd rather you have them be the message icon that we had before").
 The name wraps whole onto more lines in a taller header when the row is narrow, never cut, at a phone's width and the desktop's (2026-11-04), and the Task view's details open with the goblin's whole name and task id, then its harness with the model and effort it runs, so none of them needs a tip.
+The CEO's Task view names no harness there, since its Harness section does (the Overlord, 2026-11-12: "we don't need the Claude code . Fable 5.2", #2438).
 Everything else the header used to hold is in those details at the top of the Task view: the goblin's status and the one sentence under it, its project and people, and its buttons, which wrap onto rows of their own when they do not fit.
 The task list holds the workspace, harness, changes, activity and commit history, each a section closed until it is opened, and one Connectors line that opens the Connectors page, beside the goblin's messages or its live native terminal.
 Its header details keep the link to a goblin this one waits on, both beside the conversation and in the Task fold.
@@ -689,6 +695,12 @@ On the canvas, a goblin whose task names no session of its own says so beside it
 The CEO's card has its weekly allowance dials and the OpenRouter key's spend and the button that opens it, as the board's CEO bar has, with the brand inside each dial, and keeps its harness mark, which the bar does not wear.
 On the canvas its dials wrap with gaps, and below 70% zoom a card with multiple dials hides the subscription percentages and key-spend budget labels, keeping the rings and dollar amount (`frontend/tests/orchestration-card-text.spec.ts`).
 Every card on the canvas, a baby goblin's included, holds all it says inside its border at any length, since each part keeps to its own lines and ends in an ellipsis past them (`frontend/tests/orchestration-card-text.spec.ts`).
+A goblin's card there holds its rows as one group in the middle of the size the canvas gives every card: its name, status, project and clock start at one left edge beside its portrait with no more than a line's gap between them, and its marks end the clock's row (`frontend/tests/orchestration-card-rows.spec.ts`).
+A baby goblin's card there is the same shape at its smaller size, its head beside its rows, with its name on up to three lines, what it runs on up to two and its state whole on one line, even the longest, Unknown just started.
+The lineage list puts the clock at that same edge in a card no wider than 360px, while a narrow column of the board keeps it at the card's edge, where a numbered card's marks leave it room.
+A wider card in the lineage list keeps the board's one-row card, with the clock at its top right corner.
+A card there no wider than 360px keeps its marks on the clock's row while the widest of them has room beside the clock and gives them the row under it when it has none, so Browser active, the one mark no line can break, is never drawn over the clock.
+Marks too many to fit beside the clock take a second line, and the clock stays right under the project (`frontend/tests/orchestration-card-rows.spec.ts`).
 Dragging a card or using Alt plus an arrow key changes only its saved browser position; connectors retain their reported parent identity.
 The tree fits and centers itself in the visible canvas, scaled up to fill it but never past 125% and down as far as 10%, so the whole of any tree shows, and refits whenever the panel opens or closes, the window resizes, a goblin appears or leaves, or a dragged card is dropped.
 The canvas moves and zooms like a map instead of scrolling: dragging it, from empty space, a line or a baby goblin, moves the view, and the wheel or a trackpad pinch zooms between 10% and 150% about the point under the pointer; the plus and minus buttons and keys zoom about the middle.
@@ -1498,15 +1510,18 @@ A stream that has sent nothing for five seconds sends an `alive` event, so the v
 A `session` event says what the fleet's stream says of the session: its newest turn, whether that turn runs, ended or was never reported by its harness, why not when it was never reported, the stream's head, and why the conversation the board reads is not the one the session writes, or why the board cannot write or read the stream.
 The view draws a turn's working indicator from that event alone, never from a snapshot of the session's terminal, so a finished turn never draws one at any snapshot timing.
 It reads that word against the conversation it draws, never against a copy kept from when he left the end, so a turn that ends while he reads up loses its indicator there too.
-A view that draws less than the session holds says it is behind: one that holds back what its stream sent while he reads up, and one whose stream's head names a newer message or a newer conversation, as `/clear` begins.
+A view that draws less than the session holds is behind: one that holds back what its stream sent while he reads up, and one whose stream's head names a newer message or a newer conversation, as `/clear` begins.
 Behind is a state of its own that is neither disconnected nor ended, it draws no indicator and no turn's end for what it has not drawn, Jump to latest catches up to every message it held back without a reload, and no timer infers it from elapsed time.
+Nothing says it over the conversation, since Jump to latest shows wherever he reads up (the Overlord, 2026-11-12: "I hate all these alerts remove them!!", #2438).
 A view that follows the end draws what its stream sends as it arrives, so it is behind only while its stream's head is past what the stream sent it.
 While its stream reconnects, the view keeps the turn's last word, so it claims no turn end and no Send the stream never said, and it draws the working indicator only while its stream is live and connected, as the turn may end meanwhile.
 A closed stream draws nothing it last said of the turn until a new stream speaks.
 The box under the conversation reads its Stop from the same event, so a turn that ended leaves a Send, never a Stop, whatever a snapshot still says of the session (#2292).
 On 2026-10-29 the Overlord's view of the CEO showed a call Running at least 76 seconds after it ended, with no word that it was stale.
 A stream that drops or ends is opened again, which begins with the newest page, and says Reconnecting until it does.
-Its corner shows one of those notices at a time, the most pressing first: Reconnecting, then why the conversation it draws is stale or why its stream cannot be kept, then Behind.
+Nothing is drawn over the top of the conversation, at a phone's width or the desktop's, in the CEO's panel or a goblin's (#2438).
+While it reconnects, a quiet amber dot on the picture in the panel's header says so, where a messenger marks presence, and takes no room, so nothing moves (2026-10-28).
+Why the conversation it draws is stale, or why its stream cannot be kept, is a quiet line of its own under the header's row, and stays while it reconnects.
 A stream also ends after ten minutes, as a baby goblin's does, and at most 32 stream at once, a limit of their own.
 With `picture=ID` it answers a picture a message holds, read back from its entry by the id a read of the messages gave it, never by a path or an offset the browser names; a Claude Code picture's id names where it is in its conversation, so a read of the tail and a read of the whole name it alike, and it is answered only when a read found a picture there.
 It must come with the page's `conversation`, and is refused with 400 without one; a picture of a conversation the session no longer has, or whose file changed while it was read, is answered with 404 as one no read found.
@@ -1620,6 +1635,7 @@ A Markdown link to an address reads as its words, an address in a code block or 
 The sentence a panel says under a goblin's status links the words it says each of the report's addresses by, such as PR #12.
 A goblin's terminal, the CEO's and a baby goblin's draw each http or https address as a link that a click or a tap opens in a new tab, one that wraps onto the next row included.
 A link a program prints with words of its own, an OSC 8 hyperlink, opens its http or https address the same way, as a Markdown link's words do in chat; nothing else in a terminal opens.
+One of the board's own [addresses](#board-addresses), in a message or a terminal, opens its place in the board itself instead of a new tab, with no reload (#2363).
 A card shows its first sixteen lines and scrolls a long line sideways inside itself; Expand opens it whole, every line wrapped.
 A PowerShell block in a finished reply's own words also has Run beside Copy, at its size (#2051): one fenced `powershell`, `pwsh` or `ps1`, or an untagged one whose first word, after an optional `! ` that Run drops, is `powershell` or `pwsh`.
 Run never shows on another language, on a tool's output, on his pasted or quoted words, on a hook's note or on the reply still being written, and nothing runs on render, hover or Copy.
@@ -1665,7 +1681,7 @@ A call that started a sub-agent is its baby goblin's row, named as the canvas na
 A compaction is folded to its summary, an interrupt is a plain Interrupted row, and a background task's notice is a quiet line.
 Each prompt he sent keeps a small row under it with Copy, which copies its words as written, and when it was sent; the row stays hidden until he taps the message or points at it where there is a pointer, and closes when he taps away.
 Nothing else shows under his message: no receipt of when it was sent or replied to (the Overlord, 2026-10-29: "We don't need the sent just now if we already have the hover where it shows a timestamp and copy").
-A selection he settles in the conversation, released with a mouse or a touch or ended from the keyboard, copies itself and says Copied quietly; a selection he clears copies nothing.
+A selection he settles in the conversation, released with a mouse or a touch or ended from the keyboard, copies itself and says Copied quietly right under where the selection ends, as a button says it on itself (#2438), and a selection he clears copies nothing.
 Each text of a reply has a Copy of its own, shown with no pointer over it and on a phone, which copies that text's whole Markdown source as written, while the turn runs too (#2048).
 Only the reply that ends a turn, the last before his next message or an interrupt, shows when it arrived, once the turn has ended, with its last text's Copy between that time and the harness's mark, so a turn of many replies and tool rows prints its time once (`turnEnds` in `frontend/src/session-messages.ts`); a message the harness queued into its turn goes on with that turn.
 A notice and a compaction keep Copy too, which copies the notice's whole text, but for the Stop hook feedback note, whose own words are only its label, and every message's text can be selected.
@@ -1922,12 +1938,23 @@ While an installed board is open, its icon carries the same count as the title w
 In his phone's Home Screen app, opened from the private board, the Remote access section has an **App badge** switch where the browser pushes (CEO decision 1008918); the board on the PC has none, since the desktop window and the page tell what waits there.
 Turning it on asks for notifications in the app's own words, the system's prompt naming Code Goblins, and only then: the phone app never shows the board's ask for Windows notifications, and claims no alert from the board on the PC.
 It subscribes the app to the supervisor's pushes, and the app tells the supervisor of its subscription again each time it opens, subscribing again if the board's key changed, and ending the badge if he turned its notifications off in Settings.
-The supervisor then pushes each item newly waiting on the Overlord, in the words the desktop window notifies it, with how many wait, so the icon's count rises and the item shows as a notification while the app is closed; tapping it brings the app up.
+The supervisor then pushes each item newly waiting on the Overlord, in the words the desktop window notifies it, with how many wait, so the icon's count rises and the item shows as a notification while the app is closed; tapping it brings the app up at that item: an app already open is told the item's [board address](#board-addresses) and opens it in place, so what he was typing stays, and otherwise the app opens at that address (#2363).
 A count that falls is corrected when the app opens, never by a push, since iOS changes a badge only with a notification (CEO decision 1008953).
 It pushes nothing else, nothing under AFK mode, nothing for what already waited when the badge turned on, and nothing for a goblin's question the CEO left, which counts but, as on the page, never alerts.
 The pushes go through the browser's own push service (Apple's for an iPhone), encrypted so only the app reads them (RFC 8291), padded to one size, and signed with the board's VAPID key (RFC 8292), which `push.json` in the state folder keeps, readable by its owner alone, with each subscribed app; the supervisor sends only to Apple's, Google's, Mozilla's or Microsoft's push service, and forgets an app its service dropped.
 Turning the switch off unsubscribes the app, and turning remote access off forgets every app at once, as for a phone he lost.
 The PNG icons under `/assets/icons/` are rendered from `/favicon.svg`, the smaller Home Screen icons from the 180 px one; render them again whenever the mark changes.
+
+### Board addresses
+
+A board address opens one place on the board (#2363, approved 2026-11-11 from the study closed as #2359): `/?task=<task id>` opens that goblin's panel, and `/?item=<key>` opens one Command Center item by the key the board and its pushes give it, such as `question:<id>` or `review:<id>` (`frontend/src/board-address.ts`).
+It is the board's own origin and root with that one parameter and no other, so any other address, another parameter beside it included, is not a board address.
+The board opens only a goblin its snapshot holds, at work or finished, or an item that waits on him, and only opens it: nothing it names is answered, started or stopped.
+Any other address opens nothing and says nothing, as the board keeps its words about trouble to the few the Overlord approved.
+The page reads its own address as it loads, once its first snapshot comes, and then puts its address back to plain `/`, so a reload opens nothing again (`frontend/src/use-board-address.ts`).
+A board address in a message, in a goblin's or the CEO's terminal, or in a tapped push opens its place in the page already open, with no reload and no new tab, so what he was typing stays: in a browser, in the desktop window, which hands such a link to no browser, and in his phone's app.
+A link in a Scrawl page or anywhere off the board opens a board at the address, which opens the place as it loads.
+No protocol handler is registered.
 
 ### The desktop window
 
