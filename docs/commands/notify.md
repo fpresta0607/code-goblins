@@ -26,6 +26,8 @@ It records `done: report <path>` with the full path of that kept report, which c
 The board, a restart, the wake for its gone terminal and the AFK report read that line as a delivery too, as they read a closed issue's.
 A different report the home already keeps for the task is never replaced: the notify is refused, and the goblin names that report or writes its own there.
 `--report` beside `--pr`, `--closed` or `--decision`, from a helper, whose done needs none, and from a task spawned no-mistakes or direct-PR, which reports its pull request, is refused before anything is recorded, and so is a report that is missing, empty or not a file.
+A refused notify keeps no report, so the home keeps one only beside its done line.
+The same report reported again wakes nobody, as the same closed issue does; a report with different content wakes the CEO again.
 The first instruction of a task spawned local-only names this done and asks for no pipeline run and no pull request.
 A done report may carry up to three lessons the next goblin in its repository should know, each a `--lesson "<one plain line>"` followed by a `--cites` for every status line of the task it stands on, given as that line's stamp or as words the line holds, the latest such line counting.
 A fourth lesson, a lesson that spans lines, holds a control character or cites nothing, a cite no status line of the task matches, a `--cites` before any `--lesson` and a lesson on any report but a done are refused before anything is recorded.

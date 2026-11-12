@@ -54,7 +54,7 @@ func TestALocalOnlyTaskReadsDoneWithTheReportItKept(t *testing.T) {
 				got := snapshotTask(t, &Service{Store: store}, meta.ID)
 
 				// Assert
-				if got.Phase != "done" || got.Reason != "report "+path || got.Report != "done" {
+				if got.Phase != "done" || got.Reason != "report "+path || got.Report != "done" || got.KeptReport != path {
 					t.Fatalf("task = %+v, want it done with the report it kept", got)
 				}
 				if got.Verified || got.PR != "" || got.WaitingOn != "" || got.ClosedIssue != "" {

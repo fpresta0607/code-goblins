@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
@@ -441,7 +442,7 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	if switched, err := afk.Read(h.State); page != "" && err == nil && switched.On {
 		verb, detail = "blocked", detail+supervisor.PageOptions(page)
 	}
-	parent := ""
+	parent, reportToKeep := "", ""
 	meta, metaErr := state.ReadTaskMeta(h.State, id)
 	if metaErr == nil {
 		parent = meta.Parent
@@ -484,14 +485,7 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 				fmt.Fprintf(stderr, "goblins notify: the report the home keeps for %s cannot be read: %v\n", id, err)
 				return 1
 			case err != nil:
-				if err := os.MkdirAll(filepath.Dir(kept), 0o700); err != nil {
-					fmt.Fprintf(stderr, "goblins notify: keep your report: %v\n", err)
-					return 1
-				}
-				if err := fsx.AtomicWriteFile(kept, reportContent); err != nil {
-					fmt.Fprintf(stderr, "goblins notify: keep your report: %v\n", err)
-					return 1
-				}
+				reportToKeep = kept
 			}
 		}
 		detail = "report " + kept
@@ -593,6 +587,18 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		}
 		defer fmt.Fprintf(stdout, "Your lessons wait for the CEO's word at the drain as %s.\n", strings.Join(ids, ", "))
 	}
+	// The report is kept once nothing can refuse the notify, so a refused
+	// one leaves the home keeping nothing a later report must match.
+	if reportToKeep != "" {
+		if err := os.MkdirAll(filepath.Dir(reportToKeep), 0o700); err != nil {
+			fmt.Fprintf(stderr, "goblins notify: keep your report: %v\n", err)
+			return 1
+		}
+		if err := fsx.AtomicWriteFile(reportToKeep, reportContent); err != nil {
+			fmt.Fprintf(stderr, "goblins notify: keep your report: %v\n", err)
+			return 1
+		}
+	}
 	if err := state.AppendStatus(h.State, id, line); err != nil {
 		fmt.Fprintln(stderr, "goblins notify: record status: "+err.Error())
 		return 1
@@ -635,6 +641,8 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		record, isNew, err = wake.AppendFirst(h.State, "done/"+id+"/"+prLink+"@"+head, "notify", id, line)
 	case *closed != "":
 		record, isNew, err = wake.AppendFirst(h.State, "done/"+id+"/"+*closed, "notify", id, line)
+	case *report != "":
+		record, isNew, err = wake.AppendFirst(h.State, fmt.Sprintf("done/%s/report@%x", id, sha256.Sum256(reportContent)), "notify", id, line)
 	case verb == "blocked" || verb == "failed":
 		record, isNew, err = wake.AppendDecision(h.State, id, line)
 	default:
@@ -646,6 +654,10 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	}
 	if !isNew && *closed != "" {
 		fmt.Fprintf(stdout, "%s already reported %s closed, so the CEO was not woken again\n", id, *closed)
+		return 0
+	}
+	if !isNew && *report != "" {
+		fmt.Fprintf(stdout, "%s already reported this report done, so the CEO was not woken again\n", id)
 		return 0
 	}
 	if !isNew && verb == "done" {

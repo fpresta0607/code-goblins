@@ -1945,6 +1945,42 @@ func TestAClosedIssueReportedDoneTwiceWakesTheCEOOnce(t *testing.T) {
 	}
 }
 
+func TestALocalOnlyReportReportedDoneTwiceWakesTheCEOOnce(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		edit      []byte
+		wantWakes int
+	}{
+		{"the same report", nil, 1},
+		{"a report it rewrote", []byte("Twenty strays, each proven safe to clear."), 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h, runtime, report := reportingGoblin(t, "local-only")
+			kept := filepath.Join(h.Data, "g1", "report.md")
+			var first, stderr bytes.Buffer
+			if exit := runNotify([]string{"g1", "--done", "--report", report}, &first, &stderr, runtime); exit != 0 {
+				t.Fatalf("exit = %d, stderr = %s", exit, stderr.String())
+			}
+			if test.edit != nil {
+				plantFile(t, kept, test.edit)
+			}
+			var again bytes.Buffer
+
+			// Act
+			exit := runNotify([]string{"g1", "--done", "--report", kept}, &again, &stderr, runtime)
+
+			// Assert
+			if exit != 0 || strings.Contains(again.String(), "not woken again") != (test.wantWakes == 1) {
+				t.Errorf("exit = %d, stdout = %q; want the goblin told whether the CEO was woken again", exit, again.String())
+			}
+			if records, err := wake.Pending(h.State); err != nil || len(records) != test.wantWakes {
+				t.Errorf("wake records = %+v, %v; want %d wakes", records, err, test.wantWakes)
+			}
+		})
+	}
+}
+
 // reportingGoblin is the home of goblin g1, a top-level task spawned in mode,
 // and of its local-only helper g1-h1, with g1's report written in a folder of
 // its own.
@@ -2053,6 +2089,9 @@ func TestALocalOnlyDoneReportIsRefusedOffItsRoute(t *testing.T) {
 		{name: "a different report the home keeps", mode: "local-only", args: func(report string) []string { return []string{"g1", "--done", "--report", report} }, arrange: func(t *testing.T, h home.Home, _ string) {
 			plantFile(t, filepath.Join(h.Data, "g1", "report.md"), []byte("An earlier report."))
 		}, want: "different report"},
+		{name: "a lesson that cites nothing", mode: "local-only", args: func(report string) []string {
+			return []string{"g1", "--done", "--report", report, "--lesson", "Clear strays by pid.", "--cites", "lighthouse"}
+		}, want: "lighthouse"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
