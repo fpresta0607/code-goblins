@@ -48,7 +48,7 @@ func (h *HTTP) repairActionsSpend(w http.ResponseWriter, r *http.Request) {
 			apiError(w, http.StatusConflict, "The billing reading has no problem to retry. Refresh the panel.")
 			return
 		}
-		if github := h.Service.Options.GitHub; problem.Kind == "authentication" && problem.Credential == "gh" && github != nil && github.CredentialSource() == "gh" {
+		if github := h.Service.Options.GitHub; problem.Kind == "authentication" && github != nil {
 			github.InvalidateCLIToken()
 		}
 		respond(w, http.StatusOK, h.Service.refreshActionsSpend(r.Context(), time.Now(), input.Month, false))
