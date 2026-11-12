@@ -75,6 +75,6 @@ finally {
 }
 
 . (Join-Path $PSScriptRoot "..\hidden_server.ps1")
-$server = Start-HiddenServer -Name "release server" -FilePath python -ArgumentList "-u", "-m", "http.server", "$Port", "--bind", "127.0.0.1", "--directory", $Folder `
+$server = Start-HiddenServer -Name "release server" -ArgumentList "-m", "http.server", "$Port", "--bind", "127.0.0.1", "--directory", $Folder `
     -Url "$base/good/latest" -Log (Join-Path $Folder "server")
 Set-Content -LiteralPath (Join-Path $Folder "server.pid") -Value $server.Id

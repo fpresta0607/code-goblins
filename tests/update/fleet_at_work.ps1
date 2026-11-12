@@ -39,7 +39,7 @@ $state = Join-Path $ceoHome "state"
 # it to start, and both keep it through the update.
 $port = 8767
 . (Join-Path $PSScriptRoot "..\hidden_server.ps1")
-$standIn = Start-HiddenServer -Name "stand-in model" -FilePath python -ArgumentList "-u", (Join-Path $PSScriptRoot "..\uninstall\stand_in_model.py"), $port `
+$standIn = Start-HiddenServer -Name "stand-in model" -ArgumentList (Join-Path $PSScriptRoot "..\uninstall\stand_in_model.py"), $port `
     -Url "http://127.0.0.1:$port/v1/models" -Log "$Facts.stand-in"
 Set-Content -LiteralPath "$Facts.stand-in.pid" -Value $standIn.Id
 

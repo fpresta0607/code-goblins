@@ -138,7 +138,7 @@
       "why": "a test runs the session script's self-tests"
     },
     {
-      "paths": ["tests/hidden_server.ps1"],
+      "paths": ["tests/hidden_server.ps1", "tests/hidden_server.py"],
       "packages": ["."],
       "why": "a test runs the hidden server's start and wait"
     },

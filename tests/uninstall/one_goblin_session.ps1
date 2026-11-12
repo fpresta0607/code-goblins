@@ -163,7 +163,7 @@ $settings["defaultProvider"] = "stand-in"
 $settings["defaultModel"] = "stand-in"
 [IO.File]::WriteAllText($settingsFile, (ConvertTo-Json -InputObject $settings -Depth 6))
 . (Join-Path $PSScriptRoot "..\hidden_server.ps1")
-$standIn = Start-HiddenServer -Name "stand-in model" -FilePath python -ArgumentList "-u", (Join-Path $PSScriptRoot "stand_in_model.py"), $port `
+$standIn = Start-HiddenServer -Name "stand-in model" -ArgumentList (Join-Path $PSScriptRoot "stand_in_model.py"), $port `
     -Url "http://127.0.0.1:$port/v1/models" -Log (Join-Path $env:RUNNER_TEMP "session-stand-in")
 
 # A build that selects delivery at intake reads the demo project's record, a

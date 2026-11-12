@@ -218,7 +218,7 @@ jobs:
           Copy-Item install.ps1 release/install.ps1
           # The next step downloads at once, so wait until the server answers.
           . ./tests/hidden_server.ps1
-          Start-HiddenServer -Name "release server" -FilePath python -ArgumentList "-u", "-m", "http.server", "8765", "--bind", "127.0.0.1", "--directory", "release" `
+          Start-HiddenServer -Name "release server" -ArgumentList "-m", "http.server", "8765", "--bind", "127.0.0.1", "--directory", "release" `
             -Url http://127.0.0.1:8765/SHA256SUMS -Log (Join-Path $env:RUNNER_TEMP "release-server") | Out-Null
       - name: Snapshot the profile before the install
         shell: pwsh
