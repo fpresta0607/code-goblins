@@ -117,8 +117,9 @@ func WorkOf(id, title, brief string) Work {
 const givenTitleKey = "goblin title"
 
 // GivenTitle is the title brief gives its goblin on a "goblin title:" line
-// in its Delivery section, empty when it gives none. A title of more than
-// three words or maxTitle characters, or a second line, is refused.
+// in its Delivery section, empty when it gives none. An empty title, one of
+// more than three words or maxTitle characters, one with a semicolon or em
+// dash, or a second line, is refused.
 func GivenTitle(brief string) (string, error) {
 	section, title, isStated := "", "", false
 	for line := range strings.Lines(brief) {
@@ -218,9 +219,9 @@ func ReadQueued(stateDir string) (map[string]Pair, error) {
 }
 
 // Backfill gives every live goblin whose record has no name a pair, the one
-// its task was queued with where it has one, so a goblin started before
-// names existed is named like the rest. A record another command is writing
-// is left for the next pass.
+// its task was queued with where it has one, with the title its brief gives,
+// so a goblin started before names existed is named like the rest. A record
+// another command is writing is left for the next pass.
 func Backfill(stateDir string) error {
 	metas, err := unnamed(stateDir)
 	if err != nil || len(metas) == 0 {
