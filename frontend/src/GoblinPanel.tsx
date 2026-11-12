@@ -15,6 +15,7 @@ import { PanelRow, type PanelControl } from "./panel-row";
 import { BabyHeader } from "./baby-header";
 import { PanelViewSwitch } from "./panel-view-switch";
 import type { StyleChoice } from "./panel-style-menu";
+import { linkedText } from "./messageText";
 
 export type PanelView = "terminal" | "task";
 
@@ -68,7 +69,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
       <LifecycleDetails task={task} />
     </div>}
     {!task?.archived && owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} log={{ open: isLogOpen, onOpenChange: setLogOpen }} now={now} onConnectors={onConnectors} /> : <div className="panel-content">
-      {!task && !node && snapshot.ceo_conversation_left && <p className="ceo-conversation-left">{snapshot.ceo_conversation_left}</p>}
+      {!task && !node && snapshot.ceo_conversation_left && <p className="ceo-conversation-left">{linkedText(snapshot.ceo_conversation_left)}</p>}
       <WorkspaceDetails task={task} node={node} snapshot={snapshot} connected={connected} onConnectors={onConnectors} />
       {!task && !node && (!isBoardShown || queuedTasks(snapshot).length > 0) && <section className="ceo-queue" aria-label="Queued tasks">
         <QueuedTasks snapshot={snapshot} now={now} presentations={presentations} hasMeters={!isBoardShown} onSelect={onOpenTask} />
