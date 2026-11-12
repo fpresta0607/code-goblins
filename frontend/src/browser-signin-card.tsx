@@ -25,7 +25,7 @@ export function BrowserSignInCard({ signin, snapshot, connected, now, isOpening,
   </div>;
   const isWaiting = isOpening || signin.state === "opening" || signin.state === "open";
   return <article className="question-card credential-card" data-browser-signin={signin.id} aria-labelledby={"signin-" + signin.id}>
-    <p className="asker"><Avatar persona={signin.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asks · waiting {age(signin.created_at, now).replace(/ ago$/, "")}</span></p>
+    <p className="asker"><Avatar persona={signin.task ? personaFor(task) : "ceo"} small /><span><strong>{asker}</strong> asks · waiting {age(signin.created_at, now).replace(/ ago$/, "")}</span></p>
     <header className="credential-heading">
       <h3 id={"signin-" + signin.id} tabIndex={-1}>{signInHeading(signin)}</h3>
       <p className="credential-why">Fetching keys needs the {signin.account} signed in. The fleet keeps the session afterwards, never your password.</p>

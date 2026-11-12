@@ -40,12 +40,12 @@ func lifecycleFixture(t *testing.T) (Service, state.TaskMeta) {
 	}}, meta
 }
 
-// On 2026-10-07 each goblin the CFO retired woke it again with the pause it
+// On 2026-10-07 each goblin the CEO retired woke it again with the pause it
 // had just typed, sixteen times as "paused: Requested by the operator", and
 // five more as the goblin failing when a teardown ran out of time. Whoever
 // typed a request reads its outcome from the command, so finishing it wakes
 // nobody, a retry included; an operation the board or the scheduler started
-// still tells the CFO how it ended.
+// still tells the CEO how it ended.
 func TestOnlyAnOperationNobodyWatchesSendsItsOutcome(t *testing.T) {
 	for _, test := range []struct {
 		name        string
@@ -53,8 +53,8 @@ func TestOnlyAnOperationNobodyWatchesSendsItsOutcome(t *testing.T) {
 		hasStopFail bool
 		wantNotices int
 	}{
-		{"a pause the CFO typed", true, false, 0},
-		{"a pause the CFO typed whose teardown ran out of time", true, true, 0},
+		{"a pause the CEO typed", true, false, 0},
+		{"a pause the CEO typed whose teardown ran out of time", true, true, 0},
 		{"a pause the board asked for", false, false, 1},
 		{"a pause the board asked for whose teardown ran out of time", false, true, 1},
 	} {
@@ -124,7 +124,7 @@ func TestAPauseWhoseTerminalNoLongerRunsIsPausedWhateverItsStopMet(t *testing.T)
 // On 2026-10-08 a memory pause typed its instruction into Shirley's pane
 // while a 600-second command held her turn. She took it four minutes later,
 // pushed, wrote her handoff and sat idle "still paused", but the pause had
-// failed and her session ran on until the CFO told her. A pause that fails
+// failed and her session ran on until the CEO told her. A pause that fails
 // while its goblin runs takes its instruction back, and one that took effect
 // leaves the goblin stopped.
 func TestAFailedPauseTellsItsRunningGoblinItIsNotPaused(t *testing.T) {
@@ -155,7 +155,7 @@ func TestAFailedPauseTellsItsRunningGoblinItIsNotPaused(t *testing.T) {
 					t.Fatalf("pause = %s, told %v, want it failed and its goblin told once", record.Phase, told)
 				}
 				if !slices.ContainsFunc(record.Problems, func(problem string) bool { return strings.Contains(problem, "told the goblin it is not paused") }) {
-					t.Fatalf("problems = %q, want the CFO told the goblin carries on", record.Problems)
+					t.Fatalf("problems = %q, want the CEO told the goblin carries on", record.Problems)
 				}
 				return
 			}
@@ -166,7 +166,7 @@ func TestAFailedPauseTellsItsRunningGoblinItIsNotPaused(t *testing.T) {
 	}
 }
 
-// A goblin that could not be told the pause failed is named, so the CFO
+// A goblin that could not be told the pause failed is named, so the CEO
 // tells it.
 func TestAFailedPauseNamesAGoblinItCouldNotTell(t *testing.T) {
 	// Arrange
@@ -210,7 +210,7 @@ func TestAFailedPauseWhoseTerminalEndedSinceResumes(t *testing.T) {
 }
 
 // A paused goblin paused again takes the new condition, so what resumes it
-// can be changed: cfo pause on a paused task used to answer paused and keep
+// can be changed: goblins pause on a paused task used to answer paused and keep
 // the old record, so a goblin paused for memory went on waiting for memory.
 // What its first pause stopped and kept stays as it was, and nothing is
 // stopped again.
@@ -588,14 +588,14 @@ func TestAResumeThatOnlyWaitsForRoomLeavesThePauseAsItWas(t *testing.T) {
 		t.Errorf("resume once there is room = %+v %v, want it running", resumed, resumeErr)
 	}
 	if want := []string{"pause paused", "resume running"}; !reflect.DeepEqual(notices, want) {
-		t.Errorf("the CFO was told %v, want %v: a wait for room is nothing to act on", notices, want)
+		t.Errorf("the CEO was told %v, want %v: a wait for room is nothing to act on", notices, want)
 	}
 	if lines, _ := state.TailStatus(service.StateDir, meta.ID, 50); slices.ContainsFunc(lines, func(line string) bool { return strings.Contains(line, "lifecycle-failed") }) {
 		t.Errorf("status log = %v, want no failed resume in it", lines)
 	}
 }
 
-// On 2026-10-10 cfo resume pd-whats-new was refused, rightly, for a gate
+// On 2026-10-10 goblins resume pd-whats-new was refused, rightly, for a gate
 // policy older than the machine's, and the refusal took the task out of its
 // pause: its record was already written as resuming, so the refusal was
 // recorded as a failed resume, its card stopped reading paused, and five
@@ -604,7 +604,7 @@ func TestAResumeThatOnlyWaitsForRoomLeavesThePauseAsItWas(t *testing.T) {
 // refused it and whenever, so the task is left exactly as it was. Its status
 // log says why in one line, but for a wait for room, which passes by itself.
 func TestARefusedResumeLeavesTheTaskExactlyAsItWas(t *testing.T) {
-	const migrate = "pipeline: the machine's gate config has moved on from the policy task task is frozen at (agent). Run cfo pipeline migrate task, then resume it"
+	const migrate = "pipeline: the machine's gate config has moved on from the policy task task is frozen at (agent). Run goblins pipeline migrate task, then resume it"
 	relaunch := func(refusal error) func(*Service, *Request) {
 		return func(service *Service, _ *Request) {
 			service.Operations.Resume = func(context.Context, state.TaskMeta, state.Lifecycle) error { return refusal }
@@ -671,8 +671,8 @@ func TestARefusedResumeLeavesTheTaskExactlyAsItWas(t *testing.T) {
 				for _, line := range lines[len(logged):] {
 					_, event := state.SplitStatus(line)
 					added = append(added, event)
-					if !crewstate.IsCFOAudit(line) {
-						t.Errorf("status line %q reads as the goblin's own report, want the CFO's record", line)
+					if !crewstate.IsCEOAudit(line) {
+						t.Errorf("status line %q reads as the goblin's own report, want the CEO's record", line)
 					}
 				}
 			}
@@ -684,7 +684,7 @@ func TestARefusedResumeLeavesTheTaskExactlyAsItWas(t *testing.T) {
 				t.Errorf("status log gained %q, want %q", added, want)
 			}
 			if wantNotices := []string{"pause paused"}; !reflect.DeepEqual(notices, wantNotices) {
-				t.Errorf("the lifecycle told the CFO %v, want %v: whoever asked reads the refusal", notices, wantNotices)
+				t.Errorf("the lifecycle told the CEO %v, want %v: whoever asked reads the refusal", notices, wantNotices)
 			}
 		})
 	}
@@ -789,7 +789,7 @@ func TestStopNeverArchivesWhileProcessesCouldNotBeStopped(t *testing.T) {
 }
 
 // A board message kept for a paused goblin's resume rides on its record, and
-// once a cfo switch replaced that session no resume of the record runs again.
+// once a goblins switch replaced that session no resume of the record runs again.
 // A pause or stop of the later session hands on what the record keeps before
 // it writes its own record over it, so the message is never dropped (issue
 // #1280); a hand-off that fails refuses the operation, with nothing stopped

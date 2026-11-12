@@ -58,7 +58,7 @@ export function QuestionCard({ question, snapshot, connected, now, draft, review
   // An image can vanish with its goblin's worktree; show that, not a broken image.
   const [missing, setMissing] = useState<Set<string>>(new Set());
   return <form className="question-card" aria-labelledby={"question-" + question.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
-    <p className="asker"><Avatar persona={question.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asks · {question.status !== "pending" ? "asked " + age(question.created_at, now) : "waiting " + age(question.created_at, now).replace(/ ago$/, "")}</span></p>
+    <p className="asker"><Avatar persona={question.task ? personaFor(task) : "ceo"} small /><span><strong>{asker}</strong> asks · {question.status !== "pending" ? "asked " + age(question.created_at, now) : "waiting " + age(question.created_at, now).replace(/ ago$/, "")}</span></p>
     {/* The question reads as body text: only what its asker marked is bold. */}
     <QuestionText id={"question-" + question.id} text={question.text} path={pathLinks({ kind: "question", id: question.id, instance: snapshot.instance })} />
     {question.mail && <CardMail mail={question.mail} />}

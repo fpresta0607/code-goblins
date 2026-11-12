@@ -17,13 +17,13 @@ const SIGN_IN: Record<SignIn, { text: string; icon: IconName; tone: string }> = 
   unknown: { text: "Sign-in unknown", icon: "question", tone: "" },
 };
 
-// FirstRun is the page the board's root shows while no CFO runs. It shows as
-// done what the terminal quick start already knows, the home the CFO starts
+// FirstRun is the page the board's root shows while no CEO runs. It shows as
+// done what the terminal quick start already knows, the home the CEO starts
 // in and the agent it remembered, offers the agents as one row of icon tabs,
-// and Start starts the CFO in the home and hands over to its terminal. It
-// asks for no project: the CFO works across every project from its home. The
+// and Start starts the CEO in the home and hands over to its terminal. It
+// asks for no project: the CEO works across every project from its home. The
 // projects folder, where goblins find a project by its name, is his to enter
-// or leave. A quiet link shows the board without a CFO, so goblins at work
+// or leave. A quiet link shows the board without a CEO, so goblins at work
 // stay in view. Once, it offers a Dev Drive, opt-in, or says in one line why
 // this machine can have none; Start keeps the answer.
 export function FirstRun({ instance, devDrive, onStarting, onStarted, onBoard }: { instance: string; devDrive?: DevDriveView; onStarting: () => void; onStarted: () => void; onBoard: () => void }) {
@@ -48,8 +48,8 @@ export function FirstRun({ instance, devDrive, onStarting, onStarted, onBoard }:
   if (setup.error) return <section className="first-run"><button onClick={setup.reload}><Icon name="refresh" />Try again</button></section>;
   if (!setup.data) return <section className="first-run"><p className="loading" role="status">Reading this machine…</p></section>;
   const data = setup.data;
-  if (data.cfo_runs) return <section className="first-run" aria-labelledby="first-run-title">
-    <header className="first-run-head"><Avatar persona="cfo" /><div><h2 id="first-run-title">The CEO is running</h2><p className="muted">Open its terminal to talk to it.</p></div></header>
+  if (data.ceo_runs) return <section className="first-run" aria-labelledby="first-run-title">
+    <header className="first-run-head"><Avatar persona="ceo" /><div><h2 id="first-run-title">The CEO is running</h2><p className="muted">Open its terminal to talk to it.</p></div></header>
     <div className="first-run-actions"><span /><button className="primary" onClick={onStarted}><Icon name="terminal" />Open the CEO's terminal</button></div>
   </section>;
   const { agent, blocked } = startState(data, picked, asked !== null);
@@ -62,7 +62,7 @@ export function FirstRun({ instance, devDrive, onStarting, onStarted, onBoard }:
     setIsChoosingFolder(true);
     showFolderFeedback("");
     try {
-      const selected = object(await request("/api/setup/folder", controller.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ root: folder.trim() }) }));
+      const selected = object(await request("/api/setup/folder", controller.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ root: folder.trim() }) }));
       if (typeof selected.root !== "string") throw new Error("The folder picker returned no selection result.");
       if (selected.root) {
         setTyped(selected.root);
@@ -83,10 +83,10 @@ export function FirstRun({ instance, devDrive, onStarting, onStarted, onBoard }:
       // The Dev Drive answer is kept first: ticked asks for its first
       // Command Center item, and either answer, the plain line included,
       // ends the offer.
-      if (offer) await request("/api/dev-drive", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ want: offer === "offer" && wantsDevDrive }) });
-      // A folder is sent only once he has looked at one: the CFO starts
+      if (offer) await request("/api/dev-drive", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ want: offer === "offer" && wantsDevDrive }) });
+      // A folder is sent only once he has looked at one: the CEO starts
       // without it, and the recorded folder stays as it is.
-      await request("/api/setup/start", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ root: asked === null ? "" : data.projects_root, agent }) });
+      await request("/api/setup/start", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ root: asked === null ? "" : data.projects_root, agent }) });
       onStarted();
     } catch (error) {
       setFailure(message(error));
@@ -104,7 +104,7 @@ export function FirstRun({ instance, devDrive, onStarting, onStarted, onBoard }:
     document.getElementById("agent-tab-" + next.id)?.focus();
   };
   return <section className="first-run" aria-labelledby="first-run-title">
-    <header className="first-run-head"><Avatar persona="cfo" /><div><h2 id="first-run-title">Start Code Goblins</h2><p className="muted">Start the CEO. It opens in the board's terminal and works across every project from its home.</p></div></header>
+    <header className="first-run-head"><Avatar persona="ceo" /><div><h2 id="first-run-title">Start Code Goblins</h2><p className="muted">Start the CEO. It opens in the board's terminal and works across every project from its home.</p></div></header>
     <ul className="first-run-done" aria-label="Already set up">
       <li><Icon name="check" /><strong>Home</strong><span className="first-run-path">{data.home}</span></li>
       {remembered && <li><Icon name="check" /><strong>Agent</strong><span>{remembered.name}, remembered for this home</span></li>}

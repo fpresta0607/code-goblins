@@ -255,7 +255,7 @@ func TestScanStatusWritesKeepAQuietGoblinFromStalling(t *testing.T) {
 			t.Fatal(err)
 		}
 		if result.Event != nil {
-			t.Fatalf("cycle %d woke the CFO despite a fresh status write: %+v", i, result.Event)
+			t.Fatalf("cycle %d woke the CEO despite a fresh status write: %+v", i, result.Event)
 		}
 		if result.Observations[0].Health == HealthStale || result.Observations[0].IdleSince != nil {
 			t.Fatalf("cycle %d observation = %+v, want a working goblin, not idle or stale", i, result.Observations[0])
@@ -331,7 +331,7 @@ func TestScanProtectsBusyThenStalesAndResurfacesPause(t *testing.T) {
 
 // A goblin that paused itself and then lost its terminal, as the paused
 // Codex goblins did when Defender quarantined their hosts' binary, tells the
-// CFO on the first scan after the terminal goes and then once per pause
+// CEO on the first scan after the terminal goes and then once per pause
 // resurface interval that it is paused and its terminal is gone, not on every
 // scan after each wake is taken.
 func TestAPausedTaskWhoseTerminalIsGoneWakesOncePerResurface(t *testing.T) {
@@ -359,7 +359,7 @@ func TestAPausedTaskWhoseTerminalIsGoneWakesOncePerResurface(t *testing.T) {
 	if _, err := service.Publish(*paused.Event); err != nil {
 		t.Fatal(err)
 	}
-	probe.samples["g1"] = EndpointSample{Verdict: ProbeMissing, Detail: "native terminal g1's host does not answer; goblins resume brings it back in place, resuming its session, as cfo switch g1 --harness codex does for it alone"}
+	probe.samples["g1"] = EndpointSample{Verdict: ProbeMissing, Detail: "native terminal g1's host does not answer; goblins resume brings it back in place, resuming its session, as goblins switch g1 --harness codex does for it alone"}
 
 	// Act
 	var wakes []Event
@@ -382,7 +382,7 @@ func TestAPausedTaskWhoseTerminalIsGoneWakesOncePerResurface(t *testing.T) {
 
 	// Assert
 	if len(wakes) == 0 || len(wakes) > 3 {
-		t.Fatalf("a paused task with no terminal woke the CFO %d times in 3 hours, want at least once and at most once an hour: %+v", len(wakes), wakes)
+		t.Fatalf("a paused task with no terminal woke the CEO %d times in 3 hours, want at least once and at most once an hour: %+v", len(wakes), wakes)
 	}
 	if wakeScans[0] != 0 {
 		t.Errorf("first wake came on scan %d (wake scans %v), want scan 0, the first scan after the terminal went", wakeScans[0], wakeScans)
@@ -397,18 +397,18 @@ func TestAPausedTaskWhoseTerminalIsGoneWakesOncePerResurface(t *testing.T) {
 // A goblin that delivered its pull request and rests on it waits on its
 // merge, and one that closed its issue in place of one waits on nothing, so a
 // restart that ends its terminal leaves it down: the wake for its gone
-// terminal says so, and that cfo switch brings it back if it has more work,
+// terminal says so, and that goblins switch brings it back if it has more work,
 // rather than that goblins resume brings it back. One seen working past its
 // done report, or whose done report names no delivery, comes back, and its
 // wake says what the probe found.
 func TestTheWakeForADeliveredGoblinsGoneTerminalSaysARestartLeavesItDown(t *testing.T) {
-	const probeDetail = "native terminal g1 has no running host; goblins resume brings it back in place, resuming its session, as cfo switch g1 --harness codex does for it alone"
+	const probeDetail = "native terminal g1 has no running host; goblins resume brings it back in place, resuming its session, as goblins switch g1 --harness codex does for it alone"
 	for _, testCase := range []struct {
 		name, report, saysDown string
 		isSeenWorking          bool
 	}{
-		{name: "resting on its pull request", report: "done: PR https://github.com/acme/api/pull/7", saysDown: "native terminal g1 is gone after it reported its pull request done; a restart leaves it down to wait on the merge unless a prompt reached it since, and cfo switch g1 --harness codex brings it back if it has more work"},
-		{name: "resting on the issue it closed", report: "done: closed https://github.com/acme/api/issues/7 (decision 7: Close it, no PR)", saysDown: "native terminal g1 is gone after it reported its issue closed; a restart leaves it down unless a prompt reached it since, and cfo switch g1 --harness codex brings it back if it has more work"},
+		{name: "resting on its pull request", report: "done: PR https://github.com/acme/api/pull/7", saysDown: "native terminal g1 is gone after it reported its pull request done; a restart leaves it down to wait on the merge unless a prompt reached it since, and goblins switch g1 --harness codex brings it back if it has more work"},
+		{name: "resting on the issue it closed", report: "done: closed https://github.com/acme/api/issues/7 (decision 7: Close it, no PR)", saysDown: "native terminal g1 is gone after it reported its issue closed; a restart leaves it down unless a prompt reached it since, and goblins switch g1 --harness codex brings it back if it has more work"},
 		{name: "seen working past its done report", report: "done: PR https://github.com/acme/api/pull/7", isSeenWorking: true},
 		{name: "seen working past the issue it closed", report: "done: closed https://github.com/acme/api/issues/7 (decision 7: Close it, no PR)", isSeenWorking: true},
 		{name: "done naming no pull request", report: "done: handed the fix to parent-1"},
@@ -531,7 +531,7 @@ func TestScanPreservesSemanticallyIncompleteObservationAsInvalidRecord(t *testin
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
 	path := ObservationPath(stateDir, "g1")
-	incomplete := []byte(`{"schema":"cfo-monitor.v1","task_id":"g1"}`)
+	incomplete := []byte(`{"schema":"ceo-monitor.v1","task_id":"g1"}`)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -922,7 +922,7 @@ func TestScanRaisesOneEventPerErroringEpisode(t *testing.T) {
 		t.Errorf("health = %q, want it still erroring", second.Observations[0].Health)
 	}
 	// The fault does not resolve itself, so repeating the wake every cycle
-	// would be noise the CFO learns to ignore.
+	// would be noise the CEO learns to ignore.
 	if second.Event != nil {
 		t.Errorf("event = %+v, want the episode raised once", second.Event)
 	}
@@ -1015,7 +1015,7 @@ func TestScanTreatsFreshTaskWithNoAgentAsLaunching(t *testing.T) {
 		t.Fatalf("Scan: %v", err)
 	}
 	if result.Event != nil {
-		t.Fatalf("a still-launching task woke the CFO: %+v", result.Event)
+		t.Fatalf("a still-launching task woke the CEO: %+v", result.Event)
 	}
 	if len(result.Observations) != 1 {
 		t.Fatalf("observations = %+v, want one", result.Observations)
@@ -1581,7 +1581,7 @@ func TestScanHoldsQuietAnIndeterminateUnknownAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Event != nil {
-		t.Fatalf("indeterminate agent woke the CFO: %+v", result.Event)
+		t.Fatalf("indeterminate agent woke the CEO: %+v", result.Event)
 	}
 	obs := result.Observations[0]
 	if obs.Health == HealthUnknown || obs.Reason == EndpointUnknown || obs.EndpointVerdict != ProbePresent {
@@ -1636,7 +1636,7 @@ func TestScanRaisesAFaultLineOnceAcrossPaneFlips(t *testing.T) {
 // The same refusal line wakes again only once the pane has shown no fault
 // for faultEpisodeGap: a switch that resumes the session and re-renders the
 // old refusal inside that window is not a new fault, but the identical
-// refusal after a long healthy stretch is a new episode the CFO must hear.
+// refusal after a long healthy stretch is a new episode the CEO must hear.
 func TestErroringObservationEndsAFaultEpisodeInTime(t *testing.T) {
 	for _, c := range []struct {
 		name      string
@@ -1666,9 +1666,9 @@ func TestErroringObservationEndsAFaultEpisodeInTime(t *testing.T) {
 	}
 }
 
-func TestScanKeepsAWaitingGoblinParkedAfterACFOAuditLine(t *testing.T) {
+func TestScanKeepsAWaitingGoblinParkedAfterACEOAuditLine(t *testing.T) {
 	for _, audit := range []string{
-		"pipeline-findings-accepted: step=review run=r1 round=2 findings=ask,bug by=cfo",
+		"pipeline-findings-accepted: step=review run=r1 round=2 findings=ask,bug by=ceo",
 		"pipeline-policy-migrated: class=ordinary review_cycles=3 old=aaa new=bbb",
 	} {
 		t.Run(audit, func(t *testing.T) {
@@ -1713,7 +1713,7 @@ func (p cancellingProber) Inspect(ctx context.Context, _ state.TaskMeta) (Endpoi
 // A watcher handing the lock to a serve cancels its scan part way. An
 // inspection cut short says nothing about the goblin, so the scan writes
 // nothing for the tasks it did not finish and raises no event: the serve's
-// next scan would otherwise wake the CFO about healthy goblins.
+// next scan would otherwise wake the CEO about healthy goblins.
 func TestAScanCancelledPartWayWritesNothingItDidNotFinish(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)

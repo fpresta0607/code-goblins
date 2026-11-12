@@ -87,7 +87,7 @@ func TestKeySpendIsShownOnlyForAPiThatUsesOpenRouter(t *testing.T) {
 		settings    string
 		tasks       []Task
 		sessions    []Session
-		cfo         cfoState
+		ceo         ceoState
 		withoutTask bool
 		want        int
 		status      string
@@ -99,14 +99,14 @@ func TestKeySpendIsShownOnlyForAPiThatUsesOpenRouter(t *testing.T) {
 		{name: "Pi's default on another provider", settings: `{"defaultProvider":"deepseek"}`, want: 0},
 		{name: "no provider anywhere", want: 1, status: openrouter.StatusUnattributed, detail: "name no provider"},
 		{name: "no Pi at all", withoutTask: true, tasks: []Task{{ID: "other", Harness: "claude", Generation: "g1", Runtime: RuntimeEvidence{State: "busy", At: now}}}, want: 0},
-		{name: "a Pi CFO on OpenRouter", withoutTask: true, cfo: cfoState{registered: true, harness: "pi", session: "cfo", since: scheduleStarts},
-			sessions: []Session{{ID: "cfo", Harness: "pi", Role: "cfo", Model: "openrouter/deepseek/deepseek-v4.1-flash", Phase: "active"}}, want: 1, status: openrouter.StatusAvailable},
-		{name: "a Pi CFO on another provider", withoutTask: true, cfo: cfoState{registered: true, harness: "pi", session: "cfo", since: scheduleStarts},
-			sessions: []Session{{ID: "cfo", Harness: "pi", Role: "cfo", Model: "deepseek/deepseek-v4.1-flash", Phase: "active"}}, want: 0},
-		{name: "a Pi CFO with no session registered, by its newest session", withoutTask: true, cfo: cfoState{registered: true, harness: "pi", since: scheduleStarts},
+		{name: "a Pi CEO on OpenRouter", withoutTask: true, ceo: ceoState{registered: true, harness: "pi", session: "ceo", since: scheduleStarts},
+			sessions: []Session{{ID: "ceo", Harness: "pi", Role: "ceo", Model: "openrouter/deepseek/deepseek-v4.1-flash", Phase: "active"}}, want: 1, status: openrouter.StatusAvailable},
+		{name: "a Pi CEO on another provider", withoutTask: true, ceo: ceoState{registered: true, harness: "pi", session: "ceo", since: scheduleStarts},
+			sessions: []Session{{ID: "ceo", Harness: "pi", Role: "ceo", Model: "deepseek/deepseek-v4.1-flash", Phase: "active"}}, want: 0},
+		{name: "a Pi CEO with no session registered, by its newest session", withoutTask: true, ceo: ceoState{registered: true, harness: "pi", since: scheduleStarts},
 			sessions: []Session{
-				{ID: "cfo-a", Harness: "pi", Role: "cfo", Model: "openrouter/deepseek/deepseek-v4.1-flash", Phase: "active", UpdatedAt: scheduleStarts.Add(time.Hour)},
-				{ID: "cfo-b", Harness: "pi", Role: "cfo", Model: "deepseek/deepseek-v4.1-flash", Phase: "ended", UpdatedAt: scheduleStarts},
+				{ID: "ceo-a", Harness: "pi", Role: "ceo", Model: "openrouter/deepseek/deepseek-v4.1-flash", Phase: "active", UpdatedAt: scheduleStarts.Add(time.Hour)},
+				{ID: "ceo-b", Harness: "pi", Role: "ceo", Model: "deepseek/deepseek-v4.1-flash", Phase: "ended", UpdatedAt: scheduleStarts},
 			}, want: 1, status: openrouter.StatusAvailable},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -127,9 +127,9 @@ func TestKeySpendIsShownOnlyForAPiThatUsesOpenRouter(t *testing.T) {
 			// Act
 			snapshot := piSnapshot(now, tasks...)
 			snapshot.Sessions = test.sessions
-			service.keySpendUsage(test.cfo, snapshot)
+			service.keySpendUsage(test.ceo, snapshot)
 			service.readKeySpends(context.Background(), 10*time.Second)
-			dials := service.keySpendUsage(test.cfo, snapshot)
+			dials := service.keySpendUsage(test.ceo, snapshot)
 
 			// Assert
 			if len(dials) != test.want {
@@ -195,9 +195,9 @@ func TestKeySpendKeepsEachActiveCredentialApart(t *testing.T) {
 			}
 
 			// Act
-			service.keySpendUsage(cfoState{}, piSnapshot(now, tasks...))
+			service.keySpendUsage(ceoState{}, piSnapshot(now, tasks...))
 			service.readKeySpends(context.Background(), 10*time.Second)
-			dials := service.keySpendUsage(cfoState{}, piSnapshot(now, tasks...))
+			dials := service.keySpendUsage(ceoState{}, piSnapshot(now, tasks...))
 
 			// Assert
 			costs := make([]float64, 0, len(dials))
@@ -256,7 +256,7 @@ func TestKeySpendIsNotClaimedForASessionThatStartedBeforeTheCredential(t *testin
 			service.mu.Unlock()
 
 			// Act
-			dials := service.keySpendUsage(cfoState{}, piSnapshot(now, task))
+			dials := service.keySpendUsage(ceoState{}, piSnapshot(now, task))
 
 			// Assert
 			if len(dials) != 1 || dials[0].Status != test.status {
@@ -283,7 +283,7 @@ func TestKeySpendIsNotClaimedForASessionThatStartedBeforeTheCredential(t *testin
 	service.mu.Lock()
 	service.keySpendReadings = map[string]openrouter.Reading{keySpendSourceKey(dir, ""): keySpendReading("key", 9.04, 50, writtenAt)}
 	service.mu.Unlock()
-	if dials := service.keySpendUsage(cfoState{}, piSnapshot(now, older, newer)); len(dials) != 1 || dials[0].Status != openrouter.StatusAvailable {
+	if dials := service.keySpendUsage(ceoState{}, piSnapshot(now, older, newer)); len(dials) != 1 || dials[0].Status != openrouter.StatusAvailable {
 		t.Fatalf("a proven session did not carry the dial: %+v", dials)
 	}
 }
@@ -320,7 +320,7 @@ func TestKeySpendReadsEachSourceOnTheDialsTimer(t *testing.T) {
 	}
 
 	// Assert: a board's snapshot asks OpenRouter for nothing.
-	if dials := service.keySpendUsage(cfoState{}, snapshot); len(dials) != 0 {
+	if dials := service.keySpendUsage(ceoState{}, snapshot); len(dials) != 0 {
 		t.Fatalf("a snapshot with no reading yet showed %+v", dials)
 	}
 	if got := fake.reads.Load(); got != 0 {
@@ -340,7 +340,7 @@ func TestKeySpendReadsEachSourceOnTheDialsTimer(t *testing.T) {
 	if readings := read(); len(readings) != 1 || readings[keySpendSourceKey(dir, "")].SpentUSD == nil {
 		t.Fatalf("readings = %+v", readings)
 	}
-	if dials := service.keySpendUsage(cfoState{}, snapshot); len(dials) != 1 || dials[0].Status != openrouter.StatusAvailable {
+	if dials := service.keySpendUsage(ceoState{}, snapshot); len(dials) != 1 || dials[0].Status != openrouter.StatusAvailable {
 		t.Fatalf("dial after the read = %+v", dials)
 	}
 
@@ -349,13 +349,13 @@ func TestKeySpendReadsEachSourceOnTheDialsTimer(t *testing.T) {
 	service.readKeySpends(context.Background(), 10*time.Second)
 
 	// Assert
-	dials := service.keySpendUsage(cfoState{}, snapshot)
+	dials := service.keySpendUsage(ceoState{}, snapshot)
 	if len(dials) != 1 || dials[0].Status != openrouter.StatusRateLimited || dials[0].SpentUSD == nil || *dials[0].SpentUSD != 9.04 {
 		t.Fatalf("a failed read of the same key = %+v", dials)
 	}
 
 	// Act: the session goes, and the next pass keeps no reading of it.
-	service.keySpendUsage(cfoState{}, piSnapshot(now))
+	service.keySpendUsage(ceoState{}, piSnapshot(now))
 	service.readKeySpends(context.Background(), 10*time.Second)
 
 	// Assert
@@ -382,7 +382,7 @@ func TestKeySpendSnapshotProjectsOnlyTheDialFields(t *testing.T) {
 	task.Runtime = RuntimeEvidence{State: "busy", At: now}
 
 	// Act
-	dials := service.keySpendUsage(cfoState{}, piSnapshot(now, task))
+	dials := service.keySpendUsage(ceoState{}, piSnapshot(now, task))
 	raised, err := json.Marshal(dials)
 
 	// Assert
@@ -416,7 +416,7 @@ func TestTheDialsTimerReadsTheKeySpendOnItsFirstPass(t *testing.T) {
 	service := &Service{Options: Options{KeySpend: fake.read, UserEnvironment: userEnvironment(dir)}}
 	task := livePiTask("goblin", "openrouter/deepseek/deepseek-v4.1-flash", scheduleStarts)
 	task.Runtime = RuntimeEvidence{State: "busy", At: now}
-	service.keySpendUsage(cfoState{}, piSnapshot(now, task))
+	service.keySpendUsage(ceoState{}, piSnapshot(now, task))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 

@@ -93,11 +93,11 @@ func (f *startWatchFleet) wakes(t *testing.T, prefix string) []wake.Record {
 	return matching
 }
 
-// A window a goblin's process shows on the Overlord's screen wakes the CFO
+// A window a goblin's process shows on the Overlord's screen wakes the CEO
 // once, naming the goblin and what the process runs, and again neither at
 // the next reading nor after the supervisor restarts. A program of his own
 // is never told, whatever it shows.
-func TestAWindowOfAGoblinsProcessWakesTheCFOOnce(t *testing.T) {
+func TestAWindowOfAGoblinsProcessWakesTheCEOOnce(t *testing.T) {
 	// Arrange
 	fleet := newStartWatchFleet(t)
 	now := time.Now().UTC()
@@ -125,9 +125,9 @@ func TestAWindowOfAGoblinsProcessWakesTheCFOOnce(t *testing.T) {
 	}
 }
 
-// A command a goblin starts again and again wakes the CFO once: here a
+// A command a goblin starts again and again wakes the CEO once: here a
 // server restarted every 5 seconds for a minute.
-func TestALoopOfAGoblinsCommandWakesTheCFOOnce(t *testing.T) {
+func TestALoopOfAGoblinsCommandWakesTheCEOOnce(t *testing.T) {
 	// Arrange
 	fleet := newStartWatchFleet(t)
 	now := time.Now().UTC()
@@ -150,7 +150,7 @@ func TestALoopOfAGoblinsCommandWakesTheCFOOnce(t *testing.T) {
 	}
 }
 
-// A goblin's own hooks start cfo.exe, a Codex goblin's before every shell
+// A goblin's own hooks start goblins.exe, a Codex goblin's before every shell
 // call and after every tool call, far more than ten times a minute when it is
 // busy, and a Claude Code goblin's at its prompts and turns, its hooks at
 // every tool call posting to the board instead. Claude Code starts a hook given as a program and its args itself,
@@ -193,7 +193,7 @@ func TestAGoblinsOwnHooksAreNoLoop(t *testing.T) {
 				for range 5 {
 					for _, command := range commands {
 						pid++
-						fleet.processes = append(fleet.processes, fleettree.Process{PID: pid, ParentPID: test.parent, Exe: "cfo.exe", Created: int64(pid), Started: at})
+						fleet.processes = append(fleet.processes, fleettree.Process{PID: pid, ParentPID: test.parent, Exe: "goblins.exe", Created: int64(pid), Started: at})
 						fleet.commands[pid] = command
 					}
 				}
@@ -209,9 +209,9 @@ func TestAGoblinsOwnHooksAreNoLoop(t *testing.T) {
 }
 
 // A goblin that reported done and rests at its prompt with a process it
-// started still running wakes the CFO once, a minute into its rest, naming
+// started still running wakes the CEO once, a minute into its rest, naming
 // the process.
-func TestAGoblinRestingWithAProcessLeftRunningWakesTheCFOOnce(t *testing.T) {
+func TestAGoblinRestingWithAProcessLeftRunningWakesTheCEOOnce(t *testing.T) {
 	// Arrange
 	fleet := newStartWatchFleet(t)
 	now := time.Now().UTC()
@@ -238,7 +238,7 @@ func TestAGoblinRestingWithAProcessLeftRunningWakesTheCFOOnce(t *testing.T) {
 
 // A goblin that reports one pull request done and goes on with its task
 // waits on its own watchers and runs: on 2026-10-14 left_running woke the
-// CFO for goblins whose watchers on their next pull request's CI were all
+// CEO for goblins whose watchers on their next pull request's CI were all
 // they had left running. One whose harness records such a wait, still
 // showing something new within the busy budget, is not at rest, and one
 // whose wait has shown nothing for the budget rests with it left running.
@@ -278,7 +278,7 @@ func TestAGoblinThatGoesOnPastOneDonePullRequestDrawsNoLeftRunning(t *testing.T)
 }
 
 // A console window a goblin's careless start opened is hidden at the
-// reading that sees it, once, and the CFO is woken once naming the task and
+// reading that sees it, once, and the CEO is woken once naming the task and
 // the command line. A console shared by a program and what it runs is
 // hidden through the first of them, which the wake names. A program of the
 // Overlord's own is never touched.

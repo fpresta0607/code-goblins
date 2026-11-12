@@ -131,7 +131,7 @@ export class TerminalView {
     this.element = document.createElement("div");
     this.element.className = "terminal-view staged";
     container.append(this.element);
-    const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || "";
+    const nonce = document.querySelector<HTMLMetaElement>('meta[name="ceo-style-nonce"]')?.content || "";
     this.term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize, fontFamily: FALLBACK_FONT, lineHeight: LINE_HEIGHT, scrollback: 5000, cursorBlink: false, theme: THEME, linkHandler: { activate: (_event, address) => openWebAddress(address) } });
     linkTerminalAddresses(this.term);
     this.term.parser.registerOscHandler(52, () => true);

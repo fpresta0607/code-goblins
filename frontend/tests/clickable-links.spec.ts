@@ -66,7 +66,7 @@ async function openCeoTerminal(page: Page, screen: string, history: string) {
   }, "\x1b[2J\x1b[H" + screen);
   await page.route("**/api/terminal/input", (route) => route.fulfill({ json: { seq: route.request().postDataJSON().seq } }));
   await page.route("**/api/terminal/history", (route) => route.fulfill({ json: { text: history, agent: "codex" } }));
-  await page.goto("/tests/fixtures/terminal-input.html?role=cfo#herdr");
+  await page.goto("/tests/fixtures/terminal-input.html?role=ceo#herdr");
   await expect(page.getByRole("region", { name: "CEO terminal" })).toBeVisible();
   await expect(page.getByText("Connecting to the terminal", { exact: true })).toHaveCount(0);
 }
@@ -220,7 +220,7 @@ test("a paused goblin's Details links the pull request its last report names", a
   // Arrange
   const paused = { ...GOBLIN, phase: "paused", at, activity: "lifecycle-paused: overlord; task session and branch", last_report: `working: opened PR ${PR} for review`,
     lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason: "overlord", at } } };
-  await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], tasks: [paused] });
+  await holdStream(page, { healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [], tasks: [paused] });
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.goto("/");
   await page.locator(".task-card").filter({ hasText: "Zeke" }).first().click();

@@ -52,7 +52,7 @@ func TestVersionSevenTellsTheGoblinHowToSubmitItsCorrection(t *testing.T) {
 			t.Fatal(err)
 		}
 		instruction := selection.Instruction("task", "snapshot")
-		isNamed := strings.Contains(instruction, "cfo pipeline validate-authored task --run <run> --findings <ids>") && strings.Contains(instruction, "cfo pipeline handback task --run <run>")
+		isNamed := strings.Contains(instruction, "goblins pipeline validate-authored task --run <run> --findings <ids>") && strings.Contains(instruction, "goblins pipeline handback task --run <run>")
 		if isNamed != (policy.Version == 7) {
 			t.Errorf("version %d instruction names the owner's correction = %v: %s", policy.Version, isNamed, instruction)
 		}
@@ -81,7 +81,7 @@ const handbackFindings = `{"findings":[{"id":"test-failure","severity":"error","
 
 // noTurnFindings is a Test step whose command native gave no turn, as for a
 // missing required environment.
-const noTurnFindings = `{"findings":[{"id":"test-command-no-turn","action":"ask-user","severity":"error","description":"The wrapper reported: cfo gate turn: the command did not start: required test environment: .venv is missing. Respond with fix to run it again."},{"id":"flaky-note","action":"no-op","severity":"info","description":"a note"}]}`
+const noTurnFindings = `{"findings":[{"id":"test-command-no-turn","action":"ask-user","severity":"error","description":"The wrapper reported: goblins gate turn: the command did not start: required test environment: .venv is missing. Respond with fix to run it again."},{"id":"flaky-note","action":"no-op","severity":"info","description":"a note"}]}`
 
 // A run is handed back only while it is parked at a Test, Lint or CI failure
 // of a version 7 task with an open finding other than a test command given no
@@ -241,7 +241,7 @@ func TestCheckCorrectionScopesAStepWithoutALogByItsFindings(t *testing.T) {
 // whatever packages the rest of the log names.
 func TestCheckCorrectionHoldsANamedFileToItsPathBoundaries(t *testing.T) {
 	const branchChange = "internal/pipeline/policy.go"
-	// goTest is a cfo gate test log: its plan, a package that passed, and the
+	// goTest is a goblins gate test log: its plan, a package that passed, and the
 	// failing package's test failure and result.
 	const goTest = "- github.com/fpresta0607/code-goblins/internal/gatetest (changed)\n- github.com/fpresta0607/code-goblins/internal/pipeline (changed)\nok  \tgithub.com/fpresta0607/code-goblins/internal/gatetest\t2.1s\n--- FAIL: TestPolicy (0.00s)\n    policy_test.go:42: want 2, got 3\nFAIL\nFAIL\tgithub.com/fpresta0607/code-goblins/internal/pipeline\t0.012s\n"
 	for _, test := range []struct {
@@ -433,7 +433,7 @@ func ownerPreflight(status, competing, clean string) string {
 		"candidate_sha: cccccccccccccccccccccccccccccccccccccccc",
 		"candidate_tree: dddddddddddddddddddddddddddddddddddddddd",
 		"caller_is_clean: " + clean,
-		"predecessor_launch_nonce: cfo-launch",
+		"predecessor_launch_nonce: ceo-launch",
 		"predecessor_validation_generation: policy-hash",
 		"intent_digest: sha256:intent",
 		`predecessor_launch_assertion_json: "{\"trusted_sha\":\"old\",\"apply\":true}"`,
@@ -475,7 +475,7 @@ func TestOwnerAdmissionSubmitsTheRunsOwnLaunchWithTodaysTrustedCommit(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.PredecessorID != handbackRun || got.CallerDir != caller || got.CandidateSHA != strings.Repeat("c", 40) || got.LaunchNonce != "cfo-launch" || got.ValidationGeneration != "policy-hash" || got.PublishedHeadSHA != "" {
+	if got.PredecessorID != handbackRun || got.CallerDir != caller || got.CandidateSHA != strings.Repeat("c", 40) || got.LaunchNonce != "ceo-launch" || got.ValidationGeneration != "policy-hash" || got.PublishedHeadSHA != "" {
 		t.Fatalf("admission = %+v, want the predecessor's own launch", got)
 	}
 	if got.ControllerPolicy.SHA256 != selection.Hash || got.ControllerPolicy.Class != "high-risk" || got.ControllerPolicy.ReviewCycles != 3 {

@@ -4,7 +4,7 @@ import { expect, test, type Page } from "./site";
 // input line just like cfo with scroll and jump to bottom". Reading a
 // terminal's history keeps the line he types on pinned at the bottom of the
 // panel, with Jump to bottom above it, as Claude Code's full-screen interface
-// does for the CFO's terminal by itself.
+// does for the CEO's terminal by itself.
 
 // xterm draws in the DOM, where a test reads it, without WebGL.
 test.use({ launchOptions: { args: ["--disable-webgl"] } });
@@ -171,7 +171,7 @@ test("Jump to bottom in the moment the grid changes still reaches the live end",
   await expect(screenRows(page).locator("> div").last()).toContainText(PROMPT);
 });
 
-test("a full-screen program, as the CFO's Claude Code runs, keeps its own scrolling", async ({ page }) => {
+test("a full-screen program, as the CEO's Claude Code runs, keeps its own scrolling", async ({ page }) => {
   // Arrange: the program draws on the alternate screen and takes the mouse.
   const relay = await openTerminal(page, "\x1b[?1049h\x1b[?1000h\x1b[?1006h" + PRINTED);
 

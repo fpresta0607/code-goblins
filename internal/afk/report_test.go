@@ -117,7 +117,7 @@ func TestTheReportSaysWhatWasDecidedFinishedHeldAndSpent(t *testing.T) {
 	}
 }
 
-// A held item says what was recommended for it and by whom, the CFO for its
+// A held item says what was recommended for it and by whom, the CEO for its
 // own or the goblin whose question it is: in the present while it still waits
 // on the Overlord, in the past once it does not, and nothing for an item with
 // no recommendation.
@@ -137,7 +137,7 @@ func TestAHeldItemSaysWhatWasRecommendedForIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, line := range []string{"  The CFO recommends: Keep it held.\n", "  pd-billing recommended: Keep the branch.\n"} {
+	for _, line := range []string{"  The CEO recommends: Keep it held.\n", "  pd-billing recommended: Keep the branch.\n"} {
 		if !strings.Contains(out.String(), line) {
 			t.Errorf("the report does not say %q:\n%s", line, out.String())
 		}
@@ -423,7 +423,7 @@ func TestAReportedDecisionAlreadyInTheCommandCenterAppearsOnlyOnce(t *testing.T)
 	}{
 		{name: "waiting", isWaiting: true, now: "still waiting on you"},
 		{name: "answered", now: "you answered it: Leave it parked"},
-		{name: "settled", now: "settled by the CFO: the existing token works", settled: "the existing token works"},
+		{name: "settled", now: "settled by the CEO: the existing token works", settled: "the existing token works"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			decision := Entry{At: night, Kind: KindLeft, What: "Sign in to Fly again?", Evidence: "the token was refused", Settled: scenario.settled}
@@ -450,10 +450,10 @@ func TestAReportedDecisionAlreadyInTheCommandCenterAppearsOnlyOnce(t *testing.T)
 	}
 }
 
-// The report's lines sit under the same headings in the CFO's text and on the
+// The report's lines sit under the same headings in the CEO's text and on the
 // board's page, each heading in its part of the recap, in the order he reads
 // them: what was done, leading with what did not land and then what changed
-// for him, then what the CFO decided, and last what needs him. A heading is
+// for him, then what the CEO decided, and last what needs him. A heading is
 // there only when it holds something.
 func TestTheReportsLinesSitUnderItsHeadingsInTheRecapsOrder(t *testing.T) {
 	// Act
@@ -484,11 +484,11 @@ func TestTheReportsLinesSitUnderItsHeadingsInTheRecapsOrder(t *testing.T) {
 	}
 }
 
-// A decision the CFO answered itself under AFK mode is settled when it turns
+// A decision the CEO answered itself under AFK mode is settled when it turns
 // off, so the report recaps it under For you, naming its question in his
-// History, with the CFO's answer and nothing of what it stood on. A struck
-// one is under Struck by the CFO alone.
-func TestADecisionTheCFOAnsweredIsRecappedUnderForYou(t *testing.T) {
+// History, with the CEO's answer and nothing of what it stood on. A struck
+// one is under Struck by the CEO alone.
+func TestADecisionTheCEOAnsweredIsRecappedUnderForYou(t *testing.T) {
 	// Arrange
 	decided := Entry{At: night, Kind: KindLeft, What: "Which fallback does the gate policy take?", Evidence: "the machine config and the policy disagree", Diagnosis: "two fallbacks", Tried: "read both", Options: []string{"Drop it", "Keep it"}, Answer: "Drop it"}
 	struck := decided
@@ -500,13 +500,13 @@ func TestADecisionTheCFOAnsweredIsRecappedUnderForYou(t *testing.T) {
 	sections, text := report.Sections(), rendered(t, report)
 
 	// Assert
-	if got, want := titled(sections), []string{"Not merged 1", "Deployed 1", "Merged 1", "Struck by the CFO 1", "For you 1", "For the goblins 1", "Needs you 1"}; !slices.Equal(got, want) {
+	if got, want := titled(sections), []string{"Not merged 1", "Deployed 1", "Merged 1", "Struck by the CEO 1", "For you 1", "For the goblins 1", "Needs you 1"}; !slices.Equal(got, want) {
 		t.Fatalf("headings = %q, want %q", got, want)
 	}
 	if recap := sections[4].Entries[0]; recap.What != decided.What || recap.Answer != "Drop it" || recap.Item != "question:"+LeftQuestionID(decided) {
-		t.Errorf("under For you = %+v, want the decision with the CFO's answer and its question in History", recap)
+		t.Errorf("under For you = %+v, want the decision with the CEO's answer and its question in History", recap)
 	}
-	if want := "\nDECIDED FOR YOU\n\nFor you (1)\n- Which fallback does the gate policy take?\n  The CFO answered: Drop it. You can change it in History.\n\nFor the goblins (1)\n"; !strings.Contains(text, want) {
-		t.Errorf("the CFO's text lacks the recap %q:\n%s", want, text)
+	if want := "\nDECIDED FOR YOU\n\nFor you (1)\n- Which fallback does the gate policy take?\n  The CEO answered: Drop it. You can change it in History.\n\nFor the goblins (1)\n"; !strings.Contains(text, want) {
+		t.Errorf("the CEO's text lacks the recap %q:\n%s", want, text)
 	}
 }

@@ -65,7 +65,7 @@ type Options struct {
 	// subscribe through; nil turns the app badge off.
 	Push           *http.Client
 	Example        bool
-	CFO            *CFOConnection
+	CEO            *CEOConnection
 	Gate           ProgressReader
 	Reconcile      func(context.Context) error
 	VerifyDelivery func(context.Context, state.TaskMeta, string, string, string) (string, error)
@@ -76,7 +76,7 @@ type Options struct {
 	// shows reads Finished.
 	PullRequestState func(ctx context.Context, url string) (PullRequestInfo, error)
 	// FileRoot files a root issue on the repository of a project, a name or
-	// a path, through the screen cfo issue file uses, or comments on the
+	// a path, through the screen goblins issue file uses, or comments on the
 	// open issue of the same root; without it the supervisor files none.
 	FileRoot func(ctx context.Context, project string, root tickets.Root) (tickets.FiledRoot, error)
 	// Tickets keeps a GitHub issue for each task in a repository other
@@ -85,7 +85,7 @@ type Options struct {
 	// RootIssues picks up the open ops-root issues of each project's
 	// repository as queued work; without it none is.
 	RootIssues *RootIssues
-	// VerifyReports reads a project's cfo gate test reports, the newest
+	// VerifyReports reads a project's goblins gate test reports, the newest
 	// first, which put each task's newest run on its card; without it no
 	// card shows one.
 	VerifyReports func(project string) ([]verify.Report, error)
@@ -106,19 +106,19 @@ type Options struct {
 	OpenPage    func(ctx context.Context, file string) (string, error)
 	BoardAssets fs.FS
 	// FirstRun is what the first-run page reads and changes on this
-	// machine; without it the board can start no CFO.
+	// machine; without it the board can start no CEO.
 	FirstRun *FirstRun
 	// Dictation is the speech engine the board dictates through on this
 	// machine; without it the board has no dictation of its own.
 	Dictation Dictation
 	// Dispatch is what a queued task's Start reads and runs; without it the
-	// board starts no goblin, and no CFO turn raises the idle wake.
+	// board starts no goblin, and no CEO turn raises the idle wake.
 	Dispatch *Dispatch
-	// CompactCFO writes the compact checkpoint of a registered Codex or pi CFO
+	// CompactCEO writes the compact checkpoint of a registered Codex or pi CEO
 	// as its compaction begins and, as it ends, queues the one wake that names
-	// it, as cfo hook pre-compact and the SessionStart digest do for a Claude
-	// CFO; without it a compaction does neither.
-	CompactCFO func(h home.Home, e nativehook.Event, now time.Time) error
+	// it, as goblins hook pre-compact and the SessionStart digest do for a Claude
+	// CEO; without it a compaction does neither.
+	CompactCEO func(h home.Home, e nativehook.Event, now time.Time) error
 	// CI runs git for the CI wakes, and gh for what a merge train writes to
 	// GitHub, and GitHub is what they read GitHub through; without both no
 	// CI is watched.
@@ -131,15 +131,15 @@ type Options struct {
 	// runs git.
 	Reads *readcache.Cache
 	// Defender reads what Microsoft Defender recorded since a time, for the
-	// wake that tells the CFO of each new detection and upload under the
+	// wake that tells the CEO of each new detection and upload under the
 	// fleet's folders. It only reads.
 	Defender func(ctx context.Context, since time.Time) (defender.Report, error)
-	// Credentials opens the credential store cfo auth store writes, which a
+	// Credentials opens the credential store goblins auth store writes, which a
 	// credential request's card saves into; without it the board takes no
 	// value.
 	Credentials func() (auth.Store, error)
 	// RefreshCredentials regenerates auth.ps1 for a project's running goblins
-	// and tells each to re-source it, as cfo auth store does after it writes,
+	// and tells each to re-source it, as goblins auth store does after it writes,
 	// and returns the tasks it told.
 	RefreshCredentials func(ctx context.Context, project string) ([]string, error)
 	// Quota reads quota-axi, on the supervisor's own timers only: AFK mode's
@@ -190,7 +190,7 @@ type Options struct {
 	// board offers; nil reads the machine's.
 	ReadScreen       func(host.Record) ([]string, error)
 	ProgramInstalled func(harness.Kind) (string, time.Time, error)
-	CFOJobActivity   func(host.Record) (string, error)
+	CEOJobActivity   func(host.Record) (string, error)
 	// UpdateCheck runs a harness's own update check and returns what it
 	// said, as its error why it failed, and HarnessCurrent reads whether a
 	// harness's install is the newest its publisher offers; nil runs and
@@ -222,7 +222,7 @@ type Service struct {
 	sessionStreamsMu sync.Mutex
 	sessionStreams   map[string]*heldStream
 	// boardErrors keeps an error the board would have shown the Overlord
-	// from waking the CFO more than once an hour (board_errors.go).
+	// from waking the CEO more than once an hour (board_errors.go).
 	boardErrors          boardErrors
 	isNativeInboxFailing bool
 	nativeInboxRepair    error
@@ -248,19 +248,19 @@ type Service struct {
 	awaitedPulls  map[string]string
 	rootStarts    map[rootStart]rootStartReading
 	isReadingRoot bool
-	// historyErr is what the last history refresh met, and cfoWakeErr,
-	// fleetErr and pushErr what every typed CFO wake, every fleet wake
+	// historyErr is what the last history refresh met, and ceoWakeErr,
+	// fleetErr and pushErr what every typed CEO wake, every fleet wake
 	// reading and every app badge push met since the last recovery cycle; the
 	// loop reports them with its next recovery cycle. ciUnreadable is why each watched repository's CI
 	// cannot be read, as of the last fleet reading; publish joins it into
 	// whatever it publishes for as long as the failure lasts.
 	historyErr   error
-	cfoWakeErr   error
+	ceoWakeErr   error
 	fleetErr     error
 	pushErr      error
 	ciUnreadable error
 	// errorLines holds when each line of the supervisor's own errors was last
-	// met, errorsUntold the new ones no wake has told the CFO of yet, and
+	// met, errorsUntold the new ones no wake has told the CEO of yet, and
 	// errorsWoke when one last did.
 	errorLines   map[string]time.Time
 	errorsUntold []string
@@ -288,14 +288,14 @@ type Service struct {
 	trees           map[string]fleettree.Tree
 	progressReadErr error
 
-	// cfoUpdateRead and harnessUpdates are the harness updates the last look
-	// found waiting for the CFO and for each goblin; cfoUpdating says the
-	// CFO's pressed update runs now, and cfoUpdateProblem why the last one
+	// ceoUpdateRead and harnessUpdates are the harness updates the last look
+	// found waiting for the CEO and for each goblin; ceoUpdating says the
+	// CEO's pressed update runs now, and ceoUpdateProblem why the last one
 	// did not.
-	cfoUpdateRead    *harnessUpdateRead
+	ceoUpdateRead    *harnessUpdateRead
 	harnessUpdates   map[string]harnessUpdateRead
-	cfoUpdating      bool
-	cfoUpdateProblem string
+	ceoUpdating      bool
+	ceoUpdateProblem string
 	// updateChecks is what the board knows of each harness's own update
 	// check, by harness.
 	updateChecks map[string]UpdateCheck
@@ -323,8 +323,8 @@ type Service struct {
 	pushMu sync.Mutex
 	// ordering saves one list order at a time.
 	ordering sync.Mutex
-	// starts guards starting, the task a Start is running cfo spawn for,
-	// overlordStart, the last task the Overlord's own Start ran cfo spawn
+	// starts guards starting, the task a Start is running goblins spawn for,
+	// overlordStart, the last task the Overlord's own Start ran goblins spawn
 	// for, and startErrors, why each task's last Start failed.
 	starts        sync.Mutex
 	starting      string
@@ -344,11 +344,11 @@ type Service struct {
 	// scheduling is what the scheduler made of its last reading with memory
 	// free; mu guards it.
 	scheduling *Scheduling
-	// isCFOComingBack says the comeback is bringing the CFO back now; starts
+	// isCEOComingBack says the comeback is bringing the CEO back now; starts
 	// guards it too.
-	isCFOComingBack bool
+	isCEOComingBack bool
 	// messageStarts is the start the latest message to each session that was
-	// not running made of it, keyed by task, the CFO's by none; starts guards
+	// not running made of it, keyed by task, the CEO's by none; starts guards
 	// it (message_starts.go).
 	messageStarts map[string]messageStart
 	// pcRestart is the restart of the PC the Overlord's Restart PC began,
@@ -365,7 +365,7 @@ type Service struct {
 	comeback sync.Mutex
 	signedIn time.Time
 	// credentialSaves takes one credential save at a time, and
-	// credentialWork waits for the refresh and the CFO's notice each save
+	// credentialWork waits for the refresh and the CEO's notice each save
 	// starts after it answers, and for the reading a billing consent rereads.
 	credentialSaves sync.Mutex
 	credentialWork  sync.WaitGroup
@@ -528,7 +528,7 @@ func (s *Service) publish(err error) {
 			err = withoutStorage(err)
 		}
 	}
-	// Unreadable CI is left out: it wakes the CFO as ci_unreadable or
+	// Unreadable CI is left out: it wakes the CEO as ci_unreadable or
 	// pr_unread, once its failure holds.
 	s.wakeForNewErrors(err, time.Now())
 	s.mu.Lock()
@@ -632,13 +632,13 @@ func (s *Service) run(ctx context.Context) {
 	awakeDone := make(chan struct{})
 	go func() {
 		defer close(awakeDone)
-		s.keepCFOAwake(ctx, cfoWakeEvery)
+		s.keepCEOAwake(ctx, ceoWakeEvery)
 	}()
 	defer func() { s.cancel(); <-awakeDone }()
 	backDone := make(chan struct{})
 	go func() {
 		defer close(backDone)
-		s.keepCFOBack(ctx, cfoBackEvery)
+		s.keepCEOBack(ctx, ceoBackEvery)
 	}()
 	defer func() { s.cancel(); <-backDone }()
 	fleetDone := make(chan struct{})
@@ -836,7 +836,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	s.mu.Unlock()
 	before := s.Store.Snapshot().Revision
 	events, ingestErr := s.Store.Ingest()
-	followErr := s.followNativeCFO(events)
+	followErr := s.followNativeCEO(events)
 	if ingestErr != nil && !isNativeInboxReadFailure(s.Store.Home.State, ingestErr) {
 		s.publish(errors.Join(ingestErr, followErr))
 		return
@@ -861,8 +861,8 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.retireItems())
 	reconcileErr = errors.Join(reconcileErr, s.Store.retireGoblinRuns())
 	reconcileErr = errors.Join(reconcileErr, s.Store.retireGoblinCredentials())
-	if cfo := readCFOState(s.Store.Home.State); cfo.registered && cfo.problem == "" {
-		reconcileErr = errors.Join(reconcileErr, s.Store.followCFO(cfo.identity), s.retellRuns(ctx))
+	if ceo := readCEOState(s.Store.Home.State); ceo.registered && ceo.problem == "" {
+		reconcileErr = errors.Join(reconcileErr, s.Store.followCEO(ceo.identity), s.retellRuns(ctx))
 	}
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.submitHandedBack(ctx), s.takeBackLeftTyped(ctx), s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
@@ -880,8 +880,8 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		s.checkRegistration()
 		reconcileErr = errors.Join(reconcileErr, s.tellWaitCycles())
 		s.mu.Lock()
-		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr, s.pushErr)
-		s.cfoWakeErr, s.fleetErr, s.pushErr = nil, nil, nil
+		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.ceoWakeErr, s.fleetErr, s.pushErr)
+		s.ceoWakeErr, s.fleetErr, s.pushErr = nil, nil, nil
 		s.mu.Unlock()
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneRuns(time.Now()))
@@ -892,7 +892,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		s.mu.Lock()
 		s.reconciled = time.Now().UTC()
 		s.mu.Unlock()
-		reconcileErr = errors.Join(reconcileErr, s.refreshCFOConversation(ctx))
+		reconcileErr = errors.Join(reconcileErr, s.refreshCEOConversation(ctx))
 		reconcileErr = errors.Join(reconcileErr, finishTakenResumes(s.Store.Home.State))
 		reconcileErr = errors.Join(reconcileErr, handOverReplacedResumes(s.Store.Home.State))
 		reconcileErr = errors.Join(reconcileErr, s.reconcileTasks(time.Now()))
@@ -1006,8 +1006,8 @@ func HasDelivered(directory string, meta state.TaskMeta) (bool, error) {
 }
 
 // isDelivered reports whether the goblin of generation delivered in its latest
-// report and its session took no prompt after it, as one the CFO steers back
-// to work with cfo send takes. Such a goblin waits on the merge, or on nothing
+// report and its session took no prompt after it, as one the CEO steers back
+// to work with goblins send takes. Such a goblin waits on the merge, or on nothing
 // once it closed its issue, not on a session: on 2026-10-27 three that a
 // restart brought back each spent a fresh session only to report the same pull
 // request done again.
@@ -1073,14 +1073,14 @@ func (s *Service) refreshHistory(ctx context.Context, now time.Time) error {
 
 // checkRegistration runs on the once-a-minute recovery cycle and asks the
 // terminal backend what Snapshot's own read of the registration cannot, so a
-// CFO that moved shows as one state on the board before anyone tries to
+// CEO that moved shows as one state on the board before anyone tries to
 // deliver to it.
 func (s *Service) checkRegistration() {
-	if s.Options.CFO == nil {
+	if s.Options.CEO == nil {
 		return
 	}
 	problem := ""
-	identity, err := s.Options.CFO.examine()
+	identity, err := s.Options.CEO.examine()
 	if err != nil {
 		problem = err.Error()
 	}
@@ -1177,7 +1177,7 @@ func (s *Service) process(ctx context.Context) {
 
 // wakeAsHeldComeDue wakes the worker the moment what the store holds for a
 // moment can go, the answers held for the Overlord's next one or a message
-// to the CFO at the end of its undo window, so neither is held past its
+// to the CEO at the end of its undo window, so neither is held past its
 // window: left to the loop, it would go at whichever cycle came after, up to
 // two seconds later. Only the worker calls it.
 func (s *Service) wakeAsHeldComeDue() {
@@ -1197,10 +1197,10 @@ func (s *Service) wakeAsHeldComeDue() {
 }
 
 func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
-	if a.Kind == "feedback" || a.Kind == "cfo_message" {
+	if a.Kind == "feedback" || a.Kind == "ceo_message" {
 		return Evaluation{}, fmt.Errorf("%w: obsolete action kind %q is not accepted", ErrRejected, a.Kind)
 	}
-	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "answer_change" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" && a.Kind != "run" && a.Kind != "run_stop" && a.Kind != "run_skip" && a.Kind != "run_answer" && a.Kind != "message" {
+	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "ceo_answer" && a.Kind != "goblin_answer" && a.Kind != "answer_change" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" && a.Kind != "run" && a.Kind != "run_stop" && a.Kind != "run_skip" && a.Kind != "run_answer" && a.Kind != "message" {
 		return Evaluation{}, fmt.Errorf("%w: unsupported action kind %q", ErrRejected, a.Kind)
 	}
 	if a.Kind == "message" {
@@ -1218,7 +1218,7 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	if a.Kind == "review_answer" {
 		return s.answerReview(ctx, a)
 	}
-	// A clear closed its item when the board took it. The CFO asked a
+	// A clear closed its item when the board took it. The CEO asked a
 	// dismissed question, or holds the goblin's notify that did, so it hears
 	// here that the Overlord dismissed it.
 	if a.Kind == "review_clear" || a.Kind == "question_clear" {
@@ -1240,18 +1240,18 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 			notices = append(notices, "The Overlord dismissed "+whose+" from the Command Center: answered elsewhere or no longer needed. It asked: "+question.Text)
 		}
 		if len(notices) > 0 {
-			if err := s.tellCFO(ctx, strings.Join(notices, "\n"), false); err != nil {
+			if err := s.tellCEO(ctx, strings.Join(notices, "\n"), false); err != nil {
 				if errors.Is(err, ErrDeferred) {
-					return Evaluation{Reason: "Dismissed. The CFO will be told when its input is ready."}, err
+					return Evaluation{Reason: "Dismissed. The CEO will be told when its input is ready."}, err
 				}
-				evaluation.Reason += " The CFO could not be told: " + bounded(err.Error(), 300)
+				evaluation.Reason += " The CEO could not be told: " + bounded(err.Error(), 300)
 			}
 		}
 		// The goblin that asked hears it too, once, and goes on without it.
 		for _, question := range goblins {
-			if s.Options.CFO == nil {
+			if s.Options.CEO == nil {
 				evaluation.Reason += " " + question.Task + " could not be told: message transport is unavailable."
-			} else if _, err := s.Options.CFO.SendGoblin(ctx, question.Task, question.Identity, "The Overlord skipped your question "+question.ID+" from the Command Center. Go on without it."); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+			} else if _, err := s.Options.CEO.SendGoblin(ctx, question.Task, question.Identity, "The Overlord skipped your question "+question.ID+" from the Command Center. Go on without it."); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 				evaluation.Reason += " " + question.Task + " could not be told: " + bounded(err.Error(), 300)
 			}
 		}
@@ -1266,9 +1266,9 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	if a.Kind == "answer_change" {
 		return s.changeAnswer(ctx, a)
 	}
-	if a.Kind == "cfo_answer" {
-		if s.Options.CFO == nil {
-			return Evaluation{}, fmt.Errorf("%w: CFO message transport is unavailable", ErrRejected)
+	if a.Kind == "ceo_answer" {
+		if s.Options.CEO == nil {
+			return Evaluation{}, fmt.Errorf("%w: CEO message transport is unavailable", ErrRejected)
 		}
 		questions := s.Store.Snapshot().Questions
 		var answers []string
@@ -1279,18 +1279,18 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 			if i < 0 {
 				return Evaluation{}, fmt.Errorf("%w: user question context changed", ErrRejected)
 			}
-			answers = append(answers, answerToCFO(questions[i], answer))
+			answers = append(answers, answerToCEO(questions[i], answer))
 		}
 		// An answer alone reads as it always has. Several are one message that
 		// lists each in the order he gave them.
 		text := answers[0]
 		if len(answers) > 1 {
-			text = fmt.Sprintf("%d user answers to CFO questions, in the order he gave them.", len(answers))
+			text = fmt.Sprintf("%d user answers to CEO questions, in the order he gave them.", len(answers))
 			for n, answer := range answers {
 				text += fmt.Sprintf(" [%d/%d] %s", n+1, len(answers), answer)
 			}
 		}
-		return s.Options.CFO.Send(ctx, a.Generation, text)
+		return s.Options.CEO.Send(ctx, a.Generation, text)
 	}
 	meta, err := state.ReadTaskMeta(s.Store.Home.State, a.TaskID)
 	if err != nil {
@@ -1373,10 +1373,10 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 				continue
 			}
 			result.Phase = "blocked"
-			result.Reason = "Pipeline decision required at " + step.Name + "; use cfo pipeline respond"
+			result.Reason = "Pipeline decision required at " + step.Name + "; use goblins pipeline respond"
 			// From policy version 7 the gate repairs no Test, Lint or CI
 			// failure: it is the goblin's to fix, not a decision to wait on,
-			// by the rule cfo pipeline run reads to hand it back, which hands
+			// by the rule goblins pipeline run reads to hand it back, which hands
 			// back no step whose findings it cannot read. A task spawned with
 			// no frozen policy, as outside no-mistakes delivery, has none of
 			// version 7 to hand anything back.
@@ -1529,7 +1529,7 @@ type Task struct {
 	// brief was written; zero when neither is known.
 	Since time.Time `json:"since"`
 	// Brief says queued work has its brief, which a Start needs; Starting
-	// that its Start runs cfo spawn now or waits its turn, StartError why its
+	// that its Start runs goblins spawn now or waits its turn, StartError why its
 	// last Start failed, and Finished why it never starts again by itself:
 	// what says it already finished. Asked says a Start or Resume the
 	// Overlord clicked waits its turn behind another start or resume, or for
@@ -1561,7 +1561,7 @@ type Task struct {
 	Ticket   *TaskTicket `json:"ticket,omitempty"`
 	Overlaps []Overlap   `json:"overlaps,omitempty"`
 	// HostedChecks is what its pull request's hosted checks said at the last
-	// CI poll, and LocalChecks its change's newest cfo gate test run.
+	// CI poll, and LocalChecks its change's newest goblins gate test run.
 	HostedChecks *HostedChecks `json:"hosted_checks,omitempty"`
 	LocalChecks  *LocalChecks  `json:"local_checks,omitempty"`
 	// Deployment is how the deploy of its merged pull request stands, apart
@@ -1610,52 +1610,52 @@ type Snapshot struct {
 	// Attention is the Overlord's order of the live goblins, top first; a
 	// goblin it does not name has not been placed.
 	Attention []string `json:"attention"`
-	// Registration says why the board cannot reach the primary CFO, with
+	// Registration says why the board cannot reach the primary CEO, with
 	// the fix, and is empty while it can.
 	Registration string `json:"registration"`
 	// Build names the board bundle this supervisor serves, so a tab loaded
 	// from an older one can tell the board was updated.
 	Build string `json:"build,omitempty"`
-	// CFORuns says a CFO is registered and running or starting in its native
+	// CEORuns says a CEO is registered and running or starting in its native
 	// terminal.
-	CFORuns bool `json:"cfo_runs"`
-	// CFOConfigured says the home has a valid saved harness, even when no
-	// CFO has registered yet or its last start failed.
-	CFOConfigured bool `json:"cfo_configured"`
+	CEORuns bool `json:"ceo_runs"`
+	// CEOConfigured says the home has a valid saved harness, even when no
+	// CEO has registered yet or its last start failed.
+	CEOConfigured bool `json:"ceo_configured"`
 	// waitCycles are the circles the goblins' standing waits on one another
-	// close, which tellWaitCycles names to the CFO.
+	// close, which tellWaitCycles names to the CEO.
 	waitCycles [][]string
-	// CFOStarting says native terminal cfo is up for a CFO not registered
+	// CEOStarting says native terminal ceo is up for a CEO not registered
 	// yet; the board opens that terminal for whatever it asks there, and no
 	// registration problem is shown while it lasts.
-	CFOStarting bool `json:"cfo_starting"`
-	// CFOClosed says the home's CFO registered and has since ended, with no
+	CEOStarting bool `json:"ceo_starting"`
+	// CEOClosed says the home's CEO registered and has since ended, with no
 	// terminal up for a new one. The board then shows no first-run page and
-	// no registration problem: it says the CFO is closed and offers Reopen.
-	CFOClosed bool `json:"cfo_closed"`
-	// CFOTerminal names the native terminal the board shows the CFO in (see
-	// cfoState), and is empty while the CFO runs in Herdr or not at all.
-	CFOTerminal string `json:"cfo_terminal"`
-	// CFOTerminalSince is when the host of that terminal started, so a view
-	// of a CFO whose terminal was replaced, as a restart replaces it, is
+	// no registration problem: it says the CEO is closed and offers Reopen.
+	CEOClosed bool `json:"ceo_closed"`
+	// CEOTerminal names the native terminal the board shows the CEO in (see
+	// ceoState), and is empty while the CEO runs in Herdr or not at all.
+	CEOTerminal string `json:"ceo_terminal"`
+	// CEOTerminalSince is when the host of that terminal started, so a view
+	// of a CEO whose terminal was replaced, as a restart replaces it, is
 	// opened again on the new host.
-	CFOTerminalSince time.Time `json:"cfo_terminal_since,omitzero"`
-	// CFOHarness names the harness the registered CFO runs, such as claude or
-	// codex, for the mark beside the CFO on the board; it is empty while no
-	// CFO is registered.
-	CFOHarness string     `json:"cfo_harness"`
-	CFOEngine  *CFOEngine `json:"cfo_engine,omitempty"`
-	// CFOSession is the session of the registered CFO, as Sessions keys it,
-	// which every surface reads the CFO's status from, and empty while no
-	// CFO is registered or its registration names no session: an older CFO's
-	// session, ended or not, never stands in for the CFO that runs.
-	CFOSession string `json:"cfo_session,omitempty"`
-	// CFOConversationLeft names the conversation the CFO could not resume
+	CEOTerminalSince time.Time `json:"ceo_terminal_since,omitzero"`
+	// CEOHarness names the harness the registered CEO runs, such as claude or
+	// codex, for the mark beside the CEO on the board; it is empty while no
+	// CEO is registered.
+	CEOHarness string     `json:"ceo_harness"`
+	CEOEngine  *CEOEngine `json:"ceo_engine,omitempty"`
+	// CEOSession is the session of the registered CEO, as Sessions keys it,
+	// which every surface reads the CEO's status from, and empty while no
+	// CEO is registered or its registration names no session: an older CEO's
+	// session, ended or not, never stands in for the CEO that runs.
+	CEOSession string `json:"ceo_session,omitempty"`
+	// CEOConversationLeft names the conversation the CEO could not resume
 	// when it last came back, and is empty when it came back on its own.
-	CFOConversationLeft string `json:"cfo_conversation_left"`
-	// CFOUpdate is an update of the harness the CFO runs, installed since it
+	CEOConversationLeft string `json:"ceo_conversation_left"`
+	// CEOUpdate is an update of the harness the CEO runs, installed since it
 	// started, for the Update button on its header; absent while none waits.
-	CFOUpdate *CFOUpdate `json:"cfo_update,omitempty"`
+	CEOUpdate *CEOUpdate `json:"ceo_update,omitempty"`
 	// UpdateChecks is what the board knows of each harness's own update
 	// check, by harness, for a session's notice of a failed update; absent
 	// while it knows of none.
@@ -1740,8 +1740,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	history := append([]Task(nil), s.history...)
 	checked, checkedIdentity := s.registration, s.registrationIdentity
 	for i := range d.Activity {
-		if d.Activity[i].CFOIdentity != "" {
-			d.Activity[i].Live = d.Activity[i].CFOIdentity == s.presentationIdentity && out.At.Sub(s.presentationChecked) < 2*time.Minute
+		if d.Activity[i].CEOIdentity != "" {
+			d.Activity[i].Live = d.Activity[i].CEOIdentity == s.presentationIdentity && out.At.Sub(s.presentationChecked) < 2*time.Minute
 		}
 	}
 	s.mu.Unlock()
@@ -1751,20 +1751,20 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		out.Issues = append(slices.Clone(out.Issues), s.tickets.Issues()...)
 		taskTickets, out.Projects = s.tickets.Shown()
 	}
-	cfo := readCFOState(s.Store.Home.State)
-	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOClosed, out.CFOHarness, out.CFOSession = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.closed, cfo.harness, cfo.session
-	if engine, err := s.cfoEngine(); err == nil {
-		out.CFOEngine = &engine
+	ceo := readCEOState(s.Store.Home.State)
+	out.CEOTerminal, out.CEORuns, out.CEOStarting, out.CEOClosed, out.CEOHarness, out.CEOSession = ceo.terminal, ceo.registered || ceo.starting, ceo.starting, ceo.closed, ceo.harness, ceo.session
+	if engine, err := s.ceoEngine(); err == nil {
+		out.CEOEngine = &engine
 	} else if !errors.Is(err, os.ErrNotExist) {
-		out.Issues = append(out.Issues, "CFO engine selection: "+err.Error())
+		out.Issues = append(out.Issues, "CEO engine selection: "+err.Error())
 	}
 	if firstRun := s.Options.FirstRun; firstRun != nil && firstRun.SavedAgent != nil {
-		out.CFOConfigured = firstRun.SavedAgent() != ""
+		out.CEOConfigured = firstRun.SavedAgent() != ""
 	}
-	out.CFOTerminalSince = cfo.since
-	out.CFOConversationLeft = s.cfoConversationLeft()
-	if cfo.registered {
-		out.CFOUpdate = s.cfoUpdateView(cfo.since)
+	out.CEOTerminalSince = ceo.since
+	out.CEOConversationLeft = s.ceoConversationLeft()
+	if ceo.registered {
+		out.CEOUpdate = s.ceoUpdateView(ceo.since)
 	}
 	out.UpdateChecks = s.updateCheckView()
 	out.Comeback = s.comebackView()
@@ -1776,12 +1776,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	out.DevDrive = s.devDriveViewNow()
 	// The registration problem comes from the same read as the rest, so the
-	// board never shows a running CFO beside the problem of one it replaced.
+	// board never shows a running CEO beside the problem of one it replaced.
 	// What the recovery cycle found is added only for the registration it
 	// examined.
-	if s.Options.CFO != nil {
-		out.Registration = cfo.problem
-		if cfo.registered && cfo.problem == "" && cfo.identity == checkedIdentity {
+	if s.Options.CEO != nil {
+		out.Registration = ceo.problem
+		if ceo.registered && ceo.problem == "" && ceo.identity == checkedIdentity {
 			out.Registration = checked
 		}
 	}
@@ -1811,8 +1811,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		// A harness that died while it compacted never reported the end, so a
 		// goblin's compaction reads only while its terminal is up. The board
-		// reads the CFO's from its live session alone.
-		if node.IsCompacting && node.Role != "cfo" {
+		// reads the CEO's from its live session alone.
+		if node.IsCompacting && node.Role != "ceo" {
 			node.IsCompacting = NativeTerminalRuns(s.Store.Home.State, node.TaskID)
 		}
 		out.Sessions = append(out.Sessions, node)
@@ -1950,7 +1950,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = "done", strings.TrimPrefix(lastReport, "done: "), ""
 		}
 		if verb, detail, ok := waitingQuestion(decisions, id); ok {
-			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = verb, "Waiting on the CFO: "+detail, ""
+			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = verb, "Waiting on the CEO: "+detail, ""
 			activity = detail
 		}
 		if evaluation.PR == "" {
@@ -2100,7 +2100,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			}); index >= 0 {
 				task.Comeback = &out.Comeback.Goblins[index]
 				if task.Comeback.State == state.ComebackStopped {
-					task.ActionError = "Did not come back after the restart: " + strings.TrimRight(task.Comeback.Reason, ". ") + ". The CFO was told."
+					task.ActionError = "Did not come back after the restart: " + strings.TrimRight(task.Comeback.Reason, ". ") + ". The CEO was told."
 				}
 			}
 		}
@@ -2258,7 +2258,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			out.Inbox++
 		}
 	}
-	// The board draws the CFO's sessions and the session each task names as
+	// The board draws the CEO's sessions and the session each task names as
 	// its own in its generation, and no other: of the 512 the store keeps,
 	// sub-agents' and retired goblins' among them, it drew 24 on 2026-10-28,
 	// and the rest were 290 KB of every board's first snapshot (#1611).
@@ -2268,10 +2268,10 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	out.Sessions = append(out.Sessions, keptSessions...)
 	slices.SortFunc(out.Sessions, func(one, other Session) int { return strings.Compare(one.ID, other.ID) })
 	out.Sessions = slices.DeleteFunc(out.Sessions, func(node Session) bool {
-		return node.Role != "cfo" && !slices.ContainsFunc(out.Tasks, func(task Task) bool { return task.Session == node.ID && task.Generation == node.Generation })
+		return node.Role != "ceo" && !slices.ContainsFunc(out.Tasks, func(task Task) bool { return task.Session == node.ID && task.Generation == node.Generation })
 	})
-	out.Subscriptions = s.subscriptionUsage(cfo, out)
-	out.KeySpend = s.keySpendUsage(cfo, out)
+	out.Subscriptions = s.subscriptionUsage(ceo, out)
+	out.KeySpend = s.keySpendUsage(ceo, out)
 	if s.Options.ActionsSpend != nil && !s.Options.Example {
 		reading := s.actionsSpendUsage(out.At, out.At.UTC().Format("2006-01"), d.Runs)
 		out.ActionsSpend = &reading

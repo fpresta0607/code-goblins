@@ -14,7 +14,7 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 // A board list whose order is its priority, top first: a number on each card
 // shows its place and stays in sight on hover, focus and drag. Dropping a card
 // saves the order with the supervisor, Tasks as backlog.md's Queued order and
-// In progress and Paused together as the CFO's attention order, and shows it
+// In progress and Paused together as the CEO's attention order, and shows it
 // until the snapshot agrees; a refused order goes back and says why for a
 // moment. In progress shows every goblin's card at once and the board
 // scrolls; Tasks and Paused past ten cards show a page at a time: a drag
@@ -62,7 +62,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
     setNote(`Moved ${title} to ${order.indexOf(moved) + 1} of ${order.length}.`);
     fit.show(fitKey(moved, order.indexOf(moved)));
     try {
-      const saved = object(await request("/api/order", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ list: list === "paused" ? "progress" : list, order: saves(order) }) }));
+      const saved = object(await request("/api/order", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ list: list === "paused" ? "progress" : list, order: saves(order) }) }));
       if (latest.current !== order) return;
       setPending({ order, revision: typeof saved.revision === "number" ? saved.revision : 0 });
     } catch (failure: unknown) {

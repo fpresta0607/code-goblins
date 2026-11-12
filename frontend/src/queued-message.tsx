@@ -1,5 +1,5 @@
 import { memo, useState } from "react";
-import { message, reportToCfo, request } from "./api";
+import { message, reportToCeo, request } from "./api";
 import { Icon } from "./Icon";
 import { keptFileAddress, keptPictures } from "./kept-files";
 import { MessagePictures } from "./message-pictures";
@@ -9,12 +9,12 @@ import { linkedText } from "./messageText";
 
 // TAKE_BACK_MESSAGE names the event Edit sends with a queued message's ID, for
 // the box of its session to take it back (composer.tsx).
-export const TAKE_BACK_MESSAGE = "cfo-take-back-message";
+export const TAKE_BACK_MESSAGE = "ceo-take-back-message";
 
 // QUEUED_NOTICE names the event a queued message sends with its task's ID and
 // what a press on it could not do, for the box of its session to say over
 // itself (composer.tsx).
-export const QUEUED_NOTICE = "cfo-queued-notice";
+export const QUEUED_NOTICE = "ceo-queued-notice";
 
 // One message the board holds for delivery, shown where it waits: its words,
 // what it waits on in the supervisor's own plain reason, and the three things
@@ -27,7 +27,7 @@ export const QUEUED_NOTICE = "cfo-queued-notice";
 // it as his own bubble at the conversation's end, in its one scroll, the
 // pictures the box kept for it above its bubble in place of their paths as his
 // sent message shows them; queue in the message box's own list. It shows each
-// state it is really in (the CFO, 2026-11-02): held by the board, dimmed with
+// state it is really in (the CEO, 2026-11-02): held by the board, dimmed with
 // Queued under it and its three controls, or Starting while its session
 // starts for it; typed into the session, solid with Sent under it and no
 // controls, since it is then its harness's to take; and taken, when the
@@ -54,7 +54,7 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
   // sent now once more.
   const [resent, setResent] = useState("");
   const post = (body: object) => request("/api/actions", undefined, {
-    method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify(body),
+    method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify(body),
   });
   const refuse = (text: string) => window.dispatchEvent(new CustomEvent(QUEUED_NOTICE, { detail: { task: action.task_id, text } }));
   const act = async (body: { kind: string; text?: string }, after: () => void) => {
@@ -66,8 +66,8 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
       refuse(message(error));
       // A press the supervisor answered is refused for a reason he reads over
       // the box; only one that never had its answer is the board's own
-      // failure, which the CFO hears of.
-      if (!(error instanceof Error && error.cause !== undefined)) reportToCfo("a queued message to " + name, message(error));
+      // failure, which the CEO hears of.
+      if (!(error instanceof Error && error.cause !== undefined)) reportToCeo("a queued message to " + name, message(error));
     }
     finally { setSending(false); }
   };
@@ -83,7 +83,7 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
     try { await post({ id: crypto.randomUUID(), kind: "message", task_id: action.task_id, generation: "", text: action.text }); setAsked("again"); }
     catch (error: unknown) {
       refuse(message(error));
-      if (!(error instanceof Error && error.cause !== undefined)) reportToCfo("a message sent again to " + name, message(error));
+      if (!(error instanceof Error && error.cause !== undefined)) reportToCeo("a message sent again to " + name, message(error));
     }
     finally { setSending(false); }
   };

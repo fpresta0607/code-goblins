@@ -141,7 +141,7 @@ func TestWriteTaskMetaRoundTripsTheTaskTitle(t *testing.T) {
 }
 
 // A goblin keeps the name and title it was given at spawn, which the board,
-// the merge train and the CFO call it by.
+// the merge train and the CEO call it by.
 func TestWriteTaskMetaRoundTripsTheGoblinsNameAndTitle(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
@@ -345,7 +345,7 @@ func TestGoTmpDirIsOutsideTheStateTreeAndValidatesID(t *testing.T) {
 	if _, err := GoTmpDir("  ", "g1"); err == nil {
 		t.Fatal("GoTmpDir accepted an empty state directory, want refusal rather than a machine-global path")
 	}
-	// CFO_STATE_OVERRIDE is taken verbatim, so two fleets launched from
+	// GOBLINS_STATE_OVERRIDE is taken verbatim, so two fleets launched from
 	// different working directories with the same relative override would
 	// hash one string and share one Go temporary directory.
 	relative := filepath.Join("state", "fleet")

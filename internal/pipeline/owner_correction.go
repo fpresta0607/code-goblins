@@ -51,7 +51,7 @@ type HandbackFinding struct {
 // branch, read from the step's findings document. There are none when policy
 // hands the step back to nobody, when the step recorded no findings, or when
 // each open one is test-command-no-turn: a test command given no turn is an
-// environment the CFO repairs before the command runs again, not code to fix.
+// environment the CEO repairs before the command runs again, not code to fix.
 func (p Policy) HandedBackFindings(step, document string) ([]HandbackFinding, error) {
 	if !p.HandsBack(step) || document == "" {
 		return nil, nil
@@ -157,7 +157,7 @@ func (reader Reader) TakeRunHead(ctx context.Context, worktree string, run Handb
 // findings' scope. That scope is what the branch itself changes from trusted,
 // and every file the step's log or its findings name, as isNamed reads them,
 // from the worktree or from the run's own gate worktree; a wider correction
-// is the CFO's to admit.
+// is the CEO's to admit.
 func (reader Reader) CheckCorrection(ctx context.Context, worktree, trusted string, run Handback) error {
 	status, err := reader.runGit(ctx, worktree, false, "status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none")
 	if err != nil || status.ExitCode != 0 || strings.TrimSpace(string(status.Stdout)) != "" {

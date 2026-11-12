@@ -7,12 +7,12 @@ import "../../src/styles.css";
 
 declare global {
   // answerUnconfirmed is the supervisor's next snapshot once he answered the
-  // CFO's review on its page and the CFO never picked his answer up.
+  // CEO's review on its page and the CEO never picked his answer up.
   interface Window { answerUnconfirmed: () => void }
 }
 
 // pd-agent-context waits on the Overlord with its audit on a Scrawl page, as
-// it did on 2026-10-02 when its card said everything twice, and the CFO asks
+// it did on 2026-10-02 when its card said everything twice, and the CEO asks
 // him to review a page of its own.
 const at = "2026-10-02T12:00:00Z";
 const audit = "http://127.0.0.1:4387/session/f26e";

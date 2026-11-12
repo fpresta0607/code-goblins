@@ -1,9 +1,9 @@
 import { doneCards, expect, openItem, recordDoneCards, test, type Page } from "./site";
 
-// The Overlord, 2026-10-07: the CFO's command publish-v0.5.2 finished with
+// The Overlord, 2026-10-07: the CEO's command publish-v0.5.2 finished with
 // exit 0 and its card stayed in the Command Center's stack instead of moving
 // to History, as every other item that closes on screen does. A command that
-// ends cleanly, and one the CFO withdraws, finish like any card: the check,
+// ends cleanly, and one the CEO withdraws, finish like any card: the check,
 // then the next item, and History holds how it ended. A command that failed
 // keeps its card, with its output, since that is trouble he may need to read.
 // How a command ended is its exit code: output that ends in an error line

@@ -1,6 +1,6 @@
 import { expect, openItem, servePages, test } from "./site";
 
-// The Overlord, 2026-10-17, of a CFO card that gave a page to copy: "when
+// The Overlord, 2026-10-17, of a CEO card that gave a page to copy: "when
 // there's a link, I like the copy button, but I should be able to click it as
 // a hyperlink to navigate to it." Every http or https address in a Command
 // Center card and in History is a link that opens in a new tab, which the

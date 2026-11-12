@@ -88,7 +88,7 @@ func TestBorrowedExecutableBelongsToItsConsumerAfterLauncherExits(t *testing.T) 
 				consumer := lifecycle.Mark{Terminal: "consumer", ProofSum: "consumer-proof"}
 				processes := []Process{
 					{Process: lifecycle.Process{PID: 20, Started: started.Add(-time.Hour)}},
-					{Process: lifecycle.Process{PID: 30, ParentPID: 900, Started: started, Name: "cfo-candidate.exe", Directory: t.TempDir(), Arguments: []string{filepath.Join(scratch, "cfo-candidate.exe"), "gate", "turn", "--detached"}, Mark: consumer}},
+					{Process: lifecycle.Process{PID: 30, ParentPID: 900, Started: started, Name: "ceo-candidate.exe", Directory: t.TempDir(), Arguments: []string{filepath.Join(scratch, "ceo-candidate.exe"), "gate", "turn", "--detached"}, Mark: consumer}},
 					{Process: lifecycle.Process{PID: 31, ParentPID: 30, Started: started.Add(time.Millisecond), Name: "conhost.exe", Directory: scratch}},
 				}
 				owners := []Owner{{ID: "supplier", Directories: []string{scratch}}, {ID: "consumer", HostPID: 20}}

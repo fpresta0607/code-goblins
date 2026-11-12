@@ -21,14 +21,14 @@ const options = {};
 for (let i = 2; i < process.argv.length; i++) options[process.argv[i].replace(/^--/, "")] = process.argv[++i];
 if (!options.url || !options.title || !options.fill) throw new Error("--url, --title and --fill are required");
 const browser = options.browser || "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
-const profile = mkdtempSync(join(tmpdir(), "cfo-checklist-"));
+const profile = mkdtempSync(join(tmpdir(), "ceo-checklist-"));
 const edge = spawn(browser, ["--headless=new", "--disable-gpu", "--disable-webgl", "--no-first-run", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--window-size=1600,1000", "about:blank"], { stdio: "ignore" });
 
 // These run in the board's page.
 const open = async (title) => {
   const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   for (const end = performance.now() + 30000; performance.now() < end; await pause(50)) {
-    [...document.querySelectorAll("button")].find((button) => button.textContent.includes("Open the board without a CFO"))?.click();
+    [...document.querySelectorAll("button")].find((button) => button.textContent.includes("Open the board without a CEO"))?.click();
     // A click on a live goblin's card opens its terminal.
     const button = [...document.querySelectorAll(".task-board .task-card")].find((card) => card.querySelector(".card-title")?.textContent === title);
     if (button) { button.click(); break; }

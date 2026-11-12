@@ -1,10 +1,10 @@
-// Package codegoblins carries the files a CFO home needs from this
+// Package codegoblins carries the files a CEO home needs from this
 // repository, so the binary can set up a home where there is no checkout.
 package codegoblins
 
 import "embed"
 
-// Contract is the CFO's operating contract and the docs the contract links
+// Contract is the CEO's operating contract and the docs the contract links
 // to. Installed homes refresh these from the binary; tracked checkout homes
 // keep their own copies.
 //

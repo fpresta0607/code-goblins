@@ -159,7 +159,7 @@ func keptApps(t *testing.T, s *Service) []webpush.Subscription {
 	return record.Apps
 }
 
-// askOverlord puts a question of the CFO's on the board.
+// askOverlord puts a question of the CEO's on the board.
 func askOverlord(t *testing.T, s *Service, id, text string) {
 	t.Helper()
 	if err := s.Store.acceptQuestion(Question{ID: id, Identity: strings.Repeat("c", 64), Text: text, CreatedAt: time.Now().UTC()}); err != nil {
@@ -178,7 +178,7 @@ func pushNewly(t *testing.T, s *Service, seen map[string]bool) map[string]bool {
 	return seen
 }
 
-// CFO decision 1008918: the Home Screen app's badge carries the count of what
+// CEO decision 1008918: the Home Screen app's badge carries the count of what
 // waits on him while the app is closed, from a push with each item newly
 // waiting, in the words the desktop window notifies it, and with nothing
 // else. What already waited when the badge turned on is not pushed.
@@ -186,11 +186,11 @@ func TestEachNewItemIsPushedWithHowManyWait(t *testing.T) {
 	// Arrange
 	p := newPushService(t, http.StatusCreated)
 	s, _ := badgeBoard(t, p, phone)
-	askOverlord(t, s, "cfo-question-1", "Which layout should I keep?")
+	askOverlord(t, s, "ceo-question-1", "Which layout should I keep?")
 	seen := pushNewly(t, s, nil)
 
 	// Act
-	askOverlord(t, s, "cfo-question-2", "May I merge the release train now?")
+	askOverlord(t, s, "ceo-question-2", "May I merge the release train now?")
 	seen = pushNewly(t, s, seen)
 	again := pushNewly(t, s, seen)
 
@@ -200,8 +200,8 @@ func TestEachNewItemIsPushedWithHowManyWait(t *testing.T) {
 		t.Fatalf("pushed %d, then knew %d waiting; want one push, for the new question, and both known", len(sent), len(again))
 	}
 	payload := pushed(t, sent[0])
-	if payload["title"] != "CFO" || payload["body"] != "The CFO asks: May I merge the release train now?" || payload["count"] != float64(2) || !strings.HasPrefix(payload["tag"].(string), "question:cfo-question-2@") {
-		t.Errorf("pushed %v, want the new question in the CFO's words, its key, and a count of 2", payload)
+	if payload["title"] != "CEO" || payload["body"] != "The CEO asks: May I merge the release train now?" || payload["count"] != float64(2) || !strings.HasPrefix(payload["tag"].(string), "question:ceo-question-2@") {
+		t.Errorf("pushed %v, want the new question in the CEO's words, its key, and a count of 2", payload)
 	}
 }
 
@@ -212,7 +212,7 @@ func TestOneChangePushesAtMostThreeItems(t *testing.T) {
 	s, _ := badgeBoard(t, p, phone)
 	seen := pushNewly(t, s, nil)
 	for i := range 5 {
-		askOverlord(t, s, "cfo-question-"+strconv.Itoa(i+1), "Question "+strconv.Itoa(i+1)+"?")
+		askOverlord(t, s, "ceo-question-"+strconv.Itoa(i+1), "Question "+strconv.Itoa(i+1)+"?")
 	}
 
 	// Act
@@ -224,7 +224,7 @@ func TestOneChangePushesAtMostThreeItems(t *testing.T) {
 	}
 }
 
-// Under AFK mode the CFO answers in his place and nothing is announced, so
+// Under AFK mode the CEO answers in his place and nothing is announced, so
 // nothing is pushed, nor later for what arrived meanwhile; what arrives once
 // it is off is.
 func TestNothingIsPushedUnderAFKMode(t *testing.T) {
@@ -237,7 +237,7 @@ func TestNothingIsPushedUnderAFKMode(t *testing.T) {
 	}
 
 	// Act
-	askOverlord(t, s, "cfo-question-1", "Which layout should I keep?")
+	askOverlord(t, s, "ceo-question-1", "Which layout should I keep?")
 	seen = pushNewly(t, s, seen)
 	duringAFK := len(p.sent())
 	if _, err := afk.TurnOff(s.Store.Home.State, "the board", time.Now().UTC()); err != nil {
@@ -245,7 +245,7 @@ func TestNothingIsPushedUnderAFKMode(t *testing.T) {
 	}
 	seen = pushNewly(t, s, seen)
 	afterAFK := len(p.sent())
-	askOverlord(t, s, "cfo-question-2", "May I merge the release train now?")
+	askOverlord(t, s, "ceo-question-2", "May I merge the release train now?")
 	pushNewly(t, s, seen)
 
 	// Assert
@@ -263,7 +263,7 @@ func TestAnAppItsPushServiceDroppedIsForgotten(t *testing.T) {
 	seen := pushNewly(t, s, nil)
 
 	// Act
-	askOverlord(t, s, "cfo-question-1", "Which layout should I keep?")
+	askOverlord(t, s, "ceo-question-1", "Which layout should I keep?")
 	pushNewly(t, s, seen)
 
 	// Assert
@@ -285,7 +285,7 @@ func TestRemoteAccessOffForgetsEveryApp(t *testing.T) {
 	}
 
 	// Act
-	askOverlord(t, s, "cfo-question-1", "Which layout should I keep?")
+	askOverlord(t, s, "ceo-question-1", "Which layout should I keep?")
 	pushNewly(t, s, seen)
 
 	// Assert
@@ -303,7 +303,7 @@ func TestAnAppNoPushServiceKeepsIsForgottenUnsent(t *testing.T) {
 	seen := pushNewly(t, s, nil)
 
 	// Act
-	askOverlord(t, s, "cfo-question-1", "Which layout should I keep?")
+	askOverlord(t, s, "ceo-question-1", "Which layout should I keep?")
 	_, err := s.pushNew(context.Background(), seen)
 
 	// Assert
@@ -328,7 +328,7 @@ func TestTheSenderRestsWhenThereIsNothingToPush(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			askOverlord(t, s, "cfo-question-1", "Which layout should I keep?")
+			askOverlord(t, s, "ceo-question-1", "Which layout should I keep?")
 			before := s.Revision()
 
 			// Act
@@ -356,7 +356,7 @@ func fromPhone(gate http.Handler, method, body string) *httptest.ResponseRecorde
 	r.RemoteAddr = "127.0.0.1:55432"
 	r.Header.Set("Origin", "https://pc.example.ts.net:4311")
 	r.Header.Set("Tailscale-User-Login", "owner@example.com")
-	r.Header.Set("X-CFO-Token", "instance")
+	r.Header.Set("X-CEO-Token", "instance")
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	gate.ServeHTTP(w, r)
@@ -369,7 +369,7 @@ func postPush(board *HTTP, body string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest("POST", "http://"+board.Host+"/api/push", strings.NewReader(body))
 	request.RemoteAddr = "127.0.0.1:50000"
 	request.Header.Set("Origin", "http://"+board.Host)
-	request.Header.Set("X-CFO-Token", "instance")
+	request.Header.Set("X-CEO-Token", "instance")
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	board.ServeHTTP(response, request)
@@ -490,9 +490,9 @@ func TestTheAppBadgeRefusesWhatNoBrowserSubscribedWith(t *testing.T) {
 	}
 }
 
-// A goblin's question the CFO has left counts on the badge, as the page
+// A goblin's question the CEO has left counts on the badge, as the page
 // counts it, but is never pushed, as the page never alerts it.
-func TestAGoblinsQuestionTheCFOLeftCountsButIsNotPushed(t *testing.T) {
+func TestAGoblinsQuestionTheCEOLeftCountsButIsNotPushed(t *testing.T) {
 	// Arrange
 	p := newPushService(t, http.StatusCreated)
 	s, _ := badgeBoard(t, p, phone)
@@ -505,11 +505,11 @@ func TestAGoblinsQuestionTheCFOLeftCountsButIsNotPushed(t *testing.T) {
 	s.notify()
 	seen = pushNewly(t, s, seen)
 	quiet := len(p.sent())
-	askOverlord(t, s, "cfo-question-1", "Which layout should I keep?")
+	askOverlord(t, s, "ceo-question-1", "Which layout should I keep?")
 	pushNewly(t, s, seen)
 
 	// Assert
 	if sent := p.sent(); quiet != 0 || len(sent) != 1 || pushed(t, sent[0])["count"] != float64(2) {
-		t.Errorf("pushed %d for the goblin's question, %d in all; want none for it, then the CFO's question counting 2", quiet, len(sent))
+		t.Errorf("pushed %d for the goblin's question, %d in all; want none for it, then the CEO's question counting 2", quiet, len(sent))
 	}
 }

@@ -14,7 +14,7 @@ import { RUNS } from "./terminal-runs";
 const PRIVATE = "https://pc.example.ts.net:4311";
 const SESSION = "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34";
 const snapshot = (harness: string) => ({
-  healthy: true, instance: "fixture", revision: 1, attention: [], cfo_runs: true, afk: { state: "off" },
+  healthy: true, instance: "fixture", revision: 1, attention: [], ceo_runs: true, afk: { state: "off" },
   tasks: [{ id: "nw-invoice-export", title: "Export invoices as CSV", project: "northwind-api", phase: "working", verified: false, generation: "nw-invoice-export-1", harness, model: "claude-opus-5-5", effort: "xhigh", backend: "native", session: SESSION }],
   sessions: [{ id: SESSION, native_id: "9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", host_id: "nw-invoice-export", role: "goblin", task_id: "nw-invoice-export", generation: "nw-invoice-export-1", harness, phase: "working" }],
 });
@@ -26,7 +26,7 @@ test.use({ ...devices["iPhone 15"], browserName: "webkit" });
 
 for (const run of RUNS) {
   test(`on an iPhone over the private board a goblin's terminal draws and takes typing, ${run.name}`, async ({ page }) => {
-    await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+    await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "classic"));
     // Arrange: Safari's gaps, and a stand-in Web Audio whose recorder never
     // starts, so dictation's preparation runs and fails quietly as it would
     // anywhere. The terminal's host, played by its socket, repaints after each

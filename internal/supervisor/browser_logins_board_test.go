@@ -65,7 +65,7 @@ func boardLogins(t *testing.T, handler *HTTP, method, path, body string, change 
 	request := httptest.NewRequest(method, "http://"+credentialBoardHost+path, strings.NewReader(body))
 	request.RemoteAddr = "127.0.0.1:50000"
 	request.Header.Set("Origin", "http://"+credentialBoardHost)
-	request.Header.Set("X-CFO-Token", "test-instance")
+	request.Header.Set("X-CEO-Token", "test-instance")
 	request.Header.Set("Content-Type", "application/json")
 	if change != nil {
 		change(request)

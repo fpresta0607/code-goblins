@@ -7,9 +7,9 @@ import { ConnectorMark } from "./ConnectorMark";
 import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
 import { EngineSelector } from "./engine-selector";
-import { CfoEngineSelector } from "./cfo-engine-selector";
+import { CeoEngineSelector } from "./ceo-engine-selector";
 import { DevDriveSetting } from "./dev-drive-setting";
-import { isCfoRestartOffered, RestartCfoButton } from "./restart-cfo-button";
+import { isCeoRestartOffered, RestartCeoButton } from "./restart-ceo-button";
 import { RemoteAccessSetting } from "./remote-access-setting";
 import { AppBadgeSetting } from "./app-badge-setting";
 import { ChatStyleSetting } from "./chat-style-setting";
@@ -23,7 +23,7 @@ function parse(value: unknown) {
 
 // Where the work lives and what it runs on: the Workspace and Harness
 // sections of a panel, each closed until it is opened, like the sections
-// below them. Harness holds every harness control, the CFO's Restart among
+// below them. Harness holds every harness control, the CEO's Restart among
 // them. What a goblin reaches is no section here: its panel links to the
 // Connectors page, which lists every goblin's connectors once (#2303).
 export function WorkspaceDetails({ task, node, snapshot, connected, onConnectors }: { task?: Task; node?: Session; snapshot: Snapshot; connected: boolean; onConnectors: () => void }) {
@@ -35,11 +35,11 @@ export function WorkspaceDetails({ task, node, snapshot, connected, onConnectors
   const resource = useResource(!queued && !unlinked && !isArchived ? path : null, parse);
   const details = resource.data;
   const harness = details ? harnessName(child ? node.harness : details.harness) : "";
-  // A task's own session and the CFO's show their one record in the selector
+  // A task's own session and the CEO's show their one record in the selector
   // below; a child session names the model it reported of itself.
   const model = details && child ? sessionModel(node, task) : "";
   const provider = modelMark(model);
-  const isCfo = !task && !node;
+  const isCeo = !task && !node;
   const hasConnectors = !child && !!task && !queued && !isArchived;
   // The Chat choice matters only where the board reads the session as messages.
   const hasChat = !child && (task ? !queued && !isArchived && !!messagesQuery(snapshot, task) : !!messagesQuery(snapshot));
@@ -50,17 +50,17 @@ export function WorkspaceDetails({ task, node, snapshot, connected, onConnectors
         {details.notes.map((note) => <p key={note}>{linkedText(note)}</p>)}
       </>}
       {hasChat && <ChatStyleSetting />}
-      {isCfo && snapshot.dev_drive && <DevDriveSetting drive={snapshot.dev_drive} instance={snapshot.instance} />}
+      {isCeo && snapshot.dev_drive && <DevDriveSetting drive={snapshot.dev_drive} instance={snapshot.instance} />}
     </Disclosure>
-    {isCfo && !snapshot.example && <Disclosure kind="remote-access" title="Remote access"><RemoteAccessSetting instance={snapshot.instance} runs={snapshot.runs || []} connected={connected} /><AppBadgeSetting instance={snapshot.instance} /></Disclosure>}
+    {isCeo && !snapshot.example && <Disclosure kind="remote-access" title="Remote access"><RemoteAccessSetting instance={snapshot.instance} runs={snapshot.runs || []} connected={connected} /><AppBadgeSetting instance={snapshot.instance} /></Disclosure>}
     <Disclosure kind="harness" title="Harness">
       {task && !child ? <EngineSelector key={task.id + task.generation} task={task} instance={snapshot.instance} /> : <>
-        {!(isCfo && isCfoRestartOffered(snapshot)) && <ul className="connection-list" aria-label="Harness and model">
+        {!(isCeo && isCeoRestartOffered(snapshot)) && <ul className="connection-list" aria-label="Harness and model">
           {harness && <li><ConnectorMark mark={harnessMark(child ? node.harness : details?.harness || "")} label={harness} /><span className="connection-name">{harness}</span></li>}
           {model && <li><ConnectorMark mark={provider.mark} label={provider.provider} /><span className="connection-name">{model}<span className="chip">Model</span></span></li>}
         </ul>}
-        {isCfo && <RestartCfoButton snapshot={snapshot} />}
-        {isCfo && <CfoEngineSelector snapshot={snapshot} />}
+        {isCeo && <RestartCeoButton snapshot={snapshot} />}
+        {isCeo && <CeoEngineSelector snapshot={snapshot} />}
       </>}
     </Disclosure>
     {hasConnectors && <button type="button" className="connectors-link" onClick={onConnectors}><Icon name="plug" />Connectors<Icon name="next" /></button>}

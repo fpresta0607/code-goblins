@@ -51,7 +51,7 @@ interface Confirm { names: string[]; action: "save" | "run"; confirmed: string[]
 // has Dismiss, which tells its goblin to go on without it. A pasted secret is
 // stored at once, unless its format hint warns about it; a typed one when he
 // presses Enter or the row's lock. Where a value goes and how it was stored
-// are in the tips. Below the table the cfo auth store lines have Copy and Run
+// are in the tips. Below the table the goblins auth store lines have Copy and Run
 // to type them in a terminal on this PC instead. Values are typed only on the
 // board on this PC; a board opened from another machine shows the commands. A
 // plain value the board refuses as shaped like a key shows its refusal with a
@@ -99,7 +99,7 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
   const asker = request.task ? task ? goblinName(task) : request.task : "The CEO";
   const typeable = terminalNames(request, []).filter((name) => !answered.includes(name));
   const commands = (typeable.length ? typeable : needed).map((name) => storeCommand(request.project, name));
-  const headers = { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance };
+  const headers = { "Content-Type": "application/json", "X-CEO-Token": snapshot.instance };
   const empty = (name: string) => {
     setValues((prior) => { const rest = { ...prior }; delete rest[name]; return rest; });
     setRounds((prior) => ({ ...prior, [name]: (prior[name] || 0) + 1 }));
@@ -204,7 +204,7 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
 
   const several = commands.length > 1;
   return <article className="question-card credential-card" data-credential-request={request.id} aria-labelledby={"credential-" + request.id}>
-    <p className="asker"><Avatar persona={request.task ? personaFor(task) : "cfo"} small />
+    <p className="asker"><Avatar persona={request.task ? personaFor(task) : "ceo"} small />
       <span><strong>{asker}</strong> {open ? "asks · waiting " + age(request.created_at, now).replace(/ ago$/, "") : "asked · closed " + age(request.closed_at || request.created_at, now)}</span></p>
     <header className="credential-heading">
       <h3 id={"credential-" + request.id} tabIndex={-1}>{inlineElements(credentialHeading(request), copyValues, paths)}</h3>

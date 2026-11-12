@@ -48,14 +48,14 @@ func TestReadersReadAnEnvironmentThatMovesUnderASteadyBlock(t *testing.T) {
 		t.Run(reader.name, func(t *testing.T) {
 			// Arrange
 			child := startSuspended(t)
-			first := child.moveEnvironment(t, "CFO_ENVIRONMENT=first")
-			if environment, err := reader.read(child.pid, child.start); err != nil || !slices.Contains(environment, "CFO_ENVIRONMENT=first") {
-				t.Fatalf("the premise does not hold: with nothing moving the reader read %d entries and %v, want CFO_ENVIRONMENT=first", len(environment), err)
+			first := child.moveEnvironment(t, "GOBLINS_ENVIRONMENT=first")
+			if environment, err := reader.read(child.pid, child.start); err != nil || !slices.Contains(environment, "GOBLINS_ENVIRONMENT=first") {
+				t.Fatalf("the premise does not hold: with nothing moving the reader read %d entries and %v, want GOBLINS_ENVIRONMENT=first", len(environment), err)
 			}
 			follows := 0
 			environmentFollowed = func() {
 				if follows++; follows == 1 {
-					child.moveEnvironment(t, "CFO_ENVIRONMENT=second")
+					child.moveEnvironment(t, "GOBLINS_ENVIRONMENT=second")
 					child.free(t, first)
 				}
 			}
@@ -68,8 +68,8 @@ func TestReadersReadAnEnvironmentThatMovesUnderASteadyBlock(t *testing.T) {
 			if err != nil {
 				t.Fatalf("the read across the move: %v", err)
 			}
-			if !slices.Contains(environment, "CFO_ENVIRONMENT=second") {
-				t.Errorf("the read across the move gave %d entries without CFO_ENVIRONMENT=second", len(environment))
+			if !slices.Contains(environment, "GOBLINS_ENVIRONMENT=second") {
+				t.Errorf("the read across the move gave %d entries without GOBLINS_ENVIRONMENT=second", len(environment))
 			}
 			// The premise: the first read was of freed memory. Were it not,
 			// a reader that never looked again would pass too.
@@ -87,11 +87,11 @@ func TestReadersRefuseAnEnvironmentThatNeverHoldsStill(t *testing.T) {
 		t.Run(reader.name, func(t *testing.T) {
 			// Arrange
 			child := startSuspended(t)
-			child.moveEnvironment(t, "CFO_ENVIRONMENT=0")
+			child.moveEnvironment(t, "GOBLINS_ENVIRONMENT=0")
 			follows := 0
 			environmentFollowed = func() {
 				follows++
-				child.moveEnvironment(t, "CFO_ENVIRONMENT="+strings.Repeat("moved ", follows))
+				child.moveEnvironment(t, "GOBLINS_ENVIRONMENT="+strings.Repeat("moved ", follows))
 			}
 			t.Cleanup(func() { environmentFollowed = func() {} })
 

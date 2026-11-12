@@ -26,7 +26,7 @@ func TestSecretShapeTakesEveryDeclaredCredentialName(t *testing.T) {
 	}
 }
 
-// Sentences a CFO writes as a request's reason, and the pages a request links
+// Sentences a CEO writes as a request's reason, and the pages a request links
 // to, are not values either.
 func TestSecretShapeTakesPlainReasonsAndLinkSegments(t *testing.T) {
 	for _, text := range []string{

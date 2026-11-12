@@ -138,13 +138,13 @@ func TestReadShowsNoChildrenForPi(t *testing.T) {
 
 // The goblin's conversation is the one its own harness process records, or
 // the board recorded for its generation: never the newest in its folder,
-// where a forked CFO session worked on 2026-10-06.
+// where a forked CEO session worked on 2026-10-06.
 func TestReadTakesOnlyTheConversationItsHarnessOrTheBoardProves(t *testing.T) {
 	home := t.TempDir()
 	folder := filepath.Join(home, ".claude", "projects", "C--work-gb-tree")
 	writeLines(t, filepath.Join(folder, "own-session.jsonl"), at.Add(-time.Hour),
 		call("toolu_A", "Agent", object{"description": "Own agent"}, at.Add(-time.Hour)))
-	writeLines(t, filepath.Join(folder, "forked-cfo.jsonl"), at,
+	writeLines(t, filepath.Join(folder, "forked-ceo.jsonl"), at,
 		call("toolu_X", "Agent", object{"description": "Someone else's agent"}, at))
 	harness := Process{PID: 4242, ParentPID: 1, Exe: "claude.exe", Created: 134357962423340710, Started: filetime(134357962423340710)}
 	processes := func() ([]Process, error) { return []Process{harness}, nil }

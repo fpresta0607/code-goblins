@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { message, reportToCfo } from "./api";
+import { message, reportToCeo } from "./api";
 import { boardKey, isPushingApp, postPush, subscribeApp } from "./app-badge";
 import { SettingSwitch } from "./setting-switch";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import "./remote-access.css";
 
-// The app badge, as the Overlord asked (CFO decision 1008918): in his phone's
+// The app badge, as the Overlord asked (CEO decision 1008918): in his phone's
 // Home Screen app alone, a switch whose press asks for notifications in the
 // app's own words, the system's prompt naming the app, and only then, and
 // subscribes the app to the supervisor's pushes, which carry each item newly
@@ -20,7 +20,7 @@ export function AppBadgeSetting({ instance }: { instance: string }) {
     if (!isOffered) return;
     navigator.serviceWorker.getRegistration("/").then((registration) => registration?.pushManager.getSubscription())
       .then((subscription) => setIsOn(!!subscription && Notification.permission === "granted"))
-      .catch((error: unknown) => reportToCfo("the app badge", message(error)));
+      .catch((error: unknown) => reportToCeo("the app badge", message(error)));
   }, [isOffered]);
   if (!isOffered || isOn === undefined) return null;
   const turnOn = async () => {

@@ -42,7 +42,7 @@ func landsTwo(t *testing.T, arrange func(*fakeGitHub)) (*scratch, *fakeGitHub, T
 // A test that fails and passes on its second try inside its job leaves its
 // check green, so the train's own second try of a red run never sees it. The
 // train that lands on such a run names each test in its record and in its
-// message to the CFO, as the workflow named it, and names no other warning.
+// message to the CEO, as the workflow named it, and names no other warning.
 func TestATrainThatLandsNamesTheTestsThatFailedOnceInsideTheirJob(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -58,10 +58,10 @@ func TestATrainThatLandsNamesTheTestsThatFailedOnceInsideTheirJob(t *testing.T) 
 	if run := landed.History[0]; !slices.Equal(run.OnceTests, tests) || run.OnceUnread != "" || len(run.FailedOnce) != 0 {
 		t.Errorf("run %+v, want the two tests that failed once and no check that failed", run)
 	}
-	last := s.cfo[len(s.cfo)-1]
+	last := s.ceo[len(s.ceo)-1]
 	want := "tests that failed once and passed on the second try inside their job: " + strings.Join(tests, ", ") + " in run 1"
 	if !strings.Contains(last, "landed #11, #12") || !strings.Contains(last, want) || strings.Contains(last, "Node.js") {
-		t.Errorf("CFO told %q, want the landing, %q and no other warning", last, want)
+		t.Errorf("CEO told %q, want the landing, %q and no other warning", last, want)
 	}
 	if gh.onceReads != 1 {
 		t.Errorf("the tests that failed once were read %d times, want once, as the run passed", gh.onceReads)
@@ -75,9 +75,9 @@ func TestATrainThatLandsWithNoTestThatFailedOnceSaysNothingOfThem(t *testing.T) 
 	s, _, landed := landsTwo(t, func(*fakeGitHub) {})
 
 	// Assert
-	last := s.cfo[len(s.cfo)-1]
+	last := s.ceo[len(s.ceo)-1]
 	if landed.State != StateLanded || !strings.Contains(last, "landed #11, #12") || strings.Contains(last, "failed once") {
-		t.Errorf("train %s told the CFO %q, want the landing and no word of tests that failed once", landed.State, last)
+		t.Errorf("train %s told the CEO %q, want the landing and no word of tests that failed once", landed.State, last)
 	}
 	if run := landed.History[0]; len(run.OnceTests) != 0 || run.OnceUnread != "" {
 		t.Errorf("run %+v, want no test that failed once and nothing unread", run)
@@ -86,7 +86,7 @@ func TestATrainThatLandsWithNoTestThatFailedOnceSaysNothingOfThem(t *testing.T) 
 
 // A read that fails never stops a landing, since what the run proved does
 // not wait on it, and it is said, never taken for none: a read that stopped
-// seeing would otherwise tell the CFO that nothing failed by chance.
+// seeing would otherwise tell the CEO that nothing failed by chance.
 func TestATrainLandsAndSaysSoWhenTheTestsThatFailedOnceCannotBeRead(t *testing.T) {
 	t.Parallel()
 	for name, test := range map[string]struct {
@@ -105,9 +105,9 @@ func TestATrainLandsAndSaysSoWhenTheTestsThatFailedOnceCannotBeRead(t *testing.T
 			if got := carStates(landed); landed.State != StateLanded || !slices.Equal(got, []string{"#11=landed", "#12=landed"}) {
 				t.Fatalf("train %s, cars %v, want both landed whatever became of the read", landed.State, got)
 			}
-			last := s.cfo[len(s.cfo)-1]
+			last := s.ceo[len(s.ceo)-1]
 			if want := "the tests that failed once could not be read: " + test.want; !strings.Contains(last, want) || !strings.Contains(last, " in run 1") {
-				t.Errorf("CFO told %q, want %q with its run", last, want)
+				t.Errorf("CEO told %q, want %q with its run", last, want)
 			}
 			if run := landed.History[0]; !strings.Contains(run.OnceUnread, test.want) || len(run.OnceTests) != 0 {
 				t.Errorf("run %+v, want why the read failed kept, and no test", run)

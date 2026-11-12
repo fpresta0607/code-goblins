@@ -42,7 +42,7 @@ export function connectorReader(instance: string, onRead: (task: Task, connectio
     const path = "/api/connections?task=" + encodeURIComponent(task.id) + "&generation=" + encodeURIComponent(task.generation);
     try {
       let connections = parseConnections(isRecheck
-        ? await request("/api/connections/check", controller.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ task: task.id, generation: task.generation }) })
+        ? await request("/api/connections/check", controller.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ task: task.id, generation: task.generation }) })
         : await request(path, controller.signal));
       if (!controller.signal.aborted) onRead(task, connections);
       while (connections.checking && !controller.signal.aborted) {

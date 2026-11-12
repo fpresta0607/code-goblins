@@ -21,7 +21,7 @@ async function watchTerminals(page: Page) {
   return () => page.evaluate(() => (window as unknown as { liveTerminals: () => string[] }).liveTerminals());
 }
 const GOBLIN_TERMINAL = new URLSearchParams({ task: GOBLIN.id, generation: GOBLIN.generation, token: "fixture" }).toString();
-const CFO_TERMINAL = new URLSearchParams({ cfo: "cfo-term", token: "fixture" }).toString();
+const CEO_TERMINAL = new URLSearchParams({ ceo: "ceo-term", token: "fixture" }).toString();
 
 for (const { harness, isBracketed } of ["claude", "codex", "pi"].flatMap((harness) => [true, false].map((isBracketed) => ({ harness, isBracketed })))) {
   test(`${harness} Chat sends and answers harness controls before mounting a terminal, bracketed paste ${isBracketed ? "on" : "off"}`, async ({ page }) => {
@@ -115,11 +115,11 @@ test("Chat sends through a replacement terminal hidden before its first size cla
   await expect(page.locator(".xterm")).toHaveCount(0);
 });
 
-for (const isCfo of [true, false]) {
+for (const isCeo of [true, false]) {
   for (const completion of ["repaint", "fallback"] as const) {
-    test(`${isCfo ? "CFO" : "goblin"} terminal reopens after its first ${completion} completes while hidden`, async ({ page }) => {
+    test(`${isCeo ? "CEO" : "goblin"} terminal reopens after its first ${completion} completes while hidden`, async ({ page }) => {
       const relay = await open(page, snapshot(), "", undefined, "> ready\r\n", false);
-      if (isCfo) await page.keyboard.press("Control+Alt+1");
+      if (isCeo) await page.keyboard.press("Control+Alt+1");
       else await openGoblin(page);
       await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
       await page.evaluate(() => document.fonts.ready);
@@ -152,9 +152,9 @@ for (const isCfo of [true, false]) {
     });
   }
 
-  test(`${isCfo ? "CFO" : "goblin"} terminal first opens its replayed screen after the connection closes`, async ({ page }) => {
+  test(`${isCeo ? "CEO" : "goblin"} terminal first opens its replayed screen after the connection closes`, async ({ page }) => {
     const relay = await open(page);
-    if (isCfo) await page.keyboard.press("Control+Alt+1");
+    if (isCeo) await page.keyboard.press("Control+Alt+1");
     else await openGoblin(page);
     await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
     const connections = relay.views;
@@ -239,7 +239,7 @@ test("a session he leaves keeps no terminal connection, and coming back connects
   await expect(page.locator("#panel-title")).toHaveText("CEO");
 
   // Assert
-  await expect.poll(liveTerminals).toEqual([CFO_TERMINAL]);
+  await expect.poll(liveTerminals).toEqual([CEO_TERMINAL]);
 
   // Act
   await openGoblin(page);
@@ -252,18 +252,18 @@ test("a session he leaves keeps no terminal connection, and coming back connects
   await expect.poll(() => relay.inputs.map((input) => new URL(input.address).searchParams.get("task") + " " + input.text)).toEqual(["cg-touch " + pasted("Back to Zeke"), "cg-touch \r"]);
 });
 
-// The CFO, decision 1016436: a panel that closes ends its terminal. No stream
-// stays open behind a closed panel, on the Board or for the CFO in
+// The CEO, decision 1016436: a panel that closes ends its terminal. No stream
+// stays open behind a closed panel, on the Board or for the CEO in
 // Orchestration, and opening the panel connects afresh.
 for (const view of ["Board", "Orchestration"] as const) {
-  test(`closing the CFO's panel on ${view} ends its terminal connection, and opening it connects afresh`, async ({ page }) => {
+  test(`closing the CEO's panel on ${view} ends its terminal connection, and opening it connects afresh`, async ({ page }) => {
     // Arrange
     const relay = await open(page);
     const liveTerminals = await watchTerminals(page);
     if (view === "Orchestration") await page.getByRole("button", { name: "Orchestration", exact: true }).click();
     else await page.keyboard.press("Control+Alt+1");
     await expect(page.locator("#panel-title")).toHaveText("CEO");
-    await expect.poll(liveTerminals).toEqual([CFO_TERMINAL]);
+    await expect.poll(liveTerminals).toEqual([CEO_TERMINAL]);
     const views = relay.views;
 
     // Act
@@ -277,7 +277,7 @@ for (const view of ["Board", "Orchestration"] as const) {
     await page.getByRole("button", { name: "Open CEO", exact: true }).click();
 
     // Assert
-    await expect.poll(liveTerminals).toEqual([CFO_TERMINAL]);
+    await expect.poll(liveTerminals).toEqual([CEO_TERMINAL]);
     expect(relay.views, "opening it connects afresh").toBe(views + 1);
   });
 }

@@ -40,7 +40,7 @@ func TestBuildGivesNativeSubagentsTheirRoutedModels(t *testing.T) {
 					}
 					continue
 				}
-				pattern := filepath.Join(root, "subagents", "*", ".claude", "agents", "cfo-"+role+".md")
+				pattern := filepath.Join(root, "subagents", "*", ".claude", "agents", "ceo-"+role+".md")
 				files, err := filepath.Glob(pattern)
 				if err != nil || len(files) != 1 {
 					t.Fatalf("%s: files=%v err=%v", role, files, err)

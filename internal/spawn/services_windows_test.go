@@ -37,7 +37,7 @@ func TestSpawnTellsAGoblinWhoseBriefNeedsServicesTheCommandToRun(t *testing.T) {
 	if len(submitted) != 1 || !strings.Contains(delivered(t, submitted[0].Text), want) {
 		t.Fatalf("submitted = %+v; want the goblin told %q", submitted, want)
 	}
-	if !strings.Contains(result.Output, "\nservices: the goblin holds primary's local services for its full-stack check with cfo services up, and releases them with cfo services down") {
+	if !strings.Contains(result.Output, "\nservices: the goblin holds primary's local services for its full-stack check with goblins services up, and releases them with goblins services down") {
 		t.Errorf("output = %q; want the services named as the goblin's", result.Output)
 	}
 }

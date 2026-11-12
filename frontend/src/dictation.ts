@@ -63,7 +63,7 @@ export function dictationProblem(error: string): string {
 
 // problem is a note for the Overlord, about his microphone or a dictation
 // that heard nothing, and failed is a dictation whose words could not be had,
-// which goes to the CFO rather than onto the board.
+// which goes to the CEO rather than onto the board.
 // heard's isSent says the dictation was stopped to send its words, as a
 // second tap of a touch screen's microphone does.
 export interface DictationEvents { heard: (text: string, isSent: boolean) => void; listening: (on: boolean) => void; problem: (note: string) => void; failed: (reason: string) => void; pending?: (hasPending: boolean) => void }
@@ -100,7 +100,7 @@ function captureProblem(error: unknown): string {
 const RECOGNITION_MS = 120_000;
 
 // A recognizer handed the microphone listens within moments. One that does
-// not by then cannot record, and the CFO is told.
+// not by then cannot record, and the CEO is told.
 const LISTEN_MS = 5000;
 
 // A browser's recognizer ends by itself after a stretch of silence, or once it

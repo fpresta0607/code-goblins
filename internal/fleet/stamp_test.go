@@ -7,7 +7,7 @@ import (
 )
 
 // A steer is stamped with the same constant the fault detector excludes, so
-// the words the CFO writes about a provider never read as the harness's own
+// the words the CEO writes about a provider never read as the harness's own
 // fault. Both this test and the detector's reach the prefix through
 // routing.SteerPrefix; changing the constant moves both, and a stamp that
 // stopped using it would fail here.

@@ -88,7 +88,7 @@ func validDocument(d ReviewDocument) error {
 
 // DeliverDocument hands the Overlord a file from the reporter's own process,
 // a goblin's from its worktree, task scratch or data directory, the registered
-// CFO's from anywhere it can read, as a Scrawl page that shows it. The file is
+// CEO's from anywhere it can read, as a Scrawl page that shows it. The file is
 // copied beside the page under state/reviews before the item is recorded, so
 // it outlives the original. open opens the page as a review session and
 // returns its address, and the supervisor watches it, so what the Overlord

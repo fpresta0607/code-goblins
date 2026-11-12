@@ -16,18 +16,18 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// heldQueue starts the fixture harness of mode in a turn, as the CFO's
+// heldQueue starts the fixture harness of mode in a turn, as the CEO's
 // terminal or as goblin task-1's, and has the board type each of texts into
 // that turn as his messages m1, m2 and so on, which the harness queues. It
 // returns the task those messages name and the line the board typed for a
-// text. The CFO's are typed by the board's own delivery; a goblin's by the
+// text. The CEO's are typed by the board's own delivery; a goblin's by the
 // line that delivery types, recorded as that delivery records one submitted
 // into a turn.
 func heldQueue(t *testing.T, isGoblin bool, mode string, texts ...string) (*Store, *Service, hostedTerminal, string, func(string) string) {
 	t.Helper()
 	useConversations(t)
 	store, home := testStore(t)
-	service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: home.State}}}
+	service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State}}}
 	task, typed := "", func(text string) string { return text }
 	var meta state.TaskMeta
 	if isGoblin {
@@ -41,7 +41,7 @@ func heldQueue(t *testing.T, isGoblin bool, mode string, texts ...string) (*Stor
 		}
 		task, typed = meta.ID, goblinLine
 	}
-	terminal := nativeComposer(t, home.State, cmp.Or(task, "cfo"), mode)
+	terminal := nativeComposer(t, home.State, cmp.Or(task, "ceo"), mode)
 	for i, text := range texts {
 		id := fmt.Sprintf("m%d", i+1)
 		execute := service.execute
@@ -103,8 +103,8 @@ func TestHisMessageSubmittedIntoATurnReadsQueuedInItsSessionUntilTheTurnTakesIt(
 			// Arrange
 			records := useConversations(t)
 			store, home := testStore(t)
-			terminal := nativeCFOComposer(t, home.State, test.mode)
-			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+			terminal := nativeCEOComposer(t, home.State, test.mode)
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
 			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
 				t.Fatal(err)
 			}
@@ -122,11 +122,11 @@ func TestHisMessageSubmittedIntoATurnReadsQueuedInItsSessionUntilTheTurnTakesIt(
 			taken := actionOf(store, "m1")
 
 			// Assert
-			if err != nil || held.Status != "running" || held.Awaiting == nil || !held.Awaiting.IsHeld || held.Message != heldByCFO {
-				t.Errorf("delivery = %v, action = %+v; want it to say it is queued in the CFO's session", err, held)
+			if err != nil || held.Status != "running" || held.Awaiting == nil || !held.Awaiting.IsHeld || held.Message != heldByCEO {
+				t.Errorf("delivery = %v, action = %+v; want it to say it is queued in the CEO's session", err, held)
 			}
 			if settleErr != nil || taken.Status != "succeeded" || taken.Awaiting != nil {
-				t.Errorf("settle = %v, action = %+v; want it delivered once the CFO's record shows it taken", settleErr, taken)
+				t.Errorf("settle = %v, action = %+v; want it delivered once the CEO's record shows it taken", settleErr, taken)
 			}
 		})
 	}
@@ -143,9 +143,9 @@ func TestSendNowOnAMessageItsHarnessHoldsPressesThatHarnesssSendNowKeyOnce(t *te
 		mode     string
 		wantKey  string
 	}{
-		{name: "the CFO's Claude Code", mode: "claude-busy", wantKey: "sent now"},
+		{name: "the CEO's Claude Code", mode: "claude-busy", wantKey: "sent now"},
 		{name: "a goblin's Claude Code", isGoblin: true, mode: "claude-busy", wantKey: "sent now"},
-		{name: "the CFO's Codex", mode: "busy", wantKey: "interrupted"},
+		{name: "the CEO's Codex", mode: "busy", wantKey: "interrupted"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -183,7 +183,7 @@ func TestCancelOfAMessageItsHarnessHoldsTakesItOutOfThatQueueAndKeepsTheOthers(t
 		name     string
 		isGoblin bool
 	}{
-		{name: "the CFO's"},
+		{name: "the CEO's"},
 		{name: "a goblin's", isGoblin: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -223,7 +223,7 @@ func TestCancelOfAMessageItsHarnessHoldsTakesItOutOfThatQueueAndKeepsTheOthers(t
 				t.Errorf("terminal input = %q; want the two he kept typed into the turn again, and the one he cancelled never again", input)
 			}
 			if !isHarnessHeld(actionOf(store, "m1")) || !isHarnessHeld(actionOf(store, "m3")) {
-				t.Errorf("after they were typed again = %+v; want both held in the CFO's queue", store.Snapshot().Actions)
+				t.Errorf("after they were typed again = %+v; want both held in the CEO's queue", store.Snapshot().Actions)
 			}
 		})
 	}
@@ -294,10 +294,10 @@ func TestAQueueTheBoardCannotTakeBackAloneIsNeverCleared(t *testing.T) {
 // delivers that message next. It never leaves the message queued." Claude
 // Code's send-now key takes a slash command at the head of its queue alone,
 // as a turn of its own, and left his message behind three such commands
-// queued on 2026-11-10. So a command to a CFO in a turn waits on the board,
+// queued on 2026-11-10. So a command to a CEO in a turn waits on the board,
 // whatever its harness, and Send now on the message behind it types that
 // message into the turn ahead of it and presses the key over it alone.
-func TestSendNowOnAMessageBehindACommandForTheCFOsTurnHasThatMessageTakenFirst(t *testing.T) {
+func TestSendNowOnAMessageBehindACommandForTheCEOsTurnHasThatMessageTakenFirst(t *testing.T) {
 	for _, test := range []struct{ name, mode, wantKey string }{
 		{name: "Claude Code", mode: "claude-busy", wantKey: "sent now"},
 		{name: "Codex", mode: "busy", wantKey: "interrupted"},
@@ -306,8 +306,8 @@ func TestSendNowOnAMessageBehindACommandForTheCFOsTurnHasThatMessageTakenFirst(t
 			// Arrange
 			useConversations(t)
 			store, home := testStore(t)
-			terminal := nativeCFOComposer(t, home.State, test.mode)
-			service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: home.State}}}
+			terminal := nativeCEOComposer(t, home.State, test.mode)
+			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State}}}
 			for i, text := range []string{"/review", "stop and rebase"} {
 				if _, err := store.Queue(Action{ID: fmt.Sprintf("m%d", i+1), Kind: "message", Text: text}); err != nil {
 					t.Fatal(err)
@@ -329,7 +329,7 @@ func TestSendNowOnAMessageBehindACommandForTheCFOsTurnHasThatMessageTakenFirst(t
 			if command.Status != "queued" || command.CanSendNow || command.Message != "Queued. "+commandWaits {
 				t.Errorf("the command = %+v; want it waiting on the board for the turn's end, with no Send now", command)
 			}
-			if behind.Status != "queued" || !behind.CanSendNow || behind.Message != "Queued until the CFO's turn ends. Send now has it take the message at once." {
+			if behind.Status != "queued" || !behind.CanSendNow || behind.Message != "Queued until the CEO's turn ends. Send now has it take the message at once." {
 				t.Errorf("the message behind it = %+v; want it waiting with Send now", behind)
 			}
 			if pressed.Code != 202 || err != nil || !isHarnessHeld(sent) || sent.Message != sentNowInTurn {
@@ -354,7 +354,7 @@ func TestAQueueIsNotTakenBackWhileADeliveryToItsSessionRuns(t *testing.T) {
 		name     string
 		isGoblin bool
 	}{
-		{name: "the CFO's"},
+		{name: "the CEO's"},
 		{name: "a goblin's", isGoblin: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

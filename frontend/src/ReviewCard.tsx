@@ -61,7 +61,7 @@ export function ReviewCard({ review, snapshot, connected, now, draft, onDraft, o
   // Each local path its words name opens in File Explorer.
   const paths = pathLinks({ kind: "review", id: review.id, instance: snapshot.instance });
   return <form className="question-card" aria-labelledby={"review-" + review.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
-    <p className="asker"><Avatar persona={review.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> {status ? "is waiting on you" : "asks"} · waiting {age(review.created_at, now).replace(/ ago$/, "")}</span></p>
+    <p className="asker"><Avatar persona={review.task ? personaFor(task) : "ceo"} small /><span><strong>{asker}</strong> {status ? "is waiting on you" : "asks"} · waiting {age(review.created_at, now).replace(/ ago$/, "")}</span></p>
     {!lead ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(rest, copyValues, paths)}</div>
       : <h3 id={"review-" + review.id} tabIndex={-1}>{inlineElements(lead, copyValues, paths)}</h3>}
     {lead && rest && <div className="question-body">{messageElements(rest, copyValues, paths)}</div>}

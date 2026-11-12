@@ -47,7 +47,7 @@ test("a report loses the state word the status already says", () => {
     ["waiting on ci: PR 326's checks", "PR 326's checks"],
     ["blocked: Which port should I use?", "Which port should I use?"],
     ["failed: go test timed out", "go test timed out"],
-    ["Waiting on the CFO: Which port?", "Which port?"],
+    ["Waiting on the CEO: Which port?", "Which port?"],
     ["lifecycle-paused: Requested by the operator", "Requested by the operator"],
     ["done: PR https://github.com/o/r/pull/326", ""],
     ["Native activity and runtime evidence agree", "Native activity and runtime evidence agree"],
@@ -64,7 +64,7 @@ test("plain text is sentence case with no semicolon chains, hashes, paths or lin
     ["a hash alone in brackets goes with its brackets", "merged (ce7db967) and installed", "Merged and installed."],
     ["a path becomes the name it ends with", "the board-display handoff is at state/tasktmp/cg-fleet-auto-resume/board-display-handoff.md, so this task can pause",
       "The board-display handoff is at board-display-handoff.md, so this task can pause."],
-    ["a Windows path too", "log at C:\\Users\\fpres\\AppData\\Local\\cfo\\verify\\reports\\run-12.log.", "Log at run-12.log."],
+    ["a Windows path too", "log at C:\\Users\\fpres\\AppData\\Local\\goblins\\verify\\reports\\run-12.log.", "Log at run-12.log."],
     ["a pull request link reads as the pull request", "opened https://github.com/fpresta0607/code-goblins/pull/326 for review", "Opened PR #326 for review."],
     ["a pull request named before its link is named once", "delivered as PR https://github.com/fpresta0607/code-goblins/pull/326", "Delivered as PR #326."],
     ["an issue link reads as the issue", "closed https://github.com/o/r/issues/1450 (decision 7: close it)", "Closed issue #1450 (decision 7: close it)."],
@@ -107,15 +107,15 @@ test("Windows teardown names the programs it still closes, never their process i
 });
 
 // The supervisor's words for a queued task that already finished, written
-// for the CFO (finishedRefusal in internal/supervisor/finished_work.go).
+// for the CEO (finishedRefusal in internal/supervisor/finished_work.go).
 const refusal = (evidence: string) => "Already finished: " + evidence + "; it never starts again by itself. Move its row to ## Done, or queue new work under a new id";
 
-test("what says a queued task already finished reads as one plain sentence, without what its status says or the CFO's next step", () => {
+test("what says a queued task already finished reads as one plain sentence, without what its status says or the CEO's next step", () => {
   const cases: [string, string, string][] = [
     ["its last report", refusal("its last report was done (2026-10-06 11:59Z: done: PR https://github.com/fpresta0607/code-goblins/pull/9)"), "Its last report was done (2026-10-06 11:59Z: done: PR #9)."],
     ["its pull request", refusal("its pull request merged (https://github.com/fpresta0607/code-goblins/pull/31)"), "Its pull request merged (PR #31)."],
     ["its branch's pull request", refusal("its branch fix/panel-clarity's pull request merged (https://github.com/fpresta0607/code-goblins/pull/31)"), "Its branch fix/panel-clarity's pull request merged (PR #31)."],
-    ["a retirement", refusal("the CFO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since"), "The CFO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since."],
+    ["a retirement", refusal("the CEO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since"), "The CEO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since."],
     ["other words are kept whole", "Finished under another id", "Finished under another id."],
     ["nothing says so", "", ""],
   ];

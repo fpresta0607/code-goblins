@@ -14,7 +14,7 @@ import (
 // (cleanup deliberately leaves the log behind when it retires a task), so it
 // is reported separately rather than counted as a task.
 //
-// Dot-prefixed files are skipped throughout. state/ holds CFO's own
+// Dot-prefixed files are skipped throughout. state/ holds CEO's own
 // bookkeeping under dotted names, and .reap.status in particular is a real
 // status log that belongs to no task and must never read as an orphan.
 type Scan struct {

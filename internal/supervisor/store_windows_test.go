@@ -54,7 +54,7 @@ func TestAnIntakeThatStopsShortStillSaysWhatItSetAside(t *testing.T) {
 }
 
 // An event that leaves the inbox after an intake listed it has left it, and
-// the intake takes the rest: on 2026-10-27 the CFO moved the inbox's events
+// the intake takes the rest: on 2026-10-27 the CEO moved the inbox's events
 // to a quarantine folder while the supervisor read them, and each intake
 // stopped on the missing file, an error the supervisor met again hours later
 // (#1625). Here the first event is held without read sharing, so the intake

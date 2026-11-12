@@ -10,7 +10,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// A review asks the CFO to direct work without borrowing pipeline custody.
+// A review asks the CEO to direct work without borrowing pipeline custody.
 func (s *Service) deliverReview(ctx context.Context, meta state.TaskMeta, a Action) (Evaluation, error) {
 	diff, err := s.previewGit(meta).Diff(ctx, meta.Worktree, a.Revision, a.File)
 	if err != nil {
@@ -41,13 +41,13 @@ func (s *Service) deliverReview(ctx context.Context, meta state.TaskMeta, a Acti
 	if err != nil {
 		return Evaluation{}, fmt.Errorf("%w: invalid review context", ErrRejected)
 	}
-	if a.CFOIdentity == "" || s.Options.CFO == nil {
-		return Evaluation{}, fmt.Errorf("%w: this review has no pinned CFO recipient; refresh and submit a new comment", ErrRejected)
+	if a.CEOIdentity == "" || s.Options.CEO == nil {
+		return Evaluation{}, fmt.Errorf("%w: this review has no pinned CEO recipient; refresh and submit a new comment", ErrRejected)
 	}
 	// Running intent and the recipient fingerprint are already durable. Native
 	// acceptance is the only delivery transport; no second actionable wake is
 	// appended. A crash or unknown send remains uncertain and is never replayed.
-	return s.Options.CFO.SendNotice(ctx, a.CFOIdentity, "Review request for CFO: "+string(detail))
+	return s.Options.CEO.SendNotice(ctx, a.CEOIdentity, "Review request for CEO: "+string(detail))
 }
 
 func diffRangeContext(patch string, first, last int, side string) (string, error) {

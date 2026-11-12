@@ -19,7 +19,7 @@ import (
 )
 
 // The machine's heavy line is free for a prune only with one slot that no
-// run holds or waits for, naming the run as cfo gate turns does, and a line
+// run holds or waits for, naming the run as goblins gate turns does, and a line
 // of two slots is never free, since a turn in one leaves a build beside it.
 func TestHeavyLineIsFreeOnlyWithOneSlotAndNoRunInIt(t *testing.T) {
 	for name, row := range map[string]struct {
@@ -29,13 +29,13 @@ func TestHeavyLineIsFreeOnlyWithOneSlotAndNoRunInIt(t *testing.T) {
 		"a free line": {},
 		"a run that holds the line": {
 			occupy: func(t *testing.T, store string) {
-				turn, err := verify.Admission{Dir: store, Available: func() (uint64, error) { return 16 << 30, nil }, Who: "cfo gate test at 0123abcd", Limit: time.Minute, Poll: 10 * time.Millisecond}.Wait(context.Background())
+				turn, err := verify.Admission{Dir: store, Available: func() (uint64, error) { return 16 << 30, nil }, Who: "goblins gate test at 0123abcd", Limit: time.Minute, Poll: 10 * time.Millisecond}.Wait(context.Background())
 				if err != nil {
 					t.Fatal(err)
 				}
 				t.Cleanup(func() { _ = turn.Release() })
 			},
-			wantSaid: fmt.Sprintf("cfo gate test at 0123abcd (pid %d) holds the machine's heavy line", os.Getpid()),
+			wantSaid: fmt.Sprintf("goblins gate test at 0123abcd (pid %d) holds the machine's heavy line", os.Getpid()),
 		},
 		"a run that waits for memory": {
 			occupy: func(t *testing.T, store string) {
@@ -43,18 +43,18 @@ func TestHeavyLineIsFreeOnlyWithOneSlotAndNoRunInIt(t *testing.T) {
 				ended := make(chan struct{})
 				go func() {
 					defer close(ended)
-					_, _ = verify.Admission{Dir: store, Floor: 4 << 30, Available: func() (uint64, error) { return 1 << 30, nil }, Who: "cfo verify fast of task t1", Limit: verify.NoLimit, Poll: 10 * time.Millisecond}.Wait(ctx)
+					_, _ = verify.Admission{Dir: store, Floor: 4 << 30, Available: func() (uint64, error) { return 1 << 30, nil }, Who: "goblins verify fast of task t1", Limit: verify.NoLimit, Poll: 10 * time.Millisecond}.Wait(ctx)
 				}()
 				t.Cleanup(func() { cancel(); <-ended })
 				// A run stands in line a moment before its card names it.
 				for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-					if _, waiting, err := verify.Line(store); err == nil && len(waiting) == 1 && waiting[0].Who == "cfo verify fast of task t1" {
+					if _, waiting, err := verify.Line(store); err == nil && len(waiting) == 1 && waiting[0].Who == "goblins verify fast of task t1" {
 						return
 					}
 				}
 				t.Fatal("the run never joined the line")
 			},
-			wantSaid: fmt.Sprintf("cfo verify fast of task t1 (pid %d) waits for the machine's heavy line", os.Getpid()),
+			wantSaid: fmt.Sprintf("goblins verify fast of task t1 (pid %d) waits for the machine's heavy line", os.Getpid()),
 		},
 		"a line of two slots": {
 			occupy: func(t *testing.T, store string) {
@@ -70,7 +70,7 @@ func TestHeavyLineIsFreeOnlyWithOneSlotAndNoRunInIt(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 			store, err := verify.AdmissionDir()
 			if err != nil {
 				t.Fatal(err)
@@ -80,7 +80,7 @@ func TestHeavyLineIsFreeOnlyWithOneSlotAndNoRunInIt(t *testing.T) {
 			}
 
 			// Act
-			err = heavyLine{executable: `C:\cg\cfo.exe`}.Free()
+			err = heavyLine{executable: `C:\cg\goblins.exe`}.Free()
 
 			// Assert
 			if row.wantSaid == "" && err != nil || row.wantSaid != "" && (err == nil || err.Error() != row.wantSaid) {
@@ -90,24 +90,24 @@ func TestHeavyLineIsFreeOnlyWithOneSlotAndNoRunInIt(t *testing.T) {
 	}
 }
 
-// A prune runs in a turn this build's cfo gate turn takes for it, named for
+// A prune runs in a turn this build's goblins gate turn takes for it, named for
 // whoever reads the line, and runs nothing if a run takes the line first and
 // keeps it past the prune's short wait.
 func TestHeavyLineWrapsAPruneInThisBuildsGateTurn(t *testing.T) {
 	// Arrange
-	line := heavyLine{executable: `C:\cg\cfo.exe`}
+	line := heavyLine{executable: `C:\cg\goblins.exe`}
 
 	// Act
 	command := line.Wrap("the janitor, pruning the uv cache", []string{"uv", "cache", "prune"})
 
 	// Assert
-	if want := []string{`C:\cg\cfo.exe`, "gate", "turn", "--as", "the janitor, pruning the uv cache", "--wait", "30s", "--", "uv", "cache", "prune"}; !slices.Equal(command, want) {
+	if want := []string{`C:\cg\goblins.exe`, "gate", "turn", "--as", "the janitor, pruning the uv cache", "--wait", "30s", "--", "uv", "cache", "prune"}; !slices.Equal(command, want) {
 		t.Errorf("Wrap = %q, want %q", command, want)
 	}
 }
 
 // TestStrayWakeFiresOnlyForAStrayNotReportedBefore: the janitor reports the
-// same strays on every pass, and one going away is nothing the CFO must act
+// same strays on every pass, and one going away is nothing the CEO must act
 // on; only a stray it has not been told about wakes it.
 func TestStrayWakeFiresOnlyForAStrayNotReportedBefore(t *testing.T) {
 	strays := func(paths ...string) janitor.Record {
@@ -145,7 +145,7 @@ func TestStrayWakeFiresOnlyForAStrayNotReportedBefore(t *testing.T) {
 	}
 }
 
-// The sweep leaves the same unproven processes on every pass, and the CFO is
+// The sweep leaves the same unproven processes on every pass, and the CEO is
 // told of each once, in one wake for all of them that says what each costs:
 // its pid, its age, its memory and its command.
 func TestProcessWakeFiresOnceForAProcessTheSweepLeft(t *testing.T) {
@@ -222,7 +222,7 @@ func (r *dockerRunner) Run(_ context.Context, request execx.Request) (execx.Resu
 	return execx.Result{}, nil
 }
 
-// The watcher's janitor pass stops a stack cfo services started whose
+// The watcher's janitor pass stops a stack goblins services started whose
 // holders have all ended, through docker compose in the stack's checkout.
 func TestTheJanitorPassStopsALocalServicesStackNoLiveTaskHolds(t *testing.T) {
 	root := t.TempDir()

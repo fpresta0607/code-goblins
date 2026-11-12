@@ -304,7 +304,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		// The start this relaunch can race is a spawn of the same task: it
 		// publishes the task's record before its terminal runs and holds its
 		// turn until it does. A relaunch that read the record in between, as
-		// cfo goblins resume does for every recorded task whose terminal is
+		// goblins goblins resume does for every recorded task whose terminal is
 		// not running, finds that terminal running once its own turn comes,
 		// and must leave it alone.
 		if nativeTerminalRuns(s.StateDir, meta.ID) {
@@ -373,7 +373,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	// there can hold a server this task is no longer given.
 	mcpTaken, err := s.Worktrees.WriteMCP(ctx, mcp, worktreePath, meta.TaskTmp)
 	if err != nil {
-		return SwitchResult{}, fmt.Errorf("switch: write the task's MCP configuration: %w\nthe native terminal now has no harness: %s was stopped and nothing was started. Work in %s is untouched; start one with `cfo switch %s --harness <h>`", err, from, worktreePath, req.ID)
+		return SwitchResult{}, fmt.Errorf("switch: write the task's MCP configuration: %w\nthe native terminal now has no harness: %s was stopped and nothing was started. Work in %s is untouched; start one with `goblins switch %s --harness <h>`", err, from, worktreePath, req.ID)
 	}
 	if len(mcp.Held) > 0 {
 		left += "\n" + mcpHeldLine(req.ID, mcp.Held)
@@ -410,7 +410,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err := os.Remove(filepath.Join(meta.TaskTmp, state.AuthScriptName)); err == nil {
 		scriptNote = "\nauth: removed the credential script written for " + req.ID + "'s last terminal. Its new terminal starts with what the task carries"
 	} else if !errors.Is(err, os.ErrNotExist) {
-		scriptNote = "\nwarning: the credential script written for " + req.ID + "'s last terminal could not be removed (" + err.Error() + ") and may hold more than the task carries now. Run cfo auth refresh " + req.ID + " to rewrite it"
+		scriptNote = "\nwarning: the credential script written for " + req.ID + "'s last terminal could not be removed (" + err.Error() + ") and may hold more than the task carries now. Run goblins auth refresh " + req.ID + " to rewrite it"
 	}
 	// Publish the replacement generation before its first native hook can run.
 	if err := s.publishSwitch(&meta, target); err != nil {
@@ -428,13 +428,13 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		// The failure may have come after the new harness was already
 		// running, so the terminal is checked again before it is described.
 		// Reporting an empty terminal that actually holds a live harness sends
-		// the operator to `cfo switch` again, which would stop a working
+		// the operator to `goblins switch` again, which would stop a working
 		// goblin and lose its context.
 		to := describe(string(target.Harness), target.Model, target.Effort)
-		recovery := fmt.Sprintf("the native terminal now has no harness: %s was stopped and %s did not start. Work in %s is untouched; start one with `cfo switch %s --harness <h>`",
+		recovery := fmt.Sprintf("the native terminal now has no harness: %s was stopped and %s did not start. Work in %s is untouched; start one with `goblins switch %s --harness <h>`",
 			from, to, worktreePath, req.ID)
 		if nativeTerminalRuns(s.StateDir, meta.ID) {
-			recovery = fmt.Sprintf("the native terminal still holds a live %s: it started but the switch did not complete cleanly. Work in %s is untouched. Steer the native terminal directly or inspect it with `cfo peek %s` - do NOT rerun `cfo switch`, which would stop a running harness.",
+			recovery = fmt.Sprintf("the native terminal still holds a live %s: it started but the switch did not complete cleanly. Work in %s is untouched. Steer the native terminal directly or inspect it with `goblins peek %s` - do NOT rerun `goblins switch`, which would stop a running harness.",
 				to, worktreePath, req.ID)
 		}
 		err = fmt.Errorf("%w\n%s", err, recovery)
@@ -456,7 +456,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		return SwitchResult{}, fmt.Errorf("switch: record switch: %w", err)
 	}
 	// An automatic resume prints to nobody, so the narrowing is also a record
-	// in the task's status log, where the CFO reads what became of it.
+	// in the task's status log, where the CEO reads what became of it.
 	if isNarrowed {
 		if err := state.AppendStatus(s.StateDir, req.ID, "credentials: "+narrowedLine(req.ID, project, preflight.Grant)); err != nil {
 			return SwitchResult{}, fmt.Errorf("switch: record the task's services: %w", err)
@@ -516,7 +516,7 @@ func (s Service) endLeft(ctx context.Context, meta state.TaskMeta) string {
 }
 
 // returnHarnessStrays returns the worktrees the project registers inside the
-// task's own folders, which a harness's own tooling left rather than cfo, and
+// task's own folders, which a harness's own tooling left rather than ceo, and
 // says what became of each. A worktree it cannot prove safe is kept and
 // named, never discarded. A read that fails does not stop the relaunch, which
 // would leave the goblin with no harness.
@@ -564,7 +564,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 
 	if resumed {
 		launch.ResumeSession = request.ResumeSession
-		launch.Env["CFO_PARENT_SESSION_ID"], launch.Env["CFO_PARENT_HARNESS"] = "", ""
+		launch.Env["GOBLINS_PARENT_SESSION_ID"], launch.Env["GOBLINS_PARENT_HARNESS"] = "", ""
 		resumeArgs := []string{"--resume", request.ResumeSession}
 		switch target.Harness {
 		case harness.Codex:
@@ -609,7 +609,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	}
 	launch.Instruction += deliveryInstruction(meta)
 	if meta.PipelineHash != "" {
-		launch.Instruction += " Continue with the frozen pipeline policy at " + filepath.Join(meta.TaskTmp, "pipeline.json") + "; use cfo pipeline run/respond for this task. Do not reset review budgets or bypass them with native AXI."
+		launch.Instruction += " Continue with the frozen pipeline policy at " + filepath.Join(meta.TaskTmp, "pipeline.json") + "; use goblins pipeline run/respond for this task. Do not reset review budgets or bypass them with native AXI."
 	}
 
 	if nativeHost, err = s.launchNativeHost(id, target.Harness, launch, userEnv, preflight); err != nil {
@@ -671,7 +671,7 @@ func requestedTarget(meta state.TaskMeta, req SwitchRequest) switchTarget {
 
 func (s Service) publishSwitch(meta *state.TaskMeta, target switchTarget) error {
 	if !target.same(*meta) {
-		meta.RouteLane, meta.RouteReason = "explicit", "engine changed by the CFO"
+		meta.RouteLane, meta.RouteReason = "explicit", "engine changed by the CEO"
 	}
 	meta.Harness = string(target.Harness)
 	meta.Model = valueOrDefault(target.Model)
@@ -802,13 +802,13 @@ func handoffInstruction(handoff, briefPath string, meta state.TaskMeta) string {
 	if briefPath != "" {
 		instruction += ", then the brief at " + briefPath
 	}
-	return instruction + ", then continue the work. Do not ask again for a decision already answered in the retained context or recovery notes; follow that answer. Only if a decision is still unanswered and blocks the next step, ask it again with cfo notify --blocked." + heavyRunInstruction() + processInstruction() + notifyInstruction(meta)
+	return instruction + ", then continue the work. Do not ask again for a decision already answered in the retained context or recovery notes; follow that answer. Only if a decision is still unanswered and blocks the next step, ask it again with goblins notify --blocked." + heavyRunInstruction() + processInstruction() + notifyInstruction(meta)
 }
 
 // resumeInstruction is what a session restarted in place is told. Its retained
 // context can be older than the durable record, so it reads the brief as it
 // stands now, the task's own status log and its handoff before acting: on
-// 2026-10-24 a resumed worker rechecked a pull request the CFO had already
+// 2026-10-24 a resumed worker rechecked a pull request the CEO had already
 // merged while it was paused.
 func resumeInstruction(meta state.TaskMeta, target switchTarget, stateDir, briefPath string) string {
 	// No relative brief path is ever invented here: a relative one resolves
@@ -823,7 +823,7 @@ func resumeInstruction(meta state.TaskMeta, target switchTarget, stateDir, brief
 	if handoff == "" {
 		handoff = filepath.Join(stateDir, "tasktmp", meta.ID)
 	}
-	return fmt.Sprintf("Your session was restarted as %s (was %s). Your prior context is intact. Before acting, read the brief at %s as it stands now, the task's own status log at %s and the handoff kept in %s: work may have landed, been merged or been decided while you were paused, and nothing here overrides what they now say. Do not ask again for a decision already answered there; only a decision still unanswered and blocking the next step goes to cfo notify --blocked.",
+	return fmt.Sprintf("Your session was restarted as %s (was %s). Your prior context is intact. Before acting, read the brief at %s as it stands now, the task's own status log at %s and the handoff kept in %s: work may have landed, been merged or been decided while you were paused, and nothing here overrides what they now say. Do not ask again for a decision already answered there; only a decision still unanswered and blocking the next step goes to goblins notify --blocked.",
 		describe(string(target.Harness), target.Model, target.Effort), describe(meta.Harness, meta.Model, meta.Effort), brief, status, handoff) + notifyInstruction(meta)
 }
 

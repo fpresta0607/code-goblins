@@ -18,7 +18,7 @@ func (t Target) String() string {
 	return t.Session + ":" + t.Pane
 }
 
-// Container is the one flat Herdr workspace assigned to a CFO home.
+// Container is the one flat Herdr workspace assigned to a CEO home.
 type Container struct {
 	Session          string
 	WorkspaceID      string

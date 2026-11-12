@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"golang.org/x/sys/windows/registry"
@@ -130,17 +131,39 @@ func (s registryEnvStore) Unset(name string) error {
 	return nil
 }
 
+func (s registryEnvStore) Names() ([]string, error) {
+	script := fmt.Sprintf(`$names = (Get-Item -LiteralPath '%s').GetValueNames() | Where-Object { $_ -ne '' }
+[Console]::Out.Write([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes(($names -join "`+"`n"+`"))))`, s.key)
+	result, err := s.run(script)
+	if err != nil {
+		return nil, err
+	}
+	if result.ExitCode != 0 {
+		return nil, fmt.Errorf("install: list the user environment: %s", strings.TrimSpace(string(result.Stderr)))
+	}
+	text, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(result.Stdout)))
+	if err != nil {
+		return nil, fmt.Errorf("install: list the user environment: %w", err)
+	}
+	if len(text) == 0 {
+		return nil, nil
+	}
+	names := strings.Split(string(text), "\n")
+	sort.Strings(names)
+	return names, nil
+}
+
 // Broadcast sends WM_SETTINGCHANGE, which is what makes a terminal opened
 // after the install see the new values. Without it the registry is correct
 // and every already-running shell, Explorer included, keeps handing out the
 // old environment until the next sign-in.
 func (s registryEnvStore) Broadcast() error {
-	const script = `Add-Type -Namespace CfoInstall -Name Win32 -MemberDefinition @'
+	const script = `Add-Type -Namespace CeoInstall -Name Win32 -MemberDefinition @'
 [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
 public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
 '@
 $result = [UIntPtr]::Zero
-[void][CfoInstall.Win32]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)`
+[void][CeoInstall.Win32]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)`
 	result, err := s.run(script)
 	if err != nil {
 		return err

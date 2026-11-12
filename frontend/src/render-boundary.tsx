@@ -1,9 +1,9 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { message, reportToCfo } from "./api";
+import { message, reportToCeo } from "./api";
 import { Icon } from "./Icon";
 import { Notice } from "./notice";
 
-// A card or a list that could not be drawn: the CFO hears why, and the board
+// A card or a list that could not be drawn: the CEO hears why, and the board
 // shows only a Retry in its place.
 export class RenderBoundary extends Component<{ scope: "card" | "list"; children: ReactNode }, { hasFailure: boolean }> {
   state = { hasFailure: false };
@@ -13,7 +13,7 @@ export class RenderBoundary extends Component<{ scope: "card" | "list"; children
   }
 
   componentDidCatch(error: unknown, info: ErrorInfo) {
-    reportToCfo("drawing a " + this.props.scope + " on the board", message(error) + (info.componentStack ? "\n" + info.componentStack.trim().split("\n").slice(0, 3).join("\n") : ""));
+    reportToCeo("drawing a " + this.props.scope + " on the board", message(error) + (info.componentStack ? "\n" + info.componentStack.trim().split("\n").slice(0, 3).join("\n") : ""));
   }
 
   render() {

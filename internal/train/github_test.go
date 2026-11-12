@@ -238,15 +238,15 @@ func TestALandingReadsAgainUntilGitHubShowsEachRiderMerged(t *testing.T) {
 	if landed.State != StateLanded || s.waits != 1 || landed.Cars[0].Note != "" || landed.Cars[1].Note != "" {
 		t.Fatalf("train %s after %d waits, cars %+v: want it landed after one more read, with nothing to say of a rider", landed.State, s.waits, landed.Cars)
 	}
-	if len(s.cfo) != 2 || strings.Contains(s.cfo[1], "still shows") {
-		t.Fatalf("CFO told %q, want the start and the landing alone", s.cfo)
+	if len(s.ceo) != 2 || strings.Contains(s.ceo[1], "still shows") {
+		t.Fatalf("CEO told %q, want the start and the landing alone", s.ceo)
 	}
 }
 
 // A rider GitHub still lists open after its train landed is named to the
-// CFO with why and what happens to it, and the train is landed all the same:
+// CEO with why and what happens to it, and the train is landed all the same:
 // main holds what CI tested.
-func TestARiderGitHubStillShowsOpenAfterItsTrainLandedIsNamedToTheCFO(t *testing.T) {
+func TestARiderGitHubStillShowsOpenAfterItsTrainLandedIsNamedToTheCEO(t *testing.T) {
 	t.Parallel()
 	for name, test := range map[string]struct {
 		arrange func(s *scratch, gh *fakeGitHub)
@@ -285,16 +285,16 @@ func TestARiderGitHubStillShowsOpenAfterItsTrainLandedIsNamedToTheCFO(t *testing
 			if got := carStates(landed); landed.State != StateLanded || !slices.Equal(got, []string{"#11=landed", "#12=landed"}) || s.tree("refs/heads/main") != s.tree(started.Head) || len(gh.closed) != 0 {
 				t.Fatalf("train %s, cars %v, closed %v: want it landed with main at the tree CI tested", landed.State, got, gh.closed)
 			}
-			if s.waits != mergedReads-1 || len(s.cfo) != 3 {
-				t.Fatalf("%d waits, CFO told %q: want every read taken, then the rider named and the landing", s.waits, s.cfo)
+			if s.waits != mergedReads-1 || len(s.ceo) != 3 {
+				t.Fatalf("%d waits, CEO told %q: want every read taken, then the rider named and the landing", s.waits, s.ceo)
 			}
 			for _, want := range append(test.says, "#12: ") {
-				if !strings.Contains(s.cfo[1], want) {
-					t.Errorf("CFO told %q, want %q", s.cfo[1], want)
+				if !strings.Contains(s.ceo[1], want) {
+					t.Errorf("CEO told %q, want %q", s.ceo[1], want)
 				}
 			}
-			if !strings.Contains(landed.Cars[1].Note, test.says[0]) || strings.ContainsAny(s.cfo[1], ";\u2014") {
-				t.Errorf("#12 keeps %q, CFO told %q: want why on its car and no semicolon or long dash in what he reads", landed.Cars[1].Note, s.cfo[1])
+			if !strings.Contains(landed.Cars[1].Note, test.says[0]) || strings.ContainsAny(s.ceo[1], ";\u2014") {
+				t.Errorf("#12 keeps %q, CEO told %q: want why on its car and no semicolon or long dash in what he reads", landed.Cars[1].Note, s.ceo[1])
 			}
 		})
 	}
@@ -369,7 +369,7 @@ func TestATrainAnOlderBuildStartedLandsByMergingItsPullRequest(t *testing.T) {
 	landed := s.step(engine, started.ID)
 
 	// Assert
-	if landed.State != StateLanded || len(gh.closed) != 0 || gh.reads(gh.trainURL) != "MERGED" || gh.titles[gh.trainURL] != "chore(cfo): merge train for PRs #11, #12" {
+	if landed.State != StateLanded || len(gh.closed) != 0 || gh.reads(gh.trainURL) != "MERGED" || gh.titles[gh.trainURL] != "chore(ceo): merge train for PRs #11, #12" {
 		t.Fatalf("train %s, closed %v, its pull request reads %s titled %q: want it merged under a title that does not say do not merge", landed.State, gh.closed, gh.reads(gh.trainURL), gh.titles[gh.trainURL])
 	}
 	if gh.reads(first.URL) != "MERGED" || gh.reads(second.URL) != "MERGED" || s.tree("refs/heads/main") != s.tree(started.Head) || s.hasBranch(started.Branch) || landed.History[0].PR != gh.trainURL {

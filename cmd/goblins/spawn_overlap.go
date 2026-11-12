@@ -1,0 +1,134 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
+)
+
+// teammateOverlap is what teammates have in flight where a task's brief
+// works, read before the task starts so nobody begins work someone else
+// already has under way without knowing it. It is empty when only the
+// Overlord works in the repository or nothing of a teammate's meets the
+// brief's area. Beside it comes what the read stopped short of, so a check
+// that was incomplete never passes for a complete one.
+//
+// The issues the task itself is for are not overlaps: the ones its ticket is
+// on, and the ones its brief names. One its brief names that someone else
+// has, assigned to another account or held by another account's fleet, is
+// one, since the task's claim would be refused. A runtime with no repository read (a
+// test's) checks nothing. The read runs under overlapTimeout, so one that
+// hangs is a failed read.
+func teammateOverlap(runtime commandRuntime, h home.Home, id, checkout, brief string, now time.Time) (tickets.Overlaps, []string, error) {
+	if runtime.repoActivity == nil {
+		return tickets.Overlaps{}, nil, nil
+	}
+	timeout := overlapTimeout
+	if runtime.overlapTimeout > 0 {
+		timeout = runtime.overlapTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	activity, err := runtime.repoActivity(ctx, checkout, now)
+	if err != nil {
+		return tickets.Overlaps{}, nil, err
+	}
+	area := tickets.BriefArea(brief, checkoutHas(checkout))
+	report := tickets.Build(activity, now, &area)
+	if !report.Collaborative {
+		return tickets.Overlaps{}, nil, nil
+	}
+	own, claimed := map[int]bool{}, map[int]bool{}
+	if record, err := tickets.ReadRecord(h.State, id); err == nil {
+		for _, number := range record.IssueNumbers() {
+			own[number], claimed[number] = true, true
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return tickets.Overlaps{}, nil, err
+	}
+	theirs := report.TeammateOverlaps()
+	for _, named := range tickets.NamedIssues(brief, activity.Repository) {
+		own[named.Number] = true
+		index := slices.IndexFunc(report.Issues, func(issue tickets.Issue) bool { return issue.Number == named.Number })
+		if claimed[named.Number] || index < 0 {
+			continue
+		}
+		issue := report.Issues[index]
+		if held := tickets.HeldElsewhere(issue.Assignees, issue.Labels, activity.Viewer.Login); held != "" {
+			theirs.Issues = append(theirs.Issues, tickets.IssueMatch{Number: issue.Number, Title: issue.Title, URL: issue.URL, Author: issue.Author, Held: held})
+		}
+	}
+	theirs.Issues = slices.DeleteFunc(theirs.Issues, func(match tickets.IssueMatch) bool { return own[match.Number] && match.Held == "" })
+	return theirs, report.Unread, nil
+}
+
+// maxUnreadShown is how many of the things a read stopped short of goblins spawn
+// names before it counts the rest.
+const maxUnreadShown = 3
+
+// warnIncompleteCheck says in one line what the read stopped short of, in
+// the words goblins tickets uses for it.
+func warnIncompleteCheck(stderr io.Writer, unread []string) {
+	shown := unread
+	if len(shown) > maxUnreadShown {
+		shown = append(slices.Clone(shown[:maxUnreadShown]), fmt.Sprintf("and %d more", len(unread)-maxUnreadShown))
+	}
+	count := fmt.Sprintf("%d things were", len(unread))
+	if len(unread) == 1 {
+		count = "1 thing was"
+	}
+	fmt.Fprintf(stderr, "goblins spawn: the check for teammates' work was incomplete, %s not read: %s\n", count, strings.Join(shown, "; "))
+}
+
+// teammateRead is what the read of who else works in a task's area found:
+// the overlaps, what it could not read, and why it failed.
+type teammateRead struct {
+	overlap tickets.Overlaps
+	unread  []string
+	err     error
+}
+
+// errOverlapRefused is a start refused before its terminal launched because a
+// teammate has work in its area, which refuseOverlap has said.
+var errOverlapRefused = errors.New("goblins spawn: a teammate has work in flight where this task works")
+
+// refuseOverlap says what a teammate has in flight in the task's area and
+// how the CEO starts the task beside it.
+func refuseOverlap(stderr io.Writer, overlap tickets.Overlaps) {
+	fmt.Fprintln(stderr, "goblins spawn: a teammate has work in flight where this task works:")
+	for _, line := range overlap.Lines() {
+		fmt.Fprintf(stderr, "- %s\n", line)
+	}
+	fmt.Fprintln(stderr, `goblins spawn: not started. To start beside it, repeat with --overlap-ok "<why>"; the reason goes on the task's ticket and status log.`)
+}
+
+// recordOverlapAccepted keeps the CEO's reason for starting a task beside a
+// teammate's work: in the task's status log with what it overlaps, and as
+// the note the supervisor puts on the task's ticket.
+func recordOverlapAccepted(h home.Home, id, why string, overlap tickets.Overlaps) error {
+	var beside []string
+	for _, file := range overlap.Files {
+		if file.PullRequest != 0 {
+			beside = append(beside, fmt.Sprintf("PR #%d", file.PullRequest))
+		} else {
+			beside = append(beside, "branch "+file.Branch)
+		}
+	}
+	for _, match := range overlap.Issues {
+		beside = append(beside, fmt.Sprintf("issue #%d", match.Number))
+	}
+	note := strings.Join(beside, ", ") + ": " + why
+	return errors.Join(
+		tickets.WriteOverlapNote(h.State, id, note),
+		state.AppendStatus(h.State, id, fmt.Sprintf("overlap-accepted: %s (%s)", why, strings.Join(overlap.Lines(), "; "))),
+	)
+}

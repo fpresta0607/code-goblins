@@ -12,7 +12,7 @@ import (
 // finish ends the train in state: it records how it ended first, so a
 // finish cut short never leaves a train running that is over, then deletes
 // its branch, and tells each goblin whose pull request broke the train or
-// conflicted, and the CFO.
+// conflicted, and the CEO.
 //
 // A train whose last run landed has merged its pull request, so nothing of
 // it is left closed without merging. One that did not land its last run
@@ -61,14 +61,14 @@ func (e Engine) finish(ctx context.Context, t *Train, state, note string) error 
 			continue
 		}
 		if err := e.TellGoblin(ctx, car.Task, text); err != nil {
-			undelivered = append(undelivered, fmt.Sprintf("%s was not told about #%d (%v): relay it with cfo send", goblinname.Called(car.Goblin, car.Task), car.Number, err))
+			undelivered = append(undelivered, fmt.Sprintf("%s was not told about #%d (%v): relay it with goblins send", goblinname.Called(car.Goblin, car.Task), car.Number, err))
 		}
 	}
 	summary := "merge_train: " + t.Repository + " train " + t.ID + " " + e.summary(*t)
 	if len(undelivered) > 0 {
 		summary += "; " + strings.Join(undelivered, "; ")
 	}
-	e.tellCFO(ctx, summary)
+	e.tellCEO(ctx, summary)
 	return saveErr
 }
 
@@ -137,7 +137,7 @@ func (e Engine) summary(t Train) string {
 func (e Engine) goblinNotice(t Train, car Car, past []Train) string {
 	switch car.State {
 	case CarCulprit:
-		return fmt.Sprintf("CFO: merge train %s found that your PR #%d (%s) breaks CI when it merges onto %s at %s: %s. Fix it on your branch (merge origin/main in with a merge commit first, never rebase or force-push), verify locally, push, and report done again; the next train takes it once its head changes. Train PR: %s",
+		return fmt.Sprintf("CEO: merge train %s found that your PR #%d (%s) breaks CI when it merges onto %s at %s: %s. Fix it on your branch (merge origin/main in with a merge commit first, never rebase or force-push), verify locally, push, and report done again; the next train takes it once its head changes. Train PR: %s",
 			t.ID, car.Number, car.URL, t.Base, short(t.BaseSHA), strings.TrimPrefix(car.Note, "failed: "), t.PR)
 	case CarConflict:
 		for _, before := range past {
@@ -147,7 +147,7 @@ func (e Engine) goblinNotice(t Train, car Car, past []Train) string {
 				}
 			}
 		}
-		return fmt.Sprintf("CFO: merge train %s could not merge your PR #%d (%s) onto %s with the PRs ahead of it: %s. Merge origin/main into your branch now with a merge commit (never rebase or force-push), resolve it, verify locally, push, and report done again; the next train takes it.",
+		return fmt.Sprintf("CEO: merge train %s could not merge your PR #%d (%s) onto %s with the PRs ahead of it: %s. Merge origin/main into your branch now with a merge commit (never rebase or force-push), resolve it, verify locally, push, and report done again; the next train takes it.",
 			t.ID, car.Number, car.URL, t.Base, car.Note)
 	}
 	return ""
@@ -165,8 +165,8 @@ func checkNames(failed []Check) string {
 	return strings.Join(names, ", ")
 }
 
-func (e Engine) tellCFO(ctx context.Context, text string) {
-	if e.TellCFO != nil {
-		_ = e.TellCFO(ctx, "", text)
+func (e Engine) tellCEO(ctx context.Context, text string) {
+	if e.TellCEO != nil {
+		_ = e.TellCEO(ctx, "", text)
 	}
 }

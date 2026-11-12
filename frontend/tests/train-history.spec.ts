@@ -61,8 +61,8 @@ const TASKS = [
   goblin("cg-otis", "Otis", "Ledger Clerk", "Sync the ledger", { phase: "paused", report: "working", at: ago(10), lifecycle: pause("memory", "") }),
 ];
 const snapshot = (trains: object[]) => ({
-  healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
-  sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }], tasks: TASKS, merge_trains: trains,
+  healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [],
+  sessions: [{ id: "ceo-1", harness: "claude", role: "ceo", model: "claude-opus-5-5" }], tasks: TASKS, merge_trains: trains,
 });
 
 async function open(page: Page, trains: object[] = [LANDED]) {
@@ -472,7 +472,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
 test.describe("in his window", () => {
   test.use({ viewport: { width: 1707, height: 1067 } });
 
-  test("Back from a train's panel returns to the CFO, and a goblin's card opens the goblin again", async ({ page }) => {
+  test("Back from a train's panel returns to the CEO, and a goblin's card opens the goblin again", async ({ page }) => {
     await open(page);
     await column(page, "Completed").locator(".train-card .train-title").click();
     await expect(page.locator("#panel-title")).toHaveText("Merge train");

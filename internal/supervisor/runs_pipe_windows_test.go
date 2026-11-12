@@ -36,34 +36,34 @@ func runPipe(t *testing.T, s *Service) {
 	})
 }
 
-// A request from a process outside the registered CFO's tree is refused
+// A request from a process outside the registered CEO's tree is refused
 // before anything is written, and never reaches the board.
-func TestRunRequestFromOutsideTheCFOTreeNeverReachesTheBoard(t *testing.T) {
+func TestRunRequestFromOutsideTheCEOTreeNeverReachesTheBoard(t *testing.T) {
 	store, h := testStore(t)
-	// The registered CFO is a process of its own, which this test does not run
+	// The registered CEO is a process of its own, which this test does not run
 	// under.
-	cfo := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-Command", "Start-Sleep -Seconds 120")
-	cfo.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
-	if err := cfo.Start(); err != nil {
+	ceo := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-Command", "Start-Sleep -Seconds 120")
+	ceo.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
+	if err := ceo.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = cfo.Process.Kill()
-		_ = cfo.Wait()
+		_ = ceo.Process.Kill()
+		_ = ceo.Wait()
 	})
-	entries, err := proc.Ancestry(cfo.Process.Pid, 1)
+	entries, err := proc.Ancestry(ceo.Process.Pid, 1)
 	if err != nil || len(entries) != 1 {
-		t.Fatalf("the stand-in CFO's start time: %v %v", entries, err)
+		t.Fatalf("the stand-in CEO's start time: %v %v", entries, err)
 	}
-	primary := primaryRegistration{Host: "cfo", Agent: "codex", Process: lock.Info{PID: cfo.Process.Pid, Start: entries[0].Start}}
+	primary := primaryRegistration{Host: "ceo", Agent: "codex", Process: lock.Info{PID: ceo.Process.Pid, Start: entries[0].Start}}
 	data, _ := json.Marshal(primary)
 	if err := os.WriteFile(filepath.Join(h.State, "primary.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	runPipe(t, &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}})
+	runPipe(t, &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}}})
 	err = PublishRun(h, RunRequest{ID: "install-driver", Title: "Install the driver", Shell: "powershell", Admin: true, CommandFile: commandFile(t, "Write-Output driver\n")})
-	if err == nil || !strings.Contains(err.Error(), "does not run under the registered CFO") {
-		t.Fatalf("a run request from outside the CFO's tree = %v, want it refused", err)
+	if err == nil || !strings.Contains(err.Error(), "does not run under the registered CEO") {
+		t.Fatalf("a run request from outside the CEO's tree = %v, want it refused", err)
 	}
 	if entries, _ := os.ReadDir(filepath.Join(h.State, "runs")); len(entries) != 0 || len(store.Snapshot().Runs) != 0 {
 		t.Fatalf("a refused request left %d script folders and runs %+v, want none", len(entries), store.Snapshot().Runs)
@@ -76,7 +76,7 @@ func TestRunRequestFromOutsideTheCFOTreeNeverReachesTheBoard(t *testing.T) {
 func TestRunItemDroppedIntoTheInboxNeverReachesTheBoard(t *testing.T) {
 	store, h := testStore(t)
 	_, identity, _, _ := primaryFixture(t, store)
-	r := Run{ID: "planted-item", Identity: identity, Title: "Looks like it came from the CFO", Shell: "powershell", Admin: true, Command: "Write-Output planted\n", Cwd: h.Root, State: "ready", CreatedAt: time.Now().UTC()}
+	r := Run{ID: "planted-item", Identity: identity, Title: "Looks like it came from the CEO", Shell: "powershell", Admin: true, Command: "Write-Output planted\n", Cwd: h.Root, State: "ready", CreatedAt: time.Now().UTC()}
 	name, script := runScript(r)
 	dir := runDir(h.State, r)
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -100,25 +100,25 @@ func TestRunItemDroppedIntoTheInboxNeverReachesTheBoard(t *testing.T) {
 	}
 }
 
-// The CFO proof walks up from a process to the registered CFO, and a parent
+// The CEO proof walks up from a process to the registered CEO, and a parent
 // created after its child ends the walk: Windows reuses PIDs, so that parent is
 // another process that took a dead parent's PID.
 func TestDescendsFromNeedsEachAncestorOlderThanItsChild(t *testing.T) {
 	base := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
-	cfo := lock.Info{PID: 100, Start: base}
+	ceo := lock.Info{PID: 100, Start: base}
 	child := proc.Entry{PID: 300, Start: base.Add(2 * time.Minute)}
 	for _, test := range []struct {
 		name    string
 		entries []proc.Entry
 		want    bool
 	}{
-		{name: "the CFO itself", entries: []proc.Entry{{PID: 100, Start: base}}, want: true},
+		{name: "the CEO itself", entries: []proc.Entry{{PID: 100, Start: base}}, want: true},
 		{name: "a descendant", entries: []proc.Entry{child, {PID: 200, Start: base.Add(time.Minute)}, {PID: 100, Start: base}}, want: true},
 		{name: "a parent PID reused after its child started", entries: []proc.Entry{child, {PID: 200, Start: base.Add(3 * time.Minute)}, {PID: 100, Start: base}}},
-		{name: "the CFO's PID reused by a newer process", entries: []proc.Entry{child, {PID: 100, Start: base.Add(time.Minute)}}},
+		{name: "the CEO's PID reused by a newer process", entries: []proc.Entry{child, {PID: 100, Start: base.Add(time.Minute)}}},
 		{name: "another tree", entries: []proc.Entry{child, {PID: 400, Start: base}}},
 	} {
-		if got := descendsFrom(test.entries, cfo); got != test.want {
+		if got := descendsFrom(test.entries, ceo); got != test.want {
 			t.Errorf("%s: descendsFrom = %v, want %v", test.name, got, test.want)
 		}
 	}
@@ -144,14 +144,14 @@ func dialRunPipe(t *testing.T, state string) *os.File {
 func TestRunRequestFromAProcessStartedAfterItsConnectionIsRefused(t *testing.T) {
 	store, _ := testStore(t)
 	_, _, _, connection := primaryFixture(t, store)
-	s := &Service{Store: store, Options: Options{CFO: connection}}
+	s := &Service{Store: store, Options: Options{CEO: connection}}
 	entries, err := proc.Ancestry(os.Getpid(), 1)
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("this process's start time: %v %v", entries, err)
 	}
 	req := runPipeRequest{ID: "install-tool", Title: "Install the tool", Shell: "powershell", Command: "Write-Output hello\n"}
 	err = s.acceptRunRequest(os.Getpid(), entries[0].Start.Add(-time.Second), req)
-	if err == nil || !strings.Contains(err.Error(), "does not run under the registered CFO") {
+	if err == nil || !strings.Contains(err.Error(), "does not run under the registered CEO") {
 		t.Fatalf("a request connected before its process started = %v, want it refused", err)
 	}
 	if runs := store.Snapshot().Runs; len(runs) != 0 {

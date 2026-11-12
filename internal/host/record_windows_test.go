@@ -17,7 +17,7 @@ import (
 func TestARecordIsReadAndReplacedWhileTheRenameThatPlacedItStillHoldsIt(t *testing.T) {
 	// Arrange
 	stateDir := t.TempDir()
-	first := Record{ID: "g1", Pipe: `\\.\pipe\cfo-host-g1`, Token: "first", Version: Version, HostPID: os.Getpid(), Started: time.Now().UTC()}
+	first := Record{ID: "g1", Pipe: `\\.\pipe\ceo-host-g1`, Token: "first", Version: Version, HostPID: os.Getpid(), Started: time.Now().UTC()}
 	if err := writeRecord(stateDir, first); err != nil {
 		t.Fatal(err)
 	}
