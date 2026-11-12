@@ -789,6 +789,10 @@ jobs:
             ~/AppData/Local/Temp/CodeGoblinsInstall.log
             ~/AppData/Local/CodeGoblins/state/serve.log
             ~/AppData/Local/CodeGoblins/state/update
+            ~/AppData/Local/CodeGoblins/state/primary.json
+            ~/AppData/Local/CodeGoblins/state/crossing.json
+            ~/AppData/Local/CodeGoblins/state/engine
+            ~/AppData/Local/CodeGoblins/state/hosts/*.json
           if-no-files-found: ignore
           retention-days: 14
 
