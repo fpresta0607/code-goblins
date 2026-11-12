@@ -250,5 +250,6 @@ func rolloutCwd(path string) (string, bool) {
 
 // transcriptEntryReach bounds how much of a transcript's end is read for its
 // last entry, since one entry holding a large tool result can run to
-// megabytes.
+// megabytes. A search for text taken reads its record back that much at a
+// time, and stops by what one such read holds (tookIn).
 const transcriptEntryReach = 4 << 20

@@ -36,7 +36,7 @@ type Conversation struct {
 // may wrap or trim it, and every character that draws nothing left out, as a
 // harness may drop one. Claude Code 2.1.322 made each pasted tab four spaces
 // and dropped a word joiner, U+2060, from two messages it took live on
-// 2026-11-12, which then read Queued for good (#1915).
+// 2026-11-12, which then read Queued or Not confirmed for good (#1915).
 func TextDigest(text string) string {
 	seen := strings.Map(func(r rune) rune {
 		if unicode.IsSpace(r) || unicode.IsGraphic(r) {
