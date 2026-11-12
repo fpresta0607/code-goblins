@@ -98,9 +98,13 @@ A helper its parent no longer needs is stopped with `goblins kill <helper> --rea
 Every goblin gets a fun first name and title, such as Jerry - Code Designer, from a list in the binary, as soon as its task is queued.
 The supervisor names each queued task the board shows and keeps the pair in `state/.goblin-names-queued.json`, and `goblins spawn` gives the task that same pair, so its name is the same in Tasks and In progress.
 A task spawned without being queued first gets its pair at spawn.
-The name is one no live goblin or queued task holds and none of the last 20 spawns used.
-The title names the subject of the work in two or three words, read from the task's id and title, or from the Task section of its brief when those name none, such as Voice Whisperer for long dictation, Resume Wrangler for smooth resumes or Token Tamer for a Fly token fix.
-A task that names no subject the binary knows gets a generic title, such as Code Designer.
+The name is one no live goblin or queued task holds and none of the last 300 spawns used, from a pool of 452, so recent History never shows one name on two tasks.
+Give the title yourself when you know the task best: a `goblin title: <title>` line in the brief's Delivery section, one to three words and at most 20 characters, such as `goblin title: Estimate Elf`, is the goblin's title as written, and `goblins brief ready` refuses one past that rule.
+A queued task keeps its name when its brief gives a title later, and its card takes that title.
+Without the line, the title names the subject of the work in the task's own words with a fun role, such as Estimate Elf for a cost estimate fix, Corpus Curator for reloading legal corpora or Voice Whisperer for long dictation.
+The subject is the word the task's title leans on most, the last word of a phrase counting most, so "cost estimate" is about an estimate; a label before a colon, words in brackets and the id count less, the project the id names never counts, and the brief's Task section is read only when the title and id give no word.
+A subject word another live or queued goblin's title already names is passed over while the task names another, so two goblins on different work read apart on the board.
+A task that gives no word a title can use gets a generic title, such as Code Designer.
 `goblins spawn` prints the pair on a `goblin:` line, the task's record keeps it, and the supervisor gives one to any live goblin that has none, the pair it was queued with where it has one.
 The board, the merge train and the orchestration canvas show the name, title and harness icon in place of the task id, a queued task's card included, and the task sits in the panel and the hover tooltip.
 `goblins fleet-view`, the wake queue and a merge train's pull request name each goblin as `Name (id)`.
