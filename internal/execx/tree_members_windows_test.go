@@ -71,7 +71,7 @@ func TestTreeUsageReadsAJobWhoseMembersChurn(t *testing.T) {
 			isRunning = false
 		case <-bound:
 			t.Fatalf("the churning root did not exit within its bound, after %d samples", samples)
-		case <-time.After(time.Millisecond):
+		case <-time.After(time.Millisecond): // stall-accepted: a pause between samples, which a stall only lengthens; the two-minute bound fails a root that never exits.
 		}
 		_, failure = tree.Usage()
 	}
