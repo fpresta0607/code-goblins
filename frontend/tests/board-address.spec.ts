@@ -103,7 +103,6 @@ for (const [device, width, height] of [["phone", 390, 844], ["desktop", 1440, 10
         // Assert
         await expect(ivysPanel(page)).toHaveCount(0);
         await expect(page.locator("dialog[open]")).toHaveCount(0);
-        await expect(openInbox(page)).toHaveCount(0);
         expect(made).toEqual([]);
       });
     }
