@@ -36,9 +36,9 @@ The target for a home is small: the binaries, records under 200 MB, capped cache
 | `data/<task>/` | One folder per task that is queued or under way: `brief.md` (what to do), `report.md` (what a scout found or a ship task delivered), `decisions.md` (the rulings made for it, each with its date) and `deliverables/` (files handed to the Overlord). |
 | `data/archive/finished/<task>/` | A finished task's folder. |
 | `data/archive/parked/<task>/` | A brief set aside before it was dispatched. |
-| `data/archive/filed.md` | Every move filing made, and any pass that failed. |
+| `data/archive/filed.md` | Every move filing made, and any pass that failed or was cut short. |
 
-The watcher files a laid-out home's data every ten minutes, so finished and abandoned work leaves `data/` without anyone asking:
+The supervisor files a laid-out home's data every ten minutes, so finished and abandoned work leaves `data/` without anyone asking:
 
 - A finished task's folder moves to `data/archive/finished/<task>/`.
   Finished means no task record is left in `state/`, a status log or a state archive entry shows the task was dispatched, and its brief has not changed since; a brief written again for the same id is a new brief.
@@ -49,6 +49,8 @@ The watcher files a laid-out home's data every ten minutes, so finished and aban
 
 To revive a parked brief, move its folder back to `data/<task>/` and its row back under `## Queued`.
 A folder a process holds open stays put for the next pass, and the failure is written once in `data/archive/filed.md`.
+A pass files at most a hundred folders, so a home that fell behind is caught up a step a pass, and a pass cut short says so once in `data/archive/filed.md` and leaves the rest for the next.
+`state\filing.json` keeps the last pass, when it started, what it filed, how many folders wait and why it could not file, so a supervisor that restarts waits out the ten minutes from there, and `goblins runtime` shows it beside the janitor's sweep.
 
 `goblins install` lays out a new home's `data/`, and repairs a laid-out one by creating what is missing without overwriting any file; `data/.layout` marks a folder it laid out.
 A `data/` that already held work before this layout existed is left exactly as it is, because laying it out would move the operator's files.

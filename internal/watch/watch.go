@@ -419,7 +419,6 @@ func Run(cfg Config) (string, error) {
 		}
 	}
 
-	var lastFiled time.Time
 	for {
 		var signalDetail string
 		changes, err := ScanSignals(cfg.Home.State)
@@ -513,7 +512,7 @@ func Run(cfg Config) (string, error) {
 		} else if err := monitor.TouchHeartbeat(cfg.Home.State, time.Now()); err != nil {
 			return "", err
 		}
-		fileData(ctx, cfg, &lastFiled)
+		fileData(ctx, cfg)
 		sweepCtx, cancelSweep := context.WithTimeout(ctx, cfg.reconcileBudget())
 		orphanDetail := sweepOrphans(sweepCtx, cfg)
 		cancelSweep()
@@ -561,17 +560,21 @@ func Run(cfg Config) (string, error) {
 	}
 }
 
-// fileData files the home's data when FileEvery has passed since this
-// watcher last did. Filing is routine and never wakes the CEO: every move is
-// in the data folder's filing log. A pass that fails is recorded there by
+// fileData files the home's data when FileEvery has passed since the home's
+// last filing pass, which layout.File keeps in the state folder, so a
+// supervisor that restarts or a pass that keeps no state of its own waits
+// from there. Filing is routine and never wakes the CEO: every move is in the
+// data folder's filing log. A pass that fails is recorded there by
 // layout.File and retried on the next pass, and it never stops the watcher,
 // because supervising the goblins matters more than tidying their folders.
-func fileData(ctx context.Context, cfg Config, last *time.Time) {
-	if cfg.FileEvery <= 0 || time.Since(*last) < cfg.FileEvery {
+func fileData(ctx context.Context, cfg Config) {
+	if cfg.FileEvery <= 0 {
 		return
 	}
-	*last = time.Now()
-	_, _ = layout.File(ctx, cfg.Home, *last)
+	if last, err := layout.ReadRecord(cfg.Home.State); err == nil && time.Since(last.Time) < cfg.FileEvery {
+		return
+	}
+	_, _ = layout.File(ctx, cfg.Home, time.Now())
 }
 
 // sweepOrphans runs the orphan audit when it is due, persists the result for
