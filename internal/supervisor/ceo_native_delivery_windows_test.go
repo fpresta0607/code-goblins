@@ -1191,7 +1191,7 @@ func TestASlashCommandReachesTheCEOInItsTrueState(t *testing.T) {
 			}
 			switch {
 			case test.isWaiting:
-				if !errors.Is(err, ErrDeferred) || len(lines) != 1 || !result.CanSendNow || !strings.HasPrefix(result.Reason, "Queued until the CEO's turn ends. Send now ") {
+				if !errors.Is(err, ErrDeferred) || len(lines) != 1 || !result.CanSendNow || result.Reason != "Queued until the CEO's turn ends. Send now has it take the message at once." {
 					t.Errorf("deliverMessage = %+v, %v, terminal input %q; want it held for the turn's end, nothing typed, with Send now for the words behind it", result, err, lines)
 				}
 			case test.isHeld:
@@ -1204,6 +1204,30 @@ func TestASlashCommandReachesTheCEOInItsTrueState(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// His words queued in the CEO's Claude Code turn leave its prompt line
+// offering its queue, and it offers that queue still once a command typed
+// after them ran beside the turn. The offer was there before the command, so
+// it says nothing of the command, which reads taken as it does with nothing
+// queued (#2372).
+func TestACommandRunBesideTheCEOsTurnReadsTakenWithHisWordsInItsQueue(t *testing.T) {
+	// Arrange
+	_, service, terminal, _, _ := heldQueue(t, false, "claude-busy", "use staging")
+	promptLineEmpties(t, terminal)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// Act
+	result, err := service.deliverMessage(ctx, Action{ID: "command", Kind: "message", Text: "/remote-control"})
+
+	// Assert
+	if err != nil || result.Awaiting != nil || result.Reason != "Taken by the CEO in its native terminal, which ran your command beside its turn." {
+		t.Errorf("deliverMessage = %+v, %v; want the command read as run beside the turn", result, err)
+	}
+	if lines := terminal.waitForLines(t, 3); len(lines) != 3 || lines[1] != "queued use staging" || lines[2] != "ran /remote-control" {
+		t.Errorf("terminal input = %q; want his words queued, then the command typed once and run", lines)
 	}
 }
 

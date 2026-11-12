@@ -188,3 +188,28 @@ test("codex: Enter on a picked skill completes the mention and sends nothing", a
   await expect(field(page)).toHaveValue("$alpha-notes ");
   expect(typed(relay)).toBe("");
 });
+
+test("codex: Enter on a skill a slash word found completes the mention and sends nothing", async ({ page }) => {
+  // Arrange
+  const posts: string[] = [];
+  const relay = await open(page, snapshot({}, { harness: "codex" }));
+  await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: ANSWERS.codex } }));
+  await page.route("**/api/actions", (route) => {
+    const body = route.request().postDataJSON() as { kind?: string; text?: string };
+    if (body.kind === "message") posts.push(body.text ?? "");
+    return route.fulfill({ status: 202, json: { status: "queued" } });
+  });
+  await openGoblin(page);
+  await field(page).fill("/notes");
+  await expect(list(page).locator(".popup-option-label")).toHaveText(["$alpha-notes", "$kit:find-notes"]);
+
+  // Act
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+
+  // Assert: the pick is a mention, whatever sigil found it, so it waits in the
+  // box and nothing is typed into the session or handed to the board.
+  await expect(field(page)).toHaveValue("$kit:find-notes ");
+  expect(typed(relay)).toBe("");
+  expect(posts).toEqual([]);
+});

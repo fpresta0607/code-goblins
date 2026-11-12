@@ -657,6 +657,37 @@ for (const harness of ["claude", "codex", "pi"] as const) {
   });
 }
 
+// Enter on a picked / command sends it (#2372); on a picked file it still
+// completes the mention, as Tab does.
+test("Enter on a picked file completes the mention in the box and sends nothing", async ({ page }) => {
+  // Arrange
+  const posts: string[] = [];
+  const relay = await open(page);
+  await page.route("**/api/files**", (route) => route.fulfill({ json: { files: ["frontend/src/terminalView.ts", "frontend/src/terminal-link.ts"] } }));
+  await page.route("**/api/actions", (route) => {
+    const body = route.request().postDataJSON() as { kind?: string; text?: string };
+    if (body.kind === "message") posts.push(body.text ?? "");
+    return route.fulfill({ status: 202, json: { status: "queued" } });
+  });
+  await openGoblin(page);
+  const list = page.getByRole("listbox", { name: "Files", exact: true });
+  await field(page).fill("read @term and fix it");
+  await field(page).press("Home");
+  for (let at = 0; at < "read @term".length; at++) await field(page).press("ArrowRight");
+  await expect(list.locator(".popup-option-label")).toHaveText(["terminalView.ts", "terminal-link.ts"]);
+
+  // Act: Enter takes the second.
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+
+  // Assert: the mention is the path, the rest of the draft kept, and nothing
+  // is typed into the session or handed to the board.
+  await expect(field(page)).toHaveValue("read @frontend/src/terminal-link.ts and fix it");
+  await expect(list).toHaveCount(0);
+  expect(typed(relay)).toBe("");
+  expect(posts).toEqual([]);
+});
+
 test("a delivered message appears once in Modern chat, every pending message waits at its end, and the box has no queue control", async ({ page }) => {
   const actions = Array.from({ length: 8 }, (_, index) => ({ id: "q" + index, kind: "message", task_id: "cg-touch", text: "queued request " + index, status: "queued" }));
   await open(page, snapshot({ actions: [...actions, { id: "delivered", kind: "message", task_id: "cg-touch", text: "already in the conversation", status: "done" }] }), "", {
