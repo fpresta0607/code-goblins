@@ -14,6 +14,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 )
 
 func TestHandbackReadsTheExactPersistedPublicationAndReceipt(t *testing.T) {
@@ -85,7 +86,7 @@ INSERT INTO ci_handbacks VALUES('native-receipt','original-run','%s','%s',7);`, 
 			calls := 0
 			reader := Reader{Root: root, Commands: runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
 				if request.Name != "no-mistakes" {
-					return fixtureCommands{commands}.Run(ctx, request)
+					return pipelinetest.FixtureCommands{Runner: commands}.Run(ctx, request)
 				}
 				calls++
 				if len(request.Args) < 4 || strings.Join(request.Args[:3], " ") != "axi handback --expect" {

@@ -25,6 +25,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -261,7 +262,7 @@ func TestSourceResumeComposedBoundaries(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Setenv("NM_HOME", nativeRoot)
-			commands := execx.OSRunner{}
+			commands := pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}
 			workingDir := h.Root
 			git := func(args ...string) string {
 				t.Helper()
@@ -537,7 +538,7 @@ func (commands *sourceResumeCommands) Run(ctx context.Context, request execx.Req
 		commands.native = append(commands.native, request)
 		return execx.Result{ExitCode: 1, Stderr: []byte("validation must be requested explicitly")}, nil
 	}
-	return (execx.OSRunner{}).Run(ctx, request)
+	return pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}.Run(ctx, request)
 }
 
 func TestPublicResumeRestoresSourceWithoutReplacingValidation(t *testing.T) {
