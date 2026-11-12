@@ -709,7 +709,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	case "gate":
 		return runGate(args[1:], stdout, stderr, runtime)
 	case "ci-runner":
-		return runCIRunner(args[1:], stdout, stderr, execx.OSRunner{}, runtime)
+		return runCIRunner(args[1:], stdout, stderr, runtime)
 	case "deploy":
 		return runDeploy(args[1:], stdout, stderr, runtime)
 	case "evidence":

@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 )
 
 // mergeQueueQuery asks GitHub whether a pull request's base requires a merge
@@ -33,8 +35,9 @@ type mergeQueue struct {
 
 // readMergeQueue reads whether pullRequest's base requires a merge queue. An
 // answer that cannot be read is an error and never a direct merge: merging
-// around a queue the base requires is not a fallback.
-func readMergeQueue(ctx context.Context, pullRequest string, commands execx.Runner) (mergeQueue, error) {
+// around a queue the base requires is not a fallback. github asks it, and gh
+// does while it is nil, as apiFor leaves it for a pull request on another host.
+func readMergeQueue(ctx context.Context, pullRequest string, commands execx.Runner, github *githubapi.Client) (mergeQueue, error) {
 	repository, err := pullRequestRepository(pullRequest)
 	if err != nil {
 		return mergeQueue{}, err
@@ -44,10 +47,9 @@ func readMergeQueue(ctx context.Context, pullRequest string, commands execx.Runn
 	if err != nil {
 		return mergeQueue{}, err
 	}
-	number := path.Base(strings.Trim(parsed.Path, "/"))
-	answer, err := ghText(ctx, commands, "api", "graphql", "-f", "query="+mergeQueueQuery, "-f", "owner="+owner, "-f", "name="+name, "-F", "number="+number)
+	number, err := strconv.Atoi(path.Base(strings.Trim(parsed.Path, "/")))
 	if err != nil {
-		return mergeQueue{}, fmt.Errorf("GitHub did not say whether %s's base requires a merge queue: %w", pullRequest, err)
+		return mergeQueue{}, fmt.Errorf("%s is not a pull request's URL, so its number cannot be read", pullRequest)
 	}
 	var read struct {
 		Data struct {
@@ -59,8 +61,16 @@ func readMergeQueue(ctx context.Context, pullRequest string, commands execx.Runn
 			} `json:"repository"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal([]byte(answer), &read); err != nil {
-		return mergeQueue{}, fmt.Errorf("GitHub's answer on %s's merge queue could not be read: %w", pullRequest, err)
+	if github != nil {
+		err = github.GraphQL(ctx, mergeQueueQuery, map[string]any{"owner": owner, "name": name, "number": number}, &read.Data)
+	} else {
+		var answer string
+		if answer, err = ghText(ctx, commands, "api", "graphql", "-f", "query="+mergeQueueQuery, "-f", "owner="+owner, "-f", "name="+name, "-F", "number="+strconv.Itoa(number)); err == nil {
+			err = json.Unmarshal([]byte(answer), &read)
+		}
+	}
+	if err != nil {
+		return mergeQueue{}, fmt.Errorf("GitHub did not say whether %s's base requires a merge queue: %w", pullRequest, err)
 	}
 	found := read.Data.Repository.PullRequest
 	if found == nil {

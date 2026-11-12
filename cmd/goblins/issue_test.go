@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -21,13 +22,14 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
-// issueGH answers the gh, git and GitHub API requests goblins issue file makes
-// the way gh, a checkout and GitHub would. account is the account gh works
-// as, acme unless set; private names the repositories that are not public,
-// and noIssues those with issues turned off; remotes names, by a checkout's
-// folder, each of its remotes and its address, and a checkout it does not
-// name has only origin, acme/<folder>; open is the JSON listing of the open
-// ops-root issues. Every write is recorded.
+// issueGH answers the git and GitHub API requests goblins issue file makes
+// the way a checkout and GitHub would, and fails every gh it is asked to
+// start. account is the account gh works as, acme unless set; private names
+// the repositories that are not public, and noIssues those with issues turned
+// off; remotes names, by a checkout's folder, each of its remotes and its
+// address, and a checkout it does not name has only origin, acme/<folder>;
+// open is the JSON listing of the open ops-root issues. Every write is
+// recorded.
 type issueGH struct {
 	account  string
 	private  map[string]bool
@@ -42,13 +44,6 @@ func (f *issueGH) Run(_ context.Context, req execx.Request) (execx.Result, error
 	if req.Name == "git" {
 		return f.git(req.Args), nil
 	}
-	if slices.Equal(req.Args, []string{"api", "user", "--jq", ".login"}) {
-		account := f.account
-		if account == "" {
-			account = "acme"
-		}
-		return execx.Result{Stdout: []byte(account + "\n")}, nil
-	}
 	return execx.Result{ExitCode: 1, Stderr: []byte("unexpected gh " + strings.Join(req.Args, " "))}, nil
 }
 
@@ -57,6 +52,8 @@ func (f *issueGH) Run(_ context.Context, req execx.Request) (execx.Result, error
 func (f *issueGH) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.RequestURI(), "/")
 	switch {
+	case r.Method == http.MethodGet && path == "user":
+		githubtest.Write(w, http.StatusOK, map[string]string{"login": cmp.Or(f.account, "acme")})
 	case r.Method == http.MethodGet && strings.Contains(path, "/issues?labels=ops-root"):
 		f.reads = append(f.reads, path)
 		open := f.open

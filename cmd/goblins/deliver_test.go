@@ -5,14 +5,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -194,10 +197,26 @@ type prMergeRunner struct {
 	localOid    string
 	localExit   int
 	localStderr string
-	// queue and queued are what GitHub says of the base's merge queue and of
-	// the pull request in it; queueExit fails that read.
+	// queue and queued are what GitHub's API says of the base's merge queue
+	// and of the pull request in it; queueExit fails that read. asked records
+	// each request of the API.
 	queue, queued bool
 	queueExit     int
+	asked         []string
+}
+
+// ServeHTTP answers the merge queue read GitHub's API serves.
+func (r *prMergeRunner) ServeHTTP(w http.ResponseWriter, request *http.Request) {
+	path := strings.TrimPrefix(request.URL.RequestURI(), "/")
+	r.asked = append(r.asked, request.Method+" "+path)
+	switch {
+	case request.Method != http.MethodPost || path != "graphql":
+		githubtest.Refuse(w, http.StatusNotFound, "Not Found")
+	case r.queueExit != 0:
+		githubtest.Refuse(w, http.StatusBadGateway, "Bad Gateway")
+	default:
+		_, _ = w.Write([]byte(mergeQueueAnswer(r.queue, r.queued)))
+	}
 }
 
 func (r *prMergeRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
@@ -215,10 +234,7 @@ func (r *prMergeRunner) Run(_ context.Context, request execx.Request) (execx.Res
 		}
 		return execx.Result{ExitCode: r.viewExit, Stdout: []byte(body)}, nil
 	case request.Name == "gh" && request.Args[0] == "api" && request.Args[1] == "graphql":
-		if r.queueExit != 0 {
-			return execx.Result{ExitCode: r.queueExit, Stderr: []byte("gh: HTTP 502")}, nil
-		}
-		return execx.Result{Stdout: []byte(mergeQueueAnswer(r.queue, r.queued))}, nil
+		return execx.Result{}, errors.New("gh started for a read GitHub's API answers: gh " + strings.Join(request.Args, " "))
 	case request.Name == "gh" && request.Args[0] == "api":
 		if r.deleteExit != 0 {
 			reason := r.deleteStderr
@@ -239,8 +255,7 @@ func (r *prMergeRunner) Run(_ context.Context, request execx.Request) (execx.Res
 	return execx.Result{}, errors.New("unexpected command: " + request.Name)
 }
 
-// mergeQueueAnswer is GitHub's answer to the merge queue query, in the shape
-// gh api graphql prints it.
+// mergeQueueAnswer is GitHub's answer to the merge queue query.
 func mergeQueueAnswer(queue, queued bool) string {
 	return fmt.Sprintf(`{"data":{"repository":{"pullRequest":{"isMergeQueueEnabled":%t,"isInMergeQueue":%t}}}}`, queue, queued)
 }
@@ -277,7 +292,7 @@ func TestPRMergeDeletesTheRemoteRefEvenWhenTheLocalBranchIsHeldByAWorktree(t *te
 	}
 
 	var stdout, stderr bytes.Buffer
-	exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, nil)
+	exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, githubtest.Client(runner), nil)
 
 	if exit != 0 {
 		t.Fatalf("exit=%d, want 0 - the merge landed, so a leftover local branch is not a failure; stderr=%s", exit, stderr.String())
@@ -308,7 +323,7 @@ func TestPRMergeNeverForwardsDeleteBranchToGH(t *testing.T) {
 	runner := &prMergeRunner{localOid: prMergeHeadOID}
 
 	var stdout, stderr bytes.Buffer
-	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, nil); exit != 0 {
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, githubtest.Client(runner), nil); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
 	for _, request := range runner.requests {
@@ -327,7 +342,7 @@ func TestPRMergeDeletesBothWhenNoWorktreeHoldsTheBranch(t *testing.T) {
 	runner := &prMergeRunner{localOid: prMergeHeadOID}
 
 	var stdout, stderr bytes.Buffer
-	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, nil); exit != 0 {
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, githubtest.Client(runner), nil); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "deleted remote branch fix/x") || !strings.Contains(stdout.String(), "deleted local branch fix/x") {
@@ -347,7 +362,7 @@ func TestPRMergeStaysSilentWhenTheRemoteRefIsAlreadyGone(t *testing.T) {
 	runner := &prMergeRunner{deleteExit: 1, deleteStderr: prMergeRefGone, localOid: prMergeHeadOID}
 
 	var stdout, stderr bytes.Buffer
-	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, nil); exit != 0 {
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, githubtest.Client(runner), nil); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
 	if stderr.Len() != 0 {
@@ -367,7 +382,7 @@ func TestPRMergeReportsAFailedRemoteDeletionWithoutClaimingIt(t *testing.T) {
 	runner := &prMergeRunner{deleteExit: 1, localOid: prMergeHeadOID}
 
 	var stdout, stderr bytes.Buffer
-	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, nil); exit != 0 {
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, githubtest.Client(runner), nil); exit != 0 {
 		t.Fatalf("exit=%d, want 0 - the merge still landed; stderr=%s", exit, stderr.String())
 	}
 	if strings.Contains(stdout.String(), "deleted remote branch") {
@@ -386,7 +401,7 @@ func TestPRMergeDeletesNothingWhenTheMergeFails(t *testing.T) {
 	runner := &prMergeRunner{mergeExit: 1, localOid: prMergeHeadOID}
 
 	var stdout, stderr bytes.Buffer
-	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, nil); exit != 1 {
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, githubtest.Client(runner), nil); exit != 1 {
 		t.Fatalf("exit=%d, want 1 for a refused merge", exit)
 	}
 	if runner.ran("gh", "api", "--method", "DELETE") || runner.ran("git", "branch") {
@@ -399,11 +414,11 @@ func TestPRMergeWithoutDeleteBranchRunsOnlyTheMerge(t *testing.T) {
 	runner := &prMergeRunner{localOid: prMergeHeadOID}
 
 	var stdout, stderr bytes.Buffer
-	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13"}, &stdout, &stderr, runner, nil); exit != 0 {
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13"}, &stdout, &stderr, runner, githubtest.Client(runner), nil); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
-	if len(runner.requests) != 3 {
-		t.Errorf("ran %d commands, want the proof, the merge queue read and the merge: %v", len(runner.requests), runner.requests)
+	if len(runner.requests) != 2 || !slices.Equal(runner.asked, []string{"POST graphql"}) {
+		t.Errorf("ran %v and asked GitHub's API %q, want the proof and the merge run and the merge queue asked", runner.requests, runner.asked)
 	}
 	if !runner.ran("gh", "pr", "merge", "https://github.com/o/r/pull/13", "--merge", "--match-head-commit", prMergeHeadOID) {
 		t.Errorf("merge was not SHA-pinned: %v", runner.requests)
@@ -418,7 +433,7 @@ func TestPRMergeLeavesALocalBranchOnADifferentCommitAlone(t *testing.T) {
 	runner := &prMergeRunner{localOid: prMergeOtherOID}
 
 	var stdout, stderr bytes.Buffer
-	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, nil); exit != 0 {
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, githubtest.Client(runner), nil); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
 	if runner.ran("git", "branch", "-D", "fix/x") {
@@ -436,7 +451,7 @@ func TestPRMergeStaysSilentWhenThereIsNoLocalBranch(t *testing.T) {
 	runner := &prMergeRunner{localOid: ""}
 
 	var stdout, stderr bytes.Buffer
-	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, nil); exit != 0 {
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, githubtest.Client(runner), nil); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
 	if runner.ran("git", "branch", "-D", "fix/x") {
