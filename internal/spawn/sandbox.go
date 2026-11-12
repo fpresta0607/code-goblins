@@ -1,6 +1,7 @@
 package spawn
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,7 +14,8 @@ import (
 // sandboxNeeded reports whether a new task runs its commands in a container:
 // its brief carries sandbox: needed, or it is a helper whose parent does,
 // since a helper never runs with less containment than its parent. Such a
-// task is refused when docker is not on PATH, since its commands could then
+// task is refused in mode no-mistakes, whose gate runs its code on the host
+// (issue 2244), and when docker is not on PATH, since its commands could then
 // run nowhere but the host, which it never falls back to.
 func (s Service) sandboxNeeded(req Request, brief []byte) (bool, error) {
 	isNeeded, err := sandbox.IsNeededBy(string(brief))
@@ -29,6 +31,9 @@ func (s Service) sandboxNeeded(req Request, brief []byte) (bool, error) {
 	}
 	if !isNeeded {
 		return false, nil
+	}
+	if req.Mode == "no-mistakes" {
+		return false, errors.New("spawn: the task carries sandbox: needed, so its code never runs on this PC, and a no-mistakes gate would run it there, since only its Test step's command runs in the task's container: the agents of its Review, Test, Document and Lint steps run their own shells on the host, as do the prepare, lint and format commands a gate file names. Select direct-PR or local-only, a mode that needs no gate, through a low-risk delivery assessment under a direct-PR or local-only project posture or a CEO-authorized --delivery-exception")
 	}
 	if _, err := exec.LookPath("docker"); err != nil {
 		return false, fmt.Errorf("spawn: the task carries sandbox: needed, but docker is not on PATH, so its commands could run nowhere but the host, which a sandbox task never does: install Docker Desktop or take the line out of its brief (%w)", err)
@@ -80,5 +85,5 @@ func sandboxInstruction(meta state.TaskMeta) string {
 		" with only your worktree and scratch folder mounted, in the machine's heavy line, one at a time, and in the background as goblins gate turn --detach <log-file> -- goblins sandbox run -- <command>." +
 		" On the host your shell runs only goblins, git and gh, from your worktree, as plain words and quoted text joined by &&, with no pipe, redirection, variable, backslash before a quote or command of its own." +
 		" Git runs only status, diff, log, show, add, commit, push, fetch, pull, switch, checkout, branch, rebase, merge, reset, restore, stash, tag, rev-parse, ls-files and blame, with no option before its command, no rebase -x and no --exec, --upload-pack, --receive-pack, --recurse-submodules or --recursive; gh runs no alias or extension; and goblins gate test, goblins verify, goblins security, goblins deploy and goblins services are refused." +
-		" Your project cannot use submodules: every host command is refused while the worktree holds a .gitmodules or its index names one. Read and edit files with your file tools. Your gate's Test step runs its command in the same container."
+		" Your project cannot use submodules: every host command is refused while the worktree holds a .gitmodules or its index names one. Read and edit files with your file tools. goblins pipeline run starts no gate for your task, since a gate's agents and its prepare, lint and format commands would run this code on this PC."
 }
