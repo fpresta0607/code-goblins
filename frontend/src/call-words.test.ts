@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { callTally, callWords, commandLanguage } from "./call-words.ts";
+import { callTally, callWords, commandLanguage, isBrowserCommand } from "./call-words.ts";
 
 test("a call reads with its tool's icon and verb, as it runs and once it has run, for every harness's tools", () => {
   const cases: [string, boolean, ReturnType<typeof callWords>][] = [
@@ -57,6 +57,18 @@ test("a tool search reads with a wrench: how many tools it loaded by name, each 
 test("a call that ran a command names the command's language, and any other call none", () => {
   const cases: [string, string][] = [["Bash", "bash"], ["PowerShell", "powershell"], ["exec", "javascript"], ["exec_command", "shell"], ["shell", "shell"], ["Read", ""], ["mcp__docs__fetch", ""]];
   for (const [tool, want] of cases) assert.equal(commandLanguage(tool), want, tool);
+});
+
+test("a command drives the goblin's own browser only when it runs chrome-devtools-axi", () => {
+  const cases: [string, boolean][] = [
+    ["chrome-devtools-axi screenshot --output shot.png", true],
+    ["npx -y chrome-devtools-axi open https://shop.example.com/sign-in", true],
+    ["cd frontend && chrome-devtools-axi snapshot", true],
+    ["npm test", false],
+    ["git log --grep chrome", false],
+    ["", false],
+  ];
+  for (const [command, want] of cases) assert.equal(isBrowserCommand(command), want, command);
 });
 
 test("a folded run of calls counts each kind with the verb its rows use, in the order the kinds first ran", () => {

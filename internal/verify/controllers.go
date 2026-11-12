@@ -11,9 +11,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lock"
 )
 
-// Controllers reads local controller identities from the queue, held slots
-// and worker custody together. Callers must match their PID and creation
-// time against the processes they observed; an old record protects nothing.
+// Controllers reads local controller identities from the queue, held slots,
+// light turns and worker custody together. Callers must match their PID and
+// creation time against the processes they observed; an old record protects
+// nothing.
 func Controllers(ctx context.Context, dir string) (controllers []lock.Info, failure error) {
 	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -39,7 +40,7 @@ func Controllers(ctx context.Context, dir string) (controllers []lock.Info, fail
 		}
 		for _, entry := range entries {
 			name := entry.Name()
-			if entry.IsDir() || strings.HasSuffix(name, ".run") || folder == dir && name != "slot-1" && name != "slot-2" {
+			if entry.IsDir() || strings.HasSuffix(name, ".run") || folder == dir && name != "slot-1" && name != "slot-2" && !lightName.MatchString(name) {
 				continue
 			}
 			record, err := lock.ReadNamedStrictContext(ctx, folder, name)

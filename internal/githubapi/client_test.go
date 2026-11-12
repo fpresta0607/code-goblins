@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
@@ -124,9 +125,12 @@ func TestConsentInvalidatesTheSharedCLIIdentityWithoutChangingEnvironmentPrecede
 	}
 }
 
-// A 401 drops the token kept from gh, so the next call reads it again, once;
-// a token from the environment is the environment's and is never dropped.
-func TestARefusedTokenIsReadAgainOnceByTheNextCall(t *testing.T) {
+// While GitHub refuses the token gh is signed in with, the client starts gh
+// auth token at most once a refusedWait: the calls in between, through any
+// guarded copy, fail with a CredentialError and send nothing; the first call
+// after the wait reads gh again, and consent reads it again at once (#2003).
+// A token from the environment is the environment's and is never dropped.
+func TestARefusedTokenIsReadAgainOnlyAfterTheWait(t *testing.T) {
 	// Arrange
 	var sent []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -139,35 +143,57 @@ func TestARefusedTokenIsReadAgainOnceByTheNextCall(t *testing.T) {
 		_, _ = io.WriteString(w, `{}`)
 	}))
 	defer server.Close()
-	runner := &tokenRunner{tokens: []string{"stale", "fresh"}}
+	runner := &tokenRunner{tokens: []string{"stale", "stale", "fresh"}}
 	client := testClient(server, nil, runner)
+	now := time.Date(2026, 11, 12, 13, 0, 0, 0, time.UTC)
+	client.now = func() time.Time { return now }
+	guarded := client.Guarded(&recordingGuard{})
 	var answer struct{}
 
 	// Act
 	refused := client.Get(context.Background(), "user", &answer)
-	first := client.Get(context.Background(), "user", &answer)
-	second := client.Get(context.Background(), "user", &answer)
+	var held []error
+	for range 5 {
+		now = now.Add(refusedWait / 10)
+		held = append(held, guarded.Get(context.Background(), "user", &answer))
+	}
+	runsWhileHeld, sentWhileHeld := len(runner.runs), len(sent)
+	now = now.Add(refusedWait)
+	refusedAgain := client.Get(context.Background(), "user", &answer)
+	client.InvalidateCLIToken()
+	fresh := client.Get(context.Background(), "user", &answer)
+	kept := guarded.Get(context.Background(), "user", &answer)
 
 	// Assert
 	if StatusOf(refused) != http.StatusUnauthorized || strings.Contains(refused.Error(), "stale") {
 		t.Fatalf("the refused call = %v, want a 401 that names no token", refused)
 	}
-	if first != nil || second != nil {
-		t.Fatalf("the calls after the 401 = %v, %v, want both answered", first, second)
+	if runsWhileHeld != 1 || sentWhileHeld != 1 {
+		t.Fatalf("within the wait gh ran %d times and %d requests went, want gh run once and the refused request only", runsWhileHeld, sentWhileHeld)
 	}
-	if len(runner.runs) != 2 || strings.Join(sent, ",") != "Bearer stale,Bearer fresh,Bearer fresh" {
-		t.Fatalf("gh ran %d times and the requests sent %q, want the token read again once", len(runner.runs), sent)
+	for _, err := range held {
+		var credential *CredentialError
+		if !errors.As(err, &credential) || strings.Contains(err.Error(), "stale") {
+			t.Fatalf("a call within the wait = %v, want a CredentialError that names no token", err)
+		}
+	}
+	if StatusOf(refusedAgain) != http.StatusUnauthorized || fresh != nil || kept != nil {
+		t.Fatalf("after the wait = %v, after consent = %v, then %v: want the 401 again, then both answered", refusedAgain, fresh, kept)
+	}
+	if len(runner.runs) != 3 || strings.Join(sent, ",") != "Bearer stale,Bearer stale,Bearer fresh,Bearer fresh" {
+		t.Fatalf("gh ran %d times and the requests sent %q, want gh read after the wait and after consent only", len(runner.runs), sent)
 	}
 
 	// Arrange
 	environmental := testClient(server, map[string]string{"GH_TOKEN": "stale"}, runner)
 
 	// Act
-	err := environmental.Get(context.Background(), "user", &answer)
+	first := environmental.Get(context.Background(), "user", &answer)
+	second := environmental.Get(context.Background(), "user", &answer)
 
 	// Assert
-	if StatusOf(err) != http.StatusUnauthorized || len(runner.runs) != 2 {
-		t.Fatalf("a refused GH_TOKEN = %v after %d gh runs, want the 401 and no gh run", err, len(runner.runs))
+	if StatusOf(first) != http.StatusUnauthorized || StatusOf(second) != http.StatusUnauthorized || len(runner.runs) != 3 {
+		t.Fatalf("a refused GH_TOKEN = %v, %v after %d gh runs, want the 401 each time and no gh run", first, second, len(runner.runs))
 	}
 }
 
