@@ -1,5 +1,6 @@
 import { Icon } from "./Icon";
 import type { PlanStatus, PlanStep } from "./session-messages";
+import { linkedText } from "./messageText";
 import "./plan-card.css";
 
 const STATUS_WORDS: Record<PlanStatus, string> = { pending: "To do", in_progress: "In progress", completed: "Done" };
@@ -16,7 +17,7 @@ export function PlanCard({ steps }: { steps: PlanStep[] }) {
     <ol className="plan-steps">
       {steps.map((step, at) => <li key={at} className={"plan-step " + step.status}>
         <span className="plan-mark" aria-hidden="true">{step.status === "completed" && <Icon name="check" />}</span>
-        <span className="plan-text">{step.text}</span>
+        <span className="plan-text">{linkedText(step.text)}</span>
         <span className="sr-only">{STATUS_WORDS[step.status]}</span>
       </li>)}
     </ol>
