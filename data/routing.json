@@ -30,6 +30,20 @@
     "scout": ["small-claude"],
     "verification": ["deep", "strong-claude"]
   },
+  "roles": {
+    "build": {
+      "implement": ["light-codex"],
+      "verify": ["verification"]
+    },
+    "deep": {
+      "verify": ["verification"]
+    },
+    "strong-claude": {
+      "implement": ["light-claude"],
+      "review": ["fable-claude"],
+      "verify": ["fable-claude", "verify-claude"]
+    }
+  },
   "lanes": {
     "deep": {
       "harness": "codex",
@@ -78,6 +92,24 @@
       "model": "sonnet",
       "effort": "high",
       "note": "independent verification"
+    },
+    "light-codex": {
+      "harness": "codex",
+      "model": "gpt-6.1-sol",
+      "effort": "high",
+      "note": "an implementation slice a Codex lead hands off"
+    },
+    "light-claude": {
+      "harness": "claude",
+      "model": "claude-sonnet-5-5",
+      "effort": "high",
+      "note": "an implementation slice a Claude lead hands off"
+    },
+    "fable-claude": {
+      "harness": "claude",
+      "model": "claude-fable-5-2",
+      "effort": "xhigh",
+      "note": "strong review and verification of a Claude lead's work"
     }
   }
 }
