@@ -33,6 +33,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/layout"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/memory"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -220,6 +221,7 @@ func composeLong(h home.Home, current fleetSample, ew *werr) error {
 	ew.write(fleetState.Bytes())
 	writeOrphans(h.State, ew)
 	writeStorage(h, time.Now(), ew)
+	writeShared(h.State, time.Now(), ew)
 	ew.write(context.Bytes())
 	writeNextStep(ew)
 	return memoryErr
@@ -296,11 +298,12 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 		}
 	}
 
-	var afkMode, ceoWaits, instructions, storage bytes.Buffer
+	var afkMode, ceoWaits, instructions, storage, shared bytes.Buffer
 	writeAFKMode(h.State, &werr{w: &afkMode})
 	waits, waitsErr := supervisor.CEOWaits(h)
 	writeCEOWaits(waits, waitsErr, time.Now(), briefWaitsRoom, briefErrorWidth, &werr{w: &ceoWaits})
 	writeStorage(h, time.Now(), &werr{w: &storage})
+	writeShared(h.State, time.Now(), &werr{w: &shared})
 	writeSupervisionInstructions(h.Data, true, &werr{w: &instructions})
 	checkpoint := ""
 	if isAfterCompact {
@@ -333,7 +336,7 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 
 	// The wake queue and the fleet share what the fixed sections leave: the
 	// fleet is held to two fifths of it only while the queue needs the rest.
-	room := Budget - lockSection.Len() - afkMode.Len() - ceoWaits.Len() - storage.Len() - instructions.Len() - len(tail(false, false))
+	room := Budget - lockSection.Len() - afkMode.Len() - ceoWaits.Len() - storage.Len() - shared.Len() - instructions.Len() - len(tail(false, false))
 	fleetTable, isWholeFleet := briefFleet(current, room)
 	var wakeQueue bytes.Buffer
 	isWholeQueue := writeWakeQueue(h.State, max(room*3/5, room-len(fleetTable)), briefErrorWidth, &werr{w: &wakeQueue})
@@ -349,6 +352,7 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 	ew.write(instructions.Bytes())
 	ew.write(fleetTable)
 	ew.write(storage.Bytes())
+	ew.write(shared.Bytes())
 	ew.write(tail(isWholeQueue, isWholeFleet))
 
 	if heldLock && ew.err == nil {
@@ -618,6 +622,45 @@ func ComposeReadOnly(h home.Home, why string, w io.Writer) error {
 	current := sampleFleet(context.Background(), h.State, fleet.NewTerminalEndpoint(h.State, nil))
 	composeLong(h, current, ew)
 	return ew.err
+}
+
+// writeShared prints one line on the services the whole fleet shares, as the
+// supervisor last checked them, with how many goblins wait on each. It reads
+// the supervisor's record and asks no service anything.
+func writeShared(stateDir string, now time.Time, ew *werr) {
+	record, err := supervisor.ReadSharedServices(stateDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		ew.println("SHARED: UNREADABLE (" + err.Error() + ")")
+		return
+	}
+	parts := make([]string, 0, len(record.Services))
+	for _, service := range record.Services {
+		part := service.Name + " " + service.State
+		switch service.Name {
+		case supervisor.SharedGateDaemon:
+			if service.PID > 0 {
+				part += fmt.Sprintf(" (pid %d, %s)", service.PID, pipeline.Daemon{LiveRuns: service.Runs}.RunCount())
+			}
+		case supervisor.SharedHeavyLine:
+			part += fmt.Sprintf(" (%d held, %d in line, %.1f of %.1f GB)", len(service.Holders), len(service.Queued), disk.GB(service.AvailableBytes), disk.GB(service.FloorBytes))
+		case supervisor.SharedDocker:
+			if len(service.Holders) > 0 {
+				part += " (held by " + strings.Join(service.Holders, ", ") + ")"
+			}
+		}
+		if waiting := len(service.Waiting); waiting > 0 {
+			part += fmt.Sprintf(", %d goblin(s) waiting", waiting)
+		}
+		parts = append(parts, part)
+	}
+	line := "SHARED: " + strings.Join(parts, "; ")
+	if age := now.Sub(record.CheckedAt); age > 3*time.Minute {
+		line += fmt.Sprintf("; checked %s ago, so the supervisor may not be checking", age.Round(time.Minute))
+	}
+	ew.println(line)
 }
 
 // writeStorage prints one line on the home's disk: the drive's free space
