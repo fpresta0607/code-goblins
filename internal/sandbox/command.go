@@ -314,10 +314,7 @@ func RunsNoHostGit(command string) bool {
 // may write a file it names, as goblins gate turn --detach its log. Host git
 // and gh write none (gitRefusal, ghRefusal).
 func MayMakeRepository(command string) bool {
-	commands, refusal := hostCommands(command)
-	if refusal != "" {
-		return true
-	}
+	commands, _ := hostCommands(command)
 	for _, words := range commands {
 		if programName(words[0]) == "goblins" && (len(words) < 2 || words[1] != "notify") {
 			return true

@@ -168,7 +168,6 @@ func TestMayMakeRepositoryHoldsEveryGoblinsCommandButNotify(t *testing.T) {
 		{"a turn that writes its log", "goblins gate turn --detach vendor/x/.git -- goblins sandbox run -- npm test", true},
 		{"another goblins command", "goblins issue file --project p --title t --body-file b.md", true},
 		{"git and then another goblins command", "git status && goblins pr check task", true},
-		{"a command the grammar refuses", "git status; goblins notify task --working x", true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Act

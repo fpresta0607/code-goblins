@@ -16,16 +16,19 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/sandbox"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // fakeSandboxEngine is a Docker engine that answers, or does not, and can
-// be started, or cannot, and records what it was asked.
+// be started, or cannot, and records what it was asked. It removes every
+// container it is asked to, unless removeErr is set.
 type fakeSandboxEngine struct {
 	isRunning bool
 	startErr  error
+	removeErr error
 	started   int
 	removed   []string
 }
@@ -42,7 +45,7 @@ func (e *fakeSandboxEngine) StartEngine(context.Context) error {
 
 func (e *fakeSandboxEngine) RemoveContainer(_ context.Context, name string) error {
 	e.removed = append(e.removed, name)
-	return nil
+	return e.removeErr
 }
 
 // sandboxHome is a home with one task, cg-x, whose worktree holds a .git
@@ -406,6 +409,58 @@ func TestHostCommandsTrustTheWalkASandboxRunEndedWith(t *testing.T) {
 				t.Fatalf("refusal = %q, want a [sandbox] refusal naming %s", refusal, filepath.Join(meta.Worktree, test.want))
 			}
 		})
+	}
+}
+
+// goblins sandbox run has the next host command walk the worktree before its
+// container starts, so a run whose container could not be removed, which
+// ends with no walk of its own, leaves the walk an earlier run ended with
+// untrusted once its record is gone: a .git its container made holds host
+// git back, naming it.
+func TestASandboxRunThatLeftItsContainerLeavesNoEarlierWalkTrusted(t *testing.T) {
+	// Arrange
+	const plant = `node_modules\pkg\.git`
+	turnLine(t)
+	engine := fakeSandboxEngine{isRunning: true}
+	sandboxed, meta := sandboxHome(t, "node:22", &engine)
+	meta.Harness = "claude"
+	runtime := turnRuntime()
+	runtime.resolveHome, runtime.sandboxEngine = sandboxed.resolveHome, sandboxed.sandboxEngine
+	record := fakeDocker(t, 0)
+	run := func(script string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(filepath.Dir(record), "docker.bat"), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		output, err := os.Create(filepath.Join(t.TempDir(), "output"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer output.Close()
+		if exit := runSandbox([]string{"run", "--", "npm", "install"}, output, output, runtime); exit != 0 {
+			said, _ := os.ReadFile(output.Name())
+			t.Fatalf("exit = %d, want 0; output: %s", exit, said)
+		}
+	}
+	echo := "@echo %*> \"" + record + "\"\r\n@exit /b 0\r\n"
+	run(echo)
+	engine.removeErr = errors.New("the engine stopped answering")
+	run("@mkdir \"" + filepath.Join(meta.Worktree, plant) + "\"\r\n" + echo)
+	runs := filepath.Join(meta.TaskTmp, sandbox.RunsDir)
+	left, err := os.ReadDir(runs)
+	if err != nil || len(left) != 1 {
+		t.Fatalf("records after the run that left its container = %v (%v), want its own", left, err)
+	}
+	if err := lock.ReleaseExclusiveNamed(runs, left[0].Name()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	refusal := sandboxRefusal(meta, claudehook.Payload{ToolName: "Bash", Command: "git status", Cwd: meta.Worktree})
+
+	// Assert
+	if !strings.HasPrefix(refusal, "[sandbox] ") || !strings.Contains(refusal, filepath.Join(meta.Worktree, plant)) {
+		t.Fatalf("refusal = %q, want a [sandbox] refusal naming %s", refusal, filepath.Join(meta.Worktree, plant))
 	}
 }
 

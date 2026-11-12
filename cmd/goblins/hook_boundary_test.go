@@ -220,6 +220,23 @@ func TestASandboxGoblinsFileToolsMakeNoRepositoryInItsWorktree(t *testing.T) {
 	}
 }
 
+// A goblins command of a sandbox task that may write a .git, one that runs
+// no host git among them, waits while the task's record names no tasktmp
+// folder, where it would have the next host command walk the worktree.
+func TestAGoblinsCommandWaitsWhileItsTaskCannotRecordTheNextWalk(t *testing.T) {
+	// Arrange
+	_, meta := sandboxHome(t, "node:22", &fakeSandboxEngine{})
+	meta.TaskTmp = ""
+
+	// Act
+	refusal := sandboxRefusal(meta, claudehook.Payload{ToolName: "Bash", Command: "goblins sandbox run -- npm test", Cwd: meta.Worktree})
+
+	// Assert
+	if !strings.HasPrefix(refusal, "[sandbox] ") || !strings.Contains(refusal, "it may write a .git") {
+		t.Fatalf("refusal = %q, want a [sandbox] refusal saying it may write a .git", refusal)
+	}
+}
+
 // makeNestedGit makes a repository's .git deep in worktree, where the
 // container could make one.
 func makeNestedGit(t *testing.T, worktree string) {

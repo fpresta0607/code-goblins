@@ -172,6 +172,7 @@ Host git and gh write none, as above, and the goblin's file tools make none: its
 What may make one has the next host command walk: a `goblins sandbox run`, from before its container starts, and every other `goblins` command but `goblins notify`, which may write a file it names, as `goblins gate turn --detach` its log.
 Such a `goblins` command run beside a walk, in a tool call made at the same time, can still write after that walk found the worktree clean.
 A Codex goblin's host commands walk the worktree every time, since its `apply_patch` edits are outside the boundary until #2255 lands.
+A relaunch of the task by `goblins switch` or a resume has the next host command walk too, once its last harness has stopped, so a goblin started after a Codex goblin trusts no walk from before that goblin's edits.
 The token of the latest such start, and the token of the last walk that found the worktree clean, are kept in the task's tasktmp folder, which no container mounts and no goblin's boundary lets it write.
 A gate runs only its Test step's command in the container: the agents of its Review, Test, Document and Lint steps run their own shells on the host, as do the prepare, lint and format commands a gate file names.
 So a sandbox task is delivered in mode direct-PR or local-only, and `goblins pipeline run`, `respond`, `handback`, `validate-authored` and `validate-terminal` drive no gate of a sandbox task: each names those steps and runs nothing.

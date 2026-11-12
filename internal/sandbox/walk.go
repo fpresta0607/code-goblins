@@ -54,9 +54,9 @@ func WalkForNestedGit(taskTmp, worktree string) error {
 // last changed found it clean (WalkForNestedGit).
 func NestedGitCheck(taskTmp, worktree string) error {
 	if filepath.IsAbs(taskTmp) {
-		token, err := os.ReadFile(filepath.Join(taskTmp, walkTokenFile))
+		token, err := fsx.ReadFile(filepath.Join(taskTmp, walkTokenFile))
 		if err == nil {
-			if mark, err := os.ReadFile(filepath.Join(taskTmp, cleanMarkFile)); err == nil && string(mark) == string(token) {
+			if mark, err := fsx.ReadFile(filepath.Join(taskTmp, cleanMarkFile)); err == nil && string(mark) == string(token) {
 				return nil
 			}
 		}
