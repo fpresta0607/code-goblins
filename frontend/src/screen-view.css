@@ -15,6 +15,15 @@
 .screen-view.driving .screen-canvas { cursor: default; touch-action: none; outline: 2px solid var(--accent-green); outline-offset: -2px; }
 .screen-canvas:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
 .screen-waiting { margin: 24px; }
+/* On a phone the stage takes the picture's own shape at the full width, so
+   the page never sits small between two bands; a tall page is scaled to
+   fit most of the screen's height. Until a frame draws, it holds the shape
+   of the goblin's 1280 by 800 browser, so nothing moves when one arrives. */
+@media (max-width: 40rem) {
+  .screen-stage { flex: none; }
+  .screen-stage:has(> .screen-canvas[hidden]) { aspect-ratio: 16 / 10; }
+  .screen-canvas { position: static; max-height: 75dvh; }
+}
 .screen-view.full { height: 100%; }
 .goblin-panel > .panel-screen { order: 3; display: flex; flex: 1; min-height: 0; padding: 8px 12px 12px; }
 .screen-page-shell { display: flex; flex-direction: column; gap: 12px; height: 100dvh; padding: 12px 16px 16px; box-sizing: border-box; }
