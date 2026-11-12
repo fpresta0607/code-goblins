@@ -250,7 +250,7 @@ var ordinaryWords = []string{
 	"false", "full", "good", "great", "green", "high", "large", "late", "later", "little", "local", "long", "low", "new",
 	"nice", "old", "partly", "proper", "public", "quick", "ready", "real", "realistic", "red", "right", "short", "simple",
 	"small", "smooth", "stale", "true", "unrelated", "whole", "wrong", "always", "really", "well",
-	"ai", "case", "ceo", "cfo", "code", "default", "goblin", "issue", "item", "job", "main", "overlord",
+	"ai", "case", "ceo", "code", "default", "goblin", "issue", "item", "job", "main", "overlord",
 	"part", "phase", "priority", "pr", "problem", "project", "root", "row", "step", "task", "thing", "today", "ups",
 	"way", "word",
 }

@@ -469,7 +469,7 @@ func TestReserveGivesNoTwoGoblinsOfALikeFleetOneSubjectWord(t *testing.T) {
 	// Arrange
 	fleet := []Work{
 		{ID: "cg-board-connectors", Title: "Board: the phone's branch text (Dispatched by the CEO, spawned) goes, Connectors leaves the top bar"},
-		{ID: "cg-ceo-rename", Title: "Rename cfo to ceo everywhere, then one planned cutover"},
+		{ID: "cg-ceo-rename", Title: "Rename the old role to ceo everywhere, then one planned cutover"},
 		{ID: "cg-chat-slash-commands", Title: "Board: Modern Chat takes slash commands the way the terminal does, and Orchestration cards fit"},
 		{ID: "cg-goblin-names", Title: "Goblin names and titles fit the task and stop repeating, issue 2396"},
 		{ID: "cg-linux-build", Title: "Code Goblins on Linux: the build, a goblin end to end, and an installer"},
