@@ -53,6 +53,7 @@ import { messagesQuery, type MessagePage } from "./session-messages";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { CHAT_STYLE_CHANGED, useChatStyle, type ChatStyle } from "./chat-style";
 import { goblinName } from "./task-words";
+import { RowOpener } from "./row-opener";
 import { AfkOnDialog } from "./afk-on-dialog";
 import { LinkFallback } from "./link-fallback";
 import { useAfkToggle } from "./useAfkToggle";
@@ -272,15 +273,20 @@ export function App() {
   const [composerTerminal, setComposerTerminal] = useState("");
   if (needsQueue && composerTerminal !== terminalKey) setComposerTerminal(terminalKey);
   const [chatStyle, chooseStyle] = useChatStyle();
-  const [classicOut, setClassicOut] = useState("");
+  // The style the panel switched the session it shows to, apart from the
+  // saved one: a step out of Classic's terminal to read back, or a chat row's
+  // Open in terminal (#2362). It holds while the panel shows that session,
+  // and nothing switches it back by itself.
+  const [sessionStyle, setSessionStyle] = useState<{ session: string; style: ChatStyle } | null>(null);
+  const styleOf = (key: string): ChatStyle => sessionStyle?.session === key ? sessionStyle.style : chatStyle;
   const isBoxWorking = composerActivity.terminal === terminalKey && composerActivity.isActive && composerTerminal === terminalKey;
   // A choice of style, from the session's picture in the panel's header or
   // the Workspace setting, redraws the open panel in that style at once. It
-  // ends a step out of Classic to read back, which outlasted the choice and
-  // kept the view as it was (the Overlord, 2026-10-28: "speech bubble doesnt
-  // chagne the screen").
+  // ends the panel's own switch, which outlasted the choice and kept the view
+  // as it was (the Overlord, 2026-10-28: "speech bubble doesnt chagne the
+  // screen").
   useEffect(() => {
-    const follow = () => setClassicOut("");
+    const follow = () => setSessionStyle(null);
     window.addEventListener(CHAT_STYLE_CHANGED, follow);
     return () => window.removeEventListener(CHAT_STYLE_CHANGED, follow);
   }, []);
@@ -293,7 +299,7 @@ export function App() {
     const target = key === CEO_KEY ? undefined : snapshot?.tasks.find((each) => each.id === key);
     const hasMessages = !!snapshot && !!messagesQuery(snapshot, target);
     const takes = !!target && takesMessages(target);
-    const isClassicHere = chatStyle === "classic" && classicOut !== key && !takes;
+    const isClassicHere = styleOf(key) === "classic" && !takes;
     const showsBox = hasMessages && !isClassicHere || takes && !isClassicHere || (isClassicHere || !hasMessages) && key === terminalKey && (isClassicHere ? isBoxWorking : shouldKeepComposer);
     if (showsBox) setBoxFocus((prior) => prior + 1);
     else setSwitchFocus((prior) => prior + 1);
@@ -351,12 +357,12 @@ export function App() {
     requestAnimationFrame(() => returnFocus.current?.isConnected && returnFocus.current.focus());
   };
   const showsPanel = !!snapshot && paneOpen && (view === "Orchestration" || !!task || !!train || ceoOpen);
-  // A step out of Classic to read back belongs to the session it was taken
-  // on while the panel shows it: a panel that shows another session, or
-  // none, ends it, so opening, switching to or reopening any session lands
-  // in the chosen style (#1987).
+  // The panel's own switch of style belongs to the session it was taken on
+  // while the panel shows it: a panel that shows another session, or none,
+  // ends it, so opening, switching to or reopening any session lands in the
+  // chosen style (#1987).
   const shownSession = showsPanel && !train && !child ? terminalKey : "";
-  if (classicOut && classicOut !== shownSession) setClassicOut("");
+  if (sessionStyle && sessionStyle.session !== shownSession) setSessionStyle(null);
   // The session whose messages the panel shows: the CEO's, or a task's own
   // session, never a child's (messagesQuery).
   const messagesSource = !snapshot || !showsPanel || train || child ? ""
@@ -367,6 +373,9 @@ export function App() {
   // and a baby goblin's panel is its terminal alone. A Screen view whose
   // browser closed gives way to the conversation.
   const shownView: PanelView = child ? "terminal" : views.includes(panelView) ? panelView : views.includes("terminal") ? "terminal" : "task";
+  // A Screen view a chat row opened takes the keyboard as it opens, once.
+  const [screenAsked, setScreenAsked] = useState(false);
+  if (screenAsked && (shownView !== "screen" || !showsPanel)) setScreenAsked(false);
   // The session's own terminal, by the terminal deck's key, whether its
   // harness works, which a box with no conversation reads for its Stop, and
   // that terminal's link, which says what it was last told of the harness's
@@ -403,12 +412,23 @@ export function App() {
   // an upload, a Send landing or a failed Send to retry, stays until that work
   // ends.
   const takesTyping = !!task && takesMessages(task);
-  const classicInPlace = chatStyle === "classic" && !!terminalKey && classicOut !== terminalKey && !takesTyping;
+  const classicInPlace = styleOf(terminalKey) === "classic" && !!terminalKey && !takesTyping;
   // Reading back in a terminal that cannot take input opens its recorded
   // conversation in the terminal's place and leaves the saved style alone. The
   // conversation stays mounted under the terminal, so the session, its
   // history, an unsent draft and the place he read are kept.
-  const readHistory = () => { if (chatStyle === "classic") setClassicOut(terminalKey); setBoxFocus((prior) => prior + 1); };
+  const readHistory = () => { if (classicInPlace) setSessionStyle({ session: terminalKey, style: "modern" }); setBoxFocus((prior) => prior + 1); };
+  // A chat row opens the view behind it (#2362): a command's row the
+  // session's terminal in the conversation's place, which a goblin that takes
+  // messages has none of, and a browser row the goblin's Screen view while
+  // its browser runs. Each hands that view the keyboard, and the saved style
+  // stays as he chose it.
+  const hasTerminalInPlace = !!terminalKey && !takesTyping;
+  const hasScreen = views.includes("screen");
+  const rowOpener = useMemo<RowOpener>(() => ({
+    terminal: hasTerminalInPlace ? () => { setSessionStyle({ session: terminalKey, style: "classic" }); setSwitchFocus((prior) => prior + 1); } : undefined,
+    screen: hasScreen ? () => { setPanelView("screen"); setScreenAsked(true); } : undefined,
+  }), [hasTerminalInPlace, hasScreen, terminalKey, setSessionStyle, setScreenAsked]);
   // Once offered, the composer stays reachable as input becomes ready so an
   // upload, a Send still landing, a failed Send to retry or its own recording
   // keeps its controls and result.
@@ -596,21 +616,21 @@ export function App() {
           : train ? <TrainPanel key={selectionEpoch + ":train:" + train.id} train={train} tasks={snapshot.tasks} row={row} />
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "ceo") + ":" + (task?.generation || "") + ":" + (child?.id || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} snapshot={snapshot} connected={connected} reviews={reviews}
-            view={shownView} views={views} onView={setPanelView} maximized={panelWide} side={side} isBoardShown={view === "Board" && !panelWide && !fillsPhone} now={now} presentations={presentations} cardStart={cardStart} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
+            view={shownView} views={views} onView={setPanelView} shouldFocusScreen={screenAsked} maximized={panelWide} side={side} isBoardShown={view === "Board" && !panelWide && !fillsPhone} now={now} presentations={presentations} cardStart={cardStart} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
             onOpenTask={openTask} onConnectors={openConnectors} styleChoice={styleChoice} />)}
         {/* The stage, the Messages view and the terminal deck in one box,
             beside the column the panel's task list is drawn into. */}
         <div className="panel-body" hidden={!terminalShown && !messagesShown}>
         <div className="panel-main">
         <div className="panel-stage" hidden={!terminalShown && !messagesShown}>
-          {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={snapshot.instance + messagesSource} query={messagesSource} instance={snapshot.instance} pages={messagePages}
+          {snapshot && messagesSource && messagesSource === messagesOpened && <RowOpener value={rowOpener}><MessagesView key={snapshot.instance + messagesSource} query={messagesSource} instance={snapshot.instance} pages={messagePages}
             name={ceoShown || !task ? "CEO" : goblinName(task)} task={ceoShown ? undefined : task} terminal={terminalKey} harness={panelHarness} model={panelEngine.model} effort={panelEngine.effort}
             isCompacting={isCompacting} sent={panelSent} pending={panelPending}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock} onAskSlot={setAskSlot}
             onOpenCommand={(key) => setCommandFocus({ key, at: Date.now() })}
             box={(model, history, effort, usage, onSend, isTurnRunning) => createPortal(<Composer isWorking={isTurnRunning} isCompacting={isCompacting} history={history} usage={usage} onSend={onSend} snapshot={snapshot} task={ceoShown ? undefined : task} name={ceoShown || !task ? "CEO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} askSlot={askSlot} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
-              focus={boxOnScreen ? boxFocus : 0} />, composerTarget)} />}
+              focus={boxOnScreen ? boxFocus : 0} />, composerTarget)} /></RowOpener>}
           {snapshot && showsPanel && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
             <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} ceo={ceoShown} shown={terminalShown || messagesShown} behind={messagesShown} hasComposer={boxOnScreen} connected={connected} focus={switchFocus} onHistory={messagesSource ? readHistory : undefined}
               onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
