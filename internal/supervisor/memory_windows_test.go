@@ -1,11 +1,8 @@
 package supervisor
 
 import (
-	"os"
 	"slices"
 	"testing"
-
-	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
@@ -64,46 +61,37 @@ func TestPoolTagsReadsThisMachine(t *testing.T) {
 	}
 }
 
-// heldHandleCount is how many event handles the handle holder test opens:
-// three times what the busiest process on a quiet machine holds (Microsoft
-// Defender's, about 9,000 on 2026-11-11), so this process holds the most, and
-// far below handleLine, so its command is not read.
-const heldHandleCount = 30000
-
 // The board's handle holder is the process the system process list counts the
-// most handles for, named by its pid, program and start, and a process under
-// the handle line has no command read.
-func TestTopHandleHolderNamesThisProcessWhenItHoldsTheMostHandles(t *testing.T) {
-	// Arrange
-	events := make([]windows.Handle, 0, heldHandleCount)
-	t.Cleanup(func() {
-		for _, event := range events {
-			windows.CloseHandle(event)
-		}
-	})
-	for range heldHandleCount {
-		event, err := windows.CreateEvent(nil, 0, 0, nil)
+// most handles for, named by its pid, program and start as that list reads
+// them, and a process under the handle line has no command read. Another
+// process can become the busiest between two readings, so a reading is kept
+// only when the list names the same process before and after it.
+func TestTopHandleHolderNamesTheProcessTheSystemListCountsTheMostHandlesFor(t *testing.T) {
+	for range 5 {
+		// Arrange
+		before, err := proc.TopHandleHolder()
 		if err != nil {
-			t.Fatalf("open an event: %v", err)
+			t.Fatalf("proc.TopHandleHolder: %v", err)
 		}
-		events = append(events, event)
-	}
-	started, ok := proc.StartTime(os.Getpid())
-	if !ok {
-		t.Fatal("StartTime of this process failed")
-	}
 
-	// Act
-	holder, err := TopHandleHolder()
+		// Act
+		holder, err := TopHandleHolder()
+		after, afterErr := proc.TopHandleHolder()
 
-	// Assert
-	if err != nil {
-		t.Fatalf("TopHandleHolder: %v", err)
+		// Assert
+		if err != nil || afterErr != nil {
+			t.Fatalf("TopHandleHolder: %v, then proc.TopHandleHolder: %v", err, afterErr)
+		}
+		if before.PID != holder.PID || after.PID != holder.PID {
+			continue
+		}
+		if !holder.Started.Equal(before.Start) || holder.Name != before.ExeBase || holder.Name == "" || holder.Handles == 0 {
+			t.Fatalf("TopHandleHolder = %+v, want pid %d, %s, started %s, as the system process list reads it", holder, before.PID, before.ExeBase, before.Start)
+		}
+		if holder.Handles < handleLine && holder.Command != "" {
+			t.Errorf("TopHandleHolder read the command %q of a process under the handle line", holder.Command)
+		}
+		return
 	}
-	if holder.PID != os.Getpid() || !holder.Started.Equal(started) || holder.Handles < heldHandleCount || holder.Name == "" {
-		t.Fatalf("TopHandleHolder = %+v, want this process, started %s, with at least %d handles", holder, started, heldHandleCount)
-	}
-	if holder.Command != "" {
-		t.Errorf("TopHandleHolder read the command %q of a process under the handle line", holder.Command)
-	}
+	t.Fatal("the busiest process changed between every reading")
 }

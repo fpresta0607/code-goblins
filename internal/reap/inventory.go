@@ -284,30 +284,11 @@ func (c Collector) latestVerb(id string) string {
 	if err != nil {
 		return ""
 	}
-	verb, ok := crewstate.LatestVerb(taskReported(lines))
+	verb, ok := crewstate.LatestVerb(lines)
 	if !ok {
 		return ""
 	}
 	return verb
-}
-
-// taskReported drops the reaper's own audit lines from a task's status log.
-// The latest verb answers what the task last reported, and the reaper is not
-// the task: its line parses as the verb "reaped", which ends nothing, so a
-// task the sweep has acted on once would read as unfinished for the rest of
-// its life and every later finding for it would be held behind --force. That
-// is the two-sweep sequence this package relies on, where a directory is
-// removed in one sweep and the record it leaves behind is archived in the next.
-func taskReported(lines []string) []string {
-	kept := make([]string, 0, len(lines))
-	for _, line := range lines {
-		_, event := state.SplitStatus(line)
-		if strings.HasPrefix(strings.TrimSpace(event), ReapedPrefix) {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	return kept
 }
 
 // readPanes pairs each pane in the structural snapshot with its

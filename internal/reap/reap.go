@@ -159,12 +159,10 @@ func (s Service) Apply(ctx context.Context, options Options) (Result, error) {
 }
 
 // ReapedPrefix marks a line the reaper wrote about its own action, as opposed
-// to a line the task reported about itself. It is a constant because it is
-// written here and read back in Collector.latestVerb: a status line's verb is
-// its first word before the colon, so an unmarked "reaped: ..." line makes
-// "reaped" the task's latest verb, and "reaped" ends nothing. A record the
-// sweep touched once would then read as unfinished forever, and every later
-// finding for it would sit behind --force.
+// to a line the task reported about itself: its verb, "reaped", is a CEO
+// audit record every scan for a task's latest report skips, so a record the
+// sweep touched once never reads as unfinished, and no later finding for it
+// sits behind --force.
 const ReapedPrefix = "reaped: "
 
 // record writes one line per reaped resource: into the task's own status log

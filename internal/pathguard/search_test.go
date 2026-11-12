@@ -22,6 +22,11 @@ func TestToolRefusalWarnsOfARecursiveSearchFromTheDriveRoot(t *testing.T) {
 		{"find from a Windows drive root", "PowerShell", `find C:\ -name y`},
 		{"find from a drive root behind its options", "Bash", "find -L / -type d -path '*/x'"},
 		{"find in a Monitor command", "Monitor", "find /c/ -name y"},
+		{"grep -rn continued onto a line naming /", "Bash", "grep -rn x \\\n /"},
+		{"grep -rn continued onto a CRLF line naming /", "Bash", "grep -rn x \\\r\n /"},
+		{"find continued onto a line naming /", "Bash", "find \\\n / -name y"},
+		{"grep -rn in a Monitor command continued onto a line naming /", "Monitor", "grep -rn x \\\n /"},
+		{"find in a Monitor command continued onto a line naming /", "Monitor", "find \\\n / -name y"},
 		{"find from PowerShell's drive root", "PowerShell", `find \ -name y`},
 	}
 	for _, test := range cases {
