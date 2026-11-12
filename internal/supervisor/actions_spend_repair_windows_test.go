@@ -226,6 +226,46 @@ func TestBillingRetryRefreshesTransientFailuresWithoutConsent(t *testing.T) {
 	}
 }
 
+// A Retry after gh auth login reads the new login at once, though GitHub
+// refused the old one less than a minute ago (#2003).
+func TestBillingRetryAfterARefusedLoginReadsTheNewLoginAtOnce(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	runner := &billingTokenRunner{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer tokenA" {
+			w.WriteHeader(http.StatusUnauthorized)
+		} else if r.URL.Path == "/user" {
+			_, _ = w.Write([]byte(`{"login":"example-user"}`))
+		} else {
+			_, _ = w.Write([]byte(`{"usageItems":[]}`))
+		}
+	}))
+	defer server.Close()
+	client := billingClient(server, runner)
+	service := boardService(store)
+	service.lifetime = context.Background()
+	service.Options.GitHub, service.Options.ActionsSpend = client, (actionsbilling.Reader{GitHub: client}).Read
+	month := time.Now().UTC().Format("2006-01")
+	service.readActionsSpend(context.Background(), time.Now())
+	if refused := service.actionsSpendUsage(time.Now(), month, nil); refused.Problem == nil || refused.Problem.Kind != "authentication" || runner.reads != 1 {
+		t.Fatalf("refused reading %+v; token reads %d", refused, runner.reads)
+	}
+	runner.isConsented = true
+
+	// Act
+	code, body := askTheBoard(t, service, "POST", "/api/actions-spend/repair", `{"month":"`+month+`","action":"retry"}`, nil)
+
+	// Assert
+	var reading actionsbilling.Reading
+	if err := json.Unmarshal([]byte(body), &reading); err != nil {
+		t.Fatal(err)
+	}
+	if code != 200 || reading.Status != "available" || reading.Problem != nil || runner.reads != 2 {
+		t.Fatalf("HTTP %d: %s; token reads %d", code, body, runner.reads)
+	}
+}
+
 func TestBillingRepairRejectsRemoteCSRFAndInjectedActions(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)

@@ -43,9 +43,13 @@ func (h *HTTP) repairActionsSpend(w http.ResponseWriter, r *http.Request) {
 	// Retry is a forced read, which GET /api/actions-spend serves on any
 	// board; only consent is his own board's.
 	if input.Action == "retry" {
-		if h.Service.actionsSpendUsage(time.Now(), input.Month, h.Service.billingRuns()).Problem == nil {
+		problem := h.Service.actionsSpendUsage(time.Now(), input.Month, h.Service.billingRuns()).Problem
+		if problem == nil {
 			apiError(w, http.StatusConflict, "The billing reading has no problem to retry. Refresh the panel.")
 			return
+		}
+		if github := h.Service.Options.GitHub; problem.Kind == "authentication" && problem.Credential == "gh" && github != nil && github.CredentialSource() == "gh" {
+			github.InvalidateCLIToken()
 		}
 		respond(w, http.StatusOK, h.Service.refreshActionsSpend(r.Context(), time.Now(), input.Month, false))
 		return
