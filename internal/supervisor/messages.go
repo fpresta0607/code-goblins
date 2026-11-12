@@ -19,20 +19,20 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// The Overlord types a message to a goblin or the CFO on the board whatever
+// The Overlord types a message to a goblin or the CEO on the board whatever
 // it is doing (the Overlord, 2026-10-08: "message queued to chief no matter
 // whats running"). It is accepted at once as a message action and delivered
 // once: typed into a goblin's terminal where its harness takes it, busy or
 // not, kept with a paused goblin's resume, which it asks, for its resume
-// prompt to carry, or typed into the CFO's terminal once a CFO runs and its
+// prompt to carry, or typed into the CEO's terminal once a CEO runs and its
 // input is ready. A session whose terminal is not running is started for it,
 // and has it wait until it runs (message_starts.go). A goblin pausing,
 // resuming or stopping has it wait; one that waits longer than messageWait,
 // or is kept for a resume whose session a later start replaced, goes to the
-// CFO with its words, so none is lost.
+// CEO with its words, so none is lost.
 
 // messageWait is how long a message waits for its goblin's terminal before
-// the CFO is given it instead.
+// the CEO is given it instead.
 const messageWait = 10 * time.Minute
 
 // fromOverlord is how a message reads where it is delivered. A line that
@@ -56,26 +56,26 @@ func isHarnessCommand(text string) bool {
 }
 
 func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, error) {
-	if s.Options.CFO == nil {
+	if s.Options.CEO == nil {
 		return Evaluation{}, fmt.Errorf("%w: message transport is unavailable", ErrRejected)
 	}
 	if a.TaskID == "" {
 		s.starts.Lock()
-		isComingBack := s.isCFOComingBack
+		isComingBack := s.isCEOComingBack
 		s.starts.Unlock()
 		if isComingBack {
-			return startingFor("the CFO"), ErrDeferred
+			return startingFor("the CEO"), ErrDeferred
 		}
-		identity, isLive := s.Store.liveCFO()
+		identity, isLive := s.Store.liveCEO()
 		if !isLive {
-			return s.startCFOForMessage(a)
+			return s.startCEOForMessage(a)
 		}
-		// His message goes to the CFO exactly as he typed it, at once, a turn
-		// under way or not: the CFO's harness takes a line typed during a turn
+		// His message goes to the CEO exactly as he typed it, at once, a turn
+		// under way or not: the CEO's harness takes a line typed during a turn
 		// at its next step, as it takes one typed into its terminal (the
 		// Overlord, 2026-10-28: "It should just be a direct message that gets
 		// queued up and sent with the clawed code session. The terminal
-		// already handles this."). What keeps it from the CFO's terminal keeps
+		// already handles this."). What keeps it from the CEO's terminal keeps
 		// it from Send now too. A message in shell mode is typed as the line
 		// that runs its command in Windows PowerShell; the action, and any
 		// hand-off of it, keeps what he typed.
@@ -85,7 +85,7 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		} else if isShell {
 			typed = line
 		}
-		result, err := s.Options.CFO.sendNative(ctx, identity, typed, a.IsSentNow, true)
+		result, err := s.Options.CEO.sendNative(ctx, identity, typed, a.IsSentNow, true)
 		if errors.Is(err, ErrDeferred) {
 			result.SendNowWhy = "Its terminal is not ready to take it yet."
 		}
@@ -99,7 +99,7 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	s.starts.Unlock()
 	meta, err := state.ReadTaskMeta(stateDir, a.TaskID)
 	if errors.Is(err, os.ErrNotExist) && !isStarting {
-		return Evaluation{}, s.messageToCFO(a, a.TaskID+" was not running and had no Start on its way")
+		return Evaluation{}, s.messageToCEO(a, a.TaskID+" was not running and had no Start on its way")
 	}
 	if err != nil && !isStarting {
 		return Evaluation{}, err
@@ -133,11 +133,11 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		return result, err
 	}
 	if isRecorded && record.Phase == "stopped" {
-		return Evaluation{}, s.messageToCFO(a, a.TaskID+" was stopped before it could take it")
+		return Evaluation{}, s.messageToCEO(a, a.TaskID+" was stopped before it could take it")
 	}
 	// A goblin whose gate owns its branch takes no typing, so a message for it
 	// is kept as a durable queued action and delivered once custody is released.
-	// It never expires and is never handed to the CFO, because nothing is lost by
+	// It never expires and is never handed to the CEO, because nothing is lost by
 	// waiting for the gate (the Overlord, 2026-10-23). This holds whatever the
 	// goblin is doing, a pause, resume or stop under way included, since a
 	// transition reads no custody of its own.
@@ -173,7 +173,7 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 			}
 			sent := time.Now().UTC()
 			// His words go into a goblin's turn at once, as they go into the
-			// CFO's, for its harness to take at its next tool call. One held for
+			// CEO's, for its harness to take at its next tool call. One held for
 			// the turn's end reached a goblin that worked on only once it
 			// stopped, and never while each turn ran into the next (the
 			// Overlord, 2026-11-04: "Modern shat goblins that are not the CFO.
@@ -188,7 +188,7 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 				}
 				s.notify()
 			})
-			result, err := s.Options.CFO.sendGoblin(typing, a.TaskID, goblinIdentity(meta), typed, isHarnessCommand(a.Text), a.IsSentNow, true)
+			result, err := s.Options.CEO.sendGoblin(typing, a.TaskID, goblinIdentity(meta), typed, isHarnessCommand(a.Text), a.IsSentNow, true)
 			// A message whose harness's send-now key went is taken at once;
 			// one whose key never went, or whose harness has none, at its next
 			// tool call.
@@ -272,10 +272,10 @@ func isGateUnclearNow(ctx context.Context, s *Service, meta state.TaskMeta) bool
 }
 
 // waitForGoblin has a message wait for its goblin, until messageWait has
-// passed, when the CFO is given it instead. One isHeld does not age.
+// passed, when the CEO is given it instead. One isHeld does not age.
 func (s *Service) waitForGoblin(a Action, isHeld bool) (Evaluation, error) {
 	if !isHeld && time.Since(a.CreatedAt) > messageWait {
-		return Evaluation{}, s.messageToCFO(a, a.TaskID+" could not take it for "+messageWait.String())
+		return Evaluation{}, s.messageToCEO(a, a.TaskID+" could not take it for "+messageWait.String())
 	}
 	return Evaluation{Reason: "Waits for " + a.TaskID + "."}, ErrDeferred
 }
@@ -312,7 +312,7 @@ func waitsForResume(record state.Lifecycle) bool {
 	return record.Phase == "paused" || record.Action == "resume" && record.Phase == "failed"
 }
 
-// handOverReplacedResumes gives the CFO the board messages each task's
+// handOverReplacedResumes gives the CEO the board messages each task's
 // lifecycle record keeps for a resume whose session a later start replaced.
 func handOverReplacedResumes(stateDir string) error {
 	var problems error
@@ -324,7 +324,7 @@ func handOverReplacedResumes(stateDir string) error {
 
 // handOverReplacedResume takes the board messages task id's record keeps for
 // a resume whose session a later start replaced out of its note once
-// HandOverReplacedNote has given them to the CFO. The start publishes its
+// HandOverReplacedNote has given them to the CEO. The start publishes its
 // session without the lifecycle lock, so a message is kept for the replaced
 // session both before the start and while it runs. It works under the task's
 // lifecycle lock, so a message kept meanwhile is either handed on here or
@@ -355,13 +355,13 @@ func handOverReplacedResume(stateDir, id string) (err error) {
 	return errors.Join(err, state.WriteLifecycle(stateDir, record))
 }
 
-// HandOverReplacedNote gives the CFO, with their words, the board messages
-// record keeps for a resume once a later start, such as a cfo switch, has
+// HandOverReplacedNote gives the CEO, with their words, the board messages
+// record keeps for a resume once a later start, such as a goblins switch, has
 // replaced the session that resume was for, since no resume of that record
 // runs again. It takes no lock and writes nothing: its caller holds the
 // task's lifecycle lock and takes the messages out of the note, or writes its
 // own record over it, once they are handed on. It says whether each is on the
-// CFO's notify wake, so a wake episode that fails to publish after them is
+// CEO's notify wake, so a wake episode that fails to publish after them is
 // said without handing them on twice.
 func HandOverReplacedNote(stateDir string, meta state.TaskMeta, record state.Lifecycle) (isHanded bool, err error) {
 	messages := replacedMessages(record, meta)
@@ -373,7 +373,7 @@ func HandOverReplacedNote(stateDir string, meta state.TaskMeta, record state.Lif
 		why = meta.ID + "'s session was replaced by a later start after its resume failed, so that resume never runs again; a message kept before it began at " + record.Started.UTC().Format(time.RFC3339) + " went with it, and one kept after it failed did not"
 	}
 	for _, message := range messages {
-		if err := handToCFO(stateDir, meta.ID, why, message); err != nil {
+		if err := handToCEO(stateDir, meta.ID, why, message); err != nil {
 			return false, err
 		}
 	}
@@ -412,7 +412,7 @@ func replacedMessages(record state.Lifecycle, meta state.TaskMeta) []string {
 // isCurrentRecord says record is meta's goblin's own: meta's session's, or
 // the task's interrupted resume. A record an earlier session left says
 // nothing of the goblin, and decides nothing of where its message goes: a
-// failed resume whose session a later start replaced, as a cfo switch run to
+// failed resume whose session a later start replaced, as a goblins switch run to
 // rescue the goblin does, can never be resumed again.
 func isCurrentRecord(record state.Lifecycle, meta state.TaskMeta) bool {
 	return record.Generation == meta.SpawnGen || record.IsInterruptedResume(meta)
@@ -446,7 +446,7 @@ func keptMessages(note string) (before string, messages []string) {
 // here, under the store lock, so every board shows it gone at once, and
 // under the goblin's lifecycle lock, so a resume either carried it already
 // or starts without it. A message typed into a terminal, carried by a resume
-// or never kept is refused. One held for the CFO, which has no goblin, is
+// or never kept is refused. One held for the CEO, which has no goblin, is
 // named by its own identity alone.
 func (s *Store) withdrawMessage(a Action) (Action, error) {
 	if a.TaskID == "" && a.Target == "" || strings.TrimSpace(a.Text) == "" || a.Generation != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || a.QuestionID != "" || a.ReviewID != "" || a.AnswerKind != "" {
@@ -510,9 +510,9 @@ func (s *Store) withdrawMessage(a Action) (Action, error) {
 }
 
 // isNotSent says message a failed with its words delivered to nobody, the
-// CFO included, so Cancel takes it off the board as it takes a queued one.
+// CEO included, so Cancel takes it off the board as it takes a queued one.
 func isNotSent(a Action) bool {
-	return a.Kind == "message" && a.Status == "failed" && !strings.Contains(a.Message, "the CFO has it")
+	return a.Kind == "message" && a.Status == "failed" && !strings.Contains(a.Message, "the CEO has it")
 }
 
 // withdrawFromResume takes the message text out of task's resume note while
@@ -543,21 +543,21 @@ func withdrawFromResume(stateDir, task, text string) (err error) {
 	return state.WriteLifecycle(stateDir, record)
 }
 
-// messageToCFO gives the CFO a message its goblin could not take, with its
+// messageToCEO gives the CEO a message its goblin could not take, with its
 // words, and says why the message itself failed.
-func (s *Service) messageToCFO(a Action, why string) error {
-	if err := handToCFO(s.Store.Home.State, a.TaskID, why, a.Text); err != nil {
+func (s *Service) messageToCEO(a Action, why string) error {
+	if err := handToCEO(s.Store.Home.State, a.TaskID, why, a.Text); err != nil {
 		return err
 	}
 	if _, err := wake.PublishEpisode(s.Store.Home.State); err != nil {
 		s.publish(err)
 	}
-	return fmt.Errorf("%w: %s; the CFO has it", ErrRejected, why)
+	return fmt.Errorf("%w: %s; the CEO has it", ErrRejected, why)
 }
 
-// handToCFO puts a message to task that its goblin could not take on the
+// handToCEO puts a message to task that its goblin could not take on the
 // task's notify wake, with its words and why it was not delivered.
-func handToCFO(stateDir, task, why, text string) error {
+func handToCEO(stateDir, task, why, text string) error {
 	detail := fmt.Sprintf("message not delivered: %s, so it is yours to relay or answer. The Overlord wrote: %s", why, text)
 	_, err := wake.Append(stateDir, "notify", task, bounded(detail, 4000))
 	return err

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CFO_KEY, MAXIMIZED_KEYS, cfoView, firstOpen, goblinView, idleView, maximizedFor, maximizedView, paneTrack, paneWidth, switchKey, switchOrder, switchTarget, type DeckView } from "./terminalOrder.ts";
+import { CEO_KEY, MAXIMIZED_KEYS, ceoView, firstOpen, goblinView, idleView, maximizedFor, maximizedView, paneTrack, paneWidth, switchKey, switchOrder, switchTarget, type DeckView } from "./terminalOrder.ts";
 import type { Session, Task } from "./types.ts";
 import { parseSnapshot } from "./types.ts";
 
@@ -11,7 +11,7 @@ test("terminal shortcuts exclude ended sessions but retain a live goblin that de
     { id: "stopped", generation: "g1", phase: "stopped", verified: false },
     { id: "delivered", generation: "g1", phase: "done", verified: true, report: "done", runtime: { state: "idle" } },
   ] });
-  assert.deepEqual(switchOrder(snapshot.tasks).map((entry) => entry.key), [CFO_KEY, "delivered"]);
+  assert.deepEqual(switchOrder(snapshot.tasks).map((entry) => entry.key), [CEO_KEY, "delivered"]);
 });
 
 const task = (id: string, changes: Partial<Task> = {}) => ({ id, generation: "g1", archived: false, ...changes }) as Task;
@@ -22,8 +22,8 @@ const key = (code: string, changes: Partial<{ ctrlKey: boolean; altKey: boolean;
 
 test("a slot with no terminal shows an empty state that belongs to no backend", () => {
   const cases: [string, DeckView, string][] = [
-    ["no CEO runs", cfoView({ cfo_terminal: "", cfo_terminal_since: "", cfo_runs: false, cfo_closed: false }), "No CEO is running."],
-    ["the CEO was closed", cfoView({ cfo_terminal: "", cfo_terminal_since: "", cfo_runs: false, cfo_closed: true }), "The CEO is closed."],
+    ["no CEO runs", ceoView({ ceo_terminal: "", ceo_terminal_since: "", ceo_runs: false, ceo_closed: false }), "No CEO is running."],
+    ["the CEO was closed", ceoView({ ceo_terminal: "", ceo_terminal_since: "", ceo_runs: false, ceo_closed: true }), "The CEO is closed."],
     ["a queued task", idleView(task("queued", { generation: "" }), undefined, "Queued"), "Queued"],
     ["a child of a task", idleView(task("alpha"), { id: "child" } as Session), "This child has no separate terminal."],
     ["a child with no task", idleView(undefined, { id: "child" } as Session), "This child has no separate terminal."],
@@ -32,20 +32,20 @@ test("a slot with no terminal shows an empty state that belongs to no backend", 
   for (const [name, view, text] of cases) assert.deepEqual(view, { kind: "empty", text }, name);
 });
 
-test("a CFO or goblin still in Herdr keeps Herdr's view, and a native one shows from its host", () => {
-  assert.deepEqual(cfoView({ cfo_terminal: "", cfo_terminal_since: "", cfo_runs: true, cfo_closed: false }), { kind: "herdr" });
+test("a CEO or goblin still in Herdr keeps Herdr's view, and a native one shows from its host", () => {
+  assert.deepEqual(ceoView({ ceo_terminal: "", ceo_terminal_since: "", ceo_runs: true, ceo_closed: false }), { kind: "herdr" });
   assert.deepEqual(goblinView(task("alpha")), { kind: "herdr" });
-  assert.deepEqual(cfoView({ cfo_terminal: "cfo", cfo_terminal_since: "", cfo_runs: true, cfo_closed: false }), { kind: "host", query: "cfo=cfo" });
+  assert.deepEqual(ceoView({ ceo_terminal: "ceo", ceo_terminal_since: "", ceo_runs: true, ceo_closed: false }), { kind: "host", query: "ceo=ceo" });
   assert.deepEqual(goblinView(task("alpha", { backend: "native" })), { kind: "host", query: "task=alpha&generation=g1" });
 });
 
-// A restart replaces the CFO's terminal host under the same terminal, so its
+// A restart replaces the CEO's terminal host under the same terminal, so its
 // view names when that host started, as a goblin's names its generation: a
 // new host is a new view, never the old host's ended screen.
-test("the CFO's view names when its terminal's host started, so a restarted CFO is viewed afresh", () => {
-  const before = cfoView({ cfo_terminal: "cfo", cfo_terminal_since: "2026-10-05T09:00:00Z", cfo_runs: true, cfo_closed: false });
-  const after = cfoView({ cfo_terminal: "cfo", cfo_terminal_since: "2026-10-05T09:05:00Z", cfo_runs: true, cfo_closed: false });
-  assert.deepEqual(before, { kind: "host", query: "cfo=cfo&since=2026-10-05T09%3A00%3A00Z" });
+test("the CEO's view names when its terminal's host started, so a restarted CEO is viewed afresh", () => {
+  const before = ceoView({ ceo_terminal: "ceo", ceo_terminal_since: "2026-10-05T09:00:00Z", ceo_runs: true, ceo_closed: false });
+  const after = ceoView({ ceo_terminal: "ceo", ceo_terminal_since: "2026-10-05T09:05:00Z", ceo_runs: true, ceo_closed: false });
+  assert.deepEqual(before, { kind: "host", query: "ceo=ceo&since=2026-10-05T09%3A00%3A00Z" });
   assert.notDeepEqual(after, before);
 });
 
@@ -74,9 +74,9 @@ test("a goblin that did not come back after the restart shows that it has no ter
   assert.deepEqual(goblinView(task("alpha", { backend: "native", phase: "stopping", comeback: stopped })), { kind: "empty", text: "Stopping session..." });
 });
 
-test("the switcher lists the CFO first, then every goblin that has a terminal", () => {
+test("the switcher lists the CEO first, then every goblin that has a terminal", () => {
   const order = switchOrder([task("queued", { generation: "" }), task("alpha"), task("history", { archived: true }), task("beta")]);
-  assert.deepEqual(order.map((entry) => entry.key), [CFO_KEY, "alpha", "beta"]);
+  assert.deepEqual(order.map((entry) => entry.key), [CEO_KEY, "alpha", "beta"]);
   assert.equal(order[1].task?.id, "alpha");
 });
 
@@ -90,12 +90,12 @@ test("Ctrl+Alt with an arrow cycles and with a digit jumps; nothing else is take
 
 test("cycling wraps around and a jump past the list goes nowhere", () => {
   const order = switchOrder([task("alpha"), task("beta")]);
-  assert.equal(switchTarget(order, CFO_KEY, { step: -1 })?.key, "beta");
-  assert.equal(switchTarget(order, "beta", { step: 1 })?.key, CFO_KEY);
+  assert.equal(switchTarget(order, CEO_KEY, { step: -1 })?.key, "beta");
+  assert.equal(switchTarget(order, "beta", { step: 1 })?.key, CEO_KEY);
   assert.equal(switchTarget(order, "alpha", { step: 1 })?.key, "beta");
-  assert.equal(switchTarget(order, "gone", { step: 1 })?.key, CFO_KEY);
-  assert.equal(switchTarget(order, CFO_KEY, { index: 2 })?.key, "beta");
-  assert.equal(switchTarget(order, CFO_KEY, { index: 5 }), undefined);
+  assert.equal(switchTarget(order, "gone", { step: 1 })?.key, CEO_KEY);
+  assert.equal(switchTarget(order, CEO_KEY, { index: 2 })?.key, "beta");
+  assert.equal(switchTarget(order, CEO_KEY, { index: 5 }), undefined);
 });
 
 test("the divider keeps both the board and the panel usable", () => {

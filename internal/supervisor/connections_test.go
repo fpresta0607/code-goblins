@@ -124,7 +124,7 @@ func TestConnectionAPIIsCachedAndRejectsStaleTasksAndUntrustedRefreshes(t *testi
 	} {
 		request := httptest.NewRequest(test.method, "http://board.local"+test.path, strings.NewReader(test.body))
 		request.Header.Set("Origin", test.origin)
-		request.Header.Set("X-CFO-Token", test.token)
+		request.Header.Set("X-CEO-Token", test.token)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != test.code {
@@ -171,7 +171,7 @@ func TestConnectionFixDerivesOAuthURLAndRejectsInjectedOrStaleRepairs(t *testing
 	} {
 		request := httptest.NewRequest("POST", "http://board.local/api/connections/fix", strings.NewReader(test.body))
 		request.Header.Set("Origin", "http://board.local")
-		request.Header.Set("X-CFO-Token", "test-instance")
+		request.Header.Set("X-CEO-Token", "test-instance")
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != test.code {
@@ -343,7 +343,7 @@ func TestIdleRepairClickUsesTheShownCheckWithoutStartingAnother(t *testing.T) {
 	fix := func() *httptest.ResponseRecorder {
 		request := httptest.NewRequest("POST", "http://board.local/api/connections/fix", strings.NewReader(`{"task":"task-1","generation":"g1","connection":"service:sample","action":"login"}`))
 		request.Header.Set("Origin", "http://board.local")
-		request.Header.Set("X-CFO-Token", "test-instance")
+		request.Header.Set("X-CEO-Token", "test-instance")
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		return response

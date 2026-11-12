@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { reportToCfo } from "./api";
+import { reportToCeo } from "./api";
 import { Icon } from "./Icon";
 import "./afk.css";
 
@@ -17,7 +17,7 @@ export function AfkReport({ page, hasPendingItems, onClose, onOpenCommand }: { p
     const content = frame.contentDocument;
     if (!content?.querySelector("article.back")) {
       setStatus("failed");
-      reportToCfo("AFK report", "The saved report could not be loaded");
+      reportToCeo("AFK report", "The saved report could not be loaded");
       return;
     }
     // The saved overview has its own layout. It inherits only the board's

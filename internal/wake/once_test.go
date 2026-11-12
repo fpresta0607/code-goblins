@@ -94,7 +94,7 @@ func TestLifecycleCompletionNoticeIsDeliveredOnceAcrossAcknowledgement(t *testin
 }
 
 // A condition that can come back, such as a file a goblin reinstalls after
-// the CFO removed it, wakes him once while that wake is queued, however
+// the CEO removed it, wakes him once while that wake is queued, however
 // many callers report it at once, and again once he has acknowledged it.
 func TestAppendUnlessQueuedWakesAgainOnlyOnceAcknowledged(t *testing.T) {
 	// Arrange

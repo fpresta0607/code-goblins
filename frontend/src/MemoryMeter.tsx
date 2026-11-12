@@ -21,7 +21,7 @@ import { freeGigabytes, holdersLine, memoryMarks, meterScale, meterState, tighte
 // container"). No text sits under a bar or between two meters, whatever the
 // scheduler did, as the Overlord ruled on 2026-10-07 ("dont need extra text
 // under") and again on 2026-10-09 ("dont display nothing starts text too much
-// text"): why nothing starts reaches the CFO as a wake.
+// text"): why nothing starts reaches the CEO as a wake.
 export function MemoryMeter({ memory, disk = null, processors = null, gpu = null }: { memory: Memory; disk?: Disk | null; processors?: Processors | null; gpu?: Gpu | null }) {
   const state = meterState(memory), scale = meterScale(memory), shown = tighter(memory);
   const tip = [memoryMarks(memory), holdersLine(memory)].filter(Boolean).join(" ");

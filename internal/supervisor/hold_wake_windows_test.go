@@ -12,7 +12,7 @@ import (
 
 func TestCompletionWakeRemainsDeliverableWhileTaskHeld(t *testing.T) {
 	// Arrange: the terminal and transport are mocked; no provider is launched.
-	service, directory, typed, _ := typedWakeCFO(t, "codex", idleCodexCFO, idleCodexCFO, []string{"Working"})
+	service, directory, typed, _ := typedWakeCEO(t, "codex", idleCodexCEO, idleCodexCEO, []string{"Working"})
 	hold := "blocked: Provider reserve hold"
 	if err := state.AppendStatus(directory, "held-task", hold); err != nil {
 		t.Fatal(err)
@@ -30,7 +30,7 @@ func TestCompletionWakeRemainsDeliverableWhileTaskHeld(t *testing.T) {
 	}
 
 	// Act
-	if err := service.wakeCFO(context.Background(), time.Now().UTC()); err != nil {
+	if err := service.wakeCEO(context.Background(), time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 

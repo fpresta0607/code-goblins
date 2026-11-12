@@ -3,8 +3,8 @@ import type { AfkToggleState } from "./useAfkToggle";
 import type { Afk } from "./types";
 import "./afk.css";
 
-// The AFK toggle on the CFO's bar and its card, right beside the button that
-// opens the CFO: a small switch with its label, whose track spins in place of
+// The AFK toggle on the CEO's bar and its card, right beside the button that
+// opens the CEO: a small switch with its label, whose track spins in place of
 // its thumb while the supervisor answers, so the switch keeps its width in the
 // row. Only the Overlord turns it, which the supervisor proves of the program
 // that asks, and a refusal is one short sentence under the switch, over the
@@ -15,7 +15,7 @@ import "./afk.css";
 // It turns on and off on his private board as on the PC: his decision of
 // 2026-10-29, knowing the private board is proven his only by headers a
 // program on the PC can forge.
-// His last report reopens from the CFO's Task view, not from here (the
+// His last report reopens from the CEO's Task view, not from here (the
 // Overlord, 2026-10-29: the last AFK report "could be something that you know
 // is part of like the task panel").
 export function AfkToggle({ afk, toggle }: { afk: Afk; toggle: AfkToggleState }) {

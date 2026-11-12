@@ -18,7 +18,7 @@ import (
 )
 
 // launchFromTerminal is a terminal's program that launches a host of its own,
-// as a CFO in a native terminal launches a goblin's, and stays open.
+// as a CEO in a native terminal launches a goblin's, and stays open.
 func launchFromTerminal(stateDir, id string) {
 	record, err := Launch(stateDir, []string{os.Args[0]}, hostEnvironment(), Spec{ID: id, Args: []string{os.Args[0], "echo-child"}, Cols: 80, Rows: 25})
 	if err != nil {
@@ -54,10 +54,10 @@ func launchTerminal(t *testing.T, stateDir string, args ...string) Record {
 	return record
 }
 
-// A CFO in a native terminal launches its goblins' hosts, and each must
-// outlive that terminal: on 2026-09-29 every host the native CFO launched sat
+// A CEO in a native terminal launches its goblins' hosts, and each must
+// outlive that terminal: on 2026-09-29 every host the native CEO launched sat
 // in its terminal's kill-on-close job, since that job allowed no breakaway,
-// and would have died with the CFO's terminal.
+// and would have died with the CEO's terminal.
 func TestAHostLaunchedInsideATerminalOutlivesIt(t *testing.T) {
 	stateDir := t.TempDir()
 	outer := launchTerminal(t, stateDir, "launch-host", stateDir, "g2")

@@ -113,7 +113,7 @@ func equalStrings(left, right []string) bool {
 }
 
 // TestEveryAdapterStampsTheGoblinRole is the terminal half of the guard that
-// keeps the CFO's hooks out of a goblin's session. It lives in the launch
+// keeps the CEO's hooks out of a goblin's session. It lives in the launch
 // contract rather than in the project credentials a preflight returns,
 // because a project that declares no services returns no credentials at all
 // and its goblin would start unstamped.

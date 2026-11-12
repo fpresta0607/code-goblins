@@ -12,7 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// RunnerGit implements Git through the injected CFO subprocess runner.
+// RunnerGit implements Git through the injected CEO subprocess runner.
 type RunnerGit struct {
 	Commands execx.Runner
 }

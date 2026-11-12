@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./site";
 
-// The Overlord, 2026-10-21, dictating into the CFO's terminal from his phone:
+// The Overlord, 2026-10-21, dictating into the CEO's terminal from his phone:
 // "why is everything double printing". A phone keyboard's dictation writes
 // each partial result over the one before it in the terminal's text box: it
 // selects the words it wrote and types the longer guess in their place, as

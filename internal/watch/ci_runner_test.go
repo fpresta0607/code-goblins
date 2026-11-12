@@ -15,7 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-// fakeLine is cfo gate turn --detach as the watch sees it: each run it starts
+// fakeLine is goblins gate turn --detach as the watch sees it: each run it starts
 // writes the next pid beside its log, unless it exits with exit.
 type fakeLine struct {
 	ran  [][]string
@@ -26,7 +26,7 @@ type fakeLine struct {
 func (l *fakeLine) Run(_ context.Context, request execx.Request) (execx.Result, error) {
 	l.ran = append(l.ran, append([]string{request.Name}, request.Args...))
 	if l.exit != 0 {
-		return execx.Result{ExitCode: l.exit, Stderr: []byte("cfo gate turn: this run takes no turn: why")}, nil
+		return execx.Result{ExitCode: l.exit, Stderr: []byte("goblins gate turn: this run takes no turn: why")}, nil
 	}
 	l.pid++
 	log := request.Args[slices.Index(request.Args, "--detach")+1]
@@ -71,7 +71,7 @@ func newWatchedRunner(t *testing.T) *watchedRunner {
 			start, isRunning := r.running[pid]
 			return start, isRunning
 		},
-		executable: `C:\fleet\cfo.exe`,
+		executable: `C:\fleet\goblins.exe`,
 		logs:       t.TempDir(),
 		now:        func() time.Time { return r.now },
 		say:        func(line string) { r.said = append(r.said, line) },
@@ -94,7 +94,7 @@ func TestTheWatcherStartsOneLowPriorityTurnForAWaitingJob(t *testing.T) {
 
 	// Assert
 	log := filepath.Join(r.watch.logs, "job-7-20261014-120000.log")
-	want := []string{`C:\fleet\cfo.exe`, "gate", "turn", "--low-priority", "--memory", "7GiB", "--as", "desktop CI: desktop-backend-shard (1) of run 7", "--detach", log, "--", `C:\fleet\cfo.exe`, "ci-runner", "job"}
+	want := []string{`C:\fleet\goblins.exe`, "gate", "turn", "--low-priority", "--memory", "7GiB", "--as", "desktop CI: desktop-backend-shard (1) of run 7", "--detach", log, "--", `C:\fleet\goblins.exe`, "ci-runner", "job"}
 	if len(r.line.ran) != 1 || !slices.Equal(r.line.ran[0], want) {
 		t.Errorf("started %q; want one run, %q", r.line.ran, want)
 	}
@@ -168,7 +168,7 @@ func TestTheWatcherSaysTroubleOnceAnHour(t *testing.T) {
 		want string
 	}{
 		"the service does not answer": {err: errors.New("cirunner: the service refused: GitHub answered HTTP 502"), want: "the desktop CI runner did not say whether a job waits: cirunner: the service refused: GitHub answered HTTP 502"},
-		"the turn does not start":     {exit: 125, want: `the turn for desktop CI job "desktop-backend-shard (1)" of run 7 did not start: exit 125: cfo gate turn: this run takes no turn: why`},
+		"the turn does not start":     {exit: 125, want: `the turn for desktop CI job "desktop-backend-shard (1)" of run 7 did not start: exit 125: goblins gate turn: this run takes no turn: why`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange

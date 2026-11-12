@@ -38,7 +38,7 @@ func newReleaseSource(t *testing.T, tag string) *releaseSource {
 		r.mu.Lock()
 		tag := r.tag
 		r.mu.Unlock()
-		notes := "**This release is unsigned.**\n\n| File | SHA-256 |\n| --- | --- |\n| `cfo.exe` | `" + strings.Repeat("3f", 32) + "` |\n\n## What's Changed\n* feat(board): an update arrives in the Command Center by @fpresta0607 in https://example.invalid/pull/1\n"
+		notes := "**This release is unsigned.**\n\n| File | SHA-256 |\n| --- | --- |\n| `goblins.exe` | `" + strings.Repeat("3f", 32) + "` |\n\n## What's Changed\n* feat(board): an update arrives in the Command Center by @fpresta0607 in https://example.invalid/pull/1\n"
 		_ = json.NewEncoder(w).Encode(map[string]any{"tag_name": tag, "html_url": r.URL + "/tag/" + tag, "published_at": "2026-10-06T14:02:00Z", "body": notes})
 	}))
 	t.Cleanup(r.Close)
@@ -71,7 +71,7 @@ func updateItems(s *Service) []Run {
 
 // A newer release arrives as one Update item of its own, for exactly that
 // release, with what its card shows: the two versions, what is new, what the
-// notes say of the signature and the SHA-256 of cfo.exe. Looking again makes
+// notes say of the signature and the SHA-256 of goblins.exe. Looking again makes
 // no second item; a newer release replaces it, and the build becoming that
 // release retires it, each with why.
 func TestTheBoardOffersANewerReleaseAsItsOwnUpdateItem(t *testing.T) {
@@ -139,7 +139,7 @@ func TestTheUpdateItemRunsTheGoblinsTheHomeKeeps(t *testing.T) {
 			if err := os.MkdirAll(programs, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			for _, name := range []string{"cfo.exe", "goblins.exe"} {
+			for _, name := range []string{"goblins.exe"} {
 				if err := os.WriteFile(filepath.Join(programs, name), []byte("the installed build"), 0o700); err != nil {
 					t.Fatal(err)
 				}
@@ -206,9 +206,9 @@ func TestABoardBuiltFromACloneGetsTheBannerAndNoItem(t *testing.T) {
 }
 
 // An Update item waits until a newer release or the build replaces it, never
-// expiring after a day as a command does, and it is the Overlord's: the CFO
+// expiring after a day as a command does, and it is the Overlord's: the CEO
 // cannot withdraw it.
-func TestAnUpdateItemWaitsForHimAndIsNotTheCFOsToWithdraw(t *testing.T) {
+func TestAnUpdateItemWaitsForHimAndIsNotTheCEOsToWithdraw(t *testing.T) {
 	// Arrange
 	source := newReleaseSource(t, "v0.5.0")
 	s := releaseService(t, source, "v0.4.2")
@@ -217,14 +217,14 @@ func TestAnUpdateItemWaitsForHimAndIsNotTheCFOsToWithdraw(t *testing.T) {
 
 	// Act
 	expireErr := s.Store.expireRuns(time.Now().Add(72 * time.Hour))
-	withdrawErr := s.Store.withdrawRun(item.ID, "the CFO wants it gone")
+	withdrawErr := s.Store.withdrawRun(item.ID, "the CEO wants it gone")
 
 	// Assert
 	if expireErr != nil || updateItems(s)[0].State != "ready" {
 		t.Fatalf("after three days the item is %s (%v), want it still ready", updateItems(s)[0].State, expireErr)
 	}
-	if withdrawErr == nil || !strings.Contains(withdrawErr.Error(), "not the CFO's to withdraw") {
-		t.Fatalf("the CFO's withdrawal = %v, want it refused", withdrawErr)
+	if withdrawErr == nil || !strings.Contains(withdrawErr.Error(), "not the CEO's to withdraw") {
+		t.Fatalf("the CEO's withdrawal = %v, want it refused", withdrawErr)
 	}
 }
 
@@ -271,7 +271,7 @@ func TestOnlyABoardOfTheOverlordsOwnPressesUpdate(t *testing.T) {
 					told = told || record.Key == "update" && strings.Contains(record.Detail, "Updating Code Goblins is the Supreme Overlord's alone") && strings.Contains(record.Detail, "under an agent harness (node.exe pid 5100)")
 				}
 				if err != nil || !told {
-					t.Fatalf("the CFO's queue = %+v, %v, want the refusal with what the supervisor found", pending, err)
+					t.Fatalf("the CEO's queue = %+v, %v, want the refusal with what the supervisor found", pending, err)
 				}
 			}
 			if c.status == http.StatusForbidden && len(s.Store.Snapshot().Actions) != 0 {

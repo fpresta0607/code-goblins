@@ -28,7 +28,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// A native terminal starts at the size goblins starts the CFO at.
+// A native terminal starts at the size goblins starts the CEO at.
 const (
 	nativeCols = 120
 	nativeRows = 40
@@ -167,7 +167,7 @@ func (s Service) launchNativeHost(id string, kind harness.Kind, launch harness.L
 		return host.Record{}, errors.New("spawn: the command that runs a native terminal's host is required")
 	}
 	if !filepath.IsAbs(s.HomeRoot) {
-		return host.Record{}, fmt.Errorf("spawn: the home's root %q is not an absolute path, so the goblin's cfo commands could not name the home that spawned it", s.HomeRoot)
+		return host.Record{}, fmt.Errorf("spawn: the home's root %q is not an absolute path, so the goblin's goblins commands could not name the home that spawned it", s.HomeRoot)
 	}
 	record, err := host.Launch(s.StateDir, s.HostCommand, s.nativeHostEnvironment(userEnv, launch, credentials), host.Spec{ID: id, Args: program, Dir: launch.Dir, Cols: nativeCols, Rows: nativeRows, ShouldLeaveCoresForApps: true})
 	if err != nil {
@@ -212,7 +212,7 @@ func (s Service) briefNativeHarness(ctx context.Context, id string, record host.
 	if err != nil {
 		return err
 	}
-	return s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["CFO_SPAWN_GEN"]}, launch.ResumeSession, instruction, true)
+	return s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["GOBLINS_SPAWN_GEN"]}, launch.ResumeSession, instruction, true)
 }
 
 // DismissOffer reads the terminal's screen and presses the one key a live
@@ -314,7 +314,7 @@ func instructionPointer(path string) string {
 // of the composer went into the review. A harness can be in a turn when it is
 // read, its status row showing it working: a resumed conversation can come
 // back in one, as a Codex goblin with a background terminal running did live,
-// and a new goblin is in one once a cfo send that reached it before its
+// and a new goblin is in one once a goblins send that reached it before its
 // instruction starts it, as cg-cards-stay-open was on 2026-10-15 (#959). Once
 // that has held as long as a composer must, it has started and working says
 // so. It returns what a dialog answered without trust left untrusted, in the
@@ -364,7 +364,7 @@ func readySettleReads() int {
 	return int(nativeReadySettle / nativePoll)
 }
 
-// reportUntrusted tells the CFO, as cfo notify does, that the harness in
+// reportUntrusted tells the CEO, as goblins notify does, that the harness in
 // native terminal id started without trusting the hooks its startup asked to
 // review, so they do not run, and names the hooks a Codex session in dir, the
 // task's worktree, loads: trusting a hook is the Overlord's decision, never a
@@ -398,7 +398,7 @@ func (s Service) reportUntrusted(id string, kind harness.Kind, dir, summary stri
 
 // AnswerDialog answers one recognized startup dialog in the native terminal
 // record names, as a spawn answers it, for a harness spawn did not start,
-// such as the CFO's.
+// such as the CEO's.
 func AnswerDialog(ctx context.Context, record host.Record, dialog harness.Dialog, screen []string) error {
 	return Service{}.answerDialog(ctx, record, dialog, screen)
 }
@@ -662,7 +662,7 @@ const chordGap = 50 * time.Millisecond
 
 // PressKeys presses keys on write one write each, chordGap apart, so a chord
 // such as Claude Code's Ctrl+X Ctrl+S never reaches a harness as one input.
-// A delivery to the CFO presses its send-now key the same way.
+// A delivery to the CEO presses its send-now key the same way.
 func PressKeys(write func([]byte) error, keys string) error {
 	for i, key := range []byte(keys) {
 		if i > 0 {
@@ -947,7 +947,7 @@ func nativeProgram(kind harness.Kind, launch harness.Launch) ([]string, error) {
 
 // NativeProgram is the command line a native terminal starts name with,
 // followed by args: the program this process's PATH finds, started by its
-// path, so a terminal or command whose PATH is the user's, such as the CFO's,
+// path, so a terminal or command whose PATH is the user's, such as the CEO's,
 // never starts another (#1155), and a name this PATH does not find is
 // refused. CreateProcess runs only executables, so a .exe runs as itself, and
 // anything else, such as the npm .cmd shims codex and pi install, runs
@@ -999,23 +999,23 @@ func cmdProgram(path string, args ...string) ([]string, error) {
 }
 
 // inheritedSessionVariables name what a session marks its own processes with
-// and a goblin or the CFO must never start with: the harness that runs the
-// CFO marks its session (Claude Code treats a process that carries its markers
+// and a goblin or the CEO must never start with: the harness that runs the
+// CEO marks its session (Claude Code treats a process that carries its markers
 // as a child session, which neither saves a transcript nor may start inside
 // another), and a Herdr pane names itself to the hooks that report into it.
 // The user's environment should hold none of them; they are dropped from it
 // all the same.
-var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_SANDBOX_", "HERDR_", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", host.IDVariable, host.ProofVariable}
+var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_SANDBOX_", "HERDR_", "GOBLINS_SESSION_ID", "GOBLINS_SESSION_HARNESS", host.IDVariable, host.ProofVariable}
 
 // nativeHostEnvironment is the whole environment a native task's host and
 // harness run with: userEnv, the environment Windows gives a new process of
 // this user, never the spawning process's own, so nothing of the session that
-// ran cfo spawn reaches the goblin; without the harness billing keys or any
+// ran goblins spawn reaches the goblin; without the harness billing keys or any
 // session marker, and without any variable of a service the task does not
 // carry, which the user's environment may set too; then the credentials of the
-// services the task carries, then the launch's variables (CFO_ROLE=goblin and
-// the task's identity among them) and the spawning home's CFO_HOME and
-// CFO_STATE_OVERRIDE, and the projects root the spawner names, where it names
+// services the task carries, then the launch's variables (GOBLINS_ROLE=goblin and
+// the task's identity among them) and the spawning home's GOBLINS_HOME and
+// GOBLINS_STATE_OVERRIDE, and the projects root the spawner names, where it names
 // one, which win: the user's environment names the machine's installed home
 // and projects root, which for a second home on the machine are another's.
 // This block is how its credentials reach the harness at start, and the only
@@ -1052,13 +1052,13 @@ func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, 
 	for name, value := range launch.Env {
 		set(name, value)
 	}
-	set("CFO_HOME", s.HomeRoot)
-	set("CFO_STATE_OVERRIDE", s.StateDir)
+	set("GOBLINS_HOME", s.HomeRoot)
+	set("GOBLINS_STATE_OVERRIDE", s.StateDir)
 	if s.ProjectsRoot != "" {
 		set(install.ProjectsRootVariable, s.ProjectsRoot)
 	}
 	own := ""
-	if id := launch.Env["CFO_TASK_ID"]; id != "" {
+	if id := launch.Env["GOBLINS_TASK_ID"]; id != "" {
 		own = codexguard.Dir(s.StateDir, id)
 	}
 	var path []string
@@ -1133,5 +1133,5 @@ func containedNotice(record host.Record) string {
 	if !record.Contained {
 		return ""
 	}
-	return "warning: native terminal " + record.ID + " could not leave the job of the process that ran cfo, so it ends when that job closes (see its host log)"
+	return "warning: native terminal " + record.ID + " could not leave the job of the process that ran goblins, so it ends when that job closes (see its host log)"
 }

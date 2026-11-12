@@ -945,7 +945,7 @@ func TestNewTeammateOverlapUsesReadableItemWhenCollaborationMetadataFails(t *tes
 
 func TestOverlapReadPutsTheTeammatesInAGoblinsAreaOnItsCardWheneverTheirWorkOpened(t *testing.T) {
 	// Arrange: a teammate's pull request and issue in the goblin's area, both
-	// opened before it started, so neither wakes the CFO.
+	// opened before it started, so neither wakes the CEO.
 	service, h, forge, meta, now := overlapFixture(t)
 	opened := spawnTime(meta.SpawnGen).Add(-time.Hour)
 	forge.activity = strings.ReplaceAll(overlapActivity(t, opened, "teammate", []string{"app/retry.go"}, "app/retry.go times out"), `"login":"teammate"`, `"avatarUrl":"https://avatars.githubusercontent.com/u/7","login":"teammate"`)
@@ -1156,7 +1156,7 @@ func overlapErrorWakes(t *testing.T, s *Service) []string {
 
 // On 2026-10-08 the overlap read of fpresta0607/code-goblins, which has 403
 // branches, paged through every one of them under one 30-second deadline
-// every ten minutes, timed out after three or four pages and woke the CFO
+// every ten minutes, timed out after three or four pages and woke the CEO
 // each time. It reads only what can meet a goblin's area, so a repository
 // with ten times the branches costs it the same few pages.
 func TestOverlapReadOfARepositoryWithHundredsOfBranchesReadsTheSameFewPages(t *testing.T) {
@@ -1187,8 +1187,8 @@ func TestOverlapReadOfARepositoryWithHundredsOfBranchesReadsTheSameFewPages(t *t
 
 // A page that times out costs its own pass and never the read: each page
 // runs on a deadline of its own, the next poll asks for the page that timed
-// out where the read left off, and the CFO hears nothing of it.
-func TestOverlapReadThatTimesOutOncePicksUpWhereItLeftOffWithoutWakingTheCFO(t *testing.T) {
+// out where the read left off, and the CEO hears nothing of it.
+func TestOverlapReadThatTimesOutOncePicksUpWhereItLeftOffWithoutWakingTheCEO(t *testing.T) {
 	// Arrange
 	service, h, forge, meta, now := overlapFixture(t)
 	service.work, service.subscribers = make(chan struct{}, 1), map[chan struct{}]struct{}{}
@@ -1206,7 +1206,7 @@ func TestOverlapReadThatTimesOutOncePicksUpWhereItLeftOffWithoutWakingTheCFO(t *
 
 	// Assert
 	if wakes := overlapErrorWakes(t, service); len(wakes) != 0 {
-		t.Fatalf("one page that timed out woke the CFO: %q", wakes)
+		t.Fatalf("one page that timed out woke the CEO: %q", wakes)
 	}
 	var asked []string
 	for _, round := range github.rounds {
@@ -1228,9 +1228,9 @@ func TestOverlapReadThatTimesOutOncePicksUpWhereItLeftOffWithoutWakingTheCFO(t *
 	}
 }
 
-// A read that keeps failing still reaches the CFO, once it failed on three
+// A read that keeps failing still reaches the CEO, once it failed on three
 // passes in a row.
-func TestOverlapReadThatKeepsFailingWakesTheCFOOnTheThirdPassInARow(t *testing.T) {
+func TestOverlapReadThatKeepsFailingWakesTheCEOOnTheThirdPassInARow(t *testing.T) {
 	// Arrange
 	service, h, forge, meta, now := overlapFixture(t)
 	service.work, service.subscribers = make(chan struct{}, 1), map[chan struct{}]struct{}{}
@@ -1246,7 +1246,7 @@ func TestOverlapReadThatKeepsFailingWakesTheCFOOnTheThirdPassInARow(t *testing.T
 
 		// Assert
 		if wakes := overlapErrorWakes(t, service); len(wakes) != want {
-			t.Fatalf("after %d failing passes the CFO had %d overlap wakes, want %d: %q", pass+1, len(wakes), want, wakes)
+			t.Fatalf("after %d failing passes the CEO had %d overlap wakes, want %d: %q", pass+1, len(wakes), want, wakes)
 		}
 	}
 	if forge.activityCalls != 3 {
@@ -1294,7 +1294,7 @@ func TestAnOverlapReadAsksNothingWhileItsRepositoryWaitsOutARefusal(t *testing.T
 		at = persisted.BackOff[forge.repo].Add(time.Minute)
 	}
 	if wakes := overlapErrorWakes(t, service); len(wakes) != 0 {
-		t.Fatalf("the hold reached the CFO as a supervisor error: %q", wakes)
+		t.Fatalf("the hold reached the CEO as a supervisor error: %q", wakes)
 	}
 	forge.runListFailure = githubFailure{}
 	overlapLive(t, h, meta, at)

@@ -54,10 +54,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # Where cfo.exe finds no board, it serves a page saying the board
+          # Where goblins.exe finds no board, it serves a page saying the board
           # was not built, so a release is built only over this build.
           if (-not (Test-Path ../internal/boardweb/dist/board/index.html)) {
-            throw 'npm run build wrote no internal/boardweb/dist/board/index.html, which cfo.exe embeds the board from.'
+            throw 'npm run build wrote no internal/boardweb/dist/board/index.html, which goblins.exe embeds the board from.'
           }
       - name: Check third-party licences
         run: go run ./tools/notices -check
@@ -69,21 +69,21 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          Push-Location cmd/cfo
+          Push-Location cmd/goblins
           go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64 --product-version $env:RELEASE_TAG --file-version $env:RELEASE_TAG
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Pop-Location
-          go build -trimpath -ldflags "-X main.version=$env:RELEASE_TAG" -o cfo.exe ./cmd/cfo
+          go build -trimpath -ldflags "-X main.version=$env:RELEASE_TAG" -o goblins.exe ./cmd/goblins
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $info = (Get-Item cfo.exe).VersionInfo
+          $info = (Get-Item goblins.exe).VersionInfo
           if ($info.ProductName -ne 'Code Goblins' -or $info.ProductVersion -ne $env:RELEASE_TAG) {
-            throw "cfo.exe carries ProductName '$($info.ProductName)' and ProductVersion '$($info.ProductVersion)', want 'Code Goblins' and '$env:RELEASE_TAG'"
+            throw "goblins.exe carries ProductName '$($info.ProductName)' and ProductVersion '$($info.ProductVersion)', want 'Code Goblins' and '$env:RELEASE_TAG'"
           }
-          # The hook program is the same cfo built as a program with no
+          # The hook program is the same goblins built as a program with no
           # console: Claude Code starts each of a goblin's hooks hidden, which
           # gives a console program a console host of its own, a second
           # process for every hook, and a windowed one none.
-          go build -trimpath -ldflags "-H windowsgui -X main.version=$env:RELEASE_TAG" -o cfo-hook.exe ./cmd/cfo
+          go build -trimpath -ldflags "-H windowsgui -X main.version=$env:RELEASE_TAG" -o goblins-hook.exe ./cmd/goblins
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Push-Location cmd/goblins-window
           go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64 --product-version $env:RELEASE_TAG --file-version $env:RELEASE_TAG
@@ -127,8 +127,8 @@ jobs:
         with:
           name: unsigned-build
           path: |
-            cfo.exe
-            cfo-hook.exe
+            goblins.exe
+            goblins-hook.exe
             goblins-window.exe
             CodeGoblinsSetup.exe
             cg-ci-runner.exe
@@ -212,8 +212,8 @@ jobs:
           certificate-profile-name: ${{ vars.SIGNING_PROFILE }}
           files: |
             ${{ github.workspace }}\CodeGoblinsSetup.exe
-            ${{ github.workspace }}\cfo.exe
-            ${{ github.workspace }}\cfo-hook.exe
+            ${{ github.workspace }}\goblins.exe
+            ${{ github.workspace }}\goblins-hook.exe
             ${{ github.workspace }}\goblins-window.exe
             ${{ github.workspace }}\cg-ci-runner.exe
             ${{ github.workspace }}\no-mistakes.exe
@@ -281,7 +281,7 @@ jobs:
         run: |
           $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
           if (-not $signtool) { throw "signtool.exe is not on this runner, so the signatures cannot be verified and nothing is published." }
-          foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'cfo-hook.exe', 'goblins-window.exe', 'cg-ci-runner.exe', 'no-mistakes.exe') {
+          foreach ($file in 'CodeGoblinsSetup.exe', 'goblins.exe', 'goblins-hook.exe', 'goblins-window.exe', 'cg-ci-runner.exe', 'no-mistakes.exe') {
             $signature = Get-AuthenticodeSignature -FilePath $file
             if ($signature.Status -ne 'Valid') { throw "$file is not validly signed: $($signature.Status) $($signature.StatusMessage)" }
             if ($signature.SignerCertificate.GetNameInfo('SimpleName', $false) -ne $env:SIGNING_PUBLISHER) { throw "$file is signed by '$($signature.SignerCertificate.Subject)', not '$env:SIGNING_PUBLISHER'" }
@@ -339,7 +339,7 @@ jobs:
           if ($status.AMRunningMode -ne 'Normal' -or -not $status.AntivirusEnabled -or -not $status.RealTimeProtectionEnabled -or $preference.ExclusionPath -or $preference.ExclusionExtension) {
             throw "Microsoft Defender is not actively protecting this runner with nothing excluded, so its scan would prove nothing and nothing is published."
           }
-          foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'cfo-hook.exe', 'goblins-window.exe', 'cg-ci-runner.exe', 'no-mistakes.exe') {
+          foreach ($file in 'CodeGoblinsSetup.exe', 'goblins.exe', 'goblins-hook.exe', 'goblins-window.exe', 'cg-ci-runner.exe', 'no-mistakes.exe') {
             $scan = & $scanner -Scan -ScanType 3 -File (Resolve-Path $file).Path -DisableRemediation
             $scan | Write-Host
             if ($LASTEXITCODE -ne 0) { throw "Defender's scan of $file exited with code $LASTEXITCODE (2 is a detection), so nothing is published." }
@@ -352,7 +352,7 @@ jobs:
       - name: Checksum
         shell: pwsh
         run: |
-          $lines = foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'cfo-hook.exe', 'goblins-window.exe', 'cg-ci-runner.exe', 'no-mistakes.exe') {
+          $lines = foreach ($file in 'CodeGoblinsSetup.exe', 'goblins.exe', 'goblins-hook.exe', 'goblins-window.exe', 'cg-ci-runner.exe', 'no-mistakes.exe') {
             "$((Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant())  $file"
           }
           [IO.File]::WriteAllText("SHA256SUMS", ($lines -join "`n") + "`n")
@@ -460,8 +460,8 @@ jobs:
           generate_release_notes: true
           files: |
             CodeGoblinsSetup.exe
-            cfo.exe
-            cfo-hook.exe
+            goblins.exe
+            goblins-hook.exe
             goblins-window.exe
             cg-ci-runner.exe
             no-mistakes.exe

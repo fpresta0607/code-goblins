@@ -47,10 +47,10 @@ type Service struct {
 	// gate to decide, as they did before there was evidence to read.
 	Progress ProgressProber
 	// Polls lists the lavish-axi polls goblins run themselves, each flagged
-	// to the CFO once; nil disables the check.
+	// to the CEO once; nil disables the check.
 	Polls PollProber
 	// Replies reads a goblin's last reply, so one that stopped at its prompt
-	// asking in prose wakes the CFO with its question; nil reads none.
+	// asking in prose wakes the CEO with its question; nil reads none.
 	Replies               ReplyReader
 	Now                   func() time.Time
 	StaleEscalateAfter    time.Duration
@@ -66,7 +66,7 @@ type Service struct {
 	DecisionAskAfter time.Duration
 	DecisionAskMax   time.Duration
 	// IdleAfter is how long a goblin sits at its prompt with nothing running,
-	// nothing asked and nothing reported before it wakes the CFO as
+	// nothing asked and nothing reported before it wakes the CEO as
 	// goblin_idle, and IdleWakeGap the least time between two such wakes of
 	// one goblin.
 	IdleAfter   time.Duration
@@ -360,11 +360,11 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 			case verb == "paused":
 				return s.pausedMissingObservation(observation, sample.Detail, now), sample
 			// The comeback's own words win: it brings the goblin back by
-			// itself, so the CFO is not sent to launch it beside it.
+			// itself, so the CEO is not sent to launch it beside it.
 			case verb == "done" && meta.Backend == "native" && strings.HasPrefix(reported, "PR https://") && !sample.IsComingBack:
-				detail = fmt.Sprintf("native terminal %s is gone after it reported its pull request done; a restart leaves it down to wait on the merge unless a prompt reached it since, and cfo switch %s --harness %s brings it back if it has more work", meta.ID, meta.ID, meta.Harness)
+				detail = fmt.Sprintf("native terminal %s is gone after it reported its pull request done; a restart leaves it down to wait on the merge unless a prompt reached it since, and goblins switch %s --harness %s brings it back if it has more work", meta.ID, meta.ID, meta.Harness)
 			case verb == "done" && meta.Backend == "native" && state.DoneClosed("done: "+reported) != "" && !sample.IsComingBack:
-				detail = fmt.Sprintf("native terminal %s is gone after it reported its issue closed; a restart leaves it down unless a prompt reached it since, and cfo switch %s --harness %s brings it back if it has more work", meta.ID, meta.ID, meta.Harness)
+				detail = fmt.Sprintf("native terminal %s is gone after it reported its issue closed; a restart leaves it down unless a prompt reached it since, and goblins switch %s --harness %s brings it back if it has more work", meta.ID, meta.ID, meta.Harness)
 			}
 		}
 		return unknownObservation(observation, EndpointMissing, detail, now), sample
@@ -584,7 +584,7 @@ func (s Service) staleObservation(observation Observation, reason Reason, linger
 		if observation.Escalation >= s.demandInspectionAfter() {
 			observation.DemandDeepInspection = true
 		}
-		// Dedupe: escalation does not re-wake. The CFO was already woken for
+		// Dedupe: escalation does not re-wake. The CEO was already woken for
 		// this exact stale state; the only thing that advances is the
 		// escalation column, which fleet-view reads without a new wake. A
 		// genuinely new state (liveness movement, recovery, or a fault)
@@ -800,7 +800,7 @@ func quietSince(observation Observation, stretch, now time.Time) time.Duration {
 // which the gate has moved on returns through workingObservation, which
 // clears StaleSince and lets a fresh wedge wake again, unless it is the same
 // kind of wedge woken for within the last busy budget: that is the one the
-// CFO already has, seen again after a scan that lost sight of it.
+// CEO already has, seen again after a scan that lost sight of it.
 func (s Service) busyOverAgeObservation(observation Observation, kind, detail string, now time.Time) Observation {
 	observation.LastSeen = now
 	observation.Health = HealthStale
@@ -849,8 +849,8 @@ func workingObservation(observation Observation, sample EndpointSample, now time
 
 // statusVerbObservation returns the observation for a status verb that parks,
 // pauses, or terminates the goblin, along with whether such a verb is present.
-// These verbs win over liveness because cfo notify (or the watcher's decision
-// signal) already woke the CFO, so the monitor must hold the pane quiet.
+// These verbs win over liveness because goblins notify (or the watcher's decision
+// signal) already woke the CEO, so the monitor must hold the pane quiet.
 func (s Service) statusVerbObservation(observation Observation, id string, now time.Time, sample EndpointSample) (Observation, bool) {
 	verb, _, line, ok := s.latestStatusVerb(id)
 	if !ok || line <= observation.ConsumedVerbLine {
@@ -953,7 +953,7 @@ func (s Service) idleObservation(ctx context.Context, meta state.TaskMeta, obser
 
 // awaitingInputObservation records a goblin whose agent turn ended
 // (agent_status done) and is waiting on input - finished or blocked. It wakes
-// once per episode and demands inspection, because the fix is a CFO decision,
+// once per episode and demands inspection, because the fix is a CEO decision,
 // not another poll.
 func awaitingInputObservation(observation Observation, detail string, now time.Time) Observation {
 	first := observation.Reason != AwaitingAnswer
@@ -975,7 +975,7 @@ func awaitingInputObservation(observation Observation, detail string, now time.T
 }
 
 // askedAtPrompt returns the sentences of the goblin's last reply that ask the
-// CFO something or offer it a choice; none when it asked nothing or its reply
+// CEO something or offer it a choice; none when it asked nothing or its reply
 // cannot be read.
 func (s Service) askedAtPrompt(ctx context.Context, meta state.TaskMeta, sample EndpointSample) []string {
 	if s.Replies == nil {
@@ -985,7 +985,7 @@ func (s Service) askedAtPrompt(ctx context.Context, meta state.TaskMeta, sample 
 }
 
 // askObservation records a goblin at its prompt whose last reply asked the
-// CFO something in prose. It wakes once with the question, in place of the
+// CEO something in prose. It wakes once with the question, in place of the
 // generic wake for a goblin stopped at its prompt, and demands inspection,
 // because the goblin waits on an answer.
 func askObservation(observation Observation, asked []string, now time.Time) Observation {
@@ -1021,10 +1021,10 @@ func ownWorkObservation(observation Observation, now time.Time) Observation {
 }
 
 // parkedObservation records a goblin whose latest status verb parks it
-// awaiting the CFO's decision (blocked, needs-decision, or checks-passed).
+// awaiting the CEO's decision (blocked, needs-decision, or checks-passed).
 // The outcome was already delivered by the watcher's decision signal or by
-// cfo notify's own wake, so this state stays quiet: no new wake and no stall
-// escalation while the goblin waits for the CFO to respond.
+// goblins notify's own wake, so this state stays quiet: no new wake and no stall
+// escalation while the goblin waits for the CEO to respond.
 func (s Service) parkedObservation(observation Observation, now time.Time) Observation {
 	observation.Health = HealthParked
 	observation.Reason = AwaitingDecision
@@ -1038,7 +1038,7 @@ func (s Service) parkedObservation(observation Observation, now time.Time) Obser
 }
 
 // terminalObservation records a goblin whose latest status verb delivered a
-// terminal outcome (done or failed). cfo notify already woke the CFO with that
+// terminal outcome (done or failed). goblins notify already woke the CEO with that
 // outcome, so the monitor holds the pane quiet: the idle clock never advances
 // and a finished goblin is not re-woken as a genuine stall.
 func (s Service) terminalObservation(observation Observation, now time.Time) Observation {
@@ -1118,7 +1118,7 @@ func erroringObservation(observation Observation, digest string, fault routing.F
 
 // unknownObservation records a goblin whose terminal cannot be seen. It wakes
 // once as it enters the state, or when the reason changes; while the same
-// reason holds, the heartbeat keeps it in front of the CFO instead of a wake
+// reason holds, the heartbeat keeps it in front of the CEO instead of a wake
 // on every scan.
 func unknownObservation(observation Observation, reason Reason, detail string, now time.Time) Observation {
 	entering := observation.Health != HealthUnknown || observation.Reason != reason
@@ -1143,7 +1143,7 @@ func unknownObservation(observation Observation, reason Reason, detail string, n
 
 // pausedMissingObservation records a goblin that paused itself and whose
 // terminal is gone. Taken wakes would otherwise re-arm on every scan, so it
-// wakes the CFO once when the terminal goes and then once each pause
+// wakes the CEO once when the terminal goes and then once each pause
 // resurface interval, as a paused goblin does, with a wake that says the task
 // is paused.
 func (s Service) pausedMissingObservation(observation Observation, detail string, now time.Time) Observation {
@@ -1170,7 +1170,7 @@ func (s Service) pausedMissingObservation(observation Observation, detail string
 
 // launchingObservation records a present pane whose agent has not registered
 // yet on a task that has never been observed alive. It carries no pending
-// event: launch-in-progress is not a decision and must not wake the CFO.
+// event: launch-in-progress is not a decision and must not wake the CEO.
 func launchingObservation(observation Observation, now time.Time) Observation {
 	observation.LastObserved = now
 	observation.EndpointVerdict = ProbePresent
@@ -1231,7 +1231,7 @@ func (s Service) latestStatusVerb(id string) (string, string, int64, bool) {
 	}
 	for i := len(lines) - 1; i >= 0; i-- {
 		verb, detail, ok := crewstate.ParseStatusLine(lines[i])
-		if !ok || crewstate.IsCFOAudit(lines[i]) {
+		if !ok || crewstate.IsCEOAudit(lines[i]) {
 			continue
 		}
 		return verb, detail, int64(i + 1), true
@@ -1241,11 +1241,11 @@ func (s Service) latestStatusVerb(id string) (string, string, int64, bool) {
 
 // IsParkedDecisionVerb reports whether a status verb parks the goblin on
 // something outside itself. needs-decision and checks-passed wake through the
-// watcher's decision signal, and blocked wakes through cfo notify's own
+// watcher's decision signal, and blocked wakes through goblins notify's own
 // record. waiting names what it waits on, such as another task, a run, the
 // Overlord, CI or a deploy, and holds while it is the latest report until that
-// named thing changes: a wait on the Overlord already woke the CFO through cfo
-// notify, and any other wait must never wake the CFO at all. The monitor must
+// named thing changes: a wait on the Overlord already woke the CEO through goblins
+// notify, and any other wait must never wake the CEO at all. The monitor must
 // not re-wake any of them as a genuine stall. The supervisor's stall check
 // reads this too, so a declared wait has one definition.
 //
@@ -1266,7 +1266,7 @@ func IsParkedDecisionVerb(verb string) bool {
 // which its own wake already carries. The supervisor's stall check reads it so
 // a finished goblin is not judged stalled.
 //
-// done and failed woke the CFO through cfo notify's own record (or a
+// done and failed woke the CEO through goblins notify's own record (or a
 // spawn/switch error surfaced directly), so the monitor must not re-wake the
 // finished goblin as a genuine stall. While that wake is still
 // unacknowledged, resurfaceDecision keeps asking from the ledger; this label
@@ -1299,7 +1299,7 @@ func (s Service) launchDeadline(meta state.TaskMeta, now time.Time) time.Time {
 }
 
 // isRelaunching reports whether a command starting the goblin's harness still
-// runs: a cfo switch relaunching it, or the cfo spawn that wrote its record,
+// runs: a goblins switch relaunching it, or the goblins spawn that wrote its record,
 // which holds the home's spawn lock as its turn from before it names the
 // goblin's generation until the goblin's host runs. A live holder that took
 // the lock no later than the generation began is that spawn; one that took it
@@ -1329,7 +1329,7 @@ func (s Service) isStoppedOnRequest(meta state.TaskMeta) bool {
 // record, read once its terminal has been read. A cleanup closes the goblin's
 // terminal and retires the record only seconds later, once its worktree is
 // returned, so a scan that read the record before the cleanup took it read a
-// terminal the cleanup may have closed, and on 2026-10-20 woke the CFO twice
+// terminal the cleanup may have closed, and on 2026-10-20 woke the CEO twice
 // to bring back a goblin that was retired (issue #1225). The cleanup holds its
 // lock from before it closes the terminal to after the record is gone, so this
 // read sees the one or the other, and nothing the scan read of the task is
@@ -1429,7 +1429,7 @@ func readLedger(stateDir string) (ledger, error) {
 // its own re-ask outliving the record it re-asked about. Such a notify also
 // suppresses the stall arm for as long as it sits unread: the goblin reported
 // an outcome nobody has taken delivery of yet, so it is finished and its
-// ended turn is not a standing question. Acking it - which is what the CFO
+// ended turn is not a standing question. Acking it - which is what the CEO
 // does before steering the goblin back to work - ends the suppression too.
 func (l ledger) unanswered(id string) bool {
 	stalled, reportedDone := false, false
@@ -1471,7 +1471,7 @@ func (s Service) resurfaceDecision(observation Observation, now time.Time, unans
 		return observation
 	}
 	// agent_status working is the one reading that suppresses a re-ask: the
-	// goblin is genuinely executing, typically because the CFO answered it.
+	// goblin is genuinely executing, typically because the CEO answered it.
 	// The schedule is held, not cleared, so it resumes where it left off if
 	// the goblin goes quiet again with the record still unacked.
 	if observation.Health == HealthBusy || observation.PendingEvent != nil || observation.Reason == LifecycleOperation {
@@ -1489,7 +1489,7 @@ func (s Service) resurfaceDecision(observation Observation, now time.Time, unans
 	observation.DecisionAsks++
 	observation.NextDecisionAsk = timePointer(now.Add(s.decisionAskInterval(observation.DecisionAsks)))
 	event := taskEvent(observation.TaskID, AwaitingDecision,
-		fmt.Sprintf("still unanswered (re-ask %d); run `cfo drain` for the question", observation.DecisionAsks))
+		fmt.Sprintf("still unanswered (re-ask %d); run `goblins drain` for the question", observation.DecisionAsks))
 	observation.PendingEvent = &event
 	return observation
 }
@@ -1581,7 +1581,7 @@ func (s Service) launchGrace() time.Duration {
 }
 
 // statusStamp is the status log's size and mtime as a cheap liveness signal.
-// A goblin writing its status (no-mistakes steps, cfo notify, or a plain
+// A goblin writing its status (no-mistakes steps, goblins notify, or a plain
 // progress line) advances this stamp, which is evidence it is working even
 // when the pane text is quiet.
 func (s Service) statusStamp(id string) string {

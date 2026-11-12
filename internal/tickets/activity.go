@@ -1,5 +1,5 @@
 // Package tickets reports what other people have in flight in a GitHub
-// repository, so the CFO never starts work someone else already has under way
+// repository, so the CEO never starts work someone else already has under way
 // without knowing it: open issues, open and draft pull requests with the files
 // they change, branches pushed recently by anyone but the Overlord, and where
 // any of it overlaps the area a brief names.

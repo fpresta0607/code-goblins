@@ -111,7 +111,7 @@ func TestRecordNamesAJournalAReaderNeverLetsGo(t *testing.T) {
 // back. The swap waits the scanner out.
 func TestSwapWaitsOutAScannerThatHoldsABuild(t *testing.T) {
 	for name, held := range map[string]func(root string) string{
-		"the installed build it moves aside":    func(root string) string { return filepath.Join(root, "cfo.exe") },
+		"the installed build it moves aside":    func(root string) string { return filepath.Join(root, "goblins.exe") },
 		"the staged candidate it puts in place": func(root string) string { return staged(root, "goblins.exe") },
 	} {
 		t.Run(name, func(t *testing.T) {

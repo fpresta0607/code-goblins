@@ -8,7 +8,7 @@ import { asksOverlord, nodeStatus, statusPhase } from "./workflow.ts";
 export interface TaskStatus { text: string; phase: string }
 
 // How long after its session starts a goblin the supervisor has no evidence
-// of yet still reads as starting. cfo spawn ends once its goblin took its
+// of yet still reads as starting. goblins spawn ends once its goblin took its
 // brief, and its first native activity followed 9 seconds later on a scratch
 // board on 2026-10-08: past this, no evidence is worth saying.
 const STARTUP_MS = 2 * 60_000;

@@ -121,7 +121,7 @@ func TestEnterAloneCarriesAFirstRunToAReadyAgent(t *testing.T) {
 	if err != nil || agent != "claude" {
 		t.Fatalf("Run = %q, %v; want claude", agent, err)
 	}
-	if want := []string{"Choose the agent your CFO runs on", "Install Claude Code", "Sign in to Claude Code"}; !slices.Equal(m.headings(), want) {
+	if want := []string{"Choose the agent your CEO runs on", "Install Claude Code", "Sign in to Claude Code"}; !slices.Equal(m.headings(), want) {
 		t.Errorf("screens = %q, want %q", m.headings(), want)
 	}
 	if want := []string{"install claude", "sign in claude", "save claude"}; !slices.Equal(m.actions, want) {
@@ -171,7 +171,7 @@ func TestTheChoiceStartsOnTheRememberedAgentOrTheRecommendedOne(t *testing.T) {
 // The choice of agent is one control, a row of tabs: each agent's own mark
 // and name, Claude Code's tab marked as the recommended one, and under the
 // row how ready the marked agent is, whether it is the remembered one, and
-// what a Codex or pi CFO goes without.
+// what a Codex or pi CEO goes without.
 func TestTheChoiceIsOneRowOfTabsThatSaysHowReadyEachAgentIs(t *testing.T) {
 	// Arrange
 	m := &machine{t: t, states: map[string]State{"claude": Ready, "codex": SignedOut}, answer: func(screen) (int, error) { return 0, ErrCancelled }}
@@ -315,7 +315,7 @@ func TestACancelledScreenNeverInstallsSignsInOrRemembers(t *testing.T) {
 		at     string
 		states map[string]State
 	}{
-		{"Choose the agent your CFO runs on", map[string]State{}},
+		{"Choose the agent your CEO runs on", map[string]State{}},
 		{"Install Claude Code", map[string]State{}},
 		{"Sign in to Claude Code", map[string]State{"claude": SignedOut}},
 		{"Claude Code's sign-in could not be verified", map[string]State{"claude": Unverified}},
@@ -367,7 +367,7 @@ func TestEscapeAtAStepReturnsToTheChoice(t *testing.T) {
 	if err != nil || agent != "codex" {
 		t.Fatalf("Run = %q, %v; want codex", agent, err)
 	}
-	if want := []string{"Choose the agent your CFO runs on", "Install Claude Code", "Choose the agent your CFO runs on"}; !slices.Equal(m.headings(), want) {
+	if want := []string{"Choose the agent your CEO runs on", "Install Claude Code", "Choose the agent your CEO runs on"}; !slices.Equal(m.headings(), want) {
 		t.Errorf("screens = %q, want %q", m.headings(), want)
 	}
 	if want := []string{"save codex"}; !slices.Equal(m.actions, want) {
@@ -490,7 +490,7 @@ func TestAShadowedClaudeCodeIsCheckedAgainNeverReinstalled(t *testing.T) {
 	if err != nil || agent != "claude" {
 		t.Fatalf("Run = %q, %v; want claude", agent, err)
 	}
-	if want := []string{"Choose the agent your CFO runs on", "Remove npm's Claude Code", "Remove npm's Claude Code", "Sign in to Claude Code"}; !slices.Equal(m.headings(), want) {
+	if want := []string{"Choose the agent your CEO runs on", "Remove npm's Claude Code", "Remove npm's Claude Code", "Sign in to Claude Code"}; !slices.Equal(m.headings(), want) {
 		t.Errorf("screens = %q, want %q", m.headings(), want)
 	}
 	if want := []string{"Check again", "Choose another agent"}; !slices.Equal(m.screens[1].choices, want) {

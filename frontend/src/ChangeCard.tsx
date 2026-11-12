@@ -39,7 +39,7 @@ export function ChangeCard({ question, snapshot, connected, now, draft, onDraft,
   const canChange = connected && !!payload && !isStanding && !draft.sending;
   const pick = (selection: string) => onDraft({ selection, error: "" });
   return <form className="question-card change-card" aria-labelledby={"change-" + question.id} onSubmit={(event) => { event.preventDefault(); if (payload && !isStanding) onChange(); }}>
-    <p className="asker"><Avatar persona={question.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asked · {age(question.created_at, now)}</span></p>
+    <p className="asker"><Avatar persona={question.task ? personaFor(task) : "ceo"} small /><span><strong>{asker}</strong> asked · {age(question.created_at, now)}</span></p>
     <QuestionText id={"change-" + question.id} text={question.text} />
     <fieldset><legend className="sr-only">Choose your answer</legend>
       {questionChoices(question).map((option) => <label className="question-choice" key={option.value}>

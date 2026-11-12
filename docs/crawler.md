@@ -47,16 +47,16 @@ It exits 0 when it crawled, 1 with one line saying why when nothing could be cra
 ## How a goblin gets it
 
 - The build carries the connector's code and the lockfile that pins every package it installs, under `connectors\crawler` in this repository.
-- [`cfo install`](commands/install.md), which `install.ps1` and the board's **Update** both run, sets the connector up as [`cfo crawler setup`](commands/crawler/setup.md) does: it writes them into the home's `caches\crawler`, installs the pinned packages with `npm ci`, and only then writes `goblin-crawl.cmd`, and a `goblin-crawl` script for Git Bash, in `caches\crawler\bin`.
+- [`goblins install`](commands/install.md), which `install.ps1` and the board's **Update** both run, sets the connector up as [`goblins crawler setup`](commands/crawler/setup.md) does: it writes them into the home's `caches\crawler`, installs the pinned packages with `npm ci`, and only then writes `goblin-crawl.cmd`, and a `goblin-crawl` script for Git Bash, in `caches\crawler\bin`.
   Git ignores the home's caches, so a home that is a checkout of this repository keeps its `connectors\crawler` as git has it.
   An install of a newer build replaces a connector an earlier build installed, and leaves one already the build's alone.
   It needs Node.js, which the fleet's other tools need too, and the crawl needs Chrome.
   A setup that runs past four minutes, as an `npm ci` waiting on a registry it cannot reach does, is stopped with every process it started, so the install ends inside the board's **Update** bound of five minutes.
-  A connector it cannot set up never fails the install: a `Note:` line says goblins go without `goblin-crawl` until `cfo crawler setup` succeeds, and on a machine without Node.js the install script's closing note names `crawler`.
-- `cfo spawn` puts `caches\crawler\bin` on every goblin's PATH, after its codex guard folder and before the user's PATH, whichever harness it runs, with no word of it in the brief.
+  A connector it cannot set up never fails the install: a `Note:` line says goblins go without `goblin-crawl` until `goblins crawler setup` succeeds, and on a machine without Node.js the install script's closing note names `crawler`.
+- `goblins spawn` puts `caches\crawler\bin` on every goblin's PATH, after its codex guard folder and before the user's PATH, whichever harness it runs, with no word of it in the brief.
   It is a command rather than an MCP server because Claude Code goblins are the only goblins given MCP servers: a command reaches Codex and pi goblins too.
 - The board's **Connectors** page lists `crawler` as a **Built in** connector and says of each goblin on its page: provided when its terminal finds `goblin-crawl`, disabled when its brief left it out, and missing when the home never set it up, or set it up after the goblin's terminal started, which a resume, switch or respawn carries.
-- `cfo doctor` says whether the home's connector is ready, older than the build, or not set up, with the fix.
+- `goblins doctor` says whether the home's connector is ready, older than the build, or not set up, with the fix.
 
 ## Leaving it out
 
@@ -72,7 +72,7 @@ connectors: none
 
 - `connectors: none` gives the goblin a terminal whose PATH has no `goblin-crawl`, and its task record keeps the choice, so a resume or a switch leaves it out too.
 - No `connectors:` line carries it.
-- Any other value, `connectors: crawler` included, or a second `connectors:` line, is refused by `cfo brief ready` and by the spawn.
+- Any other value, `connectors: crawler` included, or a second `connectors:` line, is refused by `goblins brief ready` and by the spawn.
 - A helper never carries more than its parent: the helper of a goblin without the crawler goes without it, whatever its own brief says.
 
 ## Why Crawlee

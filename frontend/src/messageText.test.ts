@@ -213,7 +213,7 @@ test("pipes without a separator row stay text, and a one-line summary leaves the
   assert.equal(html("a | b | c"), "<p>a | b | c</p>");
   assert.equal(html("| a | b |\n| c | d |"), "<p>| a | b |\n| c | d |</p>");
   assert.equal(plainMessage("Add the records\n| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |\nthen tell me"), "Add the records then tell me");
-  assert.equal(plainMessage("Run `cfo doctor` first"), "Run cfo doctor first");
+  assert.equal(plainMessage("Run `goblins doctor` first"), "Run goblins doctor first");
 });
 
 test("bold may wrap a code value, sit beside one, and a lone mark near one stays as written", () => {

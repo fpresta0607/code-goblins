@@ -4,7 +4,7 @@ import { Icon } from "./Icon";
 import { AfkRefusal } from "./afk-refusal";
 import "./afk.css";
 
-// The question before AFK mode turns on, since it hands the CFO the Overlord's
+// The question before AFK mode turns on, since it hands the CEO the Overlord's
 // authority until he turns it off. Cancel has the focus, so Enter alone turns
 // nothing on. Turn AFK on says it is working while the supervisor answers, and
 // a refusal is one short sentence above the buttons.
@@ -21,7 +21,7 @@ export function AfkOnDialog({ pending, problem, onTurnOn, onClose }: {
     return () => { element?.close(); if (source instanceof HTMLElement && source.isConnected) source.focus(); };
   }, []);
   return <dialog ref={dialog} className="stop-task-dialog afk-dialog" aria-labelledby={title} aria-describedby={description} onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onClose(); }}>
-    <Avatar persona="cfo" />
+    <Avatar persona="ceo" />
     <h2 id={title}>Go AFK?</h2>
     <p id={description}>The CEO runs the fleet under your authority until you turn AFK off, and logs every decision it makes. Nothing on the board prompts you meanwhile.</p>
     <p className="preservation-notice"><Icon name="shield" />What is yours alone is held for you, never decided.</p>

@@ -24,7 +24,7 @@ const fixtureSHA256 = "261765dae87693ca85c35908f16e592be0df4fda0001fbd1dedcede88
 // programSHA256 is the SHA-256 of testdata/program.tar.bz2.
 const programSHA256 = "c6b75f138a27c197666042c48bc996a94ed72c11870014b33bb19b36a9e5120b"
 
-// TestMain lets the test binary stand in for cfo as the engine's worker:
+// TestMain lets the test binary stand in for ceo as the engine's worker:
 // started as `voice-worker` it answers as standInWorker does and exits.
 func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == "voice-worker" {

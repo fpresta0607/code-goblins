@@ -1,5 +1,5 @@
 // A ranked list's order is its priority, top first: Tasks is the order the
-// CFO starts queued work in and In progress the order it attends to goblins.
+// CEO starts queued work in and In progress the order it attends to goblins.
 // These are the pure steps of moving a card; the supervisor saves the result.
 
 export function moveTo(ids: string[], id: string, index: number): string[] {

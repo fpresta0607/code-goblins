@@ -17,7 +17,7 @@ func postComposerFile(board *HTTP, task, name string, body []byte) *httptest.Res
 	request := httptest.NewRequest("POST", "http://"+board.Host+"/api/composer/file?task="+task+"&name="+name, bytes.NewReader(body))
 	request.Host = board.Host
 	request.Header.Set("Origin", "http://"+board.Host)
-	request.Header.Set("X-CFO-Token", "test-instance")
+	request.Header.Set("X-CEO-Token", "test-instance")
 	request.Header.Set("Content-Type", "application/octet-stream")
 	response := httptest.NewRecorder()
 	board.ServeHTTP(response, request)
@@ -34,7 +34,7 @@ func TestAPictureOrFilePastedIntoAMessageIsKeptWhereTheSessionReadsIt(t *testing
 		{"a goblin's picture", "shot.png", onePixelPNG(t), "task-1", filepath.Join(meta.TaskTmp, composerFilesDir), ".png"},
 		{"a goblin's file", "notes.md", []byte("# notes\n"), "task-1", filepath.Join(meta.TaskTmp, composerFilesDir), ".md"},
 		{"a JSON attachment sent as binary", "notes.json", []byte(`{"value":"example"}`), "task-1", filepath.Join(meta.TaskTmp, composerFilesDir), ".json"},
-		{"the CFO's picture", "shot.png", onePixelPNG(t), "", filepath.Join(stateDir, composerFilesDir), ".png"},
+		{"the CEO's picture", "shot.png", onePixelPNG(t), "", filepath.Join(stateDir, composerFilesDir), ".png"},
 	} {
 		t.Run(c.what, func(t *testing.T) {
 			// Act

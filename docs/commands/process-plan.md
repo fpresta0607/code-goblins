@@ -1,6 +1,6 @@
-# cfo process-plan
+# goblins process-plan
 
-`cfo process-plan`
+`goblins process-plan`
 
 Say what the fleet's process sweeps would end on this machine now, and end nothing.
 It reads the machine's processes and this home's terminals, task records and monitor records, and writes nothing into the home.

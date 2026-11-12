@@ -52,7 +52,7 @@ func Move(m Machine, h home.Home, folder string, now time.Time) (string, error) 
 			return "", err
 		}
 	}
-	probe := filepath.Join(folder, home.ScratchDir, ".cfo-write-probe")
+	probe := filepath.Join(folder, home.ScratchDir, ".ceo-write-probe")
 	if err := os.WriteFile(probe, []byte("Code Goblins can write here\n"), 0o644); err != nil {
 		return "", fmt.Errorf("cannot write in %s: %w", folder, err)
 	}

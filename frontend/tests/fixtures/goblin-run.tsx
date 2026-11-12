@@ -12,7 +12,7 @@ import "../../src/styles.css";
 // command ended.
 const goblin = { id: "cg-goblins-quickstart", title: "cg-goblins-quickstart", project: "code-goblins", phase: "waiting", report: "waiting", waiting_on: "overlord", activity: "waiting on overlord: Sign in to GitHub so I can push the branch (runs sign-in.ps1)", generation: "s1", verified: false };
 const run = { id: "run-cg-goblins-quickstart-12", identity: "g".repeat(64), task: goblin.id, title: "Sign in to GitHub so I can push the branch", shell: "powershell", command: "gh auth login --web", cwd: "C:\\dev\\code-goblins\\.worktrees\\gb-cg-goblins-quickstart", state: "ready", created_at: "2026-10-02T01:20:00Z", expires_at: "2026-10-03T01:20:00Z" };
-const base = { healthy: true, instance: "fixture", cfo_runs: true, tasks: [goblin] };
+const base = { healthy: true, instance: "fixture", ceo_runs: true, tasks: [goblin] };
 const snapshots = {
   ready: parseSnapshot({ ...base, revision: 1, runs: [run] }),
   running: parseSnapshot({ ...base, revision: 2, runs: [{ ...run, state: "running", ran_at: "2026-10-02T01:21:00Z", terminal: true }] }),

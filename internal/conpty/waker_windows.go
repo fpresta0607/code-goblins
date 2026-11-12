@@ -37,7 +37,7 @@ import (
 // wakerRole, as a program's first argument, makes a program built with this
 // package the input waker of the pseudo console it was started in, instead
 // of running.
-const wakerRole = "cfo-conpty-waker"
+const wakerRole = "ceo-conpty-waker"
 
 func init() {
 	if len(os.Args) == 1 && os.Args[0] == wakerRole {

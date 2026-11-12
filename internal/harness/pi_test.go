@@ -36,7 +36,7 @@ Options:
 	}
 	assertLaunch(t, defaults, Launch{
 		Args:       []string{"--tui-mode", "fullscreen"},
-		Env:        map[string]string{"CFO_ROLE": RoleGoblin, "GOTMPDIR": `C:\gotmp\task`, "TEMP": `C:\gotmp\task`, "TMP": `C:\gotmp\.tmp`, "TMPDIR": `C:\gotmp\task`},
+		Env:        map[string]string{"GOBLINS_ROLE": RoleGoblin, "GOTMPDIR": `C:\gotmp\task`, "TEMP": `C:\gotmp\task`, "TMP": `C:\gotmp\.tmp`, "TMPDIR": `C:\gotmp\task`},
 		PromptFile: `C:\briefs\task.md`,
 		Executable: "pi",
 	})
@@ -86,10 +86,10 @@ Options:
 // The Overlord, 2026-10-17: "when you scroll on like Pi and Codex terminals,
 // it doesn't keep like the bottom banner". In its regular mode pi's footer is
 // output that scrolls away with the history; in its fullscreen mode, as
-// Claude Code's for the CFO, pi keeps its editor and footer on the bottom
+// Claude Code's for the CEO, pi keeps its editor and footer on the bottom
 // rows and scrolls its transcript above them itself. A pi whose --tui-mode
 // offers no fullscreen is given no mode, so it draws the only way it can. A
-// pi CFO's screen is read from the same help, so it starts as its goblins do.
+// pi CEO's screen is read from the same help, so it starts as its goblins do.
 func TestPiDrawsItsOwnFullScreenWhenItsHelpOffersOne(t *testing.T) {
 	cases := []struct {
 		name, help string
@@ -135,7 +135,7 @@ func TestPiDrawsItsOwnFullScreenWhenItsHelpOffersOne(t *testing.T) {
 }
 
 // A pi that does not answer its help is not started with a screen guessed
-// for it: the CFO's start reports why instead.
+// for it: the CEO's start reports why instead.
 func TestPiScreenArgsRefuseAPiThatDoesNotAnswerItsHelp(t *testing.T) {
 	// Arrange
 	runner := &fakeRunner{run: func(execx.Request) (execx.Result, error) {

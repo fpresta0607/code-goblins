@@ -16,7 +16,7 @@ import (
 // retires it, with its detail lines and every other line as it was, whatever
 // its last status was, so nothing starts it again from its row: closed as
 // done when cleanup finds it delivered and as retired when it does not. On
-// 2026-10-07 the CFO had left 24 finished rows under Queued, and on
+// 2026-10-07 the CEO had left 24 finished rows under Queued, and on
 // 2026-10-09 the cleanup of cg-afk-left-in-command-center, paused for memory
 // with its pull request merged and no done report, left its row there.
 func TestCleanupMovesARetiredTasksQueuedRowToDone(t *testing.T) {
@@ -84,7 +84,7 @@ func TestCleanupMovesARetiredTasksQueuedRowToDone(t *testing.T) {
 // A row cleanup cannot move stays where it is, the task is retired all the
 // same, and cleanup says what becomes of the row: the supervisor moves a
 // delivered task's row once it can, and the scheduler never starts any other
-// retired task's row and tells the CFO of it.
+// retired task's row and tells the CEO of it.
 func TestCleanupSaysWhatBecomesOfARowItCannotMove(t *testing.T) {
 	const backlog = "## Queued\n- **g1** - Ship it\n- **g1** - Ship it twice\n"
 	for _, testCase := range []struct {

@@ -77,13 +77,13 @@ func (s *Service) grantSavedCredentials(card CredentialRequest, saved []string) 
 	if err != nil {
 		return detail + " " + err.Error()
 	}
-	if s.Options.CFO != nil {
+	if s.Options.CEO != nil {
 		s.credentialWork.Add(1)
 		go func() {
 			defer s.credentialWork.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), credentialRefreshTimeout)
 			defer cancel()
-			if _, err := s.Options.CFO.SendGoblin(ctx, meta.ID, goblinIdentity(meta), "credentials refreshed: re-source "+item.Path); err != nil {
+			if _, err := s.Options.CEO.SendGoblin(ctx, meta.ID, goblinIdentity(meta), "credentials refreshed: re-source "+item.Path); err != nil {
 				s.credentialNotice(card, "The service was granted, but "+meta.ID+" could not be told to re-source auth.ps1.")
 			}
 		}()

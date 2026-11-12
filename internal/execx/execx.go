@@ -1,4 +1,4 @@
-// Package execx provides the small subprocess seam used by CFO integrations.
+// Package execx provides the small subprocess seam used by CEO integrations.
 package execx
 
 import (

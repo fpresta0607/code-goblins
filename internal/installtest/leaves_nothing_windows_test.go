@@ -205,11 +205,11 @@ func TestOneLineInstallNamesAFolderItCouldNotRemove(t *testing.T) {
 
 // An install that stops says the same of a folder it could not remove: its
 // one sentence on what stopped it, then the line that names the folder, then
-// its log. Here the release's cfo.exe does not match its checksum, so the
+// its log. Here the release's goblins.exe does not match its checksum, so the
 // install stops before it runs anything.
 func TestOneLineInstallThatStopsNamesAFolderItCouldNotRemove(t *testing.T) {
 	// Arrange
-	base := ServeRelease(t, standin.Bytes(t), fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256([]byte("another build"))))
+	base := ServeRelease(t, standin.Bytes(t), fmt.Sprintf("%x  goblins.exe\n", sha256.Sum256([]byte("another build"))))
 	cmd, _, temp := StrippedCommand(t, base, map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n"}, WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
 		"Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression; exit $LASTEXITCODE")
 	scan := newScanner("SHA256SUMS", "")
@@ -227,7 +227,7 @@ func TestOneLineInstallThatStopsNamesAFolderItCouldNotRemove(t *testing.T) {
 	if err == nil {
 		t.Errorf("the install exited 0, want it to stop on the checksum:\n%s", said)
 	}
-	stopped := strings.Index(said, "Failed: The downloaded cfo.exe does not match the release's checksum")
+	stopped := strings.Index(said, "Failed: The downloaded goblins.exe does not match the release's checksum")
 	named := couldNotRemove.FindStringSubmatchIndex(said)
 	log := strings.Index(said, "The full log is ")
 	if stopped < 0 || named == nil || log < 0 || stopped > named[0] || named[0] > log {

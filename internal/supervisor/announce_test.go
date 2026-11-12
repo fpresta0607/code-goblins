@@ -80,7 +80,7 @@ func TestTheAnnounceEndpointHandsEachKeyToOneRequest(t *testing.T) {
 		request := httptest.NewRequest("POST", "http://board.local/api/announce", strings.NewReader(body))
 		request.Header.Set("Origin", "http://board.local")
 		request.Header.Set("Content-Type", "application/json")
-		request.Header.Set("X-CFO-Token", "test-instance")
+		request.Header.Set("X-CEO-Token", "test-instance")
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		var result struct {

@@ -12,7 +12,7 @@ import (
 func TestReorderQueuedWritesTheOrderIntoTheQueuedSection(t *testing.T) {
 	const before = "# Backlog\n\n" +
 		"## Queued\n\n" +
-		"Priority note the CFO wrote.\n" +
+		"Priority note the CEO wrote.\n" +
 		"- 2026-09-26: a dated note\n\n" +
 		"- **alpha** - First task (repo: code-goblins)\n" +
 		"  detail: alpha's detail\n" +
@@ -36,7 +36,7 @@ func TestReorderQueuedWritesTheOrderIntoTheQueuedSection(t *testing.T) {
 			order: []string{"gamma", "alpha", "beta"},
 			want: "# Backlog\n\n" +
 				"## Queued\n\n" +
-				"Priority note the CFO wrote.\n" +
+				"Priority note the CEO wrote.\n" +
 				"- 2026-09-26: a dated note\n\n" +
 				"- [ ] gamma - Third task (repo: PrecisionDocs-AI)\n" +
 				"  detail: gamma's detail\n" +
@@ -56,7 +56,7 @@ func TestReorderQueuedWritesTheOrderIntoTheQueuedSection(t *testing.T) {
 			added: map[string]string{"brief-only": "- **brief-only** - brief-only (repo: code-goblins)"},
 			want: "# Backlog\n\n" +
 				"## Queued\n\n" +
-				"Priority note the CFO wrote.\n" +
+				"Priority note the CEO wrote.\n" +
 				"- 2026-09-26: a dated note\n\n" +
 				"- **beta** - Second task blocked-by: alpha (repo: code-goblins)\n" +
 				"- **brief-only** - brief-only (repo: code-goblins)\n" +

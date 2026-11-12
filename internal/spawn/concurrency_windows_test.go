@@ -343,7 +343,7 @@ func TestARelaunchTheMachineHasNoRoomForStartsNothing(t *testing.T) {
 
 // The adversary a relaunch's check under its turn answers: a start that
 // published the task's record and holds the turn until its terminal runs.
-// A relaunch that waited for that turn, as cfo goblins resume does for
+// A relaunch that waited for that turn, as goblins goblins resume does for
 // every recorded task whose terminal is not running, must leave the
 // terminal the start launched alone.
 func TestARelaunchThatWaitedForItsTurnLeavesATerminalAnotherStartLaunched(t *testing.T) {

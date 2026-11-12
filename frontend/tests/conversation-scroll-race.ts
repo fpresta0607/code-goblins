@@ -101,7 +101,7 @@ const watched = (page: Page) => page.evaluate(() => (window as unknown as Watche
 // the rows in view lie, and each scroll position the page writes to the
 // list is noted, apart from the reader's own: how far it moved the list and
 // how long after the list last scrolled. With isStreaming false no reply is
-// in progress until start begins it, and owner CFO opens the CFO's messages.
+// in progress until start begins it, and owner CEO opens the CEO's messages.
 async function streamingTalk(page: Page, { isStreaming = true, owner = "goblin" }: { isStreaming?: boolean; owner?: "CEO" | "goblin" } = {}) {
   await page.addInitScript(() => {
     const frames: Frame[] = [], writes: Written[] = [], rowsDrawn: number[] = [];
@@ -524,7 +524,7 @@ export async function readOlderPastLostRelease(page: Page, loss: "right button" 
   await expect(talk.locator('[data-message="m149"]')).toBeAttached();
 }
 
-// phoneTalk opens the CFO's long history at its end, as the Overlord reads it
+// phoneTalk opens the CEO's long history at its end, as the Overlord reads it
 // on his phone, with no reply in progress or with one streaming through the
 // board's message path. That reply streams on from a box that already shows
 // what the session spent, as a reply's first line that brings its usage

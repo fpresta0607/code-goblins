@@ -22,8 +22,8 @@ export const ORIGIN = "http://127.0.0.1:1";
 // chose, where the test saved none of its own, unless chatStyle is null.
 export async function servePages(context: BrowserContext, origin = ORIGIN, hadTour = true, chatStyle: string | null = "modern"): Promise<void> {
   const site = process.env.BOARD_TEST_SITE!;
-  if (hadTour) await context.addInitScript(() => localStorage.setItem("cfo-tour", "seen"));
-  if (chatStyle) await context.addInitScript((style) => { if (location.protocol.startsWith("http") && localStorage.getItem("cfo-chat-style") === null) localStorage.setItem("cfo-chat-style", style); }, chatStyle);
+  if (hadTour) await context.addInitScript(() => localStorage.setItem("ceo-tour", "seen"));
+  if (chatStyle) await context.addInitScript((style) => { if (location.protocol.startsWith("http") && localStorage.getItem("ceo-chat-style") === null) localStorage.setItem("ceo-chat-style", style); }, chatStyle);
   // Chromium fetches an audio worklet's module past these routes, so the
   // capture worklet dictation records through, which the board serves from
   // its own address, is handed to the page from the build as a blob.
@@ -63,7 +63,7 @@ export async function holdStream(page: Page, snapshot: unknown): Promise<void> {
   }, JSON.stringify(snapshot));
 }
 
-// openBoardPastFirstRun opens the board of a home whose CFO never ran, which
+// openBoardPastFirstRun opens the board of a home whose CEO never ran, which
 // shows its first-run page once its first snapshot arrives, and goes on to the
 // board with Board, as the Overlord does. A click before that snapshot only
 // picks the view already shown, and the first-run page then takes the board's
@@ -148,9 +148,9 @@ export async function roomForATest({ free, limit, pause, ci }: Room = MACHINE): 
 // opens another context serves that one itself. Modern Chat's specs predate
 // Classic as the board's default, so a test's browser chose Modern unless it
 // says otherwise.
-// The board's button to the CFO, named for what it opens in the saved chat
+// The board's button to the CEO, named for what it opens in the saved chat
 // style.
-export const CFO_DOOR = /^Open the CEO's (chat|terminal)$/;
+export const CEO_DOOR = /^Open the CEO's (chat|terminal)$/;
 
 export const test = base.extend<{ room: Room; paced: void; hadTour: boolean; chatStyle: string | null; isSteppedIn: boolean }>({
   room: [MACHINE, { option: true }],

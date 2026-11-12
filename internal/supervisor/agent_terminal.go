@@ -141,39 +141,39 @@ type messagesSession struct {
 }
 
 // messagesLocator finds the session a request for messages names, a task's
-// goblin of the generation it names or the CFO in the terminal it names,
+// goblin of the generation it names or the CEO in the terminal it names,
 // while that session runs in a native terminal: no path while its harness has
 // written none, and messagesRefused once the session no longer runs or is one
 // the board does not read. A goblin's locating reads no process and parses no
 // store file, since a view's stream asks again as often as a terminal view's
-// binding is checked; the CFO's proves the live conversation its harness is
+// binding is checked; the CEO's proves the live conversation its harness is
 // in, which it records when the record named another, so a stale record is
 // reported rather than rendered as current.
 func (h *HTTP) messagesLocator(ctx context.Context, query url.Values) (func() (messagesSession, error), error) {
 	stateDir, home := h.Service.Store.Home.State, h.Service.Options.Tree.Home
-	if want := query.Get("cfo"); want != "" {
+	if want := query.Get("ceo"); want != "" {
 		return func() (messagesSession, error) {
-			cfo := readCFOState(stateDir)
+			ceo := readCEOState(stateDir)
 			switch {
-			case cfo.terminal == "":
-				return messagesSession{}, messagesRefused{404, "No CFO is running in a native terminal."}
-			case cfo.terminal != want:
-				return messagesSession{}, messagesRefused{409, "The CFO runs in another terminal now. Open the CFO again."}
-			case cfo.harness != "" && !messagesHarness(cfo.harness):
+			case ceo.terminal == "":
+				return messagesSession{}, messagesRefused{404, "No CEO is running in a native terminal."}
+			case ceo.terminal != want:
+				return messagesSession{}, messagesRefused{409, "The CEO runs in another terminal now. Open the CEO again."}
+			case ceo.harness != "" && !messagesHarness(ceo.harness):
 				return messagesSession{}, noMessages
 			}
-			// A CFO still starting has registered no session yet.
-			harness := cfo.harness
+			// A CEO still starting has registered no session yet.
+			harness := ceo.harness
 			if harness == "" {
 				harness = "claude"
 			}
 			// The conversation its harness is in now, which the record is
 			// brought up to date with, so a session that moved without
 			// registering again is never read from the one it left (#2172).
-			session, stale := h.cfoConversation(ctx, cfo)
-			// The CFO is started in the fleet's home, so its conversation is one
+			session, stale := h.ceoConversation(ctx, ceo)
+			// The CEO is started in the fleet's home, so its conversation is one
 			// that home's folder holds, and another folder's is never read as
-			// the CFO's.
+			// the CEO's.
 			path := ""
 			if fleettree.HoldsTranscript(home, harness, h.Service.Store.Home.Root, session) {
 				path = fleettree.HeldTranscript(home, harness, h.Service.Store.Home.Root, session)
@@ -187,7 +187,7 @@ func (h *HTTP) messagesLocator(ctx context.Context, query url.Values) (func() (m
 	}
 	task, generation := query.Get("task"), query.Get("generation")
 	if state.ValidTaskID(task) != nil || generation == "" {
-		return nil, messagesRefused{400, "Select a task's current session or the CFO."}
+		return nil, messagesRefused{400, "Select a task's current session or the CEO."}
 	}
 	return func() (messagesSession, error) {
 		meta, err := state.ReadTaskMeta(stateDir, task)

@@ -1,6 +1,6 @@
 /* One bordered box, shared by both chat views: what he writes on top and its
    controls in one row along its bottom edge, inside the border, as the
-   Claude desktop app draws its box (the CFO's review of step 3, 2026-10-27). */
+   Claude desktop app draws its box (the CEO's review of step 3, 2026-10-27). */
 .composer { position: relative; display: grid; align-content: start; gap: 8px; padding: 10px 14px 12px; }
 .composer-slot { display: contents; }
 .deck-slot.with-messages { flex-direction: column; }

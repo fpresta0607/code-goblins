@@ -1,6 +1,6 @@
 // Package standin is test support for a test that runs programs it wrote to
 // a temp folder: the copies of its own test binary this repository's tests
-// stand in for cfo, git, a harness and the rest.
+// stand in for ceo, git, a harness and the rest.
 package standin
 
 import (

@@ -1,4 +1,4 @@
-import { CFO_DOOR, expect, holdStream, test, type Page } from "./site";
+import { CEO_DOOR, expect, holdStream, test, type Page } from "./site";
 import { RUNS } from "./terminal-runs";
 
 // The Overlord, 2026-10-20 about 12:20Z, on the board on his phone: "when I
@@ -17,12 +17,12 @@ import { RUNS } from "./terminal-runs";
 test.use({ launchOptions: { args: ["--disable-webgl"] } });
 
 const SESSION = "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34";
-// Kip runs the harness of the run (tests/terminal-runs.ts), the CFO Claude Code.
+// Kip runs the harness of the run (tests/terminal-runs.ts), the CEO Claude Code.
 const snapshot = (harness: string) => ({
-  healthy: true, instance: "fixture", revision: 1, attention: [], cfo_runs: true, cfo_harness: "claude", cfo_terminal: "cfo-1", afk: { state: "off" },
+  healthy: true, instance: "fixture", revision: 1, attention: [], ceo_runs: true, ceo_harness: "claude", ceo_terminal: "ceo-1", afk: { state: "off" },
   tasks: [{ id: "nw-invoice-export", title: "Export invoices as CSV", project: "northwind-api", goblin_name: "Kip", goblin_title: "Ledger Scout", phase: "working", verified: false, generation: "nw-invoice-export-1", harness, model: "claude-opus-5-5", effort: "xhigh", backend: "native", session: SESSION }],
   sessions: [
-    { id: "cfo-1", role: "cfo", harness: "claude", host_id: "cfo-1", phase: "working" },
+    { id: "ceo-1", role: "ceo", harness: "claude", host_id: "ceo-1", phase: "working" },
     { id: SESSION, native_id: "9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", host_id: "nw-invoice-export", role: "goblin", task_id: "nw-invoice-export", generation: "nw-invoice-export-1", harness, phase: "working" },
   ],
 });
@@ -54,7 +54,7 @@ interface Relay { resizes: { cols: number; rows: number }[]; say: (message: obje
 // hold keeps every connection connecting: the relay claims no size and sends
 // no screen, which is the state he types into while a terminal connects.
 async function open(page: Page, run: typeof RUNS[number], { hold = false } = {}): Promise<Relay> {
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "classic"));
   await page.addInitScript(() => {
     const real = window.visualViewport!;
     let keyboard = 0, top = 0;
@@ -217,23 +217,23 @@ test("a connecting terminal's loader sits outside its box and covers no part of 
   expect(line.height).toBeLessThan(surface.height);
 });
 
-// A window on the PC means little on a phone, so there the CFO's terminal,
+// A window on the PC means little on a phone, so there the CEO's terminal,
 // drawn in Classic with no box under it, has no Open in terminal; the desktop
 // keeps it. A phone never shows it, box or no box (#2222,
 // tests/panel-header-wrap.spec.ts). The
 // board is stacked there, so the panel takes half the window and its row
 // holds every control.
 for (const [size, viewport, isShown] of [["a phone", { width: 390, height: 844 }, false], ["the desktop", { width: 1440, height: 900 }, true]] as const) {
-  test(`on ${size} the CFO's terminal ${isShown ? "keeps" : "has no"} Open in terminal`, async ({ page }) => {
+  test(`on ${size} the CEO's terminal ${isShown ? "keeps" : "has no"} Open in terminal`, async ({ page }) => {
     // Arrange
     await page.setViewportSize(viewport);
-    await page.addInitScript(() => localStorage.setItem("cfo-board-layout", "stacked"));
+    await page.addInitScript(() => localStorage.setItem("ceo-board-layout", "stacked"));
     await open(page, RUNS[0]);
 
     // Act
-    await page.getByRole("button", { name: CFO_DOOR }).first().click();
+    await page.getByRole("button", { name: CEO_DOOR }).first().click();
 
-    // Assert: its Terminal view, which shows a Claude Code CFO's messages.
+    // Assert: its Terminal view, which shows a Claude Code CEO's messages.
     await expect(page.locator("#panel-title")).toHaveText("CEO");
     await expect(page.getByRole("button", { name: "Open in Windows Terminal", exact: true })).toHaveCount(isShown ? 1 : 0);
   });

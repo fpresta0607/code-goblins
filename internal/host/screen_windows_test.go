@@ -388,7 +388,7 @@ func TestAScreenReadNothingAnswersIsAnErrorAtOnce(t *testing.T) {
 // A screen read of a terminal whose host does not answer is an error naming
 // the terminal.
 func TestAScreenReadOfAHostThatDoesNotAnswerIsAnError(t *testing.T) {
-	record := Record{ID: "g9", Pipe: fmt.Sprintf(`\\.\pipe\cfo-host-screen-test-%d`, time.Now().UnixNano()), Token: "token", Version: Version, HostPID: os.Getpid()}
+	record := Record{ID: "g9", Pipe: fmt.Sprintf(`\\.\pipe\ceo-host-screen-test-%d`, time.Now().UnixNano()), Token: "token", Version: Version, HostPID: os.Getpid()}
 
 	rows, err := ReadScreen(record)
 

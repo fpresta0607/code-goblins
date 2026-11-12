@@ -21,7 +21,7 @@ func TestDeployHoldRepeatsAfterHalfHour(t *testing.T) {
 	// Arrange
 	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 	var notices []string
-	engine := Engine{StateDir: t.TempDir(), Now: func() time.Time { return now }, TellCFO: func(_ context.Context, _ string, text string) error {
+	engine := Engine{StateDir: t.TempDir(), Now: func() time.Time { return now }, TellCEO: func(_ context.Context, _ string, text string) error {
 		notices = append(notices, text)
 		return nil
 	}}
@@ -48,7 +48,7 @@ func TestDeployHoldChangeWakesImmediately(t *testing.T) {
 	// Arrange
 	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 	var notices []string
-	engine := Engine{StateDir: t.TempDir(), Now: func() time.Time { return now }, TellCFO: func(_ context.Context, _ string, text string) error {
+	engine := Engine{StateDir: t.TempDir(), Now: func() time.Time { return now }, TellCEO: func(_ context.Context, _ string, text string) error {
 		notices = append(notices, text)
 		return nil
 	}}
@@ -99,14 +99,14 @@ func TestDeployHoldEndsWhenTheTrainResumesTestingOrCloses(t *testing.T) {
 
 			// Act
 			resumed := s.step(engine, started.ID)
-			notices := len(s.cfo)
+			notices := len(s.ceo)
 			s.now = s.now.Add(31 * time.Minute)
 			gh.pending = 1
 			s.step(engine, started.ID)
 
 			// Assert
-			if resumed.DeployHold != nil || strings.Contains(resumed.Note, "Deploy site") || len(s.cfo) != notices {
-				t.Fatalf("train %+v, CFO told %q: want the old hold and its reminders ended", resumed, s.cfo)
+			if resumed.DeployHold != nil || strings.Contains(resumed.Note, "Deploy site") || len(s.ceo) != notices {
+				t.Fatalf("train %+v, CEO told %q: want the old hold and its reminders ended", resumed, s.ceo)
 			}
 			if ending == "CI runs again" && (resumed.IsFinished() || resumed.History[0].MergeHold == "") {
 				t.Fatalf("train %+v: want the earlier green proof retained while its checks change", resumed)
@@ -157,8 +157,8 @@ func TestDeployHoldPersistsAndRemindsUntilItEnds(t *testing.T) {
 			}
 			s.now = s.now.Add(30*time.Minute - time.Second)
 			unchanged := s.step(s.engine(gh), started.ID)
-			if len(s.cfo) != 2 || !unchanged.Updated.Equal(held.Updated) {
-				t.Fatalf("CFO told %q, updated %s: want no idle wake or record write", s.cfo, unchanged.Updated)
+			if len(s.ceo) != 2 || !unchanged.Updated.Equal(held.Updated) {
+				t.Fatalf("CEO told %q, updated %s: want no idle wake or record write", s.ceo, unchanged.Updated)
 			}
 
 			// Act: a new engine reads the persisted reminder time at its boundary.
@@ -166,8 +166,8 @@ func TestDeployHoldPersistsAndRemindsUntilItEnds(t *testing.T) {
 			s.step(s.engine(gh), started.ID)
 
 			// Assert
-			if len(s.cfo) != 3 || s.cfo[2] != s.cfo[1] || !strings.Contains(s.cfo[2], "finished successfully") || !strings.Contains(s.cfo[2], "#11") {
-				t.Fatalf("CFO told %q: want the hold and what clears it repeated after 30 minutes", s.cfo)
+			if len(s.ceo) != 3 || s.ceo[2] != s.ceo[1] || !strings.Contains(s.ceo[2], "finished successfully") || !strings.Contains(s.ceo[2], "#11") {
+				t.Fatalf("CEO told %q: want the hold and what clears it repeated after 30 minutes", s.ceo)
 			}
 			if len(gh.mergeCalls()) != 0 || len(gh.rerunCalls()) != 0 {
 				t.Fatalf("merges %v, reruns %v: want no merge or production rerun", gh.mergeCalls(), gh.rerunCalls())
@@ -176,7 +176,7 @@ func TestDeployHoldPersistsAndRemindsUntilItEnds(t *testing.T) {
 			// Act: a successful deploy clears the hold and the train lands.
 			gh.mainRuns = "[" + pushRun(31, "Deploy site", started.BaseSHA, "completed", "success") + "]"
 			landed := s.step(engine, started.ID)
-			notices := len(s.cfo)
+			notices := len(s.ceo)
 			s.now = s.now.Add(time.Hour)
 			s.step(s.engine(gh), started.ID)
 			encoded, err = json.Marshal(landed)
@@ -185,8 +185,8 @@ func TestDeployHoldPersistsAndRemindsUntilItEnds(t *testing.T) {
 			}
 
 			// Assert
-			if landed.State != StateLanded || strings.Contains(string(encoded), "deploy_hold") || len(s.cfo) != notices {
-				t.Fatalf("train %s, CFO told %q: want the hold cleared and its reminders ended", encoded, s.cfo)
+			if landed.State != StateLanded || strings.Contains(string(encoded), "deploy_hold") || len(s.ceo) != notices {
+				t.Fatalf("train %s, CEO told %q: want the hold cleared and its reminders ended", encoded, s.ceo)
 			}
 		})
 	}
@@ -254,8 +254,8 @@ func TestATrainWaitsForMainsRunningDeployAndMergesOnceItPassed(t *testing.T) {
 		t.Fatalf("train = %s, then %s, merges %v: want it waiting, nothing merged, while main deploys", waiting.State, stillWaiting.State, gh.mergeCalls())
 	}
 	says := "waits to merge until main's Deploy run at " + started.BaseSHA[:7] + " has finished successfully (https://github.com/o/r/actions/runs/31)"
-	if stillWaiting.Note != says || len(s.cfo) != 2 || s.cfo[1] != "merge_train: o/r train "+started.ID+" "+says+"; held pull requests: #11" {
-		t.Fatalf("note %q, CFO told %q: want the deploy it waits on said once", stillWaiting.Note, s.cfo)
+	if stillWaiting.Note != says || len(s.ceo) != 2 || s.ceo[1] != "merge_train: o/r train "+started.ID+" "+says+"; held pull requests: #11" {
+		t.Fatalf("note %q, CEO told %q: want the deploy it waits on said once", stillWaiting.Note, s.ceo)
 	}
 	if path, query := gh.read("/actions/runs"); path != "repos/o/r/actions/runs" || query.Get("branch") != "main" || query.Get("event") != "push" {
 		t.Fatalf("read %s?%s, want main's push runs read", path, query.Encode())
@@ -279,7 +279,7 @@ func TestATrainMergesOnlyWhileEveryDeployOnMainHasFinishedSuccessfully(t *testin
 		// the train was built on.
 		isOwnRun bool
 		runs     []string
-		// says is the train's note and what the CFO hears while it holds its
+		// says is the train's note and what the CEO hears while it holds its
 		// merge, and "" for a train that lands.
 		says string
 	}{
@@ -349,8 +349,8 @@ func TestATrainMergesOnlyWhileEveryDeployOnMainHasFinishedSuccessfully(t *testin
 			if stepped.State != StateTesting || len(gh.mergeCalls()) != 0 || len(gh.merged) != 0 {
 				t.Fatalf("train = %s, merges %v: want its merge held", stepped.State, gh.mergeCalls())
 			}
-			if stepped.Note != says || len(s.cfo) != 2 || s.cfo[1] != "merge_train: o/r train "+started.ID+" "+says+"; held pull requests: #11" {
-				t.Fatalf("note %q, CFO told %q: want %q said", stepped.Note, s.cfo, says)
+			if stepped.Note != says || len(s.ceo) != 2 || s.ceo[1] != "merge_train: o/r train "+started.ID+" "+says+"; held pull requests: #11" {
+				t.Fatalf("note %q, CEO told %q: want %q said", stepped.Note, s.ceo, says)
 			}
 		})
 	}
