@@ -49,20 +49,34 @@ function expectOneGroup(seen: Rows, name: string, isCentred: boolean) {
 
 const measureAll = async (cards: Locator, shape: typeof GOBLIN) => Promise.all((await cards.all()).map((card) => card.evaluate(measure, shape)));
 
-// What a card's marks take: the lines its people stand on, each mark its
-// border leaves outside it, the card and the line under it where they leave
-// the room their place gives them, and whether the card holds more than it
-// shows.
-function marksOf(card: Element): { lines: number; spills: string[]; isScrolling: boolean } {
+// What a card's marks take: the lines they stand on, whether the first of
+// them starts under the clock, each mark drawn over the clock and by how
+// much, each mark its border leaves outside it, the card and the line under
+// it where they leave the room their place gives them, and whether the card
+// holds more than it shows. A mark is counted alone, the people in the same
+// area one by one: a mark no line can break is drawn past the edge of the
+// room the marks share, which that room's own box does not show.
+function marksOf(card: Element): { lines: number; isUnderClock: boolean; overClock: string[]; spills: string[]; isScrolling: boolean } {
   const frame = card.querySelector<HTMLElement>(".task-card-shell")!;
+  const named = (part: Element) => part.getAttribute("class") || part.tagName;
   const outside = (parts: Element[], within: Element) => {
     const outer = within.getBoundingClientRect();
-    return parts.filter((part) => { const box = part.getBoundingClientRect(); return box.left < outer.left - 1 || box.right > outer.right + 1 || box.top < outer.top - 1 || box.bottom > outer.bottom + 1; })
-      .map((part) => part.getAttribute("class") || part.tagName);
+    return parts.filter((part) => { const box = part.getBoundingClientRect(); return box.left < outer.left - 1 || box.right > outer.right + 1 || box.top < outer.top - 1 || box.bottom > outer.bottom + 1; }).map(named);
   };
   const people = [...card.querySelectorAll(".same-area-avatars > *")];
+  const marks = [...card.querySelectorAll(".card-icons > :not(.same-area-avatars)"), ...people];
+  const boxes = marks.map((mark) => mark.getBoundingClientRect()).sort((one, other) => one.top - other.top);
+  // Marks on one line share its height, so a line starts where a mark's top
+  // is at or under every mark above it.
+  let lines = 0, floor = -Infinity;
+  for (const box of boxes) { if (box.top >= floor) lines++; floor = Math.max(floor, box.bottom); }
+  const clock = card.querySelector(".card-clock")!.getBoundingClientRect();
   return {
-    lines: new Set(people.map((person) => Math.round(person.getBoundingClientRect().top))).size,
+    lines, isUnderClock: boxes[0].top >= clock.bottom,
+    overClock: marks.flatMap((mark) => {
+      const box = mark.getBoundingClientRect(), over = Math.min(box.right, clock.right) - Math.max(box.left, clock.left);
+      return over > 0 && box.top < clock.bottom && clock.top < box.bottom ? [named(mark) + " by " + Math.round(over) + "px"] : [];
+    }),
     spills: [...outside([...card.querySelectorAll(".card-icons > *"), ...people], frame), ...outside([frame, ...card.querySelectorAll(".flow-session-details")], card)],
     isScrolling: frame.scrollHeight > frame.clientHeight + 1 || frame.scrollWidth > frame.clientWidth + 1,
   };
@@ -81,8 +95,9 @@ function linesOf(card: Element, selector: string): { needs: number; shows: numbe
   return { needs, shows: Math.round(part.offsetHeight / line) };
 }
 
-async function open(page: Page, view = "canvas", hasEveryMark = false) {
-  await page.goto("/tests/fixtures/orchestration-card-text.html?view=" + view + (hasEveryMark ? "&marks" : ""));
+// variants names what the fixture adds to Bartholomew, such as "&marks".
+async function open(page: Page, view = "canvas", variants = "") {
+  await page.goto("/tests/fixtures/orchestration-card-text.html?view=" + view + variants);
   await expect(page.locator(view === "canvas" ? ".flow-node" : ".workflow-node").first()).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
   // The pointer rests on empty canvas, where no card lifts under it.
@@ -127,28 +142,76 @@ test("a goblin's card on the phone's list holds its rows as one group", async ({
   goblins.forEach((seen, i) => expectOneGroup(seen, "goblin card " + (i + 1), false));
 });
 
+const EVERY_MARK = [[".card-ticket", 1], [".card-pr", 1], [".same-area-person", 3], [".same-area-more", 1], [".card-harness", 1]] as const;
+const bartholomew = (page: Page, view: string) => page.locator(view === "canvas" ? ".flow-node.has-task" : ".workflow-node.has-task").filter({ has: page.locator(".card-title", { hasText: "Bartholomew" }) });
+
 // A goblin with every mark a card wears, a ticket, a pull request, four
 // people in the same area and its harness mark, has more marks than fit
-// beside a clock as long as 2h 15m, so its people take a second line and the
-// row grows. The clock stays right under the project at the text's edge,
-// never in the middle of the taller row, and the card still holds it all.
+// beside a clock as long as 2h 15m, so they take a second line and the row
+// grows. The clock stays right under the project at the text's edge, never
+// in the middle of the taller row, and the card still holds it all.
 for (const { view, width, height } of [{ view: "canvas", width: 1440, height: 900 }, { view: "lineage", width: 390, height: 844 }]) {
   test(`a goblin's clock stays right under its project when its marks take a second line, on the ${view}`, async ({ page }) => {
     // Arrange
     await page.setViewportSize({ width, height });
-    await open(page, view, true);
-    const card = page.locator(view === "canvas" ? ".flow-node.has-task" : ".workflow-node.has-task").filter({ has: page.locator(".card-title", { hasText: "Bartholomew" }) });
+    await open(page, view, "&marks");
+    const card = bartholomew(page, view);
     await expect(card.locator(".card-clock")).toContainText("2h 15m");
-    for (const [mark, count] of [[".card-ticket", 1], [".card-pr", 1], [".same-area-person", 3], [".same-area-more", 1], [".card-harness", 1]] as const) await expect(card.locator(mark), mark).toHaveCount(count);
+    for (const [mark, count] of EVERY_MARK) await expect(card.locator(mark), mark).toHaveCount(count);
 
     // Act
     const seen = await card.evaluate(measure, GOBLIN);
     const marks = await card.evaluate(marksOf);
 
     // Assert: the marks need a second line, the case this test is for.
-    expect(marks.lines, "the lines the people in the same area stand on").toBeGreaterThan(1);
+    expect(marks.lines, "the lines the marks stand on").toBeGreaterThan(1);
+    expect(marks.isUnderClock, "the marks start under the clock").toBe(false);
     expectOneGroup(seen, "the card with every mark", view === "canvas");
+    expect(marks.overClock, "marks drawn over the clock").toEqual([]);
     expect(marks.spills, "marks outside the card, or the card outside its place").toEqual([]);
+    expect(marks.isScrolling, "the card holds more than it shows").toBe(false);
+  });
+}
+
+// A card of the phone's list is as wide as the phone leaves it, and a card
+// under another is narrower still. Browser active is one mark no line can
+// break, so beside a clock that starts at the text's edge a narrow card had
+// less room for it than it is wide, and it was drawn over the clock. A card
+// no wider than NARROW gives its marks the row under its clock. One a pixel
+// wider keeps them beside it, with room even for the longest clock a goblin
+// in progress has, "just started". A phone 320px wide leaves his card 246px
+// and one 390px wide leaves it 316px.
+const NARROW = 308;
+for (const { wide, clock, isUnderClock } of [
+  { wide: 246, clock: "2h 15m", isUnderClock: true },
+  { wide: 246, clock: "just started", isUnderClock: true },
+  { wide: NARROW, clock: "just started", isUnderClock: true },
+  { wide: NARROW + 1, clock: "just started", isUnderClock: false },
+  { wide: 316, clock: "2h 15m", isUnderClock: false },
+  { wide: 316, clock: "just started", isUnderClock: false },
+]) {
+  test(`no mark covers the clock of a list card ${wide}px wide that says ${clock}`, async ({ page }) => {
+    // Arrange: a phone as wide as leaves his card the width of this case.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page, "lineage", "&marks&browser" + (clock === "just started" ? "&fresh" : ""));
+    const card = bartholomew(page, "lineage");
+    const around = 390 - await card.evaluate((node: HTMLElement) => node.offsetWidth);
+    await page.setViewportSize({ width: wide + around, height: 844 });
+    await expect(card.locator(".card-clock")).toContainText(clock);
+    await expect(card.locator(".card-icons .screen-open")).toHaveText("Browser active");
+    for (const [mark, count] of EVERY_MARK) await expect(card.locator(mark), mark).toHaveCount(count);
+
+    // Act
+    const width = await card.evaluate((node: HTMLElement) => node.offsetWidth);
+    const seen = await card.evaluate(measure, GOBLIN);
+    const marks = await card.evaluate(marksOf);
+
+    // Assert: the card is as wide as this case says.
+    expect(width, "the card's width").toBe(wide);
+    expect(marks.overClock, "marks drawn over the clock").toEqual([]);
+    expect(marks.isUnderClock, "the marks start under the clock").toBe(isUnderClock);
+    expectOneGroup(seen, "the card with every mark", false);
+    expect(marks.spills, "marks outside the card").toEqual([]);
     expect(marks.isScrolling, "the card holds more than it shows").toBe(false);
   });
 }
