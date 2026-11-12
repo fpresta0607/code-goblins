@@ -266,7 +266,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     // until it does. Nothing infers that the conversation is stale from how
     // long the stream was quiet: the stream says itself what the session's
     // turn is and where its head is, and a view that has drawn less than the
-    // head says it is behind.
+    // head is behind.
     const close = (why: string) => {
       stream.close();
       setReconnecting(false);
