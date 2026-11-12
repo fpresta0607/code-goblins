@@ -12,7 +12,7 @@ import (
 // Disk is the free space of the drive the home is on, or of the Dev Drive its
 // heavy folders moved to when that has less, beside the fleet's disk floor,
 // under which no goblin and no gate test run starts, and the lower mark at
-// which the CFO is woken. Every start, wake and AFK decision reads that one
+// which the CEO is woken. Every start, wake and AFK decision reads that one
 // reading. Drives are what the board's disk meter shows beside the memory
 // meter: one line for each drive the fleet writes to, the home's, the Dev
 // Drive's and the gate home's, so the Overlord sees the drive the work is on.
@@ -63,7 +63,7 @@ func (d Disk) Shortfall() string {
 
 // diskRefusal is the whole refusal a start under the floor gets.
 func diskRefusal(short string) string {
-	return short + "; a start needs the floor free: the janitor's sweep removes what the fleet left behind, and cfo runtime shows what holds the rest"
+	return short + "; a start needs the floor free: the janitor's sweep removes what the fleet left behind, and goblins runtime shows what holds the rest"
 }
 
 // machineDisk reads the disk through the dispatch's seam when it has one.

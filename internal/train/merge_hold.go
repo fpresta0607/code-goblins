@@ -49,7 +49,7 @@ func (e Engine) holdMerge(ctx context.Context, t *Train, reason, readiness strin
 }
 
 func (e Engine) notifyMergeHold(ctx context.Context, t *Train) error {
-	if e.TellCFO == nil {
+	if e.TellCEO == nil {
 		return nil
 	}
 	for i := range t.History {
@@ -58,7 +58,7 @@ func (e Engine) notifyMergeHold(ctx context.Context, t *Train) error {
 			continue
 		}
 		identity := fmt.Sprintf("train-merge-hold:%s:%d", t.ID, run.Number)
-		if err := e.TellCFO(ctx, identity, fmt.Sprintf("merge_train: %s train %s holds its merge: %s; keeps the green proof on %s at %s, built on %s at %s", t.Repository, t.ID, run.MergeHold, run.PR, short(run.Head), t.Base, short(run.Base))); err != nil {
+		if err := e.TellCEO(ctx, identity, fmt.Sprintf("merge_train: %s train %s holds its merge: %s; keeps the green proof on %s at %s, built on %s at %s", t.Repository, t.ID, run.MergeHold, run.PR, short(run.Head), t.Base, short(run.Base))); err != nil {
 			return err
 		}
 		run.IsMergeNotified = true

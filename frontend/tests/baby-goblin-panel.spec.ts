@@ -1,4 +1,4 @@
-import { expect, holdStream, openTaskList, test, type Page } from "./site";
+import { expect, holdStream, openTaskList, openTerminalAddress, test, type Page } from "./site";
 import { treeFleet } from "./fixtures/tree-branches-fleet";
 import { parseSnapshot } from "../src/types"
 
@@ -33,7 +33,7 @@ const OUTPUTS: Record<string, string[]> = {
 
 async function open(page: Page, width = 1600, height = 1000) {
   await page.setViewportSize({ width, height });
-  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
   // No WebGL, so xterm draws with its DOM renderer on every machine, the cells
   // it draws readable with their colours, as a browser without a GPU draws them.
   await page.addInitScript(() => {
@@ -170,6 +170,28 @@ for (const [name, output] of [["transcript", { entries: [] }], ["output", { line
     await expect(terminal).not.toContainText("No output yet");
   });
 }
+
+// Web addresses on the board open (#2360): one a baby goblin's terminal
+// draws is a link a click opens in a tab of its own.
+test("an address a baby goblin's terminal draws opens in a tab of its own", async ({ page, context }) => {
+  // Arrange
+  const address = "https://github.com/example/board/pull/412";
+  await context.route(/^https:\/\/github\.com\//, (route) => route.fulfill({ contentType: "text/plain", body: "fixture page" }));
+  await open(page);
+  await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+  await baby(page, "Grub III - Test Runner").click();
+  const terminal = page.getByRole("log", { name: "Terminal of Grub III - Test Runner" });
+  await expect(terminal).toContainText(OUTPUTS["subagent:tests"].at(-1)!);
+  await page.evaluate((detail) => window.dispatchEvent(new CustomEvent("child-output", { detail })), { node: "subagent:tests", output: { lines: ["The affected tests pass, see " + address] } });
+  const rows = terminal.locator(".xterm-rows");
+  await expect(rows).toContainText(address);
+
+  // Act
+  const opened = await openTerminalAddress(page, rows, address);
+
+  // Assert
+  expect(opened.url()).toBe(address);
+});
 
 test("hovering a baby goblin shows its task at once", async ({ page }) => {
   await page.clock.install();

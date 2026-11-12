@@ -189,9 +189,9 @@ test("Recheck has the supervisor check every goblin anew", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeEnabled();
 });
 
-// The connections that could not be read are named to the CFO by goblin and
+// The connections that could not be read are named to the CEO by goblin and
 // task: "a goblin's connections" told it nothing it could act on.
-test("connections that cannot be read are named to the CFO by goblin and task, once, and the page says the check failed", async ({ page }) => {
+test("connections that cannot be read are named to the CEO by goblin and task, once, and the page says the check failed", async ({ page }) => {
   // Arrange
   const supervisor = supervisorWith({});
   supervisor.isUnreadable = true;

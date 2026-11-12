@@ -12,8 +12,8 @@ const goblin = (id: string, name: string, title: string) => ({
   generation: id + "-1", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", backend: "native", since: "2026-11-10T09:00:00Z",
 });
 const BOARD = {
-  instance: "fixture", healthy: true, revision: 1, cfo_runs: true, cfo_terminal: "cfo", cfo_terminal_since: "2026-11-10T09:00:00Z", cfo_harness: "claude",
-  sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }],
+  instance: "fixture", healthy: true, revision: 1, ceo_runs: true, ceo_terminal: "ceo", ceo_terminal_since: "2026-11-10T09:00:00Z", ceo_harness: "claude",
+  sessions: [{ id: "ceo-1", harness: "claude", role: "ceo", model: "claude-opus-5-5" }],
   tasks: [goblin("cg-touch", "Zeke", "Touch Wrangler"), goblin("cg-other", "Ivy", "Window Painter")],
 };
 const ZEKE = "Zeke - Touch Wrangler", IVY = "Ivy - Window Painter";
@@ -39,7 +39,7 @@ const fleet = () => supervisorWith({
 // The board, with the Connectors page chosen from its top bar.
 async function open(page: Page, supervisor: Supervisor, width: number): Promise<Locator> {
   await page.setViewportSize({ width, height: 1100 });
-  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
   await holdStream(page, BOARD);
   await play(page, supervisor);
   await page.goto("/");
@@ -265,7 +265,7 @@ for (const width of [1440, 390]) {
 test("a Connect the supervisor refuses puts the goblin's row back and says why beside it", async ({ page }) => {
   // Arrange
   const supervisor = fleet();
-  supervisor.refuses = "Change it in the Code Goblins window, or ask the CFO.";
+  supervisor.refuses = "Change it in the Code Goblins window, or ask the CEO.";
   const main = await open(page, supervisor, 1440);
   await tab(main, "Discover").click();
   await main.getByRole("button", { name: "Connect Sentry", exact: true }).click();
@@ -275,7 +275,7 @@ test("a Connect the supervisor refuses puts the goblin's row back and says why b
   await detail.getByRole("button", { name: "Connect Sentry to " + IVY, exact: true }).click();
 
   // Assert
-  await expect(main.locator(".connectors-page > .notice")).toHaveText("Change it in the Code Goblins window, or ask the CFO.");
+  await expect(main.locator(".connectors-page > .notice")).toHaveText("Change it in the Code Goblins window, or ask the CEO.");
   await expect(detail.getByRole("button", { name: "Connect Sentry to " + IVY, exact: true })).toBeVisible();
   await expect(goblinRow(detail, IVY)).toContainText("Not connected");
 });
@@ -284,7 +284,7 @@ for (const width of [1440, 390]) {
   test(`a goblin's task panel holds no connectors panel, and its Connectors line opens the page, at ${width}px`, async ({ page }) => {
     // Arrange
     await page.setViewportSize({ width, height: 1100 });
-    await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+    await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
     await holdStream(page, BOARD);
     await play(page, fleet());
     await page.goto("/");
@@ -329,7 +329,7 @@ for (const width of [320, 360]) {
   test(`the top bar's three views fit a ${width}px screen, each name whole`, async ({ page }) => {
     // Arrange
     await page.setViewportSize({ width, height: 800 });
-    await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+    await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
     await holdStream(page, BOARD);
     await play(page, fleet());
 
@@ -357,7 +357,7 @@ for (const width of [320, 360]) {
 test("with no goblin running the page says it has nothing to read, and asks the supervisor nothing", async ({ page }) => {
   // Arrange
   const supervisor = fleet();
-  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
   await holdStream(page, { ...BOARD, tasks: [{ ...goblin("cg-queued", "Quill", "Waiting"), generation: "", phase: "queued" }] });
   await play(page, supervisor);
   await page.goto("/");

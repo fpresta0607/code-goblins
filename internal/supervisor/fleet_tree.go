@@ -39,8 +39,8 @@ func (s *Service) keepTrees(ctx context.Context) {
 // readTrees reads the tree of every live goblin whose terminal runs: a
 // paused or stopped goblin, or one whose terminal has ended, runs nothing.
 // The same read writes the model and effort each session's own conversation
-// names, the CFO's too, into the session's one record (keepEngine,
-// keepCFOEngine), and sends the boards a record that changed.
+// names, the CEO's too, into the session's one record (keepEngine,
+// keepCEOEngine), and sends the boards a record that changed.
 func (s *Service) readTrees(ctx context.Context) {
 	pass, cancel := context.WithTimeout(ctx, treePassBudget)
 	defer cancel()
@@ -80,7 +80,7 @@ func (s *Service) readTrees(ctx context.Context) {
 		keep(false, keepConversation(s.Store.Home.State, meta, tree.Session))
 		keep(s.keepEngine(meta, tree.Engine))
 	}
-	keep(s.keepCFOEngine())
+	keep(s.keepCEOEngine())
 	s.Options.Tree.Forget(live)
 	// A helper hangs under its parent as a child of the parent's tree; a
 	// parent whose tree was not read, such as a paused one, holds none.

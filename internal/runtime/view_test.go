@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/janitor"
+	"github.com/fpresta0607/code-goblins/internal/layout"
 	"github.com/fpresta0607/code-goblins/internal/services"
 )
 
@@ -22,7 +23,7 @@ func render(t *testing.T, report Report) string {
 
 // The acceptance bar for this command is that its output is legible without a
 // second command, so every section must be present and each must carry the
-// fact the CFO came for.
+// fact the CEO came for.
 func TestRenderMarkdownCarriesAllFiveSections(t *testing.T) {
 	out := render(t, Build(`C:\dev\code-goblins`, reportFixture()))
 
@@ -51,8 +52,8 @@ func TestRenderMarkdownCarriesAllFiveSections(t *testing.T) {
 		"RESTART LOOP",
 		"1037 times",
 		// the stale server verdict and who owns retiring it
-		"safe - task peak-compute-to-supabase is finished; cfo reap retires it",
-		"cfo reap",
+		"safe - task peak-compute-to-supabase is finished; goblins reap retires it",
+		"goblins reap",
 		// headroom, including the footprint that starves the fleet
 		"WSL virtual machine: 11.0 GB",
 		// commit beside memory, and whether the next goblin fits in both
@@ -86,7 +87,7 @@ func TestRenderMarkdownOnAnEmptyReportSaysSoInEverySection(t *testing.T) {
 		"No stack is running.",
 		"No project declares a deploy target.",
 		"No project declares or implies a local stack.",
-		"No local services are held. `cfo services up <project> --task <id>` starts a project's for a task.",
+		"No local services are held. `goblins services up <project> --task <id>` starts a project's for a task.",
 	} {
 		if !strings.Contains(out, empty) {
 			t.Errorf("output is missing %q\n%s", empty, out)
@@ -155,13 +156,13 @@ func TestTruncateKeepsShortValuesWhole(t *testing.T) {
 	}
 }
 
-// The local services section names each stack cfo services holds, who holds
-// it, what cfo started of it and the memory it was measured to take, so the
-// CFO sees a stack's cost before dispatching beside it.
+// The local services section names each stack goblins services holds, who holds
+// it, what goblins started of it and the memory it was measured to take, so the
+// CEO sees a stack's cost before dispatching beside it.
 func TestRenderMarkdownShowsEachLocalServicesStackWithItsHoldersAndMemory(t *testing.T) {
 	at := time.Date(2026, 10, 8, 14, 2, 0, 0, time.UTC)
 	report := Build("", Inventory{Services: services.Record{
-		Engine: services.Engine{StartedByCFO: true, Since: at},
+		Engine: services.Engine{StartedByCEO: true, Since: at},
 		Stacks: map[string]services.Stack{
 			"PrecisionDocs-AI": {
 				Project: "PrecisionDocs-AI", Owned: true, Since: at,
@@ -175,11 +176,11 @@ func TestRenderMarkdownShowsEachLocalServicesStackWithItsHoldersAndMemory(t *tes
 	out := render(t, report)
 	for _, want := range []string{
 		"## Local services",
-		"| Project | State | Held by | cfo started | Memory |",
+		"| Project | State | Held by | goblins started | Memory |",
 		"| PrecisionDocs-AI | up since 2026-10-08T14:02:00Z | pd-a, pd-b | the whole stack | 2.5 GB, measured 2026-10-08T14:02:00Z |",
 		"| peakCraftsman | down | nobody | - | 1.0 GB, measured 2026-10-08T14:02:00Z |",
 		"| siqsermon | up since 2026-10-08T14:02:00Z | sermon-a | redis | not measured yet |",
-		"cfo started the Docker engine at 2026-10-08T14:02:00Z for these stacks, and stops it once none of them runs.",
+		"goblins started the Docker engine at 2026-10-08T14:02:00Z for these stacks, and stops it once none of them runs.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output is missing %q\n%s", want, out)
@@ -191,9 +192,9 @@ func TestRenderMarkdownShowsEachLocalServicesStackWithItsHoldersAndMemory(t *tes
 	}
 }
 
-// A stack already running when cfo came is shared and never stopped by a
-// release, and the report says so rather than naming nothing cfo started.
-func TestRenderMarkdownSaysASharedStackIsNotCFOsToStop(t *testing.T) {
+// A stack already running when goblins came is shared and never stopped by a
+// release, and the report says so rather than naming nothing goblins started.
+func TestRenderMarkdownSaysASharedStackIsNotCEOsToStop(t *testing.T) {
 	report := Build("", Inventory{Services: services.Record{Stacks: map[string]services.Stack{
 		"PrecisionDocs-AI": {Project: "PrecisionDocs-AI", Holders: []services.Hold{{Task: "pd-a"}}},
 	}}})
@@ -207,7 +208,7 @@ func TestRenderMarkdownSaysASharedStackIsNotCFOsToStop(t *testing.T) {
 // home's: a store whose folder could not be named reads as not measured,
 // never as nothing, and one read in part says so apart from the home.
 func TestRenderMarkdownShowsTheVerificationStoreApartFromTheHome(t *testing.T) {
-	const store = `C:\Users\o\AppData\Local\cfo\verify`
+	const store = `C:\Users\o\AppData\Local\goblins\verify`
 	for name, row := range map[string]struct {
 		folder      string
 		incomplete  []string
@@ -283,19 +284,103 @@ func TestRenderMarkdownNamesTheBucketsReadOnlyInPart(t *testing.T) {
 func TestRenderMarkdownSaysWhatTheJanitorNoted(t *testing.T) {
 	// Arrange
 	report := Build(`C:\dev\code-goblins`, reportFixture())
-	report.Janitor = &janitor.Record{Time: time.Date(2026, 10, 14, 6, 0, 0, 0, time.UTC), Notes: []string{"the caches hold 21.0 GB, over their 20 GB cap, and are not trimmed, as the sweep took no turn in the machine's heavy line: cfo gate test (pid 4242) holds the machine's heavy line"}}
+	report.Janitor = &janitor.Record{Time: time.Date(2026, 10, 14, 6, 0, 0, 0, time.UTC), Notes: []string{"the caches hold 21.0 GB, over their 20 GB cap, and are not trimmed, as the sweep took no turn in the machine's heavy line: goblins gate test (pid 4242) holds the machine's heavy line"}}
 
 	// Act
 	out := render(t, report)
 
 	// Assert
-	if want := "- note: the caches hold 21.0 GB, over their 20 GB cap, and are not trimmed, as the sweep took no turn in the machine's heavy line: cfo gate test (pid 4242) holds the machine's heavy line"; !strings.Contains(out, want) {
+	if want := "- note: the caches hold 21.0 GB, over their 20 GB cap, and are not trimmed, as the sweep took no turn in the machine's heavy line: goblins gate test (pid 4242) holds the machine's heavy line"; !strings.Contains(out, want) {
 		t.Errorf("output is missing %q\n%s", want, out)
 	}
 }
 
+// The home's last filing pass is shown beside the janitor's line, with how
+// many folders wait, so a filing that stopped is seen the same day: on one
+// home it stopped for a month while 992 finished folders waited and nothing
+// said so.
+func TestRenderMarkdownSaysWhenTheHomesDataWasLastFiled(t *testing.T) {
+	cases := []struct {
+		name   string
+		filing *layout.Record
+		want   []string
+	}{
+		{
+			name: "never filed",
+			want: []string{"The home's data has not been filed yet; the supervisor files a laid-out home's data every ten minutes."},
+		},
+		{
+			name:   "filed with folders waiting",
+			filing: &layout.Record{Time: time.Date(2026, 11, 12, 6, 0, 0, 0, time.UTC), Filed: 100, Waiting: 892},
+			want:   []string{"The home's data was last filed at 2026-11-12T06:00:00Z: 100 folder(s) filed, 892 finished or stale folder(s) wait for a later pass."},
+		},
+		{
+			name:   "could not file",
+			filing: &layout.Record{Time: time.Date(2026, 11, 12, 6, 0, 0, 0, time.UTC), Waiting: 1, Error: "file g1: access denied"},
+			want: []string{
+				"The home's data was last filed at 2026-11-12T06:00:00Z: 0 folder(s) filed, 1 finished or stale folder(s) wait for a later pass.",
+				"- could not file: file g1: access denied",
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			report := Build(`C:\dev\code-goblins`, reportFixture())
+			report.Filing = c.filing
+
+			// Act
+			out := render(t, report)
+
+			// Assert
+			for _, line := range c.want {
+				if !strings.Contains(out, line) {
+					t.Errorf("output is missing %q\n%s", line, out)
+				}
+			}
+		})
+	}
+}
+
+// The gate's home is named beside the home's buckets with what the janitor
+// last measured there, since walking it takes minutes, and a home the
+// janitor has not measured says so rather than showing nothing.
+func TestRenderMarkdownShowsTheGateHomeTheJanitorMeasured(t *testing.T) {
+	cases := []struct {
+		name    string
+		janitor *janitor.Record
+		want    string
+	}{
+		{
+			name:    "measured",
+			janitor: &janitor.Record{Time: time.Date(2026, 11, 12, 6, 0, 0, 0, time.UTC), Gate: &janitor.GateHome{Folders: []string{`C:\Users\o\.no-mistakes`, `D:\DevDrive\no-mistakes`}, Bytes: 55 << 30}},
+			want:    `| the gate's home at C:\Users\o\.no-mistakes and D:\DevDrive\no-mistakes, as the janitor measured it at 2026-11-12T06:00:00Z | 55.0 GB |`,
+		},
+		{
+			name:    "never measured",
+			janitor: &janitor.Record{Time: time.Date(2026, 11, 12, 6, 0, 0, 0, time.UTC)},
+			want:    "| the gate's home | not measured yet; the janitor's hourly sweep measures it |",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			report := Build(`C:\dev\code-goblins`, reportFixture())
+			report.Janitor = c.janitor
+
+			// Act
+			out := render(t, report)
+
+			// Assert
+			if !strings.Contains(out, c.want) {
+				t.Errorf("output is missing %q\n%s", c.want, out)
+			}
+		})
+	}
+}
+
 // The janitor's sweep of processes is read here: what it ended as a
-// terminal's own, and each process it left for the CFO with its pid, when it
+// terminal's own, and each process it left for the CEO with its pid, when it
 // started, the memory of its tree and its command.
 func TestRenderMarkdownNamesTheProcessesTheJanitorEndedAndLeft(t *testing.T) {
 	// Arrange

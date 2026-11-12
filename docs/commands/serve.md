@@ -1,6 +1,6 @@
-# cfo serve
+# goblins serve
 
-`cfo serve`
+`goblins serve`
 
 run the persistent native supervisor and embedded browser board on loopback
 

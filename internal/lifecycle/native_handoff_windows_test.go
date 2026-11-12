@@ -130,7 +130,7 @@ func pauseNativeHandoff(t *testing.T, mode string) {
 func TestPauseWritesTheHandoffOfAGoblinThatAnswersWithTextAlone(t *testing.T) {
 	// Arrange
 	stateDir, meta, handoff := startPauseFixture(t, "text")
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	if err := state.AppendStatus(stateDir, meta.ID, "working: the suite passes; opening the pull request next"); err != nil {
 		t.Fatal(err)
 	}

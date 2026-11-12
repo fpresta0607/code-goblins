@@ -76,7 +76,7 @@ func TestValidateRefusesManifestsThatWouldReportMisleadingStatus(t *testing.T) {
 }
 
 func TestValidateAcceptsACLIServiceWithNoEnvironmentOfItsOwn(t *testing.T) {
-	// gh keeps its own credential; cfo only needs to know how to probe it.
+	// gh keeps its own credential; goblins only needs to know how to probe it.
 	manifest := Manifest{Services: []Service{{Name: "github", Method: MethodCLI, Probe: []string{"gh", "auth", "status"}}}}
 	if err := manifest.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)

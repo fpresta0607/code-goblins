@@ -1,5 +1,6 @@
 import type { CIUsual, PauseCondition, Task, Wait } from "./types.ts";
 import { cardDate } from "./cards.ts";
+import { webAddresses } from "./messageText.ts";
 
 // What the board says about a task, in words a person reads: the goblins and
 // the supervisor write for the fleet, with state words, semicolon chains,
@@ -27,14 +28,14 @@ export function goblinName(task: Pick<Task, "id" | "title" | "goblin_name" | "go
   return task.goblin_name ? [task.goblin_name, task.goblin_title].filter(Boolean).join(" - ") : taskName(task);
 }
 
-// terminalOf names a goblin's terminal to the CFO: by the goblin and its task,
+// terminalOf names a goblin's terminal to the CEO: by the goblin and its task,
 // since a report that says only "a goblin's terminal" names none of them.
 export function terminalOf(task: Pick<Task, "id" | "title" | "goblin_name" | "goblin_title">): string {
   return "the terminal of " + goblinName(task) + " (" + task.id + ")";
 }
 
 // A goblin's report starts with its state, which the status above it says.
-const STATE_WORD = /^(?:(?:working|blocked|failed|done|lifecycle-[a-z]+):|waiting on [^\s:]+:|Waiting on the CFO:)\s*/;
+const STATE_WORD = /^(?:(?:working|blocked|failed|done|lifecycle-[a-z]+):|waiting on [^\s:]+:|Waiting on the CEO:)\s*/;
 
 export function reportBody(report: string): string {
   const body = report.replace(STATE_WORD, "").trim();
@@ -66,8 +67,11 @@ function lastName(path: string): string {
   return name + stop;
 }
 
+// A question's options, which a report's plain sentence leaves out.
+const OPTIONS = /\s+options:\s[\s\S]*$/;
+
 function tidy(text: string): string {
-  return text.replace(/\s+options:\s[\s\S]*$/, "")
+  return text.replace(OPTIONS, "")
     .replace(PULL_REQUEST, "PR #$1").replace(ISSUE, "issue #$1").replace(RUN, "a CI run").replace(LINK, "$1")
     .replace(WINDOWS_PATH, lastName).replace(SLASH_PATH, lastName)
     .replace(HASH, "")
@@ -89,11 +93,25 @@ export function plainText(raw: string): string {
   return tidy(raw).split(/;\s+/).map(sentence).filter(Boolean).join(" ");
 }
 
+// A link a plain sentence says by a word or two: the words plainText put in
+// place of an address, and the address, which the panel links them to.
+export interface SaidLink { label: string; address: string }
+
+// saidLinks are raw text's addresses, each with the words plainText says it
+// by, in the order the text names them. Each address ends where the board's
+// links end one (webAddresses), and its words are what tidy puts in its place.
+export function saidLinks(raw: string): SaidLink[] {
+  return [...raw.replace(OPTIONS, "").matchAll(LINK)].flatMap((match) => {
+    const address = webAddresses(match[0])[0]?.address;
+    return address ? [{ label: match[0].replace(PULL_REQUEST, "PR #$1").replace(ISSUE, "issue #$1").replace(RUN, "a CI run").replace(LINK, "$1"), address }] : [];
+  });
+}
+
 // finishedEvidence is what says a queued task already finished, as one plain
-// sentence under its status. The supervisor writes it for the CFO,
+// sentence under its status. The supervisor writes it for the CEO,
 // as "Already finished: its pull request merged (...); it never starts again
 // by itself. Move its row to ## Done, or queue new work under a new id": the
-// status says the first of that and the last is the CFO's next step, so the
+// status says the first of that and the last is the CEO's next step, so the
 // line says the evidence between them.
 export function finishedEvidence(finished: string): string {
   return plainText(finished.replace(/^Already finished:\s*/, "").replace(/;\s*it never starts again by itself\.[\s\S]*$/, ""));
@@ -180,7 +198,7 @@ function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task
 // stopped never reads like a live one waiting its turn for the machine
 // (#1924). A CI or deploy pause names how long the repository's runs usually
 // take. A pause on a goblin names the goblin alone, as Paused until Benny
-// delivers, without its title (the CFO's decision 1008011, 2026-10-17).
+// delivers, without its title (the CEO's decision 1008011, 2026-10-17).
 export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], usual: CIUsual[], parent?: Task): string {
   const [kind, target] = pause?.until.split(/:(.*)/s) || [];
   switch (pause?.reason) {
@@ -251,15 +269,18 @@ const same = (one: string, other: string) => {
 
 // reportSaid is a goblin's report as the panel says it, and the report as
 // written when the sentence leaves anything out.
-export function reportSaid(report: string): { sentence: string; details: string[] } {
+export function reportSaid(report: string): { sentence: string; details: string[]; links: SaidLink[] } {
   const body = reportBody(report);
   const sentence = summary(plainText(body));
-  return { sentence, details: same(sentence, body) ? [] : [report] };
+  return { sentence, details: same(sentence, body) ? [] : [report], links: saidLinks(body) };
 }
 
 export interface Summary {
   // sentence is what the panel says under the task's status.
   sentence: string;
+  // links are the addresses of the report the sentence says, which it links
+  // by the words it says them with.
+  links?: SaidLink[];
   // details are the raw words behind Details, empty when the sentence
   // already says them.
   details: string[];
@@ -269,6 +290,9 @@ export interface Summary {
   // goblin's is, which reads as the panel's prose and not as a record.
   isPlain?: boolean;
 }
+
+// linksOf gives a summary the links of the report it says, when it has any.
+const linksOf = (said: { links: SaidLink[] }) => said.links.length ? { links: said.links } : {};
 
 // taskSummary is the one sentence the panel says under a task's status, which
 // never repeats the status: why it failed and what to do, or its goblin's
@@ -284,7 +308,7 @@ export function taskSummary(task: Task, tasks: Task[], status = ""): Summary {
 // under working" and "dont need text under pause fialed". Under Working the
 // panel says nothing; what it would say is the first thing behind Details. A
 // failure, and a pause, resume or stop that did not finish, says nothing
-// either: its error is the CFO's to hear (2026-10-08, "everything error wise
+// either: its error is the CEO's to hear (2026-10-08, "everything error wise
 // goes to cfo"), and the panel keeps it behind Details.
 const QUIET_STATUSES = new Set(["Working"]);
 
@@ -301,18 +325,19 @@ function summaryOf(task: Task, tasks: Task[]): Summary {
   // is one description for a person: what it last reported itself, what it
   // waits for, and what Windows still closes ("a well written, proper case,
   // human readable little description about what that agent did or is
-  // doing"). What its pause could not do is the CFO's to hear, in the
+  // doing"). What its pause could not do is the CEO's to hear, in the
   // pause's own report, and never the panel's to show.
   if (task.phase === "paused") {
     const waits = resumes(record?.pause, tasks, pausedWithParent(task, tasks));
-    const description = join(reportSaid(task.last_report || "").sentence, waits, teardown);
-    return { sentence: "", details: description ? [description] : [], isFailure: false, isPlain: true };
+    const report = reportSaid(task.last_report || "");
+    const description = join(report.sentence, waits, teardown);
+    return { sentence: "", details: description ? [description] : [], isFailure: false, isPlain: true, ...linksOf(report) };
   }
   if (["pausing", "resuming", "stopping", "stopped"].includes(task.phase)) return { sentence: "", details: task.teardown, isFailure: false };
   // A queued task's status says it all; the Overlord wants no wait line. Why
-  // its last start failed is behind Details, and the CFO was told.
+  // its last start failed is behind Details, and the CEO was told.
   if (task.phase === "queued") return { sentence: "", details: task.start_error && !task.starting ? [task.start_error] : [], isFailure: false };
   // A failed or blocked task with no report of its own says its evidence.
   const said = reportSaid(reportBody(task.activity) || !["failed", "blocked"].includes(task.phase) ? task.activity : task.reason);
-  return { sentence: join(said.sentence, teardown), details: [...said.details, ...task.teardown], isFailure: task.phase === "failed" };
+  return { sentence: join(said.sentence, teardown), details: [...said.details, ...task.teardown], isFailure: task.phase === "failed", ...linksOf(said) };
 }

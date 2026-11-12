@@ -12,6 +12,8 @@ declare global {
 const root = createRoot(document.getElementById("root")!);
 const parameters = new URLSearchParams(location.search);
 const backend = parameters.get("backend") || "native";
+// The goblin's last report: the one a test gives, else one with no address.
+const lastReport = parameters.get("report") ?? "Terminal fixes verified. Pull request ready.";
 // Three live Herdr goblins beside the ended one, for the deck's stream limit.
 const crew = parameters.has("crew") ? ["alpha", "beta", "gamma"].map((id, index) => ({
   id, title: "Crew " + id, project: "code-goblins", backend: "herdr", harness: "codex", generation: "c" + (index + 1) + "-7f3a",
@@ -29,8 +31,8 @@ function render() {
       backend: isRetired ? "" : backend, harness: "claude", generation: generation ?? (isRetired || phase === "queued" ? "" : "s1-4b8e"), session: "session-proof",
       phase: isRetired ? "done" : phase, archived: isRetired, verified: false,
       runtime: { state: phase === "working" ? "busy" : phase === "done" ? "idle" : phase },
-      activity: isMissing ? "" : "Terminal fixes verified. Pull request ready.", report: "done",
-      last_report: isMissing ? "" : "Terminal fixes verified. Pull request ready.",
+      activity: isMissing ? "" : lastReport, report: "done",
+      last_report: isMissing ? "" : lastReport,
       at: isMissing ? "0001-01-01T00:00:00Z" : "2026-09-29T09:42:00Z", handoff: !isMissing,
       retired_at: isMissing || parameters.has("missing-time") ? "" : "2026-09-29T09:42:00Z",
       pr: "https://github.com/example/project/pull/218",
@@ -44,7 +46,7 @@ function render() {
         onSelect={() => { document.body.dataset.opened = "task"; }} />
     </aside>
     <div style={{ display: "flex", flex: 1, minWidth: 0, height: "100vh" }}>
-      <TerminalDeck snapshot={snapshot} task={task} cfo={false} shown connected focus={1} />
+      <TerminalDeck snapshot={snapshot} task={task} ceo={false} shown connected focus={1} />
     </div>
   </main>);
 }

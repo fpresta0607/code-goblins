@@ -15,7 +15,7 @@ const BOARD = [
 ];
 
 async function open(page: Page, tasks: Record<string, unknown>[] = BOARD) {
-  const snapshot = { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, attention: [], tasks };
+  const snapshot = { healthy: true, instance: "fixture", ceo_runs: true, revision: 1, attention: [], tasks };
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/events") await route.fulfill({ contentType: "text/event-stream", body: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` });
@@ -29,13 +29,13 @@ const columns = (page: Page) => page.locator(".task-board").evaluate((board) => 
 const inProgress = (page: Page) => page.getByRole("region", { name: "In progress", exact: true });
 
 for (const width of [390, 1707]) {
-  test(`blocked goblins read Waiting on the CFO across board views at ${width}px`, async ({ page }, testInfo) => {
+  test(`blocked goblins read Waiting on the CEO across board views at ${width}px`, async ({ page }, testInfo) => {
     // Arrange
     await page.setViewportSize({ width, height: 1000 });
     const waits = [
       { id: "gate-wait", reason: "Review gate needs approval before continuing", status: "Waiting on the CEO" },
       { id: "dependency-wait", reason: "Wait for the dependency task to land before continuing", status: "Waiting on the CEO" },
-      { id: "cfo-wait", reason: "Waiting on the CFO: Which dependency should land first?", status: "Waiting on the CEO" },
+      { id: "ceo-wait", reason: "Waiting on the CEO: Which dependency should land first?", status: "Waiting on the CEO" },
     ];
     await open(page, waits.map(({ id, reason }) => task(id, "blocked", { report: "blocked", reason })));
     if (width === 1707) await page.getByRole("button", { name: "Close panel" }).click();
@@ -49,7 +49,7 @@ for (const width of [390, 1707]) {
       await card.locator(".task-card").click();
       const header = await openTaskList(page);
       await expect(header.locator(".panel-status")).toHaveText(status);
-      await expect(header).toContainText(reason.replace("Waiting on the CFO: ", ""));
+      await expect(header).toContainText(reason.replace("Waiting on the CEO: ", ""));
       if (width === 390) await page.getByRole("button", { name: "Back to Board" }).click();
     }
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
@@ -152,7 +152,7 @@ test.describe("in a window 1707 px wide", () => {
     expect(await page.locator(".canvas-region").evaluate((canvas) => canvas.scrollHeight > canvas.clientHeight)).toBe(true);
     await expect(page.locator(".context-pane")).toBeVisible();
     expect(await columns(page)).toBe(3);
-    // The CFO's own panel, on its Task view, beside the board.
+    // The CEO's own panel, on its Task view, beside the board.
     await page.keyboard.press("Control+Alt+1");
     await openTaskList(page);
     await expect(page.locator(".context-pane")).toBeVisible();
@@ -193,7 +193,7 @@ test.describe("in a window 1707 px wide", () => {
   });
 
   test("a panel width the Overlord dragged still wins", async ({ page }) => {
-    await page.addInitScript(() => localStorage.setItem("cfo-pane-width", "900"));
+    await page.addInitScript(() => localStorage.setItem("ceo-pane-width", "900"));
     await open(page);
     expect(Math.round(await page.locator(".context-pane").evaluate((pane) => pane.getBoundingClientRect().width))).toBe(900);
     expect(await columns(page)).toBe(1);

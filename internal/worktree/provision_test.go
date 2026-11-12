@@ -886,7 +886,7 @@ func TestProvisionReplacesAStagedCopyAnInterruptedRunLeft(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(project, ".env"), []byte("STANDIN_SETTING=current\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	staged := filepath.Join(worktreePath, ".env.cfo-copy")
+	staged := filepath.Join(worktreePath, ".env.ceo-copy")
 	if err := os.WriteFile(staged, []byte("STANDIN_SETTING=half written\n"), 0o400); err != nil {
 		t.Fatal(err)
 	}

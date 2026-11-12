@@ -24,12 +24,12 @@ test("iPhone: with the keyboard up, a slash opens the list on screen above the b
   // Arrange: the keyboard covers the bottom of the screen, as Safari reports
   // it through the visual viewport.
   const snapshot = {
-    healthy: true, instance: "fixture", revision: 1, attention: [], cfo_runs: true, cfo_harness: "claude", cfo_terminal: "cfo-1", afk: { state: "off" },
+    healthy: true, instance: "fixture", revision: 1, attention: [], ceo_runs: true, ceo_harness: "claude", ceo_terminal: "ceo-1", afk: { state: "off" },
     tasks: [{ id: "nw-invoice-export", title: "Export invoices as CSV", project: "northwind-api", goblin_name: "Kip", goblin_title: "Ledger Scout", phase: "working", verified: false, generation: "nw-invoice-export-1", harness: "codex", model: "m", effort: "high", backend: "native" }],
   };
   await page.addInitScript((keyboard) => {
-    localStorage.setItem("cfo-chat-style", "modern");
-    localStorage.setItem("cfo-voice-hint-v1", "dismissed");
+    localStorage.setItem("ceo-chat-style", "modern");
+    localStorage.setItem("ceo-voice-hint-v1", "dismissed");
     const real = window.visualViewport!;
     const viewport = new EventTarget();
     Object.defineProperties(viewport, {

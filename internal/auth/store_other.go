@@ -18,6 +18,14 @@ func restrictToOwner(string) error {
 // VaultTargets is empty off Windows, which has no Credential Manager.
 func VaultTargets() ([]string, error) { return nil, nil }
 
+// VaultEntries is empty off Windows, which has no Credential Manager.
+func VaultEntries(string) ([]VaultEntry, error) { return nil, nil }
+
+// WriteVaultEntry has nowhere to write off Windows.
+func WriteVaultEntry(VaultEntry) error {
+	return errors.New("auth: Windows Credential Manager is unavailable on this platform")
+}
+
 // DeleteVaultTarget has nothing to delete off Windows.
 func DeleteVaultTarget(string) error { return nil }
 

@@ -170,7 +170,7 @@ func Owners(ctx context.Context, h home.Home, tree *fleettree.Reader) ([]Owner, 
 }
 
 // statusTail is how many of a task's last status lines are read for its
-// latest report, past the records the CFO writes into the log after it.
+// latest report, past the records the CEO writes into the log after it.
 const statusTail = 50
 
 // AtRestSince is when task id's goblin was last seen at work, once it has
@@ -181,7 +181,7 @@ const statusTail = 50
 // goblin make progress. Anything else is a goblin at work, and so is
 // whatever cannot be read: a goblin that reported working, blocked or
 // waiting-on, one in a turn however long, one whose harness is refused or
-// still starting, and one that asks the CFO something in prose. A done
+// still starting, and one that asks the CEO something in prose. A done
 // report is one delivery's, and the home records none of the waits of a
 // goblin that went on to the next, which its tree shows (IsWaiting).
 func AtRestSince(stateDir, id string) time.Time {

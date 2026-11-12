@@ -56,7 +56,7 @@ func RequestHelper(h home.Home, request HelperRequest) (HelperStart, error) {
 	return *reply.Helper, nil
 }
 
-// helperStart is the cfo spawn a helper's start runs, and whom it tells.
+// helperStart is the goblins spawn a helper's start runs, and whom it tells.
 type helperStart struct {
 	HelperStart
 	parent state.TaskMeta
@@ -65,7 +65,7 @@ type helperStart struct {
 	engine startPlan
 }
 
-// acceptHelper admits a helper of request.Parent and starts it through cfo
+// acceptHelper admits a helper of request.Parent and starts it through goblins
 // spawn in the background, or says why not and when to ask again. It takes
 // the start slot the board's Start and Resume take, so one goblin starts at
 // a time, and holds the memory, commit, disk and live-goblin marks every
@@ -221,16 +221,16 @@ func (p helperStart) args() []string {
 	return args
 }
 
-// runHelperStart runs a helper's cfo spawn to its end, which is never cut
+// runHelperStart runs a helper's goblins spawn to its end, which is never cut
 // short, as a Start's is not, then tells its parent in its terminal and the
-// CFO through the wake queue how it went, before the start slot frees.
+// CEO through the wake queue how it went, before the start slot frees.
 func (s *Service) runHelperStart(dispatch *Dispatch, plan helperStart) {
 	output, err := s.runPastTheSpawnLock(dispatch, plan.args())
 	told := "Your helper " + plan.ID + " is up on branch " + plan.Branch + ", working on its brief; it reports to you here."
 	detail := "started: helper of " + plan.parent.ID + ", which asked the supervisor for it, on branch " + plan.Branch + "; it reports to " + plan.parent.ID
 	if err != nil {
 		failure := spawnFailure(output, err)
-		told = "Your helper " + plan.ID + " could not start: " + failure + ". Ask again with cfo helper start once that is fixed."
+		told = "Your helper " + plan.ID + " could not start: " + failure + ". Ask again with goblins helper start once that is fixed."
 		detail = "start failed: helper of " + plan.parent.ID + ": " + failure
 	}
 	if output, err := dispatch.Spawn(context.Background(), []string{"send", plan.parent.ID, told}); err != nil {

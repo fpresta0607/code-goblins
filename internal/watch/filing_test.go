@@ -11,7 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/layout"
 )
 
-// laidOutHome is a home whose data folder cfo install laid out, so the
+// laidOutHome is a home whose data folder goblins install laid out, so the
 // watcher may file it.
 func laidOutHome(t *testing.T) home.Home {
 	t.Helper()
@@ -76,25 +76,65 @@ func TestRunFilesFinishedWork(t *testing.T) {
 	}
 }
 
-func TestFileDataRunsAtMostOncePerInterval(t *testing.T) {
+// The supervisor's pass is where the home is supervised today: goblins serve
+// holds the watcher lock and runs Reconcile, never Run's loop. On one home
+// that pass filed nothing from 2026-10-09 to 2026-11-12 while 992 finished
+// folders waited, because only Run's loop filed.
+func TestReconcileFilesFinishedWork(t *testing.T) {
+	// Arrange
+	h := laidOutHome(t)
+	finishTask(t, h, "g1")
+	cfg := reapConfig(h.State, orphanFleet())
+	cfg.Home = h
+	cfg.FileEvery = time.Hour
+
+	// Act
+	err := Reconcile(context.Background(), cfg)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if !filed(t, h, "g1") {
+		t.Error("the supervisor's reconcile pass did not file the finished task g1")
+	}
+}
+
+// The wait between passes is kept in the home, not in the process: a
+// supervisor that restarts, or a pass that holds no state of its own, files
+// once per interval, and the next pass after it files again.
+func TestFilingRunsAtMostOncePerIntervalAcrossPasses(t *testing.T) {
+	// Arrange
 	h := laidOutHome(t)
 	finishTask(t, h, "g1")
 	cfg := baseConfig(h.State)
 	cfg.Home = h
 	cfg.FileEvery = time.Hour
-	var last time.Time
 
-	fileData(context.Background(), cfg, &last)
+	// Act
+	if err := Reconcile(context.Background(), cfg); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
 	finishTask(t, h, "g2")
-	fileData(context.Background(), cfg, &last)
+	if err := Reconcile(context.Background(), cfg); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
 
+	// Assert
 	if !filed(t, h, "g1") || filed(t, h, "g2") {
 		t.Fatalf("filed g1 %v, g2 %v; want only the first pass to have run", filed(t, h, "g1"), filed(t, h, "g2"))
 	}
-
-	last = last.Add(-cfg.FileEvery)
-	fileData(context.Background(), cfg, &last)
-
+	record, err := layout.ReadRecord(h.State)
+	if err != nil {
+		t.Fatalf("the filing pass left no record a new supervisor reads: %v", err)
+	}
+	record.Time = record.Time.Add(-cfg.FileEvery)
+	if err := layout.WriteRecord(h.State, record); err != nil {
+		t.Fatal(err)
+	}
+	if err := Reconcile(context.Background(), cfg); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
 	if !filed(t, h, "g2") {
 		t.Error("the pass after the interval did not file g2")
 	}

@@ -1151,7 +1151,7 @@ func TestAnAnswerSaysWhetherItCameFromTheBoardOrItsPage(t *testing.T) {
 	for _, test := range []struct{ text, source string }{
 		{"The Overlord answered your question on the board. Answer: yes", FromAnswer},
 		{"The Overlord answered your question on its page. Answer: yes", FromPage},
-		{"CFO: answered on your review page https://example/page: Build it as shown", FromPage},
+		{"CEO: answered on your review page https://example/page: Build it as shown", FromPage},
 	} {
 		source, _ := promptSource(test.text)
 		if source != test.source {
@@ -1161,13 +1161,13 @@ func TestAnAnswerSaysWhetherItCameFromTheBoardOrItsPage(t *testing.T) {
 }
 
 // A message he typed to a goblin on the board reaches its terminal behind the
-// CFO's stamp and the board's, and reads back as his own words, so the board
-// can show it as his and as read. The CFO's own steer stays the CFO's, and a
+// CEO's stamp and the board's, and reads back as his own words, so the board
+// can show it as his and as read. The CEO's own steer stays the CEO's, and a
 // command he typed stays as he typed it.
 func TestABoardMessageToAGoblinReadsAsHisOwnWords(t *testing.T) {
 	for _, tc := range []struct{ name, text, source, words string }{
 		{"his message from the board", routing.SteerPrefix + routing.BoardMessagePrefix + "check the deploy before you merge", FromOverlord, "check the deploy before you merge"},
-		{"the CFO's steer", routing.SteerPrefix + "rebase on main", FromCFO, "rebase on main"},
+		{"the CEO's steer", routing.SteerPrefix + "rebase on main", FromCEO, "rebase on main"},
 		{"his command", "/compact", FromOverlord, "/compact"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1214,18 +1214,18 @@ func TestMessagesReadEachKindOfEntry(t *testing.T) {
 			name: "prompts name where they came from",
 			entries: func(*testing.T, string) []any {
 				return []any{
-					prompted("u1", `Read C:\work\state\instruction.md and follow it exactly: it is your instruction from the CFO.`),
-					prompted("u2", "CFO: merge origin/main first"),
-					prompted("u3", "CFO: The Overlord answered your question on the board. Question: Which first? Answer: Fix it next"),
-					prompted("u4", "User answer to CFO question q-1. Question: Ship it? Answer: Yes"),
+					prompted("u1", `Read C:\work\state\instruction.md and follow it exactly: it is your instruction from the CEO.`),
+					prompted("u2", "CEO: merge origin/main first"),
+					prompted("u3", "CEO: The Overlord answered your question on the board. Question: Which first? Answer: Fix it next"),
+					prompted("u4", "User answer to CEO question q-1. Question: Ship it? Answer: Yes"),
 					prompted("u5", "Overlord: keep the tests\n<system-reminder>Claude Code's own note</system-reminder>"),
 				}
 			},
 			want: []Message{
-				prompt(0, "u1", FromCFO, `Read C:\work\state\instruction.md and follow it exactly: it is your instruction from the CFO.`),
-				prompt(1, "u2", FromCFO, "merge origin/main first"),
+				prompt(0, "u1", FromCEO, `Read C:\work\state\instruction.md and follow it exactly: it is your instruction from the CEO.`),
+				prompt(1, "u2", FromCEO, "merge origin/main first"),
 				prompt(2, "u3", FromAnswer, "The Overlord answered your question on the board. Question: Which first? Answer: Fix it next"),
-				prompt(3, "u4", FromAnswer, "User answer to CFO question q-1. Question: Ship it? Answer: Yes"),
+				prompt(3, "u4", FromAnswer, "User answer to CEO question q-1. Question: Ship it? Answer: Yes"),
 				prompt(4, "u5", FromOverlord, "Overlord: keep the tests"),
 			},
 		},
@@ -1235,13 +1235,13 @@ func TestMessagesReadEachKindOfEntry(t *testing.T) {
 				queuedPrompt := prompted("u2", "check the phone too")
 				queuedPrompt["promptSource"] = "queued"
 				return []any{
-					attachment("q1", object{"type": "queued_command", "commandMode": "prompt", "prompt": `CFO: also run the specs <pasted_content id="07">now</pasted_content id="07">`}),
+					attachment("q1", object{"type": "queued_command", "commandMode": "prompt", "prompt": `CEO: also run the specs <pasted_content id="07">now</pasted_content id="07">`}),
 					queuedPrompt,
 					attachment("q2", object{"type": "queued_command", "commandMode": "prompt", "prompt": []object{textBlock("look at this"), imageBlock([]byte("png"))}}),
 				}
 			},
 			want: []Message{
-				{ID: "q1", Seq: 0, Kind: MessagePrompt, At: at, Source: FromCFO, IsQueued: true, Text: "also run the specs now"},
+				{ID: "q1", Seq: 0, Kind: MessagePrompt, At: at, Source: FromCEO, IsQueued: true, Text: "also run the specs now"},
 				{ID: "u2", Seq: 1, Kind: MessagePrompt, At: at, Source: FromOverlord, IsQueued: true, Text: "check the phone too"},
 				{ID: "q2", Seq: 2, Kind: MessagePrompt, At: at, Source: FromOverlord, IsQueued: true, Text: "look at this"},
 			},
@@ -1741,18 +1741,18 @@ func TestAConversationNoViewAsksForIsLetGo(t *testing.T) {
 	}
 }
 
-// The wake line the supervisor types into a Codex or pi CFO's terminal is the
+// The wake line the supervisor types into a Codex or pi CEO's terminal is the
 // fleet speaking, never the Overlord: it reads as the session's own notice,
 // with its words kept, and everything else he types stays his own message,
-// a line that begins with "cfo" included (the Overlord, 2026-10-26).
+// a line that begins with "ceo" included (the Overlord, 2026-10-26).
 func TestTheFleetsTypedWakeIsANoticeNotHisMessage(t *testing.T) {
 	// Arrange
-	wake := WakePrefix + "2 queued wakes (ci cg-a, notify cg-b); run cfo drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints"
+	wake := WakePrefix + "2 queued wakes (ci cg-a, notify cg-b); run goblins drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints"
 	home := t.TempDir()
 	path := conversation(t, home,
 		prompted("u1", wake),
-		prompted("u2", "cfo, take a look at the failing test"),
-		prompted("u3", "cfo watcher wake-ups are noisy, quiet them down"),
+		prompted("u2", "ceo, take a look at the failing test"),
+		prompted("u3", "ceo watcher wake-ups are noisy, quiet them down"),
 	)
 	reader := Reader{Home: home}
 
@@ -1762,8 +1762,8 @@ func TestTheFleetsTypedWakeIsANoticeNotHisMessage(t *testing.T) {
 	// Assert
 	want := []Message{
 		prompt(0, "u1", FromNotice, wake),
-		prompt(1, "u2", FromOverlord, "cfo, take a look at the failing test"),
-		prompt(2, "u3", FromOverlord, "cfo watcher wake-ups are noisy, quiet them down"),
+		prompt(1, "u2", FromOverlord, "ceo, take a look at the failing test"),
+		prompt(2, "u3", FromOverlord, "ceo watcher wake-ups are noisy, quiet them down"),
 	}
 	if got := numbered(t, path, page.Messages); err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("MessagePage = %+v, %v\nwant %+v", got, err, want)
@@ -1771,15 +1771,15 @@ func TestTheFleetsTypedWakeIsANoticeNotHisMessage(t *testing.T) {
 }
 
 // A pi session reads the same fleet wake line as the session's notice, since
-// the supervisor types it into a pi CFO's terminal too.
+// the supervisor types it into a pi CEO's terminal too.
 func TestAPiSessionReadsTheFleetsWakeAsANotice(t *testing.T) {
 	// Arrange
-	wake := WakePrefix + "1 queued wake (notify cg-a); run cfo drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints"
+	wake := WakePrefix + "1 queued wake (notify cg-a); run goblins drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints"
 	home := t.TempDir()
 	path := piSession(t, home,
 		piHeader(),
 		piMessageEntry("u1", "", "user", object{"content": wake}),
-		piMessageEntry("u2", "u1", "user", object{"content": "cfo, what changed?"}),
+		piMessageEntry("u2", "u1", "user", object{"content": "ceo, what changed?"}),
 	)
 	reader := Reader{Home: home}
 
@@ -1789,7 +1789,7 @@ func TestAPiSessionReadsTheFleetsWakeAsANotice(t *testing.T) {
 	// Assert
 	want := []Message{
 		prompt(0, "u1", FromNotice, wake),
-		prompt(1, "u2", FromOverlord, "cfo, what changed?"),
+		prompt(1, "u2", FromOverlord, "ceo, what changed?"),
 	}
 	if !reflect.DeepEqual(page.Messages, want) {
 		t.Fatalf("messages = %+v, want %+v", page.Messages, want)
@@ -1800,19 +1800,19 @@ func TestFleetProducerMessagesAreNotOverlordPrompts(t *testing.T) {
 	for _, test := range []struct {
 		text, source string
 	}{
-		{WakePrefix + "1 queued wake (notify task-1); run cfo drain", FromNotice},
+		{WakePrefix + "1 queued wake (notify task-1); run goblins drain", FromNotice},
 		{"== SESSION LOCK ==\nSESSION LOCK: held by pid 123 on test\n== WAKE QUEUE ==\nWAKE QUEUE: empty", FromNotice},
-		{"WAKE QUEUE: 1 pending\n  1 notify task-1 done\nWAKE_ACK_REQUIRED: cfo drain --ack-through 1", FromNotice},
+		{"WAKE QUEUE: 1 pending\n  1 notify task-1 done\nWAKE_ACK_REQUIRED: goblins drain --ack-through 1", FromNotice},
 		{"AFK MODE IS ON: the Supreme Overlord turned it on 2026-10-02 02:10 UTC from the board, and he is away until he turns it off.\nIt is complete autopilot: no Command Center prompt opens for him while it is on, and nothing is asked of him or held for him.\nWAKE QUEUE: empty", FromNotice},
 		{routing.SteerPrefix + "Your run npm test ended with exit 0 after 1m35s; read its output and carry on from it.", FromNotice},
-		{routing.SteerPrefix + "Your helper task-1 is done: its work is committed on its branch, ready. Merge it into your branch with: cfo helper merge parent", FromNotice},
-		{routing.SteerPrefix + "Your helper task-1 asks: Which path? Answer it with: cfo send task-1 \"<answer>\"", FromNotice},
-		{routing.SteerPrefix + "Your helper task-1 failed: test failure. Tell it what to do with: cfo send task-1 \"<what>\", or stop it with: cfo kill task-1 --reason \"<why>\"", FromNotice},
-		{"cfo drain please", FromOverlord},
-		{"cfo watcher wake-ups need fixing", FromOverlord},
+		{routing.SteerPrefix + "Your helper task-1 is done: its work is committed on its branch, ready. Merge it into your branch with: goblins helper merge parent", FromNotice},
+		{routing.SteerPrefix + "Your helper task-1 asks: Which path? Answer it with: goblins send task-1 \"<answer>\"", FromNotice},
+		{routing.SteerPrefix + "Your helper task-1 failed: test failure. Tell it what to do with: goblins send task-1 \"<what>\", or stop it with: goblins kill task-1 --reason \"<why>\"", FromNotice},
+		{"goblins drain please", FromOverlord},
+		{"ceo watcher wake-ups need fixing", FromOverlord},
 		{"Your run was slow, please check it", FromOverlord},
 		{"WAKE QUEUE: please show it", FromOverlord},
-		{routing.SteerPrefix + "Your run needs a regression test", FromCFO},
+		{routing.SteerPrefix + "Your run needs a regression test", FromCEO},
 	} {
 		for _, harness := range []string{"claude", "pi", "codex"} {
 			t.Run(harness+"/"+test.text, func(t *testing.T) {
@@ -1920,5 +1920,222 @@ func TestAPlanIsReadOnlyFromItsOwnToolsShape(t *testing.T) {
 				t.Fatalf("callPlan(%q, %s) = %+v; want no plan", test.tool, test.input, plan)
 			}
 		})
+	}
+}
+
+// taskCreated is the result of a TaskCreate that made task id, as Claude
+// Code writes it, and taskUpdated that of a TaskUpdate of it.
+func taskCreated(uuid, call, id, subject string) object {
+	return answered(uuid, call, "Task #"+id+" created successfully: "+subject, object{"task": object{"id": id, "subject": subject}}, nil)
+}
+
+func taskUpdated(uuid, call, id string) object {
+	return answered(uuid, call, "Updated task #"+id+" status", object{"success": true, "taskId": id, "updatedFields": []string{"status"}}, nil)
+}
+
+// plans are the plans of the blocks of a page's messages, by call id.
+func plans(page MessagePage) map[string][]PlanStep {
+	shown := map[string][]PlanStep{}
+	for _, message := range page.Messages {
+		for _, block := range message.Blocks {
+			if block.Kind == BlockCall {
+				shown[block.CallID] = block.Plan
+			}
+		}
+	}
+	return shown
+}
+
+// Newer Claude Code builds keep their checklist with TaskCreate, which adds
+// one task, and TaskUpdate, which changes one by its ID (#1669). The list
+// they build over several calls, across answers, reads as one plan at the
+// latest task call that ran, a deleted task off it and a renamed one by its
+// new words; every earlier task call, and one that failed, is its row, named
+// by the subject of the task it made or changed.
+func TestTaskCallsBuildOnePlanAtTheLatestThatRan(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	path := conversation(t, home,
+		prompted("u1", "Fix the swipe"),
+		answer("a1", "msg_1", useBlock("toolu_1", "TaskCreate", object{"subject": "Read the touch handlers", "description": "Find where a swipe starts", "activeForm": "Reading the touch handlers"})),
+		taskCreated("r1", "toolu_1", "1", "Read the touch handlers"),
+		answer("a2", "msg_1", useBlock("toolu_2", "TaskCreate", object{"subject": "Fix the swipe", "description": "Hand the swipe to the history", "activeForm": "Fixing the swipe"})),
+		taskCreated("r2", "toolu_2", "2", "Fix the swipe"),
+		answer("a3", "msg_1", useBlock("toolu_3", "TaskCreate", object{"subject": "Run the phone spec", "description": "The swipe spec on a phone", "activeForm": "Running the phone spec"})),
+		taskCreated("r3", "toolu_3", "3", "Run the phone spec"),
+		answer("a4", "msg_1", useBlock("toolu_4", "TaskCreate", object{"subject": "A note to drop", "description": "Dropped later", "activeForm": "Noting"})),
+		taskCreated("r4", "toolu_4", "4", "A note to drop"),
+		answer("a5", "msg_2", useBlock("toolu_5", "TaskUpdate", object{"taskId": "1", "status": "completed"})),
+		taskUpdated("r5", "toolu_5", "1"),
+		answer("a6", "msg_2", useBlock("toolu_6", "TaskUpdate", object{"taskId": "2", "status": "in_progress"})),
+		taskUpdated("r6", "toolu_6", "2"),
+		answer("a7", "msg_2", useBlock("toolu_7", "TaskUpdate", object{"taskId": "4", "status": "deleted"})),
+		taskUpdated("r7", "toolu_7", "4"),
+		answer("a8", "msg_2", useBlock("toolu_8", "TaskUpdate", object{"taskId": "3", "subject": "Run the phone and desktop specs"})),
+		taskUpdated("r8", "toolu_8", "3"),
+		answer("a9", "msg_2", useBlock("toolu_9", "TaskUpdate", object{"taskId": "2", "status": "completed"})),
+		failedResult("r9", "toolu_9", "<tool_use_error>InputValidationError: TaskUpdate failed due to the following issue:\nThe required parameter `taskId` is missing</tool_use_error>"),
+	)
+	reader := Reader{Home: home}
+
+	// Act
+	page, _, err := reader.MessagePage(path, -1)
+
+	// Assert
+	if err != nil || len(page.Messages) != 3 {
+		t.Fatalf("MessagePage = %+v, %v; want the prompt and two answers", page.Messages, err)
+	}
+	want := []PlanStep{{"Read the touch handlers", PlanCompleted}, {"Fix the swipe", PlanInProgress}, {"Run the phone and desktop specs", PlanPending}}
+	shown := plans(page)
+	for _, call := range []string{"toolu_1", "toolu_2", "toolu_3", "toolu_4", "toolu_5", "toolu_6", "toolu_7", "toolu_9"} {
+		if shown[call] != nil {
+			t.Errorf("call %s shows the plan %+v; want its row alone", call, shown[call])
+		}
+	}
+	if !reflect.DeepEqual(shown["toolu_8"], want) {
+		t.Errorf("the latest task call that ran shows %+v; want %+v", shown["toolu_8"], want)
+	}
+	subjects := map[string]string{}
+	for _, message := range page.Messages[1:] {
+		for _, block := range message.Blocks {
+			subjects[block.CallID] = block.Subject
+		}
+	}
+	wantSubjects := map[string]string{
+		"toolu_1": "Read the touch handlers", "toolu_2": "Fix the swipe", "toolu_3": "Run the phone spec", "toolu_4": "A note to drop",
+		"toolu_5": "Read the touch handlers", "toolu_6": "Fix the swipe", "toolu_7": "A note to drop", "toolu_8": "Run the phone and desktop specs", "toolu_9": "Fix the swipe",
+	}
+	if !reflect.DeepEqual(subjects, wantSubjects) {
+		t.Errorf("the task calls' rows read %v; want each its task's subject %v", subjects, wantSubjects)
+	}
+	if failed := page.Messages[2].Blocks[4]; failed.CallID != "toolu_9" || failed.State != CallFailed {
+		t.Errorf("the failed TaskUpdate = %+v; want its failed row", failed)
+	}
+}
+
+// A task call that did not run changes nothing: one that failed, was denied
+// or was interrupted is its row with its outcome, and the plan stays at the
+// task call before it, as Claude Code's list stayed as it was.
+func TestATaskCallThatDidNotRunLeavesThePlanWhereItWas(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		result object
+		state  string
+	}{
+		{"failed", failedResult("r2", "toolu_2", "<tool_use_error>Task not found</tool_use_error>"), CallFailed},
+		{"refused", answered("r2", "toolu_2", "Task #1 not found", object{"success": false, "taskId": "1", "updatedFields": []string{}, "error": "Task not found"}, nil), CallFailed},
+		{"denied", answered("r2", "toolu_2", "Permission for this action was denied.", "Error: Permission denied", object{"permissionDecision": object{"decision": "reject", "source": "config"}, "toolDenialKind": "automode-blocked"}), CallDenied},
+		{"interrupted", answered("r2", "toolu_2", "The user doesn't want to proceed with this tool use.", object{"interrupted": true}, object{"toolDenialKind": "interrupted"}), CallInterrupted},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			path := conversation(t, home,
+				answer("a1", "msg_1", useBlock("toolu_1", "TaskCreate", object{"subject": "Fix the swipe", "description": "Hand the swipe to the history"})),
+				taskCreated("r1", "toolu_1", "1", "Fix the swipe"),
+				answer("a2", "msg_1", useBlock("toolu_2", "TaskUpdate", object{"taskId": "1", "status": "completed"})),
+				test.result,
+			)
+			reader := Reader{Home: home}
+
+			// Act
+			page, _, err := reader.MessagePage(path, -1)
+
+			// Assert
+			if err != nil || len(page.Messages) != 1 || len(page.Messages[0].Blocks) != 2 {
+				t.Fatalf("MessagePage = %+v, %v; want one answer of two calls", page.Messages, err)
+			}
+			created, update := page.Messages[0].Blocks[0], page.Messages[0].Blocks[1]
+			if want := []PlanStep{{"Fix the swipe", PlanPending}}; !reflect.DeepEqual(created.Plan, want) {
+				t.Errorf("the TaskCreate shows %+v; want %+v", created.Plan, want)
+			}
+			if update.State != test.state || update.Plan != nil {
+				t.Errorf("the TaskUpdate = %+v; want its %s row", update, test.state)
+			}
+		})
+	}
+}
+
+// A list the conversation cannot know shows no plan, never a part of one: a
+// TaskUpdate of a task no call here made shows the list was made elsewhere,
+// and a TaskCreate whose result names no task leaves the list unreadable.
+func TestATaskListTheConversationCannotKnowShowsNoPlan(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		entries []any
+	}{
+		{"a task made elsewhere", []any{
+			answer("a1", "msg_1", useBlock("toolu_1", "TaskCreate", object{"subject": "Fix the swipe"})),
+			taskCreated("r1", "toolu_1", "2", "Fix the swipe"),
+			answer("a2", "msg_1", useBlock("toolu_2", "TaskUpdate", object{"taskId": "1", "status": "completed"})),
+			taskUpdated("r2", "toolu_2", "1"),
+		}},
+		{"a made task with no ID", []any{
+			answer("a1", "msg_1", useBlock("toolu_1", "TaskCreate", object{"subject": "Fix the swipe"})),
+			answered("r1", "toolu_1", "Task created", object{"success": true}, nil),
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			path := conversation(t, home, test.entries...)
+			reader := Reader{Home: home}
+
+			// Act
+			page, _, err := reader.MessagePage(path, -1)
+
+			// Assert
+			if err != nil || len(page.Messages) != 1 {
+				t.Fatalf("MessagePage = %+v, %v; want one answer", page.Messages, err)
+			}
+			for call, plan := range plans(page) {
+				if plan != nil {
+					t.Errorf("call %s shows the plan %+v; want none", call, plan)
+				}
+			}
+		})
+	}
+}
+
+// A long conversation's tail may begin after a task was made, so the page a
+// read of the tail serves shows no plan, and the read of the whole
+// conversation puts the whole list at its latest task call, a change a view
+// following the tail's page is sent.
+func TestATaskListShowsOnlyOnceTheWholeConversationIsRead(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	entries := []any{
+		prompted("u-first", "Plan the fix"),
+		answer("a1", "msg_first", useBlock("toolu_1", "TaskCreate", object{"subject": "Read the touch handlers"})),
+		taskCreated("r1", "toolu_1", "1", "Read the touch handlers"),
+	}
+	entries = append(entries, beyondTheTail()...)
+	entries = append(entries,
+		prompted("u-next", "Go on"),
+		answer("a2", "msg_next", useBlock("toolu_2", "TaskCreate", object{"subject": "Fix the swipe"})),
+		taskCreated("r2", "toolu_2", "2", "Fix the swipe"),
+	)
+	path := conversation(t, home, entries...)
+	reader := Reader{Home: home}
+	tail, cursor, err := reader.MessagePage(path, -1)
+	if err != nil || len(tail.Messages) != 2 || !tail.More {
+		t.Fatalf("MessagePage = %+v, %v; want the tail's prompt and answer, and more", tail.Messages, err)
+	}
+
+	// Act
+	_, _, olderErr := reader.MessagePage(path, tail.Messages[0].Seq)
+	changed, _, _, isAnew, sinceErr := reader.MessagesSince(path, cursor)
+	whole, _, wholeErr := reader.MessagePage(path, -1)
+
+	// Assert
+	if shown := plans(tail); shown["toolu_2"] != nil {
+		t.Errorf("the tail's page shows the plan %+v; want none until the whole conversation is read", shown["toolu_2"])
+	}
+	want := []PlanStep{{"Read the touch handlers", PlanPending}, {"Fix the swipe", PlanPending}}
+	if shown := plans(whole); olderErr != nil || wholeErr != nil || !reflect.DeepEqual(shown["toolu_2"], want) {
+		t.Errorf("the newest page once read whole shows %+v, %v, %v; want %+v", shown["toolu_2"], olderErr, wholeErr, want)
+	}
+	if sinceErr != nil || isAnew || len(changed) != 1 || changed[0].ID != "msg_next" || !reflect.DeepEqual(changed[0].Blocks[0].Plan, want) {
+		t.Errorf("MessagesSince the tail's page = %+v, anew %t, %v; want the answer with the plan", changed, isAnew, sinceErr)
 	}
 }

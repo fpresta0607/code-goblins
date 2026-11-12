@@ -17,7 +17,7 @@ export function useWindowMove(instance: string, connected: boolean, answering: (
     const look = () => {
       if (asked.current || !windowMayMove({ inWindow: inDesktopApp(), connected, answering: answering(), hidden: document.hidden })) return;
       asked.current = true;
-      request("/api/window/move", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ hidden: document.hidden }) }).catch(() => {});
+      request("/api/window/move", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ hidden: document.hidden }) }).catch(() => {});
     };
     look();
     document.addEventListener("visibilitychange", look);

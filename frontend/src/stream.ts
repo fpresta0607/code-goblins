@@ -1,7 +1,7 @@
 // Adapted from Cline Kanban use-runtime-state-stream.ts, Apache-2.0.
 // Copyright 2026 Cline Bot Inc. See public/assets/NOTICE.txt.
-// CFO changes: SSE snapshots and their changes, instance/revision fencing,
-// strict parsing, bounded retries, errors given to the CFO, and no
+// CEO changes: SSE snapshots and their changes, instance/revision fencing,
+// strict parsing, bounded retries, errors given to the CEO, and no
 // client-driven task progression.
 // After its first snapshot the supervisor sends only changes to it, the
 // Command Center's items the moment one changes among them, which the board
@@ -9,7 +9,7 @@
 // apart.
 import { useEffect, useState } from "react";
 import { object, parseReadings, parseSnapshot, type Snapshot } from "./types";
-import { knowInstance, message, reportToCfo } from "./api";
+import { knowInstance, message, reportToCeo } from "./api";
 import { applyChange } from "./snapshot-change";
 import { shared } from "./shared";
 
@@ -62,7 +62,7 @@ export function useRuntimeStream() {
           held = JSON.parse(event.data);
           take(held);
         } catch (error: unknown) {
-          reportToCfo("the board's snapshot stream", message(error));
+          reportToCeo("the board's snapshot stream", message(error));
           setConnection("Invalid stream");
         }
       });
@@ -74,7 +74,7 @@ export function useRuntimeStream() {
         } catch (error: unknown) {
           // What the board holds no longer matches what the stream goes on
           // from, so it opens the stream again for a whole snapshot.
-          reportToCfo("the board's snapshot stream", message(error));
+          reportToCeo("the board's snapshot stream", message(error));
           reconnect();
         }
       });
@@ -90,7 +90,7 @@ export function useRuntimeStream() {
           setSnapshot((current) => current && shared(current, { ...current, ...readings }));
           setReceivedAt(Date.now());
         } catch (error: unknown) {
-          reportToCfo("the board's snapshot stream", message(error));
+          reportToCeo("the board's snapshot stream", message(error));
           reconnect();
         }
       });

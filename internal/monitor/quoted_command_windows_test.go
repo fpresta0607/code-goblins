@@ -18,7 +18,7 @@ func TestScanIgnoresQuotedNativeCommandsAndKeepsGenuineFaults(t *testing.T) {
 		{"search header then auth", "• Ran rg -n \"invalid_api_key\" internal/routing\n  └ no matches", "401 Unauthorized: invalid api key", routing.Auth},
 		{"wrapped search then provider", "• Ran rg -n\n    \"invalid_api_key\"\n    internal/routing\n  └ no matches", "Error: 503 Service Unavailable", routing.Provider},
 		{"saved explanatory sentence then third party", "The saved rollout confirms that `invalid_api_key` was in an `rg -n` tool command.", "gh: 429 API rate limit exceeded for user", routing.ThirdParty},
-		{"constructed operator continuation then quota", "↳ CFO: Inspect the quoted search evidence.\n  invalid_api_key was a literal search token.", "API Error: 429 rate_limit_error: rate limit reached", routing.RateLimit},
+		{"constructed operator continuation then quota", "↳ CEO: Inspect the quoted search evidence.\n  invalid_api_key was a literal search token.", "API Error: 429 rate_limit_error: rate limit reached", routing.RateLimit},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			stateDir := t.TempDir()

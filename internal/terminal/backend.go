@@ -1,5 +1,5 @@
 // Package terminal names what the fleet needs from the program that hosts
-// its goblins' terminals, so the CFO's commands depend on that contract
+// its goblins' terminals, so the CEO's commands depend on that contract
 // rather than on one host. Herdr is the only backend today; the native ConPTY
 // host joins it behind this interface, side by side until it is proven.
 package terminal

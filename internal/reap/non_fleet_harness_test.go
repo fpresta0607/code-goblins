@@ -23,7 +23,7 @@ const (
 // gonePID is a parent that has exited: no row of any fixture carries it.
 const gonePID = 9999
 
-// On 2026-10-09 the sweep woke the CFO about every 20 minutes for a
+// On 2026-10-09 the sweep woke the CEO about every 20 minutes for a
 // short-lived codex.exe that was never the fleet's. A harness is the desktop
 // application's by where it runs from or by a living ancestor that runs from
 // there, and a gate agent's by a living no-mistakes above it, and neither is

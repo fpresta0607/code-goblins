@@ -1,7 +1,7 @@
 // Command goblins-window is the Code Goblins desktop window: a Wails window
-// around the board cfo serve already serves, with a tray icon, notifications,
+// around the board goblins serve already serves, with a tray icon, notifications,
 // one instance and start at login. It holds no engine logic, so closing it
-// leaves the supervisor, the CFO and every goblin running. Started with the
+// leaves the supervisor, the CEO and every goblin running. Started with the
 // board's address and the fleet's state folder it is the window; started with
 // neither, as the Start menu and Start at login start it, it asks the goblins
 // beside it, which finds or starts the supervisor, where the board is, and is
@@ -146,13 +146,14 @@ func main() {
 		// fatal one it exits on, go to the window's log.
 		ErrorHandler: func(err error) { log.Print(err) },
 		// What the board's page asks of the window: that it is there, each
-		// link it would open in a new tab, and each notification it raises.
+		// link it would open off the board, and each notification it raises.
+		// A link that cannot be opened is said in the page, with its address.
 		RawMessageHandler: func(_ application.Window, message string, sender *application.OriginInfo) {
 			if message == shownMessage && fromBoard(sender.Origin) {
 				page.Shown()
-			} else if address, ok := linkToOpen(message, sender.Origin); ok {
-				if err := openInBrowser(address); err != nil {
-					log.Printf("open %s in the browser: %v", address, err)
+			} else if script, isHandled := linkReply(message, sender.Origin, openInBrowser); isHandled {
+				if script != "" {
+					window.ExecJS(script)
 				}
 			} else if note, ok := noteToRaise(message, sender.Origin); ok && notifier != nil {
 				notifier.FromPage(note)

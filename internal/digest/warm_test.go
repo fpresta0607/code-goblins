@@ -351,7 +351,7 @@ func TestComposeUsesVerifiedWarmMemoryInsteadOfHistoricalRulings(t *testing.T) {
 	if !strings.Contains(output.String(), active) || strings.Contains(output.String(), history) {
 		t.Fatalf("startup did not select current authority independently of cold history: %s", output.String())
 	}
-	if !strings.Contains(output.String(), "cfo memory retrieve --project <name> --task <id> --topic <topic> --cold") || !strings.Contains(output.String(), "topic incident: history 1\n") {
+	if !strings.Contains(output.String(), "goblins memory retrieve --project <name> --task <id> --topic <topic> --cold") || !strings.Contains(output.String(), "topic incident: history 1\n") {
 		t.Fatalf("startup omitted the scope that retrieves the cold range: %s", output.String())
 	}
 	if output.Len() > 18000 {
@@ -473,7 +473,7 @@ func TestWarmStartupBoundsCanonicalStateWithoutAcknowledgingOmittedWakes(t *test
 	if err != nil || len(remaining) != 200 || output.Len() > 18000 {
 		t.Fatalf("state output=%d bytes, pending=%d, error=%v", output.Len(), len(remaining), err)
 	}
-	if !strings.Contains(output.String(), "cfo fleet-view") || !strings.Contains(output.String(), "cfo drain") {
+	if !strings.Contains(output.String(), "goblins fleet-view") || !strings.Contains(output.String(), "goblins drain") {
 		t.Fatal("bounded state omitted its canonical retrieval commands")
 	}
 }
@@ -577,7 +577,7 @@ func TestReadOnlyWarmPreviewUsesSelectiveRetrieval(t *testing.T) {
 	if err := ComposeBrief(h, 0, "read-only", false, false, &output); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "cfo memory retrieve") || strings.Contains(output.String(), "read "+filepath.Join(h.Data, "overlord.md")) {
+	if !strings.Contains(output.String(), "goblins memory retrieve") || strings.Contains(output.String(), "read "+filepath.Join(h.Data, "overlord.md")) {
 		t.Fatal("read-only startup selected the full history instead of selective retrieval")
 	}
 	if _, err := os.Stat(filepath.Join(h.State, FullDigestFile)); !os.IsNotExist(err) {
@@ -627,13 +627,13 @@ func TestBriefCallsMemoryVerifiedOnlyWhenItsCatalogValidates(t *testing.T) {
 			if err != nil || strings.Contains(output.String(), "MEMORY UNREADABLE: memory source overlord.md") != test.isCorrupt || hasVerifiedWording == test.isCorrupt {
 				t.Fatalf("preview memory claim does not match catalog validity (corrupt=%t): %v\n%s", test.isCorrupt, err, output.String())
 			}
-			// The contract names cfo memory sync as what derives the catalog
+			// The contract names goblins memory sync as what derives the catalog
 			// again once memory changed after it was written.
 			if test.isCorrupt {
 				_, diagnostic, _ := strings.Cut(output.String(), "MEMORY UNREADABLE: ")
 				diagnostic, _, _ = strings.Cut(diagnostic, "\n")
-				if !strings.Contains(diagnostic, "cfo memory sync") {
-					t.Fatalf("the diagnostic of memory changed after its catalog does not name cfo memory sync: %s", diagnostic)
+				if !strings.Contains(diagnostic, "goblins memory sync") {
+					t.Fatalf("the diagnostic of memory changed after its catalog does not name goblins memory sync: %s", diagnostic)
 				}
 			}
 		})

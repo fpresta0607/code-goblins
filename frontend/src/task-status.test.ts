@@ -23,11 +23,11 @@ const board = (task: Record<string, unknown>, available = 9): Snapshot => parseS
 const zane = (snapshot: Snapshot) => snapshot.tasks[0];
 
 for (const [phase, step, reason, runtime, text] of [
-  ["blocked", "rebase", "Pipeline decision required at rebase; use cfo pipeline respond", "busy", "Waiting on the CEO: rebase gate"],
-  ["blocked", "rebase", "Pipeline decision required at rebase; use cfo pipeline respond", "parked", "Waiting on the CEO: rebase gate"],
+  ["blocked", "rebase", "Pipeline decision required at rebase; use goblins pipeline respond", "busy", "Waiting on the CEO: rebase gate"],
+  ["blocked", "rebase", "Pipeline decision required at rebase; use goblins pipeline respond", "parked", "Waiting on the CEO: rebase gate"],
   ["review", "test", "Pipeline evidence is incomplete or belongs to a different HEAD", "busy", "In review gate: tests"],
   ["review", "test", "Pipeline evidence is incomplete or belongs to a different HEAD", "parked", "In review gate: tests"],
-  ["blocked", "test", "Waiting on the CFO: Which source should ship?", "busy", "Waiting on the CEO"],
+  ["blocked", "test", "Waiting on the CEO: Which source should ship?", "busy", "Waiting on the CEO"],
 ] as const) {
   test(`gate ${step}/${phase} keeps its gate status beside a ${runtime} terminal`, () => {
     const snapshot = board({ phase, gate_step: step, reason, report: "working", runtime: { state: runtime } });
@@ -42,9 +42,9 @@ for (const [phase, step, reason, runtime, text] of [
 for (const [name, reason, text] of [
   ["a gate", "Review gate needs approval before continuing", "Waiting on the CEO"],
   ["a dependency", "Wait for the dependency task to land before continuing", "Waiting on the CEO"],
-  ["the CEO", "Waiting on the CFO: Which dependency should land first?", "Waiting on the CEO"],
+  ["the CEO", "Waiting on the CEO: Which dependency should land first?", "Waiting on the CEO"],
 ]) {
-  test(`a blocked goblin awaiting ${name} reads Waiting on the CFO, who answers it, and keeps its reason and phase`, () => {
+  test(`a blocked goblin awaiting ${name} reads Waiting on the CEO, who answers it, and keeps its reason and phase`, () => {
     // Arrange
     const snapshot = board({ phase: "blocked", report: "blocked", reason });
     const task = zane(snapshot);
@@ -61,7 +61,7 @@ for (const [name, reason, text] of [
     assert.equal(task.phase, "blocked");
     assert.equal(task.reason, reason);
     assert.equal(summary.isFailure, false);
-    assert.ok([summary.sentence, ...summary.details].join(" ").includes(reason.replace("Waiting on the CFO: ", "")));
+    assert.ok([summary.sentence, ...summary.details].join(" ").includes(reason.replace("Waiting on the CEO: ", "")));
   });
 }
 
@@ -151,7 +151,7 @@ test("a Start that waits its turn for memory says when it starts, and stays in T
 
 test("a start that failed reads Start failed at a red dot, never a yellow one, and waits in Tasks for Start", () => {
   // Arrange
-  const snapshot = board({ phase: "queued", start_error: "cfo spawn: the brief names no project" });
+  const snapshot = board({ phase: "queued", start_error: "goblins spawn: the brief names no project" });
 
   // Act
   const status = taskStatus(zane(snapshot), snapshot);
@@ -162,12 +162,12 @@ test("a start that failed reads Start failed at a red dot, never a yellow one, a
 });
 
 test("a failed start's panel says nothing under it and keeps why behind Details", () => {
-  const snapshot = board({ phase: "queued", start_error: "cfo spawn: the brief names no project" });
-  assert.deepEqual(taskSummary(zane(snapshot), snapshot.tasks, "Start failed"), { sentence: "", details: ["cfo spawn: the brief names no project"], isFailure: false });
+  const snapshot = board({ phase: "queued", start_error: "goblins spawn: the brief names no project" });
+  assert.deepEqual(taskSummary(zane(snapshot), snapshot.tasks, "Start failed"), { sentence: "", details: ["goblins spawn: the brief names no project"], isFailure: false });
 });
 
 test("a new Start of a task whose last start failed reads Starting", () => {
-  const snapshot = board({ phase: "queued", start_error: "cfo spawn: no brief", starting: true, asked: true });
+  const snapshot = board({ phase: "queued", start_error: "goblins spawn: no brief", starting: true, asked: true });
   assert.deepEqual(taskStatus(zane(snapshot), snapshot), { text: "Starting", phase: "started" });
 });
 
@@ -275,6 +275,19 @@ test("a task with no terminal yet says its status where its terminal will be", (
 test("a task that closed its issue reads Done and stays in progress until cleanup retires it", () => {
   // Arrange
   const snapshot = board({ phase: "done", report: "done", reason: "closed https://github.com/o/r/issues/1450 (decision 7: Close it, no PR)", closed_issue: "https://github.com/o/r/issues/1450", runtime: { state: "idle" } });
+
+  // Act
+  const status = taskStatus(zane(snapshot), snapshot);
+
+  // Assert
+  assert.deepEqual(status, { text: "Done", phase: "done" });
+  assert.equal(taskColumn(zane(snapshot)), "In progress");
+});
+
+test("a local-only task that kept its report reads Done and stays in progress until cleanup retires it", () => {
+  // Arrange
+  const kept = "C:/home/data/zane/report.md";
+  const snapshot = board({ mode: "local-only", phase: "done", report: "done", reason: "report " + kept, kept_report: kept, runtime: { state: "idle" } });
 
   // Act
   const status = taskStatus(zane(snapshot), snapshot);

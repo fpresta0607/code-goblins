@@ -10,7 +10,7 @@ const memory = { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 *
 const marks = { floor: 15 * GB, wake: 10 * GB };
 // The home's drive alone, as on a machine without a Dev Drive, with free disk
 // well above the floor, under the floor where nothing starts, and under the
-// lower mark where the CFO is woken.
+// lower mark where the CEO is woken.
 const oneDrive = (free: number) => ({ drive: "C:", free, total: 953 * GB, ...marks, drives: [{ drive: "C:", free, total: 953 * GB }] });
 const states = {
   roomy: oneDrive(74 * GB),
@@ -24,7 +24,7 @@ const devDrive = { drive: "D:", free: 12.6 * GB, total: 200 * GB, dev_drive: tru
 const twoDrives = { ...devDrive, ...marks, drives: [home, devDrive] };
 
 async function board(page: Page, disk: object, shown: object[] = tasks) {
-  const snapshot = { instance: "disk-fixture", revision: 1, healthy: true, cfo_runs: true, attention: [], memory, disk, tasks: shown };
+  const snapshot = { instance: "disk-fixture", revision: 1, healthy: true, ceo_runs: true, attention: [], memory, disk, tasks: shown };
   await page.route("**/api/**", async (route) => {
     if (new URL(route.request().url()).pathname === "/api/events") {
       await route.fulfill({ contentType: "text/event-stream", body: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` });
@@ -64,13 +64,13 @@ async function layout(column: ReturnType<Page["getByRole"]>) {
 }
 
 // The Overlord's window: 2560 by 1600 at 150 percent, so 1707 CSS pixels wide,
-// with the CFO's panel open beside the board.
-test.describe("in the Overlord's window, 1707 px wide with the CFO's panel open", () => {
+// with the CEO's panel open beside the board.
+test.describe("in the Overlord's window, 1707 px wide with the CEO's panel open", () => {
   test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
 
   for (const [state, disk] of Object.entries(states)) {
     test(`free disk ${state === "roomy" ? "above the floor" : state === "floor" ? "under the floor" : "under the wake mark"} shows under memory in the same box`, async ({ page }, testInfo) => {
-      // Arrange: the CFO's own panel, on its Task view, beside the board.
+      // Arrange: the CEO's own panel, on its Task view, beside the board.
       const column = await board(page, disk);
       await page.keyboard.press("Control+Alt+1");
       await openTaskList(page);

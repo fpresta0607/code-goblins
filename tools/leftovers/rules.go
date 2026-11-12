@@ -10,7 +10,7 @@ import (
 // PowerShell, .NET, git, Codex and the runner's own programs write by
 // themselves while the install, the session and the uninstall run. Each is
 // as narrow as it can be, since a rule that passes over too much passes over
-// a leftover too. Nothing whose path names Code Goblins or cfo is ever noise,
+// a leftover too. Nothing whose path names Code Goblins or ceo is ever noise,
 // wherever it is.
 func noise() []rule {
 	local, roaming, profile := os.Getenv("LOCALAPPDATA"), os.Getenv("APPDATA"), os.Getenv("USERPROFILE")
@@ -116,7 +116,7 @@ func noise() []rule {
 		keys(`HKCU\Software\Microsoft\IdentityCRL`, "Windows' sign-in records"),
 		// In run 38978481733 four of five jobs' runners held this credential
 		// before the install began and the fifth came to hold it during its
-		// job. Code Goblins writes only credentials named cfo:.
+		// job. Code Goblins writes only credentials named ceo:.
 		{kind: kindCredential, change: changeLeft, pattern: regexp.MustCompile(`(?i)^WindowsLive:target=virtualapp/didlogical$`), why: "the credential Windows' own Microsoft account and Live sign-in write for the profile by themselves, at a time of their own"},
 		keys(`HKCU\Software\Microsoft\EdgeWebView`, "the WebView2 runtime's own state, which every program that shows a web page writes"),
 		keys(`HKCU\Software\Microsoft\EdgeUpdate`, "the WebView2 runtime's own update state"),
@@ -135,4 +135,4 @@ func noise() []rule {
 // or what it held or holds, such as a registry value naming a program, names
 // Code Goblins or its programs. A thing that went is passed over by its rule
 // all the same, unless the rule is strict.
-var excepted = regexp.MustCompile(`(?i)goblin|cfo`)
+var excepted = regexp.MustCompile(`(?i)goblin|ceo`)

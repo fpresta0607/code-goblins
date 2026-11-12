@@ -24,12 +24,12 @@ func gitInit(t *testing.T, dir string) {
 }
 
 func TestResolveDefaultsToThePerUserHome(t *testing.T) {
-	// Arrange: a goblin pane exports CFO_STATE_OVERRIDE, so the defaults this
+	// Arrange: a goblin pane exports GOBLINS_STATE_OVERRIDE, so the defaults this
 	// test asserts only hold once that inherited value is cleared too.
 	local := t.TempDir()
 	t.Setenv("LOCALAPPDATA", local)
-	t.Setenv("CFO_HOME", "")
-	t.Setenv("CFO_STATE_OVERRIDE", "")
+	t.Setenv("GOBLINS_HOME", "")
+	t.Setenv("GOBLINS_STATE_OVERRIDE", "")
 	t.Chdir(t.TempDir())
 
 	// Act
@@ -53,20 +53,20 @@ func TestResolveDefaultsToThePerUserHome(t *testing.T) {
 	}
 }
 
-func TestResolveWithoutLocalAppDataOrCFOHomeIsRefused(t *testing.T) {
+func TestResolveWithoutLocalAppDataOrCEOHomeIsRefused(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", "")
-	t.Setenv("CFO_HOME", "")
-	t.Setenv("CFO_STATE_OVERRIDE", "")
+	t.Setenv("GOBLINS_HOME", "")
+	t.Setenv("GOBLINS_STATE_OVERRIDE", "")
 	if h, err := Resolve(); err == nil {
-		t.Fatalf("Resolve = %+v, want a refusal naming CFO_HOME", h)
+		t.Fatalf("Resolve = %+v, want a refusal naming GOBLINS_HOME", h)
 	}
 }
 
 func TestResolveHonorsEnvOverrides(t *testing.T) {
 	root := t.TempDir()
 	stateDir := t.TempDir()
-	t.Setenv("CFO_HOME", root)
-	t.Setenv("CFO_STATE_OVERRIDE", stateDir)
+	t.Setenv("GOBLINS_HOME", root)
+	t.Setenv("GOBLINS_STATE_OVERRIDE", stateDir)
 	h, err := Resolve()
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
@@ -95,7 +95,7 @@ func TestIsPrimaryRequiresAllThree(t *testing.T) {
 		t.Fatal(err)
 	}
 	if IsPrimary(h) {
-		t.Error("primary without the marker cfo install writes")
+		t.Error("primary without the marker goblins install writes")
 	}
 	if err := os.WriteFile(filepath.Join(dir, InstalledMarker), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
@@ -186,7 +186,7 @@ func TestIsPrimaryOutsideGitNeedsTheInstalledMarker(t *testing.T) {
 	if IsPrimary(h) {
 		t.Error("primary outside a git checkout")
 	}
-	// A home cfo install set up outside a checkout carries the marker, and is
+	// A home goblins install set up outside a checkout carries the marker, and is
 	// primary by it alone.
 	if err := os.WriteFile(filepath.Join(dir, InstalledMarker), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
@@ -196,7 +196,7 @@ func TestIsPrimaryOutsideGitNeedsTheInstalledMarker(t *testing.T) {
 	}
 }
 
-// IsPrimary runs in the CFO's hooks on every tool call they select, so it
+// IsPrimary runs in the CEO's hooks on every tool call they select, so it
 // reads the checkout from its files and starts no git process: with nothing
 // on PATH it tells a plain checkout, a folder inside one, a linked worktree
 // and a home outside any repository apart exactly as git does.
@@ -267,9 +267,9 @@ func TestIsPrimaryNeverCreates(t *testing.T) {
 }
 
 // The guard that keeps a test suite off the machine's own fleet. A goblin
-// pane exports CFO_HOME and CFO_STATE_OVERRIDE, go test inherits both, and a
+// pane exports GOBLINS_HOME and GOBLINS_STATE_OVERRIDE, go test inherits both, and a
 // test that resolves either writes into the running fleet. This has happened
-// twice; the second time a test's PR notification reached the CFO as a real
+// twice; the second time a test's PR notification reached the CEO as a real
 // goblin report.
 func TestResolveRefusesTheInheritedFleetHome(t *testing.T) {
 	fleet := t.TempDir()
@@ -282,34 +282,34 @@ func TestResolveRefusesTheInheritedFleetHome(t *testing.T) {
 	defer restoreInherited(inheritedRoot, inheritedState)
 	inheritedRoot, inheritedState = fleet, fleetState
 
-	t.Run("a test that inherits CFO_HOME", func(t *testing.T) {
-		t.Setenv("CFO_HOME", fleet)
-		t.Setenv("CFO_STATE_OVERRIDE", "")
+	t.Run("a test that inherits GOBLINS_HOME", func(t *testing.T) {
+		t.Setenv("GOBLINS_HOME", fleet)
+		t.Setenv("GOBLINS_STATE_OVERRIDE", "")
 		if h, err := Resolve(); err == nil {
 			t.Fatalf("Resolve = %+v, want a refusal rather than the inherited fleet home", h)
 		}
 	})
 
-	// The dangerous one: CFO_STATE_OVERRIDE wins over CFO_HOME, so a test that
-	// carefully points CFO_HOME at its own directory still writes its status
+	// The dangerous one: GOBLINS_STATE_OVERRIDE wins over GOBLINS_HOME, so a test that
+	// carefully points GOBLINS_HOME at its own directory still writes its status
 	// and wake records into the fleet unless the override is cleared too.
-	t.Run("a test that sets CFO_HOME but inherits the state override", func(t *testing.T) {
-		t.Setenv("CFO_HOME", t.TempDir())
-		t.Setenv("CFO_STATE_OVERRIDE", fleetState)
+	t.Run("a test that sets GOBLINS_HOME but inherits the state override", func(t *testing.T) {
+		t.Setenv("GOBLINS_HOME", t.TempDir())
+		t.Setenv("GOBLINS_STATE_OVERRIDE", fleetState)
 		if h, err := Resolve(); err == nil {
 			t.Fatalf("Resolve = %+v, want a refusal rather than the inherited fleet state", h)
 		}
 	})
 
-	// With CFO_HOME cleared a home resolves to the per-user one, which on an
+	// With GOBLINS_HOME cleared a home resolves to the per-user one, which on an
 	// installed machine is the running fleet.
-	t.Run("a test that clears CFO_HOME and keeps the machine's LOCALAPPDATA", func(t *testing.T) {
+	t.Run("a test that clears GOBLINS_HOME and keeps the machine's LOCALAPPDATA", func(t *testing.T) {
 		defer restoreInheritedDefault(inheritedDefault)
 		local := t.TempDir()
 		t.Setenv("LOCALAPPDATA", local)
 		inheritedDefault = filepath.Join(local, "CodeGoblins")
-		t.Setenv("CFO_HOME", "")
-		t.Setenv("CFO_STATE_OVERRIDE", "")
+		t.Setenv("GOBLINS_HOME", "")
+		t.Setenv("GOBLINS_STATE_OVERRIDE", "")
 		if h, err := Resolve(); err == nil {
 			t.Fatalf("Resolve = %+v, want a refusal rather than the inherited per-user home", h)
 		}
@@ -327,8 +327,8 @@ func TestResolveRefusesTheInheritedFleetHome(t *testing.T) {
 		if err := os.Mkdir(filepath.Join(own, "state"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		t.Setenv("CFO_HOME", own)
-		t.Setenv("CFO_STATE_OVERRIDE", "")
+		t.Setenv("GOBLINS_HOME", own)
+		t.Setenv("GOBLINS_STATE_OVERRIDE", "")
 		if _, err := Resolve(); err != nil {
 			t.Fatalf("Resolve on the test's own home: %v, want it to work", err)
 		}
@@ -371,8 +371,8 @@ func TestResolvePutsWorktreesScratchAndCachesOnTheDevDrive(t *testing.T) {
 	root := t.TempDir()
 	drive := filepath.Join(t.TempDir(), "CodeGoblins")
 	writeDevDriveConfig(t, root, `{"root": `+jsonString(drive)+`}`)
-	t.Setenv("CFO_HOME", root)
-	t.Setenv("CFO_STATE_OVERRIDE", "")
+	t.Setenv("GOBLINS_HOME", root)
+	t.Setenv("GOBLINS_STATE_OVERRIDE", "")
 
 	// Act
 	h, err := Resolve()
@@ -404,8 +404,8 @@ func TestResolveWithoutADevDriveKeepsEverythingInTheHome(t *testing.T) {
 			if config != "" {
 				writeDevDriveConfig(t, root, config)
 			}
-			t.Setenv("CFO_HOME", root)
-			t.Setenv("CFO_STATE_OVERRIDE", "")
+			t.Setenv("GOBLINS_HOME", root)
+			t.Setenv("GOBLINS_STATE_OVERRIDE", "")
 
 			// Act
 			h, err := Resolve()
@@ -432,8 +432,8 @@ func TestResolveRefusesADevDriveFileThatDoesNotMeanAFolder(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
 			writeDevDriveConfig(t, root, config)
-			t.Setenv("CFO_HOME", root)
-			t.Setenv("CFO_STATE_OVERRIDE", "")
+			t.Setenv("GOBLINS_HOME", root)
+			t.Setenv("GOBLINS_STATE_OVERRIDE", "")
 			if h, err := Resolve(); err == nil || !strings.Contains(err.Error(), DevDriveFile) {
 				t.Fatalf("Resolve = %+v, %v; want a refusal naming %s", h, err, DevDriveFile)
 			}
@@ -480,10 +480,10 @@ func TestProgramsIsWhereTheHomeKeepsItsBuild(t *testing.T) {
 		files []string
 		want  string
 	}{
-		{"a home set up with bin", []string{`bin\cfo.exe`, `bin\goblins.exe`}, BinDir},
-		{"a home set up before bin", []string{`cfo.exe`, `goblins.exe`}, "."},
-		{"a home before bin whose bin holds only the window", []string{`cfo.exe`, `goblins.exe`, `bin\goblins-window.exe`}, "."},
-		{"a home an install laid out over one before bin", []string{`cfo.exe`, `goblins.exe`, `bin\cfo.exe`, `bin\goblins.exe`}, BinDir},
+		{"a home set up with bin", []string{`bin\goblins.exe`}, BinDir},
+		{"a home set up before bin", []string{`goblins.exe`}, "."},
+		{"a home before bin whose bin holds only the window", []string{`goblins.exe`, `bin\goblins-window.exe`}, "."},
+		{"a home an install laid out over one before bin", []string{`goblins.exe`, `bin\goblins.exe`}, BinDir},
 		{"a home with no build yet", nil, BinDir},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -527,8 +527,8 @@ func TestWriteDevDriveConfigRoundTripsWhatResolveReads(t *testing.T) {
 	if err != nil || config.Root != drive || !config.MovedAt.Equal(moved) {
 		t.Fatalf("read back %+v, %v; want %s moved at %s", config, err, drive, moved)
 	}
-	t.Setenv("CFO_HOME", root)
-	t.Setenv("CFO_STATE_OVERRIDE", "")
+	t.Setenv("GOBLINS_HOME", root)
+	t.Setenv("GOBLINS_STATE_OVERRIDE", "")
 	if h, err := Resolve(); err != nil || h.DevDrive != drive {
 		t.Errorf("Resolve = %+v, %v; want its Dev Drive folder %s", h, err, drive)
 	}

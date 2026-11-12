@@ -17,7 +17,7 @@ import (
 // Overlord, and reads a checkout's remotes with git (Commands).
 //
 // A read is one GraphQL query (about three points of the hourly budget every
-// goblin, gate and the CFO share), more pages of the same query only for a
+// goblin, gate and the CEO share), more pages of the same query only for a
 // connection that has them, and REST calls only for a pull request with more
 // than a hundred files or a teammate's recent branch that no pull request
 // heads.

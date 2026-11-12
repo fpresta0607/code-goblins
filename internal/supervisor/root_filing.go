@@ -19,8 +19,8 @@ const (
 )
 
 // fileFoundRoot files root on the repository of project, a name or a path,
-// away from the loop that found it, through the same path and screen as cfo
-// issue file. A filing that fails tells the CFO once, as a wake keyed by the
+// away from the loop that found it, through the same path and screen as goblins
+// issue file. A filing that fails tells the CEO once, as a wake keyed by the
 // root, and never goes back through publish, where it would be an error
 // that files itself.
 func (s *Service) fileFoundRoot(project string, root tickets.Root) {
@@ -32,7 +32,7 @@ func (s *Service) fileFoundRoot(project string, root tickets.Root) {
 		ctx, cancel := context.WithTimeout(context.Background(), rootFilingWithin)
 		defer cancel()
 		if _, err := file(ctx, project, root); err != nil {
-			detail := "root_unfiled: " + bounded(root.Title, 200) + " was not filed: " + bounded(err.Error(), 400) + "; next: file it with cfo issue file, written for its repository"
+			detail := "root_unfiled: " + bounded(root.Title, 200) + " was not filed: " + bounded(err.Error(), 400) + "; next: file it with goblins issue file, written for its repository"
 			if err := raiseFleetWake(s.Store.Home.State, "check", "root:"+bounded(root.RootKey(), 100), detail); err != nil {
 				s.publish(err)
 			}

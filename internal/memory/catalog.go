@@ -516,7 +516,7 @@ func (catalog Catalog) writePreamble(output *strings.Builder) {
 		output.WriteString("MEMORY SOURCES ABSENT: no governed source files; no authority was assumed read.\n")
 	}
 	for _, layer := range catalog.Layers {
-		fmt.Fprintf(output, "Memory tier %s owns %s; owner=%s\nCapture: %s\nCorrections: %s\nIf unreachable, keep pending capture explicit in warm memory and report it to the CFO.\n", layer.Name, strings.Join(layer.Classes, ", "), layer.Owner, layer.Capture, layer.Correction)
+		fmt.Fprintf(output, "Memory tier %s owns %s; owner=%s\nCapture: %s\nCorrections: %s\nIf unreachable, keep pending capture explicit in warm memory and report it to the CEO.\n", layer.Name, strings.Join(layer.Classes, ", "), layer.Owner, layer.Capture, layer.Correction)
 	}
 }
 
@@ -541,7 +541,7 @@ func (catalog Catalog) Routes(limit int) string {
 		}
 	}
 	if left > 0 {
-		fmt.Fprintf(&output, "%d additional cold routes: cfo memory routes lists all.\n", left)
+		fmt.Fprintf(&output, "%d additional cold routes: goblins memory routes lists all.\n", left)
 	}
 	return output.String()
 }

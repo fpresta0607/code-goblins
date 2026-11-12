@@ -18,14 +18,14 @@ const GOBLIN = {
 };
 const CODEX = { id: "cg-codex", title: "A Codex task", project: "code-goblins", phase: "working", verified: false, generation: "cg-codex-1", harness: "codex", backend: "native", since: at };
 const PI = { id: "cg-pi", title: "A pi task", goblin_name: "Pia", goblin_title: "Pi Pilot", project: "code-goblins", phase: "working", verified: false, generation: "cg-pi-1", harness: "pi", backend: "native", since: at };
-const SNAPSHOT = { healthy: true, instance: "fixture", revision: 1, attention: [], cfo_runs: true, cfo_terminal: "cfo-term", cfo_harness: "claude", afk: { state: "off" }, tasks: [GOBLIN, CODEX, PI], actions: [] };
+const SNAPSHOT = { healthy: true, instance: "fixture", revision: 1, attention: [], ceo_runs: true, ceo_terminal: "ceo-term", ceo_harness: "claude", afk: { state: "off" }, tasks: [GOBLIN, CODEX, PI], actions: [] };
 
 const message = (seq: number, fields: Record<string, unknown>) => ({ id: "m" + seq, seq, at, kind: "prompt", ...fields });
 const reply = (seq: number, ...blocks: Record<string, unknown>[]) => message(seq, { kind: "reply", blocks });
 
 // The goblin's conversation, one of every kind of message the view draws.
 const TALK = [
-  message(0, { source: "cfo", text: "Read the brief at brief.md and follow it exactly." }),
+  message(0, { source: "ceo", text: "Read the brief at brief.md and follow it exactly." }),
   reply(1, { kind: "text", text: "I'll read the brief, then the phone terminal code." }, { kind: "call", tool: "Read", subject: "frontend/src/terminalView.ts", state: "done", result: "1\timport { Terminal } from \"@xterm/xterm\";" }),
   reply(2, { kind: "thinking", text: "The swipe lands on the text box." },
     { kind: "text", text: "**Found the scroll bug.** On a touch screen the text box lies over the whole screen.\n\n- Hand a vertical swipe to the history\n- Keep a long press for Paste\n\n```ts\nconst swipe = true;\n```\n\n| Item | State |\n| --- | --- |\n| S11 | fixed |" },
@@ -41,12 +41,16 @@ const TALK = [
   reply(10, { kind: "text", text: "That matches. Running the phone spec now." }, { kind: "call", tool: "Bash", subject: "npx playwright test phone-paste.spec.ts", state: "running" }, { kind: "call", tool: "Read", subject: "missing.ts", state: "failed", result: "Error: File does not exist." }),
 ];
 
-// The CFO's conversation, long enough to read up in: its newest page here,
+// The CEO's conversation, long enough to read up in: its newest page here,
 // and the page before it on request.
 const exchange = (seq: number) => seq % 2
   ? reply(seq, { kind: "text", text: `Answer ${seq}\n\nIt runs over a few lines\nso the page has height to read up in.` })
   : message(seq, { source: "overlord", text: "Question " + seq });
 const range = (from: number, to: number) => Array.from({ length: to - from }, (_, at) => exchange(from + at));
+// The same message, several lines longer than it was.
+const grown = (seq: number) => seq % 2
+  ? reply(seq, { kind: "text", text: `Answer ${seq}\n\nnow\nmuch\nlonger\nthan\nit\nwas` })
+  : message(seq, { source: "overlord", text: `Question ${seq}\nnow\nmuch\nlonger\nthan\nit\nwas` });
 const NEWEST = { messages: range(50, 100), conversation: "fixture-conversation", more: true };
 const OLDER = { messages: range(0, 50), conversation: "fixture-conversation", more: false };
 
@@ -66,7 +70,7 @@ interface Board {
 // stays connecting, as a long replay on a loaded machine keeps it.
 async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<Board> {
   const board: Board = { resizes: [], older: [], say: () => {}, sayTo: async () => {} };
-  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
   // No WebGL, so a baby goblin's terminal draws its text with xterm's DOM
   // renderer, where a test reads it.
   await page.addInitScript(() => {
@@ -81,10 +85,10 @@ async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<B
     // and a baby goblin's output. A test sends a message stream an event. A
     // message stream says alive every five seconds, as the supervisor's does
     // while it has nothing to send, until a test makes the streams fall
-    // silent (fixtureSilent); a CFO stream opened after a test set
-    // fixtureCfoPage begins with that page.
+    // silent (fixtureSilent); a CEO stream opened after a test set
+    // fixtureCeoPage begins with that page.
     const streams: { url: URL; source: EventTarget & { readyState: number } }[] = [];
-    const fixture = window as unknown as { fixtureSilent?: boolean; fixtureCfoPage?: unknown };
+    const fixture = window as unknown as { fixtureSilent?: boolean; fixtureCeoPage?: unknown };
     Object.assign(window, { messageStreams: streams });
     // The board's own stream is separate, so a test can send it a snapshot
     // without counting it among the message streams.
@@ -121,7 +125,7 @@ async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<B
             const { type, data } = event.detail as { type: string; data: unknown };
             this.say(type, data);
           });
-          const page = url.searchParams.get("cfo") ? fixture.fixtureCfoPage ?? pages.cfo : pages.goblin;
+          const page = url.searchParams.get("ceo") ? fixture.fixtureCeoPage ?? pages.ceo : pages.goblin;
           this.held = page as { conversation?: string };
           this.newest = ((page as { messages?: { seq?: number }[] }).messages ?? []).reduce((newest, message) => Math.max(newest, message.seq ?? 0), 0);
           send("page", page);
@@ -139,7 +143,7 @@ async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<B
       // A snapshot goes to the board alone, which is where a test changes it.
       if (type === "snapshot") for (const source of boards) if (source.readyState === 1) source.dispatchEvent(new MessageEvent(type, { data: JSON.stringify(data) }));
     });
-  }, { snapshot: JSON.stringify(SNAPSHOT), pages: { cfo: NEWEST, goblin: { messages: TALK, conversation: "fixture-conversation", more: false } } });
+  }, { snapshot: JSON.stringify(SNAPSHOT), pages: { ceo: NEWEST, goblin: { messages: TALK, conversation: "fixture-conversation", more: false } } });
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/messages" && url.searchParams.get("token") === "fixture" && url.searchParams.get("picture") === "pic1") await route.fulfill({ body: PNG, contentType: "image/png" });
@@ -158,7 +162,7 @@ async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<B
     speaker.send(JSON.stringify(message));
   };
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
-    // A task's terminal is keyed by its task; the CFO's names no task, so it is
+    // A task's terminal is keyed by its task; the CEO's names no task, so it is
     // keyed by the empty name a test asks for.
     const owner = new URL(socket.url()).searchParams.get("task") || "";
     const speaker = { send: (text: string) => socket.send(text) };
@@ -193,10 +197,10 @@ const clipboard = async (page: Page) => (await page.evaluate(() => navigator.cli
 const streams = (page: Page) => page.evaluate(() => (window as unknown as { messageStreams: unknown[] }).messageStreams.length);
 const olderPage = (url: URL) => url.pathname === "/api/messages" && url.searchParams.has("before");
 
-// The switch key reaches the CFO only once the board shows the supervisor's
+// The switch key reaches the CEO only once the board shows the supervisor's
 // snapshot, which after a reload can come after the page has loaded, and a
 // key pressed before it is lost (#1546).
-async function openCfo(page: Page) {
+async function openCeo(page: Page) {
   await expect(page.locator(".board-column").first()).toBeVisible();
   await page.keyboard.press("Control+Alt+1");
   await expect(page.locator("#panel-title")).toHaveText("CEO");
@@ -234,6 +238,12 @@ async function settled(board: Board, before: number): Promise<number> {
 const moved = async (box: Locator, id: string, was: number) => Math.abs(await offset(box, id) - was);
 const offset = (box: Locator, id: string) => box.evaluate((element, id) => element.querySelector(`[data-message="${id}"]`)!.getBoundingClientRect().top - element.getBoundingClientRect().top, id);
 const scroll = (box: Locator) => box.evaluate((element) => ({ top: element.scrollTop, end: element.scrollHeight - element.clientHeight }));
+// How far the list reaches below where he reads, which only what is drawn
+// below him changes. The list's end alone also moves once his scroll comes to
+// rest, as the room above the rows drawn gives what it lent them back to the
+// scroll position, which moves the end and the scroll top together and none
+// of the rows (#1667).
+const below = async (box: Locator) => { const { top, end } = await scroll(box); return end - top; };
 const scrollTo = (box: Locator, top: number) => box.evaluate((element, top) => new Promise<void>((done) => {
   element.addEventListener("scroll", () => done(), { once: true });
   element.scrollTop = top;
@@ -259,7 +269,7 @@ async function readingAt(box: Locator): Promise<{ read: string; before: number }
 test("Claude Code and Codex panels show their messages in the same Modern view", async ({ page }) => {
   await open(page);
 
-  await openCfo(page);
+  await openCeo(page);
   await expect(pill(page)).toHaveCount(0);
   await expect(list(page, "CEO")).toBeVisible();
   await openGoblin(page);
@@ -279,7 +289,7 @@ test("the Messages view draws the conversation as the session recorded it, under
   await expect(talk).toBeVisible();
   await expect(page.locator(".panel-header.one-row")).toHaveCount(1);
   await expect(talk.locator(".message-from")).toHaveCount(0);
-  await expect(talk.locator(".message-prompt.cfo .message-bubble")).toHaveText("Read the brief at brief.md and follow it exactly.");
+  await expect(talk.locator(".message-prompt.ceo .message-bubble")).toHaveText("Read the brief at brief.md and follow it exactly.");
   await expect(talk.locator("strong").filter({ hasText: "Found the scroll bug." })).toBeVisible();
   await expect(talk.locator(".message-words li")).toHaveText(["Hand a vertical swipe to the history", "Keep a long press for Paste"]);
   await expect(talk.locator(".message-code pre")).toHaveText("const swipe = true;");
@@ -329,7 +339,7 @@ test("a baby goblin's row opens that baby goblin's own terminal", async ({ page 
 
 test("a message that changes takes its place, and a new one shows at the end he reads", async ({ page }) => {
   await open(page);
-  await openCfo(page);
+  await openCeo(page);
   const talk = list(page, "CEO");
   await expect(talk).toContainText("Answer 99");
   await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
@@ -344,18 +354,25 @@ test("a message that changes takes its place, and a new one shows at the end he 
 
 test("reading up, new and changed messages move nothing, and Jump to latest returns to the end", async ({ page }) => {
   await open(page);
-  await openCfo(page);
+  await openCeo(page);
   const talk = list(page, "CEO");
   await expect(talk).toContainText("Answer 99");
   const { end } = await scroll(talk);
   await scrollTo(talk, Math.round(end / 2));
   const { read, before } = await readingAt(talk);
-  const { end: was } = await scroll(talk);
+  const was = await below(talk);
+  // His scroll comes to rest between the two reads of the room below him, as
+  // it did on a loaded runner (#1667).
+  await page.waitForTimeout(400);
 
-  // One message above where he reads grows, and two arrive below it.
-  await sendMessages(page, [{ ...exchange(51), blocks: [{ kind: "text", text: "Answer 51\n\nnow\nmuch\nlonger\nthan\nit\nwas" }] }, exchange(100), exchange(101)]);
+  // A message above the rows drawn grows, and one drawn just above where he
+  // reads, and two arrive below it.
+  const drawnAbove = Number(read.slice(1)) - 2;
+  await expect(talk.locator('[data-message="m51"]')).toHaveCount(0);
+  await expect(talk.locator(`[data-message="m${drawnAbove}"]`)).toHaveCount(1);
+  await sendMessages(page, [grown(51), grown(drawnAbove), exchange(100), exchange(101)]);
 
-  expect((await scroll(talk)).end, "pending messages leave the displayed history's room unchanged").toBe(was);
+  expect(Math.abs(await below(talk) - was), "pending messages leave the displayed history's room unchanged").toBeLessThan(2);
   await expect.poll(() => moved(talk, read, before)).toBeLessThan(2);
   await page.getByRole("button", { name: "Jump to latest" }).click();
   await expect(talk.locator("[data-message]").last()).toContainText("Answer 101");
@@ -368,16 +385,16 @@ test("reading up, new and changed messages move nothing, and Jump to latest retu
 test("Jump to latest lands at the end of a reply taller than its estimate that arrived while he read up", async ({ page }) => {
   // Arrange
   await open(page);
-  await openCfo(page);
+  await openCeo(page);
   const talk = list(page, "CEO");
   await expect(talk).toContainText("Answer 99");
   await scrollTo(talk, Math.round((await scroll(talk)).end / 2));
   const jump = page.getByRole("button", { name: "Jump to latest" });
   await expect(jump).toBeVisible();
-  const { end: was } = await scroll(talk);
+  const was = await below(talk);
   const findings = Array.from({ length: 30 }, (_, at) => `Finding ${at + 1} of the review`);
   await sendMessages(page, [reply(100, { kind: "text", text: ["Answer 100", ...findings].join("\n\n") })]);
-  expect((await scroll(talk)).end).toBe(was);
+  expect(Math.abs(await below(talk) - was)).toBeLessThan(2);
 
   // Act
   await jump.click();
@@ -398,7 +415,7 @@ test("older messages are read a page at a time as he reads up, and his place is 
     await held;
     await route.fallback();
   });
-  await openCfo(page);
+  await openCeo(page);
   const talk = list(page, "CEO");
   await expect(talk).toContainText("Answer 99");
   expect(board.older, "nothing older is read while he reads the end").toEqual([]);
@@ -421,7 +438,7 @@ test("older messages are read a page at a time as he reads up, and his place is 
   await expect(talk.locator("[data-message]").last()).toContainText("Answer 101");
 });
 
-test("an older page that fails to arrive goes to the CFO and is asked for again on his next approach to the top five seconds later", async ({ page }) => {
+test("an older page that fails to arrive goes to the CEO and is asked for again on his next approach to the top five seconds later", async ({ page }) => {
   await page.clock.install();
   const board = await open(page);
   let failures = 0;
@@ -430,10 +447,10 @@ test("an older page that fails to arrive goes to the CFO and is asked for again 
     failures++;
     await route.fulfill({ status: 503, json: { error: "The supervisor is restarting" } });
   });
-  await openCfo(page);
+  await openCeo(page);
   const talk = list(page, "CEO");
   await expect(talk).toContainText("Answer 99");
-  const reported = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/cfo/report");
+  const reported = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/ceo/report");
 
   await scrollTo(talk, 0);
   await reported;
@@ -451,10 +468,10 @@ test("an older page that fails to arrive goes to the CFO and is asked for again 
 });
 
 // Shift+Escape goes to the panel's first control, never to the AFK switch
-// that leads the CFO's, where a Space would turn AFK off with no question.
+// that leads the CEO's, where a Space would turn AFK off with no question.
 test("Shift with Page Up and Page Down scrolls the messages, Shift+Escape goes to the panel's first control, not the AFK switch, and Escape goes back", async ({ page }) => {
   await open(page);
-  await openCfo(page);
+  await openCeo(page);
   const talk = list(page, "CEO");
   await expect(talk).toContainText("Answer 99");
   await talk.focus();
@@ -598,17 +615,17 @@ test("a prompt its harness holds reads Queued from the moment it waits, until it
   await expect(waiting).toHaveCount(0);
 });
 
-test("a stream's first page shows what the harness already holds, the CFO's words as the CFO's, in a conversation with no message yet", async ({ page }) => {
+test("a stream's first page shows what the harness already holds, the CEO's words as the CEO's, in a conversation with no message yet", async ({ page }) => {
   // Arrange
   await open(page);
   await openGoblin(page);
   const talk = list(page, "Zeke - Touch Wrangler");
 
   // Act
-  await send(page, "page", { conversation: "fixture-conversation", messages: [], more: false, waiting: [{ id: "q1", at, source: "cfo", text: "run the specs too" }] });
+  await send(page, "page", { conversation: "fixture-conversation", messages: [], more: false, waiting: [{ id: "q1", at, source: "ceo", text: "run the specs too" }] });
 
   // Assert
-  await expect(talk.locator(".queued-message.pane.cfo")).toContainText("run the specs too");
+  await expect(talk.locator(".queued-message.pane.ceo")).toContainText("run the specs too");
   await expect(page.locator(".messages-empty")).toHaveCount(0);
 });
 
@@ -755,13 +772,13 @@ for (const [status, label, press, asks, rowsLeft] of [
 // What he sent after a message that ended with no take seen and saw land puts
 // that message away, by when he sent it, whenever the board last touched its
 // record and whether or not the row that landed is in the page loaded, and a
-// message handed to the CFO was never lost (#2242). The fixture's rows of his
+// message handed to the CEO was never lost (#2242). The fixture's rows of his
 // are at 09:00.
 const TAKEN_LATER = { id: "a2", kind: "message", task_id: "cg-touch", text: "a later one", status: "succeeded", message: "Taken.", awaiting: "", created_at: "2026-10-22T09:06:00Z", updated_at: "2026-10-22T09:06:30Z" };
 for (const { why, action, others } of [
   { why: "an uncertain message sent before a row of his that landed, its record touched since", action: { status: "uncertain", message: "Typed and never seen taken.", created_at: "2026-10-22T08:00:00Z", updated_at: "2026-10-22T09:30:00Z" }, others: [] },
   { why: "a failed message sent before one the board saw taken whose row is not loaded", action: { status: "failed", message: "The terminal closed before it took it.", created_at: "2026-10-22T09:05:00Z", updated_at: "2026-10-22T09:05:00Z" }, others: [TAKEN_LATER] },
-  { why: "a message its goblin could not take that the CFO has", action: { status: "failed", message: "Zeke was stopped before it could take it; the CFO has it", created_at: "2026-10-22T09:05:00Z", updated_at: "2026-10-22T09:05:00Z" }, others: [] },
+  { why: "a message its goblin could not take that the CEO has", action: { status: "failed", message: "Zeke was stopped before it could take it; the CEO has it", created_at: "2026-10-22T09:05:00Z", updated_at: "2026-10-22T09:05:00Z" }, others: [] },
 ]) {
   test(`${why} is not drawn as undelivered`, async ({ page }) => {
     // Arrange
@@ -888,18 +905,18 @@ for (const state of ["unsubmitted", "older terminal prompt", "before this send s
       updated_at: state === "before this send started" ? "2026-10-22T09:00:01Z" : at,
     }] });
     await send(page, "messages", { conversation: "fixture-conversation", messages: null, waiting: [{
-      id: "q1", at, source: state === "CEO prompt" ? "cfo" : "overlord", text: words,
+      id: "q1", at, source: state === "CEO prompt" ? "ceo" : "overlord", text: words,
     }] });
     const rows = talk.locator(".queued-message.pane").filter({ hasText: words });
     await expect(rows).toHaveCount(2);
     await expect(rows.filter({ hasText: "Queued" })).toHaveCount(state === "unsubmitted" || state === "before this send started" ? 2 : 1);
-    if (state === "CEO prompt") await expect(talk.locator(".queued-message.cfo")).toContainText(words);
+    if (state === "CEO prompt") await expect(talk.locator(".queued-message.ceo")).toContainText(words);
   });
 }
 
 test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, size the message text, kept in this browser", async ({ page }) => {
   await open(page);
-  await openCfo(page);
+  await openCeo(page);
   const talk = list(page, "CEO");
   await expect(talk).toContainText("Answer 99");
   const size = () => talk.evaluate((element) => getComputedStyle(element).fontSize);
@@ -917,10 +934,10 @@ test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, siz
   await page.mouse.wheel(0, -100);
   await page.mouse.up({ button: "right" });
   await expect.poll(size).toBe("18px");
-  expect(await page.evaluate(() => localStorage.getItem("cfo-message-font-size"))).toBe("18");
-  expect(await page.evaluate(() => localStorage.getItem("cfo-terminal-font-size")), "the terminals keep their own size").toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem("ceo-message-font-size"))).toBe("18");
+  expect(await page.evaluate(() => localStorage.getItem("ceo-terminal-font-size")), "the terminals keep their own size").toBeNull();
   await page.reload();
-  await openCfo(page);
+  await openCeo(page);
   await expect.poll(size).toBe("18px");
   await talk.focus();
   await page.keyboard.press("Control+0");
@@ -930,7 +947,7 @@ test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, siz
 
 test("a stream the supervisor ends says why, and Reconnect reads the messages again", async ({ page }) => {
   await open(page);
-  await openCfo(page);
+  await openCeo(page);
   await expect(list(page, "CEO")).toContainText("Answer 99");
 
   await send(page, "unavailable", "The CEO runs in another terminal now. Open the CEO again.");
@@ -943,17 +960,17 @@ test("a stream the supervisor ends says why, and Reconnect reads the messages ag
 });
 
 // The Overlord, 2026-10-29: "why is the modern chat lagging ... it seems like
-// it stopped". His CFO's chat showed a call Running at least 76 s after its
+// it stopped". His CEO's chat showed a call Running at least 76 s after its
 // result was written. The board no longer infers staleness from how long the
 // stream was quiet: the fleet's stream says what the session's turn is and
 // where its head is, and a view that has drawn less than the head says it is
 // behind, a state of its own that is neither disconnected nor ended, until it
 // catches up.
 test("a view the stream has run past says it is behind and draws no indicator for the turn it has not drawn", async ({ page }) => {
-  // Arrange: the CFO's chat reads Answer 99, and the stream's head has moved
+  // Arrange: the CEO's chat reads Answer 99, and the stream's head has moved
   // on with a turn that runs.
   await open(page);
-  await openCfo(page);
+  await openCeo(page);
   const talk = list(page, "CEO");
   await expect(talk).toContainText("Answer 99");
 
@@ -975,17 +992,17 @@ test("a view the stream has run past says it is behind and draws no indicator fo
   await expect(talk.locator(".reply-working")).toHaveCount(1);
 });
 
-// #2172: the CFO's chat drew a conversation the CFO had left. The fleet's
+// #2172: the CEO's chat drew a conversation the CEO had left. The fleet's
 // stream says why the record the board reads is stale, or that the stream
 // itself cannot be kept, and the view says it in its one corner notice, over
 // the Behind it would otherwise say there.
-test("a CFO whose stream says its record is stale says why in its one corner notice", async ({ page }) => {
+test("a CEO whose stream says its record is stale says why in its one corner notice", async ({ page }) => {
   // Arrange
   await open(page);
-  await openCfo(page);
+  await openCeo(page);
   await expect(list(page, "CEO")).toContainText("Answer 99");
   const corner = page.locator(".messages-view:not([hidden]) .terminal-corner");
-  const stale = "The CFO's record names conversation cfo-9, which its folder does not hold.";
+  const stale = "The CEO's record names conversation ceo-9, which its folder does not hold.";
   const problem = "The board cannot write or read this session's conversation stream, so it draws the session's own record: disk full";
 
   // Act: the record is stale, and the stream's head is past what the view drew.
@@ -1013,7 +1030,7 @@ test("a message stream that says it is alive stays open while nothing happens", 
   // Arrange
   await page.clock.install();
   await open(page);
-  await openCfo(page);
+  await openCeo(page);
   await expect(list(page, "CEO")).toContainText("Answer 99");
 
   // Act
@@ -1023,9 +1040,9 @@ test("a message stream that says it is alive stays open while nothing happens", 
   expect(await streams(page)).toBe(1);
 });
 
-test("Back from a goblin's panel returns to the CFO's messages", async ({ page }) => {
+test("Back from a goblin's panel returns to the CEO's messages", async ({ page }) => {
   await open(page);
-  await openCfo(page);
+  await openCeo(page);
   await expect(list(page, "CEO")).toContainText("Answer 99");
   await openGoblin(page);
 
@@ -1036,9 +1053,9 @@ test("Back from a goblin's panel returns to the CFO's messages", async ({ page }
 });
 
 // The first request for a terminal sizes it to the conversation's box;
-// subsequent switches of style in that box keep the size, for the CFO and a goblin,
+// subsequent switches of style in that box keep the size, for the CEO and a goblin,
 // with the relay answering at once and late, as on a loaded machine (#1614).
-for (const [who, choose] of [["the CEO", openCfo], ["a goblin", openGoblin]] as const) for (const resizeLatency of [0, 1000]) {
+for (const [who, choose] of [["the CEO", openCeo], ["a goblin", openGoblin]] as const) for (const resizeLatency of [0, 1000]) {
   test(`switching ${who}'s pane to Terminal and back keeps its requested size, beside the board and maximized${resizeLatency ? ", with the relay answering late" : ""}`, async ({ page }) => {
     const board = await open(page, resizeLatency);
     await choose(page);
@@ -1171,7 +1188,7 @@ test("a queued withdrawal names the row he picked, not just its words", async ({
 // the conversation's place and its box is not on screen while custody is clear.
 test("a keyboard switch in Classic puts the keys in the terminal it shows", async ({ page }) => {
   // Arrange: Classic, two goblins, and one of them open.
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "classic"));
   const board = await open(page);
   await openGoblin(page, "Pia - Pi Pilot");
   await expect(page.locator(".native-terminal")).toBeVisible();
@@ -1265,7 +1282,7 @@ test("a held goblin's Send is queued while its terminal still replays its histor
 test("Modern: a held chat opens at the bottom, stays where he reads, and keeps its queue", async ({ page }) => {
   // Arrange
   const posted: { id: string; kind: string; task_id: string; text: string; target?: string }[] = [];
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
+  await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "modern"));
   const board = await open(page);
   await page.route("**/api/actions", async (route) => {
     const body = route.request().postDataJSON() as { id: string; kind: string; task_id: string; text: string; target?: string };
@@ -1289,11 +1306,11 @@ test("Modern: a held chat opens at the bottom, stays where he reads, and keeps i
   // Act: he reads up, and a reply arrives below.
   await scrollTo(talk, Math.round((await scroll(talk)).end / 2));
   const { read, before } = await readingAt(talk);
-  const { end: was } = await scroll(talk);
+  const was = await below(talk);
   await sendMessages(page, [reply(200, { kind: "text", text: "More arrived." })]);
 
   // Assert: his place is kept rather than snapped to the end.
-  expect((await scroll(talk)).end, "the pending reply changes no displayed room").toBe(was);
+  expect(Math.abs(await below(talk) - was), "the pending reply changes no displayed room").toBeLessThan(2);
   await expect.poll(() => moved(talk, read, before)).toBeLessThan(2);
 
   // Act and Assert: the input stays reachable through a maximize and a phone.
@@ -1342,7 +1359,7 @@ test.describe("on a phone", () => {
   test("a tap on Jump to latest while the conversation glides takes him to the newest message, the button leaves, and it wears the box's fill", async ({ page }) => {
     // Arrange: a flick up the conversation, on a page no click reaches.
     await open(page);
-    await openCfo(page);
+    await openCeo(page);
     const talk = list(page, "CEO");
     await expect(talk).toContainText("Answer 99");
     const jump = page.getByRole("button", { name: "Jump to latest" });
@@ -1374,7 +1391,7 @@ test.describe("on a phone", () => {
 // button." Run shows only on a PowerShell block in a reply's own words, names
 // the block by where it is and never by its text, starts one run however
 // often it is pressed while the run starts, and opens the run's card.
-const CODE_RUN = { id: "code-run-0a1b2c3d4e5f6a7b", identity: "c".repeat(64), title: "PowerShell from the CFO's reply", shell: "powershell", admin: false, command: "! powershell -NoProfile -Command Get-Location", cwd: "C:\\home", state: "running", output: "", reason: "", created_at: at, expires_at: at, terminal: true };
+const CODE_RUN = { id: "code-run-0a1b2c3d4e5f6a7b", identity: "c".repeat(64), title: "PowerShell from the CEO's reply", shell: "powershell", admin: false, command: "! powershell -NoProfile -Command Get-Location", cwd: "C:\\home", state: "running", output: "", reason: "", created_at: at, expires_at: at, terminal: true };
 const CODE_TALK = {
   messages: [
     message(0, { source: "overlord", text: "Pasted:\n```powershell\nStop-Computer\n```" }),
@@ -1395,7 +1412,7 @@ for (const { label, viewport, isTouch } of [
     test("a PowerShell block of a reply runs once from its Run beside Copy, named by its place, and opens its run card", async ({ page }) => {
       // Arrange
       await open(page);
-      await page.evaluate((talk) => Object.assign(window, { fixtureCfoPage: talk }), CODE_TALK);
+      await page.evaluate((talk) => Object.assign(window, { fixtureCeoPage: talk }), CODE_TALK);
       const asked: Record<string, unknown>[] = [];
       let answer = () => {};
       const answered = new Promise<void>((resolve) => { answer = resolve; });
@@ -1404,7 +1421,7 @@ for (const { label, viewport, isTouch } of [
         await answered;
         await route.fulfill({ json: { run_id: CODE_RUN.id } });
       });
-      await openCfo(page);
+      await openCeo(page);
       const talk = list(page, "CEO");
       await expect(talk).toContainText("Run this:");
       const runs = talk.getByRole("button", { name: "Run", exact: true });
@@ -1435,18 +1452,18 @@ for (const { label, viewport, isTouch } of [
       // Assert: one run, of the block named by the reply, its text block and
       // its place, and its card opens on the run.
       await expect.poll(() => asked.length).toBe(1);
-      expect(asked[0]).toEqual({ task: "", generation: "", cfo: "cfo-term", message: "m1", block: 1, fence: 2 });
+      expect(asked[0]).toEqual({ task: "", generation: "", ceo: "ceo-term", message: "m1", block: 1, fence: 2 });
       await send(page, "snapshot", { ...SNAPSHOT, revision: 2, runs: [CODE_RUN] });
-      await expect(page.getByRole("dialog")).toContainText("PowerShell from the CFO's reply");
+      await expect(page.getByRole("dialog")).toContainText("PowerShell from the CEO's reply");
       expect(asked).toHaveLength(1);
     });
 
     test("a Run the board refuses says why on its block and runs nothing", async ({ page }) => {
       // Arrange
       await open(page);
-      await page.evaluate((talk) => Object.assign(window, { fixtureCfoPage: talk }), CODE_TALK);
+      await page.evaluate((talk) => Object.assign(window, { fixtureCeoPage: talk }), CODE_TALK);
       await page.route("**/api/code-run", (route) => route.fulfill({ status: 409, json: { error: "That command still runs from this reply; wait for it to end." } }));
-      await openCfo(page);
+      await openCeo(page);
       const block = list(page, "CEO").locator(".message-code").filter({ hasText: "Get-Date" });
 
       // Act
@@ -1466,8 +1483,8 @@ test("the newest reply of a session that works has no Run until its turn ends, a
   // Arrange: an earlier reply and the newest one each hold a PowerShell block.
   await open(page);
   const talk = { ...CODE_TALK, messages: [...CODE_TALK.messages, reply(2, { kind: "text", text: "Still writing:\n\n```powershell\nGet-Process\n```" })] };
-  await page.evaluate((each) => Object.assign(window, { fixtureCfoPage: each }), talk);
-  await openCfo(page);
+  await page.evaluate((each) => Object.assign(window, { fixtureCeoPage: each }), talk);
+  await openCeo(page);
   const view = list(page, "CEO");
   await expect(view).toContainText("Still writing:");
   const newest = view.locator(".message-code").filter({ hasText: "Get-Process" });

@@ -27,7 +27,7 @@ type Request struct {
 	// restarted.
 	ResumeNote string
 	// IsWatched says whoever asked reads the outcome from the command they
-	// typed, so finishing the operation sends no notice: the CFO retiring a
+	// typed, so finishing the operation sends no notice: the CEO retiring a
 	// goblin must not be woken by its own pause.
 	IsWatched bool
 }
@@ -377,7 +377,7 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 		// The goblin was told to stop at its stopping point and believes
 		// it is paused once it has, while its session runs on: on
 		// 2026-10-08 Shirley sat idle at her prompt "still paused" until
-		// the CFO told her otherwise.
+		// the CEO told her otherwise.
 		if request.Action == "pause" && service.Operations.Withdraw != nil {
 			withdraw, cancel := context.WithTimeout(ctx, service.deliveryWait())
 			if withdrawErr := service.Operations.Withdraw(withdraw, meta); withdrawErr != nil {

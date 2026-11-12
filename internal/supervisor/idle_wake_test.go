@@ -11,14 +11,14 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
-// While runnable work waits with memory free and nothing starts, the CFO is
+// While runnable work waits with memory free and nothing starts, the CEO is
 // woken after idleWakeAfter, and again each idleWakeAfter it lasts, naming
 // each waiting task and why it did not start. Work that waits on another task
 // or already finished is not runnable and wakes nobody, and nor does work
 // waiting on memory, which memory_ready covers; a row waiting on a task the
-// home never heard of needs the CFO, and wakes him. On 2026-10-07 memory_ready
-// woke once and a CFO that could not start the work idled four hours.
-func TestTheCFOIsWokenAgainWhileRunnableWorkWaitsAndNothingStarts(t *testing.T) {
+// home never heard of needs the CEO, and wakes him. On 2026-10-07 memory_ready
+// woke once and a CEO that could not start the work idled four hours.
+func TestTheCEOIsWokenAgainWhileRunnableWorkWaitsAndNothingStarts(t *testing.T) {
 	cases := []struct {
 		name      string
 		available float64
@@ -40,7 +40,7 @@ func TestTheCFOIsWokenAgainWhileRunnableWorkWaitsAndNothingStarts(t *testing.T) 
 			began:     1,
 		},
 		{
-			name:      "its row needs the CFO",
+			name:      "its row needs the CEO",
 			available: 8,
 			arrange: func(t *testing.T, h home.Home) {
 				queueBriefedTask(t, h, "- **next-task** - Ship it", strings.ReplaceAll(plainBrief, "C:\\dev\\code-goblins", ""))
@@ -68,7 +68,7 @@ func TestTheCFOIsWokenAgainWhileRunnableWorkWaitsAndNothingStarts(t *testing.T) 
 			available: 8,
 			arrange: func(t *testing.T, h home.Home) {
 				queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins)", plainBrief)
-				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via cfo cleanup\n")
+				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via goblins cleanup\n")
 			},
 		},
 		{

@@ -25,7 +25,7 @@ import (
 // board of its own.
 func stepCard(t *testing.T, change func(*CredentialRequest)) *credentialBoard {
 	t.Helper()
-	filed := CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "cfo", Task: "task-1", Project: "throwaway", Why: "Create the shop's test account", Link: "https://example.com/signup", Steps: []string{"Create the account", "Accept the terms"}}
+	filed := CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "ceo", Task: "task-1", Project: "throwaway", Why: "Create the shop's test account", Link: "https://example.com/signup", Steps: []string{"Create the account", "Accept the terms"}}
 	if change != nil {
 		change(&filed)
 	}
@@ -509,7 +509,7 @@ func TestStepCardStoresASecretInASecretFieldWhateverItsName(t *testing.T) {
 	}
 }
 
-// A card of clicks alone closes on his Done, and tells the CFO. A card that
+// A card of clicks alone closes on his Done, and tells the CEO. A card that
 // asks for a value closes when the value arrives, not on a Done.
 func TestStepCardWithNoInputsClosesOnDone(t *testing.T) {
 	t.Run("a card of clicks", func(t *testing.T) {
@@ -553,7 +553,7 @@ func TestStepCardWithNoInputsClosesOnDone(t *testing.T) {
 }
 
 // Dismiss takes any open card off the Command Center, from any board, and
-// the CFO hears the goblin goes on without it. A dismissed card takes no
+// the CEO hears the goblin goes on without it. A dismissed card takes no
 // value.
 func TestDismissTakesAnyCardBack(t *testing.T) {
 	for _, test := range []struct {
@@ -595,7 +595,7 @@ func TestDismissTakesAnyCardBack(t *testing.T) {
 }
 
 // Other on a card is his free answer in place of the step: the card closes
-// with his words for the goblin's wait to read, the CFO hears them, and words
+// with his words for the goblin's wait to read, the CEO hears them, and words
 // shaped like a key are refused without being kept or repeated.
 func TestOtherOnACardClosesItWithHisWord(t *testing.T) {
 	answerBody := func(b *credentialBoard, text string) string {
@@ -623,7 +623,7 @@ func TestOtherOnACardClosesItWithHisWord(t *testing.T) {
 			t.Fatal(err)
 		}
 		if len(pending) != 1 || !strings.Contains(pending[0].Detail, word) {
-			t.Fatalf("wakes = %+v, want the CFO told his word", pending)
+			t.Fatalf("wakes = %+v, want the CEO told his word", pending)
 		}
 	})
 	t.Run("a key in his word", func(t *testing.T) {
@@ -693,10 +693,10 @@ func TestThePencilBringsBackACardHeClosed(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(pending) == 0 {
-				t.Fatal("the CFO was not told the card is back")
+				t.Fatal("the CEO was not told the card is back")
 			}
 			if last := pending[len(pending)-1].Detail; !strings.Contains(last, "brought back") || !strings.Contains(last, b.request.ID) {
-				t.Fatalf("last wake = %q, want the CFO told the card is back", last)
+				t.Fatalf("last wake = %q, want the CEO told the card is back", last)
 			}
 			if again := b.send(b.handler, "/api/credentials/reopen", reopenBody(b, reopened.Generation), nil); again.Code != http.StatusConflict {
 				t.Fatalf("a second reopen of an open card = %d %s, want it refused", again.Code, again.Body)
@@ -724,7 +724,7 @@ func TestThePencilBringsBackACardHeClosed(t *testing.T) {
 		t.Run("refuses a card "+test.name, func(t *testing.T) {
 			// Arrange
 			b := stepCard(t, nil)
-			if _, err := b.service.closeCredential(b.request.ID, "", test.state, "cfo", "Closed for the test"); err != nil {
+			if _, err := b.service.closeCredential(b.request.ID, "", test.state, "ceo", "Closed for the test"); err != nil {
 				t.Fatal(err)
 			}
 			b.service.credentialWork.Wait()
@@ -807,7 +807,7 @@ func TestStepCardAsksForTheGoblinsWindowOnlyFromThisPC(t *testing.T) {
 // variable names asked once, and a window only for a goblin's page.
 func TestStepCardTakesOnlyWellFormedInputs(t *testing.T) {
 	random := "q7Lm2Xv9Rt4Kp8Zw3Nb6Hd1Yc5Fg0Js"
-	base := CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "cfo", Task: "task-1", Project: "throwaway", Why: "Create the shop's test account", Link: "https://example.com/signup"}
+	base := CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "ceo", Task: "task-1", Project: "throwaway", Why: "Create the shop's test account", Link: "https://example.com/signup"}
 	for _, test := range []struct {
 		name    string
 		change  func(*CredentialRequest)
@@ -867,7 +867,7 @@ func TestTwoStepCardsOfOneGoblinAreTwoCards(t *testing.T) {
 	store, _ := testStore(t)
 	t.Setenv(auth.StoreDirEnv, t.TempDir())
 	s := &Service{Store: store, Options: Options{Credentials: auth.OpenStore}}
-	first := CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "cfo", Project: "throwaway", Why: "Create the shop's test account", Link: "https://example.com/signup"}
+	first := CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "ceo", Project: "throwaway", Why: "Create the shop's test account", Link: "https://example.com/signup"}
 	second := first
 	second.ID, second.Why = "cred-1111111111111111", "Confirm the account's email"
 
@@ -1027,11 +1027,11 @@ func TestWaitingOnACardTheBoardNeverTookEnds(t *testing.T) {
 	}
 }
 
-// Done on a goblin's step card, by the Overlord or the CFO, or its inputs
+// Done on a goblin's step card, by the Overlord or the CEO, or its inputs
 // arriving, also closes its wait on the Overlord that was opened while the
 // card was open, which asked him for the same step, saying who closed it. A wait opened before the card, a wait on a page and
 // another goblin's wait are cards of their own and stay open, and a card the
-// CFO filed for the goblin closes none of its waits.
+// CEO filed for the goblin closes none of its waits.
 func TestDoneOnAStepCardClosesTheWaitOpenedForIt(t *testing.T) {
 	sent := func(response *httptest.ResponseRecorder) error {
 		if response.Code != http.StatusOK {
@@ -1051,10 +1051,10 @@ func TestDoneOnAStepCardClosesTheWaitOpenedForIt(t *testing.T) {
 		reason string
 	}{
 		{"done by the Overlord", byGoblin, done, "answered", "You pressed Done"},
-		{"done by the CFO", byGoblin, func(b *credentialBoard) error {
-			_, err := b.service.closeCredential(b.request.ID, "", "done", "cfo", "")
+		{"done by the CEO", byGoblin, func(b *credentialBoard) error {
+			_, err := b.service.closeCredential(b.request.ID, "", "done", "ceo", "")
 			return err
-		}, "answered", "The CFO closed"},
+		}, "answered", "The CEO closed"},
 		{"saved", func(r *CredentialRequest) { r.By, r.Plain = "goblin", []string{"ACCOUNT_EMAIL"} }, func(b *credentialBoard) error {
 			return sent(b.post(b.handler, b.body(map[string]string{"ACCOUNT_EMAIL": "shop-owner@example.com"}), nil))
 		}, "answered", "its inputs arrived"},
@@ -1065,7 +1065,7 @@ func TestDoneOnAStepCardClosesTheWaitOpenedForIt(t *testing.T) {
 			}
 			return sent(b.send(b.handler, "/api/credentials/close", string(data), nil))
 		}, "answered", "You wrote on its step card"},
-		{"filed by the CFO", nil, done, "open", ""},
+		{"filed by the CEO", nil, done, "open", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -1113,12 +1113,12 @@ func TestDoneOnAStepCardClosesTheWaitOpenedForIt(t *testing.T) {
 
 // A goblin's open step card is found on the board's record and in its inbox
 // before the board takes it, and a closed card, another goblin's or one the
-// CFO filed for it is not.
+// CEO filed for it is not.
 func TestOpenStepCardFindsTheGoblinsOpenCard(t *testing.T) {
 	// Arrange
 	b := stepCard(t, func(r *CredentialRequest) { r.By = "goblin" })
-	byCFO := CredentialRequest{ID: "cred-2222222222222222", Identity: strings.Repeat("e", 64), By: "cfo", Task: "task-4", Project: "throwaway", Why: "Tick the App Group", Link: "https://developer.apple.com/account"}
-	if _, err := b.service.acceptCredentialRequest(byCFO); err != nil {
+	byCEO := CredentialRequest{ID: "cred-2222222222222222", Identity: strings.Repeat("e", 64), By: "ceo", Task: "task-4", Project: "throwaway", Why: "Tick the App Group", Link: "https://developer.apple.com/account"}
+	if _, err := b.service.acceptCredentialRequest(byCEO); err != nil {
 		t.Fatal(err)
 	}
 	spooled := CredentialRequest{ID: "cred-1111111111111111", Identity: strings.Repeat("d", 64), By: "goblin", Task: "task-2", Project: "throwaway", Why: "Tick the App Group", Link: "https://developer.apple.com/account"}
@@ -1130,18 +1130,18 @@ func TestOpenStepCardFindsTheGoblinsOpenCard(t *testing.T) {
 	onBoard, boardErr := OpenStepCard(b.home.State, "task-1")
 	inInbox, inboxErr := OpenStepCard(b.home.State, "task-2")
 	none, noneErr := OpenStepCard(b.home.State, "task-3")
-	cfoCard, cfoErr := OpenStepCard(b.home.State, "task-4")
-	if _, err := b.service.closeCredential(b.request.ID, "", "done", "cfo", ""); err != nil {
+	ceoCard, ceoErr := OpenStepCard(b.home.State, "task-4")
+	if _, err := b.service.closeCredential(b.request.ID, "", "done", "ceo", ""); err != nil {
 		t.Fatal(err)
 	}
 	b.service.credentialWork.Wait()
 	closed, closedErr := OpenStepCard(b.home.State, "task-1")
 
 	// Assert
-	if err := errors.Join(boardErr, inboxErr, noneErr, cfoErr, closedErr); err != nil {
+	if err := errors.Join(boardErr, inboxErr, noneErr, ceoErr, closedErr); err != nil {
 		t.Fatal(err)
 	}
-	if onBoard != b.request.ID || inInbox != spooled.ID || none != "" || cfoCard != "" || closed != "" {
-		t.Fatalf("open cards = %q, %q, %q, %q, %q after Done; want %s, %s and none for the rest", onBoard, inInbox, none, cfoCard, closed, b.request.ID, spooled.ID)
+	if onBoard != b.request.ID || inInbox != spooled.ID || none != "" || ceoCard != "" || closed != "" {
+		t.Fatalf("open cards = %q, %q, %q, %q, %q after Done; want %s, %s and none for the rest", onBoard, inInbox, none, ceoCard, closed, b.request.ID, spooled.ID)
 	}
 }

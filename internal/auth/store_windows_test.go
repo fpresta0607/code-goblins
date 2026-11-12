@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// selfTestKey is written to the real vault under the cfo: namespace, in a
+// selfTestKey is written to the real vault under the ceo: namespace, in a
 // scope no project uses, one stable, obviously-named entry that each test
 // removes again.
-var selfTestKey = Scoped("cfo-selftest", "CFO_CREDENTIAL_SELFTEST")
+var selfTestKey = Scoped("ceo-selftest", "GOBLINS_CREDENTIAL_SELFTEST")
 
 func TestCredentialManagerRoundTripsThroughTheRealVault(t *testing.T) {
 	store, err := openCredentialManager()
@@ -48,7 +48,7 @@ func TestCredentialManagerRoundTripsThroughTheRealVault(t *testing.T) {
 		}
 		// Enumeration must not leak entries belonging to other applications.
 		if !key.Valid() {
-			t.Errorf("Keys() returned %q, which is not one of cfo's credential keys", key.String())
+			t.Errorf("Keys() returned %q, which is not one of ceo's credential keys", key.String())
 		}
 	}
 	if !found {
@@ -61,7 +61,7 @@ func TestCredentialManagerReportsAnUnknownKeyAsAbsentNotAnError(t *testing.T) {
 	if err != nil {
 		t.Skipf("Windows Credential Manager unavailable: %v", err)
 	}
-	value, found, err := store.Get(Shared("CFO_CREDENTIAL_THAT_DOES_NOT_EXIST"))
+	value, found, err := store.Get(Shared("GOBLINS_CREDENTIAL_THAT_DOES_NOT_EXIST"))
 	if err != nil {
 		t.Fatalf("Get(absent) = error %v, want absence reported as an ordinary state", err)
 	}
@@ -72,7 +72,7 @@ func TestCredentialManagerReportsAnUnknownKeyAsAbsentNotAnError(t *testing.T) {
 
 // TestCredentialManagerNeverListsASeenRecordAsACredential holds the vault to
 // the rule the file store gets from its directory layout: a Seen record sits
-// under the same cfo: prefix the credential listing enumerates, so the
+// under the same ceo: prefix the credential listing enumerates, so the
 // listing must read it as a scope no project can have and skip it.
 func TestCredentialManagerNeverListsASeenRecordAsACredential(t *testing.T) {
 	if key, ok := parseVaultKey(seenScope + "/" + selfTestKey.String()); ok {
@@ -83,7 +83,7 @@ func TestCredentialManagerNeverListsASeenRecordAsACredential(t *testing.T) {
 	if err != nil {
 		t.Skipf("Windows Credential Manager unavailable: %v", err)
 	}
-	fingerprint := envFingerprint("cfo self-test reading")
+	fingerprint := envFingerprint("ceo self-test reading")
 	if err := store.Seen().Set(selfTestKey, fingerprint); err != nil {
 		t.Fatalf("Seen().Set: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestAStoredCredentialIsListedDeletedAndReadBackGone(t *testing.T) {
 	if err != nil {
 		t.Skipf("Windows Credential Manager unavailable: %v", err)
 	}
-	key := Scoped("cfo-selftest", "CFO_CREDENTIAL_DELETE_SELFTEST")
+	key := Scoped("ceo-selftest", "GOBLINS_CREDENTIAL_DELETE_SELFTEST")
 	target := credentialTarget + key.String()
 	seen := credentialTarget + seenScope + "/" + key.String()
 	if err := store.Set(key, "a value"); err != nil {
@@ -154,7 +154,7 @@ func TestAStoredCredentialIsListedDeletedAndReadBackGone(t *testing.T) {
 	}
 	for _, listedTarget := range listed {
 		if !strings.HasPrefix(listedTarget, credentialTarget) {
-			t.Errorf("VaultTargets() listed %s, which is not one of cfo's", listedTarget)
+			t.Errorf("VaultTargets() listed %s, which is not one of ceo's", listedTarget)
 		}
 	}
 	if deleteErr != nil || deleteSeenErr != nil {

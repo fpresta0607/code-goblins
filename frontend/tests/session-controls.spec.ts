@@ -3,13 +3,13 @@ import { box, field, GOBLIN, NAME, open, openGoblin, PAGE, pasted, pressRow, sna
 
 const USAGE = { input_tokens: 12000, output_tokens: 800, context_tokens: 24000, context_window: 100000 };
 const context = (page: Page) => page.getByRole("meter", { name: "Context", exact: true });
-// engine is the CFO's engine record, applied to the harness it runs.
+// engine is the CEO's engine record, applied to the harness it runs.
 const engine = (harness: string, model: string, effort: string) => ({ harness, model, effort, pending: false, problem: "", waiting: "" });
 // record sends the board the session's one record of its model and effort,
-// the goblin's task record and the CFO's engine record, as the supervisor
+// the goblin's task record and the CEO's engine record, as the supervisor
 // does once the session's harness says it runs them.
 const record = (page: Page, model: string, effort: string, harness = "claude") => page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: data })),
-  snapshot({ revision: 2, cfo_harness: harness, cfo_engine: engine(harness, model, effort) }, { harness, model, effort }));
+  snapshot({ revision: 2, ceo_harness: harness, ceo_engine: engine(harness, model, effort) }, { harness, model, effort }));
 
 for (const width of [1440, 390]) {
   test(`a branch reset drops abandoned context usage at ${width}px`, async ({ page }) => {
@@ -35,7 +35,7 @@ for (const width of [1440, 390]) {
     const hasWindow = width === 1440;
     test(`${who} session controls use current data and ${hasWindow ? "open its window" : "offer no window"} at ${width}px`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 900 });
-      const relay = await open(page, snapshot({ cfo_harness: "codex", cfo_engine: engine("codex", "recorded-model", "high") }, { harness: "codex", model: "recorded-model" }), "", { ...PAGE, usage: USAGE });
+      const relay = await open(page, snapshot({ ceo_harness: "codex", ceo_engine: engine("codex", "recorded-model", "high") }, { harness: "codex", model: "recorded-model" }), "", { ...PAGE, usage: USAGE });
       const posted: unknown[] = [];
       await page.route("**/api/terminal/open", (route) => {
         posted.push(route.request().postDataJSON());
@@ -63,7 +63,7 @@ for (const width of [1440, 390]) {
 
       if (hasWindow) {
         await pressRow(page, "Open in Windows Terminal", "Open in terminal");
-        await expect.poll(() => posted).toEqual([who === "CEO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
+        await expect.poll(() => posted).toEqual([who === "CEO" ? { native: "ceo=ceo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
       }
       await expect(composer.getByRole("button", { name: "Open in Windows Terminal", exact: true })).toHaveCount(0);
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
@@ -72,13 +72,13 @@ for (const width of [1440, 390]) {
       await expect(context(page)).toHaveAttribute("aria-valuenow", "72");
       await record(page, "changed-model", "high", "codex");
       await expect(composer.locator(".engine-control-model")).toHaveText("Changed Model");
-      await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 3, cfo_harness: "codex", cfo_terminal: "new-cfo", cfo_engine: engine("codex", "recorded-model", "high") }, { harness: "codex", model: "recorded-model", generation: "replacement" }));
+      await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 3, ceo_harness: "codex", ceo_terminal: "new-ceo", ceo_engine: engine("codex", "recorded-model", "high") }, { harness: "codex", model: "recorded-model", generation: "replacement" }));
       await expect(context(page)).toHaveAttribute("aria-valuenow", "24");
-      await expect.poll(() => relay.addresses.some((address) => address.includes(who === "CEO" ? "cfo=new-cfo" : "generation=replacement"))).toBe(true);
+      await expect.poll(() => relay.addresses.some((address) => address.includes(who === "CEO" ? "ceo=new-ceo" : "generation=replacement"))).toBe(true);
       relay.say({ type: "screen", asking: false, open: false, working: false });
       if (hasWindow) {
         await pressRow(page, "Open in Windows Terminal", "Open in terminal");
-        await expect.poll(() => posted[1]).toEqual(who === "CEO" ? { native: "cfo=new-cfo" } : { native: `task=${GOBLIN.id}&generation=replacement` });
+        await expect.poll(() => posted[1]).toEqual(who === "CEO" ? { native: "ceo=new-ceo" } : { native: `task=${GOBLIN.id}&generation=replacement` });
       } else {
         await expect(page.locator(".context-pane .panel-top").getByRole("button", { name: "Open in Windows Terminal", exact: true })).toHaveCount(0);
         expect(posted).toEqual([]);
@@ -136,7 +136,7 @@ for (const harness of ["codex", "claude", "pi"] as const) {
       // Arrange
       const session = SESSIONS[harness];
       const [value, option, shown] = session.picks[setting];
-      const relay = await open(page, snapshot({ cfo_harness: harness, cfo_engine: engine(harness, session.model, session.effort) }, { harness, model: session.model, effort: session.effort }), "", { ...PAGE, usage: USAGE });
+      const relay = await open(page, snapshot({ ceo_harness: harness, ceo_engine: engine(harness, session.model, session.effort) }, { harness, model: session.model, effort: session.effort }), "", { ...PAGE, usage: USAGE });
       await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
       if (who === "CEO") await page.keyboard.press("Control+Alt+1");
       else await openGoblin(page);
@@ -458,8 +458,8 @@ test("a /model or /effort typed while the controls cannot change the session sta
 
 test("a narrow desktop panel keeps all session controls inside the composer", async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("cfo-pane-width", "360");
-    localStorage.setItem("cfo-terminal-maximized", "false");
+    localStorage.setItem("ceo-pane-width", "360");
+    localStorage.setItem("ceo-terminal-maximized", "false");
   });
   await open(page, snapshot(), "", { ...PAGE, usage: USAGE });
   await openGoblin(page);

@@ -16,12 +16,12 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// allowanceWarnAt is the percent of a window used past which the CFO hears
+// allowanceWarnAt is the percent of a window used past which the CEO hears
 // once, while goblins run on it, that it nears its end.
 const allowanceWarnAt = 85
 
 // allowanceWall is a session or weekly window seen used up while goblins ran
-// on it, kept until it renews so the CFO is woken then to set going again the
+// on it, kept until it renews so the CEO is woken then to set going again the
 // ones it stopped.
 type allowanceWall struct {
 	Provider string    `json:"provider"`
@@ -34,8 +34,8 @@ type allowanceWall struct {
 // allowance wake for each window bounding a goblin's model that passed
 // allowanceWarnAt, once per window and reset, and one when a session or
 // weekly window seen used up renews, naming the goblins it stopped. Claude Code goes on by
-// itself at a renewal only when its screen offered to, so the CFO looks.
-// Nothing here writes the words a harness refuses with, since the CFO's own
+// itself at a renewal only when its screen offered to, so the CEO looks.
+// Nothing here writes the words a harness refuses with, since the CEO's own
 // terminal shows these wakes.
 func (s *Service) raiseAllowanceWakes(report quota.Report, watched *fleetWakes, now time.Time) error {
 	stateDir := s.Store.Home.State

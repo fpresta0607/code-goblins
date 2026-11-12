@@ -1,5 +1,5 @@
 # A stand-in goblin for the credential canary proof: it runs in a native
-# terminal under cfo host the way a Claude Code goblin does, files one
+# terminal under goblins host the way a Claude Code goblin does, files one
 # credential request for each of its names for its own task from that
 # terminal, and then answers what it is told the way Claude Code's screen does:
 # "bypass permissions on" while it waits, a spinner row while it takes a line.
@@ -8,7 +8,7 @@
 # SHA-256 matches the one the proof expects. It never prints, logs or passes on
 # a value itself.
 param(
-    [Parameter(Mandatory=$true)][string]$Cfo,
+    [Parameter(Mandatory=$true)][string]$Goblins,
     [Parameter(Mandatory=$true)][string]$Project,
     [Parameter(Mandatory=$true)][string]$Task,
     [Parameter(Mandatory=$true)][string]$Names,
@@ -30,10 +30,10 @@ foreach ($asked in $requested) {
         # A refusal is written to stderr, which Stop would throw on once
         # redirected; the exit code says whether it was filed.
         $ErrorActionPreference = 'Continue'
-        $output = & $Cfo auth request --project $Project --task $Task --why 'Canary proof for the credential card' $asked 2>&1 | Out-String
+        $output = & $Goblins auth request --project $Project --task $Task --why 'Canary proof for the credential card' $asked 2>&1 | Out-String
         $filed = $LASTEXITCODE -eq 0
         $ErrorActionPreference = 'Stop'
-        Note ("cfo auth request $asked (attempt $attempt): " + $output.Trim())
+        Note ("goblins auth request $asked (attempt $attempt): " + $output.Trim())
         if (-not $filed) { Start-Sleep -Seconds 2 }
     }
 }

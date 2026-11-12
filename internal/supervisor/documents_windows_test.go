@@ -17,11 +17,11 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// The Overlord, 2026-10-11 about 00:55Z, of the Open and Download card the CFO
+// The Overlord, 2026-10-11 about 00:55Z, of the Open and Download card the CEO
 // made for a picture of a board fix: "things like that should be
 // scrawl...downlaods can be offeried inn scralw if its a generated asset or
 // smomehting the overlord wanted saved", then "that way you can send comments
-// back to agent for it..". cfo deliver makes a Scrawl page that shows the
+// back to agent for it..". goblins deliver makes a Scrawl page that shows the
 // file, presented as a review item the supervisor watches.
 
 // webpPicture is the start of a WebP picture, enough for a type sniff.
@@ -37,7 +37,7 @@ func (o *opened) open(page string) (string, error) {
 }
 
 // delivered writes content to name in dir and delivers it as the registered
-// CFO, returning the page lavish-axi was asked to open.
+// CEO, returning the page lavish-axi was asked to open.
 func delivered(t *testing.T, store *Store, dir, name string, content []byte, isDownload bool) string {
 	t.Helper()
 	source := filepath.Join(dir, name)
@@ -57,14 +57,14 @@ func delivered(t *testing.T, store *Store, dir, name string, content []byte, isD
 	return pages.pages[0]
 }
 
-// A picture the CFO delivers is a Scrawl page that shows it inline, under its
+// A picture the CEO delivers is a Scrawl page that shows it inline, under its
 // title, beside its own copy, with no download: the item is that page, which
 // the supervisor watches, and the board sees no digest and no source.
 func TestADeliveredPictureIsAScrawlPageThatShowsIt(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
-	_, _, _, cfo := primaryFixture(t, store)
-	servePipe(t, store, cfo)
+	_, _, _, ceo := primaryFixture(t, store)
+	servePipe(t, store, ceo)
 	source := t.TempDir()
 
 	// Act
@@ -120,8 +120,8 @@ func TestADeliveredFilesPageOffersADownloadOnlyWhenAsked(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			store, _ := testStore(t)
-			_, _, _, cfo := primaryFixture(t, store)
-			servePipe(t, store, cfo)
+			_, _, _, ceo := primaryFixture(t, store)
+			servePipe(t, store, ceo)
 			source := filepath.Join(t.TempDir(), test.file)
 			if err := os.WriteFile(source, test.content, 0o600); err != nil {
 				t.Fatal(err)
@@ -164,8 +164,8 @@ func TestADeliveredFilesPageOffersADownloadOnlyWhenAsked(t *testing.T) {
 func TestARedeliveryIsTheSameItemOrRefused(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	_, _, _, cfo := primaryFixture(t, store)
-	servePipe(t, store, cfo)
+	_, _, _, ceo := primaryFixture(t, store)
+	servePipe(t, store, ceo)
 	dir := t.TempDir()
 	delivered(t, store, dir, "after-card.webp", webpPicture, false)
 	source := filepath.Join(dir, "after-card.webp")
@@ -192,8 +192,8 @@ func TestARedeliveryIsTheSameItemOrRefused(t *testing.T) {
 func TestADeliveryIsRefusedOutsideItsReportersFoldersOrLimits(t *testing.T) {
 	store, h := testStore(t)
 	meta, _, _, _ := goblinFixture(t, store)
-	_, _, _, cfo := primaryFixture(t, store)
-	servePipe(t, store, cfo)
+	_, _, _, ceo := primaryFixture(t, store)
+	servePipe(t, store, ceo)
 	outside := filepath.Join(t.TempDir(), "elsewhere.webp")
 	inside := filepath.Join(meta.Worktree, "plan.webp")
 	huge := filepath.Join(t.TempDir(), "huge.webp")
@@ -213,7 +213,7 @@ func TestADeliveryIsRefusedOutsideItsReportersFoldersOrLimits(t *testing.T) {
 	if err := DeliverDocument(h, meta.ID, "goblin-inside", "Plan", inside, false, pages.open); err != nil {
 		t.Errorf("a goblin's file inside its worktree = %v, want it delivered", err)
 	}
-	if err := DeliverDocument(h, "", "cfo-too-large", "Plan", huge, true, pages.open); err == nil || !strings.Contains(err.Error(), "at most") {
+	if err := DeliverDocument(h, "", "ceo-too-large", "Plan", huge, true, pages.open); err == nil || !strings.Contains(err.Error(), "at most") {
 		t.Errorf("a file over the cap = %v, want refused", err)
 	}
 }
@@ -277,15 +277,15 @@ func pageFeedbackOf(t *testing.T, detail string) string {
 	return string(data)
 }
 
-// What he writes on the CFO's delivered picture reaches the CFO as a review
+// What he writes on the CEO's delivered picture reaches the CEO as a review
 // wake keyed by the item.
-func TestACommentOnTheCFOsDeliveredPictureReachesItAsAReviewWake(t *testing.T) {
+func TestACommentOnTheCEOsDeliveredPictureReachesItAsAReviewWake(t *testing.T) {
 	// Arrange
 	defer func(pause time.Duration) { pagePollPause = pause }(pagePollPause)
 	pagePollPause = time.Millisecond
 	store, h := testStore(t)
-	_, _, _, cfo := primaryFixture(t, store)
-	servePipe(t, store, cfo)
+	_, _, _, ceo := primaryFixture(t, store)
+	servePipe(t, store, ceo)
 	page := delivered(t, store, t.TempDir(), "after-card.webp", webpPicture, false)
 	s := &Service{Store: store, Options: Options{PollPage: pollsOnce(t, page, commentOnThePicture)}}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -305,7 +305,7 @@ func TestACommentOnTheCFOsDeliveredPictureReachesItAsAReviewWake(t *testing.T) {
 		t.Fatalf("review wakes = %+v, want one keyed by the delivered item naming its page", wakes)
 	}
 	if feedback := pageFeedbackOf(t, wakes[0].Detail); !strings.Contains(feedback, "Make the card a little wider") {
-		t.Errorf("the CFO's wake carries %q, want his comment", feedback)
+		t.Errorf("the CEO's wake carries %q, want his comment", feedback)
 	}
 }
 
@@ -317,8 +317,8 @@ func TestACommentOnAGoblinsDeliveredPictureReachesTheGoblin(t *testing.T) {
 	pagePollPause = time.Millisecond
 	store, h := testStore(t)
 	meta, _, goblin, _ := goblinFixture(t, store)
-	_, _, _, cfo := primaryFixture(t, store)
-	servePipe(t, store, cfo)
+	_, _, _, ceo := primaryFixture(t, store)
+	servePipe(t, store, ceo)
 	source := filepath.Join(meta.Worktree, "after-card.webp")
 	if err := os.WriteFile(source, webpPicture, 0o600); err != nil {
 		t.Fatal(err)
@@ -330,7 +330,7 @@ func TestACommentOnAGoblinsDeliveredPictureReachesTheGoblin(t *testing.T) {
 	if err := store.ingestReviews(); err != nil {
 		t.Fatal(err)
 	}
-	s := &Service{Store: store, Options: Options{CFO: cfo, PollPage: pollsOnce(t, pages.pages[0], commentOnThePicture)}}
+	s := &Service{Store: store, Options: Options{CEO: ceo, PollPage: pollsOnce(t, pages.pages[0], commentOnThePicture)}}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -350,8 +350,8 @@ func TestACommentOnAGoblinsDeliveredPictureReachesTheGoblin(t *testing.T) {
 func TestTheBoardServesNoDeliveredFileLink(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	_, _, _, cfo := primaryFixture(t, store)
-	servePipe(t, store, cfo)
+	_, _, _, ceo := primaryFixture(t, store)
+	servePipe(t, store, ceo)
 	delivered(t, store, t.TempDir(), "after-card.webp", webpPicture, false)
 	response := httptest.NewRecorder()
 

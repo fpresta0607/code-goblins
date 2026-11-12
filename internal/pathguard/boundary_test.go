@@ -29,7 +29,7 @@ func newFixture(t *testing.T) fixture {
 	}
 	appData := filepath.Join(f.profile, "AppData", "Roaming")
 	localAppData := filepath.Join(f.profile, "AppData", "Local")
-	fileStore := filepath.Join(f.profile, ".cfo", "credentials")
+	fileStore := filepath.Join(f.profile, ".ceo", "credentials")
 	f.sshKey = filepath.Join(f.profile, ".ssh", "id_ed25519")
 	f.storedCredential = filepath.Join(fileStore, "project", "GITHUB_TOKEN")
 	f.vaultEntry = filepath.Join(appData, "Microsoft", "Credentials", "ABCDEF")

@@ -16,8 +16,8 @@ import (
 // takerLock in the state folder it names, and takerHoldVariable says for how
 // long each time.
 const (
-	takerDirVariable  = "CFO_LOCK_TEST_TAKER_DIR"
-	takerHoldVariable = "CFO_LOCK_TEST_TAKER_HOLD"
+	takerDirVariable  = "GOBLINS_LOCK_TEST_TAKER_DIR"
+	takerHoldVariable = "GOBLINS_LOCK_TEST_TAKER_HOLD"
 	takerLock         = ".wake-queue.lock"
 )
 
@@ -83,7 +83,7 @@ func startTaker(t *testing.T, dir string, hold time.Duration) {
 	}
 }
 
-// On 2026-10-09 the CFO's acknowledgement gave up after 5.1 s, in 2 runs of
+// On 2026-10-09 the CEO's acknowledgement gave up after 5.1 s, in 2 runs of
 // 2, beside a process that filed one notify after another. The lock was free
 // between every two notifies, and the waiter, which looked for it again only
 // every so often, never looked at a free moment. A waiter queues: it is next

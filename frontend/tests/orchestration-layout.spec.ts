@@ -5,7 +5,7 @@ import { ROW } from "../src/workflow";
 // which the Overlord had placed by hand where pd-connect-quickstart's arranged
 // place came to be, a little above the third row, and cg-board-theme sat
 // beside the goblin it waited on.
-const LAYOUT_KEY = "cfo-orchestration-layout-v2";
+const LAYOUT_KEY = "ceo-orchestration-layout-v2";
 const PLACED_BY_HAND = { "task:cg-credential-requests": { x: 686, y: 72 + 2 * ROW - 18 } };
 
 async function cards(page: Page) {
@@ -28,7 +28,7 @@ for (const size of [{ width: 1440, height: 900 }, { width: 900, height: 700 }, {
     expect(await covered(page)).toEqual([]);
     const all = await cards(page);
     const card = (name: string) => all.find((one) => one.name === name)!;
-    const waiting = card("cg-board-theme"), awaited = card("cg-cfo-wakes");
+    const waiting = card("cg-board-theme"), awaited = card("cg-ceo-wakes");
     expect(waiting.top, "under the goblin it waits on").toBeGreaterThan(awaited.bottom);
     expect(waiting.left < awaited.right && awaited.left < waiting.right, "beneath it, not off to one side").toBe(true);
     await expect(page.locator(".dependency-line")).toHaveCount(1);

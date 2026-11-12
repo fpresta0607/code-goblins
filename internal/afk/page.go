@@ -111,7 +111,7 @@ type needRow struct {
 var answerIcons = map[string]string{"question": "question", "review": "comment", "run": "play", "credential": "key", "browser-signin": "lock"}
 
 // releaseUpdate is the key of the board's own release update run, which
-// releases.go names update-<tag>-<16 hex nonce>. The CFO names its own runs,
+// releases.go names update-<tag>-<16 hex nonce>. The CEO names its own runs,
 // update-node-1 among them, so the prefix alone is no release update.
 var releaseUpdate = regexp.MustCompile(`^run:update-.+-[0-9a-f]{16}$`)
 
@@ -188,7 +188,7 @@ func (r Return) view() pageView {
 		switch {
 		case section.Group == GroupNeeds:
 			for _, entry := range section.Entries {
-				v.Needs = append(v.Needs, needRow{Title: entry.What, Who: "The CFO", Persona: "cfo", Body: []string{entry.Link, entry.Evidence}})
+				v.Needs = append(v.Needs, needRow{Title: entry.What, Who: "The CEO", Persona: "ceo", Body: []string{entry.Link, entry.Evidence}})
 			}
 		case section.Title == "Merged":
 			v.Merged = len(section.Entries)
@@ -199,10 +199,10 @@ func (r Return) view() pageView {
 			continue
 		}
 		// As the Command Center names who asks: Code Goblins for its own
-		// release update, a run of no task, the goblin, or the CFO for an item
+		// release update, a run of no task, the goblin, or the CEO for an item
 		// of no task.
 		kind, _, _ := strings.Cut(held.Item, ":")
-		who, face, answer := "The CFO", "cfo", answerIcons[kind]
+		who, face, answer := "The CEO", "ceo", answerIcons[kind]
 		switch {
 		case held.Task == "" && releaseUpdate.MatchString(held.Item):
 			who, face, answer = "Code Goblins", "releases", "download"
@@ -221,7 +221,7 @@ func (r Return) view() pageView {
 			for _, evidence := range change.Evidence {
 				body = append(body, "Evidence: "+evidence)
 			}
-			face := "cfo"
+			face := "ceo"
 			if change.Task != "" {
 				face = persona(change.Task)
 			}
@@ -232,7 +232,7 @@ func (r Return) view() pageView {
 	}
 	his, goblins := r.Decided()
 	for _, decision := range his {
-		v.His = append(v.His, decisionRow{Decision: decision, Who: "The CFO", Persona: "cfo", Body: []string{decision.Why, "Evidence: " + decision.Evidence}})
+		v.His = append(v.His, decisionRow{Decision: decision, Who: "The CEO", Persona: "ceo", Body: []string{decision.Why, "Evidence: " + decision.Evidence}})
 	}
 	// A goblin's question names its task: its face and its name are that
 	// task's goblin's.
@@ -301,18 +301,18 @@ func spentRows(report Report) []spentRow {
 var ownProgram = regexp.MustCompile(` \(.*\)$`)
 
 // switchedForHim says who made a switch in the words the board's own switch
-// uses for him: from his board or terminal, or by the CFO at his ask with
+// uses for him: from his board or terminal, or by the CEO at his ask with
 // his words.
 func switchedForHim(from, asked string) string {
 	if asked != "" {
-		return "by the CFO at your ask: “" + asked + "”"
+		return "by the CEO at your ask: “" + asked + "”"
 	}
 	return "from " + ownProgram.ReplaceAllString(strings.Replace(from, "his own ", "your ", 1), "")
 }
 
 // recordRows are the rest of what the report holds: who switched AFK mode on
 // and off, each item that waited on him and no longer does, each goblin
-// paused at a floor, each line the CFO settled or struck, and what could not
+// paused at a floor, each line the CEO settled or struck, and what could not
 // be read.
 func recordRows(report Report) []recordRow {
 	rows := []recordRow{{Title: "Turned on " + switchedForHim(report.From, report.Asked), Kind: at(report.Since), Mark: "clock"}, {Title: "Turned off " + switchedForHim(report.EndedFrom, report.EndedAsked), Kind: at(report.Ended), Mark: "clock"}}
@@ -326,10 +326,10 @@ func recordRows(report Report) []recordRow {
 		switch section.Title {
 		case "Paused at a floor":
 			kind, mark = "Paused", "pause-circle"
-		case "Settled by the CFO":
-			kind, mark = "Settled by the CFO", "check"
-		case "Struck by the CFO":
-			kind, mark = "Struck by the CFO", "close"
+		case "Settled by the CEO":
+			kind, mark = "Settled by the CEO", "check"
+		case "Struck by the CEO":
+			kind, mark = "Struck by the CEO", "close"
 		default:
 			continue
 		}

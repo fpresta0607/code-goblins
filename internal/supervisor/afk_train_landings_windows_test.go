@@ -16,7 +16,7 @@ import (
 // run tested it, and a pull request is merged once in a stretch.
 func TestATrainThatFoundARiderAlreadyOnItsBaseLogsItAsMergedOnce(t *testing.T) {
 	// Arrange
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestATrainThatFoundARiderAlreadyOnItsBaseLogsItAsMergedOnce(t *testing.T) {
 
 func TestATrainThatFoundARiderAlreadyOnItsBaseLogsItWithoutARun(t *testing.T) {
 	// Arrange
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestATrainThatFoundARiderAlreadyOnItsBaseLogsItWithoutARun(t *testing.T) {
 	}
 }
 
-// A train the CFO starts detached does not run under the registered CFO and
+// A train the CEO starts detached does not run under the registered CEO and
 // cannot write the decision log, so it asks the supervisor to log a landing,
 // and the supervisor logs what the train's record and GitHub say.
 
@@ -119,7 +119,7 @@ func mergeLines(t *testing.T, stateDir string) []afk.Entry {
 
 func TestTheSupervisorLogsALandingOfATrainItDidNotStartOnceFromItsRecord(t *testing.T) {
 	// Arrange
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
 		t.Fatal(err)
 	}
@@ -141,13 +141,13 @@ func TestTheSupervisorLogsALandingOfATrainItDidNotStartOnceFromItsRecord(t *test
 	}
 }
 
-// A cfo pr train started detached runs outside the registered CFO, and the
+// A goblins pr train started detached runs outside the registered CEO, and the
 // supervisor still logs what it landed as merged (#848): a build before #833
-// took the landing as a decision of the CFO's and refused it, "this process
-// does not run under the registered CFO".
-func TestTheSupervisorLogsALandingAskedByAProcessOutsideTheRegisteredCFO(t *testing.T) {
+// took the landing as a decision of the CEO's and refused it, "this process
+// does not run under the registered CEO".
+func TestTheSupervisorLogsALandingAskedByAProcessOutsideTheRegisteredCEO(t *testing.T) {
 	// Arrange
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestTheSupervisorLogsALandingAskedByAProcessOutsideTheRegisteredCFO(t *test
 
 	// Assert
 	if merges := mergeLines(t, h.State); err != nil || len(merges) != 1 || merges[0].What != landedPull || merges[0].Outcome != afk.OutcomeMerged {
-		t.Fatalf("asked from outside the CFO = %v, merge lines = %+v, want the landing logged as merged", err, merges)
+		t.Fatalf("asked from outside the CEO = %v, merge lines = %+v, want the landing logged as merged", err, merges)
 	}
 }
 
@@ -177,7 +177,7 @@ func TestTheSupervisorLogsNoLandingThatIsNotOnTheTrainsRecordOrNotMergedOnGitHub
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			s, h, _ := asTheCFO(t)
+			s, h, _ := asTheCEO(t)
 			if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
 				t.Fatal(err)
 			}
@@ -198,7 +198,7 @@ func TestTheSupervisorLogsNoLandingThatIsNotOnTheTrainsRecordOrNotMergedOnGitHub
 
 func TestTheSupervisorLogsNoTrainLandingWhileAFKModeIsOff(t *testing.T) {
 	// Arrange
-	_, h, _ := asTheCFO(t)
+	_, h, _ := asTheCEO(t)
 	writeTrain(t, h.State, landedTrain())
 
 	// Act

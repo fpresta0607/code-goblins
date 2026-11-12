@@ -23,7 +23,7 @@ export function useAfkSwitch(instance: string): AfkSwitch {
     setPending(true);
     setRefused({ problem: "", pressedOn: on });
     try {
-      await request("/api/afk", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ on }) });
+      await request("/api/afk", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ on }) });
       return true;
     } catch (error: unknown) {
       setRefused({ problem: message(error), pressedOn: on });

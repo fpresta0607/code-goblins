@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { reportToCfo } from "./api";
+import { reportToCeo } from "./api";
 import { Dictation, dictationKey } from "./dictation";
 import { dictationStatus, modelName, openMicrophone, prepareDictation, recognizerFor } from "./dictationEngine";
 import { rememberDictation } from "./useVoice";
@@ -129,8 +129,8 @@ export function useDictation(type: (text: string, isSent: boolean) => void, inst
       setNote({ text, lasting: false });
       if (text) void follow();
     };
-    // Words that could not be had go to the CFO, not onto the board.
-    const failed = (reason: string) => reportToCfo("dictation", reason);
+    // Words that could not be had go to the CEO, not onto the board.
+    const failed = (reason: string) => reportToCeo("dictation", reason);
     // A set-up that failed was shown until now.
     setNote((prior) => prior.lasting && !following.current ? NO_NOTE : prior);
     dictation.current ??= new Dictation({ heard, listening: setListening, pending: setPending, problem, failed }, () => recognizerFor(() => token.current), navigator.language || "en-US", openMicrophone);

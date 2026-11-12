@@ -473,7 +473,7 @@ for (const outcome of ["success", "deferred success", "failure"] as const) test(
   const stale = new Promise<void>((resolve) => { releaseStale = resolve; });
   const current = new Promise<void>((resolve) => { releaseCurrent = resolve; });
   const requests: number[] = [], reports: string[] = [];
-  await page.route("**/api/cfo/report", (route) => {
+  await page.route("**/api/ceo/report", (route) => {
     const report: unknown = route.request().postDataJSON();
     if (typeof report === "object" && report !== null && "where" in report && report.where === "the messages of " + NAME) reports.push(route.request().postData() ?? "");
     return route.fulfill({ json: {} });

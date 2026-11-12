@@ -12,7 +12,7 @@ import (
 // the temp folder.
 func (m Machine) folders(context.Context) ([]Item, error) {
 	named := []struct{ what, path string }{
-		{"its console host and verify reports", filepath.Join(m.LocalAppData, "cfo")},
+		{"its console host and verify reports", filepath.Join(m.LocalAppData, "goblins")},
 		{"the window's browser profile", filepath.Join(m.AppData, "goblins-window.exe")},
 		{"the window an earlier install kept", filepath.Join(m.LocalAppData, "CodeGoblinsWindow")},
 		{"the install's log", filepath.Join(m.Temp, "CodeGoblinsInstall.log")},
@@ -41,7 +41,7 @@ func (m Machine) folders(context.Context) ([]Item, error) {
 	globs := []struct{ what, pattern string }{
 		{"a download of the install", filepath.Join(m.Temp, "code-goblins-*")},
 		{"a notification's picture", filepath.Join(m.Temp, "Code Goblins{*}.png")},
-		{"pi's compiled copy of the board's extension", filepath.Join(m.Temp, "jiti", "extensions-cfo-native.*")},
+		{"pi's compiled copy of the board's extension", filepath.Join(m.Temp, "jiti", "extensions-goblins-native.*")},
 	}
 	for _, g := range globs {
 		matches, err := filepath.Glob(g.pattern)
@@ -58,8 +58,8 @@ func (m Machine) folders(context.Context) ([]Item, error) {
 // credentialsFolder is the file store, and the folder it is in where that is
 // the store's alone.
 func (m Machine) credentialsFolder() (string, string) {
-	root := filepath.Join(m.Profile, ".cfo", "credentials")
-	if dir := os.Getenv("CFO_CREDENTIAL_DIR"); dir != "" {
+	root := filepath.Join(m.Profile, ".ceo", "credentials")
+	if dir := os.Getenv("GOBLINS_CREDENTIAL_DIR"); dir != "" {
 		return dir, ""
 	}
 	return root, filepath.Dir(root)
@@ -76,7 +76,7 @@ func (m Machine) credentials(context.Context) ([]Item, error) {
 	var items []Item
 	for _, target := range targets {
 		what := "a saved credential"
-		if strings.HasPrefix(strings.TrimPrefix(target, "cfo:"), ".env-seen/") {
+		if strings.HasPrefix(strings.TrimPrefix(target, "ceo:"), ".env-seen/") {
 			what = "a record of what a .env offered"
 		}
 		items = append(items, Item{Action: Remove, Group: GroupCredentials, What: what, Where: target, do: func(context.Context) error {

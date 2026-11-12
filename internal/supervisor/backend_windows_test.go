@@ -11,16 +11,16 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/terminal/terminaltest"
 )
 
-// The board checks the registered CFO through the terminal backend opened in
-// the CFO's own session: its agent and terminal in the session's structure,
+// The board checks the registered CEO through the terminal backend opened in
+// the CEO's own session: its agent and terminal in the session's structure,
 // then the process in the terminal's foreground.
-func TestTheRegisteredCFOIsCheckedThroughTheTerminalBackend(t *testing.T) {
+func TestTheRegisteredCEOIsCheckedThroughTheTerminalBackend(t *testing.T) {
 	for name, c := range map[string]struct {
 		gone bool
 		want string
 	}{
-		"the CFO in its terminal":    {},
-		"the CFO gone from the pane": {gone: true, want: "no longer owns its pane"},
+		"the CEO in its terminal":    {},
+		"the CEO gone from the pane": {gone: true, want: "no longer owns its pane"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			store, _ := testStore(t)
@@ -37,7 +37,7 @@ func TestTheRegisteredCFOIsCheckedThroughTheTerminalBackend(t *testing.T) {
 				Process: herdr.PaneProcessInfo{ShellPID: 7, ForegroundProcessGroupID: foreground},
 			}
 			var opened []string
-			connection := &CFOConnection{State: store.Home.State, Terminals: func(session string) terminal.Backend {
+			connection := &CEOConnection{State: store.Home.State, Terminals: func(session string) terminal.Backend {
 				opened = append(opened, session)
 				return fake
 			}}

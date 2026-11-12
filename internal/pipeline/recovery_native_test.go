@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 )
 
 func TestRecoverInheritedPublicationReportsDistinctPreservedHeads(t *testing.T) {
@@ -83,7 +84,7 @@ func TestRecoverInheritedPublicationReportsDistinctPreservedHeads(t *testing.T) 
 }
 
 func TestRecoverInheritedPublicationNativeJourney(t *testing.T) {
-	source := os.Getenv("CFO_RECOVERY_NATIVE_SOURCE")
+	source := os.Getenv("GOBLINS_RECOVERY_NATIVE_SOURCE")
 	if source == "" {
 		t.Skip("requires a matching native source checkout to reuse its admission/restart fixtures")
 	}
@@ -106,7 +107,7 @@ func TestRecoverInheritedPublicationNativeJourney(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture := os.Getenv("CFO_RECOVERY_NATIVE_FIXTURE")
+	fixture := os.Getenv("GOBLINS_RECOVERY_NATIVE_FIXTURE")
 	manifest, err := os.ReadFile(fixture + ".json")
 	if err != nil {
 		t.Fatal("requires the prepared native fixture executable and its build manifest")
@@ -135,7 +136,7 @@ func TestRecoverInheritedPublicationNativeJourney(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := runner.Run(ctx, execx.Request{Dir: source, Env: append(os.Environ(), "CFO_RECOVERY_NATIVE_CONTROLLER="+controller, "CFO_RECOVERY_CONTROLLER_TESTS="+controllerTests), Name: fixture, Args: []string{"-test.run", "^TestController(InheritedPublicationJourney|UnpublishedAuthoredJourney|OrdinaryCancellationRemainsRefused)$", "-test.v", "-test.timeout", "3m"}, KillTree: true})
+	result, err := runner.Run(ctx, execx.Request{Dir: source, Env: append(os.Environ(), "GOBLINS_RECOVERY_NATIVE_CONTROLLER="+controller, "GOBLINS_RECOVERY_CONTROLLER_TESTS="+controllerTests), Name: fixture, Args: []string{"-test.run", "^TestController(InheritedPublicationJourney|UnpublishedAuthoredJourney|OrdinaryCancellationRemainsRefused)$", "-test.v", "-test.timeout", "3m"}, KillTree: true})
 	t.Logf("native=%s\n%s%s", version.Stdout, result.Stdout, result.Stderr)
 	if err != nil || result.ExitCode != 0 {
 		t.Fatalf("managed native journey: exit=%d error=%v", result.ExitCode, err)
@@ -145,7 +146,7 @@ func TestRecoverInheritedPublicationNativeJourney(t *testing.T) {
 // The native admission/restart fixture invokes this seam while its isolated
 // Git and SQLite state is alive. No native boundary is replaced by a runner.
 func TestRecoverInheritedPublicationNativeFixture(t *testing.T) {
-	root := os.Getenv("CFO_RECOVERY_NATIVE_ROOT")
+	root := os.Getenv("GOBLINS_RECOVERY_NATIVE_ROOT")
 	if root == "" {
 		t.Skip("requires the native admission/restart fixture and matching native executable")
 	}
@@ -153,10 +154,10 @@ func TestRecoverInheritedPublicationNativeFixture(t *testing.T) {
 	if err != nil || string(marker) != "isolated native admission fixture\n" {
 		t.Fatal("requires an explicitly prepared isolated native fixture")
 	}
-	project := os.Getenv("CFO_RECOVERY_NATIVE_PROJECT")
+	project := os.Getenv("GOBLINS_RECOVERY_NATIVE_PROJECT")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	reader := Reader{Root: root, Commands: fixtureCommands{execx.OSRunner{}}}
+	reader := Reader{Root: root, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}
 	env := append(os.Environ(), "NM_HOME="+root)
 	run, err := reader.latestRecoveryCandidate(ctx, project, "feature")
 	if err != nil {
@@ -178,7 +179,7 @@ func TestRecoverInheritedPublicationNativeFixture(t *testing.T) {
 		}
 	}
 	original := readDatabase()
-	if os.Getenv("CFO_RECOVERY_EXPECT_AUTHORED_UNPUBLISHED") == "1" {
+	if os.Getenv("GOBLINS_RECOVERY_EXPECT_AUTHORED_UNPUBLISHED") == "1" {
 		bare := filepath.Join(root, "repos", run.RepoID+".git")
 		gate := runPipelineGit(t, bare, "rev-parse", "refs/heads/feature")
 		result, err := reader.RecoverKeepLocal(ctx, project, project, "feature", env)
@@ -191,7 +192,7 @@ func TestRecoverInheritedPublicationNativeFixture(t *testing.T) {
 		t.Logf("unpublished authored controller: run=%s local=%s gate=%s\n%s", result.RunID, result.Head, result.GateHead, result.NativeOutput)
 		return
 	}
-	if os.Getenv("CFO_RECOVERY_EXPECT_USER_OWNED") == "1" {
+	if os.Getenv("GOBLINS_RECOVERY_EXPECT_USER_OWNED") == "1" {
 		status, _, err := reader.readRecoverySync(ctx, project, env)
 		if err != nil || !status.userOwned(run, true) {
 			t.Fatalf("cancellation did not already release source: %+v %v", status, err)
@@ -288,7 +289,7 @@ func TestRecoverInheritedPublicationNativeFixture(t *testing.T) {
 			t.Fatal("moved gate branch accepted")
 		}
 	})
-	for _, ref := range []string{"refs/no-mistakes/recover/" + run.RunID, "refs/no-mistakes/authored-candidate/" + os.Getenv("CFO_RECOVERY_NATIVE_ADMISSION")} {
+	for _, ref := range []string{"refs/no-mistakes/recover/" + run.RunID, "refs/no-mistakes/authored-candidate/" + os.Getenv("GOBLINS_RECOVERY_NATIVE_ADMISSION")} {
 		t.Run("refuses missing "+ref, func(t *testing.T) {
 			head := runPipelineGit(t, bare, "rev-parse", ref)
 			runPipelineGit(t, bare, "update-ref", "-d", ref)
@@ -314,11 +315,11 @@ func TestRecoverInheritedPublicationNativeFixture(t *testing.T) {
 	preservedGate := runPipelineGit(t, bare, "rev-parse", "refs/heads/feature")
 	result, err := reader.RecoverKeepLocal(ctx, project, project, "feature", env)
 	if err != nil {
-		probe, probeErr := reader.Commands.Run(ctx, execx.Request{Dir: project, Env: env, Name: "no-mistakes", Args: []string{"axi", "terminal-preflight", "--predecessor", os.Getenv("CFO_RECOVERY_NATIVE_RUN")}})
+		probe, probeErr := reader.Commands.Run(ctx, execx.Request{Dir: project, Env: env, Name: "no-mistakes", Args: []string{"axi", "terminal-preflight", "--predecessor", os.Getenv("GOBLINS_RECOVERY_NATIVE_RUN")}})
 		t.Logf("native preflight: %s %s error=%v", probe.Stdout, probe.Stderr, probeErr)
 		t.Fatal(err)
 	}
-	if result.RunID != os.Getenv("CFO_RECOVERY_NATIVE_RUN") || result.Head != os.Getenv("CFO_RECOVERY_NATIVE_HEAD") || result.GateHead != preservedGate || result.GateHead == result.Head {
+	if result.RunID != os.Getenv("GOBLINS_RECOVERY_NATIVE_RUN") || result.Head != os.Getenv("GOBLINS_RECOVERY_NATIVE_HEAD") || result.GateHead != preservedGate || result.GateHead == result.Head {
 		t.Fatalf("recovered another source: %+v", result)
 	}
 	t.Logf("managed recovery: run=%s head=%s\n%s", result.RunID, result.Head, result.NativeOutput)

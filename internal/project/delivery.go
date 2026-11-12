@@ -34,7 +34,7 @@ type DeliverySelection struct {
 }
 
 // SelectDelivery resolves intake once. Surface and risk describe the actual
-// change, never the directory it happens to edit. Only the CFO's explicit
+// change, never the directory it happens to edit. Only the CEO's explicit
 // exception may narrow the selected rigor; any other narrower request selects
 // no-mistakes and records why.
 func SelectDelivery(manifest Manifest, brief, requested, exception string) DeliverySelection {
@@ -116,9 +116,9 @@ func SelectDelivery(manifest Manifest, brief, requested, exception string) Deliv
 		if requested == "no-mistakes" {
 			selection.Mode, selection.Reason = requested, "explicit strict delivery: "+selection.Reason
 		} else if strings.TrimSpace(exception) != "" && !strings.ContainsAny(exception, "\r\n") && hasChecks && (requested == "direct-PR" || requested == "local-only") {
-			selection.Mode, selection.Reason = requested, "explicit CFO-authorized exception: "+exception
+			selection.Mode, selection.Reason = requested, "explicit CEO-authorized exception: "+exception
 		} else {
-			selection.Mode, selection.Reason = "no-mistakes", "requested "+requested+" is not authorized by the posture and assessment or by a CFO exception: "+selection.Reason
+			selection.Mode, selection.Reason = "no-mistakes", "requested "+requested+" is not authorized by the posture and assessment or by a CEO exception: "+selection.Reason
 		}
 	}
 	return selection

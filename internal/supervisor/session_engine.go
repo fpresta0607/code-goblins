@@ -14,7 +14,7 @@ import (
 )
 
 // A session has one record of its model and effort: a goblin's task record
-// and the CFO's engine file. A spawn, a switch and a saved selection write
+// and the CEO's engine file. A spawn, a switch and a saved selection write
 // it, the next start or resume reads it, and every view of the session shows
 // it. What the harness itself is told, a /model or /effort typed in its
 // terminal or sent by the board's own control, reaches that record from the
@@ -114,30 +114,30 @@ func (s *Service) keepEngine(meta state.TaskMeta, engine fleettree.Engine) (isCh
 	return true, state.WriteMeta(path, record)
 }
 
-// keepCFOEngine writes the model and effort the CFO's own conversation names
+// keepCEOEngine writes the model and effort the CEO's own conversation names
 // into its engine file, and reports whether the file changed. It does so for
-// a CFO that runs in the board's native terminal, whose conversation the
+// a CEO that runs in the board's native terminal, whose conversation the
 // fleet home's folder holds. A selection that waits to be applied, or one a
-// problem holds for the CFO's next start, is the Overlord's choice and stays
-// as saved; one that names another harness than the CFO was started as gives
-// way once the running CFO names its own engine, since the file is the record
+// problem holds for the CEO's next start, is the Overlord's choice and stays
+// as saved; one that names another harness than the CEO was started as gives
+// way once the running CEO names its own engine, since the file is the record
 // of the session that runs.
-func (s *Service) keepCFOEngine() (isChanged bool, err error) {
+func (s *Service) keepCEOEngine() (isChanged bool, err error) {
 	stateDir := s.Store.Home.State
-	cfo := readCFOState(stateDir)
-	_, session, _ := strings.Cut(cfo.session, "/")
-	if !cfo.registered || cfo.terminal != NativeCFOTerminal || session == "" || !fleettree.HoldsTranscript(s.Options.Tree.Home, cfo.harness, s.Store.Home.Root, session) {
+	ceo := readCEOState(stateDir)
+	_, session, _ := strings.Cut(ceo.session, "/")
+	if !ceo.registered || ceo.terminal != NativeCEOTerminal || session == "" || !fleettree.HoldsTranscript(s.Options.Tree.Home, ceo.harness, s.Store.Home.Root, session) {
 		return false, nil
 	}
-	path := fleettree.HeldTranscript(s.Options.Tree.Home, cfo.harness, s.Store.Home.Root, session)
+	path := fleettree.HeldTranscript(s.Options.Tree.Home, ceo.harness, s.Store.Home.Root, session)
 	if path == "" {
 		return false, nil
 	}
-	engine, err := s.Options.Tree.SessionEngine(fleettree.CFOOwner, cfo.harness, path)
+	engine, err := s.Options.Tree.SessionEngine(fleettree.CEOOwner, ceo.harness, path)
 	if err != nil {
 		return false, nil
 	}
-	model, isTyped, effort := s.runningEngine(cfo.harness, engine, cfo.since)
+	model, isTyped, effort := s.runningEngine(ceo.harness, engine, ceo.since)
 	if model == "" && effort == "" {
 		return false, nil
 	}
@@ -147,28 +147,28 @@ func (s *Service) keepCFOEngine() (isChanged bool, err error) {
 		return false, nil
 	}
 	defer s.starts.Unlock()
-	if current := readCFOState(stateDir); !current.registered || current.session != cfo.session || !current.since.Equal(cfo.since) {
+	if current := readCEOState(stateDir); !current.registered || current.session != ceo.session || !current.since.Equal(ceo.since) {
 		return false, nil
 	}
-	recorded, err := ReadCFOEngine(stateDir)
+	recorded, err := ReadCEOEngine(stateDir)
 	isSaved := err == nil
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		// A selection the fleet cannot read is the board's to report.
 		return false, nil
 	}
 	switch {
-	case isSaved && recorded.Pending, isSaved && recorded.Harness == cfo.harness && recorded.Problem != "":
+	case isSaved && recorded.Pending, isSaved && recorded.Harness == ceo.harness && recorded.Problem != "":
 		return false, nil
-	case !isSaved, recorded.Harness != cfo.harness:
-		if isSaved && recorded.Overridden != cfo.harness || model == "" {
+	case !isSaved, recorded.Harness != ceo.harness:
+		if isSaved && recorded.Overridden != ceo.harness || model == "" {
 			return false, nil
 		}
 		if effort == "" {
 			effort = "default"
 		}
-		recorded = CFOEngine{Harness: cfo.harness, Model: model, Effort: effort}
+		recorded = CEOEngine{Harness: ceo.harness, Model: model, Effort: effort}
 	default:
-		if model != "" && !isRecordedModel(cfo.harness, recorded.Model, model, isTyped) {
+		if model != "" && !isRecordedModel(ceo.harness, recorded.Model, model, isTyped) {
 			recorded.Model, isChanged = model, true
 		}
 		if effort != "" && effort != recorded.Effort {
@@ -178,11 +178,11 @@ func (s *Service) keepCFOEngine() (isChanged bool, err error) {
 			return false, nil
 		}
 	}
-	return true, writeCFOEngine(stateDir, recorded)
+	return true, writeCEOEngine(stateDir, recorded)
 }
 
 // keepStreamedEngine keeps the engine record of the session a message view
-// streams, the CFO's with no task, as its conversation says something new,
+// streams, the CEO's with no task, as its conversation says something new,
 // so a view that is open shows a change within the stream's own tick rather
 // than at the next read of every tree. A goblin's conversation is the one
 // that read last found, and a record that cannot be written is that read's
@@ -190,7 +190,7 @@ func (s *Service) keepCFOEngine() (isChanged bool, err error) {
 func (s *Service) keepStreamedEngine(task string) {
 	isChanged := false
 	if task == "" {
-		isChanged, _ = s.keepCFOEngine()
+		isChanged, _ = s.keepCEOEngine()
 	} else if meta, err := state.ReadTaskMeta(s.Store.Home.State, task); err == nil {
 		if engine, isRead := s.Options.Tree.EngineAgain(task); isRead {
 			isChanged, _ = s.keepEngine(meta, engine)

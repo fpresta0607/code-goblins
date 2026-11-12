@@ -7,8 +7,8 @@ import (
 )
 
 // A goblin's page that asks the Overlord to pick declares its question in a
-// data-lavish-choices block. While AFK mode is on the CFO answers it, so its
-// choices travel on the CFO's decision as a notify writes them, the
+// data-lavish-choices block. While AFK mode is on the CEO answers it, so its
+// choices travel on the CEO's decision as a notify writes them, the
 // recommended one marked; a page that declares none, several questions, or
 // choices a decision cannot offer, travels with none.
 func TestPageOptionsAreTheOneQuestionAPageDeclares(t *testing.T) {

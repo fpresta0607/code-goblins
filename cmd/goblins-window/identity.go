@@ -42,8 +42,8 @@ func windowIdentity(stateDir, profile string, userEnv []string) identity {
 	return window
 }
 
-// usersOwnState is the state folder of the home userEnv names, as cfo
-// resolves one: CFO_STATE_OVERRIDE, or else the state folder of CFO_HOME, or
+// usersOwnState is the state folder of the home userEnv names, as goblins
+// resolves one: GOBLINS_STATE_OVERRIDE, or else the state folder of GOBLINS_HOME, or
 // else of the per-user home under LOCALAPPDATA. It is empty when userEnv
 // names no home at all.
 func usersOwnState(userEnv []string) string {
@@ -55,10 +55,10 @@ func usersOwnState(userEnv []string) string {
 		}
 		return ""
 	}
-	if state := value("CFO_STATE_OVERRIDE"); state != "" {
+	if state := value("GOBLINS_STATE_OVERRIDE"); state != "" {
 		return state
 	}
-	root := value("CFO_HOME")
+	root := value("GOBLINS_HOME")
 	if root == "" {
 		local := value("LOCALAPPDATA")
 		if local == "" {
