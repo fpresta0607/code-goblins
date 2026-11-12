@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 )
 
 const (
@@ -457,7 +458,7 @@ type gateRebaseRunner struct {
 
 func (r *gateRebaseRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name != "no-mistakes" {
-		return fixtureCommands{execx.OSRunner{}}.Run(ctx, request)
+		return pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}.Run(ctx, request)
 	}
 	switch strings.Join(request.Args, " ") {
 	case "axi sync --recover --keep-local":
@@ -651,7 +652,7 @@ type recordedHeadRunner struct {
 
 func (r *recordedHeadRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name != "no-mistakes" {
-		return fixtureCommands{execx.OSRunner{}}.Run(ctx, request)
+		return pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}.Run(ctx, request)
 	}
 	row, err := exec.Command("sqlite3", "-separator", " ", r.database, "SELECT head_sha, submitted_head_sha, COALESCE(custody_returned_at,0) FROM runs WHERE id="+sqlString(r.run)).Output()
 	if err != nil {

@@ -53,6 +53,7 @@ import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { CHAT_STYLE_CHANGED, useChatStyle, type ChatStyle } from "./chat-style";
 import { goblinName } from "./task-words";
 import { AfkOnDialog } from "./afk-on-dialog";
+import { LinkFallback } from "./link-fallback";
 import { useAfkToggle } from "./useAfkToggle";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
@@ -569,6 +570,7 @@ export function App() {
       </div>
     </header>
     {updated && <Notice form="box" actions={<button className="primary" onClick={() => location.reload()}>Reload</button>}>The board was updated.</Notice>}
+    <LinkFallback />
     {snapshot && <ComebackBanner comeback={snapshot.comeback} />}
     {snapshot && <Alerts snapshot={snapshot} onOpen={(key) => setCommandFocus({ key, at: Date.now() })} />}
     {firstRun ? <main className="first-run-region" aria-label="First run">

@@ -438,6 +438,15 @@ func renderStorage(out *writer, report Report) {
 		out.line("Some of the verification store could not be read, so it holds at least the size shown.")
 		out.line("")
 	}
+	if filing := report.Filing; filing == nil {
+		out.line("The home's data has not been filed yet; the supervisor files a laid-out home's data every ten minutes.")
+	} else {
+		out.line(fmt.Sprintf("The home's data was last filed at %s: %d folder(s) filed, %d finished or stale folder(s) wait for a later pass.",
+			filing.Time.Format(time.RFC3339), filing.Filed, filing.Waiting))
+		if filing.Error != "" {
+			out.line("- could not file: " + text(filing.Error))
+		}
+	}
 	if report.Janitor == nil {
 		out.line("The janitor has not swept this home yet; the watcher's sweep runs it every hour.")
 		return

@@ -8,7 +8,7 @@ import { PagePreview } from "./page-preview";
 import { age } from "./presentation";
 import { reviewLine, settledIcon, settledLabel, waitReason, waitsOnOverlord, waitTarget, type Item } from "./commandQueue";
 import { personaFor } from "./workflow";
-import { inlineElements, leadAndRest, messageElements } from "./messageText";
+import { inlineElements, leadAndRest, linkedText, messageElements } from "./messageText";
 import { copyValues } from "./CopyValue";
 import type { Draft } from "./QuestionCard";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
@@ -72,7 +72,7 @@ export function ReviewCard({ review, snapshot, connected, now, draft, onDraft, o
       </button>)}
     </div>}
     {answersHere && <DictatedAnswer label="Your answer" placeholder={"Tell " + (review.task ? asker : "the CEO") + " what you think..."} value={draft.written} instance={snapshot.instance} disabled={draft.sending} onText={(written) => onDraft({ written, error: "", receipt: undefined })} onSubmit={() => { if (canSend) onSend(); }} />}
-    {review.state !== "open" ? <p className={"question-outcome delivery " + settled.tone} role="status"><Icon name={settled.icon} />{settledLabel(item, snapshot.actions)}</p>
+    {review.state !== "open" ? <p className={"question-outcome delivery " + settled.tone} role="status"><Icon name={settled.icon} />{linkedText(settledLabel(item, snapshot.actions))}</p>
       : mark && <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>}
     <div className="card-actions">
       <ClickFeedback text={feedback} />

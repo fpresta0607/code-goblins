@@ -206,6 +206,29 @@ for (const { text, steps, values } of [
   });
 }
 
+// A stored card's steps link each web address they name, as its open card
+// does (#2360), and a javascript: string stays words.
+test("a stored card's steps open each web address they name in a new tab, and a javascript: one stays text", async ({ page }) => {
+  // Arrange
+  const keysPage = "https://console.example.com/api-keys";
+  const { rows } = await history(page);
+  const row = rows.filter({ hasText: "Paste APNS_KEY_ID for sample-app" });
+  const steps = row.locator(".history-detail").getByRole("list", { name: "How to get them" });
+
+  // Act
+  await row.locator(".history-open").click();
+
+  // Assert
+  await expect(steps.getByRole("listitem")).toHaveText(["Open example.com/settings", "Open " + keysPage + " and create a key", "Never paste javascript:alert(1) into the address bar"]);
+  const link = steps.getByRole("listitem").nth(1).getByRole("link");
+  await expect(link).toHaveText(keysPage);
+  await expect(link).toHaveAttribute("href", keysPage);
+  await expect(link).toHaveAttribute("target", "_blank");
+  await expect(link).toHaveAttribute("rel", "noreferrer");
+  await expect(steps.getByRole("listitem").nth(2).getByRole("link")).toHaveCount(0);
+  await expect(steps.locator('a[href^="javascript:"]')).toHaveCount(0);
+});
+
 test("Something else? on a card whose values are stored sends his words to its asker", async ({ page }) => {
   // Arrange
   const sent: Record<string, unknown>[] = [];

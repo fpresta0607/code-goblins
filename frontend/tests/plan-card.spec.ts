@@ -12,11 +12,11 @@ const PLAN = [
   { text: "Hand the swipe to the history", status: "in_progress" },
   { text: "Run the phone spec", status: "pending" },
 ];
-const talk = (tool: string) => ({ messages: [
+const talk = (tool: string, plan: object[] = PLAN) => ({ messages: [
   { id: "m0", seq: 0, at, kind: "prompt", source: "overlord", text: "Fix the swipe and check the phone spec." },
   { id: "m1", seq: 1, at, kind: "reply", blocks: [
     { kind: "text", text: "Here is the plan." },
-    { kind: "call", tool, subject: "", state: "done", plan: PLAN },
+    { kind: "call", tool, subject: "", state: "done", plan },
     { kind: "call", tool: "Read", subject: "frontend/src/terminalView.ts", state: "done" },
   ] },
 ], conversation: "fixture-conversation", more: false });
@@ -40,6 +40,31 @@ for (const [harness, tool] of [["claude", "TodoWrite"], ["codex", "update_plan"]
     await expect(page.getByText("frontend/src/terminalView.ts", { exact: true })).toBeVisible();
   });
 }
+
+// A step that names a web address opens it in a new tab (#2360), and a
+// javascript: string in a step stays words.
+test("a plan step's web address is a link that opens in a new tab, and a javascript: one stays text", async ({ page }) => {
+  // Arrange
+  const guide = "https://docs.example.com/touch-events";
+  const steps = [
+    { text: "Read " + guide + " first", status: "completed" },
+    { text: "Never run javascript:alert(1) from the console", status: "pending" },
+  ];
+  await open(page, snapshot({}, { harness: "claude" }), "", talk("TodoWrite", steps));
+
+  // Act
+  await openGoblin(page);
+
+  // Assert
+  const plan = page.getByRole("region", { name: "Plan", exact: true });
+  await expect(plan.locator(".plan-text")).toHaveText(steps.map((step) => step.text));
+  const link = plan.locator(".plan-step").first().getByRole("link");
+  await expect(link).toHaveText(guide);
+  await expect(link).toHaveAttribute("href", guide);
+  await expect(link).toHaveAttribute("target", "_blank");
+  await expect(plan.locator(".plan-step").last().getByRole("link")).toHaveCount(0);
+  await expect(plan.locator('a[href^="javascript:"]')).toHaveCount(0);
+});
 
 test("a plan call that failed is its row with Failed, not a card", async ({ page }) => {
   // Arrange: the supervisor serves a failed TodoWrite with no plan.
