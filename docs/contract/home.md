@@ -107,7 +107,8 @@ Every check that decides a removal refuses when it cannot read what it checks, a
   A run outside the line, as a test run by name, is not seen and can build beside a prune.
 - A bucket holding an entry the sweep cannot read, as a folder another account owns, is named under `goblins runtime`'s table of buckets, since its size, and the home's, is then only what could be counted.
   The sweep notes when the caches could not all be read, as their size against `caches_cap_gb` is then a lower bound.
-- It reports, and wakes the CEO with an `orphan` wake when it reports something it had not reported before: a worktree no task records, a new folder or file in the projects root that is no checkout, a retired task's folder it would not trim, and a `data` folder over 200 MB, with its five largest folders and why filing leaves each where it is.
+- It reports, and wakes the CEO with an `orphan` wake when it reports something it had not reported before: a worktree no task records, a new folder or file in the projects root that is no checkout, a retired task's folder it would not trim, and a `data` folder over 200 MB.
+  The report of a `data` folder over 200 MB names its five largest folders and why filing leaves each where it is.
 - It names, and never ends, the processes nothing proves the fleet's own: a browser bridge with no mark whose parent is gone, and a gate agent's process whose gate is gone.
   They reach you as one `orphan` wake for all of them, raised once for each process, with its pid, its age, the memory of its tree and its command, with the value of any argument named as a secret left out.
   End by pid what is the fleet's leftover and leave what is the Overlord's.
