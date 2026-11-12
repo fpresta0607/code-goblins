@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/cutover"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/update"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -130,6 +132,9 @@ func (s *Service) restartFromBefore(ctx context.Context, at time.Time, mayRestar
 	}
 	if ceo := readCEOState(stateDir); ceo.terminal == NativeCEOTerminal && isBefore(NativeCEOTerminal) {
 		waiting = append(waiting, "the CEO")
+		if mayRestart && ceo.registered {
+			s.takeBackOldWakeLine(ceo.harness)
+		}
 		if mayRestart && ceo.registered && s.Options.FirstRun != nil && s.ceoCrossingTries < ceoCrossingTries && s.ceoAtStoppingPoint(ctx, ceo.harness) {
 			s.ceoCrossingTries++
 			if _, _, err := s.Options.FirstRun.Restart(""); err != nil {
@@ -158,6 +163,50 @@ func (s *Service) restartFromBefore(ctx context.Context, at time.Time, mayRestar
 		}
 	}
 	return waiting, problems
+}
+
+// takeBackOldWakeLine takes a wake line that a board from before the move
+// typed into the CEO's terminal, and its harness never took, back off the
+// prompt line when it is all the line holds. The crossing restarts the CEO
+// only with nothing unsent on its prompt line, and no board of this build
+// types over words there, so nothing else would ever take it off. The wakes
+// it named stay queued, and the restarted CEO is told to drain them. Words of
+// his on the line keep it his.
+func (s *Service) takeBackOldWakeLine(agent string) {
+	screens, readable := harness.NativeScreens(harness.Kind(agent))
+	if !readable {
+		return
+	}
+	record, err := host.ReadRecord(s.Store.Home.State, NativeCEOTerminal)
+	if err != nil {
+		return
+	}
+	read := func() ([]string, error) { return s.readScreen(record) }
+	holdsOldWakeLine := func() (string, bool) {
+		screen, err := read()
+		if err != nil {
+			return "", false
+		}
+		draft, isRead := screens.Draft(screen)
+		return draft, isRead && cutover.IsOldWakeLine(draft)
+	}
+	if _, holds := holdsOldWakeLine(); !holds {
+		return
+	}
+	if s.Options.CEO != nil {
+		s.Options.CEO.typing.Lock()
+		defer s.Options.CEO.typing.Unlock()
+	}
+	draft, holds := holdsOldWakeLine()
+	if !holds {
+		return
+	}
+	client, err := host.Dial(record)
+	if err != nil {
+		return
+	}
+	defer client.Close()
+	spawn.TakeBack(read, client.Input, screens, draft)
 }
 
 // bridgesInUse says whether something still needs the old programs a

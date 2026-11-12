@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -58,6 +59,19 @@ func FinishedOldUpdate(stateDir string) bool {
 	}
 	var journal update.Journal
 	return json.Unmarshal(data, &journal) == nil && journal.Schema == oldName+"-update.v1" && journal.Phase.Finished()
+}
+
+// oldWakeLine is the line a board from before the rename typed into a Codex
+// or pi CEO's terminal to wake it, the same in every release up to v0.5.18,
+// as a prompt line reads with its spaces taken out: its count and the wakes
+// it names vary, and one longer than 300 characters was cut to end in "...".
+var oldWakeLine = regexp.MustCompile(`^` + oldName + `watcherwake:\d+queuedwakes?\(.*(\);run` + oldName + `drain,handlewhatitshowsandackitwiththeWAKE_ACK_REQUIREDcommanditprints|\.\.\.)$`)
+
+// IsOldWakeLine says whether draft, a prompt line as harness.Screens.Draft
+// reads it, holds a wake line a board from before the rename typed there and
+// nothing else.
+func IsOldWakeLine(draft string) bool {
+	return oldWakeLine.MatchString(draft)
 }
 
 // PlanCrossing reads the machine and plans the crossing an apply at now

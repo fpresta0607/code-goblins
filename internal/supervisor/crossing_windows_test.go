@@ -6,11 +6,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/cutover"
+	"github.com/fpresta0607/code-goblins/internal/cutover/cutovertest"
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -223,5 +225,46 @@ func TestTheCrossingLoopRestartsNothingOnItsFirstLook(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatal("no later look set the goblin to restart under the new names")
 		}
+	}
+}
+
+// A board from before the move typed a wake line into the CEO's terminal that
+// its harness never took, and no board of this build types over a prompt
+// line that holds words, so nothing else would ever take it off: the
+// crossing takes it back and restarts the CEO under the new names, whose
+// restart tells it to drain the wakes. Words of his beside it keep the
+// prompt line his, and the CEO waits.
+func TestTheCrossingTakesBackAWakeLineABoardFromBeforeItLeftUnsent(t *testing.T) {
+	cases := []struct {
+		name, typed, shown string
+		isRestarted        bool
+	}{
+		{name: "only the old wake line", typed: cutovertest.WakeLine, shown: "queued wake", isRestarted: true},
+		{name: "his words beside it", typed: "my words " + cutovertest.WakeLine, shown: "my words", isRestarted: false},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, "ready")
+			typeIntoCEO(t, home.State, test.typed, test.shown)
+			if err := cutover.WriteCrossing(home.State, cutover.Crossing{Folder: filepath.Join(home.State, "backups", "cutover-1"), At: time.Now().UTC()}); err != nil {
+				t.Fatal(err)
+			}
+			machine := newFirstRunMachine(t)
+			machine.runs = true
+			s := &Service{Store: store, Instance: "crossing", Options: Options{Programs: runningPrograms{}, FirstRun: machine.run, CEO: &CEOConnection{State: home.State}}}
+
+			// Act
+			s.finishCrossing(t.Context(), true)
+
+			// Assert
+			if isRestarted := machine.restarted == 1; isRestarted != test.isRestarted {
+				t.Errorf("the CEO was restarted %d times, want restarted %v; the notice is %+v", machine.restarted, test.isRestarted, s.crossingView())
+			}
+			if isCleared := slices.Contains(terminal.lines(t), "cleared"); isCleared != test.isRestarted {
+				t.Errorf("terminal input = %q; want the prompt line cleared %v", terminal.lines(t), test.isRestarted)
+			}
+		})
 	}
 }
