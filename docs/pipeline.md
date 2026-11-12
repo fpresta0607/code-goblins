@@ -491,22 +491,6 @@ It vets what the change requires, and runs only the test functions the change ad
 A test whose function did not change, a test helper and `TestMain` are not run here, and its plan names each package whose tests it left with `left to CI:`, since CI runs every test before the merge.
 Nothing is skipped: what this level leaves, CI runs on the pull request and in the merge train, and the CI step stays the judge, with no approval by hand.
 
-### A project whose hosted CI is its test evidence
-
-A project's machine-local `project.json` can declare its gate Test light and its hosted CI its test evidence:
-
-```json
-{
-  "light_test": {"memory_mib": 1024, "limit_minutes": 15},
-  "test_evidence": "hosted-ci"
-}
-```
-
-`light_test` is the most memory the Test step is expected to use and the bound it is ended at, both over zero.
-`test_evidence` is empty or `hosted-ci`, and `hosted-ci` needs `light_test`, since a Test step that leaves the tests to CI is one that runs light.
-A gate's Test step of such a project, which its wrapper's `--gate-run` names, takes a light turn, as [Light runs beside the line](#light-runs-beside-the-line) says, and its command is given `GOBLINS_TEST_EVIDENCE=hosted-ci`, under which `goblins gate test` with no `--level` runs `changed`.
-A project without the record, or with neither field, keeps its local-first testing, unchanged.
-A record changes only after a build that reads it is installed, and the record of this repository is the machine-local one, not `.no-mistakes.yaml`.
 Before a push, `goblins gate prepush` runs more than the fast level and picks the tests of a slow package itself, so nobody runs tests by a name they guessed ([Before a push](#before-a-push)).
 
 The plan reads the checkout before anything runs, which is `go list` opening every Go file one after another.
@@ -579,6 +563,23 @@ The 20 reports of a project written last are kept, the one a run just wrote alwa
 A log with no report belongs to a run still going and stays, until nothing has written to it for 24 hours, when the project's next run removes it.
 A run that cannot write its report says so and keeps its verdict: the checks decide the exit code, never the store.
 A report is written whole or not at all, and the board reads them: a live task's card shows the newest run of its change, as [docs/native-board.md](native-board.md) describes.
+
+### A project whose hosted CI is its test evidence
+
+A project's machine-local `project.json` can declare its gate Test light and its hosted CI its test evidence:
+
+```json
+{
+  "light_test": {"memory_mib": 1024, "limit_minutes": 15},
+  "test_evidence": "hosted-ci"
+}
+```
+
+`light_test` is the most memory the Test step is expected to use and the bound it is ended at, both over zero.
+`test_evidence` is empty or `hosted-ci`, and `hosted-ci` needs `light_test`, since a Test step that leaves the tests to CI is one that runs light.
+A gate's Test step of such a project, which its wrapper's `--gate-run` names, takes a light turn, as [Light runs beside the line](#light-runs-beside-the-line) says, and its command is given `GOBLINS_TEST_EVIDENCE=hosted-ci`, under which `goblins gate test` with no `--level` runs `changed`.
+A project without the record, or with neither field, keeps its local-first testing, unchanged.
+A record changes only after a build that reads it is installed, and the record of this repository is the machine-local one, not `.no-mistakes.yaml`.
 
 ### Taking turns
 
