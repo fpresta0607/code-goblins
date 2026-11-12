@@ -16,9 +16,6 @@ var errNotPorted = fmt.Errorf("host: native terminals are not ported to this sys
 // RunArgs refuses, since no host runs on this system yet.
 func RunArgs(args []string) error { return errNotPorted }
 
-// Run refuses, since no host runs on this system yet.
-func Run(stateDir string, spec Spec) error { return errNotPorted }
-
 // Launch refuses, since no host runs on this system yet.
 func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 	return Record{}, errNotPorted

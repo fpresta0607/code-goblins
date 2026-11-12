@@ -28,14 +28,9 @@ func Sightings(h home.Home) func(context.Context) ([]reap.Sighting, []string, er
 	}
 }
 
-// ReadOwners reads no terminal, as Owners does.
-func ReadOwners(ctx context.Context, h home.Home, tree *fleettree.Reader) ([]Owner, []string) {
-	return Owners(ctx, h, tree)
-}
-
-// Owners reads no terminal and says why, so nothing is ended on any
+// ReadOwners reads no terminal and says why, so nothing is ended on any
 // terminal's account.
-func Owners(ctx context.Context, h home.Home, tree *fleettree.Reader) ([]Owner, []string) {
+func ReadOwners(ctx context.Context, h home.Home, tree *fleettree.Reader) ([]Owner, []string) {
 	return nil, []string{"the terminals were not read, so no process was judged: " + errProcessesNotPorted.Error()}
 }
 
