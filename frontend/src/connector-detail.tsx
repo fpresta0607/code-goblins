@@ -33,7 +33,7 @@ export function ConnectorDetail({ connector, goblins, readings, asked, isBusy, o
   // What a variable's goblins hold of it: one word when every goblin's
   // terminal holds it alike, and each goblin's otherwise.
   const variableWords = (states: { goblin: string; word: string }[]) => new Set(states.map((state) => state.word)).size === 1 ? states[0].word
-    : states.map((state) => state.goblin + ": " + state.word).join("; ");
+    : states.map((state) => state.goblin + ": " + state.word).join(", ");
   return <article className="connector-detail" aria-label={connector.name}>
     <header className="connector-head">
       <ConnectorLogo name={connector.reported} />
