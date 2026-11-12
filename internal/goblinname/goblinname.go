@@ -641,7 +641,7 @@ func keyOf(word string) string {
 }
 
 // singular is word without a plural ending: ies for a y, es after ch, sh, ss,
-// x, zz, tus or ias, and a final s but after ss, us or is. A capital final
+// x, zz, tus or ias, and a final s but after ss, us, is or ias. A capital final
 // S, as in macOS, and "series" stay as written.
 func singular(word string) string {
 	lower := strings.ToLower(word)
@@ -655,7 +655,7 @@ func singular(word string) string {
 		return word[:len(word)-3] + "y"
 	case hasEnding("ches", "shes", "sses", "xes", "zzes", "tuses", "iases"):
 		return word[:len(word)-2]
-	case len(lower) > 3 && hasEnding("s") && !hasEnding("ss", "us", "is"):
+	case len(lower) > 3 && hasEnding("s") && !hasEnding("ss", "us", "is", "ias"):
 		return word[:len(word)-1]
 	}
 	return word

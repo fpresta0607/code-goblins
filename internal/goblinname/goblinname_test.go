@@ -776,6 +776,8 @@ func TestDisplayPrintsTheTasksWordSingularAndKeepsItsCapitals(t *testing.T) {
 		{"queries", "Query"},
 		{"buzzes", "Buzz"},
 		{"status", "Status"},
+		{"alias", "Alias"},
+		{"bias", "Bias"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.word, func(t *testing.T) {
@@ -794,8 +796,8 @@ func TestCatalogNamesAreShortSingleWordsWithNoRepeats(t *testing.T) {
 	seen := map[string]bool{}
 	for _, name := range firstNames {
 		key := strings.ToLower(name)
-		if seen[key] || len(name) > 8 || strings.ContainsFunc(name, func(r rune) bool { return r < 'A' || r > 'z' || (r > 'Z' && r < 'a') }) {
-			t.Errorf("name %q repeats, runs past 8 letters or holds more than letters", name)
+		if seen[key] || len(name) > 7 || strings.ContainsFunc(name, func(r rune) bool { return r < 'A' || r > 'z' || (r > 'Z' && r < 'a') }) {
+			t.Errorf("name %q repeats, runs past 7 letters or holds more than letters", name)
 		}
 		seen[key] = true
 	}
