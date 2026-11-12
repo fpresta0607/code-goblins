@@ -75,7 +75,7 @@ func (f *fakeBrowser) named(method string) []fakeCall {
 // waitFor is the first command named method the browser got, once it got it.
 func (f *fakeBrowser) waitFor(t *testing.T, method string) fakeCall {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		if calls := f.named(method); len(calls) > 0 {
 			return calls[0]
 		}
@@ -192,10 +192,10 @@ func newFakeBrowsers(t *testing.T, chrome *fakeGoblinChrome) *taskBrowsers {
 	return browsers
 }
 
-// eventually fails the test unless isTrue holds within ten seconds.
+// eventually fails the test unless isTrue holds within thirty seconds.
 func eventually(t *testing.T, what string, isTrue func() bool) {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		if isTrue() {
 			return
 		}

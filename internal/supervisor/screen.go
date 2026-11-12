@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/coder/websocket"
@@ -245,7 +246,7 @@ func (s *screenView) notePage(info targetInfo) bool {
 		return false
 	}
 	page := screenPage{id: info.ID, title: info.Title, address: pageHost(info.URL), url: info.URL}
-	if isAddressOf(info.Title, info.URL) {
+	if readsAsAddress(info.Title) {
 		page.title = ""
 	}
 	if at := slices.IndexFunc(s.pages, func(each screenPage) bool { return each.id == info.ID }); at >= 0 {
@@ -264,28 +265,25 @@ func isBlank(pageURL string) bool {
 	return pageURL == "" || pageURL == "about:blank" || strings.HasPrefix(pageURL, "chrome://newtab") || strings.HasPrefix(pageURL, "chrome://new-tab-page")
 }
 
-// isAddressOf says title is pageURL itself, as Chrome titles a page with no
-// title of its own, or one that has not drawn its title yet: the address
-// whole, or its host and what follows, with or without its scheme, or
-// anything ending in its path, query and fragment, as an address whose host
-// Chrome shows in Unicode does.
-func isAddressOf(title, pageURL string) bool {
-	if title == pageURL {
-		return true
-	}
-	parsed, err := url.Parse(pageURL)
-	if err != nil || parsed.Host == "" {
+// readsAsAddress says title reads as an address, as Chrome titles a page with
+// no title of its own, or one that has not drawn its title yet: no space, and
+// a scheme's :// or a host, localhost or one holding a dot or a port, followed
+// by a path, query or fragment. Chrome shows that address with its host in
+// Unicode and parts of it unescaped, so the title is read as it stands, never
+// matched against the page's address.
+func readsAsAddress(title string) bool {
+	if strings.ContainsFunc(title, unicode.IsSpace) {
 		return false
 	}
-	rest, isHost := strings.CutPrefix(strings.TrimPrefix(strings.TrimPrefix(title, "https://"), "http://"), parsed.Host)
-	if isHost && (rest == "" || strings.ContainsAny(rest[:1], "/?#")) {
+	if strings.Contains(title, "://") {
 		return true
 	}
-	tail := parsed.RequestURI()
-	if parsed.Fragment != "" {
-		tail += "#" + parsed.EscapedFragment()
+	at := strings.IndexAny(title, "/?#")
+	if at <= 0 {
+		return false
 	}
-	return tail != "/" && strings.HasSuffix(title, tail)
+	host := title[:at]
+	return host == "localhost" || strings.ContainsAny(host, ".:")
 }
 
 // pageHost is the host of address, the only part of it a view is shown.

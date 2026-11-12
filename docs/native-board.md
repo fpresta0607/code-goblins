@@ -2705,7 +2705,7 @@ While it runs, the snapshot's task carries `browser: true`, the goblin's card sh
 
 The Screen view is `GET /api/screen?task=<id>&generation=<generation>&token=<instance>`, a WebSocket from the board's own origin.
 It shows the page the goblin or a sign-in opened or sent somewhere last, a blank page only when every page is blank, by its title and host alone, never its address, which can carry a sign-in's code.
-A page Chrome titles by its address, as it does one with no title of its own or one whose title has not drawn yet, shows as untitled.
+A title that reads as an address, with no space and a scheme's :// or a host followed by a path, query or fragment, as Chrome gives a page with no title of its own or one whose title has not drawn yet, shows as untitled, by its host alone.
 It sends the page's screencast as JPEG frames, each only once the view drew the one before, so a slow board is sent no more than it draws.
 A view streams only while it is on screen in a visible tab: one switched away from, scrolled out of sight, in a closed Command Center or in a hidden tab closes its socket, and the supervisor stops the page's screencast as it closes, so no frame is made or sent for nobody.
 At most 16 views are open at once; another is closed with "Too many screens are open."

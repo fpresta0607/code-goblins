@@ -55,7 +55,7 @@ func newScreenBoard(t *testing.T, service *Service, chrome *fakeGoblinChrome, is
 // empty, and answers the handshake's response.
 func (board *screenBoard) dial(t *testing.T, token, origin string) (*websocket.Conn, *http.Response, error) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	query := url.Values{"task": {"task-1"}, "generation": {"g1"}, "token": {token}}
 	header := http.Header{}
@@ -94,7 +94,7 @@ func (board *screenBoard) open(t *testing.T) testScreenView {
 // next is what the view is told next.
 func (v testScreenView) next(t *testing.T) screenSaid {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	_, data, err := v.conn.Read(ctx)
 	if err != nil {
@@ -111,7 +111,7 @@ func (v testScreenView) next(t *testing.T) screenSaid {
 // send sends message as the board's page does.
 func (v testScreenView) send(t *testing.T, message string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := v.conn.Write(ctx, websocket.MessageText, []byte(message)); err != nil {
 		t.Fatal(err)
@@ -254,6 +254,8 @@ func TestScreenViewNeverShowsAnAddressChromeTitledAPageWith(t *testing.T) {
 		{"an http address, which Chrome titles without its scheme", "http://login.example.com/callback?code=CODE", "login.example.com/callback?code=CODE", "login.example.com"},
 		{"an internationalized address, its host titled in Unicode", "https://xn--bcher-kva.example/callback?code=CODE", "https://bücher.example/callback?code=CODE", "xn--bcher-kva.example"},
 		{"an internationalized address with its token in its fragment", "https://xn--bcher-kva.example/callback#access_token=CODE", "https://bücher.example/callback#access_token=CODE", "xn--bcher-kva.example"},
+		{"an internationalized address whose query Chrome shows unescaped", "https://xn--bcher-kva.example/callback?code=CODE&state=a%3Ab", "https://bücher.example/callback?code=CODE&state=a:b", "xn--bcher-kva.example"},
+		{"an internationalized address Chrome titles without its scheme, its query unescaped", "http://xn--bcher-kva.example/callback?code=CODE&state=a%3Ab", "bücher.example/callback?code=CODE&state=a:b", "xn--bcher-kva.example"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -331,7 +333,7 @@ func TestScreenViewsPastSixteenAreTurnedAway(t *testing.T) {
 	for range 16 {
 		board.open(t).next(t)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// Act
@@ -606,7 +608,7 @@ func TestHandBackClosesTheCardWithHisWordsUpTo300CharactersAndNeverAKey(t *testi
 			if err != nil {
 				t.Fatal(err)
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
 			// Act

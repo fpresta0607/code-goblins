@@ -230,7 +230,7 @@ export function ScreenView({ task, generation, name, instance, connected, isFull
     <div className="screen-stage">
       <canvas ref={canvas} className="screen-canvas" hidden={!hasFrame} tabIndex={isDriving ? 0 : -1}
         role={isDriving ? "application" : "img"} aria-roledescription="browser screen"
-        aria-label={isDriving ? name + "'s browser, showing " + pageName + ". Your clicks and keys here go to the page; F6 leaves." : name + "'s browser, showing " + pageName}
+        aria-label={isDriving ? name + "'s browser, showing " + pageName + ". Your clicks and keys here go to the page. F6 leaves the screen." : name + "'s browser, showing " + pageName}
         onPointerDown={press} onPointerMove={drag} onPointerUp={release} onKeyDown={(event) => key(event, "keyDown")} onKeyUp={(event) => key(event, "keyUp")}
         onPaste={(event) => {
           if (!isDriving) return;
