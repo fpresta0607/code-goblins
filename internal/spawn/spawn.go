@@ -21,6 +21,7 @@ import (
 	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/claudestream"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -143,6 +144,9 @@ type Service struct {
 	// ReadScreen reads a native terminal's screen. Nil reads it through its
 	// host.
 	ReadScreen func(host.Record) ([]string, error)
+	// ReadStreamState reads what a stream session's lines say of it. Nil
+	// reads it through its host.
+	ReadStreamState func(host.Record) (claudestream.Session, error)
 	// PromptSince reports whether a native task's harness, in a spawn
 	// generation, reported through its native hooks taking a prompt at or
 	// after a time: supervisor.NativePromptSince in production. Nil proves a

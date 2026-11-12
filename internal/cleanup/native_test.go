@@ -16,18 +16,14 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 	"github.com/fpresta0607/code-goblins/internal/proc/proctest"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // fakeClaude is the argument that makes this test binary a stand-in Claude
-// Code in a native terminal, showing the screen the next argument names;
-// fakeStreamClaude makes it one on stream-json pipes, which writes each
-// argument after it as a line and reads its input until it closes.
-const (
-	fakeClaude       = "cleanup-fake-claude"
-	fakeStreamClaude = "cleanup-fake-stream-claude"
-)
+// Code in a native terminal, showing the screen the next argument names.
+const fakeClaude = "cleanup-fake-claude"
 
 // fakeClaudeScreens are Claude Code's screens as a native terminal holds
 // them: waiting at its composer, and in a turn.
@@ -46,13 +42,7 @@ func TestMain(m *testing.M) {
 		_, _ = io.Copy(io.Discard, os.Stdin)
 		return
 	}
-	if len(os.Args) > 1 && os.Args[1] == fakeStreamClaude {
-		for _, line := range os.Args[2:] {
-			fmt.Println(line)
-		}
-		_, _ = io.Copy(io.Discard, os.Stdin)
-		return
-	}
+	hosttest.RunStreamChild()
 	if len(os.Args) > 4 && os.Args[1] == lockHolder {
 		runLockHolder(os.Args[2:])
 		return
@@ -130,59 +120,22 @@ func runFakeClaude(t *testing.T, f *cleanupFixture, screen string) {
 	}
 }
 
-// runFakeStreamClaude runs the fixture task's stream session, with the
-// stand-in Claude Code writing lines, until the test closes it or the test
-// ends, and returns once its host's state shows every line read.
-func runFakeStreamClaude(t *testing.T, f *cleanupFixture, lines ...string) {
-	t.Helper()
-	program, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ended := make(chan struct{})
-	go func() {
-		defer close(ended)
-		_ = host.Run(f.stateDir, host.Spec{ID: "g1", Args: append([]string{program, fakeStreamClaude}, lines...), IsStream: true})
-	}()
-	t.Cleanup(func() {
-		if record, err := host.ReadRecord(f.stateDir, "g1"); err == nil {
-			_ = host.Close(f.stateDir, record, 15*time.Second)
-		}
-		select {
-		case <-ended:
-		case <-time.After(time.Minute):
-			t.Error("the stream session's host did not end")
-		}
-	})
-	isWorking := len(lines) > 0
-	for deadline := time.Now().Add(time.Minute); ; time.Sleep(50 * time.Millisecond) {
-		if record, err := host.ReadRecord(f.stateDir, "g1"); err == nil {
-			if session, err := host.ReadStreamState(record); err == nil && session.IsWorking == isWorking {
-				return
-			}
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the stand-in Claude Code's lines never showed in its host's state")
-		}
-	}
-}
-
 // A stream session has no composer to show: a cleanup closes one only while
 // Claude Code waits for a line, and refuses one in a turn, keeping its task
 // and its session (#2374).
 func TestCleanupClosesAStreamSessionOnlyWhileClaudeCodeWaitsForALine(t *testing.T) {
 	for _, test := range []struct {
-		name  string
-		lines []string
-		want  string
+		name      string
+		isWorking bool
+		want      string
 	}{
 		{name: "waiting for a line"},
-		{name: "in a turn", lines: []string{`{"type":"user","isReplay":true,"uuid":"c1","parent_tool_use_id":null,"message":{"role":"user","content":"go"}}`}, want: "does not show Claude Code waiting for a line"},
+		{name: "in a turn", isWorking: true, want: "does not show Claude Code waiting for a line"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			fixture := nativeCleanupFixture(t, 0)
-			runFakeStreamClaude(t, fixture, test.lines...)
+			hosttest.RunStream(t, fixture.stateDir, "g1", test.isWorking)
 
 			// Act
 			_, err := fixture.service.Cleanup(context.Background(), "g1")

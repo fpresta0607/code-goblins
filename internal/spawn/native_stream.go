@@ -22,10 +22,12 @@ import (
 )
 
 // onStream reports whether task id's start on kind goes on stream-json pipes
-// (#2374): only a Claude Code goblin's, only in a home whose
-// config/fleet.json turns claude_goblins_on_stream on, and never the start
-// after a stream session of the task that ended by itself, which starts in
-// the terminal and says why as fallback.
+// (#2374): only a Claude Code goblin's, and only in a home whose
+// config/fleet.json turns claude_goblins_on_stream on. Only the start right
+// after a stream session of the task that ended by itself runs in the
+// terminal instead, and says why as fallback: once that terminal's host
+// ends, however it ends, the next start goes on stream-json pipes again and
+// proves itself anew.
 func (s Service) onStream(id string, kind harness.Kind) (isStream bool, fallback string, err error) {
 	if kind != harness.Claude {
 		return false, "", nil
@@ -141,7 +143,7 @@ func lineID() string {
 // line it never reports taking within nativeAccepted is unconfirmed, never
 // written again.
 func (s Service) deliverStream(ctx context.Context, record host.Record, text string) error {
-	before, err := host.ReadStreamState(record)
+	before, err := s.readStreamState(ctx, record)
 	if err != nil {
 		return fmt.Errorf("spawn: %w: %w", fleet.ErrNotTyped, err)
 	}
@@ -162,7 +164,7 @@ func (s Service) deliverStream(ctx context.Context, record host.Record, text str
 	}
 	written := time.Now()
 	for {
-		session, err := host.ReadStreamState(record)
+		session, err := s.readStreamState(ctx, record)
 		if err != nil {
 			return fmt.Errorf("spawn: the line was written to stream session %s, and whether Claude Code took it cannot be read: %w", record.ID, err)
 		}
@@ -179,6 +181,32 @@ func (s Service) deliverStream(ctx context.Context, record host.Record, text str
 		}
 		if err := s.sleep(ctx, nativePoll); err != nil {
 			return err
+		}
+	}
+}
+
+// readStreamState reads what the lines of the stream session record names
+// say of it, reading again while reads fail for at most nativeReadGrace in a
+// row, as readNativeScreen reads a screen. A failed read never stands for a
+// state.
+func (s Service) readStreamState(ctx context.Context, record host.Record) (claudestream.Session, error) {
+	read := s.ReadStreamState
+	if read == nil {
+		read = host.ReadStreamState
+	}
+	var failing time.Time
+	for {
+		session, err := read(record)
+		if err == nil {
+			return session, nil
+		}
+		if failing.IsZero() {
+			failing = time.Now()
+		} else if time.Since(failing) > nativeReadGrace {
+			return claudestream.Session{}, err
+		}
+		if err := s.sleep(ctx, nativePoll); err != nil {
+			return claudestream.Session{}, err
 		}
 	}
 }

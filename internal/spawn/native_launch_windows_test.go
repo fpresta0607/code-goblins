@@ -81,6 +81,10 @@ var codexMention = regexp.MustCompile(`(^|\s)\$\S*$`)
 func TestMain(m *testing.M) {
 	switch {
 	case len(os.Args) > 1 && os.Args[1] == nativeSpawnHost:
+		if os.Getenv(fakeStreamMode) == "no-stream-host" && slices.Contains(os.Args, "--stream") {
+			fmt.Fprintln(os.Stderr, "this host runs no stream session")
+			os.Exit(1)
+		}
 		if err := host.RunArgs(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
