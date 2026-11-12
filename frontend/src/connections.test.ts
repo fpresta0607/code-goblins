@@ -29,7 +29,8 @@ test("a check that could not run reads Not checked, and a status the board does 
 test("each entry keeps what its card offers and the service that declares it", () => {
   assert.equal(entry("connected").grant, "revoke");
   assert.equal(parseConnections({ entries: [{ id: "x", grant: "anything else" }] }).entries[0].grant, "");
-  assert.equal(parseConnections({ entries: [{ id: "credential:REPO_TOKEN", account: "repo" }] }).entries[0].account, "repo");
+  assert.deepEqual(parseConnections({ entries: [{ id: "credential:REPO_TOKEN", accounts: ["repo", "other"] }] }).entries[0].accounts, ["repo", "other"]);
+  assert.deepEqual(parseConnections({ entries: [{ id: "credential:LOOSE_TOKEN" }] }).entries[0].accounts, []);
 });
 
 test("a successful separate probe leaves session and account identity unknown", () => {

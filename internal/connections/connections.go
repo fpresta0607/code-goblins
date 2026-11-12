@@ -23,10 +23,10 @@ type Entry struct {
 	TargetIdentity  string    `json:"target_identity"`
 	RestartRequired bool      `json:"restart_required"`
 	RestartReason   string    `json:"restart_reason,omitempty"`
-	// Account is the repository service a credential variable is declared by,
-	// which the board lists it under, or empty for a variable no service
-	// declares.
-	Account string `json:"account,omitempty"`
+	// Accounts are the repository services a credential variable is declared
+	// by, each of which the board lists it under, or none for a variable no
+	// service declares.
+	Accounts []string `json:"accounts,omitempty"`
 	// Grant is what the board offers beside the entry: grant for a service or
 	// a project MCP server the task does not carry, revoke for one its record
 	// names, or empty for one no goblins auth grant changes.
@@ -141,7 +141,7 @@ func statusDetail(status string) string {
 		"wrong_target": "Credentials point to another project.", "unreachable": "Service did not respond.",
 		"failed": "Connection check failed.", "unverified": "No successful connection check.",
 		"withheld": "Not currently granted to this goblin.", "disabled": "Disabled in the probe configuration. Live session load state unknown.",
-		"checking": "Waiting for the harness.", "skipped": "Optional connection is not available.", "unchecked": "Not checked.",
+		"checking": "Waiting for the harness.", "skipped": "Optional connection is not available.",
 	}[status]
 }
 

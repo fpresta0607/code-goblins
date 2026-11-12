@@ -118,7 +118,7 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 		result.Error = runtimeErr.Error()
 		unchecked := "Not checked: " + runtimeErr.Error()
 		for _, name := range manifest.EnvNames() {
-			result.Entries = append(result.Entries, Entry{ID: "credential:" + name, Name: name, Kind: "credential", Status: "unchecked", Detail: unchecked, Account: declaring(manifest, name), CheckedAt: time.Now().UTC()})
+			result.Entries = append(result.Entries, Entry{ID: "credential:" + name, Name: name, Kind: "credential", Status: "unchecked", Detail: unchecked, Accounts: declaring(manifest, name), CheckedAt: time.Now().UTC()})
 		}
 		for _, entry := range append(withheldEntries(meta, nil), i.crawlerEntry(meta, "")) {
 			entry.Status = "unchecked"
@@ -152,7 +152,7 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 		} else if grant, isWithheld := withheld[name]; isWithheld {
 			verdict, detail, actions = "withheld", grant, nil
 		}
-		result.Entries = append(result.Entries, Entry{ID: "credential:" + name, Name: name, Kind: "credential", Status: verdict, Source: "Goblin environment", Scope: "launch_environment", Detail: detail, Actions: actions, Account: declaring(manifest, name), CheckedAt: time.Now().UTC()})
+		result.Entries = append(result.Entries, Entry{ID: "credential:" + name, Name: name, Kind: "credential", Status: verdict, Source: "Goblin environment", Scope: "launch_environment", Detail: detail, Actions: actions, Accounts: declaring(manifest, name), CheckedAt: time.Now().UTC()})
 	}
 	for index := range result.Entries {
 		entry := &result.Entries[index]
@@ -247,15 +247,16 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 	return result
 }
 
-// declaring names the service of a manifest that declares a variable, or
-// empty when none does.
-func declaring(manifest auth.Manifest, name string) string {
+// declaring names every service of a manifest that declares a variable, in
+// the manifest's order, or none when no service does.
+func declaring(manifest auth.Manifest, name string) []string {
+	var names []string
 	for _, service := range manifest.Services {
 		if slices.Contains(service.Env, name) {
-			return service.Name
+			names = append(names, service.Name)
 		}
 	}
-	return ""
+	return names
 }
 
 // grantOffered is what the board offers beside an entry, as goblins auth grant

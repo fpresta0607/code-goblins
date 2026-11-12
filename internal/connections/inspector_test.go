@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -666,10 +667,13 @@ func TestAnAccountsVariablesNameTheServiceThatDeclaresThemWithoutAWarningEach(t 
 	result := inspector.Check(context.Background(), meta)
 
 	// Assert
-	for id, want := range map[string][2]string{"service:repo": {"provided", ""}, "credential:FIXTURE_SECRET": {"provided", "repo"}, "credential:FIXTURE_URL": {"missing", "repo"}, "credential:FIXTURE_REPO_TOKEN": {"missing", "repo"}} {
+	for id, want := range map[string]struct {
+		status   string
+		accounts []string
+	}{"service:repo": {"provided", nil}, "credential:FIXTURE_SECRET": {"provided", []string{"repo"}}, "credential:FIXTURE_URL": {"missing", []string{"repo"}}, "credential:FIXTURE_REPO_TOKEN": {"missing", []string{"repo"}}} {
 		index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == id })
-		if index < 0 || result.Entries[index].Status != want[0] || result.Entries[index].Account != want[1] {
-			t.Errorf("%s is not %s under %q: %+v", id, want[0], want[1], result.Entries)
+		if index < 0 || result.Entries[index].Status != want.status || !slices.Equal(result.Entries[index].Accounts, want.accounts) {
+			t.Errorf("%s is not %s under %v: %+v", id, want.status, want.accounts, result.Entries)
 		}
 	}
 	if slices.ContainsFunc(result.Entries, func(entry Entry) bool { return entry.Kind == "credential" && entry.Status == "unverified" }) {
@@ -678,6 +682,83 @@ func TestAnAccountsVariablesNameTheServiceThatDeclaresThemWithoutAWarningEach(t 
 	data, _ := json.Marshal(result)
 	if strings.Contains(string(data), "synthetic-value") || strings.Contains(string(data), "synthetic-stored-value") {
 		t.Fatal("report exposed a credential value")
+	}
+}
+
+// Services can share a variable, so a variable names every service that
+// declares it, each of which lists it among its own, whether the goblin's
+// terminal could be read or not.
+func TestAVariableTwoServicesDeclareNamesBoth(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		runtimeErr error
+	}{
+		{"its terminal was read", nil},
+		{"its terminal could not be read", errors.New("Goblin runtime unavailable.")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			inspector, meta := inspectorFixture(t)
+			writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"repo","method":"env","env":["FIXTURE_SECRET","FIXTURE_MISSING_TOKEN"]},{"name":"other","method":"env","env":["FIXTURE_SECRET"]}]}`)
+			if test.runtimeErr != nil {
+				inspector.Runtime = func(context.Context, string, state.TaskMeta) (RuntimeObservation, error) {
+					return RuntimeObservation{}, test.runtimeErr
+				}
+			}
+
+			// Act
+			result := inspector.Check(context.Background(), meta)
+
+			// Assert
+			for id, want := range map[string][]string{"credential:FIXTURE_SECRET": {"repo", "other"}, "credential:FIXTURE_MISSING_TOKEN": {"repo"}} {
+				index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == id })
+				if index < 0 || !slices.Equal(result.Entries[index].Accounts, want) {
+					t.Errorf("%s is not declared by %v: %+v", id, want, result.Entries)
+				}
+			}
+		})
+	}
+}
+
+// A service whose check could not run on this machine, or that declares no
+// connection check, has its credentials and nothing that failed: it reads
+// provided, says why no check confirmed it, and offers no repair.
+func TestAServiceNoCheckConfirmedSaysWhy(t *testing.T) {
+	for _, test := range []struct {
+		name, service, detail string
+		identify              func() (execx.Result, error)
+	}{
+		{"its probe is not installed", `{"name":"repo","method":"env","env":["FIXTURE_SECRET"],"probe":["probe"]}`, "Credentials resolved. Not checked on this machine: probe is not installed.", nil},
+		{"its identity program is not installed", `{"name":"repo","method":"env","env":["FIXTURE_SECRET"],"identity":{"command":["identify"],"expect":"project-instance"}}`, "Credentials resolved. Not checked on this machine: identify is not installed.", func() (execx.Result, error) { return execx.Result{}, exec.ErrNotFound }},
+		{"its identity check names this project and it declares no probe", `{"name":"repo","method":"env","env":["FIXTURE_SECRET"],"identity":{"command":["identify"],"expect":"project-instance"}}`, "Credentials resolved and name this project. This account declares no connection check.", func() (execx.Result, error) { return execx.Result{Stdout: []byte("project-instance")}, nil }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			inspector, meta := inspectorFixture(t)
+			storeConnectionCredential(t, inspector, meta, "FIXTURE_SECRET")
+			writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[`+test.service+`]}`)
+			inspector.Runner = checkRunner(func(_ context.Context, request execx.Request) (execx.Result, error) {
+				switch request.Name {
+				case "probe":
+					return execx.Result{}, exec.ErrNotFound
+				case "identify":
+					return test.identify()
+				}
+				return execx.Result{}, nil
+			})
+
+			// Act
+			result := inspector.Check(context.Background(), meta)
+
+			// Assert
+			index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == "service:repo" })
+			if index < 0 {
+				t.Fatalf("service missing: %+v", result.Entries)
+			}
+			if entry := result.Entries[index]; entry.Status != "provided" || entry.Detail != test.detail || len(entry.Actions) != 0 {
+				t.Fatalf("service = %+v, want provided saying %q and no repair", entry, test.detail)
+			}
+		})
 	}
 }
 

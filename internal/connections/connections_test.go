@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -320,6 +321,53 @@ func TestClaudeCheckThatEndsWhileAServerStartsLeavesOnlyThatServerUnverified(t *
 
 	// Act
 	entries, err := claudeReport(ctx, strings.NewReader(output), &input)
+
+	// Assert
+	if err != nil || len(entries) != 3 {
+		t.Fatalf("entries = %+v, error = %v", entries, err)
+	}
+	for index, want := range []string{"connected", "unverified", "failed"} {
+		if entries[index].Status != want {
+			t.Errorf("%s = %s, want %s", entries[index].Name, entries[index].Status, want)
+		}
+	}
+	if entries[1].Detail != "Still starting when the check ended." {
+		t.Errorf("slow server says %q", entries[1].Detail)
+	}
+}
+
+// A check whose time runs out while Claude has yet to answer its next report,
+// after one with a server still starting, ends with the report it had: Claude
+// is ended with the check, the servers that connected or failed keep their
+// verdicts, and only the one still starting reads unverified.
+func TestClaudeCheckThatEndsMidReportKeepsTheReportItHad(t *testing.T) {
+	// Arrange
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	output, harness := io.Pipe()
+	requests, input := io.Pipe()
+	defer requests.Close()
+	go func() {
+		defer harness.Close()
+		decoder := json.NewDecoder(requests)
+		for _, reply := range []string{
+			`{"type":"control_response","response":{"subtype":"success","request_id":"1","response":{}}}`,
+			`{"type":"control_response","response":{"subtype":"success","request_id":"2","response":{"mcpServers":[{"name":"ready","status":"connected"},{"name":"slow","status":"pending"},{"name":"broken","status":"failed"}]}}}`,
+		} {
+			var request json.RawMessage
+			if decoder.Decode(&request) != nil {
+				return
+			}
+			fmt.Fprintln(harness, reply)
+		}
+		var next json.RawMessage
+		if decoder.Decode(&next) == nil {
+			cancel()
+		}
+	}()
+
+	// Act
+	entries, err := claudeReport(ctx, output, input)
 
 	// Assert
 	if err != nil || len(entries) != 3 {
