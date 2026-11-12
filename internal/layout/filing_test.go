@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -188,8 +189,14 @@ func TestPlanKeepsAFinishedFolderNamedInLiveText(t *testing.T) {
 		arrange func(t *testing.T, h home.Home, harnessMemory string)
 		stays   bool
 	}{
-		{"a done row", emptyBacklog + "- [x] d1 - Shipped, " + mention, func(t *testing.T, h home.Home, _ string) {}, true},
-		{"a section filing does not read", emptyBacklog + "\n## Fleet defects\n" + mention, func(t *testing.T, h home.Home, _ string) {}, true},
+		{"an open row", "# Backlog\n\n## Queued\n- [ ] q1 - Next, " + mention + "\n## Parked\n\n## Done\n", func(t *testing.T, h home.Home, _ string) {}, true},
+		{"an open row's detail line", "# Backlog\n\n## Queued\n- [ ] q1 - Next\n\n  " + mention + "\n## Parked\n\n## Done\n", func(t *testing.T, h home.Home, _ string) {}, true},
+		{"an open row in a section of the CEO's own", emptyBacklog + "\n## In flight\n- [ ] i1 - Held for merge, " + mention, func(t *testing.T, h home.Home, _ string) {}, true},
+		{"a done row", emptyBacklog + "- [x] d1 - Shipped, " + mention, func(t *testing.T, h home.Home, _ string) {}, false},
+		{"a done row's detail line", emptyBacklog + "- **d1** - Shipped\n  " + mention, func(t *testing.T, h home.Home, _ string) {}, false},
+		{"a closed row outside Done", "# Backlog\n\n## Queued\n\n## Parked\n- [x] p1 - Closed, " + mention + "\n## Done\n", func(t *testing.T, h home.Home, _ string) {}, false},
+		{"a note in a history section", emptyBacklog + "\n## Fleet defects\n" + mention, func(t *testing.T, h home.Home, _ string) {}, false},
+		{"a note under Queued", "# Backlog\n\n## Queued\n" + mention + "\n## Parked\n\n## Done\n", func(t *testing.T, h home.Home, _ string) {}, false},
 		{"the directives", emptyBacklog, func(t *testing.T, h home.Home, _ string) {
 			write(t, filepath.Join(h.Data, "overlord.md"), `a ruling that cites data\f1\report.md`+"\n")
 		}, true},
@@ -520,10 +527,10 @@ func TestFileCatchesUpAStepAPass(t *testing.T) {
 	if len(first) != movesPerPass || len(second) != 2 {
 		t.Fatalf("passes filed %d then %d folders, want %d then 2", len(first), len(second), movesPerPass)
 	}
-	if want := (Record{Time: filingNow, Filed: movesPerPass, Waiting: 2}); firstRecord != want {
+	if want := (Record{Time: filingNow, Filed: movesPerPass, Waiting: 2}); !reflect.DeepEqual(firstRecord, want) {
 		t.Errorf("first record = %+v, want %+v", firstRecord, want)
 	}
-	if want := (Record{Time: filingNow.Add(time.Hour), Filed: 2}); secondRecord != want {
+	if want := (Record{Time: filingNow.Add(time.Hour), Filed: 2}); !reflect.DeepEqual(secondRecord, want) {
 		t.Errorf("second record = %+v, want %+v", secondRecord, want)
 	}
 	for i := range total {
@@ -559,6 +566,38 @@ func TestFileRecordsWhyAPassCouldNotFile(t *testing.T) {
 	}
 	if record.Filed != 0 || record.Waiting != 1 || !strings.Contains(record.Error, "file g1") {
 		t.Errorf("record = %+v, want g1 waiting and why it could not be filed", record)
+	}
+}
+
+// A pass records every folder it leaves in place and why, so the janitor can
+// trim a finished one that something still names, keeping what that names by
+// path, and goblins runtime can say why data holds what it does.
+func TestFileRecordsTheFoldersItKeepsAndWhy(t *testing.T) {
+	// Arrange
+	h := filingHome(t, "# Backlog\n\n## Queued\n- [ ] q1 - Compare with data/f1/shots/before.png\n\n## Parked\n\n## Done\n")
+	taskFolder(t, h, "f1", 5*24*time.Hour)
+	finishedAt(t, filepath.Join(h.State, "f1.status"), "done: PR https://github.com/o/r/pull/1\n", 0)
+	finishedAt(t, filepath.Join(h.Data, "f2", "brief.md"), "# Brief f2\n", 5*24*time.Hour)
+	finishedAt(t, filepath.Join(h.State, "f2.status"), "done: PR https://github.com/o/r/pull/2\n", 0)
+	write(t, filepath.Join(h.Data, "overlord.md"), "a ruling that cites data/f2/report.md.\n")
+	taskFolder(t, h, "g1", time.Hour)
+	write(t, filepath.Join(h.State, "g1.meta"), "brief="+filepath.Join(h.Data, "g1", "brief.md")+"\n")
+
+	// Act
+	_, err := File(context.Background(), h, filingNow)
+	record, readErr := ReadRecord(h.State)
+
+	// Assert
+	if err := errors.Join(err, readErr); err != nil {
+		t.Fatal(err)
+	}
+	want := []Kept{
+		{ID: "f1", Reason: "finished, but an open backlog row names it", IsFinished: true, Named: []string{"shots"}},
+		{ID: "f2", Reason: "finished, but data/overlord.md names its path", IsFinished: true, Named: []string{"report.md"}},
+		{ID: "g1", Reason: "under way"},
+	}
+	if !reflect.DeepEqual(record.Kept, want) {
+		t.Errorf("kept = %+v, want %+v", record.Kept, want)
 	}
 }
 
@@ -615,7 +654,7 @@ func TestPlanKeepsWhatAKeptFolderStillPointsAt(t *testing.T) {
 		t.Errorf("moved %v, want only %v; stays %v", moved, want, stays)
 	}
 	want := []string{
-		"pd-agent-api-v2-build: finished, but an open backlog row names it",
+		"pd-agent-api-v2-build: finished, but an open row of data/backlog.md names its path",
 		"pd-mcp-skill: finished, but data/pd-agent-api-v2-build/brief.md names its path",
 		"pd-mcp-tools: finished, but data/pd-mcp-skill/handoff.md names its path",
 	}
