@@ -118,6 +118,10 @@ export interface Task extends Evaluation {
   // goblin's branch.
   ticket?: Ticket;
   overlaps: Overlap[];
+  // parked_runs are gate runs waiting on a decision that hold no card: those
+  // on the branches of its extra worktrees, and one on its own branch older
+  // than its goblin's newest report, each with its own run's pull request.
+  parked_runs?: ParkedRun[];
   // hosted_checks is what its pull request's hosted checks said at the last
   // CI poll, local_checks its change's newest goblins gate test run, and
   // deployment how the deploy of its merge stands, apart.
@@ -239,6 +243,9 @@ export interface Person { login: string; name: string; avatar_url: string }
 // Overlap is one piece of a teammate's open work, such as "PR #1446", that
 // changes the files a goblin's branch changes or names its area.
 export interface Overlap extends Person { what: string; url: string }
+// ParkedRun is a gate run on one branch of a task that waits on a decision
+// at step since parked_at, with that run's own pull request.
+export interface ParkedRun { branch: string; run_id: string; step: string; parked_at: string; pr: string }
 // ProjectPeople is a project on the board whose origin is on GitHub: its
 // repository, and the people other than the Overlord, bots aside, who
 // committed to its default branch or opened a pull request in it in the last
@@ -1128,6 +1135,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         ...(t.progress == null ? {} : { progress: ((progress) => ({ at: string(progress.at), source: string(progress.source) }))(object(t.progress)) }),
         ...(t.ticket == null ? {} : { ticket: ((ticket) => ({ number: number(ticket.number), url: string(ticket.url), state: string(ticket.state) }))(object(t.ticket)) }),
         overlaps: array(t.overlaps).map((value) => { const o = object(value); return { ...parsePerson(o), what: string(o.what), url: string(o.url) }; }),
+        ...(t.parked_runs == null ? {} : { parked_runs: array(t.parked_runs).map((value) => { const r = object(value); return { branch: string(r.branch), run_id: string(r.run_id), step: string(r.step), parked_at: string(r.parked_at), pr: r.pr === undefined ? "" : string(r.pr) }; }) }),
         ...(t.comeback == null ? {} : { comeback: parseComebackEntry(t.comeback) }),
         ...(t.browser === undefined ? {} : { browser: boolean(t.browser) }),
         ...(t.hosted_checks == null ? {} : { hosted_checks: ((c) => ({ head: string(c.head), state: string(c.state), checks: number(c.checks), failed: strings(c.failed), rate_limited: strings(c.rate_limited), link: string(c.link), approved: c.approved === undefined ? false : boolean(c.approved) }))(object(t.hosted_checks)) }),

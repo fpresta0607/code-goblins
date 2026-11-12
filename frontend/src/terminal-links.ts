@@ -1,4 +1,5 @@
 import type { IBufferRange, IDisposable, Terminal } from "@xterm/xterm";
+import { openBoardAddress } from "./board-address.ts";
 import { isWebLink, webAddresses } from "./messageText.ts";
 import { scrawlLink } from "./scrawl-link.ts";
 
@@ -30,9 +31,10 @@ export function terminalAddresses(rows: TerminalRow[], firstRow: number): { addr
 
 // openWebAddress opens an http or https address in a new tab, which the
 // desktop window hands to his default browser, so the board is never
-// navigated away. Anything else opens nothing.
+// navigated away, and a board address in this page (#2363). Anything else
+// opens nothing.
 export function openWebAddress(address: string): void {
-  if (isWebLink(address)) window.open(scrawlLink(address), "_blank", "noopener,noreferrer");
+  if (isWebLink(address) && !openBoardAddress(address)) window.open(scrawlLink(address), "_blank", "noopener,noreferrer");
 }
 
 // linkTerminalAddresses makes each http or https address a terminal draws a

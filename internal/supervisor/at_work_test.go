@@ -245,9 +245,9 @@ func TestAWaitCircleShowsNoWaitAndTellsTheCEOOnce(t *testing.T) {
 	service := &Service{Store: store}
 
 	// Act
-	first := service.tellWaitCycles()
-	second := service.tellWaitCycles()
 	view, err := service.Snapshot()
+	first := service.tellWaitCycles(view)
+	second := service.tellWaitCycles(view)
 
 	// Assert
 	if first != nil || second != nil || err != nil {
@@ -298,7 +298,10 @@ func TestAStoppedGoblinsLastWaitClosesNoCircle(t *testing.T) {
 	service := &Service{Store: store}
 
 	// Act
-	err := service.tellWaitCycles()
+	view, err := service.Snapshot()
+	if err == nil {
+		err = service.tellWaitCycles(view)
+	}
 	got := snapshotTask(t, service, "task-2")
 
 	// Assert

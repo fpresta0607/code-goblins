@@ -13,6 +13,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/quota"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 )
 
@@ -226,6 +227,104 @@ func TestRunRoutePassesOverALaneAtTheHomesWeeklyFloor(t *testing.T) {
 				t.Fatalf("exit %d, stdout %s, stderr %s; want %s and %q", exit, stdout.String(), stderr.String(), testCase.wantHarness, testCase.wantNote)
 			}
 		})
+	}
+}
+
+type routedRole struct {
+	Role    string
+	Wanted  string
+	Refused string
+	Notes   []string
+	Lane    routing.ExecutionLane
+}
+
+func routedRoles(t *testing.T, stdout string) map[string]routedRole {
+	t.Helper()
+	var preview struct{ Roles []routedRole }
+	if err := json.Unmarshal([]byte(stdout), &preview); err != nil {
+		t.Fatalf("route printed %q: %v", stdout, err)
+	}
+	roles := map[string]routedRole{}
+	for _, role := range preview.Roles {
+		roles[role.Role] = role
+	}
+	return roles
+}
+
+func TestRunRoutePreviewsEachRolesModel(t *testing.T) {
+	// Arrange
+	_, deps := routedRuntime(t, shippedRoutingJSON(t))
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runWithRuntime([]string{"route", "--project", `C:\project`, "Add a dark-mode toggle to the settings page."}, &stdout, &stderr, deps)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit %d, stderr %s", exit, stderr.String())
+	}
+	roles := routedRoles(t, stdout.String())
+	for role, want := range map[string]string{"lead": "gpt-6-astra", "implement": "gpt-6.1-sol", "review": "gpt-6-astra", "verify": "gpt-6-sol", "fix": "gpt-6-astra"} {
+		if got := roles[role]; got.Lane.Model != want || got.Lane.Harness != "codex" || got.Refused != "" {
+			t.Errorf("%s = %+v, want codex %s", role, got, want)
+		}
+	}
+}
+
+func TestRunRouteShowsARoleRefusedRatherThanRunOnTheLeadsModel(t *testing.T) {
+	// Arrange
+	_, deps := routedRuntime(t, `{"rules":[],"default_lane":"build","lanes":{
+		"build":{"harness":"claude","model":"claude-opus-5-5","effort":"xhigh"},
+		"fable":{"harness":"claude","model":"claude-fable-5-2","effort":"xhigh"}},
+		"roles":{"build":{"review":["fable","build"]}}}`)
+	report := quota.Report{Providers: map[string]quota.Provider{"claude": {Known: true, Scopes: map[string]quota.Scope{
+		"model:claude-fable-5-2": {Name: "claude-fable-5-2", Known: true, PercentRemaining: 0, Runway: "exhausted_now"},
+	}}}}
+	deps.quota = func(context.Context) (quota.Report, string) { return report, "" }
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runWithRuntime([]string{"route", "--project", `C:\project`, "Add a dark-mode toggle to the settings page."}, &stdout, &stderr, deps)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit %d, stderr %s", exit, stderr.String())
+	}
+	review := routedRoles(t, stdout.String())["review"]
+	if review.Wanted != "fable" || review.Lane.Name != "" || !strings.Contains(review.Refused, "build: review is kept off the lead's own model claude-opus-5-5") || !strings.Contains(review.Refused, "fable: claude claude-fable-5-2 exhausted_now") {
+		t.Errorf("review = %+v, want it refused with why", review)
+	}
+	if notes := strings.Join(review.Notes, "; "); !strings.Contains(notes, "build: review is kept off the lead's own model claude-opus-5-5") || !strings.Contains(notes, "fable: claude claude-fable-5-2 exhausted_now") {
+		t.Errorf("review notes = %q, want each lane it passed over", review.Notes)
+	}
+}
+
+// Each role is chosen for the lead that would run, so a Codex lead that falls
+// back to Claude previews the Claude lead's roles.
+func TestRunRoutePreviewsTheRolesOfTheLeadItFallsBackTo(t *testing.T) {
+	// Arrange
+	_, deps := routedRuntime(t, shippedRoutingJSON(t))
+	report := quota.Report{Providers: map[string]quota.Provider{"codex": {Known: true, Scopes: map[string]quota.Scope{
+		"all_models": {Name: "all_models", Known: true, PercentRemaining: 0, Runway: "exhausted_now"},
+	}}}}
+	deps.quota = func(context.Context) (quota.Report, string) { return report, "" }
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runWithRuntime([]string{"route", "--project", `C:\project`, "Add a dark-mode toggle to the settings page."}, &stdout, &stderr, deps)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit %d, stderr %s", exit, stderr.String())
+	}
+	roles := routedRoles(t, stdout.String())
+	if lead := roles["lead"]; lead.Lane.Name != "strong-claude" || lead.Wanted != "build" {
+		t.Errorf("lead = %+v, want strong-claude after build", lead)
+	}
+	for role, want := range map[string]string{"lead": "claude-opus-5-5", "implement": "claude-sonnet-5-5", "review": "claude-fable-5-2", "verify": "claude-fable-5-2", "fix": "claude-opus-5-5"} {
+		if got := roles[role]; got.Lane.Model != want || got.Lane.Harness != "claude" || got.Refused != "" {
+			t.Errorf("%s = %+v, want claude %s", role, got, want)
+		}
 	}
 }
 
