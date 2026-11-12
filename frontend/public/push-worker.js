@@ -20,7 +20,7 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const tag = event.notification.tag || "";
-  const item = tag.includes("@") ? tag.slice(0, tag.lastIndexOf("@")) : tag;
+  const item = tag.includes("@") ? tag.slice(0, tag.lastIndexOf("@")) : "";
   const address = item ? "/?" + new URLSearchParams({ item }).toString() : "";
   event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((boards) => {
     if (!boards.length) return self.clients.openWindow(address || "/");

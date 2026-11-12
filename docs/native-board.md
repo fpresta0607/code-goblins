@@ -1934,7 +1934,7 @@ The PNG icons under `/assets/icons/` are rendered from `/favicon.svg`, the small
 
 A board address opens one place on the board (#2363, approved 2026-11-11 from the study closed as #2359): `/?task=<task id>` opens that goblin's panel, and `/?item=<key>` opens one Command Center item by the key the board and its pushes give it, such as `question:<id>` or `review:<id>` (`frontend/src/board-address.ts`).
 It is the board's own origin and root with that one parameter and no other, so any other address, another parameter beside it included, is not a board address.
-The board opens only a goblin its snapshot holds or an item that waits on him, and only opens it: nothing it names is answered, started or stopped.
+The board opens only a goblin its snapshot holds, at work or finished, or an item that waits on him, and only opens it: nothing it names is answered, started or stopped.
 Any other address opens nothing and says nothing, as the board keeps its words about trouble to the few the Overlord approved.
 The page reads its own address as it loads, once its first snapshot comes, and then puts its address back to plain `/`, so a reload opens nothing again (`frontend/src/use-board-address.ts`).
 A board address in a message, in a goblin's or the CEO's terminal, or in a tapped push opens its place in the page already open, with no reload and no new tab, so what he was typing stays: in a browser, in the desktop window, which hands such a link to no browser, and in his phone's app.

@@ -48,13 +48,16 @@ for (const [name, push, want] of [
 // Tapping a push's notification opens its item (#2363): in a board already
 // open, which it brings up and tells the item's address, so what he was
 // typing there stays, or else in a board it opens at that address. A push
-// that names no item opens the board as it is.
+// that names no item, with no tag or a tag that is not an item's key and @
+// its publishing, opens the board as it is.
 for (const [name, tag, boards, want] of [
   ["an item, with no board open", "review:r1@2026-11-12T17:00:00Z", 0, ["open /?item=review%3Ar1"]],
   ["an item, with a board open", "question:q1@T", 1, ['tell board 0 {"open":"/?item=question%3Aq1"}', "focus board 0"]],
   ["an item, with two boards open", "question:q1@T", 2, ['tell board 0 {"open":"/?item=question%3Aq1"}', "focus board 0"]],
   ["no item, with no board open", "", 0, ["open /"]],
   ["no item, with a board open", "", 1, ["focus board 0"]],
+  ["a tag with no publishing, with no board open", "question:q1", 0, ["open /"]],
+  ["a tag with no publishing, with a board open", "question:q1", 1, ["focus board 0"]],
 ] as const) {
   test(`tapping a push's notification for ${name}`, async () => {
     // Arrange

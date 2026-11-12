@@ -20,7 +20,7 @@ export function useBoardAddress(snapshot: Snapshot | null | undefined, openTask:
       const place = boardPlace(address, location.origin);
       const { snapshot: board, openTask: toTask, openItem: toItem } = latest.current;
       if (!place || !board) return;
-      if (place.kind === "task" && board.tasks.some((task) => task.id === place.id)) toTask(place.id);
+      if (place.kind === "task" && board.tasks.some((task) => task.id === place.id || task.id === "finished:" + place.id)) toTask(place.id);
       if (place.kind === "item" && waitingItems(board).some((item) => item.key === place.id)) toItem(place.id);
     };
     const loaded = location.href;
