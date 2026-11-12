@@ -362,8 +362,9 @@ export function App() {
       : selected && task && (!selectedSession || ownsTaskSession(selectedSession, task)) ? messagesQuery(snapshot, task) : "";
   const views = panelViews(selected ? task : undefined, selected ? selectedSession : undefined);
   // A queued task has no terminal yet, so its panel is its task list alone,
-  // and a baby goblin's panel is its terminal alone.
-  const shownView: PanelView = child ? "terminal" : views.includes("terminal") ? panelView : "task";
+  // and a baby goblin's panel is its terminal alone. A Screen view whose
+  // browser closed gives way to the conversation.
+  const shownView: PanelView = child ? "terminal" : views.includes(panelView) ? panelView : views.includes("terminal") ? "terminal" : "task";
   // The session's own terminal, by the terminal deck's key, whether its
   // harness works, which a box with no conversation reads for its Stop, and
   // that terminal's link, which says what it was last told of the harness's

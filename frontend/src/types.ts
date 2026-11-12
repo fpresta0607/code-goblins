@@ -127,6 +127,9 @@ export interface Task extends Evaluation {
   // comeback is where a live goblin the last restart ended is in coming
   // back: waiting for its turn, or stopped with the reason.
   comeback?: ComebackEntry;
+  // browser says the goblin's own browser runs now, which its Screen view
+  // shows.
+  browser?: boolean;
 }
 // FleetTree is a goblin and what runs under it as the supervisor last read
 // it: memory is its harness and everything under it, own_memory the harness
@@ -660,8 +663,9 @@ export interface CredentialRequest {
   // steps say how to get the values, in order, for the card's header.
   steps: string[];
   // window says the step happens in the goblin's own browser, which the
-  // card's button brings to him; window_state is "" while the button is
-  // offered, "requested" once pressed and "open" once the window shows.
+  // card's Take control opens and shows on its screen; window_state is ""
+  // while the button is offered, "requested" once pressed and "open" once
+  // the browser is his on the card's screen.
   window: boolean; window_state: string;
   // received are the plain values that reached the goblin.
   received: string[];
@@ -1112,6 +1116,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         ...(t.ticket == null ? {} : { ticket: ((ticket) => ({ number: number(ticket.number), url: string(ticket.url), state: string(ticket.state) }))(object(t.ticket)) }),
         overlaps: array(t.overlaps).map((value) => { const o = object(value); return { ...parsePerson(o), what: string(o.what), url: string(o.url) }; }),
         ...(t.comeback == null ? {} : { comeback: parseComebackEntry(t.comeback) }),
+        ...(t.browser === undefined ? {} : { browser: boolean(t.browser) }),
         ...(t.hosted_checks == null ? {} : { hosted_checks: ((c) => ({ head: string(c.head), state: string(c.state), checks: number(c.checks), failed: strings(c.failed), rate_limited: strings(c.rate_limited), link: string(c.link), approved: c.approved === undefined ? false : boolean(c.approved) }))(object(t.hosted_checks)) }),
         ...(t.tree == null ? {} : { tree: parseTree(t.tree) }),
         ...(t.local_checks == null ? {} : { local_checks: ((c) => ({ commit: string(c.commit), level: string(c.level), required_level: string(c.required_level), status: string(c.status), duration_seconds: number(c.duration_seconds), queue_seconds: number(c.queue_seconds), failed: strings(c.failed), at: string(c.at) }))(object(t.local_checks)) }),

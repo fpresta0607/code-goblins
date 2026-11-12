@@ -453,6 +453,8 @@ type Service struct {
 	// browsers lends each browser login's Chrome to one goblin at a time.
 	browsers       *browserBroker
 	browserSignins sync.Mutex
+	// screens runs each goblin's own browser, which the board shows.
+	screens *taskBrowsers
 }
 
 // snapshotRefresh is how often every board gets a fresh snapshot with nothing
@@ -485,6 +487,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
 	s.browsers = newBrowserBroker(h.State, h.Data, options, func(err error) { s.publish(fmt.Errorf("browser logins: %w", err)) })
+	s.screens = newTaskBrowsers(h.State, s.notify, func(err error) { s.publish(fmt.Errorf("goblin browsers: %w", err)) })
 	if options.Tree != nil {
 		options.Tree.Recorded = store.recordedSession
 		options.Tree.Awaited = s.awaited
@@ -1510,6 +1513,9 @@ type Task struct {
 	// ClosedIssue is the issue a live task's latest report says it closed in
 	// place of a pull request, so the board has nothing left to verify of it.
 	ClosedIssue string `json:"closed_issue,omitempty"`
+	// Browser says the goblin's own browser runs, which the board shows on
+	// its Screen view.
+	Browser bool `json:"browser,omitempty"`
 	// ReportedAt is when the goblin wrote its latest report, so the board
 	// can tell whether it reported since an answer it was given.
 	ReportedAt time.Time `json:"reported_at"`
@@ -1961,7 +1967,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: named.ID, Runtime: runtime, Activity: activity, LastReport: lastReport, ClosedIssue: state.DoneClosed(lastReport), ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), isBackAtWork: isBackAtWork, Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: named.ID, Runtime: runtime, Activity: activity, LastReport: lastReport, ClosedIssue: state.DoneClosed(lastReport), ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), isBackAtWork: isBackAtWork, Evaluation: evaluation, Browser: s.screens.isRunning(id, meta.SpawnGen)})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}

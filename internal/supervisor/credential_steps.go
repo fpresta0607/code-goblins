@@ -39,9 +39,7 @@ const maxCredentialAnswer = 4000
 
 // CredentialStep is what a card's asker, or the CEO, does to it from outside
 // the board: done, once the asker saw the step done; withdraw, once nobody
-// needs it; reopen, to bring back a card he closed; and, from the goblin's
-// wait, window-open or window-failed once it showed its browser's window or
-// could not.
+// needs it; and reopen, to bring back a card he closed.
 type CredentialStep struct {
 	ID     string `json:"id"`
 	Task   string `json:"task,omitempty"`
@@ -108,13 +106,8 @@ func (s *Service) stepCredential(pid int, connected time.Time, step CredentialSt
 		return err
 	case "reopen":
 		return s.reopenCredential(step.ID, "", by)
-	case "window-open", "window-failed":
-		if by != "goblin" {
-			return errors.New("only the goblin whose browser it is reports its window")
-		}
-		return s.reportCredentialWindow(step.ID, step.Action == "window-open", step.Reason)
 	}
-	return fmt.Errorf("a card takes done, withdraw, reopen, window-open or window-failed, not %q", step.Action)
+	return fmt.Errorf("a card takes done, withdraw or reopen, not %q", step.Action)
 }
 
 // reopenCredential brings back a card he pressed Done on, answered or
@@ -219,6 +212,11 @@ func (s *Service) closeCredential(id, generation, closed, by, reason string) (Cr
 			s.publish(err)
 		}
 	}
+	// A card whose step a person took on the goblin's screen gives the
+	// browser back however it closes, so its goblin is never left refused.
+	if updated.Window {
+		s.screens.handBack(updated.Task)
+	}
 	s.notify()
 	s.credentialWork.Add(1)
 	go s.afterCredentialClose(updated, by)
@@ -309,8 +307,9 @@ func (s *Service) afterCredentialClose(request CredentialRequest, by string) {
 	}
 }
 
-// requestCredentialWindow records his press of a card's window button, which
-// the goblin's wait sees and answers by showing its browser's window.
+// requestCredentialWindow records his press of a card's Take control, which
+// opens the card's link in the goblin's own browser and gives him control of
+// it on the board's screen of that browser (showCardScreen).
 func (s *Service) requestCredentialWindow(id, generation string) error {
 	s.credentialSaves.Lock()
 	defer s.credentialSaves.Unlock()
@@ -328,18 +327,85 @@ func (s *Service) requestCredentialWindow(id, generation string) error {
 		return err
 	}
 	s.notify()
+	s.credentialWork.Add(1)
+	go func() {
+		defer s.credentialWork.Done()
+		err := s.showCardScreen(request)
+		reason := ""
+		if err != nil {
+			reason = "The goblin's browser could not open: " + oneLine(err.Error())
+		}
+		if err := s.reportCredentialWindow(id, err == nil, reason); err != nil {
+			s.publish(fmt.Errorf("card %s: %w", id, err))
+		}
+	}()
 	return nil
 }
 
-// reportCredentialWindow records what the goblin's wait did with his press:
-// the window is open, or it could not open, and the button is offered again
-// with why.
+// showCardScreen opens request's link in its goblin's browser, starting the
+// browser when none runs, and gives control of it to the person at the
+// board, so the step happens on the board's screen of that browser and no
+// window opens on the desktop.
+func (s *Service) showCardScreen(request CredentialRequest) error {
+	meta, err := s.screenTask(request.Task, request.TaskGeneration)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), taskBrowserStart+screenCall)
+	defer cancel()
+	b, err := s.screens.ensure(ctx, meta)
+	if err != nil {
+		return err
+	}
+	client, err := b.source.Open(ctx)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	var targets struct {
+		Infos []targetInfo `json:"targetInfos"`
+	}
+	if err := client.Call(ctx, "", "Target.getTargets", nil, &targets); err != nil {
+		return err
+	}
+	page := ""
+	for _, info := range targets.Infos {
+		if info.Type == "page" {
+			page = info.ID
+		}
+	}
+	// The page the goblin was on goes to the link, as the screen shows its
+	// newest page; with none, the link opens one.
+	if page == "" {
+		err = client.Call(ctx, "", "Target.createTarget", map[string]string{"url": request.Link}, nil)
+	} else {
+		var attached struct {
+			Session string `json:"sessionId"`
+		}
+		if err = client.Call(ctx, "", "Target.attachToTarget", map[string]any{"targetId": page, "flatten": true}, &attached); err == nil {
+			err = client.Call(ctx, attached.Session, "Page.navigate", map[string]string{"url": request.Link}, nil)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	s.screens.drive(b, true)
+	return nil
+}
+
+// reportCredentialWindow records what came of his press: the goblin's
+// browser is his on the board's screen, or it could not open, and the button
+// is offered again with why. A card that closed meanwhile gives the browser
+// back to its goblin, as its close would have once he held it.
 func (s *Service) reportCredentialWindow(id string, isOpen bool, reason string) error {
 	s.credentialSaves.Lock()
 	defer s.credentialSaves.Unlock()
 	request, found := s.Store.credential(id)
 	if !found || request.State != "open" || !request.Window {
-		return errors.New("that card has no window waiting")
+		if found && isOpen {
+			s.screens.handBack(request.Task)
+		}
+		return nil
 	}
 	if _, err := s.Store.updateCredential(id, func(r *CredentialRequest) {
 		if isOpen {

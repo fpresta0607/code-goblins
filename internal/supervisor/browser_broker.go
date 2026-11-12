@@ -468,8 +468,8 @@ func (b *browserBroker) closeAll() error {
 	return errors.Join(failed...)
 }
 
-// keepBrowsers sweeps the broker's browsers until ctx ends, then closes
-// them.
+// keepBrowsers sweeps the broker's browsers and the goblins' own until ctx
+// ends, then closes them.
 func (s *Service) keepBrowsers(ctx context.Context) {
 	// A supervisor that starts runs no fetch, so a seal one that stopped
 	// mid-fetch left behind lifts now, and a card's fetch says it stopped.
@@ -492,11 +492,13 @@ func (s *Service) keepBrowsers(ctx context.Context) {
 			if err := s.browsers.closeAll(); err != nil {
 				s.publish(fmt.Errorf("browser logins: %w", err))
 			}
+			s.screens.closeAll()
 			return
 		case <-ticker.C:
 			if err := s.browsers.sweep(); err != nil {
 				s.publish(fmt.Errorf("browser logins: %w", err))
 			}
+			s.screens.sweep(s.Store.Home.State)
 		case <-signinTicker.C:
 			if err := s.processBrowserSignIns(ctx); err != nil {
 				s.publish(fmt.Errorf("browser sign-in: %w", err))

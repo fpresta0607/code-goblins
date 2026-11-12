@@ -22,6 +22,7 @@ A goblin started before this keeps the `TMP` it was started with until it is res
   A pi goblin starts with `--approve` where its pi advertises it, trusting the folder's project files for that run only, so it never asks.
 - Every goblin's terminal names a browser session of its own, `CHROME_DEVTOOLS_AXI_SESSION` set to its task id, and the CEO's is `goblins`. chrome-devtools-axi keeps one bridge and one browser for each session name, so a bridge belongs to one owner and is never the tool's unnamed session, which every program of the user shares.
   The bridge carries its terminal's mark and ends with its goblin at a pause, a stop or the janitor's sweep.
+  On a supervisor with a board, `CHROME_DEVTOOLS_AXI_BROWSER_URL` points the bridge at the goblin's own browser, which the supervisor runs so the board can show it.
 - Every goblin's first instruction, a helper's and a takeover's too, says that what it starts is its own to end: browsers headless and programs hidden in tests unless a picture needs a window, every start tracked by its pid and ended by that pid, never by its name, and no retry or polling loop without a cap.
   `goblins brief` and the board's Start write the same into a brief's Constraints, and the supervisor tells you what it sees of it ([Supervision](supervision.md#supervision)).
 - `--class` is `ordinary` (default), `high-risk`, or `mechanical`; it freezes the task's review repair budget at spawn - two cycles for ordinary and mechanical, three for high-risk - and a running task's snapshot never changes ([docs/pipeline.md](../pipeline.md)).
