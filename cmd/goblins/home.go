@@ -46,8 +46,10 @@ write changed since it planned again.
 
 --memory-from names the harness memory folder to import, which is only
 read. By default it is Claude Code's memory folder for the home,
-~\.claude\projects\<home path>\memory, when that exists. A fact
-the home already has with other content is left as the home has it.
+~\.claude\projects\<home path>\memory, when that exists and the data is not
+laid out yet; laid-out data keeps the memory curated since, so only a folder
+--memory-from names is imported into it. A fact the home already has with
+other content is left as the home has it.
 `
 
 var planDigest = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -189,13 +191,21 @@ func difference(these, others []string) []string {
 }
 
 // memoryFolder is the harness memory folder to import: the one named, which
-// must exist, or else Claude Code's folder for the home when it exists.
+// must exist, or else, while the data is not laid out yet, Claude Code's
+// folder for the home when it exists. Laid-out data keeps its own memory,
+// curated since, so the import happens once and only a folder named is
+// imported again.
 func memoryFolder(h home.Home, named string) (string, error) {
 	if named != "" {
 		if info, err := os.Stat(named); err != nil || !info.IsDir() {
 			return "", fmt.Errorf("--memory-from %s is not a folder", named)
 		}
 		return filepath.Abs(named)
+	}
+	if _, err := os.Stat(filepath.Join(h.Data, layout.Marker)); err == nil {
+		return "", nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", err
 	}
 	folder := layout.ClaudeMemoryFolder(h.Root)
 	if folder == "" {
@@ -213,7 +223,7 @@ func writeMigration(w io.Writer, m layout.Migration) {
 	if m.MemoryFrom != "" {
 		fmt.Fprintf(w, "memory: imports %s, which is only read\n", m.MemoryFrom)
 	} else {
-		fmt.Fprintln(w, "memory: no harness memory folder to import")
+		fmt.Fprintln(w, "memory: imports nothing; --memory-from names a folder to import")
 	}
 	for _, folder := range m.Folders {
 		fmt.Fprintf(w, "create folder data/%s\n", folder)
