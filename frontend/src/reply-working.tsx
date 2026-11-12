@@ -20,10 +20,12 @@ import "./reply-working.css";
 // (the Overlord, 2026-11-04). While the terminal's turn row says it waits to
 // send a request that failed again, it reads Retrying alone, with the attempt
 // and the failure the terminal names after it, as long as the terminal shows
-// them (#2236).
-export function ReplyWorking({ ink, said, isCompacting, retry }: { ink: string; said: string; isCompacting: boolean; retry?: HarnessRetry }) {
+// them (#2236). A row held while he reads up keeps its room but shows
+// nothing once the session no longer says the turn runs, so the rows he
+// reads stay put and no finished turn reads as working.
+export function ReplyWorking({ ink, said, isCompacting, isHeld, retry }: { ink: string; said: string; isCompacting: boolean; isHeld: boolean; retry?: HarnessRetry }) {
   const words = isCompacting ? "Compacting" : retry ? "Retrying" : said;
-  return <div className={"reply-working" + (isCompacting ? " compacting" : retry ? " retrying" : "")}>
+  return <div className={"reply-working" + (isCompacting ? " compacting" : retry ? " retrying" : "") + (isHeld ? " held" : "")} aria-hidden={isHeld || undefined}>
     <WorkingIndicator ink={isCompacting ? "var(--purple)" : ink} label={words || "Working"} />
     <WorkingWord said={words} isAlone={isCompacting || !!retry} />
     {retry && <span className="reply-retry">{linkedText("attempt " + retry.attempt + " of " + retry.attempts + " · " + retry.reason)}</span>}
