@@ -14,8 +14,9 @@ import (
 // tasktmp folder, which no container mounts and no goblin's path boundary
 // lets it write, that spare its host commands the walk for a .git the
 // container made (NestedGitRefusal): the walk token, which every start of a
-// container and every host command that may write the worktree replaces,
-// and the token of the last walk that found none.
+// container, every relaunch of the task's harness, every host command that
+// may write the worktree and every walk replaces, and the token of the last
+// walk that found none.
 const (
 	walkTokenFile = "sandbox-walk"
 	cleanMarkFile = "sandbox-clean"
