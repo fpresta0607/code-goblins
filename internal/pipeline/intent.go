@@ -59,16 +59,16 @@ func StartOf(ctx context.Context, commands execx.Runner, dir string, env []strin
 	if err != nil {
 		return Start{}, err
 	}
-	if !bytes.Contains(help.Stdout, []byte(noPublishIntent)) {
-		return Start{}, errors.New("this no-mistakes has no " + noPublishIntent + ", so it would publish the gate's intent, the task's private brief, in the pull request it opens; no run starts. Update no-mistakes to 1.80.0 or later")
-	}
-	if len(closes) > 0 && !bytes.Contains(help.Stdout, []byte("--closes")) {
-		return Start{}, errors.New("this no-mistakes takes no --closes, so the pull request its gate opened would close no issue, and no run starts: update no-mistakes to 1.87.0 or later")
-	}
-	var closing []string
-	for _, issue := range closes {
-		closing = append(closing, "--closes", issue)
-	}
+	if !bytes.Contains(help.Stdout, []byte(noPublishIntent)) {
+		return Start{}, errors.New("this no-mistakes has no " + noPublishIntent + ", so it would publish the gate's intent, the task's private brief, in the pull request it opens; no run starts. Update no-mistakes to 1.80.0 or later")
+	}
+	if len(closes) > 0 && !bytes.Contains(help.Stdout, []byte("--closes")) {
+		return Start{}, errors.New("this no-mistakes takes no --closes, so the pull request its gate opened would close no issue, and no run starts: update no-mistakes to 1.87.0 or later")
+	}
+	var closing []string
+	for _, issue := range closes {
+		closing = append(closing, "--closes", issue)
+	}
 	if !bytes.Contains(help.Stdout, []byte("--intent-file")) {
 		return Start{Args: append([]string{"axi", "run", "--intent", intent, noPublishIntent}, closing...), IsOnCommandLine: true}, nil
 	}

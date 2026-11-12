@@ -527,6 +527,8 @@ func TestPipelineRunHandsNoMistakesTheIssuesItsPullRequestCloses(t *testing.T) {
 		{"each issue given", withCloses, []string{"--closes", "1996", "--closes", "fpresta0607/code-goblins#1998"}, "--closes 1996 --closes fpresta0607/code-goblins#1998", ""},
 		{"a no-mistakes that takes no closes", "", []string{"--closes", "1996"}, "", "1.87.0"},
 		{"a value that is not an issue", withCloses, []string{"--closes", "1996,1998"}, "", "is not an issue number"},
+		{"a path deeper than owner/repo", withCloses, []string{"--closes", "a/b/c#1"}, "", "is not an issue number"},
+		{"a relative path for owner/repo", withCloses, []string{"--closes", "../..#5"}, "", "is not an issue number"},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			// Arrange

@@ -63,7 +63,7 @@ func runPipeline(args []string, stdout, stderr io.Writer, runtime commandRuntime
 // closingIssue is an issue a gate run's pull request may close, as no-mistakes
 // axi run --closes takes it: its number, or owner/repo#number for another
 // repository's.
-var closingIssue = regexp.MustCompile(`^(?:[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+#)?[1-9][0-9]*$`)
+var closingIssue = regexp.MustCompile(`^(?:[A-Za-z0-9-]+/[A-Za-z0-9_.-]+#)?[1-9][0-9]*$`)
 
 func pipelineCommand(ctx context.Context, h home.Home, root string, commands execx.Runner, args []string, out io.Writer) (err error) {
 	reader := pipeline.Reader{Root: root, Commands: commands}
