@@ -3,6 +3,7 @@ package pipeline
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -36,13 +37,26 @@ func (start Start) Close() {
 // to start. A no-mistakes before 1.86.0 has no --intent-file, and would take
 // --intent - as an intent of one dash, so for such a build alone the intent
 // stays on the command line, and the caller says so.
-func StartOf(ctx context.Context, commands execx.Runner, dir string, env []string, intent string) (Start, error) {
+//
+// Each issue in closes, which the run's pull request closes when it merges,
+// goes to no-mistakes as --closes, the one place it writes a live closing
+// reference from, since it neutralizes a closing keyword in every text an
+// agent wrote, the intent included. A no-mistakes before 1.87.0 takes no
+// --closes, so a start that names an issue on one starts no run.
+func StartOf(ctx context.Context, commands execx.Runner, dir string, env []string, intent string, closes []string) (Start, error) {
 	help, err := commands.Run(ctx, execx.Request{Dir: dir, Env: env, Name: "no-mistakes", Args: []string{"help", "axi", "run"}})
 	if err != nil {
 		return Start{}, err
 	}
+	if len(closes) > 0 && !bytes.Contains(help.Stdout, []byte("--closes")) {
+		return Start{}, errors.New("this no-mistakes takes no --closes, so the pull request its gate opened would close no issue, and no run starts: update no-mistakes to 1.87.0 or later")
+	}
+	var closing []string
+	for _, issue := range closes {
+		closing = append(closing, "--closes", issue)
+	}
 	if !bytes.Contains(help.Stdout, []byte("--intent-file")) {
-		return Start{Args: []string{"axi", "run", "--intent", intent}, IsOnCommandLine: true}, nil
+		return Start{Args: append([]string{"axi", "run", "--intent", intent}, closing...), IsOnCommandLine: true}, nil
 	}
 	file, err := os.CreateTemp("", "goblins-gate-intent-*.txt")
 	if err != nil {
@@ -57,5 +71,5 @@ func StartOf(ctx context.Context, commands execx.Runner, dir string, env []strin
 		_ = os.Remove(file.Name())
 		return Start{}, err
 	}
-	return Start{Args: []string{"axi", "run", "--intent-file", file.Name()}, file: file.Name()}, nil
+	return Start{Args: append([]string{"axi", "run", "--intent-file", file.Name()}, closing...), file: file.Name()}, nil
 }

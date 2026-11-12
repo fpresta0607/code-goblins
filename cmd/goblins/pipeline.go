@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -59,6 +60,11 @@ func runPipeline(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	return 0
 }
 
+// closingIssue is an issue a gate run's pull request may close, as no-mistakes
+// axi run --closes takes it: its number, or owner/repo#number for another
+// repository's.
+var closingIssue = regexp.MustCompile(`^(?:[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+#)?[1-9][0-9]*$`)
+
 func pipelineCommand(ctx context.Context, h home.Home, root string, commands execx.Runner, args []string, out io.Writer) (err error) {
 	reader := pipeline.Reader{Root: root, Commands: commands}
 	if args[0] == "config-drift" || args[0] == "config-apply" {
@@ -106,10 +112,18 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	isPreflight := args[0] == "terminal-preflight"
 	var shouldResume, shouldRevalidatePublication bool
 	var receipt string
+	var closes []string
 	var response pipeline.Response
 	if args[0] == "run" {
 		flags.StringVar(&intent, "intent", "", "task intent")
 		flags.StringVar(&intentFile, "intent-file", "", "the file that holds the task intent")
+		flags.Func("closes", "an issue the run's pull request closes when it merges, as 1996 or owner/repo#1996; repeat it for each", func(issue string) error {
+			if !closingIssue.MatchString(issue) {
+				return fmt.Errorf("%q is not an issue number or owner/repo#number", issue)
+			}
+			closes = append(closes, issue)
+			return nil
+		})
 	} else if args[0] == "respond" {
 		flags.StringVar(&response.Action, "action", "", "fix or approve")
 		flags.StringVar(&response.Findings, "findings", "", "comma-separated finding IDs")
@@ -515,9 +529,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			// to the branch's live run and keeps its intent, head and review
 			// budget, where a launch selection of the same run changes nothing.
 			start = pipeline.Start{Args: []string{"axi", "run"}}
-			fmt.Fprintf(out, "pipeline: reattached to run %s on %s, which keeps its own intent and review budget; no new run starts\n", check.ReattachRun, branch)
+			fmt.Fprintf(out, "pipeline: reattached to run %s on %s, which keeps its own intent, closing issues and review budget; no new run starts\n", check.ReattachRun, branch)
 		} else {
-			start, err = pipeline.StartOf(ctx, commands, gated, pipeline.NativeEnv(root), intent)
+			start, err = pipeline.StartOf(ctx, commands, gated, pipeline.NativeEnv(root), intent, closes)
 			if err != nil {
 				return fmt.Errorf("pipeline: %w", err)
 			}

@@ -229,6 +229,7 @@ Continuing retained terminal work requires its supported source-bound continuati
 
 ```powershell
 goblins pipeline run <id> --intent-file intent.md
+goblins pipeline run <id> --intent-file intent.md --closes 1996
 goblins pipeline respond <id> --action fix --findings finding-id --instructions "Concrete guidance"
 goblins pipeline respond <id> --action fix --findings finding-id --scope-decision <answered-notify-sequence>
 goblins pipeline respond <id> --action approve
@@ -242,6 +243,10 @@ goblins pipeline migrate <id>
 ```
 
 Write the run's intent to a file and name it with `--intent-file`.
+Name each issue the run's pull request closes with `--closes`, as `1996` or `owner/repo#1996`, once for each.
+no-mistakes neutralizes the closing words in every text an agent wrote, the intent included, and writes a live closing reference only from `axi run --closes`, into the Issues section of the pull request it opens, so a `Fixes #N` in the intent closes nothing.
+A no-mistakes before 1.87.0 takes no `--closes`, so a start that names an issue on one starts no run and names the version to update to.
+A reattach to a live run keeps the closing issues it started with.
 A short one may be given with `--intent <text>`.
 Either way `goblins pipeline run` hands it to no-mistakes in a file, never on a command line.
 An intent is prose, often several thousand characters that name a shell, and on 2026-10-02 Microsoft Defender detected one on a command line as `Trojan:Win32/ClickFix.DQ!MTB`, the lure that has a person paste such a line, and Windows refused the start.
