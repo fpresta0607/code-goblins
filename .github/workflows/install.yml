@@ -792,7 +792,7 @@ jobs:
             ~/AppData/Local/CodeGoblins/state/primary.json
             ~/AppData/Local/CodeGoblins/state/crossing.json
             ~/AppData/Local/CodeGoblins/state/engine
-            ~/AppData/Local/CodeGoblins/state/hosts/*.json
+            ~/AppData/Local/CodeGoblins/state/ceo-wake-skips.jsonl
           if-no-files-found: ignore
           retention-days: 14
 

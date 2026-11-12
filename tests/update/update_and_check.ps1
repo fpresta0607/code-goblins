@@ -107,6 +107,13 @@ if ($isCrossing) {
         if ($waiting.Count -eq 0) { break }
         if ((Get-Date) -gt $deadline) {
             $problems += "within 10 minutes of the move these were not restarted under the new names or removed: $($waiting -join ', ')"
+            # Why a terminal still waits is the board's to say, and what the
+            # CEO was doing is on its screen; neither outlives the job.
+            $board = Get-Content -Raw -LiteralPath (Join-Path $state "board.json") | ConvertFrom-Json
+            try { Write-Host "the board's view of the move: $(ConvertTo-Json -InputObject (Invoke-RestMethod -Uri "$($board.url)/api/snapshot" -TimeoutSec 30).crossing -Depth 5 -Compress)" }
+            catch { Write-Host "the board's view of the move could not be read: $($_.Exception.Message)" }
+            Write-Host "the CEO's screen:"
+            & { $ErrorActionPreference = "Continue"; & (Join-Path $bin "goblins.exe") peek ceo 40 2>&1 | Write-Host }
             break
         }
         Start-Sleep -Seconds 5
