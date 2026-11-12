@@ -290,6 +290,11 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		}
 		return errors.New(refusal)
 	}
+	if args[0] == "run" && meta.SandboxImage != "" {
+		// The gate's wrapper stands only commands.test behind cfo gate turn,
+		// which runs it in the task's container (issue 2244).
+		return fmt.Errorf("pipeline: task %s carries sandbox: needed, so its code never runs on this PC, and its gate would run it there, since only the Test step's command runs in the task's container: the agents of the Review, Test, Document and Lint steps run their own shells on the host, as do the prepare, lint and format commands a gate file names. No gate starts for a sandbox task, and nothing ran", meta.ID)
+	}
 	if meta.PipelineHash == "" {
 		return errors.New("pipeline: task lacks a spawn-time policy; existing tasks require an explicit migration decision")
 	}

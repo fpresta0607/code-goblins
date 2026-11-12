@@ -181,8 +181,10 @@ func TestContainEnvironmentTurnsOffWhatTheWorktreeCouldPlantForHostGit(t *testin
 			if got := hostGitConfiguration(func(name string) string { return env[name] }); !maps.Equal(got, wantHostGit(hooksOff)) {
 				t.Fatalf("host git runs with %v, want %v", got, wantHostGit(hooksOff))
 			}
-			if !strings.Contains(sandboxInstruction(meta), "cfo sandbox run -- <command>") {
-				t.Fatalf("instruction %q, want cfo sandbox run named", sandboxInstruction(meta))
+			for _, want := range []string{"cfo sandbox run -- <command>", "cfo pipeline run starts no gate for your task"} {
+				if !strings.Contains(sandboxInstruction(meta), want) {
+					t.Fatalf("instruction %q, want %q in it", sandboxInstruction(meta), want)
+				}
 			}
 		})
 	}

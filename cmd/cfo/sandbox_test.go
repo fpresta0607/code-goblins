@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/sandbox"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -325,6 +326,61 @@ func TestSandboxRunRunsTheCommandInItsContainerAndRemovesIt(t *testing.T) {
 	}
 	if left, err := os.ReadDir(runs); err != nil || len(left) != 0 {
 		t.Fatalf("records after the run = %v (%v), want none", left, err)
+	}
+}
+
+// A gate runs only its Test step's command in a sandbox task's container: the
+// agents that review, test, document and lint the branch run their own
+// shells on the host, as do the prepare, lint and format commands a gate file
+// names (issue 2244). So cfo pipeline run starts no gate for a sandbox task,
+// naming those steps, where the same task without sandbox: needed starts one.
+func TestPipelineRunStartsNoGateForASandboxTask(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		image     string
+		isRefused bool
+	}{
+		{name: "a sandbox task", image: "node:22", isRefused: true},
+		{name: "an ordinary task", isRefused: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			policy := versionSixPolicy(t, pipeline.Reviewer{})
+			h, nm := gateHome(t, policy, operatorMachineConfig)
+			wt, _ := gatedTask(t, h, "task", policy, claudeGoblin)
+			meta, err := state.ReadTaskMeta(h.State, "task")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.SandboxImage = test.image
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			runner := &gateStartRunner{pipelineStartRunner: pipelineStartRunner{worktree: wt}}
+			var out bytes.Buffer
+
+			// Act
+			err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &out)
+
+			// Assert
+			if !test.isRefused {
+				if err != nil || len(runner.native) != 1 {
+					t.Fatalf("err = %v, native launches = %+v, want the gate started once", err, runner.native)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("a sandbox task's gate started with %q", out.String())
+			}
+			for _, want := range []string{"task task carries sandbox: needed", "only the Test step's command runs in the task's container", "the agents of the Review, Test, Document and Lint steps run their own shells on the host", "the prepare, lint and format commands", "No gate starts"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("error = %q, want it to name %q", err, want)
+				}
+			}
+			if len(runner.native) != 0 || out.Len() != 0 {
+				t.Fatalf("refused start ran native %+v and printed %q", runner.native, out.String())
+			}
+		})
 	}
 }
 
