@@ -56,7 +56,8 @@ const (
 // no End before it can be taken as part of the text ("swallow"), or the first
 // submit key can be taken seconds after it arrived ("slow"), where
 // by default a turn never ends. With "exitmenu", /exit opens the menu Claude
-// Code shows over background work before it exits. With "claude-lost-enter"
+// Code shows over background work before it exits. With "claude-ready" it is
+// Claude Code's composer, ready at once, and with "claude-lost-enter"
 // it is Claude Code's composer taking the first Enter that ends typed text
 // as a new line, with "claude-enters-lost" every one, with
 // "claude-late-enter" taking the first seconds late, and with
@@ -133,6 +134,10 @@ func fakeHarness() {
 		record(codexEvent{Event: "home", Text: err.Error()})
 	} else {
 		record(codexEvent{Event: "home", Home: &resolved})
+	}
+	if slices.Contains(os.Args[1:], "--input-format") {
+		fakeStreamClaude(record)
+		return
 	}
 	mode := os.Getenv(fakeCodexMode)
 	if mode == "unreadable" {
@@ -213,7 +218,7 @@ func fakeHarness() {
 		piStartup(startup, mode == "pi-stale", keys, record, draw) // stall-accepted: the stand-in pi's startup refuses the first Enter however short a stall cuts it, so a test that needs a refusal still gets one.
 		return
 	}
-	if mode == "claude-lost-enter" || mode == "claude-enters-lost" || mode == "claude-late-enter" || mode == "claude-queues" {
+	if mode == "claude-ready" || mode == "claude-lost-enter" || mode == "claude-enters-lost" || mode == "claude-late-enter" || mode == "claude-queues" {
 		claudeComposer(mode, keys, record, draw)
 		return
 	}

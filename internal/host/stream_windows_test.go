@@ -522,3 +522,28 @@ func TestAStreamHostTellsAStateReadWhatItsSessionsLinesSay(t *testing.T) {
 		t.Errorf("state after the turn = %+v, %v; want its result and no turn running", ended, endedErr)
 	}
 }
+
+// A check that a task's host still answers, as a stop proves its resources
+// and a lifecycle proves a task runs, reaches a stream session's host as it
+// does a terminal's, whose own handshake a stream host refuses.
+func TestAnAnswerComesFromATerminalsHostAndAStreamSessionsAlike(t *testing.T) {
+	// Arrange
+	_, terminal, _ := hostHere(t)
+	_, stream := launchStream(t)
+	if client, err := Dial(stream); err == nil {
+		_ = client.Close()
+		t.Fatal("the premise fails: a terminal's handshake reached a stream session's host")
+	}
+
+	for name, record := range map[string]Record{"a terminal": terminal, "a stream session": stream} {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			err := Answer(record)
+
+			// Assert
+			if err != nil {
+				t.Errorf("Answer = %v, want the host's answer", err)
+			}
+		})
+	}
+}

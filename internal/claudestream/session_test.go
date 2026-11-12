@@ -306,3 +306,57 @@ func TestASessionKeepsEachLinesLastLifecycleState(t *testing.T) {
 		t.Errorf("the reader did not know %v", session.Unknown)
 	}
 }
+
+// A stream session is idle, as a terminal at an empty composer is, only while
+// Claude Code runs with no turn working and no tool call waiting.
+func TestASessionIsIdleOnlyWhileClaudeCodeWaitsForALine(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		session Session
+		want    bool
+	}{
+		{"a session that took no line yet", Session{}, true},
+		{"a session whose turn ended", Session{Result: &Result{Subtype: "success"}}, true},
+		{"a turn working", Session{IsWorking: true}, false},
+		{"a tool call waiting for an answer", Session{Asks: []Ask{{RequestID: "r1"}}}, false},
+		{"Claude Code ended", Session{IsExited: true, ExitCode: 1}, false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Act
+			isIdle := testCase.session.IsIdle()
+
+			// Assert
+			if isIdle != testCase.want {
+				t.Errorf("IsIdle = %v, want %v", isIdle, testCase.want)
+			}
+		})
+	}
+}
+
+// A stream session's rows say what it is doing first, then the reply being
+// written or, once its turn ended, its reply, a line a row, as goblins peek
+// and the monitor read a terminal's screen.
+func TestRowsSayWhatTheSessionIsDoingAndShowItsReply(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		session Session
+		want    []string
+	}{
+		{"a session that took no line yet", Session{}, []string{"idle"}},
+		{"a turn writing its reply", Session{IsWorking: true, Live: []LiveBlock{{Kind: "thinking", Text: "hm"}, {Kind: "text", Text: "Reading\r\nthe brief"}}}, []string{"working", "Reading", "the brief"}},
+		{"a turn that ended", Session{Result: &Result{Subtype: "success", Text: "Done."}}, []string{"idle", "Done."}},
+		{"a turn that ended in an error", Session{Result: &Result{Subtype: "error_max_turns", IsError: true, Text: "API Error: 429"}}, []string{"idle; its last turn ended in error_max_turns", "API Error: 429"}},
+		{"a tool call waiting", Session{IsWorking: true, Asks: []Ask{{RequestID: "r1"}, {RequestID: "r2"}}}, []string{"working, with 2 tool calls waiting for an answer"}},
+		{"Claude Code ended", Session{IsExited: true, ExitCode: 3, Result: &Result{Text: "Bye."}}, []string{"Claude Code ended with exit code 3", "Bye."}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Act
+			rows := testCase.session.Rows()
+
+			// Assert
+			if !slices.Equal(rows, testCase.want) {
+				t.Errorf("Rows = %q, want %q", rows, testCase.want)
+			}
+		})
+	}
+}
