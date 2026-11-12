@@ -10,7 +10,7 @@ Nothing in it starts, stops or restarts a shared service.
 The supervisor checks every minute (issue 2365):
 
 - The gate daemon by its `daemon.pid`, that process and the runs its database holds open, then by one `no-mistakes daemon status`. A live daemon that missed that short health reply is `busy`, never `stopped`, with how many runs it serves; `ready` answered, `stopped` has no process and `unknown` could not be read.
-- The heavy-run line: who holds its turns, who waits in it, and the memory and commit free against the floor its next run needs. It is `free`, `full` when every turn is held, or `short` when memory is under the floor, which is why a waiting run is not started.
+- The heavy-run line: who holds its turns, never a light run beside them, who waits in it, and the memory and commit free against the floor its next run needs. It is `free`, `full` when every turn is held, or `short` when memory is under the floor, which is why a waiting run is not started.
 - The Docker engine: `running` when it answers, `starting` for a start `goblins services up` made within five minutes, else `stopped`, with the tasks whose stacks hold it.
 
 Each service carries when it was checked, what a goblin does now (`go`, `wait` or `ask`, with how) and, when waiting, the check that can change the answer.
