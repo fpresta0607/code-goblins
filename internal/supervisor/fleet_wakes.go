@@ -175,6 +175,14 @@ type fleetWakes struct {
 	// origin, a goblin's progress, a paused goblin's condition, and the pull
 	// request a queued row waits on.
 	Failing map[string]int `json:"failing,omitempty"`
+	// SharedRaised holds, by shared service, the next step (wait or ask) its
+	// outage last woke the CEO with for the goblins waiting on it, SharedTold
+	// the goblins the CEO was asked to tell, once, that a service they wait
+	// on is usable again, and SharedNext the next step each service's last
+	// reading gave.
+	SharedRaised map[string]string   `json:"shared_raised,omitempty"`
+	SharedTold   map[string][]string `json:"shared_told,omitempty"`
+	SharedNext   map[string]string   `json:"shared_next,omitempty"`
 	// SameArea holds, by task, the teammates' open work each live goblin's
 	// area meets, for its card.
 	SameArea map[string]sameArea `json:"same_area,omitempty"`
@@ -305,7 +313,7 @@ func (s *Service) keepFleetWakes(ctx context.Context, every time.Duration) {
 // reading met once, however many readings met it, and each repository whose
 // CI cannot be read at every cycle until a poll reads it again.
 func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
-	if (s.Options.Dispatch == nil || s.Options.Dispatch.Memory == nil) && s.Options.CI == nil && s.Options.Progress == nil && s.Options.Defender == nil {
+	if (s.Options.Dispatch == nil || s.Options.Dispatch.Memory == nil) && s.Options.CI == nil && s.Options.Progress == nil && s.Options.Defender == nil && s.Options.Shared == nil {
 		return nil
 	}
 	readingStarted := time.Now()
@@ -314,7 +322,7 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	w, readErr := readFleetWakes(stateDir)
 	err := errors.Join(readErr, s.pauseAtAllowanceFloor(ctx, &w, now), s.pollCI(ctx, &w, now, currentTime))
 	err = errors.Join(err, s.reconcilePreparedWaits(ctx, &w, now))
-	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCEOWaits(&w, now))
+	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCEOWaits(&w, now), s.checkSharedServices(ctx, &w, now))
 	w.RootReadings = s.currentRootReadings()
 	if s.Options.Progress != nil {
 		w.ProgressPassAt = currentTime()
@@ -585,34 +593,34 @@ func largestBucket(record janitor.Record) (name string, bytes int64) {
 func memoryWork(h home.Home, finished *finishedWork, reading rowReading) (queued, waiting []string) {
 	queued = startableQueued(h, finished, reading)
 	for _, meta := range liveTasks(h.State) {
-		if record, err := state.ReadLifecycle(h.State, meta.ID); err == nil && record.Generation == meta.SpawnGen {
-			switch record.Phase {
-			case "paused":
-				// The pause in force says what holds the task now. Memory is
-				// work a free reading can release; any other condition ends by
-				// itself, so freeing memory cannot end it, and an older report
-				// of a memory wait must not name the task as work it releases.
-				if record.Pause != nil {
-					if record.Pause.Reason == "memory" {
-						waiting = append(waiting, meta.ID)
-					}
-					continue
-				}
-			case "pausing", "resuming", "stopping", "stopped", "done", "failed":
-				// A task being changed or already over is not work memory can
-				// release, whatever an older report said.
-				continue
-			}
-		}
-		// No record of this generation, or one that names no condition: an
-		// older report is the only evidence there is, and missing evidence
-		// never drops a real waiter.
-		lines, _ := state.TailStatus(h.State, meta.ID, 200)
-		if _, report := latestReport(lines, spawnTime(meta.SpawnGen)); strings.HasPrefix(report, "waiting on memory: ") {
+		if waitsOn(h.State, meta, "memory") {
 			waiting = append(waiting, meta.ID)
 		}
 	}
 	return queued, waiting
+}
+
+// waitsOn reports whether the task meta names waits on target now. Its
+// lifecycle record of its current generation says so first, whatever an older
+// report said: a paused task waits on what its pause in force names, and a
+// task being changed or already over waits on nothing. No record of this
+// generation, or a paused one that names no condition, says nothing, so the
+// task's latest report is the only evidence there is, and missing evidence
+// never drops a real waiter.
+func waitsOn(stateDir string, meta state.TaskMeta, target string) bool {
+	if record, err := state.ReadLifecycle(stateDir, meta.ID); err == nil && record.Generation == meta.SpawnGen {
+		switch record.Phase {
+		case "paused":
+			if record.Pause != nil {
+				return record.Pause.Reason == target
+			}
+		case "pausing", "resuming", "stopping", "stopped", "done", "failed":
+			return false
+		}
+	}
+	lines, _ := state.TailStatus(stateDir, meta.ID, 200)
+	_, report := latestReport(lines, spawnTime(meta.SpawnGen))
+	return strings.HasPrefix(report, "waiting on "+target+": ")
 }
 
 // queuedCandidates names the queued work in queue order: each structured row

@@ -303,6 +303,8 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		// The Defender wakes only read what Defender recorded, as goblins
 		// defender does.
 		Defender: runtime.readDefender,
+		// The shared services' check only reads them, as goblins shared does.
+		Shared: sharedProbes(*example, execx.OSRunner{}),
 		// A credential request's card saves through the store goblins auth store
 		// writes, and its refresh is goblins auth store's own.
 		Credentials:        auth.OpenStore,
