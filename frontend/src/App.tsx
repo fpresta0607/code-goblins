@@ -11,6 +11,7 @@ import { ConnectorsPage } from "./connectors-page";
 import { CommandCenterMenu } from "./command-center-menu";
 import type { CommandFocus } from "./CommandCenter";
 import { ComebackBanner } from "./ComebackBanner";
+import { CrossingBanner } from "./crossing-banner";
 import { useActivity } from "./useActivity";
 import { livePresentations } from "./activity";
 import { useReview } from "./review";
@@ -572,6 +573,7 @@ export function App() {
     {updated && <Notice form="box" actions={<button className="primary" onClick={() => location.reload()}>Reload</button>}>The board was updated.</Notice>}
     <LinkFallback />
     {snapshot && <ComebackBanner comeback={snapshot.comeback} />}
+    {snapshot && <CrossingBanner crossing={snapshot.crossing} />}
     {snapshot && <Alerts snapshot={snapshot} onOpen={(key) => setCommandFocus({ key, at: Date.now() })} />}
     {firstRun ? <main className="first-run-region" aria-label="First run">
       {snapshot && <FirstRun instance={snapshot.instance} devDrive={snapshot.dev_drive} onStarting={() => setFirstRunChoice("setup")} onStarted={() => { setFirstRunChoice("started"); setView("Board"); switchTo(CEO_KEY); }} onBoard={() => setFirstRunChoice("board")} />}

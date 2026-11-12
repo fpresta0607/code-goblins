@@ -14,10 +14,12 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/boardweb"
+	"github.com/fpresta0607/code-goblins/internal/cutover"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -76,6 +78,13 @@ var (
 	updateInterrupt = func(step string) {}
 	recordUpdate    = update.Record
 )
+
+// newCrossingMachine is the machine around the home h as the build at
+// program moves it to goblins, a seam a test replaces with a machine of
+// fakes.
+var newCrossingMachine = func(h home.Home, program string) (cutover.Machine, error) {
+	return crossingMachine(installbase.NewEnvStore(execx.OSRunner{}), h, program)
+}
 
 // boardBuilt is a seam for the board preflight: CI's Go jobs build no board,
 // but their test binaries stand in for builds that carry one.
@@ -431,10 +440,12 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	// An earlier update whose journal cannot be read, or is another home's
 	// and unfinished, is never overwritten: its verified copies are the way
 	// back. A finished update of another home, such as this one before it
-	// moved, is history: nothing it kept is a way back any more.
+	// moved, or one a build before the rename made, is history: nothing it
+	// kept is a way back any more.
 	var unfinished *update.Journal
 	switch last, err := update.ReadJournal(h.State); {
 	case errors.Is(err, os.ErrNotExist):
+	case err != nil && cutover.FinishedOldUpdate(h.State):
 	case err == nil && journalFolder(h, last) == "" && last.Phase.Finished():
 	case err == nil && journalFolder(h, last) == "":
 		fmt.Fprintf(stderr, "goblins update: the last update's journal is for %s, not this home %s, and that update stopped at %s, so nothing was changed, and its journal and copies in %s are kept as its way back\n", last.Root, h.Root, last.Phase, update.Dir(h.State))
@@ -526,6 +537,26 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	}
 	updateInterrupt("stopped")
 
+	// A home a release before the rename set up moves to goblins in this
+	// update, planned now that its supervisor no longer writes the state it
+	// reads, and made once the build is swapped, before the supervisor starts
+	// under the new names. The journal names the move's undo folder from the
+	// swap on, before the move begins, so a rollback after a process ended
+	// part way through it undoes what it made.
+	crossedAt := time.Now()
+	var crossing cutover.Machine
+	var crossingPlan cutover.Plan
+	isCrossing := cutover.PreRename(h.Root)
+	if isCrossing {
+		if crossing, err = newCrossingMachine(h, candidate); err == nil {
+			crossingPlan, err = crossing.PlanCrossing(crossedAt)
+		}
+		if err != nil {
+			return rollBack(h, journal, address, fmt.Errorf("plan the move of the home to goblins: %w", err), stdout, stderr)
+		}
+		journal.Crossing = cutover.BackupFolder(h.Root, crossedAt)
+	}
+
 	if err := update.Swap(journal); err != nil {
 		return rollBack(h, journal, address, err, stdout, stderr)
 	}
@@ -534,6 +565,15 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 		return rollBack(h, journal, address, err, stdout, stderr)
 	}
 	updateInterrupt("swapped")
+
+	if isCrossing {
+		fmt.Fprintln(stdout, "Moving the home to goblins: its programs, settings, hooks, skills, scheduled job, credentials and records take the new names, and what it changes is kept to undo.")
+		if _, err := crossing.Apply(crossingPlan, crossedAt); err != nil {
+			return rollBack(h, journal, address, fmt.Errorf("move the home to goblins: %w", err), stdout, stderr)
+		}
+		clock.done("cross")
+		updateInterrupt("crossed")
+	}
 
 	// A key the candidate no longer reads makes it refuse config/fleet.json,
 	// and with it every start, so it goes before the supervisor starts; one
@@ -570,6 +610,9 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "Kept %s: something still runs it, and the janitor removes it once nothing does.\n", kept)
 	}
 	fmt.Fprintf(stdout, "Updated: goblins.exe in %s is %s, and its supervisor (pid %d) serves the board. It took %s.\n", programs, journal.Hash, started.pid, stepTimes(journal.Steps))
+	if journal.Crossing != "" {
+		fmt.Fprintf(stdout, "Moved the home to goblins: the command is goblins and the settings begin GOBLINS_. A terminal opened before this update needs opening again, and the goblins' and the CEO's terminals restart under the new names once each is idle. The way back, with the fleet paused: goblins cutover --undo '%s'\n", journal.Crossing)
+	}
 	// The desktop window beside the candidate follows the update into the
 	// home, beside goblins.exe. It takes no part in it: the window of the
 	// previous build shows this build's board, so one that could not be
@@ -631,6 +674,19 @@ func rollBack(h home.Home, journal *update.Journal, address string, cause error,
 	if err := takeWatchLock(h); err != nil {
 		fmt.Fprintf(stderr, "goblins update: %v\n", err)
 	}
+	// The previous build may be one from before the rename, which reads this
+	// process's settings only by the old names, whether or not the home moved
+	// yet. A move of the home to goblins is undone first, so it starts on the
+	// home and the settings it knows.
+	cutover.HandBackSettings()
+	if journal.Crossing != "" {
+		if err := undoCrossing(h, journal.Crossing); err != nil {
+			fmt.Fprintf(stderr, "goblins update: the move of the home to goblins was not undone (%v), and %s keeps how to undo it\n", err, journal.Crossing)
+		} else {
+			journal.Crossing = ""
+			_ = recordUpdate(h.State, journal, update.RollingBack, "")
+		}
+	}
 	updateInterrupt("restoring")
 	restoreErr := update.Restore(journal)
 	if restoreErr != nil {
@@ -674,6 +730,21 @@ func rollBack(h home.Home, journal *update.Journal, address string, cause error,
 	_ = recordUpdate(h.State, journal, update.RollingBack, "the previous build did not serve: "+lastErr.Error())
 	fmt.Fprintf(stderr, "Failed: neither build serves the board (%v), so it is down until Code Goblins is opened again, and the next update puts the previous build back first.\n", lastErr)
 	return updateBoardDown
+}
+
+// undoCrossing undoes the move of the home h to goblins whose undo folder is
+// folder; one already undone, whose folder is gone, or one that ended before
+// it wrote how to undo it, which it does before it changes anything, has
+// nothing to undo.
+func undoCrossing(h home.Home, folder string) error {
+	if _, err := os.Stat(filepath.Join(folder, cutover.UndoFile)); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	machine, err := newCrossingMachine(h, "")
+	if err != nil {
+		return err
+	}
+	return machine.Undo(folder)
 }
 
 // rolledBack finishes a rollback whose previous build serves: it records the

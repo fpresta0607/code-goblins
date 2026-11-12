@@ -22,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/connections"
+	"github.com/fpresta0607/code-goblins/internal/cutover"
 	"github.com/fpresta0607/code-goblins/internal/defender"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
@@ -185,6 +186,11 @@ type Options struct {
 	// Releases is where the board looks for a newer release of Code
 	// Goblins; without it the board never looks and makes no Update item.
 	Releases *Releases
+	// Relabel renames the GitHub labels of the old name as further steps of
+	// the crossing whose undo folder it is given; nil leaves them. Programs
+	// reads what runs on the machine; nil reads the machine's.
+	Relabel  func(folder string) error
+	Programs cutover.Programs
 	// ReadScreen reads a native terminal's console, and ProgramInstalled
 	// when a harness's program was installed, for the harness updates the
 	// board offers; nil reads the machine's.
@@ -296,6 +302,12 @@ type Service struct {
 	harnessUpdates   map[string]harnessUpdateRead
 	ceoUpdating      bool
 	ceoUpdateProblem string
+	// crossing is the home's move to goblins' names as the last look found
+	// it; isRelabelTried says this supervisor tried its labels once, and
+	// ceoCrossingTries how often it restarted the CEO under the new names.
+	crossing         *CrossingView
+	isRelabelTried   bool
+	ceoCrossingTries int
 	// updateChecks is what the board knows of each harness's own update
 	// check, by harness.
 	updateChecks map[string]UpdateCheck
@@ -620,6 +632,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepHistory(ctx, historyRefresh, historyWatch)
 	}()
 	defer func() { s.cancel(); <-historyDone }()
+	crossingDone := make(chan struct{})
+	go func() {
+		defer close(crossingDone)
+		s.keepCrossing(ctx, crossingEvery)
+	}()
+	defer func() { s.cancel(); <-crossingDone }()
 	memoryDone := make(chan struct{})
 	go func() {
 		defer close(memoryDone)
@@ -1673,6 +1691,9 @@ type Snapshot struct {
 	// Comeback is what the supervisor brings back after the last restart or
 	// sign-out, for the board's line; absent when it brings nothing back.
 	Comeback *state.Comeback `json:"comeback,omitempty"`
+	// Crossing is the home's move to goblins' names that an update or an
+	// install made, for the board's notice; absent for a home that made none.
+	Crossing *CrossingView `json:"crossing,omitempty"`
 	// StartAtLogin is whether Windows starts this home at login, absent on a
 	// board that cannot change it.
 	StartAtLogin *StartAtLoginView `json:"start_at_login,omitempty"`
@@ -1778,6 +1799,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	out.UpdateChecks = s.updateCheckView()
 	out.Comeback = s.comebackView()
+	out.Crossing = s.crossingView()
 	out.PCRestart = s.pcRestartView()
 	if view, issue := s.startAtLoginView(); issue != "" {
 		out.Issues = append(slices.Clone(out.Issues), issue)
