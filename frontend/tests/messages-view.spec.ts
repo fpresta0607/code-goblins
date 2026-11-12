@@ -194,10 +194,12 @@ async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<B
 
 const pill = (page: Page) => page.locator(".context-pane .panel-pill");
 const list = (page: Page, name: string) => page.getByRole("log", { name: "Messages of " + name });
-// What keeps the view from being the session's own now, Reconnecting or why its
-// record is stale, is said in the panel's header, never over the
-// conversation (#2438).
+// What keeps the view from being the session's own now is said in the
+// panel's header, never over the conversation (#2438): why its record is
+// stale on a line under the header's row, and Reconnecting by a dot on its
+// picture, with the word for a screen reader.
 const chatState = (page: Page) => page.locator(".goblin-panel > .panel-chat-state");
+const reconnecting = (page: Page) => page.locator(".goblin-panel > .panel-header .panel-reconnecting");
 const send = (page: Page, type: string, data: unknown) => page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-stream", { detail })), { type, data });
 const sendMessages = (page: Page, messages: unknown) => send(page, "messages", { conversation: "fixture-conversation", messages });
 const clipboard = async (page: Page) => (await page.evaluate(() => navigator.clipboard.readText())).replaceAll("\r\n", "\n");
@@ -1130,7 +1132,7 @@ test("a view that follows the end says nothing of its stream as a turn streams i
   await page.evaluate(() => {
     const said: string[] = [];
     Object.assign(window, { cornerSaid: said });
-    new MutationObserver(() => { for (const notice of document.querySelectorAll(".messages-view .terminal-corner, .goblin-panel > .panel-chat-state")) said.push(notice.textContent ?? ""); }).observe(document.body, { subtree: true, childList: true, characterData: true });
+    new MutationObserver(() => { for (const notice of document.querySelectorAll(".messages-view .terminal-corner, .goblin-panel > .panel-chat-state, .goblin-panel > .panel-header .panel-reconnecting")) said.push(notice.textContent ?? ""); }).observe(document.body, { subtree: true, childList: true, characterData: true });
   });
 
   // Act: a turn begins, streams two messages and ends, each as the
@@ -1172,7 +1174,7 @@ test("a stream that drops draws no working indicator while it says Reconnecting,
   // Assert: the drop says nothing of the turn, so it keeps its row's room,
   // its Stop and no end, and only its indicator waits for the stream. The
   // panel's header says Reconnecting, and nothing covers the conversation.
-  await expect(chatState(page)).toHaveText("Reconnecting");
+  await expect(reconnecting(page)).toHaveText("Reconnecting");
   await expect(page.locator(".messages-view .terminal-corner")).toHaveCount(0);
   await expect(talk.locator(".reply-working:visible")).toHaveCount(0);
   await expect(talk.locator(".reply-working.held")).toHaveCount(1);
@@ -1186,7 +1188,7 @@ test("a stream that drops draws no working indicator while it says Reconnecting,
   await send(page, "session", { conversation: "fixture-conversation", turn: "m98", state: "running", newest: 99, head: 99 });
 
   // Assert
-  await expect(chatState(page)).toHaveCount(0);
+  await expect(reconnecting(page)).toHaveCount(0);
   await expect(talk.locator(".reply-working:visible")).toHaveCount(1);
 });
 
@@ -1209,7 +1211,7 @@ test("a view shown again draws no working indicator until its new stream says th
   await expect.poll(() => streams(page)).toBe(opened + 1);
 
   // Assert
-  await expect(chatState(page)).toHaveText("Reconnecting");
+  await expect(reconnecting(page)).toHaveText("Reconnecting");
   await expect(talk.locator(".reply-working:visible")).toHaveCount(0);
 
   // Act: the new stream speaks, and the turn still runs.
@@ -1298,7 +1300,8 @@ test("a stale record is said under the header only while the Chat view shows, an
 // #2438, the Overlord on 2026-11-12, of the notices drawn over the first
 // messages of his chat: "I hate all these alerts remove them!!", then "The
 // ones at top of chat". At a phone's width and a desktop's, in the CEO's panel
-// and a goblin's, a view the stream has run past says nothing, and why its
+// and a goblin's, a view the stream has run past says nothing, a dropped
+// stream is a dot on the header's picture that moves nothing, and why its
 // record is stale is one quiet line under the panel's header, above the
 // conversation rather than over it.
 // What a view draws over the top half of its conversation: every part of its
@@ -1316,7 +1319,7 @@ for (const width of [390, 1440]) {
   for (const who of ["CEO", "Zeke - Touch Wrangler"]) {
     const whose = who === "CEO" ? "the CEO's" : "a goblin's";
     const picture = (state: string) => `chat-${state}-${who === "CEO" ? "ceo" : "goblin"}-390.png`;
-    test(`at ${width}px ${whose} chat draws nothing over its top, and says a stale record under the panel's header`, async ({ page }, testInfo) => {
+    test(`at ${width}px ${whose} chat draws nothing over its top, marks a drop on its picture and says a stale record under the panel's header`, async ({ page }, testInfo) => {
       // Arrange
       await page.setViewportSize({ width, height: 844 });
       await open(page);
@@ -1336,6 +1339,32 @@ for (const width of [390, 1440]) {
       if (width === 390) await page.screenshot({ path: testInfo.outputPath(picture("behind")) });
       expect.soft(await overTop(page)).toEqual([]);
       await expect.soft(chatState(page)).toHaveCount(0);
+      const frame = await box(talk);
+
+      // Act: the stream drops, and the browser opens it again.
+      await page.evaluate(() => {
+        for (const { source } of (window as unknown as { messageStreams: { source: { readyState: number; onerror: (() => void) | null } }[] }).messageStreams) {
+          source.readyState = 0;
+          source.onerror?.();
+        }
+      });
+
+      // Assert: the header's picture says it reconnects, nothing lies over
+      // the conversation's top, and the conversation keeps its place.
+      await expect(page.getByRole("status").filter({ hasText: "Reconnecting" })).toHaveCount(1);
+      if (width === 390) await page.screenshot({ path: testInfo.outputPath(picture("reconnecting")) });
+      await expect(reconnecting(page)).toHaveText("Reconnecting");
+      expect(await overTop(page)).toEqual([]);
+      await expect(chatState(page)).toHaveCount(0);
+      expect(await box(talk)).toEqual(frame);
+
+      // Act: it is back.
+      await page.evaluate(() => { for (const { source } of (window as unknown as { messageStreams: { source: { readyState: number } }[] }).messageStreams) source.readyState = 1; });
+      await send(page, "page", NEWEST);
+      await send(page, "session", { conversation: "fixture-conversation", turn: "q300", state: "ended", newest: 304, head: 304 });
+
+      // Assert
+      await expect(reconnecting(page)).toHaveCount(0);
 
       // Act: the stream says the record is stale.
       await send(page, "session", { conversation: "fixture-conversation", turn: "q300", state: "ended", newest: 304, head: 304, stale });

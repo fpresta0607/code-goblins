@@ -183,7 +183,7 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   // while the view reconnects, before the relay answers its new connection.
   await page.routeWebSocket("**/api/terminal/native?*", () => {});
   relay.drop();
-  await expect(page.locator(".goblin-panel > .panel-chat-state"), "the panel's header says the one Reconnecting").toHaveText("Reconnecting");
+  await expect(page.locator(".goblin-panel > .panel-header .panel-reconnecting"), "the panel's header says the one Reconnecting").toHaveText("Reconnecting");
   const before = typed(relay);
   expect(before, "nothing was typed while the program was busy").not.toContain("merge it");
   await send(page).click();

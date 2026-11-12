@@ -27,6 +27,7 @@ import { DeploymentLink } from "./deployment-link";
 import { LocalChecksLink } from "./local-checks-link";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { TaskAdjustment } from "./task-adjustment";
+import type { ChatState } from "./messages-view";
 
 // Who the goblin is, what it is doing now and what the Overlord can do about
 // it. The header is one short row, so the conversation gets the room (the
@@ -37,9 +38,10 @@ import { TaskAdjustment } from "./task-adjustment";
 // states take a line of their own under the row, at its end, only while one
 // shows: Restart PC while the kernel's pools are past their line and Update
 // while an update of the CEO's harness waits, so the row keeps its room. So
-// does chatState, what keeps the Chat view's conversation from being the
-// session's own now, Reconnecting or why its record is stale, which is never
-// a notice over the conversation (#2438).
+// does why the Chat view's conversation is stale or its stream cannot be kept
+// (chatState), and a dropped connection is a quiet dot on the picture, which
+// takes no room, so nothing moves while it reconnects (2026-10-28): neither
+// is ever a notice over the conversation (#2438).
 // While the Chat view shows a conversation both styles can draw, the picture,
 // the CEO's and every goblin's, opens the choice of chat style, styleChoice,
 // with the style shown chosen (PanelStyleMenu); Close or Back goes back to
@@ -52,7 +54,7 @@ import { TaskAdjustment } from "./task-adjustment";
 // and the words that sentence leaves out behind Details, where a failure links
 // to the task's log, the task's buttons, and on the CEO's panel the last AFK
 // report and what a press of Update waits for.
-export function PanelHeader({ task, node, snapshot, isDetails = false, switcher, row, styleChoice, chatState, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; isDetails?: boolean; switcher?: ReactNode; row?: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; styleChoice?: StyleChoice; chatState?: string; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
+export function PanelHeader({ task, node, snapshot, isDetails = false, switcher, row, styleChoice, chatState, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; isDetails?: boolean; switcher?: ReactNode; row?: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; styleChoice?: StyleChoice; chatState?: ChatState; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
   const [opening, setOpening] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
   const ceo = !task && !node;
@@ -132,9 +134,10 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
   const picture = <Avatar persona={ceo ? "ceo" : personaFor(task, node)} small />;
   return <>
     <header className={"panel-header one-row" + (ceo ? " is-ceo" : "")}>
-      <div className="panel-identity">
+      <div className={"panel-identity" + (chatState?.isReconnecting ? " is-reconnecting" : "")}>
         {styleChoice ? <PanelStyleMenu picture={picture} {...styleChoice} /> : picture}
         <h2 id="panel-title">{title}</h2>
+        {chatState?.isReconnecting && <span className="panel-reconnecting sr-only" role="status">Reconnecting</span>}
       </div>
       {switcher}
       {row && <PanelRow {...row} isShared />}
@@ -143,6 +146,6 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
       <RestartPcButton snapshot={snapshot} />
       <CeoUpdate snapshot={snapshot} />
     </div>}
-    {chatState && <p className="panel-chat-state" role="status">{chatState}</p>}
+    {chatState?.trouble && <p className="panel-chat-state" role="status">{chatState.trouble}</p>}
   </>;
 }

@@ -1509,7 +1509,8 @@ The box under the conversation reads its Stop from the same event, so a turn tha
 On 2026-10-29 the Overlord's view of the CEO showed a call Running at least 76 seconds after it ended, with no word that it was stale.
 A stream that drops or ends is opened again, which begins with the newest page, and says Reconnecting until it does.
 Nothing is drawn over the top of the conversation, at a phone's width or the desktop's, in the CEO's panel or a goblin's (#2438).
-The panel's header says one of those states at a time, on a quiet line of its own under its row, the most pressing first: Reconnecting, then why the conversation it draws is stale or why its stream cannot be kept.
+While it reconnects, a quiet amber dot on the picture in the panel's header says so, where a messenger marks presence, and takes no room, so nothing moves (2026-10-28).
+Why the conversation it draws is stale, or why its stream cannot be kept, is a quiet line of its own under the header's row, and stays while it reconnects.
 A stream also ends after ten minutes, as a baby goblin's does, and at most 32 stream at once, a limit of their own.
 With `picture=ID` it answers a picture a message holds, read back from its entry by the id a read of the messages gave it, never by a path or an offset the browser names; a Claude Code picture's id names where it is in its conversation, so a read of the tail and a read of the whole name it alike, and it is answered only when a read found a picture there.
 It must come with the page's `conversation`, and is refused with 400 without one; a picture of a conversation the session no longer has, or whose file changed while it was read, is answered with 404 as one no read found.

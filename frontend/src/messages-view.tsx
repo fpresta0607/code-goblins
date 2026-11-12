@@ -71,6 +71,12 @@ type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 // board knows, pending those of them that still wait, and box is the message
 // box under the conversation, told whether the stream says a turn runs. onAskSlot takes the conversation's last row,
 // where the box draws what the harness's own screen asks (#2223).
+// ChatState is what keeps the conversation a view shows from being the
+// session's own now, which its panel's header says (#2438): a dropped
+// connection while it reconnects, and why the conversation drawn is stale or
+// its stream cannot be kept, or nothing.
+export interface ChatState { isReconnecting: boolean; trouble: string }
+export const QUIET_CHAT: ChatState = { isReconnecting: false, trouble: "" };
 export function MessagesView({ query, instance, pages, name, task, terminal, harness, model, effort, isCompacting, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, onAskSlot, onOpenCommand, onState, box }: {
   query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isCompacting: boolean;
   pages: Map<string, MessagePage>;
@@ -83,7 +89,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   onOpenCommand?: (key: string) => void;
   // onState hears what keeps the conversation shown from being the session's
   // own now, which the panel's header says, or nothing.
-  onState: (state: string) => void;
+  onState: (state: ChatState) => void;
 }) {
   // What he sent that the board has not shown yet, drawn at once on its way.
   const sending = usePendingSends();
@@ -748,15 +754,17 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // to the panel's header, never in a notice over the conversation (the
   // Overlord, 2026-11-12: "I hate all these alerts remove them!!", #2438): the
   // one Reconnecting of the pane, for its stream and for the terminal its box
-  // types through, which is not drawn here (2026-11-04), then why the
-  // conversation drawn is not the session's current one. A view the stream
-  // has run past says nothing, since Jump to latest shows wherever he reads
-  // up and catches it up.
-  const state = !shown ? "" : phase !== "closed" && (isReconnecting || !visible || !!link?.isReconnecting) ? "Reconnecting" : report?.stale || report?.problem || "";
+  // types through, which is not drawn here (2026-11-04), and why the
+  // conversation drawn is not the session's current one, which stays said
+  // while it reconnects, so a drop moves nothing (2026-10-28). A view the
+  // stream has run past says nothing, since Jump to latest shows wherever he
+  // reads up and catches it up.
+  const isDropped = shown && phase !== "closed" && (isReconnecting || !visible || !!link?.isReconnecting);
+  const trouble = shown ? report?.stale || report?.problem || "" : "";
   useEffect(() => {
-    onState(state);
-    return () => onState("");
-  }, [state, onState]);
+    onState({ isReconnecting: isDropped, trouble });
+    return () => onState(QUIET_CHAT);
+  }, [isDropped, trouble, onState]);
   const toEnd = useCallback((box: HTMLElement) => {
     isJumping.current = true;
     following.current = true;

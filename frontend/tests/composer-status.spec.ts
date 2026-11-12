@@ -141,7 +141,7 @@ for (const style of ["modern"]) {
         relay.say({ type: "unread", unread: false });
         relay.refuse();
         relay.drop();
-        await expect(page.locator(".goblin-panel > .panel-chat-state"), "the panel's header says the one Reconnecting").toHaveText("Reconnecting");
+        await expect(page.locator(".goblin-panel > .panel-header .panel-reconnecting"), "the panel's header says the one Reconnecting").toHaveText("Reconnecting");
         await expect(field(page)).toBeVisible();
         await expect(field(page)).toHaveValue("Keep this through the reconnect");
         await expect(box(page)).toHaveAttribute("data-queues", "");
@@ -162,7 +162,7 @@ for (const style of ["modern"]) {
         // left the focus nowhere.
         await expect(field(page)).toBeEnabled();
         await field(page).focus();
-        await expect(page.locator(".goblin-panel > .panel-chat-state")).toHaveCount(0);
+        await expect(page.locator(".goblin-panel > .panel-header .panel-reconnecting")).toHaveCount(0);
         await expect(field(page)).toBeFocused();
         await page.keyboard.type("still in the draft");
         await expect(field(page)).toHaveValue("still in the draft");

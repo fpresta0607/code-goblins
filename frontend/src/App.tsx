@@ -45,7 +45,7 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { TrainPanel } from "./train-panel";
 import { SMALL_SCREEN } from "./small-screen";
 import { useVisualViewport } from "./use-visual-viewport";
-import { MessagesView } from "./messages-view";
+import { MessagesView, QUIET_CHAT } from "./messages-view";
 import { Composer } from "./composer";
 import { useTerminalLink } from "./terminal-link";
 import { ceoEngine, liveCeoSession } from "./workflow";
@@ -137,7 +137,7 @@ export function App() {
   const [messagesOpened, setMessagesOpened] = useState("");
   // What keeps the shown Messages view's conversation from being the
   // session's own now, which the panel's header says (#2438).
-  const [chatState, setChatState] = useState("");
+  const [chatState, setChatState] = useState(QUIET_CHAT);
   const [messagePages] = useState(() => new Map<string, MessagePage>());
   const [switchFocus, setSwitchFocus] = useState(0);
   // A count each hand of the keyboard to a Messages view's box adds to.

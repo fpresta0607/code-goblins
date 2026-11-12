@@ -15,6 +15,7 @@ import { PanelRow, type PanelControl } from "./panel-row";
 import { BabyHeader } from "./baby-header";
 import { PanelViewSwitch } from "./panel-view-switch";
 import type { StyleChoice } from "./panel-style-menu";
+import type { ChatState } from "./messages-view";
 import { linkedText } from "./messageText";
 import { ScreenView } from "./screen-view";
 import { goblinName } from "./task-words";
@@ -47,7 +48,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
   // row is the top row's controls, corner button and notice (see PanelRow),
   // styleChoice the chat style its picture offers and chatState what keeps its
   // conversation from being the session's own now (see PanelHeader).
-  cardStart: CardStarter; row: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; styleChoice?: StyleChoice; chatState: string;
+  cardStart: CardStarter; row: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; styleChoice?: StyleChoice; chatState: ChatState;
 }) {
   const owner = !!task && ownsTaskSession(node, task);
   // A failure's Open the log opens the Activity section and brings it into view.
