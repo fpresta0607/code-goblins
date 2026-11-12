@@ -380,7 +380,8 @@ func goblinsWait(count int) string {
 }
 
 // MachineSharedLine reads the machine's heavy line and memory for the shared
-// check.
+// check. A light run beside the slots holds none of the line's turns, so only
+// the slots' holders are read as its holders.
 func MachineSharedLine() (SharedLine, error) {
 	dir, err := verify.AdmissionDir()
 	if err != nil {
@@ -394,6 +395,7 @@ func MachineSharedLine() (SharedLine, error) {
 	if err != nil {
 		return SharedLine{}, err
 	}
+	holding = slices.DeleteFunc(holding, func(run verify.Standing) bool { return run.IsLight })
 	var estimate uint64
 	if len(waiting) > 0 {
 		estimate = waiting[0].Estimate
