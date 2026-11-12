@@ -1492,7 +1492,8 @@ It reads that word against the conversation it draws, never against a copy kept 
 A view that draws less than the session holds says it is behind: one that holds back what its stream sent while he reads up, and one whose stream's head names a newer message or a newer conversation, as `/clear` begins.
 Behind is a state of its own that is neither disconnected nor ended, it draws no indicator and no turn's end for what it has not drawn, Jump to latest catches up to every message it held back without a reload, and no timer infers it from elapsed time.
 A view that follows the end draws what its stream sends as it arrives, so it is behind only while its stream's head is past what the stream sent it.
-While its stream is away, dropped or closed, the view draws nothing the stream last said of the turn, which may end meanwhile, until the stream speaks again.
+While its stream reconnects, the view keeps the turn's last word, so it claims no turn end and no Send the stream never said, and it draws the working indicator only while its stream is live and connected, as the turn may end meanwhile.
+A closed stream draws nothing it last said of the turn until a new stream speaks.
 The box under the conversation reads its Stop from the same event, so a turn that ended leaves a Send, never a Stop, whatever a snapshot still says of the session (#2292).
 On 2026-10-29 the Overlord's view of the CEO showed a call Running at least 76 seconds after it ended, with no word that it was stale.
 A stream that drops or ends is opened again, which begins with the newest page, and says Reconnecting until it does.

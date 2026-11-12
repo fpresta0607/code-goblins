@@ -82,13 +82,14 @@ async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<B
     // message stream says alive every five seconds, as the supervisor's does
     // while it has nothing to send, until a test makes the streams fall
     // silent (fixtureSilent); a CEO stream opened after a test set
-    // fixtureCeoPage begins with that page.
+    // fixtureCeoPage begins with that page, and one opened while a test holds
+    // the streams back (fixtureHeld) begins with nothing until the test sends it.
     const streams: { url: URL; source: EventTarget & { readyState: number } }[] = [];
-    const fixture = window as unknown as { fixtureSilent?: boolean; fixtureCeoPage?: unknown };
-    Object.assign(window, { messageStreams: streams });
+    const fixture = window as unknown as { fixtureSilent?: boolean; fixtureCeoPage?: unknown; fixtureHeld?: boolean };
     // The board's own stream is separate, so a test can send it a snapshot
     // without counting it among the message streams.
-    const boards: (EventTarget & { readyState: number })[] = [];
+    const boards: (EventTarget & { readyState: number; onerror: (() => void) | null })[] = [];
+    Object.assign(window, { messageStreams: streams, boardStreams: boards });
     class Stream extends EventTarget {
       static CONNECTING = 0; static OPEN = 1; static CLOSED = 2;
       onerror: (() => void) | null = null;
@@ -124,8 +125,10 @@ async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<B
           const page = url.searchParams.get("ceo") ? fixture.fixtureCeoPage ?? pages.ceo : pages.goblin;
           this.held = page as { conversation?: string };
           this.newest = ((page as { messages?: { seq?: number }[] }).messages ?? []).reduce((newest, message) => Math.max(newest, message.seq ?? 0), 0);
-          send("page", page);
-          setTimeout(this.saySession);
+          if (!fixture.fixtureHeld) {
+            send("page", page);
+            setTimeout(this.saySession);
+          }
           this.alive = setInterval(() => { if (!fixture.fixtureSilent) this.dispatchEvent(new MessageEvent("alive", { data: "{}" })); }, 5000);
         } else if (url.pathname.endsWith("/agent")) send("output", { entries: [{ kind: "prompt", text: "Find the touch handlers" }, { kind: "reply", text: "Found them in terminal-touch.ts" }] });
         else { boards.push(this); send("snapshot", withKept); }
@@ -1098,6 +1101,8 @@ test("a stream that drops draws no working indicator while it says Reconnecting,
   await expect(talk).toContainText("Answer 99");
   await send(page, "session", { conversation: "fixture-conversation", turn: "m98", state: "running", newest: 99, head: 99 });
   await expect(talk.locator(".reply-working:visible")).toHaveCount(1);
+  const stop = messageBox(page, "CEO").getByRole("button", { name: "Stop", exact: true });
+  await expect(stop).toHaveCount(1);
   const corner = page.locator(".messages-view:not([hidden]) .terminal-corner");
 
   // Act: the stream drops, and the browser opens it again.
@@ -1108,9 +1113,14 @@ test("a stream that drops draws no working indicator while it says Reconnecting,
     }
   });
 
-  // Assert
+  // Assert: the drop says nothing of the turn, so it keeps its row's room,
+  // its Stop and no end, and only its indicator waits for the stream.
   await expect(corner).toHaveText("Reconnecting");
   await expect(talk.locator(".reply-working:visible")).toHaveCount(0);
+  await expect(talk.locator(".reply-working.held")).toHaveCount(1);
+  await expect(stop).toHaveCount(1);
+  await expect(boxSend(page, "CEO")).toHaveCount(0);
+  await expect(talk.locator('[data-message="m99"] time')).toHaveCount(0);
 
   // Act: it is back, with its newest page and the turn that still runs.
   await page.evaluate(() => { for (const { source } of (window as unknown as { messageStreams: { source: { readyState: number } }[] }).messageStreams) source.readyState = 1; });
@@ -1119,6 +1129,36 @@ test("a stream that drops draws no working indicator while it says Reconnecting,
 
   // Assert
   await expect(corner).toHaveCount(0);
+  await expect(talk.locator(".reply-working:visible")).toHaveCount(1);
+});
+
+// A view hidden while its turn ran may be shown again after the turn ended,
+// so it draws no working indicator until its new stream speaks.
+test("a view shown again draws no working indicator until its new stream says the turn runs", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await openCeo(page);
+  const talk = list(page, "CEO");
+  await expect(talk).toContainText("Answer 99");
+  await send(page, "session", { conversation: "fixture-conversation", turn: "m98", state: "running", newest: 99, head: 99 });
+  await expect(talk.locator(".reply-working:visible")).toHaveCount(1);
+  const opened = await streams(page);
+  await page.evaluate(() => Object.assign(window, { fixtureHeld: true }));
+
+  // Act: the board's own stream drops, which hides the view, and comes back,
+  // which opens the view's stream again.
+  await page.evaluate(() => { for (const source of (window as unknown as { boardStreams: { onerror: (() => void) | null }[] }).boardStreams) source.onerror?.(); });
+  await expect.poll(() => streams(page)).toBe(opened + 1);
+
+  // Assert
+  await expect(page.locator(".messages-view:not([hidden]) .terminal-corner")).toHaveText("Reconnecting");
+  await expect(talk.locator(".reply-working:visible")).toHaveCount(0);
+
+  // Act: the new stream speaks, and the turn still runs.
+  await send(page, "page", NEWEST);
+  await send(page, "session", { conversation: "fixture-conversation", turn: "m98", state: "running", newest: 99, head: 99 });
+
+  // Assert
   await expect(talk.locator(".reply-working:visible")).toHaveCount(1);
 });
 

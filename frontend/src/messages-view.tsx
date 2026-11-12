@@ -327,19 +327,19 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
       close(why || UNREAD);
     });
     // A stream the supervisor refused is closed for good; one that dropped,
-    // as each does after ten minutes, reconnects by itself. Either way the
-    // turn may end while no stream is there to say so, so nothing it last
-    // said of the turn is drawn until it speaks again.
+    // as each does after ten minutes, reconnects by itself. A drop says
+    // nothing of the turn, so the view keeps its last word through it and
+    // claims no turn end and no Send, but draws the working indicator only
+    // while its stream is live and connected, as the turn may end meanwhile.
+    // A view whose stream went away counts as reconnecting until its next
+    // stream speaks.
     stream.onerror = () => {
       if (stream.readyState === EventSource.CLOSED || ++failures >= MAX_RETRIES) close(UNREAD);
-      else {
-        setReconnecting(true);
-        setReport(null);
-      }
+      else setReconnecting(true);
     };
     return () => {
+      if (stream.readyState !== EventSource.CLOSED) setReconnecting(true);
       stream.close();
-      setReport(null);
     };
   }, [address, visible, attempt, where, pages, pageKey]);
 
@@ -880,7 +880,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
-          {shown && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} isHeld={!isAtWork} retry={link?.screen?.retry} />}
+          {shown && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} isHeld={!isAtWork || phase !== "live" || isReconnecting || !visible} retry={link?.screen?.retry} />}
           {/* His messages not yet in the session's record, at the
               conversation's end in its one scroll (the Overlord, 2026-10-29:
               "the double scrolls and having its own little scroll for queued
