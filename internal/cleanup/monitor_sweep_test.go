@@ -50,7 +50,7 @@ func sweep(t *testing.T, service monitor.Service) {
 // A cleanup closes the goblin's terminal, returns its worktree and only then
 // retires its record. On 2026-10-20 a monitor sweep that had read Fern's
 // record before her cleanup retired it read her terminal after the cleanup
-// closed it, and woke the CFO with endpoint_missing to bring back a goblin
+// closed it, and woke the CEO with endpoint_missing to bring back a goblin
 // that was retired (issue #1225). A sweep in flight across a cleanup, whether
 // the cleanup still holds the task or has retired it when the sweep reads the
 // terminal, raises no wake for the task, and neither does the sweep after it.

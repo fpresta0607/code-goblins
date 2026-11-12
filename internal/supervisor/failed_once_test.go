@@ -32,7 +32,7 @@ func onceAnswer(suites ...string) string {
 }
 
 // A test that fails and passes on its second try leaves its run green, so
-// the wake for a pull request whose checks all passed is where the CFO
+// the wake for a pull request whose checks all passed is where the CEO
 // learns of it: it names each such test as its workflow named it, whether
 // the warning says what happened in full or only names the test, and names
 // no other warning. The tests are read once, when the wake is raised, and
@@ -60,7 +60,7 @@ func TestCIFinishedNamesEachTestThatFailedOnceOnAPullRequest(t *testing.T) {
 
 	// Assert
 	if len(passed) != 1 || len(again) != 0 {
-		t.Fatalf("the finished checks woke the CFO %d times and then %d, want once: %+v", len(passed), len(again), passed)
+		t.Fatalf("the finished checks woke the CEO %d times and then %d, want once: %+v", len(passed), len(again), passed)
 	}
 	want := "all 2 passed, and 2 failed once and passed on the second try (go (rest): example.test/internal/train TestTrainLands, browser (2/4): afk.spec.ts the switch stays on); next:"
 	if !strings.Contains(passed[0].Detail, want) {
@@ -104,7 +104,7 @@ func TestARedPullRequestsWakeNamesTheTestsThatFailedOnceToo(t *testing.T) {
 
 // With no test that failed once the wake says nothing of them, and a read
 // that could not be made is said, never passed over as none: a read that
-// stopped seeing would otherwise tell the CFO that nothing failed by chance.
+// stopped seeing would otherwise tell the CEO that nothing failed by chance.
 func TestCIFinishedSaysWhenTheTestsThatFailedOnceCouldNotBeRead(t *testing.T) {
 	for name, test := range map[string]struct {
 		once, failure string
@@ -200,7 +200,7 @@ func TestMainsRedRunNamesTheTestsThatFailedOnceInThatRun(t *testing.T) {
 }
 
 // A paused goblin's awaited run that completed green with a test that
-// failed once says so as it tells the CFO to resume the goblin.
+// failed once says so as it tells the CEO to resume the goblin.
 func TestAnAwaitedRunNamesTheTestsThatFailedOnce(t *testing.T) {
 	// Arrange
 	service, h := fleetService(t)

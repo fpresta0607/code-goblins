@@ -1,6 +1,6 @@
 // Adapted from Cline Kanban shared/diff-renderer.tsx (parsePatchToRows).
 // Copyright 2026 Cline Bot Inc. Apache-2.0. See public/assets/NOTICE.txt.
-// CFO changes: preserve both line coordinates and hunk headers, parse Go's
+// CEO changes: preserve both line coordinates and hunk headers, parse Go's
 // unified patch directly, and align removed/added runs for split rendering.
 export interface DiffRow {
   key: string;

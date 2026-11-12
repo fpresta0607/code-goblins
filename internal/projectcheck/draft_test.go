@@ -172,5 +172,5 @@ func TestADraftWithNoVerificationCommandSaysWhy(t *testing.T) {
 	if report.DraftVerifies() {
 		t.Errorf("the draft verifies with %v, and the repository names no test command", report.Draft.Verification)
 	}
-	contains(t, "draft tier", report.DraftTier, "names no verification command", "leaves cfo verify nothing to run")
+	contains(t, "draft tier", report.DraftTier, "names no verification command", "leaves goblins verify nothing to run")
 }

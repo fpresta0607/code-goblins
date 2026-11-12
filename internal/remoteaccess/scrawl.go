@@ -392,7 +392,7 @@ func (m *Manager) serveScrawl(w http.ResponseWriter, r *http.Request, c Config) 
 func (m *Manager) ScrawlLink(ctx context.Context, raw string) (string, error) {
 	c, err := Read(m.State)
 	if err != nil || !c.Enabled || !c.Scrawl {
-		return "", errors.New("turn Scrawl reviews on in the CFO Task panel on this PC first")
+		return "", errors.New("turn Scrawl reviews on in the CEO Task panel on this PC first")
 	}
 	u, err := url.Parse(raw)
 	target, _ := url.Parse(c.ScrawlTarget)

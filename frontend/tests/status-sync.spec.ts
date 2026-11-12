@@ -27,14 +27,14 @@ const STATES = [
   { name: "starting with its session recorded", task: zane({ phase: "unknown", starting: true, generation: "s1", backend: "native" }), text: "Starting", phase: "started", column: "In progress" },
   { name: "started, with no evidence of it yet", task: zane({ phase: "unknown", generation: "s1", backend: "native" }), text: "Starting", phase: "started", column: "In progress" },
   { name: "working", task: zane({ phase: "working", generation: "s1", backend: "native" }), text: "Working", phase: "working", column: "In progress" },
-  { name: "a failed start", task: zane({ phase: "queued", start_error: "cfo spawn: the brief names no project" }), text: "Start failed", phase: "failed", column: "Tasks" },
+  { name: "a failed start", task: zane({ phase: "queued", start_error: "goblins spawn: the brief names no project" }), text: "Start failed", phase: "failed", column: "Tasks" },
 ] as const;
 
 interface Posted { path: string; body: Record<string, unknown> }
 
 async function open(page: Page, task: Record<string, unknown>, posted: Posted[] = []) {
-  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
-  await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, at: AT, attention: [], memory, tasks: [task, WORKING_OTHER] });
+  await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
+  await holdStream(page, { healthy: true, instance: "fixture", ceo_runs: true, revision: 1, at: AT, attention: [], memory, tasks: [task, WORKING_OTHER] });
   await page.route("**/api/**", async (route) => {
     if (route.request().method() === "POST") {
       posted.push({ path: new URL(route.request().url()).pathname, body: route.request().postDataJSON() });

@@ -15,7 +15,7 @@ export function HistoryStoredCard({ request, asker, to, connected, instance }: {
   const [isWriting, setIsWriting] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
-  // A card whose goblin has ended goes to the CFO, named by its task.
+  // A card whose goblin has ended goes to the CEO, named by its task.
   const recipient = to ? asker : "the CEO";
   // One ID for each note, kept across a retry of the same words, so the
   // board queues it once.
@@ -25,7 +25,7 @@ export function HistoryStoredCard({ request, asker, to, connected, instance }: {
     const text = (to || !request.task ? "About your card " + request.id : "About the card " + request.id + " of task " + request.task) + " (" + request.why + "), whose values are stored: " + note;
     if (sent.current.text !== text) sent.current = { text, id: crypto.randomUUID() };
     try {
-      await call("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance },
+      await call("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance },
         body: JSON.stringify({ id: sent.current.id, kind: "message", task_id: to, generation: "", text }) });
       sent.current = { text: "", id: "" };
       showFeedback("Sent to " + recipient);

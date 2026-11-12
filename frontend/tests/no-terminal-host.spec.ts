@@ -11,7 +11,7 @@ import { expect, holdStream, openTaskList, type Page, test, type WebSocketRoute 
 const SESSION = "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34";
 const TASK = { id: "nw-invoice-export", title: "Export invoices as CSV", goblin_name: "Zora", goblin_title: "Invoice Imp", project: "northwind-api", phase: "working", verified: false, generation: "nw-invoice-export-1", harness: "codex", model: "gpt-5.5", effort: "xhigh", backend: "native", session: SESSION };
 const snapshot = (changes: object) => ({
-  healthy: true, instance: "fixture", revision: 1, attention: [], cfo_runs: true, afk: { state: "off" },
+  healthy: true, instance: "fixture", revision: 1, attention: [], ceo_runs: true, afk: { state: "off" },
   tasks: [{ ...TASK, ...changes }],
   sessions: [{ id: SESSION, native_id: "9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", host_id: TASK.id, role: "goblin", task_id: TASK.id, generation: TASK.generation, harness: "codex", phase: "working" }],
 });
@@ -38,7 +38,7 @@ const runs = (socket: WebSocketRoute) => {
 // returns the views of its terminal the board opened.
 async function open(page: Page, changes: object, answer: (socket: WebSocketRoute) => void): Promise<string[]> {
   const views: string[] = [];
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "classic"));
   await holdStream(page, snapshot(changes));
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {

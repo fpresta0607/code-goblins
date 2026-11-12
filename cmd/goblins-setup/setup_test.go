@@ -53,8 +53,8 @@ func TestTheSetupShowsThePlainStepsAndKeepsTheRestInTheLog(t *testing.T) {
 	// Arrange
 	setup := published(t, strings.Join([]string{
 		"Write-Host '[1/4] Download Code Goblins'",
-		"Write-Host '      Downloading cfo.exe'",
-		"Add-Content -LiteralPath $env:CODE_GOBLINS_LOG 'Verified cfo.exe against SHA256SUMS'",
+		"Write-Host '      Downloading goblins.exe'",
+		"Add-Content -LiteralPath $env:CODE_GOBLINS_LOG 'Verified goblins.exe against SHA256SUMS'",
 		"Write-Host '[2/4] Check the download'",
 		"Write-Host 'a raw line the script did not mean to show'",
 		"Write-Host 'Note: You already run Code Goblins from this folder.'",
@@ -70,12 +70,12 @@ func TestTheSetupShowsThePlainStepsAndKeepsTheRestInTheLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install = %v, want the script run to its end; it showed %+v", err, shown)
 	}
-	want := []Progress{{Step: 1}, {Step: 1}, {Doing: "Downloading cfo.exe"}, {Step: 2}, {Note: "You already run Code Goblins from this folder."}}
+	want := []Progress{{Step: 1}, {Step: 1}, {Doing: "Downloading goblins.exe"}, {Step: 2}, {Note: "You already run Code Goblins from this folder."}}
 	if !slices.Equal(shown, want) {
 		t.Errorf("the setup showed %+v, want %+v", shown, want)
 	}
 	kept := readLog(t, setup)
-	for _, line := range []string{"Downloading the install script from " + setup.Script, "Verified cfo.exe against SHA256SUMS", "a raw line the script did not mean to show"} {
+	for _, line := range []string{"Downloading the install script from " + setup.Script, "Verified goblins.exe against SHA256SUMS", "a raw line the script did not mean to show"} {
 		if !strings.Contains(kept, line) {
 			t.Errorf("the log lacks %q:\n%s", line, kept)
 		}

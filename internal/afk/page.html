@@ -19,7 +19,7 @@
   .icon { display: block; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
   .goblin-avatar { display: block; width: 40px; height: 40px; flex: none; background-image: url('goblin-personas.webp'); background-size: 300% 200%; background-repeat: no-repeat; }
   .persona-general { background-image: url('goblin-app.png'); background-size: contain; background-position: center; }
-  .persona-cfo, .persona-debugger, .persona-researcher { background-position: 0 0; }
+  .persona-ceo, .persona-debugger, .persona-researcher { background-position: 0 0; }
   .persona-builder, .persona-security, .persona-performance { background-position: 50% 0; }
   .persona-reviewer, .persona-database, .persona-integrations { background-position: 100% 0; }
   .persona-tester, .persona-designer, .persona-git { background-position: 0 100%; }
@@ -140,7 +140,7 @@
 <body>
 <article class="back">
   <header class="command-center-heading">
-    <span class="goblin-avatar persona-cfo"></span>
+    <span class="goblin-avatar persona-ceo"></span>
     <h1>Welcome back<span>Away {{.Away}}</span></h1>
   </header>
 
@@ -216,7 +216,7 @@
     {{end}}
     <h2>{{icon "book"}}Record</h2>
     <ul class="inbox-list">
-      {{range .Record}}<li class="{{if .Struck}}struck{{end}}" data-title="{{.Title}}" data-who="The CFO" data-persona="cfo" data-body="{{lines .Body}}"><span class="goblin-avatar persona-cfo"></span><span class="inbox-text"><strong>{{.Title}}</strong><small><span class="plain-status phase-queued">{{icon .Mark}}{{.Kind}}</span></small></span><span></span></li>
+      {{range .Record}}<li class="{{if .Struck}}struck{{end}}" data-title="{{.Title}}" data-who="The CEO" data-persona="ceo" data-body="{{lines .Body}}"><span class="goblin-avatar persona-ceo"></span><span class="inbox-text"><strong>{{.Title}}</strong><small><span class="plain-status phase-queued">{{icon .Mark}}{{.Kind}}</span></small></span><span></span></li>
       {{end}}
     </ul>
   </section>

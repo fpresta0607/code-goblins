@@ -242,7 +242,7 @@ func TestDetectRefusesANameThatIsNoAgent(t *testing.T) {
 	agent := detector.Detect(context.Background(), "kimi")
 
 	// Assert
-	if agent.State != Missing || agent.Reason != "Not an agent the CFO runs on" {
+	if agent.State != Missing || agent.Reason != "Not an agent the CEO runs on" {
 		t.Errorf("Detect = %+v, want it refused as no agent", agent)
 	}
 }

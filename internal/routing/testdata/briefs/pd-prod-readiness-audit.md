@@ -4,7 +4,7 @@
 **Kind:** audit, report-first; fix only what the report says is broken and small.
 **Origin:** Overlord 2026-09-09: "Verify all CI issues and merges are safe and prod ready, no mistakes."
 
-## What the CFO measured, 2026-09-09
+## What the CEO measured, 2026-09-09
 
 Fourteen PRs merged to main since 2026-09-08: #1135 #1137 #1138 #1139 #1141 #1142 #1143 #1144 #1145 #1146 #1147 #1148 #1149 #1150.
 Main head f4408cffc (#1150). The `Deploy to Production` workflow on that head: gate=success, build-and-push=success, deploy=success, failover=skipped. The two prior deploys (7e7a7e0b5, 4f83f1db1) also success.
@@ -22,9 +22,9 @@ Known defect today: no-mistakes reported `checks-passed` on #1151 for a head who
 
 ## Report
 
-`C:\dev\code-goblins\data\pd-prod-readiness-audit\report.md`: a table, one row per PR: gate verdict on merged head, migrations, config, plus a production-health section with timestamps and the exact commands or URLs read. Every "OK" cites the evidence; every gap says what is missing and the smallest fix. Notify the CFO when written. If you find something actively broken in production, notify immediately with the evidence before continuing.
+`C:\dev\code-goblins\data\pd-prod-readiness-audit\report.md`: a table, one row per PR: gate verdict on merged head, migrations, config, plus a production-health section with timestamps and the exact commands or URLs read. Every "OK" cites the evidence; every gap says what is missing and the smallest fix. Notify the CEO when written. If you find something actively broken in production, notify immediately with the evidence before continuing.
 
 ## Constraints
 
-- Read-only against production unless the CFO rules otherwise on a finding you escalate.
+- Read-only against production unless the CEO rules otherwise on a finding you escalate.
 - No claim you did not check. "Not verified" is an acceptable cell; a guessed "OK" is not.

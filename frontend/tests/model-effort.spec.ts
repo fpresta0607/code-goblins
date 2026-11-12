@@ -6,7 +6,7 @@ import { box, NAME, open, openGoblin, PAGE, snapshot } from "./session-board";
 // rainbow", and the close button that did nothing. The box names the model
 // by its proper name everywhere and shows on the model's button the effort
 // the session runs, both read from the session's one record: a goblin's task
-// record and the CFO's engine record. The supervisor is played by
+// record and the CEO's engine record. The supervisor is played by
 // tests/session-board.ts.
 
 const SESSIONS = [
@@ -25,7 +25,7 @@ const shown = (page: Page) => page.evaluate(() => [document.body.innerText, ...[
 for (const session of SESSIONS) {
   test(`a ${session.harness} session shows its model by name and the effort it runs, and no raw model id anywhere`, async ({ page }) => {
     // Arrange
-    await open(page, snapshot({ cfo_harness: session.harness }, { harness: session.harness, model: session.model, effort: session.effort, phase: "settled" }), "", { ...PAGE, usage: USAGE });
+    await open(page, snapshot({ ceo_harness: session.harness }, { harness: session.harness, model: session.model, effort: session.effort, phase: "settled" }), "", { ...PAGE, usage: USAGE });
 
     // Act
     await openGoblin(page);
@@ -39,9 +39,9 @@ for (const session of SESSIONS) {
   });
 }
 
-test("the CFO's box shows the model and effort its engine record names", async ({ page }) => {
+test("the CEO's box shows the model and effort its engine record names", async ({ page }) => {
   // Arrange
-  await open(page, snapshot({ cfo_engine: { harness: "claude", model: "claude-opus-5-5", effort: "high", pending: false, problem: "", waiting: "" } }), "", { ...PAGE, usage: USAGE });
+  await open(page, snapshot({ ceo_engine: { harness: "claude", model: "claude-opus-5-5", effort: "high", pending: false, problem: "", waiting: "" } }), "", { ...PAGE, usage: USAGE });
 
   // Act
   await page.keyboard.press("Control+Alt+1");
@@ -53,18 +53,18 @@ test("the CFO's box shows the model and effort its engine record names", async (
 });
 
 // The server keeps a saved engine it did not apply, with pending false: one
-// for another harness than the CFO started as, or one whose apply failed
-// (internal/supervisor/cfo_engine.go). The CFO runs neither its model nor its
+// for another harness than the CEO started as, or one whose apply failed
+// (internal/supervisor/ceo_engine.go). The CEO runs neither its model nor its
 // effort, so the box names neither.
 const UNAPPLIED = [
-  { why: "names another harness", cfo_harness: "codex", engine: { harness: "claude", pending: false, problem: "" } },
-  { why: "could not be applied", cfo_harness: "claude", engine: { harness: "claude", pending: false, problem: "The selection could not be applied: the CFO is busy" } },
-  { why: "is still pending", cfo_harness: "claude", engine: { harness: "claude", pending: true, problem: "" } },
+  { why: "names another harness", ceo_harness: "codex", engine: { harness: "claude", pending: false, problem: "" } },
+  { why: "could not be applied", ceo_harness: "claude", engine: { harness: "claude", pending: false, problem: "The selection could not be applied: the CEO is busy" } },
+  { why: "is still pending", ceo_harness: "claude", engine: { harness: "claude", pending: true, problem: "" } },
 ] as const;
 for (const unapplied of UNAPPLIED) {
-  test(`the CFO's box takes no model and no effort from a saved engine that ${unapplied.why}`, async ({ page }) => {
+  test(`the CEO's box takes no model and no effort from a saved engine that ${unapplied.why}`, async ({ page }) => {
     // Arrange
-    await open(page, snapshot({ cfo_harness: unapplied.cfo_harness, cfo_engine: { ...unapplied.engine, model: "claude-opus-5-5", effort: "high", waiting: "" } }), "", { ...PAGE, usage: USAGE });
+    await open(page, snapshot({ ceo_harness: unapplied.ceo_harness, ceo_engine: { ...unapplied.engine, model: "claude-opus-5-5", effort: "high", waiting: "" } }), "", { ...PAGE, usage: USAGE });
 
     // Act
     await page.keyboard.press("Control+Alt+1");

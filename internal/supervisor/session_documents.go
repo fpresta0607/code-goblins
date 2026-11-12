@@ -22,14 +22,14 @@ const UNAVAILABLE_DOCUMENT = "That PDF is unavailable for this session."
 // Document reads use a header so opening the resulting browser-local PDF
 // never puts the board token in a link or a new tab's address.
 func (h *HTTP) messageDocument(w http.ResponseWriter, r *http.Request) {
-	if h.Service.Instance == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CFO-Token")), []byte(h.Service.Instance)) != 1 {
+	if h.Service.Instance == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CEO-Token")), []byte(h.Service.Instance)) != 1 {
 		apiError(w, http.StatusForbidden, UNAVAILABLE_DOCUMENT)
 		return
 	}
 	query := r.URL.Query()
 	target := query.Get("document")
 	filePath, err := url.PathUnescape(target)
-	if err != nil || !isDocumentPath(filePath) || query.Get("cfo") != "" || h.Service.Options.Tree == nil {
+	if err != nil || !isDocumentPath(filePath) || query.Get("ceo") != "" || h.Service.Options.Tree == nil {
 		apiError(w, http.StatusForbidden, UNAVAILABLE_DOCUMENT)
 		return
 	}

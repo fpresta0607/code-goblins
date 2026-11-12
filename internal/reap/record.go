@@ -17,7 +17,7 @@ import (
 )
 
 // RecordSchema versions the persisted audit, and RecordFile is where it lives.
-// The dot keeps it out of state.ScanIDs alongside the rest of CFO's own
+// The dot keeps it out of state.ScanIDs alongside the rest of CEO's own
 // bookkeeping.
 // The schema moved to v2 when a finding stopped carrying its rendered hold as
 // a field and started deriving it from the refusals behind it. A v1 record
@@ -27,7 +27,7 @@ import (
 // touch. Refusing to read it says the audit is stale, which is true, and the
 // next sweep replaces it within the watcher's own interval.
 const (
-	RecordSchema = "cfo-reap.v2"
+	RecordSchema = "ceo-reap.v2"
 	RecordFile   = ".reap-audit.json"
 )
 
@@ -43,16 +43,16 @@ type Record struct {
 	// Error is set when the sweep could not complete. An audit that failed is
 	// itself worth reporting: a fleet nobody can see is not a clean fleet.
 	Error string `json:"error,omitempty"`
-	// Told holds the ReportKey of each running finding the CFO was woken
+	// Told holds the ReportKey of each running finding the CEO was woken
 	// about and when a sweep last found it, so the watcher wakes it once for
 	// each and again only when one changes. A finding that goes away stays
 	// told, and is forgotten once ToldFor passes without a sweep finding it.
 	Told map[string]time.Time `json:"told,omitempty"`
 }
 
-// ToldFor is how long the CFO stays told about a finding no sweep finds any
+// ToldFor is how long the CEO stays told about a finding no sweep finds any
 // more. A short-lived process comes and goes between sweeps, and forgetting it
-// the moment it went woke the CFO each time its like came back.
+// the moment it went woke the CEO each time its like came back.
 const ToldFor = 24 * time.Hour
 
 // RecordPath is state/.reap-audit.json.
@@ -87,7 +87,7 @@ func WriteRecord(stateDir string, record Record) error {
 	return fsx.AtomicWriteFile(RecordPath(stateDir), append(data, '\n'))
 }
 
-// ReportKeys identifies each finding as the CFO is told about it. The holds
+// ReportKeys identifies each finding as the CEO is told about it. The holds
 // are part of the identity, so a finding whose refusals change is reported
 // again, and the detail names a process by its start, so a reused pid is
 // another process. A finding with a Shape is identified by that in place of
@@ -149,7 +149,7 @@ func Summary(findings []Finding) string {
 // JSON form and the persisted record still carry every one.
 const statusListCap = 5
 
-// Render writes the human report shared by cfo reap and the digest section, so
+// Render writes the human report shared by goblins reap and the digest section, so
 // the two presentations cannot drift.
 func Render(w io.Writer, result Result) error {
 	if _, err := fmt.Fprintln(w, "ORPHANS: "+Summary(result.Findings)); err != nil {
@@ -198,7 +198,7 @@ func Render(w io.Writer, result Result) error {
 func RenderRecord(w io.Writer, stateDir string, now time.Time) error {
 	record, err := ReadRecord(stateDir)
 	if errors.Is(err, os.ErrNotExist) {
-		_, err := fmt.Fprintln(w, "ORPHANS: no sweep recorded yet; run cfo reap")
+		_, err := fmt.Fprintln(w, "ORPHANS: no sweep recorded yet; run goblins reap")
 		return err
 	}
 	if err != nil {
@@ -214,6 +214,6 @@ func RenderRecord(w io.Writer, stateDir string, now time.Time) error {
 		return err
 	}
 	age := now.Sub(record.Time).Round(time.Second)
-	_, err = fmt.Fprintf(w, "  swept %s ago (%s); cfo reap re-runs it, cfo reap --apply acts on it except to end a process, which needs its pid named with --force\n", age, record.Time.UTC().Format(time.RFC3339))
+	_, err = fmt.Fprintf(w, "  swept %s ago (%s); goblins reap re-runs it, goblins reap --apply acts on it except to end a process, which needs its pid named with --force\n", age, record.Time.UTC().Format(time.RFC3339))
 	return err
 }

@@ -1,4 +1,4 @@
-# cfo setup
+# goblins setup
 
 `goblins setup`
 

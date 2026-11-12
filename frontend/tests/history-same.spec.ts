@@ -43,7 +43,7 @@ const MARKS: [string, RegExp][] = [
 ];
 
 for (const [width, height] of [[1707, 1067], [390, 844]]) {
-  test(`every History row leads with the CFO's goblin, marked with how it ended, and has the pencil, at ${width}px`, async ({ page }, testInfo) => {
+  test(`every History row leads with the CEO's goblin, marked with how it ended, and has the pencil, at ${width}px`, async ({ page }, testInfo) => {
     // Arrange
     await page.setViewportSize({ width, height });
 
@@ -57,7 +57,7 @@ for (const [width, height] of [[1707, 1067], [390, 844]]) {
       const row = rows.filter({ hasText: text });
       const mark = row.locator(".history-mark");
       await expect(mark, text).toHaveCount(1);
-      await expect(mark.locator(".goblin-avatar.persona-cfo"), text).toBeVisible();
+      await expect(mark.locator(".goblin-avatar.persona-ceo"), text).toBeVisible();
       await expect(mark.locator(".mark-badge"), text).toBeVisible();
       await expect(mark, text).toHaveAttribute("role", "img");
       await expect(mark, text).toHaveAttribute("aria-label", label);
@@ -232,7 +232,7 @@ test("Something else? on a card whose values are stored sends his words to its a
   await expect(row.locator(".history-detail")).toBeVisible();
 });
 
-test("Something else? on a stored card whose goblin has ended sends his words to the CFO, naming its task", async ({ page }) => {
+test("Something else? on a stored card whose goblin has ended sends his words to the CEO, naming its task", async ({ page }) => {
   // Arrange
   const sent: Record<string, unknown>[] = [];
   await page.route("**/api/actions", async (route) => {

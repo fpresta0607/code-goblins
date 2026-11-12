@@ -18,7 +18,7 @@ import (
 
 // SlowTest is how long a test takes, by this machine's own record, before a
 // push leaves it to CI in a slow package. From 2026-10-07 to 2026-10-08 the
-// tests under it were 81 to 88 percent of the tests of cmd/cfo and
+// tests under it were 81 to 88 percent of the tests of cmd/goblins and
 // internal/supervisor and 9 to 28 percent of their time.
 const SlowTest = 2 * time.Second
 
@@ -114,7 +114,7 @@ var listArgs = []string{"go", "list", "-test", "-f", "{{with .Error}}{{.}}{{end}
 // changed one, nearest first. The slow ones come after the board because a
 // busy machine can spend the whole limit in them: on 2026-10-10 the replays
 // of PR 613 and PR 596 were ended by the limit inside the quick tests of
-// cmd/cfo and internal/supervisor. go vet comes after the changed packages
+// cmd/goblins and internal/supervisor. go vet comes after the changed packages
 // because each of them is built and vetted by its own tests, and vetting
 // first took 7 minutes of one replay on a busy machine, where another was
 // ended by its limit in the seventh of its 22 checks. A package the policy

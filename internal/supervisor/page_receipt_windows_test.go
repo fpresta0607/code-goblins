@@ -29,7 +29,7 @@ func TestPageReceiptIsDurableAndAcknowledgedBeforeSettling(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	second := make(chan string, 1)
 	polls := 0
-	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error) {
+	s := &Service{Store: store, Options: Options{CEO: connection, PollPage: func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error) {
 		polls++
 		if polls == 1 {
 			return axi.Lavish{Commands: printed(notedOnThePage)}.Poll(ctx, file, reply, timeout)
@@ -119,7 +119,7 @@ func TestPageReceiptRecoversGroupingAfterRestart(t *testing.T) {
 			if name == "agent end" {
 				scrawl.send(ending)
 			}
-			recovered := &Service{Store: restarted, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+			recovered := &Service{Store: restarted, Options: Options{CEO: connection, PollPage: scrawl.poll}}
 
 			// Act
 			recovered.watchPages(context.Background())
@@ -167,7 +167,7 @@ func TestPageReceiptsStayOrderedAndNeverRetypeADeliveryTheSupervisorStoppedDurin
 	}
 	scrawl := newScrawlPage(0)
 	polls := 0
-	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error) {
+	s := &Service{Store: store, Options: Options{CEO: connection, PollPage: func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error) {
 		polls++
 		switch polls {
 		case 1, 3, 5:
@@ -237,7 +237,7 @@ func TestPageReceiptsStayOrderedAndNeverRetypeADeliveryTheSupervisorStoppedDurin
 	sent = nil
 	conversations := useConversations(t)
 	scrawl.send(scrawlEnded)
-	recovered := &Service{Store: restarted, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+	recovered := &Service{Store: restarted, Options: Options{CEO: connection, PollPage: scrawl.poll}}
 	recovered.watchPages(context.Background())
 	recovered.pageWork.Wait()
 	recovered.watchPages(context.Background())
@@ -282,7 +282,7 @@ func TestClosedPageKeepsPollingBehindBusyDelivery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	polledAgain := make(chan string, 1)
 	polls := 0
-	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error) {
+	s := &Service{Store: store, Options: Options{CEO: connection, PollPage: func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error) {
 		polls++
 		switch polls {
 		case 1:
@@ -315,7 +315,7 @@ func TestPageSweepKeepsPollingBehindBusyDelivery(t *testing.T) {
 	previous := typeIntoGoblin
 	release := make(chan struct{})
 	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool, bool, bool) error { <-release; return nil }
-	s := &Service{Store: store, Options: Options{CFO: connection}}
+	s := &Service{Store: store, Options: Options{CEO: connection}}
 	polledAgain := make(chan string, 1)
 	polls := 0
 	s.Options.PollPage = func(context.Context, string, string, time.Duration) (axi.PagePoll, error) {
@@ -420,7 +420,7 @@ func TestPageReceiptRecoveryLeavesRepublishedVersionOpen(t *testing.T) {
 			}
 			ctx, cancel := context.WithCancel(context.Background())
 			polled := make(chan string, 1)
-			recovered := &Service{Store: restarted, Options: Options{CFO: connection, PollPage: func(ctx context.Context, _, reply string, _ time.Duration) (axi.PagePoll, error) {
+			recovered := &Service{Store: restarted, Options: Options{CEO: connection, PollPage: func(ctx context.Context, _, reply string, _ time.Duration) (axi.PagePoll, error) {
 				polled <- reply
 				<-ctx.Done()
 				return axi.PagePoll{}, ctx.Err()
@@ -491,7 +491,7 @@ func TestPageReceiptRecoveryDoesNotGroupAcrossVersions(t *testing.T) {
 	}
 	scrawl := newScrawlPage(0)
 	scrawl.send(approvedAsShown)
-	recovered := &Service{Store: restarted, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+	recovered := &Service{Store: restarted, Options: Options{CEO: connection, PollPage: scrawl.poll}}
 
 	// Act
 	recovered.watchPages(context.Background())
@@ -614,7 +614,7 @@ func TestPageReceiptRecoveryDoesNotUseHistoryToAnswerANewQuestion(t *testing.T) 
 	polled := false
 	recovered := &Service{Store: restarted, Options: Options{PollPage: func(context.Context, string, string, time.Duration) (axi.PagePoll, error) {
 		polled = true
-		// The old feedback reaches the CFO while the supervisor runs, and
+		// The old feedback reaches the CEO while the supervisor runs, and
 		// then it stops: a stopping supervisor keeps what still waits for its
 		// next start.
 		for deadline := time.Now().Add(30 * time.Second); len(restarted.pageReceiptsSnapshot().Answers) != 0 && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
@@ -756,7 +756,7 @@ func TestPagePollDoesNotApproveVersionPublishedWhilePolling(t *testing.T) {
 					}
 					return axi.PagePoll{Status: "feedback", Ended: true, EndedBy: "user", Output: "Old approval"}, nil
 				}
-				// The old feedback reaches the CFO while the supervisor runs,
+				// The old feedback reaches the CEO while the supervisor runs,
 				// and then it stops: a stopping supervisor keeps what still
 				// waits for its next start.
 				for deadline := time.Now().Add(30 * time.Second); len(store.pageReceiptsSnapshot().Answers) != 0 && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
@@ -865,7 +865,7 @@ func TestPageNotesWaitForAGoblinBetweenSessionsAndArriveOnceInOrder(t *testing.T
 	// Arrange
 	store, h := testStore(t)
 	meta, _, connection, _ := pageOfAGoblin(t, store)
-	s := &Service{Store: store, Options: Options{CFO: connection}}
+	s := &Service{Store: store, Options: Options{CEO: connection}}
 	cycle := pageNotes(t, s, store.Snapshot().Reviews[0], "first", "second", "third")
 	previous := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = previous })
@@ -893,7 +893,7 @@ func TestPageNotesWaitForAGoblinBetweenSessionsAndArriveOnceInOrder(t *testing.T
 
 	// Assert
 	if awayTries != 2 || awayWakes != 0 {
-		t.Errorf("while away it was tried %d times and woke the CFO %d times, want the first note tried once a cycle and no wake", awayTries, awayWakes)
+		t.Errorf("while away it was tried %d times and woke the CEO %d times, want the first note tried once a cycle and no wake", awayTries, awayWakes)
 	}
 	if len(typed) != 3 {
 		t.Fatalf("typed = %q, want the three notes once each", typed)
@@ -933,7 +933,7 @@ func TestAPageNoteWaitsWhileItsGoblinIsPausedResumedOrRelaunched(t *testing.T) {
 			// Arrange
 			store, h := testStore(t)
 			meta, _, connection, _ := pageOfAGoblin(t, store)
-			s := &Service{Store: store, Options: Options{CFO: connection}, changing: map[string]string{}}
+			s := &Service{Store: store, Options: Options{CEO: connection}, changing: map[string]string{}}
 			cycle := pageNotes(t, s, store.Snapshot().Reviews[0], "first")
 			previous := typeIntoGoblin
 			t.Cleanup(func() { typeIntoGoblin = previous })
@@ -992,12 +992,12 @@ func TestAPageNoteWaitsWhileItsGoblinIsPausedResumedOrRelaunched(t *testing.T) {
 // A task id is reused once its task is cleaned up. A note written on a page
 // of the earlier task never reaches the goblin that reuses the id: the
 // session that refused it is another task's, not the page's goblin come back
-// in a new one, so the note goes to the CFO.
+// in a new one, so the note goes to the CEO.
 func TestAPageNoteOfAnEarlierTaskNeverReachesTheGoblinThatReusesItsID(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	meta, _, connection, _ := pageOfAGoblin(t, store)
-	s := &Service{Store: store, Options: Options{CFO: connection}}
+	s := &Service{Store: store, Options: Options{CEO: connection}}
 	r := store.Snapshot().Reviews[0]
 	cycle := pageNotes(t, s, r, "first")
 	previous := typeIntoGoblin
@@ -1021,7 +1021,7 @@ func TestAPageNoteOfAnEarlierTaskNeverReachesTheGoblinThatReusesItsID(t *testing
 		t.Fatalf("typed %q into the goblin that reuses the id, want nothing", typed)
 	}
 	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "a later task under the same id, so it was not passed on") || strings.Contains(wakes[0].Detail, "relay it") {
-		t.Fatalf("wakes = %+v, want the CFO told the page's goblin is gone, never to relay it", wakes)
+		t.Fatalf("wakes = %+v, want the CEO told the page's goblin is gone, never to relay it", wakes)
 	}
 }
 
@@ -1033,7 +1033,7 @@ func TestAPageNoteReachesItsGoblinResumedUnderALaterGeneration(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	meta, _, connection, _ := pageOfAGoblin(t, store)
-	s := &Service{Store: store, Options: Options{CFO: connection}}
+	s := &Service{Store: store, Options: Options{CEO: connection}}
 	r := store.Snapshot().Reviews[0]
 	cycle := pageNotes(t, s, r, "first")
 	previous := typeIntoGoblin
@@ -1057,7 +1057,7 @@ func TestAPageNoteReachesItsGoblinResumedUnderALaterGeneration(t *testing.T) {
 		t.Fatalf("typed = %q, want the note typed into the resumed goblin once", typed)
 	}
 	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, meta.ID+" has it: first") {
-		t.Fatalf("wakes = %+v, want the CFO told the goblin has it", wakes)
+		t.Fatalf("wakes = %+v, want the CEO told the goblin has it", wakes)
 	}
 }
 
@@ -1102,7 +1102,7 @@ func TestHisNotesAndSendAndEndReachTheGoblinInOrderBusyOrPaused(t *testing.T) {
 				return "session:\n  status: feedback\n" + ended + "prompts[1]{uid,prompt,selector,tag,text}:\n  \"\"," + word + ",\"\",message,Freeform message\n"
 			}
 			scrawl := newScrawlPage(0)
-			s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+			s := &Service{Store: store, Options: Options{CEO: connection, PollPage: scrawl.poll}}
 			ctx, cancel := context.WithCancel(context.Background())
 			t.Cleanup(func() { cancel(); s.pageWork.Wait() })
 			until := func(what string, done func() bool) {
@@ -1153,7 +1153,7 @@ func TestAPageNoteTypedButUnconfirmedWaitsForTheGoblinsRecord(t *testing.T) {
 	records := useConversations(t)
 	store, h := testStore(t)
 	meta, _, connection, _ := pageOfAGoblin(t, store)
-	s := &Service{Store: store, Options: Options{CFO: connection}}
+	s := &Service{Store: store, Options: Options{CEO: connection}}
 	cycle := pageNotes(t, s, store.Snapshot().Reviews[0], "first", "second", "third")
 	previous := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = previous })
@@ -1186,10 +1186,10 @@ func TestAPageNoteTypedButUnconfirmedWaitsForTheGoblinsRecord(t *testing.T) {
 }
 
 // One its goblin's record never shows taken within pageAwaitLimit reaches the
-// CFO with what to check, and the page's next note goes. It says when the note
+// CEO with what to check, and the page's next note goes. It says when the note
 // was typed when that is known, and no made-up time for one an earlier
 // supervisor left typing without keeping it.
-func TestAPageNoteTheGoblinsRecordNeverShowsReachesTheCFOAndTheNextGoes(t *testing.T) {
+func TestAPageNoteTheGoblinsRecordNeverShowsReachesTheCEOAndTheNextGoes(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		status string
@@ -1203,7 +1203,7 @@ func TestAPageNoteTheGoblinsRecordNeverShowsReachesTheCFOAndTheNextGoes(t *testi
 			useConversations(t)
 			store, h := testStore(t)
 			meta, _, connection, _ := pageOfAGoblin(t, store)
-			s := &Service{Store: store, Options: Options{CFO: connection}}
+			s := &Service{Store: store, Options: Options{CEO: connection}}
 			r := store.Snapshot().Reviews[0]
 			r.State = "answered"
 			if err := store.keepPageAnswer(pageAnswer{ID: "note-first", Item: r, Poll: axi.PagePoll{Status: "feedback", Prompts: []string{"first"}, Output: "first"}, Status: test.status, SentAt: test.sentAt}); err != nil {
@@ -1226,26 +1226,26 @@ func TestAPageNoteTheGoblinsRecordNeverShowsReachesTheCFOAndTheNextGoes(t *testi
 				t.Errorf("typed = %q, want only the second note", typed)
 			}
 			wakes := reviewWakes(t, h.State, meta.ID)
-			if len(wakes) != 2 || !strings.Contains(wakes[0].Detail, "cfo peek "+meta.ID) || !strings.Contains(wakes[1].Detail, meta.ID+" has it: second") {
-				t.Fatalf("wakes = %+v, want the first handed to the CFO with what to check, then the second delivered", wakes)
+			if len(wakes) != 2 || !strings.Contains(wakes[0].Detail, "goblins peek "+meta.ID) || !strings.Contains(wakes[1].Detail, meta.ID+" has it: second") {
+				t.Fatalf("wakes = %+v, want the first handed to the CEO with what to check, then the second delivered", wakes)
 			}
 			typedAt := test.sentAt.Format(time.RFC3339)
 			if says := strings.Contains(wakes[0].Detail, typedAt); says == test.sentAt.IsZero() {
-				t.Errorf("the CFO's wake = %q, want it to say it was typed at %s only when that time is known", wakes[0].Detail, typedAt)
+				t.Errorf("the CEO's wake = %q, want it to say it was typed at %s only when that time is known", wakes[0].Detail, typedAt)
 			}
 		})
 	}
 }
 
 // A note typed into its goblin's terminal whose task has since been retired
-// reaches the CFO saying when it was typed and to check the terminal, never
+// reaches the CEO saying when it was typed and to check the terminal, never
 // as a plain relay that would have it typed again.
-func TestATypedPageNoteOfARetiredTaskReachesTheCFOWithWhatToCheck(t *testing.T) {
+func TestATypedPageNoteOfARetiredTaskReachesTheCEOWithWhatToCheck(t *testing.T) {
 	// Arrange
 	useConversations(t)
 	store, h := testStore(t)
 	meta, _, connection, _ := pageOfAGoblin(t, store)
-	s := &Service{Store: store, Options: Options{CFO: connection}}
+	s := &Service{Store: store, Options: Options{CEO: connection}}
 	r := store.Snapshot().Reviews[0]
 	r.State = "answered"
 	typedAt := time.Now().UTC().Add(-time.Minute)
@@ -1262,12 +1262,12 @@ func TestATypedPageNoteOfARetiredTaskReachesTheCFOWithWhatToCheck(t *testing.T) 
 
 	// Assert
 	wakes := reviewWakes(t, h.State, meta.ID)
-	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, typedAt.Format(time.RFC3339)) || !strings.Contains(wakes[0].Detail, "cfo peek "+meta.ID) {
-		t.Errorf("wakes = %+v, want one saying when it was typed and to check with cfo peek", wakes)
+	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, typedAt.Format(time.RFC3339)) || !strings.Contains(wakes[0].Detail, "goblins peek "+meta.ID) {
+		t.Errorf("wakes = %+v, want one saying when it was typed and to check with goblins peek", wakes)
 	}
 }
 
-// A supervisor that is stopping hands no waiting note to the CFO: a note
+// A supervisor that is stopping hands no waiting note to the CEO: a note
 // waiting for its paused goblin's terminal, and one typed but not yet shown
 // taken, stay in the journal as they were, and the next start delivers or
 // confirms each, then the rest of the page, in order.
@@ -1285,7 +1285,7 @@ func TestAStoppingSupervisorLeavesWaitingPageNotesForItsNextStart(t *testing.T) 
 			records := useConversations(t)
 			store, h := testStore(t)
 			meta, _, connection, _ := pageOfAGoblin(t, store)
-			s := &Service{Store: store, Options: Options{CFO: connection}}
+			s := &Service{Store: store, Options: Options{CEO: connection}}
 			cycle := pageNotes(t, s, store.Snapshot().Reviews[0], "first", "second")
 			previous := typeIntoGoblin
 			t.Cleanup(func() { typeIntoGoblin = previous })
@@ -1313,7 +1313,7 @@ func TestAStoppingSupervisorLeavesWaitingPageNotesForItsNextStart(t *testing.T) 
 
 			// Assert
 			if !reflect.DeepEqual(kept, waiting) || wokeWhileStopping != 0 || triedWhileStopping != 1 {
-				t.Errorf("while stopping, the journal went from %+v to %+v, the CFO was woken %d times and %d tries were made, want the journal as it was, no wake and only the first try", waiting, kept, wokeWhileStopping, triedWhileStopping)
+				t.Errorf("while stopping, the journal went from %+v to %+v, the CEO was woken %d times and %d tries were made, want the journal as it was, no wake and only the first try", waiting, kept, wokeWhileStopping, triedWhileStopping)
 			}
 			if after := tried[1:]; len(after) != len(test.after) {
 				t.Fatalf("tried after the stop = %q, want %q", after, test.after)
@@ -1355,7 +1355,7 @@ func TestAWaitingPageNoteDoesNotRewriteTheJournalEachCycle(t *testing.T) {
 			if test.isPaused {
 				goblin.exit(t)
 			}
-			s := &Service{Store: store, Options: Options{CFO: connection}}
+			s := &Service{Store: store, Options: Options{CEO: connection}}
 			r := store.Snapshot().Reviews[0]
 			r.State = "answered"
 			if err := store.keepPageAnswer(pageAnswer{ID: "note-first", Item: r, Poll: axi.PagePoll{Status: "feedback", Prompts: []string{"first"}, Output: "first"}, Status: test.status, SentAt: test.sentAt}); err != nil {
@@ -1410,7 +1410,7 @@ func TestPageDeliveryDoesNotRetrySendingAfterAResultSaveFailure(t *testing.T) {
 	t.Cleanup(func() { typeIntoGoblin = previous })
 	attempts := 0
 	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool, bool, bool) error { attempts++; return nil }
-	s := &Service{Store: store, Options: Options{CFO: connection}}
+	s := &Service{Store: store, Options: Options{CEO: connection}}
 
 	// Act
 	err := s.tellAnswer(context.Background(), answer)
@@ -1472,7 +1472,7 @@ func TestPageReceiptReportsQueuedDeliveryWithoutClaimingItWasRead(t *testing.T) 
 	}
 	scrawl := newScrawlPage(0)
 	scrawl.send(approvedAsShown)
-	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+	s := &Service{Store: store, Options: Options{CEO: connection, PollPage: scrawl.poll}}
 
 	// Act
 	s.watchPages(context.Background())
@@ -1525,7 +1525,7 @@ func TestPageReceiptsRecoverQueuedAndNotifyingOnce(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				s := &Service{Store: restarted, Options: Options{CFO: connection}}
+				s := &Service{Store: restarted, Options: Options{CEO: connection}}
 				s.watchPages(context.Background())
 				s.pageWork.Wait()
 			}
@@ -1737,7 +1737,7 @@ func TestPageReceiptRecoversLatestGroupAroundReadableWrite(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				recovered := &Service{Store: restarted, Options: Options{CFO: connection, PollPage: newScrawlPage(0).poll}}
+				recovered := &Service{Store: restarted, Options: Options{CEO: connection, PollPage: newScrawlPage(0).poll}}
 				recovered.watchPages(context.Background())
 				recovered.pageWork.Wait()
 			}

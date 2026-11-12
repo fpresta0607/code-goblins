@@ -1,0 +1,322 @@
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
+)
+
+func TestGoblinsResumeAcceptsAHarnessChoice(t *testing.T) {
+	for _, harness := range []string{"claude", "codex", "pi"} {
+		t.Run(harness, func(t *testing.T) {
+			// Arrange
+			f := newSessionFixture(t)
+			f.nativeCEO = supervisor.NativeCEOTerminal
+			f.restartSession = "current-session"
+
+			// Act
+			exit, _, stderr := f.launch("resume", "--harness", harness)
+
+			// Assert
+			if exit != 0 || f.restarts != 1 || f.restartHarness != harness {
+				t.Fatalf("exit=%d restarts=%d stderr=%q, want the CEO restarted", exit, f.restarts, stderr)
+			}
+		})
+	}
+}
+
+func TestGoblinsResumeRejectsInvalidHarnessArgumentsBeforeRestarting(t *testing.T) {
+	for _, args := range [][]string{
+		{"resume", "--harness", "unknown"},
+		{"resume", "--harness"},
+		{"resume", "--harness", "codex", "task"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			// Arrange
+			f := newSessionFixture(t)
+			f.nativeCEO = supervisor.NativeCEOTerminal
+
+			// Act
+			exit, _, stderr := f.launch(args...)
+
+			// Assert
+			if exit != 2 || stderr == "" || f.restarts != 0 {
+				t.Fatalf("exit=%d restarts=%d stderr=%q, want invalid arguments refused", exit, f.restarts, stderr)
+			}
+		})
+	}
+}
+
+// goblins --harness chooses the harness the CEO starts as, and the home
+// remembers it: a later goblins starts that harness until another is chosen.
+// A CEO that is not Claude Code is told how it is woken.
+func TestGoblinsRemembersTheCEOHarnessForEveryLaterStart(t *testing.T) {
+	f := newSessionFixture(t)
+	harnessesOnPath(t, "codex", "pi")
+
+	chose, chooseOut, chooseErr := f.launch("--harness", "codex")
+	later, laterOut, _ := f.launch()
+	native, nativeOut, _ := f.launch("--harness", "pi")
+
+	if chose != 0 || later != 0 || native != 0 {
+		t.Fatalf("exits %d, %d, %d (stderr %q), want 0", chose, later, native, chooseErr)
+	}
+	if want := []string{"codex", "codex", "pi"}; !slices.Equal(f.harnesses, want) {
+		t.Errorf("harnesses started = %q, want %q", f.harnesses, want)
+	}
+	if len(f.nativeStarts) != 3 {
+		t.Errorf("native starts %q, want three", f.nativeStarts)
+	}
+	for _, out := range []string{chooseOut, laterOut} {
+		if !strings.Contains(out, "CEO        started as Codex in "+f.home.Root+", in native terminal ceo\n") || !strings.Contains(out, "A Codex CEO is woken by one line typed into this terminal") {
+			t.Errorf("stdout = %q, want the codex start in a native terminal and how it is woken", out)
+		}
+	}
+	if !strings.Contains(nativeOut, "CEO        started as pi in "+f.home.Root+", in native terminal ceo\n") || !strings.Contains(nativeOut, "A pi CEO is woken by one line typed into this terminal") || !strings.Contains(nativeOut, "once its first prompt has run goblins register") {
+		t.Errorf("stdout = %q, want the native pi start and how it is woken", nativeOut)
+	}
+	for _, out := range []string{chooseOut, laterOut, nativeOut} {
+		if strings.Contains(out, "no wake path") {
+			t.Errorf("stdout = %q, want no CEO said to have no wake path", out)
+		}
+	}
+	if data, err := os.ReadFile(ceoHarnessPath(f.home.State)); err != nil || strings.TrimSpace(string(data)) != "pi" {
+		t.Errorf("remembered harness = %q, %v; want pi", data, err)
+	}
+}
+
+// With nothing chosen the CEO starts as Claude Code, which has a wake path.
+func TestGoblinsStartsTheCEOAsClaudeUnlessToldOtherwise(t *testing.T) {
+	f := newSessionFixture(t)
+
+	exit, stdout, stderr := f.launch()
+
+	if exit != 0 || !slices.Equal(f.harnesses, []string{"claude"}) {
+		t.Fatalf("exit=%d harnesses=%q stderr=%q, want one claude start", exit, f.harnesses, stderr)
+	}
+	if strings.Contains(stdout, "wake path") {
+		t.Errorf("stdout = %q, want no wake path warning for Claude Code", stdout)
+	}
+}
+
+// A CEO already running keeps the harness it runs: goblins --harness starts
+// nothing beside it, remembers the choice for the next start, and says so.
+func TestALiveCEOKeepsItsHarness(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		harness string
+		named   string
+		live    func(f *launcherFixture)
+	}{
+		{"registered native", "codex", "Codex", func(f *launcherFixture) { f.nativeCEO = supervisor.NativeCEOTerminal }},
+		{"registered in Herdr", "codex", "Codex", func(f *launcherFixture) { f.withLiveCEO() }},
+		{"unregistered in native terminal ceo", "codex", "Codex", func(f *launcherFixture) { f.ceoTerminalRuns = true }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			f := newSessionFixture(t)
+			harnessesOnPath(t, "codex")
+			c.live(f)
+
+			// Act
+			exit, stdout, stderr := f.launch("--harness", c.harness)
+
+			// Assert
+			if exit != 0 || len(f.harnesses) != 0 || len(f.nativeStarts) != 0 {
+				t.Fatalf("exit=%d harnesses=%q nativeStarts=%q stderr=%q, want nothing started", exit, f.harnesses, f.nativeStarts, stderr)
+			}
+			if !strings.Contains(stdout, "It keeps its agent; "+c.named+" is the agent goblins starts the next CEO as.") {
+				t.Errorf("stdout = %q, want it to say the live CEO keeps its agent", stdout)
+			}
+			if harness, err := ceoHarness(f.home.State); err != nil || harness != c.harness {
+				t.Errorf("remembered harness = %q, %v; want %s", harness, err, c.harness)
+			}
+		})
+	}
+}
+
+// The board's first-run page starts the agent it is given, whatever harness
+// goblins remembers, and reads the remembered one. With claude found only as
+// a script and codex not on PATH, neither start can reach a host.
+func TestTheFirstRunStartsTheAgentItIsGivenWhateverHarnessIsRemembered(t *testing.T) {
+	// Arrange
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "claude.cmd"), []byte("@echo off\r\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	h := home.Home{State: t.TempDir()}
+	if err := os.WriteFile(ceoHarnessPath(h.State), []byte("codex\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
+
+	// Act
+	saved := run.SavedAgent()
+	err := run.StartCEO("claude")
+
+	// Assert
+	if saved != "codex" {
+		t.Errorf("the first-run page reads the remembered agent as %q, want codex", saved)
+	}
+	if err == nil || !strings.Contains(err.Error(), "the native build of Claude Code is claude.exe") {
+		t.Fatalf("first-run StartCEO error = %v, want claude looked up rather than codex", err)
+	}
+}
+
+// The first-run page and the quick start hold one answer for the agent: the
+// page reads what goblins remembered, none when nothing was chosen or the
+// file names no agent, and the agent the page starts is what goblins starts
+// the next CEO as.
+func TestTheFirstRunPageAndGoblinsRememberOneAgent(t *testing.T) {
+	// Arrange
+	h := home.Home{Root: t.TempDir(), State: t.TempDir()}
+	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
+
+	// Act
+	none := run.SavedAgent()
+	if err := os.WriteFile(ceoHarnessPath(h.State), []byte("kimi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unknown := run.SavedAgent()
+	saveErr := run.SaveAgent("pi")
+	saved := run.SavedAgent()
+	started, startErr := ceoHarness(h.State)
+
+	// Assert
+	if none != "" || unknown != "" {
+		t.Errorf("with nothing chosen the page reads %q, and with a name that is no agent %q; want none both times", none, unknown)
+	}
+	if saveErr != nil || saved != "pi" || startErr != nil || started != "pi" {
+		t.Errorf("after the page remembers pi: saved %q (%v), goblins starts %q (%v); want pi for both", saved, saveErr, started, startErr)
+	}
+	if run.CEOHome != h.Root {
+		t.Errorf("the page names the home %q, want %q", run.CEOHome, h.Root)
+	}
+}
+
+// The page forgets the agent by remembering none: the file goes, so goblins
+// is back to having no answer, and a home that remembered none is no error.
+func TestTheFirstRunPageForgetsTheAgent(t *testing.T) {
+	// Arrange
+	h := home.Home{Root: t.TempDir(), State: t.TempDir()}
+	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
+	if err := run.SaveAgent("codex"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	forgetErr := run.SaveAgent("")
+	_, statErr := os.Stat(ceoHarnessPath(h.State))
+	againErr := run.SaveAgent("")
+
+	// Assert
+	if forgetErr != nil || !os.IsNotExist(statErr) || run.SavedAgent() != "" {
+		t.Errorf("forgetting: err %v, the file's stat %v, the page reads %q; want the file gone and no agent", forgetErr, statErr, run.SavedAgent())
+	}
+	if againErr != nil {
+		t.Errorf("forgetting with none remembered: err %v, want none", againErr)
+	}
+}
+
+// A harness goblins cannot start the CEO as is refused before anything is
+// remembered or started, and a remembered one that names none is refused
+// rather than guessed at.
+func TestGoblinsRefusesAHarnessItCannotStartTheCEOAs(t *testing.T) {
+	f := newSessionFixture(t)
+
+	exit, _, stderr := f.launch("--harness", "kimi")
+
+	if exit != 2 || !strings.Contains(stderr, `--harness "kimi" is not claude, codex or pi`) || len(f.harnesses) != 0 {
+		t.Fatalf("exit=%d stderr=%q harnesses=%q, want kimi refused", exit, stderr, f.harnesses)
+	}
+	if _, err := os.Stat(ceoHarnessPath(f.home.State)); !os.IsNotExist(err) {
+		t.Errorf("a refused harness was remembered: %v", err)
+	}
+	if err := os.WriteFile(ceoHarnessPath(f.home.State), []byte("kimi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.agent = "pi"
+	exit, _, stderr = f.launch()
+	if exit != 0 || !slices.Equal(f.harnesses, []string{"pi"}) {
+		t.Errorf("exit=%d stderr=%q harnesses=%q, want the choice asked again and pi started", exit, stderr, f.harnesses)
+	}
+	if harness, err := ceoHarness(f.home.State); err != nil || harness != "pi" {
+		t.Errorf("remembered harness = %q, %v; want the choice replacing kimi", harness, err)
+	}
+}
+
+// goblins takes only its flags: an argument left after them is refused with
+// a message that names it, never with a bare exit code.
+func TestGoblinsNamesAnArgumentItDoesNotTake(t *testing.T) {
+	f := newSessionFixture(t)
+
+	exit, _, stderr := f.launch("--harness", "pi", "codex")
+
+	if exit != 2 || !strings.Contains(stderr, `unexpected argument "codex"`) || len(f.harnesses) != 0 {
+		t.Fatalf("exit=%d stderr=%q harnesses=%q, want the argument named and nothing started", exit, stderr, f.harnesses)
+	}
+}
+
+// A harness that is not installed goes to its install step, and a choice that
+// never became ready is not remembered and starts nothing.
+func TestGoblinsRemembersNoHarnessThatNeverBecameReady(t *testing.T) {
+	// Arrange
+	f := newSessionFixture(t)
+	f.missing = []string{"codex"}
+
+	// Act
+	exit, _, stderr := f.launch("--harness", "codex")
+
+	// Assert
+	if exit != 1 || !strings.Contains(stderr, "setup was cancelled") || len(f.harnesses) != 0 {
+		t.Fatalf("exit=%d stderr=%q harnesses=%q, want codex's install step cancelled and nothing started", exit, stderr, f.harnesses)
+	}
+	if _, err := os.Stat(ceoHarnessPath(f.home.State)); !os.IsNotExist(err) {
+		t.Errorf("a harness not on PATH was remembered: %v", err)
+	}
+}
+
+// harnessesOnPath makes PATH hold only stub script shims for the named
+// harnesses.
+func harnessesOnPath(t *testing.T, names ...string) {
+	t.Helper()
+	bin := t.TempDir()
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(bin, name+".cmd"), []byte("@echo off\r\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin)
+}
+
+// A native terminal starts a program itself: Claude Code's native build as
+// it is, and the npm script shims codex and pi install through cmd /c, which
+// exits with them, each by the path PATH finds it at. A claude found only as
+// a script is refused.
+func TestANativeCEOStartsEachHarnessAsItsProgramNeeds(t *testing.T) {
+	bin := t.TempDir()
+	for _, name := range []string{"claude.exe", "codex.cmd", "pi.cmd"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("@echo off\r\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("ComSpec", `C:\Windows\System32\cmd.exe`)
+
+	for harness, want := range map[string][]string{
+		"claude": {filepath.Join(bin, "claude.exe")},
+		"codex":  {`C:\Windows\System32\cmd.exe`, "/c", filepath.Join(bin, "codex.cmd")},
+		"pi":     {`C:\Windows\System32\cmd.exe`, "/c", filepath.Join(bin, "pi.cmd")},
+	} {
+		program, err := nativeCEOProgram(harness)
+		if err != nil || !slices.EqualFunc(program, want, strings.EqualFold) {
+			t.Errorf("nativeCEOProgram(%s) = %q, %v; want %q", harness, program, err, want)
+		}
+	}
+}

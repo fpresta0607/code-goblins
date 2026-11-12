@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import type { BoardActivity, MergeTrain, Snapshot, Task } from "./types";
-import { CfoPin } from "./CfoPin";
+import { CeoPin } from "./CeoPin";
 import { Disclosure } from "./Disclosure";
 import { FitList } from "./FitList";
 import { trainSection } from "./merge-train";
@@ -29,15 +29,15 @@ export type BoardLayout = "kanban" | "stacked";
 // order to the supervisor, which resumes paused goblins by it, so a drop in
 // either saves both. A merge train's card opens its panel, and selectedTrain
 // is the train whose panel shows.
-export function Board({ snapshot, layout, selected, selectedTrain, now, freshNow, afkToggle, onSelect, onSelectTrain, onOpenCfo, onOpenCommand, onStartCfo, presentations }: {
+export function Board({ snapshot, layout, selected, selectedTrain, now, freshNow, afkToggle, onSelect, onSelectTrain, onOpenCeo, onOpenCommand, onStartCeo, presentations }: {
   presentations:BoardActivity[]; layout: BoardLayout;
   snapshot: Snapshot; selected?: string; selectedTrain?: string; now: number; freshNow: number;
   onSelect: (task: Task, source: HTMLElement) => void;
   onSelectTrain: (train: MergeTrain, source: HTMLElement) => void;
   afkToggle: AfkToggleState;
-  onOpenCfo: (source: HTMLElement) => void;
+  onOpenCeo: (source: HTMLElement) => void;
   onOpenCommand: () => void;
-  onStartCfo: () => void;
+  onStartCeo: () => void;
 }) {
   const next = nextInOrder(snapshot, now);
   const card = (task: Task, rank?: string) => <TaskCard key={task.id} task={task} {...cardFacts(task, snapshot, presentations)} selected={selected === task.id} now={now} rank={rank} {...(task.id === next?.id ? { nextText: next.text, nextTone: next.tone } : {})} onSelect={onSelect} />;
@@ -49,7 +49,7 @@ export function Board({ snapshot, layout, selected, selectedTrain, now, freshNow
   const trainsIn = (name: string) => (snapshot.merge_trains ?? []).filter((train) => trainSection(train) === name);
   const history = trainsIn("Train history");
   return <section className={"task-board" + (layout === "stacked" ? " stacked" : "")} aria-label="Task board">
-    <CfoPin snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpen={onOpenCfo} onCommand={onOpenCommand} onStart={onStartCfo} />
+    <CeoPin snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpen={onOpenCeo} onCommand={onOpenCommand} onStart={onStartCeo} />
     {COLUMNS.map((column) => {
       const listed = snapshot.tasks.filter((task) => taskColumn(task) === column.name);
       const tasks = column.name === "In progress" ? working : column.name === "Completed" ? completedCards(listed) : listed;

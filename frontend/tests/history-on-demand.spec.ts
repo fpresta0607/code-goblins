@@ -14,7 +14,7 @@ const NEWER = answered("newer", "Ship the release notes?", new Date(Date.now() -
 const OLDER = [answered("older-1", "Rotate the staging key?", "2026-10-28T09:00:00Z"), answered("older-2", "Drop the old index?", "2026-10-27T09:00:00Z")];
 const ASKED = { id: "asked", identity: "i-asked", task: "", text: "Pause the deploys?", options: ["Yes", "No"], status: "pending", created_at: new Date().toISOString() };
 const board = (revision: number, questions: object[], historyCount: number) => ({
-  healthy: true, instance: "board-0m", cfo_runs: true, cfo_terminal: "cfo", cfo_harness: "claude", revision, tasks: [],
+  healthy: true, instance: "board-0m", ceo_runs: true, ceo_terminal: "ceo", ceo_harness: "claude", revision, tasks: [],
   questions, reviews: [], runs: [], credentials: [], actions: [], history_count: historyCount,
 });
 

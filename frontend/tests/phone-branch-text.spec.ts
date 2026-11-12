@@ -11,11 +11,11 @@ const since = new Date(Date.now() - 42 * 60_000).toISOString();
 const task = (id: string, name: string, title: string, fields: Record<string, unknown> = {}) => ({ id, title, goblin_name: name, goblin_title: title, project: "northwind-api", phase: "working", verified: false, generation: "g1", harness: "claude", since, ...fields });
 const session = (id: string, role: string, parent: string, relation: string, taskID = "") => ({ id, native_id: id, harness: "claude", role, task_id: taskID, generation: taskID ? "g1" : "", parent, relation, phase: "working", updated_at: since });
 const SNAPSHOT = {
-  healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
+  healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [],
   sessions: [
-    session("s-cfo", "cfo", "", ""),
+    session("s-ceo", "ceo", "", ""),
     session("s-sync", "goblin", "", "", "nw-sync"),
-    session("s-export", "goblin", "s-cfo", "spawned", "nw-export"),
+    session("s-export", "goblin", "s-ceo", "spawned", "nw-export"),
     session("s-fixtures", "goblin", "s-export", "spawned", "nw-fixtures"),
   ],
   tasks: [
@@ -78,7 +78,7 @@ test.describe("on a phone", () => {
     await expect(list.locator(".workflow-node")).toHaveCount(5);
     const at = new Date(Date.now() - 1000).toISOString();
     const lit = (source: string, target: string, taskID: string) => ["created", "message"].map((kind) => ({ id: `${kind}:${target}`, kind, task_id: taskID, generation: "g1", source, target, state: "accepted", at }));
-    await publish({ ...SNAPSHOT, revision: 2, activity: [...lit("s-cfo", "s-export", "nw-export"), ...lit("s-export", "s-fixtures", "nw-fixtures")] });
+    await publish({ ...SNAPSHOT, revision: 2, activity: [...lit("s-ceo", "s-export", "nw-export"), ...lit("s-export", "s-fixtures", "nw-fixtures")] });
     const effects = list.locator(".workflow-children > .workflow-branch > :is(.compact-creation-highlight, .compact-communication-pulse)");
     await expect(effects).toHaveCount(4);
     await list.locator(".node-enter").evaluateAll((cards) => Promise.all(cards.flatMap((card) => card.getAnimations().map((animation) => animation.finished))));

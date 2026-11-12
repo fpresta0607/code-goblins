@@ -32,7 +32,7 @@ export function PathLink({ path, card, isIcon = false }: { path: string; card: P
   const open = async () => {
     if (!isDesktop) return copyText(path).then(() => say("Copied"), () => say("Not copied. Select the path and press Ctrl+C.", true));
     try {
-      await request("/api/cards/open-path", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": card.instance }, body: JSON.stringify({ kind: card.kind, id: card.id, path }) });
+      await request("/api/cards/open-path", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": card.instance }, body: JSON.stringify({ kind: card.kind, id: card.id, path }) });
       say("Opened in File Explorer");
     } catch (error: unknown) { say(message(error), true); }
   };

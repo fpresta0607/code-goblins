@@ -1,6 +1,6 @@
 // Dragging the divider between the board and a terminal panel, timed frame by
 // frame. It drives a headless Edge over the DevTools protocol against a running
-// board, opens a goblin's terminal from its card (or the CFO's, with --cfo),
+// board, opens a goblin's terminal from its card (or the CEO's, with --ceo),
 // shows it beside the board, drags the divider 400 pixels out and back, and
 // prints one JSON line: the frame gaps during the drag and the pane resizes
 // the view asked for during the drag and after it. It exits 1 when the view
@@ -22,25 +22,25 @@ import { setTimeout as sleep } from "node:timers/promises";
 const options = {};
 for (let i = 2; i < process.argv.length; i++) {
   const name = process.argv[i].replace(/^--/, "");
-  if (name === "cfo" || name === "no-gpu") options[name] = true;
+  if (name === "ceo" || name === "no-gpu") options[name] = true;
   else options[name] = process.argv[++i];
 }
 if (!options.url) throw new Error("--url is required");
 const browser = options.browser || "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
-const profile = mkdtempSync(join(tmpdir(), "cfo-drag-"));
+const profile = mkdtempSync(join(tmpdir(), "ceo-drag-"));
 const edge = spawn(browser, ["--headless=new", ...(options["no-gpu"] ? ["--disable-gpu"] : []), "--no-first-run", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--window-size=2560,1440", "about:blank"], { stdio: "ignore" });
 
 // open runs in the board's page: past the first-run page, the Command Center
 // closed, the terminal opened and shown beside the board, then every frame and
 // every pane resize the view asks for recorded.
-async function open(cfo, title) {
+async function open(ceo, title) {
   const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const skip = [...document.querySelectorAll("a, button")].find((element) => /Open the board without a CFO/.test(element.textContent || ""));
+  const skip = [...document.querySelectorAll("a, button")].find((element) => /Open the board without a CEO/.test(element.textContent || ""));
   if (skip) { skip.click(); await pause(2500); }
   if (document.querySelector("dialog.question-modal[open]")) { document.querySelector(".question-close")?.click(); await pause(800); }
   // A click on a live goblin's card opens its terminal.
   const cards = [...document.querySelectorAll('.task-board .board-column[aria-label="In progress"] .task-card')];
-  const button = cfo ? document.querySelector(".cfo-pin .dialogue-actions [aria-label=\"Open the CFO's terminal\"]") : title ? cards.find((card) => card.querySelector(".card-title")?.textContent.startsWith(title)) : cards[0];
+  const button = ceo ? document.querySelector(".ceo-pin .dialogue-actions [aria-label=\"Open the CEO's terminal\"]") : title ? cards.find((card) => card.querySelector(".card-title")?.textContent.startsWith(title)) : cards[0];
   if (!button) throw new Error("no terminal to open");
   button.click();
   const slot = () => document.querySelector(".deck-slot:not([hidden])");
@@ -102,7 +102,7 @@ try {
   await call("Page.enable");
   await call("Page.navigate", { url: options.url });
   await sleep(6000);
-  const [x, y] = await evaluate(open.toString(), !!options.cfo, options.title || "");
+  const [x, y] = await evaluate(open.toString(), !!options.ceo, options.title || "");
   await sleep(500);
   const start = await evaluate("() => performance.now()");
   await call("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });

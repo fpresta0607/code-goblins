@@ -189,7 +189,7 @@ func (p Plan) GroupDone(group Group, done []Item) string {
 }
 
 // runningWords names the programs to stop, such as the board, the window, the
-// CFO and 2 goblins.
+// CEO and 2 goblins.
 func runningWords(items []Item) string {
 	var named []string
 	goblins, others := 0, 0
@@ -199,8 +199,8 @@ func runningWords(items []Item) string {
 			if !slices.Contains(named, item.What) {
 				named = append(named, item.What)
 			}
-		case item.What == "the CFO's terminal":
-			named = append(named, "the CFO")
+		case item.What == "the CEO's terminal":
+			named = append(named, "the CEO")
 		case strings.HasSuffix(item.What, "'s terminal"):
 			goblins++
 		default:

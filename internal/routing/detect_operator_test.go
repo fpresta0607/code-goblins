@@ -7,10 +7,10 @@ import (
 
 // steerPane is the pane of peak-compute-to-supabase as Herdr captured it on
 // 2026-09-17, rendered by Claude Code: an earlier line naming a pull request
-// URL, then the CFO's steer about a GitHub Actions failure with the pane's
+// URL, then the CEO's steer about a GitHub Actions failure with the pane's
 // prompt marker in front and two-space continuation lines where the pane
-// wrapped it. The watcher woke the CFO with harness_error rate-limit and a
-// `cfo switch` recommendation for a goblin that was working perfectly.
+// wrapped it. The watcher woke the CEO with harness_error rate-limit and a
+// `goblins switch` recommendation for a goblin that was working perfectly.
 func steerPane(prefix string) string {
 	return "  https://github.com/fpresta0607/peakCraftsman/pull/23 - docs only, MERGEABLE / CLEAN, all checks green.\n" +
 		"\n" +
@@ -30,9 +30,9 @@ func steerPane(prefix string) string {
 		"  from the lockfile. Let me check what we have.\n"
 }
 
-func TestDetectIgnoresTheCFOsOwnSteerAboutAGitHubRateLimit(t *testing.T) {
+func TestDetectIgnoresTheCEOsOwnSteerAboutAGitHubRateLimit(t *testing.T) {
 	if fault, evidence, found := Detect(steerPane(SteerPrefix)); found {
-		t.Fatalf("Detect = %q (%q), want no fault: the CFO's own steer is not evidence about the harness", fault, evidence)
+		t.Fatalf("Detect = %q (%q), want no fault: the CEO's own steer is not evidence about the harness", fault, evidence)
 	}
 }
 

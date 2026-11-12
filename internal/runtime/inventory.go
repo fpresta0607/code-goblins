@@ -1,4 +1,4 @@
-// Package runtime answers one question the CFO otherwise reconstructs by hand
+// Package runtime answers one question the CEO otherwise reconstructs by hand
 // before every dispatch: what is running on this machine, who owns it, what
 // the machine has left to give, and where each project's work actually lands.
 //
@@ -11,7 +11,7 @@
 // instead of over whatever happens to be running today.
 //
 // Everything here is read-only. Where the report finds something that should
-// be retired it names `cfo reap`, which already owns that decision and
+// be retired it names `goblins reap`, which already owns that decision and
 // already refuses to kill what is still working.
 package runtime
 
@@ -56,7 +56,7 @@ type Inventory struct {
 	Tasks []Task
 	// Retired is the id of every task whose record has been archived. It is
 	// what separates a worktree a goblin finished with from one the Overlord
-	// made by hand, and so a leftover `cfo reap` would retire from one it
+	// made by hand, and so a leftover `goblins reap` would retire from one it
 	// would not.
 	Retired map[string]bool
 	// Checkouts is every project main checkout on disk, by absolute path.
@@ -69,8 +69,8 @@ type Inventory struct {
 	Storage janitor.Buckets
 	// Janitor is the janitor's last sweep, absent before the first.
 	Janitor *janitor.Record
-	// Services are the local services stacks cfo services started or shares
-	// for tasks, with who holds each, and whether cfo started the engine.
+	// Services are the local services stacks goblins services started or shares
+	// for tasks, with who holds each, and whether goblins started the engine.
 	Services services.Record
 	// SystemRoot is the Windows directory. A process running there is the
 	// operating system's own, never a project's, and saying so needs the

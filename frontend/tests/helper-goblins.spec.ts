@@ -13,7 +13,7 @@ test("a helper hangs under its parent as a helper goblin, not as a card of its o
   await expect(page.locator(".flow-node").filter({ hasText: "Ledger fixtures" })).toHaveCount(1);
 });
 
-// A card on the board is one row (the CFO's decision 1008011, 2026-10-17), so
+// A card on the board is one row (the CEO's decision 1008011, 2026-10-17), so
 // a helper's names no parent: its panel does (minimal-card.spec.ts).
 test("a helper's card on the board is one row that names no parent", async ({ page }) => {
   await page.goto("/tests/fixtures/helper-goblins.html?view=cards");

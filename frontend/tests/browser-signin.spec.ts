@@ -14,7 +14,7 @@ test("the approved instructions open only the requested sign-in once and wait fo
   const sent: { method: string; token: string | null; body: unknown }[] = [];
   await page.route("**/api/browser-signins/open", async (route) => {
     const request = route.request();
-    sent.push({ method: request.method(), token: await request.headerValue("X-CFO-Token"), body: request.postDataJSON() });
+    sent.push({ method: request.method(), token: await request.headerValue("X-CEO-Token"), body: request.postDataJSON() });
     await route.fulfill({ status: 202, json: { accepted: true } });
   });
   const card = await openCard(page);

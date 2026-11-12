@@ -46,7 +46,7 @@ func skipBoard(t *testing.T) (*Service, state.TaskMeta, Run, *[]string) {
 	if err := store.acceptRun(r); err != nil {
 		t.Fatal(err)
 	}
-	return &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}, meta, r, told
+	return &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}}}, meta, r, told
 }
 
 func pressOnRun(t *testing.T, s *Service, a Action) error {
@@ -168,7 +168,7 @@ func TestSkipAndOtherOnACommandTakeOnlyTheirShape(t *testing.T) {
 }
 
 // Skip on a goblin's question clears it as Dismiss did, and now tells the
-// goblin itself, not only the CFO, to go on without it.
+// goblin itself, not only the CEO, to go on without it.
 func TestSkipOnAGoblinsQuestionTellsTheGoblinToGoOnWithoutIt(t *testing.T) {
 	// Arrange
 	s, meta, _, told := skipBoard(t)

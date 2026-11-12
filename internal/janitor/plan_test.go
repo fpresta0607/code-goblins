@@ -37,7 +37,7 @@ func TestAPlanEndsNothingWritesNothingAndIsWhatTheSweepActsOn(t *testing.T) {
 		// What a terminal with no host left: ended.
 		process(10, 900, "node.exe", at(0), lifecycle.Process{Directory: elsewhere, Mark: gone}),
 		// A running terminal's host, its harness and a tool under it: kept.
-		process(20, 1, "cfo.exe", at(0), lifecycle.Process{Directory: elsewhere}),
+		process(20, 1, "goblins.exe", at(0), lifecycle.Process{Directory: elsewhere}),
 		process(21, 20, "claude.exe", at(1), lifecycle.Process{Directory: task, Mark: live}),
 		process(22, 21, "go.exe", at(2), lifecycle.Process{Directory: task, Mark: live}),
 		// A server the running terminal left detached: watched.
@@ -45,13 +45,13 @@ func TestAPlanEndsNothingWritesNothingAndIsWhatTheSweepActsOn(t *testing.T) {
 		// A browser the goblin opened for the Overlord: his.
 		process(40, 902, "chrome.exe", at(4), lifecycle.Process{Arguments: []string{`C:\Program Files\Google\Chrome\Application\chrome.exe`}, Mark: live}),
 		// A gate's agent that carries the goblin's mark: the gate's. One
-		// whose gate is gone is named for the CFO, and said once.
+		// whose gate is gone is named for the CEO, and said once.
 		process(50, 80, "codex.exe", at(9), lifecycle.Process{Directory: elsewhere, Mark: live, IsGateAgent: true}),
 		process(51, 903, "codex.exe", at(5), lifecycle.Process{Directory: elsewhere, Mark: live, IsGateAgent: true}),
-		// A test the CFO runs in the goblin's folder: the CFO's.
+		// A test the CEO runs in the goblin's folder: the CEO's.
 		process(60, 1, "pwsh.exe", at(0), lifecycle.Process{Directory: elsewhere}),
 		process(61, 60, "go.exe", at(6), lifecycle.Process{Directory: task}),
-		// A bridge nothing ties to an owner: named for the CFO.
+		// A bridge nothing ties to an owner: named for the CEO.
 		process(70, 904, "node.exe", at(7), lifecycle.Process{Directory: elsewhere, Arguments: []string{"node", `C:\npm\chrome-devtools-axi\dist\bin\chrome-devtools-axi-bridge.js`}}),
 		// A program of nobody's: not judged.
 		process(80, 1, "notepad.exe", at(8), lifecycle.Process{Directory: elsewhere}),
@@ -89,7 +89,7 @@ func TestAPlanEndsNothingWritesNothingAndIsWhatTheSweepActsOn(t *testing.T) {
 		t.Errorf("the plan would end %v, want %v", got, want)
 	}
 	if got, want := pidsOf(plan.Left), []int{51, 70}; !reflect.DeepEqual(got, want) {
-		t.Errorf("the plan would name %v for the CFO, want %v", got, want)
+		t.Errorf("the plan would name %v for the CEO, want %v", got, want)
 	}
 	if plan.Read != len(processes) || len(plan.Owners) != 2 || !reflect.DeepEqual(plan.Notes, []string{"a terminal that could not be read"}) {
 		t.Errorf("the plan read %d processes for %d terminals with notes %v, want %d, 2 and the reader's note", plan.Read, len(plan.Owners), plan.Notes, len(processes))
@@ -123,7 +123,7 @@ func TestAPlanEndsNothingWritesNothingAndIsWhatTheSweepActsOn(t *testing.T) {
 		t.Errorf("the sweep ended %v and recorded %v, want what the plan listed, %v", ended, pidsOf(record.Processes.Ended), pidsOf(plan.Ending))
 	}
 	if !reflect.DeepEqual(pidsOf(record.Processes.Left), pidsOf(plan.Left)) {
-		t.Errorf("the sweep named %v for the CFO, want what the plan listed, %v", pidsOf(record.Processes.Left), pidsOf(plan.Left))
+		t.Errorf("the sweep named %v for the CEO, want what the plan listed, %v", pidsOf(record.Processes.Left), pidsOf(plan.Left))
 	}
 }
 

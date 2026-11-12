@@ -5,12 +5,12 @@ import { parseSnapshot } from "./types.ts";
 
 test("live receipts animate once on actual recursive links, never initial load or reconnect", () => {
   const now=Date.now(), at=new Date(now).toISOString();
-  const base=parseSnapshot({healthy:true,instance:"one",sessions:[{id:"cfo",role:"cfo"},{id:"g",parent:"cfo",task_id:"work",generation:"g1"},{id:"child",parent:"g",task_id:"work",generation:"g1"}],tasks:[{id:"work",generation:"g1",session:"g",verified:false}]});
+  const base=parseSnapshot({healthy:true,instance:"one",sessions:[{id:"ceo",role:"ceo"},{id:"g",parent:"ceo",task_id:"work",generation:"g1"},{id:"child",parent:"g",task_id:"work",generation:"g1"}],tasks:[{id:"work",generation:"g1",session:"g",verified:false}]});
   let state=activityTransition(null,base,true,now);
   assert.equal(state.effects.length,0);
-  const active={...base,activity:[{id:"send-1",kind:"message",task_id:"work",generation:"g1",source:"cfo",target:"g",state:"accepted",at,url:"",until:""},{id:"start-child",kind:"created",task_id:"work",generation:"g1",source:"g",target:"child",state:"accepted",at,url:"",until:""}]};
+  const active={...base,activity:[{id:"send-1",kind:"message",task_id:"work",generation:"g1",source:"ceo",target:"g",state:"accepted",at,url:"",until:""},{id:"start-child",kind:"created",task_id:"work",generation:"g1",source:"g",target:"child",state:"accepted",at,url:"",until:""}]};
   state=activityTransition(state,active,true,now);
-  assert.deepEqual(state.effects.map(e=>[e.source,e.target,e.kind]),[["cfo","g","message"],["g","child","created"]]);
+  assert.deepEqual(state.effects.map(e=>[e.source,e.target,e.kind]),[["ceo","g","message"],["g","child","created"]]);
   assert.equal(activityTransition(state,active,true,now).effects.length,0);
   assert.equal(activityTransition(null,active,true,now).effects.length,0);
   state=activityTransition(state,active,false,now);
@@ -35,7 +35,7 @@ test("two snapshots before a frame preserve receipts; hiding cancels pending and
 });
 
 test("new receipts never extend another card or connector deadline",()=>{
- const a={id:"activity-a",kind:"message",task_id:"work",generation:"g1",source:"cfo",target:"a",state:"accepted",at:"",url:"",until:""};
+ const a={id:"activity-a",kind:"message",task_id:"work",generation:"g1",source:"ceo",target:"a",state:"accepted",at:"",url:"",until:""};
  let effects=mergeActivityEffects([], [a], 0);
  for(let now=1000;now<=4000;now+=1000) effects=mergeActivityEffects(effects,[{...a,id:"b-"+now,target:"b"}],now);
  assert.equal(effects.some(event=>event.id===a.id),false);
@@ -57,7 +57,7 @@ test("compact activity displays only truthful connector motion and created entra
 });
 
 test("verified primary presentation needs no task and disappears with native evidence",()=>{
- const now=Date.now(), snapshot=parseSnapshot({healthy:true,activity:[{id:"primary-review",kind:"review",cfo_identity:"exact-primary",target:"primary-cfo",state:"active",live:true,url:"http://localhost:4387/session/review",at:new Date(now).toISOString(),until:new Date(now+60000).toISOString()}]});
+ const now=Date.now(), snapshot=parseSnapshot({healthy:true,activity:[{id:"primary-review",kind:"review",ceo_identity:"exact-primary",target:"primary-ceo",state:"active",live:true,url:"http://localhost:4387/session/review",at:new Date(now).toISOString(),until:new Date(now+60000).toISOString()}]});
  assert.equal(livePresentations(snapshot,now).length,1);
  assert.equal(livePresentations({...snapshot,activity:[{...snapshot.activity![0],live:false}]},now).length,0);
 });

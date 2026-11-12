@@ -99,7 +99,7 @@ func TestDenyPreToolOnStdoutEnvelope(t *testing.T) {
 
 func TestBlockStopWritesBannerVerbatim(t *testing.T) {
 	var buf bytes.Buffer
-	banner := "Stop blocked: the CFO must review before ending the turn."
+	banner := "Stop blocked: the CEO must review before ending the turn."
 	code := BlockStop(&buf, banner)
 	if code != 2 {
 		t.Errorf("BlockStop return = %d, want 2", code)

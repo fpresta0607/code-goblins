@@ -7,7 +7,7 @@ import "../../src/styles.css";
 
 // Kiki's IPRoyal refund, 2026-10-17, as each kind of card that can carry a
 // message he sends himself: a step card whose step names the notes file, the
-// CFO's question naming a folder with spaces in its name, and a command that
+// CEO's question naming a folder with spaces in its name, and a command that
 // runs in a folder. Each carries the email, so he copies it from the card. A
 // wait on him names the notes file in its one line.
 const at = "2026-10-17T22:00:00Z";
@@ -18,7 +18,7 @@ const WORK = String.raw`C:\work\pd-proxy`;
 const EMAIL = { to: "support@iproyal.com", subject: "Refund for order 4412", body: "Hello,\n\nPlease refund order 4412: the proxies never connected.\n\nThanks,\nNick" };
 const FORM = { to: "https://iproyal.com/contact", subject: "", body: "Please refund order 4412.\nThe proxies never connected." };
 const snapshot = parseSnapshot({
-  healthy: true, instance: "fixture-token", revision: 1, cfo_runs: true, tasks: [goblin],
+  healthy: true, instance: "fixture-token", revision: 1, ceo_runs: true, tasks: [goblin],
   credentials: [{ id: "cred-5555555555555555", generation: "e".repeat(32), identity: "a".repeat(64), by: "goblin", task: goblin.id, project: "pd-proxy", names: [],
     why: "Send the IPRoyal refund email", steps: ["Read the refund notes in " + NOTES + ".", "Send the email below and press Done", "Then move the notes to `" + DESKTOP + "`"], mail: EMAIL, state: "open", created_at: at, expires_at: "2026-10-18T22:00:00Z" }],
   questions: [{ id: "q-proxy-notes", identity: "q".repeat(64), text: "Keep the proxy notes in `" + DESKTOP + "` once the refund is sent?", options: ["Keep them", "Delete them"], recommended: "Keep them", mail: FORM, status: "pending", created_at: at }],

@@ -27,14 +27,14 @@ export function goblinName(task: Pick<Task, "id" | "title" | "goblin_name" | "go
   return task.goblin_name ? [task.goblin_name, task.goblin_title].filter(Boolean).join(" - ") : taskName(task);
 }
 
-// terminalOf names a goblin's terminal to the CFO: by the goblin and its task,
+// terminalOf names a goblin's terminal to the CEO: by the goblin and its task,
 // since a report that says only "a goblin's terminal" names none of them.
 export function terminalOf(task: Pick<Task, "id" | "title" | "goblin_name" | "goblin_title">): string {
   return "the terminal of " + goblinName(task) + " (" + task.id + ")";
 }
 
 // A goblin's report starts with its state, which the status above it says.
-const STATE_WORD = /^(?:(?:working|blocked|failed|done|lifecycle-[a-z]+):|waiting on [^\s:]+:|Waiting on the CFO:)\s*/;
+const STATE_WORD = /^(?:(?:working|blocked|failed|done|lifecycle-[a-z]+):|waiting on [^\s:]+:|Waiting on the CEO:)\s*/;
 
 export function reportBody(report: string): string {
   const body = report.replace(STATE_WORD, "").trim();
@@ -90,10 +90,10 @@ export function plainText(raw: string): string {
 }
 
 // finishedEvidence is what says a queued task already finished, as one plain
-// sentence under its status. The supervisor writes it for the CFO,
+// sentence under its status. The supervisor writes it for the CEO,
 // as "Already finished: its pull request merged (...); it never starts again
 // by itself. Move its row to ## Done, or queue new work under a new id": the
-// status says the first of that and the last is the CFO's next step, so the
+// status says the first of that and the last is the CEO's next step, so the
 // line says the evidence between them.
 export function finishedEvidence(finished: string): string {
   return plainText(finished.replace(/^Already finished:\s*/, "").replace(/;\s*it never starts again by itself\.[\s\S]*$/, ""));
@@ -180,7 +180,7 @@ function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task
 // stopped never reads like a live one waiting its turn for the machine
 // (#1924). A CI or deploy pause names how long the repository's runs usually
 // take. A pause on a goblin names the goblin alone, as Paused until Benny
-// delivers, without its title (the CFO's decision 1008011, 2026-10-17).
+// delivers, without its title (the CEO's decision 1008011, 2026-10-17).
 export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], usual: CIUsual[], parent?: Task): string {
   const [kind, target] = pause?.until.split(/:(.*)/s) || [];
   switch (pause?.reason) {
@@ -284,7 +284,7 @@ export function taskSummary(task: Task, tasks: Task[], status = ""): Summary {
 // under working" and "dont need text under pause fialed". Under Working the
 // panel says nothing; what it would say is the first thing behind Details. A
 // failure, and a pause, resume or stop that did not finish, says nothing
-// either: its error is the CFO's to hear (2026-10-08, "everything error wise
+// either: its error is the CEO's to hear (2026-10-08, "everything error wise
 // goes to cfo"), and the panel keeps it behind Details.
 const QUIET_STATUSES = new Set(["Working"]);
 
@@ -301,7 +301,7 @@ function summaryOf(task: Task, tasks: Task[]): Summary {
   // is one description for a person: what it last reported itself, what it
   // waits for, and what Windows still closes ("a well written, proper case,
   // human readable little description about what that agent did or is
-  // doing"). What its pause could not do is the CFO's to hear, in the
+  // doing"). What its pause could not do is the CEO's to hear, in the
   // pause's own report, and never the panel's to show.
   if (task.phase === "paused") {
     const waits = resumes(record?.pause, tasks, pausedWithParent(task, tasks));
@@ -310,7 +310,7 @@ function summaryOf(task: Task, tasks: Task[]): Summary {
   }
   if (["pausing", "resuming", "stopping", "stopped"].includes(task.phase)) return { sentence: "", details: task.teardown, isFailure: false };
   // A queued task's status says it all; the Overlord wants no wait line. Why
-  // its last start failed is behind Details, and the CFO was told.
+  // its last start failed is behind Details, and the CEO was told.
   if (task.phase === "queued") return { sentence: "", details: task.start_error && !task.starting ? [task.start_error] : [], isFailure: false };
   // A failed or blocked task with no report of its own says its evidence.
   const said = reportSaid(reportBody(task.activity) || !["failed", "blocked"].includes(task.phase) ? task.activity : task.reason);

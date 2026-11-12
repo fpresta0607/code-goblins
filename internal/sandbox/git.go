@@ -131,7 +131,7 @@ func NestedGitRefusal(worktree string) error {
 		return nil
 	}
 	relative := strings.TrimPrefix(found, filepath.Clean(worktree)+string(filepath.Separator))
-	return fmt.Errorf("sandbox: the worktree holds %s, a .git of another repository, which host git would read as the container wrote it: remove it in the container with cfo sandbox run -- rm -rf %s, and if the project needs it, tell the CEO, since a sandbox task's project cannot hold a repository of its own", found, filepath.ToSlash(relative))
+	return fmt.Errorf("sandbox: the worktree holds %s, a .git of another repository, which host git would read as the container wrote it: remove it in the container with goblins sandbox run -- rm -rf %s, and if the project needs it, tell the CEO, since a sandbox task's project cannot hold a repository of its own", found, filepath.ToSlash(relative))
 }
 
 // submoduleRefusal refuses worktree, whose git folder is gitDir, while it

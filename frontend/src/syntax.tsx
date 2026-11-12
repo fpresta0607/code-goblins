@@ -1,6 +1,6 @@
 // Language selection adapted from Cline Kanban shared/diff-renderer.tsx.
 // Copyright 2026 Cline Bot Inc. Apache-2.0. See public/assets/NOTICE.txt.
-// CFO uses React text nodes for every Prism token, with no raw HTML injection.
+// CEO uses React text nodes for every Prism token, with no raw HTML injection.
 import Prism from "prismjs";
 import "prismjs/components/prism-javascript";
 import "prismjs/components/prism-typescript";

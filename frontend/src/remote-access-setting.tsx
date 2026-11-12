@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { message, reportToCfo, request } from "./api";
+import { message, reportToCeo, request } from "./api";
 import { array, boolean, object, string, type Run } from "./types";
 import { CopyValue } from "./CopyValue";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
@@ -75,12 +75,12 @@ export function RemoteAccessSetting({ instance, runs, connected }: { instance: s
   }, []);
   const readMachines = useCallback(() => {
     if (local) return;
-    void request("/api/remote/machines").then((value) => setMachines(parseMachines(value))).catch((error: unknown) => reportToCfo("the machines Remote access lists", message(error)));
+    void request("/api/remote/machines").then((value) => setMachines(parseMachines(value))).catch((error: unknown) => reportToCeo("the machines Remote access lists", message(error)));
   }, [local]);
   // Tailscale and the machines on it are read again whenever he comes back to
   // the board, as from installing it or signing in, and remote access every
   // few seconds while the board shows, since nothing tells the board when
-  // Tailscale stops or starts, cfo remote turns it on or off, or a restart
+  // Tailscale stops or starts, goblins remote turns it on or off, or a restart
   // moves it.
   useEffect(() => {
     read();
@@ -103,7 +103,7 @@ export function RemoteAccessSetting({ instance, runs, connected }: { instance: s
     pressing.current = true;
     setPending("on" in input ? "tailscale" : "scrawl" in input ? "scrawl" : "fix");
     try {
-      const answer = await request("/api/remote", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify(input) });
+      const answer = await request("/api/remote", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify(input) });
       if (mine === turn.current) setStatus(parse(answer));
       if ("fix" in input) setStarted(string(object(answer).run_id));
     } catch (error: unknown) { showFeedback(message(error)); read(); }

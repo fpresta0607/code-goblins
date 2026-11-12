@@ -70,7 +70,7 @@ func AppendFirstAndPublish(directory, identity, kind, key, detail string) error 
 // AppendUnlessQueued appends a wake for identity unless one for it is still
 // queued, and reports whether it did. Unlike AppendFirst it appends again
 // once the earlier one has been acknowledged, for a condition that can come
-// back after the CFO has read of it. The look and the append hold the
+// back after the CEO has read of it. The look and the append hold the
 // queue's lock together, so callers running at once append one wake between
 // them.
 func AppendUnlessQueued(directory, identity, kind, key, detail string) (Record, bool, error) {

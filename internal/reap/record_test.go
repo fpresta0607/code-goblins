@@ -14,7 +14,7 @@ func TestRenderCollapsesOrphanStatusLogs(t *testing.T) {
 	for _, id := range []string{"a", "b", "c", "d", "e", "f", "g"} {
 		findings = append(findings, Finding{Class: OrphanStatus, TaskID: id, Detail: "status log with no matching meta", Action: "archive the log"})
 	}
-	findings = append(findings, Finding{Class: OrphanWorktree, TaskID: "z", Path: `C:\wt`, Detail: "no live pane", Action: "return the worktree through cfo cleanup"})
+	findings = append(findings, Finding{Class: OrphanWorktree, TaskID: "z", Path: `C:\wt`, Detail: "no live pane", Action: "return the worktree through goblins cleanup"})
 	SortFindings(findings)
 
 	var out strings.Builder
@@ -46,7 +46,7 @@ func TestRenderCollapsesOrphanStatusLogs(t *testing.T) {
 // be read is true; rendering it as actionable is not.
 func TestAPreviousSchemaIsRefusedRatherThanMisread(t *testing.T) {
 	h := testHome(t)
-	v1 := `{"schema":"cfo-reap.v1","time":"2026-09-19T16:00:00Z","digest":"abc","findings":[` +
+	v1 := `{"schema":"ceo-reap.v1","time":"2026-09-19T16:00:00Z","digest":"abc","findings":[` +
 		`{"class":"orphan_process","pid":31032,"detail":"claude.exe has no pane","action":"kill the process tree",` +
 		`"hold":"busy: burned 2.1s of processor time in 3s, which is a process doing work"}]}`
 	if err := os.WriteFile(RecordPath(h.State), []byte(v1), 0o644); err != nil {

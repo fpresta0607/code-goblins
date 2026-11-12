@@ -3,7 +3,7 @@
     "revision":  1,
     "healthy":  true,
     "example":  true,
-    "cfo_runs":  false,
+    "ceo_runs":  false,
     "memory":  {
                    "next":  5368709120,
                    "floor":  4294967296,
@@ -17,7 +17,7 @@
     "tasks":  [
                   {
                       "id":  "cg-goblins-quickstart",
-                      "title":  "An OpenClaw-style quick start in the goblins command: detect and install Claude Code, Codex and pi, walk through sign-in, pick the CFO\u0027s agent, clear Enter-to-continue steps, and a final screen with the board link or Enter for the CFO terminal",
+                      "title":  "An OpenClaw-style quick start in the goblins command: detect and install Claude Code, Codex and pi, walk through sign-in, pick the CEO\u0027s agent, clear Enter-to-continue steps, and a final screen with the board link or Enter for the CEO terminal",
                       "project":  "code-goblins",
                       "phase":  "queued",
                       "brief":  true,
@@ -96,7 +96,7 @@
                       "waits":  [{ "kind": "task", "target": "cg-board-kill" }]
                   },
                   {
-                      "id":  "cfo-no-mistakes-update",
+                      "id":  "ceo-no-mistakes-update",
                       "title":  "Update no-mistakes from v1.75.1 to v1.79.0 in a quiet window",
                       "project":  "code-goblins",
                       "phase":  "queued",

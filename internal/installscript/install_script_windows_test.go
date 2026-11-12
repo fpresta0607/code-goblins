@@ -62,13 +62,13 @@ func runPowerShellWithStubs(t *testing.T, shell, base string, stubs map[string]s
 	return installtest.Said(out, temp), local, temp, err
 }
 
-// assertNothingInstalled checks that no CFO home was set up and that the
+// assertNothingInstalled checks that no CEO home was set up and that the
 // download folder the install made is gone. PowerShell keeps caches of its own
 // in these folders, so only the install's own names are looked for.
 func assertNothingInstalled(t *testing.T, local, temp string) {
 	t.Helper()
 	if _, err := os.Stat(filepath.Join(local, "CodeGoblins")); !os.IsNotExist(err) {
-		t.Errorf("a CFO home was set up in %s (%v), want none", local, err)
+		t.Errorf("a CEO home was set up in %s (%v), want none", local, err)
 	}
 	if left, _ := filepath.Glob(filepath.Join(temp, "code-goblins-*")); len(left) != 0 {
 		t.Errorf("the download folder %v was left behind", left)
@@ -305,7 +305,7 @@ func TestThePinWritesTheScriptAReleasePublishes(t *testing.T) {
 }
 
 // A release that lists its desktop window in SHA256SUMS has the window
-// downloaded and checked beside cfo.exe, and a window that does not match its
+// downloaded and checked beside goblins.exe, and a window that does not match its
 // sum stops the install before anything runs. A copy of the script that names
 // no publisher says it checks the sums only.
 func TestOneLineInstallChecksTheDesktopWindowTheReleaseLists(t *testing.T) {
@@ -321,8 +321,8 @@ func TestOneLineInstallChecksTheDesktopWindowTheReleaseLists(t *testing.T) {
 		} {
 			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
 				// Arrange
-				sums := fmt.Sprintf("%x  cfo.exe\n%x  goblins-window.exe\n", sha256.Sum256(binary), test.windowSum)
-				base := serveFiles(t, map[string][]byte{"cfo.exe": binary, "goblins-window.exe": window, "SHA256SUMS": []byte(sums)})
+				sums := fmt.Sprintf("%x  goblins.exe\n%x  goblins-window.exe\n", sha256.Sum256(binary), test.windowSum)
+				base := serveFiles(t, map[string][]byte{"goblins.exe": binary, "goblins-window.exe": window, "SHA256SUMS": []byte(sums)})
 
 				// Act
 				output, local, temp, err := runOneLineInstall(t, shell, base)
@@ -347,7 +347,7 @@ func TestOneLineInstallChecksTheDesktopWindowTheReleaseLists(t *testing.T) {
 }
 
 // A release that lists its hook program in SHA256SUMS has it downloaded and
-// checked beside cfo.exe as the window is, and one that does not match its
+// checked beside goblins.exe as the window is, and one that does not match its
 // sum stops the install before anything runs.
 func TestOneLineInstallChecksTheHookProgramTheReleaseLists(t *testing.T) {
 	binary, hook := []byte("not a program"), []byte("not a hook program")
@@ -357,13 +357,13 @@ func TestOneLineInstallChecksTheHookProgramTheReleaseLists(t *testing.T) {
 			want    string
 			refused bool
 		}{
-			"a hook program that matches":        {sha256.Sum256(hook), "Verified cfo-hook.exe against the release's SHA256SUMS", false},
-			"a hook program that does not match": {sha256.Sum256([]byte("another hook program")), "The downloaded cfo-hook.exe does not match the release's checksum", true},
+			"a hook program that matches":        {sha256.Sum256(hook), "Verified goblins-hook.exe against the release's SHA256SUMS", false},
+			"a hook program that does not match": {sha256.Sum256([]byte("another hook program")), "The downloaded goblins-hook.exe does not match the release's checksum", true},
 		} {
 			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
 				// Arrange
-				sums := fmt.Sprintf("%x  cfo.exe\n%x  cfo-hook.exe\n", sha256.Sum256(binary), test.hookSum)
-				base := serveFiles(t, map[string][]byte{"cfo.exe": binary, "cfo-hook.exe": hook, "SHA256SUMS": []byte(sums)})
+				sums := fmt.Sprintf("%x  goblins.exe\n%x  goblins-hook.exe\n", sha256.Sum256(binary), test.hookSum)
+				base := serveFiles(t, map[string][]byte{"goblins.exe": binary, "goblins-hook.exe": hook, "SHA256SUMS": []byte(sums)})
 
 				// Act
 				output, local, temp, err := runOneLineInstall(t, shell, base)
@@ -372,7 +372,7 @@ func TestOneLineInstallChecksTheHookProgramTheReleaseLists(t *testing.T) {
 				if !strings.Contains(output, test.want) {
 					t.Fatalf("install = %v, want %q:\n%s", err, test.want, output)
 				}
-				if test.refused && strings.Contains(output, "Verified cfo-hook.exe") {
+				if test.refused && strings.Contains(output, "Verified goblins-hook.exe") {
 					t.Errorf("a hook program that does not match was verified:\n%s", output)
 				}
 				if err == nil {
@@ -392,7 +392,7 @@ func TestAnUnsignedReleasesInstallNamesNoPublisherAndChecksTheSum(t *testing.T) 
 	for _, shell := range installtest.OneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
 			// Arrange
-			base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
+			base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  goblins.exe\n", sha256.Sum256(binary)))
 
 			// Act
 			output, _, _, err := runStrippedPowerShell(t, shell, base, "-Command", pinned(t, "fpresta0607/code-goblins", "v1.2.3")+" | Invoke-Expression; exit $LASTEXITCODE")
@@ -400,7 +400,7 @@ func TestAnUnsignedReleasesInstallNamesNoPublisherAndChecksTheSum(t *testing.T) 
 			// Assert
 			for _, want := range []string{
 				"names no publisher, so the download is checked against the release's SHA256SUMS only",
-				"Verified cfo.exe against the release's SHA256SUMS",
+				"Verified goblins.exe against the release's SHA256SUMS",
 			} {
 				if !strings.Contains(output, want) {
 					t.Errorf("install = %v, want it to say %q:\n%s", err, want, output)
@@ -424,13 +424,13 @@ func TestAPublishedInstallRefusesADownloadItsPublisherDidNotSign(t *testing.T) {
 	for _, shell := range installtest.OneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
 			// Arrange
-			base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
+			base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  goblins.exe\n", sha256.Sum256(binary)))
 
 			// Act
 			output, local, temp, err := runStrippedPowerShell(t, shell, base, "-Command", pinned(t, "fpresta0607/code-goblins", "v1.2.3", "Code Goblins Test Publisher")+" | Invoke-Expression; exit $LASTEXITCODE")
 
 			// Assert
-			if err == nil || !strings.Contains(output, "The downloaded cfo.exe is not signed by Code Goblins Test Publisher") {
+			if err == nil || !strings.Contains(output, "The downloaded goblins.exe is not signed by Code Goblins Test Publisher") {
 				t.Fatalf("install = %v, want the unsigned download refused:\n%s", err, output)
 			}
 			assertNothingInstalled(t, local, temp)
@@ -453,9 +453,9 @@ func TestOneLineInstallRefusesADownloadThatDoesNotMatchTheReleaseChecksum(t *tes
 		want   string
 		shells []string
 	}{
-		"another build's checksum": {binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256([]byte("the build the release published"))), "does not match the release's checksum", []string{installtest.WindowsPowerShell()}},
-		"no checksum for cfo.exe":  {binary, fmt.Sprintf("%x  other.exe\n", sha256.Sum256(binary)), "does not match the release's checksum", []string{installtest.WindowsPowerShell()}},
-		"no release at all":        {nil, "", "Code Goblins could not be downloaded from", installtest.OneLineShells(t)},
+		"another build's checksum":    {binary, fmt.Sprintf("%x  goblins.exe\n", sha256.Sum256([]byte("the build the release published"))), "does not match the release's checksum", []string{installtest.WindowsPowerShell()}},
+		"no checksum for goblins.exe": {binary, fmt.Sprintf("%x  other.exe\n", sha256.Sum256(binary)), "does not match the release's checksum", []string{installtest.WindowsPowerShell()}},
+		"no release at all":           {nil, "", "Code Goblins could not be downloaded from", installtest.OneLineShells(t)},
 	} {
 		for _, shell := range test.shells {
 			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
@@ -481,13 +481,13 @@ func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) 
 	binary := []byte("not a program")
 	sum := sha256.Sum256(binary)
 	for name, sums := range map[string]string{
-		"as release.yml writes it": fmt.Sprintf("%x  cfo.exe\n", sum),
-		"in binary mode":           fmt.Sprintf("%X *cfo.exe\n", sum),
+		"as release.yml writes it": fmt.Sprintf("%x  goblins.exe\n", sum),
+		"in binary mode":           fmt.Sprintf("%X *goblins.exe\n", sum),
 	} {
 		t.Run(name, func(t *testing.T) {
 			output, local, temp, err := runOneLineInstall(t, installtest.WindowsPowerShell(), installtest.ServeRelease(t, binary, sums))
 
-			if !strings.Contains(output, "Verified cfo.exe against the release's SHA256SUMS") || strings.Contains(output, "does not match") {
+			if !strings.Contains(output, "Verified goblins.exe against the release's SHA256SUMS") || strings.Contains(output, "does not match") {
 				t.Fatalf("install = %v, want the download verified and run:\n%s", err, output)
 			}
 			if !strings.Contains(output, "names no publisher, so the download is checked against the release's SHA256SUMS only") {
@@ -535,7 +535,7 @@ func TestOneLineInstallLeavesTheCallersSessionAsItWas(t *testing.T) {
 // of Windows.
 func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
 	binary := standin.Bytes(t)
-	base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
+	base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  goblins.exe\n", sha256.Sum256(binary)))
 	installers := []string{
 		"https://claude.ai/install.ps1",
 	}
@@ -603,7 +603,7 @@ func fakeCheckout(t *testing.T) string {
 		t.Fatal(err)
 	}
 	checkout := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(checkout, "cmd", "cfo"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(checkout, "cmd", "goblins"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for name, content := range map[string][]byte{"AGENTS.md": nil, "install.ps1": source} {
@@ -655,8 +655,8 @@ func TestACloneInstallsOnlyThroughDev(t *testing.T) {
 			if n := requests.Load(); n != 0 {
 				t.Errorf("the refused install made %d download requests, want none", n)
 			}
-			if _, err := os.Stat(filepath.Join(folder, "cfo.exe")); !os.IsNotExist(err) {
-				t.Errorf("cfo.exe was left in %s (%v), want none", folder, err)
+			if _, err := os.Stat(filepath.Join(folder, "goblins.exe")); !os.IsNotExist(err) {
+				t.Errorf("goblins.exe was left in %s (%v), want none", folder, err)
 			}
 		})
 	}
@@ -680,7 +680,7 @@ func TestDevStopsForGoBeforeChangingAnything(t *testing.T) {
 	}
 }
 
-// -Dev builds the board cfo.exe embeds with npm, so with Go and without
+// -Dev builds the board goblins.exe embeds with npm, so with Go and without
 // Node.js it stops before building or changing anything and names the
 // install.
 func TestDevStopsForNodeBeforeChangingAnything(t *testing.T) {
@@ -696,11 +696,11 @@ func TestDevStopsForNodeBeforeChangingAnything(t *testing.T) {
 	}
 }
 
-// -Dev builds the board in frontend before it builds cfo.exe, which embeds
-// it: without the board cfo.exe serves a page saying it was not built. A
+// -Dev builds the board in frontend before it builds goblins.exe, which embeds
+// it: without the board goblins.exe serves a page saying it was not built. A
 // warning npm writes to stderr does not stop the install, and a failed npm
 // step stops it before Go builds anything.
-func TestDevBuildsTheBoardBeforeCfo(t *testing.T) {
+func TestDevBuildsTheBoardBeforeCeo(t *testing.T) {
 	for name, test := range map[string]struct {
 		// npm is what the stand-in does after it records its call.
 		npm       string
@@ -821,7 +821,7 @@ func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
 }
 
 // -Dev builds from the clone into a folder of its own and runs that build's
-// cfo install, which sets up the per-user home as the one-line install does:
+// goblins install, which sets up the per-user home as the one-line install does:
 // the clone keeps no program, and the build folder goes once the
 // install has run, here a stand-in install that fails, so the script stops
 // there. The window is built as a release builds it, a program that opens no
@@ -831,7 +831,7 @@ func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
 // install workflow runs the whole install in both PowerShells on a clean
 // runner.
 func TestDevBuildsOutsideTheCloneAndLeavesNoProgramInIt(t *testing.T) {
-	// Arrange: go copies a stand-in cfo.exe, which fails at every command, to
+	// Arrange: go copies a stand-in goblins.exe, which fails at every command, to
 	// the path it is told to build to.
 	checkout := fakeCheckout(t)
 	standIn := filepath.Join(t.TempDir(), "stand-in.exe")

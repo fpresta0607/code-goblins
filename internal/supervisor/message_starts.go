@@ -16,12 +16,12 @@ import (
 // "Modern chat terminal. Won't take new messages on a restart if the original
 // terminal is not running. The modern chat should. be its own trigger to
 // start any code session. Especially on a message sent."). A goblin comes
-// back as the comeback brings one back, on its own conversation, and the CFO
+// back as the comeback brings one back, on its own conversation, and the CEO
 // as it comes back after its terminal ended unasked, each told that his
 // message follows. Each message starts its session once, one start at a time
 // as every start goes, and a start of that session already under way, by
 // anything, is waited on rather than made again. A goblin he stopped stays
-// stopped, and its message goes to the CFO. A paused goblin keeps the message
+// stopped, and its message goes to the CEO. A paused goblin keeps the message
 // in its resume note and is resumed as his click resumes one, so its resume
 // prompt gives the session his words as its first turn. While the session
 // starts, the message waits saying so.
@@ -30,8 +30,8 @@ import (
 // start a goblin the machine had no room for.
 const messageStartRetry = 30 * time.Second
 
-// cfoMessageWhy is why a CFO started for his message is told it started.
-const cfoMessageWhy = "the Overlord sent the CFO a message on the board while no CFO ran, which is typed in after this instruction"
+// ceoMessageWhy is why a CEO started for his message is told it started.
+const ceoMessageWhy = "the Overlord sent the CEO a message on the board while no CEO ran, which is typed in after this instruction"
 
 // messageStart is the start one message made of its session: the message's
 // action, and once the start ended, how it ended, what it said and when.
@@ -80,7 +80,7 @@ func (s *Service) resumeForMessage(a Action, meta state.TaskMeta) {
 
 // startGoblinForMessage starts the goblin of message a, whose terminal is not
 // running, unless a start of it is under way or the one a made ended, and
-// says how a waits. A goblin the start could not bring back has the CFO given
+// says how a waits. A goblin the start could not bring back has the CEO given
 // a; one that came back and ended again, or that the start left as it was,
 // has a take the ordinary wait; and one the machine had no room for is tried
 // again after messageStartRetry, until messageWait has passed.
@@ -102,7 +102,7 @@ func (s *Service) startGoblinForMessage(a Action) (Evaluation, error) {
 		return startingFor(task), ErrDeferred
 	case isOwn && tried.outcome == DidNotComeBack:
 		s.starts.Unlock()
-		return Evaluation{}, s.messageToCFO(a, task+" could not start for it: "+tried.said)
+		return Evaluation{}, s.messageToCEO(a, task+" could not start for it: "+tried.said)
 	case isOwn && !isRoomWait, s.changing[task] != "":
 		s.starts.Unlock()
 		result, err := s.waitForGoblin(a, false)
@@ -110,8 +110,8 @@ func (s *Service) startGoblinForMessage(a Action) (Evaluation, error) {
 		return result, err
 	case isRoomWait && time.Since(a.CreatedAt) > messageWait:
 		s.starts.Unlock()
-		return Evaluation{}, s.messageToCFO(a, task+" had no room to start for "+messageWait.String()+": "+tried.said)
-	case isRoomWait && time.Since(tried.at) < messageStartRetry, s.launching() != "", s.isCFOComingBack, s.isRestartingPC():
+		return Evaluation{}, s.messageToCEO(a, task+" had no room to start for "+messageWait.String()+": "+tried.said)
+	case isRoomWait && time.Since(tried.at) < messageStartRetry, s.launching() != "", s.isCEOComingBack, s.isRestartingPC():
 		s.starts.Unlock()
 		return startingFor(task), ErrDeferred
 	}
@@ -157,32 +157,32 @@ func (s *Service) bringGoblinBackForMessage(comeback *Comeback, task string) {
 	s.runAsked()
 }
 
-// startCFOForMessage starts the CFO for message a while no CFO runs, unless
+// startCEOForMessage starts the CEO for message a while no CEO runs, unless
 // a start of it is under way or the one a made ended, and says how a waits.
-// A CFO that registered and runs but cannot be reached is not started again,
-// and nothing starts one while an update installs, which starts the CFO
+// A CEO that registered and runs but cannot be reached is not started again,
+// and nothing starts one while an update installs, which starts the CEO
 // after it.
-func (s *Service) startCFOForMessage(a Action) (Evaluation, error) {
-	waits := Evaluation{Reason: "Waits for the CFO.", SendNowWhy: "No CFO is running."}
+func (s *Service) startCEOForMessage(a Action) (Evaluation, error) {
+	waits := Evaluation{Reason: "Waits for the CEO.", SendNowWhy: "No CEO is running."}
 	comeback := s.Options.Comeback
 	stateDir := s.Store.Home.State
-	cfo := readCFOState(stateDir)
-	if comeback == nil || comeback.CFOEnded == nil || s.Options.Example || cfo.registered {
+	ceo := readCEOState(stateDir)
+	if comeback == nil || comeback.CEOEnded == nil || s.Options.Example || ceo.registered {
 		return waits, ErrDeferred
 	}
-	if holder, err := lock.ReadNamed(stateDir, CFOLaunchLock); cfo.starting || update.Installing(stateDir) || err == nil && holder.VerifiedAlive() {
-		return startingFor("the CFO"), ErrDeferred
+	if holder, err := lock.ReadNamed(stateDir, CEOLaunchLock); ceo.starting || update.Installing(stateDir) || err == nil && holder.VerifiedAlive() {
+		return startingFor("the CEO"), ErrDeferred
 	}
 	s.starts.Lock()
 	tried, isTried := s.messageStarts[""]
 	isOwn := isTried && tried.message == a.ID
 	switch {
-	case isOwn && !tried.isDone, s.isCFOComingBack, s.isRestartingPC():
+	case isOwn && !tried.isDone, s.isCEOComingBack, s.isRestartingPC():
 		s.starts.Unlock()
-		return startingFor("the CFO"), ErrDeferred
+		return startingFor("the CEO"), ErrDeferred
 	case isOwn && tried.said != "":
 		s.starts.Unlock()
-		waits.Reason = "Waits for the CFO, which did not start for it: " + tried.said
+		waits.Reason = "Waits for the CEO, which did not start for it: " + tried.said
 		return waits, ErrDeferred
 	case isOwn:
 		s.starts.Unlock()
@@ -191,25 +191,25 @@ func (s *Service) startCFOForMessage(a Action) (Evaluation, error) {
 	if s.messageStarts == nil {
 		s.messageStarts = map[string]messageStart{}
 	}
-	s.isCFOComingBack = true
+	s.isCEOComingBack = true
 	s.messageStarts[""] = messageStart{message: a.ID, at: time.Now()}
 	s.starts.Unlock()
-	go s.bringCFOBackForMessage(comeback)
+	go s.bringCEOBackForMessage(comeback)
 	s.notify()
-	return startingFor("the CFO"), ErrDeferred
+	return startingFor("the CEO"), ErrDeferred
 }
 
-// bringCFOBackForMessage brings the CFO back for the message that asked and
+// bringCEOBackForMessage brings the CEO back for the message that asked and
 // records how that went, keeping what went wrong for the board.
-func (s *Service) bringCFOBackForMessage(comeback *Comeback) {
-	err := comeback.CFOEnded(context.Background(), cfoMessageWhy)
+func (s *Service) bringCEOBackForMessage(comeback *Comeback) {
+	err := comeback.CEOEnded(context.Background(), ceoMessageWhy)
 	s.starts.Lock()
-	s.isCFOComingBack = false
+	s.isCEOComingBack = false
 	started := s.messageStarts[""]
 	started.isDone, started.at = true, time.Now()
 	if err != nil {
 		started.said = err.Error()
-		err = fmt.Errorf("the CFO did not start for his message: %w", err)
+		err = fmt.Errorf("the CEO did not start for his message: %w", err)
 	}
 	s.messageStarts[""] = started
 	s.starts.Unlock()

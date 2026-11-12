@@ -7,19 +7,19 @@ import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
 // The board's alerts and its Command Center over one supervisor's stream. The
-// test steps the stream with window.advance: "asked" for a question the CFO
+// test steps the stream with window.advance: "asked" for a question the CEO
 // has for the Overlord, "answered" for that question answered elsewhere,
 // "both" for it beside a second one, "second" for the first answered and the
-// second still waiting, "goblinAsks" for a goblin's question to the CFO,
+// second still waiting, "goblinAsks" for a goblin's question to the CEO,
 // "restarting" for a supervisor restart that drops every task and item, and
 // "republished" for the first question's ID asked again days after its
 // answered record was dropped.
 // window.focusOn is what a click on a Windows notification asks of the
 // Command Center.
 const asked = "May the goblin finish the remaining heavy steps now, or stay paused?";
-const base = { healthy: true, cfo_runs: true };
+const base = { healthy: true, ceo_runs: true };
 const working = { id: "cg-board-theme", title: "cg-board-theme", project: "code-goblins", phase: "working", report: "working", activity: "working: building", generation: "s1", verified: false };
-const blocked = { ...working, phase: "blocked", report: "blocked", reason: "Waiting on the CFO: Which port?", activity: "Which port? options: 4310 (Recommended) | 4311" };
+const blocked = { ...working, phase: "blocked", report: "blocked", reason: "Waiting on the CEO: Which port?", activity: "Which port? options: 4310 (Recommended) | 4311" };
 const question = { id: "finish-heavy-steps", identity: "c".repeat(64), task: "", text: asked, options: ["Finish it now", "Stay paused until October 6"], recommended: "Finish it now", status: "pending", created_at: "2026-10-01T12:14:58Z" };
 const answered = { ...question, status: "succeeded", answered_by: "overlord", answered_in: "chat", answered_option: "Finish it now", answered_at: "2026-10-01T12:16:00Z" };
 const second = { id: "merge-freeze", identity: "c".repeat(64), task: "", text: "Lift the merge freeze?", options: ["Lift it", "Keep it"], recommended: "Lift it", status: "pending", created_at: "2026-10-01T12:20:00Z" };

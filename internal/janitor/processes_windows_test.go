@@ -24,16 +24,16 @@ import (
 
 // The fixtures below run as separate processes: a terminal's host, the
 // program in it, and what that program leaves behind. The program reports
-// itself and the processes it started to the file CFO_JANITOR_PIDS names,
+// itself and the processes it started to the file GOBLINS_JANITOR_PIDS names,
 // one line each.
 const (
-	janitorHostState = "CFO_JANITOR_HOST_STATE"
-	janitorPIDs      = "CFO_JANITOR_PIDS"
-	janitorAway      = "CFO_JANITOR_AWAY"
-	janitorChrome    = "CFO_JANITOR_CHROME"
+	janitorHostState = "GOBLINS_JANITOR_HOST_STATE"
+	janitorPIDs      = "GOBLINS_JANITOR_PIDS"
+	janitorAway      = "GOBLINS_JANITOR_AWAY"
+	janitorChrome    = "GOBLINS_JANITOR_CHROME"
 )
 
-// TestJanitorHostFixture hosts the terminal fixture, as cfo host runs a
+// TestJanitorHostFixture hosts the terminal fixture, as goblins host runs a
 // goblin's terminal.
 func TestJanitorHostFixture(t *testing.T) {
 	stateDir := os.Getenv(janitorHostState)
@@ -55,7 +55,7 @@ func TestJanitorTerminalFixture(t *testing.T) {
 	leave := func(program string) int {
 		left := exec.Command(program, "-test.run=^TestJanitorLeftFixture$")
 		left.Dir = os.Getenv(janitorAway)
-		left.Env = append(os.Environ(), "CFO_JANITOR_LEFT=1")
+		left.Env = append(os.Environ(), "GOBLINS_JANITOR_LEFT=1")
 		left.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_BREAKAWAY_FROM_JOB}
 		if err := left.Start(); err != nil {
 			t.Fatal(err)
@@ -71,7 +71,7 @@ func TestJanitorTerminalFixture(t *testing.T) {
 
 // TestJanitorLeftFixture is a process that waits to be ended.
 func TestJanitorLeftFixture(t *testing.T) {
-	if os.Getenv("CFO_JANITOR_LEFT") == "1" {
+	if os.Getenv("GOBLINS_JANITOR_LEFT") == "1" {
 		time.Sleep(time.Minute)
 	}
 }

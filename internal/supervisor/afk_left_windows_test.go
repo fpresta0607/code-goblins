@@ -9,29 +9,29 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
-// The CFO strikes a line it logged by mistake over the supervisor's pipe, and
+// The CEO strikes a line it logged by mistake over the supervisor's pipe, and
 // the report shows it struck with the reason.
-func TestTheCFOStrikesALineItLoggedByMistakeOverThePipe(t *testing.T) {
+func TestTheCEOStrikesALineItLoggedByMistakeOverThePipe(t *testing.T) {
 	// Arrange
-	_, h, _ := asTheCFO(t)
+	_, h, _ := asTheCEO(t)
 	if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
 		t.Fatal(err)
 	}
-	if err := LogAFKDecision(h, afk.Entry{Kind: afk.KindOther, What: "nothing: CFO note", Evidence: "test"}); err != nil {
+	if err := LogAFKDecision(h, afk.Entry{Kind: afk.KindOther, What: "nothing: CEO note", Evidence: "test"}); err != nil {
 		t.Fatal(err)
 	}
 	switched, _ := afk.Read(h.State)
 	entries, _, _ := afk.Entries(h.State, switched.Session)
 
 	// Act
-	err := StrikeAFKLine(h, entries[1].At, "a test line the CFO wrote by mistake")
+	err := StrikeAFKLine(h, entries[1].At, "a test line the CEO wrote by mistake")
 
 	// Assert
 	if err != nil {
 		t.Fatalf("StrikeAFKLine = %v, want the line struck", err)
 	}
 	entries, _, _ = afk.Entries(h.State, switched.Session)
-	if decisions := afk.Decisions(entries); len(entries) != 3 || len(decisions) != 1 || decisions[0].Struck != "a test line the CFO wrote by mistake" {
+	if decisions := afk.Decisions(entries); len(entries) != 3 || len(decisions) != 1 || decisions[0].Struck != "a test line the CEO wrote by mistake" {
 		t.Errorf("log = %+v, want the line kept and struck with the reason", entries)
 	}
 	if err := StrikeAFKLine(h, time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC), "no such line"); err == nil {
@@ -39,12 +39,12 @@ func TestTheCFOStrikesALineItLoggedByMistakeOverThePipe(t *testing.T) {
 	}
 }
 
-// leftLine is a decision the CFO would have asked the Overlord, with what is
+// leftLine is a decision the CEO would have asked the Overlord, with what is
 // wrong, what was tried and its choices, and no answer yet.
 func leftLine(what string) afk.Entry {
 	return afk.Entry{
 		Kind: afk.KindLeft, What: what, Evidence: "his own sign-in. Backlog row cg-fly-token-durable",
-		Diagnosis: "the stored token reads unauthorized", Tried: "cfo auth --fix",
+		Diagnosis: "the stored token reads unauthorized", Tried: "goblins auth --fix",
 		Options: []string{"I will sign in", "Leave it parked"}, Recommendation: "I will sign in",
 	}
 }
@@ -70,18 +70,18 @@ func stepsAndSettle(t *testing.T, h home.Home, what []string, settled map[int]st
 	steps := entries[1:]
 	for i, how := range settled {
 		if err := SettleAFKLine(h, steps[i].At, how); err != nil {
-			t.Fatalf("the CFO's settle = %v, want it made", err)
+			t.Fatalf("the CEO's settle = %v, want it made", err)
 		}
 	}
 	return steps
 }
 
-// A step only he could take that the CFO saw to later in the stretch is
+// A step only he could take that the CEO saw to later in the stretch is
 // settled: his recap lists it with what became of it under what was done, and
 // only the step still open needs him.
-func TestAStepTheCFOSettledNoLongerNeedsHim(t *testing.T) {
+func TestAStepTheCEOSettledNoLongerNeedsHim(t *testing.T) {
 	// Arrange
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	steps := stepsAndSettle(t, h, []string{"Sign in to Fly again", "Finish or abort your parked gate run"}, map[int]string{1: "the run finished on its own"})
 
 	// Act
@@ -109,8 +109,8 @@ func TestAStepTheCFOSettledNoLongerNeedsHim(t *testing.T) {
 	if len(report.Held) != 1 || report.Held[0].Item != afk.HisCardItem(steps[0]) || !report.Held[0].Waiting {
 		t.Errorf("held = %+v, want the step still open held as its card", report.Held)
 	}
-	if want := []string{steps[1].What + " / the run finished on its own"}; !slices.Equal(under["Settled by the CFO"], want) {
-		t.Errorf("Settled by the CFO = %q, want the settled step with what became of it %q", under["Settled by the CFO"], want)
+	if want := []string{steps[1].What + " / the run finished on its own"}; !slices.Equal(under["Settled by the CEO"], want) {
+		t.Errorf("Settled by the CEO = %q, want the settled step with what became of it %q", under["Settled by the CEO"], want)
 	}
 	if questions, runs := cardsOf(s); len(questions) != 1 || len(runs) != 0 || questions[0].ID != afk.HisCardID(steps[0]) {
 		t.Errorf("the board holds %d questions and %d runs, want one card, for the step still open and none for the settled one", len(questions), len(runs))
@@ -123,7 +123,7 @@ func TestAStepTheCFOSettledNoLongerNeedsHim(t *testing.T) {
 // came to him.
 func TestTheReportListsWhatWaitedOnHimInTheCommandCenterAsItStandsNow(t *testing.T) {
 	// Arrange
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	_, identity, err := readPrimary(h.State)
 	if err != nil {
 		t.Fatal(err)

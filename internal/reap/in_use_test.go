@@ -87,7 +87,7 @@ func TestAWorktreeIsInUseWhenTheProcessesWereNotRead(t *testing.T) {
 }
 
 // The orphan sweep holds a worktree a live session uses for the janitor's own
-// reason, and no --force clears it, so the CFO is never told to remove it.
+// reason, and no --force clears it, so the CEO is never told to remove it.
 func TestTheOrphanSweepHoldsAWorktreeInUseForItsReason(t *testing.T) {
 	// Arrange
 	checkout := filepath.Join(t.TempDir(), "repo")

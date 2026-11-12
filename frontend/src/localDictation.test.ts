@@ -117,7 +117,7 @@ test("a sound holds speech once a tenth of a second of it is loud", () => {
 // heldSilent is a hold of seconds from a microphone that hears nothing: noise
 // of a few of the 16-bit samples' steps, at -87 dB, as from a muted or
 // unplugged input, ended 0.1 s before its end by the 10 ms click of the keys
-// let go at -68 dB. Two holds the board reported to the CFO as speech the
+// let go at -68 dB. Two holds the board reported to the CEO as speech the
 // engine found no words in, issue #1456, were such sounds.
 function heldSilent(seconds: number): Sound {
   const samples = new Float32Array(Math.round(seconds * 16000));
@@ -546,7 +546,7 @@ test("without a track there is nothing to record", () => {
   assert.equal(events.ended(), 1);
 });
 
-test("dictation types what the local engine heard, and a refusal goes to the CFO, never onto the board", async (context) => {
+test("dictation types what the local engine heard, and a refusal goes to the CEO, never onto the board", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout"] });
   const { Recognition, answer } = engine();
   const heard: string[] = [], notes: string[] = [], failures: string[] = [], listening: boolean[] = [];
@@ -602,7 +602,7 @@ test("the recognizer says it listens once its recording runs, not when it is han
   assert.equal(events.started(), 1);
 });
 
-test("a recording that cannot begin goes to the CFO at once and never listens", async () => {
+test("a recording that cannot begin goes to the CEO at once and never listens", async () => {
   // Arrange
   const { Recognition, recorded, posted } = engine({ late: true });
   const recognizer = new Recognition();
@@ -659,7 +659,7 @@ test("a hold let go before the recording ran asks the supervisor nothing and say
 });
 
 for (const seconds of [3.6, 2]) {
-  test(`a ${seconds} s hold whose microphone heard only the keys is sent whole and, answered with no words, says Nothing was heard, never telling the CFO`, async () => {
+  test(`a ${seconds} s hold whose microphone heard only the keys is sent whole and, answered with no words, says Nothing was heard, never telling the CEO`, async () => {
     // Arrange
     const { Recognition, posted, answer } = engine({ sound: heldSilent(seconds), words: "" });
     const heard: string[] = [], notes: string[] = [], failures: string[] = [];

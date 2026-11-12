@@ -76,13 +76,13 @@ func TestMonitorRecordPathsAndStrictJSON(t *testing.T) {
 		t.Errorf("task records = %+v, want only atomically-written g1.json", entries)
 	}
 
-	if err := os.WriteFile(ObservationPath(stateDir, "bad"), []byte(`{"schema":"cfo-monitor.v1","task_id":"bad","unknown":true}`), 0o644); err != nil {
+	if err := os.WriteFile(ObservationPath(stateDir, "bad"), []byte(`{"schema":"ceo-monitor.v1","task_id":"bad","unknown":true}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ReadObservation(stateDir, "bad"); err == nil {
 		t.Error("ReadObservation accepted an unknown JSON field")
 	}
-	if err := os.WriteFile(HeartbeatPath(stateDir), []byte(`{"schema":"cfo-monitor.v0"}`), 0o644); err != nil {
+	if err := os.WriteFile(HeartbeatPath(stateDir), []byte(`{"schema":"ceo-monitor.v0"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ReadHeartbeat(stateDir); err == nil {
@@ -99,7 +99,7 @@ func TestMonitorRecordsRejectIncompleteAndInvalidSemantics(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(observationPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(observationPath, []byte(`{"schema":"cfo-monitor.v1","task_id":"g1"}`), 0o644); err != nil {
+	if err := os.WriteFile(observationPath, []byte(`{"schema":"ceo-monitor.v1","task_id":"g1"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ReadObservation(stateDir, "g1"); err == nil {
@@ -109,7 +109,7 @@ func TestMonitorRecordsRejectIncompleteAndInvalidSemantics(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(HeartbeatPath(stateDir)), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(HeartbeatPath(stateDir), []byte(`{"schema":"cfo-monitor.v1","last_cycle":"not-a-time"}`), 0o644); err != nil {
+	if err := os.WriteFile(HeartbeatPath(stateDir), []byte(`{"schema":"ceo-monitor.v1","last_cycle":"not-a-time"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ReadHeartbeat(stateDir); err == nil {

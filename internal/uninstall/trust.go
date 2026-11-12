@@ -14,7 +14,7 @@ import (
 )
 
 // trust are the entries Claude Code and Codex keep for each folder a goblin
-// or the CFO worked in, such as whether its trust dialog was accepted, which
+// or the CEO worked in, such as whether its trust dialog was accepted, which
 // name folders that go with the home.
 func (m Machine) trust() ([]Item, error) {
 	var items []Item

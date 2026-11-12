@@ -37,14 +37,14 @@ client/server artifacts.
    the sine wave, and a real sign-in attempt is accepted (use a test account
    if one exists; do NOT use the Overlord's credentials). Screenshot
    before/after.
-5. PR against main -> merge chain via CFO -> confirm the production deploy
+5. PR against main -> merge chain via CEO -> confirm the production deploy
    settles and the live page is fixed.
 
 ## Constraints
 
-- SUBSCRIPTION only; usage/quota error -> STOP and `cfo notify --blocked`.
+- SUBSCRIPTION only; usage/quota error -> STOP and `goblins notify --blocked`.
 - If further defects surface across rounds, REASSESS and fix root causes
   (minimal diff, documented); park only for spend/destructive/production
   writes beyond the deploy itself.
 - no-mistakes standing policy; rebase before PR; do not merge your own PR.
-- Report `cfo notify siqshift-login-regression --done --pr <url>`.
+- Report `goblins notify siqshift-login-regression --done --pr <url>`.

@@ -39,22 +39,22 @@ func pageFile(t *testing.T, body string) string {
 	return page
 }
 
-// pageFixture is a home with a registered CFO, its pipe served, and native
+// pageFixture is a home with a registered CEO, its pipe served, and native
 // goblin task-1, whose terminal this test process stands in for.
-func pageFixture(t *testing.T) (*Service, home.Home, state.TaskMeta, hostedTerminal, *CFOConnection) {
+func pageFixture(t *testing.T) (*Service, home.Home, state.TaskMeta, hostedTerminal, *CEOConnection) {
 	t.Helper()
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	meta := makeNative(t, h.State, "task-1")
 	meta.Harness = "claude"
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
 		t.Fatal(err)
 	}
-	return s, h, meta, goblinTerminal(t, h.State, meta.ID), &CFOConnection{State: h.State}
+	return s, h, meta, goblinTerminal(t, h.State, meta.ID), &CEOConnection{State: h.State}
 }
 
 // awayPage turns AFK mode on at his ask and has task-1 put page, at link, in
-// a review item, which AFK mode makes the CFO's decision, and returns its
-// question as the board holds it and the notify that woke the CFO.
+// a review item, which AFK mode makes the CEO's decision, and returns its
+// question as the board holds it and the notify that woke the CEO.
 func awayPage(t *testing.T, s *Service, h home.Home, link, page string) (Question, wake.Record) {
 	t.Helper()
 	if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
@@ -74,12 +74,12 @@ func awayPage(t *testing.T, s *Service, h home.Home, link, page string) (Questio
 	return questions[0], records[1]
 }
 
-// While AFK mode is on a goblin's page reaches the CFO as a decision: a notify
-// that asks the CFO with the page's link and its choices, and the goblin's
-// question on the board, which is the CFO's to answer. Nothing of it waits in
+// While AFK mode is on a goblin's page reaches the CEO as a decision: a notify
+// that asks the CEO with the page's link and its choices, and the goblin's
+// question on the board, which is the CEO's to answer. Nothing of it waits in
 // his Command Center, and a retry of the same item asks nothing twice. While
 // AFK mode is off the page is his item, as before.
-func TestWhileAFKModeIsOnAGoblinsPageIsTheCFOsDecision(t *testing.T) {
+func TestWhileAFKModeIsOnAGoblinsPageIsTheCEOsDecision(t *testing.T) {
 	for name, isAFKOn := range map[string]bool{"AFK mode on": true, "AFK mode off": false} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -108,7 +108,7 @@ func TestWhileAFKModeIsOnAGoblinsPageIsTheCFOsDecision(t *testing.T) {
 			decisions := slices.DeleteFunc(records, func(r wake.Record) bool { return r.Kind != "notify" })
 			if !isAFKOn {
 				if len(snapshot.Reviews) != 1 || snapshot.Reviews[0].State != "open" || snapshot.Reviews[0].LavishPage != page || len(snapshot.Questions) != 0 || len(decisions) != 0 {
-					t.Fatalf("reviews = %+v, questions = %+v, decisions = %+v, want his open item with its page and nothing for the CFO", snapshot.Reviews, snapshot.Questions, decisions)
+					t.Fatalf("reviews = %+v, questions = %+v, decisions = %+v, want his open item with its page and nothing for the CEO", snapshot.Reviews, snapshot.Questions, decisions)
 				}
 				return
 			}
@@ -136,12 +136,12 @@ func TestWhileAFKModeIsOnAGoblinsPageIsTheCFOsDecision(t *testing.T) {
 	}
 }
 
-// The CFO answers the page with cfo answer: the goblin gets the answer once,
-// the notify reads answered, the question closes as the CFO's answer while he
+// The CEO answers the page with goblins answer: the goblin gets the answer once,
+// the notify reads answered, the question closes as the CEO's answer while he
 // was away, the goblin's items still open on that same page close with it,
 // its open item on another page stays open, and the AFK log keeps the answer
-// with the page, the question and the CFO's choice.
-func TestTheCFOsAnswerToAGoblinsPageReachesItOnceAndClosesItsItems(t *testing.T) {
+// with the page, the question and the CEO's choice.
+func TestTheCEOsAnswerToAGoblinsPageReachesItOnceAndClosesItsItems(t *testing.T) {
 	// Arrange
 	s, h, meta, goblin, connection := pageFixture(t)
 	page := pageFile(t, mockupsChoices)
@@ -168,7 +168,7 @@ func TestTheCFOsAnswerToAGoblinsPageReachesItOnceAndClosesItsItems(t *testing.T)
 		t.Error("a second answer to the same page was taken, want it refused")
 	}
 	if typed := goblin.lines(t); len(typed) != 1 || !strings.Contains(typed[0], fmt.Sprintf("decision %d: Build it as shown. the grid reads at his window size", record.Seq)) {
-		t.Errorf("the goblin received %q, want the CFO's answer once", typed)
+		t.Errorf("the goblin received %q, want the CEO's answer once", typed)
 	}
 	if pending, err := wake.Pending(h.State); err != nil || !slices.ContainsFunc(pending, func(r wake.Record) bool { return r.Seq == record.Seq && r.Answered != "" }) {
 		t.Errorf("wakes = %+v (%v), want the decision read as answered", pending, err)
@@ -177,8 +177,8 @@ func TestTheCFOsAnswerToAGoblinsPageReachesItOnceAndClosesItsItems(t *testing.T)
 		t.Fatal(err)
 	}
 	snapshot := s.Store.Snapshot()
-	if got := snapshot.Questions[0]; got.ID != q.ID || got.Status != "succeeded" || got.AnsweredBy != "cfo" || !got.AnsweredAway || got.AnsweredOption != "Build it as shown" {
-		t.Errorf("the question = %+v, want it closed as the CFO's answer while he was away", got)
+	if got := snapshot.Questions[0]; got.ID != q.ID || got.Status != "succeeded" || got.AnsweredBy != "ceo" || !got.AnsweredAway || got.AnsweredOption != "Build it as shown" {
+		t.Errorf("the question = %+v, want it closed as the CEO's answer while he was away", got)
 	}
 	if len(snapshot.Reviews) != 2 || snapshot.Reviews[0].State == "open" || snapshot.Reviews[1].State != "open" {
 		t.Errorf("reviews = %+v, want the goblin's earlier item on the same page closed and the one on another page open", snapshot.Reviews)
@@ -186,18 +186,18 @@ func TestTheCFOsAnswerToAGoblinsPageReachesItOnceAndClosesItsItems(t *testing.T)
 	entries := afkEntries(t, h.State)
 	logged := entries[len(entries)-1]
 	if logged.Kind != afk.KindAnswer || logged.What != q.ID || logged.Task != meta.ID || logged.Link != mockupsPage || !strings.Contains(logged.Evidence, "asked: "+q.Text+" answered: Build it as shown. the grid reads") {
-		t.Errorf("logged = %+v, want the answer with its page, its question and the CFO's choice", logged)
+		t.Errorf("logged = %+v, want the answer with its page, its question and the CEO's choice", logged)
 	}
 }
 
-// Only the page AFK mode asked as the question closes with the CFO's answer,
+// Only the page AFK mode asked as the question closes with the CEO's answer,
 // and only the goblin's items on it published before the question, whether
-// the CFO answered with cfo answer or answered another way and acked: its
+// the CEO answered with goblins answer or answered another way and acked: its
 // item on another page, an item of another generation of the goblin on the
 // same page and a version of the page published after the question stay open.
-func TestOnlyThePageAFKModeAskedClosesWithTheCFOsAnswer(t *testing.T) {
-	for name, answer := range map[string]func(t *testing.T, s *Service, h home.Home, connection *CFOConnection, record wake.Record){
-		"cfo answer": func(t *testing.T, s *Service, _ home.Home, connection *CFOConnection, record wake.Record) {
+func TestOnlyThePageAFKModeAskedClosesWithTheCEOsAnswer(t *testing.T) {
+	for name, answer := range map[string]func(t *testing.T, s *Service, h home.Home, connection *CEOConnection, record wake.Record){
+		"goblins answer": func(t *testing.T, s *Service, _ home.Home, connection *CEOConnection, record wake.Record) {
 			if _, _, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(record.Seq), "Build it as shown", ""); err != nil {
 				t.Fatal(err)
 			}
@@ -205,7 +205,7 @@ func TestOnlyThePageAFKModeAskedClosesWithTheCFOsAnswer(t *testing.T) {
 				t.Fatal(err)
 			}
 		},
-		"an answer the CFO acked": func(t *testing.T, s *Service, h home.Home, _ *CFOConnection, record wake.Record) {
+		"an answer the CEO acked": func(t *testing.T, s *Service, h home.Home, _ *CEOConnection, record wake.Record) {
 			if err := wake.AckThrough(h.State, record.Seq); err != nil {
 				t.Fatal(err)
 			}
@@ -256,7 +256,7 @@ func TestOnlyThePageAFKModeAskedClosesWithTheCFOsAnswer(t *testing.T) {
 }
 
 // A goblin's ordinary question is never a page, even when its text ends
-// naming one as AFK mode's do: the CFO's answer to it leaves the goblin's
+// naming one as AFK mode's do: the CEO's answer to it leaves the goblin's
 // open item on that page open.
 func TestAQuestionThatOnlyNamesAPageClosesNoPage(t *testing.T) {
 	// Arrange
@@ -277,7 +277,7 @@ func TestAQuestionThatOnlyNamesAPageClosesNoPage(t *testing.T) {
 	q := s.Store.Snapshot().Questions[0]
 
 	// Act
-	err = s.Store.recordCFOAnswer(cfoAnswer{QuestionID: q.ID, Option: "Grid", Answer: "Grid", At: time.Now().UTC()})
+	err = s.Store.recordCEOAnswer(ceoAnswer{QuestionID: q.ID, Option: "Grid", Answer: "Grid", At: time.Now().UTC()})
 
 	// Assert
 	if err != nil {
@@ -288,12 +288,12 @@ func TestAQuestionThatOnlyNamesAPageClosesNoPage(t *testing.T) {
 	}
 }
 
-// A page the CFO answered in his place is settled once AFK mode turns off, as
+// A page the CEO answered in his place is settled once AFK mode turns off, as
 // the Overlord asked on 2026-10-12: it stays in History as the goblin's
-// question with the CFO's answer, given while he was away, where he can
+// question with the CEO's answer, given while he was away, where he can
 // change it, and it is never asked of him again, nor listed under For you.
 // The report recaps it under For the goblins.
-func TestAPageTheCFOAnsweredIsSettledInHistoryAndNeverAsked(t *testing.T) {
+func TestAPageTheCEOAnsweredIsSettledInHistoryAndNeverAsked(t *testing.T) {
 	// Arrange
 	s, h, _, _, connection := pageFixture(t)
 	q, record := awayPage(t, s, h, mockupsPage, pageFile(t, mockupsChoices))
@@ -318,11 +318,11 @@ func TestAPageTheCFOAnsweredIsSettledInHistoryAndNeverAsked(t *testing.T) {
 	if len(questions) != 1 {
 		t.Fatalf("questions = %+v, want only the goblin's, asked nothing more", questions)
 	}
-	if got := questions[0]; got.ID != q.ID || got.Status != "succeeded" || got.AnsweredBy != "cfo" || !got.AnsweredAway || got.AnsweredOption != "Build it as shown" {
-		t.Errorf("the goblin's question = %+v, want it in History as the CFO's answer while he was away", got)
+	if got := questions[0]; got.ID != q.ID || got.Status != "succeeded" || got.AnsweredBy != "ceo" || !got.AnsweredAway || got.AnsweredOption != "Build it as shown" {
+		t.Errorf("the goblin's question = %+v, want it in History as the CEO's answer while he was away", got)
 	}
 	if len(report.Held) != 0 {
-		t.Errorf("For you = %+v, want nothing: the CFO answered the page", report.Held)
+		t.Errorf("For you = %+v, want nothing: the CEO answered the page", report.Held)
 	}
 	i := slices.IndexFunc(report.Sections(), func(section afk.Section) bool { return section.Title == "For the goblins" })
 	if i < 0 || len(report.Sections()[i].Entries) != 1 || report.Sections()[i].Entries[0].What != q.ID {
@@ -330,11 +330,11 @@ func TestAPageTheCFOAnsweredIsSettledInHistoryAndNeverAsked(t *testing.T) {
 	}
 }
 
-// A page that declares no choices still reaches the CFO as a decision, which
+// A page that declares no choices still reaches the CEO as a decision, which
 // it answers in its own words, and History keeps that answer as the goblin's
 // question's, written. A goblin's question without choices and without a
-// page is answered with cfo send, as before.
-func TestAPageThatDeclaresNoChoicesTakesTheCFOsOwnWords(t *testing.T) {
+// page is answered with goblins send, as before.
+func TestAPageThatDeclaresNoChoicesTakesTheCEOsOwnWords(t *testing.T) {
 	// Arrange
 	s, h, meta, goblin, connection := pageFixture(t)
 	_, record := awayPage(t, s, h, mockupsPage, pageFile(t, ""))
@@ -355,13 +355,13 @@ func TestAPageThatDeclaresNoChoicesTakesTheCFOsOwnWords(t *testing.T) {
 
 	// Assert
 	if err != nil || chosen != "Ship the three mockups as shown" {
-		t.Fatalf("AnswerGoblin = %q, %v, want the CFO's words delivered", chosen, err)
+		t.Fatalf("AnswerGoblin = %q, %v, want the CEO's words delivered", chosen, err)
 	}
-	if plainErr == nil || !strings.Contains(plainErr.Error(), "cfo send") {
-		t.Errorf("an answer to a question with no choices and no page = %v, want it sent with cfo send", plainErr)
+	if plainErr == nil || !strings.Contains(plainErr.Error(), "goblins send") {
+		t.Errorf("an answer to a question with no choices and no page = %v, want it sent with goblins send", plainErr)
 	}
 	if typed := goblin.lines(t); len(typed) != 1 || !strings.Contains(typed[0], "Ship the three mockups as shown") {
-		t.Errorf("the goblin received %q, want the CFO's words once", typed)
+		t.Errorf("the goblin received %q, want the CEO's words once", typed)
 	}
 	if offErr != nil {
 		t.Fatal(offErr)
@@ -371,7 +371,7 @@ func TestAPageThatDeclaresNoChoicesTakesTheCFOsOwnWords(t *testing.T) {
 		t.Fatalf("questions = %+v, want only the page's, asked nothing more", questions)
 	}
 	if q := questions[0]; q.Status != "succeeded" || q.AnswerKind != "other" || q.AnsweredOption != "" || q.Answer != "Ship the three mockups as shown" || !q.AnsweredAway {
-		t.Errorf("the page's question = %+v, want the CFO's written answer, given while he was away", q)
+		t.Errorf("the page's question = %+v, want the CEO's written answer, given while he was away", q)
 	}
 }
 
@@ -403,7 +403,7 @@ func servedAt(t *testing.T, key, page string) {
 // pageWatcher is a supervisor that watches the pages of s's board with poll
 // standing in for lavish-axi's, and tells its own subscribers what changed.
 func pageWatcher(s *Service, poll func(context.Context, string, string, time.Duration) (axi.PagePoll, error)) *Service {
-	return &Service{Store: s.Store, Options: Options{CFO: s.Options.CFO, PollPage: poll}, subscribers: map[chan struct{}]struct{}{}}
+	return &Service{Store: s.Store, Options: Options{CEO: s.Options.CEO, PollPage: poll}, subscribers: map[chan struct{}]struct{}{}}
 }
 
 // His Send and end on a goblin's page that AFK mode asked as its question,
@@ -530,10 +530,10 @@ func TestAPickOnAQuestionsPageAnswersItAndThePageStaysWatched(t *testing.T) {
 	}
 }
 
-// Once the CFO has answered a goblin's page, what he then sends on the page
-// is a note the goblin gets, and the CFO's answer stands, also when the CFO
+// Once the CEO has answered a goblin's page, what he then sends on the page
+// is a note the goblin gets, and the CEO's answer stands, also when the CEO
 // answered while a poll waited on the page.
-func TestWhatHeSendsOnAPageTheCFOAnsweredReachesTheGoblinAsANote(t *testing.T) {
+func TestWhatHeSendsOnAPageTheCEOAnsweredReachesTheGoblinAsANote(t *testing.T) {
 	for name, isDuringThePoll := range map[string]bool{"before the page is polled": false, "while a poll waits on the page": true} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -575,16 +575,16 @@ func TestWhatHeSendsOnAPageTheCFOAnsweredReachesTheGoblinAsANote(t *testing.T) {
 			if answerErr != nil {
 				t.Fatal(answerErr)
 			}
-			if q := s.Store.Snapshot().Questions[0]; q.AnsweredBy != "cfo" || q.AnsweredOption != "Change it" || q.PageSettled == nil {
-				t.Errorf("the question = %+v, want the CFO's answer standing and its page settled", q)
+			if q := s.Store.Snapshot().Questions[0]; q.AnsweredBy != "ceo" || q.AnsweredOption != "Change it" || q.PageSettled == nil {
+				t.Errorf("the question = %+v, want the CEO's answer standing and its page settled", q)
 			}
 			if len(told) != 2 || !strings.Contains(told[0], "Change it") || !strings.Contains(told[1], "wrote on your review page") || !strings.Contains(told[1], "Build it as shown") {
-				t.Errorf("the goblin got %q, want the CFO's answer, then his words as a note", told)
+				t.Errorf("the goblin got %q, want the CEO's answer, then his words as a note", told)
 			}
 			if pending, err := wake.Pending(h.State); err != nil || !slices.ContainsFunc(pending, func(r wake.Record) bool {
-				return r.Seq == record.Seq && r.Answered == "Change it" && r.AnsweredBy == wake.AnsweredByCFO
+				return r.Seq == record.Seq && r.Answered == "Change it" && r.AnsweredBy == wake.AnsweredByCEO
 			}) {
-				t.Errorf("wakes = %+v (%v), want notify %d read as the CFO's answer", pending, err, record.Seq)
+				t.Errorf("wakes = %+v (%v), want notify %d read as the CEO's answer", pending, err, record.Seq)
 			}
 		})
 	}
@@ -598,7 +598,7 @@ func TestAPageAnotherReportersItemShowsStaysThatReporters(t *testing.T) {
 	s, h, _, _, _ := pageFixture(t)
 	page := pageFile(t, mockupsChoices)
 	at := time.Now().UTC().Add(-time.Minute)
-	held := Review{ID: "cfo-mockups", Identity: strings.Repeat("c", 64), Title: "The CFO's look at the mockups", Lavish: mockupsPage, LavishPage: page, State: "open", CreatedAt: at, UpdatedAt: at}
+	held := Review{ID: "ceo-mockups", Identity: strings.Repeat("c", 64), Title: "The CEO's look at the mockups", Lavish: mockupsPage, LavishPage: page, State: "open", CreatedAt: at, UpdatedAt: at}
 	if err := s.Store.acceptReview(held); err != nil {
 		t.Fatal(err)
 	}
@@ -612,7 +612,7 @@ func TestAPageAnotherReportersItemShowsStaysThatReporters(t *testing.T) {
 		t.Fatalf("the question = %+v, want it to ask %s", q, page)
 	}
 	if got := watched[pageKey(page)]; got.ID != held.ID {
-		t.Errorf("the page is watched for %+v, want the CFO's item that showed it first", got)
+		t.Errorf("the page is watched for %+v, want the CEO's item that showed it first", got)
 	}
 }
 

@@ -15,7 +15,7 @@ var ErrCancelled = errors.New("setup was cancelled; run goblins to continue")
 // agent, and at that choice it is a cancel, said in ErrCancelled's words.
 var ErrBack = fmt.Errorf("%w", ErrCancelled)
 
-// Flow is the quick start's steps for the agent the CFO runs on: choose one,
+// Flow is the quick start's steps for the agent the CEO runs on: choose one,
 // install it when it is missing, sign in when nobody is, and remember it.
 // Every step that waits on the person is one Ask with its default first, so
 // Enter alone carries a person from nothing to a ready agent, and every step
@@ -35,7 +35,7 @@ type Flow struct {
 	// Marks are each agent's own mark on its tab.
 	Marks map[string]string
 	// Recommended is the agent whose tab says it is the recommended one, and
-	// Notes are the few words each agent's note says a CFO in it gets. Both
+	// Notes are the few words each agent's note says a CEO in it gets. Both
 	// come from the one table of what is proved, which this package does not
 	// hold.
 	Recommended string
@@ -44,11 +44,11 @@ type Flow struct {
 	// returns when it ends. Neither is ever run without the person's Enter.
 	Install func(id string) error
 	Login   func(id string) error
-	// Save remembers the agent the CFO starts as.
+	// Save remembers the agent the CEO starts as.
 	Save func(id string) error
 }
 
-// Run returns the agent the CFO starts as. saved is the agent remembered from
+// Run returns the agent the CEO starts as. saved is the agent remembered from
 // an earlier run, or empty. A remembered agent that is ready is returned
 // without a screen, so later runs skip what is already set up; rerun shows the
 // choice all the same. Nothing is remembered until the chosen agent is ready,
@@ -145,7 +145,7 @@ func finished(agent Agent) (name, answer string) {
 
 func (f Flow) save(id string) error {
 	if err := f.Save(id); err != nil {
-		return fmt.Errorf("remember %s as the CFO's agent: %w", id, err)
+		return fmt.Errorf("remember %s as the CEO's agent: %w", id, err)
 	}
 	return nil
 }
@@ -176,7 +176,7 @@ func (f Flow) step(agent Agent) (Step, func(string) error) {
 }
 
 // agentStep is the choice of agent: one row of tabs, each with the agent's
-// own mark, and under the row how ready the marked agent is and what a CFO in
+// own mark, and under the row how ready the marked agent is and what a CEO in
 // it gets. The recommended agent's tab says so, and the remembered agent's
 // note says it is the current one.
 func (f Flow) agentStep(agents []Agent, saved string, selected int) Step {
@@ -197,5 +197,5 @@ func (f Flow) agentStep(agents []Agent, saved string, selected int) Step {
 		}
 		choices[index] = Choice{Label: label, Mark: f.Marks[agent.ID], Note: note}
 	}
-	return Step{Title: "Choose the agent your CFO runs on", Choices: choices, Selected: selected, Tabs: true}
+	return Step{Title: "Choose the agent your CEO runs on", Choices: choices, Selected: selected, Tabs: true}
 }

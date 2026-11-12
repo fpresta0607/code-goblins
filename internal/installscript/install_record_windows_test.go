@@ -35,7 +35,7 @@ type fetchedRecord struct {
 func TestTheInstallRecordsWhatItFetchedAndNothingThatWasThere(t *testing.T) {
 	// Arrange
 	binary := standin.Bytes(t)
-	base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
+	base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  goblins.exe\n", sha256.Sum256(binary)))
 	stubs := map[string]string{
 		"git": "@exit /b 0\r\n",
 		"gh":  "@exit /b 0\r\n",
@@ -92,7 +92,7 @@ func TestTheInstallRecordsWhatItFetchedAndNothingThatWasThere(t *testing.T) {
 	}
 }
 
-// run runs a stripped install with a home's state folder in place, as cfo
+// run runs a stripped install with a home's state folder in place, as goblins
 // install makes it, and reads the record it left.
 func run(t *testing.T, cmd *exec.Cmd, local, temp string) (string, fetchedRecord) {
 	t.Helper()

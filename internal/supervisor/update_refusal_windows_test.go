@@ -23,7 +23,7 @@ func TestOnlyTheOverlordsOwnTerminalUpdatesCodeGoblins(t *testing.T) {
 	terminal := proc.Entry{PID: 950, ParentPID: 900, ExeBase: "WindowsTerminal.exe", Start: started.Add(-time.Minute)}
 	shell := proc.Entry{PID: 960, ParentPID: 950, ExeBase: "powershell.exe", Start: started.Add(-time.Second)}
 	command := proc.Entry{PID: 970, ParentPID: 960, ExeBase: "goblins.exe", Start: started}
-	cfo := proc.Entry{PID: primary.Process.PID, ExeBase: "supervisor.test.exe", Start: primary.Process.Start}
+	ceo := proc.Entry{PID: primary.Process.PID, ExeBase: "supervisor.test.exe", Start: primary.Process.Start}
 	his := []proc.Entry{command, shell, terminal, desktop}
 	cases := []struct {
 		name     string
@@ -35,8 +35,8 @@ func TestOnlyTheOverlordsOwnTerminalUpdatesCodeGoblins(t *testing.T) {
 		{"a shell he opened from the desktop", []proc.Entry{command, shell, desktop}, nil, ""},
 		{"a goblin's terminal", his, []string{harness.RoleVariable + "=" + harness.RoleGoblin}, "in a goblin's terminal"},
 		{"a gate agent", his, []string{gateAgentVariable + "=1"}, "as a gate agent"},
-		{"under the registered CFO", []proc.Entry{{PID: 971, ParentPID: 961, ExeBase: "goblins.exe", Start: started.Add(time.Second)}, {PID: 961, ParentPID: cfo.PID, ExeBase: "powershell.exe", Start: started}, cfo, desktop}, nil, "under the registered CFO"},
-		{"a native terminal the fleet runs", his, []string{host.IDVariable + "=cfo"}, "in native terminal cfo"},
+		{"under the registered CEO", []proc.Entry{{PID: 971, ParentPID: 961, ExeBase: "goblins.exe", Start: started.Add(time.Second)}, {PID: 961, ParentPID: ceo.PID, ExeBase: "powershell.exe", Start: started}, ceo, desktop}, nil, "under the registered CEO"},
+		{"a native terminal the fleet runs", his, []string{host.IDVariable + "=ceo"}, "in native terminal ceo"},
 		{"a Herdr pane", his, []string{"HERDR_PANE_ID=3"}, "in a Herdr pane"},
 		{"under an agent harness", []proc.Entry{command, shell, {PID: 980, ExeBase: "claude.exe", Start: started.Add(-time.Hour)}, desktop}, nil, "under an agent harness (claude.exe pid 980)"},
 		{"an agent's environment", []proc.Entry{command, shell}, []string{"CLAUDECODE=1"}, "its environment carries CLAUDECODE"},

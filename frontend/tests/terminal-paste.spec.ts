@@ -12,7 +12,7 @@ const PICTURE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8B
 // panel and pasted nothing (#1562): the terminal is ready once its view shows,
 // as openGoblin waits for it.
 async function classicTerminal(page: Page) {
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "classic"));
   const relay = await open(page);
   await card(page, NAME).click();
   const terminal = page.locator(".native-terminal:visible");

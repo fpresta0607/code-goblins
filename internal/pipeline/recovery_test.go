@@ -1014,7 +1014,7 @@ func TestRecoverKeepLocalAlignsUserOwnedMultiCommitAdvance(t *testing.T) {
 func TestRecoverKeepLocalAlignsV175CustodyReturnedGateBeforeFreshRun(t *testing.T) {
 	const (
 		run       = "01M2G34VN0E2764T0AY3NABZH0"
-		branch    = "fix/cfo-pr-status-context"
+		branch    = "fix/ceo-pr-status-context"
 		staleGate = "0c61c8d1bb5145fb3dad57fde7f0e139a0c98a83"
 		recorded  = "c5fcb965b84750629f8a87f35ee571a128ec7e4e"
 		local     = "e78eae6f6569b7bc37835ae36b4ef79e4e434fd4"
@@ -1048,7 +1048,7 @@ func TestRecoverKeepLocalAlignsV175CustodyReturnedGateBeforeFreshRun(t *testing.
 		}
 		if strings.HasPrefix(joined, "git update-ref refs/heads/"+branch+" ") || request.Name == "sqlite3" && strings.Contains(joined, "UPDATE runs") {
 			if !verifiedGate {
-				t.Fatalf("CFO head move preceded exact gate-anchor verification: %s", joined)
+				t.Fatalf("CEO head move preceded exact gate-anchor verification: %s", joined)
 			}
 		}
 	}
@@ -1057,7 +1057,7 @@ func TestRecoverKeepLocalAlignsV175CustodyReturnedGateBeforeFreshRun(t *testing.
 	}
 }
 
-func TestRecoverKeepLocalPreservesCFOEvidenceWhenNativeAndTargetHeadsMatch(t *testing.T) {
+func TestRecoverKeepLocalPreservesCEOEvidenceWhenNativeAndTargetHeadsMatch(t *testing.T) {
 	const (
 		aligned   = "e78eae6f6569b7bc37835ae36b4ef79e4e434fd4"
 		staleGate = "0c61c8d1bb5145fb3dad57fde7f0e139a0c98a83"
@@ -1066,7 +1066,7 @@ func TestRecoverKeepLocalPreservesCFOEvidenceWhenNativeAndTargetHeadsMatch(t *te
 		scenario: recoveryScenario{
 			run:       "01M2G34VN0E2764T0AY3NABZH0",
 			repo:      recoveryRepo,
-			branch:    "fix/cfo-pr-status-context",
+			branch:    "fix/ceo-pr-status-context",
 			recorded:  aligned,
 			submitted: staleGate,
 		},
@@ -1093,7 +1093,7 @@ func TestRecoverKeepLocalAcceptsNativeAlignedCustodyReturnedWithoutGateAnchor(t 
 		scenario: recoveryScenario{
 			run:       "01M2G34VN0E2764T0AY3NABZH0",
 			repo:      recoveryRepo,
-			branch:    "fix/cfo-pr-status-context",
+			branch:    "fix/ceo-pr-status-context",
 			recorded:  head,
 			submitted: head,
 		},
@@ -1116,7 +1116,7 @@ func TestRecoverKeepLocalAcceptsNativeAlignedCustodyReturnedWithoutGateAnchor(t 
 	for _, request := range runner.requests {
 		joined := recoveryRequestCommand(request)
 		if strings.HasPrefix(joined, "git update-ref --no-deref refs/no-mistakes/recovery/"+runner.scenario.run+"/gate ") {
-			t.Fatalf("native-aligned recovery created CFO swap evidence: %s", joined)
+			t.Fatalf("native-aligned recovery created CEO swap evidence: %s", joined)
 		}
 	}
 }
@@ -1127,7 +1127,7 @@ func TestRecoverKeepLocalRefusesConflictingNativeAnchorsAcrossRepositories(t *te
 		scenario: recoveryScenario{
 			run:       "01M2G34VN0E2764T0AY3NABZH0",
 			repo:      recoveryRepo,
-			branch:    "fix/cfo-pr-status-context",
+			branch:    "fix/ceo-pr-status-context",
 			recorded:  head,
 			submitted: head,
 		},
@@ -1156,7 +1156,7 @@ func TestRecoverKeepLocalRejectsSymbolicRecoveryAnchorBeforeMovement(t *testing.
 		scenario: recoveryScenario{
 			run:       "01M2G34VN0E2764T0AY3NABZH0",
 			repo:      recoveryRepo,
-			branch:    "fix/cfo-pr-status-context",
+			branch:    "fix/ceo-pr-status-context",
 			recorded:  "c5fcb965b84750629f8a87f35ee571a128ec7e4e",
 			submitted: stale,
 		},
@@ -1185,7 +1185,7 @@ func TestRecoverKeepLocalRejectsNonCommitRecoveryAnchor(t *testing.T) {
 		scenario: recoveryScenario{
 			run:       "01M2G34VN0E2764T0AY3NABZH0",
 			repo:      recoveryRepo,
-			branch:    "fix/cfo-pr-status-context",
+			branch:    "fix/ceo-pr-status-context",
 			recorded:  head,
 			submitted: head,
 		},
@@ -1212,7 +1212,7 @@ func TestRecoverKeepLocalNoDerefCreationCannotMoveSymbolicTarget(t *testing.T) {
 		scenario: recoveryScenario{
 			run:       "01M2G34VN0E2764T0AY3NABZH0",
 			repo:      recoveryRepo,
-			branch:    "fix/cfo-pr-status-context",
+			branch:    "fix/ceo-pr-status-context",
 			recorded:  stale,
 			submitted: stale,
 		},
@@ -1244,7 +1244,7 @@ func TestRecoverKeepLocalRefusesNativeCustodyWithMissingOrConflictingAnchor(t *t
 				scenario: recoveryScenario{
 					run:       "01M2G34VN0E2764T0AY3NABZH0",
 					repo:      recoveryRepo,
-					branch:    "fix/cfo-pr-status-context",
+					branch:    "fix/ceo-pr-status-context",
 					recorded:  head,
 					submitted: head,
 				},
@@ -1266,7 +1266,7 @@ func TestRecoverKeepLocalRefusesV175CustodyReturnedWithoutNativeAnchor(t *testin
 		scenario: recoveryScenario{
 			run:       "01M2G34VN0E2764T0AY3NABZH0",
 			repo:      recoveryRepo,
-			branch:    "fix/cfo-pr-status-context",
+			branch:    "fix/ceo-pr-status-context",
 			recorded:  "c5fcb965b84750629f8a87f35ee571a128ec7e4e",
 			submitted: "0c61c8d1bb5145fb3dad57fde7f0e139a0c98a83",
 		},
@@ -1292,7 +1292,7 @@ func TestRecoverKeepLocalRefusesAlignedV175CustodyReturnedWithoutNativeAnchor(t 
 		scenario: recoveryScenario{
 			run:       "01M2G34VN0E2764T0AY3NABZH0",
 			repo:      recoveryRepo,
-			branch:    "fix/cfo-pr-status-context",
+			branch:    "fix/ceo-pr-status-context",
 			recorded:  head,
 			submitted: head,
 		},
@@ -1317,7 +1317,7 @@ func TestRecoverKeepLocalRefusesAlignedV175CustodyReturnedWithoutNativeAnchor(t 
 func TestRecoverKeepLocalFinishesCommittedCustodyReturnedAlignment(t *testing.T) {
 	const (
 		run       = "01M2G34VN0E2764T0AY3NABZH0"
-		branch    = "fix/cfo-pr-status-context"
+		branch    = "fix/ceo-pr-status-context"
 		staleGate = "0c61c8d1bb5145fb3dad57fde7f0e139a0c98a83"
 		recorded  = "c5fcb965b84750629f8a87f35ee571a128ec7e4e"
 		local     = "e78eae6f6569b7bc37835ae36b4ef79e4e434fd4"
@@ -1354,7 +1354,7 @@ func TestRecoverKeepLocalRefusesCommittedCustodyAlignmentWithConflictingGateAnch
 		scenario: recoveryScenario{
 			run:       "01M2G34VN0E2764T0AY3NABZH0",
 			repo:      recoveryRepo,
-			branch:    "fix/cfo-pr-status-context",
+			branch:    "fix/ceo-pr-status-context",
 			recorded:  aligned,
 			submitted: "0c61c8d1bb5145fb3dad57fde7f0e139a0c98a83",
 		},
@@ -1369,6 +1369,6 @@ func TestRecoverKeepLocalRefusesCommittedCustodyAlignmentWithConflictingGateAnch
 	}
 	reader := newRecoveryReader(t, runner)
 	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", runner.scenario.branch, nil); err == nil {
-		t.Fatal("aligned custody retry accepted a non-stale CFO gate anchor")
+		t.Fatal("aligned custody retry accepted a non-stale CEO gate anchor")
 	}
 }

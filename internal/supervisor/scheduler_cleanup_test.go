@@ -9,16 +9,16 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// On 2026-10-09 the scheduler resumed a paused goblin while the CFO cleaned
+// On 2026-10-09 the scheduler resumed a paused goblin while the CEO cleaned
 // it up. The cleanup wins now, and the resume it refused is no failure of the
 // goblin's: its task is gone, or goes once the cleanup ends, so the board
-// shows no failed resume and the CFO is not told of one. A resume that fails
+// shows no failed resume and the CEO is not told of one. A resume that fails
 // for any other reason is still a failure.
 func TestAnAutomaticResumeRefusedForItsTasksCleanupIsNoFailure(t *testing.T) {
 	const id = "paused-task"
 	tests := []struct {
 		name string
-		// output is what cfo resume printed before it exited 1.
+		// output is what goblins resume printed before it exited 1.
 		output string
 		// isRetired has the cleanup retire the task's record while the resume
 		// runs.
@@ -32,7 +32,7 @@ func TestAnAutomaticResumeRefusedForItsTasksCleanupIsNoFailure(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			spawner := &spawnRecorder{output: test.output, err: errors.New("cfo exited 1")}
+			spawner := &spawnRecorder{output: test.output, err: errors.New("goblins exited 1")}
 			s, h := helperBoard(t, 8*gigabyte, spawner)
 			pausedGoblin(t, h, id, "memory", "", time.Now().UTC().Add(-time.Hour))
 			if test.isRetired {

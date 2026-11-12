@@ -37,7 +37,7 @@ var errNeedsSignIn = errors.New("the login needs a sign-in")
 // reviewed key page, in a Chrome with no window that the broker starts on
 // the project's login of the page's provider for this fetch alone, and
 // stores them through the request card's own save, which refreshes the
-// project's goblins and tells the CFO the names. No value leaves the
+// project's goblins and tells the CEO the names. No value leaves the
 // supervisor. A page that asks for a sign-in files his sign-in card
 // instead, and the fetch carries on once he has signed in.
 func (s *Service) fetchCredential(ctx context.Context, request BrowserRequest) (BrowserLease, error) {
@@ -76,7 +76,7 @@ func (s *Service) fetchCredential(ctx context.Context, request BrowserRequest) (
 
 // continueFetch carries on the fetch that filed card, now that he signed
 // in: once the sign-in window's Chrome is gone it fetches again, and tells
-// the CFO when that fetch stopped short. A stored key tells the CFO itself.
+// the CEO when that fetch stopped short. A stored key tells the CEO itself.
 func (s *Service) continueFetch(card BrowserSignIn) {
 	defer s.credentialWork.Done()
 	closeBound := s.browsers.now().Add(signInCloseWait)

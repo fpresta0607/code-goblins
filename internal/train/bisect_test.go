@@ -104,8 +104,8 @@ func TestARedTrainIsHalvedLandsTheGreenHalfAndBlamesTheCulprit(t *testing.T) {
 			t.Fatalf("%s told %q, want nothing", task, s.goblinTold(task))
 		}
 	}
-	if last := s.cfo[len(s.cfo)-1]; !strings.Contains(last, "#53") || !strings.Contains(last, "landed #51, #52") {
-		t.Fatalf("CFO told %q, want the culprit and what landed", last)
+	if last := s.ceo[len(s.ceo)-1]; !strings.Contains(last, "#53") || !strings.Contains(last, "landed #51, #52") {
+		t.Fatalf("CEO told %q, want the culprit and what landed", last)
 	}
 	if !slices.Equal(gh.closed, []string{gh.trainURL}) || s.hasBranch(started.Branch) {
 		t.Fatal("the train pull request was not closed or its branch was kept")
@@ -120,8 +120,8 @@ func TestARedTrainIsHalvedLandsTheGreenHalfAndBlamesTheCulprit(t *testing.T) {
 	if run := stopped.History[0]; !slices.Equal(run.FailedOnce, firstTry) || !slices.Equal(run.Failed, []FailedCheck{{Name: "test", Link: failing}}) || len(stopped.History[1].FailedOnce) != 0 {
 		t.Fatalf("runs %+v, want a red run to keep the check red on each try and the green run none", stopped.History)
 	}
-	if last := s.cfo[len(s.cfo)-1]; strings.Contains(last, "passed on the second try") {
-		t.Fatalf("CFO told %q, want no check named as passing when each was red twice", last)
+	if last := s.ceo[len(s.ceo)-1]; strings.Contains(last, "passed on the second try") {
+		t.Fatalf("CEO told %q, want no check named as passing when each was red twice", last)
 	}
 }
 

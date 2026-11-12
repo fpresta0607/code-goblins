@@ -26,7 +26,7 @@ async function openTerminal(page: Page, backend: "native" | "herdr"): Promise<Te
   const pictures: Buffer[] = [];
   const held: (() => void)[] = [];
   await page.addInitScript(() => {
-    localStorage.setItem("cfo-voice-hint-v1", "dismissed");
+    localStorage.setItem("ceo-voice-hint-v1", "dismissed");
     Object.defineProperty(navigator, "clipboard", { value: { read: async () => {
       if (Reflect.get(window, "clipboardDenied")) throw new DOMException("Denied", "NotAllowedError");
       return (window as unknown as { clipboardItems: ClipboardItem[] }).clipboardItems ?? [];

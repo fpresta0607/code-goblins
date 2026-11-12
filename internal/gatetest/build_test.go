@@ -216,15 +216,15 @@ func TestBuildSelectsByContractAndCarriesWhatIsOutside(t *testing.T) {
 // directories.
 func TestBuildFindsASlowPackageByItsDirectoryFromTheRoot(t *testing.T) {
 	// Arrange
-	found := branch("home.go", "cmd/cfo/main.go", "internal/tickets/read.go")
-	found.packages = []Package{{ImportPath: "example.com/repo", Dir: root}, pkg("cmd/cfo"), pkg("internal/tickets")}
-	found.policy, found.hasPolicy = `{"version": 1, "slow_packages": [".", "CMD/cfo"]}`, true
+	found := branch("home.go", "cmd/goblins/main.go", "internal/tickets/read.go")
+	found.packages = []Package{{ImportPath: "example.com/repo", Dir: root}, pkg("cmd/goblins"), pkg("internal/tickets")}
+	found.policy, found.hasPolicy = `{"version": 1, "slow_packages": [".", "CMD/goblins"]}`, true
 
 	// Act
 	plan := build(found, Fast)
 
 	// Assert
-	wantLeft := []string{"tests of example.com/repo (a slow package)", "tests of example.com/repo/cmd/cfo (a slow package)"}
+	wantLeft := []string{"tests of example.com/repo (a slow package)", "tests of example.com/repo/cmd/goblins (a slow package)"}
 	if want := []string{"example.com/repo/internal/tickets"}; !slices.Equal(plan.Tests, want) || !slices.Equal(deferred(plan.Left), wantLeft) {
 		t.Errorf("build at fast = tests %q, left %q; want %q and %q", plan.Tests, deferred(plan.Left), want, wantLeft)
 	}

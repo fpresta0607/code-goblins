@@ -21,7 +21,7 @@ func pastePicture(board *HTTP, task string, body []byte) *httptest.ResponseRecor
 	request := httptest.NewRequest("POST", "http://"+board.Host+"/api/answer-images?task="+task, bytes.NewReader(body))
 	request.Host = board.Host
 	request.Header.Set("Origin", "http://"+board.Host)
-	request.Header.Set("X-CFO-Token", "test-instance")
+	request.Header.Set("X-CEO-Token", "test-instance")
 	request.Header.Set("Content-Type", "image/png")
 	response := httptest.NewRecorder()
 	board.ServeHTTP(response, request)
@@ -59,7 +59,7 @@ func TestAPicturePastedIntoAnAnswerIsKeptWhereTheAskerReadsIt(t *testing.T) {
 	board, meta, stateDir := answerImageBoard(t)
 	for _, c := range []struct{ asker, task, dir string }{
 		{"a goblin", "task-1", filepath.Join(meta.TaskTmp, answerImagesDir)},
-		{"the CFO", "", filepath.Join(stateDir, answerImagesDir)},
+		{"the CEO", "", filepath.Join(stateDir, answerImagesDir)},
 	} {
 		t.Run(c.asker, func(t *testing.T) {
 			// Arrange
@@ -134,7 +134,7 @@ func TestOnlyTheBoardsOwnPageCanKeepAPicture(t *testing.T) {
 	request := httptest.NewRequest("POST", "http://"+board.Host+"/api/answer-images?task=task-1", bytes.NewReader(onePixelPNG(t)))
 	request.Host = board.Host
 	request.Header.Set("Origin", "http://"+board.Host)
-	request.Header.Set("X-CFO-Token", "another-board")
+	request.Header.Set("X-CEO-Token", "another-board")
 	response := httptest.NewRecorder()
 
 	// Act
@@ -154,7 +154,7 @@ func TestAPastedPictureReportsAReadFailure(t *testing.T) {
 	request := httptest.NewRequest("POST", "http://"+board.Host+"/api/answer-images", nil)
 	request.Host = board.Host
 	request.Header.Set("Origin", "http://"+board.Host)
-	request.Header.Set("X-CFO-Token", "test-instance")
+	request.Header.Set("X-CEO-Token", "test-instance")
 	request.Body = failingImageBody{}
 	response := httptest.NewRecorder()
 

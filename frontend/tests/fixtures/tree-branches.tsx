@@ -14,7 +14,7 @@ const snapshot = parseSnapshot(treeFleet(now));
 const view = new URLSearchParams(location.search).get("view");
 watchTips();
 createRoot(document.getElementById("root")!).render(view === "lineage"
-  ? <main className="canvas-region" style={{ width: "100%" }}><Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} /></main>
+  ? <main className="canvas-region" style={{ width: "100%" }}><Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} /></main>
   : <main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-    <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
+    <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
   </main>);

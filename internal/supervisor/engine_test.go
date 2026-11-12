@@ -22,7 +22,7 @@ type engineGate struct {
 	err       error
 }
 
-func TestCFOEngineSelectionSavesWithoutRestartAndRejectsInvalidChoices(t *testing.T) {
+func TestCEOEngineSelectionSavesWithoutRestartAndRejectsInvalidChoices(t *testing.T) {
 	handler, h := startBoard(t, 8*gigabyte, &spawnRecorder{})
 	machine := newFirstRunMachine(t)
 	machine.runs = true
@@ -30,11 +30,11 @@ func TestCFOEngineSelectionSavesWithoutRestartAndRejectsInvalidChoices(t *testin
 	if err := os.WriteFile(filepath.Join(machine.home, ".codex", "models_cache.json"), []byte(`{"models":[{"slug":"selected-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	response := taskControlRequest(handler, "/api/cfo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
+	response := taskControlRequest(handler, "/api/ceo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
 	if response.Code != http.StatusOK || machine.restarted != 0 {
 		t.Fatalf("save = %d %s, restarted %d", response.Code, response.Body, machine.restarted)
 	}
-	path := filepath.Join(h.State, "cfo-engine.json")
+	path := filepath.Join(h.State, "ceo-engine.json")
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +45,7 @@ func TestCFOEngineSelectionSavesWithoutRestartAndRejectsInvalidChoices(t *testin
 		{"harness": "unknown", "model": "selected-model", "effort": "high"},
 		{"harness": "codex", "model": "default", "effort": "high"},
 	} {
-		response = taskControlRequest(handler, "/api/cfo/engine", invalid)
+		response = taskControlRequest(handler, "/api/ceo/engine", invalid)
 		after, err := os.ReadFile(path)
 		if response.Code != http.StatusConflict || err != nil || string(after) != string(before) || machine.restarted != 0 {
 			t.Fatalf("invalid save %v = %d %s, file %s, err %v, restarted %d", invalid, response.Code, response.Body, after, err, machine.restarted)
@@ -55,7 +55,7 @@ func TestCFOEngineSelectionSavesWithoutRestartAndRejectsInvalidChoices(t *testin
 
 // The catalog is the harness's own, so a selection it offers is one the reader
 // must hand that harness even where the fleet's shared list has no such word.
-func TestReadCFOEngineHandsAHarnessItsOwnModelAndEffort(t *testing.T) {
+func TestReadCEOEngineHandsAHarnessItsOwnModelAndEffort(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		saved    string
@@ -71,12 +71,12 @@ func TestReadCFOEngineHandsAHarnessItsOwnModelAndEffort(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, "cfo-engine.json"), []byte(test.saved), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, "ceo-engine.json"), []byte(test.saved), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			choice, err := ReadCFOEngine(dir)
+			choice, err := ReadCEOEngine(dir)
 			if test.wantErr {
-				if err == nil || !strings.Contains(err.Error(), "cfo-engine.json") {
+				if err == nil || !strings.Contains(err.Error(), "ceo-engine.json") {
 					t.Fatalf("choice=%+v err=%v, want a refusal naming the file", choice, err)
 				}
 				return
@@ -586,7 +586,7 @@ func TestDeferredEngineFailuresStayOnTheirCardsAndUnavailableChoicesAreRemovedOn
 			digests[record.Key]++
 		}
 		if record.Key == "unreadable" {
-			t.Fatalf("idle-read failure told the CFO: %+v", record)
+			t.Fatalf("idle-read failure told the CEO: %+v", record)
 		}
 	}
 	for _, id := range []string{"unavailable", "other"} {
@@ -733,7 +733,7 @@ func TestSuccessfulCLIActionClearsAnEarlierEngineFailure(t *testing.T) {
 }
 
 // Restart in a working goblin's Harness section restarts it at once on its
-// own harness, model and effort, on its own conversation, through cfo switch
+// own harness, model and effort, on its own conversation, through goblins switch
 // --restart. A paused goblin has Resume for that, and a queued task has no
 // session to restart.
 func TestBoardRestartRestartsAGoblinOnItsOwnEngineAtOnce(t *testing.T) {

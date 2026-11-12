@@ -13,7 +13,7 @@ import (
 
 // TeammateOverlaps is the part of the report's overlaps that someone other
 // than the Overlord has in flight: what a dispatch stops for. The Overlord's
-// own pull requests and issues are his fleet's, which the CFO already sees
+// own pull requests and issues are his fleet's, which the CEO already sees
 // on the board, and a bot is not a teammate, so theirs stay in the report
 // and out of this.
 func (r Report) TeammateOverlaps() Overlaps {
@@ -66,8 +66,8 @@ func (o Overlaps) Lines() []string {
 	return lines
 }
 
-// An overlap note is the CFO's reason for starting a task beside a
-// teammate's work. cfo spawn writes it, and the supervisor, the tickets'
+// An overlap note is the CEO's reason for starting a task beside a
+// teammate's work. goblins spawn writes it, and the supervisor, the tickets'
 // only writer, reads it into the task's ticket.
 
 // WriteOverlapNote keeps the reason a task was started beside other work.
