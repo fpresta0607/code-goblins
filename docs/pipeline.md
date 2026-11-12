@@ -281,6 +281,15 @@ The driver re-reads the binding and caller before returning the original run wit
 A later native descendant of the accepted head remains outside this exception unless the published head rule admits it, and each final re-read is a cooperative check, not an atomic native expected-run assertion.
 Reattachment grants no finding approval, custody change or repair allowance.
 Native `axi run` bounds its hold so a harness tool cap cannot hang it, and a hold that ends with no decision is not a gate failure: `goblins pipeline run` then says the run keeps working and names the reattachment, never only the native exit code.
+A daemon serving other runs on a loaded machine can miss its 250 ms health reply, or a request's reply, while it is alive (issue 2158).
+`goblins pipeline run` and `goblins pipeline respond` read the daemon by its `daemon.pid` and that process, and by the runs its database holds open, never by a reply deadline, and send it nothing to do so.
+A native command a live daemon turned away at its health reply never reached it, so the same command is made again 30 seconds later, four times in all, each wait said as the daemon's turn.
+Any other missed reply is not repeated, because its request may have landed: the command says the daemon is busy, not stopped, and names the run the branch already holds, which repeating `goblins pipeline run` reattaches to, so a lost or late reply to a start never becomes a second run.
+When every try missed the health reply, nothing reached the daemon: a start with no run on its branch says no run was created, and an answer says it never reached the gate.
+After any other miss with no live run on the branch, a start says the lost request may still wait in the daemon and create a run later, and that it must not be repeated now: on 2026-11-11 a busy daemon served three such starts minutes later, and each new run replaced the one before.
+It says to read `no-mistakes axi status` until a run is on the branch and then reattach, and to start again only once the daemon answers its health reply and still no run is there.
+A scope response turned away on every try says so too, with its journal, never that no retry was made.
+Neither ever starts or restarts the shared daemon, whatever native's own hint says, and a daemon whose process reads stopped or unreadable is a question for the CEO.
 A start whose intent or head names other work than the live run's, its adopted published head or its verified accepted handback is still refused, with that run and the caller's head named.
 Use native read-only `axi status` and `axi logs` to inspect progress; the engine's guarded `axi sync` remains the branch synchronization interface after validation.
 

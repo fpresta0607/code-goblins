@@ -19,6 +19,7 @@ import { CardMail } from "./card-mail";
 import { inlineElements, linkedText } from "./messageText";
 import { copyValues } from "./CopyValue";
 import { pathLinks } from "./path-link";
+import { ScreenView } from "./screen-view";
 
 // The names the scope holds that the board wants him to confirm replacing,
 // from its refusal of a save or a Run. It names names only.
@@ -41,7 +42,8 @@ const wrappable = (text: string, separator: string) => text.split(separator).map
 interface Confirm { names: string[]; action: "save" | "run"; confirmed: string[] }
 
 // The card for a step only he can take: its header says how, as the page to
-// open, or the goblin's own browser window to bring to him, and the asker's
+// open, or the goblin's own browser, whose screen he takes control of here
+// and hands back once the step is taken, and the asker's
 // steps, numbered in order, each local path they name a link that opens it,
 // and a message he sends himself, with Copy. Its table has a row for
 // each input, by its label: a field to paste each secret into, with a check
@@ -83,7 +85,7 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
   const [isFetching, setIsFetching] = useState(false);
   // The plain values he types, by name, until each is sent.
   const [plainValues, setPlainValues] = useState<Record<string, string>>({});
-  // His click on Done, Skip, his note or the window button, until the board
+  // His click on Done, Skip, his note or Take control, until the board
   // answers.
   const [pressing, setPressing] = useState("");
   const commandBox = useRef<HTMLPreElement>(null);
@@ -160,8 +162,8 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
       if (looksLikeKey(failure)) setKeyShaped((prior) => [...prior, name]);
     } finally { setStoring((prior) => prior.filter((candidate) => candidate !== name)); }
   };
-  // Done, Dismiss and the window button each post once and wait for the
-  // board, whose snapshot then closes the card or shows the window.
+  // Done, Dismiss and Take control each post once and wait for the board,
+  // whose snapshot then closes the card or shows the goblin's screen.
   const press = async (path: string, body: Record<string, string>, what: string) => {
     setPressing(what); showFeedback("");
     try { await call(path, undefined, { method: "POST", headers, body: JSON.stringify({ id: request.id, generation: request.generation, ...body }) }); }
@@ -188,8 +190,8 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
   const offer = open && local && request.fetch && request.fetch.names.some((name) => needed.includes(name)) ? request.fetch : null;
   const inputs = [...request.names, ...request.plain];
   const sent = (name: string) => request.received.includes(name) || answered.includes(name);
-  const windowNote = request.window_state === "open" ? "The browser window is open on your screen. Take the step there" + (canPressDone(request) ? ", then press Done." : ".")
-    : request.window_state === "requested" ? "Opening the browser window on your PC." : "";
+  const windowNote = request.window_state === "open" ? "Take the step on " + asker + "'s screen below, then press Hand back" + (canPressDone(request) ? " or Done." : ".")
+    : request.window_state === "requested" ? "Opening " + asker + "'s browser at the page." : "";
   // A page without the clipboard, such as a board opened over plain http,
   // selects the commands for Ctrl+C instead, and says so beside his click.
   const copy = () => {
@@ -212,17 +214,18 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
       {request.grant_service && <p className="credential-why">Service access for {request.task} in {request.project}.</p>}
       {(request.link || request.steps.length > 0) && <ol className="credential-steps" aria-label={inputs.length ? "How to get them" : "What to do"}>
         {request.link && (request.window
-          ? <li>Press Open the browser window below</li>
+          ? <li>Press Take control below</li>
           : <li>Open <a href={request.link} target="_blank" rel="noreferrer"><span>{wrappable(linkLabel(request.link), "/")}</span><Icon name="external" /></a></li>)}
         {request.steps.map((step, index) => <li key={index}>{inlineElements(stepText(step), copyValues, paths)}</li>)}
       </ol>}
     </header>
     {request.mail && <CardMail mail={request.mail} />}
     {open && request.window && <div className="step-window">
-      {local
-        ? <button type="button" className="primary" disabled={!connected || !!pressing || request.window_state !== ""} onClick={() => void press("/api/credentials/window", {}, "window")}><Icon name="external" />Open the browser window</button>
-        : <p className="credential-remote"><Icon name="lock" />Open the browser window from the board on your PC.</p>}
-      {windowNote && <p className="signin-waiting" role="status"><span className="credential-ring storing" aria-hidden="true" />{windowNote}</p>}
+      {request.window_state !== "open" && (local
+        ? <button type="button" className="primary" disabled={!connected || !!pressing || request.window_state !== ""} onClick={() => void press("/api/credentials/window", {}, "window")}><Icon name="screen" />Take control</button>
+        : <p className="credential-remote"><Icon name="lock" />Take control from the board on your PC.</p>)}
+      {windowNote && <p className="signin-waiting" role="status">{request.window_state === "requested" && <span className="credential-ring storing" aria-hidden="true" />}{windowNote}</p>}
+      {request.window_state === "open" && <ScreenView key={request.task_generation} task={request.task} generation={request.task_generation} name={asker} instance={snapshot.instance} connected={connected} />}
       {request.window_state === "" && request.reason && <Notice tone="warning" icon="warning">{linkedText(request.reason)}</Notice>}
     </div>}
     {open && !local && !request.grant_service && <p className="credential-remote"><Icon name="lock" />Values can only be typed on the board on your PC. Here, copy the terminal command instead.</p>}

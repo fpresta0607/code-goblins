@@ -105,10 +105,10 @@ type CredentialRequest struct {
 	Steps []string `json:"steps,omitempty"`
 	// Mail is a message the card gives him to send himself, such as an email.
 	Mail *Mail `json:"mail,omitempty"`
-	// Window says the step happens inside the goblin's own browser session,
-	// which the card's button brings to him; WindowState is "" while the
-	// button is offered, "requested" once he pressed it and "open" once the
-	// goblin's wait showed the window.
+	// Window says the step happens inside the goblin's own browser, which the
+	// card's Take control opens at the link and shows on its screen;
+	// WindowState is "" while the button is offered, "requested" once he
+	// pressed it and "open" once the browser is his on the card's screen.
 	Window      bool   `json:"window,omitempty"`
 	WindowState string `json:"window_state,omitempty"`
 	// Values are the plain values he entered, for the goblin's wait to read
