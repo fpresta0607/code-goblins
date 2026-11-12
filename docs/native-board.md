@@ -510,6 +510,10 @@ A delivered goblin is at work again only on a prompt taken after its latest done
 A question or a failure a goblin reported is its state until the goblin takes a prompt after it, as an answer that reached it, a steer or an instruction an Enter submitted, and a failure also while its terminal shows its harness at work since.
 An answer on record or an acknowledgement resumes nothing, since an answer can be to stay held, and a hold its own turn is still finishing stays a hold; the line stays in the goblin's history.
 A gate run that finished, passed, failed, cancelled or interrupted, holds no step and asks for no decision, so it supplies no current In review gate or Waiting status; the card still shows work or an independent wait reported by the goblin.
+A gate run on the task's own branch that waits on a decision holds the card at Blocked, under that run's own pull request or none, only while the goblin has reported nothing since the run parked.
+One that parked before the goblin's newest standing report leaves the card to that report: the task's snapshot entry carries it in `parked_runs`, and the CEO is woken once for it with a `parked_run` check wake naming the task, branch, run, step and when it parked, and how to act on it.
+A run waiting on a decision on the branch of one of the task's extra worktrees never sets the task's phase either: it is an entry of `parked_runs` too.
+Each entry names its `branch`, `run_id`, `step`, `parked_at`, when the step last moved, and its run's own `pr`, never the task's, and the card names each by its branch and step on its activity line.
 A native session of an earlier generation, such as the Pi session of a goblin since switched to a harness whose hooks are not installed, is no evidence of the current one, and the card reads the goblin's gate and terminal instead.
 Goblins whose standing waits on one another close a circle each read Waiting, with the reason naming the goblin whose wait comes back to it and saying neither can go on as reported, and the CEO is woken once for each circle with a `wait_cycle` notify naming every goblin in it; a newer report of any of them is a new circle.
 A goblin that waits on the Overlord shows Waiting on you while its wait, or a question of its, is an item under Waiting on you in his Command Center, as that list's heading reads, and Waiting on the CEO otherwise, since the CEO carries every other question to him.
@@ -1631,6 +1635,7 @@ A Markdown link to an address reads as its words, an address in a code block or 
 The sentence a panel says under a goblin's status links the words it says each of the report's addresses by, such as PR #12.
 A goblin's terminal, the CEO's and a baby goblin's draw each http or https address as a link that a click or a tap opens in a new tab, one that wraps onto the next row included.
 A link a program prints with words of its own, an OSC 8 hyperlink, opens its http or https address the same way, as a Markdown link's words do in chat; nothing else in a terminal opens.
+One of the board's own [addresses](#board-addresses), in a message or a terminal, opens its place in the board itself instead of a new tab, with no reload (#2363).
 A card shows its first sixteen lines and scrolls a long line sideways inside itself; Expand opens it whole, every line wrapped.
 A PowerShell block in a finished reply's own words also has Run beside Copy, at its size (#2051): one fenced `powershell`, `pwsh` or `ps1`, or an untagged one whose first word, after an optional `! ` that Run drops, is `powershell` or `pwsh`.
 Run never shows on another language, on a tool's output, on his pasted or quoted words, on a hook's note or on the reply still being written, and nothing runs on render, hover or Copy.
@@ -1933,12 +1938,23 @@ While an installed board is open, its icon carries the same count as the title w
 In his phone's Home Screen app, opened from the private board, the Remote access section has an **App badge** switch where the browser pushes (CEO decision 1008918); the board on the PC has none, since the desktop window and the page tell what waits there.
 Turning it on asks for notifications in the app's own words, the system's prompt naming Code Goblins, and only then: the phone app never shows the board's ask for Windows notifications, and claims no alert from the board on the PC.
 It subscribes the app to the supervisor's pushes, and the app tells the supervisor of its subscription again each time it opens, subscribing again if the board's key changed, and ending the badge if he turned its notifications off in Settings.
-The supervisor then pushes each item newly waiting on the Overlord, in the words the desktop window notifies it, with how many wait, so the icon's count rises and the item shows as a notification while the app is closed; tapping it brings the app up.
+The supervisor then pushes each item newly waiting on the Overlord, in the words the desktop window notifies it, with how many wait, so the icon's count rises and the item shows as a notification while the app is closed; tapping it brings the app up at that item: an app already open is told the item's [board address](#board-addresses) and opens it in place, so what he was typing stays, and otherwise the app opens at that address (#2363).
 A count that falls is corrected when the app opens, never by a push, since iOS changes a badge only with a notification (CEO decision 1008953).
 It pushes nothing else, nothing under AFK mode, nothing for what already waited when the badge turned on, and nothing for a goblin's question the CEO left, which counts but, as on the page, never alerts.
 The pushes go through the browser's own push service (Apple's for an iPhone), encrypted so only the app reads them (RFC 8291), padded to one size, and signed with the board's VAPID key (RFC 8292), which `push.json` in the state folder keeps, readable by its owner alone, with each subscribed app; the supervisor sends only to Apple's, Google's, Mozilla's or Microsoft's push service, and forgets an app its service dropped.
 Turning the switch off unsubscribes the app, and turning remote access off forgets every app at once, as for a phone he lost.
 The PNG icons under `/assets/icons/` are rendered from `/favicon.svg`, the smaller Home Screen icons from the 180 px one; render them again whenever the mark changes.
+
+### Board addresses
+
+A board address opens one place on the board (#2363, approved 2026-11-11 from the study closed as #2359): `/?task=<task id>` opens that goblin's panel, and `/?item=<key>` opens one Command Center item by the key the board and its pushes give it, such as `question:<id>` or `review:<id>` (`frontend/src/board-address.ts`).
+It is the board's own origin and root with that one parameter and no other, so any other address, another parameter beside it included, is not a board address.
+The board opens only a goblin its snapshot holds, at work or finished, or an item that waits on him, and only opens it: nothing it names is answered, started or stopped.
+Any other address opens nothing and says nothing, as the board keeps its words about trouble to the few the Overlord approved.
+The page reads its own address as it loads, once its first snapshot comes, and then puts its address back to plain `/`, so a reload opens nothing again (`frontend/src/use-board-address.ts`).
+A board address in a message, in a goblin's or the CEO's terminal, or in a tapped push opens its place in the page already open, with no reload and no new tab, so what he was typing stays: in a browser, in the desktop window, which hands such a link to no browser, and in his phone's app.
+A link in a Scrawl page or anywhere off the board opens a board at the address, which opens the place as it loads.
+No protocol handler is registered.
 
 ### The desktop window
 

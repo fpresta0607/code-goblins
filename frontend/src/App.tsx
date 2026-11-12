@@ -57,6 +57,7 @@ import { RowOpener } from "./row-opener";
 import { AfkOnDialog } from "./afk-on-dialog";
 import { LinkFallback } from "./link-fallback";
 import { useAfkToggle } from "./useAfkToggle";
+import { useBoardAddress } from "./use-board-address";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = boardPage(() => import("./TerminalDeck").then((module) => module.TerminalDeck), "terminals");
@@ -243,6 +244,7 @@ export function App() {
     requestAnimationFrame(() => pane.current?.focus({ preventScroll: true }));
   };
   useEffect(() => { latestSelect.current = select; });
+  useBoardAddress(snapshot, (id) => latestSelect.current({ task: id }, pane.current || document.body), (key) => setCommandFocus({ key, at: Date.now() }));
   // keyboardTo hands the keyboard to the session of key: the box under its
   // messages, or its terminal, where the board does not read it as messages
   // or its terminal stepped in.
