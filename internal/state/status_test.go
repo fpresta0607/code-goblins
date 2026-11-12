@@ -101,6 +101,35 @@ func events(lines []string) []string {
 	return stripped
 }
 
+func TestDoneReportReadsOnlyTheReportALocalOnlyTaskKept(t *testing.T) {
+	root := t.TempDir()
+	kept := filepath.Join(root, "data", "g1", "report.md")
+	spaced := filepath.Join(root, "Ann Lee", "data", "g1", "report.md")
+	for _, test := range []struct {
+		name, event, want string
+	}{
+		{"its kept report", "done: report " + kept, kept},
+		{"a kept report under a folder with a space", "done: report " + spaced, spaced},
+		{"a kept report with what it left running", "  done: report " + kept + " (left running: pid 4)", kept},
+		{"a path in the home", "done: report data/g1/report.md", ""},
+		{"another file", "done: report " + filepath.Join(root, "data", "g1", "notes.md"), ""},
+		{"a file named like a report", "done: report " + filepath.Join(root, "data", "g1", "myreport.md"), ""},
+		{"a pull request", "done: PR https://github.com/o/r/pull/9", ""},
+		{"a report on a working line", "working: done: report " + kept, ""},
+		{"nothing", "", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			got := DoneReport(test.event)
+
+			// Assert
+			if got != test.want {
+				t.Errorf("DoneReport(%q) = %q, want %q", test.event, got, test.want)
+			}
+		})
+	}
+}
+
 func TestDoneClosedReadsOnlyTheReportOfAClosedIssue(t *testing.T) {
 	const issue = "https://github.com/o/r/issues/1450"
 	cases := map[string]string{
