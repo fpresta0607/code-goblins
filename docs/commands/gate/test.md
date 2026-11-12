@@ -3,7 +3,7 @@
 `goblins gate test [--level changed\|fast\|affected\|full \| --focused] [--plan]`
 
 This repository's no-mistakes test step, run from `.no-mistakes.yaml`'s `commands.test` as the step's baseline, runs `go vet` and `go test -json -count=1 -p 2 -timeout 45m` at the selected verification level.
-It runs them without `GOBLINS_HOME` and `GOBLINS_STATE_OVERRIDE`, which a gate step inherits from the goblin's pane, and without `NO_MISTAKES_GATE`, under which every `goblins hook` does nothing and the hook tests would test nothing.
+It runs them without `GOBLINS_HOME` and `GOBLINS_STATE_OVERRIDE`, which a gate step inherits from the goblin's pane, without `NO_MISTAKES_GATE`, under which every `goblins hook` does nothing and the hook tests would test nothing, and without `GOBLINS_TEST_EVIDENCE`, which picks the step's own default level and a test of that default would read.
 CI still runs every package before a change reaches the default branch, in its merge train's run; the local step is bounded because an agent-chosen step ran the whole suite on this machine, where supervisor alone takes about 22 minutes, and hit the 30-minute test agent limit.
 With neither `--level` nor `--focused` the step, the gate's included, runs `fast`; [Verification levels](../../pipeline.md#verification-levels) owns package selection, required guards and platform deferrals.
 Running the required level here as well ran the slowest packages twice, here in a median of 33 minutes and again in CI.
