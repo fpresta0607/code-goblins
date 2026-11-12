@@ -241,3 +241,25 @@ for (const { title, baby, part, least, most, shows } of [
     expect(seen.shows, "the lines the part shows").toBe(shows);
   });
 }
+
+// A baby goblin's state is longest in its first minute, and longest of all
+// for a state the board does not know. Beside its head the card showed
+// neither whole, each ending in an ellipsis, where the card with its head on
+// top had room for both.
+for (const state of ["Working just started", "Unknown just started"]) {
+  test(`a baby goblin's card shows its state whole in its first minute: ${state}`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page, "canvas", "&fresh");
+    const card = page.locator(".tree-branches .tree-child").filter({ has: page.locator(".state-chip-text", { hasText: state }) });
+    await expect(card).toHaveCount(1);
+
+    // Act
+    const text = await card.locator(".state-chip-text").evaluate((chip: HTMLElement) => ({ needs: chip.scrollWidth, shows: chip.clientWidth }));
+    const seen = await card.evaluate(measure, BABY);
+
+    // Assert
+    expect(text.shows, "the width of the state the card shows, of the " + text.needs + "px it needs").toBeGreaterThanOrEqual(text.needs);
+    expectOneGroup(seen, "the baby goblin's card", true);
+  });
+}
