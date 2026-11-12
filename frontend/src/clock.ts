@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 // seconds reads its own clock at a step of a second, and only while it does.
 // Each step falls on the wall clock's whole step, not on when what a card
 // times began, so a card's whole minute can show up to 59 seconds late, which
-// the task took as a reversible call and the CFO confirmed in decision 1012867.
+// the task took as a reversible call and the CEO confirmed in decision 1012867.
 // A check of a time the supervisor wrote reads the later of this clock and when
 // the stream took the latest snapshot, App's freshNow, so nothing reported
 // since the last step looks to come from the future.

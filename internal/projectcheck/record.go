@@ -20,7 +20,7 @@ func (c *checker) record() {
 		c.add(AreaRecord, "record-missing", High,
 			"the project has no record, so nothing steers its routing, verification or deployment",
 			"no file at "+path,
-			"run cfo project check with --draft for the record this run can vouch for, read it, complete it and place it at "+path)
+			"run goblins project check with --draft for the record this run can vouch for, read it, complete it and place it at "+path)
 		return
 	case err != nil:
 		c.add(AreaRecord, "record-invalid", High,
@@ -68,7 +68,7 @@ func (c *checker) tiers(path string, manifest project.Manifest) {
 	}
 	if !verifies(manifest) {
 		c.add(AreaRecord, "tiers-empty", Medium,
-			"the record names no verification command, so cfo verify fails every tier with nothing to run",
+			"the record names no verification command, so goblins verify fails every tier with nothing to run",
 			"verification.fast, verification.full and verification.deep are empty in "+path,
 			"name the project's real test commands in verification.fast and verification.full")
 	}

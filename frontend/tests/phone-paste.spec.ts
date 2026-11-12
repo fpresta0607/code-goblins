@@ -27,7 +27,7 @@ for (const backend of ["native", "herdr"] as const) {
       inputs = [];
       // The first visit's voice hint lies over the screen's corner, above
       // the text box.
-      await page.addInitScript(() => localStorage.setItem("cfo-voice-hint-v1", "dismissed"));
+      await page.addInitScript(() => localStorage.setItem("ceo-voice-hint-v1", "dismissed"));
       if (backend === "native") {
         await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
           socket.send(JSON.stringify({ type: "history", bytes: 0 }));

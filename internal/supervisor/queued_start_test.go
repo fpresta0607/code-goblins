@@ -111,7 +111,7 @@ func TestStartCreatesAMissingBriefFromTheQueuedTask(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("CFO was not told a brief was created")
+		t.Fatal("CEO was not told a brief was created")
 	}
 }
 
@@ -120,7 +120,7 @@ func TestStartCreatesAMissingBriefFromTheQueuedTask(t *testing.T) {
 // on the first start or on the one after a failed spawn.
 func TestStartAfterAFailedSpawnKeepsTheDeliveryChoicesOverTheTaskDetail(t *testing.T) {
 	// Arrange
-	spawner := &spawnRecorder{output: "cfo spawn: the terminal did not open\n", err: errors.New("exit status 1")}
+	spawner := &spawnRecorder{output: "goblins spawn: the terminal did not open\n", err: errors.New("exit status 1")}
 	handler, h := startBoard(t, 5*gigabyte, spawner)
 	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- **next-task** - Improve search (repo: code-goblins)\n  Search by project name.\n  mode: direct-PR\n  harness: codex\n  model: quoted-model\n  effort: low\n")
 	path := filepath.Join(h.Data, "next-task", "brief.md")
@@ -150,15 +150,15 @@ func TestStartAfterAFailedSpawnKeepsTheDeliveryChoicesOverTheTaskDetail(t *testi
 		t.Fatalf("delivery section=%q, want mode: no-mistakes", delivery)
 	}
 	if len(calls) != 2 {
-		t.Fatalf("cfo spawn ran %d times, want twice: %q", len(calls), calls)
+		t.Fatalf("goblins spawn ran %d times, want twice: %q", len(calls), calls)
 	}
 	spawn := []string{"spawn", "next-task", "--project", "code-goblins", "--brief", path}
 	revision := []string{"--brief-revision", fmt.Sprintf("brief:%x", sha256.Sum256(data))}
 	if first := slices.Concat(spawn, revision); !slices.Equal(calls[0], first) {
-		t.Errorf("first start ran cfo %q, want cfo %q", calls[0], first)
+		t.Errorf("first start ran goblins %q, want goblins %q", calls[0], first)
 	}
 	if again := slices.Concat(spawn, []string{"--mode", "no-mistakes"}, revision); !slices.Equal(calls[1], again) {
-		t.Errorf("the start after the failed spawn ran cfo %q, want cfo %q", calls[1], again)
+		t.Errorf("the start after the failed spawn ran goblins %q, want goblins %q", calls[1], again)
 	}
 	if card.Mode != "no-mistakes" || card.Harness != "" || card.Model != "" || card.Effort != "" {
 		t.Errorf("queued card shows %s on %s/%s/%s, want no-mistakes on the routed engine", card.Mode, card.Harness, card.Model, card.Effort)

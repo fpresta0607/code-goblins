@@ -297,7 +297,7 @@ func TestRenderWithinListsWholeRecordsAndWithholdsAnAckItCannotBack(t *testing.T
 		wantAbsent []string
 		wantLine   string
 	}{
-		{"room for every record", 4096, true, []string{"  11  stale", decision.String(), "  13  stale"}, []string{"WAKE_ACK_WITHHELD"}, "WAKE_ACK_REQUIRED: cfo drain --ack-through 13\n"},
+		{"room for every record", 4096, true, []string{"  11  stale", decision.String(), "  13  stale"}, []string{"WAKE_ACK_WITHHELD"}, "WAKE_ACK_REQUIRED: goblins drain --ack-through 13\n"},
 		{"room that ends inside the decision", bare.Len() + first.Len() + decision.Len()/2, false, []string{"  11  stale"}, []string{"DECISION", "question:", "  13  stale", "WAKE_ACK_REQUIRED"}, "WAKE_ACK_WITHHELD: 2 of the 3 records are not listed above"},
 		{"no room for any record", 0, false, nil, []string{"  11  stale", "DECISION", "WAKE_ACK_REQUIRED"}, "WAKE_ACK_WITHHELD: 3 of the 3 records are not listed above"},
 	} {
@@ -326,7 +326,7 @@ func TestRenderWithinListsWholeRecordsAndWithholdsAnAckItCannotBack(t *testing.T
 					t.Errorf("the listing holds %q, which it had no room or no right to print:\n%s", absent, got)
 				}
 			}
-			if !test.isWhole && !strings.Contains(got, "cfo drain") {
+			if !test.isWhole && !strings.Contains(got, "goblins drain") {
 				t.Errorf("a partial listing does not say how to read the rest:\n%s", got)
 			}
 			if test.room > 0 && out.Len() > test.room {
@@ -336,7 +336,7 @@ func TestRenderWithinListsWholeRecordsAndWithholdsAnAckItCannotBack(t *testing.T
 	}
 }
 
-// The field that was missing. On 2026-09-18 two goblins waited 8h47m on a CFO
+// The field that was missing. On 2026-09-18 two goblins waited 8h47m on a CEO
 // decision and the Overlord noticed before the fleet did, because the question
 // read as one more status line. An outstanding decision is rendered as a
 // decision: which goblin, how long it has waited, what it asked, and the
@@ -376,7 +376,7 @@ func TestRenderShowsAnOutstandingDecisionWithItsWaitAndOptions(t *testing.T) {
 
 // On 2026-10-01 a goblin's question quoted "the options: marker" in a detail
 // line, so the first marker was read as the choices: option 1 was the rest of
-// that sentence and cfo answer had no usable text. The choices follow the
+// that sentence and goblins answer had no usable text. The choices follow the
 // last marker, and whatever comes before it is the question.
 func TestAQuestionThatNamesTheMarkerInItsWordsKeepsItsChoices(t *testing.T) {
 	for name, c := range map[string]struct {
@@ -423,7 +423,7 @@ func TestChoicesLastPutsEveryDetailBeforeTheChoices(t *testing.T) {
 	}
 }
 
-// A goblin's page is put to the CFO as its question with the page's link at
+// A goblin's page is put to the CEO as its question with the page's link at
 // its end and the choices the page declares after it. A page that declares
 // none ends the question with its link, so the goblin's own words before it,
 // such as a title that names the options marker, offer no choice.
@@ -476,9 +476,9 @@ func TestRenderSaysWhenADecisionOfferedNoOptions(t *testing.T) {
 	}
 }
 
-// A goblin's page that declares no choices is a decision the CFO answers in
-// its own words with cfo answer, which the walk-through after AFK mode asks
-// the Overlord, so the renderer never sends it to cfo send.
+// A goblin's page that declares no choices is a decision the CEO answers in
+// its own words with goblins answer, which the walk-through after AFK mode asks
+// the Overlord, so the renderer never sends it to goblins send.
 func TestRenderSaysToAnswerAPageWithNoChoicesInWords(t *testing.T) {
 	// Arrange
 	now := time.Date(2026, 10, 11, 4, 2, 0, 0, time.UTC)
@@ -494,12 +494,12 @@ func TestRenderSaysToAnswerAPageWithNoChoicesInWords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := out.String(); !strings.Contains(got, `cfo answer 9 --option "<your answer>"`) || strings.Contains(got, "cfo send") {
-		t.Errorf("render = %q, want the page answered in words with cfo answer", got)
+	if got := out.String(); !strings.Contains(got, `goblins answer 9 --option "<your answer>"`) || strings.Contains(got, "goblins send") {
+		t.Errorf("render = %q, want the page answered in words with goblins answer", got)
 	}
 }
 
-// Page is the Scrawl page a decision's question carries at its end, as cfo
+// Page is the Scrawl page a decision's question carries at its end, as goblins
 // notify writes it, and nothing for a question that only mentions a page.
 func TestPageIsThePageAQuestionCarriesAtItsEnd(t *testing.T) {
 	for question, want := range map[string]string{
@@ -531,7 +531,7 @@ func TestWaitedReadsToTheMinuteAndNeverNegative(t *testing.T) {
 	}
 }
 
-// A board answer rides along with its record until the CFO acks it, and the
+// A board answer rides along with its record until the CEO acks it, and the
 // ack retires the answer with the record.
 func TestMarkAnsweredRidesAlongUntilTheAck(t *testing.T) {
 	dir := t.TempDir()
@@ -579,8 +579,8 @@ func TestMarkAnsweredRidesAlongUntilTheAck(t *testing.T) {
 	}
 }
 
-// Drain names who answered a question: the Overlord on the board or the CFO
-// with cfo answer. A marker holding only the answer, as the previous build
+// Drain names who answered a question: the Overlord on the board or the CEO
+// with goblins answer. A marker holding only the answer, as the previous build
 // wrote it, is the Overlord's.
 func TestAnsweredNotifyNamesWhoAnswered(t *testing.T) {
 	for _, c := range []struct {
@@ -590,7 +590,7 @@ func TestAnsweredNotifyNamesWhoAnswered(t *testing.T) {
 		want   string
 	}{
 		{"the Overlord", func(dir string, seq int) error { return MarkAnswered(dir, seq, AnsweredByOverlord, "SQLite") }, AnsweredByOverlord, "answered: the Overlord answered on the board: SQLite;"},
-		{"the CFO", func(dir string, seq int) error { return MarkAnswered(dir, seq, AnsweredByCFO, "SQLite") }, AnsweredByCFO, "answered: the CFO answered with cfo answer: SQLite;"},
+		{"the CEO", func(dir string, seq int) error { return MarkAnswered(dir, seq, AnsweredByCEO, "SQLite") }, AnsweredByCEO, "answered: the CEO answered with goblins answer: SQLite;"},
 		{"a marker from the previous build", func(dir string, seq int) error {
 			if err := os.MkdirAll(filepath.Join(dir, answeredDir), 0o755); err != nil {
 				return err
@@ -627,7 +627,7 @@ func TestAnsweredNotifyNamesWhoAnswered(t *testing.T) {
 // for the board.
 func TestAProseAskIsAQuestionOwedWithItsWords(t *testing.T) {
 	// Arrange
-	asked := Record{Kind: "stale", Key: "g1", Detail: `goblin_asks: g1 ended its turn asking in prose instead of with cfo notify --blocked and waits at its prompt for the answer; next: answer it with cfo send g1 "<your answer>" (cfo answer takes only a notify's question). It asked: "Should I open the PR? It says "ready" now."`}
+	asked := Record{Kind: "stale", Key: "g1", Detail: `goblin_asks: g1 ended its turn asking in prose instead of with goblins notify --blocked and waits at its prompt for the answer; next: answer it with goblins send g1 "<your answer>" (goblins answer takes only a notify's question). It asked: "Should I open the PR? It says "ready" now."`}
 	idle := Record{Kind: "stale", Key: "g1", Detail: "goblin_idle: at its prompt for 3m"}
 
 	// Act
@@ -648,8 +648,8 @@ func TestAProseAskIsAQuestionOwedWithItsWords(t *testing.T) {
 }
 
 // A goblin's wakes name it as "Name (id)", read from its record when the
-// queue is read, so the CFO can talk about it by name. The id stays the
-// handle a cfo command takes.
+// queue is read, so the CEO can talk about it by name. The id stays the
+// handle a goblins command takes.
 func TestPendingAndRenderNameAGoblinByNameAndID(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
@@ -676,7 +676,7 @@ func TestPendingAndRenderNameAGoblinByNameAndID(t *testing.T) {
 	}
 	for _, want := range []string{
 		"DECISION  Jerry (cg-x)  blocked",
-		"answer with `cfo send cg-x",
+		"answer with `goblins send cg-x",
 		"notify  Jerry (cg-x): working: running the tests",
 		"notify  Mabel (cg-done): done: PR https://example.test/pull/24",
 		"notify  cg-anon: working: reading",

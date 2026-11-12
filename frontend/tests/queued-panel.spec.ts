@@ -17,13 +17,13 @@ const REMOVED = task("finished:queued-one", "stopped", { title: "queued-one", ge
 const DELIVERED = task("delivered-one", "done", { verified: true, merged: true, pr: "https://github.com/o/r/pull/9" });
 const BOARD = [QUEUED, BLOCKED, WORKING, PAUSED];
 
-const events = (revision: number, tasks: Record<string, unknown>[]) => `event: snapshot\ndata: ${JSON.stringify({ healthy: true, instance: "fixture", cfo_runs: true, revision, attention: [], memory, tasks })}\n\n`;
+const events = (revision: number, tasks: Record<string, unknown>[]) => `event: snapshot\ndata: ${JSON.stringify({ healthy: true, instance: "fixture", ceo_runs: true, revision, attention: [], memory, tasks })}\n\n`;
 
 interface Posted { path: string; body: Record<string, unknown> }
 
 // posted collects what the board asked the supervisor to change.
 async function open(page: Page, posted: Posted[] = [], tasks: Record<string, unknown>[] = BOARD) {
-  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (route.request().method() === "POST") {
@@ -367,7 +367,7 @@ test("the task's edit control is a small pencil at its text, named by its tip, f
   await expect(box(page)).toBeFocused();
 });
 
-// What More held: the CFO's note on what the row waits for, or the
+// What More held: the CEO's note on what the row waits for, or the
 // supervisor's words for a task that already finished. Its status says either
 // in a few words, and nothing folds under it.
 const GB = 2 ** 30;
@@ -376,7 +376,7 @@ const EVIDENCE = "Already finished: its last report was done (2026-10-06 11:59Z:
 const EVIDENCE_LINE = "Its last report was done (2026-10-06 11:59Z: done: PR 9).";
 const HELD = task("queued-held", "queued", { generation: "", brief: true, queue_revision: "q1", waits: [{ kind: "memory", target: "memory 12 GB", bytes: 12 * GB }], reason: NOTE });
 const FINISHED = task("queued-finished", "queued", { generation: "", brief: true, queue_revision: "q1", finished: EVIDENCE });
-const START_FAILED = task("queued-failed", "queued", { generation: "", brief: true, queue_revision: "q1", start_error: "cfo spawn: the brief names no project" });
+const START_FAILED = task("queued-failed", "queued", { generation: "", brief: true, queue_revision: "q1", start_error: "goblins spawn: the brief names no project" });
 
 test("a queued task's panel has no More under its status, whatever its row waits for or says finished", async ({ page }) => {
   // Arrange
@@ -589,11 +589,11 @@ test("a refused save keeps the text and says why beside the box for a moment, ne
 // The Overlord, 2026-10-07, on an amber box at the head of Tasks saying a
 // start needs more memory: "any alerts that are critical go through cfo to me
 // as needed". A start the supervisor tried by itself and could not make shows
-// nothing on the card: the CFO is told, and the meter shows memory.
+// nothing on the card: the CEO is told, and the meter shows memory.
 test("a queued card whose supervisor start failed shows no failure", async ({ page }) => {
   // Arrange
   const failed = { ...QUEUED, start_error: "memory 4.6 GB free; a start needs 5 GB of memory and commit to keep the 4 GB floor" };
-  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
   await page.route("**/api/**", async (route) => {
     if (new URL(route.request().url()).pathname === "/api/events") await route.fulfill({ contentType: "text/event-stream", body: events(1, [failed, WORKING]) });
     else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });

@@ -11,7 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-func TestCFOCompactStartPreservesHeldWorkAndUnacceptedDelivery(t *testing.T) {
+func TestCEOCompactStartPreservesHeldWorkAndUnacceptedDelivery(t *testing.T) {
 	store, home := testStore(t)
 	now := time.Now().UTC().Add(-time.Minute)
 	normalize := func(name, source string, at time.Time) nativehook.Event {
@@ -20,7 +20,7 @@ func TestCFOCompactStartPreservesHeldWorkAndUnacceptedDelivery(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		event, err := nativehook.Normalize(strings.NewReader(string(payload)), nativehook.Context{Harness: "codex", Role: "cfo", HostID: "fixture-host", Now: at})
+		event, err := nativehook.Normalize(strings.NewReader(string(payload)), nativehook.Context{Harness: "codex", Role: "ceo", HostID: "fixture-host", Now: at})
 		if err != nil {
 			t.Fatal(err)
 		}

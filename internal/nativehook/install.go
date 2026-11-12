@@ -53,11 +53,11 @@ type InstallConfig struct{ Harness, ConfigDir, Executable, Home, State string }
 // tests. Of the 36,191 native hook runs Claude Code recorded on a busy fleet
 // from 2026-10-16 to 10-20, 33 ran past the 3 seconds the hooks had, one for
 // 19 seconds, and the 24 the harness ended lost their events, among them the
-// CFO's own prompts (issue #1211). A hook that finishes sooner ends sooner,
+// CEO's own prompts (issue #1211). A hook that finishes sooner ends sooner,
 // so the limit costs time only while the machine itself is stalled.
 const TimeoutSeconds = 30
 
-const ownedMarker = "# CFO native hooks v1"
+const ownedMarker = "# CEO native hooks v1"
 
 // Install owns only its exact hook command and helper files. Unrelated JSON
 // members, matcher groups and hook handlers remain byte-preserved RawMessages.
@@ -72,7 +72,7 @@ func Install(c InstallConfig) (string, error) {
 		return "", errors.New("unsupported native hook harness")
 	}
 	if c.Harness == "pi" {
-		path := filepath.Join(c.ConfigDir, "extensions", "cfo-native.ts")
+		path := filepath.Join(c.ConfigDir, "extensions", "goblins-native.ts")
 		return path, writeOwned(path, piExtension(c))
 	}
 	path := settingsPath(c.Harness, c.ConfigDir)
@@ -120,7 +120,7 @@ func Install(c InstallConfig) (string, error) {
 		return "", err
 	}
 	if len(original) > 0 && !bytes.Equal(original, append(data, '\n')) {
-		backup, err := os.OpenFile(path+".cfo-native.backup", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		backup, err := os.OpenFile(path+".goblins-native.backup", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 		if err == nil {
 			_, werr := backup.Write(original)
 			if err := errors.Join(werr, backup.Close()); err != nil {
@@ -183,7 +183,7 @@ func writeOwned(path, content string) error {
 // nothing.
 func RefreshPi(c InstallConfig) (bool, error) {
 	c.Harness = "pi"
-	prior, err := fsx.ReadFile(filepath.Join(c.ConfigDir, "extensions", "cfo-native.ts"))
+	prior, err := fsx.ReadFile(filepath.Join(c.ConfigDir, "extensions", "goblins-native.ts"))
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -199,7 +199,7 @@ func RefreshPi(c InstallConfig) (bool, error) {
 
 // owned reports whether a helper file's content is one Install wrote.
 func owned(content []byte) bool {
-	return bytes.HasPrefix(content, []byte(ownedMarker)) || bytes.HasPrefix(content, []byte("// CFO native hooks v1"))
+	return bytes.HasPrefix(content, []byte(ownedMarker)) || bytes.HasPrefix(content, []byte("// CEO native hooks v1"))
 }
 
 // Uninstall removes what Install wrote for harness under configDir: its hook
@@ -210,7 +210,7 @@ func owned(content []byte) bool {
 func Uninstall(harness, configDir string) (bool, error) {
 	switch harness {
 	case "pi":
-		return removeOwned(filepath.Join(configDir, "extensions", "cfo-native.ts"))
+		return removeOwned(filepath.Join(configDir, "extensions", "goblins-native.ts"))
 	case "claude", "codex":
 	default:
 		return false, errors.New("unsupported native hook harness")
@@ -262,7 +262,7 @@ func Uninstall(harness, configDir string) (bool, error) {
 func Installed(harness, configDir string) (bool, error) {
 	switch harness {
 	case "pi":
-		return ownedThere(filepath.Join(configDir, "extensions", "cfo-native.ts"))
+		return ownedThere(filepath.Join(configDir, "extensions", "goblins-native.ts"))
 	case "claude", "codex":
 	default:
 		return false, errors.New("unsupported native hook harness")
@@ -304,7 +304,7 @@ func settingsPath(harness, configDir string) string {
 // helperCommand is the helper script Install writes under configDir and the
 // exact hook command that runs it, which is how its entries are recognised.
 func helperCommand(configDir string) (helper, command string) {
-	helper = filepath.Join(configDir, "cfo-native-hook.ps1")
+	helper = filepath.Join(configDir, "goblins-native-hook.ps1")
 	return helper, `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "` + filepath.ToSlash(helper) + `"`
 }
 
@@ -312,7 +312,7 @@ func helperCommand(configDir string) (helper, command string) {
 // with no quotes, written with forward slashes.
 const unquotedPath = `[A-Za-z0-9:/._~-]+`
 
-// directCommand is the Codex hook command that runs cfo itself, and whether
+// directCommand is the Codex hook command that runs goblins itself, and whether
 // Codex hooks use it. Codex runs each hook command inside the session's own
 // shell, powershell.exe -NoProfile -Command on Windows, so the helper's
 // command starts a second PowerShell for every event; live on 2026-10-08
@@ -330,7 +330,7 @@ func directCommand(c InstallConfig) (string, bool) {
 
 // CodexArguments are the Codex arguments that give one session its native
 // hooks, with the hooks feature on: a -c override for each lifecycle event,
-// running cfo native-hook codex directly as Install's hooks do, in the
+// running goblins native-hook codex directly as Install's hooks do, in the
 // session's own configuration rather than the user's hooks.json, which every
 // Codex session on the machine loads, the Overlord's own outside the fleet
 // included. Codex keys a hook's trust by where it is defined, which for a -c
@@ -340,7 +340,7 @@ func directCommand(c InstallConfig) (string, bool) {
 func CodexArguments(executable, home, state string) ([]string, error) {
 	command, ok := directCommand(InstallConfig{Harness: "codex", Executable: executable, Home: home, State: state})
 	if !ok {
-		return nil, fmt.Errorf("native hooks: Codex cannot run cfo from %s with home %s and state %s without quoting them", executable, home, state)
+		return nil, fmt.Errorf("native hooks: Codex cannot run goblins from %s with home %s and state %s without quoting them", executable, home, state)
 	}
 	args := []string{"--enable", "hooks"}
 	for _, event := range Events("codex") {
@@ -352,10 +352,10 @@ func CodexArguments(executable, home, state string) ([]string, error) {
 // CodexGoblinArguments are a Codex goblin's CodexArguments with its goblin
 // seal, which a Claude Code goblin's settings run before each command
 // (install.GoblinHooks): a PreToolUse override for Bash, the name Codex gives
-// a shell command and an exec_command call alike, running cfo hook
+// a shell command and an exec_command call alike, running goblins hook
 // goblin-seal-codex directly with Codex's own limit for a hook, as Claude
-// Code's is for the seal. The Codex CFO's launch carries no seal, as the
-// Claude Code CFO's settings carry none.
+// Code's is for the seal. The Codex CEO's launch carries no seal, as the
+// Claude Code CEO's settings carry none.
 func CodexGoblinArguments(executable, home, state string) ([]string, error) {
 	args, err := CodexArguments(executable, home, state)
 	if err != nil {
@@ -365,7 +365,7 @@ func CodexGoblinArguments(executable, home, state string) ([]string, error) {
 }
 
 // ownsCommand reports whether a hook command is one Install wrote for harness
-// under configDir: the helper's, or cfo run directly for harness from any
+// under configDir: the helper's, or goblins run directly for harness from any
 // place it was installed, so a reinstall after the binary moved replaces it.
 func ownsCommand(harness, configDir, command string) bool {
 	_, helper := helperCommand(configDir)
@@ -459,7 +459,7 @@ func ps(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 func piExtension(c InstallConfig) string {
 	exe, _ := json.Marshal(c.Executable)
 	args, _ := json.Marshal([]string{"native-hook", "pi", "--home", c.Home, "--state", c.State})
-	return `// CFO native hooks v1
+	return `// CEO native hooks v1
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext, ToolExecutionEndEvent } from "@earendil-works/pi-coding-agent";
@@ -470,16 +470,16 @@ export default function (pi: ExtensionAPI) {
     if (name === "agent_settled" && ctx.hasPendingMessages()) return;
     const payload = {hook_event_name: name, session_id: ctx.sessionManager.getSessionId(), cwd: ctx.cwd,
       turn_id: instance + ":" + turn, model: ctx.model?.id, pending_messages: ctx.hasPendingMessages(),
-      ...(tool && process.env.CFO_ROLE === "goblin" ? {tool_name: tool.toolName, tool_use_id: tool.toolCallId, tool_response: tool.result} : {})};
+      ...(tool && process.env.GOBLINS_ROLE === "goblin" ? {tool_name: tool.toolName, tool_use_id: tool.toolCallId, tool_response: tool.result} : {})};
     let input: string;
     try {
       input = JSON.stringify(payload);
     } catch {
-      console.error("CFO native event could not be encoded");
+      console.error("CEO native event could not be encoded");
       return;
     }
     if (Buffer.byteLength(input, "utf8") > ` + strconv.Itoa(MaxInputBytes) + `) {
-      console.error("CFO native event exceeds 64 MiB");
+      console.error("CEO native event exceeds 64 MiB");
       return;
     }
     const result = spawnSync(` + string(exe) + `, ` + string(args) + `, {
@@ -497,7 +497,7 @@ export default function (pi: ExtensionAPI) {
       result.signal ? "was terminated by " + result.signal + ". It may have recorded the event." :
       typeof result.status === "number" && result.status !== 0 ? "exited with status " + result.status + ". It may have recorded the event." :
       result.error ? "could not complete (" + (code || "unknown error") + "). It may have recorded the event." : "";
-    if (outcome) console.error("CFO native hook for " + name + " " + outcome);
+    if (outcome) console.error("CEO native hook for " + name + " " + outcome);
   };
   pi.on("session_start", (_event, ctx) => fire("session_start", ctx));
   pi.on("session_before_compact", (_event, ctx) => fire("session_before_compact", ctx));

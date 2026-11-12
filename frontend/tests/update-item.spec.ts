@@ -38,9 +38,9 @@ test("a new release is its own item: the versions, what is new, what the update 
   const card = dialog.locator(".update-card");
   await expect(card.getByRole("heading", { name: "Update Code Goblins" })).toBeVisible();
   await expect(card.locator(".update-versions")).toHaveAccessibleName("From v0.4.2 to v0.5.0");
-  await expect(card.locator(".update-notes li")).toHaveText(["The installer sorts out every machine by itself", "AFK mode holds questions for you", "Goblins that stall wake the CFO"]);
+  await expect(card.locator(".update-notes li")).toHaveText(["The installer sorts out every machine by itself", "AFK mode holds questions for you", "Goblins that stall wake the CEO"]);
   await expect(card.getByRole("link", { name: "What's new" })).toHaveAttribute("href", "https://github.com/fpresta0607/code-goblins/releases/tag/v0.5.0");
-  await expect(card.locator(".update-trust")).toContainText("Unsigned release. Update installs it only when each file matches the release's SHA-256, such as cfo.exe 3f9a6c0e…5bc21e.");
+  await expect(card.locator(".update-trust")).toContainText("Unsigned release. Update installs it only when each file matches the release's SHA-256, such as goblins.exe 3f9a6c0e…5bc21e.");
   await expect(card.locator(".run-command")).toHaveCount(0);
   await expect(card.locator(".goblin-avatar.persona-releases")).toBeVisible();
 
@@ -61,7 +61,7 @@ test("Update follows the run step by step, and a rollback ends on one sentence a
     await route.fulfill({ json: { id: String(sent?.id), kind: "run", run_id: "update-v0.5.0-2", status: "queued" } });
   });
   await page.route("**/api/runs/update-v0.5.0-1/output", (route) => route.fulfill({ json: { state: "running",
-    output: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n      cfo.exe matches the release's SHA256SUMS: 3f9a\n[3/4] Install Code Goblins v0.5.0\nStopping the supervisor (pid 21116).\n" } }));
+    output: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n      goblins.exe matches the release's SHA256SUMS: 3f9a\n[3/4] Install Code Goblins v0.5.0\nStopping the supervisor (pid 21116).\n" } }));
   const dialog = await openTheItem(page);
   const card = dialog.locator(".update-card");
 
@@ -174,16 +174,16 @@ for (const draft of ["answer", "changed answer", "diff comment"] as const) {
     // A diff comment is typed after opening the task, its changes and the
     // file's diff, which outruns the default limit on a loaded machine.
     if (draft === "diff comment") test.slow();
-    const snapshot = parseSnapshot({ healthy: true, instance: "update-reload", revision: 1, cfo_runs: true, build: "old-build",
+    const snapshot = parseSnapshot({ healthy: true, instance: "update-reload", revision: 1, ceo_runs: true, build: "old-build",
       tasks: [{ id: "billing", title: "Billing", generation: "g1", phase: "working", verified: false, reported_at: "2026-10-06T14:00:00Z" }],
       questions: [
         { id: "reply", identity: "r".repeat(64), task: "", text: "Which queue?", options: ["A", "B"], status: "pending", created_at: "2026-10-06T14:00:00Z" },
-        { id: "history", identity: "h".repeat(64), task: "billing", generation: "g1", text: "Which database?", options: ["SQLite", "PostgreSQL"], status: "succeeded", answered_by: "cfo", answer: "SQLite", answer_kind: "option", answered_option: "SQLite", answered_at: "2026-10-06T14:01:00Z", created_at: "2026-10-06T14:00:00Z" },
+        { id: "history", identity: "h".repeat(64), task: "billing", generation: "g1", text: "Which database?", options: ["SQLite", "PostgreSQL"], status: "succeeded", answered_by: "ceo", answer: "SQLite", answer_kind: "option", answered_option: "SQLite", answered_at: "2026-10-06T14:01:00Z", created_at: "2026-10-06T14:00:00Z" },
       ],
       runs: [{ id: "update-v0.5.0-1", identity: "u".repeat(64), title: "Update Code Goblins", state: "running", created_at: "2026-10-06T14:02:00Z", update: { from: "v0.4.2", to: "v0.5.0" } }],
     });
     await page.addInitScript((first) => {
-      localStorage.setItem("cfo-first-open", "shown");
+      localStorage.setItem("ceo-first-open", "shown");
       class SnapshotSource extends EventTarget {
         private publish = (event: Event) => {
           if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(event.detail) }));
@@ -210,7 +210,7 @@ for (const draft of ["answer", "changed answer", "diff comment"] as const) {
     let loads = 0;
     await page.route(ORIGIN + "/", (route) => {
       const build = ++loads === 1 ? "old-build" : "new-build";
-      return route.fulfill({ contentType: "text/html", body: html.replace("</head>", `<meta name="cfo-build" content="${build}"></head>`) });
+      return route.fulfill({ contentType: "text/html", body: html.replace("</head>", `<meta name="ceo-build" content="${build}"></head>`) });
     });
     await page.goto("/");
     if (draft === "answer") {
@@ -252,11 +252,11 @@ for (const draft of ["answer", "changed answer", "diff comment"] as const) {
       await page.waitForTimeout(300);
       expect(loads).toBe(1);
       const body = posts[0].request().postDataJSON();
-      expect(body).toMatchObject({ kind: draft === "answer" ? "cfo_answer" : "answer_change", text: "Please keep my draft" });
+      expect(body).toMatchObject({ kind: draft === "answer" ? "ceo_answer" : "answer_change", text: "Please keep my draft" });
       await posts[0].fulfill({ json: { id: body.id, kind: body.kind, question_id: body.question_id, status: "queued" } });
     }
 
     await expect.poll(() => loads).toBe(2);
-    await expect(page.locator('meta[name="cfo-build"]')).toHaveAttribute("content", "new-build");
+    await expect(page.locator('meta[name="ceo-build"]')).toHaveAttribute("content", "new-build");
   });
 }

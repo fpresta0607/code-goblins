@@ -1,6 +1,6 @@
 # Proves on a hosted runner's desktop, never on a person's, how long each
-# careless start of cfo gate turn shows a window, with the build of main and
-# with this commit's, and that cfo gate turn --detach shows none at all. The
+# careless start of goblins gate turn shows a window, with the build of main and
+# with this commit's, and that goblins gate turn --detach shows none at all. The
 # default terminal is whatever the runner is set to: the workflow runs it
 # once with the console host and once with Windows Terminal.
 #
@@ -11,8 +11,8 @@
 # verdict and the summary over rows made up here, so a fixture proves those
 # rules without a desktop.
 param(
-    [string]$BaseCfo = '',
-    [string]$Cfo = '',
+    [string]$BaseGoblins = '',
+    [string]$Goblins = '',
     [string]$Terminal = '',
     [string]$Work = '',
     [string]$SelfTest = ''
@@ -56,9 +56,9 @@ function Watch-Start([string]$Name, [string]$Build, [scriptblock]$Start) {
             if (-not $entry.Value) { $front = $at }
         }
         if (Get-Process -Name PING -ErrorAction SilentlyContinue | Where-Object { -not $existing[$_.Id] }) { $command = $at }
-        # Each cfo the start ran, held by its handle so its exit code can be
+        # Each goblins the start ran, held by its handle so its exit code can be
         # read once it has ended.
-        foreach ($process in Get-Process -Name cfo -ErrorAction SilentlyContinue) {
+        foreach ($process in Get-Process -Name goblins -ErrorAction SilentlyContinue) {
             if (-not $existing[$process.Id] -and -not $runs.ContainsKey($process.Id)) {
                 $null = $process.Handle
                 $runs[$process.Id] = $process
@@ -68,10 +68,10 @@ function Watch-Start([string]$Name, [string]$Build, [scriptblock]$Start) {
     }
     foreach ($run in $runs.Values) {
         $ended = if ($run.HasExited) { "ended with exit $($run.ExitCode)" } else { 'runs' }
-        "[$Terminal / $Build / $Name] cfo pid $($run.Id) $ended" | Out-Host
+        "[$Terminal / $Build / $Name] goblins pid $($run.Id) $ended" | Out-Host
     }
     foreach ($process in Get-Process) {
-        if (-not $existing[$process.Id] -and $process.ProcessName -in 'cfo', 'PING', 'cmd', 'bash', 'conhost', 'OpenConsole') {
+        if (-not $existing[$process.Id] -and $process.ProcessName -in 'goblins', 'PING', 'cmd', 'bash', 'conhost', 'OpenConsole') {
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
         }
     }
@@ -102,7 +102,7 @@ function Get-Verdict {
     $failures = @()
     $environment = @()
     foreach ($row in $Results) {
-        $isCareless = $row.Start -ne 'cfo gate turn --detach'
+        $isCareless = $row.Start -ne 'goblins gate turn --detach'
         if ($row.Build -eq 'main') {
             if ($row.CommandUntilMs -lt $short) {
                 $environment += "main's $($row.Start) did not run its command through the $($WatchFor * 1000) ms watch (last seen: $(When-Of $row.CommandUntilMs)), so this runner cannot host the proof: the row measures no real run"
@@ -118,10 +118,10 @@ function Get-Verdict {
                 $failures += "this branch's $($row.Start) still showed a window $($row.ShownUntilMs) ms after it started"
             }
         } elseif ($row.Windows -ne 0 -or $row.CommandUntilMs -lt 0) {
-            $failures += "cfo gate turn --detach showed $($row.Windows) windows and ran its command until $($row.CommandUntilMs) ms"
+            $failures += "goblins gate turn --detach showed $($row.Windows) windows and ran its command until $($row.CommandUntilMs) ms"
         }
     }
-    if ($DetachedEnd -notlike 'cfo gate turn: the detached run ended with exit 0 after *') {
+    if ($DetachedEnd -notlike 'goblins gate turn: the detached run ended with exit 0 after *') {
         $failures += "the detached run's log ends with '$DetachedEnd', not how it ended"
     }
     return [pscustomobject]@{ Failures = $failures; Environment = $environment }
@@ -159,8 +159,8 @@ function Write-Summary {
 if ($SelfTest -ne '') {
     $watchFor = 10
     $full = $watchFor * 1000
-    $detached = 'cfo gate turn --detach'
-    $ended = 'cfo gate turn: the detached run ended with exit 0 after 3s'
+    $detached = 'goblins gate turn --detach'
+    $ended = 'goblins gate turn: the detached run ended with exit 0 after 3s'
 
     function Row([string]$Build, [string]$Start, [int]$Windows, [int]$ShownUntilMs, [int]$CommandUntilMs) {
         [pscustomobject]@{
@@ -290,8 +290,8 @@ if ($SelfTest -ne '') {
     exit 0
 }
 
-if (-not $BaseCfo -or -not $Cfo -or -not $Terminal -or -not $Work) {
-    throw 'no_visible_windows.ps1 needs -BaseCfo, -Cfo, -Terminal and -Work.'
+if (-not $BaseGoblins -or -not $Goblins -or -not $Terminal -or -not $Work) {
+    throw 'no_visible_windows.ps1 needs -BaseGoblins, -Goblins, -Terminal and -Work.'
 }
 New-Item -ItemType Directory -Force $Work | Out-Null
 
@@ -318,10 +318,16 @@ public static class Desktop {
 '@
 
 # The runs share a scratch home and their own line, never a person's.
-$env:CFO_HOME = Join-Path $Work 'home'
-$env:CFO_STATE_OVERRIDE = Join-Path $Work 'home\state'
-$env:CFO_PROJECTS_ROOT = Join-Path $Work 'projects'
-New-Item -ItemType Directory -Force $env:CFO_HOME, $env:CFO_STATE_OVERRIDE, $env:CFO_PROJECTS_ROOT | Out-Null
+$env:GOBLINS_HOME = Join-Path $Work 'home'
+$env:GOBLINS_STATE_OVERRIDE = Join-Path $Work 'home\state'
+$env:GOBLINS_PROJECTS_ROOT = Join-Path $Work 'projects'
+New-Item -ItemType Directory -Force $env:GOBLINS_HOME, $env:GOBLINS_STATE_OVERRIDE, $env:GOBLINS_PROJECTS_ROOT | Out-Null
+# The baseline predates the rename and reads the same settings by their old
+# names, so it shares the scratch home too.
+. (Join-Path $PSScriptRoot '..\pre_rename_build.ps1')
+foreach ($name in 'HOME', 'STATE_OVERRIDE', 'PROJECTS_ROOT') {
+    Set-Item -LiteralPath "env:$PreRenameSettingPrefix$name" -Value (Get-Item -LiteralPath "env:GOBLINS_$name").Value
+}
 
 $watchFor = 10
 $bash = 'C:\Program Files\Git\bin\bash.exe'
@@ -330,8 +336,8 @@ $bash = 'C:\Program Files\Git\bin\bash.exe'
 $turn = 'gate turn -- ping -n 600 127.0.0.1'
 
 $results = @()
-foreach ($build in @(@{ Name = 'main'; Cfo = $BaseCfo }, @{ Name = 'this branch'; Cfo = $Cfo })) {
-    $program = $build.Cfo
+foreach ($build in @(@{ Name = 'main'; Goblins = $BaseGoblins }, @{ Name = 'this branch'; Goblins = $Goblins })) {
+    $program = $build.Goblins
     $results += Watch-Start 'Win32_Process Create with no ShowWindow' $build.Name {
         Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = "`"$program`" $turn" } | Out-Null
     }
@@ -352,8 +358,8 @@ foreach ($build in @(@{ Name = 'main'; Cfo = $BaseCfo }, @{ Name = 'this branch'
     }
 }
 $log = Join-Path $Work 'detached.log'
-$results += Watch-Start 'cfo gate turn --detach' 'this branch' {
-    Start-Exactly $Cfo "gate turn --detach `"$log`" -- ping -n 3 127.0.0.1"
+$results += Watch-Start 'goblins gate turn --detach' 'this branch' {
+    Start-Exactly $Goblins "gate turn --detach `"$log`" -- ping -n 3 127.0.0.1"
 }
 $detachedEnd = (Get-Content $log -ErrorAction SilentlyContinue | Select-Object -Last 1)
 

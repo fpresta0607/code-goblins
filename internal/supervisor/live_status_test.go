@@ -189,7 +189,7 @@ func TestAGateRunThatMovesMidTurnIsReadAgain(t *testing.T) {
 }
 
 // A goblin's question is its state while it waits on an answer: Waiting on
-// the CFO while the CFO owes one, and Blocked once answered until the answer
+// the CEO while the CEO owes one, and Blocked once answered until the answer
 // reaches the goblin, since an answer can be to stay held. Once the goblin
 // takes the answer, the question holds the card no longer, and it reads
 // Working before it writes a line of its own.
@@ -221,7 +221,7 @@ func TestAnAnsweredQuestionNoLongerHoldsTheCard(t *testing.T) {
 				}
 				harnessHook(t, store, h, harness, "task-1", "settle", now.Add(-7*time.Minute))
 				if test.isAnswered {
-					if err := wake.MarkAnswered(h.State, record.Seq, wake.AnsweredByCFO, "8080"); err != nil {
+					if err := wake.MarkAnswered(h.State, record.Seq, wake.AnsweredByCEO, "8080"); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -234,15 +234,15 @@ func TestAnAnsweredQuestionNoLongerHoldsTheCard(t *testing.T) {
 				got := snapshotTask(t, &Service{Store: store}, "task-1")
 
 				// Assert
-				if got.Phase != test.wantPhase || strings.HasPrefix(got.Reason, "Waiting on the CFO") != test.isWaitingOn {
-					t.Fatalf("phase %q (%s), want %q waiting on the CFO %v", got.Phase, got.Reason, test.wantPhase, test.isWaitingOn)
+				if got.Phase != test.wantPhase || strings.HasPrefix(got.Reason, "Waiting on the CEO") != test.isWaitingOn {
+					t.Fatalf("phase %q (%s), want %q waiting on the CEO %v", got.Phase, got.Reason, test.wantPhase, test.isWaitingOn)
 				}
 			})
 		}
 	}
 }
 
-// failedSpawn is the line cfo spawn writes when a goblin's terminal kept its
+// failedSpawn is the line goblins spawn writes when a goblin's terminal kept its
 // instruction in the composer unsubmitted past the start's budget.
 const failedSpawn = "failed: spawn: native terminal task-1 never showed its harness working on the instruction: not within 1m30s; its screen ends: > Read the brief"
 

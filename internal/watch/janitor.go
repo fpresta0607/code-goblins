@@ -31,7 +31,7 @@ const pruneTurnWait = 30 * time.Second
 
 // heavyLine is the machine's heavy line as the janitor sees it: the
 // admission store this build's runs take their turns in, and this build's
-// cfo gate turn, which takes one for a prune.
+// goblins gate turn, which takes one for a prune.
 type heavyLine struct {
 	// executable is this build, whose gate turn the prunes run in.
 	executable string
@@ -64,7 +64,7 @@ func (line heavyLine) Free() error {
 	return nil
 }
 
-// Wrap is command run by this build's cfo gate turn, which waits for its turn,
+// Wrap is command run by this build's goblins gate turn, which waits for its turn,
 // runs the command as a measured execution, and gives the turn back as it
 // ends. A gate turn that dies leaves its turn to the line's recovery of a
 // dead holder, so the long-lived watcher never holds one itself. A run that
@@ -98,7 +98,7 @@ func tidyHome(cfg Config, inv reap.Inventory) {
 }
 
 // runJanitor tidies the home once, keeps its record for the digest, the board
-// and cfo runtime, and wakes the CFO when the strays it reports change.
+// and goblins runtime, and wakes the CEO when the strays it reports change.
 func runJanitor(cfg Config, inv reap.Inventory) {
 	previous, _ := janitor.ReadRecord(cfg.Home.State)
 	settings, err := fleetconfig.Read(cfg.Home.Root)
@@ -172,7 +172,7 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 	}
 }
 
-// processWake is the wake detail for a pass that left a process for the CFO
+// processWake is the wake detail for a pass that left a process for the CEO
 // that the last pass had not, and empty otherwise. It is one wake for all of
 // them, each with its pid, its age, the memory of its tree and its command:
 // the same processes again, or one of them gone, is nothing new.
@@ -206,7 +206,7 @@ func memoryText(bytes uint64) string {
 
 // strayWake is the wake detail for a pass that reports a stray the last pass
 // did not, and empty otherwise: the same strays again, or one of them gone,
-// is nothing new for the CFO.
+// is nothing new for the CEO.
 func strayWake(previous, record janitor.Record) string {
 	reported := make(map[string]bool, len(previous.Strays))
 	for _, stray := range previous.Strays {
@@ -225,5 +225,5 @@ func strayWake(previous, record janitor.Record) string {
 	for _, stray := range record.Strays {
 		paths = append(paths, stray.Path+" ("+stray.Detail+")")
 	}
-	return fmt.Sprintf("%d stray item(s) the janitor reports and does not remove: %s; remove what is the fleet's leftovers, record a goblin's extra worktree with cfo worktree add, and leave what is the Overlord's", len(paths), strings.Join(paths, "; "))
+	return fmt.Sprintf("%d stray item(s) the janitor reports and does not remove: %s; remove what is the fleet's leftovers, record a goblin's extra worktree with goblins worktree add, and leave what is the Overlord's", len(paths), strings.Join(paths, "; "))
 }

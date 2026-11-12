@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { object, type Snapshot, type Task } from "./types";
 import type { CardStart } from "./useStart";
-import { message, reportToCfo, request } from "./api";
+import { message, reportToCeo, request } from "./api";
 import { queueBlock } from "./start";
 import { Icon } from "./Icon";
 import { StopTaskDialog } from "./stop-task-dialog";
@@ -17,7 +17,7 @@ import { isOnItsWay, recordClick } from "./use-task-clicks";
 // like the other controls and shows only while an update waits.
 // One click does it: the task's status says Pausing, Resuming or Stopping in
 // the frame he clicks, a Resume waits its turn on the supervisor rather than
-// being refused, and a click the supervisor refuses goes to the CFO, never
+// being refused, and a click the supervisor refuses goes to the CEO, never
 // to a line on the board (the Overlord, 2026-10-08, "i hate yellow text line
 // display").
 export function TaskControls({ task, snapshot, start }: { task: Task; snapshot: Snapshot; start?: CardStart }) {
@@ -37,8 +37,8 @@ export function TaskControls({ task, snapshot, start }: { task: Task; snapshot: 
   const update = async () => {
     if (isChanging) return;
     try {
-      await request("/api/tasks/engine", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ task: task.id, generation: task.generation, when: isUpdatePending ? "cancel" : "update" }) });
-    } catch (error: unknown) { reportToCfo("the harness update of " + task.id, message(error)); }
+      await request("/api/tasks/engine", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": snapshot.instance }, body: JSON.stringify({ task: task.id, generation: task.generation, when: isUpdatePending ? "cancel" : "update" }) });
+    } catch (error: unknown) { reportToCeo("the harness update of " + task.id, message(error)); }
   };
   const act = async (action: "pause" | "resume" | "stop") => {
     if (isChanging || isOnItsWay(task.id)) return;
@@ -47,13 +47,13 @@ export function TaskControls({ task, snapshot, start }: { task: Task; snapshot: 
     if (attempt.current?.payload !== payload) attempt.current = { payload, operation: crypto.randomUUID() };
     recordClick(task.id, { action, revision: null });
     try {
-      const response = object(await request("/api/tasks/lifecycle", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ task: task.id, generation: task.generation, revision: task.queue_revision, action, operation: attempt.current.operation }) }));
+      const response = object(await request("/api/tasks/lifecycle", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": snapshot.instance }, body: JSON.stringify({ task: task.id, generation: task.generation, revision: task.queue_revision, action, operation: attempt.current.operation }) }));
       if (typeof response.revision !== "number") throw new Error("The board did not confirm this action.");
       recordClick(task.id, { action, revision: response.revision });
       attempt.current = null;
     } catch (error: unknown) {
       recordClick(task.id, null);
-      reportToCfo("the " + action + " of " + task.id, message(error));
+      reportToCeo("the " + action + " of " + task.id, message(error));
     }
   };
   // A card in Completed has nothing running to pause or stop, whatever

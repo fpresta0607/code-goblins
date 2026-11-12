@@ -10,12 +10,12 @@ export function treeFleet(now: number) {
   const task = (id: string, title: string, fields: Record<string, unknown> = {}) => ({ id, title, project: "code-goblins", phase: "working", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", verified: false, generation: "g1", session: "s-" + id, backend: "native", since: ago(90), ...fields });
   const session = (id: string, role: string, parent: string, taskID = "") => ({ id, native_id: id, harness: "claude", role, task_id: taskID, generation: taskID ? "g1" : "", parent, relation: parent ? "Dispatched by the CEO" : "", phase: "working", updated_at: ago(0) });
   return {
-    healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
+    healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [],
     sessions: [
-      session("s-cfo", "cfo", ""),
-      session("s-fleet", "goblin", "s-cfo", "fleet"),
-      session("s-billing", "goblin", "s-cfo", "billing"),
-      session("s-canvas", "goblin", "s-cfo", "canvas"),
+      session("s-ceo", "ceo", ""),
+      session("s-fleet", "goblin", "s-ceo", "fleet"),
+      session("s-billing", "goblin", "s-ceo", "billing"),
+      session("s-canvas", "goblin", "s-ceo", "canvas"),
       session("s-notes", "goblin", "s-fleet", "notes"),
       session("s-helper-one", "goblin", "s-canvas", "helper-one"),
     ],

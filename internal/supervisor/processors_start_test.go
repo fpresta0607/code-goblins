@@ -18,7 +18,7 @@ func processorsWithFree(free float64) func() (Processors, error) {
 // straight into its builds, while the Overlord's Chrome took 15.2 s to open: a
 // start read memory and disk and no processor. What the supervisor starts by
 // itself waits while under a quarter of the performance cores are free, and
-// says so where the CFO is told of work that waits.
+// says so where the CEO is told of work that waits.
 func TestTheSchedulerStartsNothingByItselfWhileThePerformanceCoresAreBusy(t *testing.T) {
 	for _, test := range []struct {
 		name        string
@@ -85,14 +85,14 @@ func TestAStartTheOverlordClicksRunsWhileThePerformanceCoresAreBusy(t *testing.T
 	}
 }
 
-// After a restart the CFO comes back at once, and each goblin only at a
+// After a restart the CEO comes back at once, and each goblin only at a
 // reading with room on the performance cores.
 func TestTheComebackBringsNoGoblinBackWhileThePerformanceCoresAreBusy(t *testing.T) {
 	// Arrange
 	recorder := &comebackRecorder{}
 	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8}, [2]float64{8, 8}, [2]float64{8, 8}, [2]float64{8, 8})
-	closedCFO(t, h.State)
-	terminalStarted(t, h, NativeCFOTerminal, lastSignIn.Add(time.Minute))
+	closedCEO(t, h.State)
+	terminalStarted(t, h, NativeCEOTerminal, lastSignIn.Add(time.Minute))
 	workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
 	free := 0.1
 	service.Options.Dispatch.Processors = func() (Processors, error) {
@@ -110,7 +110,7 @@ func TestTheComebackBringsNoGoblinBackWhileThePerformanceCoresAreBusy(t *testing
 	}
 
 	// Assert
-	want := [][]string{{"cfo"}, {"cfo"}, {"cfo"}, {"cfo", "alpha"}}
+	want := [][]string{{"ceo"}, {"ceo"}, {"ceo"}, {"ceo", "alpha"}}
 	for index := range want {
 		if !slices.Equal(came[index], want[index]) {
 			t.Errorf("after reading %d came back %v, want %v", index+1, came[index], want[index])

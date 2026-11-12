@@ -36,7 +36,7 @@ var hostingServices = map[string]bool{
 
 // ReadProject reads one checkout's deploy targets and local stack commands
 // from the manifests the project itself commits, plus the project's
-// credential manifest in the CFO's data directory.
+// credential manifest in the CEO's data directory.
 //
 // Nothing here is inferred from a project's name or shape. Every fact the
 // report prints carries the file it came from, so a wrong answer is traceable
@@ -173,7 +173,7 @@ func mergeTargets(targets []Target) []Target {
 	return merged
 }
 
-// readLocal answers "how do I test this locally" once, so the CFO stops
+// readLocal answers "how do I test this locally" once, so the CEO stops
 // reading the repository for it.
 //
 // A project that declares the commands in its worktree manifest is taken at
@@ -230,7 +230,7 @@ func derivedLocal(path string) Local {
 				if _, ok := row.Scripts[script]; ok {
 					return Local{
 						Up:     []string{"npm run " + script},
-						Down:   []string{"stop the process (cfo runtime names its pid)"},
+						Down:   []string{"stop the process (goblins runtime names its pid)"},
 						Source: source,
 					}
 				}

@@ -123,10 +123,10 @@ func TestWhatIsNotHisIsRefusedWhereHisWindowAndAGrantedBrowserAreTaken(t *testin
 		ask     boardAsk
 		refusal string
 	}{
-		{"a window a goblin started, by the window's own environment", boardAsk{ancestry: cutWindow, programs: windowIn(bin, func(w *proc.Identity) { w.Environment = []string{"CFO_ROLE=goblin"} })}, "runs in a goblin's terminal"},
-		{"a window a goblin started, by its WebView2's environment", boardAsk{ancestry: cutWindow, env: []string{"CFO_ROLE=goblin"}, programs: windowIn(bin, nil)}, "runs in a goblin's terminal"},
+		{"a window a goblin started, by the window's own environment", boardAsk{ancestry: cutWindow, programs: windowIn(bin, func(w *proc.Identity) { w.Environment = []string{"GOBLINS_ROLE=goblin"} })}, "runs in a goblin's terminal"},
+		{"a window a goblin started, by its WebView2's environment", boardAsk{ancestry: cutWindow, env: []string{"GOBLINS_ROLE=goblin"}, programs: windowIn(bin, nil)}, "runs in a goblin's terminal"},
 		{"a window a gate agent started", boardAsk{ancestry: cutWindow, env: []string{"NO_MISTAKES_GATE=1"}, programs: windowIn(bin, nil)}, "as a gate agent"},
-		{"a window started from a terminal of the fleet", boardAsk{ancestry: cutWindow, programs: windowIn(bin, func(w *proc.Identity) { w.Environment = []string{"CFO_HOST_ID=cfo"} })}, "in native terminal cfo"},
+		{"a window started from a terminal of the fleet", boardAsk{ancestry: cutWindow, programs: windowIn(bin, func(w *proc.Identity) { w.Environment = []string{"GOBLINS_HOST_ID=ceo"} })}, "in native terminal ceo"},
 		{"a window under an agent harness whose own opener exited", boardAsk{ancestry: under(cutWindow, proc.Entry{PID: 21820, ParentPID: 3000, ExeBase: "node.exe", Start: boardOpened.Add(-time.Minute)}), programs: windowIn(bin, nil)}, "under an agent harness (node.exe pid 21820)"},
 		{"a window a test drives through its WebView2", boardAsk{ancestry: cutWindow, programs: map[int]proc.Identity{22504: windowIn(bin, nil)[22504], 6200: {Image: webview, Arguments: []string{webview, "--embedded-browser-webview=1", "--remote-debugging-port=9222"}}}}, "another program can drive the browser that shows this board (msedgewebview2.exe pid 6200 was started with --remote-debugging-port)"},
 		{"a window started with a debugging port of its own", boardAsk{ancestry: cutWindow, programs: windowIn(bin, func(w *proc.Identity) {
@@ -135,9 +135,9 @@ func TestWhatIsNotHisIsRefusedWhereHisWindowAndAGrantedBrowserAreTaken(t *testin
 		{"a window of another Windows user", boardAsk{ancestry: cutWindow, programs: windowIn(bin, nil), owners: map[int]proc.Owner{22504: {User: "S-1-5-21-1004-1002", Session: hisDesktop.Session}}}, "runs as another Windows user"},
 		{"a window in another Windows session", boardAsk{ancestry: cutWindow, programs: windowIn(bin, nil), owners: map[int]proc.Owner{22504: {User: hisDesktop.User, Session: 2}}}, "runs in Windows session 2, and the supervisor in session 1"},
 		{"a program named as his window, run from another folder", boardAsk{ancestry: cutWindow, programs: windowIn(`C:\Users\overlord\Downloads`, nil)}, unproven},
-		{"another program run from the home's bin", boardAsk{ancestry: []proc.Entry{cutWindow[0], cutWindow[1], {PID: 22504, ParentPID: 21820, ExeBase: "cfo.exe", Start: boardOpened}}, programs: map[int]proc.Identity{22504: {Image: filepath.Join(bin, "cfo.exe")}}}, unproven},
+		{"another program run from the home's bin", boardAsk{ancestry: []proc.Entry{cutWindow[0], cutWindow[1], {PID: 22504, ParentPID: 21820, ExeBase: "goblins.exe", Start: boardOpened}}, programs: map[int]proc.Identity{22504: {Image: filepath.Join(bin, "goblins.exe")}}}, unproven},
 
-		{"a goblin's browser that holds a copy of his grant", boardAsk{ancestry: cutBrowser, env: []string{"CFO_ROLE=goblin"}, secret: his}, "runs in a goblin's terminal"},
+		{"a goblin's browser that holds a copy of his grant", boardAsk{ancestry: cutBrowser, env: []string{"GOBLINS_ROLE=goblin"}, secret: his}, "runs in a goblin's terminal"},
 		{"a goblin's headless browser that holds a copy of his grant", boardAsk{ancestry: cutBrowser, secret: his, programs: map[int]proc.Identity{6200: {Image: edgeProgram, Arguments: []string{edgeProgram, "--headless=new", `--user-data-dir=C:\tmp\profile`}}}}, "another program can drive the browser that shows this board (msedge.exe pid 6200 was started with --headless)"},
 		{"a browser a program drives through a pipe, with a copy of his grant", boardAsk{ancestry: cutBrowser, secret: his, programs: map[int]proc.Identity{6200: {Image: edgeProgram, Arguments: []string{edgeProgram, "--remote-debugging-pipe", "--enable-automation"}}}}, "was started with --remote-debugging-pipe"},
 		{"a Firefox a program drives, with a copy of his grant", boardAsk{ancestry: cutBrowser, secret: his, programs: map[int]proc.Identity{6200: {Image: edgeProgram, Arguments: []string{"firefox.exe", "-marionette"}}}}, "was started with --marionette"},
@@ -341,7 +341,7 @@ func TestOnlyALoadWhoseParentsReachTheDesktopIsGivenAGrant(t *testing.T) {
 		"a browser whose grant is fresh":                loadAs(boardAsk{ancestry: started, secret: first.Value}),
 		"a browser whose parents stop short":            loadAs(boardAsk{ancestry: cutBrowser}),
 		"a browser that holds a grant and nothing else": loadAs(boardAsk{ancestry: cutBrowser, secret: first.Value}),
-		"a goblin's browser from the desktop":           loadAs(boardAsk{ancestry: started, env: []string{"CFO_ROLE=goblin"}}),
+		"a goblin's browser from the desktop":           loadAs(boardAsk{ancestry: started, env: []string{"GOBLINS_ROLE=goblin"}}),
 		"a driven browser from the desktop":             loadAs(boardAsk{ancestry: started, programs: map[int]proc.Identity{6200: {Image: edgeProgram, Arguments: []string{edgeProgram, "--remote-debugging-port=9222"}}}}),
 		"his desktop window, which needs none":          loadAs(boardAsk{ancestry: cutWindow, programs: windowIn(h.Bin(), nil)}),
 	}
@@ -418,10 +418,10 @@ func TestEverySentenceABoardShowsHimIsOneShortSentence(t *testing.T) {
 }
 
 // "No dialog ever shows a raw refusal paragraph: one short sentence at most,
-// and what failed goes to the CFO as a wake" (2026-10-09). His window, started
+// and what failed goes to the CEO as a wake" (2026-10-09). His window, started
 // by an agent, is told to open again, and a switch that fails after it was
 // proven his is one sentence too.
-func TestABoardIsToldOneShortSentenceAndTheCFOWhatFailed(t *testing.T) {
+func TestABoardIsToldOneShortSentenceAndTheCEOWhatFailed(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	s, _ := boardAsked(t, store, boardAsk{ancestry: under(cutWindow, proc.Entry{PID: 21820, ParentPID: 900, ExeBase: "claude.exe", Start: boardOpened.Add(-time.Minute)}, desktopShell), programs: windowIn(h.Bin(), nil)})
@@ -453,12 +453,12 @@ func TestABoardIsToldOneShortSentenceAndTheCFOWhatFailed(t *testing.T) {
 	assertOneShortSentence(t, failed.Error)
 	pending, err := wake.Pending(h.State)
 	if err != nil || len(pending) != 2 {
-		t.Fatalf("the CFO's queue = %+v, %v, want the refusal and the failure", pending, err)
+		t.Fatalf("the CEO's queue = %+v, %v, want the refusal and the failure", pending, err)
 	}
 	if !strings.Contains(pending[0].Detail, "A press of AFK mode's switch on a board was refused") || !strings.Contains(pending[0].Detail, "under an agent harness (claude.exe pid 21820)") || !strings.Contains(pending[0].Detail, "The board told him: Quit Code Goblins") {
-		t.Errorf("the CFO is told %q, want what the supervisor found and what the board told him", pending[0].Detail)
+		t.Errorf("the CEO is told %q, want what the supervisor found and what the board told him", pending[0].Detail)
 	}
 	if !strings.Contains(pending[1].Detail, "failed") || !strings.Contains(pending[1].Detail, "cannot be read") {
-		t.Errorf("the CFO is told %q, want why the switch failed", pending[1].Detail)
+		t.Errorf("the CEO is told %q, want why the switch failed", pending[1].Detail)
 	}
 }

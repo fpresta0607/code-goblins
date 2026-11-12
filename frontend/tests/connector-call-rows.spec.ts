@@ -1,4 +1,4 @@
-import { CFO_DOOR, expect, test, type Locator } from "./site";
+import { CEO_DOOR, expect, test, type Locator } from "./site";
 import { at, open, snapshot } from "./session-board";
 
 // The Overlord, 2026-11-10, of rows that read "Called claude_ai_Supabase
@@ -43,7 +43,7 @@ for (const width of [390, 1440]) {
     await open(page, snapshot(), undefined, CONVERSATION);
 
     // Act
-    await page.getByRole("button", { name: CFO_DOOR }).first().click();
+    await page.getByRole("button", { name: CEO_DOOR }).first().click();
     const messages = page.getByRole("log", { name: "Messages of CEO" });
     await expect(messages.getByText("Done.")).toBeVisible();
     const row = (label: string) => messages.locator(".message-steps > details.message-call:not(.message-call-group)").filter({ hasText: label });

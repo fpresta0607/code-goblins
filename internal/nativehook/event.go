@@ -146,7 +146,7 @@ func Normalize(r io.Reader, c Context) (Event, error) {
 		c.Now = time.Now()
 	}
 	if c.Role == "" && c.TaskID == "" {
-		c.Role = "cfo"
+		c.Role = "ceo"
 	}
 	e := Event{Schema: 1, Harness: c.Harness, Kind: kind, SessionID: p.SessionID, TaskID: c.TaskID, Role: c.Role, TurnID: p.TurnID, Generation: c.Generation, CWD: p.CWD, OccurredAt: c.Now.UTC()}
 	if p.Event == "SessionStart" {
@@ -201,15 +201,15 @@ func (e Event) Validate() error {
 	if e.Source != "" && e.Kind != "started" {
 		return errors.New("only a started event has a source")
 	}
-	if e.Role != "cfo" && e.Role != "goblin" && e.Role != "subagent" && e.Role != "worker" {
+	if e.Role != "ceo" && e.Role != "goblin" && e.Role != "subagent" && e.Role != "worker" {
 		return errors.New("invalid session role")
 	}
 	if e.Role == "goblin" {
 		if err := state.ValidTaskID(e.TaskID); err != nil {
 			return err
 		}
-	} else if e.Role == "cfo" && e.TaskID != "" {
-		return errors.New("CFO session cannot claim a goblin task")
+	} else if e.Role == "ceo" && e.TaskID != "" {
+		return errors.New("CEO session cannot claim a goblin task")
 	}
 	if !filepath.IsAbs(e.CWD) || e.OccurredAt.IsZero() {
 		return errors.New("event needs an absolute cwd and timestamp")
@@ -251,7 +251,7 @@ func Spool(stateDir string, e Event) error {
 		return err
 	}
 	if len(entries) >= MaxQueuedEvents {
-		return errors.New("native event spool is full; start or repair cfo serve")
+		return errors.New("native event spool is full; start or repair goblins serve")
 	}
 	data, err := json.Marshal(e)
 	if err != nil {

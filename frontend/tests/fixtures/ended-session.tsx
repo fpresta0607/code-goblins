@@ -44,7 +44,7 @@ function render() {
         onSelect={() => { document.body.dataset.opened = "task"; }} />
     </aside>
     <div style={{ display: "flex", flex: 1, minWidth: 0, height: "100vh" }}>
-      <TerminalDeck snapshot={snapshot} task={task} cfo={false} shown connected focus={1} />
+      <TerminalDeck snapshot={snapshot} task={task} ceo={false} shown connected focus={1} />
     </div>
   </main>);
 }

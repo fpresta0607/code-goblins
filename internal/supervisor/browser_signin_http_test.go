@@ -19,8 +19,8 @@ func TestBrowserSignInOpenRequiresALocalCurrentClick(t *testing.T) {
 		{name: "remote peer", peer: "192.0.2.1:2345", status: http.StatusForbidden},
 		{name: "forwarded", header: "Forwarded", value: "for=127.0.0.1", status: http.StatusForbidden},
 		{name: "forwarded for", header: "X-Forwarded-For", value: "127.0.0.1", status: http.StatusForbidden},
-		{name: "missing token", header: "X-CFO-Token", status: http.StatusForbidden},
-		{name: "foreign token", header: "X-CFO-Token", value: "old", status: http.StatusForbidden},
+		{name: "missing token", header: "X-CEO-Token", status: http.StatusForbidden},
+		{name: "foreign token", header: "X-CEO-Token", value: "old", status: http.StatusForbidden},
 		{name: "foreign origin", header: "Origin", value: "https://example.invalid", status: http.StatusForbidden},
 		{name: "missing origin", header: "Origin", status: http.StatusForbidden},
 		{name: "not json", header: "Content-Type", value: "text/plain", status: http.StatusBadRequest},
@@ -48,7 +48,7 @@ func TestBrowserSignInOpenRequiresALocalCurrentClick(t *testing.T) {
 					request.RemoteAddr = test.peer
 				}
 				request.Header.Set("Origin", "http://"+credentialBoardHost)
-				request.Header.Set("X-CFO-Token", service.Instance)
+				request.Header.Set("X-CEO-Token", service.Instance)
 				request.Header.Set("Content-Type", "application/json")
 				if test.header != "" {
 					request.Header.Set(test.header, test.value)

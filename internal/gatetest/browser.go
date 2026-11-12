@@ -18,8 +18,8 @@ import (
 // which writes a row as a try ends whose case is not what it was expected to
 // be, and a row when a retry then passes it:
 //
-//	cfo gate case: unexpected [board] tests/afk.spec.ts:85:7 › a title
-//	cfo gate case: flaky [board] tests/afk.spec.ts:85:7 › a title
+//	goblins gate case: unexpected [board] tests/afk.spec.ts:85:7 › a title
+//	goblins gate case: flaky [board] tests/afk.spec.ts:85:7 › a title
 //
 // so a case is what its last row said. The list reporter marks its row of a
 // case by the case's status alone, an x for a case declared with test.fail
@@ -55,7 +55,7 @@ type BrowserReport struct {
 // browserCase matches one row of the gate's own reporter: what the case is
 // so far, and its name, which is its project, its file, its line and its
 // titles.
-var browserCase = regexp.MustCompile(`^cfo gate case: (unexpected|flaky) (\[[^\]]*\] \S.*)$`)
+var browserCase = regexp.MustCompile(`^goblins gate case: (unexpected|flaky) (\[[^\]]*\] \S.*)$`)
 
 // NewBrowserReport keeps the cases out reports as failed until ctx, the
 // context of the check's run, ends, and passes everything it is given on to

@@ -11,7 +11,7 @@ import "../../src/styles.css";
 const at = "2026-10-15T01:50:00Z";
 const goblin = { id: "shop-signup", title: "Sign the shop up for the test account", phase: "waiting", generation: "1", verified: false };
 const snapshot = parseSnapshot({
-  healthy: true, instance: "fixture-token", revision: 1, cfo_runs: true, tasks: [goblin],
+  healthy: true, instance: "fixture-token", revision: 1, ceo_runs: true, tasks: [goblin],
   runs: [{ id: "run-shop-signup-7", identity: "r".repeat(64), task: goblin.id, title: "Sign in to GitHub so I can push", shell: "powershell", command: "gh auth login --web", cwd: "C:\\work\\shop", state: "ready", created_at: at, expires_at: "2026-10-16T01:50:00Z" }],
   reviews: [{ id: "waiting-shop-signup-8", identity: "w".repeat(64), task: goblin.id, title: "Waiting on you: Confirm the shop's email from the message the sign-up sent", link: "https://mail.example.com/inbox", state: "open", created_at: at, updated_at: at }],
   questions: [{ id: "q-shop-plan", identity: "q".repeat(64), text: "Which plan should the test account use?", options: ["Free", "Pro"], recommended: "Free", status: "pending", created_at: at }],

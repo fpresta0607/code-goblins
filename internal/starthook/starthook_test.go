@@ -188,7 +188,7 @@ func TestFindTellsAPlantedStartHookFromTheOnesAnEnvironmentCarries(t *testing.T)
 				if err != nil {
 					t.Fatal(err)
 				}
-				// TestUnacceptedLetsThroughOnlyTheStartHookTheCFOAccepted
+				// TestUnacceptedLetsThroughOnlyTheStartHookTheCEOAccepted
 				// reads the digest.
 				hooks[index].Path, hooks[index].Digest = filepath.ToSlash(relative), ""
 			}
@@ -264,11 +264,11 @@ const (
 
 // A start hook no known package ships stops every goblin of a project that
 // locks the package that installs it, as the -nspkg.pth file setuptools
-// writes for a namespace package does. The CFO accepts one he judged safe,
+// writes for a namespace package does. The CEO accepts one he judged safe,
 // for its project or for the fleet, by its file's name, its exact content and
 // the distribution whose RECORD installs it: that file passes in every later
 // environment, and one that differs in any of the three is still stopped.
-func TestUnacceptedLetsThroughOnlyTheStartHookTheCFOAccepted(t *testing.T) {
+func TestUnacceptedLetsThroughOnlyTheStartHookTheCEOAccepted(t *testing.T) {
 	sum := sha256.Sum256([]byte(nspkgLine))
 	accepted := Acceptance{Project: "shop", File: nspkgFile, SHA256: hex.EncodeToString(sum[:]), Distribution: "zope.interface-6.4", Task: "shop-1", At: time.Now()}
 	zope := func(t *testing.T, site string) {

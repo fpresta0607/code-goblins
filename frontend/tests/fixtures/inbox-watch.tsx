@@ -3,7 +3,7 @@ import { CommandCenterMenu } from "../../src/command-center-menu";
 import { parseSnapshot, type BoardActivity } from "../../src/types";
 import "../../src/styles.css";
 
-// The CFO needs a command run, cg-board-kill runs its own test walkthrough,
+// The CEO needs a command run, cg-board-kill runs its own test walkthrough,
 // as it did three times on 2026-09-28, and the checkout goblin runs one it
 // asks the Overlord to watch.
 const now = Date.now();

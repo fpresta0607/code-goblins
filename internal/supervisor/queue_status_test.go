@@ -117,7 +117,7 @@ func TestSnapshotNativeReportsRespectQuestionsGatesAndFreshRuntime(t *testing.T)
 		{name: "newer work report than idle observation", report: "working: running package checks", health: monitor.HealthIdle, isOldObservation: true, wantPhase: "working", wantReason: "running package checks"},
 		{name: "done is per PR while next work runs", report: "done: PR https://github.com/o/r/pull/338", health: monitor.HealthBusy, wantPhase: "working"},
 		{name: "new active turn keeps independent source binding", report: "done: PR https://github.com/o/r/pull/338", health: monitor.HealthBusy, isActive: true, wantPhase: "working"},
-		{name: "newer held question beats older work", report: "working: collection evidence ready", health: monitor.HealthBusy, question: "blocked: Hold for live-auth evidence?", wantPhase: "blocked", wantReason: "Waiting on the CFO: Hold for live-auth evidence?"},
+		{name: "newer held question beats older work", report: "working: collection evidence ready", health: monitor.HealthBusy, question: "blocked: Hold for live-auth evidence?", wantPhase: "blocked", wantReason: "Waiting on the CEO: Hold for live-auth evidence?"},
 		{name: "answered question waits for explicit resumption", report: "working: collecting evidence", health: monitor.HealthBusy, question: "blocked: Which source?", isAnswered: true, wantPhase: "blocked", wantReason: "Which source?"},
 		{name: "newer report resumes without deleting decision", report: "working: old work", health: monitor.HealthBusy, question: "blocked: Which source?", isResumed: true, wantPhase: "working", wantReason: "resumed work"},
 		{name: "explicit CI wait survives idle", report: "waiting on ci: hosted checks", health: monitor.HealthIdle, wantPhase: "waiting", wantReason: "hosted checks"},
@@ -176,7 +176,7 @@ func TestSnapshotNativeReportsRespectQuestionsGatesAndFreshRuntime(t *testing.T)
 					t.Fatal(err)
 				}
 				if test.isAnswered {
-					if err := wake.MarkAnswered(h.State, record.Seq, "cfo", "Use the source"); err != nil {
+					if err := wake.MarkAnswered(h.State, record.Seq, "ceo", "Use the source"); err != nil {
 						t.Fatal(err)
 					}
 				}

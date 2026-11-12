@@ -1,5 +1,5 @@
 import { lazy, useSyncExternalStore, type ComponentType } from "react";
-import { message, reportToCfo } from "./api";
+import { message, reportToCeo } from "./api";
 
 // Whether a page of the board that arrives the first time it is shown could
 // not arrive, which a tab loaded before an install meets: the supervisor
@@ -10,7 +10,7 @@ const listeners = new Set<() => void>();
 // boardPage is a page of the board that arrives the first time it is shown.
 // One that cannot arrive draws nothing, so the board stays drawn around it,
 // where an import that failed would take the whole board down (2026-10-13:
-// AFK off after an update left his board black). The CFO hears why, and
+// AFK off after an update left his board black). The CEO hears why, and
 // usePageMissing tells the board, which reloads onto the build the supervisor
 // serves or offers Reload.
 export function boardPage<Props extends object>(load: () => Promise<ComponentType<Props>>, name: string) {
@@ -18,7 +18,7 @@ export function boardPage<Props extends object>(load: () => Promise<ComponentTyp
     try {
       return { default: await load() };
     } catch (error) {
-      reportToCfo("loading the board's " + name, message(error));
+      reportToCeo("loading the board's " + name, message(error));
       isMissing = true;
       for (const listener of listeners) listener();
       return { default: () => null };

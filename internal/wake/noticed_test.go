@@ -130,7 +130,7 @@ func TestACutOffNoticeCostsOnlyItself(t *testing.T) {
 	}
 }
 
-// cfo drain --ack-through took the wake lock twice, once for the records and
+// goblins drain --ack-through took the wake lock twice, once for the records and
 // once for the recovery episode. One acknowledgement is one hold of the lock:
 // the records, the episode and what is left queued all come out of it.
 func TestOneAcknowledgementRetiresTheRecordsAndTheEpisodeUnderOneLock(t *testing.T) {
@@ -208,7 +208,7 @@ func TestAnAcknowledgementRefusedOverAQuestionChangesNothing(t *testing.T) {
 		t.Errorf("the episode reads %+v, %v, want it still pending", episode, err)
 	}
 
-	// The CFO read the question: the same acknowledgement retires everything.
+	// The CEO read the question: the same acknowledgement retires everything.
 	read, err := Acknowledge(dir, Ack{Through: &asked.Seq, Generation: &generation, ShouldRetireQuestions: true})
 	if err != nil || len(read.Refused) != 0 || len(read.Pending) != 0 || read.Episode.Pending {
 		t.Errorf("the acknowledgement with the questions read left %+v, %v, want an empty queue and the episode acknowledged", read, err)

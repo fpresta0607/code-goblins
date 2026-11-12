@@ -29,7 +29,7 @@ func TestSharedCoreFitsTheSmallestHarnessAndRoutesItsProcedures(t *testing.T) {
 			if _, err := fs.Stat(Contract, name); err != nil {
 				t.Errorf("the binary does not ship %s: %v", name, err)
 			}
-			skill := shipped(t, "cfo-"+topic)
+			skill := shipped(t, "ceo-"+topic)
 			header, _, isClosed := strings.Cut(strings.TrimPrefix(skill, "---\n"), "\n---\n")
 			if !strings.HasPrefix(skill, "---\n") || !isClosed {
 				t.Fatal("skill discovery metadata is missing or unclosed")
@@ -41,7 +41,7 @@ func TestSharedCoreFitsTheSmallestHarnessAndRoutesItsProcedures(t *testing.T) {
 			if err := yaml.Unmarshal([]byte(header), &metadata); err != nil {
 				t.Fatal(err)
 			}
-			if metadata.Name != "cfo-"+topic || strings.TrimSpace(metadata.Description) == "" {
+			if metadata.Name != "ceo-"+topic || strings.TrimSpace(metadata.Description) == "" {
 				t.Errorf("invalid skill discovery metadata: %+v", metadata)
 			}
 		})

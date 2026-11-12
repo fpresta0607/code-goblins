@@ -17,7 +17,7 @@ func TestExecutorExecutionLimitCoversStartupAndFinalization(t *testing.T) {
 	for _, stage := range []string{"startup", "launch", "finalization"} {
 		t.Run(stage, func(t *testing.T) {
 			// Arrange
-			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 			root := t.TempDir()
 			standin.RemoveAtCleanup(t, root)
 			program := filepath.Join(root, "workload.exe")
@@ -88,7 +88,7 @@ func TestExecutorExecutionLimitCoversStartupAndFinalization(t *testing.T) {
 // limit does and reports a bare deadline.
 func TestExecutorStartupNamesTheLimitWhenItsTimerRunsLate(t *testing.T) {
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	isFirstTimer := true
 	limitTimer = func(parent context.Context, deadline time.Time, cause error) (context.Context, context.CancelFunc) {
 		if isFirstTimer {
@@ -122,7 +122,7 @@ func TestExecutorStartupNamesTheLimitWhenItsTimerRunsLate(t *testing.T) {
 
 func TestExecutorExecutionLimitKeepsStartupInterruptible(t *testing.T) {
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	executor := Executor{Admission: admission(t), Monitor: Monitor{Headroom: plentyOfMemory}, IsConsoleShared: true, ExecutionLimit: time.Minute}

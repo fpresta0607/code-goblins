@@ -1,6 +1,6 @@
-# cfo pr train
+# goblins pr train
 
-`cfo pr train <project>`
+`goblins pr train <project>`
 
 Start a merge train for the green pull requests goblins finished in the project.
 See the [merge-train contract](../../contract/delivery.md#merge-trains) for rider eligibility, green-run holds, retries, landing and recovery.

@@ -14,7 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-func TestCFOAnswerToMemoryPausedGoblinSurvivesItsHostAndResumesOnce(t *testing.T) {
+func TestCEOAnswerToMemoryPausedGoblinSurvivesItsHostAndResumesOnce(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	primaryFixture(t, store)
@@ -49,11 +49,11 @@ func TestCFOAnswerToMemoryPausedGoblinSurvivesItsHostAndResumesOnce(t *testing.T
 	if err != nil || retained.ResumeNote != wantNote || retained.Generation != meta.SpawnGen {
 		t.Fatalf("retained = %+v, %v; want the answer and earlier message for its original generation", retained, err)
 	}
-	if pending, err := wake.Pending(h.State); err != nil || len(pending) != 1 || pending[0].Seq != notified.Seq || pending[0].Answered != wantAnswer || pending[0].AnsweredBy != wake.AnsweredByCFO {
-		t.Fatalf("notify = %+v, %v; want the exact answer attributed to the CFO", pending, err)
+	if pending, err := wake.Pending(h.State); err != nil || len(pending) != 1 || pending[0].Seq != notified.Seq || pending[0].Answered != wantAnswer || pending[0].AnsweredBy != wake.AnsweredByCEO {
+		t.Fatalf("notify = %+v, %v; want the exact answer attributed to the CEO", pending, err)
 	}
-	if recorded := store.Snapshot().Questions[0]; recorded.ID != question.ID || recorded.Identity != question.Identity || recorded.Generation != meta.SpawnGen || recorded.Answer != wantAnswer || recorded.AnsweredOption != "SQLite" || recorded.AnsweredBy != "cfo" || !recorded.AnsweredAway || recorded.AnsweredAt == nil {
-		t.Fatalf("recorded = %+v; want the original question's CFO answer and authority", recorded)
+	if recorded := store.Snapshot().Questions[0]; recorded.ID != question.ID || recorded.Identity != question.Identity || recorded.Generation != meta.SpawnGen || recorded.Answer != wantAnswer || recorded.AnsweredOption != "SQLite" || recorded.AnsweredBy != "ceo" || !recorded.AnsweredAway || recorded.AnsweredAt == nil {
+		t.Fatalf("recorded = %+v; want the original question's CEO answer and authority", recorded)
 	}
 	for _, ref := range []string{question.ID, fmt.Sprint(notified.Seq)} {
 		if _, _, err := connection.AnswerGoblin(t.Context(), ref, "Postgres", "another answer"); err == nil {
@@ -98,7 +98,7 @@ func TestCFOAnswerToMemoryPausedGoblinSurvivesItsHostAndResumesOnce(t *testing.T
 	}
 
 	// Assert
-	if typed := resumed.lines(t); resumeCount != 1 || len(typed) != 1 || typed[0] != fmt.Sprintf("CFO: decision %d: %s Message from the Overlord, typed on the board: use the staging database", notified.Seq, wantAnswer) {
+	if typed := resumed.lines(t); resumeCount != 1 || len(typed) != 1 || typed[0] != fmt.Sprintf("CEO: decision %d: %s Message from the Overlord, typed on the board: use the staging database", notified.Seq, wantAnswer) {
 		t.Fatalf("resume count = %d, received %q; want one retained answer delivered to the replacement host", resumeCount, typed)
 	}
 	if _, _, err := connection.AnswerGoblin(t.Context(), question.ID, "SQLite", "keep it local"); err == nil {
@@ -109,7 +109,7 @@ func TestCFOAnswerToMemoryPausedGoblinSurvivesItsHostAndResumesOnce(t *testing.T
 	}
 }
 
-func TestCFOAnswerDoesNotQueueForUnexpectedlyMissingNativeHosts(t *testing.T) {
+func TestCEOAnswerDoesNotQueueForUnexpectedlyMissingNativeHosts(t *testing.T) {
 	for _, test := range []struct {
 		name, phase, generation, backend string
 	}{
@@ -175,7 +175,7 @@ func TestBoardAnswerToPausedQuestionIsKeptForResume(t *testing.T) {
 	if _, err := store.Queue(action); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{Store: store, Options: Options{CFO: connection}}
+	service := &Service{Store: store, Options: Options{CEO: connection}}
 
 	if err := store.ProcessOne(t.Context(), service.execute); err != nil {
 		t.Fatal(err)
@@ -230,7 +230,7 @@ func TestAnAnswerSavedWhilePausedLeavesTheMessagesKeptBeforeIt(t *testing.T) {
 			if _, err := store.Queue(Action{ID: "answer-1", Kind: "goblin_answer", Generation: question.Identity, QuestionID: question.ID, Text: "SQLite"}); err != nil {
 				t.Fatal(err)
 			}
-			service := &Service{Store: store, Options: Options{CFO: connection}}
+			service := &Service{Store: store, Options: Options{CEO: connection}}
 			var carried string
 			controller := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
 				Memory: func() (uint64, uint64, error) { return 8 << 30, 8 << 30, nil },

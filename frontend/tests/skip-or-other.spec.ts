@@ -97,7 +97,7 @@ for (const card of CARDS) {
     await page.route("**/api/dictation/warm", (route) => route.fulfill({ status: 202 }));
     await page.route("**/api/dictation", async (route) => {
       if (route.request().method() === "GET") return route.fulfill({ json: { engine: "test-model", state: "ready" } });
-      heard.push(await route.request().headerValue("X-CFO-Token"));
+      heard.push(await route.request().headerValue("X-CEO-Token"));
       return route.fulfill({ json: { text: "use the bot account", engine: "test-model" } });
     });
     const shown = await openCard(page, card.open);

@@ -105,8 +105,8 @@ func TestSelectedRidersAlreadyOnBaseReconcileAtEveryComputeEntrance(t *testing.T
 					reported = append(reported, landing)
 				}
 			}
-			if !kept.IsFinished() || len(reported) != 1 || !strings.Contains(reported[0], "already on main") || strings.Contains(reported[0], "CI passed") || !strings.Contains(s.cfo[len(s.cfo)-1], "landed #11") || strings.Contains(s.cfo[len(s.cfo)-1], "#11 waits") {
-				t.Fatalf("already-merged rider reporting was lost or fabricated: %+v, callbacks %q, notices %q", kept, s.landed, s.cfo)
+			if !kept.IsFinished() || len(reported) != 1 || !strings.Contains(reported[0], "already on main") || strings.Contains(reported[0], "CI passed") || !strings.Contains(s.ceo[len(s.ceo)-1], "landed #11") || strings.Contains(s.ceo[len(s.ceo)-1], "#11 waits") {
+				t.Fatalf("already-merged rider reporting was lost or fabricated: %+v, callbacks %q, notices %q", kept, s.landed, s.ceo)
 			}
 			if phase == "retry" || phase == "split" {
 				if kept.Cars[1].State != CarCulprit || len(s.goblinTold("g12")) != 1 || len(kept.History[0].Failed) == 0 {

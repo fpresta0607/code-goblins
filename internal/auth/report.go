@@ -119,9 +119,9 @@ func countState(report Report, state State) int {
 // rather than described so the Overlord can paste it.
 func StoreCommand(project, name string) string {
 	if project == "" {
-		return "cfo auth store " + name
+		return "goblins auth store " + name
 	}
-	return "cfo auth store --project " + quoteScope(project) + " " + name
+	return "goblins auth store --project " + quoteScope(project) + " " + name
 }
 
 // quoteScope keeps a printed command pasteable. A checkout directory may
@@ -154,7 +154,7 @@ func remedies(project string, status Status) []string {
 		names = status.Declared
 	}
 	if len(names) == 0 {
-		return []string{"cfo auth " + quoteScope(project) + " --fix"}
+		return []string{"goblins auth " + quoteScope(project) + " --fix"}
 	}
 	scope := ProjectName(project)
 	commands := make([]string, 0, len(names))
@@ -266,7 +266,7 @@ func InjectEnv(store Store, project string, manifest Manifest, report Report) (m
 // through. Its caller passes the manifest reduced to the services a task
 // carries (Manifest.Only), so a refresh after dispatch writes what that task's
 // terminal was given and nothing the task was not. It differs from the
-// dispatch in two deliberate ways. A value only the CFO's own process
+// dispatch in two deliberate ways. A value only the CEO's own process
 // environment supplied is left out: that is one command's override, not the
 // store. A name the preflight's identity check refused is included: no probe
 // runs here, so the refusal cannot be reproduced, and a refresh writes what

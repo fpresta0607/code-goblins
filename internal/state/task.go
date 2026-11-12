@@ -51,13 +51,13 @@ type TaskMeta struct {
 	// none until its first relaunch records the generation it ran on until
 	// then.
 	FirstGen string
-	// Title is the task's short title: the one cfo spawn was given with
-	// --title, else its backlog row's, or the one cfo title wrote since;
+	// Title is the task's short title: the one goblins spawn was given with
+	// --title, else its backlog row's, or the one goblins title wrote since;
 	// empty when it had none.
 	Title string
 	// GoblinName and GoblinTitle are the fun first name and title the goblin
 	// was given at spawn, such as Jerry and Code Designer, which the board,
-	// the merge train and the CFO call it by.
+	// the merge train and the CEO call it by.
 	GoblinName  string
 	GoblinTitle string
 	// Scratch is the task's scratch folder under the home, which its pane's
@@ -65,16 +65,16 @@ type TaskMeta struct {
 	// older build spawned has none; its Go temporary directory is
 	// GoTmpDir's.
 	Scratch string
-	// Extras are the extra worktrees `cfo worktree add` made for the task
+	// Extras are the extra worktrees `goblins worktree add` made for the task
 	// beside its own, which go with it.
 	Extras []string
 	// Parent is the goblin a helper works for: the task that asked the
 	// supervisor for it, whose branch its own is cut from and to which it
-	// reports. Empty for every task the CFO dispatched.
+	// reports. Empty for every task the CEO dispatched.
 	Parent string
 	// Credentials names the services of the project's auth manifest whose
 	// credentials the task's terminal carries: what its spawn gave it, plus
-	// what cfo auth grant added since and less what cfo auth revoke took
+	// what goblins auth grant added since and less what goblins auth revoke took
 	// out. Every later terminal of the task, a
 	// resume's or a switch's, carries the same ones. It holds names, never a
 	// value.
@@ -86,13 +86,13 @@ type TaskMeta struct {
 	HasCredentials bool
 	// MCPServers names the MCP servers of the project's .mcp.json the task
 	// is given although their entry holds a value: the ones its brief named,
-	// plus what cfo auth grant added since and less what cfo auth revoke took
+	// plus what goblins auth grant added since and less what goblins auth revoke took
 	// out. A record that names none is a
 	// task given none of those, which is also every task an older build
 	// spawned. It holds names, never a value.
 	MCPServers []string
 	// CodexCredits says the operator authorized the task to spend paid Codex
-	// credits: cfo auth grant --codex-credits set it, and cfo auth revoke
+	// credits: goblins auth grant --codex-credits set it, and goblins auth revoke
 	// --codex-credits clears it. Without it, a Codex session the task's
 	// terminal starts while Codex's included allowance is used up is refused
 	// by its codex guard (codexguard).
@@ -237,7 +237,7 @@ func MetadataLockName(id string) string {
 // spellings differing only in case name two real directories, and folding
 // them together would manufacture sharing rather than a harmless split.
 //
-// A relative state directory is refused rather than made absolute. CFO_STATE_
+// A relative state directory is refused rather than made absolute. GOBLINS_STATE_
 // OVERRIDE is taken verbatim, so two fleets launched from different working
 // directories with the same relative override would hash one string and share
 // one directory - the sharing this scoping exists to prevent. filepath.Abs
@@ -274,7 +274,7 @@ func GoTmpDir(stateDir, id string) (string, error) {
 	}
 	sum := sha256.Sum256([]byte(fleetKey))
 	fleet := hex.EncodeToString(sum[:])[:8]
-	return filepath.Join(cache, "cfo", "gotmp", fleet, id), nil
+	return filepath.Join(cache, "goblins", "gotmp", fleet, id), nil
 }
 
 // TaskScratch is the folder a task's pane's TEMP, TMPDIR and GOTMPDIR name: the

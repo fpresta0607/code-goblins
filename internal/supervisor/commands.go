@@ -97,31 +97,31 @@ func userHome(h *HTTP) string {
 }
 
 // commandSession reads the session a request names: a task's goblin of the
-// generation the request names, or the CFO in the terminal it names. It reads
+// generation the request names, or the CEO in the terminal it names. It reads
 // the fleet's own record of each session, never a folder the browser names,
 // so only a session's own folder and the user's configuration are ever read.
 func (h *HTTP) commandSession(query url.Values) (commandSession, error) {
 	if query.Has("path") || query.Has("node") {
-		return commandSession{}, commandsRefused{http.StatusBadRequest, "Select a task's current session or the CFO."}
+		return commandSession{}, commandsRefused{http.StatusBadRequest, "Select a task's current session or the CEO."}
 	}
 	stateDir := h.Service.Store.Home.State
-	if want := query.Get("cfo"); want != "" {
-		cfo := readCFOState(stateDir)
+	if want := query.Get("ceo"); want != "" {
+		ceo := readCEOState(stateDir)
 		switch {
-		case cfo.terminal == "":
-			return commandSession{}, commandsRefused{http.StatusNotFound, "No CFO is running in a native terminal."}
-		case want != "1" && want != cfo.terminal:
-			return commandSession{}, commandsRefused{http.StatusConflict, "The CFO runs in another terminal now. Open the CFO again."}
-		case query.Get("session") != "" && query.Get("session") != strings.TrimPrefix(cfo.session, cfo.harness+"/"):
-			return commandSession{}, commandsRefused{http.StatusConflict, "The CFO is in another session now."}
+		case ceo.terminal == "":
+			return commandSession{}, commandsRefused{http.StatusNotFound, "No CEO is running in a native terminal."}
+		case want != "1" && want != ceo.terminal:
+			return commandSession{}, commandsRefused{http.StatusConflict, "The CEO runs in another terminal now. Open the CEO again."}
+		case query.Get("session") != "" && query.Get("session") != strings.TrimPrefix(ceo.session, ceo.harness+"/"):
+			return commandSession{}, commandsRefused{http.StatusConflict, "The CEO is in another session now."}
 		}
-		// A CFO that has not registered yet names no harness, and starts as
+		// A CEO that has not registered yet names no harness, and starts as
 		// Claude Code unless the board started it as another.
-		return commandSession{harness: cmp.Or(cfo.harness, "claude"), folder: h.Service.Store.Home.Root}, nil
+		return commandSession{harness: cmp.Or(ceo.harness, "claude"), folder: h.Service.Store.Home.Root}, nil
 	}
 	task := query.Get("task")
 	if state.ValidTaskID(task) != nil {
-		return commandSession{}, commandsRefused{http.StatusBadRequest, "Select a task's current session or the CFO."}
+		return commandSession{}, commandsRefused{http.StatusBadRequest, "Select a task's current session or the CEO."}
 	}
 	meta, err := state.ReadTaskMeta(stateDir, task)
 	switch {

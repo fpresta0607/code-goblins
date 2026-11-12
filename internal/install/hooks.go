@@ -1,13 +1,13 @@
-// Package install wires the CFO into a machine so a CFO started from any
+// Package install wires the CEO into a machine so a CEO started from any
 // folder is supervised, not just one opened inside the code-goblins checkout.
 //
-// Two things pinned the CFO to its own repo. The hooks lived in the repo's
-// `.claude/settings.json` and resolved `$CLAUDE_PROJECT_DIR/cfo.exe`, so a
+// Two things pinned the CEO to its own repo. The hooks lived in the repo's
+// `.claude/settings.json` and resolved `$CLAUDE_PROJECT_DIR/goblins.exe`, so a
 // session anywhere else tripped the `|| exit 0` guard and every hook went
-// silently inert; and `cfo.exe` was only on PATH if the adopter put it there.
-// Install sets `CFO_HOME` and PATH at user scope, and the hooks point at the
-// home's own cfo.exe. They are the CFO's terminal's alone: its launch hands
-// them to Claude Code (CFOSettings), and no settings file of the user holds
+// silently inert; and `goblins.exe` was only on PATH if the adopter put it there.
+// Install sets `GOBLINS_HOME` and PATH at user scope, and the hooks point at the
+// home's own goblins.exe. They are the CEO's terminal's alone: its launch hands
+// them to Claude Code (CEOSettings), and no settings file of the user holds
 // them, so no other session on the machine runs one.
 package install
 
@@ -29,27 +29,27 @@ import (
 // ran without a shell. An install or uninstall still recognises an entry by
 // it, so a machine installed then has those entries replaced or removed
 // rather than left running beside the new ones.
-const shellFormPrefix = `CFO_ROOT="${CFO_HOME:-$CLAUDE_PROJECT_DIR}"; `
+const shellFormPrefix = `GOBLINS_ROOT="${GOBLINS_HOME:-$CLAUDE_PROJECT_DIR}"; `
 
 // Hook is one registered Claude Code hook entry: where it is registered and
 // what a session runs.
 type Hook struct {
-	// Name is the `cfo hook <name>` this entry invokes.
+	// Name is the `goblins hook <name>` this entry invokes.
 	Name string
 	// Event is the Claude Code hook event, and Matcher the tool pattern it
 	// is registered under (empty for events that take no matcher).
 	Event   string
 	Matcher string
-	// Command is the home's cfo.exe and Args the arguments it runs with.
+	// Command is the home's goblins.exe and Args the arguments it runs with.
 	// Claude Code starts a hook that has args directly, with no shell: a
 	// shell command costs each run Git Bash's launcher and bash before
-	// cfo.exe starts at all.
+	// goblins.exe starts at all.
 	Command string
 	Args    []string
 	// Timeout is the entry's timeout in seconds; zero means unset.
 	Timeout int
 	// AsyncRewake keeps a Stop hook alive in the background across the
-	// CFO's idle time.
+	// CEO's idle time.
 	AsyncRewake bool
 	// URL, when set, makes the entry an HTTP hook Claude Code posts to the
 	// board at, starting no process, in place of Command and Args. It
@@ -73,15 +73,15 @@ const (
 // A command hook inherits them; an HTTP hook carries each in the header
 // HookHeader names, and the board reads them there. The terminal's id and
 // proof also prove to the board that the request came from that terminal.
-var HookVariables = []string{harness.RoleVariable, "CFO_TASK_ID", "CFO_SPAWN_GEN", "CFO_PARENT_SESSION_ID", "CFO_PARENT_HARNESS", "CFO_ROOT_SESSION_ID", host.IDVariable, host.ProofVariable}
+var HookVariables = []string{harness.RoleVariable, "GOBLINS_TASK_ID", "GOBLINS_SPAWN_GEN", "GOBLINS_PARENT_SESSION_ID", "GOBLINS_PARENT_HARNESS", "GOBLINS_ROOT_SESSION_ID", host.IDVariable, host.ProofVariable}
 
 // HookHeader is the header an HTTP hook carries variable in.
 func HookHeader(variable string) string {
 	return "X-" + strings.ReplaceAll(variable, "_", "-")
 }
 
-// Hooks is the CFO hook set of the home at root, and the single place it is
-// defined. Adding a hook here is all it takes for the CFO's terminal to start
+// Hooks is the CEO hook set of the home at root, and the single place it is
+// defined. Adding a hook here is all it takes for the CEO's terminal to start
 // with it, and for an install or `--uninstall` to remove one an older build
 // wrote into the user's settings.
 //
@@ -106,7 +106,7 @@ func Hooks(root string) []Hook {
 		{Name: "stop-autoarm", Event: "Stop", Timeout: 28800, AsyncRewake: true},
 	}
 	for i := range hooks {
-		hooks[i].Command = filepath.Join(root, home.BinDir, "cfo.exe")
+		hooks[i].Command = filepath.Join(root, home.BinDir, "goblins.exe")
 		hooks[i].Args = []string{"hook", hooks[i].Name}
 	}
 	return hooks
@@ -114,7 +114,7 @@ func Hooks(root string) []Hook {
 
 // NativeHooks are the native session hooks of a Claude Code session the
 // fleet starts, of the home at root with its state in stateDir: each
-// lifecycle event runs `cfo native-hook claude`, which reports the session to
+// lifecycle event runs `goblins native-hook claude`, which reports the session to
 // the supervisor as Codex's and Pi's native hooks report theirs. They ride
 // the session's own settings rather than the user's, which every Claude Code
 // session on the machine loads, the Overlord's own outside the fleet
@@ -122,7 +122,7 @@ func Hooks(root string) []Hook {
 func NativeHooks(root, stateDir string) []Hook {
 	var hooks []Hook
 	for _, event := range nativehook.Events("claude") {
-		hooks = append(hooks, Hook{Name: "native-hook", Event: event, Command: filepath.Join(root, home.BinDir, "cfo.exe"), Args: []string{"native-hook", "claude", "--home", root, "--state", stateDir}, Timeout: nativehook.TimeoutSeconds})
+		hooks = append(hooks, Hook{Name: "native-hook", Event: event, Command: filepath.Join(root, home.BinDir, "goblins.exe"), Args: []string{"native-hook", "claude", "--home", root, "--state", stateDir}, Timeout: nativehook.TimeoutSeconds})
 	}
 	return hooks
 }
@@ -132,13 +132,13 @@ func NativeHooks(root, stateDir string) []Hook {
 // command hook of its own.
 const KeyAlarmSeconds = 600
 
-// AutoCompactWindow is the window, in tokens, the CFO and every Claude Code
+// AutoCompactWindow is the window, in tokens, the CEO and every Claude Code
 // goblin compact in. Claude Code takes it as its autoCompactWindow setting,
 // takes its 20K output reserve off it and compacts 13K short of what is left,
 // or at the percent of that a CLAUDE_AUTOCOMPACT_PCT_OVERRIDE names where
 // that is lower: at 342K under the Overlord's override of 90, 367K without
-// one. On the model's own 1M window the CFO compacted at 882K, and a restart
-// came first in its conversation of 2026-10-18. Measured on the CFO's 16
+// one. On the model's own 1M window the CEO compacted at 882K, and a restart
+// came first in its conversation of 2026-10-18. Measured on the CEO's 16
 // ended conversations of 2026-09-16 to 10-18: a compaction left it 68K to 96K
 // tokens, and it grew by at most 88K in one request and 368K in one hour, so
 // 342K leaves it at least 246K tokens between compactions, which no request
@@ -153,16 +153,16 @@ const KeyAlarmSeconds = 600
 // by about a third.
 const AutoCompactWindow = 400_000
 
-// CFOSettings is the Claude Code settings document the CFO's terminal starts
-// with: the CFO's hooks and its native session hooks, its auto-compact
+// CEOSettings is the Claude Code settings document the CEO's terminal starts
+// with: the CEO's hooks and its native session hooks, its auto-compact
 // window, and no prompt suggestions. Claude Code adds what `--settings` names
 // to the user's own settings, for that session alone, and its window wins
 // over one theirs set, /autocompact's included; only
 // CLAUDE_CODE_AUTO_COMPACT_WINDOW in the environment beats it. A suggestion
-// is drawn on the CFO's empty input line as each turn ends, where the board
+// is drawn on the CEO's empty input line as each turn ends, where the board
 // reads it as words left unsent and so typed none of his messages until the
-// CFO worked again, as a goblin's, started without them, never does.
-func CFOSettings(root, stateDir string) ([]byte, error) {
+// CEO worked again, as a goblin's, started without them, never does.
+func CEOSettings(root, stateDir string) ([]byte, error) {
 	file := &settingsFile{values: map[string]any{"autoCompactWindow": AutoCompactWindow, "promptSuggestionEnabled": false}}
 	if err := file.addHooks(append(Hooks(root), NativeHooks(root, stateDir)...)); err != nil {
 		return nil, err
@@ -185,12 +185,12 @@ const GoblinSealMatcher = "Bash|PowerShell|Monitor|Read|Write|Edit|MultiEdit|Not
 // the file tools too, GoblinSealMatcher, since every call it is shown is held
 // to the task's path boundary (internal/pathguard). Then come its native
 // session hooks, and the one after every tool call also raises the key
-// alarm, which wakes the CFO when the tool's output holds a secret key: a key
+// alarm, which wakes the CEO when the tool's output holds a secret key: a key
 // read from a file is as exposed as one a command printed.
 //
 // The two that run at every tool call post to the board at board, the
 // supervisor's address, which does their work in its own process: each was
-// a cfo process of its own, 157 of the 940 processes one goblin started in
+// a goblins process of its own, 157 of the 940 processes one goblin started in
 // 11 minutes on 2026-10-27 (#1610). The seal blocks the call when the board
 // does not answer. The hooks of a session's start, prompts, turns, end and
 // subagents stay commands: they run seldom, and SessionStart takes no HTTP
@@ -210,7 +210,7 @@ func GoblinHooks(root, stateDir, board string) []Hook {
 // the goblin hooks, posting to the board at board, and the auto-compact
 // window, which Claude Code adds to the user's own settings for that session
 // alone. Each command hook runs the home's hook program where it is the same
-// build as cfo.exe (HookCommand), which Windows starts with no console host.
+// build as goblins.exe (HookCommand), which Windows starts with no console host.
 func GoblinSettings(root, stateDir, board string) ([]byte, error) {
 	hooks := GoblinHooks(root, stateDir, board)
 	command := HookCommand(filepath.Join(root, home.BinDir))
@@ -228,7 +228,7 @@ func GoblinSettings(root, stateDir, board string) ([]byte, error) {
 
 // GoblinPiExtension is the pi extension a pi goblin starts with, beside the
 // native one every pi session of the machine loads: its goblin seal, which
-// runs program, the home's hook program (HookCommand), as cfo hook
+// runs program, the home's hook program (HookCommand), as goblins hook
 // goblin-seal-pi before each tool call, which checks a bash call's command
 // and every call's paths, and blocks the call with the reason the seal gives
 // on stdout. A seal that
@@ -247,7 +247,7 @@ export default function (pi) {
       encoding: "utf8", windowsHide: true, timeout: ` + strconv.Itoa(nativehook.TimeoutSeconds*1000) + `,
     });
     if (result.error || result.status !== 0) {
-      return {block: true, reason: "This command waits: the check cfo makes before each command could not run (" + (result.error ? result.error.message : "exit " + result.status) + "). Run it again in a minute."};
+      return {block: true, reason: "This command waits: the check goblins makes before each command could not run (" + (result.error ? result.error.message : "exit " + result.status) + "). Run it again in a minute."};
     }
     const answer = result.stdout.trim() ? JSON.parse(result.stdout).hookSpecificOutput : undefined;
     if (answer && answer.permissionDecision === "deny") return {block: true, reason: answer.permissionDecisionReason};
@@ -256,7 +256,7 @@ export default function (pi) {
 `
 }
 
-// UserHooks is the `cfo hook <name>` of every CFO hook entry the settings file
+// UserHooks is the `goblins hook <name>` of every CEO hook entry the settings file
 // at path holds, which an install by a build before 2026-10 wrote there and
 // every Claude Code session of the user runs. A missing file holds none.
 func UserHooks(path string) ([]string, error) {
@@ -287,17 +287,17 @@ func UserHooks(path string) ([]string, error) {
 	return names, nil
 }
 
-// HookName is the `cfo hook <name>` a settings hook entry runs, for an entry
-// in the form install writes (the home's cfo.exe with args hook and a name)
+// HookName is the `goblins hook <name>` a settings hook entry runs, for an entry
+// in the form install writes (the home's goblins.exe with args hook and a name)
 // or in the shell form it wrote before; ok is false for any other entry.
 func HookName(entry map[string]any) (name string, ok bool) {
 	command, _ := entry["command"].(string)
 	if rest, shell := strings.CutPrefix(command, shellFormPrefix); shell {
-		_, name, found := strings.Cut(rest, "cfo.exe hook ")
+		_, name, found := strings.Cut(rest, "goblins.exe hook ")
 		return name, found
 	}
 	args, _ := entry["args"].([]any)
-	if len(args) != 2 || args[0] != "hook" || !strings.EqualFold(filepath.Base(command), "cfo.exe") {
+	if len(args) != 2 || args[0] != "hook" || !strings.EqualFold(filepath.Base(command), "goblins.exe") {
 		return "", false
 	}
 	name, ok = args[1].(string)

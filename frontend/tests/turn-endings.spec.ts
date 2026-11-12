@@ -10,7 +10,7 @@ import { at, box, NAME, open, openGoblin, PAGE, reportSession, snapshot, typed, 
 // snapshot says the session works from start to end, and only the stream
 // says the turn ended.
 
-const CEO_SESSION = { cfo_session: "cfo-1", sessions: [{ id: "cfo-1", role: "cfo", harness: "claude", phase: "active" }] };
+const CEO_SESSION = { ceo_session: "ceo-1", sessions: [{ id: "ceo-1", role: "ceo", harness: "claude", phase: "active" }] };
 const reply = (seq: number, text: string) => ({ id: "m" + seq, seq, at, kind: "reply", blocks: [{ kind: "text", text }] });
 const tell = (page: Page, type: "page" | "messages", data: object) => page.evaluate((detail) => { window.dispatchEvent(new CustomEvent("fixture-messages", { detail })); }, { type, data });
 const added = (page: Page, row: object) => tell(page, "messages", { conversation: PAGE.conversation, messages: [row] });

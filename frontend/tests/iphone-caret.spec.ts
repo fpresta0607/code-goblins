@@ -14,10 +14,10 @@ import { devices, expect, holdStream, servePages, test, type Page } from "./site
 const PRIVATE = "https://pc.example.ts.net:4311";
 const SESSION = "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34";
 const snapshot = {
-  healthy: true, instance: "fixture", revision: 1, attention: [], cfo_runs: true, cfo_harness: "claude", cfo_terminal: "cfo-1", afk: { state: "off" },
+  healthy: true, instance: "fixture", revision: 1, attention: [], ceo_runs: true, ceo_harness: "claude", ceo_terminal: "ceo-1", afk: { state: "off" },
   tasks: [{ id: "nw-invoice-export", title: "Export invoices as CSV", project: "northwind-api", goblin_name: "Kip", goblin_title: "Ledger Scout", phase: "working", verified: false, generation: "nw-invoice-export-1", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", backend: "native", session: SESSION }],
   sessions: [
-    { id: "cfo-1", role: "cfo", harness: "claude", host_id: "cfo-1", phase: "working" },
+    { id: "ceo-1", role: "ceo", harness: "claude", host_id: "ceo-1", phase: "working" },
     { id: SESSION, native_id: "9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", host_id: "nw-invoice-export", role: "goblin", task_id: "nw-invoice-export", generation: "nw-invoice-export-1", harness: "claude", phase: "working" },
   ],
 };
@@ -47,8 +47,8 @@ test.use({ ...devices["iPhone 15"], browserName: "webkit" });
 async function open(page: Page, style: "classic" | "modern"): Promise<{ cols: number; rows: number }[]> {
   const sizes: { cols: number; rows: number }[] = [];
   await page.addInitScript((chatStyle) => {
-    localStorage.setItem("cfo-chat-style", chatStyle);
-    localStorage.setItem("cfo-voice-hint-v1", "dismissed");
+    localStorage.setItem("ceo-chat-style", chatStyle);
+    localStorage.setItem("ceo-voice-hint-v1", "dismissed");
     const real = window.visualViewport!;
     let keyboard = 0;
     const viewport = new EventTarget();

@@ -75,7 +75,7 @@ for (const size of [{ name: "his window", viewport: { width: 1707, height: 1067 
       await expect(dialog.getByRole("button", { name: "Change answer" })).toBeDisabled();
       await expect(dialog.getByRole("button", { name: "Next" })).toBeEnabled();
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
-      expect(kinds(posted)).toEqual([["cfo_answer", STRIPE, "Switch them off now"]]);
+      expect(kinds(posted)).toEqual([["ceo_answer", STRIPE, "Switch them off now"]]);
     });
   });
 }
@@ -97,7 +97,7 @@ test("choosing another answer there sends the change once, and Next goes on to w
   await expect(dialog.getByRole("radio", { name: "Leave them on" })).toBeChecked();
   await expect(dialog.locator(".answered-by")).toHaveText(/^You chose this/);
   await expect(dialog.getByRole("button", { name: "Change answer" })).toBeDisabled();
-  expect(kinds(posted)).toEqual([["cfo_answer", STRIPE, "Switch them off now"], ["answer_change", STRIPE, "Leave them on"]]);
+  expect(kinds(posted)).toEqual([["ceo_answer", STRIPE, "Switch them off now"], ["answer_change", STRIPE, "Leave them on"]]);
   expect(posted[1]).toMatchObject({ generation: "f".repeat(64), answer_kind: "option" });
   await dialog.getByRole("button", { name: "Next" }).click();
   await expect(dialog.locator(".stack-count")).toHaveText("2 of 3");
@@ -121,5 +121,5 @@ test("You're all done after the last answer shows no Back, and the Command Cente
   // Assert
   expect(buttons).toBe(0);
   await expect(dialog).toBeHidden();
-  expect(kinds(posted).map(([kind]) => kind)).toEqual(["cfo_answer", "cfo_answer", "cfo_answer"]);
+  expect(kinds(posted).map(([kind]) => kind)).toEqual(["ceo_answer", "ceo_answer", "ceo_answer"]);
 });

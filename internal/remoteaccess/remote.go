@@ -99,7 +99,7 @@ func Read(state string) (Config, error) {
 	}
 	var c Config
 	if err := json.Unmarshal(data, &c); err != nil {
-		return Config{}, errors.New("remote access settings cannot be read; run cfo remote off to revoke access")
+		return Config{}, errors.New("remote access settings cannot be read; run goblins remote off to revoke access")
 	}
 	if c != (Config{}) {
 		if err := c.validate(); err != nil {
@@ -315,8 +315,8 @@ func (m *Manager) identity(ctx context.Context) (tailnetSelf, error) {
 // does (Status.Fix): Tailscale's install, or the first serve, which asks for
 // Serve and HTTPS to be approved for the tailnet and whose route turning
 // remote access on then takes as its own. Status leaves this out, since
-// cfo doctor and others read it without needing it; the board's setting and
-// cfo remote status call it.
+// goblins doctor and others read it without needing it; the board's setting and
+// goblins remote status call it.
 func (m *Manager) Detect(ctx context.Context, s Status) Status {
 	if s.Enabled || s.Issue != "" {
 		return s
@@ -510,7 +510,7 @@ func (m *Manager) Enable(ctx context.Context) (Status, error) {
 		if errors.Is(err, errNoAnswer) {
 			err = fmt.Errorf("%w%s", err, approvalHint)
 		}
-		return Status{}, fmt.Errorf("remote access is off: %w. In an Administrator terminal run tailscale serve --bg --https=4311 %s and follow its HTTPS approval link, then run cfo remote on again", err, m.Target)
+		return Status{}, fmt.Errorf("remote access is off: %w. In an Administrator terminal run tailscale serve --bg --https=4311 %s and follow its HTTPS approval link, then run goblins remote on again", err, m.Target)
 	}
 	config, err = m.serving(ctx)
 	if err != nil {
@@ -670,7 +670,7 @@ func (m *Manager) Disable(ctx context.Context) error {
 	}
 	config, err := m.serving(ctx)
 	if errors.Is(err, errRefused) {
-		return errors.New("remote access is revoked; Tailscale is not running on this PC, so its proxy is still there: start Tailscale, then run cfo remote off again")
+		return errors.New("remote access is revoked; Tailscale is not running on this PC, so its proxy is still there: start Tailscale, then run goblins remote off again")
 	}
 	if err != nil {
 		return fmt.Errorf("remote access is revoked; proxy cleanup needs Tailscale: %w", err)

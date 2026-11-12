@@ -49,7 +49,7 @@ func TestSetupFolderPickerUsesTypedOrDefaultFolderAndReturnsSelection(t *testing
 			request := httptest.NewRequest(http.MethodPost, "http://board.local/api/setup/folder", strings.NewReader(string(body)))
 			request.Header.Set("Content-Type", "application/json")
 			request.Header.Set("Origin", "http://board.local")
-			request.Header.Set("X-CFO-Token", "instance")
+			request.Header.Set("X-CEO-Token", "instance")
 			response := httptest.NewRecorder()
 
 			handler.ServeHTTP(response, request)
@@ -73,7 +73,7 @@ func TestSetupFolderPickerUsesTypedOrDefaultFolderAndReturnsSelection(t *testing
 				}
 			}
 			if len(machine.recorded) != 0 || len(machine.started) != 0 {
-				t.Fatal("choosing a folder changed setup or started the CFO")
+				t.Fatal("choosing a folder changed setup or started the CEO")
 			}
 		})
 	}
@@ -94,7 +94,7 @@ func TestSetupFolderPickerKeepsOnlyOneDialogOpen(t *testing.T) {
 		request := httptest.NewRequest(http.MethodPost, "http://board.local/api/setup/folder", strings.NewReader(string(body)))
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Origin", "http://board.local")
-		request.Header.Set("X-CFO-Token", "instance")
+		request.Header.Set("X-CEO-Token", "instance")
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		return response
@@ -149,7 +149,7 @@ func TestSetupFolderPickerRefusesUnsafeRequestsWithoutOpeningAWindow(t *testing.
 			request := httptest.NewRequest(http.MethodPost, "http://board.local/api/setup/folder", strings.NewReader(string(body)))
 			request.Header.Set("Content-Type", "application/json")
 			request.Header.Set("Origin", test.origin)
-			request.Header.Set("X-CFO-Token", test.token)
+			request.Header.Set("X-CEO-Token", test.token)
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
 			if response.Code != test.status {

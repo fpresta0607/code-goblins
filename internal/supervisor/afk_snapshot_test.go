@@ -127,7 +127,7 @@ func TestAReaderReadsTheLogAgainOnlyWhenItHasChanged(t *testing.T) {
 	if err := os.WriteFile(log, kept, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := afk.Log(h.State, afk.Entry{Kind: afk.KindInstall, What: "cfo 1.4.2", Evidence: "cfo version reads 1.4.2"}, night.Add(2*time.Minute)); err != nil {
+	if _, err := afk.Log(h.State, afk.Entry{Kind: afk.KindInstall, What: "goblins 1.4.2", Evidence: "goblins version reads 1.4.2"}, night.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	grown, err := s.afkView(store.Snapshot())
@@ -188,9 +188,9 @@ func TestAReaderReadsNoLogAsNoLines(t *testing.T) {
 	}
 }
 
-// The CFO's bar counts a merge once: a line the CFO wrote for a landing is
+// The CEO's bar counts a merge once: a line the CEO wrote for a landing is
 // with the merge it names, as the report has it, not a decision of its own.
-func TestTheBarCountsALineTheCFOWroteForALandingWithTheMergeItNames(t *testing.T) {
+func TestTheBarCountsALineTheCEOWroteForALandingWithTheMergeItNames(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	s := &Service{Store: store}

@@ -28,7 +28,7 @@ func TestLiveInReadsATaskAsLiveWhileItsRecordExists(t *testing.T) {
 func TestReadRecordOfAHomeThatNeverStartedAStackIsEmpty(t *testing.T) {
 	record, err := ReadRecord(t.TempDir())
 
-	if err != nil || len(record.Stacks) != 0 || record.Engine.StartedByCFO {
+	if err != nil || len(record.Stacks) != 0 || record.Engine.StartedByCEO {
 		t.Fatalf("record = %+v err = %v, want an empty record", record, err)
 	}
 }

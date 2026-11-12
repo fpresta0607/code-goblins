@@ -3,7 +3,7 @@ import { expect, test } from "./site";
 // The Overlord's brief, 2026-09-30, approved as shown on 2026-10-06: after a
 // restart the board says plainly what is coming back and then what resumed, a
 // goblin that did not come back says so on its card.
-// Why it did not come back is the CFO's to hear
+// Why it did not come back is the CEO's to hear
 // (2026-10-08, "everything error wise goes to cfo"). The window's size is his: 1707 CSS pixels wide
 // at device scale 1.5.
 test.use({ viewport: { width: 1707, height: 900 }, deviceScaleFactor: 1.5 });

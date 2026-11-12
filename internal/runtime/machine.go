@@ -46,7 +46,7 @@ $out = foreach ($r in $rows.Values) {
 }
 ConvertTo-Json -InputObject @($out) -Compress -Depth 3`
 
-// machineScript reads memory, commit, the disk holding the CFO home, and the
+// machineScript reads memory, commit, the disk holding the CEO home, and the
 // WSL virtual machine's footprint, in one query. Win32_OperatingSystem gives
 // the commit figures in kilobytes.
 //
